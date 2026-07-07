@@ -5,6 +5,7 @@ import {
 	type BridgeCommWorkerRow,
 	type BridgeCommWorkerStore,
 } from './bridge-comm-worker-store.js';
+import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
 import type {
 	BridgeWorkerFileViewContentMetadata,
 	BridgeWorkerFileViewContentRequestDescriptor,
@@ -39,6 +40,7 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly renderSemantics?: readonly BridgeWorkerReviewRenderSemantics[];
 	readonly rows: readonly BridgeCommWorkerRow[];
 	readonly createSequence?: () => number;
+	readonly now?: () => number;
 	readonly scheduleDemandExecution?: (
 		request: BridgeCommWorkerDemandExecutionScheduleRequest,
 	) => void;
@@ -51,6 +53,7 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly scheduleSelectedFileViewContentReadyPreparation: (
 		request: BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest,
 	) => void;
+	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
 	readonly updateReviewRuntimeSource?: (source: BridgeCommWorkerReviewRuntimeSource) => void;
 	readonly updateFileViewRuntimeSource?: (source: BridgeCommWorkerFileViewRuntimeSource) => void;
 }
@@ -94,7 +97,9 @@ export function createBridgeCommWorkerCommandHandler(
 ): BridgeCommWorkerCommandHandler {
 	const store = createBridgeCommWorkerStore({
 		contentItems: props.contentItems,
+		...(props.now === undefined ? {} : { now: props.now }),
 		rows: props.rows,
+		...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 	});
 	const createSequence = props.createSequence ?? createBridgeWorkerSequenceCounter();
 	const seenRequestIds = new Set<string>();

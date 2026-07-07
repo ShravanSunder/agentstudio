@@ -13,6 +13,7 @@ import { createBridgeTelemetryEventSink } from '../bridge/bridge-telemetry-event
 import { createBridgeCommWorkerTelemetryClient } from '../core/comm-worker/bridge-comm-worker-telemetry.js';
 import type { BridgeFileViewerAppProps } from '../file-viewer/bridge-file-viewer-app.js';
 import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
+import type { BridgeTelemetryBootstrapConfig } from '../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
 import {
 	createBridgeTelemetryRecorder,
 	createBridgeTelemetryRecorderFromClient,
@@ -163,6 +164,9 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	);
 	const target = props.target ?? document;
 	const handshakeSessionRef = useRef<BridgePageHandshakeSession | null>(null);
+	const [telemetryConfig, setTelemetryConfig] = useState<BridgeTelemetryBootstrapConfig | null>(
+		null,
+	);
 	const isBridgeReadyRef = useRef(false);
 	const bridgeReadyCallbacksRef = useRef<Set<() => void>>(new Set());
 	const registerBridgeReadyCallback = useCallback((callback: () => void): (() => void) => {
@@ -176,25 +180,26 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	}, []);
 	useEffect((): (() => void) => {
 		const configureTelemetryRecorder = (
-			telemetryConfig = handshakeSessionRef.current?.getTelemetryConfig() ?? null,
+			nextTelemetryConfig = handshakeSessionRef.current?.getTelemetryConfig() ?? null,
 		): void => {
-			if (telemetryConfig === null) {
+			if (nextTelemetryConfig === null) {
 				telemetryRecorderRef.current = createBridgeTelemetryRecorder(null);
 			} else {
 				const telemetryClient = createBridgeCommWorkerTelemetryClient({
-					config: telemetryConfig,
+					config: nextTelemetryConfig,
 					sink: createBridgeTelemetryEventSink({
-						endpointUrl: telemetryConfig.endpointUrl,
+						endpointUrl: nextTelemetryConfig.endpointUrl,
 					}),
 				});
 				telemetryRecorderRef.current = createBridgeTelemetryRecorderFromClient(
-					telemetryConfig,
+					nextTelemetryConfig,
 					telemetryClient,
 				);
 			}
+			setTelemetryConfig(nextTelemetryConfig);
 			setBridgeViewerNativeOpenAnchor({
-				openEpochUnixMillis: telemetryConfig?.viewerOpenEpochUnixMillis ?? null,
-				traceparent: telemetryConfig?.viewerOpenTraceparent ?? null,
+				openEpochUnixMillis: nextTelemetryConfig?.viewerOpenEpochUnixMillis ?? null,
+				traceparent: nextTelemetryConfig?.viewerOpenTraceparent ?? null,
 			});
 		};
 		handshakeSessionRef.current = installBridgePageHandshakeSession(target, {
@@ -216,6 +221,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			handshakeSessionRef.current?.uninstall();
 			handshakeSessionRef.current = null;
 			isBridgeReadyRef.current = false;
+			setTelemetryConfig(null);
 			telemetryRecorderRef.current = createBridgeTelemetryRecorder(null);
 		};
 	}, [target]);
@@ -420,6 +426,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						isActive={activeViewerState.viewerMode === 'review'}
 						onActiveSourceChange={reportReviewActiveSource}
 						registerBridgeReadyCallback={registerBridgeReadyCallback}
+						telemetryConfig={telemetryConfig}
 						telemetryRecorderRef={telemetryRecorderRef}
 						viewerHeaderControls={
 							<BridgeViewerContextSwitcher

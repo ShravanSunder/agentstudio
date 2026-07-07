@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 
 describe('Worker content preparation pump', () => {
@@ -77,5 +78,101 @@ describe('Worker content preparation pump', () => {
 		expect(sharedProgress).toBe(2);
 		expect(executionOrder).toEqual(['shared:1', 'shared:2']);
 		expect(pump.getPendingWorkIds()).toEqual([]);
+	});
+
+	test('records queue wait and handler duration by rank and work kind', () => {
+		let clockMs = 0;
+		const telemetrySamples: BridgeTelemetrySample[] = [];
+		const pump = createWorkerContentPreparationPump({
+			maxSliceMs: 10,
+			now: () => clockMs,
+			telemetryClient: {
+				record: (sample): void => {
+					telemetrySamples.push(sample);
+				},
+			},
+		});
+
+		pump.enqueue({
+			id: 'visible-review-content',
+			rank: 'visible',
+			telemetry: {
+				payloadClass: 'inline',
+				sourceEpoch: 7,
+				workKind: 'review_content_ready',
+			},
+			runSlice: () => {
+				clockMs += 3;
+				return { complete: true };
+			},
+		});
+		clockMs = 5;
+
+		const result = pump.runUntilBudget();
+
+		expect(result.completedIds).toEqual(['visible-review-content']);
+		expect(telemetrySamples).toHaveLength(1);
+		expect(telemetrySamples[0]).toMatchObject({
+			name: 'performance.bridge.worker.task',
+			durationMilliseconds: 3,
+			stringAttributes: {
+				'agentstudio.bridge.result': 'success',
+				'agentstudio.bridge.worker.lane': 'visible',
+				'agentstudio.bridge.worker.payload_class': 'inline',
+				'agentstudio.bridge.worker.task_kind': 'content_preparation',
+				'agentstudio.bridge.worker.work_kind': 'review_content_ready',
+			},
+			numericAttributes: {
+				'agentstudio.bridge.worker.handler_duration_ms': 3,
+				'agentstudio.bridge.worker.queue_wait_ms': 5,
+				'agentstudio.bridge.worker.source_epoch': 7,
+			},
+		});
+	});
+
+	test('re-stamps queue wait when lower-priority work promotes to selected', () => {
+		let clockMs = 0;
+		const telemetrySamples: BridgeTelemetrySample[] = [];
+		const pump = createWorkerContentPreparationPump({
+			maxSliceMs: 10,
+			now: () => clockMs,
+			telemetryClient: {
+				record: (sample): void => {
+					telemetrySamples.push(sample);
+				},
+			},
+		});
+		const sharedWork = {
+			id: 'shared-review-content',
+			rank: 'background' as const,
+			telemetry: {
+				payloadClass: 'inline',
+				sourceEpoch: 11,
+				workKind: 'review_content_ready',
+			},
+			runSlice: () => {
+				clockMs += 2;
+				return { complete: true };
+			},
+		};
+
+		pump.enqueue(sharedWork);
+		clockMs = 20;
+		pump.enqueueOrPromote({
+			...sharedWork,
+			rank: 'selected',
+		});
+		clockMs = 25;
+
+		pump.runUntilBudget();
+
+		expect(telemetrySamples[0]).toMatchObject({
+			stringAttributes: {
+				'agentstudio.bridge.worker.lane': 'selected',
+			},
+			numericAttributes: {
+				'agentstudio.bridge.worker.queue_wait_ms': 5,
+			},
+		});
 	});
 });

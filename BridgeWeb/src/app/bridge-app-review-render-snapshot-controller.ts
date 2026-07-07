@@ -15,6 +15,7 @@ import {
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type {
 	BridgeCommWorkerBootstrapRequest,
+	BridgeCommWorkerTelemetryBootstrapConfig,
 	BridgeWorkerContentAvailabilityPatchPayload,
 	BridgeWorkerMainToServerMessage,
 	BridgeWorkerReviewContentRequestDescriptor,
@@ -46,6 +47,7 @@ import type {
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
 } from '../foundation/review-package/bridge-review-package.js';
+import type { BridgeTelemetryBootstrapConfig } from '../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
 import type {
 	BridgeReviewPanelChromeSlice,
 	BridgeReviewSelectionSlice,
@@ -63,6 +65,8 @@ export interface UseBridgeReviewRenderSnapshotControllerProps {
 	readonly pierreCourier: BridgeWorkerPierreCourier;
 	readonly reviewPackage: BridgeReviewPackage | null;
 	readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
+	readonly telemetryConfig: BridgeTelemetryBootstrapConfig | null;
+	readonly transportFactory?: CreateBridgeReviewRuntimeProtocolDispatcherProps['transportFactory'];
 }
 
 export interface BridgeReviewRenderSnapshotController {
@@ -157,8 +161,12 @@ export function useBridgeReviewRenderSnapshotController(
 				publishWorkerMessages,
 				renderSemantics: [],
 				rows: [],
+				...(props.telemetryConfig === null ? {} : { telemetryConfig: props.telemetryConfig }),
+				...(props.transportFactory === undefined
+					? {}
+					: { transportFactory: props.transportFactory }),
 			}),
-		[publishWorkerMessages],
+		[publishWorkerMessages, props.telemetryConfig, props.transportFactory],
 	);
 	const latestReviewSourceRef = useRef<BridgeReviewRuntimeSourceSnapshot>({
 		reviewPackage: props.reviewPackage,
@@ -169,6 +177,9 @@ export function useBridgeReviewRenderSnapshotController(
 		reviewTreeRows: props.reviewTreeRows,
 	};
 	const synchronizedReviewSourceRef = useRef<BridgeReviewRuntimeSourceSnapshot | null>(null);
+	useEffect((): void => {
+		synchronizedReviewSourceRef.current = null;
+	}, [runtimeDispatcher]);
 	useEffect(
 		(): (() => void) => (): void => {
 			runtimeDispatcher.dispose();
@@ -495,6 +506,7 @@ export interface CreateBridgeReviewRuntimeProtocolDispatcherProps {
 	readonly publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
 	readonly renderSemantics: readonly BridgeWorkerReviewRenderSemantics[];
 	readonly rows: readonly BridgeCommWorkerRow[];
+	readonly telemetryConfig?: BridgeTelemetryBootstrapConfig;
 	readonly transportFactory?: (props: {
 		readonly bootstrapRequest: BridgeCommWorkerBootstrapRequest;
 		readonly publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
@@ -533,8 +545,28 @@ export function bridgeCommWorkerBootstrapRequestFromReviewRuntimeProps(
 			...(props.maxPreparationSliceMs === undefined
 				? {}
 				: { maxPreparationSliceMs: props.maxPreparationSliceMs }),
+			...(props.telemetryConfig === undefined
+				? {}
+				: {
+						telemetryConfig: bridgeCommWorkerTelemetryBootstrapConfigFromTelemetryConfig(
+							props.telemetryConfig,
+						),
+					}),
 		},
 	});
+}
+
+function bridgeCommWorkerTelemetryBootstrapConfigFromTelemetryConfig(
+	config: BridgeTelemetryBootstrapConfig,
+): BridgeCommWorkerTelemetryBootstrapConfig {
+	return {
+		enabledScopes: [...config.enabledScopes],
+		endpointUrl: config.endpointUrl,
+		maxEncodedBatchBytes: config.maxEncodedBatchBytes,
+		maxSamplesPerBatch: config.maxSamplesPerBatch,
+		minimumFlushIntervalMilliseconds: config.minimumFlushIntervalMilliseconds,
+		scenario: config.scenario,
+	};
 }
 
 const bridgeReviewRuntimeInteractiveDemandRank: BridgeWorkerDemandRank = {

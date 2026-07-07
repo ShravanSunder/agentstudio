@@ -4,7 +4,10 @@ import type {
 	BridgeTelemetryBatch,
 	BridgeTelemetrySample,
 } from '../../foundation/telemetry/bridge-telemetry-event.js';
-import { createBridgeCommWorkerTelemetryClient } from './bridge-comm-worker-telemetry.js';
+import {
+	createBridgeCommWorkerTelemetryClient,
+	readBridgeCommWorkerAbsoluteNowMilliseconds,
+} from './bridge-comm-worker-telemetry.js';
 
 describe('Bridge comm worker telemetry', () => {
 	afterEach(() => {
@@ -81,6 +84,19 @@ describe('Bridge comm worker telemetry', () => {
 		expect(batches.map((batch) => batch.samples.map((sample) => sample.name))).toEqual([
 			['performance.bridge.web.review_ready'],
 		]);
+	});
+
+	test('normalizes main and worker clocks with different time origins', () => {
+		const mainIssuedAtMilliseconds = readBridgeCommWorkerAbsoluteNowMilliseconds({
+			timeOrigin: 1_000,
+			now: () => 20,
+		});
+		const workerHandlerStartMilliseconds = readBridgeCommWorkerAbsoluteNowMilliseconds({
+			timeOrigin: 900,
+			now: () => 150,
+		});
+
+		expect(workerHandlerStartMilliseconds - mainIssuedAtMilliseconds).toBe(30);
 	});
 });
 

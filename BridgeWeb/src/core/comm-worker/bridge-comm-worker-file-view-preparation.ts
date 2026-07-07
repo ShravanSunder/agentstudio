@@ -37,6 +37,11 @@ export function enqueueSelectedBridgeWorkerFileViewContentReadyPreparation(
 	const work: BridgeWorkerContentPreparationWork = {
 		id: workId,
 		rank: 'selected',
+		telemetry: {
+			payloadClass: 'inline',
+			sourceEpoch: props.epoch,
+			workKind: 'file_view_content_ready',
+		},
 		runSlice: () => {
 			if (!isSelectedFileViewContentReadyPreparationCurrent(dispatchProps)) {
 				completion.resolve();

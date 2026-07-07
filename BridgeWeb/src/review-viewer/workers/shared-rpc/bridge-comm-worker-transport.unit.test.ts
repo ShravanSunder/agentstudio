@@ -14,8 +14,14 @@ describe('Bridge comm worker transport dispatcher', () => {
 	test('loads the packaged worker asset and buffers commands until bootstrap is ready', async () => {
 		const worker = new RecordingBridgeCommWorker();
 		const publishedMessages: BridgeWorkerServerToMainMessage[] = [];
+		let clockMs = 100;
 		const dispatcher = createBridgeReviewCommWorkerTransportDispatcher({
 			bootstrapRequest: makeBootstrapRequest(),
+			now: () => {
+				const value = clockMs;
+				clockMs += 7;
+				return value;
+			},
 			publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]): void => {
 				publishedMessages.push(...messages);
 			},
@@ -53,6 +59,7 @@ describe('Bridge comm worker transport dispatcher', () => {
 				kind: 'command',
 				command: 'select',
 				requestId: 'request-select',
+				issuedAtMilliseconds: 100,
 			}),
 		]);
 		expect(publishedMessages).toEqual([

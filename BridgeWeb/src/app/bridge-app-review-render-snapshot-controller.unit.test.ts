@@ -17,6 +17,7 @@ import {
 	type BridgeWorkerPierreRenderJob,
 } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
+import type { BridgeTelemetryBootstrapConfig } from '../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
 import {
 	applyBridgeWorkerMessagesToMainRenderSnapshotStore,
 	bridgeCommWorkerBootstrapRequestFromReviewRuntimeProps,
@@ -55,6 +56,46 @@ describe('Bridge app review render snapshot controller', () => {
 		});
 		expect(JSON.stringify(bootstrapRequest)).not.toMatch(
 			/itemsById|orderedItemIds|summary|groups|"contentRoles"|endpointId/i,
+		);
+	});
+
+	test('passes cloneable telemetry config into the worker bootstrap request', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const telemetryConfig: BridgeTelemetryBootstrapConfig = {
+			enabledScopes: new Set(['web']),
+			endpointUrl: 'agentstudio://telemetry/batch',
+			maxEncodedBatchBytes: 16_384,
+			maxSamplesPerBatch: 4,
+			minimumFlushIntervalMilliseconds: 250,
+			scenario: 'bridge-review',
+			viewerOpenEpochUnixMillis: 1_783_430_000_000,
+			viewerOpenTraceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00',
+		};
+
+		const bootstrapRequest = bridgeCommWorkerBootstrapRequestFromReviewRuntimeProps({
+			requestId: 'bootstrap-review-runtime',
+			contentItems: bridgeCommWorkerContentItemsFromReviewPackage(reviewPackage),
+			contentRequestDescriptors:
+				bridgeCommWorkerContentRequestDescriptorsFromReviewPackage(reviewPackage),
+			publishWorkerMessages: (): void => {},
+			renderSemantics: bridgeCommWorkerRenderSemanticsFromReviewPackage(reviewPackage),
+			rows: [{ id: 'item-source', parentId: null, index: 0 }],
+			telemetryConfig,
+		});
+
+		expect(bootstrapRequest.runtime.telemetryConfig).toEqual({
+			enabledScopes: ['web'],
+			endpointUrl: 'agentstudio://telemetry/batch',
+			maxEncodedBatchBytes: 16_384,
+			maxSamplesPerBatch: 4,
+			minimumFlushIntervalMilliseconds: 250,
+			scenario: 'bridge-review',
+		});
+		expect(JSON.stringify(bootstrapRequest.runtime.telemetryConfig)).not.toContain(
+			'viewerOpenTraceparent',
+		);
+		expect(JSON.stringify(bootstrapRequest.runtime.telemetryConfig)).not.toContain(
+			'viewerOpenEpochUnixMillis',
 		);
 	});
 

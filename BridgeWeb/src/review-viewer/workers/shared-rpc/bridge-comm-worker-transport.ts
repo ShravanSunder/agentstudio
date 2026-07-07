@@ -1,3 +1,4 @@
+import { readBridgeCommWorkerAbsoluteNowMilliseconds } from '../../../core/comm-worker/bridge-comm-worker-telemetry.js';
 // oxlint-disable unicorn/require-post-message-target-origin -- Worker postMessage does not accept a targetOrigin argument.
 import type {
 	BridgeCommWorkerBootstrapRequest,
@@ -6,6 +7,7 @@ import type {
 } from '../../../core/comm-worker/bridge-worker-contracts.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
+	bridgeWorkerMainToServerMessageSchema,
 	bridgeWorkerServerToMainMessageSchema,
 } from '../../../core/comm-worker/bridge-worker-contracts.js';
 
@@ -17,6 +19,7 @@ export interface BridgeReviewCommWorkerTransportDispatcher {
 export interface CreateBridgeReviewCommWorkerTransportDispatcherProps {
 	readonly bootstrapRequest: BridgeCommWorkerBootstrapRequest;
 	readonly createObjectURL?: (blob: Blob) => string;
+	readonly now?: () => number;
 	readonly publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
 	readonly revokeObjectURL?: (url: string) => void;
 	readonly workerFactory?: () => Promise<Worker> | Worker;
@@ -36,6 +39,7 @@ export function createBridgeReviewCommWorkerTransportDispatcher(
 			...(props.createObjectURL === undefined ? {} : { createObjectURL: props.createObjectURL }),
 			...(props.revokeObjectURL === undefined ? {} : { revokeObjectURL: props.revokeObjectURL }),
 		});
+	const now = props.now ?? readBridgeCommWorkerTransportNowMilliseconds;
 	const queuedCommands: BridgeWorkerMainToServerMessage[] = [];
 	let worker: Worker | null = null;
 	let workerPromise: Promise<Worker> | null = null;
@@ -103,7 +107,7 @@ export function createBridgeReviewCommWorkerTransportDispatcher(
 					) {
 						if (parsed.data.status === 'ready') {
 							isBootstrapReady = true;
-							flushQueuedCommands(nextWorker, queuedCommands);
+							flushQueuedCommands(nextWorker, queuedCommands, now);
 							return;
 						}
 						resetWorkerBootstrapState(nextWorker);
@@ -144,7 +148,12 @@ export function createBridgeReviewCommWorkerTransportDispatcher(
 				.then((activeWorker: Worker): void => {
 					if (!isDisposed) {
 						try {
-							activeWorker.postMessage(message);
+							activeWorker.postMessage(
+								stampBridgeWorkerDispatchTimestamp({
+									message,
+									now,
+								}),
+							);
 						} catch {
 							failBootstrap(activeWorker, 'Bridge comm worker transport failed during bootstrap.');
 						}
@@ -208,8 +217,28 @@ function createDefaultBridgeReviewCommWorkerFactory(
 function flushQueuedCommands(
 	worker: Worker,
 	queuedCommands: BridgeWorkerMainToServerMessage[],
+	now: () => number,
 ): void {
 	for (const queuedCommand of queuedCommands.splice(0, queuedCommands.length)) {
-		worker.postMessage(queuedCommand);
+		worker.postMessage(
+			stampBridgeWorkerDispatchTimestamp({
+				message: queuedCommand,
+				now,
+			}),
+		);
 	}
+}
+
+function stampBridgeWorkerDispatchTimestamp(props: {
+	readonly message: BridgeWorkerMainToServerMessage;
+	readonly now: () => number;
+}): BridgeWorkerMainToServerMessage {
+	return bridgeWorkerMainToServerMessageSchema.parse({
+		...props.message,
+		issuedAtMilliseconds: props.now(),
+	});
+}
+
+function readBridgeCommWorkerTransportNowMilliseconds(): number {
+	return readBridgeCommWorkerAbsoluteNowMilliseconds();
 }

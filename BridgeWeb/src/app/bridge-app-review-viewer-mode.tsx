@@ -10,6 +10,7 @@ import type { ReviewTreeRowMetadata } from '../features/review/models/review-pro
 import { startBridgeFrameJankProbe } from '../foundation/diagnostics/bridge-frame-jank-probe.js';
 import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-frame-liveness-probe.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
+import type { BridgeTelemetryBootstrapConfig } from '../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
 import type {
 	BridgeTelemetryFlushProps,
 	BridgeTelemetryRecorder,
@@ -69,6 +70,7 @@ export function BridgeReviewViewerMode(
 		readonly isActive: boolean;
 		readonly onActiveSourceChange: (activeSource: BridgeActiveViewerSource | null) => void;
 		readonly registerBridgeReadyCallback: (callback: () => void) => () => void;
+		readonly telemetryConfig: BridgeTelemetryBootstrapConfig | null;
 		readonly telemetryRecorderRef: MutableRefObject<BridgeTelemetryRecorder>;
 		readonly viewerHeaderControls: ReactElement;
 	},
@@ -121,6 +123,7 @@ export function BridgeReviewViewerMode(
 		pierreCourier,
 		reviewPackage,
 		reviewTreeRows,
+		telemetryConfig: props.telemetryConfig,
 	});
 	const setReviewRenderModeCodeView = useCallback((): void => {
 		if (viewerStore.getState().panelChromeSlice.renderMode.kind === 'codeView') {

@@ -25,6 +25,7 @@ export type BridgeWorkerCommandName = BridgeWorkerMainToServerCommand['command']
 export interface EncodeBridgeWorkerCommandBaseProps {
 	readonly requestId: string;
 	readonly epoch: number;
+	readonly issuedAtMilliseconds?: number;
 }
 
 export interface EncodeBridgeWorkerSelectCommandProps extends EncodeBridgeWorkerCommandBaseProps {
@@ -173,7 +174,13 @@ function bridgeWorkerCommandEnvelope(
 	command: BridgeWorkerCommandName,
 ): Pick<
 	BridgeWorkerMainToServerCommand,
-	'wireVersion' | 'direction' | 'kind' | 'requestId' | 'epoch' | 'transferDescriptors'
+	| 'wireVersion'
+	| 'direction'
+	| 'kind'
+	| 'requestId'
+	| 'epoch'
+	| 'issuedAtMilliseconds'
+	| 'transferDescriptors'
 > & {
 	readonly command: BridgeWorkerCommandName;
 } {
@@ -183,6 +190,9 @@ function bridgeWorkerCommandEnvelope(
 		kind: 'command',
 		requestId: props.requestId,
 		epoch: props.epoch,
+		...(props.issuedAtMilliseconds === undefined
+			? {}
+			: { issuedAtMilliseconds: props.issuedAtMilliseconds }),
 		transferDescriptors: [],
 		command,
 	};

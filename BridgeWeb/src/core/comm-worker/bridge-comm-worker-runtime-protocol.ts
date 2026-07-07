@@ -29,6 +29,12 @@ import type {
 	BridgeCommWorkerStoreState,
 } from './bridge-comm-worker-store.js';
 import {
+	recordBridgeCommWorkerTaskTelemetry,
+	readBridgeCommWorkerAbsoluteNowMilliseconds,
+	type BridgeCommWorkerTelemetryLane,
+	type BridgeCommWorkerTelemetryRecorder,
+} from './bridge-comm-worker-telemetry.js';
+import {
 	createWorkerContentPreparationPump,
 	type WorkerContentPreparationPump,
 	type WorkerContentPreparationPumpRunResult,
@@ -36,6 +42,7 @@ import {
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeWorkerMainToServerMessageSchema,
+	type BridgeWorkerMainToServerMessage,
 	type BridgeWorkerReviewContentMetadata,
 	type BridgeWorkerReviewContentRequestDescriptor,
 	type BridgeWorkerReviewRenderSemantics,
@@ -65,6 +72,7 @@ export interface RegisterBridgeCommWorkerRuntimePortProtocolProps {
 	readonly renderSemantics: readonly BridgeWorkerReviewRenderSemantics[];
 	readonly rows: readonly BridgeCommWorkerRow[];
 	readonly schedulePreparationDrain?: (drain: BridgeCommWorkerPreparationDrain) => void;
+	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
 }
 
 const bridgeCommWorkerReviewSourceResetChunkItemCount = 64;
@@ -79,6 +87,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		createWorkerContentPreparationPump({
 			maxSliceMs: props.maxPreparationSliceMs ?? 8,
 			...(props.now === undefined ? {} : { now: props.now }),
+			...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 		});
 	const schedulePreparationDrain =
 		props.schedulePreparationDrain ?? scheduleDefaultBridgeCommWorkerPreparationDrain;
@@ -226,6 +235,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		renderSemantics: props.renderSemantics,
 		rows: props.rows,
 		createSequence,
+		...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 		scheduleSelectedReviewContentReadyPreparation: (
 			request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 		): void => {
@@ -317,7 +327,22 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		}
 
 		shouldRequestDrainAfterMessage = false;
-		for (const message of handler.handleMessage(parsedMessage.data)) {
+		const handlerStartedAtMilliseconds = readBridgeCommWorkerRuntimeNowMilliseconds(props.now);
+		const queueWaitMilliseconds =
+			handlerStartedAtMilliseconds -
+			(parsedMessage.data.issuedAtMilliseconds ?? handlerStartedAtMilliseconds);
+		const messages = handler.handleMessage(parsedMessage.data);
+		const handlerDurationMilliseconds =
+			readBridgeCommWorkerRuntimeNowMilliseconds(props.now) - handlerStartedAtMilliseconds;
+		recordBridgeCommWorkerTaskTelemetry({
+			command: parsedMessage.data.command,
+			durationMilliseconds: handlerDurationMilliseconds,
+			lane: bridgeCommWorkerTelemetryLaneForCommand(parsedMessage.data.command),
+			queueWaitMilliseconds,
+			taskKind: 'message_handler',
+			...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
+		});
+		for (const message of messages) {
 			port.postMessage(message);
 		}
 		if (shouldRequestDrainAfterMessage) {
@@ -435,6 +460,11 @@ function enqueueBridgeCommWorkerReviewSourceReset(
 	const work = {
 		id: `review-source-reset:${props.request.epoch}`,
 		rank: 'background' as const,
+		telemetry: {
+			payloadClass: 'source_reset',
+			sourceEpoch: props.request.epoch,
+			workKind: 'review_source_reset',
+		},
 		runSlice: (): { readonly complete: boolean; readonly continuation?: 'external' } => {
 			if (!props.isCurrentResetEpoch()) {
 				completion.resolve();
@@ -671,7 +701,32 @@ function readBridgeCommWorkerRuntimeNowMilliseconds(now: (() => number) | undefi
 	if (now !== undefined) {
 		return now();
 	}
-	return performance.now();
+	return readBridgeCommWorkerAbsoluteNowMilliseconds();
+}
+
+function bridgeCommWorkerTelemetryLaneForCommand(
+	command: BridgeWorkerMainToServerMessage['command'],
+): BridgeCommWorkerTelemetryLane {
+	switch (command) {
+		case 'select':
+			return 'selected';
+		case 'viewport':
+		case 'hover':
+		case 'reviewInvalidate':
+			return 'visible';
+		case 'fileViewSourceUpdate':
+			return 'file_view';
+		case 'markFileViewed':
+		case 'mode':
+		case 'reviewSourceUpdate':
+			return 'background';
+		default:
+			return assertNeverBridgeWorkerCommand(command);
+	}
+}
+
+function assertNeverBridgeWorkerCommand(_command: never): never {
+	throw new Error('Unhandled bridge worker command.');
 }
 
 function scheduleDefaultBridgeCommWorkerPreparationDrain(

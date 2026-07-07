@@ -7,6 +7,11 @@ import {
 	serializeBridgeCommWorkerDemandMembership,
 } from './bridge-comm-worker-reconciler.js';
 import {
+	recordBridgeCommWorkerTaskTelemetry,
+	type BridgeCommWorkerTelemetryLane,
+	type BridgeCommWorkerTelemetryRecorder,
+} from './bridge-comm-worker-telemetry.js';
+import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeWorkerSlicePatchEventSchema,
 	type BridgeWorkerContentMetadata,
@@ -49,7 +54,9 @@ export interface BridgeCommWorkerStoreState {
 
 export interface CreateBridgeCommWorkerStoreProps {
 	readonly contentItems: readonly BridgeWorkerContentMetadata[];
+	readonly now?: () => number;
 	readonly rows: readonly BridgeCommWorkerRow[];
+	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
 }
 
 export interface BridgeCommWorkerTouchedResult {
@@ -148,8 +155,9 @@ export function createBridgeCommWorkerStore(
 		buildInitialBridgeCommWorkerStoreState(props),
 	);
 	const pendingSlicePatches: BridgeWorkerSlicePatch[] = [];
+	const now = props.now ?? performance.now.bind(performance);
 
-	return {
+	const workerStore: BridgeCommWorkerStore = {
 		getState: store.getState,
 		subscribe: store.subscribe,
 		actions: {
@@ -455,6 +463,15 @@ export function createBridgeCommWorkerStore(
 			},
 		},
 	};
+	return {
+		...workerStore,
+		actions: instrumentBridgeCommWorkerStoreActions({
+			actions: workerStore.actions,
+			now,
+			pendingSlicePatches,
+			...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
+		}),
+	};
 }
 
 function applyBridgeCommWorkerSourceUpdateFact(props: {
@@ -671,4 +688,98 @@ function findChangedIds(
 		...previousIds.filter((itemId) => !nextIdSet.has(itemId)),
 		...nextIds.filter((itemId) => !previousIdSet.has(itemId)),
 	];
+}
+
+interface InstrumentBridgeCommWorkerStoreActionsProps {
+	readonly actions: BridgeCommWorkerStore['actions'];
+	readonly now: () => number;
+	readonly pendingSlicePatches: readonly BridgeWorkerSlicePatch[];
+	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
+}
+
+function instrumentBridgeCommWorkerStoreActions(
+	props: InstrumentBridgeCommWorkerStoreActionsProps,
+): BridgeCommWorkerStore['actions'] {
+	const telemetryProps = {
+		now: props.now,
+		pendingSlicePatches: props.pendingSlicePatches,
+		...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
+	};
+	return {
+		applySelectedFact: (fact): BridgeCommWorkerTouchedResult =>
+			recordBridgeCommWorkerStoreActionTelemetry({
+				action: 'applySelectedFact',
+				lane: 'selected',
+				operation: () => props.actions.applySelectedFact(fact),
+				...telemetryProps,
+			}),
+		applyViewportFact: (fact): BridgeCommWorkerTouchedResult =>
+			recordBridgeCommWorkerStoreActionTelemetry({
+				action: 'applyViewportFact',
+				lane: 'visible',
+				operation: () => props.actions.applyViewportFact(fact),
+				...telemetryProps,
+			}),
+		applyContentReady: (fact): BridgeCommWorkerTouchedResult =>
+			recordBridgeCommWorkerStoreActionTelemetry({
+				action: 'applyContentReady',
+				lane: 'visible',
+				operation: () => props.actions.applyContentReady(fact),
+				...telemetryProps,
+			}),
+		applyContentTerminalAvailability: (fact): BridgeCommWorkerTouchedResult =>
+			recordBridgeCommWorkerStoreActionTelemetry({
+				action: 'applyContentTerminalAvailability',
+				lane: 'visible',
+				operation: () => props.actions.applyContentTerminalAvailability(fact),
+				...telemetryProps,
+			}),
+		applyReviewInvalidationFact: (fact): BridgeCommWorkerTouchedResult =>
+			recordBridgeCommWorkerStoreActionTelemetry({
+				action: 'applyReviewInvalidationFact',
+				lane: 'visible',
+				operation: () => props.actions.applyReviewInvalidationFact(fact),
+				...telemetryProps,
+			}),
+		applyReviewSourceUpdateFact: (fact): BridgeCommWorkerTouchedResult =>
+			recordBridgeCommWorkerStoreActionTelemetry({
+				action: 'applyReviewSourceUpdateFact',
+				lane: 'background',
+				operation: () => props.actions.applyReviewSourceUpdateFact(fact),
+				...telemetryProps,
+			}),
+		applyFileViewSourceUpdateFact: (fact): BridgeCommWorkerTouchedResult =>
+			recordBridgeCommWorkerStoreActionTelemetry({
+				action: 'applyFileViewSourceUpdateFact',
+				lane: 'file_view',
+				operation: () => props.actions.applyFileViewSourceUpdateFact(fact),
+				...telemetryProps,
+			}),
+		takePendingSlicePatchEvent: props.actions.takePendingSlicePatchEvent,
+		buildRootSnapshotPayload: props.actions.buildRootSnapshotPayload,
+	};
+}
+
+function recordBridgeCommWorkerStoreActionTelemetry(props: {
+	readonly action: string;
+	readonly lane: BridgeCommWorkerTelemetryLane;
+	readonly now: () => number;
+	readonly operation: () => BridgeCommWorkerTouchedResult;
+	readonly pendingSlicePatches: readonly BridgeWorkerSlicePatch[];
+	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
+}): BridgeCommWorkerTouchedResult {
+	const patchCountBefore = props.pendingSlicePatches.length;
+	const startedAtMilliseconds = props.now();
+	const result = props.operation();
+	const durationMilliseconds = props.now() - startedAtMilliseconds;
+	recordBridgeCommWorkerTaskTelemetry({
+		action: props.action,
+		durationMilliseconds,
+		lane: props.lane,
+		patchCount: props.pendingSlicePatches.length - patchCountBefore,
+		taskKind: 'store_action',
+		touchedKeyCount: result.touchedKeys.length,
+		...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
+	});
+	return result;
 }

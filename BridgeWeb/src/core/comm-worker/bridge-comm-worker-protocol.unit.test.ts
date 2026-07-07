@@ -59,9 +59,23 @@ describe('Bridge comm worker protocol', () => {
 		for (const command of commands) {
 			expect(command.wireVersion).toBe(BRIDGE_WORKER_WIRE_VERSION);
 			expect(command.direction).toBe('mainToServerWorker');
+			expect(command.issuedAtMilliseconds).toBeUndefined();
 			expect(command.transferDescriptors).toEqual([]);
 			expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
 		}
+	});
+
+	test('preserves explicit dispatch timestamps for worker queue-wait telemetry', () => {
+		const command = encodeBridgeWorkerSelectCommand({
+			requestId: 'request-select',
+			epoch: 3,
+			issuedAtMilliseconds: 42,
+			selectedItemId: 'item-1',
+			selectedSource: 'user',
+		});
+
+		expect(command.issuedAtMilliseconds).toBe(42);
+		expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
 	});
 
 	test('encodes File View source updates through BridgeWorkerContracts', () => {

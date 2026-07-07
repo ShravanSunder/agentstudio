@@ -15,11 +15,33 @@ import {
 
 type BridgeCommWorkerTelemetryIdleFlushScheduler = (callback: () => void) => void;
 
+export interface BridgeCommWorkerPerformanceClock {
+	readonly timeOrigin: number;
+	readonly now: () => number;
+}
+
+export type BridgeCommWorkerTelemetryTaskKind =
+	| 'content_preparation'
+	| 'message_handler'
+	| 'store_action';
+
+export type BridgeCommWorkerTelemetryLane =
+	| 'background'
+	| 'file_view'
+	| 'nearby'
+	| 'selected'
+	| 'speculative'
+	| 'visible';
+
+export interface BridgeCommWorkerTelemetryRecorder {
+	readonly record: (sample: BridgeTelemetrySample) => void;
+}
+
 export interface BridgeCommWorkerTelemetryTransport {
 	readonly endpointUrl: string;
 }
 
-export interface BridgeCommWorkerTelemetryClient {
+export interface BridgeCommWorkerTelemetryClient extends BridgeCommWorkerTelemetryRecorder {
 	readonly record: (sample: BridgeTelemetrySample) => void;
 	readonly flush: () => boolean;
 	readonly isEnabled: (scope: BridgeTelemetryScope) => boolean;
@@ -87,6 +109,80 @@ export function createBridgeCommWorkerTelemetryClient(
 		},
 	};
 	return client;
+}
+
+export function readBridgeCommWorkerAbsoluteNowMilliseconds(
+	clock: BridgeCommWorkerPerformanceClock = performance,
+): number {
+	return clock.timeOrigin + clock.now();
+}
+
+export interface RecordBridgeCommWorkerTaskTelemetryProps {
+	readonly action?: string;
+	readonly command?: string;
+	readonly durationMilliseconds: number;
+	readonly lane: BridgeCommWorkerTelemetryLane;
+	readonly payloadClass?: string;
+	readonly queueWaitMilliseconds?: number;
+	readonly sourceEpoch?: number;
+	readonly taskKind: BridgeCommWorkerTelemetryTaskKind;
+	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
+	readonly touchedKeyCount?: number;
+	readonly patchCount?: number;
+	readonly workKind?: string;
+}
+
+export function recordBridgeCommWorkerTaskTelemetry(
+	props: RecordBridgeCommWorkerTaskTelemetryProps,
+): void {
+	props.telemetryClient?.record({
+		scope: 'web',
+		name: 'performance.bridge.worker.task',
+		durationMilliseconds: Math.max(0, props.durationMilliseconds),
+		traceContext: null,
+		stringAttributes: {
+			'agentstudio.bridge.phase': 'worker_task',
+			'agentstudio.bridge.plane': 'data',
+			'agentstudio.bridge.priority': bridgeCommWorkerTaskPriority(props.lane),
+			'agentstudio.bridge.result': 'success',
+			'agentstudio.bridge.slice': 'worker_task',
+			'agentstudio.bridge.transport': 'worker',
+			'agentstudio.bridge.worker.lane': props.lane,
+			'agentstudio.bridge.worker.task_kind': props.taskKind,
+			...(props.action === undefined ? {} : { 'agentstudio.bridge.worker.action': props.action }),
+			...(props.command === undefined
+				? {}
+				: { 'agentstudio.bridge.worker.command': props.command }),
+			...(props.payloadClass === undefined
+				? {}
+				: { 'agentstudio.bridge.worker.payload_class': props.payloadClass }),
+			...(props.workKind === undefined
+				? {}
+				: { 'agentstudio.bridge.worker.work_kind': props.workKind }),
+		},
+		numericAttributes: {
+			'agentstudio.bridge.worker.handler_duration_ms': Math.max(0, props.durationMilliseconds),
+			...(props.queueWaitMilliseconds === undefined
+				? {}
+				: {
+						'agentstudio.bridge.worker.queue_wait_ms': Math.max(0, props.queueWaitMilliseconds),
+					}),
+			...(props.sourceEpoch === undefined
+				? {}
+				: { 'agentstudio.bridge.worker.source_epoch': props.sourceEpoch }),
+			...(props.touchedKeyCount === undefined
+				? {}
+				: { 'agentstudio.bridge.worker.touched_key_count': props.touchedKeyCount }),
+			...(props.patchCount === undefined
+				? {}
+				: { 'agentstudio.bridge.worker.patch_count': props.patchCount }),
+		},
+		booleanAttributes: {},
+	});
+}
+
+function bridgeCommWorkerTaskPriority(lane: BridgeCommWorkerTelemetryLane): string {
+	return lane === 'selected' ? 'hot' : 'warm';
 }
 
 function samplesWithDropCounters(

@@ -1,5 +1,9 @@
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import {
+	bridgeTelemetryBatchSchema,
+	type BridgeTelemetryBatch,
+} from '../../foundation/telemetry/bridge-telemetry-event.js';
 import {
 	type BridgeCommWorkerPort,
 	bootstrapBridgeCommWorkerEntry,
@@ -38,6 +42,11 @@ function assertBrowserMessagePortMatchesEntryPort(port: MessagePort): BridgeComm
 }
 
 describe('Bridge comm worker entry', () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+		vi.useRealTimers();
+	});
+
 	test('posts prepared review content-ready worker messages as structured CodeView payloads', () => {
 		const postedMessages: PostedBridgeWorkerMessage[] = [];
 		const port: BridgeCommWorkerPort = {
@@ -295,6 +304,46 @@ describe('Bridge comm worker entry', () => {
 		]);
 	});
 
+	test('bootstraps worker telemetry and flushes worker task samples through the scheme endpoint', () => {
+		vi.useFakeTimers();
+		const flushedBatches: BridgeTelemetryBatch[] = [];
+		const fetchSpy = vi
+			.spyOn(globalThis, 'fetch')
+			.mockImplementation((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+				expect(input).toBe('agentstudio://telemetry/batch');
+				if (typeof init?.body !== 'string') {
+					throw new Error('Expected telemetry batch body to be serialized JSON.');
+				}
+				flushedBatches.push(bridgeTelemetryBatchSchema.parse(JSON.parse(init.body)));
+				return Promise.resolve(new Response(null, { status: 204 }));
+			});
+		const { dispatch } = createRecordingBridgeCommWorkerPort();
+		bootstrapBridgeCommWorkerEntry(dispatch.port);
+
+		dispatch.message(makeBootstrapRequestWithTelemetry('bootstrap-request-telemetry'));
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-after-telemetry-bootstrap',
+				epoch: 2,
+				issuedAtMilliseconds: 0,
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+			}),
+		);
+		vi.runOnlyPendingTimers();
+
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+		expect(flushedBatches[0]?.samples).toContainEqual(
+			expect.objectContaining({
+				name: 'performance.bridge.worker.task',
+				stringAttributes: expect.objectContaining({
+					'agentstudio.bridge.worker.command': 'select',
+					'agentstudio.bridge.worker.task_kind': 'message_handler',
+				}),
+			}),
+		);
+	});
+
 	test('replays commands that arrived before runtime bootstrap', () => {
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		bootstrapBridgeCommWorkerEntry(dispatch.port);
@@ -497,6 +546,24 @@ function makeBootstrapRequest(requestId: string): BridgeCommWorkerBootstrapReque
 			contentRequestDescriptors: [],
 			renderSemantics: [],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+		},
+	};
+}
+
+function makeBootstrapRequestWithTelemetry(requestId: string): BridgeCommWorkerBootstrapRequest {
+	const request = makeBootstrapRequest(requestId);
+	return {
+		...request,
+		runtime: {
+			...request.runtime,
+			telemetryConfig: {
+				enabledScopes: ['web'],
+				endpointUrl: 'agentstudio://telemetry/batch',
+				maxEncodedBatchBytes: 16_384,
+				maxSamplesPerBatch: 8,
+				minimumFlushIntervalMilliseconds: 250,
+				scenario: 'bridge-worker-runtime',
+			},
 		},
 	};
 }

@@ -1,14 +1,18 @@
 // oxlint-disable unicorn/require-post-message-target-origin -- WorkerGlobalScope.postMessage does not accept a targetOrigin argument.
+import { createBridgeTelemetryEventSink } from '../../bridge/bridge-telemetry-event-sink.js';
+import type { BridgeTelemetryBootstrapConfig } from '../../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
 import { buildBridgeWorkerReadyHealthEvent } from './bridge-comm-worker-protocol.js';
 import {
 	registerBridgeCommWorkerRuntimePortProtocol,
 	type RegisterBridgeCommWorkerRuntimePortProtocolProps,
 } from './bridge-comm-worker-runtime-protocol.js';
+import { createBridgeCommWorkerTelemetryClient } from './bridge-comm-worker-telemetry.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeCommWorkerBootstrapRequestSchema,
 	bridgeWorkerMainToServerMessageSchema,
 	type BridgeCommWorkerBootstrapRequest,
+	type BridgeCommWorkerTelemetryBootstrapConfig,
 	type BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
 import type { PreparedBridgeWorkerStructuredMessage } from './bridge-worker-transfer-list.js';
@@ -149,6 +153,15 @@ export function bootstrapBridgeCommWorkerEntry(port: BridgeCommWorkerPort): void
 function runtimePropsFromBootstrapRequest(
 	request: BridgeCommWorkerBootstrapRequest,
 ): RegisterBridgeCommWorkerRuntimePortProtocolProps {
+	const telemetryClient =
+		request.runtime.telemetryConfig === undefined
+			? null
+			: createBridgeCommWorkerTelemetryClient({
+					config: bridgeTelemetryBootstrapConfigFromWorkerConfig(request.runtime.telemetryConfig),
+					sink: createBridgeTelemetryEventSink({
+						endpointUrl: request.runtime.telemetryConfig.endpointUrl,
+					}),
+				});
 	return {
 		bridgeDemandRank: request.runtime.bridgeDemandRank,
 		budget: request.runtime.budget,
@@ -159,6 +172,20 @@ function runtimePropsFromBootstrapRequest(
 			: { maxPreparationSliceMs: request.runtime.maxPreparationSliceMs }),
 		renderSemantics: request.runtime.renderSemantics,
 		rows: request.runtime.rows,
+		...(telemetryClient === null ? {} : { telemetryClient }),
+	};
+}
+
+function bridgeTelemetryBootstrapConfigFromWorkerConfig(
+	config: BridgeCommWorkerTelemetryBootstrapConfig,
+): BridgeTelemetryBootstrapConfig {
+	return {
+		enabledScopes: new Set(config.enabledScopes),
+		endpointUrl: config.endpointUrl,
+		maxEncodedBatchBytes: config.maxEncodedBatchBytes,
+		maxSamplesPerBatch: config.maxSamplesPerBatch,
+		minimumFlushIntervalMilliseconds: config.minimumFlushIntervalMilliseconds,
+		scenario: config.scenario,
 	};
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-review-package-test-support.js';
+import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
 import { createBridgeCommWorkerStore } from './bridge-comm-worker-store.js';
 import type {
 	BridgeWorkerFileViewContentMetadata,
@@ -174,6 +175,44 @@ describe('Bridge comm worker store', () => {
 			'visibleIds:item-1',
 			'demand:item-1',
 		]);
+	});
+
+	test('records touched keys and patch size for worker hot store actions', () => {
+		let clockMs = 10;
+		const telemetrySamples: BridgeTelemetrySample[] = [];
+		const store = createBridgeCommWorkerStore({
+			contentItems: [makeWorkerReviewContentMetadata('item-1')],
+			now: () => {
+				const value = clockMs;
+				clockMs += 2;
+				return value;
+			},
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			telemetryClient: {
+				record: (sample): void => {
+					telemetrySamples.push(sample);
+				},
+			},
+		});
+
+		store.actions.applySelectedFact({ itemId: 'item-1', epoch: 4 });
+
+		expect(telemetrySamples).toHaveLength(1);
+		expect(telemetrySamples[0]).toMatchObject({
+			name: 'performance.bridge.worker.task',
+			durationMilliseconds: 2,
+			stringAttributes: {
+				'agentstudio.bridge.result': 'success',
+				'agentstudio.bridge.worker.action': 'applySelectedFact',
+				'agentstudio.bridge.worker.lane': 'selected',
+				'agentstudio.bridge.worker.task_kind': 'store_action',
+			},
+			numericAttributes: {
+				'agentstudio.bridge.worker.handler_duration_ms': 2,
+				'agentstudio.bridge.worker.patch_count': 2,
+				'agentstudio.bridge.worker.touched_key_count': 5,
+			},
+		});
 	});
 
 	test('invalidates selected and visible review content through worker-owned cache truth', () => {

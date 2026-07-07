@@ -7,6 +7,7 @@ import {
 	bridgeFileChangeKindSchema,
 	bridgeReviewContentLineCountsByRoleSchema,
 } from '../../foundation/review-package/bridge-review-package-schema.js';
+import { bridgeTelemetryScopeSchema } from '../../foundation/telemetry/bridge-telemetry-scope.js';
 import {
 	bridgeWorkerDemandRankSchema,
 	bridgeWorkerPierreRenderBudgetSchema,
@@ -18,6 +19,7 @@ export const BRIDGE_WORKER_WIRE_VERSION = 1 as const;
 const bridgeWorkerRequestIdSchema = z.string().min(1);
 const bridgeWorkerEpochSchema = z.number().int().nonnegative();
 const bridgeWorkerSequenceSchema = z.number().int().nonnegative();
+const bridgeWorkerIssuedAtMillisecondsSchema = z.number().finite().nonnegative();
 
 export const bridgeWorkerTransferDescriptorSchema = z
 	.object({
@@ -37,6 +39,7 @@ const bridgeWorkerMainToServerBaseSchema = z
 		kind: z.literal('command'),
 		requestId: bridgeWorkerRequestIdSchema,
 		epoch: bridgeWorkerEpochSchema,
+		issuedAtMilliseconds: bridgeWorkerIssuedAtMillisecondsSchema.optional(),
 		transferDescriptors: z.array(bridgeWorkerTransferDescriptorSchema).readonly(),
 	})
 	.strict();
@@ -414,6 +417,21 @@ export type BridgeWorkerFileViewSourceUpdateCommand = z.infer<
 export type BridgeWorkerMainToServerCommand = z.infer<typeof bridgeWorkerMainToServerCommandSchema>;
 export type BridgeWorkerMainToServerMessage = BridgeWorkerMainToServerCommand;
 
+export const bridgeCommWorkerTelemetryBootstrapConfigSchema = z
+	.object({
+		enabledScopes: z.array(bridgeTelemetryScopeSchema).readonly(),
+		endpointUrl: z.string().min(1),
+		maxSamplesPerBatch: z.number().int().positive(),
+		maxEncodedBatchBytes: z.number().int().positive(),
+		minimumFlushIntervalMilliseconds: z.number().int().nonnegative(),
+		scenario: z.string().min(1),
+	})
+	.strict();
+
+export type BridgeCommWorkerTelemetryBootstrapConfig = z.infer<
+	typeof bridgeCommWorkerTelemetryBootstrapConfigSchema
+>;
+
 export const bridgeCommWorkerBootstrapRequestSchema = z
 	.object({
 		schemaVersion: z.literal(BRIDGE_WORKER_WIRE_VERSION),
@@ -430,6 +448,7 @@ export const bridgeCommWorkerBootstrapRequestSchema = z
 				renderSemantics: z.array(bridgeWorkerReviewRenderSemanticsSchema).readonly(),
 				rows: z.array(bridgeCommWorkerRowSchema).readonly(),
 				maxPreparationSliceMs: z.number().finite().positive().optional(),
+				telemetryConfig: bridgeCommWorkerTelemetryBootstrapConfigSchema.optional(),
 			})
 			.strict(),
 	})

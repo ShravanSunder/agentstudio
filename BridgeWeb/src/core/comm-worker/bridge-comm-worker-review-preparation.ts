@@ -57,6 +57,11 @@ export function enqueueBridgeWorkerReviewContentReadyPreparation(
 	const work: BridgeWorkerContentPreparationWork = {
 		id: workId,
 		rank: props.preparationRank,
+		telemetry: {
+			payloadClass: 'inline',
+			sourceEpoch: props.epoch,
+			workKind: 'review_content_ready',
+		},
 		runSlice: () => {
 			if (!isReviewContentReadyDemandCurrent(dispatchProps)) {
 				completion.resolve();
