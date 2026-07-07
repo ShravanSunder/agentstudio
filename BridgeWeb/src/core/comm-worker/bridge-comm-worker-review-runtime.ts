@@ -30,6 +30,7 @@ export interface DispatchSelectedBridgeWorkerReviewContentReadyProps {
 	readonly contentRequestDescriptors: readonly BridgeWorkerReviewContentRequestDescriptor[];
 	readonly epoch: number;
 	readonly fetchContent?: BridgeWorkerContentFetch;
+	readonly fetchReviewContentResource?: BridgeWorkerReviewContentResourceFetch;
 	readonly itemId: string;
 	readonly port: BridgeCommWorkerPort;
 	readonly renderSemantics: readonly BridgeWorkerReviewRenderSemantics[];
@@ -55,6 +56,12 @@ export type BridgeWorkerReviewContentReadyFetchResult =
 	| {
 			readonly status: 'stale';
 	  };
+
+export interface BridgeWorkerReviewContentResourceFetch {
+	(
+		descriptor: BridgeWorkerReviewContentRequestDescriptor,
+	): Promise<BridgeWorkerFetchedReviewContentResource>;
+}
 
 export async function dispatchSelectedBridgeWorkerReviewContentReady(
 	props: DispatchSelectedBridgeWorkerReviewContentReadyProps,
@@ -93,16 +100,13 @@ export async function fetchBridgeWorkerReviewContentReadyResources(
 	}
 	let resources: readonly BridgeWorkerFetchedReviewContentResource[];
 	try {
+		const fetchReviewContentResource =
+			props.fetchReviewContentResource ?? createBridgeWorkerReviewContentResourceFetch(props);
 		resources = await Promise.all(
 			selectReviewContentRequestDescriptorsForSemantics({
 				descriptors: props.contentRequestDescriptors,
 				semantics,
-			}).map((descriptor) =>
-				fetchBridgeWorkerReviewContentResource({
-					descriptor,
-					...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
-				}),
-			),
+			}).map(fetchReviewContentResource),
 		);
 	} catch {
 		return { status: 'terminal', state: 'failed' };
@@ -225,6 +229,16 @@ function selectedReviewContentReadyDemandKey(
 	props: Pick<DispatchSelectedBridgeWorkerReviewContentReadyProps, 'epoch'>,
 ): string {
 	return `selected:${props.epoch}`;
+}
+
+function createBridgeWorkerReviewContentResourceFetch(
+	props: Pick<DispatchBridgeWorkerReviewContentReadyProps, 'fetchContent'>,
+): BridgeWorkerReviewContentResourceFetch {
+	return (descriptor: BridgeWorkerReviewContentRequestDescriptor) =>
+		fetchBridgeWorkerReviewContentResource({
+			descriptor,
+			...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
+		});
 }
 
 function assertBridgeWorkerSlicePatchEvent(

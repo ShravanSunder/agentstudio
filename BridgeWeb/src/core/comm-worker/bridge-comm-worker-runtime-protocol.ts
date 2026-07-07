@@ -18,7 +18,10 @@ import {
 	enqueueBridgeWorkerReviewContentReadyPreparation,
 	enqueueSelectedBridgeWorkerReviewContentReadyPreparation,
 } from './bridge-comm-worker-review-preparation.js';
-import { canRenderBridgeWorkerReviewContentForSemantics } from './bridge-comm-worker-review-runtime.js';
+import {
+	canRenderBridgeWorkerReviewContentForSemantics,
+	type BridgeWorkerReviewContentResourceFetch,
+} from './bridge-comm-worker-review-runtime.js';
 import type {
 	BridgeCommWorkerRow,
 	BridgeCommWorkerStore,
@@ -41,7 +44,10 @@ import type {
 	BridgeWorkerDemandRank,
 	BridgeWorkerPierreRenderBudget,
 } from './bridge-worker-pierre-render-job.js';
-import type { BridgeWorkerContentFetch } from './bridge-worker-review-content-fetch.js';
+import {
+	fetchBridgeWorkerReviewContentResource,
+	type BridgeWorkerContentFetch,
+} from './bridge-worker-review-content-fetch.js';
 
 export type BridgeCommWorkerPreparationDrain = () => Promise<WorkerContentPreparationPumpRunResult>;
 
@@ -87,6 +93,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		contentRequestDescriptors: [],
 		rows: [],
 	};
+	const fetchReviewContentResource = createSharedBridgeWorkerReviewContentResourceFetch({
+		fetchContent: props.fetchContent,
+	});
 	const demandBackoffByItemId = new Map<string, BridgeCommWorkerDemandBackoff>();
 	const demandInFlightItemIds = new Set<string>();
 	const pendingVisibleDemandRerunItemIds = new Set<string>();
@@ -138,6 +147,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			createSequence,
 			epoch: request.epoch,
 			...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
+			fetchReviewContentResource,
 			inFlightItemIds: demandInFlightItemIds,
 			nowMilliseconds: readBridgeCommWorkerRuntimeNowMilliseconds(props.now),
 			pendingRerunItemIds: pendingVisibleDemandRerunItemIds,
@@ -184,6 +194,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				contentRequestDescriptors: reviewRuntimeSource.contentRequestDescriptors,
 				epoch: request.epoch,
 				...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
+				fetchReviewContentResource,
 				itemId: request.itemId,
 				port,
 				pump,
@@ -268,12 +279,54 @@ function createBridgeWorkerRuntimeSequenceCounter(): () => number {
 	};
 }
 
+function createSharedBridgeWorkerReviewContentResourceFetch(props: {
+	readonly fetchContent: BridgeWorkerContentFetch | undefined;
+}): BridgeWorkerReviewContentResourceFetch {
+	const inFlightResourcesByUrl = new Map<
+		string,
+		ReturnType<BridgeWorkerReviewContentResourceFetch>
+	>();
+	return async (descriptor: BridgeWorkerReviewContentRequestDescriptor) => {
+		const resourceKey = sharedBridgeWorkerReviewContentResourceKey(descriptor);
+		const existingResource = inFlightResourcesByUrl.get(resourceKey);
+		if (existingResource !== undefined) {
+			return await existingResource;
+		}
+		const resourcePromise = fetchBridgeWorkerReviewContentResource({
+			descriptor,
+			...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
+		});
+		inFlightResourcesByUrl.set(resourceKey, resourcePromise);
+		try {
+			return await resourcePromise;
+		} finally {
+			inFlightResourcesByUrl.delete(resourceKey);
+		}
+	};
+}
+
+function sharedBridgeWorkerReviewContentResourceKey(
+	descriptor: BridgeWorkerReviewContentRequestDescriptor,
+): string {
+	return [
+		descriptor.resourceUrl,
+		descriptor.itemId,
+		descriptor.role,
+		descriptor.contentHashAlgorithm,
+		descriptor.contentHash,
+		descriptor.language ?? '',
+		descriptor.sizeBytes,
+		descriptor.isBinary,
+	].join('\u0000');
+}
+
 interface EnqueueVisibleBridgeCommWorkerReviewDemandExecutionProps {
 	readonly backoffByItemId: ReadonlyMap<string, BridgeCommWorkerDemandBackoff>;
 	readonly budget: BridgeWorkerPierreRenderBudget;
 	readonly createSequence: () => number;
 	readonly epoch: number;
 	readonly fetchContent?: BridgeWorkerContentFetch;
+	readonly fetchReviewContentResource?: BridgeWorkerReviewContentResourceFetch;
 	readonly inFlightItemIds: Set<string>;
 	readonly nowMilliseconds: number;
 	readonly pendingRerunItemIds: Set<string>;
@@ -327,6 +380,9 @@ function enqueueVisibleBridgeCommWorkerReviewDemandExecution(
 			demandKey: 'visible',
 			epoch: props.epoch,
 			...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
+			...(props.fetchReviewContentResource === undefined
+				? {}
+				: { fetchReviewContentResource: props.fetchReviewContentResource }),
 			isDemandCurrent: (): boolean =>
 				(props.visibleDemandGenerationByItemId.get(itemId) ?? 0) === visibleDemandGeneration,
 			itemId,
