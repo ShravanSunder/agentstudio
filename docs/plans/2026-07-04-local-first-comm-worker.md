@@ -140,6 +140,27 @@ claim; it tells the next executor where to resume.
   TanStack Query, SWR, Apollo, or equivalent async-cache primitive in the
   converted Bridge worker surfaces.
 
+### Current State Update - 2026-07-07
+
+The re-anchor above is historical. Current execution has advanced materially:
+
+- F1 is fresh on current HEAD after
+  `2c03639d feat(bridge): cut file view content loading to comm worker`.
+  Marker `debug-observability-oq4s-1783418131-7443` passed
+  `mise run verify-debug-observability` and
+  `mise run verify-bridge-worker-fetch-scheme-smoke`; worker-originated
+  content-scheme fetch and held-open streamed response read both observed
+  82 bytes.
+- G4 File View content-protocol cutover is committed at `2c03639d`. Converted
+  File Viewer production transport no longer exposes `fetchResource`,
+  `bridge-file-viewer-runtime.ts` and `use-bridge-file-viewer-body-state.ts`
+  are deleted, and focused unit plus Vitest Browser proof passed for the
+  converted File Viewer path and the legacy wrapper containment path.
+- Remaining next gates are Review browser-proof closure, G5 shared demand
+  membership cutover, G6 ordinary script-message RPC deletion, and final
+  browser/native perf and review proof. Do not use the historical re-anchor
+  bullets above as current blockers without re-checking the workflow state.
+
 ## Fast Proof Loop And Native Proof Split
 
 Use the fastest honest proof loop for each boundary:
