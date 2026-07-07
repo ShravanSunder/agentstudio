@@ -1,3 +1,4 @@
+import { act, type ReactElement } from 'react';
 import { describe, expect, test } from 'vitest';
 import { render } from 'vitest-browser-react';
 
@@ -25,7 +26,7 @@ describe('WorktreeFileApp Browser Mode', () => {
 		const descriptor = makeFileDescriptor();
 		const fetchedResourceUrls: string[] = [];
 
-		render(
+		await renderWorktreeFileApp(
 			<WorktreeFileApp
 				autoOpenInitialFile
 				fetchResource={async ({ resourceUrl }) => {
@@ -39,7 +40,7 @@ describe('WorktreeFileApp Browser Mode', () => {
 		);
 
 		await waitForWorktreeFileState('ready');
-		await waitForBridgeViewerAnimationFrame();
+		await waitForWorktreeFileAnimationFrame();
 
 		const contentPanel = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="worktree-file-content"]'),
@@ -58,7 +59,7 @@ describe('WorktreeFileApp Browser Mode', () => {
 			makeDeferred<ReturnType<typeof makeWorktreeFileSurfaceRuntimeFetchedResource>>();
 		const fetchedResourceUrls: string[] = [];
 
-		render(
+		await renderWorktreeFileApp(
 			<WorktreeFileApp
 				fetchResource={async ({ resourceUrl }) => {
 					fetchedResourceUrls.push(resourceUrl);
@@ -68,16 +69,14 @@ describe('WorktreeFileApp Browser Mode', () => {
 			/>,
 		);
 
-		await waitForBridgeViewerAnimationFrame();
+		await waitForWorktreeFileAnimationFrame();
 		const treePanel = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="worktree-file-tree"]'),
 		);
 		expect(treePanel.getAttribute('data-worktree-tree-total-size')).toBe('480');
 		expect(Math.abs(treePanel.scrollHeight - 480)).toBeLessThanOrEqual(1);
 
-		requireBridgeViewerHTMLElement(
-			document.querySelector('[data-worktree-file-path="src/app.ts"]'),
-		).click();
+		await clickWorktreeFileRow();
 
 		await waitForWorktreeFileState('loading');
 		const contentPanel = requireBridgeViewerHTMLElement(
@@ -93,13 +92,16 @@ describe('WorktreeFileApp Browser Mode', () => {
 			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1',
 		]);
 
-		deferredContent.resolve(
-			makeWorktreeFileSurfaceRuntimeFetchedResource(
-				'export const value = 2;\nexport const other = 3;\n',
-			),
-		);
+		await act(async (): Promise<void> => {
+			deferredContent.resolve(
+				makeWorktreeFileSurfaceRuntimeFetchedResource(
+					'export const value = 2;\nexport const other = 3;\n',
+				),
+			);
+			await Promise.resolve();
+		});
 		await waitForWorktreeFileState('ready');
-		await waitForBridgeViewerAnimationFrame();
+		await waitForWorktreeFileAnimationFrame();
 
 		const contentExtentHeightAfter = contentExtent.getBoundingClientRect().height;
 		expect(Math.abs(contentExtentHeightAfter - contentExtentHeightBefore)).toBeLessThanOrEqual(1);
@@ -114,7 +116,7 @@ describe('WorktreeFileApp Browser Mode', () => {
 		});
 		let fetchCount = 0;
 
-		render(
+		await renderWorktreeFileApp(
 			<WorktreeFileApp
 				fetchResource={async () => {
 					fetchCount += 1;
@@ -124,10 +126,8 @@ describe('WorktreeFileApp Browser Mode', () => {
 			/>,
 		);
 
-		await waitForBridgeViewerAnimationFrame();
-		requireBridgeViewerHTMLElement(
-			document.querySelector('[data-worktree-file-path="src/app.ts"]'),
-		).click();
+		await waitForWorktreeFileAnimationFrame();
+		await clickWorktreeFileRow();
 
 		await waitForWorktreeFileState('unavailable');
 
@@ -141,14 +141,14 @@ describe('WorktreeFileApp Browser Mode', () => {
 		expect(document.body.textContent).not.toContain('must-not-fetch');
 	});
 
-	test('keeps stale content visible and refreshes explicitly after invalidation', async () => {
+	test('keeps stale content visible after invalidation without starting FE auto refresh', async () => {
 		const descriptor = makeFileDescriptor({ lineCount: 1 });
 		const replacementDescriptor = makeFileDescriptor({
 			contentHandle: 'file-content-2',
 			lineCount: 2,
 		});
 		const fetchedResourceUrls: string[] = [];
-		const { rerender } = render(
+		const { rerender } = await renderWorktreeFileApp(
 			<WorktreeFileApp
 				fetchResource={async ({ resourceUrl }) => {
 					fetchedResourceUrls.push(resourceUrl);
@@ -162,37 +162,51 @@ describe('WorktreeFileApp Browser Mode', () => {
 			/>,
 		);
 
-		await waitForBridgeViewerAnimationFrame();
-		requireBridgeViewerHTMLElement(
-			document.querySelector('[data-worktree-file-path="src/app.ts"]'),
-		).click();
+		await waitForWorktreeFileAnimationFrame();
+		await clickWorktreeFileRow();
 		await waitForWorktreeFileState('ready');
 		expect(document.body.textContent).toContain('export const value = 2;');
 
-		rerender(<WorktreeFileApp initialFrames={[makeInvalidationFrame(replacementDescriptor)]} />);
-		// Stale content auto-refreshes silently: no prompt, no manual click.
-		await waitForWorktreeFileState('ready');
-		await waitForBridgeViewerAnimationFrame();
+		await act(async (): Promise<void> => {
+			rerender(<WorktreeFileApp initialFrames={[makeInvalidationFrame(replacementDescriptor)]} />);
+			await Promise.resolve();
+		});
+		await waitForWorktreeFileState('stale');
+		await waitForWorktreeFileAnimationFrame();
 
 		const contentPanel = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="worktree-file-content"]'),
 		);
 		expect(document.querySelector('[data-worktree-file-path="src/app.ts"]')).not.toBeNull();
 		expect(contentPanel.getAttribute('data-worktree-open-file-total-size')).toBe('40');
-		expect(document.body.textContent).not.toContain('Content changed');
-		expect(document.querySelector('[data-testid="worktree-file-refresh"]')).toBeNull();
+		expect(document.body.textContent).toContain('Content changed');
+		const refreshButton = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="worktree-file-refresh"]'),
+		);
+
+		expect(fetchedResourceUrls).toEqual([
+			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1',
+		]);
+		expect(document.body.textContent).not.toContain('export const value = 3;');
+		expect(document.body.textContent).toContain('export const value = 2;');
+		expect(document.body.innerHTML).not.toContain('agentstudio://resource');
+
+		await act(async (): Promise<void> => {
+			refreshButton.click();
+			await Promise.resolve();
+		});
+		await waitForWorktreeFileState('ready');
 
 		expect(fetchedResourceUrls).toEqual([
 			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1',
 			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-2?generation=1',
 		]);
 		expect(document.body.textContent).toContain('export const value = 3;');
-		expect(document.body.textContent).not.toContain('export const value = 2;');
-		expect(document.body.innerHTML).not.toContain('agentstudio://resource');
+		expect(document.body.textContent).not.toContain('Content changed');
 	});
 
 	test('a failed initial surface load surfaces a visible error instead of an unhandled rejection', async () => {
-		render(
+		await renderWorktreeFileApp(
 			<WorktreeFileApp
 				loadInitialSurface={() => Promise.reject(new Error('native open failed'))}
 			/>,
@@ -218,7 +232,7 @@ async function waitForWorktreeSourceState(
 	if (remainingAttempts <= 0) {
 		throw new Error(`Expected Worktree/File source state ${sourceState}`);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await waitForWorktreeFileAnimationFrame();
 	await waitForWorktreeSourceState(sourceState, remainingAttempts - 1);
 }
 
@@ -381,6 +395,34 @@ async function waitForWorktreeFileState(
 	if (remainingAttempts <= 0) {
 		throw new Error(`Expected Worktree/File open file state ${status}`);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await waitForWorktreeFileAnimationFrame();
 	await waitForWorktreeFileState(status, remainingAttempts - 1);
+}
+
+async function renderWorktreeFileApp(element: ReactElement): Promise<ReturnType<typeof render>> {
+	let renderResult: ReturnType<typeof render> | null = null;
+	await act(async (): Promise<void> => {
+		renderResult = render(element);
+		await Promise.resolve();
+	});
+	if (renderResult === null) {
+		throw new Error('Expected WorktreeFileApp render result.');
+	}
+	return renderResult;
+}
+
+async function clickWorktreeFileRow(): Promise<void> {
+	const row = requireBridgeViewerHTMLElement(
+		document.querySelector('[data-worktree-file-path="src/app.ts"]'),
+	);
+	await act(async (): Promise<void> => {
+		row.click();
+		await Promise.resolve();
+	});
+}
+
+async function waitForWorktreeFileAnimationFrame(): Promise<void> {
+	await act(async (): Promise<void> => {
+		await waitForBridgeViewerAnimationFrame();
+	});
 }

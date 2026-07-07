@@ -1,5 +1,7 @@
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../app/bridge-app.css';
+// oxlint-disable-next-line import/no-unassigned-import -- Browser suites assert shell behavior without testing lazy import timing.
+import './bridge-file-viewer-shell.js';
 // oxlint-disable-next-line import/no-unassigned-import -- Aggregates Browser Mode suites.
 import './bridge-file-viewer-app.browser.startup-suite.js';
 // oxlint-disable-next-line import/no-unassigned-import -- Aggregates Browser Mode suites.

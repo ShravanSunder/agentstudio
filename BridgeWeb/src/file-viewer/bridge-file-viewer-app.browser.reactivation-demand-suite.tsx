@@ -14,7 +14,7 @@ import {
 import { terminateBridgePierreWorkerPoolSingletonForTest } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
 import type { WorktreeFileInitialSurface } from '../worktree-file-surface/worktree-file-app.js';
 import { makeWorktreeFileSurfaceRuntimeFetchedResource } from '../worktree-file-surface/worktree-file-surface-runtime.js';
-import { BridgeFileViewerApp } from './bridge-file-viewer-app.js';
+import { BridgeFileViewerBrowserHarnessApp as BridgeFileViewerApp } from './bridge-file-viewer-browser-test-app.js';
 import {
 	fileNavigationCommandForPath,
 	makeFileDescriptor,
@@ -42,9 +42,6 @@ import {
 	requireFramePublisher,
 	selectedDisplayPath,
 	visibleCodeText,
-	waitForDemandDispatchFirstFreshnessKeyContaining,
-	waitForDemandDispatchFirstLane,
-	waitForDemandDispatchState,
 	waitForDescriptorRequestCount,
 	waitForFileViewerActiveState,
 	waitForInitialSurfaceLoadCount,
@@ -142,7 +139,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(openFilePath()).toBe('src/inactive-open.ts');
 		expect(openFileBodyPreview()).toContain('loadedWhileInactive');
 		expect(fileOpenSample.stringAttributes['agentstudio.bridge.demand.disposition']).toBe(
-			'cache-hit',
+			'worker-selected',
 		);
 	});
 
@@ -476,7 +473,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(renderedFilePath()).toBe('src/file-1.ts');
 		expect(openFileBodyPreview()).toContain('reactivatedPreservedFile');
 		expect(fetchedResourceUrls).toContain(
-			'agentstudio://resource/worktree-file/worktree.fileContent/content-1?generation=1',
+			'agentstudio://resource/worktree-file/worktree.fileContent/content-1?cursor=cursor-1&generation=1',
 		);
 	});
 
@@ -575,11 +572,11 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(openFilePath()).toBe('File-001.swift');
 		expect(descriptorRequests).toHaveLength(1);
 		expect(fetchedResourceUrls).toContain(
-			'agentstudio://resource/worktree-file/worktree.fileContent/late-clicked-content?generation=1',
+			'agentstudio://resource/worktree-file/worktree.fileContent/late-clicked-content?cursor=cursor-1&generation=1',
 		);
 	});
 
-	test('preloads recently updated files from a provider event without changing the open file', async () => {
+	test('does not preload recently updated files on the main thread', async () => {
 		const visibleDescriptor = makeFileDescriptor({
 			contentHandle: 'visible-content',
 			fileId: 'file-visible',
@@ -612,7 +609,6 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		await waitForOpenFileState('ready');
 		expect(openFilePath()).toBe('src/visible.ts');
-		await waitForDemandDispatchState('settled');
 		await actUpdate((): void => {
 			window.dispatchEvent(
 				new CustomEvent('bridge-worktree-file-recently-updated', {
@@ -624,36 +620,26 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				}),
 			);
 		});
-		await waitForDemandDispatchFirstLane('nearby');
+		await actFrame();
+		await actFrame();
+		await actFrame();
 
 		const shell = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
 		);
-		expect(shell.getAttribute('data-last-demand-dispatch-stimulus-count')).toBe('1');
-		expect(shell.getAttribute('data-last-demand-dispatch-intent-count')).toBe('1');
-		expect(shell.getAttribute('data-last-demand-dispatch-loaded-count')).toBe('1');
-		expect(shell.getAttribute('data-last-demand-dispatch-failed-count')).toBe('0');
-		expect(shell.getAttribute('data-last-demand-dispatch-first-lane')).toBe('nearby');
-		expect(shell.getAttribute('data-last-demand-dispatch-first-dedupe-key')).toContain(
-			'recently-updated-content',
-		);
-		expect(shell.getAttribute('data-last-demand-dispatch-first-freshness-key')).toContain(
-			'recently-updated-content',
-		);
-		expect(shell.getAttribute('data-last-demand-dispatch-open-file-path-before')).toBe(
-			'src/visible.ts',
-		);
-		expect(shell.getAttribute('data-last-demand-dispatch-open-file-path-after')).toBe(
-			'src/visible.ts',
-		);
+		expect(shell.getAttribute('data-last-demand-dispatch-status')).toBe('idle');
+		expect(shell.getAttribute('data-last-demand-dispatch-first-lane')).toBeNull();
 		expect(openFileState()).toBe('ready');
 		expect(openFilePath()).toBe('src/visible.ts');
 		expect(fetchedResourceUrls).toContain(
-			'agentstudio://resource/worktree-file/worktree.fileContent/recently-updated-content?generation=1',
+			'agentstudio://resource/worktree-file/worktree.fileContent/visible-content?cursor=cursor-1&generation=1',
+		);
+		expect(fetchedResourceUrls).not.toContain(
+			'agentstudio://resource/worktree-file/worktree.fileContent/recently-updated-content?cursor=cursor-1&generation=1',
 		);
 	});
 
-	test('requests a descriptor before preloading recently updated metadata-only rows', async () => {
+	test('requests a descriptor without preloading recently updated metadata-only rows', async () => {
 		const updatedDescriptor = makeFileDescriptor({
 			contentHandle: 'recently-updated-metadata-only-content',
 			fileId: 'file-app-delegate',
@@ -706,7 +692,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			expectedCount: 1,
 			recordedRequests: descriptorRequests,
 		});
-		await waitForDemandDispatchFirstLane('nearby');
+		await actFrame();
+		await actFrame();
 
 		expect(descriptorRequests).toEqual([
 			{
@@ -717,13 +704,11 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				sourceIdentity: makeSourceIdentity(),
 			},
 		]);
-		expect(fetchedResourceUrls).toEqual([
-			'agentstudio://resource/worktree-file/worktree.fileContent/recently-updated-metadata-only-content?generation=1',
-		]);
+		expect(fetchedResourceUrls).toEqual([]);
 		expect(openFileState()).toBeNull();
 	});
 
-	test('clears inactive recently updated demand so visible warming can settle after reactivation', async () => {
+	test('clears inactive recently updated descriptor demand without starting legacy warming', async () => {
 		const firstDescriptor = makeFileDescriptor({
 			contentHandle: 'recently-updated-inactive-content',
 			fileId: 'file-app-delegate',
@@ -736,7 +721,6 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 		const descriptorRequests: WorktreeFileDescriptorRequest[] = [];
 		const fetchedResourceUrls: string[] = [];
-		const firstDeferredContent = makeDeferredContent();
 		let activateFiles: (() => void) | null = null;
 		let deactivateFiles: (() => void) | null = null;
 		let publishFrames: PublishWorktreeFileFrames | null = null;
@@ -757,9 +741,6 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 					worktreeFileSurfaceTransport={{
 						fetchResource: (props) => {
 							fetchedResourceUrls.push(props.resourceUrl);
-							if (props.resourceUrl.includes('recently-updated-inactive-content')) {
-								return firstDeferredContent.promise;
-							}
 							return Promise.resolve(
 								makeWorktreeFileSurfaceRuntimeFetchedResource(
 									'export const visibleAfterReactivate = true;\n',
@@ -801,19 +782,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			expectedCount: 1,
 			recordedRequests: descriptorRequests,
 		});
-		await waitForRecordedFetchCount({
-			expectedCount: 1,
-			recordedFetches: fetchedResourceUrls,
-		});
 		await actUpdate(requireDeactivateFiles(deactivateFiles));
 		await waitForFileViewerActiveState('false');
-		await actUpdate((): void => {
-			firstDeferredContent.resolve(
-				makeWorktreeFileSurfaceRuntimeFetchedResource(
-					'export const shouldNotBlockVisible = true;\n',
-				),
-			);
-		});
 		await actFrame();
 		await actFrame();
 
@@ -825,15 +795,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			);
 		});
 
-		await waitForRecordedFetchCount({
-			expectedCount: 2,
-			recordedFetches: fetchedResourceUrls,
-		});
-		await waitForDemandDispatchFirstLane('visible');
-		await waitForDemandDispatchFirstFreshnessKeyContaining('visible-after-reactivate-content');
+		await actFrame();
+		await actFrame();
 
-		expect(fetchedResourceUrls).toContain(
-			'agentstudio://resource/worktree-file/worktree.fileContent/visible-after-reactivate-content?generation=1',
-		);
+		expect(fetchedResourceUrls).toEqual([]);
 	});
 });

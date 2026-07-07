@@ -403,7 +403,6 @@ describe('BridgeFileViewerApp open file reset reconciliation', () => {
 				descriptor,
 			},
 			frames,
-			openFileBodyRef: { current: 'last good body' },
 			openFileRequestIdRef,
 		});
 
@@ -447,7 +446,6 @@ describe('BridgeFileViewerApp open file reset reconciliation', () => {
 				descriptor,
 			},
 			frames,
-			openFileBodyRef: { current: 'last good body' },
 			openFileRequestIdRef,
 		});
 
@@ -490,6 +488,10 @@ describe('BridgeFileViewerApp visible demand batching', () => {
 					recentlyUpdatedDescriptor.contentDescriptor.ref,
 					siblingDescriptor.contentDescriptor.ref,
 				],
+				firstVisibleIndex: 4,
+				lastVisibleIndex: 5,
+				visibleItemIds: [recentlyUpdatedDescriptor.fileId, siblingDescriptor.fileId],
+				visibleItemIndexes: [4, 5],
 				visibleFileCount: 2,
 			},
 			recentlyUpdatedDescriptor.contentDescriptor.ref.descriptorId,
@@ -497,6 +499,10 @@ describe('BridgeFileViewerApp visible demand batching', () => {
 
 		expect(filteredChange).toEqual({
 			descriptorRefs: [siblingDescriptor.contentDescriptor.ref],
+			firstVisibleIndex: 5,
+			lastVisibleIndex: 5,
+			visibleItemIds: [siblingDescriptor.fileId],
+			visibleItemIndexes: [5],
 			visibleFileCount: 1,
 		});
 	});

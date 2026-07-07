@@ -51,7 +51,7 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 		expect(scenario.readyStore.getState().availabilityByItemId.get('file-1')).toBe('ready');
 	});
 
-	test('schedules selected File View preparation when ready paint survives a descriptor refresh', () => {
+	test('waits for an explicit selected request when File View descriptor refreshes', () => {
 		const scenario = createReadySelectedFileViewScenario();
 
 		const messages = scenario.handler.handleMessage(
@@ -74,13 +74,72 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 				status: 'ready',
 			},
 		]);
+		expect(scenario.scheduledFileViewPreparations).toEqual([]);
+		scenario.handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-file-after-descriptor-refresh',
+				epoch: 9,
+				selectedItemId: 'file-1',
+				selectedSource: 'programmatic',
+			}),
+		);
 		expect(scenario.scheduledFileViewPreparations).toHaveLength(1);
-		expect(scenario.scheduledFileViewPreparations[0]?.epoch).toBe(8);
+		expect(scenario.scheduledFileViewPreparations[0]?.epoch).toBe(9);
 		expect(scenario.scheduledFileViewPreparations[0]?.itemId).toBe('file-1');
 		expect(
 			scenario.scheduledFileViewPreparations[0]?.store.getState().demandByKey.get('file-1'),
-		).toBe('selected:8');
-		expect(scenario.readyStore.getState().availabilityByItemId.get('file-1')).toBe('ready');
+		).toBe('selected:9');
+		expect(scenario.readyStore.getState().availabilityByItemId.get('file-1')).toBe('loading');
+	});
+
+	test('schedules selected File View preparation when a replacement descriptor repairs loading demand', () => {
+		const scheduledFileViewPreparations: ScheduledSelectedFileViewPreparation[] = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [],
+			rows: [],
+			createSequence: createSequenceFrom([301, 302, 303, 304]),
+			scheduleSelectedReviewContentReadyPreparation: (): void => {},
+			scheduleSelectedFileViewContentReadyPreparation: (
+				preparation: ScheduledSelectedFileViewPreparation,
+			): void => {
+				scheduledFileViewPreparations.push(preparation);
+			},
+		});
+		handler.handleMessage(
+			encodeBridgeWorkerFileViewSourceUpdateCommand({
+				requestId: 'request-file-source-before-loading',
+				epoch: 6,
+				contentItems: [makeWorkerFileViewContentMetadata()],
+				contentRequestDescriptors: [makeWorkerFileViewContentRequestDescriptor({ generation: 6 })],
+				rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			}),
+		);
+		handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-file-loading',
+				epoch: 7,
+				selectedItemId: 'file-1',
+				selectedSource: 'user',
+			}),
+		);
+		scheduledFileViewPreparations.splice(0, scheduledFileViewPreparations.length);
+
+		handler.handleMessage(
+			encodeBridgeWorkerFileViewSourceUpdateCommand({
+				requestId: 'request-file-source-replacement-loading',
+				epoch: 8,
+				contentItems: [makeWorkerFileViewContentMetadata()],
+				contentRequestDescriptors: [makeWorkerFileViewContentRequestDescriptor({ generation: 8 })],
+				rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			}),
+		);
+
+		expect(scheduledFileViewPreparations).toHaveLength(1);
+		expect(scheduledFileViewPreparations[0]?.epoch).toBe(8);
+		expect(scheduledFileViewPreparations[0]?.itemId).toBe('file-1');
+		expect(scheduledFileViewPreparations[0]?.store.getState().demandByKey.get('file-1')).toBe(
+			'selected:8',
+		);
 	});
 });
 

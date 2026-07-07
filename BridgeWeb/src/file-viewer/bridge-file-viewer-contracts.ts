@@ -16,5 +16,9 @@ export interface BridgeFileViewerDescriptorProjection {
 
 export interface BridgeFileViewerVisibleFileDemandChange {
 	readonly descriptorRefs: readonly BridgeDescriptorRef[];
+	readonly firstVisibleIndex: number;
+	readonly lastVisibleIndex: number;
+	readonly visibleItemIds: readonly string[];
+	readonly visibleItemIndexes: readonly number[];
 	readonly visibleFileCount: number;
 }

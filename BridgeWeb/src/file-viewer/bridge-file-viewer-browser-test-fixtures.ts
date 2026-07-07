@@ -386,7 +386,10 @@ export function makeResetFrames(
 }
 
 export interface MakeFileDescriptorProps {
+	readonly contentExpectedBytes?: number;
 	readonly contentHandle?: string;
+	readonly contentHash?: string | null;
+	readonly contentMaxBytes?: number;
 	readonly fileId?: string;
 	readonly generation?: number;
 	readonly isBinary?: boolean;
@@ -401,6 +404,8 @@ export function makeFileDescriptor(props: MakeFileDescriptorProps): WorktreeFile
 	const generation = props.generation ?? 1;
 	const sourceIdentity = props.sourceIdentity ?? makeSourceIdentity();
 	const virtualizedExtentKind = props.virtualizedExtentKind ?? 'exactLineCount';
+	const contentHash =
+		props.contentHash === undefined ? `sha256:${contentHandle}` : props.contentHash;
 	return worktreeFileDescriptorSchema.parse({
 		path: props.path,
 		fileId: props.fileId ?? 'file-1',
@@ -409,7 +414,13 @@ export function makeFileDescriptor(props: MakeFileDescriptorProps): WorktreeFile
 			descriptorId: contentHandle,
 			generation,
 			resourceKind: 'worktree.fileContent',
+			sourceIdentity,
+			...(props.contentExpectedBytes === undefined
+				? {}
+				: { expectedBytes: props.contentExpectedBytes }),
+			...(props.contentMaxBytes === undefined ? {} : { maxBytes: props.contentMaxBytes }),
 		}),
+		...(contentHash === null ? {} : { contentHash }),
 		sourceIdentity,
 		sizeBytes: 64,
 		virtualizedExtentKind,
@@ -437,8 +448,11 @@ export function makeSourceIdentity(
 
 export function makeAttachedDescriptor(props: {
 	readonly descriptorId: string;
+	readonly expectedBytes?: number;
 	readonly generation?: number;
+	readonly maxBytes?: number;
 	readonly resourceKind: 'worktree.fileContent' | 'worktree.fileRange';
+	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity;
 }): BridgeAttachedResourceDescriptor {
 	const generation = props.generation ?? 1;
 	const identity = {
@@ -447,18 +461,19 @@ export function makeAttachedDescriptor(props: {
 		sourceId: 'dev-worktree-source',
 		generation,
 		streamId: 'worktree-file:pane-1',
+		cursor: props.sourceIdentity.sourceCursor,
 	};
 	const descriptor = {
 		descriptorId: props.descriptorId,
 		protocol: 'worktree-file',
 		resourceKind: props.resourceKind,
-		resourceUrl: `agentstudio://resource/worktree-file/${props.resourceKind}/${props.descriptorId}?generation=${generation}`,
+		resourceUrl: `agentstudio://resource/worktree-file/${props.resourceKind}/${props.descriptorId}?cursor=${props.sourceIdentity.sourceCursor}&generation=${generation}`,
 		identity,
 		content: {
 			mediaType: 'text/plain',
 			encoding: 'utf-8',
-			expectedBytes: 64,
-			maxBytes: 1024,
+			expectedBytes: props.expectedBytes ?? 64,
+			maxBytes: props.maxBytes ?? DEFAULT_WORKTREE_FILE_TEST_CONTENT_MAX_BYTES,
 		},
 	} satisfies BridgeResourceDescriptor;
 	return bridgeAttachedResourceDescriptorSchema.parse({
@@ -471,6 +486,8 @@ export function makeAttachedDescriptor(props: {
 		descriptor,
 	});
 }
+
+const DEFAULT_WORKTREE_FILE_TEST_CONTENT_MAX_BYTES = 512 * 1024;
 
 export function parseWorktreeFileProtocolFrame(frame: unknown): WorktreeFileProtocolFrame {
 	return worktreeFileProtocolFrameSchema.parse(frame);

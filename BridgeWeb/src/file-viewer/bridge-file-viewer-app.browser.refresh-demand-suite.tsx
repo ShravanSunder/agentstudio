@@ -4,10 +4,11 @@ import { render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../app/bridge-app.css';
+import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
 import type { WorktreeFileDescriptorRequest } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import { requireBridgeViewerHTMLElement } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { makeWorktreeFileSurfaceRuntimeFetchedResource } from '../worktree-file-surface/worktree-file-surface-runtime.js';
-import { BridgeFileViewerApp } from './bridge-file-viewer-app.js';
+import { BridgeFileViewerBrowserHarnessApp as BridgeFileViewerApp } from './bridge-file-viewer-browser-test-app.js';
 import {
 	fileNavigationCommandForPath,
 	makeFileDescriptor,
@@ -22,8 +23,8 @@ import {
 import {
 	actFrame,
 	actUpdate,
-	makeGeneratedFileBody,
 	makeDeferredContent,
+	makeGeneratedFileBody,
 	openFileBodyPreview,
 	openFileState,
 	requireActivateFiles,
@@ -32,17 +33,17 @@ import {
 	waitForFileCodeViewScrollOwner,
 	requireFramePublisher,
 	visibleCodeText,
-	waitForDemandDispatchFirstFreshnessKeyContaining,
-	waitForDemandDispatchLoadedCount,
+	waitForDemandDispatchState,
 	waitForFileViewerActiveState,
 	waitForOpenFileState,
 	waitForRecordedFetchCount,
 	waitForRefreshDebugState,
 	waitForVisibleCodeText,
 } from './bridge-file-viewer-browser-test-harness.js';
+import type { BridgeFileViewerRuntimeTransportFactory } from './bridge-file-viewer-render-snapshot-controller.js';
 
 describe('BridgeFileViewerApp Browser Mode', () => {
-	test('ignores stale visible demand batch results after a newer source reset dispatch settles', async () => {
+	test('does not revive visible main-thread demand after a source reset', async () => {
 		const oldFirstDescriptor = makeFileDescriptor({
 			contentHandle: 'old-first-delayed-content',
 			fileId: 'file-old-first-delayed',
@@ -71,8 +72,6 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			path: 'src/new-second.ts',
 			sourceIdentity: resetSourceIdentity,
 		});
-		const oldDeferredContent = makeDeferredContent();
-		const newDeferredContent = makeDeferredContent();
 		const fetchedResourceUrls: string[] = [];
 		let publishFrames: PublishWorktreeFileFrames | null = null;
 
@@ -82,9 +81,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				worktreeFileSurfaceTransport={{
 					fetchResource: (props) => {
 						fetchedResourceUrls.push(props.resourceUrl);
-						return props.resourceUrl.includes('old-')
-							? oldDeferredContent.promise
-							: newDeferredContent.promise;
+						return Promise.resolve(
+							makeWorktreeFileSurfaceRuntimeFetchedResource('unexpected visible fetch\n'),
+						);
 					},
 					subscribeFrames: (handler): (() => void) => {
 						publishFrames = handler;
@@ -96,56 +95,25 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			/>,
 		);
 
-		await waitForRecordedFetchCount({
-			expectedCount: 2,
-			recordedFetches: fetchedResourceUrls,
-		});
-		await actUpdate((): void => {
-			oldDeferredContent.resolve(
-				makeWorktreeFileSurfaceRuntimeFetchedResource('export const old = true;\n'),
-			);
-		});
-		await waitForDemandDispatchFirstFreshnessKeyContaining('old-first-delayed-content');
+		await waitForDemandDispatchState('idle');
+		expect(fetchedResourceUrls).toEqual([]);
 		const publishRequiredFrames = requireFramePublisher(publishFrames);
 		await actUpdate((): void => {
 			publishRequiredFrames(makeResetFrames(newFirstDescriptor, newSecondDescriptor));
 		});
-		await waitForRecordedFetchCount({
-			expectedCount: 4,
-			recordedFetches: fetchedResourceUrls,
-		});
-		await actUpdate((): void => {
-			newDeferredContent.resolve(
-				makeWorktreeFileSurfaceRuntimeFetchedResource('export const fresh = true;\n'),
-			);
-		});
-		await waitForDemandDispatchLoadedCount('2');
 		await actFrame();
 		await actFrame();
 
 		const shell = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
 		);
-		expect(shell.getAttribute('data-last-demand-dispatch-intent-count')).toBe('2');
-		expect(shell.getAttribute('data-last-demand-dispatch-loaded-count')).toBe('2');
-		expect(shell.getAttribute('data-last-demand-dispatch-failed-count')).toBe('0');
-		expect(shell.getAttribute('data-last-demand-dispatch-origin')).toBe('visibleViewport');
-		expect(shell.getAttribute('data-last-demand-dispatch-expected-visible-file-count')).toBe('2');
-		expect(shell.getAttribute('data-last-demand-dispatch-first-dedupe-key')).toContain(
-			'new-first-content',
-		);
-		expect(shell.getAttribute('data-last-demand-dispatch-first-freshness-key')).toContain(
-			'new-first-content',
-		);
-		expect(shell.getAttribute('data-last-demand-dispatch-first-dedupe-key')).not.toContain(
-			'old-first-delayed-content',
-		);
-		expect(shell.getAttribute('data-last-demand-dispatch-first-freshness-key')).not.toContain(
-			'old-first-delayed-content',
-		);
+		expect(fetchedResourceUrls).toEqual([]);
+		expect(shell.getAttribute('data-last-demand-dispatch-status')).toBe('idle');
+		expect(shell.getAttribute('data-last-demand-dispatch-origin')).toBeNull();
+		expect(shell.getAttribute('data-last-demand-dispatch-intent-count')).toBeNull();
 	});
 
-	test('renders replacement file body after a silent auto refresh of stale content', async () => {
+	test('renders replacement file body after a worker source-update refreshes stale content', async () => {
 		const initialDescriptor = makeFileDescriptor({
 			contentHandle: 'refresh-content-1',
 			fileId: 'file-refresh-target',
@@ -195,14 +163,14 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await actUpdate((): void => {
 			publishRequiredFrames(makeResetFrames(replacementDescriptor));
 		});
-		// Stale open files auto-refresh silently (no comment drafts exist yet):
+		// The worker owns selected File View refresh after a source update:
 		// wait on the refreshed content itself, since 'ready' also describes
-		// the pre-reset state and the stale/refreshing states are transient.
+		// the pre-reset state and the stale/loading states are transient.
 		await waitForVisibleCodeText('export const refreshed = true;');
 		await waitForOpenFileState('ready');
 		expect(document.querySelector('[data-testid="worktree-file-refresh"]')).toBeNull();
 		expect(fetchedResourceUrls).toContain(
-			'agentstudio://resource/worktree-file/worktree.fileContent/refresh-content-2?generation=2',
+			'agentstudio://resource/worktree-file/worktree.fileContent/refresh-content-2?cursor=cursor-2&generation=2',
 		);
 		expect(openFileBodyPreview()).toContain('export const refreshed = true;');
 		await waitForVisibleCodeText('export const refreshed = true;');
@@ -216,7 +184,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(shell.getAttribute('data-last-refresh-descriptor-id')).toBe('refresh-content-2');
 	});
 
-	test('restores File CodeView scroll position after a same-path stale auto refresh', async () => {
+	test('restores File CodeView scroll position after a same-path worker source refresh', async () => {
 		const initialDescriptor = makeFileDescriptor({
 			contentHandle: 'refresh-scroll-content-1',
 			fileId: 'file-refresh-scroll-target',
@@ -290,7 +258,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(visibleCodeText()).not.toContain('export const initialScrollLine001 = true;');
 	});
 
-	test('does not repeat silent auto refresh for the same stale descriptor after failure', async () => {
+	test('does not repeat a failed worker source-update refresh without explicit user intent', async () => {
 		const initialDescriptor = makeFileDescriptor({
 			contentHandle: 'failed-refresh-content-1',
 			fileId: 'file-failed-refresh-target',
@@ -342,24 +310,215 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			publishRequiredFrames(makeResetFrames(replacementDescriptor));
 		});
 		await waitForOpenFileState('stale');
-		await waitForRefreshDebugState({
-			commitState: 'skipped',
-			result: 'duplicate_stale_auto_refresh_failure',
+		await waitForRecordedFetchCount({
+			expectedCount: 2,
+			recordedFetches: fetchedResourceUrls,
 		});
+		await actFrame();
+		await actFrame();
 
 		const shell = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
 		);
-		expect(shell.getAttribute('data-last-refresh-result')).toBe(
-			'duplicate_stale_auto_refresh_failure',
-		);
-		expect(shell.getAttribute('data-last-refresh-commit-state')).toBe('skipped');
-		expect(shell.getAttribute('data-last-refresh-descriptor-id')).toBe('failed-refresh-content-2');
-		expect(shell.getAttribute('data-last-refresh-current-request-id')).toBe(
-			shell.getAttribute('data-last-refresh-request-id'),
-		);
+		expect(shell.getAttribute('data-last-refresh-result')).toBeNull();
+		expect(shell.getAttribute('data-last-refresh-commit-state')).toBeNull();
 		expect(openFileState()).toBe('stale');
-		expect(visibleCodeText()).toContain('failedRefreshInitial');
+		expect(visibleCodeText()).not.toContain('failedRefreshReplacement');
+		expect(
+			fetchedResourceUrls.filter((url) => url.includes('failed-refresh-content-2')),
+		).toHaveLength(1);
+	});
+
+	test('exits loading when selected File View worker health degrades', async () => {
+		const targetDescriptor = makeFileDescriptor({
+			contentHandle: 'degraded-worker-content',
+			fileId: 'file-degraded-worker-target',
+			path: 'src/degraded-worker-target.ts',
+		});
+		const degradedTransportFactory: BridgeFileViewerRuntimeTransportFactory = ({
+			publishWorkerMessages,
+		}) => ({
+			dispatch: (): void => {
+				publishWorkerMessages([
+					{
+						wireVersion: 1,
+						direction: 'serverWorkerToMain',
+						transferDescriptors: [],
+						kind: 'health',
+						requestId: 'browser-degraded-worker',
+						status: 'degraded',
+						message: 'browser worker startup failed',
+					},
+				]);
+			},
+			dispose: (): void => {},
+		});
+
+		render(
+			<BridgeFileViewerApp
+				codeViewWorkerPoolEnabled={false}
+				fileViewCommWorkerTransportFactory={degradedTransportFactory}
+				initialFrames={makeFrames(targetDescriptor)}
+				navigationCommand={fileNavigationCommandForPath('src/degraded-worker-target.ts')}
+			/>,
+		);
+
+		await waitForOpenFileState('failed');
+		expect(visibleCodeText()).not.toContain('Loading');
+	});
+
+	test('retries a stale same-file navigation target after worker source refresh failure', async () => {
+		const initialDescriptor = makeFileDescriptor({
+			contentHandle: 'failed-navigation-retry-content-1',
+			fileId: 'file-failed-navigation-retry-target',
+			path: 'src/failed-navigation-retry-target.ts',
+		});
+		const resetSourceIdentity = makeSourceIdentity({
+			subscriptionGeneration: 2,
+			sourceCursor: 'cursor-2',
+		});
+		const replacementDescriptor = makeFileDescriptor({
+			contentHandle: 'failed-navigation-retry-content-2',
+			fileId: 'file-failed-navigation-retry-target',
+			generation: 2,
+			path: 'src/failed-navigation-retry-target.ts',
+			sourceIdentity: resetSourceIdentity,
+		});
+		const fetchedResourceUrls: string[] = [];
+		let publishFrames: PublishWorktreeFileFrames | null = null;
+		let retryNavigation: (() => void) | null = null;
+		let replacementFetchAttemptCount = 0;
+
+		function ControlledFileViewer(): ReactElement {
+			const [navigationCommand, setNavigationCommand] = useState<BridgeViewerNavigationCommand>(
+				fileNavigationCommandForPath('src/failed-navigation-retry-target.ts'),
+			);
+			retryNavigation = (): void => {
+				setNavigationCommand({
+					...fileNavigationCommandForPath('src/failed-navigation-retry-target.ts'),
+					commandId: 'test:file:src/failed-navigation-retry-target.ts:retry',
+					commandKind: 'activateTarget',
+				});
+			};
+			return (
+				<BridgeFileViewerApp
+					codeViewWorkerPoolEnabled={false}
+					initialFrames={makeFrames(initialDescriptor)}
+					navigationCommand={navigationCommand}
+					worktreeFileSurfaceTransport={{
+						fetchResource: async (props) => {
+							fetchedResourceUrls.push(props.resourceUrl);
+							if (props.resourceUrl.includes('failed-navigation-retry-content-2')) {
+								replacementFetchAttemptCount += 1;
+								if (replacementFetchAttemptCount === 1) {
+									throw new Error('failed navigation retry canary');
+								}
+								return makeWorktreeFileSurfaceRuntimeFetchedResource(
+									'export const failedNavigationRetryReplacement = true;\n',
+								);
+							}
+							return makeWorktreeFileSurfaceRuntimeFetchedResource(
+								'export const failedNavigationRetryInitial = true;\n',
+							);
+						},
+						subscribeFrames: (handler): (() => void) => {
+							publishFrames = handler;
+							return (): void => {
+								publishFrames = null;
+							};
+						},
+					}}
+				/>
+			);
+		}
+
+		render(<ControlledFileViewer />);
+
+		await waitForOpenFileState('ready');
+		await waitForVisibleCodeText('failedNavigationRetryInitial');
+		await actUpdate((): void => {
+			requireFramePublisher(publishFrames)(makeResetFrames(replacementDescriptor));
+		});
+		await waitForOpenFileState('stale');
+		await waitForRecordedFetchCount({
+			expectedCount: 2,
+			recordedFetches: fetchedResourceUrls,
+		});
+		await waitForOpenFileState('stale');
+		await actUpdate((): void => {
+			const requiredRetryNavigation = retryNavigation;
+			if (requiredRetryNavigation === null) {
+				throw new Error('Expected retry navigation setter.');
+			}
+			requiredRetryNavigation();
+		});
+
+		await waitForOpenFileState('ready');
+		await waitForVisibleCodeText('failedNavigationRetryReplacement');
+		expect(
+			fetchedResourceUrls.filter((url) => url.includes('failed-navigation-retry-content-2')),
+		).toHaveLength(2);
+	});
+
+	test('retries a failed same-file navigation target on a fresh command', async () => {
+		const targetDescriptor = makeFileDescriptor({
+			contentHandle: 'failed-open-retry-content',
+			fileId: 'file-failed-open-retry-target',
+			path: 'src/failed-open-retry-target.ts',
+		});
+		const fetchedResourceUrls: string[] = [];
+		let retryNavigation: (() => void) | null = null;
+		let fetchAttemptCount = 0;
+
+		function ControlledFileViewer(): ReactElement {
+			const [navigationCommand, setNavigationCommand] = useState<BridgeViewerNavigationCommand>(
+				fileNavigationCommandForPath('src/failed-open-retry-target.ts'),
+			);
+			retryNavigation = (): void => {
+				setNavigationCommand({
+					...fileNavigationCommandForPath('src/failed-open-retry-target.ts'),
+					commandId: 'test:file:src/failed-open-retry-target.ts:retry',
+					commandKind: 'activateTarget',
+				});
+			};
+			return (
+				<BridgeFileViewerApp
+					codeViewWorkerPoolEnabled={false}
+					initialFrames={makeFrames(targetDescriptor)}
+					navigationCommand={navigationCommand}
+					worktreeFileSurfaceTransport={{
+						fetchResource: async (props) => {
+							fetchedResourceUrls.push(props.resourceUrl);
+							fetchAttemptCount += 1;
+							if (fetchAttemptCount === 1) {
+								throw new Error('failed open retry canary');
+							}
+							return makeWorktreeFileSurfaceRuntimeFetchedResource(
+								'export const failedOpenRetryRecovered = true;\n',
+							);
+						},
+					}}
+				/>
+			);
+		}
+
+		render(<ControlledFileViewer />);
+
+		await waitForOpenFileState('failed');
+		await actUpdate((): void => {
+			const requiredRetryNavigation = retryNavigation;
+			if (requiredRetryNavigation === null) {
+				throw new Error('Expected retry navigation setter.');
+			}
+			requiredRetryNavigation();
+		});
+
+		await waitForOpenFileState('ready');
+		await waitForVisibleCodeText('failedOpenRetryRecovered');
+		expect(fetchedResourceUrls).toEqual([
+			'agentstudio://resource/worktree-file/worktree.fileContent/failed-open-retry-content?cursor=cursor-1&generation=1',
+			'agentstudio://resource/worktree-file/worktree.fileContent/failed-open-retry-content?cursor=cursor-1&generation=1',
+		]);
 	});
 
 	test('ignores stale refresh completion after Files becomes inactive', async () => {
@@ -428,9 +587,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await actUpdate((): void => {
 			publishRequiredFrames(makeResetFrames(replacementDescriptor));
 		});
-		// The stale state auto-refreshes silently; the deferred fetch holds it
-		// in 'refreshing' so deactivation can race the completion.
-		await waitForOpenFileState('refreshing');
+		// The worker source-update refresh is in flight while the visible
+		// state remains stale, so deactivation can race the completion.
+		await waitForOpenFileState('stale');
 		await actUpdate(requireDeactivateFiles(deactivateFiles));
 		await waitForFileViewerActiveState('false');
 
@@ -445,14 +604,13 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await actFrame();
 
 		expect(openFileState()).toBe('stale');
-		expect(openFileBodyPreview()).toContain('inactiveRefreshInitial');
 		expect(visibleCodeText()).toContain('inactiveRefreshInitial');
 		expect(visibleCodeText()).not.toContain('inactiveRefreshReplacement');
 		const shell = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
 		);
 		expect(shell.getAttribute('data-file-viewer-active')).toBe('false');
-		expect(shell.getAttribute('data-last-refresh-commit-state')).toBe('ignored');
+		expect(shell.getAttribute('data-last-refresh-commit-state')).toBeNull();
 
 		await actUpdate(requireActivateFiles(activateFiles));
 	});

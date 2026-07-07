@@ -159,13 +159,75 @@ describe('Bridge worker File View content ready', () => {
 			kind: 'codeViewFileItem',
 			item: {
 				file: {
-					contents: 'one\ntwo\n',
+					contents: 'one\ntwo\n\n ',
 				},
 				bridgeMetadata: {
 					contentState: 'windowed',
 					lineCount: 4,
 				},
 			},
+		});
+	});
+
+	test('reserves File View windowed render height without including text beyond the window', () => {
+		const result = prepareBridgeWorkerFileViewContentRenderJobEvent({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 2,
+			},
+			metadata: makeWorkerFileViewContentMetadata({ lineCount: 5 }),
+			resource: makeFetchedFileViewContentResource({
+				text: 'one\ntwo\nthree\nfour\nfive\n',
+			}),
+		});
+
+		expect(result?.message.job.payload.kind).toBe('codeViewFileItem');
+		if (result?.message.job.payload.kind !== 'codeViewFileItem') {
+			throw new Error('expected File View payload');
+		}
+		const contents = result.message.job.payload.item.file.contents;
+		expect(contents).toContain('one\ntwo\n');
+		expect(contents).not.toContain('three');
+		expect(renderedLineCountForText(contents)).toBe(5);
+		expect(result.message.job.payload.item.bridgeMetadata).toMatchObject({
+			contentState: 'windowed',
+			lineCount: 5,
+		});
+	});
+
+	test('keeps File View windowed payload byte budget bound to the rendered window', () => {
+		const result = prepareBridgeWorkerFileViewContentRenderJobEvent({
+			bridgeDemandRank: { lane: 'visible', priority: 10 },
+			budget: {
+				className: 'visible',
+				maxBytes: 64,
+				maxWindowLines: 2,
+			},
+			metadata: makeWorkerFileViewContentMetadata({ lineCount: 100_000 }),
+			resource: makeFetchedFileViewContentResource({
+				text: 'one\ntwo\nthree\nfour\nfive\n',
+			}),
+		});
+
+		expect(result).not.toBeNull();
+		expect(result?.message.job.window).toEqual({
+			startLine: 1,
+			endLine: 2,
+			totalLineCount: 100_000,
+		});
+		expect(result?.message.job.payload.kind).toBe('codeViewFileItem');
+		if (result?.message.job.payload.kind !== 'codeViewFileItem') {
+			throw new Error('expected File View payload');
+		}
+		const contents = result.message.job.payload.item.file.contents;
+		expect(new TextEncoder().encode(contents).byteLength).toBeLessThanOrEqual(64);
+		expect(contents).toContain('one\ntwo\n');
+		expect(contents).not.toContain('three');
+		expect(result.message.job.payload.item.bridgeMetadata).toMatchObject({
+			contentState: 'windowed',
+			lineCount: 100_000,
 		});
 	});
 
@@ -289,4 +351,11 @@ function makeFetchedFileViewContentResource(props: {
 		text: props.text,
 		textBytes,
 	};
+}
+
+function renderedLineCountForText(text: string): number {
+	if (text.length === 0) {
+		return 0;
+	}
+	return (text.match(/\n/gu)?.length ?? 0) + 1;
 }

@@ -381,6 +381,15 @@ describe('Bridge comm worker runtime protocol', () => {
 				rows: [{ id: 'file-1', parentId: null, index: 0 }],
 			}),
 		);
+		expect(scheduledDrains).toHaveLength(2);
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-file-view-select-after-descriptor-refresh',
+				epoch: 8,
+				selectedItemId: 'file-1',
+				selectedSource: 'programmatic',
+			}),
+		);
 		clockMs += 1;
 		const refreshFirstDrainCompletion = assertBridgeCommWorkerPreparationDrain(
 			scheduledDrains[2],
@@ -391,7 +400,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		)();
 		await refreshFirstDrainCompletion;
 
-		expect(refreshSecondDrainResult.completedIds).toEqual(['file-view-content-ready:file-1:7:85']);
+		expect(refreshSecondDrainResult.completedIds).toEqual(['file-view-content-ready:file-1:8:86']);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'health',
 			'slicePatch',
@@ -399,10 +408,12 @@ describe('Bridge comm worker runtime protocol', () => {
 			'pierreRenderJob',
 			'slicePatch',
 			'health',
+			'slicePatch',
+			'health',
 			'pierreRenderJob',
 			'slicePatch',
 		]);
-		expect(postedMessages[6]?.message).toMatchObject({
+		expect(postedMessages[8]?.message).toMatchObject({
 			kind: 'pierreRenderJob',
 			job: {
 				itemId: 'file-1',
@@ -417,10 +428,10 @@ describe('Bridge comm worker runtime protocol', () => {
 				},
 			},
 		});
-		expect(postedMessages[7]?.message).toMatchObject({
+		expect(postedMessages[9]?.message).toMatchObject({
 			kind: 'slicePatch',
-			epoch: 7,
-			sequence: 85,
+			epoch: 8,
+			sequence: 86,
 			patches: [
 				{
 					slice: 'rowPaint',

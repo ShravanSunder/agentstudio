@@ -154,6 +154,15 @@ export function useBridgeFileViewerSelectionEffects(
 			}
 			return;
 		}
+		if (
+			bridgeFileViewerOpenStateMatchesNavigationTarget({
+				openFileState,
+				targetDescriptor,
+			})
+		) {
+			appliedNavigationCommandIdRef.current = navigationCommand.commandId;
+			return;
+		}
 		appliedNavigationCommandIdRef.current = navigationCommand.commandId;
 		void openFile(targetDescriptor);
 	}, [
@@ -162,10 +171,30 @@ export function useBridgeFileViewerSelectionEffects(
 		navigationTargetPath,
 		navigationCommand,
 		openFile,
+		openFileState,
 		pendingSelectedDescriptorRequestRef,
 		renderState.descriptors,
 		renderState.sourceIdentity,
 		renderState.treeRows,
 		requestFileDescriptor,
 	]);
+}
+
+function bridgeFileViewerOpenStateMatchesNavigationTarget(props: {
+	readonly openFileState: BridgeFileViewerOpenState;
+	readonly targetDescriptor: WorktreeFileDescriptor;
+}): boolean {
+	if (
+		props.openFileState.status !== 'ready' &&
+		props.openFileState.status !== 'loading' &&
+		props.openFileState.status !== 'refreshing'
+	) {
+		return false;
+	}
+	return (
+		props.openFileState.path === props.targetDescriptor.path &&
+		props.openFileState.descriptor.fileId === props.targetDescriptor.fileId &&
+		props.openFileState.descriptor.contentDescriptor.ref.descriptorId ===
+			props.targetDescriptor.contentDescriptor.ref.descriptorId
+	);
 }

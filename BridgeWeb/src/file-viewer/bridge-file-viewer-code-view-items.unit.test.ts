@@ -103,6 +103,7 @@ describe('Bridge file viewer CodeView item adapter', () => {
 	test('falls back to unknown in the cache key when content hash is absent', () => {
 		const descriptor = makeFileDescriptor({
 			contentHandle: 'content-without-hash',
+			contentHash: null,
 			fileId: 'file-without-hash',
 			path: 'src/without-hash.ts',
 		});

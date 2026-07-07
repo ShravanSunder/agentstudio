@@ -260,13 +260,22 @@ export function BridgePierreWorkerPoolProvider(
 	props: BridgePierreWorkerPoolProviderProps,
 ): ReactElement {
 	const enabled = props.enabled ?? typeof Worker !== 'undefined';
+	if (!enabled) {
+		return <Fragment>{props.children}</Fragment>;
+	}
+	return <BridgePierreWorkerPoolEnabledProvider {...props} />;
+}
+
+function BridgePierreWorkerPoolEnabledProvider(
+	props: BridgePierreWorkerPoolProviderProps,
+): ReactElement {
 	const ensureCodeViewThemeResolved =
 		props.ensureCodeViewThemeResolved ?? ensureBridgeCodeViewThemeResolved;
 	const [themeLoadState, setThemeLoadState] = useState<BridgeCodeViewThemeLoadState>({
 		kind: 'loading',
 	});
 	const workerLoadState = useBridgePierreWorkerPoolLoadState({
-		enabled,
+		enabled: true,
 		...(props.workerFactory === undefined ? {} : { workerFactory: props.workerFactory }),
 	});
 	const workerFactory = workerLoadState.kind === 'ready' ? workerLoadState.workerFactory : null;
@@ -354,10 +363,6 @@ export function BridgePierreWorkerPoolProvider(
 				Preparing code viewer
 			</div>
 		);
-	}
-
-	if (!enabled) {
-		return <Fragment>{props.children}</Fragment>;
 	}
 
 	if (workerLoadState.kind === 'failed' || poolOptions === null) {

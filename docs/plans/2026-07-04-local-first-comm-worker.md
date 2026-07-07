@@ -1338,9 +1338,9 @@ Red-first proof:
 
 ```bash
 pnpm --dir BridgeWeb exec tsc --noEmit
-pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.ts src/file-viewer/bridge-file-viewer-store-source-structure.unit.test.ts src/file-viewer/state/bridge-file-viewer-store.unit.test.ts src/core/comm-worker/bridge-main-render-snapshot-store.unit.test.ts src/core/comm-worker/bridge-worker-pierre-courier.unit.test.ts src/core/comm-worker/bridge-comm-worker-store.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.demand.integration-suite.ts
-pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/use-bridge-file-viewer-store-bindings.browser.test.tsx
+pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.ts src/file-viewer/bridge-file-viewer-tree-panel.unit.test.ts src/file-viewer/bridge-file-viewer-source-structure.unit.test.ts src/file-viewer/bridge-file-viewer-store-source-structure.unit.test.ts src/file-viewer/bridge-file-viewer-render-snapshot-controller.unit.test.ts src/core/comm-worker/bridge-comm-worker-command-handler.file-view.unit.test.ts src/core/comm-worker/bridge-comm-worker-runtime-protocol.unit.test.ts src/core/comm-worker/bridge-comm-worker-store.unit.test.ts src/core/comm-worker/bridge-worker-file-view-content-ready.unit.test.ts src/core/demand/bridge-resource-executor.unit.test.ts src/core/demand/bridge-resource-executor.failure-budget.unit.test.ts src/app/bridge-file-viewer-worktree-file-surface-transport-adapter.unit.test.ts
 pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx
+pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/worktree-file-surface/worktree-file-app.browser.test.tsx
 ```
 
 Expected failure before implementation: File View still owns raw body/frame
@@ -1351,9 +1351,9 @@ unbounded frame/projection/Pierre payload reconstruction apply.
 Green proof:
 
 ```bash
-pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.ts src/file-viewer/bridge-file-viewer-store-source-structure.unit.test.ts src/file-viewer/state/bridge-file-viewer-store.unit.test.ts src/core/comm-worker/bridge-main-render-snapshot-store.unit.test.ts src/core/comm-worker/bridge-worker-pierre-courier.unit.test.ts src/core/comm-worker/bridge-comm-worker-store.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.demand.integration-suite.ts
-pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/use-bridge-file-viewer-store-bindings.browser.test.tsx
+pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.ts src/file-viewer/bridge-file-viewer-tree-panel.unit.test.ts src/file-viewer/bridge-file-viewer-source-structure.unit.test.ts src/file-viewer/bridge-file-viewer-store-source-structure.unit.test.ts src/file-viewer/bridge-file-viewer-render-snapshot-controller.unit.test.ts src/core/comm-worker/bridge-comm-worker-command-handler.file-view.unit.test.ts src/core/comm-worker/bridge-comm-worker-runtime-protocol.unit.test.ts src/core/comm-worker/bridge-comm-worker-store.unit.test.ts src/core/comm-worker/bridge-worker-file-view-content-ready.unit.test.ts src/core/demand/bridge-resource-executor.unit.test.ts src/core/demand/bridge-resource-executor.failure-budget.unit.test.ts src/app/bridge-file-viewer-worktree-file-surface-transport-adapter.unit.test.ts
 pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx
+pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/worktree-file-surface/worktree-file-app.browser.test.tsx
 pnpm --dir BridgeWeb exec tsc --noEmit
 ```
 

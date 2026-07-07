@@ -7,7 +7,11 @@ import {
 } from '../app/bridge-pierre-tree-adapter.js';
 import { makeFileDescriptor } from './bridge-file-viewer-browser-test-fixtures.js';
 import { createBridgeFileViewerTreeSelectionCoordinator } from './bridge-file-viewer-pierre-tree-runtime.js';
-import { descriptorRefsForPierreVisibleFileRows } from './bridge-file-viewer-pierre-visible-demand.js';
+import {
+	descriptorRefsForPierreVisibleFileRows,
+	treeRowIndexByPathFromFileViewerTreeRows,
+	visibleFileDemandChangeForPierreVisibleFileRows,
+} from './bridge-file-viewer-pierre-visible-demand.js';
 
 describe('BridgeFileViewerTreePanel append behavior', () => {
 	test('detects append-only path growth', () => {
@@ -108,9 +112,69 @@ describe('BridgeFileViewerTreePanel Pierre visible demand adapter', () => {
 		const descriptorRefs = descriptorRefsForPierreVisibleFileRows({
 			fileDescriptorByPath: new Map([[descriptor.path, descriptor]]),
 			rowElements: [new RecordingPierreFileRowElement(descriptor.path)],
+			treeRowIndexByPath: new Map([[descriptor.path, 7]]),
 		});
 
 		expect(descriptorRefs).toEqual([descriptor.contentDescriptor.ref]);
+	});
+
+	test('carries absolute tree row indices for visible viewport facts', () => {
+		const firstDescriptor = makeFileDescriptor({
+			contentHandle: 'first-visible-content',
+			fileId: 'file-first-visible',
+			path: 'src/first-visible.ts',
+		});
+		const secondDescriptor = makeFileDescriptor({
+			contentHandle: 'second-visible-content',
+			fileId: 'file-second-visible',
+			path: 'src/second-visible.ts',
+		});
+
+		const demandChange = visibleFileDemandChangeForPierreVisibleFileRows({
+			fileDescriptorByPath: new Map([
+				[firstDescriptor.path, firstDescriptor],
+				[secondDescriptor.path, secondDescriptor],
+			]),
+			rowElements: [
+				new RecordingPierreFileRowElement(firstDescriptor.path),
+				new RecordingPierreFileRowElement(secondDescriptor.path),
+			],
+			treeRowIndexByPath: treeRowIndexByPathFromFileViewerTreeRows([
+				{
+					depth: 0,
+					isDirectory: false,
+					name: 'previous.ts',
+					parentPath: null,
+					path: 'src/previous.ts',
+					rowId: 'row-previous',
+				},
+				{
+					depth: 0,
+					fileId: firstDescriptor.fileId,
+					isDirectory: false,
+					name: 'first-visible.ts',
+					parentPath: null,
+					path: firstDescriptor.path,
+					rowId: 'row-first-visible',
+				},
+				{
+					depth: 0,
+					fileId: secondDescriptor.fileId,
+					isDirectory: false,
+					name: 'second-visible.ts',
+					parentPath: null,
+					path: secondDescriptor.path,
+					rowId: 'row-second-visible',
+				},
+			]),
+		});
+
+		expect(demandChange).toMatchObject({
+			firstVisibleIndex: 1,
+			lastVisibleIndex: 2,
+			visibleItemIds: [firstDescriptor.fileId, secondDescriptor.fileId],
+			visibleItemIndexes: [1, 2],
+		});
 	});
 
 	test('skips non-fetchable and duplicate Pierre visible file rows', () => {
@@ -145,6 +209,11 @@ describe('BridgeFileViewerTreePanel Pierre visible demand adapter', () => {
 				new RecordingPierreFileRowElement(textDescriptor.path),
 				new RecordingPierreFileRowElement(null),
 			],
+			treeRowIndexByPath: new Map([
+				[textDescriptor.path, 2],
+				[binaryDescriptor.path, 3],
+				[unavailableDescriptor.path, 4],
+			]),
 		});
 
 		expect(descriptorRefs).toEqual([textDescriptor.contentDescriptor.ref]);

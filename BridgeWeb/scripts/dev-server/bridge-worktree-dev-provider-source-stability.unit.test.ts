@@ -111,7 +111,6 @@ describe('Bridge worktree dev provider source-identity stability', () => {
 			const reconciled = reconcileOpenFileStateWithFrames({
 				currentOpenFileState: { status: 'ready', path: 'README.md', descriptor: openReadme },
 				frames: secondSurface.frames,
-				openFileBodyRef: { current: 'body' },
 				openFileRequestIdRef: { current: 0 },
 			});
 			expect(reconciled.status).toBe('ready');
@@ -147,7 +146,6 @@ describe('Bridge worktree dev provider source-identity stability', () => {
 			const reconciled = reconcileOpenFileStateWithFrames({
 				currentOpenFileState: { status: 'ready', path: 'README.md', descriptor: openReadme },
 				frames: secondSurface.frames,
-				openFileBodyRef: { current: 'body' },
 				openFileRequestIdRef: { current: 0 },
 			});
 			expect(reconciled.status).toBe('stale');
@@ -189,7 +187,6 @@ describe('Bridge worktree dev provider source-identity stability', () => {
 			const reconciled = reconcileOpenFileStateWithFrames({
 				currentOpenFileState: { status: 'ready', path: 'README.md', descriptor: openReadme },
 				frames: secondSurface.frames,
-				openFileBodyRef: { current: 'body' },
 				openFileRequestIdRef: { current: 0 },
 			});
 			expect(reconciled.status).toBe('stale');

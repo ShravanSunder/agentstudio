@@ -1,5 +1,12 @@
 import { act } from 'react';
 
+import type { BridgeCommWorkerPort } from '../core/comm-worker/bridge-comm-worker-entry.js';
+import { registerBridgeCommWorkerRuntimePortProtocol } from '../core/comm-worker/bridge-comm-worker-runtime-protocol.js';
+import {
+	bridgeWorkerServerToMainMessageSchema,
+	type BridgeWorkerServerToMainMessage,
+} from '../core/comm-worker/bridge-worker-contracts.js';
+import type { BridgeResourceDescriptor } from '../core/models/bridge-resource-descriptor.js';
 import type { WorktreeFileDescriptorRequest } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
@@ -8,8 +15,13 @@ import {
 	waitForBridgeViewerAnimationFrame,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import type { WorktreeFileInitialSurface } from '../worktree-file-surface/worktree-file-app.js';
-import { makeWorktreeFileSurfaceRuntimeFetchedResource } from '../worktree-file-surface/worktree-file-surface-runtime.js';
+import type { WorktreeFileSurfaceRuntimeFetchResourceProps } from '../worktree-file-surface/worktree-file-surface-runtime.js';
+import {
+	makeWorktreeFileSurfaceRuntimeFetchedResource,
+	type WorktreeFileSurfaceRuntimeFetchedResource,
+} from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import type { PublishWorktreeFileFrames } from './bridge-file-viewer-browser-test-fixtures.js';
+import type { BridgeFileViewerRuntimeTransportFactory } from './bridge-file-viewer-render-snapshot-controller.js';
 
 export function requireFramePublisher(
 	publisher: PublishWorktreeFileFrames | null,
@@ -39,6 +51,124 @@ export function requireOpenSlowFile(openSlowFile: (() => void) | null): () => vo
 		throw new Error('Controlled FileViewer did not publish its open callback.');
 	}
 	return openSlowFile;
+}
+
+export function createBridgeFileViewerBrowserTestCommWorkerTransportFactory(props: {
+	readonly fetchResource?: (
+		props: WorktreeFileSurfaceRuntimeFetchResourceProps,
+	) => Promise<WorktreeFileSurfaceRuntimeFetchedResource>;
+	readonly fetchResourceRef?: {
+		readonly current:
+			| ((
+					props: WorktreeFileSurfaceRuntimeFetchResourceProps,
+			  ) => Promise<WorktreeFileSurfaceRuntimeFetchedResource>)
+			| undefined;
+	};
+}): BridgeFileViewerRuntimeTransportFactory {
+	let workerMessageActQueue: Promise<void> = Promise.resolve();
+	const publishWorkerMessagesInAct = (publishProps: {
+		readonly messages: readonly BridgeWorkerServerToMainMessage[];
+		readonly publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
+	}): void => {
+		const publishCompletion = workerMessageActQueue.then(async (): Promise<void> => {
+			await act(async (): Promise<void> => {
+				publishProps.publishWorkerMessages(publishProps.messages);
+				await Promise.resolve();
+			});
+		});
+		workerMessageActQueue = publishCompletion.catch((error: unknown) => {
+			queueMicrotask((): void => {
+				throw error;
+			});
+		});
+	};
+	return (transportProps) => {
+		const channel = new MessageChannel();
+		channel.port1.addEventListener('message', (event: MessageEvent<unknown>): void => {
+			const message = bridgeWorkerServerToMainMessageSchema.parse(event.data);
+			publishWorkerMessagesInAct({
+				messages: [message],
+				publishWorkerMessages: transportProps.publishWorkerMessages,
+			});
+		});
+		registerBridgeCommWorkerRuntimePortProtocol(channel.port2 as BridgeCommWorkerPort, {
+			bridgeDemandRank: transportProps.bootstrapRequest.runtime.bridgeDemandRank,
+			budget: transportProps.bootstrapRequest.runtime.budget,
+			contentItems: transportProps.bootstrapRequest.runtime.contentItems,
+			contentRequestDescriptors: transportProps.bootstrapRequest.runtime.contentRequestDescriptors,
+			fetchContent: async (url: string, init?: RequestInit): Promise<Response> => {
+				const fetchedResource = await (
+					props.fetchResourceRef?.current ??
+					props.fetchResource ??
+					defaultBrowserTestFetchResource
+				)({
+					descriptor: bridgeFileViewerBrowserTestResourceDescriptorFromUrl(url),
+					resourceUrl: url,
+					signal: init?.signal ?? new AbortController().signal,
+				});
+				return new Response(fetchedResource.readText(), {
+					headers: { 'content-type': 'text/plain; charset=utf-8' },
+					status: 200,
+				});
+			},
+			...(transportProps.bootstrapRequest.runtime.maxPreparationSliceMs === undefined
+				? {}
+				: { maxPreparationSliceMs: transportProps.bootstrapRequest.runtime.maxPreparationSliceMs }),
+			renderSemantics: transportProps.bootstrapRequest.runtime.renderSemantics,
+			rows: transportProps.bootstrapRequest.runtime.rows,
+		});
+		channel.port1.start();
+		channel.port2.start();
+		return {
+			dispatch: (message): void => {
+				channel.port1.postMessage(message);
+			},
+			dispose: (): void => {
+				channel.port1.close();
+				channel.port2.close();
+			},
+		};
+	};
+}
+
+async function defaultBrowserTestFetchResource(
+	props: WorktreeFileSurfaceRuntimeFetchResourceProps,
+): Promise<WorktreeFileSurfaceRuntimeFetchedResource> {
+	const response = await fetch(props.resourceUrl, { signal: props.signal });
+	if (!response.ok) {
+		throw new Error(`Browser test File View worker fetch failed: ${response.status}.`);
+	}
+	return makeWorktreeFileSurfaceRuntimeFetchedResource(await response.text());
+}
+
+function bridgeFileViewerBrowserTestResourceDescriptorFromUrl(
+	resourceUrl: string,
+): BridgeResourceDescriptor {
+	const parsedUrl = new URL(resourceUrl);
+	const pathSegments = parsedUrl.pathname.split('/').filter((segment) => segment.length > 0);
+	const descriptorId = decodeURIComponent(pathSegments.at(-1) ?? 'unknown-file-content');
+	const generation = Number.parseInt(parsedUrl.searchParams.get('generation') ?? '0', 10);
+	return {
+		descriptorId,
+		protocol: 'worktree-file',
+		resourceKind: 'worktree.fileContent',
+		resourceUrl,
+		identity: {
+			paneId: 'browser-test-pane',
+			protocol: 'worktree-file',
+			sourceId: 'browser-test-source',
+			generation: Number.isSafeInteger(generation) ? generation : 0,
+			streamId: 'worktree-file:browser-test-pane',
+			...(parsedUrl.searchParams.has('cursor')
+				? { cursor: parsedUrl.searchParams.get('cursor') ?? undefined }
+				: {}),
+		},
+		content: {
+			mediaType: 'text/plain',
+			encoding: 'utf-8',
+			maxBytes: 16 * 1024 * 1024,
+		},
+	};
 }
 
 /**

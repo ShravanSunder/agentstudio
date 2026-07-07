@@ -1,3 +1,4 @@
+import { act } from 'react';
 import { afterEach, describe, expect, test } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 
@@ -9,7 +10,6 @@ import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telem
 import {
 	findBridgeViewerTreeScrollOwner,
 	requireBridgeViewerHTMLElement,
-	waitForBridgeViewerElement,
 	waitForBridgeViewerTreeItemButton,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { terminateBridgePierreWorkerPoolSingletonForTest } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
@@ -19,9 +19,13 @@ import {
 	fileViewerPendingCanvasIsVisible,
 	fileViewerUiTraceEntries,
 	startFileViewerUiTrace,
+	actClickAndSettleFileViewerMenu,
+	waitForFileViewerHTMLElement,
+	waitForFileViewerMenuOptionContaining,
+	waitForFileViewerTreeItemButtonInAct,
 	waitForFileViewerTrace,
 } from './bridge-file-viewer-app-startup.browser.test-support.js';
-import { BridgeFileViewerApp } from './bridge-file-viewer-app.js';
+import { BridgeFileViewerBrowserHarnessApp as BridgeFileViewerApp } from './bridge-file-viewer-browser-test-app.js';
 import {
 	makeFileDescriptor,
 	makeFileDescriptorFrame,
@@ -59,7 +63,10 @@ import {
 
 describe('BridgeFileViewerApp Browser Mode', () => {
 	afterEach(async () => {
-		cleanup();
+		await act(async (): Promise<void> => {
+			cleanup();
+			await Promise.resolve();
+		});
 		await actFrame();
 		document.body.replaceChildren();
 		terminateBridgePierreWorkerPoolSingletonForTest();
@@ -281,11 +288,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			/>,
 		);
 
-		await actFrame();
-
-		const toolbar = requireBridgeViewerHTMLElement(
-			document.querySelector('[data-testid="bridge-file-viewer-rail-toolbar"]'),
-		);
+		const toolbar = await waitForFileViewerHTMLElement({
+			selector: '[data-testid="bridge-file-viewer-rail-toolbar"]',
+		});
 		expect(toolbar.getAttribute('data-bridge-shared-rail-toolbar')).toBe('true');
 		expect(
 			document.querySelector('[data-testid="bridge-file-viewer-rail-toolbar-leading"]'),
@@ -320,11 +325,10 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(sourceProvenance.getBoundingClientRect().height).toBeLessThanOrEqual(1);
 
 		await actClick(searchToggle);
-		await actFrame();
 
-		const searchInput = requireBridgeViewerHTMLElement(
-			document.querySelector('[data-testid="worktree-file-search-input"]'),
-		);
+		const searchInput = await waitForFileViewerHTMLElement({
+			selector: '[data-testid="worktree-file-search-input"]',
+		});
 		expect(Math.round(searchInput.getBoundingClientRect().height)).toBe(24);
 		expect(getComputedStyle(searchInput).fontSize).toBe('11px');
 		expect(searchInput.className).toContain('h-6');
@@ -339,20 +343,22 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 	test('renders FileView rail in the shared resizable panel layout with stable geometry', async () => {
 		render(
-			<BridgeFileViewerApp
-				initialFrames={makeFrames(
-					makeFileDescriptor({ path: 'src/app.ts' }),
-					makeFileDescriptor({
-						contentHandle: 'docs-content',
-						fileId: 'file-docs',
-						path: 'docs/readme.md',
-					}),
-				)}
-			/>,
+			<div style={{ display: 'grid', height: '360px', overflow: 'hidden', width: '960px' }}>
+				<BridgeFileViewerApp
+					initialFrames={makeFrames(
+						makeFileDescriptor({ path: 'src/app.ts' }),
+						makeFileDescriptor({
+							contentHandle: 'docs-content',
+							fileId: 'file-docs',
+							path: 'docs/readme.md',
+						}),
+					)}
+				/>
+			</div>,
 		);
 
 		await waitForInitialSurfaceState('ready');
-		await waitForBridgeViewerElement('[data-slot="resizable-panel-group"]');
+		await waitForFileViewerHTMLElement({ selector: '[data-slot="resizable-panel-group"]' });
 
 		const layout = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-slot="resizable-panel-group"]'),
@@ -376,8 +382,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const railBox = railPanel.getBoundingClientRect();
 		const treeBox = treePanel.getBoundingClientRect();
 		const railWidthRatio = railBox.width / layoutBox.width;
-		const appButton = await waitForBridgeViewerTreeItemButton('src/app.ts');
-		const readmeButton = await waitForBridgeViewerTreeItemButton('docs/readme.md');
+		const appButton = await waitForFileViewerTreeItemButtonInAct({ path: 'src/app.ts' });
+		const readmeButton = await waitForFileViewerTreeItemButtonInAct({ path: 'docs/readme.md' });
 
 		expect(layout.getAttribute('data-panel-group-direction')).toBe('horizontal');
 		expect(layoutBox.width).toBeGreaterThan(900);
@@ -430,26 +436,22 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			/>,
 		);
 
-		await waitForBridgeViewerTreeItemButton('Sources/AgentStudio/App/AppDelegate.swift');
-		await actClick(
+		await waitForFileViewerTreeItemButtonInAct({
+			path: 'Sources/AgentStudio/App/AppDelegate.swift',
+		});
+		await actClickAndSettleFileViewerMenu(
 			requireBridgeViewerHTMLElement(
 				document.querySelector('[data-testid="worktree-file-filter-menu"]'),
 			),
 		);
-		await actFrame();
-		const textFilterOption = [
-			...document.querySelectorAll('[data-testid="worktree-file-filter-menu-option"]'),
-		]
-			.filter((option): option is HTMLElement => option instanceof HTMLElement)
-			.find((option): boolean => option.textContent?.includes('Text files') ?? false);
-		if (textFilterOption === undefined) {
-			throw new Error('Expected Worktree/File Text files filter option.');
-		}
-		await actClick(textFilterOption);
+		const textFilterOption = await waitForFileViewerMenuOptionContaining({ text: 'Text files' });
+		await actClickAndSettleFileViewerMenu(textFilterOption);
 		await actFrame();
 		await actFrame();
 
-		await waitForBridgeViewerTreeItemButton('Sources/AgentStudio/App/AppDelegate.swift');
+		await waitForFileViewerTreeItemButtonInAct({
+			path: 'Sources/AgentStudio/App/AppDelegate.swift',
+		});
 		expect(
 			requireBridgeViewerHTMLElement(
 				document.querySelector('[data-testid="worktree-file-filter-count"]'),
@@ -709,7 +711,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(openFilePath()).toBe('File-250.swift');
 		expect(renderedFilePath()).toBe('File-250.swift');
 		expect(fetchedResourceUrls).toContain(
-			'agentstudio://resource/worktree-file/worktree.fileContent/continued-window-content?generation=1',
+			'agentstudio://resource/worktree-file/worktree.fileContent/continued-window-content?cursor=cursor-1&generation=1',
 		);
 	});
 
@@ -815,7 +817,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			},
 		]);
 		expect(fetchedResourceUrls).toEqual([
-			'agentstudio://resource/worktree-file/worktree.fileContent/app-delegate-content?generation=1',
+			'agentstudio://resource/worktree-file/worktree.fileContent/app-delegate-content?cursor=cursor-1&generation=1',
 		]);
 		expect(openFilePath()).toBe('Sources/AgentStudio/App/AppDelegate.swift');
 	});
@@ -854,27 +856,27 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(sample.durationMilliseconds ?? -1).toBeGreaterThanOrEqual(0);
 		expect(sample.stringAttributes).toMatchObject({
 			'agentstudio.bridge.content.role': 'file',
+			'agentstudio.bridge.demand.disposition': 'worker-selected',
+			'agentstudio.bridge.demand.lane': 'foreground',
 			'agentstudio.bridge.phase': 'file_open_ready',
 			'agentstudio.bridge.result': 'success',
 			'agentstudio.bridge.result_reason': 'none',
 			'agentstudio.bridge.slice': 'content_fetch',
 			'agentstudio.bridge.viewer': 'file',
 		});
-		expect(sample.stringAttributes['agentstudio.bridge.demand.lane']).toBeTruthy();
-		expect(sample.stringAttributes['agentstudio.bridge.demand.disposition']).toBeTruthy();
 		expect(sample.numericAttributes['agentstudio.bridge.demand.request.sequence']).toBeGreaterThan(
 			0,
 		);
 		expect(sample.numericAttributes['agentstudio.bridge.source.generation']).toBe(1);
-		expect(
-			sample.numericAttributes['agentstudio.bridge.demand.scheduler_queue_wait_ms'],
-		).toBeGreaterThanOrEqual(0);
-		expect(
-			sample.numericAttributes['agentstudio.bridge.demand.executor_pending_wait_ms'],
-		).toBeGreaterThanOrEqual(0);
-		expect(
-			sample.numericAttributes['agentstudio.bridge.demand.executor_in_flight_ms'],
-		).toBeGreaterThanOrEqual(0);
+		expect(sample.numericAttributes).not.toHaveProperty(
+			'agentstudio.bridge.demand.scheduler_queue_wait_ms',
+		);
+		expect(sample.numericAttributes).not.toHaveProperty(
+			'agentstudio.bridge.demand.executor_pending_wait_ms',
+		);
+		expect(sample.numericAttributes).not.toHaveProperty(
+			'agentstudio.bridge.demand.executor_in_flight_ms',
+		);
 	});
 
 	test('records visible demand telemetry when the File tree scroll path settles demand', async () => {
@@ -885,19 +887,25 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 		const telemetrySamples: BridgeTelemetrySample[] = [];
 
-		render(
-			<BridgeFileViewerApp
-				initialFrames={makeFrames(descriptor)}
-				telemetryRecorder={makeTestTelemetryRecorder(telemetrySamples)}
-				worktreeFileSurfaceTransport={{
-					fetchResource: async () =>
-						makeWorktreeFileSurfaceRuntimeFetchedResource(
-							'export const scrollVisibleDemand = true;\n',
-						),
-				}}
-			/>,
-		);
+		await import('./bridge-file-viewer-shell.js');
+		await act(async (): Promise<void> => {
+			render(
+				<BridgeFileViewerApp
+					initialFrames={makeFrames(descriptor)}
+					telemetryRecorder={makeTestTelemetryRecorder(telemetrySamples)}
+					worktreeFileSurfaceTransport={{
+						fetchResource: async () =>
+							makeWorktreeFileSurfaceRuntimeFetchedResource(
+								'export const scrollVisibleDemand = true;\n',
+							),
+					}}
+				/>,
+			);
+			await Promise.resolve();
+		});
 
+		await actFrame();
+		await actFrame();
 		await waitForBridgeViewerTreeItemButton('src/scroll-visible-demand.ts');
 		const initialSampleCount = telemetrySamples.filter(
 			(sample): boolean => sample.name === 'performance.bridge.trees.scroll_visible_demand',
@@ -928,33 +936,11 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			'agentstudio.bridge.viewer': 'file',
 		});
 		expect(sample.numericAttributes['agentstudio.bridge.visible_item.count']).toBeGreaterThan(0);
-		const settledSample = await waitForTelemetrySample({
-			name: 'performance.bridge.web.visible_demand_settled',
-			samples: telemetrySamples,
-		});
-		expect(settledSample.durationMilliseconds).not.toBeNull();
-		expect(settledSample.durationMilliseconds ?? -1).toBeGreaterThanOrEqual(0);
-		expect(settledSample.stringAttributes).toMatchObject({
-			'agentstudio.bridge.content.role': 'file',
-			'agentstudio.bridge.demand.lane': 'visible',
-			'agentstudio.bridge.phase': 'visible_demand_settled',
-			'agentstudio.bridge.result': 'success',
-			'agentstudio.bridge.result_reason': 'none',
-			'agentstudio.bridge.slice': 'content_fetch',
-			'agentstudio.bridge.viewer': 'file',
-		});
 		expect(
-			settledSample.numericAttributes['agentstudio.bridge.demand.enqueue_accepted.count'],
-		).toBeGreaterThan(0);
-		expect(settledSample.numericAttributes['agentstudio.bridge.demand.failed.count']).toBe(0);
-		expect(
-			settledSample.numericAttributes['agentstudio.bridge.demand.loaded.count'],
-		).toBeGreaterThan(0);
-		expect(
-			settledSample.numericAttributes['agentstudio.bridge.demand.request.sequence'],
-		).toBeGreaterThan(0);
-		expect(
-			settledSample.numericAttributes['agentstudio.bridge.demand.scheduler_queue_wait_ms'],
-		).toBeGreaterThanOrEqual(0);
+			telemetrySamples.some(
+				(settledSample): boolean =>
+					settledSample.name === 'performance.bridge.web.visible_demand_settled',
+			),
+		).toBe(false);
 	});
 });

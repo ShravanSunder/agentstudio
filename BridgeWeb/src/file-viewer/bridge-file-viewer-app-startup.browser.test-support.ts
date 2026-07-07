@@ -1,3 +1,6 @@
+import { act } from 'react';
+
+import { findBridgeViewerTreeItemButton } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { actFrame } from './bridge-file-viewer-browser-test-harness.js';
 
 interface FileViewerUiTraceEntry {
@@ -81,4 +84,87 @@ export function fileViewerPendingCanvasIsVisible(visibleText: string): boolean {
 		visibleText.includes('Preparing code viewer') ||
 		visibleText.includes('Code highlighting worker unavailable')
 	);
+}
+
+export async function waitForFileViewerHTMLElement(props: {
+	readonly selector: string;
+	readonly remainingAttempts?: number;
+}): Promise<HTMLElement> {
+	const element = document.querySelector(props.selector);
+	if (element instanceof HTMLElement) {
+		return element;
+	}
+	const remainingAttempts = props.remainingAttempts ?? 180;
+	if (remainingAttempts <= 0) {
+		throw new Error(`Expected FileView browser element for selector ${props.selector}.`);
+	}
+	await actFrame();
+	return waitForFileViewerHTMLElement({
+		...props,
+		remainingAttempts: remainingAttempts - 1,
+	});
+}
+
+export async function waitForFileViewerTreeItemButtonInAct(props: {
+	readonly path: string;
+	readonly remainingAttempts?: number;
+}): Promise<HTMLButtonElement> {
+	const button = findBridgeViewerTreeItemButton(props.path);
+	if (button !== null) {
+		return button;
+	}
+	const remainingAttempts = props.remainingAttempts ?? 180;
+	if (remainingAttempts <= 0) {
+		throw new Error(`Expected FileView tree item button for ${props.path}.`);
+	}
+	await actFrame();
+	return waitForFileViewerTreeItemButtonInAct({
+		...props,
+		remainingAttempts: remainingAttempts - 1,
+	});
+}
+
+export async function waitForFileViewerMenuOptionContaining(props: {
+	readonly text: string;
+	readonly remainingAttempts?: number;
+}): Promise<HTMLElement> {
+	const matchingOption = [
+		...document.querySelectorAll('[data-testid="worktree-file-filter-menu-option"]'),
+	]
+		.filter((option): option is HTMLElement => option instanceof HTMLElement)
+		.find((option): boolean => option.textContent?.includes(props.text) ?? false);
+	if (matchingOption !== undefined) {
+		return matchingOption;
+	}
+	const remainingAttempts = props.remainingAttempts ?? 180;
+	if (remainingAttempts <= 0) {
+		throw new Error(`Expected Worktree/File filter option containing ${props.text}.`);
+	}
+	await actFrame();
+	return waitForFileViewerMenuOptionContaining({
+		...props,
+		remainingAttempts: remainingAttempts - 1,
+	});
+}
+
+export async function actClickAndSettleFileViewerMenu(element: {
+	readonly click: () => void;
+}): Promise<void> {
+	await act(async (): Promise<void> => {
+		element.click();
+		await Promise.resolve();
+		await waitForFileViewerAnimationFrame();
+		await waitForFileViewerAnimationFrame();
+		await Promise.resolve();
+	});
+}
+
+function waitForFileViewerAnimationFrame(): Promise<void> {
+	return new Promise<void>((resolve) => {
+		requestAnimationFrame(() => {
+			requestAnimationFrame(() => {
+				resolve();
+			});
+		});
+	});
 }

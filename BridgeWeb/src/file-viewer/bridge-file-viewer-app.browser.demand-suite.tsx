@@ -1,26 +1,31 @@
-import { useState, type ReactElement } from 'react';
 import { describe, expect, test } from 'vitest';
 import { render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../app/bridge-app.css';
-import { requireBridgeViewerHTMLElement } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
+import type {
+	BridgeWorkerMainToServerMessage,
+	BridgeWorkerViewportCommand,
+} from '../core/comm-worker/bridge-worker-contracts.js';
+import {
+	findBridgeViewerTreeScrollOwner,
+	requireBridgeViewerHTMLElement,
+	waitForBridgeViewerTreeItemButton,
+} from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { makeWorktreeFileSurfaceRuntimeFetchedResource } from '../worktree-file-surface/worktree-file-surface-runtime.js';
-import { BridgeFileViewerApp } from './bridge-file-viewer-app.js';
+import { BridgeFileViewerBrowserHarnessApp as BridgeFileViewerApp } from './bridge-file-viewer-browser-test-app.js';
 import { makeFileDescriptor, makeFrames } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
 	actFrame,
 	actUpdate,
-	makeDeferredContent,
 	openFilePath,
 	openFileState,
-	requireDeactivateFiles,
-	waitForDemandDispatchState,
-	waitForRecordedFetchCount,
+	waitForMetadataTreeRowCount,
+	waitForTreeScrollHeightAtLeast,
 } from './bridge-file-viewer-browser-test-harness.js';
 
 describe('BridgeFileViewerApp Browser Mode', () => {
-	test('preloads visible file tree demand without opening a file session', async () => {
+	test('does not fetch visible file tree demand on the main thread', async () => {
 		const firstDescriptor = makeFileDescriptor({
 			contentHandle: 'first-visible-content',
 			fileId: 'file-first-visible',
@@ -49,27 +54,143 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			/>,
 		);
 
-		await waitForDemandDispatchState('settled');
+		await waitForMetadataTreeRowCount(2);
+		await actFrame();
+		await actFrame();
+		await actFrame();
 
 		const shell = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
 		);
-		expect(shell.getAttribute('data-last-demand-dispatch-stimulus-count')).toBe('1');
-		expect(shell.getAttribute('data-last-demand-dispatch-loaded-count')).toBe('2');
-		expect(shell.getAttribute('data-last-demand-dispatch-failed-count')).toBe('0');
-		expect(shell.getAttribute('data-last-demand-dispatch-first-disposition')).toBe(
-			'visible-preloaded',
-		);
-		expect(shell.getAttribute('data-last-demand-dispatch-first-lane')).toBe('visible');
+		expect(shell.getAttribute('data-last-demand-dispatch-status')).toBe('idle');
+		expect(shell.getAttribute('data-last-demand-dispatch-first-lane')).toBeNull();
 		expect(openFileState()).toBeNull();
 		expect(openFilePath()).toBeNull();
-		expect(fetchedResourceUrls).toEqual([
-			'agentstudio://resource/worktree-file/worktree.fileContent/first-visible-content?generation=1',
-			'agentstudio://resource/worktree-file/worktree.fileContent/second-visible-content?generation=1',
-		]);
+		expect(fetchedResourceUrls).toEqual([]);
 	});
 
-	test('preloads only fetchable visible file tree demand', async () => {
+	test('publishes visible viewport facts to the comm worker on File tree scroll', async () => {
+		const firstDescriptor = makeFileDescriptor({
+			contentHandle: 'first-worker-viewport-content',
+			fileId: 'file-first-worker-viewport',
+			path: 'src/first-worker-viewport.ts',
+		});
+		const secondDescriptor = makeFileDescriptor({
+			contentHandle: 'second-worker-viewport-content',
+			fileId: 'file-second-worker-viewport',
+			path: 'src/second-worker-viewport.ts',
+		});
+		const dispatchedMessages: BridgeWorkerMainToServerMessage[] = [];
+
+		render(
+			<BridgeFileViewerApp
+				fileViewCommWorkerTransportFactory={() => ({
+					dispatch: (message): void => {
+						dispatchedMessages.push(message);
+					},
+					dispose: (): void => {},
+				})}
+				initialFrames={makeFrames(firstDescriptor, secondDescriptor)}
+			/>,
+		);
+
+		await waitForMetadataTreeRowCount(2);
+		await waitForBridgeViewerTreeItemButton('src/first-worker-viewport.ts');
+		await waitForBridgeViewerTreeItemButton('src/second-worker-viewport.ts');
+		const treeScrollOwner = findBridgeViewerTreeScrollOwner();
+		if (treeScrollOwner === null) {
+			throw new Error('Expected File View tree scroll owner for worker viewport demand.');
+		}
+
+		await actUpdate((): void => {
+			treeScrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+		});
+		await actFrame();
+
+		expect(dispatchedMessages.map((message) => message.command)).toContain('fileViewSourceUpdate');
+		const viewportMessage = dispatchedMessages.find(
+			(message): boolean => message.command === 'viewport',
+		);
+		expect(viewportMessage).toMatchObject({
+			command: 'viewport',
+			firstVisibleIndex: 0,
+			lastVisibleIndex: 1,
+			phase: 'settled',
+			visibleItemIds: ['file-first-worker-viewport', 'file-second-worker-viewport'],
+		});
+	});
+
+	test('publishes real scrolled File tree viewport indices to the comm worker', async () => {
+		const descriptors = Array.from({ length: 80 }, (_value, index) => {
+			const paddedIndex = index.toString().padStart(3, '0');
+			return makeFileDescriptor({
+				contentHandle: `scrolled-worker-viewport-content-${paddedIndex}`,
+				fileId: `file-scrolled-worker-viewport-${paddedIndex}`,
+				path: `File-${paddedIndex}.swift`,
+			});
+		});
+		const dispatchedMessages: BridgeWorkerMainToServerMessage[] = [];
+
+		render(
+			<BridgeFileViewerApp
+				fileViewCommWorkerTransportFactory={() => ({
+					dispatch: (message): void => {
+						dispatchedMessages.push(message);
+					},
+					dispose: (): void => {},
+				})}
+				initialFrames={makeFrames(...descriptors)}
+			/>,
+		);
+
+		await waitForMetadataTreeRowCount(80);
+		await waitForTreeScrollHeightAtLeast(80 * 24);
+		const treeScrollOwner = findBridgeViewerTreeScrollOwner();
+		if (treeScrollOwner === null) {
+			throw new Error('Expected File View tree scroll owner for scrolled worker viewport demand.');
+		}
+
+		await actUpdate((): void => {
+			treeScrollOwner.scrollTop = 24 * 30;
+			treeScrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+		});
+
+		const viewportMessage = await waitForViewportMessageWithFirstVisibleIndex({
+			dispatchedMessages,
+			minimumFirstVisibleIndex: 1,
+		});
+		expect(viewportMessage.firstVisibleIndex).toBeGreaterThan(0);
+		expect(viewportMessage.lastVisibleIndex).toBeGreaterThanOrEqual(
+			viewportMessage.firstVisibleIndex,
+		);
+		expect(viewportMessage.visibleItemIds.length).toBeGreaterThan(0);
+	});
+
+	test('does not patch global fetch for worker-backed content loading', async () => {
+		const descriptor = makeFileDescriptor({
+			contentHandle: 'global-fetch-isolation-content',
+			fileId: 'file-global-fetch-isolation',
+			path: 'src/global-fetch-isolation.ts',
+		});
+		const originalFetch = window.fetch;
+
+		render(
+			<BridgeFileViewerApp
+				initialFrames={makeFrames(descriptor)}
+				worktreeFileSurfaceTransport={{
+					fetchResource: async () =>
+						makeWorktreeFileSurfaceRuntimeFetchedResource(
+							'export const globalFetchIsolation = true;\n',
+						),
+				}}
+			/>,
+		);
+
+		await waitForMetadataTreeRowCount(1);
+		expect(window.fetch).toBe(originalFetch);
+	});
+
+	test('keeps non-text visible demand from falling back to legacy fetch', async () => {
 		const textDescriptor = makeFileDescriptor({
 			contentHandle: 'text-visible-content',
 			fileId: 'file-text-visible',
@@ -103,61 +224,43 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			/>,
 		);
 
-		await waitForDemandDispatchState('settled');
+		await waitForMetadataTreeRowCount(3);
+		await actFrame();
+		await actFrame();
+		await actFrame();
 
 		const shell = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
 		);
-		expect(shell.getAttribute('data-last-demand-dispatch-loaded-count')).toBe('1');
-		expect(shell.getAttribute('data-last-demand-dispatch-failed-count')).toBe('0');
-		expect(fetchedResourceUrls).toEqual([
-			'agentstudio://resource/worktree-file/worktree.fileContent/text-visible-content?generation=1',
-		]);
+		expect(shell.getAttribute('data-last-demand-dispatch-status')).toBe('idle');
+		expect(shell.getAttribute('data-last-demand-dispatch-first-lane')).toBeNull();
+		expect(fetchedResourceUrls).toEqual([]);
 	});
 
-	test('ignores visible demand results that settle after Files becomes inactive', async () => {
+	test('does not start visible demand fetch work before Files becomes inactive', async () => {
 		const visibleDescriptor = makeFileDescriptor({
 			contentHandle: 'inactive-visible-content',
 			fileId: 'file-inactive-visible',
 			path: 'src/inactive-visible.ts',
 		});
-		const deferredContent = makeDeferredContent();
 		const fetchedResourceUrls: string[] = [];
-		let deactivateFiles: (() => void) | null = null;
 
-		function ControlledFileViewer(): ReactElement {
-			const [isActive, setIsActive] = useState(true);
-			deactivateFiles = (): void => {
-				setIsActive(false);
-			};
-			return (
-				<BridgeFileViewerApp
-					initialFrames={makeFrames(visibleDescriptor)}
-					isActive={isActive}
-					worktreeFileSurfaceTransport={{
-						fetchResource: (props) => {
-							fetchedResourceUrls.push(props.resourceUrl);
-							return deferredContent.promise;
-						},
-					}}
-				/>
-			);
-		}
+		render(
+			<BridgeFileViewerApp
+				initialFrames={makeFrames(visibleDescriptor)}
+				isActive={false}
+				worktreeFileSurfaceTransport={{
+					fetchResource: async (props) => {
+						fetchedResourceUrls.push(props.resourceUrl);
+						return makeWorktreeFileSurfaceRuntimeFetchedResource(
+							'export const inactiveVisible = true;\n',
+						);
+					},
+				}}
+			/>,
+		);
 
-		render(<ControlledFileViewer />);
-
-		await waitForRecordedFetchCount({
-			expectedCount: 1,
-			recordedFetches: fetchedResourceUrls,
-		});
-		const deactivate = requireDeactivateFiles(deactivateFiles);
-		await actUpdate(deactivate);
-		await actFrame();
-		await actUpdate((): void => {
-			deferredContent.resolve(
-				makeWorktreeFileSurfaceRuntimeFetchedResource('export const inactiveVisible = true;\n'),
-			);
-		});
+		await waitForMetadataTreeRowCount(1);
 		await actFrame();
 		await actFrame();
 
@@ -167,5 +270,43 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(shell.getAttribute('data-file-viewer-active')).toBe('false');
 		expect(shell.getAttribute('data-last-demand-dispatch-status')).toBe('idle');
 		expect(shell.getAttribute('data-last-demand-dispatch-first-lane')).toBeNull();
+		expect(fetchedResourceUrls).toEqual([]);
 	});
 });
+
+async function waitForViewportMessageWithFirstVisibleIndex(props: {
+	readonly attempt?: number;
+	readonly dispatchedMessages: readonly BridgeWorkerMainToServerMessage[];
+	readonly minimumFirstVisibleIndex: number;
+}): Promise<BridgeWorkerViewportCommand> {
+	const viewportMessage = latestViewportMessage(props.dispatchedMessages);
+	if (
+		viewportMessage !== null &&
+		viewportMessage.firstVisibleIndex >= props.minimumFirstVisibleIndex
+	) {
+		return viewportMessage;
+	}
+	const attempt = props.attempt ?? 0;
+	if (attempt >= 30) {
+		throw new Error(
+			`Expected viewport firstVisibleIndex >= ${props.minimumFirstVisibleIndex}; actual=${viewportMessage?.firstVisibleIndex ?? 'missing'}`,
+		);
+	}
+	await actFrame();
+	return waitForViewportMessageWithFirstVisibleIndex({
+		attempt: attempt + 1,
+		dispatchedMessages: props.dispatchedMessages,
+		minimumFirstVisibleIndex: props.minimumFirstVisibleIndex,
+	});
+}
+
+function latestViewportMessage(
+	messages: readonly BridgeWorkerMainToServerMessage[],
+): BridgeWorkerViewportCommand | null {
+	for (const message of messages.toReversed()) {
+		if (message.command === 'viewport') {
+			return message;
+		}
+	}
+	return null;
+}

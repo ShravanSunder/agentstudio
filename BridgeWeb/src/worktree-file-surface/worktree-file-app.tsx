@@ -16,11 +16,6 @@ import type {
 	WorktreeTreeVirtualizedSizeFacts,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import {
-	bridgeFileViewerHasActiveCommentDraft,
-	bridgeFileViewerStaleAutoRefreshCoalesceMilliseconds,
-	shouldAutoRefreshStaleOpenFile,
-} from '../file-viewer/bridge-file-viewer-stale-refresh-policy.js';
-import {
 	createWorktreeFileSurfaceRuntime,
 	type WorktreeFileSurfaceRuntime,
 	type WorktreeFileSurfaceRuntimeFetchedResource,
@@ -305,25 +300,6 @@ export function WorktreeFileApp({
 		setOpenFileState({ status: 'failed', path: state.path, descriptor: state.descriptor });
 	}, []);
 
-	useEffect((): (() => void) | undefined => {
-		if (openFileState.status !== 'stale') {
-			return undefined;
-		}
-		if (
-			!shouldAutoRefreshStaleOpenFile({
-				hasActiveCommentDraft: bridgeFileViewerHasActiveCommentDraft,
-			})
-		) {
-			return undefined;
-		}
-		const coalesceTimeout = setTimeout((): void => {
-			void refreshOpenFile(openFileState);
-		}, bridgeFileViewerStaleAutoRefreshCoalesceMilliseconds);
-		return (): void => {
-			clearTimeout(coalesceTimeout);
-		};
-	}, [openFileState, refreshOpenFile]);
-
 	const descriptorProjection = useMemo(
 		() =>
 			projectWorktreeFileDescriptors({
@@ -501,10 +477,7 @@ export function WorktreeFileApp({
 							{openFileBody}
 						</pre>
 					)}
-					{openFileState.status === 'stale' &&
-					!shouldAutoRefreshStaleOpenFile({
-						hasActiveCommentDraft: bridgeFileViewerHasActiveCommentDraft,
-					}) ? (
+					{openFileState.status === 'stale' ? (
 						<div
 							className="bridge-worktree-file-stale-notice"
 							data-testid="worktree-file-content-stale"

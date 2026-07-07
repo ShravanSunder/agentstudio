@@ -5,15 +5,8 @@ import type {
 	WorktreeFileFrameSubscriptionDispose,
 	WorktreeFileInitialSurface,
 } from '../worktree-file-surface/worktree-file-app.js';
-import type {
-	WorktreeFileSurfaceRuntimeFetchedResource,
-	WorktreeFileSurfaceRuntimeFetchResourceProps,
-} from '../worktree-file-surface/worktree-file-surface-runtime.js';
 
 interface BridgeFileViewerWorktreeFileSurfaceTransportBackend {
-	readonly fetchWorktreeFileResource: (
-		props: WorktreeFileSurfaceRuntimeFetchResourceProps,
-	) => Promise<WorktreeFileSurfaceRuntimeFetchedResource>;
 	readonly loadWorktreeFileSurface: () => Promise<WorktreeFileInitialSurface>;
 	readonly registerWorktreeFileStreamResetRequiredCallback?: (callback: () => void) => () => void;
 	readonly requestWorktreeFileDescriptor: (request: WorktreeFileDescriptorRequest) => Promise<void>;
@@ -26,7 +19,6 @@ export function createBridgeFileViewerWorktreeFileSurfaceTransport(
 	backend: BridgeFileViewerWorktreeFileSurfaceTransportBackend,
 ): BridgeFileViewerWorktreeFileSurfaceTransport {
 	return {
-		fetchResource: backend.fetchWorktreeFileResource,
 		loadInitialSurface: backend.loadWorktreeFileSurface,
 		...(backend.registerWorktreeFileStreamResetRequiredCallback === undefined
 			? {}

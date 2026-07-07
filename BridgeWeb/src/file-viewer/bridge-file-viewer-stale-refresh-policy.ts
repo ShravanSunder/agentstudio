@@ -7,7 +7,7 @@ export interface BridgeFileViewerStaleRefreshPolicyProps {
 	readonly hasActiveCommentDraft: boolean;
 }
 
-export function shouldAutoRefreshStaleOpenFile(
+export function shouldSuppressStaleOpenFileNotice(
 	props: BridgeFileViewerStaleRefreshPolicyProps,
 ): boolean {
 	return !props.hasActiveCommentDraft;
@@ -17,8 +17,3 @@ export function shouldAutoRefreshStaleOpenFile(
  * when comment anchoring lands this becomes a live per-file predicate and
  * the stale prompt re-enables itself for files with drafts. */
 export const bridgeFileViewerHasActiveCommentDraft = false;
-
-/** Trailing coalesce for auto-refresh: bursts of stale frames (rapid
- * successive edits, invalidation storms) collapse into one refresh instead
- * of a refresh + rerender per frame. */
-export const bridgeFileViewerStaleAutoRefreshCoalesceMilliseconds = 150;

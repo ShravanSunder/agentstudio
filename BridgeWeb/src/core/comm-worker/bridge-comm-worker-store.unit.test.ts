@@ -591,6 +591,44 @@ describe('Bridge comm worker store', () => {
 		]);
 	});
 
+	test('file view source updates retain selected stale paint when metadata is temporarily absent', () => {
+		const store = createBridgeCommWorkerStore({
+			contentItems: [makeWorkerFileViewContentMetadata('file-1')],
+			rows: [{ id: 'file-1', parentId: null, index: 0 }],
+		});
+		store.actions.applySelectedFact({ itemId: 'file-1', epoch: 13 });
+		store.actions.applyContentReady({
+			itemId: 'file-1',
+			contentCacheKey: 'file-view:sha256:file-1',
+		});
+		store.actions.takePendingSlicePatchEvent({ epoch: 13, sequence: 1 });
+
+		const sourceUpdateResult = store.actions.applyFileViewSourceUpdateFact({
+			contentItems: [],
+			epoch: 14,
+			rows: [],
+		});
+
+		expect(store.getState().paintReadyByItemId.get('file-1')).toBe('file-view:sha256:file-1');
+		expect(store.getState().byteCache.get('file-view:sha256:file-1')).toBe('file-1');
+		expect(store.getState().availabilityByItemId.get('file-1')).toBe('stale');
+		expect(Object.fromEntries(store.getState().demandByKey)).toEqual({});
+		expect(sourceUpdateResult.touchedKeys).toEqual([
+			'sourceRows',
+			'sourceContentMetadata',
+			'availability:file-1',
+			'demand:file-1',
+		]);
+		expect(store.actions.takePendingSlicePatchEvent({ epoch: 14, sequence: 2 })?.patches).toEqual([
+			{
+				slice: 'contentAvailability',
+				operation: 'upsert',
+				itemId: 'file-1',
+				payload: { state: 'stale' },
+			},
+		]);
+	});
+
 	test('file view source updates remove ready paint when content becomes unavailable', () => {
 		const store = createBridgeCommWorkerStore({
 			contentItems: [makeWorkerFileViewContentMetadata('file-1')],

@@ -12,7 +12,7 @@ import {
 	waitForBridgeViewerAnimationFrame,
 	waitForBridgeViewerTreeItemButton,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
-import { BridgeFileViewerApp } from './bridge-file-viewer-app.js';
+import { BridgeFileViewerBrowserHarnessApp as BridgeFileViewerApp } from './bridge-file-viewer-browser-test-app.js';
 import {
 	makeFlatFileTreeRows,
 	makeSourceIdentity,
@@ -36,7 +36,7 @@ describe('BridgeFileViewerApp virtualizer anchoring', () => {
 		document.body.replaceChildren();
 	});
 
-	test('keeps the first visible tree row anchored when a reset prepends rows above it', async () => {
+	test('does not app-side anchor restore when a reset prepends rows above the viewport', async () => {
 		let publishFrames: PublishWorktreeFileFrames | null = null;
 		const telemetrySamples: BridgeTelemetrySample[] = [];
 
@@ -80,14 +80,13 @@ describe('BridgeFileViewerApp virtualizer anchoring', () => {
 		await waitForMetadataTreeRowCount(310);
 		await waitForTreeScrollHeightAtLeast(310 * 24);
 		await waitForBridgeViewerTreeItemButton(anchorPath);
-		await waitForTreeItemOffsetFromScrollOwner({
-			expectedOffset: anchorOffsetBefore,
-			maxDelta: 1,
+		const anchorOffsetAfter = requireTreeItemOffsetFromScrollOwner({
 			path: anchorPath,
 			scrollOwner,
 		});
 
-		expect(scrollOwner.scrollTop).toBeGreaterThan(scrollTopBefore);
+		expect(anchorOffsetAfter - anchorOffsetBefore).toBeGreaterThanOrEqual(10 * 24 - 1);
+		expect(scrollOwner.scrollTop).toBe(scrollTopBefore);
 		expect(
 			telemetrySamples.filter(
 				(sample): boolean => sample.name === 'performance.bridge.trees.anchor_restore',
@@ -175,31 +174,4 @@ function requireTreeItemOffsetFromScrollOwner(props: {
 		throw new Error(`Expected FileView tree item ${props.path}.`);
 	}
 	return button.getBoundingClientRect().top - props.scrollOwner.getBoundingClientRect().top;
-}
-
-async function waitForTreeItemOffsetFromScrollOwner(props: {
-	readonly expectedOffset: number;
-	readonly maxDelta: number;
-	readonly path: string;
-	readonly remainingAttempts?: number;
-	readonly scrollOwner: HTMLElement;
-}): Promise<void> {
-	const currentOffset = requireTreeItemOffsetFromScrollOwner({
-		path: props.path,
-		scrollOwner: props.scrollOwner,
-	});
-	if (Math.abs(currentOffset - props.expectedOffset) <= props.maxDelta) {
-		return;
-	}
-	const remainingAttempts = props.remainingAttempts ?? 12;
-	if (remainingAttempts <= 0) {
-		throw new Error(
-			`Expected FileView tree path ${props.path} near offset ${props.expectedOffset}; actual=${currentOffset}; scrollTop=${props.scrollOwner.scrollTop}`,
-		);
-	}
-	await actFrame();
-	await waitForTreeItemOffsetFromScrollOwner({
-		...props,
-		remainingAttempts: remainingAttempts - 1,
-	});
 }

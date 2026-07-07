@@ -12,7 +12,6 @@ import type {
 	WorktreeFileInitialSurface,
 	WorktreeFileSurfaceProvenance,
 } from '../worktree-file-surface/worktree-file-app.js';
-import type { WorktreeFileSurfaceRuntime } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import {
 	applyFramesToRuntime,
 	reconcileOpenFileStateWithFrames,
@@ -20,6 +19,7 @@ import {
 	type BridgeFileViewerInitialSurfaceLoadState,
 	type BridgeFileViewerOpenState,
 	type BridgeFileViewerRenderState,
+	type WorktreeFileRuntimeFrameApplier,
 } from './bridge-file-viewer-state.js';
 import { useBridgeFileViewerInitialSurfaceLoader } from './use-bridge-file-viewer-initial-surface-loader.js';
 
@@ -28,11 +28,10 @@ interface UseBridgeFileViewerFrameIntakeControllerProps {
 	readonly initialFrames: readonly WorktreeFileProtocolFrame[] | undefined;
 	readonly loadInitialFrames: (() => Promise<readonly WorktreeFileProtocolFrame[]>) | undefined;
 	readonly loadInitialSurface: (() => Promise<WorktreeFileInitialSurface>) | undefined;
-	readonly openFileBodyRef: MutableRefObject<string | null>;
 	readonly openFileRequestIdRef: MutableRefObject<number>;
 	readonly openPendingSelectedDescriptor: (nextState: BridgeFileViewerRenderState) => void;
 	readonly renderStateRef: MutableRefObject<BridgeFileViewerRenderState>;
-	readonly runtimeRef: MutableRefObject<WorktreeFileSurfaceRuntime | null>;
+	readonly runtimeRef: MutableRefObject<WorktreeFileRuntimeFrameApplier | null>;
 	readonly setInitialSurfaceLoadState: (state: BridgeFileViewerInitialSurfaceLoadState) => void;
 	readonly setOpenFileState: (
 		openFileState:
@@ -53,7 +52,6 @@ export function useBridgeFileViewerFrameIntakeController(
 		initialFrames,
 		loadInitialFrames,
 		loadInitialSurface,
-		openFileBodyRef,
 		openFileRequestIdRef,
 		openPendingSelectedDescriptor,
 		renderStateRef,
@@ -102,7 +100,6 @@ export function useBridgeFileViewerFrameIntakeController(
 				reconcileOpenFileStateWithFrames({
 					currentOpenFileState,
 					frames,
-					openFileBodyRef,
 					openFileRequestIdRef,
 				}),
 			);
@@ -111,7 +108,6 @@ export function useBridgeFileViewerFrameIntakeController(
 			return nextState;
 		},
 		[
-			openFileBodyRef,
 			openFileRequestIdRef,
 			openPendingSelectedDescriptor,
 			renderStateRef,

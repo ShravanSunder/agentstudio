@@ -23,7 +23,7 @@ import type {
 } from './bridge-file-viewer-contracts.js';
 import {
 	bridgeFileViewerHasActiveCommentDraft,
-	shouldAutoRefreshStaleOpenFile,
+	shouldSuppressStaleOpenFileNotice,
 } from './bridge-file-viewer-stale-refresh-policy.js';
 import {
 	firstSuccessfulDemandLoadResult,
@@ -294,7 +294,7 @@ export function BridgeFileViewerShell({
 							selectedCodeViewItem={selectedCodeViewItem}
 							staleNotice={
 								openFileState.status === 'stale' &&
-								!shouldAutoRefreshStaleOpenFile({
+								!shouldSuppressStaleOpenFileNotice({
 									hasActiveCommentDraft: bridgeFileViewerHasActiveCommentDraft,
 								}) ? (
 									<BridgeFileViewerStaleNotice

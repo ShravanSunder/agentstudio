@@ -56,14 +56,16 @@ export function applyBridgeCommWorkerFileViewSourceUpdateFact(
 	for (const itemId of sourceRepairCandidateIds(previousState)) {
 		const metadata = sourceIndexes.contentMetadataByItemId.get(itemId) ?? null;
 		const isDemandEligible = isDemandEligibleContentMetadata(metadata);
-		const isDemandTarget =
-			previousState.selectedId === itemId || previousState.visibleIds.includes(itemId);
+		const isSelectedItem = previousState.selectedId === itemId;
+		const isDemandTarget = isSelectedItem || previousState.visibleIds.includes(itemId);
 		const previousContentCacheKey = previousState.paintReadyByItemId.get(itemId);
 		const keepsReadyPaint =
 			previousContentCacheKey !== undefined &&
 			isDemandEligible &&
 			metadata?.cacheKey === previousContentCacheKey;
-		if (previousContentCacheKey !== undefined && !keepsReadyPaint) {
+		const keepsStaleSelectedPaint =
+			previousContentCacheKey !== undefined && metadata === null && isSelectedItem;
+		if (previousContentCacheKey !== undefined && !keepsReadyPaint && !keepsStaleSelectedPaint) {
 			nextPaintReadyByItemId.delete(itemId);
 			nextByteCache.delete(previousContentCacheKey);
 			touchedKeys.add(`paintReady:${itemId}`);
@@ -77,6 +79,7 @@ export function applyBridgeCommWorkerFileViewSourceUpdateFact(
 
 		const nextAvailability = nextAvailabilityForFileViewSourceUpdate({
 			hasReadyPaint: keepsReadyPaint,
+			hasStaleSelectedPaint: keepsStaleSelectedPaint,
 			isDemandEligible,
 			isDemandTarget,
 			previousContentCacheKey,
@@ -179,12 +182,16 @@ function sourceRepairCandidateIds(state: BridgeCommWorkerStoreState): readonly s
 
 function nextAvailabilityForFileViewSourceUpdate(props: {
 	readonly hasReadyPaint: boolean;
+	readonly hasStaleSelectedPaint: boolean;
 	readonly isDemandEligible: boolean;
 	readonly isDemandTarget: boolean;
 	readonly previousContentCacheKey: string | undefined;
 }): BridgeWorkerContentAvailabilityPatchPayload['state'] | null {
 	if (props.hasReadyPaint) {
 		return 'ready';
+	}
+	if (props.hasStaleSelectedPaint) {
+		return 'stale';
 	}
 	if (
 		!props.isDemandEligible &&

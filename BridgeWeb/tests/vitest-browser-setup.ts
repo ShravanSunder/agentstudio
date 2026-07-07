@@ -1,3 +1,4 @@
+import { act } from 'react';
 import { afterEach, beforeEach } from 'vitest';
 import { cleanup } from 'vitest-browser-react';
 
@@ -41,9 +42,12 @@ beforeEach((): void => {
 	installBridgeViewerFailureGuards();
 });
 
-afterEach((): void => {
+afterEach(async (): Promise<void> => {
 	uninstallBridgeViewerFailureGuards();
-	cleanup();
+	await act(async (): Promise<void> => {
+		cleanup();
+		await Promise.resolve();
+	});
 	document.body.replaceChildren();
 	document.documentElement.removeAttribute('data-bridge-nonce');
 	if (browserFailureMessages.length > 0) {

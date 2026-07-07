@@ -2,7 +2,7 @@ import type { MutableRefObject } from 'react';
 import { z } from 'zod';
 
 import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
-import { loadBridgeTextResourceWithTiming } from '../core/resources/bridge-resource-stream.js';
+import type { WorktreeFileMaterializerDelta } from '../features/worktree-file/materialization/worktree-file-materializer.js';
 import type {
 	WorktreeFileDescriptor,
 	WorktreeFileDescriptorRequest,
@@ -16,9 +16,6 @@ import type { WorktreeFileSurfaceProvenance } from '../worktree-file-surface/wor
 import type {
 	WorktreeFileSurfaceDemandDispatchResult,
 	WorktreeFileSurfaceLoadResult,
-	WorktreeFileSurfaceRuntime,
-	WorktreeFileSurfaceRuntimeFetchedResource,
-	WorktreeFileSurfaceRuntimeFetchResourceProps,
 } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import type {
 	BridgeFileViewerDescriptorProjection,
@@ -53,12 +50,6 @@ export type BridgeFileViewerActiveOpenState = Exclude<
 	{ readonly status: 'idle' }
 >;
 
-export interface CommitOpenFileBodyProps {
-	readonly body: string;
-	readonly descriptor: WorktreeFileDescriptor;
-	readonly path: string;
-}
-
 export interface BridgeFileViewerRefreshDebugState {
 	readonly commitState: 'committed' | 'ignored' | 'skipped' | 'started';
 	readonly currentRequestId: number;
@@ -66,7 +57,6 @@ export interface BridgeFileViewerRefreshDebugState {
 	readonly requestId: number;
 	readonly result:
 		| 'non_stale_state'
-		| 'duplicate_stale_auto_refresh_failure'
 		| 'started'
 		| 'ok'
 		| Extract<WorktreeFileSurfaceLoadResult, { readonly ok: false }>['reason'];
@@ -168,14 +158,43 @@ export function visibleFileDemandChangeWithoutDescriptorId(
 	change: BridgeFileViewerVisibleFileDemandChange,
 	descriptorId: string,
 ): BridgeFileViewerVisibleFileDemandChange | null {
-	const descriptorRefs = change.descriptorRefs.filter(
-		(descriptorRef): boolean => descriptorRef.descriptorId !== descriptorId,
+	const retainedEntries = change.descriptorRefs.flatMap(
+		(
+			descriptorRef,
+			descriptorIndex,
+		): readonly {
+			readonly descriptorRef: BridgeFileViewerVisibleFileDemandChange['descriptorRefs'][number];
+			readonly visibleItemIndex: number | undefined;
+			readonly visibleItemId: string | undefined;
+		}[] =>
+			descriptorRef.descriptorId === descriptorId
+				? []
+				: [
+						{
+							descriptorRef,
+							visibleItemIndex: change.visibleItemIndexes[descriptorIndex],
+							visibleItemId: change.visibleItemIds[descriptorIndex],
+						},
+					],
 	);
+	const descriptorRefs = retainedEntries.map((entry) => entry.descriptorRef);
+	const visibleItemIndexes = retainedEntries.flatMap((entry): readonly number[] => {
+		const visibleItemIndex = entry.visibleItemIndex;
+		return visibleItemIndex === undefined ? [] : [visibleItemIndex];
+	});
+	const visibleItemIds = retainedEntries.flatMap((entry): readonly string[] => {
+		const visibleItemId = entry.visibleItemId;
+		return visibleItemId === undefined ? [] : [visibleItemId];
+	});
 	return descriptorRefs.length === 0
 		? null
 		: {
 				...change,
 				descriptorRefs,
+				firstVisibleIndex: Math.min(...visibleItemIndexes),
+				lastVisibleIndex: Math.max(...visibleItemIndexes),
+				visibleItemIds,
+				visibleItemIndexes,
 				visibleFileCount: descriptorRefs.length,
 			};
 }
@@ -401,7 +420,21 @@ export function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
-export type WorktreeFileRuntimeFrameApplier = Pick<WorktreeFileSurfaceRuntime, 'applyFrame'>;
+export type WorktreeFileRuntimeFrameApplyResult =
+	| {
+			readonly ok: true;
+			readonly deltaKind: WorktreeFileMaterializerDelta['kind'];
+			readonly autoDemandCount?: number;
+			readonly cancelledDemandCount?: number;
+	  }
+	| {
+			readonly ok: false;
+			readonly reason: 'descriptor_rejected' | 'invalid_frame' | 'unsupported_frame';
+	  };
+
+export interface WorktreeFileRuntimeFrameApplier {
+	applyFrame(frame: WorktreeFileProtocolFrame): WorktreeFileRuntimeFrameApplyResult;
+}
 
 export function applyFramesToRuntime(props: {
 	readonly currentRenderState: BridgeFileViewerRenderState;
@@ -529,7 +562,6 @@ export function pruneEmptyWorktreeFileTreeDirectories(
 export function reconcileOpenFileStateWithFrames(props: {
 	readonly currentOpenFileState: BridgeFileViewerOpenState;
 	readonly frames: readonly WorktreeFileProtocolFrame[];
-	readonly openFileBodyRef: MutableRefObject<string | null>;
 	readonly openFileRequestIdRef: MutableRefObject<number>;
 }): BridgeFileViewerOpenState {
 	if (props.currentOpenFileState.status === 'idle') {
@@ -785,18 +817,4 @@ export function totalOpenFileHeightForState(
 			return null;
 	}
 	return null;
-}
-
-export async function defaultFetchWorktreeFileResource(
-	props: WorktreeFileSurfaceRuntimeFetchResourceProps,
-): Promise<WorktreeFileSurfaceRuntimeFetchedResource> {
-	return await loadBridgeTextResourceWithTiming({
-		integrity: props.descriptor.content.integrity,
-		maxBytes: props.descriptor.content.maxBytes,
-		onTextChunk: props.onTextChunk,
-		performFetch: async (): Promise<Response> =>
-			await fetch(props.resourceUrl, { signal: props.signal }),
-		probe: props.probe,
-		signal: props.signal,
-	});
 }

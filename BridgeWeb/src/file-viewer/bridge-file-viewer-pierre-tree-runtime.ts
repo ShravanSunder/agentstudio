@@ -29,6 +29,7 @@ import type {
 } from './bridge-file-viewer-contracts.js';
 import {
 	pierreFileTreeScrollElementForDemand,
+	visibleFileDemandChangeForPierreDemand,
 	visibleDescriptorRefsForPierreDemand,
 } from './bridge-file-viewer-pierre-visible-demand.js';
 
@@ -152,26 +153,24 @@ export function useBridgeFileViewerPierreTreeRuntime(
 			return;
 		}
 		const publishStartedAt = performance.now();
-		const descriptorRefs = visibleDescriptorRefsForPierreDemand({
+		const demandChange = visibleFileDemandChangeForPierreDemand({
 			fileDescriptorByPath: fileDescriptorByPathRef.current,
 			model,
 			telemetryRecorder,
 			telemetryTraceContext,
+			treeRows: treeRowsRef.current,
 		});
-		if (descriptorRefs.length === 0) {
+		if (demandChange === null) {
 			return;
 		}
-		onVisibleFileDemandChange({
-			descriptorRefs,
-			visibleFileCount: descriptorRefs.length,
-		});
+		onVisibleFileDemandChange(demandChange);
 		if (telemetryRecorder !== undefined) {
 			recordBridgeTreeScrollVisibleDemandTelemetrySample({
 				durationMilliseconds: performance.now() - publishStartedAt,
 				telemetryRecorder,
 				traceContext: telemetryTraceContext,
 				viewer: 'file',
-				visibleItemCount: descriptorRefs.length,
+				visibleItemCount: demandChange.visibleFileCount,
 			});
 		}
 	}, [
@@ -212,6 +211,7 @@ export function useBridgeFileViewerPierreTreeRuntime(
 						model,
 						telemetryRecorder,
 						telemetryTraceContext,
+						treeRows: treeRowsRef.current,
 					}).length,
 					fallbackTraceContext: telemetryTraceContext,
 				});

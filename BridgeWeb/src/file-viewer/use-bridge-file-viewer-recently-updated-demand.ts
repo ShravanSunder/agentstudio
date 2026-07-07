@@ -1,35 +1,20 @@
 import { useCallback, useEffect, type MutableRefObject } from 'react';
 
-import type {
-	WorktreeFileDescriptor,
-	WorktreeFileDescriptorRequest,
-	WorktreeFileDemandStimulus,
-} from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import type { WorktreeFileDescriptorRequest } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import { canFetchWorktreeFileDescriptorContent } from '../features/worktree-file/models/worktree-file-protocol-models.js';
-import type { WorktreeFileSurfaceRuntime } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import {
 	bridgeFileViewerRecentlyUpdatedEventDetailSchema,
 	bridgeFileViewerRecentlyUpdatedEventName,
-	type BridgeFileViewerDemandDispatchDebugState,
-	type BridgeFileViewerOpenState,
 	type BridgeFileViewerPendingRecentlyUpdatedDescriptorDemand,
 	type BridgeFileViewerRenderState,
 } from './bridge-file-viewer-state.js';
 
 interface UseBridgeFileViewerRecentlyUpdatedDemandProps {
 	readonly isActive: boolean;
-	readonly isActiveRef: MutableRefObject<boolean>;
-	readonly openFileStateRef: MutableRefObject<BridgeFileViewerOpenState>;
 	readonly pendingRecentlyUpdatedDescriptorDemandRef: MutableRefObject<BridgeFileViewerPendingRecentlyUpdatedDescriptorDemand | null>;
-	readonly recentlyUpdatedDemandInFlightRef: MutableRefObject<boolean>;
-	readonly recentlyUpdatedLoadedDescriptorIdRef: MutableRefObject<string | null>;
 	readonly recentlyUpdatedDemandRequestIdRef: MutableRefObject<number>;
 	readonly renderStateRef: MutableRefObject<BridgeFileViewerRenderState>;
 	readonly requestFileDescriptorForDemand: (request: WorktreeFileDescriptorRequest) => void;
-	readonly runtimeRef: MutableRefObject<WorktreeFileSurfaceRuntime | null>;
-	readonly setLastDemandDispatchDebugState: (
-		state: BridgeFileViewerDemandDispatchDebugState,
-	) => void;
 }
 
 interface BridgeFileViewerRecentlyUpdatedDemandController {
@@ -41,92 +26,14 @@ export function useBridgeFileViewerRecentlyUpdatedDemand(
 ): BridgeFileViewerRecentlyUpdatedDemandController {
 	const {
 		isActive,
-		isActiveRef,
-		openFileStateRef,
 		pendingRecentlyUpdatedDescriptorDemandRef,
-		recentlyUpdatedDemandInFlightRef,
-		recentlyUpdatedLoadedDescriptorIdRef,
 		recentlyUpdatedDemandRequestIdRef,
 		renderStateRef,
 		requestFileDescriptorForDemand,
-		runtimeRef,
-		setLastDemandDispatchDebugState,
 	} = props;
-	const dispatchRecentlyUpdatedDescriptorDemand = useCallback(
-		(demandProps: {
-			readonly descriptor: WorktreeFileDescriptor;
-			readonly openFilePathBefore: string | null;
-			readonly proximity: 'nearby' | 'remote';
-			readonly requestId: number;
-		}): void => {
-			const runtime = runtimeRef.current;
-			if (runtime === null) {
-				return;
-			}
-			const stimuli: readonly WorktreeFileDemandStimulus[] = [
-				{
-					kind: 'recentlyUpdatedFile',
-					descriptorRef: demandProps.descriptor.contentDescriptor.ref,
-					proximity: demandProps.proximity,
-					sourceIdentity: demandProps.descriptor.sourceIdentity.sourceId,
-				},
-			];
-			recentlyUpdatedDemandInFlightRef.current = true;
-			recentlyUpdatedLoadedDescriptorIdRef.current =
-				demandProps.descriptor.contentDescriptor.ref.descriptorId;
-			void runtime
-				.dispatchDemandStimuli(stimuli)
-				.then((result): void => {
-					if (!isActiveRef.current) {
-						return;
-					}
-					if (recentlyUpdatedDemandRequestIdRef.current !== demandProps.requestId) {
-						return;
-					}
-					const openFilePathAfter =
-						openFileStateRef.current.status === 'idle' ? null : openFileStateRef.current.path;
-					setLastDemandDispatchDebugState({
-						origin: {
-							descriptorPath: demandProps.descriptor.path,
-							kind: 'recentlyUpdatedFile',
-							openFilePathAfter,
-							openFilePathBefore: demandProps.openFilePathBefore,
-						},
-						status: 'settled',
-						result,
-					});
-				})
-				.catch((error: unknown): void => {
-					if (!isActiveRef.current) {
-						return;
-					}
-					if (recentlyUpdatedDemandRequestIdRef.current !== demandProps.requestId) {
-						return;
-					}
-					setLastDemandDispatchDebugState({
-						status: 'failed',
-						reason: error instanceof Error ? error.message : String(error),
-					});
-				})
-				.finally((): void => {
-					if (recentlyUpdatedDemandRequestIdRef.current === demandProps.requestId) {
-						recentlyUpdatedDemandInFlightRef.current = false;
-					}
-				});
-		},
-		[
-			isActiveRef,
-			openFileStateRef,
-			recentlyUpdatedDemandInFlightRef,
-			recentlyUpdatedDemandRequestIdRef,
-			recentlyUpdatedLoadedDescriptorIdRef,
-			runtimeRef,
-			setLastDemandDispatchDebugState,
-		],
-	);
 	const replayPendingDescriptorDemand = useCallback(
 		(nextState: BridgeFileViewerRenderState): void => {
-			if (!isActiveRef.current) {
+			if (!isActive) {
 				return;
 			}
 			const pendingDemand = pendingRecentlyUpdatedDescriptorDemandRef.current;
@@ -143,18 +50,8 @@ export function useBridgeFileViewerRecentlyUpdatedDemand(
 				return;
 			}
 			pendingRecentlyUpdatedDescriptorDemandRef.current = null;
-			dispatchRecentlyUpdatedDescriptorDemand({
-				descriptor,
-				openFilePathBefore: pendingDemand.openFilePathBefore,
-				proximity: pendingDemand.proximity,
-				requestId: pendingDemand.requestId,
-			});
 		},
-		[
-			dispatchRecentlyUpdatedDescriptorDemand,
-			isActiveRef,
-			pendingRecentlyUpdatedDescriptorDemandRef,
-		],
+		[isActive, pendingRecentlyUpdatedDescriptorDemandRef],
 	);
 	const dispatchRecentlyUpdatedFileDemand = useCallback(
 		(event: Event): void => {
@@ -168,9 +65,8 @@ export function useBridgeFileViewerRecentlyUpdatedDemand(
 			if (!parsedDetail.success) {
 				return;
 			}
-			const runtime = runtimeRef.current;
 			const currentRenderState = renderStateRef.current;
-			if (runtime === null || currentRenderState.sourceIdentity === null) {
+			if (currentRenderState.sourceIdentity === null) {
 				return;
 			}
 			if (currentRenderState.sourceIdentity.sourceId !== parsedDetail.data.sourceIdentity) {
@@ -179,17 +75,7 @@ export function useBridgeFileViewerRecentlyUpdatedDemand(
 			const descriptor = currentRenderState.descriptors.find(
 				(candidateDescriptor): boolean => candidateDescriptor.path === parsedDetail.data.path,
 			);
-			const openFilePathBefore =
-				openFileStateRef.current.status === 'idle' ? null : openFileStateRef.current.path;
-			const requestId = recentlyUpdatedDemandRequestIdRef.current + 1;
-			recentlyUpdatedDemandRequestIdRef.current = requestId;
 			if (descriptor !== undefined && canFetchWorktreeFileDescriptorContent(descriptor)) {
-				dispatchRecentlyUpdatedDescriptorDemand({
-					descriptor,
-					openFilePathBefore,
-					proximity: parsedDetail.data.proximity,
-					requestId,
-				});
 				return;
 			}
 			const treeRow = currentRenderState.treeRows.find(
@@ -198,6 +84,8 @@ export function useBridgeFileViewerRecentlyUpdatedDemand(
 			if (treeRow === undefined || treeRow.fileId === undefined) {
 				return;
 			}
+			const requestId = recentlyUpdatedDemandRequestIdRef.current + 1;
+			recentlyUpdatedDemandRequestIdRef.current = requestId;
 			const descriptorRequest: WorktreeFileDescriptorRequest = {
 				fileId: treeRow.fileId,
 				lane: parsedDetail.data.proximity === 'nearby' ? 'nearby' : 'speculative',
@@ -206,7 +94,7 @@ export function useBridgeFileViewerRecentlyUpdatedDemand(
 				sourceIdentity: currentRenderState.sourceIdentity,
 			};
 			pendingRecentlyUpdatedDescriptorDemandRef.current = {
-				openFilePathBefore,
+				openFilePathBefore: null,
 				proximity: parsedDetail.data.proximity,
 				request: descriptorRequest,
 				requestId,
@@ -214,14 +102,11 @@ export function useBridgeFileViewerRecentlyUpdatedDemand(
 			requestFileDescriptorForDemand(descriptorRequest);
 		},
 		[
-			dispatchRecentlyUpdatedDescriptorDemand,
 			isActive,
-			openFileStateRef,
 			pendingRecentlyUpdatedDescriptorDemandRef,
 			recentlyUpdatedDemandRequestIdRef,
 			renderStateRef,
 			requestFileDescriptorForDemand,
-			runtimeRef,
 		],
 	);
 

@@ -102,7 +102,12 @@ function planBridgeWorkerFileViewPierreRenderJob(
 		maxLines: window.endLine,
 		text: props.resource.text,
 	});
-	if (bridgeWorkerStringByteLength(windowedText) > props.budget.maxBytes) {
+	const reservedWindowedText = textPaddedToMinimumRenderedLineCountWithinByteBudget({
+		maxBytes: props.budget.maxBytes,
+		minimumLineCount: window.totalLineCount,
+		text: windowedText,
+	});
+	if (bridgeWorkerStringByteLength(reservedWindowedText) > props.budget.maxBytes) {
 		return null;
 	}
 	const language = languageForFileViewRenderJob({
@@ -126,7 +131,7 @@ function planBridgeWorkerFileViewPierreRenderJob(
 				type: 'file',
 				file: {
 					name: props.metadata.path,
-					contents: windowedText,
+					contents: reservedWindowedText,
 					cacheKey: contentCacheKey,
 					...(optionalPierreHighlightLanguage(language) === undefined
 						? {}
@@ -220,6 +225,28 @@ function renderedLineCountForPierreFileContent(text: string): number {
 		return 0;
 	}
 	return (text.match(/\n/gu)?.length ?? 0) + 1;
+}
+
+function textPaddedToMinimumRenderedLineCountWithinByteBudget(props: {
+	readonly maxBytes: number;
+	readonly minimumLineCount: number;
+	readonly text: string;
+}): string {
+	if (props.minimumLineCount <= 0) {
+		return props.text;
+	}
+	const currentLineCount = renderedLineCountForPierreFileContent(props.text);
+	const missingLineCount = Math.max(props.minimumLineCount - currentLineCount, 0);
+	if (missingLineCount === 0) {
+		return props.text;
+	}
+	const currentByteLength = bridgeWorkerStringByteLength(props.text);
+	const availablePaddingBytes = Math.max(props.maxBytes - currentByteLength, 0);
+	if (availablePaddingBytes <= 1) {
+		return props.text;
+	}
+	const boundedMissingLineCount = Math.min(missingLineCount, availablePaddingBytes - 1);
+	return `${props.text}${'\n'.repeat(boundedMissingLineCount)} `;
 }
 
 function normalizedLanguageOrNull(language: string | null | undefined): string | null {
