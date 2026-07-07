@@ -367,6 +367,16 @@ describe('Bridge file viewer source structure', () => {
 		expect(shellModelSource).not.toContain('lastGoodOpenFileContent');
 	});
 
+	test('keeps File View terminal states from synthesizing worker availability', () => {
+		const renderSnapshotControllerSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-render-snapshot-controller.ts', import.meta.url)),
+			'utf8',
+		);
+
+		expect(renderSnapshotControllerSource).toContain('publishOpenFileTerminalState');
+		expect(renderSnapshotControllerSource).not.toContain('payload: { state: terminalState.state }');
+	});
+
 	test('keeps BridgeWeb TypeScript and TSX files under one thousand lines', () => {
 		const bridgeWebSources = readBridgeWebSourceFiles();
 		const oversizedSources = bridgeWebSources

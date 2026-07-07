@@ -85,7 +85,6 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 				return;
 			}
 			publishBridgeFileViewerSelectedCodeViewItemToSnapshotStore({
-				contentAvailabilityState: content.state === 'ready' ? 'ready' : 'loading',
 				item,
 				renderSnapshotStore,
 				source: 'programmatic',
@@ -103,14 +102,6 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 					selectedItemId: terminalState.descriptor.fileId,
 					source: 'programmatic',
 				},
-				workerPatches: [
-					{
-						slice: 'contentAvailability',
-						operation: 'upsert',
-						itemId: terminalState.descriptor.fileId,
-						payload: { state: terminalState.state },
-					},
-				],
 			});
 		},
 		[renderSnapshotStore],
@@ -134,14 +125,6 @@ export function publishBridgeFileViewerRefreshingStateToSnapshotStore(props: {
 			selectedItemId: props.descriptor.fileId,
 			source: 'programmatic',
 		},
-		workerPatches: [
-			{
-				slice: 'contentAvailability',
-				operation: 'upsert',
-				itemId: props.descriptor.fileId,
-				payload: { state: 'loading' },
-			},
-		],
 	});
 }
 
@@ -160,19 +143,10 @@ export function publishBridgeFileViewerLoadingStateToSnapshotStore(props: {
 				itemId: props.descriptor.fileId,
 			},
 		],
-		workerPatches: [
-			{
-				slice: 'contentAvailability',
-				operation: 'upsert',
-				itemId: props.descriptor.fileId,
-				payload: { state: 'loading' },
-			},
-		],
 	});
 }
 
 export function publishBridgeFileViewerSelectedCodeViewItemToSnapshotStore(props: {
-	readonly contentAvailabilityState?: 'loading' | 'ready';
 	readonly item: BridgeFileViewerSelectedCodeViewItem;
 	readonly renderSnapshotStore: BridgeMainRenderSnapshotStore;
 	readonly source: 'keyboard' | 'programmatic' | 'user';
@@ -187,14 +161,6 @@ export function publishBridgeFileViewerSelectedCodeViewItemToSnapshotStore(props
 				operation: 'upsert',
 				itemId: props.item.bridgeMetadata.itemId,
 				item: props.item,
-			},
-		],
-		workerPatches: [
-			{
-				slice: 'contentAvailability',
-				operation: 'upsert',
-				itemId: props.item.bridgeMetadata.itemId,
-				payload: { state: props.contentAvailabilityState ?? 'ready' },
 			},
 		],
 	});

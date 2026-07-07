@@ -48,7 +48,7 @@ describe('Bridge File Viewer render snapshot controller', () => {
 		);
 	});
 
-	test('file view can publish provisional selected CodeView display without marking content ready', () => {
+	test('file view can publish provisional selected CodeView display without mutating worker availability', () => {
 		const store = createBridgeMainRenderSnapshotStore();
 		const provisionalCodeViewItem = makeSelectedFileCodeViewItem({
 			cacheKey: 'content-loading:hash-loading',
@@ -59,15 +59,59 @@ describe('Bridge File Viewer render snapshot controller', () => {
 		});
 
 		publishBridgeFileViewerSelectedCodeViewItemToSnapshotStore({
-			contentAvailabilityState: 'loading',
 			item: provisionalCodeViewItem,
 			renderSnapshotStore: store,
 			source: 'programmatic',
 		});
 
 		expect(store.getSnapshot().codeViewItemsById['file-loading']).toBe(provisionalCodeViewItem);
-		expect(store.getSnapshot().contentAvailabilityById['file-loading']).toEqual({
-			state: 'loading',
+		expect(store.getSnapshot().contentAvailabilityById['file-loading']).toBeUndefined();
+	});
+
+	test('file view local display helpers leave content availability to worker patches', () => {
+		const descriptor = makeFileDescriptor({
+			contentHandle: 'content-worker-owned',
+			fileId: 'file-worker-owned',
+			path: 'Sources/WorkerOwned.swift',
+		});
+		const store = createBridgeMainRenderSnapshotStore();
+
+		publishBridgeFileViewerLoadingStateToSnapshotStore({
+			descriptor,
+			renderSnapshotStore: store,
+		});
+		publishBridgeFileViewerRefreshingStateToSnapshotStore({
+			descriptor,
+			renderSnapshotStore: store,
+		});
+		publishBridgeFileViewerSelectedCodeViewItemToSnapshotStore({
+			item: makeSelectedFileCodeViewItem({
+				cacheKey: 'content-worker-owned:hash-worker-owned',
+				contents: 'struct WorkerOwned {}\n',
+				displayPath: descriptor.path,
+				itemId: descriptor.fileId,
+				lineCount: 1,
+			}),
+			renderSnapshotStore: store,
+			source: 'programmatic',
+		});
+
+		expect(store.getSnapshot().selectionSlice).toEqual({
+			selectedItemId: descriptor.fileId,
+			source: 'programmatic',
+		});
+		expect(store.getSnapshot().codeViewItemsById[descriptor.fileId]).toBeDefined();
+		expect(store.getSnapshot().contentAvailabilityById[descriptor.fileId]).toBeUndefined();
+
+		store.applyWorkerPatch({
+			slice: 'contentAvailability',
+			operation: 'upsert',
+			itemId: descriptor.fileId,
+			payload: { state: 'ready' },
+		});
+
+		expect(store.getSnapshot().contentAvailabilityById[descriptor.fileId]).toEqual({
+			state: 'ready',
 		});
 	});
 
