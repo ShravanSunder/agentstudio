@@ -1,4 +1,5 @@
 import { buildBridgeWorkerReadyHealthEvent } from './bridge-comm-worker-protocol.js';
+import { canRenderBridgeWorkerReviewContentForSemantics } from './bridge-comm-worker-review-runtime.js';
 import {
 	createBridgeCommWorkerStore,
 	type BridgeCommWorkerRow,
@@ -34,8 +35,13 @@ export interface BridgeCommWorkerFileViewRuntimeSource {
 
 export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
+	readonly contentRequestDescriptors?: readonly BridgeWorkerReviewContentRequestDescriptor[];
+	readonly renderSemantics?: readonly BridgeWorkerReviewRenderSemantics[];
 	readonly rows: readonly BridgeCommWorkerRow[];
 	readonly createSequence?: () => number;
+	readonly scheduleDemandExecution?: (
+		request: BridgeCommWorkerDemandExecutionScheduleRequest,
+	) => void;
 	readonly scheduleSelectedReviewContentReadyPreparation: (
 		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 	) => void;
@@ -44,6 +50,13 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 	) => void;
 	readonly updateReviewRuntimeSource?: (source: BridgeCommWorkerReviewRuntimeSource) => void;
 	readonly updateFileViewRuntimeSource?: (source: BridgeCommWorkerFileViewRuntimeSource) => void;
+}
+
+export interface BridgeCommWorkerDemandExecutionScheduleRequest {
+	readonly cause: 'reviewInvalidate' | 'reviewSourceUpdate' | 'viewport';
+	readonly affectedItemIds?: readonly string[];
+	readonly epoch: number;
+	readonly store: BridgeCommWorkerStore;
 }
 
 export interface BridgeCommWorkerSelectedReviewContentReadyPreparationRequest {
@@ -78,6 +91,12 @@ export function createBridgeCommWorkerCommandHandler(
 		contentRequestDescriptors: [],
 		rows: [],
 	};
+	let reviewRuntimeSource: BridgeCommWorkerReviewRuntimeSource = {
+		contentItems: props.contentItems,
+		contentRequestDescriptors: props.contentRequestDescriptors ?? [],
+		renderSemantics: props.renderSemantics ?? [],
+		rows: props.rows,
+	};
 	let currentEpoch = 0;
 
 	return {
@@ -99,11 +118,16 @@ export function createBridgeCommWorkerCommandHandler(
 					props.scheduleSelectedReviewContentReadyPreparation,
 				scheduleSelectedFileViewContentReadyPreparation:
 					props.scheduleSelectedFileViewContentReadyPreparation,
-				store,
-				fileViewRuntimeSource,
-				...(props.updateReviewRuntimeSource === undefined
+				...(props.scheduleDemandExecution === undefined
 					? {}
-					: { updateReviewRuntimeSource: props.updateReviewRuntimeSource }),
+					: { scheduleDemandExecution: props.scheduleDemandExecution }),
+				store,
+				reviewRuntimeSource,
+				fileViewRuntimeSource,
+				updateReviewRuntimeSource: (source: BridgeCommWorkerReviewRuntimeSource): void => {
+					reviewRuntimeSource = source;
+					props.updateReviewRuntimeSource?.(source);
+				},
 				updateFileViewRuntimeSource: (source: BridgeCommWorkerFileViewRuntimeSource): void => {
 					fileViewRuntimeSource = source;
 					props.updateFileViewRuntimeSource?.(source);
@@ -122,9 +146,13 @@ interface HandleBridgeWorkerCommandProps {
 	readonly scheduleSelectedFileViewContentReadyPreparation: (
 		request: BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest,
 	) => void;
+	readonly scheduleDemandExecution?: (
+		request: BridgeCommWorkerDemandExecutionScheduleRequest,
+	) => void;
 	readonly store: BridgeCommWorkerStore;
+	readonly reviewRuntimeSource: BridgeCommWorkerReviewRuntimeSource;
 	readonly fileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource;
-	readonly updateReviewRuntimeSource?: (source: BridgeCommWorkerReviewRuntimeSource) => void;
+	readonly updateReviewRuntimeSource: (source: BridgeCommWorkerReviewRuntimeSource) => void;
 	readonly updateFileViewRuntimeSource: (source: BridgeCommWorkerFileViewRuntimeSource) => void;
 }
 
@@ -146,6 +174,9 @@ function handleBridgeWorkerCommand(
 			return handleBridgeWorkerViewportCommand({
 				createSequence: props.createSequence,
 				message: props.message,
+				...(props.scheduleDemandExecution === undefined
+					? {}
+					: { scheduleDemandExecution: props.scheduleDemandExecution }),
 				store: props.store,
 			});
 		case 'reviewInvalidate':
@@ -154,15 +185,21 @@ function handleBridgeWorkerCommand(
 				message: props.message,
 				scheduleSelectedReviewContentReadyPreparation:
 					props.scheduleSelectedReviewContentReadyPreparation,
+				...(props.scheduleDemandExecution === undefined
+					? {}
+					: { scheduleDemandExecution: props.scheduleDemandExecution }),
 				store: props.store,
 			});
 		case 'reviewSourceUpdate':
 			return handleBridgeWorkerReviewSourceUpdateCommand({
+				createSequence: props.createSequence,
 				message: props.message,
-				store: props.store,
-				...(props.updateReviewRuntimeSource === undefined
+				...(props.scheduleDemandExecution === undefined
 					? {}
-					: { updateReviewRuntimeSource: props.updateReviewRuntimeSource }),
+					: { scheduleDemandExecution: props.scheduleDemandExecution }),
+				store: props.store,
+				previousReviewRuntimeSource: props.reviewRuntimeSource,
+				updateReviewRuntimeSource: props.updateReviewRuntimeSource,
 			});
 		case 'fileViewSourceUpdate':
 			return handleBridgeWorkerFileViewSourceUpdateCommand({
@@ -233,25 +270,65 @@ function handleBridgeWorkerFileViewSourceUpdateCommand(
 }
 
 interface HandleBridgeWorkerReviewSourceUpdateCommandProps {
+	readonly createSequence: () => number;
 	readonly message: BridgeWorkerReviewSourceUpdateCommand;
+	readonly previousReviewRuntimeSource: BridgeCommWorkerReviewRuntimeSource;
+	readonly scheduleDemandExecution?: (
+		request: BridgeCommWorkerDemandExecutionScheduleRequest,
+	) => void;
 	readonly store: BridgeCommWorkerStore;
-	readonly updateReviewRuntimeSource?: (source: BridgeCommWorkerReviewRuntimeSource) => void;
+	readonly updateReviewRuntimeSource: (source: BridgeCommWorkerReviewRuntimeSource) => void;
 }
 
 function handleBridgeWorkerReviewSourceUpdateCommand(
 	props: HandleBridgeWorkerReviewSourceUpdateCommandProps,
 ): readonly BridgeWorkerServerToMainMessage[] {
-	props.store.actions.applyReviewSourceUpdateFact({
-		contentItems: props.message.contentItems,
-		rows: props.message.rows,
-	});
-	props.updateReviewRuntimeSource?.({
+	const nextReviewRuntimeSource: BridgeCommWorkerReviewRuntimeSource = {
 		contentItems: props.message.contentItems,
 		contentRequestDescriptors: props.message.contentRequestDescriptors,
 		renderSemantics: props.message.renderSemantics,
 		rows: props.message.rows,
+	};
+	const affectedItemIds = findChangedReviewRuntimeSourceItemIds({
+		nextSource: nextReviewRuntimeSource,
+		previousSource: props.previousReviewRuntimeSource,
 	});
-	return [buildBridgeWorkerReadyHealthEvent(props.message.requestId)];
+	props.store.actions.applyReviewSourceUpdateFact({
+		contentItems: props.message.contentItems,
+		rows: props.message.rows,
+	});
+	props.updateReviewRuntimeSource(nextReviewRuntimeSource);
+	let appliedTerminalAvailability = false;
+	const visibleItemIds = new Set(props.store.getState().visibleIds);
+	for (const itemId of affectedItemIds) {
+		if (!visibleItemIds.has(itemId)) {
+			continue;
+		}
+		if (isReviewRuntimeSourceExecutableForItem(nextReviewRuntimeSource, itemId)) {
+			continue;
+		}
+		props.store.actions.applyContentTerminalAvailability({
+			itemId,
+			state: 'unavailable',
+		});
+		appliedTerminalAvailability = true;
+	}
+	props.scheduleDemandExecution?.({
+		affectedItemIds,
+		cause: 'reviewSourceUpdate',
+		epoch: props.message.epoch,
+		store: props.store,
+	});
+	const slicePatch = appliedTerminalAvailability
+		? props.store.actions.takePendingSlicePatchEvent({
+				epoch: props.message.epoch,
+				sequence: props.createSequence(),
+			})
+		: null;
+	return [
+		...(slicePatch === null ? [] : [slicePatch]),
+		buildBridgeWorkerReadyHealthEvent(props.message.requestId),
+	];
 }
 
 interface HandleBridgeWorkerSelectCommandProps {
@@ -427,6 +504,9 @@ interface HandleBridgeWorkerReviewInvalidateCommandProps {
 	readonly scheduleSelectedReviewContentReadyPreparation: (
 		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 	) => void;
+	readonly scheduleDemandExecution?: (
+		request: BridgeCommWorkerDemandExecutionScheduleRequest,
+	) => void;
 	readonly store: BridgeCommWorkerStore;
 }
 
@@ -458,6 +538,16 @@ function handleBridgeWorkerReviewInvalidateCommand(
 			store: props.store,
 		});
 	}
+	const affectedItemIds = resolveReviewInvalidationAffectedItemIds({
+		message: props.message,
+		store: props.store,
+	});
+	props.scheduleDemandExecution?.({
+		...(affectedItemIds === undefined ? {} : { affectedItemIds }),
+		cause: 'reviewInvalidate',
+		epoch: props.message.epoch,
+		store: props.store,
+	});
 	return [
 		...(slicePatch === null ? [] : [slicePatch]),
 		buildBridgeWorkerReadyHealthEvent(props.message.requestId),
@@ -479,6 +569,9 @@ function isBridgeWorkerReviewContentMetadata(
 interface HandleBridgeWorkerViewportCommandProps {
 	readonly createSequence: () => number;
 	readonly message: BridgeWorkerViewportCommand;
+	readonly scheduleDemandExecution?: (
+		request: BridgeCommWorkerDemandExecutionScheduleRequest,
+	) => void;
 	readonly store: BridgeCommWorkerStore;
 }
 
@@ -494,10 +587,195 @@ function handleBridgeWorkerViewportCommand(
 		epoch: props.message.epoch,
 		sequence: props.createSequence(),
 	});
+	props.scheduleDemandExecution?.({
+		cause: 'viewport',
+		epoch: props.message.epoch,
+		store: props.store,
+	});
 	return [
 		...(slicePatch === null ? [] : [slicePatch]),
 		buildBridgeWorkerReadyHealthEvent(props.message.requestId),
 	];
+}
+
+function findChangedReviewRuntimeSourceItemIds(props: {
+	readonly nextSource: BridgeCommWorkerReviewRuntimeSource;
+	readonly previousSource: BridgeCommWorkerReviewRuntimeSource;
+}): readonly string[] {
+	const candidateItemIds = new Set<string>();
+	for (const source of [props.previousSource, props.nextSource]) {
+		for (const metadata of source.contentItems) {
+			candidateItemIds.add(metadata.itemId);
+		}
+		for (const descriptor of source.contentRequestDescriptors) {
+			candidateItemIds.add(descriptor.itemId);
+		}
+		for (const semantics of source.renderSemantics) {
+			candidateItemIds.add(semantics.itemId);
+		}
+	}
+	return Array.from(candidateItemIds).filter(
+		(itemId) =>
+			!areReviewContentMetadataEquivalent(
+				findReviewContentMetadata(props.previousSource, itemId),
+				findReviewContentMetadata(props.nextSource, itemId),
+			) ||
+			!areReviewContentRequestDescriptorsEquivalent(
+				findReviewContentRequestDescriptors(props.previousSource, itemId),
+				findReviewContentRequestDescriptors(props.nextSource, itemId),
+			) ||
+			!areReviewRenderSemanticsEquivalent(
+				findReviewRenderSemantics(props.previousSource, itemId),
+				findReviewRenderSemantics(props.nextSource, itemId),
+			),
+	);
+}
+
+function findReviewContentMetadata(
+	source: BridgeCommWorkerReviewRuntimeSource,
+	itemId: string,
+): BridgeWorkerReviewContentMetadata | null {
+	return source.contentItems.find((metadata) => metadata.itemId === itemId) ?? null;
+}
+
+function findReviewContentRequestDescriptors(
+	source: BridgeCommWorkerReviewRuntimeSource,
+	itemId: string,
+): readonly BridgeWorkerReviewContentRequestDescriptor[] {
+	return source.contentRequestDescriptors.filter((descriptor) => descriptor.itemId === itemId);
+}
+
+function findReviewRenderSemantics(
+	source: BridgeCommWorkerReviewRuntimeSource,
+	itemId: string,
+): BridgeWorkerReviewRenderSemantics | null {
+	return source.renderSemantics.find((semantics) => semantics.itemId === itemId) ?? null;
+}
+
+function isReviewRuntimeSourceExecutableForItem(
+	source: BridgeCommWorkerReviewRuntimeSource,
+	itemId: string,
+): boolean {
+	const metadata = findReviewContentMetadata(source, itemId);
+	const semantics = findReviewRenderSemantics(source, itemId);
+	return (
+		metadata !== null &&
+		metadata.availableContentRoles.length > 0 &&
+		semantics !== null &&
+		canRenderBridgeWorkerReviewContentForSemantics({
+			descriptors: source.contentRequestDescriptors,
+			semantics,
+		})
+	);
+}
+
+function areReviewContentMetadataEquivalent(
+	left: BridgeWorkerReviewContentMetadata | null,
+	right: BridgeWorkerReviewContentMetadata | null,
+): boolean {
+	if (left === null || right === null) {
+		return left === right;
+	}
+	return (
+		left.itemId === right.itemId &&
+		left.path === right.path &&
+		left.language === right.language &&
+		left.cacheKey === right.cacheKey &&
+		left.sizeBytes === right.sizeBytes &&
+		areStringArraysEquivalent(left.availableContentRoles, right.availableContentRoles) &&
+		left.contentLineCountsByRole.base === right.contentLineCountsByRole.base &&
+		left.contentLineCountsByRole.head === right.contentLineCountsByRole.head &&
+		left.contentLineCountsByRole.diff === right.contentLineCountsByRole.diff
+	);
+}
+
+function areReviewContentRequestDescriptorsEquivalent(
+	left: readonly BridgeWorkerReviewContentRequestDescriptor[],
+	right: readonly BridgeWorkerReviewContentRequestDescriptor[],
+): boolean {
+	if (left.length !== right.length) {
+		return false;
+	}
+	return left.every((leftDescriptor, index) =>
+		areReviewContentRequestDescriptorEquivalent(leftDescriptor, right[index] ?? null),
+	);
+}
+
+function areReviewContentRequestDescriptorEquivalent(
+	left: BridgeWorkerReviewContentRequestDescriptor,
+	right: BridgeWorkerReviewContentRequestDescriptor | null,
+): boolean {
+	return (
+		right !== null &&
+		left.itemId === right.itemId &&
+		left.role === right.role &&
+		left.handleId === right.handleId &&
+		left.reviewGeneration === right.reviewGeneration &&
+		left.resourceUrl === right.resourceUrl &&
+		left.contentHash === right.contentHash &&
+		left.contentHashAlgorithm === right.contentHashAlgorithm &&
+		left.language === right.language &&
+		left.sizeBytes === right.sizeBytes &&
+		left.isBinary === right.isBinary
+	);
+}
+
+function areReviewRenderSemanticsEquivalent(
+	left: BridgeWorkerReviewRenderSemantics | null,
+	right: BridgeWorkerReviewRenderSemantics | null,
+): boolean {
+	if (left === null || right === null) {
+		return left === right;
+	}
+	return (
+		left.itemId === right.itemId &&
+		left.itemKind === right.itemKind &&
+		left.changeKind === right.changeKind &&
+		left.displayPath === right.displayPath &&
+		left.basePath === right.basePath &&
+		left.headPath === right.headPath &&
+		left.language === right.language &&
+		left.contentLineCountsByRole.base === right.contentLineCountsByRole.base &&
+		left.contentLineCountsByRole.head === right.contentLineCountsByRole.head &&
+		left.contentLineCountsByRole.diff === right.contentLineCountsByRole.diff
+	);
+}
+
+function areStringArraysEquivalent(left: readonly string[], right: readonly string[]): boolean {
+	return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function resolveReviewInvalidationAffectedItemIds(props: {
+	readonly message: BridgeWorkerReviewInvalidateCommand;
+	readonly store: BridgeCommWorkerStore;
+}): readonly string[] | undefined {
+	if (props.message.scope === 'package' || props.message.scope === 'treeWindow') {
+		return undefined;
+	}
+	const itemIds = new Set(props.message.itemIds);
+	for (const itemId of findReviewItemIdsByPathHints({
+		pathHints: props.message.pathHints,
+		store: props.store,
+	})) {
+		itemIds.add(itemId);
+	}
+	if (props.message.scope === 'items') {
+		return Array.from(itemIds);
+	}
+	return Array.from(itemIds);
+}
+
+function findReviewItemIdsByPathHints(props: {
+	readonly pathHints: readonly string[];
+	readonly store: BridgeCommWorkerStore;
+}): readonly string[] {
+	const pathHints = new Set(props.pathHints);
+	return Array.from(props.store.getState().contentMetadataByItemId.values())
+		.filter(
+			(metadata): metadata is BridgeWorkerReviewContentMetadata =>
+				isBridgeWorkerReviewContentMetadata(metadata) && pathHints.has(metadata.path),
+		)
+		.map((metadata) => metadata.itemId);
 }
 
 interface RejectStaleOrReplayedBridgeWorkerCommandProps {

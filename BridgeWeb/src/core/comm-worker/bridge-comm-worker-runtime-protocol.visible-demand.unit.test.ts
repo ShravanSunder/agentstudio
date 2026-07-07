@@ -1,0 +1,680 @@
+import { describe, expect, test } from 'vitest';
+
+import {
+	encodeBridgeWorkerReviewInvalidateCommand,
+	encodeBridgeWorkerReviewSourceUpdateCommand,
+	encodeBridgeWorkerViewportCommand,
+} from './bridge-comm-worker-protocol.js';
+import {
+	registerBridgeCommWorkerRuntimePortProtocol,
+	type BridgeCommWorkerPreparationDrain,
+} from './bridge-comm-worker-runtime-protocol.js';
+import {
+	assertBridgeCommWorkerPreparationDrain,
+	createBridgeWorkerSequenceCounter,
+	createDeferredTextResponse,
+	createRecordingBridgeCommWorkerPort,
+	descriptorByUrl,
+	flushBridgeWorkerRuntimeContinuations,
+	makeContentRequestDescriptor,
+	makeImmediateTextResponse,
+	makeRenderSemantics,
+	makeWorkerReviewContentMetadata,
+	type DeferredTextResponse,
+} from './bridge-comm-worker-runtime-protocol.test-support.js';
+import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
+
+describe('Bridge comm worker runtime visible demand protocol', () => {
+	test('refreshes a ready visible Review item after source update changes content descriptors', async () => {
+		const clockMs = 0;
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
+			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+			contentRequestDescriptors: [
+				makeContentRequestDescriptor({
+					generation: 4,
+					itemId: 'item-1',
+					role: 'base',
+					text: 'old base',
+				}),
+				makeContentRequestDescriptor({
+					generation: 4,
+					itemId: 'item-1',
+					role: 'head',
+					text: 'old head',
+				}),
+			],
+			createSequence: createBridgeWorkerSequenceCounter(701),
+			fetchContent: (url: string): Promise<Response> => {
+				const descriptor = descriptorByUrl.get(url);
+				if (descriptor === undefined) {
+					throw new Error(`Unexpected review content URL ${url}.`);
+				}
+				return Promise.resolve(makeImmediateTextResponse(descriptor.text));
+			},
+			pump: createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => clockMs }),
+			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				requestId: 'request-visible-ready-before-source-update',
+				epoch: 5,
+				visibleItemIds: ['item-1'],
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+			}),
+		);
+		const firstDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
+		await firstDrain;
+		expect(
+			postedMessages.filter((postedMessage) => postedMessage.message.kind === 'pierreRenderJob'),
+		).toHaveLength(1);
+
+		dispatch.message(
+			encodeBridgeWorkerReviewSourceUpdateCommand({
+				requestId: 'request-ready-visible-source-update',
+				epoch: 6,
+				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+				contentRequestDescriptors: [
+					makeContentRequestDescriptor({
+						generation: 5,
+						itemId: 'item-1',
+						role: 'base',
+						text: 'fresh base',
+					}),
+					makeContentRequestDescriptor({
+						generation: 5,
+						itemId: 'item-1',
+						role: 'head',
+						text: 'fresh head',
+					}),
+				],
+				renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+				rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+		const refreshDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[3])();
+		await refreshDrain;
+
+		const pierreJobMessages = postedMessages.flatMap((postedMessage) =>
+			postedMessage.message.kind === 'pierreRenderJob' ? [postedMessage.message] : [],
+		);
+		expect(pierreJobMessages).toHaveLength(2);
+		expect(JSON.stringify(pierreJobMessages[1])).toContain('fresh head');
+	});
+
+	test('keeps source-update rerun sticky when viewport arrives before stale in-flight completion', async () => {
+		const clockMs = 0;
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const deferredResponsesByUrl = new Map<string, DeferredTextResponse>();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
+			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+			contentRequestDescriptors: [
+				makeContentRequestDescriptor({
+					generation: 4,
+					itemId: 'item-1',
+					role: 'base',
+					text: 'ready base',
+				}),
+				makeContentRequestDescriptor({
+					generation: 4,
+					itemId: 'item-1',
+					role: 'head',
+					text: 'ready head',
+				}),
+			],
+			createSequence: createBridgeWorkerSequenceCounter(801),
+			fetchContent: (url: string): Promise<Response> => {
+				const descriptor = descriptorByUrl.get(url);
+				if (descriptor === undefined) {
+					throw new Error(`Unexpected review content URL ${url}.`);
+				}
+				if (url.includes('generation=5')) {
+					const deferredResponse = createDeferredTextResponse();
+					deferredResponsesByUrl.set(url, deferredResponse);
+					return deferredResponse.promise;
+				}
+				return Promise.resolve(makeImmediateTextResponse(descriptor.text));
+			},
+			pump: createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => clockMs }),
+			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				requestId: 'request-visible-before-sticky-rerun',
+				epoch: 5,
+				visibleItemIds: ['item-1'],
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+			}),
+		);
+		const readyDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
+		await readyDrain;
+
+		dispatch.message(
+			encodeBridgeWorkerReviewSourceUpdateCommand({
+				requestId: 'request-source-update-a',
+				epoch: 6,
+				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+				contentRequestDescriptors: [
+					makeContentRequestDescriptor({
+						generation: 5,
+						itemId: 'item-1',
+						role: 'base',
+						text: 'stale base',
+					}),
+					makeContentRequestDescriptor({
+						generation: 5,
+						itemId: 'item-1',
+						role: 'head',
+						text: 'stale head',
+					}),
+				],
+				renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+				rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			}),
+		);
+		const staleSourceDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(deferredResponsesByUrl.size).toBe(2);
+
+		dispatch.message(
+			encodeBridgeWorkerReviewSourceUpdateCommand({
+				requestId: 'request-source-update-b',
+				epoch: 7,
+				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+				contentRequestDescriptors: [
+					makeContentRequestDescriptor({
+						generation: 6,
+						itemId: 'item-1',
+						role: 'base',
+						text: 'fresh base',
+					}),
+					makeContentRequestDescriptor({
+						generation: 6,
+						itemId: 'item-1',
+						role: 'head',
+						text: 'fresh head',
+					}),
+				],
+				renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+				rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			}),
+		);
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				requestId: 'request-viewport-after-source-b',
+				epoch: 8,
+				visibleItemIds: ['item-1'],
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+			}),
+		);
+		for (const deferredResponse of deferredResponsesByUrl.values()) {
+			deferredResponse.resolve('stale body');
+		}
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[3])();
+		await staleSourceDrain;
+		await flushBridgeWorkerRuntimeContinuations();
+		const freshRerunDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[4])();
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[5])();
+		await freshRerunDrain;
+
+		const pierreJobMessages = postedMessages.flatMap((postedMessage) =>
+			postedMessage.message.kind === 'pierreRenderJob' ? [postedMessage.message] : [],
+		);
+		expect(pierreJobMessages).toHaveLength(2);
+		expect(JSON.stringify(pierreJobMessages[1])).toContain('fresh head');
+		expect(JSON.stringify(pierreJobMessages[1])).not.toContain('stale head');
+	});
+
+	test('clears ready visible Review paint when source update removes executable content', async () => {
+		const clockMs = 0;
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
+			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+			contentRequestDescriptors: [
+				makeContentRequestDescriptor({
+					generation: 4,
+					itemId: 'item-1',
+					role: 'base',
+					text: 'ready base',
+				}),
+				makeContentRequestDescriptor({
+					generation: 4,
+					itemId: 'item-1',
+					role: 'head',
+					text: 'ready head',
+				}),
+			],
+			createSequence: createBridgeWorkerSequenceCounter(901),
+			fetchContent: (url: string): Promise<Response> => {
+				const descriptor = descriptorByUrl.get(url);
+				if (descriptor === undefined) {
+					throw new Error(`Unexpected review content URL ${url}.`);
+				}
+				return Promise.resolve(makeImmediateTextResponse(descriptor.text));
+			},
+			pump: createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => clockMs }),
+			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				requestId: 'request-visible-before-nonexecutable-source',
+				epoch: 5,
+				visibleItemIds: ['item-1'],
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+			}),
+		);
+		const readyDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
+		await readyDrain;
+
+		dispatch.message(
+			encodeBridgeWorkerReviewSourceUpdateCommand({
+				requestId: 'request-nonexecutable-source',
+				epoch: 6,
+				contentItems: [
+					{
+						...makeWorkerReviewContentMetadata({ itemId: 'item-1' }),
+						availableContentRoles: [],
+					},
+				],
+				contentRequestDescriptors: [],
+				renderSemantics: [],
+				rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			}),
+		);
+
+		const finalPatch = postedMessages.at(-2)?.message;
+		expect(finalPatch).toMatchObject({
+			kind: 'slicePatch',
+			patches: [
+				{ slice: 'rowPaint', operation: 'delete', itemId: 'item-1' },
+				{
+					slice: 'contentAvailability',
+					operation: 'upsert',
+					itemId: 'item-1',
+					payload: { state: 'unavailable' },
+				},
+			],
+		});
+		expect(scheduledDrains).toHaveLength(2);
+	});
+
+	test('clears ready visible Review paint when source update keeps only one required diff side', async () => {
+		const clockMs = 0;
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
+			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+			contentRequestDescriptors: [
+				makeContentRequestDescriptor({
+					generation: 4,
+					itemId: 'item-1',
+					role: 'base',
+					text: 'ready base',
+				}),
+				makeContentRequestDescriptor({
+					generation: 4,
+					itemId: 'item-1',
+					role: 'head',
+					text: 'ready head',
+				}),
+			],
+			createSequence: createBridgeWorkerSequenceCounter(951),
+			fetchContent: (url: string): Promise<Response> => {
+				const descriptor = descriptorByUrl.get(url);
+				if (descriptor === undefined) {
+					throw new Error(`Unexpected review content URL ${url}.`);
+				}
+				return Promise.resolve(makeImmediateTextResponse(descriptor.text));
+			},
+			pump: createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => clockMs }),
+			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				requestId: 'request-visible-before-one-sided-source',
+				epoch: 5,
+				visibleItemIds: ['item-1'],
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+			}),
+		);
+		const readyDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
+		await readyDrain;
+
+		dispatch.message(
+			encodeBridgeWorkerReviewSourceUpdateCommand({
+				requestId: 'request-one-sided-source',
+				epoch: 6,
+				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+				contentRequestDescriptors: [
+					makeContentRequestDescriptor({
+						generation: 5,
+						itemId: 'item-1',
+						role: 'head',
+						text: 'head only',
+					}),
+				],
+				renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+				rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			}),
+		);
+
+		const finalPatch = postedMessages.at(-2)?.message;
+		expect(finalPatch).toMatchObject({
+			kind: 'slicePatch',
+			patches: [
+				{ slice: 'rowPaint', operation: 'delete', itemId: 'item-1' },
+				{
+					slice: 'contentAvailability',
+					operation: 'upsert',
+					itemId: 'item-1',
+					payload: { state: 'unavailable' },
+				},
+			],
+		});
+		expect(scheduledDrains).toHaveLength(2);
+	});
+
+	test('keeps unrelated visible Review fetches current when source update changes one item', async () => {
+		const clockMs = 0;
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const deferredResponsesByUrl = new Map<string, DeferredTextResponse>();
+		const fetchCallsByItemId = new Map<string, number>();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
+			contentItems: [
+				makeWorkerReviewContentMetadata({ itemId: 'item-1' }),
+				makeWorkerReviewContentMetadata({ itemId: 'item-2' }),
+			],
+			contentRequestDescriptors: [
+				makeContentRequestDescriptor({
+					generation: 4,
+					itemId: 'item-1',
+					role: 'base',
+					text: 'a old base',
+				}),
+				makeContentRequestDescriptor({
+					generation: 4,
+					itemId: 'item-1',
+					role: 'head',
+					text: 'a old head',
+				}),
+				makeContentRequestDescriptor({
+					generation: 4,
+					itemId: 'item-2',
+					role: 'base',
+					text: 'b base',
+				}),
+				makeContentRequestDescriptor({
+					generation: 4,
+					itemId: 'item-2',
+					role: 'head',
+					text: 'b head',
+				}),
+			],
+			createSequence: createBridgeWorkerSequenceCounter(501),
+			fetchContent: (url: string): Promise<Response> => {
+				const descriptor = descriptorByUrl.get(url);
+				if (descriptor === undefined) {
+					throw new Error(`Unexpected review content URL ${url}.`);
+				}
+				fetchCallsByItemId.set(
+					descriptor.itemId,
+					(fetchCallsByItemId.get(descriptor.itemId) ?? 0) + 1,
+				);
+				if (url.includes('generation=4')) {
+					const deferredResponse = createDeferredTextResponse();
+					deferredResponsesByUrl.set(url, deferredResponse);
+					return deferredResponse.promise;
+				}
+				return Promise.resolve(makeImmediateTextResponse(descriptor.text));
+			},
+			pump: createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => clockMs }),
+			renderSemantics: [
+				makeRenderSemantics({ itemId: 'item-1' }),
+				makeRenderSemantics({ itemId: 'item-2' }),
+			],
+			rows: [
+				{ id: 'item-1', parentId: null, index: 0 },
+				{ id: 'item-2', parentId: null, index: 1 },
+			],
+			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				requestId: 'request-two-visible-before-update',
+				epoch: 5,
+				visibleItemIds: ['item-1', 'item-2'],
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 1,
+				phase: 'settled',
+			}),
+		);
+		const staleFirstDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(deferredResponsesByUrl.size).toBe(4);
+
+		dispatch.message(
+			encodeBridgeWorkerReviewSourceUpdateCommand({
+				requestId: 'request-one-item-source-update',
+				epoch: 6,
+				contentItems: [
+					makeWorkerReviewContentMetadata({ itemId: 'item-1' }),
+					makeWorkerReviewContentMetadata({ itemId: 'item-2' }),
+				],
+				contentRequestDescriptors: [
+					makeContentRequestDescriptor({
+						generation: 5,
+						itemId: 'item-1',
+						role: 'base',
+						text: 'a fresh base',
+					}),
+					makeContentRequestDescriptor({
+						generation: 5,
+						itemId: 'item-1',
+						role: 'head',
+						text: 'a fresh head',
+					}),
+					makeContentRequestDescriptor({
+						generation: 4,
+						itemId: 'item-2',
+						role: 'base',
+						text: 'b base',
+					}),
+					makeContentRequestDescriptor({
+						generation: 4,
+						itemId: 'item-2',
+						role: 'head',
+						text: 'b head',
+					}),
+				],
+				renderSemantics: [
+					makeRenderSemantics({ itemId: 'item-1' }),
+					makeRenderSemantics({ itemId: 'item-2' }),
+				],
+				rows: [
+					{ id: 'item-1', parentId: null, index: 0 },
+					{ id: 'item-2', parentId: null, index: 1 },
+				],
+			}),
+		);
+		for (const deferredResponse of deferredResponsesByUrl.values()) {
+			deferredResponse.resolve('old body');
+		}
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
+		await staleFirstDrain;
+		await flushBridgeWorkerRuntimeContinuations();
+		const freshFirstDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[3])();
+		await freshFirstDrain;
+
+		const pierreJobItemIds = postedMessages.flatMap((postedMessage) =>
+			postedMessage.message.kind === 'pierreRenderJob' ? [postedMessage.message.job.itemId] : [],
+		);
+		expect(pierreJobItemIds).toEqual(['item-2', 'item-1']);
+		expect(fetchCallsByItemId.get('item-1')).toBe(4);
+		expect(fetchCallsByItemId.get('item-2')).toBe(2);
+	});
+
+	test('reruns an in-flight visible Review fetch after path-hint invalidation', async () => {
+		const clockMs = 0;
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const deferredResponsesByUrl = new Map<string, DeferredTextResponse>();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
+			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+			contentRequestDescriptors: [
+				makeContentRequestDescriptor({
+					generation: 4,
+					itemId: 'item-1',
+					role: 'base',
+					text: 'old base',
+				}),
+				makeContentRequestDescriptor({
+					generation: 4,
+					itemId: 'item-1',
+					role: 'head',
+					text: 'old head',
+				}),
+			],
+			createSequence: createBridgeWorkerSequenceCounter(601),
+			fetchContent: (url: string): Promise<Response> => {
+				const descriptor = descriptorByUrl.get(url);
+				if (descriptor === undefined) {
+					throw new Error(`Unexpected review content URL ${url}.`);
+				}
+				if (url.includes('generation=4')) {
+					const deferredResponse = createDeferredTextResponse();
+					deferredResponsesByUrl.set(url, deferredResponse);
+					return deferredResponse.promise;
+				}
+				return Promise.resolve(makeImmediateTextResponse(descriptor.text));
+			},
+			pump: createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => clockMs }),
+			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				requestId: 'request-visible-before-path-invalidate',
+				epoch: 5,
+				visibleItemIds: ['item-1'],
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+			}),
+		);
+		const staleDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(deferredResponsesByUrl.size).toBe(2);
+
+		dispatch.message(
+			encodeBridgeWorkerReviewInvalidateCommand({
+				requestId: 'request-path-hint-invalidate',
+				epoch: 6,
+				itemIds: [],
+				pathHints: ['Sources/App/item-1.swift'],
+				reason: 'watchEvent',
+				scope: 'items',
+			}),
+		);
+		for (const deferredResponse of deferredResponsesByUrl.values()) {
+			deferredResponse.resolve('old body');
+		}
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
+		await staleDrain;
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(
+			postedMessages.filter((postedMessage) => postedMessage.message.kind === 'pierreRenderJob'),
+		).toEqual([]);
+		deferredResponsesByUrl.clear();
+		const rerunDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(deferredResponsesByUrl.size).toBe(2);
+		for (const deferredResponse of deferredResponsesByUrl.values()) {
+			deferredResponse.resolve('fresh body');
+		}
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[3])();
+		await rerunDrain;
+
+		const pierreJobMessages = postedMessages.flatMap((postedMessage) =>
+			postedMessage.message.kind === 'pierreRenderJob' ? [postedMessage.message] : [],
+		);
+		expect(pierreJobMessages).toHaveLength(1);
+		expect(JSON.stringify(pierreJobMessages[0])).toContain('fresh body');
+	});
+});

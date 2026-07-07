@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'vitest';
 
 import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-review-package-test-support.js';
-import { createBridgeCommWorkerCommandHandler } from './bridge-comm-worker-command-handler.js';
+import {
+	createBridgeCommWorkerCommandHandler,
+	type BridgeCommWorkerDemandExecutionScheduleRequest,
+} from './bridge-comm-worker-command-handler.js';
 import {
 	encodeBridgeWorkerFileViewSourceUpdateCommand,
 	encodeBridgeWorkerHoverCommand,
@@ -29,6 +32,11 @@ interface ScheduledSelectedFileViewPreparation {
 	readonly itemId: string;
 	readonly store: BridgeCommWorkerStore;
 }
+
+type ScheduledDemandExecution = Pick<
+	BridgeCommWorkerDemandExecutionScheduleRequest,
+	'affectedItemIds' | 'cause' | 'epoch'
+>;
 
 describe('Bridge comm worker command handler', () => {
 	test('select command publishes loading availability and schedules selected preparation', () => {
@@ -141,6 +149,28 @@ describe('Bridge comm worker command handler', () => {
 		expect(scheduledPreparations[0]?.epoch).toBe(7);
 		expect(scheduledPreparations[0]?.store.getState().selectedId).toBe('item-1');
 		expect(scheduledPreparations[0]?.store.getState().demandByKey.get('item-1')).toBe('selected:7');
+	});
+
+	test('select command does not schedule visible demand execution', () => {
+		const scheduledVisibleDemand: ScheduledDemandExecution[] = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [makeWorkerReviewContentMetadata('item-1')],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			scheduleDemandExecution: pushScheduledDemandExecution(scheduledVisibleDemand),
+			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
+		});
+
+		handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-no-visible-demand',
+				epoch: 7,
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+			}),
+		);
+
+		expect(scheduledVisibleDemand).toEqual([]);
 	});
 
 	test('viewport command mutates worker-local store and publishes a typed viewport patch', () => {
@@ -573,6 +603,29 @@ describe('Bridge comm worker command handler', () => {
 		expect(JSON.stringify(receivedSources)).not.toMatch(/contents|body/i);
 	});
 
+	test('file view source update does not schedule visible Review demand execution', () => {
+		const scheduledVisibleDemand: ScheduledDemandExecution[] = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [],
+			rows: [],
+			scheduleDemandExecution: pushScheduledDemandExecution(scheduledVisibleDemand),
+			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
+		});
+
+		handler.handleMessage(
+			encodeBridgeWorkerFileViewSourceUpdateCommand({
+				requestId: 'request-file-source-no-visible-demand',
+				epoch: 6,
+				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
+				contentRequestDescriptors: [makeWorkerFileViewContentRequestDescriptor('file-1', 6)],
+				rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			}),
+		);
+
+		expect(scheduledVisibleDemand).toEqual([]);
+	});
+
 	test('file view source update command publishes availability repairs before health ack', () => {
 		const handler = createBridgeCommWorkerCommandHandler({
 			contentItems: [],
@@ -848,6 +901,20 @@ function pushScheduledSelectedFileViewPreparation(
 function ignoreScheduledSelectedFileViewPreparation(
 	_preparation: ScheduledSelectedFileViewPreparation,
 ): void {}
+
+function pushScheduledDemandExecution(
+	target: ScheduledDemandExecution[],
+): (request: BridgeCommWorkerDemandExecutionScheduleRequest) => void {
+	return (request: BridgeCommWorkerDemandExecutionScheduleRequest): void => {
+		target.push({
+			...(request.affectedItemIds === undefined
+				? {}
+				: { affectedItemIds: request.affectedItemIds }),
+			cause: request.cause,
+			epoch: request.epoch,
+		});
+	};
+}
 
 function createSequenceFrom(sequences: readonly number[]): () => number {
 	let index = 0;

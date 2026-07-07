@@ -1,29 +1,31 @@
 import { describe, expect, test } from 'vitest';
 
-import type { BridgeCommWorkerPort } from './bridge-comm-worker-entry.js';
 import {
 	encodeBridgeWorkerFileViewSourceUpdateCommand,
 	encodeBridgeWorkerReviewSourceUpdateCommand,
 	encodeBridgeWorkerSelectCommand,
+	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
 import {
 	registerBridgeCommWorkerRuntimePortProtocol,
 	type BridgeCommWorkerPreparationDrain,
 } from './bridge-comm-worker-runtime-protocol.js';
+import {
+	assertBridgeCommWorkerPreparationDrain,
+	createBridgeWorkerSequenceCounter,
+	createDeferredTextResponse,
+	createRecordingBridgeCommWorkerPort,
+	descriptorByUrl,
+	flushBridgeWorkerRuntimeContinuations,
+	makeContentRequestDescriptor,
+	makeFileViewContentRequestDescriptor,
+	makeImmediateTextResponse,
+	makeRenderSemantics,
+	makeWorkerFileViewContentMetadata,
+	makeWorkerReviewContentMetadata,
+	type DeferredTextResponse,
+} from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
-import type {
-	BridgeWorkerFileViewContentMetadata,
-	BridgeWorkerFileViewContentRequestDescriptor,
-	BridgeWorkerReviewContentMetadata,
-	BridgeWorkerReviewContentRequestDescriptor,
-	BridgeWorkerReviewRenderSemantics,
-	BridgeWorkerServerToMainMessage,
-} from './bridge-worker-contracts.js';
-
-interface PostedBridgeWorkerRuntimeMessage {
-	readonly message: BridgeWorkerServerToMainMessage;
-	readonly transferList: readonly Transferable[] | undefined;
-}
 
 describe('Bridge comm worker runtime protocol', () => {
 	test('drains selected review content prep through the worker port after local select slices', async () => {
@@ -206,6 +208,441 @@ describe('Bridge comm worker runtime protocol', () => {
 			],
 		});
 		expect(scheduledDrains).toHaveLength(1);
+	});
+
+	test('starts visible Review demand from viewport membership through the worker executor', async () => {
+		let clockMs = 0;
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentItems: [makeWorkerReviewContentMetadata()],
+			contentRequestDescriptors: [
+				makeContentRequestDescriptor({ role: 'base', text: 'visible base' }),
+				makeContentRequestDescriptor({ role: 'head', text: 'visible head' }),
+			],
+			createSequence: createBridgeWorkerSequenceCounter(101),
+			fetchContent: async (url: string): Promise<Response> => {
+				const descriptor = descriptorByUrl.get(url);
+				if (descriptor === undefined) {
+					throw new Error(`Unexpected review content URL ${url}.`);
+				}
+				return makeImmediateTextResponse(descriptor.text);
+			},
+			pump: createWorkerContentPreparationPump({
+				maxSliceMs: 8,
+				now: () => clockMs,
+			}),
+			renderSemantics: [makeRenderSemantics()],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				requestId: 'request-visible-viewport',
+				epoch: 5,
+				visibleItemIds: ['item-1'],
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+			}),
+		);
+
+		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
+			'slicePatch',
+			'health',
+		]);
+		expect(scheduledDrains).toHaveLength(1);
+		clockMs += 1;
+
+		const firstDrainCompletion = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(scheduledDrains).toHaveLength(2);
+		const secondDrainResult = await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
+		const firstDrainResult = await firstDrainCompletion;
+
+		expect(firstDrainResult.completedIds).toEqual([]);
+		expect(secondDrainResult.completedIds).toEqual(['review-content-ready:item-1:visible:102']);
+		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
+			'slicePatch',
+			'health',
+			'pierreRenderJob',
+			'slicePatch',
+		]);
+		expect(postedMessages[2]?.message).toMatchObject({
+			kind: 'pierreRenderJob',
+			job: {
+				itemId: 'item-1',
+				bridgeDemandRank: { lane: 'visible', priority: 1 },
+				budgetClass: 'visible',
+			},
+		});
+		expect(postedMessages[3]?.message).toMatchObject({
+			kind: 'slicePatch',
+			epoch: 5,
+			sequence: 102,
+			patches: [
+				{
+					slice: 'rowPaint',
+					operation: 'upsert',
+					itemId: 'item-1',
+				},
+				{
+					slice: 'contentAvailability',
+					operation: 'upsert',
+					itemId: 'item-1',
+					payload: { state: 'ready' },
+				},
+			],
+		});
+	});
+
+	test('starts visible Review demand after source update repairs an existing viewport', async () => {
+		let clockMs = 0;
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentItems: [],
+			contentRequestDescriptors: [],
+			createSequence: createBridgeWorkerSequenceCounter(201),
+			fetchContent: async (url: string): Promise<Response> => {
+				const descriptor = descriptorByUrl.get(url);
+				if (descriptor === undefined) {
+					throw new Error(`Unexpected review content URL ${url}.`);
+				}
+				return makeImmediateTextResponse(descriptor.text);
+			},
+			pump: createWorkerContentPreparationPump({
+				maxSliceMs: 8,
+				now: () => clockMs,
+			}),
+			renderSemantics: [],
+			rows: [],
+			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				requestId: 'request-visible-before-source',
+				epoch: 5,
+				visibleItemIds: ['item-1'],
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+			}),
+		);
+		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
+			'slicePatch',
+			'health',
+		]);
+		expect(scheduledDrains).toEqual([]);
+
+		dispatch.message(
+			encodeBridgeWorkerReviewSourceUpdateCommand({
+				requestId: 'request-source-after-viewport',
+				epoch: 6,
+				contentItems: [makeWorkerReviewContentMetadata()],
+				contentRequestDescriptors: [
+					makeContentRequestDescriptor({ role: 'base', text: 'source repair base' }),
+					makeContentRequestDescriptor({ role: 'head', text: 'source repair head' }),
+				],
+				renderSemantics: [makeRenderSemantics()],
+				rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			}),
+		);
+
+		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
+			'slicePatch',
+			'health',
+			'health',
+		]);
+		expect(scheduledDrains).toHaveLength(1);
+		clockMs += 1;
+
+		const firstDrainCompletion = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(scheduledDrains).toHaveLength(2);
+		const secondDrainResult = await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
+		const firstDrainResult = await firstDrainCompletion;
+
+		expect(firstDrainResult.completedIds).toEqual([]);
+		expect(secondDrainResult.completedIds).toEqual(['review-content-ready:item-1:visible:202']);
+		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
+			'slicePatch',
+			'health',
+			'health',
+			'pierreRenderJob',
+			'slicePatch',
+		]);
+		expect(postedMessages[3]?.message).toMatchObject({
+			kind: 'pierreRenderJob',
+			job: {
+				itemId: 'item-1',
+				bridgeDemandRank: { lane: 'visible', priority: 1 },
+				budgetClass: 'visible',
+			},
+		});
+		expect(postedMessages[4]?.message).toMatchObject({
+			kind: 'slicePatch',
+			epoch: 6,
+			sequence: 202,
+			patches: [
+				{
+					slice: 'rowPaint',
+					operation: 'upsert',
+					itemId: 'item-1',
+				},
+				{
+					slice: 'contentAvailability',
+					operation: 'upsert',
+					itemId: 'item-1',
+					payload: { state: 'ready' },
+				},
+			],
+		});
+	});
+
+	test('skips ready visible Review demand when viewport adds cold content', async () => {
+		let clockMs = 0;
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const fetchCallsByItemId = new Map<string, number>();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentItems: [
+				makeWorkerReviewContentMetadata({ itemId: 'item-1' }),
+				makeWorkerReviewContentMetadata({ itemId: 'item-2' }),
+			],
+			contentRequestDescriptors: [
+				makeContentRequestDescriptor({
+					itemId: 'item-1',
+					role: 'base',
+					text: 'ready base',
+				}),
+				makeContentRequestDescriptor({
+					itemId: 'item-1',
+					role: 'head',
+					text: 'ready head',
+				}),
+				makeContentRequestDescriptor({
+					itemId: 'item-2',
+					role: 'base',
+					text: 'cold base',
+				}),
+				makeContentRequestDescriptor({
+					itemId: 'item-2',
+					role: 'head',
+					text: 'cold head',
+				}),
+			],
+			createSequence: createBridgeWorkerSequenceCounter(301),
+			fetchContent: async (url: string): Promise<Response> => {
+				const descriptor = descriptorByUrl.get(url);
+				if (descriptor === undefined) {
+					throw new Error(`Unexpected review content URL ${url}.`);
+				}
+				fetchCallsByItemId.set(
+					descriptor.itemId,
+					(fetchCallsByItemId.get(descriptor.itemId) ?? 0) + 1,
+				);
+				return makeImmediateTextResponse(descriptor.text);
+			},
+			pump: createWorkerContentPreparationPump({
+				maxSliceMs: 8,
+				now: () => clockMs,
+			}),
+			renderSemantics: [
+				makeRenderSemantics({ itemId: 'item-1' }),
+				makeRenderSemantics({ itemId: 'item-2' }),
+			],
+			rows: [
+				{ id: 'item-1', parentId: null, index: 0 },
+				{ id: 'item-2', parentId: null, index: 1 },
+			],
+			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				requestId: 'request-ready-visible',
+				epoch: 5,
+				visibleItemIds: ['item-1'],
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+			}),
+		);
+		clockMs += 1;
+		const readyFirstDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
+		await readyFirstDrain;
+		expect(fetchCallsByItemId.get('item-1')).toBe(2);
+
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				requestId: 'request-cold-visible',
+				epoch: 6,
+				visibleItemIds: ['item-1', 'item-2'],
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 1,
+				phase: 'settled',
+			}),
+		);
+		expect(scheduledDrains).toHaveLength(3);
+		clockMs += 1;
+		const coldFirstDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[3])();
+		await coldFirstDrain;
+
+		const pierreJobItemIds = postedMessages.flatMap((postedMessage) =>
+			postedMessage.message.kind === 'pierreRenderJob' ? [postedMessage.message.job.itemId] : [],
+		);
+		expect(pierreJobItemIds).toEqual(['item-1', 'item-2']);
+		expect(fetchCallsByItemId.get('item-1')).toBe(2);
+		expect(fetchCallsByItemId.get('item-2')).toBe(2);
+	});
+
+	test('drops in-flight visible Review demand after source update and reruns current content', async () => {
+		const clockMs = 0;
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const deferredResponsesByUrl = new Map<string, DeferredTextResponse>();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+			contentRequestDescriptors: [
+				makeContentRequestDescriptor({
+					generation: 4,
+					itemId: 'item-1',
+					role: 'base',
+					text: 'old base',
+				}),
+				makeContentRequestDescriptor({
+					generation: 4,
+					itemId: 'item-1',
+					role: 'head',
+					text: 'old head',
+				}),
+			],
+			createSequence: createBridgeWorkerSequenceCounter(401),
+			fetchContent: (url: string): Promise<Response> => {
+				const descriptor = descriptorByUrl.get(url);
+				if (descriptor === undefined) {
+					throw new Error(`Unexpected review content URL ${url}.`);
+				}
+				if (url.includes('generation=4')) {
+					const deferredResponse = createDeferredTextResponse();
+					deferredResponsesByUrl.set(url, deferredResponse);
+					return deferredResponse.promise;
+				}
+				return Promise.resolve(makeImmediateTextResponse(descriptor.text));
+			},
+			pump: createWorkerContentPreparationPump({
+				maxSliceMs: 8,
+				now: () => clockMs,
+			}),
+			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				requestId: 'request-visible-before-update',
+				epoch: 5,
+				visibleItemIds: ['item-1'],
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+			}),
+		);
+		const staleFirstDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(deferredResponsesByUrl.size).toBe(2);
+
+		dispatch.message(
+			encodeBridgeWorkerReviewSourceUpdateCommand({
+				requestId: 'request-update-during-visible-fetch',
+				epoch: 6,
+				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+				contentRequestDescriptors: [
+					makeContentRequestDescriptor({
+						generation: 5,
+						itemId: 'item-1',
+						role: 'base',
+						text: 'fresh base',
+					}),
+					makeContentRequestDescriptor({
+						generation: 5,
+						itemId: 'item-1',
+						role: 'head',
+						text: 'fresh head',
+					}),
+				],
+				renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+				rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			}),
+		);
+		expect(scheduledDrains).toHaveLength(1);
+
+		for (const deferredResponse of deferredResponsesByUrl.values()) {
+			deferredResponse.resolve('old body');
+		}
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(scheduledDrains).toHaveLength(2);
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
+		await staleFirstDrain;
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(scheduledDrains).toHaveLength(3);
+
+		const freshFirstDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(scheduledDrains).toHaveLength(4);
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[3])();
+		await freshFirstDrain;
+
+		const pierreJobMessages = postedMessages.flatMap((postedMessage) =>
+			postedMessage.message.kind === 'pierreRenderJob' ? [postedMessage.message] : [],
+		);
+		expect(pierreJobMessages).toHaveLength(1);
+		expect(JSON.stringify(pierreJobMessages[0])).toContain('fresh head');
+		expect(JSON.stringify(pierreJobMessages[0])).not.toContain('old head');
 	});
 
 	test('drains selected File View content prep from retained source descriptors', async () => {
@@ -438,165 +875,3 @@ describe('Bridge comm worker runtime protocol', () => {
 		});
 	});
 });
-
-const descriptorByUrl = new Map<string, { readonly text: string }>();
-
-function createRecordingBridgeCommWorkerPort(): {
-	readonly dispatch: {
-		readonly message: (data: unknown) => void;
-		readonly port: BridgeCommWorkerPort;
-	};
-	readonly postedMessages: PostedBridgeWorkerRuntimeMessage[];
-} {
-	const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
-	let listener: ((event: MessageEvent<unknown>) => void) | null = null;
-	return {
-		dispatch: {
-			message: (data: unknown): void => {
-				if (listener === null) {
-					throw new Error('Bridge comm worker port listener was not registered.');
-				}
-				listener(new MessageEvent('message', { data }));
-			},
-			port: {
-				postMessage: (
-					message: BridgeWorkerServerToMainMessage,
-					transferList?: Transferable[],
-				): void => {
-					postedMessages.push({ message, transferList });
-				},
-				addEventListener: (
-					type: 'message',
-					nextListener: (event: MessageEvent<unknown>) => void,
-				): void => {
-					expect(type).toBe('message');
-					listener = nextListener;
-				},
-				start: (): void => {},
-			},
-		},
-		postedMessages,
-	};
-}
-
-function createBridgeWorkerSequenceCounter(firstSequence: number): () => number {
-	let nextSequence = firstSequence;
-	return (): number => {
-		const sequence = nextSequence;
-		nextSequence += 1;
-		return sequence;
-	};
-}
-
-function assertBridgeCommWorkerPreparationDrain(
-	drain: BridgeCommWorkerPreparationDrain | undefined,
-): BridgeCommWorkerPreparationDrain {
-	if (drain === undefined) {
-		throw new Error('Expected scheduled bridge comm worker preparation drain.');
-	}
-	return drain;
-}
-
-async function flushBridgeWorkerRuntimeContinuations(): Promise<void> {
-	await Array.from({ length: 50 }).reduce<Promise<void>>(
-		(previousFlush) => previousFlush.then(() => Promise.resolve()),
-		Promise.resolve(),
-	);
-}
-
-function makeImmediateTextResponse(text: string): Response {
-	const encodedText = new TextEncoder().encode(text);
-	return new Response(
-		new ReadableStream({
-			start: (controller): void => {
-				controller.enqueue(encodedText);
-				controller.close();
-			},
-		}),
-	);
-}
-
-function makeWorkerReviewContentMetadata(): BridgeWorkerReviewContentMetadata {
-	return {
-		itemId: 'item-1',
-		path: 'Sources/App/item-1.swift',
-		language: 'swift',
-		cacheKey: 'item-1:base|item-1:head',
-		sizeBytes: 1024,
-		availableContentRoles: ['base', 'head'],
-		contentLineCountsByRole: { base: 100, head: 80 },
-	};
-}
-
-function makeWorkerFileViewContentMetadata(): BridgeWorkerFileViewContentMetadata {
-	return {
-		itemId: 'file-1',
-		path: 'Sources/App/file-1.swift',
-		language: 'swift',
-		cacheKey: 'file-view:metadata-cache:file-1',
-		sizeBytes: 128,
-		contentHandle: 'handle-file-1',
-		descriptorId: 'descriptor-file-1',
-		contentHash: 'sha256:file-1',
-		virtualizedExtentKind: 'exactLineCount',
-		lineCount: 1,
-		isBinary: false,
-		canFetchContent: true,
-	};
-}
-
-function makeRenderSemantics(): BridgeWorkerReviewRenderSemantics {
-	return {
-		itemId: 'item-1',
-		itemKind: 'diff',
-		changeKind: 'modified',
-		displayPath: 'Sources/App/item-1.swift',
-		basePath: 'Sources/App/item-1.swift',
-		headPath: 'Sources/App/item-1.swift',
-		language: 'swift',
-		contentLineCountsByRole: { base: 100, head: 80 },
-	};
-}
-
-function makeFileViewContentRequestDescriptor(
-	props: string | { readonly generation: number; readonly text: string },
-): BridgeWorkerFileViewContentRequestDescriptor {
-	const text = typeof props === 'string' ? props : props.text;
-	const generation = typeof props === 'string' ? 6 : props.generation;
-	const descriptor: BridgeWorkerFileViewContentRequestDescriptor = {
-		itemId: 'file-1',
-		path: 'Sources/App/file-1.swift',
-		handleId: 'handle-file-1',
-		descriptorId: 'descriptor-file-1',
-		resourceKind: 'worktree.fileContent',
-		resourceUrl: `agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?cursor=cursor-file-1&generation=${generation}`,
-		contentHash: 'sha256:file-1',
-		contentHashAlgorithm: 'sha256',
-		language: 'swift',
-		sizeBytes: 128,
-		maxBytes: 4096,
-		isBinary: false,
-	};
-	descriptorByUrl.set(descriptor.resourceUrl, { text });
-	return descriptor;
-}
-
-function makeContentRequestDescriptor(props: {
-	readonly role: BridgeWorkerReviewContentRequestDescriptor['role'];
-	readonly text: string;
-}): BridgeWorkerReviewContentRequestDescriptor {
-	const descriptor: BridgeWorkerReviewContentRequestDescriptor = {
-		itemId: 'item-1',
-		role: props.role,
-		handleId: `handle-item-1-${props.role}`,
-		reviewGeneration: 4,
-		resourceUrl: `agentstudio://resource/review/content/handle-item-1-${props.role}?generation=4`,
-		contentHash: `sha256:item-1:${props.role}`,
-		contentHashAlgorithm: 'fixture-preview',
-		language: 'swift',
-		sizeBytes: 1024,
-		isBinary: false,
-	};
-	descriptorByUrl.set(descriptor.resourceUrl, { text: props.text });
-	return descriptor;
-}

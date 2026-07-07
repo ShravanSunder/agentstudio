@@ -1,14 +1,23 @@
 import {
-	fetchSelectedBridgeWorkerReviewContentReadyResources,
-	isSelectedReviewContentReadyPreparationCurrent,
-	publishSelectedBridgeWorkerReviewContentReadyFetchResult,
+	fetchBridgeWorkerReviewContentReadyResources,
+	isReviewContentReadyDemandCurrent,
+	publishBridgeWorkerReviewContentReadyFetchResult,
 	type BridgeWorkerReviewContentReadyFetchResult,
+	type DispatchBridgeWorkerReviewContentReadyProps,
 	type DispatchSelectedBridgeWorkerReviewContentReadyProps,
 } from './bridge-comm-worker-review-runtime.js';
 import type {
+	BridgeWorkerContentPreparationRank,
 	BridgeWorkerContentPreparationWork,
 	WorkerContentPreparationPump,
 } from './bridge-worker-content-preparation-pump.js';
+
+export interface EnqueueBridgeWorkerReviewContentReadyPreparationProps extends DispatchBridgeWorkerReviewContentReadyProps {
+	readonly preparationRank: BridgeWorkerContentPreparationRank;
+	readonly pump: WorkerContentPreparationPump;
+	readonly requestPreparationDrain?: () => void;
+	readonly workId?: string;
+}
 
 export interface EnqueueSelectedBridgeWorkerReviewContentReadyPreparationProps extends DispatchSelectedBridgeWorkerReviewContentReadyProps {
 	readonly pump: WorkerContentPreparationPump;
@@ -25,26 +34,37 @@ export interface BridgeWorkerReviewContentReadyPreparationTicket {
 export function enqueueSelectedBridgeWorkerReviewContentReadyPreparation(
 	props: EnqueueSelectedBridgeWorkerReviewContentReadyPreparationProps,
 ): BridgeWorkerReviewContentReadyPreparationTicket {
-	const { pump, workId = selectedReviewContentReadyWorkId(props), ...dispatchProps } = props;
+	return enqueueBridgeWorkerReviewContentReadyPreparation({
+		...props,
+		demandKey: `selected:${props.epoch}`,
+		preparationRank: 'selected',
+		workId: props.workId ?? selectedReviewContentReadyWorkId(props),
+	});
+}
+
+export function enqueueBridgeWorkerReviewContentReadyPreparation(
+	props: EnqueueBridgeWorkerReviewContentReadyPreparationProps,
+): BridgeWorkerReviewContentReadyPreparationTicket {
+	const { pump, workId = reviewContentReadyWorkId(props), ...dispatchProps } = props;
 	const completion = createBridgeWorkerReviewContentReadyPreparationCompletion();
 	let fetchStarted = false;
 	let fetchResult: BridgeWorkerReviewContentReadyFetchResult | null = null;
-	if (!isSelectedReviewContentReadyPreparationCurrent(dispatchProps)) {
+	if (!isReviewContentReadyDemandCurrent(dispatchProps)) {
 		completion.resolve();
 		return { completion: completion.promise, enqueued: false, workId };
 	}
 
 	const work: BridgeWorkerContentPreparationWork = {
 		id: workId,
-		rank: 'selected',
+		rank: props.preparationRank,
 		runSlice: () => {
-			if (!isSelectedReviewContentReadyPreparationCurrent(dispatchProps)) {
+			if (!isReviewContentReadyDemandCurrent(dispatchProps)) {
 				completion.resolve();
 				return { complete: true };
 			}
 			if (!fetchStarted) {
 				fetchStarted = true;
-				void fetchSelectedBridgeWorkerReviewContentReadyResources(dispatchProps)
+				void fetchBridgeWorkerReviewContentReadyResources(dispatchProps)
 					.then((result) => {
 						fetchResult = result;
 						pump.enqueueOrPromote(work);
@@ -57,7 +77,7 @@ export function enqueueSelectedBridgeWorkerReviewContentReadyPreparation(
 				return { complete: false, continuation: 'external' };
 			}
 			try {
-				publishSelectedBridgeWorkerReviewContentReadyFetchResult({
+				publishBridgeWorkerReviewContentReadyFetchResult({
 					...dispatchProps,
 					fetchResult,
 				});
@@ -71,6 +91,15 @@ export function enqueueSelectedBridgeWorkerReviewContentReadyPreparation(
 	pump.enqueueOrPromote(work);
 
 	return { completion: completion.promise, enqueued: true, workId };
+}
+
+function reviewContentReadyWorkId(
+	props: Pick<
+		DispatchBridgeWorkerReviewContentReadyProps,
+		'demandKey' | 'epoch' | 'itemId' | 'sequence'
+	>,
+): string {
+	return `review-content-ready:${props.itemId}:${props.demandKey}:${props.sequence}`;
 }
 
 function selectedReviewContentReadyWorkId(
