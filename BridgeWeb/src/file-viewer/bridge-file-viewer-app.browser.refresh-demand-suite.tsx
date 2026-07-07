@@ -184,6 +184,73 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(shell.getAttribute('data-last-refresh-descriptor-id')).toBe('refresh-content-2');
 	});
 
+	test('renders replacement file body after an auto-open worker source refresh', async () => {
+		const initialDescriptor = makeFileDescriptor({
+			contentHandle: 'auto-refresh-content-1',
+			fileId: 'file-auto-refresh-target',
+			path: 'src/auto-refresh-target.ts',
+		});
+		const resetSourceIdentity = makeSourceIdentity({
+			subscriptionGeneration: 2,
+			sourceCursor: 'cursor-2',
+		});
+		const replacementDescriptor = makeFileDescriptor({
+			contentHandle: 'auto-refresh-content-2',
+			fileId: 'file-auto-refresh-target',
+			generation: 2,
+			path: 'src/auto-refresh-target.ts',
+			sourceIdentity: resetSourceIdentity,
+		});
+		const fetchedResourceUrls: string[] = [];
+		let publishFrames: PublishWorktreeFileFrames | null = null;
+
+		render(
+			<BridgeFileViewerApp
+				autoOpenInitialFile
+				codeViewWorkerPoolEnabled={false}
+				initialFrames={makeFrames(initialDescriptor)}
+				worktreeFileSurfaceTransport={{
+					fetchResource: async (props) => {
+						fetchedResourceUrls.push(props.resourceUrl);
+						return makeWorktreeFileSurfaceRuntimeFetchedResource(
+							props.resourceUrl.includes('auto-refresh-content-2')
+								? 'export const autoRefreshed = true;\n'
+								: 'export const autoInitial = true;\n',
+						);
+					},
+					subscribeFrames: (handler): (() => void) => {
+						publishFrames = handler;
+						return (): void => {
+							publishFrames = null;
+						};
+					},
+				}}
+			/>,
+		);
+
+		await waitForOpenFileState('ready');
+		await waitForVisibleCodeText('export const autoInitial = true;');
+		const publishRequiredFrames = requireFramePublisher(publishFrames);
+		await actUpdate((): void => {
+			publishRequiredFrames(makeResetFrames(replacementDescriptor));
+		});
+		await waitForVisibleCodeText('export const autoRefreshed = true;');
+		await waitForOpenFileState('ready');
+
+		expect(document.querySelector('[data-testid="worktree-file-refresh"]')).toBeNull();
+		expect(fetchedResourceUrls).toContain(
+			'agentstudio://resource/worktree-file/worktree.fileContent/auto-refresh-content-2?cursor=cursor-2&generation=2',
+		);
+		expect(openFileBodyPreview()).toContain('export const autoRefreshed = true;');
+		expect(visibleCodeText()).not.toContain('export const autoInitial = true;');
+		const shell = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
+		);
+		expect(shell.getAttribute('data-last-refresh-result')).toBe('ok');
+		expect(shell.getAttribute('data-last-refresh-commit-state')).toBe('committed');
+		expect(shell.getAttribute('data-last-refresh-descriptor-id')).toBe('auto-refresh-content-2');
+	});
+
 	test('restores File CodeView scroll position after a same-path worker source refresh', async () => {
 		const initialDescriptor = makeFileDescriptor({
 			contentHandle: 'refresh-scroll-content-1',

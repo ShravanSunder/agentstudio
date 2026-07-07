@@ -53,6 +53,9 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		readonly status: BridgeFileViewerCodePanelState['status'];
 	}>({ path: null, status: 'idle' });
 	const previousRenderedPathRef = useRef<string | null>(null);
+	const previousRenderedCacheKeyRef = useRef<string | null>(null);
+	const scrollEffectVersionRef = useRef(0);
+	const selectedCodeViewCacheKey = props.selectedCodeViewItem?.bridgeMetadata.cacheKey ?? null;
 	const codeViewItems = useMemo(
 		() =>
 			bridgeFileViewerCodeViewItemsForPanelState({
@@ -64,23 +67,43 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	const shouldRenderContentState =
 		props.selectedCodeViewItem === null && props.openFileState.status !== 'loading';
 	useLayoutEffect((): void => {
+		const effectVersion = scrollEffectVersionRef.current + 1;
+		scrollEffectVersionRef.current = effectVersion;
 		const currentPath = props.openFileState.status === 'idle' ? null : props.openFileState.path;
 		const currentRenderedPath = props.selectedCodeViewItem?.bridgeMetadata.displayPath ?? null;
+		const currentRenderedCacheKey = selectedCodeViewCacheKey;
 		const currentStatus = props.openFileState.status;
 		const previousOpenState = previousOpenStateRef.current;
-		const shouldRestoreSameFileScroll =
-			currentPath !== null &&
-			currentPath === previousOpenState.path &&
-			currentStatus === 'ready' &&
+		const previousRenderedPath = previousRenderedPathRef.current;
+		const previousRenderedCacheKey = previousRenderedCacheKeyRef.current;
+		const sameOpenFileReady =
+			currentPath !== null && currentPath === previousOpenState.path && currentStatus === 'ready';
+		const sameRenderedFile =
+			currentRenderedPath !== null && currentRenderedPath === previousRenderedPath;
+		const sameFileLoadFinished =
+			sameOpenFileReady &&
+			sameRenderedFile &&
 			(previousOpenState.status === 'loading' || previousOpenState.status === 'refreshing');
+		const sameReadyFileContentChanged =
+			sameOpenFileReady &&
+			sameRenderedFile &&
+			currentRenderedPath !== null &&
+			previousRenderedCacheKey !== null &&
+			currentRenderedCacheKey !== null &&
+			currentRenderedCacheKey !== previousRenderedCacheKey;
+		const shouldRestoreSameFileScroll = sameFileLoadFinished || sameReadyFileContentChanged;
 		if (
 			currentRenderedPath !== null &&
-			currentRenderedPath !== previousRenderedPathRef.current &&
+			currentRenderedPath !== previousRenderedPath &&
 			!shouldRestoreSameFileScroll
 		) {
 			previousRenderedPathRef.current = currentRenderedPath;
+			previousRenderedCacheKeyRef.current = currentRenderedCacheKey;
 			lastScrollTopRef.current = 0;
 			requestAnimationFrame((): void => {
+				if (scrollEffectVersionRef.current !== effectVersion) {
+					return;
+				}
 				codeViewHandleRef.current?.scrollTo({
 					type: 'position',
 					position: 0,
@@ -91,20 +114,41 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		if (shouldRestoreSameFileScroll) {
 			if (currentRenderedPath !== null) {
 				previousRenderedPathRef.current = currentRenderedPath;
+				previousRenderedCacheKeyRef.current = currentRenderedCacheKey;
 			}
 			const scrollTop = lastScrollTopRef.current;
 			requestAnimationFrame((): void => {
+				if (scrollEffectVersionRef.current !== effectVersion) {
+					return;
+				}
 				if (scrollTop > 0) {
 					codeViewHandleRef.current?.scrollTo({
 						type: 'position',
 						position: scrollTop,
 						behavior: 'instant',
 					});
+					// CodeView may apply its own same-item remount scroll reset one
+					// frame later after a silent worker refresh. Retarget once more
+					// so same-file refreshes keep the user's viewport.
+					requestAnimationFrame((): void => {
+						if (scrollEffectVersionRef.current !== effectVersion) {
+							return;
+						}
+						codeViewHandleRef.current?.scrollTo({
+							type: 'position',
+							position: scrollTop,
+							behavior: 'instant',
+						});
+					});
 				}
 			});
 		}
 		previousOpenStateRef.current = { path: currentPath, status: currentStatus };
-	}, [props.openFileState, props.selectedCodeViewItem?.bridgeMetadata.displayPath]);
+	}, [
+		props.openFileState,
+		props.selectedCodeViewItem?.bridgeMetadata.displayPath,
+		selectedCodeViewCacheKey,
+	]);
 	return (
 		<section
 			aria-label="Selected file"

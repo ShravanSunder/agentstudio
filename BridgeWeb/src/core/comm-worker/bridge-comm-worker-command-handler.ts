@@ -346,9 +346,6 @@ function scheduleSelectedFileViewContentReadyPreparationForCurrentDemand(props: 
 		return;
 	}
 	const availability = props.store.getState().availabilityByItemId.get(selectedId);
-	if (props.selectedContentRequestDescriptorChanged && availability === 'ready') {
-		return;
-	}
 	if (
 		availability === 'ready' &&
 		!props.selectedContentMetadataChanged &&

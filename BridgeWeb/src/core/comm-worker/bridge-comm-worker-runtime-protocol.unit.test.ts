@@ -373,7 +373,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		dispatch.message(
 			encodeBridgeWorkerFileViewSourceUpdateCommand({
 				requestId: 'request-file-view-source-descriptor-refresh',
-				epoch: 7,
+				epoch: 8,
 				contentItems: [makeWorkerFileViewContentMetadata()],
 				contentRequestDescriptors: [
 					makeFileViewContentRequestDescriptor({ generation: 8, text: 'refreshed body\n' }),
@@ -381,15 +381,7 @@ describe('Bridge comm worker runtime protocol', () => {
 				rows: [{ id: 'file-1', parentId: null, index: 0 }],
 			}),
 		);
-		expect(scheduledDrains).toHaveLength(2);
-		dispatch.message(
-			encodeBridgeWorkerSelectCommand({
-				requestId: 'request-file-view-select-after-descriptor-refresh',
-				epoch: 8,
-				selectedItemId: 'file-1',
-				selectedSource: 'programmatic',
-			}),
-		);
+		expect(scheduledDrains).toHaveLength(3);
 		clockMs += 1;
 		const refreshFirstDrainCompletion = assertBridgeCommWorkerPreparationDrain(
 			scheduledDrains[2],
@@ -400,7 +392,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		)();
 		await refreshFirstDrainCompletion;
 
-		expect(refreshSecondDrainResult.completedIds).toEqual(['file-view-content-ready:file-1:8:86']);
+		expect(refreshSecondDrainResult.completedIds).toEqual(['file-view-content-ready:file-1:8:85']);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'health',
 			'slicePatch',
@@ -408,12 +400,10 @@ describe('Bridge comm worker runtime protocol', () => {
 			'pierreRenderJob',
 			'slicePatch',
 			'health',
-			'slicePatch',
-			'health',
 			'pierreRenderJob',
 			'slicePatch',
 		]);
-		expect(postedMessages[8]?.message).toMatchObject({
+		expect(postedMessages[6]?.message).toMatchObject({
 			kind: 'pierreRenderJob',
 			job: {
 				itemId: 'file-1',
@@ -428,10 +418,10 @@ describe('Bridge comm worker runtime protocol', () => {
 				},
 			},
 		});
-		expect(postedMessages[9]?.message).toMatchObject({
+		expect(postedMessages[7]?.message).toMatchObject({
 			kind: 'slicePatch',
 			epoch: 8,
-			sequence: 86,
+			sequence: 85,
 			patches: [
 				{
 					slice: 'rowPaint',

@@ -51,7 +51,7 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 		expect(scenario.readyStore.getState().availabilityByItemId.get('file-1')).toBe('ready');
 	});
 
-	test('waits for an explicit selected request when File View descriptor refreshes', () => {
+	test('schedules selected File View preparation when a ready descriptor refreshes', () => {
 		const scenario = createReadySelectedFileViewScenario();
 
 		const messages = scenario.handler.handleMessage(
@@ -74,22 +74,13 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 				status: 'ready',
 			},
 		]);
-		expect(scenario.scheduledFileViewPreparations).toEqual([]);
-		scenario.handler.handleMessage(
-			encodeBridgeWorkerSelectCommand({
-				requestId: 'request-select-file-after-descriptor-refresh',
-				epoch: 9,
-				selectedItemId: 'file-1',
-				selectedSource: 'programmatic',
-			}),
-		);
 		expect(scenario.scheduledFileViewPreparations).toHaveLength(1);
-		expect(scenario.scheduledFileViewPreparations[0]?.epoch).toBe(9);
+		expect(scenario.scheduledFileViewPreparations[0]?.epoch).toBe(8);
 		expect(scenario.scheduledFileViewPreparations[0]?.itemId).toBe('file-1');
 		expect(
 			scenario.scheduledFileViewPreparations[0]?.store.getState().demandByKey.get('file-1'),
-		).toBe('selected:9');
-		expect(scenario.readyStore.getState().availabilityByItemId.get('file-1')).toBe('loading');
+		).toBe('selected:8');
+		expect(scenario.readyStore.getState().availabilityByItemId.get('file-1')).toBe('ready');
 	});
 
 	test('schedules selected File View preparation when a replacement descriptor repairs loading demand', () => {

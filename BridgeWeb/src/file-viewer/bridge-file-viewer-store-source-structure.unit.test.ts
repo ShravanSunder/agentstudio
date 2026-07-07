@@ -121,6 +121,24 @@ describe('Bridge file viewer store source structure', () => {
 		});
 		expect(appPropsSource).toContain('readonly worktreeFileSurfaceTransport?:');
 	});
+
+	test('keeps File View production content fetching behind the comm worker', () => {
+		const forbiddenContentFetchTokens = [
+			'fetchResource',
+			'WorktreeFileSurfaceRuntimeFetchResourceProps',
+			'WorktreeFileSurfaceRuntimeFetchedResource',
+			'makeWorktreeFileSurfaceRuntimeFetchedResource',
+			'loadBridgeTextResourceWithTiming',
+			'defaultFetchWorktreeFileResource',
+		];
+		const violations = readFileViewerProductionSources().flatMap(({ relativePath, source }) =>
+			forbiddenContentFetchTokens
+				.filter((token): boolean => source.includes(token))
+				.map((token): string => `${relativePath}: ${token}`),
+		);
+
+		expect(violations).toEqual([]);
+	});
 });
 
 interface SourceFileEntry {
@@ -166,7 +184,9 @@ function readSourceFilesInDirectory(props: {
 			!entry.isFile() ||
 			(!entry.name.endsWith('.ts') && !entry.name.endsWith('.tsx')) ||
 			entry.name.includes('.test.') ||
-			entry.name.includes('.browser.')
+			entry.name.includes('.browser.') ||
+			entry.name.includes('browser-test') ||
+			relativePath.includes('/test-support/')
 		) {
 			return [];
 		}
