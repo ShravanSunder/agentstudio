@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { BridgeCommWorkerPort } from './bridge-comm-worker-entry.js';
 import {
+	encodeBridgeWorkerFileViewSourceUpdateCommand,
 	encodeBridgeWorkerReviewSourceUpdateCommand,
 	encodeBridgeWorkerSelectCommand,
 } from './bridge-comm-worker-protocol.js';
@@ -11,6 +12,8 @@ import {
 } from './bridge-comm-worker-runtime-protocol.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 import type {
+	BridgeWorkerFileViewContentMetadata,
+	BridgeWorkerFileViewContentRequestDescriptor,
 	BridgeWorkerReviewContentMetadata,
 	BridgeWorkerReviewContentRequestDescriptor,
 	BridgeWorkerReviewRenderSemantics,
@@ -204,6 +207,235 @@ describe('Bridge comm worker runtime protocol', () => {
 		});
 		expect(scheduledDrains).toHaveLength(1);
 	});
+
+	test('drains selected File View content prep from retained source descriptors', async () => {
+		let clockMs = 0;
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentItems: [],
+			contentRequestDescriptors: [],
+			createSequence: createBridgeWorkerSequenceCounter(61),
+			fetchContent: async (url: string): Promise<Response> => {
+				const descriptor = descriptorByUrl.get(url);
+				if (descriptor === undefined) {
+					throw new Error(`Unexpected File View content URL ${url}.`);
+				}
+				return makeImmediateTextResponse(descriptor.text);
+			},
+			pump: createWorkerContentPreparationPump({
+				maxSliceMs: 8,
+				now: () => clockMs,
+			}),
+			renderSemantics: [],
+			rows: [],
+			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerFileViewSourceUpdateCommand({
+				requestId: 'request-file-view-source-update',
+				epoch: 6,
+				contentItems: [makeWorkerFileViewContentMetadata()],
+				contentRequestDescriptors: [makeFileViewContentRequestDescriptor('file body\n')],
+				rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			}),
+		);
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-file-view-select',
+				epoch: 7,
+				selectedItemId: 'file-1',
+				selectedSource: 'user',
+			}),
+		);
+
+		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
+			'health',
+			'slicePatch',
+			'health',
+		]);
+		expect(scheduledDrains).toHaveLength(1);
+		clockMs += 1;
+
+		const firstDrainCompletion = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(scheduledDrains).toHaveLength(2);
+		const secondDrainResult = await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
+		const firstDrainResult = await firstDrainCompletion;
+
+		expect(firstDrainResult.completedIds).toEqual([]);
+		expect(secondDrainResult.completedIds).toEqual(['file-view-content-ready:file-1:7:63']);
+		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
+			'health',
+			'slicePatch',
+			'health',
+			'pierreRenderJob',
+			'slicePatch',
+		]);
+		expect(postedMessages[3]?.message).toMatchObject({
+			kind: 'pierreRenderJob',
+			job: {
+				itemId: 'file-1',
+				renderKind: 'fileText',
+				payload: {
+					kind: 'codeViewFileItem',
+				},
+			},
+		});
+		expect(postedMessages[4]?.message).toMatchObject({
+			kind: 'slicePatch',
+			epoch: 7,
+			sequence: 63,
+			patches: [
+				{
+					slice: 'rowPaint',
+					operation: 'upsert',
+					itemId: 'file-1',
+				},
+				{
+					slice: 'contentAvailability',
+					operation: 'upsert',
+					itemId: 'file-1',
+					payload: { state: 'ready' },
+				},
+			],
+		});
+	});
+
+	test('drains a second selected File View prep after ready descriptor refresh', async () => {
+		let clockMs = 0;
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentItems: [],
+			contentRequestDescriptors: [],
+			createSequence: createBridgeWorkerSequenceCounter(81),
+			fetchContent: async (url: string): Promise<Response> => {
+				const descriptor = descriptorByUrl.get(url);
+				if (descriptor === undefined) {
+					throw new Error(`Unexpected File View content URL ${url}.`);
+				}
+				return makeImmediateTextResponse(descriptor.text);
+			},
+			pump: createWorkerContentPreparationPump({
+				maxSliceMs: 8,
+				now: () => clockMs,
+			}),
+			renderSemantics: [],
+			rows: [],
+			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerFileViewSourceUpdateCommand({
+				requestId: 'request-file-view-source-before-ready',
+				epoch: 6,
+				contentItems: [makeWorkerFileViewContentMetadata()],
+				contentRequestDescriptors: [
+					makeFileViewContentRequestDescriptor({ generation: 6, text: 'first body\n' }),
+				],
+				rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			}),
+		);
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-file-view-select-before-ready',
+				epoch: 7,
+				selectedItemId: 'file-1',
+				selectedSource: 'user',
+			}),
+		);
+		clockMs += 1;
+		const firstDrainCompletion = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
+		await firstDrainCompletion;
+
+		dispatch.message(
+			encodeBridgeWorkerFileViewSourceUpdateCommand({
+				requestId: 'request-file-view-source-descriptor-refresh',
+				epoch: 7,
+				contentItems: [makeWorkerFileViewContentMetadata()],
+				contentRequestDescriptors: [
+					makeFileViewContentRequestDescriptor({ generation: 8, text: 'refreshed body\n' }),
+				],
+				rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			}),
+		);
+		clockMs += 1;
+		const refreshFirstDrainCompletion = assertBridgeCommWorkerPreparationDrain(
+			scheduledDrains[2],
+		)();
+		await flushBridgeWorkerRuntimeContinuations();
+		const refreshSecondDrainResult = await assertBridgeCommWorkerPreparationDrain(
+			scheduledDrains[3],
+		)();
+		await refreshFirstDrainCompletion;
+
+		expect(refreshSecondDrainResult.completedIds).toEqual(['file-view-content-ready:file-1:7:85']);
+		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
+			'health',
+			'slicePatch',
+			'health',
+			'pierreRenderJob',
+			'slicePatch',
+			'health',
+			'pierreRenderJob',
+			'slicePatch',
+		]);
+		expect(postedMessages[6]?.message).toMatchObject({
+			kind: 'pierreRenderJob',
+			job: {
+				itemId: 'file-1',
+				renderKind: 'fileText',
+				payload: {
+					kind: 'codeViewFileItem',
+					item: {
+						file: {
+							contents: 'refreshed body\n',
+						},
+					},
+				},
+			},
+		});
+		expect(postedMessages[7]?.message).toMatchObject({
+			kind: 'slicePatch',
+			epoch: 7,
+			sequence: 85,
+			patches: [
+				{
+					slice: 'rowPaint',
+					operation: 'upsert',
+					itemId: 'file-1',
+				},
+				{
+					slice: 'contentAvailability',
+					operation: 'upsert',
+					itemId: 'file-1',
+					payload: { state: 'ready' },
+				},
+			],
+		});
+	});
 });
 
 const descriptorByUrl = new Map<string, { readonly text: string }>();
@@ -295,6 +527,23 @@ function makeWorkerReviewContentMetadata(): BridgeWorkerReviewContentMetadata {
 	};
 }
 
+function makeWorkerFileViewContentMetadata(): BridgeWorkerFileViewContentMetadata {
+	return {
+		itemId: 'file-1',
+		path: 'Sources/App/file-1.swift',
+		language: 'swift',
+		cacheKey: 'file-view:metadata-cache:file-1',
+		sizeBytes: 128,
+		contentHandle: 'handle-file-1',
+		descriptorId: 'descriptor-file-1',
+		contentHash: 'sha256:file-1',
+		virtualizedExtentKind: 'exactLineCount',
+		lineCount: 1,
+		isBinary: false,
+		canFetchContent: true,
+	};
+}
+
 function makeRenderSemantics(): BridgeWorkerReviewRenderSemantics {
 	return {
 		itemId: 'item-1',
@@ -306,6 +555,29 @@ function makeRenderSemantics(): BridgeWorkerReviewRenderSemantics {
 		language: 'swift',
 		contentLineCountsByRole: { base: 100, head: 80 },
 	};
+}
+
+function makeFileViewContentRequestDescriptor(
+	props: string | { readonly generation: number; readonly text: string },
+): BridgeWorkerFileViewContentRequestDescriptor {
+	const text = typeof props === 'string' ? props : props.text;
+	const generation = typeof props === 'string' ? 6 : props.generation;
+	const descriptor: BridgeWorkerFileViewContentRequestDescriptor = {
+		itemId: 'file-1',
+		path: 'Sources/App/file-1.swift',
+		handleId: 'handle-file-1',
+		descriptorId: 'descriptor-file-1',
+		resourceKind: 'worktree.fileContent',
+		resourceUrl: `agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?cursor=cursor-file-1&generation=${generation}`,
+		contentHash: 'sha256:file-1',
+		contentHashAlgorithm: 'sha256',
+		language: 'swift',
+		sizeBytes: 128,
+		maxBytes: 4096,
+		isBinary: false,
+	};
+	descriptorByUrl.set(descriptor.resourceUrl, { text });
+	return descriptor;
 }
 
 function makeContentRequestDescriptor(props: {

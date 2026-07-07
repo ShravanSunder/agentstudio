@@ -48,6 +48,7 @@ export interface CreateBridgeCommWorkerStoreProps {
 }
 
 export interface BridgeCommWorkerTouchedResult {
+	readonly selectedFileViewContentMetadataChanged?: boolean;
 	readonly touchedKeys: readonly string[];
 }
 
@@ -92,6 +93,7 @@ export interface ApplyBridgeCommWorkerReviewSourceUpdateFactProps {
 
 export interface ApplyBridgeCommWorkerFileViewSourceUpdateFactProps {
 	readonly contentItems: readonly BridgeWorkerFileViewContentMetadata[];
+	readonly epoch: number;
 	readonly rows: readonly BridgeCommWorkerRow[];
 }
 
@@ -303,9 +305,29 @@ export function createBridgeCommWorkerStore(
 			applyContentTerminalAvailability: (
 				fact: ApplyBridgeCommWorkerContentTerminalAvailabilityProps,
 			): BridgeCommWorkerTouchedResult => {
-				store.setState((state) => ({
-					...writeBridgeWorkerMap(state, 'availabilityByItemId', fact.itemId, fact.state),
-				}));
+				const previousState = store.getState();
+				const previousContentCacheKey = previousState.paintReadyByItemId.get(fact.itemId);
+				const nextByteCache = new Map(previousState.byteCache);
+				const nextPaintReadyByItemId = new Map(previousState.paintReadyByItemId);
+				const touchedKeys: string[] = [];
+				if (previousContentCacheKey !== undefined) {
+					nextPaintReadyByItemId.delete(fact.itemId);
+					nextByteCache.delete(previousContentCacheKey);
+					touchedKeys.push(`paintReady:${fact.itemId}`, `byteCache:${previousContentCacheKey}`);
+					pendingSlicePatches.push({
+						slice: 'rowPaint',
+						operation: 'delete',
+						itemId: fact.itemId,
+					});
+				}
+				const nextAvailabilityByItemId = new Map(previousState.availabilityByItemId);
+				nextAvailabilityByItemId.set(fact.itemId, fact.state);
+				store.setState({
+					...previousState,
+					byteCache: nextByteCache,
+					paintReadyByItemId: nextPaintReadyByItemId,
+					availabilityByItemId: nextAvailabilityByItemId,
+				});
 				pendingSlicePatches.push({
 					slice: 'contentAvailability',
 					operation: 'upsert',
@@ -313,7 +335,7 @@ export function createBridgeCommWorkerStore(
 					payload: { state: fact.state },
 				});
 				return {
-					touchedKeys: [`availability:${fact.itemId}`],
+					touchedKeys: [...touchedKeys, `availability:${fact.itemId}`],
 				};
 			},
 			applyReviewInvalidationFact: (
@@ -396,6 +418,7 @@ export function createBridgeCommWorkerStore(
 			): BridgeCommWorkerTouchedResult => {
 				return applyBridgeCommWorkerFileViewSourceUpdateFact({
 					contentItems: fact.contentItems,
+					epoch: fact.epoch,
 					pendingSlicePatches,
 					rows: fact.rows,
 					store,

@@ -1,9 +1,12 @@
 import {
 	createBridgeCommWorkerCommandHandler,
+	type BridgeCommWorkerFileViewRuntimeSource,
 	type BridgeCommWorkerReviewRuntimeSource,
+	type BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest,
 	type BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 } from './bridge-comm-worker-command-handler.js';
 import type { BridgeCommWorkerPort } from './bridge-comm-worker-entry.js';
+import { enqueueSelectedBridgeWorkerFileViewContentReadyPreparation } from './bridge-comm-worker-file-view-preparation.js';
 import { enqueueSelectedBridgeWorkerReviewContentReadyPreparation } from './bridge-comm-worker-review-preparation.js';
 import type { BridgeCommWorkerRow } from './bridge-comm-worker-store.js';
 import {
@@ -64,6 +67,11 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		renderSemantics: props.renderSemantics,
 		rows: props.rows,
 	};
+	let fileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource = {
+		contentItems: [],
+		contentRequestDescriptors: [],
+		rows: [],
+	};
 
 	const drainPreparation: BridgeCommWorkerPreparationDrain = async () => {
 		drainScheduled = false;
@@ -116,8 +124,32 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				shouldRequestDrainAfterMessage = true;
 			}
 		},
+		scheduleSelectedFileViewContentReadyPreparation: (
+			request: BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest,
+		): void => {
+			const ticket = enqueueSelectedBridgeWorkerFileViewContentReadyPreparation({
+				bridgeDemandRank: props.bridgeDemandRank,
+				budget: props.budget,
+				contentRequestDescriptors: fileViewRuntimeSource.contentRequestDescriptors,
+				epoch: request.epoch,
+				...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
+				itemId: request.itemId,
+				port,
+				pump,
+				requestPreparationDrain,
+				sequence: createSequence(),
+				store: request.store,
+			});
+			if (ticket.enqueued) {
+				preparationCompletions.push(ticket.completion);
+				shouldRequestDrainAfterMessage = true;
+			}
+		},
 		updateReviewRuntimeSource: (source: BridgeCommWorkerReviewRuntimeSource): void => {
 			reviewRuntimeSource = source;
+		},
+		updateFileViewRuntimeSource: (source: BridgeCommWorkerFileViewRuntimeSource): void => {
+			fileViewRuntimeSource = source;
 		},
 	});
 

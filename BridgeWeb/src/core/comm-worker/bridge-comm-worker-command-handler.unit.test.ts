@@ -24,6 +24,12 @@ interface ScheduledSelectedReviewPreparation {
 	readonly store: BridgeCommWorkerStore;
 }
 
+interface ScheduledSelectedFileViewPreparation {
+	readonly epoch: number;
+	readonly itemId: string;
+	readonly store: BridgeCommWorkerStore;
+}
+
 describe('Bridge comm worker command handler', () => {
 	test('select command publishes loading availability and schedules selected preparation', () => {
 		const scheduledPreparations: ScheduledSelectedReviewPreparation[] = [];
@@ -36,6 +42,7 @@ describe('Bridge comm worker command handler', () => {
 			createSequence: (): number => 11,
 			scheduleSelectedReviewContentReadyPreparation:
 				pushScheduledSelectedReviewPreparation(scheduledPreparations),
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
 		});
 
 		const messages = handler.handleMessage(
@@ -89,6 +96,7 @@ describe('Bridge comm worker command handler', () => {
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 			createSequence: (): number => 21,
 			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
 		});
 
 		const messages = handler.handleMessage(
@@ -113,6 +121,7 @@ describe('Bridge comm worker command handler', () => {
 			createSequence: (): number => 22,
 			scheduleSelectedReviewContentReadyPreparation:
 				pushScheduledSelectedReviewPreparation(scheduledPreparations),
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
 		});
 
 		const messages = handler.handleMessage(
@@ -144,6 +153,7 @@ describe('Bridge comm worker command handler', () => {
 			],
 			createSequence: (): number => 12,
 			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
 		});
 
 		const messages = handler.handleMessage(
@@ -193,6 +203,7 @@ describe('Bridge comm worker command handler', () => {
 			createSequence: (): number => 23,
 			scheduleSelectedReviewContentReadyPreparation:
 				pushScheduledSelectedReviewPreparation(scheduledPreparations),
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
 		});
 		handler.handleMessage(
 			encodeBridgeWorkerSelectCommand({
@@ -253,6 +264,7 @@ describe('Bridge comm worker command handler', () => {
 			createSequence: createSequenceFrom([31, 32, 33]),
 			scheduleSelectedReviewContentReadyPreparation:
 				pushScheduledSelectedReviewPreparation(scheduledPreparations),
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
 		});
 		handler.handleMessage(
 			encodeBridgeWorkerSelectCommand({
@@ -322,6 +334,7 @@ describe('Bridge comm worker command handler', () => {
 			contentItems: [makeWorkerReviewContentMetadata('item-1')],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
 		});
 
 		const commandMessages = [
@@ -398,6 +411,7 @@ describe('Bridge comm worker command handler', () => {
 			],
 			createSequence: (): number => 13,
 			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
 		});
 
 		expect(
@@ -466,6 +480,7 @@ describe('Bridge comm worker command handler', () => {
 			createSequence: (): number => 14,
 			scheduleSelectedReviewContentReadyPreparation:
 				pushScheduledSelectedReviewPreparation(scheduledPreparations),
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
 		});
 
 		const messages = handler.handleMessage(
@@ -506,6 +521,7 @@ describe('Bridge comm worker command handler', () => {
 			rows: [],
 			createSequence: (): number => 31,
 			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
 			updateFileViewRuntimeSource: (source): void => {
 				receivedSources.push(source);
 			},
@@ -563,6 +579,7 @@ describe('Bridge comm worker command handler', () => {
 			rows: [{ id: 'file-1', parentId: null, index: 0 }],
 			createSequence: createSequenceFrom([41, 42]),
 			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
 		});
 		handler.handleMessage(
 			encodeBridgeWorkerSelectCommand({
@@ -610,6 +627,202 @@ describe('Bridge comm worker command handler', () => {
 			},
 		]);
 	});
+
+	test('select command schedules selected File View preparation instead of Review preparation', () => {
+		const scheduledReviewPreparations: ScheduledSelectedReviewPreparation[] = [];
+		const scheduledFileViewPreparations: ScheduledSelectedFileViewPreparation[] = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [],
+			rows: [],
+			createSequence: createSequenceFrom([51, 52]),
+			scheduleSelectedReviewContentReadyPreparation: pushScheduledSelectedReviewPreparation(
+				scheduledReviewPreparations,
+			),
+			scheduleSelectedFileViewContentReadyPreparation: pushScheduledSelectedFileViewPreparation(
+				scheduledFileViewPreparations,
+			),
+		});
+		handler.handleMessage(
+			encodeBridgeWorkerFileViewSourceUpdateCommand({
+				requestId: 'request-file-source-before-select',
+				epoch: 6,
+				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
+				contentRequestDescriptors: [makeWorkerFileViewContentRequestDescriptor('file-1', 6)],
+				rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			}),
+		);
+
+		const messages = handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-file-view',
+				epoch: 7,
+				selectedItemId: 'file-1',
+				selectedSource: 'user',
+			}),
+		);
+
+		expect(messages.map((message) => message.kind)).toEqual(['slicePatch', 'health']);
+		expect(messages[0]).toMatchObject({
+			kind: 'slicePatch',
+			epoch: 7,
+			sequence: 52,
+			patches: [
+				{
+					slice: 'selection',
+					operation: 'upsert',
+					payload: { selectedItemId: 'file-1' },
+				},
+				{
+					slice: 'contentAvailability',
+					operation: 'upsert',
+					itemId: 'file-1',
+					payload: { state: 'loading' },
+				},
+			],
+		});
+		expect(scheduledReviewPreparations).toEqual([]);
+		expect(scheduledFileViewPreparations).toHaveLength(1);
+		expect(scheduledFileViewPreparations[0]?.itemId).toBe('file-1');
+		expect(scheduledFileViewPreparations[0]?.epoch).toBe(7);
+		expect(scheduledFileViewPreparations[0]?.store.getState().demandByKey.get('file-1')).toBe(
+			'selected:7',
+		);
+	});
+
+	test('file view source update schedules selected preparation when source repair restores selected demand', () => {
+		const scheduledReviewPreparations: ScheduledSelectedReviewPreparation[] = [];
+		const scheduledFileViewPreparations: ScheduledSelectedFileViewPreparation[] = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [],
+			rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			createSequence: createSequenceFrom([61, 62]),
+			scheduleSelectedReviewContentReadyPreparation: pushScheduledSelectedReviewPreparation(
+				scheduledReviewPreparations,
+			),
+			scheduleSelectedFileViewContentReadyPreparation: pushScheduledSelectedFileViewPreparation(
+				scheduledFileViewPreparations,
+			),
+		});
+		handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-before-file-source',
+				epoch: 1,
+				selectedItemId: 'file-1',
+				selectedSource: 'user',
+			}),
+		);
+
+		const messages = handler.handleMessage(
+			encodeBridgeWorkerFileViewSourceUpdateCommand({
+				requestId: 'request-file-source-repair',
+				epoch: 2,
+				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
+				contentRequestDescriptors: [makeWorkerFileViewContentRequestDescriptor('file-1', 2)],
+				rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			}),
+		);
+
+		expect(messages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
+				kind: 'slicePatch',
+				epoch: 2,
+				sequence: 62,
+				patches: [
+					{
+						slice: 'contentAvailability',
+						operation: 'upsert',
+						itemId: 'file-1',
+						payload: { state: 'loading' },
+					},
+				],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
+				kind: 'health',
+				requestId: 'request-file-source-repair',
+				status: 'ready',
+			},
+		]);
+		expect(scheduledReviewPreparations).toEqual([]);
+		expect(scheduledFileViewPreparations).toHaveLength(1);
+		expect(scheduledFileViewPreparations[0]?.itemId).toBe('file-1');
+		expect(scheduledFileViewPreparations[0]?.epoch).toBe(2);
+		expect(scheduledFileViewPreparations[0]?.store.getState().demandByKey.get('file-1')).toBe(
+			'selected:2',
+		);
+	});
+
+	test('file view source update does not schedule selected preparation when ready paint remains current', () => {
+		const scheduledReviewPreparations: ScheduledSelectedReviewPreparation[] = [];
+		const scheduledFileViewPreparations: ScheduledSelectedFileViewPreparation[] = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [],
+			rows: [],
+			createSequence: createSequenceFrom([71, 72, 73]),
+			scheduleSelectedReviewContentReadyPreparation: pushScheduledSelectedReviewPreparation(
+				scheduledReviewPreparations,
+			),
+			scheduleSelectedFileViewContentReadyPreparation: pushScheduledSelectedFileViewPreparation(
+				scheduledFileViewPreparations,
+			),
+		});
+		handler.handleMessage(
+			encodeBridgeWorkerFileViewSourceUpdateCommand({
+				requestId: 'request-file-source-before-ready',
+				epoch: 6,
+				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
+				contentRequestDescriptors: [makeWorkerFileViewContentRequestDescriptor('file-1', 6)],
+				rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			}),
+		);
+		handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-file-before-ready',
+				epoch: 7,
+				selectedItemId: 'file-1',
+				selectedSource: 'user',
+			}),
+		);
+		const selectedStore = scheduledFileViewPreparations[0]?.store;
+		if (selectedStore === undefined) {
+			throw new Error('Expected selected File View preparation store.');
+		}
+		selectedStore.actions.applyContentReady({
+			itemId: 'file-1',
+			contentCacheKey: 'file-view:sha256:file-1',
+		});
+		selectedStore.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 81 });
+		scheduledFileViewPreparations.splice(0, scheduledFileViewPreparations.length);
+
+		const messages = handler.handleMessage(
+			encodeBridgeWorkerFileViewSourceUpdateCommand({
+				requestId: 'request-file-source-same-ready',
+				epoch: 7,
+				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
+				contentRequestDescriptors: [makeWorkerFileViewContentRequestDescriptor('file-1', 6)],
+				rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			}),
+		);
+
+		expect(messages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
+				kind: 'health',
+				requestId: 'request-file-source-same-ready',
+				status: 'ready',
+			},
+		]);
+		expect(scheduledReviewPreparations).toEqual([]);
+		expect(scheduledFileViewPreparations).toEqual([]);
+		expect(selectedStore.getState().availabilityByItemId.get('file-1')).toBe('ready');
+	});
 });
 
 function pushScheduledSelectedReviewPreparation(
@@ -622,6 +835,18 @@ function pushScheduledSelectedReviewPreparation(
 
 function ignoreScheduledSelectedReviewPreparation(
 	_preparation: ScheduledSelectedReviewPreparation,
+): void {}
+
+function pushScheduledSelectedFileViewPreparation(
+	target: ScheduledSelectedFileViewPreparation[],
+): (preparation: ScheduledSelectedFileViewPreparation) => void {
+	return (preparation: ScheduledSelectedFileViewPreparation): void => {
+		target.push(preparation);
+	};
+}
+
+function ignoreScheduledSelectedFileViewPreparation(
+	_preparation: ScheduledSelectedFileViewPreparation,
 ): void {}
 
 function createSequenceFrom(sequences: readonly number[]): () => number {

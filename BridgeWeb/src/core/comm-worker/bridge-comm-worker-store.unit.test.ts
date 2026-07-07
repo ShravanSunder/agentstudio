@@ -528,6 +528,7 @@ describe('Bridge comm worker store', () => {
 					path: 'Sources/App/FileViewRenamed.swift',
 				}),
 			],
+			epoch: 5,
 			rows: [{ id: 'file-text', parentId: null, index: 0 }],
 		});
 		const nextState = store.getState();
@@ -538,7 +539,7 @@ describe('Bridge comm worker store', () => {
 			}),
 		});
 		expect(Object.fromEntries(nextState.demandByKey)).toEqual({
-			'file-text': 'selected:4',
+			'file-text': 'selected:5',
 		});
 		expect(firstPatchEvent?.patches).toContainEqual({
 			slice: 'contentAvailability',
@@ -550,6 +551,7 @@ describe('Bridge comm worker store', () => {
 			'sourceRows',
 			'sourceContentMetadata',
 			'contentMetadata:file-text',
+			'demand:file-text',
 		]);
 		expect(JSON.stringify(firstPatchEvent)).not.toMatch(/contentHandle|resourceUrl|contents|body/i);
 	});
@@ -564,12 +566,13 @@ describe('Bridge comm worker store', () => {
 
 		const sourceUpdateResult = store.actions.applyFileViewSourceUpdateFact({
 			contentItems: [makeWorkerFileViewContentMetadata('file-1')],
+			epoch: 10,
 			rows: [{ id: 'file-1', parentId: null, index: 0 }],
 		});
 
 		expect(store.getState().availabilityByItemId.get('file-1')).toBe('loading');
 		expect(Object.fromEntries(store.getState().demandByKey)).toEqual({
-			'file-1': 'selected',
+			'file-1': 'selected:10',
 		});
 		expect(sourceUpdateResult.touchedKeys).toEqual([
 			'sourceRows',
@@ -607,6 +610,7 @@ describe('Bridge comm worker store', () => {
 					isBinary: true,
 				}),
 			],
+			epoch: 12,
 			rows: [{ id: 'file-1', parentId: null, index: 0 }],
 		});
 

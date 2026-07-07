@@ -14,6 +14,7 @@ import type {
 
 export interface ApplyBridgeCommWorkerFileViewSourceUpdateFactProps {
 	readonly contentItems: readonly BridgeWorkerFileViewContentMetadata[];
+	readonly epoch: number;
 	readonly pendingSlicePatches: BridgeWorkerSlicePatch[];
 	readonly rows: readonly BridgeCommWorkerRow[];
 	readonly store: StoreApi<BridgeCommWorkerStoreState>;
@@ -34,9 +35,14 @@ export function applyBridgeCommWorkerFileViewSourceUpdateFact(
 			(itemId): string => `contentMetadata:${itemId}`,
 		),
 	]);
+	const selectedFileViewContentMetadataChanged = didSelectedFileViewContentMetadataChange({
+		nextContentMetadataByItemId: sourceIndexes.contentMetadataByItemId,
+		previousState,
+	});
 	const nextSlicePatches: BridgeWorkerSlicePatch[] = [];
 	const selectedDemandValue = selectedDemandValueForSourceUpdate({
 		contentMetadataByItemId: sourceIndexes.contentMetadataByItemId,
+		epoch: props.epoch,
 		state: previousState,
 	});
 	const selectedDemandEnabled = selectedDemandValue !== null;
@@ -104,7 +110,10 @@ export function applyBridgeCommWorkerFileViewSourceUpdateFact(
 	});
 	props.pendingSlicePatches.push(...nextSlicePatches);
 
-	return { touchedKeys: [...touchedKeys] };
+	return {
+		selectedFileViewContentMetadataChanged,
+		touchedKeys: [...touchedKeys],
+	};
 }
 
 function buildBridgeCommWorkerFileViewSourceIndexes(props: {
@@ -142,6 +151,7 @@ function buildBridgeCommWorkerFileViewSourceIndexes(props: {
 
 function selectedDemandValueForSourceUpdate(props: {
 	readonly contentMetadataByItemId: ReadonlyMap<string, BridgeWorkerContentMetadata>;
+	readonly epoch: number;
 	readonly state: BridgeCommWorkerStoreState;
 }): string | null {
 	if (
@@ -152,7 +162,7 @@ function selectedDemandValueForSourceUpdate(props: {
 	) {
 		return null;
 	}
-	return readSelectedDemandValue(props.state) ?? 'selected';
+	return `selected:${props.epoch}`;
 }
 
 function sourceRepairCandidateIds(state: BridgeCommWorkerStoreState): readonly string[] {
@@ -220,16 +230,51 @@ function isDemandEligibleContentMetadata(metadata: BridgeWorkerContentMetadata |
 	return metadata.canFetchContent;
 }
 
-function readSelectedDemandValue(state: BridgeCommWorkerStoreState): string | null {
-	if (state.selectedId === null) {
-		return null;
+function didSelectedFileViewContentMetadataChange(props: {
+	readonly nextContentMetadataByItemId: ReadonlyMap<string, BridgeWorkerContentMetadata>;
+	readonly previousState: BridgeCommWorkerStoreState;
+}): boolean {
+	const selectedId = props.previousState.selectedId;
+	if (selectedId === null) {
+		return false;
 	}
-	const existingValue = state.demandByKey.get(state.selectedId);
-	if (existingValue?.startsWith('selected:') === true) {
-		return existingValue;
+	return !areFileViewContentMetadataEquivalent(
+		props.previousState.contentMetadataByItemId.get(selectedId) ?? null,
+		props.nextContentMetadataByItemId.get(selectedId) ?? null,
+	);
+}
+
+function areFileViewContentMetadataEquivalent(
+	left: BridgeWorkerContentMetadata | null,
+	right: BridgeWorkerContentMetadata | null,
+): boolean {
+	if (left === null || right === null) {
+		return left === right;
 	}
-	if (!state.selectedDemandEnabled) {
-		return null;
+	if (
+		!isBridgeWorkerFileViewContentMetadata(left) ||
+		!isBridgeWorkerFileViewContentMetadata(right)
+	) {
+		return false;
 	}
-	return 'selected';
+	return (
+		left.itemId === right.itemId &&
+		left.path === right.path &&
+		left.language === right.language &&
+		left.cacheKey === right.cacheKey &&
+		left.sizeBytes === right.sizeBytes &&
+		left.contentHandle === right.contentHandle &&
+		left.descriptorId === right.descriptorId &&
+		(left.contentHash ?? null) === (right.contentHash ?? null) &&
+		left.virtualizedExtentKind === right.virtualizedExtentKind &&
+		(left.lineCount ?? null) === (right.lineCount ?? null) &&
+		left.isBinary === right.isBinary &&
+		left.canFetchContent === right.canFetchContent
+	);
+}
+
+function isBridgeWorkerFileViewContentMetadata(
+	metadata: BridgeWorkerContentMetadata,
+): metadata is BridgeWorkerFileViewContentMetadata {
+	return 'contentHandle' in metadata;
 }
