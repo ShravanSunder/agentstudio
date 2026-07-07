@@ -2,6 +2,11 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 
 import { applyBridgeCommWorkerFileViewSourceUpdateFact } from './bridge-comm-worker-file-view-source-update.js';
 import {
+	isBridgeCommWorkerDemandEligibleContentMetadata,
+	reconcileBridgeCommWorkerDemandMembership,
+	serializeBridgeCommWorkerDemandMembership,
+} from './bridge-comm-worker-reconciler.js';
+import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeWorkerSlicePatchEventSchema,
 	type BridgeWorkerContentMetadata,
@@ -150,7 +155,7 @@ export function createBridgeCommWorkerStore(
 				fact: ApplyBridgeCommWorkerSelectedFactProps,
 			): BridgeCommWorkerTouchedResult => {
 				const contentMetadata = store.getState().contentMetadataByItemId.get(fact.itemId) ?? null;
-				const isDemandEligible = isDemandEligibleContentMetadata(contentMetadata);
+				const isDemandEligible = isBridgeCommWorkerDemandEligibleContentMetadata(contentMetadata);
 				const selectedDemandEnabled = isDemandEligible;
 				const nextAvailabilityState = selectedDemandEnabled ? 'loading' : 'unavailable';
 				store.setState((state) => {
@@ -161,7 +166,7 @@ export function createBridgeCommWorkerStore(
 						demandByKey: buildDemandByKey({
 							contentMetadataByItemId: state.contentMetadataByItemId,
 							selectedId: fact.itemId,
-							selectedDemandValue: selectedDemandEnabled ? `selected:${fact.epoch}` : null,
+							selectedDemandEpoch: selectedDemandEnabled ? fact.epoch : null,
 							visibleIds: state.visibleIds,
 						}),
 					};
@@ -211,7 +216,7 @@ export function createBridgeCommWorkerStore(
 					const metadata = previousState.contentMetadataByItemId.get(itemId) ?? null;
 					return (
 						metadata !== null &&
-						!isDemandEligibleContentMetadata(metadata) &&
+						!isBridgeCommWorkerDemandEligibleContentMetadata(metadata) &&
 						previousState.availabilityByItemId.get(itemId) !== 'unavailable'
 					);
 				});
@@ -234,7 +239,7 @@ export function createBridgeCommWorkerStore(
 					demandByKey: buildDemandByKey({
 						contentMetadataByItemId: state.contentMetadataByItemId,
 						selectedId: state.selectedId,
-						selectedDemandValue: readSelectedDemandValue(state),
+						selectedDemandEpoch: readSelectedDemandEpoch(state),
 						visibleIds,
 					}),
 				}));
@@ -385,10 +390,10 @@ export function createBridgeCommWorkerStore(
 					}
 				}
 
-				const selectedDemandValue =
+				const selectedDemandEpoch =
 					previousState.selectedId !== null && invalidatedItemIdSet.has(previousState.selectedId)
-						? `selected:${fact.epoch}`
-						: readSelectedDemandValue(previousState);
+						? fact.epoch
+						: readSelectedDemandEpoch(previousState);
 				store.setState({
 					...previousState,
 					byteCache: nextByteCache,
@@ -397,7 +402,7 @@ export function createBridgeCommWorkerStore(
 					demandByKey: buildDemandByKey({
 						contentMetadataByItemId: previousState.contentMetadataByItemId,
 						selectedId: previousState.selectedId,
-						selectedDemandValue,
+						selectedDemandEpoch,
 						visibleIds: previousState.visibleIds,
 					}),
 				});
@@ -461,7 +466,7 @@ function applyBridgeCommWorkerSourceUpdateFact(props: {
 		demandByKey: buildDemandByKey({
 			contentMetadataByItemId: sourceIndexes.contentMetadataByItemId,
 			selectedId: previousState.selectedId,
-			selectedDemandValue: readSelectedDemandValue(previousState),
+			selectedDemandEpoch: readSelectedDemandEpoch(previousState),
 			visibleIds: previousState.visibleIds,
 		}),
 	});
@@ -559,47 +564,24 @@ function resolveReviewInvalidationItemIds(props: {
 function buildDemandByKey(props: {
 	readonly contentMetadataByItemId: ReadonlyMap<string, BridgeWorkerContentMetadata>;
 	readonly selectedId: string | null;
-	readonly selectedDemandValue: string | null;
+	readonly selectedDemandEpoch: number | null;
 	readonly visibleIds: readonly string[];
 }): ReadonlyMap<string, string> {
-	const demandByKey = new Map<string, string>();
-	for (const itemId of props.visibleIds) {
-		if (isDemandEligibleContentMetadata(props.contentMetadataByItemId.get(itemId) ?? null)) {
-			demandByKey.set(itemId, 'visible');
-		}
-	}
-	if (
-		props.selectedId !== null &&
-		props.selectedDemandValue !== null &&
-		isDemandEligibleContentMetadata(props.contentMetadataByItemId.get(props.selectedId) ?? null)
-	) {
-		demandByKey.set(props.selectedId, props.selectedDemandValue);
-	}
-	return demandByKey;
+	return serializeBridgeCommWorkerDemandMembership(
+		reconcileBridgeCommWorkerDemandMembership(props),
+	);
 }
 
-function isDemandEligibleContentMetadata(metadata: BridgeWorkerContentMetadata | null): boolean {
-	if (metadata === null) {
-		return false;
-	}
-	if ('availableContentRoles' in metadata) {
-		return metadata.availableContentRoles.length > 0;
-	}
-	return metadata.canFetchContent;
-}
-
-function readSelectedDemandValue(state: BridgeCommWorkerStoreState): string | null {
+function readSelectedDemandEpoch(state: BridgeCommWorkerStoreState): number | null {
 	if (state.selectedId === null) {
 		return null;
 	}
 	const existingValue = state.demandByKey.get(state.selectedId);
-	if (existingValue?.startsWith('selected:') === true) {
-		return existingValue;
+	const selectedEpochMatch = /^selected:(\d+)$/u.exec(existingValue ?? '');
+	if (selectedEpochMatch !== null) {
+		return Number(selectedEpochMatch[1]);
 	}
-	if (!state.selectedDemandEnabled) {
-		return null;
-	}
-	return 'selected';
+	return null;
 }
 
 type BridgeCommWorkerStringMapKey =

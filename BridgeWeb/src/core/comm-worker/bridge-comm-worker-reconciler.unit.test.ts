@@ -1,0 +1,112 @@
+import { describe, expect, test } from 'vitest';
+
+import {
+	reconcileBridgeCommWorkerDemandMembership,
+	serializeBridgeCommWorkerDemandMembership,
+} from './bridge-comm-worker-reconciler.js';
+import type {
+	BridgeWorkerFileViewContentMetadata,
+	BridgeWorkerReviewContentMetadata,
+} from './bridge-worker-contracts.js';
+
+describe('Bridge comm worker demand reconciler', () => {
+	test('worker owns demand membership without membership caps or parked retry versions', () => {
+		const visibleContentMetadata = Array.from({ length: 16 }, (_, index) =>
+			makeReviewContentMetadata(`visible-${index}`),
+		);
+		const selectedContentMetadata = makeReviewContentMetadata('selected');
+
+		const membership = reconcileBridgeCommWorkerDemandMembership({
+			contentMetadataByItemId: new Map(
+				[...visibleContentMetadata, selectedContentMetadata].map((metadata) => [
+					metadata.itemId,
+					metadata,
+				]),
+			),
+			selectedDemandEpoch: 8,
+			selectedId: selectedContentMetadata.itemId,
+			visibleIds: visibleContentMetadata.map((metadata) => metadata.itemId),
+		});
+
+		expect([...membership.membersByItemId.keys()]).toEqual([
+			'selected',
+			...visibleContentMetadata.map((metadata) => metadata.itemId),
+		]);
+		expect(serializeBridgeCommWorkerDemandMembership(membership)).toEqual(
+			new Map([
+				['selected', 'selected:8'],
+				...visibleContentMetadata.map((metadata): readonly [string, string] => [
+					metadata.itemId,
+					'visible',
+				]),
+			]),
+		);
+		expect(JSON.stringify(Object.fromEntries(membership.membersByItemId))).not.toMatch(
+			/retryAfterVersion|parked|membershipCap|pendingEviction/u,
+		);
+	});
+
+	test('filters unavailable metadata without dropping other visible members', () => {
+		const fetchableFile = makeFileViewContentMetadata('file-ready');
+		const binaryFile = makeFileViewContentMetadata('file-binary', { canFetchContent: false });
+		const metadataOnlyReviewItem = makeReviewContentMetadata('metadata-only', {
+			availableContentRoles: [],
+		});
+
+		const membership = reconcileBridgeCommWorkerDemandMembership({
+			contentMetadataByItemId: new Map(
+				[fetchableFile, binaryFile, metadataOnlyReviewItem].map((metadata) => [
+					metadata.itemId,
+					metadata,
+				]),
+			),
+			selectedDemandEpoch: 4,
+			selectedId: metadataOnlyReviewItem.itemId,
+			visibleIds: [fetchableFile.itemId, binaryFile.itemId, metadataOnlyReviewItem.itemId],
+		});
+
+		expect([...membership.membersByItemId.values()]).toEqual([
+			{
+				itemId: fetchableFile.itemId,
+				role: 'visible',
+			},
+		]);
+	});
+});
+
+function makeReviewContentMetadata(
+	itemId: string,
+	props: {
+		readonly availableContentRoles?: BridgeWorkerReviewContentMetadata['availableContentRoles'];
+	} = {},
+): BridgeWorkerReviewContentMetadata {
+	return {
+		itemId,
+		path: `Sources/App/${itemId}.swift`,
+		language: 'swift',
+		cacheKey: `review:sha256:${itemId}`,
+		sizeBytes: 128,
+		availableContentRoles: props.availableContentRoles ?? ['head'],
+		contentLineCountsByRole: {},
+	};
+}
+
+function makeFileViewContentMetadata(
+	itemId: string,
+	props: { readonly canFetchContent?: boolean } = {},
+): BridgeWorkerFileViewContentMetadata {
+	return {
+		itemId,
+		path: `Sources/App/${itemId}.swift`,
+		language: 'swift',
+		cacheKey: `file-view:sha256:${itemId}`,
+		sizeBytes: 128,
+		contentHandle: `handle-${itemId}`,
+		descriptorId: `descriptor-${itemId}`,
+		contentHash: `sha256:${itemId}`,
+		virtualizedExtentKind: 'exactLineCount',
+		lineCount: 7,
+		isBinary: props.canFetchContent === false,
+		canFetchContent: props.canFetchContent ?? true,
+	};
+}

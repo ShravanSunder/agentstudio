@@ -1,5 +1,10 @@
 import type { StoreApi } from 'zustand/vanilla';
 
+import {
+	isBridgeCommWorkerDemandEligibleContentMetadata,
+	reconcileBridgeCommWorkerDemandMembership,
+	serializeBridgeCommWorkerDemandMembership,
+} from './bridge-comm-worker-reconciler.js';
 import type {
 	BridgeCommWorkerRow,
 	BridgeCommWorkerStoreState,
@@ -40,22 +45,22 @@ export function applyBridgeCommWorkerFileViewSourceUpdateFact(
 		previousState,
 	});
 	const nextSlicePatches: BridgeWorkerSlicePatch[] = [];
-	const selectedDemandValue = selectedDemandValueForSourceUpdate({
+	const selectedDemandEpoch = selectedDemandEpochForSourceUpdate({
 		contentMetadataByItemId: sourceIndexes.contentMetadataByItemId,
 		epoch: props.epoch,
 		state: previousState,
 	});
-	const selectedDemandEnabled = selectedDemandValue !== null;
+	const selectedDemandEnabled = selectedDemandEpoch !== null;
 	const demandByKey = buildDemandByKey({
 		contentMetadataByItemId: sourceIndexes.contentMetadataByItemId,
 		selectedId: previousState.selectedId,
-		selectedDemandValue,
+		selectedDemandEpoch,
 		visibleIds: previousState.visibleIds,
 	});
 
 	for (const itemId of sourceRepairCandidateIds(previousState)) {
 		const metadata = sourceIndexes.contentMetadataByItemId.get(itemId) ?? null;
-		const isDemandEligible = isDemandEligibleContentMetadata(metadata);
+		const isDemandEligible = isBridgeCommWorkerDemandEligibleContentMetadata(metadata);
 		const isSelectedItem = previousState.selectedId === itemId;
 		const isDemandTarget = isSelectedItem || previousState.visibleIds.includes(itemId);
 		const previousContentCacheKey = previousState.paintReadyByItemId.get(itemId);
@@ -152,20 +157,20 @@ function buildBridgeCommWorkerFileViewSourceIndexes(props: {
 	};
 }
 
-function selectedDemandValueForSourceUpdate(props: {
+function selectedDemandEpochForSourceUpdate(props: {
 	readonly contentMetadataByItemId: ReadonlyMap<string, BridgeWorkerContentMetadata>;
 	readonly epoch: number;
 	readonly state: BridgeCommWorkerStoreState;
-}): string | null {
+}): number | null {
 	if (
 		props.state.selectedId === null ||
-		!isDemandEligibleContentMetadata(
+		!isBridgeCommWorkerDemandEligibleContentMetadata(
 			props.contentMetadataByItemId.get(props.state.selectedId) ?? null,
 		)
 	) {
 		return null;
 	}
-	return `selected:${props.epoch}`;
+	return props.epoch;
 }
 
 function sourceRepairCandidateIds(state: BridgeCommWorkerStoreState): readonly string[] {
@@ -208,33 +213,12 @@ function nextAvailabilityForFileViewSourceUpdate(props: {
 function buildDemandByKey(props: {
 	readonly contentMetadataByItemId: ReadonlyMap<string, BridgeWorkerContentMetadata>;
 	readonly selectedId: string | null;
-	readonly selectedDemandValue: string | null;
+	readonly selectedDemandEpoch: number | null;
 	readonly visibleIds: readonly string[];
 }): ReadonlyMap<string, string> {
-	const demandByKey = new Map<string, string>();
-	for (const itemId of props.visibleIds) {
-		if (isDemandEligibleContentMetadata(props.contentMetadataByItemId.get(itemId) ?? null)) {
-			demandByKey.set(itemId, 'visible');
-		}
-	}
-	if (
-		props.selectedId !== null &&
-		props.selectedDemandValue !== null &&
-		isDemandEligibleContentMetadata(props.contentMetadataByItemId.get(props.selectedId) ?? null)
-	) {
-		demandByKey.set(props.selectedId, props.selectedDemandValue);
-	}
-	return demandByKey;
-}
-
-function isDemandEligibleContentMetadata(metadata: BridgeWorkerContentMetadata | null): boolean {
-	if (metadata === null) {
-		return false;
-	}
-	if ('availableContentRoles' in metadata) {
-		return metadata.availableContentRoles.length > 0;
-	}
-	return metadata.canFetchContent;
+	return serializeBridgeCommWorkerDemandMembership(
+		reconcileBridgeCommWorkerDemandMembership(props),
+	);
 }
 
 function didSelectedFileViewContentMetadataChange(props: {
