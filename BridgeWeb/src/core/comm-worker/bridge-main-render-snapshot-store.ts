@@ -22,6 +22,27 @@ export interface BridgeMainViewportSlice {
 	readonly visibleItemIds: readonly string[];
 }
 
+export type BridgeMainCodeViewItemPatch =
+	| {
+			readonly operation: 'delete';
+			readonly itemId: string;
+	  }
+	| {
+			readonly operation: 'reset';
+	  }
+	| {
+			readonly operation: 'upsert';
+			readonly itemId: string;
+			readonly item: BridgeMainCodeViewItem;
+	  };
+
+export interface BridgeMainRenderSnapshotUpdate {
+	readonly codeViewItemPatches?: readonly BridgeMainCodeViewItemPatch[];
+	readonly localSelection?: SetBridgeMainLocalSelectionProps;
+	readonly localViewport?: SetBridgeMainLocalViewportProps;
+	readonly workerPatches?: readonly BridgeWorkerSlicePatch[];
+}
+
 export interface BridgeMainRenderSnapshot {
 	readonly selectionSlice: BridgeMainSelectionSlice;
 	readonly viewportSlice: BridgeMainViewportSlice;
@@ -55,6 +76,7 @@ export interface BridgeMainRenderSnapshotStore {
 		readonly item: BridgeMainCodeViewItem;
 	}) => void;
 	readonly applyWorkerPatch: (patch: BridgeWorkerSlicePatch) => void;
+	readonly applySnapshotUpdate: (update: BridgeMainRenderSnapshotUpdate) => void;
 }
 
 const EMPTY_BRIDGE_MAIN_RENDER_SNAPSHOT: BridgeMainRenderSnapshot = {
@@ -94,64 +116,127 @@ export function createBridgeMainRenderSnapshotStore(): BridgeMainRenderSnapshotS
 			};
 		},
 		setLocalSelection: (props: SetBridgeMainLocalSelectionProps): void => {
-			publish({
-				...snapshot,
-				selectionSlice: props,
-			});
+			publish(
+				buildSnapshotFromUpdate(snapshot, {
+					localSelection: props,
+				}),
+			);
 		},
 		setLocalViewport: (props: SetBridgeMainLocalViewportProps): void => {
-			publish({
-				...snapshot,
-				viewportSlice: {
-					firstVisibleIndex: props.firstVisibleIndex,
-					lastVisibleIndex: props.lastVisibleIndex,
-					visibleItemIds: [...props.visibleItemIds],
-				},
-			});
+			publish(
+				buildSnapshotFromUpdate(snapshot, {
+					localViewport: props,
+				}),
+			);
 		},
 		setWorkerCodeViewItem: (props): void => {
-			publish({
-				...snapshot,
-				codeViewItemsById: {
-					...snapshot.codeViewItemsById,
-					[props.itemId]: props.item,
-				},
-			});
+			publish(
+				buildSnapshotFromUpdate(snapshot, {
+					codeViewItemPatches: [
+						{
+							operation: 'upsert',
+							itemId: props.itemId,
+							item: props.item,
+						},
+					],
+				}),
+			);
 		},
 		applyWorkerPatch: (patch: BridgeWorkerSlicePatch): void => {
-			switch (patch.slice) {
-				case 'selection': {
-					publish({
-						...snapshot,
-						selectionSlice: buildSelectionSliceFromPatch(patch),
-					});
-					return;
-				}
-				case 'viewport': {
-					publish({
-						...snapshot,
-						viewportSlice: buildViewportSliceFromPatch(patch),
-					});
-					return;
-				}
-				case 'rowPaint': {
-					publishRowPaintPatch(snapshot, publish, patch);
-					return;
-				}
-				case 'contentAvailability': {
-					publishContentAvailabilityPatch(snapshot, publish, patch);
-					return;
-				}
-				case 'panelChrome': {
-					publish({
-						...snapshot,
-						panelChromeSlice: patch.operation === 'upsert' ? patch.payload : {},
-					});
-					return;
-				}
-			}
+			publish(
+				buildSnapshotFromUpdate(snapshot, {
+					workerPatches: [patch],
+				}),
+			);
+		},
+		applySnapshotUpdate: (update: BridgeMainRenderSnapshotUpdate): void => {
+			publish(buildSnapshotFromUpdate(snapshot, update));
 		},
 	};
+}
+
+function buildSnapshotFromUpdate(
+	snapshot: BridgeMainRenderSnapshot,
+	update: BridgeMainRenderSnapshotUpdate,
+): BridgeMainRenderSnapshot {
+	let nextSnapshot = snapshot;
+	if (update.localSelection !== undefined) {
+		nextSnapshot = {
+			...nextSnapshot,
+			selectionSlice: update.localSelection,
+		};
+	}
+	if (update.localViewport !== undefined) {
+		nextSnapshot = {
+			...nextSnapshot,
+			viewportSlice: {
+				firstVisibleIndex: update.localViewport.firstVisibleIndex,
+				lastVisibleIndex: update.localViewport.lastVisibleIndex,
+				visibleItemIds: [...update.localViewport.visibleItemIds],
+			},
+		};
+	}
+	for (const patch of update.codeViewItemPatches ?? []) {
+		nextSnapshot = buildCodeViewItemPatchSnapshot(nextSnapshot, patch);
+	}
+	for (const patch of update.workerPatches ?? []) {
+		nextSnapshot = buildWorkerPatchSnapshot(nextSnapshot, patch);
+	}
+	return nextSnapshot;
+}
+
+function buildCodeViewItemPatchSnapshot(
+	snapshot: BridgeMainRenderSnapshot,
+	patch: BridgeMainCodeViewItemPatch,
+): BridgeMainRenderSnapshot {
+	if (patch.operation === 'reset') {
+		return {
+			...snapshot,
+			codeViewItemsById: {},
+		};
+	}
+	const nextCodeViewItemsById = { ...snapshot.codeViewItemsById };
+	if (patch.operation === 'delete') {
+		delete nextCodeViewItemsById[patch.itemId];
+	} else {
+		nextCodeViewItemsById[patch.itemId] = patch.item;
+	}
+	return {
+		...snapshot,
+		codeViewItemsById: nextCodeViewItemsById,
+	};
+}
+
+function buildWorkerPatchSnapshot(
+	snapshot: BridgeMainRenderSnapshot,
+	patch: BridgeWorkerSlicePatch,
+): BridgeMainRenderSnapshot {
+	switch (patch.slice) {
+		case 'selection':
+			return {
+				...snapshot,
+				selectionSlice: buildSelectionSliceFromPatch(patch),
+			};
+		case 'viewport':
+			return {
+				...snapshot,
+				viewportSlice: buildViewportSliceFromPatch(patch),
+			};
+		case 'rowPaint':
+			return buildRowPaintPatchSnapshot(snapshot, patch);
+		case 'contentAvailability':
+			return buildContentAvailabilityPatchSnapshot(snapshot, patch);
+		case 'panelChrome':
+			return {
+				...snapshot,
+				panelChromeSlice: patch.operation === 'upsert' ? patch.payload : {},
+			};
+	}
+	return assertNeverBridgeWorkerSlicePatch(patch);
+}
+
+function assertNeverBridgeWorkerSlicePatch(patch: never): never {
+	throw new Error(`Unhandled bridge worker slice patch: ${String(patch)}`);
 }
 
 function buildSelectionSliceFromPatch(
@@ -186,18 +271,16 @@ function buildViewportSliceFromPatch(
 	};
 }
 
-function publishRowPaintPatch(
+function buildRowPaintPatchSnapshot(
 	snapshot: BridgeMainRenderSnapshot,
-	publish: (snapshot: BridgeMainRenderSnapshot) => void,
 	patch: Extract<BridgeWorkerSlicePatch, { slice: 'rowPaint' }>,
-): void {
+): BridgeMainRenderSnapshot {
 	if (patch.operation === 'reset') {
-		publish({
+		return {
 			...snapshot,
 			rowPaintById: {},
 			codeViewItemsById: {},
-		});
-		return;
+		};
 	}
 	const nextEntries = { ...snapshot.rowPaintById };
 	const nextCodeViewItemsById = { ...snapshot.codeViewItemsById };
@@ -207,24 +290,22 @@ function publishRowPaintPatch(
 	} else {
 		nextEntries[patch.itemId] = patch.payload;
 	}
-	publish({
+	return {
 		...snapshot,
 		rowPaintById: nextEntries,
 		codeViewItemsById: nextCodeViewItemsById,
-	});
+	};
 }
 
-function publishContentAvailabilityPatch(
+function buildContentAvailabilityPatchSnapshot(
 	snapshot: BridgeMainRenderSnapshot,
-	publish: (snapshot: BridgeMainRenderSnapshot) => void,
 	patch: Extract<BridgeWorkerSlicePatch, { slice: 'contentAvailability' }>,
-): void {
+): BridgeMainRenderSnapshot {
 	if (patch.operation === 'reset') {
-		publish({
+		return {
 			...snapshot,
 			contentAvailabilityById: {},
-		});
-		return;
+		};
 	}
 	const nextEntries = { ...snapshot.contentAvailabilityById };
 	if (patch.operation === 'delete') {
@@ -232,8 +313,8 @@ function publishContentAvailabilityPatch(
 	} else {
 		nextEntries[patch.itemId] = patch.payload;
 	}
-	publish({
+	return {
 		...snapshot,
 		contentAvailabilityById: nextEntries,
-	});
+	};
 }

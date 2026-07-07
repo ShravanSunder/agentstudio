@@ -53,13 +53,6 @@ export type BridgeFileViewerActiveOpenState = Exclude<
 	{ readonly status: 'idle' }
 >;
 
-export interface BridgeFileViewerRenderedOpenFileContent {
-	readonly body: string;
-	readonly bodyVersion: number;
-	readonly descriptor: WorktreeFileDescriptor;
-	readonly path: string;
-}
-
 export interface CommitOpenFileBodyProps {
 	readonly body: string;
 	readonly descriptor: WorktreeFileDescriptor;
@@ -768,64 +761,6 @@ export function totalTreeHeightForSizeFacts(props: {
 		heightPixels: Math.max(1, props.filteredTreeRowCount) * props.sizeFacts.rowHeightPixels,
 		source: 'localProjection',
 	};
-}
-
-export function renderedOpenFileContentForState(props: {
-	readonly lastGoodOpenFileContent: BridgeFileViewerRenderedOpenFileContent | null;
-	readonly openFileBody: string | null;
-	readonly openFileBodyVersion: number;
-	readonly openFileState: BridgeFileViewerOpenState;
-	readonly provisionalOpenFileBody: string | null;
-	readonly selectedPath: string | null;
-}): BridgeFileViewerRenderedOpenFileContent | null {
-	if (props.openFileState.status === 'idle') {
-		return null;
-	}
-	if (props.selectedPath !== null && props.selectedPath !== props.openFileState.path) {
-		return props.lastGoodOpenFileContent;
-	}
-	if (props.openFileState.status === 'loading') {
-		if (props.provisionalOpenFileBody !== null) {
-			return {
-				body: props.provisionalOpenFileBody,
-				bodyVersion: props.openFileBodyVersion + 1,
-				descriptor: props.openFileState.descriptor,
-				path: props.openFileState.path,
-			};
-		}
-		return null;
-	}
-	if (props.openFileState.status === 'refreshing') {
-		if (props.provisionalOpenFileBody !== null) {
-			return {
-				body: props.provisionalOpenFileBody,
-				bodyVersion: props.openFileBodyVersion + 1,
-				descriptor: props.openFileState.descriptor,
-				path: props.openFileState.path,
-			};
-		}
-		if (props.openFileBody !== null) {
-			return {
-				body: props.openFileBody,
-				bodyVersion: props.openFileBodyVersion,
-				descriptor: props.openFileState.descriptor,
-				path: props.openFileState.path,
-			};
-		}
-		return props.lastGoodOpenFileContent;
-	}
-	if (props.openFileState.status === 'ready' || props.openFileState.status === 'stale') {
-		if (props.openFileBody === null) {
-			return props.lastGoodOpenFileContent;
-		}
-		return {
-			body: props.openFileBody,
-			bodyVersion: props.openFileBodyVersion,
-			descriptor: props.openFileState.descriptor,
-			path: props.openFileState.path,
-		};
-	}
-	return null;
 }
 
 export function totalOpenFileHeightForState(

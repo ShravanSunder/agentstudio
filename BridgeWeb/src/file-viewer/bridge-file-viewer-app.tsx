@@ -7,6 +7,7 @@ import type {
 import type { WorktreeFileSurfaceRuntime } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
 import { BridgeFileViewerLazyLoadingFrame } from './bridge-file-viewer-lazy-loading-frame.js';
+import { useBridgeFileViewerRenderSnapshotController } from './bridge-file-viewer-render-snapshot-controller.js';
 import { createBridgeFileViewerRuntime } from './bridge-file-viewer-runtime.js';
 import {
 	bridgeFileViewerHasActiveCommentDraft,
@@ -91,14 +92,8 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		clearOpenFileBody,
 		clearProvisionalOpenFileBody,
 		commitOpenFileBody,
-		lastGoodOpenFileContent,
 		openFileBodyRef,
-		openFileBodyState,
-		openFileBodyVersion,
-		provisionalOpenFileBody,
 		provisionalOpenFileBodyRef,
-		setProvisionalOpenFileBody,
-		setOpenFileBodyState,
 	} = useBridgeFileViewerBodyState();
 	lastDemandDispatchDebugStateRef.current = lastDemandDispatchDebugState;
 	const selectedPath = openFileState.status === 'idle' ? null : openFileState.path;
@@ -106,6 +101,9 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 	const telemetryRecorder = props.telemetryRecorder;
 	const telemetryTraceContext = props.telemetryTraceContext ?? null;
 	const worktreeFileResourceFetcher = worktreeFileSurfaceTransport?.fetchResource;
+	const renderSnapshotController = useBridgeFileViewerRenderSnapshotController({
+		openFileState,
+	});
 
 	if (runtimeRef.current === null) {
 		runtimeRef.current = createBridgeFileViewerRuntime({
@@ -145,15 +143,16 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		clearProvisionalOpenFileBody,
 		commitOpenFileBody,
 		isActiveRef,
-		openFileBodyRef,
 		openFileRequestIdRef,
 		provisionalOpenFileBodyRef,
+		publishOpenFileContent: renderSnapshotController.publishOpenFileContent,
+		publishOpenFileLoadingState: renderSnapshotController.publishOpenFileLoadingState,
+		publishOpenFileRefreshingState: renderSnapshotController.publishOpenFileRefreshingState,
+		publishOpenFileTerminalState: renderSnapshotController.publishOpenFileTerminalState,
 		renderStateRef,
 		runtimeRef,
 		setLastOpenLoadTelemetry: viewerActions.setLastOpenLoadTelemetry,
-		setOpenFileBodyState,
 		setOpenFileState: viewerActions.setOpenFileState,
-		setProvisionalOpenFileBody,
 		setRefreshDebugState: viewerActions.setRefreshDebugState,
 		telemetryRecorder,
 		telemetryTraceContext,
@@ -347,11 +346,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 
 	const shellModel = useBridgeFileViewerShellModel({
 		filterMode,
-		lastGoodOpenFileContent,
-		openFileBodyState,
-		openFileBodyVersion,
 		openFileState,
-		provisionalOpenFileBody,
 		renderState,
 		searchMode,
 		searchText,
@@ -393,7 +388,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 				renderState={renderState}
 				searchMode={searchMode}
 				searchText={searchText}
-				selectedCodeViewItem={shellModel.selectedCodeViewItem}
+				selectedCodeViewItem={renderSnapshotController.selectedCodeViewItem}
 				selectedPath={selectedPath}
 				sourceIdentity={renderState.sourceIdentity}
 				telemetryRecorder={telemetryRecorder}

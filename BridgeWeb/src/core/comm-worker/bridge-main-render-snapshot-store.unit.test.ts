@@ -173,6 +173,49 @@ describe('Bridge main render snapshot store', () => {
 
 		expect(store.getSnapshot().codeViewItemsById).toEqual({});
 	});
+
+	test('batches local selection, CodeView item, and worker patches into one publish', () => {
+		const store = createBridgeMainRenderSnapshotStore();
+		const item = makeBridgeMainCodeViewItem('item-1');
+		let publishCount = 0;
+		const unsubscribe = store.subscribe(() => {
+			publishCount += 1;
+		});
+
+		store.applySnapshotUpdate({
+			localSelection: {
+				selectedItemId: 'item-1',
+				source: 'programmatic',
+			},
+			codeViewItemPatches: [
+				{
+					operation: 'upsert',
+					itemId: 'item-1',
+					item,
+				},
+			],
+			workerPatches: [
+				{
+					slice: 'contentAvailability',
+					operation: 'upsert',
+					itemId: 'item-1',
+					payload: { state: 'ready' },
+				},
+			],
+		});
+
+		expect(publishCount).toBe(1);
+		expect(store.getSnapshot().selectionSlice).toEqual({
+			selectedItemId: 'item-1',
+			source: 'programmatic',
+		});
+		expect(store.getSnapshot().codeViewItemsById['item-1']).toBe(item);
+		expect(store.getSnapshot().contentAvailabilityById['item-1']).toEqual({
+			state: 'ready',
+		});
+
+		unsubscribe();
+	});
 });
 
 function makeBridgeMainCodeViewItem(itemId: string): BridgeMainCodeViewItem {

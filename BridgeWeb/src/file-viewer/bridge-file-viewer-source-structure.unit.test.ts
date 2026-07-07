@@ -328,14 +328,43 @@ describe('Bridge file viewer source structure', () => {
 			'utf8',
 		);
 
-		expect(shellModelSource).toContain('selectedCodeViewItem');
+		expect(shellModelSource).not.toContain('selectedCodeViewItem');
 		expect(shellSource).toContain('selectedCodeViewItem');
 		expect(codePanelSource).toContain('selectedCodeViewItem');
 		expect(codeViewItemsSource).toContain('bridgeFileViewerSelectedCodeViewItemForPanelState');
-		expect(appSource).toContain('selectedCodeViewItem={shellModel.selectedCodeViewItem}');
+		expect(appSource).toContain(
+			'selectedCodeViewItem={renderSnapshotController.selectedCodeViewItem}',
+		);
 		expect(appSource).not.toContain('renderedOpenFileContent={shellModel.renderedOpenFileContent}');
 		expect(shellSource).not.toContain('renderedOpenFileContent');
 		expect(codePanelSource).not.toContain('renderedFileContent');
+	});
+
+	test('keeps selected File CodeView display behind the shared render snapshot store', () => {
+		const appSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-app.tsx', import.meta.url)),
+			'utf8',
+		);
+		const shellModelSource = readFileSync(
+			fileURLToPath(new URL('./use-bridge-file-viewer-shell-model.ts', import.meta.url)),
+			'utf8',
+		);
+		const renderSnapshotControllerSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-render-snapshot-controller.ts', import.meta.url)),
+			'utf8',
+		);
+
+		expect(appSource).toContain('useBridgeFileViewerRenderSnapshotController');
+		expect(appSource).toContain(
+			'selectedCodeViewItem={renderSnapshotController.selectedCodeViewItem}',
+		);
+		expect(renderSnapshotControllerSource).toContain('createBridgeMainRenderSnapshotStore');
+		expect(renderSnapshotControllerSource).toContain('useSyncExternalStore');
+		expect(shellModelSource).not.toContain('renderedOpenFileContentForState');
+		expect(shellModelSource).not.toContain('bridgeFileViewerSelectedCodeViewItemForPanelState');
+		expect(shellModelSource).not.toContain('openFileBodyState');
+		expect(shellModelSource).not.toContain('provisionalOpenFileBody');
+		expect(shellModelSource).not.toContain('lastGoodOpenFileContent');
 	});
 
 	test('keeps BridgeWeb TypeScript and TSX files under one thousand lines', () => {
