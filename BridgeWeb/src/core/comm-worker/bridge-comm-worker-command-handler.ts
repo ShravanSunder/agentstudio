@@ -42,6 +42,9 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly scheduleDemandExecution?: (
 		request: BridgeCommWorkerDemandExecutionScheduleRequest,
 	) => void;
+	readonly scheduleReviewSourceUpdate?: (
+		request: BridgeCommWorkerReviewSourceUpdateScheduleRequest,
+	) => void;
 	readonly scheduleSelectedReviewContentReadyPreparation: (
 		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 	) => void;
@@ -56,6 +59,15 @@ export interface BridgeCommWorkerDemandExecutionScheduleRequest {
 	readonly cause: 'reviewInvalidate' | 'reviewSourceUpdate' | 'viewport';
 	readonly affectedItemIds?: readonly string[];
 	readonly epoch: number;
+	readonly forceExecutionItemIds?: readonly string[];
+	readonly store: BridgeCommWorkerStore;
+}
+
+export interface BridgeCommWorkerReviewSourceUpdateScheduleRequest {
+	readonly affectedItemIds: readonly string[];
+	readonly epoch: number;
+	readonly nextReviewRuntimeSource: BridgeCommWorkerReviewRuntimeSource;
+	readonly previousReviewRuntimeSource: BridgeCommWorkerReviewRuntimeSource;
 	readonly store: BridgeCommWorkerStore;
 }
 
@@ -121,6 +133,9 @@ export function createBridgeCommWorkerCommandHandler(
 				...(props.scheduleDemandExecution === undefined
 					? {}
 					: { scheduleDemandExecution: props.scheduleDemandExecution }),
+				...(props.scheduleReviewSourceUpdate === undefined
+					? {}
+					: { scheduleReviewSourceUpdate: props.scheduleReviewSourceUpdate }),
 				store,
 				reviewRuntimeSource,
 				fileViewRuntimeSource,
@@ -149,6 +164,9 @@ interface HandleBridgeWorkerCommandProps {
 	readonly scheduleDemandExecution?: (
 		request: BridgeCommWorkerDemandExecutionScheduleRequest,
 	) => void;
+	readonly scheduleReviewSourceUpdate?: (
+		request: BridgeCommWorkerReviewSourceUpdateScheduleRequest,
+	) => void;
 	readonly store: BridgeCommWorkerStore;
 	readonly reviewRuntimeSource: BridgeCommWorkerReviewRuntimeSource;
 	readonly fileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource;
@@ -164,6 +182,7 @@ function handleBridgeWorkerCommand(
 			return handleBridgeWorkerSelectCommand({
 				createSequence: props.createSequence,
 				message: props.message,
+				reviewRuntimeSource: props.reviewRuntimeSource,
 				scheduleSelectedReviewContentReadyPreparation:
 					props.scheduleSelectedReviewContentReadyPreparation,
 				scheduleSelectedFileViewContentReadyPreparation:
@@ -197,6 +216,9 @@ function handleBridgeWorkerCommand(
 				...(props.scheduleDemandExecution === undefined
 					? {}
 					: { scheduleDemandExecution: props.scheduleDemandExecution }),
+				...(props.scheduleReviewSourceUpdate === undefined
+					? {}
+					: { scheduleReviewSourceUpdate: props.scheduleReviewSourceUpdate }),
 				store: props.store,
 				previousReviewRuntimeSource: props.reviewRuntimeSource,
 				updateReviewRuntimeSource: props.updateReviewRuntimeSource,
@@ -276,6 +298,9 @@ interface HandleBridgeWorkerReviewSourceUpdateCommandProps {
 	readonly scheduleDemandExecution?: (
 		request: BridgeCommWorkerDemandExecutionScheduleRequest,
 	) => void;
+	readonly scheduleReviewSourceUpdate?: (
+		request: BridgeCommWorkerReviewSourceUpdateScheduleRequest,
+	) => void;
 	readonly store: BridgeCommWorkerStore;
 	readonly updateReviewRuntimeSource: (source: BridgeCommWorkerReviewRuntimeSource) => void;
 }
@@ -293,6 +318,41 @@ function handleBridgeWorkerReviewSourceUpdateCommand(
 		nextSource: nextReviewRuntimeSource,
 		previousSource: props.previousReviewRuntimeSource,
 	});
+	if (props.scheduleReviewSourceUpdate !== undefined) {
+		props.updateReviewRuntimeSource(nextReviewRuntimeSource);
+		let appliedTerminalAvailability = false;
+		const visibleItemIds = new Set(props.store.getState().visibleIds);
+		for (const itemId of affectedItemIds) {
+			if (!visibleItemIds.has(itemId)) {
+				continue;
+			}
+			if (isReviewRuntimeSourceExecutableForItem(nextReviewRuntimeSource, itemId)) {
+				continue;
+			}
+			props.store.actions.applyContentTerminalAvailability({
+				itemId,
+				state: 'unavailable',
+			});
+			appliedTerminalAvailability = true;
+		}
+		props.scheduleReviewSourceUpdate({
+			affectedItemIds,
+			epoch: props.message.epoch,
+			nextReviewRuntimeSource,
+			previousReviewRuntimeSource: props.previousReviewRuntimeSource,
+			store: props.store,
+		});
+		const slicePatch = appliedTerminalAvailability
+			? props.store.actions.takePendingSlicePatchEvent({
+					epoch: props.message.epoch,
+					sequence: props.createSequence(),
+				})
+			: null;
+		return [
+			...(slicePatch === null ? [] : [slicePatch]),
+			buildBridgeWorkerReadyHealthEvent(props.message.requestId),
+		];
+	}
 	props.store.actions.applyReviewSourceUpdateFact({
 		contentItems: props.message.contentItems,
 		rows: props.message.rows,
@@ -334,6 +394,7 @@ function handleBridgeWorkerReviewSourceUpdateCommand(
 interface HandleBridgeWorkerSelectCommandProps {
 	readonly createSequence: () => number;
 	readonly message: BridgeWorkerSelectCommand;
+	readonly reviewRuntimeSource: BridgeCommWorkerReviewRuntimeSource;
 	readonly scheduleSelectedReviewContentReadyPreparation: (
 		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 	) => void;
@@ -346,6 +407,11 @@ interface HandleBridgeWorkerSelectCommandProps {
 function handleBridgeWorkerSelectCommand(
 	props: HandleBridgeWorkerSelectCommandProps,
 ): readonly BridgeWorkerServerToMainMessage[] {
+	applySelectedReviewRuntimeSourceItemIfNeeded({
+		itemId: props.message.selectedItemId,
+		reviewRuntimeSource: props.reviewRuntimeSource,
+		store: props.store,
+	});
 	props.store.actions.applySelectedFact({
 		epoch: props.message.epoch,
 		itemId: props.message.selectedItemId,
@@ -359,6 +425,26 @@ function handleBridgeWorkerSelectCommand(
 		...(slicePatch === null ? [] : [slicePatch]),
 		buildBridgeWorkerReadyHealthEvent(props.message.requestId),
 	];
+}
+
+function applySelectedReviewRuntimeSourceItemIfNeeded(props: {
+	readonly itemId: string;
+	readonly reviewRuntimeSource: BridgeCommWorkerReviewRuntimeSource;
+	readonly store: BridgeCommWorkerStore;
+}): void {
+	const contentItem =
+		props.reviewRuntimeSource.contentItems.find((candidate) => candidate.itemId === props.itemId) ??
+		null;
+	const row =
+		props.reviewRuntimeSource.rows.find((candidate) => candidate.id === props.itemId) ?? null;
+	if (contentItem === null || row === null) {
+		return;
+	}
+	props.store.actions.applyReviewSourceUpdateFact({
+		contentItems: [contentItem],
+		resetComplete: false,
+		rows: [row],
+	});
 }
 
 function scheduleSelectedContentReadyPreparationForSelection(

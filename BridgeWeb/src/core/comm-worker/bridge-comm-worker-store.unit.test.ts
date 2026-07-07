@@ -330,6 +330,30 @@ describe('Bridge comm worker store', () => {
 		]);
 	});
 
+	test('review source updates report summary touches instead of package-shaped metadata touches', () => {
+		const store = createBridgeCommWorkerStore({
+			contentItems: [],
+			rows: [],
+		});
+		const contentItems = Array.from({ length: 130 }, (_unused, index) =>
+			makeWorkerReviewContentMetadata(`item-${index + 1}`),
+		);
+		const rows = contentItems.map((metadata, index) => ({
+			id: metadata.itemId,
+			parentId: null,
+			index,
+		}));
+
+		const result = store.actions.applyReviewSourceUpdateFact({
+			contentItems,
+			rows,
+		});
+
+		expect(result.touchedKeys).toEqual(['sourceRows', 'sourceContentMetadata']);
+		expect(result.touchedKeys).not.toContain('contentMetadata:item-130');
+		expect(store.getState().contentMetadataByItemId.get('item-130')).toEqual(contentItems[129]);
+	});
+
 	test('invalidates package and tree-window scopes without requiring fresh metadata', () => {
 		const store = createBridgeCommWorkerStore({
 			contentItems: [makeWorkerReviewContentMetadata('item-selected')],
@@ -435,6 +459,31 @@ describe('Bridge comm worker store', () => {
 				},
 			},
 		]);
+	});
+
+	test('partial review source updates retain row-only rows through final reset completion', () => {
+		const store = createBridgeCommWorkerStore({
+			contentItems: [makeWorkerReviewContentMetadata('old-item')],
+			rows: [
+				{ id: 'old-item', parentId: null, index: 0 },
+				{ id: 'old-row-only', parentId: null, index: 1 },
+			],
+		});
+
+		store.actions.applyReviewSourceUpdateFact({
+			completeItemIds: ['item-1', 'row-only-item'],
+			contentItems: [makeWorkerReviewContentMetadata('item-1')],
+			resetComplete: false,
+			rows: [
+				{ id: 'item-1', parentId: null, index: 0 },
+				{ id: 'row-only-item', parentId: null, index: 1 },
+			],
+		});
+
+		expect(store.getState().rowById.has('row-only-item')).toBe(true);
+		expect(store.getState().contentMetadataByItemId.has('row-only-item')).toBe(false);
+		expect(store.getState().rowById.has('old-row-only')).toBe(false);
+		expect(store.getState().contentMetadataByItemId.has('old-item')).toBe(false);
 	});
 
 	test('marks selected content unavailable when worker metadata has no content roles', () => {

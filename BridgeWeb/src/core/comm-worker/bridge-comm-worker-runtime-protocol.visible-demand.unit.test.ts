@@ -341,7 +341,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 				},
 			],
 		});
-		expect(scheduledDrains).toHaveLength(2);
+		expect(scheduledDrains).toHaveLength(3);
 	});
 
 	test('clears ready visible Review paint when source update keeps only one required diff side', async () => {
@@ -429,7 +429,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 				},
 			],
 		});
-		expect(scheduledDrains).toHaveLength(2);
+		expect(scheduledDrains).toHaveLength(3);
 	});
 
 	test('keeps unrelated visible Review fetches current when source update changes one item', async () => {
@@ -568,10 +568,17 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
 		await staleFirstDrain;
 		await flushBridgeWorkerRuntimeContinuations();
-		const freshFirstDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
-		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[3])();
-		await freshFirstDrain;
+		await drainBridgeWorkerVisibleDemandRuntimeUntil({
+			hasExpectedEvent: () =>
+				postedMessages.some(
+					(postedMessage) =>
+						postedMessage.message.kind === 'pierreRenderJob' &&
+						postedMessage.message.job.itemId === 'item-1' &&
+						JSON.stringify(postedMessage.message).includes('a fresh head'),
+				),
+			scheduledDrains,
+			startIndex: 2,
+		});
 
 		const pierreJobItemIds = postedMessages.flatMap((postedMessage) =>
 			postedMessage.message.kind === 'pierreRenderJob' ? [postedMessage.message.job.itemId] : [],
@@ -678,3 +685,42 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 		expect(JSON.stringify(pierreJobMessages[0])).toContain('fresh body');
 	});
 });
+
+async function drainBridgeWorkerVisibleDemandRuntimeUntil(props: {
+	readonly hasExpectedEvent: () => boolean;
+	readonly scheduledDrains: readonly BridgeCommWorkerPreparationDrain[];
+	readonly startIndex: number;
+}): Promise<void> {
+	return drainBridgeWorkerVisibleDemandRuntimeUntilAttempt({ ...props, attempt: 0 });
+}
+
+async function drainBridgeWorkerVisibleDemandRuntimeUntilAttempt(props: {
+	readonly attempt: number;
+	readonly hasExpectedEvent: () => boolean;
+	readonly scheduledDrains: readonly BridgeCommWorkerPreparationDrain[];
+	readonly startIndex: number;
+}): Promise<void> {
+	if (props.hasExpectedEvent() || props.attempt >= 8) {
+		return;
+	}
+	await flushBridgeWorkerRuntimeContinuations();
+	if (props.startIndex >= props.scheduledDrains.length) {
+		await waitBridgeWorkerVisibleDemandRuntimeTaskBoundary();
+		return drainBridgeWorkerVisibleDemandRuntimeUntilAttempt({
+			...props,
+			attempt: props.attempt + 1,
+		});
+	}
+	void assertBridgeCommWorkerPreparationDrain(props.scheduledDrains[props.startIndex])();
+	return drainBridgeWorkerVisibleDemandRuntimeUntilAttempt({
+		...props,
+		attempt: props.attempt + 1,
+		startIndex: props.startIndex + 1,
+	});
+}
+
+async function waitBridgeWorkerVisibleDemandRuntimeTaskBoundary(): Promise<void> {
+	await new Promise<void>((resolve) => {
+		setTimeout(resolve, 0);
+	});
+}

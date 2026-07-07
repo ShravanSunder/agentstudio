@@ -92,7 +92,9 @@ export interface ApplyBridgeCommWorkerReviewInvalidationFactProps {
 }
 
 export interface ApplyBridgeCommWorkerReviewSourceUpdateFactProps {
+	readonly completeItemIds?: readonly string[];
 	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
+	readonly resetComplete?: boolean;
 	readonly rows: readonly BridgeCommWorkerRow[];
 }
 
@@ -413,7 +415,9 @@ export function createBridgeCommWorkerStore(
 				fact: ApplyBridgeCommWorkerReviewSourceUpdateFactProps,
 			): BridgeCommWorkerTouchedResult => {
 				return applyBridgeCommWorkerSourceUpdateFact({
+					...(fact.completeItemIds === undefined ? {} : { completeItemIds: fact.completeItemIds }),
 					contentItems: fact.contentItems,
+					...(fact.resetComplete === undefined ? {} : { resetComplete: fact.resetComplete }),
 					rows: fact.rows,
 					store,
 				});
@@ -454,12 +458,54 @@ export function createBridgeCommWorkerStore(
 }
 
 function applyBridgeCommWorkerSourceUpdateFact(props: {
+	readonly completeItemIds?: readonly string[];
 	readonly contentItems: readonly BridgeWorkerContentMetadata[];
+	readonly resetComplete?: boolean;
 	readonly rows: readonly BridgeCommWorkerRow[];
 	readonly store: StoreApi<BridgeCommWorkerStoreState>;
 }): BridgeCommWorkerTouchedResult {
 	const previousState = props.store.getState();
 	const sourceIndexes = buildBridgeCommWorkerSourceIndexes(props);
+	if (props.resetComplete === false) {
+		const nextRowById = new Map(previousState.rowById);
+		const nextContentMetadataByItemId = new Map(previousState.contentMetadataByItemId);
+		for (const row of props.rows) {
+			nextRowById.set(row.id, row);
+		}
+		for (const contentItem of props.contentItems) {
+			nextContentMetadataByItemId.set(contentItem.itemId, contentItem);
+		}
+		if (props.completeItemIds !== undefined) {
+			const completeItemIds = new Set(props.completeItemIds);
+			for (const itemId of nextRowById.keys()) {
+				if (!completeItemIds.has(itemId)) {
+					nextRowById.delete(itemId);
+				}
+			}
+			for (const itemId of nextContentMetadataByItemId.keys()) {
+				if (!completeItemIds.has(itemId)) {
+					nextContentMetadataByItemId.delete(itemId);
+				}
+			}
+		}
+		const mergedSourceIndexes = buildBridgeCommWorkerSourceIndexesFromMaps({
+			contentMetadataByItemId: nextContentMetadataByItemId,
+			rowById: nextRowById,
+		});
+		props.store.setState({
+			...previousState,
+			...mergedSourceIndexes,
+			demandByKey: buildDemandByKey({
+				contentMetadataByItemId: mergedSourceIndexes.contentMetadataByItemId,
+				selectedId: previousState.selectedId,
+				selectedDemandEpoch: readSelectedDemandEpoch(previousState),
+				visibleIds: previousState.visibleIds,
+			}),
+		});
+		return {
+			touchedKeys: ['sourceRows', 'sourceContentMetadata'],
+		};
+	}
 	props.store.setState({
 		...previousState,
 		...sourceIndexes,
@@ -471,13 +517,24 @@ function applyBridgeCommWorkerSourceUpdateFact(props: {
 		}),
 	});
 	return {
-		touchedKeys: [
-			'sourceRows',
-			'sourceContentMetadata',
-			...Array.from(sourceIndexes.contentMetadataByItemId.keys()).map(
-				(itemId): string => `contentMetadata:${itemId}`,
-			),
-		],
+		touchedKeys: ['sourceRows', 'sourceContentMetadata'],
+	};
+}
+
+function buildBridgeCommWorkerSourceIndexesFromMaps(props: {
+	readonly contentMetadataByItemId: ReadonlyMap<string, BridgeWorkerContentMetadata>;
+	readonly rowById: ReadonlyMap<string, BridgeCommWorkerRow>;
+}): Pick<
+	BridgeCommWorkerStoreState,
+	'rowById' | 'orderedIds' | 'indexById' | 'childrenByParentId' | 'contentMetadataByItemId'
+> {
+	const rows = [...props.rowById.values()].toSorted((left, right) => left.index - right.index);
+	return {
+		...buildBridgeCommWorkerSourceIndexes({
+			contentItems: [...props.contentMetadataByItemId.values()],
+			rows,
+		}),
+		contentMetadataByItemId: new Map(props.contentMetadataByItemId),
 	};
 }
 

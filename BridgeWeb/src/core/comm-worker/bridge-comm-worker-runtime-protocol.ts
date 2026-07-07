@@ -4,6 +4,7 @@ import {
 	type BridgeCommWorkerDemandExecutionScheduleRequest,
 	type BridgeCommWorkerFileViewRuntimeSource,
 	type BridgeCommWorkerReviewRuntimeSource,
+	type BridgeCommWorkerReviewSourceUpdateScheduleRequest,
 	type BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest,
 	type BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 } from './bridge-comm-worker-command-handler.js';
@@ -66,6 +67,8 @@ export interface RegisterBridgeCommWorkerRuntimePortProtocolProps {
 	readonly schedulePreparationDrain?: (drain: BridgeCommWorkerPreparationDrain) => void;
 }
 
+const bridgeCommWorkerReviewSourceResetChunkItemCount = 64;
+
 export function registerBridgeCommWorkerRuntimePortProtocol(
 	port: BridgeCommWorkerPort,
 	props: RegisterBridgeCommWorkerRuntimePortProtocolProps,
@@ -100,7 +103,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	const demandInFlightItemIds = new Set<string>();
 	const pendingVisibleDemandRerunItemIds = new Set<string>();
 	const visibleDemandGenerationByItemId = new Map<string, number>();
+	const markedVisibleSourceChurnKeys = new Set<string>();
 	let latestDemandExecutionRequest: BridgeCommWorkerDemandExecutionScheduleRequest | null = null;
+	let activeReviewSourceResetEpoch: number | null = null;
 
 	const drainPreparation: BridgeCommWorkerPreparationDrain = async () => {
 		drainScheduled = false;
@@ -127,20 +132,41 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		schedulePreparationDrain(drainPreparation);
 	};
 
-	const enqueueVisibleDemandExecutionFromRequest = (
+	const markVisibleReviewDemandSourceChurnFromRequest = (
 		request: BridgeCommWorkerDemandExecutionScheduleRequest,
-		forcedSourceChurnItemIds: ReadonlySet<string> = new Set(),
-	): boolean => {
-		latestDemandExecutionRequest = request;
+	): ReadonlySet<string> => {
+		const unmarkedAffectedItemIds = request.affectedItemIds?.filter((itemId) => {
+			const churnKey = `${request.epoch}:${itemId}`;
+			return !markedVisibleSourceChurnKeys.has(churnKey);
+		});
 		const sourceChurnItemIds = markVisibleReviewDemandSourceChurn({
-			affectedItemIds: request.affectedItemIds,
+			affectedItemIds: unmarkedAffectedItemIds,
 			cause: request.cause,
 			inFlightItemIds: demandInFlightItemIds,
 			pendingRerunItemIds: pendingVisibleDemandRerunItemIds,
 			store: request.store,
 			visibleDemandGenerationByItemId,
 		});
-		const forceExecutionItemIds = new Set([...sourceChurnItemIds, ...forcedSourceChurnItemIds]);
+		for (const itemId of sourceChurnItemIds) {
+			markedVisibleSourceChurnKeys.add(`${request.epoch}:${itemId}`);
+		}
+		return sourceChurnItemIds;
+	};
+
+	const enqueueVisibleDemandExecutionFromRequest = (
+		request: BridgeCommWorkerDemandExecutionScheduleRequest,
+		forcedSourceChurnItemIds: ReadonlySet<string> = new Set(),
+		shouldMarkSourceChurn = true,
+	): boolean => {
+		latestDemandExecutionRequest = request;
+		const sourceChurnItemIds = shouldMarkSourceChurn
+			? markVisibleReviewDemandSourceChurnFromRequest(request)
+			: new Set<string>();
+		const forceExecutionItemIds = new Set([
+			...sourceChurnItemIds,
+			...(request.forceExecutionItemIds ?? []),
+			...forcedSourceChurnItemIds,
+		]);
 		const tickets = enqueueVisibleBridgeCommWorkerReviewDemandExecution({
 			backoffByItemId: demandBackoffByItemId,
 			budget: props.budget,
@@ -170,11 +196,26 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			visibleDemandGenerationByItemId,
 		});
 		let enqueued = false;
+		let startedItemCount = 0;
 		for (const ticket of tickets) {
 			if (ticket.enqueued) {
 				preparationCompletions.push(ticket.completion);
 				enqueued = true;
+				startedItemCount += 1;
 			}
+		}
+		if (startedItemCount > 0) {
+			void Promise.allSettled(tickets.map((ticket) => ticket.completion)).then(() => {
+				if (
+					enqueueVisibleDemandExecutionFromRequest(
+						{ ...request, forceExecutionItemIds: [] },
+						new Set(),
+						false,
+					)
+				) {
+					requestPreparationDrain();
+				}
+			});
 		}
 		return enqueued;
 	};
@@ -205,6 +246,33 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			});
 			if (ticket.enqueued) {
 				preparationCompletions.push(ticket.completion);
+				shouldRequestDrainAfterMessage = true;
+			}
+		},
+		scheduleReviewSourceUpdate: (
+			request: BridgeCommWorkerReviewSourceUpdateScheduleRequest,
+		): void => {
+			activeReviewSourceResetEpoch = request.epoch;
+			markVisibleReviewDemandSourceChurnFromRequest({
+				affectedItemIds: request.affectedItemIds,
+				cause: 'reviewSourceUpdate',
+				epoch: request.epoch,
+				store: request.store,
+			});
+			const ticket = enqueueBridgeCommWorkerReviewSourceReset({
+				createSequence,
+				isCurrentResetEpoch: () => activeReviewSourceResetEpoch === request.epoch,
+				onResetComplete: () => {
+					if (activeReviewSourceResetEpoch === request.epoch) {
+						activeReviewSourceResetEpoch = null;
+					}
+				},
+				pump,
+				request,
+				requestPreparationDrain,
+				scheduleDemandExecution: enqueueVisibleDemandExecutionFromRequest,
+			});
+			if (ticket.enqueued) {
 				shouldRequestDrainAfterMessage = true;
 			}
 		},
@@ -344,6 +412,107 @@ interface EnqueuedBridgeCommWorkerDemandPreparationTicket {
 	readonly completion: Promise<void>;
 	readonly enqueued: boolean;
 }
+
+interface EnqueueBridgeCommWorkerReviewSourceResetProps {
+	readonly createSequence: () => number;
+	readonly isCurrentResetEpoch: () => boolean;
+	readonly onResetComplete: () => void;
+	readonly pump: WorkerContentPreparationPump;
+	readonly request: BridgeCommWorkerReviewSourceUpdateScheduleRequest;
+	readonly requestPreparationDrain: () => void;
+	readonly scheduleDemandExecution: (
+		request: BridgeCommWorkerDemandExecutionScheduleRequest,
+	) => boolean;
+}
+
+function enqueueBridgeCommWorkerReviewSourceReset(
+	props: EnqueueBridgeCommWorkerReviewSourceResetProps,
+): EnqueuedBridgeCommWorkerDemandPreparationTicket {
+	let processedItemCount = 0;
+	const completion = createBridgeCommWorkerCompletion();
+	const orderedItemIds = props.request.nextReviewRuntimeSource.rows.map((row) => row.id);
+	const affectedItemIds = new Set(props.request.affectedItemIds);
+	const work = {
+		id: `review-source-reset:${props.request.epoch}`,
+		rank: 'background' as const,
+		runSlice: (): { readonly complete: boolean; readonly continuation?: 'external' } => {
+			if (!props.isCurrentResetEpoch()) {
+				completion.resolve();
+				return { complete: true };
+			}
+			processedItemCount = Math.min(
+				processedItemCount + bridgeCommWorkerReviewSourceResetChunkItemCount,
+				orderedItemIds.length,
+			);
+			const previousProcessedItemCount = Math.max(
+				0,
+				processedItemCount - bridgeCommWorkerReviewSourceResetChunkItemCount,
+			);
+			const chunkItemIds = new Set(
+				orderedItemIds.slice(previousProcessedItemCount, processedItemCount),
+			);
+			const chunkAffectedItemIds = [...chunkItemIds].filter((itemId) =>
+				affectedItemIds.has(itemId),
+			);
+			const resetComplete = processedItemCount >= orderedItemIds.length;
+			props.request.store.actions.applyReviewSourceUpdateFact({
+				contentItems: props.request.nextReviewRuntimeSource.contentItems.filter((metadata) =>
+					chunkItemIds.has(metadata.itemId),
+				),
+				...(resetComplete ? { completeItemIds: orderedItemIds } : {}),
+				resetComplete: false,
+				rows: props.request.nextReviewRuntimeSource.rows.filter((row) => chunkItemIds.has(row.id)),
+			});
+			if (chunkAffectedItemIds.length > 0) {
+				props.scheduleDemandExecution({
+					affectedItemIds: chunkAffectedItemIds,
+					cause: 'reviewSourceUpdate',
+					epoch: props.request.epoch,
+					forceExecutionItemIds: chunkAffectedItemIds,
+					store: props.request.store,
+				});
+			}
+			if (!resetComplete) {
+				scheduleBridgeCommWorkerTaskBoundary(() => {
+					props.pump.enqueueOrPromote(work);
+					props.requestPreparationDrain();
+				});
+				return { complete: false, continuation: 'external' };
+			}
+			props.onResetComplete();
+			completion.resolve();
+			return { complete: true };
+		},
+	};
+	props.pump.enqueueOrPromote(work);
+	return { completion: completion.promise, enqueued: true };
+}
+
+function scheduleBridgeCommWorkerTaskBoundary(callback: () => void): void {
+	setTimeout(callback, 0);
+}
+
+function createBridgeCommWorkerCompletion(): {
+	readonly promise: Promise<void>;
+	readonly reject: (reason: unknown) => void;
+	readonly resolve: () => void;
+} {
+	let resolveCompletion: () => void = noopBridgeCommWorkerCompletionResolve;
+	let rejectCompletion: (reason: unknown) => void = noopBridgeCommWorkerCompletionReject;
+	const promise = new Promise<void>((resolve, reject) => {
+		resolveCompletion = resolve;
+		rejectCompletion = reject;
+	});
+	return {
+		promise,
+		reject: rejectCompletion,
+		resolve: resolveCompletion,
+	};
+}
+
+function noopBridgeCommWorkerCompletionResolve(): void {}
+
+function noopBridgeCommWorkerCompletionReject(_reason: unknown): void {}
 
 function enqueueVisibleBridgeCommWorkerReviewDemandExecution(
 	props: EnqueueVisibleBridgeCommWorkerReviewDemandExecutionProps,
