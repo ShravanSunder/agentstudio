@@ -1,3 +1,7 @@
+import {
+	bridgeRPCRequestEnvelopeSchema,
+	bridgeRPCResponseEnvelopeSchema,
+} from '../../bridge/bridge-rpc-client.js';
 import type { BridgeIntakeFrame } from '../../core/models/bridge-intake-frame.js';
 import { parseBridgeCoreResourceUrl } from '../../core/resources/bridge-resource-url.js';
 import type {
@@ -440,9 +444,7 @@ function bridgeViewerSchemeRPCResponse(commandDetail: Record<string, unknown>): 
 	if (method !== null && bridgeViewerAllowedSchemeRPCMethods.has(method)) {
 		return responseId === null
 			? new Response(null, { status: 202 })
-			: new Response(JSON.stringify({ jsonrpc: '2.0', id: responseId, result: null }), {
-					status: 200,
-				});
+			: bridgeViewerSchemeRPCJSONResponse({ jsonrpc: '2.0', id: responseId, result: null });
 	}
 	if (responseId === null) {
 		return new Response(null, { status: 202 });
@@ -451,17 +453,20 @@ function bridgeViewerSchemeRPCResponse(commandDetail: Record<string, unknown>): 
 		method === 'bridge.ready'
 			? 'bridge.ready is bootstrap-only'
 			: `Method not found: ${method ?? 'unknown'}`;
-	return new Response(
-		JSON.stringify({
-			jsonrpc: '2.0',
-			id: responseId,
-			error: {
-				code: -32_601,
-				message,
-			},
-		}),
-		{ status: 200 },
-	);
+	return bridgeViewerSchemeRPCJSONResponse({
+		jsonrpc: '2.0',
+		id: responseId,
+		error: {
+			code: -32_601,
+			message,
+		},
+	});
+}
+
+function bridgeViewerSchemeRPCJSONResponse(response: unknown): Response {
+	return new Response(JSON.stringify(bridgeRPCResponseEnvelopeSchema.parse(response)), {
+		status: 200,
+	});
 }
 
 export function installBridgeViewerMockedBackend(
@@ -495,7 +500,7 @@ export function installBridgeViewerMockedBackend(
 			if (body === null) {
 				return new Response('missing RPC body', { status: 400 });
 			}
-			const commandDetail = JSON.parse(body) as Record<string, unknown>;
+			const commandDetail = bridgeRPCRequestEnvelopeSchema.parse(JSON.parse(body));
 			commandDetails.push(commandDetail);
 			return bridgeViewerSchemeRPCResponse(commandDetail);
 		}

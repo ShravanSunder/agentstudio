@@ -1,5 +1,9 @@
 import { expect, vi } from 'vitest';
 
+import {
+	bridgeRPCRequestEnvelopeSchema,
+	bridgeRPCResponseEnvelopeSchema,
+} from '../bridge/bridge-rpc-client.js';
 import type { BridgeAttachedResourceDescriptor } from '../core/models/bridge-resource-descriptor.js';
 import type {
 	WorktreeFileProtocolFrame,
@@ -23,6 +27,7 @@ export interface NativeWorktreeFileRPCFetchHarness {
 }
 
 export interface NativeWorktreeFileRPCFetchHarnessOptions {
+	readonly intakeReadyResponse?: (command: unknown) => unknown;
 	readonly openSourceStreamResponse?: (command: unknown) => unknown;
 	readonly requestFileDescriptorResponse?: (command: unknown) => unknown;
 }
@@ -42,25 +47,32 @@ export function createNativeWorktreeFileRPCFetchHarness(
 			const method = rpcMethod(command);
 			if (method === 'worktreeFileSurface.openSourceStream') {
 				return Promise.resolve(
-					Response.json(
+					strictNativeWorktreeFileRPCResponse(
 						options.openSourceStreamResponse?.(command) ?? {
 							id: requestId,
 							result: makeOpenSourceOutcome(),
 						},
+						requestId,
 					),
 				);
 			}
 			if (method === 'worktreeFileSurface.requestFileDescriptor') {
 				return Promise.resolve(
-					Response.json(
+					strictNativeWorktreeFileRPCResponse(
 						options.requestFileDescriptorResponse?.(command) ?? {
 							id: requestId,
 							result: {},
 						},
+						requestId,
 					),
 				);
 			}
-			return Promise.resolve(Response.json({ id: requestId, result: {} }));
+			if (method === 'bridge.intakeReady' && options.intakeReadyResponse !== undefined) {
+				return Promise.resolve(
+					strictNativeWorktreeFileRPCResponse(options.intakeReadyResponse(command), requestId),
+				);
+			}
+			return Promise.resolve(strictNativeWorktreeFileRPCResponse({ result: {} }, requestId));
 		},
 	};
 }
@@ -207,7 +219,38 @@ function decodeNativeWorktreeFileRPCCommand(init: RequestInit | undefined): unkn
 	if (typeof body !== 'string') {
 		throw new Error('expected string RPC request body');
 	}
-	return JSON.parse(body);
+	return bridgeRPCRequestEnvelopeSchema.parse(JSON.parse(body));
+}
+
+function strictNativeWorktreeFileRPCResponse(
+	response: unknown,
+	fallbackId: string | number | null,
+): Response {
+	const envelope = bridgeRPCResponseEnvelopeSchema.parse(
+		nativeWorktreeFileRPCResponseEnvelope(response, fallbackId),
+	);
+	return Response.json(envelope);
+}
+
+function nativeWorktreeFileRPCResponseEnvelope(
+	response: unknown,
+	fallbackId: string | number | null,
+): unknown {
+	if (typeof response !== 'object' || response === null) {
+		return { jsonrpc: '2.0', id: fallbackId ?? '', result: response };
+	}
+	if ('jsonrpc' in response) {
+		return response;
+	}
+	const responseId = rpcRequestId(response) ?? fallbackId ?? '';
+	if ('error' in response) {
+		return { jsonrpc: '2.0', id: responseId, error: response.error };
+	}
+	return {
+		jsonrpc: '2.0',
+		id: responseId,
+		result: 'result' in response ? response.result : response,
+	};
 }
 
 function rpcRequestId(command: unknown): string | number | null {

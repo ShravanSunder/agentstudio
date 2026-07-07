@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import type { WorktreeFileProtocolFrame } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import {
@@ -90,6 +90,66 @@ describe('Bridge app native Worktree/File backend recovery', () => {
 			});
 		await expect.poll(() => resetRequiredNotificationCount).toBe(1);
 		unregisterResetRequiredCallback();
+		backend.dispose();
+	});
+
+	test('cleans pending open replay state when intake-ready RPC fails', async () => {
+		vi.useFakeTimers();
+		const rpcFetch = createNativeWorktreeFileRPCFetchHarness({
+			intakeReadyResponse: (command) => ({
+				error: { code: -32_004, message: 'intake unavailable' },
+				id: commandIdFromUnknownCommand(command),
+			}),
+		});
+		let replayRequestCount = 0;
+		document.documentElement.setAttribute(
+			'data-bridge-worktree-file-source-spec',
+			JSON.stringify({
+				clientRequestId: 'bootstrap-request',
+				repoId: '11111111-1111-4111-8111-111111111111',
+				worktreeId: '22222222-2222-4222-8222-222222222222',
+				rootPathToken: 'root-token',
+				includeStatuses: true,
+				includeComments: false,
+				includeAgentComms: false,
+				freshness: 'live',
+			}),
+		);
+		document.addEventListener('__bridge_intake_replay_request', (): void => {
+			replayRequestCount += 1;
+		});
+		const backend = createBridgeAppNativeWorktreeFileBackend({
+			createRequestId: () => 'request-1',
+			fetchRPC: rpcFetch.fetch,
+			responseTimeoutMilliseconds: 10,
+			target: document,
+		});
+		if (backend === null) {
+			throw new Error('expected native worktree backend');
+		}
+		document.dispatchEvent(
+			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
+		);
+
+		const surfacePromise = backend.loadWorktreeFileSurface();
+		await expect(surfacePromise).rejects.toThrow(/intake-ready command failed/);
+		expect(replayRequestCount).toBe(1);
+
+		document.dispatchEvent(
+			new CustomEvent('__bridge_intake_json', {
+				detail: { json: JSON.stringify(makeIntakeEnvelope(makeSnapshotFrame())), nonce: 'push-1' },
+			}),
+		);
+		const receivedFrames: WorktreeFileProtocolFrame[][] = [];
+		const disposeSubscription = backend.subscribeWorktreeFileFrames((frames): void => {
+			receivedFrames.push([...frames]);
+		});
+		expect(receivedFrames).toEqual([]);
+
+		await vi.advanceTimersByTimeAsync(50);
+
+		expect(replayRequestCount).toBe(1);
+		disposeSubscription();
 		backend.dispose();
 	});
 

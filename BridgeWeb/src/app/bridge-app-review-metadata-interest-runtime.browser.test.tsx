@@ -1,5 +1,4 @@
-import type { ReactElement } from 'react';
-import { useState } from 'react';
+import { act, type ReactElement, useState } from 'react';
 import { describe, expect, test } from 'vitest';
 import { render } from 'vitest-browser-react';
 
@@ -41,15 +40,224 @@ describe('Bridge review metadata interest runtime', () => {
 			/>,
 		);
 
-		await expect.poll(() => commandDetails.length).toBeGreaterThanOrEqual(2);
+		expect(
+			await pollRuntimeWithinAct({
+				getValue: () => commandDetails.length,
+				isSatisfied: (count): boolean => count >= 2,
+			}),
+		).toBeGreaterThanOrEqual(2);
 		const preReadyCommandCount = commandDetails.length;
 		expect(lastCommandsByLane(commandDetails).foreground).toEqual(['item-a']);
 
 		sendAccepted = true;
-		requireHTMLButtonElement(document.querySelector('[data-testid="bridge-ready"]')).click();
+		await clickRuntimeButton('bridge-ready');
 
-		await expect.poll(() => commandDetails.length).toBeGreaterThan(preReadyCommandCount);
+		expect(
+			await pollRuntimeWithinAct({
+				getValue: () => commandDetails.length,
+				isSatisfied: (count): boolean => count > preReadyCommandCount,
+			}),
+		).toBeGreaterThan(preReadyCommandCount);
 		expect(lastCommandsByLane(commandDetails).foreground).toEqual(['item-a']);
+	});
+
+	test('retries current interest after a transient post-ready RPC failure without UI input', async () => {
+		document.body.replaceChildren();
+		const commandDetails: BridgeRPCCommand[] = [];
+		let sendAttemptCount = 0;
+		const rpcClient: BridgeRPCClient = {
+			sendCommand: (command): boolean => {
+				commandDetails.push(command);
+				return true;
+			},
+			sendCommandAndWait: async (command): Promise<boolean> => {
+				sendAttemptCount += 1;
+				commandDetails.push(command);
+				return sendAttemptCount > 1;
+			},
+		};
+		const reviewPackage = makeReviewPackageWithIdentity({
+			itemIds: ['item-a', 'item-b'],
+			packageId: 'package-a',
+			reviewGeneration: 7,
+			revision: 11,
+		});
+
+		render(
+			<RuntimeHarness
+				reviewPackage={reviewPackage}
+				rpcClient={rpcClient}
+				selectedItemId="item-a"
+				setVisibleContentItemIds={(): void => {}}
+			/>,
+		);
+		expect(
+			await pollRuntimeWithinAct({
+				getValue: () => commandDetails.length,
+				isSatisfied: (count): boolean => count >= 2,
+			}),
+		).toBeGreaterThanOrEqual(2);
+		commandDetails.length = 0;
+		sendAttemptCount = 0;
+
+		await clickRuntimeButton('bridge-ready');
+
+		expect(
+			await pollRuntimeWithinAct({
+				getValue: () => commandDetails.length,
+				isSatisfied: (count): boolean => count > 2,
+			}),
+		).toBeGreaterThan(2);
+		expect(lastCommandsByLane(commandDetails).foreground).toEqual(['item-a']);
+	});
+
+	test('retries only the failed interest lane after a partial transient RPC failure', async () => {
+		document.body.replaceChildren();
+		const commandDetails: BridgeRPCCommand[] = [];
+		let visibleFailureConsumed = false;
+		const rpcClient: BridgeRPCClient = {
+			sendCommand: (command): boolean => {
+				commandDetails.push(command);
+				return true;
+			},
+			sendCommandAndWait: async (command): Promise<boolean> => {
+				commandDetails.push(command);
+				if (
+					command.method === 'bridge.metadata_interest.update' &&
+					command.params.lane === 'visible' &&
+					command.params.itemIds?.includes('item-b') === true &&
+					!visibleFailureConsumed
+				) {
+					visibleFailureConsumed = true;
+					return false;
+				}
+				return true;
+			},
+		};
+		const reviewPackage = makeReviewPackageWithIdentity({
+			itemIds: ['item-a', 'item-b'],
+			packageId: 'package-a',
+			reviewGeneration: 7,
+			revision: 11,
+		});
+
+		render(
+			<RuntimeHarness
+				reviewPackage={reviewPackage}
+				rpcClient={rpcClient}
+				selectedItemId="item-a"
+				setVisibleContentItemIds={(): void => {}}
+			/>,
+		);
+		expect(
+			await pollRuntimeWithinAct({
+				getValue: () => commandDetails.length,
+				isSatisfied: (count): boolean => count >= 2,
+			}),
+		).toBeGreaterThanOrEqual(2);
+		commandDetails.length = 0;
+
+		await clickRuntimeButton('bridge-ready');
+		expect(
+			await pollRuntimeWithinAct({
+				getValue: () => commandDetails.length,
+				isSatisfied: (count): boolean => count >= 2,
+			}),
+		).toBeGreaterThanOrEqual(2);
+		commandDetails.length = 0;
+
+		await clickRuntimeButton('tree-visible');
+		await clickRuntimeButton('code-visible');
+
+		expect(
+			await pollRuntimeWithinAct({
+				getValue: () =>
+					metadataInterestCommandCount({
+						commands: commandDetails,
+						lane: 'visible',
+					}),
+				isSatisfied: (count): boolean => count >= 2,
+			}),
+		).toBeGreaterThanOrEqual(2);
+		expect(
+			metadataInterestCommandCount({
+				commands: commandDetails,
+				lane: 'foreground',
+			}),
+		).toBe(1);
+		expect(lastCommandsByLane(commandDetails)).toEqual({
+			foreground: ['item-a'],
+			visible: ['item-b'],
+		});
+	});
+
+	test('resets exhausted metadata retry budget for a fresh request signature', async () => {
+		document.body.replaceChildren();
+		const commandDetails: BridgeRPCCommand[] = [];
+		let failForegroundInterest = false;
+		const rpcClient: BridgeRPCClient = {
+			sendCommand: (command): boolean => {
+				commandDetails.push(command);
+				return true;
+			},
+			sendCommandAndWait: async (command): Promise<boolean> => {
+				commandDetails.push(command);
+				return !(
+					failForegroundInterest &&
+					command.method === 'bridge.metadata_interest.update' &&
+					command.params.lane === 'foreground'
+				);
+			},
+		};
+		const reviewPackage = makeReviewPackageWithIdentity({
+			itemIds: ['item-a', 'item-b'],
+			packageId: 'package-a',
+			reviewGeneration: 7,
+			revision: 11,
+		});
+
+		render(
+			<RuntimeHarness
+				reviewPackage={reviewPackage}
+				rpcClient={rpcClient}
+				selectedItemId="item-a"
+				setVisibleContentItemIds={(): void => {}}
+			/>,
+		);
+		expect(
+			await pollRuntimeWithinAct({
+				getValue: () => commandDetails.length,
+				isSatisfied: (count): boolean => count >= 2,
+			}),
+		).toBeGreaterThanOrEqual(2);
+		commandDetails.length = 0;
+		failForegroundInterest = true;
+
+		await clickRuntimeButton('bridge-ready');
+		expect(
+			await pollRuntimeWithinAct({
+				getValue: () =>
+					metadataInterestCommandCount({
+						commands: commandDetails,
+						lane: 'foreground',
+					}),
+				isSatisfied: (count): boolean => count >= 4,
+			}),
+		).toBeGreaterThanOrEqual(4);
+		commandDetails.length = 0;
+
+		await clickRuntimeButton('bridge-ready');
+
+		expect(
+			await pollRuntimeWithinAct({
+				getValue: () =>
+					metadataInterestCommandCount({
+						commands: commandDetails,
+						lane: 'foreground',
+					}),
+				isSatisfied: (count): boolean => count >= 2,
+			}),
+		).toBeGreaterThanOrEqual(2);
 	});
 
 	test('dispatches hook-driven interest updates and clears stale surface ids across package revisions', async () => {
@@ -89,14 +297,14 @@ describe('Bridge review metadata interest runtime', () => {
 			visible: [],
 		});
 
-		requireHTMLButtonElement(document.querySelector('[data-testid="tree-visible"]')).click();
-		requireHTMLButtonElement(document.querySelector('[data-testid="code-visible"]')).click();
+		await clickRuntimeButton('tree-visible');
+		await clickRuntimeButton('code-visible');
 
 		await expect.poll(() => lastCommandsByLane(commandDetails).visible).toEqual(['item-b']);
 		expect(lastVisibleContentItemIdsCall(visibleContentItemIdsCalls)).toEqual(['item-a', 'item-b']);
 
-		requireHTMLButtonElement(document.querySelector('[data-testid="clear-selected"]')).click();
-		requireHTMLButtonElement(document.querySelector('[data-testid="clear-visible"]')).click();
+		await clickRuntimeButton('clear-selected');
+		await clickRuntimeButton('clear-visible');
 
 		await expect
 			.poll(() => lastCommandsByLane(commandDetails))
@@ -105,12 +313,12 @@ describe('Bridge review metadata interest runtime', () => {
 				visible: [],
 			});
 
-		requireHTMLButtonElement(document.querySelector('[data-testid="select-item-a"]')).click();
-		requireHTMLButtonElement(document.querySelector('[data-testid="tree-visible"]')).click();
+		await clickRuntimeButton('select-item-a');
+		await clickRuntimeButton('tree-visible');
 
 		await expect.poll(() => lastCommandsByLane(commandDetails).visible).toEqual(['item-b']);
 
-		requireHTMLButtonElement(document.querySelector('[data-testid="switch-package"]')).click();
+		await clickRuntimeButton('switch-package');
 
 		await expect.poll(() => lastVisibleContentItemIdsCall(visibleContentItemIdsCalls)).toEqual([]);
 		await expect
@@ -120,7 +328,7 @@ describe('Bridge review metadata interest runtime', () => {
 				visible: [],
 			});
 
-		requireHTMLButtonElement(document.querySelector('[data-testid="tree-visible"]')).click();
+		await clickRuntimeButton('tree-visible');
 
 		await expect.poll(() => lastCommandsByLane(commandDetails).visible).toEqual(['item-b']);
 	});
@@ -155,7 +363,7 @@ describe('Bridge review metadata interest runtime', () => {
 			/>,
 		);
 		await expect.poll(() => commandDetails.length).toBeGreaterThanOrEqual(2);
-		requireHTMLButtonElement(document.querySelector('[data-testid="tree-visible"]')).click();
+		await clickRuntimeButton('tree-visible');
 		await expect
 			.poll(() => lastCommandsByLane(commandDetails))
 			.toEqual({
@@ -164,7 +372,7 @@ describe('Bridge review metadata interest runtime', () => {
 			});
 
 		// Act: hide the review surface.
-		requireHTMLButtonElement(document.querySelector('[data-testid="set-inactive"]')).click();
+		await clickRuntimeButton('set-inactive');
 
 		// Assert: both lanes are re-declared with empty item ids so native drops all interest.
 		await expect
@@ -175,7 +383,7 @@ describe('Bridge review metadata interest runtime', () => {
 			});
 
 		// Act: show the review surface again.
-		requireHTMLButtonElement(document.querySelector('[data-testid="set-active"]')).click();
+		await clickRuntimeButton('set-active');
 
 		// Assert: selection re-declares immediately; visible re-declares once the surface reports again.
 		await expect
@@ -184,7 +392,7 @@ describe('Bridge review metadata interest runtime', () => {
 				foreground: ['item-a'],
 				visible: [],
 			});
-		requireHTMLButtonElement(document.querySelector('[data-testid="tree-visible"]')).click();
+		await clickRuntimeButton('tree-visible');
 		await expect.poll(() => lastCommandsByLane(commandDetails).visible).toEqual(['item-b']);
 	});
 });
@@ -316,6 +524,16 @@ function lastItemIdsForLane(props: {
 	return null;
 }
 
+function metadataInterestCommandCount(props: {
+	readonly commands: readonly BridgeRPCCommand[];
+	readonly lane: 'foreground' | 'visible';
+}): number {
+	return props.commands.filter(
+		(command): boolean =>
+			command.method === 'bridge.metadata_interest.update' && command.params.lane === props.lane,
+	).length;
+}
+
 function lastVisibleContentItemIdsCall(calls: readonly (readonly string[])[]): readonly string[] {
 	return calls.at(-1) ?? [];
 }
@@ -325,4 +543,34 @@ function requireHTMLButtonElement(element: Element | null): HTMLButtonElement {
 		throw new Error('Expected an HTML button element.');
 	}
 	return element;
+}
+
+async function clickRuntimeButton(testId: string): Promise<void> {
+	await act(async (): Promise<void> => {
+		requireHTMLButtonElement(document.querySelector(`[data-testid="${testId}"]`)).click();
+		await Promise.resolve();
+	});
+}
+
+async function pollRuntimeWithinAct<TValue>(props: {
+	readonly getValue: () => TValue;
+	readonly isSatisfied: (value: TValue) => boolean;
+	readonly timeoutMilliseconds?: number;
+	readonly pollIntervalMilliseconds?: number;
+}): Promise<TValue> {
+	const timeoutMilliseconds = props.timeoutMilliseconds ?? 5000;
+	const pollIntervalMilliseconds = props.pollIntervalMilliseconds ?? 20;
+	const deadlineMilliseconds = Date.now() + timeoutMilliseconds;
+	for (;;) {
+		const value = props.getValue();
+		if (props.isSatisfied(value) || Date.now() >= deadlineMilliseconds) {
+			return value;
+		}
+		// oxlint-disable-next-line no-await-in-loop -- Each poll tick must open a fresh act() scope.
+		await act(async (): Promise<void> => {
+			await new Promise<void>((resolve): void => {
+				setTimeout(resolve, pollIntervalMilliseconds);
+			});
+		});
+	}
 }

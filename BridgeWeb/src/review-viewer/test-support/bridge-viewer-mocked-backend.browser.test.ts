@@ -175,10 +175,11 @@ describe('bridge viewer mocked backend', () => {
 	test('records semantic command payloads sent through the Bridge scheme RPC endpoint', async () => {
 		const backend = installBridgeViewerMockedBackend();
 		const commandDetail = {
+			__commandId: 'mock-command-1',
 			id: 'mock-command-1',
 			jsonrpc: '2.0',
 			method: 'review.markFileViewed',
-			params: { itemId: 'browser-source-a' },
+			params: { fileId: 'browser-source-a' },
 		};
 
 		const response = await fetch('agentstudio://rpc/command', {

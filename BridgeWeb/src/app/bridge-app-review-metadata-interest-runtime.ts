@@ -41,6 +41,11 @@ interface ReviewMetadataInterestSurfaceSnapshot extends ReviewMetadataInterestSu
 	readonly surfaceIdentityKey: string | null;
 }
 
+interface PendingMetadataInterestRetryBatch {
+	readonly requestSignature: string;
+	readonly requestKeys: ReadonlySet<string>;
+}
+
 const emptySurfaceSnapshot: ReviewMetadataInterestSurfaceSnapshot = {
 	codeViewVisibleItemIds: [],
 	surfaceIdentityKey: null,
@@ -61,8 +66,12 @@ export function useBridgeReviewMetadataInterestRuntime(
 	} = props;
 	const latestDispatchIdentityRef = useRef<ReviewMetadataInterestIdentity | null>(null);
 	const lastRequestSignatureRef = useRef<string | null>(null);
+	const pendingRetryBatchRef = useRef<PendingMetadataInterestRetryBatch | null>(null);
+	const retryAttemptSignatureRef = useRef<string | null>(null);
+	const retryAttemptsByRequestKeyRef = useRef<Map<string, number>>(new Map());
 	const [surfaceSnapshot, setSurfaceSnapshot] =
 		useState<ReviewMetadataInterestSurfaceSnapshot>(emptySurfaceSnapshot);
+	const [retryEpoch, setRetryEpoch] = useState(0);
 	const activeIdentity = useMemo(
 		(): ReviewMetadataInterestIdentity | null =>
 			reviewMetadataInterestIdentityForViewState({
@@ -136,27 +145,78 @@ export function useBridgeReviewMetadataInterestRuntime(
 
 	useEffect((): void => {
 		const requestSignature = JSON.stringify({ bridgeReadyEpoch, requests });
-		if (requestSignature === lastRequestSignatureRef.current) {
+		if (retryAttemptSignatureRef.current !== requestSignature) {
+			retryAttemptsByRequestKeyRef.current.clear();
+			retryAttemptSignatureRef.current = requestSignature;
+		}
+		const pendingRetryBatch = pendingRetryBatchRef.current;
+		if (pendingRetryBatch !== null && pendingRetryBatch.requestSignature !== requestSignature) {
+			pendingRetryBatchRef.current = null;
+		}
+		const retryRequestKeys =
+			pendingRetryBatch?.requestSignature === requestSignature
+				? pendingRetryBatch.requestKeys
+				: null;
+		if (
+			requestSignature === lastRequestSignatureRef.current &&
+			(retryRequestKeys === null || retryRequestKeys.size === 0)
+		) {
+			return;
+		}
+		const requestsToSend =
+			retryRequestKeys === null
+				? requests
+				: requests.filter((request): boolean =>
+						retryRequestKeys.has(metadataInterestRequestRetryKey(request)),
+					);
+		if (requestsToSend.length === 0) {
+			pendingRetryBatchRef.current = null;
 			return;
 		}
 		lastRequestSignatureRef.current = requestSignature;
 		void Promise.all(
-			requests.map(
-				(request): Promise<boolean> =>
-					sendReviewMetadataInterestRequest({
+			requestsToSend.map(
+				async (request): Promise<{ readonly didSend: boolean; readonly requestKey: string }> => ({
+					didSend: await sendReviewMetadataInterestRequest({
 						request,
 						rpcClient,
 					}),
+					requestKey: metadataInterestRequestRetryKey(request),
+				}),
 			),
 		).then((results): void => {
-			if (
-				results.some((didSend): boolean => !didSend) &&
-				lastRequestSignatureRef.current === requestSignature
-			) {
-				lastRequestSignatureRef.current = null;
+			if (lastRequestSignatureRef.current !== requestSignature) {
+				return;
+			}
+			const retryRequestKeysForFailures: string[] = [];
+			for (const result of results) {
+				if (result.didSend) {
+					retryAttemptsByRequestKeyRef.current.delete(result.requestKey);
+					continue;
+				}
+				if (
+					bridgeReadyEpoch > 0 &&
+					metadataInterestRetryAttemptAvailable({
+						requestKey: result.requestKey,
+						retryAttemptsByRequestKey: retryAttemptsByRequestKeyRef.current,
+					})
+				) {
+					retryRequestKeysForFailures.push(result.requestKey);
+				}
+			}
+			if (retryRequestKeysForFailures.length === 0) {
+				pendingRetryBatchRef.current = null;
+				return;
+			}
+			pendingRetryBatchRef.current = {
+				requestKeys: new Set(retryRequestKeysForFailures),
+				requestSignature,
+			};
+			if (lastRequestSignatureRef.current === requestSignature) {
+				setRetryEpoch((currentRetryEpoch): number => currentRetryEpoch + 1);
 			}
 		});
-	}, [bridgeReadyEpoch, requests, rpcClient]);
+	}, [bridgeReadyEpoch, requests, retryEpoch, rpcClient]);
 
 	const onCodeViewVisibleItemIdsChange = useCallback(
 		(itemIds: readonly string[]): void => {
@@ -238,4 +298,20 @@ function sendReviewMetadataInterestRequest(props: {
 		},
 	};
 	return props.rpcClient.sendCommandAndWait(command);
+}
+
+function metadataInterestRetryAttemptAvailable(props: {
+	readonly requestKey: string;
+	readonly retryAttemptsByRequestKey: Map<string, number>;
+}): boolean {
+	const currentAttemptCount = props.retryAttemptsByRequestKey.get(props.requestKey) ?? 0;
+	if (currentAttemptCount >= 3) {
+		return false;
+	}
+	props.retryAttemptsByRequestKey.set(props.requestKey, currentAttemptCount + 1);
+	return true;
+}
+
+function metadataInterestRequestRetryKey(request: ReviewMetadataInterestRequest): string {
+	return JSON.stringify(request);
 }

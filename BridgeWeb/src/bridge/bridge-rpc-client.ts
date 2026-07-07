@@ -6,7 +6,10 @@ import {
 	worktreeFileSurfaceSourceSpecSchema,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
-import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
+import {
+	bridgeTraceContextSchema,
+	type BridgeTraceContext,
+} from '../foundation/telemetry/bridge-trace-context.js';
 
 export const bridgeRPCIdSchema = z.union([z.string(), z.number()]);
 
@@ -39,13 +42,18 @@ export const bridgeIntakeReadyParamsSchema = z
 	})
 	.strict();
 
-export const bridgeRPCCommandSchema = z.discriminatedUnion('method', [
-	z.object({
+const reviewMarkFileViewedParamsSchema = z.object({ fileId: z.string().min(1) }).strict();
+
+const bridgeReviewMarkFileViewedCommandSchema = z
+	.object({
 		id: bridgeRPCIdSchema.optional(),
 		method: z.literal('review.markFileViewed'),
-		params: z.object({ fileId: z.string().min(1) }),
-	}),
-	z.object({
+		params: reviewMarkFileViewedParamsSchema,
+	})
+	.strict();
+
+const bridgeMetadataInterestUpdateCommandSchema = z
+	.object({
 		id: bridgeRPCIdSchema.optional(),
 		method: z.literal('bridge.metadata_interest.update'),
 		params: z
@@ -59,30 +67,84 @@ export const bridgeRPCCommandSchema = z.discriminatedUnion('method', [
 				loaded_by: z.enum(['foreground', 'visible', 'nearby', 'speculative', 'idle']).optional(),
 			})
 			.strict(),
-	}),
-	z.object({
+	})
+	.strict();
+
+const bridgeActiveViewerModeUpdateCommandSchema = z
+	.object({
 		id: bridgeRPCIdSchema.optional(),
 		method: z.literal('bridge.activeViewerMode.update'),
 		params: bridgeActiveViewerModeUpdateSchema,
-	}),
-	z.object({
+	})
+	.strict();
+
+const bridgeIntakeReadyCommandSchema = z
+	.object({
 		id: bridgeRPCIdSchema.optional(),
 		method: z.literal('bridge.intakeReady'),
 		params: bridgeIntakeReadyParamsSchema,
-	}),
-	z.object({
+	})
+	.strict();
+
+const worktreeFileOpenSourceStreamCommandSchema = z
+	.object({
 		id: bridgeRPCIdSchema,
 		method: z.literal('worktreeFileSurface.openSourceStream'),
 		params: worktreeFileSurfaceSourceSpecSchema,
-	}),
-	z.object({
+	})
+	.strict();
+
+const worktreeFileRequestFileDescriptorCommandSchema = z
+	.object({
 		id: bridgeRPCIdSchema,
 		method: z.literal('worktreeFileSurface.requestFileDescriptor'),
 		params: worktreeFileDescriptorRequestSchema,
-	}),
+	})
+	.strict();
+
+export const bridgeRPCCommandSchema = z.discriminatedUnion('method', [
+	bridgeReviewMarkFileViewedCommandSchema,
+	bridgeMetadataInterestUpdateCommandSchema,
+	bridgeActiveViewerModeUpdateCommandSchema,
+	bridgeIntakeReadyCommandSchema,
+	worktreeFileOpenSourceStreamCommandSchema,
+	worktreeFileRequestFileDescriptorCommandSchema,
 ]);
 
 export type BridgeRPCCommand = z.infer<typeof bridgeRPCCommandSchema>;
+
+const bridgeRPCRequestEnvelopeExtensionSchema = z
+	.object({
+		jsonrpc: z.literal('2.0'),
+		__commandId: z.string().min(1),
+		__traceContext: bridgeTraceContextSchema.optional(),
+	})
+	.strict();
+
+function bridgeRPCRequestEnvelopeSchemaForCommand(commandSchema: z.ZodObject): z.ZodObject {
+	return commandSchema.extend(bridgeRPCRequestEnvelopeExtensionSchema.shape).strict();
+}
+
+export const bridgeRPCRequestEnvelopeSchema = z.discriminatedUnion('method', [
+	bridgeRPCRequestEnvelopeSchemaForCommand(bridgeReviewMarkFileViewedCommandSchema),
+	bridgeRPCRequestEnvelopeSchemaForCommand(bridgeMetadataInterestUpdateCommandSchema),
+	bridgeRPCRequestEnvelopeSchemaForCommand(bridgeActiveViewerModeUpdateCommandSchema),
+	bridgeRPCRequestEnvelopeSchemaForCommand(bridgeIntakeReadyCommandSchema),
+	bridgeRPCRequestEnvelopeSchemaForCommand(worktreeFileOpenSourceStreamCommandSchema),
+	bridgeRPCRequestEnvelopeSchemaForCommand(worktreeFileRequestFileDescriptorCommandSchema),
+]);
+
+export type BridgeRPCRequestEnvelope = z.infer<typeof bridgeRPCRequestEnvelopeSchema>;
+
+export function bridgeRPCCommandFromRequestEnvelope(
+	envelope: BridgeRPCRequestEnvelope,
+): BridgeRPCCommand {
+	return bridgeRPCCommandSchema.parse({
+		...(envelope['id'] === undefined ? {} : { id: envelope['id'] }),
+		method: envelope['method'],
+		params: envelope['params'],
+	});
+}
 export type BridgeRPCFetch = (
 	input: RequestInfo | URL,
 	init?: RequestInit,
@@ -128,7 +190,9 @@ export function createBridgeRPCClient(props: CreateBridgeRPCClientProps = {}): B
 			const traceContext = shouldAttachTraceContext() ? getTraceContext(validatedCommand) : null;
 			const commandId =
 				validatedCommand.id === undefined ? createCommandId() : String(validatedCommand.id);
-			const commandDetail = makeCommandDetail(validatedCommand, commandId, traceContext);
+			const commandDetail = bridgeRPCRequestEnvelopeSchema.parse(
+				makeCommandDetail(validatedCommand, commandId, traceContext),
+			);
 			try {
 				void Promise.resolve(
 					fetchRPC(endpointUrl, {
@@ -176,6 +240,7 @@ export function createBridgeRPCClient(props: CreateBridgeRPCClientProps = {}): B
 					command: { ...validatedCommand, id: commandId },
 					endpointUrl,
 					fetch: fetchRPC,
+					traceContext,
 					timeoutMilliseconds: commandTimeoutMilliseconds,
 				});
 			} catch {
@@ -211,14 +276,22 @@ export const bridgeRPCErrorPayloadSchema = z
 	})
 	.strict();
 
-export const bridgeRPCResponseEnvelopeSchema = z
-	.object({
-		jsonrpc: z.literal('2.0').optional(),
-		id: bridgeRPCIdSchema,
-		result: z.unknown().optional(),
-		error: bridgeRPCErrorPayloadSchema.optional(),
-	})
-	.passthrough();
+export const bridgeRPCResponseEnvelopeSchema = z.union([
+	z
+		.object({
+			jsonrpc: z.literal('2.0'),
+			id: bridgeRPCIdSchema,
+			result: z.unknown(),
+		})
+		.strict(),
+	z
+		.object({
+			jsonrpc: z.literal('2.0'),
+			id: bridgeRPCIdSchema,
+			error: bridgeRPCErrorPayloadSchema,
+		})
+		.strict(),
+]);
 
 export class BridgeRPCResponseError extends Error {
 	readonly code: number;
@@ -244,6 +317,7 @@ export interface SendBridgeRPCRequestProps {
 	readonly endpointUrl?: string | undefined;
 	readonly fetch?: BridgeRPCFetch | undefined;
 	readonly timeoutMilliseconds?: number;
+	readonly traceContext?: BridgeTraceContext | null;
 }
 
 export async function sendBridgeRPCRequest(props: SendBridgeRPCRequestProps): Promise<unknown> {
@@ -261,7 +335,13 @@ export async function sendBridgeRPCRequest(props: SendBridgeRPCRequestProps): Pr
 	try {
 		const response = await fetchRPC(endpointUrl, {
 			body: JSON.stringify(
-				makeCommandDetail({ ...validatedCommand, id: requestId }, requestId, null),
+				bridgeRPCRequestEnvelopeSchema.parse(
+					makeCommandDetail(
+						{ ...validatedCommand, id: requestId },
+						requestId,
+						props.traceContext ?? null,
+					),
+				),
 			),
 			headers: { 'Content-Type': 'application/json' },
 			method: 'POST',
@@ -274,7 +354,7 @@ export async function sendBridgeRPCRequest(props: SendBridgeRPCRequestProps): Pr
 		if (String(parsedResponse.id) !== requestId) {
 			throw new Error('Bridge RPC response id mismatch');
 		}
-		if (parsedResponse.error !== undefined) {
+		if ('error' in parsedResponse) {
 			throw new BridgeRPCResponseError(parsedResponse.error);
 		}
 		return parsedResponse.result;

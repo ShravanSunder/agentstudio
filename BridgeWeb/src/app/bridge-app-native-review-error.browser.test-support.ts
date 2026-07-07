@@ -1,6 +1,10 @@
 import { act } from 'react';
 
-import { bridgeRPCCommandSchema, type BridgeRPCCommand } from '../bridge/bridge-rpc-client.js';
+import {
+	bridgeRPCCommandFromRequestEnvelope,
+	bridgeRPCRequestEnvelopeSchema,
+	type BridgeRPCCommand,
+} from '../bridge/bridge-rpc-client.js';
 import type { BridgeCommWorkerPort } from '../core/comm-worker/bridge-comm-worker-entry.js';
 import { buildBridgeWorkerReadyHealthEvent } from '../core/comm-worker/bridge-comm-worker-protocol.js';
 import {
@@ -312,13 +316,14 @@ export function recordBridgeSchemeRPCFetch(
 	if (body === null) {
 		return new Response('missing RPC body', { status: 400 });
 	}
-	const parsedCommand = bridgeRPCCommandSchema.safeParse(JSON.parse(body));
-	if (!parsedCommand.success) {
+	const parsedEnvelope = bridgeRPCRequestEnvelopeSchema.safeParse(JSON.parse(body));
+	if (!parsedEnvelope.success) {
 		return new Response('invalid RPC body', { status: 400 });
 	}
-	const command = parsedCommand.data;
+	const envelope = parsedEnvelope.data;
+	const command = bridgeRPCCommandFromRequestEnvelope(envelope);
 	commands.push(command);
-	const responseId = command.id ?? null;
+	const responseId = envelope['id'] ?? null;
 	return responseId === null
 		? new Response(null, { status: 202 })
 		: new Response(JSON.stringify({ jsonrpc: '2.0', id: responseId, result: null }), {

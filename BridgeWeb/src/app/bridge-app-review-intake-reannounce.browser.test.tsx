@@ -4,7 +4,10 @@ import { render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode renders need app CSS.
 import './bridge-app.css';
-import { bridgeRPCCommandSchema, type BridgeRPCCommand } from '../bridge/bridge-rpc-client.js';
+import {
+	bridgeRPCRequestEnvelopeSchema,
+	type BridgeRPCCommand,
+} from '../bridge/bridge-rpc-client.js';
 import type { BridgeIntakeFrame } from '../core/models/bridge-intake-frame.js';
 import { buildReviewMetadataSnapshotFrame } from '../features/review/protocol/review-metadata-frame-builder.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
@@ -250,8 +253,8 @@ function installReviewIntakeReadyCounter(
 			return response;
 		}
 		const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
-		const parsedCommand = bridgeRPCCommandSchema.safeParse(body);
-		const responseId = parsedCommand.success ? parsedCommand.data.id : null;
+		const parsedEnvelope = bridgeRPCRequestEnvelopeSchema.safeParse(body);
+		const responseId = parsedEnvelope.success ? parsedEnvelope.data['id'] : null;
 		return new Response(
 			JSON.stringify({
 				jsonrpc: '2.0',

@@ -9,7 +9,11 @@ import type { BridgeTelemetryScope } from '../foundation/telemetry/bridge-teleme
 import commandNotificationFixture from '../test-fixtures/bridge-contract-fixtures/valid/rpc-command-notification.json' with { type: 'json' };
 import commandWithIdFixture from '../test-fixtures/bridge-contract-fixtures/valid/rpc-command-with-id.json' with { type: 'json' };
 import { createBridgeRPCClient } from './bridge-rpc-client.js';
-import { bridgeRPCCommandSchema } from './bridge-rpc-client.js';
+import {
+	bridgeRPCCommandSchema,
+	bridgeRPCRequestEnvelopeSchema,
+	bridgeRPCResponseEnvelopeSchema,
+} from './bridge-rpc-client.js';
 import { sendBridgeRPCRequest } from './bridge-rpc-client.js';
 
 describe('bridge RPC client', () => {
@@ -83,6 +87,38 @@ describe('bridge RPC client', () => {
 				streamId: 'review:pane-1',
 			},
 			__commandId: 'cmd-fixed-notification',
+		});
+	});
+
+	test('awaited scheme RPC preserves trace context in the wire envelope', async () => {
+		const fetchCalls: BridgeRPCFetchCall[] = [];
+		const client = createBridgeRPCClient({
+			createCommandId: () => 'cmd-traced',
+			fetch: recordBridgeRPCFetch(fetchCalls),
+			getTraceContext: () => ({
+				traceId: '11111111111111111111111111111111',
+				spanId: '2222222222222222',
+				parentSpanId: null,
+				sampled: true,
+			}),
+		});
+
+		const didSend = await client.sendCommandAndWait({
+			method: 'bridge.intakeReady',
+			params: {
+				protocolId: 'review',
+				streamId: 'review:pane-1',
+			},
+		});
+
+		expect(didSend).toBe(true);
+		expect(decodeBridgeRPCFetchBody(fetchCalls[0])).toMatchObject({
+			__traceContext: {
+				traceId: '11111111111111111111111111111111',
+				spanId: '2222222222222222',
+				parentSpanId: null,
+				sampled: true,
+			},
 		});
 	});
 
@@ -246,6 +282,31 @@ describe('bridge RPC client', () => {
 		).toThrow();
 	});
 
+	test('rejects unknown logical command and wire envelope fields', () => {
+		expect(
+			bridgeRPCCommandSchema.safeParse({
+				method: 'review.markFileViewed',
+				params: { fileId: 'item-source', legacy: true },
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeRPCCommandSchema.safeParse({
+				method: 'review.markFileViewed',
+				params: { fileId: 'item-source' },
+				legacyCommandField: true,
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeRPCRequestEnvelopeSchema.safeParse({
+				jsonrpc: '2.0',
+				method: 'review.markFileViewed',
+				params: { fileId: 'item-source' },
+				__commandId: 'cmd-fixed',
+				legacyWireField: true,
+			}).success,
+		).toBe(false);
+	});
+
 	test('accepts compact review metadata interest commands with demand lanes', () => {
 		expect(
 			bridgeRPCCommandSchema.parse({
@@ -381,6 +442,23 @@ describe('bridge RPC client', () => {
 			bridgeRPCCommandSchema.safeParse({
 				method: 'system.bridgeTelemetry',
 				params: { schemaVersion: 1, scenario: 'bridge-runtime', sequence: 1, samples: [] },
+			}).success,
+		).toBe(false);
+	});
+
+	test('requires strict JSON-RPC response envelopes', () => {
+		expect(
+			bridgeRPCResponseEnvelopeSchema.safeParse({
+				id: 'cmd-fixed',
+				result: {},
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeRPCResponseEnvelopeSchema.safeParse({
+				jsonrpc: '2.0',
+				id: 'cmd-fixed',
+				result: {},
+				legacyResponseField: true,
 			}).success,
 		).toBe(false);
 	});

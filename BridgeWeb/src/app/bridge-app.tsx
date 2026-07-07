@@ -154,6 +154,8 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	});
 	const activeViewerSourcesRef = useRef<BridgeActiveViewerSources>(activeViewerSources);
 	const [activeViewerSourceSignalRevision, setActiveViewerSourceSignalRevision] = useState(0);
+	const activeViewerModeRetryAttemptsBySignalKeyRef = useRef<Map<string, number>>(new Map());
+	const [activeViewerModeRetryRevision, setActiveViewerModeRetryRevision] = useState(0);
 	const telemetryRecorderRef = useRef<BridgeTelemetryRecorder>(createBridgeTelemetryRecorder(null));
 	const telemetryRecorder = useMemo(
 		(): BridgeTelemetryRecorder => ({
@@ -219,15 +221,8 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				});
 			},
 			onReadyError: (): void => {
-				isBridgeReadyGateOpenRef.current = true;
-				queueMicrotask((): void => {
-					if (isBridgeReadyRef.current) {
-						return;
-					}
-					for (const callback of bridgeReadyCallbacksRef.current) {
-						callback();
-					}
-				});
+				isBridgeReadyRef.current = false;
+				isBridgeReadyGateOpenRef.current = false;
 			},
 			onTelemetryConfig: configureTelemetryRecorder,
 		});
@@ -274,6 +269,16 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				.then((didSend): void => {
 					if (!didSend && lastSentActiveViewerModeSignalKeyRef.current === pendingSignalKey) {
 						lastSentActiveViewerModeSignalKeyRef.current = null;
+						if (
+							activeViewerModeRetryAttemptAvailable({
+								retryAttemptsBySignalKey: activeViewerModeRetryAttemptsBySignalKeyRef.current,
+								signalKey: pendingSignalKey,
+							})
+						) {
+							setActiveViewerModeRetryRevision(
+								(currentRetryRevision): number => currentRetryRevision + 1,
+							);
+						}
 					}
 				});
 			return;
@@ -296,11 +301,25 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				},
 			})
 			.then((didSend): void => {
-				if (didSend || lastSentActiveViewerModeSignalKeyRef.current !== signalKey) {
+				if (didSend) {
+					activeViewerModeRetryAttemptsBySignalKeyRef.current.delete(signalKey);
+					return;
+				}
+				if (lastSentActiveViewerModeSignalKeyRef.current !== signalKey) {
 					return;
 				}
 				lastSentActiveViewerModeSignalKeyRef.current = null;
 				activeViewerModeSourceSentActivationRevisionsRef.current.delete(activationRevision);
+				if (
+					activeViewerModeRetryAttemptAvailable({
+						retryAttemptsBySignalKey: activeViewerModeRetryAttemptsBySignalKeyRef.current,
+						signalKey,
+					})
+				) {
+					setActiveViewerModeRetryRevision(
+						(currentRetryRevision): number => currentRetryRevision + 1,
+					);
+				}
 			});
 	}, [activeViewerModeRPCClient]);
 	useLayoutEffect((): void => {
@@ -348,6 +367,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		activeViewerSources,
 		activeViewerSourceSignalRevision,
 		activeViewerState.viewerMode,
+		activeViewerModeRetryRevision,
 		registerBridgeReadyCallback,
 		sendActiveViewerModeUpdate,
 	]);
@@ -487,4 +507,16 @@ function bridgeActiveViewerSourcesEqual(
 
 function createBridgeActiveViewerModeSessionId(): string {
 	return `active-viewer-${crypto.randomUUID()}`;
+}
+
+function activeViewerModeRetryAttemptAvailable(props: {
+	readonly retryAttemptsBySignalKey: Map<string, number>;
+	readonly signalKey: string;
+}): boolean {
+	const currentAttemptCount = props.retryAttemptsBySignalKey.get(props.signalKey) ?? 0;
+	if (currentAttemptCount >= 3) {
+		return false;
+	}
+	props.retryAttemptsBySignalKey.set(props.signalKey, currentAttemptCount + 1);
+	return true;
 }

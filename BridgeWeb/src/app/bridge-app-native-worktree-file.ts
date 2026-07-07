@@ -115,6 +115,27 @@ interface InitialWorktreeFileSurfaceReplayBuffer {
 	readonly frames: WorktreeFileProtocolFrame[];
 }
 
+interface NativeWorktreeFileStreamIdentity {
+	readonly streamId: string;
+	readonly generation: number;
+}
+
+interface PendingOpenResolver {
+	readonly streamId: string;
+	readonly generation: number;
+	readonly resolve: (
+		frame: Extract<WorktreeFileProtocolFrame, { readonly frameKind: 'worktree.snapshot' }>,
+	) => void;
+	readonly reject: (error: Error) => void;
+}
+
+interface NativeWorktreeSnapshotWait {
+	readonly promise: Promise<
+		Extract<WorktreeFileProtocolFrame, { readonly frameKind: 'worktree.snapshot' }>
+	>;
+	readonly cancel: (error: Error) => void;
+}
+
 declare global {
 	interface Window {
 		__bridgeNativeWorktreeFileProbe?: NativeWorktreeFileProbeEntry[];
@@ -135,19 +156,12 @@ export function createBridgeAppNativeWorktreeFileBackend(
 	const subscribers = new Set<WorktreeFileFrameSubscriber>();
 	const streamResetRequiredCallbacks = new Set<() => void>();
 	const pendingFrames: WorktreeFileProtocolFrame[] = [];
-	const pendingOpenResolvers = new Set<{
-		readonly streamId: string;
-		readonly generation: number;
-		readonly resolve: (
-			frame: Extract<WorktreeFileProtocolFrame, { readonly frameKind: 'worktree.snapshot' }>,
-		) => void;
-		readonly reject: (error: Error) => void;
-	}>();
+	const pendingOpenResolvers = new Set<PendingOpenResolver>();
 	let pushNonce: string | null = null;
 	let disposeIntakeListener: (() => void) | null = null;
+	let activeIntakeListenerIdentity: NativeWorktreeFileStreamIdentity | null = null;
 	let initialSurfaceReplayBuffer: InitialWorktreeFileSurfaceReplayBuffer | null = null;
-	let resolvedStreamIdentity: { readonly streamId: string; readonly generation: number } | null =
-		null;
+	let resolvedStreamIdentity: NativeWorktreeFileStreamIdentity | null = null;
 	let pendingOpenCount = 0;
 	let streamResetRequiredEpisodeKey: string | null = null;
 	let telemetryRecorder = props.telemetryRecorder ?? createBridgeTelemetryRecorder(null);
@@ -197,12 +211,38 @@ export function createBridgeAppNativeWorktreeFileBackend(
 		}
 		return assertNever(receiverReason);
 	};
-
-	const installIntakeListener = (streamIdentity: {
-		readonly streamId: string;
-		readonly generation: number;
-	}): void => {
+	const disposeIntakeListenerForIdentity = (
+		streamIdentity: NativeWorktreeFileStreamIdentity,
+	): void => {
+		if (
+			activeIntakeListenerIdentity === null ||
+			activeIntakeListenerIdentity.streamId !== streamIdentity.streamId ||
+			activeIntakeListenerIdentity.generation !== streamIdentity.generation
+		) {
+			return;
+		}
 		disposeIntakeListener?.();
+		disposeIntakeListener = null;
+		activeIntakeListenerIdentity = null;
+	};
+	const removePendingFramesForIdentity = (
+		streamIdentity: NativeWorktreeFileStreamIdentity,
+	): void => {
+		for (let index = pendingFrames.length - 1; index >= 0; index -= 1) {
+			const frame = pendingFrames[index];
+			if (
+				frame?.streamId === streamIdentity.streamId &&
+				frame.generation === streamIdentity.generation
+			) {
+				pendingFrames.splice(index, 1);
+			}
+		}
+	};
+
+	const installIntakeListener = (streamIdentity: NativeWorktreeFileStreamIdentity): void => {
+		disposeIntakeListener?.();
+		disposeIntakeListener = null;
+		activeIntakeListenerIdentity = streamIdentity;
 		const publishWorktreeFileFrame = (frame: WorktreeFileProtocolFrame): void => {
 			if (frame.streamId !== streamIdentity.streamId) {
 				recordNativeWorktreeFileProbe({
@@ -365,7 +405,7 @@ export function createBridgeAppNativeWorktreeFileBackend(
 					generation: outcome.generation,
 					frames: [],
 				};
-				const snapshotFramePromise = waitForNativeWorktreeSnapshot({
+				const snapshotWait = waitForNativeWorktreeSnapshot({
 					generation: outcome.generation,
 					pendingOpenResolvers,
 					streamId: outcome.streamId,
@@ -373,33 +413,50 @@ export function createBridgeAppNativeWorktreeFileBackend(
 					timeoutMilliseconds:
 						props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
 				});
-				target.dispatchEvent(new CustomEvent('__bridge_intake_replay_request'));
-				recordNativeWorktreeFileProbe({
-					reason: 'replay_requested',
-					generation: outcome.generation,
-					streamIdMatches: true,
-				});
-				await sendNativeBridgeIntakeReadyCommand({
-					endpointUrl: props.rpcEndpointUrl,
-					fetchRPC: props.fetchRPC,
-					generation: outcome.generation,
-					streamId: outcome.streamId,
-					timeoutMilliseconds:
-						props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
-				});
-				const snapshotFrame = await snapshotFramePromise;
-				const replayedFrames = initialSurfaceReplayBuffer?.frames ?? [];
-				initialSurfaceReplayBuffer = null;
-				resolvedStreamIdentity = {
-					generation: outcome.generation,
-					streamId: outcome.streamId,
-				};
-				streamResetRequiredEpisodeKey = null;
-				return {
-					frames: [snapshotFrame, ...replayedFrames],
-					provenance: nativeWorktreeFileSurfaceProvenance(sourceSpec.rootPathToken),
-					source: snapshotFrame.source,
-				};
+				try {
+					target.dispatchEvent(new CustomEvent('__bridge_intake_replay_request'));
+					recordNativeWorktreeFileProbe({
+						reason: 'replay_requested',
+						generation: outcome.generation,
+						streamIdMatches: true,
+					});
+					await sendNativeBridgeIntakeReadyCommand({
+						endpointUrl: props.rpcEndpointUrl,
+						fetchRPC: props.fetchRPC,
+						generation: outcome.generation,
+						streamId: outcome.streamId,
+						timeoutMilliseconds:
+							props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
+					});
+					const snapshotFrame = await snapshotWait.promise;
+					const replayedFrames = initialSurfaceReplayBuffer?.frames ?? [];
+					initialSurfaceReplayBuffer = null;
+					resolvedStreamIdentity = {
+						generation: outcome.generation,
+						streamId: outcome.streamId,
+					};
+					streamResetRequiredEpisodeKey = null;
+					return {
+						frames: [snapshotFrame, ...replayedFrames],
+						provenance: nativeWorktreeFileSurfaceProvenance(sourceSpec.rootPathToken),
+						source: snapshotFrame.source,
+					};
+				} catch (error) {
+					void snapshotWait.promise.catch((): void => {});
+					snapshotWait.cancel(
+						error instanceof Error ? error : new Error('Native Worktree/File open failed'),
+					);
+					if (
+						initialSurfaceReplayBuffer !== null &&
+						initialSurfaceReplayBuffer.streamId === outcome.streamId &&
+						initialSurfaceReplayBuffer.generation === outcome.generation
+					) {
+						initialSurfaceReplayBuffer = null;
+					}
+					disposeIntakeListenerForIdentity(outcome);
+					removePendingFramesForIdentity(outcome);
+					throw error;
+				}
 			} finally {
 				pendingOpenCount -= 1;
 			}
@@ -454,6 +511,7 @@ export function createBridgeAppNativeWorktreeFileBackend(
 			target.removeEventListener('__bridge_handshake', handleHandshake);
 			disposeIntakeListener?.();
 			disposeIntakeListener = null;
+			activeIntakeListenerIdentity = null;
 			for (const resolver of pendingOpenResolvers) {
 				resolver.reject(new Error('Native Worktree/File backend is disposed'));
 			}
@@ -632,18 +690,14 @@ async function sendNativeBridgeIntakeReadyCommand(props: {
 function waitForNativeWorktreeSnapshot(props: {
 	readonly streamId: string;
 	readonly generation: number;
-	readonly pendingOpenResolvers: Set<{
-		readonly streamId: string;
-		readonly generation: number;
-		readonly resolve: (
-			frame: Extract<WorktreeFileProtocolFrame, { readonly frameKind: 'worktree.snapshot' }>,
-		) => void;
-		readonly reject: (error: Error) => void;
-	}>;
+	readonly pendingOpenResolvers: Set<PendingOpenResolver>;
 	readonly target: Document;
 	readonly timeoutMilliseconds: number;
-}): Promise<Extract<WorktreeFileProtocolFrame, { readonly frameKind: 'worktree.snapshot' }>> {
-	return new Promise((resolve, reject): void => {
+}): NativeWorktreeSnapshotWait {
+	let resolver: PendingOpenResolver | null = null;
+	const promise = new Promise<
+		Extract<WorktreeFileProtocolFrame, { readonly frameKind: 'worktree.snapshot' }>
+	>((resolve, reject): void => {
 		let timeoutId = 0;
 		const requestReplayAfterTimeout = (): void => {
 			props.target.dispatchEvent(new CustomEvent('__bridge_intake_replay_request'));
@@ -654,7 +708,7 @@ function waitForNativeWorktreeSnapshot(props: {
 			});
 			timeoutId = window.setTimeout(requestReplayAfterTimeout, props.timeoutMilliseconds);
 		};
-		const resolver = {
+		resolver = {
 			streamId: props.streamId,
 			generation: props.generation,
 			resolve: (
@@ -671,6 +725,16 @@ function waitForNativeWorktreeSnapshot(props: {
 		props.pendingOpenResolvers.add(resolver);
 		timeoutId = window.setTimeout(requestReplayAfterTimeout, props.timeoutMilliseconds);
 	});
+	return {
+		promise,
+		cancel: (error: Error): void => {
+			if (resolver === null) {
+				return;
+			}
+			props.pendingOpenResolvers.delete(resolver);
+			resolver.reject(error);
+		},
+	};
 }
 
 function createNativeWorktreeFileIntakeReceiver(props: {

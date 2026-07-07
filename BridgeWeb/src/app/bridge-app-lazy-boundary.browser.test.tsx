@@ -22,6 +22,7 @@ import {
 	actClick,
 	actUpdate,
 	actWait,
+	installBridgeReadyHandshake,
 	pollWithinAct,
 	pollWithinActUntilEqual,
 	pollWithinActUntilTruthy,
@@ -113,7 +114,13 @@ vi.mock('../review-viewer/shell/review-viewer-shell.js', () => {
 });
 
 describe('BridgeApp lazy mode boundaries', () => {
+	let bridgeReadyDisposers: readonly (() => void)[] = [];
+
 	afterEach(async () => {
+		for (const dispose of bridgeReadyDisposers) {
+			dispose();
+		}
+		bridgeReadyDisposers = [];
 		const resolveFileViewerShellModule = bridgeAppLazyBoundaryMock.resolveFileViewerShellModule;
 		bridgeAppLazyBoundaryMock.resolveFileViewerShellModule = null;
 		if (resolveFileViewerShellModule !== null) {
@@ -169,6 +176,10 @@ describe('BridgeApp lazy mode boundaries', () => {
 			reason: 'subscriptionReset',
 		};
 		let loadInitialSurfaceCount = 0;
+		bridgeReadyDisposers = [
+			...bridgeReadyDisposers,
+			installBridgeReadyHandshake({ pushNonce: 'push-nonce' }).dispose,
+		];
 		const { BridgeApp } = await import('./bridge-app.js');
 
 		render(
@@ -255,6 +266,10 @@ describe('BridgeApp lazy mode boundaries', () => {
 			reason: 'subscriptionReset',
 		};
 		let loadInitialSurfaceCount = 0;
+		bridgeReadyDisposers = [
+			...bridgeReadyDisposers,
+			installBridgeReadyHandshake({ pushNonce: 'push-nonce' }).dispose,
+		];
 		const { BridgeApp } = await import('./bridge-app.js');
 
 		render(
@@ -305,6 +320,10 @@ describe('BridgeApp lazy mode boundaries', () => {
 			loadInitialSurfaceCount += 1;
 			return { frames: [bufferedFrame] };
 		};
+		bridgeReadyDisposers = [
+			...bridgeReadyDisposers,
+			installBridgeReadyHandshake({ pushNonce: 'push-nonce' }).dispose,
+		];
 		const { BridgeApp } = await import('./bridge-app.js');
 		const { rerender } = render(
 			<BridgeApp
@@ -653,8 +672,10 @@ describe('BridgeApp lazy mode boundaries', () => {
 			reason: 'subscriptionReset',
 		};
 		let loadInitialSurfaceCount = 0;
-		// No bridge-ready acknowledgement: the file frame controller waits on bridge-ready, and
-		// an unanswered ready request would never resolve.
+		bridgeReadyDisposers = [
+			...bridgeReadyDisposers,
+			installBridgeReadyHandshake({ pushNonce: 'push-nonce' }).dispose,
+		];
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
 		const { BridgeApp } = await import('./bridge-app.js');

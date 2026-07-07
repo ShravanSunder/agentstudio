@@ -91,6 +91,26 @@ final class BridgeBrowserNativeRPCCutoverSourceScanTests {
             #"window.webkit.messageHandlers["rpc"].postMessage(payload)"#,
             #"window.webkit?.messageHandlers?.rpc?.postMessage(payload)"#,
             #"const handlers = window.webkit.messageHandlers; handlers.rpc.postMessage(payload)"#,
+            #"const handler = window.webkit.messageHandlers.rpc; handler.postMessage(payload)"#,
+            #"const { rpc } = window.webkit.messageHandlers; rpc.postMessage(payload)"#,
+            #"const wk = window.webkit; wk.messageHandlers.rpc.postMessage(payload)"#,
+            #"const { messageHandlers } = window.webkit; messageHandlers.rpc.postMessage(payload)"#,
+            #"const { messageHandlers: handlers } = window.webkit; handlers.rpc.postMessage(payload)"#,
+            #"const { webkit } = window; webkit.messageHandlers.rpc.postMessage(payload)"#,
+            #"const { webkit: wk } = window; wk.messageHandlers.rpc.postMessage(payload)"#,
+            #"const { postMessage } = window.webkit.messageHandlers.rpc; postMessage(payload)"#,
+            #"const { postMessage: sendRPC } = window.webkit.messageHandlers.rpc; sendRPC(payload)"#,
+            #"const { postMessage: sendRPC } = window.webkit.messageHandlers.rpc; sendRPC?.(payload)"#,
+            #"const { rpc: { postMessage } } = window.webkit.messageHandlers; postMessage(payload)"#,
+            #"const { rpc: { postMessage: sendRPC } } = window.webkit.messageHandlers; sendRPC(payload)"#,
+            #"const { messageHandlers: { rpc: { postMessage } } } = window.webkit; postMessage(payload)"#,
+            #"const { messageHandlers: { rpc: { postMessage: sendRPC } } } = window.webkit; sendRPC(payload)"#,
+            #"const { messageHandlers: { rpc } } = window.webkit; rpc.postMessage(payload)"#,
+            #"const { messageHandlers: { rpc: sendRPC } } = window.webkit; sendRPC.postMessage(payload)"#,
+            #"const { webkit: { messageHandlers: { rpc: { postMessage } } } } = window; postMessage(payload)"#,
+            #"const { webkit: { messageHandlers: { rpc: { postMessage: sendRPC } } } } = window; sendRPC(payload)"#,
+            #"const wk = window; wk.webkit.messageHandlers.rpc.postMessage(payload)"#,
+            #"window["webkit"]["messageHandlers"]["rpc"]["postMessage"](payload)"#,
         ]
 
         for source in alternateSpellings.prefix(1) {
@@ -164,13 +184,115 @@ final class BridgeBrowserNativeRPCCutoverSourceScanTests {
         let normalizedSource =
             source
             .replacingOccurrences(of: #"[\s\n\r\t]+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"?.("#, with: #"("#)
             .replacingOccurrences(of: "?", with: "")
-            .replacingOccurrences(of: #"["rpc"]"#, with: ".rpc")
-            .replacingOccurrences(of: #"['rpc']"#, with: ".rpc")
-        let rpcPostMessagePattern = #"[A-Za-z_$][A-Za-z0-9_$]*\.rpc\.postMessage"#
-        guard normalizedSource.range(of: rpcPostMessagePattern, options: .regularExpression) != nil else {
-            return []
+            .bridgeNormalizedJavaScriptPropertyAccess("webkit")
+            .bridgeNormalizedJavaScriptPropertyAccess("messageHandlers")
+            .bridgeNormalizedJavaScriptPropertyAccess("rpc")
+            .bridgeNormalizedJavaScriptPropertyAccess("postMessage")
+        return Self.directPrivilegedRPCRelayPatterns.compactMap { label, pattern in
+            normalizedSource.range(of: pattern, options: .regularExpression) == nil ? nil : label
         }
-        return ["rpc.postMessage"]
+    }
+
+    private static let directPrivilegedRPCRelayPatterns: [(label: String, pattern: String)] = [
+        (
+            "window.webkit.messageHandlers.rpc.postMessage",
+            #"window\.webkit\.messageHandlers\.rpc\.postMessage"#
+        ),
+        (
+            "window alias webkit messageHandlers rpc postMessage",
+            #"(?:const|let|var)([A-Za-z_$][A-Za-z0-9_$]*)=window;.*\1\.webkit\.messageHandlers\.rpc\.postMessage"#
+        ),
+        (
+            "messageHandlers alias rpc.postMessage",
+            #"(?:const|let|var)([A-Za-z_$][A-Za-z0-9_$]*)=window\.webkit\.messageHandlers;.*\1\.rpc\.postMessage"#
+        ),
+        (
+            "webkit alias messageHandlers rpc.postMessage",
+            #"(?:const|let|var)([A-Za-z_$][A-Za-z0-9_$]*)=window\.webkit;.*\1\.messageHandlers\.rpc\.postMessage"#
+        ),
+        (
+            "destructured webkit messageHandlers rpc.postMessage",
+            #"(?:const|let|var)\{webkit\}=window;.*webkit\.messageHandlers\.rpc\.postMessage"#
+        ),
+        (
+            "destructured webkit alias messageHandlers rpc.postMessage",
+            #"(?:const|let|var)\{webkit:([A-Za-z_$][A-Za-z0-9_$]*)\}=window;.*\1\.messageHandlers\.rpc\.postMessage"#
+        ),
+        (
+            "destructured window.webkit.messageHandlers rpc relay",
+            #"(?:const|let|var)\{[^=;]*rpc[^=;]*\}=window\.webkit\.messageHandlers;.*(?:[A-Za-z_$][A-Za-z0-9_$]*\.)?postMessage\("#
+        ),
+        (
+            "destructured window.webkit messageHandlers rpc relay",
+            #"(?:const|let|var)\{[^=;]*messageHandlers[^=;]*rpc[^=;]*\}=window\.webkit;.*(?:[A-Za-z_$][A-Za-z0-9_$]*\.)?postMessage\("#
+        ),
+        (
+            "destructured window webkit messageHandlers rpc relay",
+            #"(?:const|let|var)\{[^=;]*webkit[^=;]*messageHandlers[^=;]*rpc[^=;]*\}=window;.*(?:[A-Za-z_$][A-Za-z0-9_$]*\.)?postMessage\("#
+        ),
+        (
+            "destructured messageHandlers rpc.postMessage",
+            #"(?:const|let|var)\{messageHandlers\}=window\.webkit;.*messageHandlers\.rpc\.postMessage"#
+        ),
+        (
+            "destructured messageHandlers alias rpc.postMessage",
+            #"(?:const|let|var)\{messageHandlers:([A-Za-z_$][A-Za-z0-9_$]*)\}=window\.webkit;.*\1\.rpc\.postMessage"#
+        ),
+        (
+            "rpc alias postMessage",
+            #"(?:const|let|var)([A-Za-z_$][A-Za-z0-9_$]*)=window\.webkit\.messageHandlers\.rpc;.*\1\.postMessage"#
+        ),
+        (
+            "destructured rpc postMessage",
+            #"(?:const|let|var)\{rpc\}=window\.webkit\.messageHandlers;.*rpc\.postMessage"#
+        ),
+        (
+            "destructured rpc alias postMessage",
+            #"(?:const|let|var)\{rpc:([A-Za-z_$][A-Za-z0-9_$]*)\}=window\.webkit\.messageHandlers;.*\1\.postMessage"#
+        ),
+        (
+            "destructured postMessage call",
+            #"(?:const|let|var)\{postMessage\}=window\.webkit\.messageHandlers\.rpc;.*postMessage\("#
+        ),
+        (
+            "destructured postMessage alias call",
+            #"(?:const|let|var)\{postMessage:([A-Za-z_$][A-Za-z0-9_$]*)\}=window\.webkit\.messageHandlers\.rpc;.*\1\("#
+        ),
+        (
+            "nested destructured rpc postMessage call",
+            #"(?:const|let|var)\{rpc:\{postMessage\}\}=window\.webkit\.messageHandlers;.*postMessage\("#
+        ),
+        (
+            "nested destructured rpc postMessage alias call",
+            #"(?:const|let|var)\{rpc:\{postMessage:([A-Za-z_$][A-Za-z0-9_$]*)\}\}=window\.webkit\.messageHandlers;.*\1\("#
+        ),
+        (
+            "nested destructured messageHandlers rpc postMessage call",
+            #"(?:const|let|var)\{messageHandlers:\{rpc:\{postMessage\}\}\}=window\.webkit;.*postMessage\("#
+        ),
+        (
+            "nested destructured messageHandlers rpc postMessage alias call",
+            #"(?:const|let|var)\{messageHandlers:\{rpc:\{postMessage:([A-Za-z_$][A-Za-z0-9_$]*)\}\}\}=window\.webkit;.*\1\("#
+        ),
+        (
+            "nested destructured webkit messageHandlers rpc postMessage call",
+            #"(?:const|let|var)\{webkit:\{messageHandlers:\{rpc:\{postMessage\}\}\}\}=window;.*postMessage\("#
+        ),
+        (
+            "nested destructured webkit messageHandlers rpc postMessage alias call",
+            #"(?:const|let|var)\{webkit:\{messageHandlers:\{rpc:\{postMessage:([A-Za-z_$][A-Za-z0-9_$]*)\}\}\}\}=window;.*\1\("#
+        ),
+    ]
+}
+
+extension String {
+    fileprivate func bridgeNormalizedJavaScriptPropertyAccess(_ propertyName: String) -> String {
+        replacingOccurrences(
+            of: #"\[(["'])\#(propertyName)\1\]"#,
+            with: ".\(propertyName)",
+            options: .regularExpression
+        )
     }
 }

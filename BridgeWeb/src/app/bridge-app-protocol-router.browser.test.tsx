@@ -254,7 +254,46 @@ describe('BridgeAppProtocolRouter', () => {
 		expect(new Set(updates.map((detail) => detail.params.sessionId)).size).toBe(1);
 	});
 
-	test('continues active viewer mode notifications for late sources after bridge-ready error', async () => {
+	test('retries active viewer mode notification after a transient scheme RPC failure', async () => {
+		const commandDetails: BridgeRPCCommand[] = [];
+		let failedActiveSourceAttemptCount = 0;
+		registerDisposer(installBridgeReadyHandshake({ pushNonce: 'push-1' }).dispose);
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init): Promise<Response> => {
+			const response = recordBridgeSchemeRPCFetch(input, init, commandDetails);
+			const detail = commandDetails.at(-1);
+			if (
+				isActiveViewerModeUpdate(detail) &&
+				hasWorktreeFileActiveSource(detail) &&
+				failedActiveSourceAttemptCount === 0
+			) {
+				failedActiveSourceAttemptCount += 1;
+				return new Response('temporary active viewer failure', { status: 503 });
+			}
+			return response ?? new Response('unexpected request', { status: 404 });
+		});
+
+		render(
+			<BridgeAppProtocolRouter
+				fileViewerProps={{
+					worktreeFileSurfaceTransport: {
+						loadInitialSurface: loadActiveViewerModeTestSurface,
+					},
+				}}
+				protocol="worktree-file"
+			/>,
+		);
+
+		expect(
+			await pollWithinAct({
+				getValue: () =>
+					activeViewerModeUpdates(commandDetails).filter(hasWorktreeFileActiveSource).length,
+				isSatisfied: (count): boolean => count >= 2,
+			}),
+		).toBeGreaterThanOrEqual(2);
+		expect(failedActiveSourceAttemptCount).toBe(1);
+	});
+
+	test('does not open active viewer mode notifications after bridge-ready error', async () => {
 		const commandDetails: BridgeRPCCommand[] = [];
 		registerDisposer(
 			installBridgeReadyHandshake({
@@ -280,11 +319,12 @@ describe('BridgeAppProtocolRouter', () => {
 			/>,
 		);
 
-		expect(
-			await pollWithinActUntilTruthy(() =>
-				activeViewerModeUpdates(commandDetails).some(hasWorktreeFileActiveSource),
-			),
-		).toBe(true);
+		const activeViewerUpdateCount = await pollWithinAct({
+			getValue: () => activeViewerModeUpdates(commandDetails).length,
+			isSatisfied: (count): boolean => count > 0,
+			timeoutMilliseconds: 200,
+		});
+		expect(activeViewerUpdateCount).toBe(0);
 	});
 
 	test('active viewer mode notifications match the committed mode through rapid transitions', async () => {

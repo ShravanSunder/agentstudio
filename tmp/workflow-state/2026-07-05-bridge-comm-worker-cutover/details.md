@@ -2663,9 +2663,11 @@ counts before claiming a gate.
   `SWIFT_TEST_TIMEOUT_SECONDS=300 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=300
   mise run test -- --filter "BridgeBrowserNativeRPCCutoverSourceScanTests"`
   passed 2 Swift Testing tests / 1 suite against packaged BridgeWeb assets.
-  `swift test --filter
-  'BridgeTransportIntegrationTests.test_schemeRPCBridgeReadyIsRejectedAsBootstrapOnly'`
-  passed 1 Swift Testing test in 2 suites.
+  The earlier proof note that cited
+  `BridgeTransportIntegrationTests.test_schemeRPCBridgeReadyIsRejectedAsBootstrapOnly`
+  was stale: that filter matches no current tests. The live native proof for
+  bootstrap-only scheme rejection is `BridgePaneControllerSchemeRPCTests`,
+  covered by the focused Swift filters above.
   `mise run lint` passed after the push-plan extraction: swift-format OK,
   SwiftLint 0 violations in 1469 files, architecture lint OK, and release script
   verification passed.
@@ -2689,3 +2691,130 @@ counts before claiming a gate.
   Victoria/debug smoke closure, F1 worker-fetch live proof, slice-G worker data
   migration completion beyond this RPC cutover, PR readiness, or full goal
   completion.
+
+## 2026-07-07 - G6 Post-Review RPC Hardening Checkpoint
+
+- Commit under repair:
+  `d807a41a fix(bridge): hard cut over browser native rpc`.
+- Scope:
+  Post-review hardening of the G6 browser/native ordinary RPC cutover. This
+  checkpoint tightens browser-side scheme RPC envelopes, updates browser test
+  harnesses to validate the real wire contract, keeps bridge-ready failure
+  fail-closed, adds bounded retries for transient post-cutover control RPC
+  failures, cleans File View pending-open replay state after failed
+  `bridge.intakeReady` including late replay frames, and broadens the Swift
+  source scan for direct privileged relay aliases, destructuring, and bracket
+  spellings.
+- Red/green evidence:
+  The hardening tests first failed on missing strict request/response envelope
+  exports, dropped awaited trace context, active-viewer updates not retrying
+  after a transient failure, metadata interest declarations parking after a
+  transient failure, stale File View pending-open replay state after
+  `bridge.intakeReady` failure, and source-scan blind spots for aliased or
+  bracketed `window.webkit.messageHandlers.rpc.postMessage`. Boole's follow-up
+  review then exposed four accepted hardening gaps: metadata retry replayed the
+  whole interest batch instead of only failed request keys, the Swift source
+  scan missed `window.webkit` / `messageHandlers` alias spellings, one File View
+  recovery test still hand-parsed the RPC body, and active-viewer retry lacked
+  browser proof. Each gap now has production or harness coverage in this
+  checkpoint. Jason's post-fix review then exposed three more accepted gaps:
+  exhausted metadata retry budgets did not reset for later fresh request
+  signatures, failed File View `bridge.intakeReady` opens could still leak a
+  late replayed frame through the live listener, and the source scan missed
+  destructured `postMessage` / `window` alias spellings. Red tests reproduced
+  all three: metadata saw only 1 foreground retry after a fresh signature where
+  2+ were required, File View delivered a late snapshot to a subscriber after
+  failed intake-ready, and the Swift scan missed three new alternate spellings.
+  The green proof below covers those fixes.
+- Fresh controller proof:
+  `CI=true pnpm -C BridgeWeb exec vitest --config
+  vitest.browser.config.ts run --project integration-browser
+  src/app/bridge-app-review-metadata-interest-runtime.browser.test.tsx
+  --reporter verbose` was red on
+  `resets exhausted metadata retry budget for a fresh request signature`
+  (`expected 1 to be greater than or equal to 2`), then passed 1 file / 6 tests.
+  `CI=true pnpm -C BridgeWeb exec vitest --config
+  vitest.browser.config.ts run --project integration-browser
+  src/app/bridge-app-native-worktree-file.browser.test.ts --reporter verbose`
+  was red on the late-frame assertion (`expected [...] to deeply equal []`),
+  then passed 1 file / 27 tests.
+  `swift test --filter
+  'BridgeBrowserNativeRPCCutoverSourceScanTests/forbiddenRPCSourceScanDetectsAlternateSpellings'`
+  was red for the three destructured/alias samples, then passed 1 Swift Testing
+  test / 1 suite.
+  `pnpm -C BridgeWeb exec vitest run
+  src/bridge/bridge-page-handshake.unit.test.ts
+  src/bridge/bridge-rpc-client.unit.test.ts
+  src/app/bridge-app-dev-telemetry.unit.test.ts
+  src/app/bridge-app-dev-worktree-review.unit.test.ts --reporter dot` passed
+  4 files / 36 tests.
+  `swift test --filter
+  'BridgePaneControllerSchemeRPCTests|BridgeReadyMessageHandlerTests|BridgeSchemeHandlerRPCTests|BridgeBrowserNativeRPCCutoverSourceScanTests'`
+  passed 12 Swift Testing tests / 4 suites.
+  `CI=true pnpm -C BridgeWeb exec vitest --config
+  vitest.browser.config.ts run --project integration-browser
+  src/app/bridge-app-protocol-router.browser.test.tsx
+  src/app/bridge-app-review-metadata-interest-runtime.browser.test.tsx
+  src/app/bridge-app-native-worktree-file.browser.test.ts
+  src/app/bridge-app-native-review-error.browser.test.tsx
+  src/app/bridge-app-review-intake-reannounce.browser.test.tsx
+  src/app/bridge-app-lazy-boundary.browser.test.tsx
+  src/review-viewer/test-support/bridge-viewer-mocked-backend.browser.test.ts
+  --reporter dot` passed 7 files / 81 tests.
+  `pnpm -C BridgeWeb exec tsc --noEmit --pretty false` passed.
+  `pnpm -C BridgeWeb exec oxfmt --check .` passed after applying the repo
+  formatter to touched BridgeWeb files.
+  `pnpm -C BridgeWeb exec oxlint --type-aware` exited 0 with warning-only
+  output.
+  `git diff --check` passed.
+  `SWIFT_TEST_TIMEOUT_SECONDS=300 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=300
+  mise run test -- --filter "BridgeBrowserNativeRPCCutoverSourceScanTests"`
+  passed 2 Swift Testing tests / 1 suite against rebuilt packaged BridgeWeb
+  assets.
+  `mise run lint` passed: swift-format OK, SwiftLint 0 violations in 1469
+  files, architecture lint OK, and release script verification passed.
+  The deletion scan
+  `rg -n
+  "__bridge_command|__bridge_response|data-bridge-nonce|bridge-content-world-rpc|RPCMessageHandler|PAGE_WORLD_ALLOWED_COMMAND_METHODS|sendCommandJSON|content world command|messageHandlers\\.rpc\\.postMessage|messageHandlers\\[[\\\"']rpc[\\\"']\\]|messageHandlers\\?\\.rpc|\\.rpc\\.postMessage"
+  BridgeWeb/src Sources/AgentStudio Tests/AgentStudioTests
+  Sources/AgentStudio/Resources/BridgeWeb/app` reports only expected bootstrap,
+  negative/source-scan test, and WebKit spike hits.
+- Sidekick evidence:
+  Maxwell, Sartre, Kierkegaard, Cicero, Lovelace, Sagan, and Laplace were
+  closed after their findings were either already addressed or superseded.
+  Boole's final read-only review found the four accepted issues listed above;
+  all four are addressed and covered by the fresh controller proof. Jason found
+  the three accepted post-fix issues listed above; all three are addressed and
+  covered by red-to-green proof. Carver then found one more accepted source-scan
+  blind spot: destructured `window.webkit` relay forms could evade the direct
+  privileged relay matcher. The red proof
+  `swift test --filter
+  'BridgeBrowserNativeRPCCutoverSourceScanTests/forbiddenRPCSourceScanDetectsAlternateSpellings'`
+  failed on
+  `const { webkit } = window; webkit.messageHandlers.rpc.postMessage(payload)`;
+  after adding direct and aliased destructured-`webkit` samples plus matcher
+  branches, the same focused test passed. Ptolemy then found three accepted
+  matcher blind spots for nested destructuring and optional calls:
+  `const { webkit: { messageHandlers: { rpc: { postMessage: sendRPC } } } } =
+  window; sendRPC(payload)`,
+  `const { postMessage: sendRPC } = window.webkit.messageHandlers.rpc;
+  sendRPC?.(payload)`, and the earlier direct nested destructuring cases through
+  `window.webkit.messageHandlers` / `window.webkit`. Each new sample was added
+  red-first; the optional-call sample reproduced the normalizer bug where
+  `sendRPC?.(payload)` became `sendRPC.(payload)`. After adding direct and
+  aliased nested destructuring samples, matcher branches, and a `?.(` to `(`
+  normalization before broader `?` stripping, the focused scan test passed.
+  The broader focused Swift cutover filter passed 12 tests / 4 suites after a
+  serial rerun. One earlier parallel run of that same direct Swift filter failed
+  on a transient missing packaged asset (`vue-DRw8dVzS.js`) while the
+  packaged-assets command was rebuilding BridgeWeb; it is treated as a harness
+  race and was cleared by the serial rerun. The packaged-assets `mise run test
+  -- --filter "BridgeBrowserNativeRPCCutoverSourceScanTests"` passed 2 tests /
+  1 suite, the raw deletion scan reported only expected bootstrap/test/spike
+  hits, and `mise run lint` passed. Peirce's contract sidekick confirmed this
+  remains a G6 checkpoint only and must not be reported as full goal closure.
+- Known proof boundary:
+  This is a G6 browser/native ordinary RPC hardening checkpoint only. It does
+  not claim full scheme-stream push/intake/ack cutover, native/manual UX
+  closure, Review scroll/click budget closure, Victoria/debug smoke closure,
+  PR readiness, or full goal completion.
