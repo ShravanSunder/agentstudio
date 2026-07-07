@@ -1,8 +1,12 @@
 # Sidebar Layout, Repo Grouping, and Off-Main Search Spec
 
-Status: draft for review
+Status: reviewed source for PR #190; implementation proof captured in goal state
 Date: 2026-06-20
 Scope: repo sidebar header layout, repo sidebar grouping modes, inbox search/list projection performance
+
+Review/proof source: the implementation plan and delta plan are both marked
+plan-review re-check complete, and current proof is recorded in
+`tmp/workflow-state/2026-07-04-sidebar-ipc-command-proof/details.md`.
 
 ## Problem
 
