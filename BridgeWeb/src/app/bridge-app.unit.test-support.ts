@@ -169,9 +169,11 @@ export async function flushMicrotasksUntil(
 }
 
 export function makeTextStreamResult(text: string): BridgeTextResourceStreamResult {
+	const bytes = new TextEncoder().encode(text);
 	return {
 		authoritative: true,
-		byteLength: new TextEncoder().encode(text).byteLength,
+		byteLength: bytes.byteLength,
+		copyBytes: (): ArrayBuffer => bytes.buffer.slice(0),
 		readText: (): string => text,
 	};
 }

@@ -4,6 +4,7 @@ import { verifyBridgeResourceIntegrity } from './bridge-integrity.js';
 export interface BridgeTextResourceStreamResult {
 	readonly authoritative: boolean;
 	readonly byteLength: number;
+	copyBytes(): ArrayBuffer;
 	readText(): string;
 }
 
@@ -138,6 +139,7 @@ export async function readBridgeTextResourceStream(
 			if (props.signal?.aborted === true) {
 				throw new DOMException('Bridge text resource stream aborted', 'AbortError');
 			}
+			// oxlint-disable-next-line no-await-in-loop -- ReadableStream chunks must be consumed in order.
 			const chunk = await reader.read();
 			if (chunk.done) {
 				break;
@@ -184,6 +186,7 @@ export async function readBridgeTextResourceStream(
 		return {
 			authoritative: integrityResult.authoritative,
 			byteLength,
+			copyBytes: (): ArrayBuffer => copyBytesToArrayBuffer(data),
 			readText: (): string => {
 				memoizedText ??= new TextDecoder().decode(data);
 				return memoizedText;
@@ -205,4 +208,10 @@ function concatenateChunks(props: {
 		offset += chunk.byteLength;
 	}
 	return data;
+}
+
+function copyBytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+	const copiedBytes = new Uint8Array(bytes.byteLength);
+	copiedBytes.set(bytes);
+	return copiedBytes.buffer;
 }

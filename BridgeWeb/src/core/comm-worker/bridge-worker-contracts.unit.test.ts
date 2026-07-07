@@ -262,7 +262,7 @@ describe('BridgeWorkerContracts', () => {
 			descriptorId: metadata.descriptorId,
 			resourceKind: 'worktree.fileContent',
 			resourceUrl:
-				'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?generation=3',
+				'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?cursor=cursor-1&generation=3',
 			contentHash: metadata.contentHash,
 			contentHashAlgorithm: 'sha256',
 			language: metadata.language,
@@ -288,6 +288,48 @@ describe('BridgeWorkerContracts', () => {
 				...descriptor,
 				contents: 'print("main must not receive this")',
 			}).success,
+		).toBe(false);
+	});
+
+	test('requires File View request descriptors to use canonical worktree-file content resource urls', () => {
+		const descriptor = makeBridgeWorkerFileViewSourceUpdateCommand().contentRequestDescriptors[0];
+		if (descriptor === undefined) {
+			throw new Error('expected test descriptor');
+		}
+		expect(bridgeWorkerFileViewContentRequestDescriptorSchema.parse(descriptor)).toEqual(
+			descriptor,
+		);
+
+		expect(
+			bridgeWorkerFileViewContentRequestDescriptorSchema.safeParse({
+				...descriptor,
+				resourceUrl:
+					'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?generation=3',
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeWorkerFileViewContentRequestDescriptorSchema.safeParse({
+				...descriptor,
+				resourceUrl:
+					'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?cursor=cursor-1&extra=1&generation=3',
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeWorkerFileViewContentRequestDescriptorSchema.safeParse({
+				...descriptor,
+				resourceUrl:
+					'agentstudio://resource/worktree-file/worktree.fileContent/other-descriptor?cursor=cursor-1&generation=3',
+			}).success,
+		).toBe(false);
+		const rangeDescriptor: BridgeWorkerFileViewContentRequestDescriptor = {
+			...descriptor,
+			// @ts-expect-error File View content request descriptors do not admit range resources.
+			resourceKind: 'worktree.fileRange',
+			resourceUrl:
+				'agentstudio://resource/worktree-file/worktree.fileRange/descriptor-file-1?cursor=cursor-1&generation=3',
+		};
+		expect(
+			bridgeWorkerFileViewContentRequestDescriptorSchema.safeParse(rangeDescriptor).success,
 		).toBe(false);
 	});
 
@@ -324,7 +366,7 @@ describe('BridgeWorkerContracts', () => {
 					descriptorId: 'descriptor-file-1',
 					resourceKind: 'worktree.fileContent',
 					resourceUrl:
-						'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?generation=3',
+						'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?cursor=cursor-1&generation=3',
 					contentHash: 'sha256:file-1',
 					contentHashAlgorithm: 'sha256',
 					language: 'swift',
@@ -379,7 +421,7 @@ describe('BridgeWorkerContracts', () => {
 					{
 						...command.contentRequestDescriptors[0],
 						resourceUrl:
-							'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-other?generation=3',
+							'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-other?cursor=cursor-1&generation=3',
 					},
 				],
 			}).success,
@@ -399,7 +441,7 @@ describe('BridgeWorkerContracts', () => {
 						...command.contentRequestDescriptors[0],
 						descriptorId: 'descriptor-file-1-copy',
 						resourceUrl:
-							'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1-copy?generation=3',
+							'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1-copy?cursor=cursor-1&generation=3',
 					},
 				],
 			}).success,
@@ -451,7 +493,7 @@ function makeBridgeWorkerFileViewSourceUpdateCommand(): {
 				descriptorId: 'descriptor-file-1',
 				resourceKind: 'worktree.fileContent',
 				resourceUrl:
-					'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?generation=3',
+					'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?cursor=cursor-1&generation=3',
 				contentHash: 'sha256:file-1',
 				contentHashAlgorithm: 'sha256',
 				language: 'swift',

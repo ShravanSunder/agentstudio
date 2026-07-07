@@ -66,8 +66,12 @@ describe('bridge resource stream reader', () => {
 		expect(result).toEqual({
 			authoritative: true,
 			byteLength: 12,
+			copyBytes: expect.any(Function),
 			readText: expect.any(Function),
 		});
+		expect([...new Uint8Array(result.copyBytes())]).toEqual([
+			...new TextEncoder().encode('hello bridge'),
+		]);
 		expect(result.readText()).toBe('hello bridge');
 	});
 

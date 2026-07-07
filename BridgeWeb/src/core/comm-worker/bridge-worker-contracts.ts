@@ -1,9 +1,7 @@
 import { z } from 'zod';
 
-import {
-	worktreeFileSurfaceResourceKindSchema,
-	worktreeFileVirtualizedExtentKindSchema,
-} from '../../features/worktree-file/models/worktree-file-protocol-models.js';
+import { parseBridgeResourceUrl } from '../../bridge/bridge-resource-url.js';
+import { worktreeFileVirtualizedExtentKindSchema } from '../../features/worktree-file/models/worktree-file-protocol-models.js';
 import {
 	bridgeContentRoleSchema,
 	bridgeFileChangeKindSchema,
@@ -181,17 +179,14 @@ export const bridgeWorkerFileViewContentMetadataSchema = z
 	})
 	.strict();
 
-export const bridgeWorkerFileViewContentRequestDescriptorSchema = z
+const bridgeWorkerFileViewContentRequestDescriptorBaseSchema = z
 	.object({
 		itemId: z.string().min(1),
 		path: z.string().min(1),
 		handleId: z.string().min(1),
 		descriptorId: z.string().min(1),
-		resourceKind: worktreeFileSurfaceResourceKindSchema,
-		resourceUrl: z.string().min(1).refine(isBridgeWorkerFileViewContentResourceUrl, {
-			message:
-				'File View content request descriptors must use the AgentStudio file-content scheme URL.',
-		}),
+		resourceKind: z.literal('worktree.fileContent'),
+		resourceUrl: z.string().min(1),
 		contentHash: z.string().min(1).optional(),
 		contentHashAlgorithm: z.string().min(1).optional(),
 		language: z.string().nullable(),
@@ -200,6 +195,15 @@ export const bridgeWorkerFileViewContentRequestDescriptorSchema = z
 		isBinary: z.boolean(),
 	})
 	.strict();
+
+type BridgeWorkerFileViewContentRequestDescriptorDraft = z.infer<
+	typeof bridgeWorkerFileViewContentRequestDescriptorBaseSchema
+>;
+
+export const bridgeWorkerFileViewContentRequestDescriptorSchema =
+	bridgeWorkerFileViewContentRequestDescriptorBaseSchema.superRefine(
+		validateBridgeWorkerFileViewContentRequestDescriptor,
+	);
 
 export const bridgeCommWorkerRowSchema = z
 	.object({
@@ -258,10 +262,6 @@ export const bridgeWorkerMainToServerCommandSchema =
 	});
 
 export const bridgeWorkerMainToServerMessageSchema = bridgeWorkerMainToServerCommandSchema;
-
-function isBridgeWorkerFileViewContentResourceUrl(resourceUrl: string): boolean {
-	return parseBridgeWorkerFileViewContentResourceDescriptorId(resourceUrl) !== null;
-}
 
 function validateBridgeWorkerFileViewSourceUpdateCommand(
 	command: BridgeWorkerFileViewSourceUpdateCommandDraft,
@@ -345,24 +345,54 @@ function validateBridgeWorkerFileViewDescriptorMatchesMetadata(props: {
 	});
 }
 
+function validateBridgeWorkerFileViewContentRequestDescriptor(
+	descriptor: BridgeWorkerFileViewContentRequestDescriptorDraft,
+	context: z.RefinementCtx,
+): void {
+	const parsedResourceUrl = parseBridgeWorkerFileViewContentResourceUrl(descriptor.resourceUrl);
+	const mismatchedFields = [
+		parsedResourceUrl === null ? 'resourceUrl' : null,
+		parsedResourceUrl !== null && parsedResourceUrl.resourceKind !== descriptor.resourceKind
+			? 'resourceKind'
+			: null,
+		parsedResourceUrl !== null && parsedResourceUrl.resourceId !== descriptor.descriptorId
+			? 'descriptorId'
+			: null,
+		parsedResourceUrl !== null && parsedResourceUrl.canonicalUrl !== descriptor.resourceUrl
+			? 'resourceUrl'
+			: null,
+	].filter((fieldName): fieldName is string => fieldName !== null);
+	if (mismatchedFields.length === 0) {
+		return;
+	}
+	context.addIssue({
+		code: z.ZodIssueCode.custom,
+		message: `File View content request descriptor ${descriptor.itemId} must use a canonical worktree.fileContent resource URL matching its descriptor id: ${[...new Set(mismatchedFields)].join(', ')}.`,
+		path: ['resourceUrl'],
+	});
+}
+
 function parseBridgeWorkerFileViewContentResourceDescriptorId(resourceUrl: string): string | null {
-	try {
-		const url = new URL(resourceUrl);
-		if (url.protocol !== 'agentstudio:' || url.hostname !== 'resource' || url.pathname === '') {
-			return null;
-		}
-		const pathSegments = url.pathname.split('/').filter((segment) => segment.length > 0);
-		if (
-			pathSegments[0] !== 'worktree-file' ||
-			pathSegments[1] !== 'worktree.fileContent' ||
-			pathSegments.length !== 3
-		) {
-			return null;
-		}
-		return decodeURIComponent(pathSegments[2] ?? '');
-	} catch {
+	return parseBridgeWorkerFileViewContentResourceUrl(resourceUrl)?.resourceId ?? null;
+}
+
+function parseBridgeWorkerFileViewContentResourceUrl(resourceUrl: string): {
+	readonly resourceKind: 'worktree.fileContent';
+	readonly resourceId: string;
+	readonly canonicalUrl: string;
+} | null {
+	const parsedResourceUrl = parseBridgeResourceUrl(resourceUrl);
+	if (
+		parsedResourceUrl?.kind !== 'worktreeResource' ||
+		parsedResourceUrl.resourceKind !== 'worktree.fileContent'
+	) {
 		return null;
 	}
+	return {
+		resourceKind: parsedResourceUrl.resourceKind,
+		resourceId: parsedResourceUrl.resourceId,
+		canonicalUrl: parsedResourceUrl.canonicalUrl,
+	};
 }
 
 export type BridgeWorkerSelectCommand = z.infer<typeof bridgeWorkerSelectCommandSchema>;

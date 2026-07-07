@@ -524,7 +524,7 @@ describe('Bridge comm worker command handler', () => {
 						descriptorId: 'descriptor-file-1',
 						resourceKind: 'worktree.fileContent',
 						resourceUrl:
-							'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?generation=6',
+							'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?cursor=cursor-file-1&generation=6',
 						contentHash: 'sha256:file-1',
 						contentHashAlgorithm: 'sha256',
 						language: 'swift',
@@ -695,7 +695,7 @@ function makeWorkerFileViewContentRequestDescriptor(
 		handleId: `handle-${itemId}`,
 		descriptorId: `descriptor-${itemId}`,
 		resourceKind: 'worktree.fileContent',
-		resourceUrl: `agentstudio://resource/worktree-file/worktree.fileContent/descriptor-${itemId}?generation=${generation}`,
+		resourceUrl: `agentstudio://resource/worktree-file/worktree.fileContent/descriptor-${itemId}?cursor=cursor-${itemId}&generation=${generation}`,
 		contentHash: `sha256:${itemId}`,
 		contentHashAlgorithm: 'sha256',
 		language: 'swift',

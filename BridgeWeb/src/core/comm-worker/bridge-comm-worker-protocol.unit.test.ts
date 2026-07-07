@@ -92,7 +92,7 @@ describe('Bridge comm worker protocol', () => {
 					descriptorId: 'descriptor-file-1',
 					resourceKind: 'worktree.fileContent',
 					resourceUrl:
-						'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?generation=3',
+						'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?cursor=cursor-1&generation=3',
 					contentHash: 'sha256:file-1',
 					contentHashAlgorithm: 'sha256',
 					language: 'swift',
