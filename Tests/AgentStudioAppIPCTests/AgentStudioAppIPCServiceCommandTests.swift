@@ -6,13 +6,26 @@ import Testing
 
 @Suite("AgentStudio App IPC service command methods", .serialized)
 struct AgentStudioAppIPCServiceCommandTests {
-    @Test("unsafe debug client can list commands and explicit UI presentation opens command bar")
-    func unsafeDebugClientCanListCommandsAndExplicitUIPresentationOpensCommandBar() async throws {
+    @Test("command execution auth separates unsafe debug from automation and explicit UI presentation")
+    func commandExecutionAuthSeparatesUnsafeDebugFromAutomationAndExplicitUIPresentation() async throws {
         let windowId = UUID()
+        let commandId = IPCCommandIdentifier(rawValue: "showCommandBarCommands")
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
             channel: .debug,
-            commandPort: FakeCommandPort(workspaceWindowId: windowId, activeScope: .commands),
+            commandPort: FakeCommandPort(
+                workspaceWindowId: windowId,
+                activeScope: .commands,
+                commands: [
+                    IPCCommandListEntry(
+                        id: commandId,
+                        title: "Show Commands",
+                        executionModes: [.headless],
+                        targetKinds: [],
+                        requiredPrivileges: []
+                    )
+                ]
+            ),
             uiPresentationPort: FakeUIPresentationPort(workspaceWindowId: windowId)
         )
         defer {
@@ -26,55 +39,60 @@ struct AgentStudioAppIPCServiceCommandTests {
         )
         #expect(list.error == nil)
         let listResult = try decodeResponseResult(IPCCommandListResult.self, from: list)
-        #expect(listResult.commands.isEmpty)
+        #expect(listResult.commands.map(\.id) == [commandId])
 
-        let principal = IPCPrincipal(
-            principalId: UUID(),
-            runtimeId: fixture.runtimeId,
-            accessMode: .unsafeDebug,
+        let unsafeConnection = try await authenticatedConnection(
+            fixture: fixture,
             kind: .unsafeDebugClient,
-            approvalAuthority: .noApprovalAuthority
+            requestId: 68
         )
-        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
-        let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
         defer {
-            connection.close()
+            unsafeConnection.connection.close()
         }
-        var reader = TestFrameReader()
-        try await loginWithoutBlockingMainActor(connection: connection, token: token, requestId: 68, reader: &reader)
-
-        try sendRequest(
-            connection: connection,
-            request: JSONRPCClientRequest(
-                id: .number(68),
-                method: "command.execute",
-                params: try JSONRPCCodec.encodeJSONValue(
-                    IPCCommandExecuteParams(
-                        commandId: IPCCommandIdentifier(rawValue: "showCommandBarCommands"),
-                        targetHandle: nil
-                    )
-                )
-            )
+        let unsafeExecute = try await executeCommand(
+            connection: unsafeConnection.connection,
+            reader: unsafeConnection,
+            requestId: 68,
+            commandId: commandId
         )
-        let execute = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
-        #expect(execute.error?.code == -32_003)
-        #expect(execute.error?.message == "requires presentation")
+        #expect(unsafeExecute.error?.code == -32_002)
+        #expect(unsafeExecute.error?.message == "unauthorized")
+
+        let automationConnection = try await authenticatedConnection(
+            fixture: fixture,
+            kind: .automationClient,
+            requestId: 69,
+            grantedScopes: [
+                IPCPermissionScope(privilege: .appCommandExecute, target: .app, dataScope: .unspecified)
+            ]
+        )
+        defer {
+            automationConnection.connection.close()
+        }
+        let automationExecute = try await executeCommand(
+            connection: automationConnection.connection,
+            reader: automationConnection,
+            requestId: 69,
+            commandId: commandId
+        )
+        #expect(automationExecute.error?.code == -32_003)
+        #expect(automationExecute.error?.message == "requires presentation")
 
         try sendRequest(
-            connection: connection,
+            connection: unsafeConnection.connection,
             request: JSONRPCClientRequest(
-                id: .number(69),
+                id: .number(70),
                 method: "ui.commandBar.open",
                 params: try JSONRPCCodec.encodeJSONValue(
                     IPCCommandBarOpenParams(scope: .commands, correlationId: nil)
                 )
             )
         )
-        let open = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
+        let open = try await unsafeConnection.receiveResponse()
         #expect(open.error == nil)
         let openResult = try decodeResponseResult(IPCCommandBarOpenResult.self, from: open)
         #expect(openResult.workspaceWindowId == windowId)
-        #expect(openResult.scope == .commands)
+        #expect(openResult.scope == IPCCommandBarScope.commands)
     }
 
     @Test("spawned pane agents cannot execute command methods")
@@ -118,4 +136,63 @@ struct AgentStudioAppIPCServiceCommandTests {
         #expect(execute.error?.code == -32_002)
         #expect(execute.error?.message == "unauthorized")
     }
+}
+
+private final class AuthenticatedIPCConnection {
+    let connection: UnixSocketConnection
+    var reader: TestFrameReader
+
+    init(connection: UnixSocketConnection, reader: TestFrameReader) {
+        self.connection = connection
+        self.reader = reader
+    }
+
+    func receiveResponse() async throws -> JSONRPCResponseMessage {
+        try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
+    }
+}
+
+private func authenticatedConnection(
+    fixture: LiveServerFixture,
+    kind: IPCPrincipalKind,
+    requestId: Int,
+    grantedScopes: [IPCPermissionScope] = []
+) async throws -> AuthenticatedIPCConnection {
+    let principal = IPCPrincipal(
+        principalId: UUID(),
+        runtimeId: fixture.runtimeId,
+        accessMode: .unsafeDebug,
+        kind: kind,
+        approvalAuthority: .noApprovalAuthority
+    )
+    for scope in grantedScopes {
+        fixture.server.grantLedger.grant(scope, to: principal.principalId)
+    }
+    let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
+    let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
+    var reader = TestFrameReader()
+    try await loginWithoutBlockingMainActor(connection: connection, token: token, requestId: requestId, reader: &reader)
+    return AuthenticatedIPCConnection(connection: connection, reader: reader)
+}
+
+private func executeCommand(
+    connection: UnixSocketConnection,
+    reader: AuthenticatedIPCConnection,
+    requestId: Int,
+    commandId: IPCCommandIdentifier
+) async throws -> JSONRPCResponseMessage {
+    try sendRequest(
+        connection: connection,
+        request: JSONRPCClientRequest(
+            id: .number(requestId),
+            method: "command.execute",
+            params: try JSONRPCCodec.encodeJSONValue(
+                IPCCommandExecuteParams(
+                    commandId: commandId,
+                    targetHandle: nil
+                )
+            )
+        )
+    )
+    return try await reader.receiveResponse()
 }
