@@ -810,13 +810,97 @@ describe('Bridge comm worker command handler', () => {
 		);
 	});
 
+	test('file view source update labels source-reset terminal availability before health ack', () => {
+		const scheduledFileViewPreparations: ScheduledSelectedFileViewPreparation[] = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [],
+			rows: [],
+			createSequence: createSequenceFrom([71, 72, 73, 74]),
+			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
+			scheduleSelectedFileViewContentReadyPreparation: pushScheduledSelectedFileViewPreparation(
+				scheduledFileViewPreparations,
+			),
+		});
+		handler.handleMessage(
+			encodeBridgeWorkerFileViewSourceUpdateCommand({
+				requestId: 'request-file-source-before-terminal-reset',
+				epoch: 6,
+				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
+				contentRequestDescriptors: [makeWorkerFileViewContentRequestDescriptor('file-1', 6)],
+				rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			}),
+		);
+		handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-file-before-terminal-reset',
+				epoch: 7,
+				selectedItemId: 'file-1',
+				selectedSource: 'user',
+			}),
+		);
+		const selectedStore = scheduledFileViewPreparations[0]?.store;
+		if (selectedStore === undefined) {
+			throw new Error('Expected selected File View preparation store.');
+		}
+		selectedStore.actions.applyContentReady({
+			itemId: 'file-1',
+			contentCacheKey: 'file-view:sha256:file-1',
+		});
+		selectedStore.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 81 });
+
+		const messages = handler.handleMessage(
+			encodeBridgeWorkerFileViewSourceUpdateCommand({
+				requestId: 'request-file-source-terminal-reset',
+				epoch: 8,
+				contentItems: [
+					{
+						...makeWorkerFileViewContentMetadata('file-1'),
+						canFetchContent: false,
+						isBinary: true,
+					},
+				],
+				contentRequestDescriptors: [],
+				rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			}),
+		);
+
+		expect(messages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
+				kind: 'slicePatch',
+				epoch: 8,
+				sequence: 73,
+				patches: [
+					{ slice: 'rowPaint', operation: 'delete', itemId: 'file-1' },
+					{
+						slice: 'contentAvailability',
+						operation: 'upsert',
+						itemId: 'file-1',
+						payload: { reason: 'source_reset', state: 'unavailable' },
+					},
+				],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
+				kind: 'health',
+				requestId: 'request-file-source-terminal-reset',
+				status: 'ready',
+			},
+		]);
+		expect(scheduledFileViewPreparations).toHaveLength(1);
+	});
+
 	test('file view source update does not schedule selected preparation when ready paint remains current', () => {
 		const scheduledReviewPreparations: ScheduledSelectedReviewPreparation[] = [];
 		const scheduledFileViewPreparations: ScheduledSelectedFileViewPreparation[] = [];
 		const handler = createBridgeCommWorkerCommandHandler({
 			contentItems: [],
 			rows: [],
-			createSequence: createSequenceFrom([71, 72, 73]),
+			createSequence: createSequenceFrom([81, 82, 83]),
 			scheduleSelectedReviewContentReadyPreparation: pushScheduledSelectedReviewPreparation(
 				scheduledReviewPreparations,
 			),

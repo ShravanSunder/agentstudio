@@ -75,4 +75,54 @@ struct AgentStudioOTLPBridgeTelemetryProjectionTests {
         #expect(projection.attributes["agentstudio.bridge.telemetry.lane"] == .string("best_effort"))
         #expect(projection.attributes["agentstudio.bridge.telemetry.result"] == .string("success"))
     }
+
+    @Test
+    func bridgeProjectionPreservesCommWorkerTaskTelemetryKeys() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 516,
+            severityText: .info,
+            body: "performance.bridge.worker.task",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [
+                "service.name": "AgentStudio"
+            ],
+            scope: .init(name: "agentstudio.bridge.performance.web", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.phase": .string("worker_task"),
+                "agentstudio.bridge.plane": .string("data"),
+                "agentstudio.bridge.priority": .string("hot"),
+                "agentstudio.bridge.result": .string("success"),
+                "agentstudio.bridge.slice": .string("worker_task"),
+                "agentstudio.bridge.transport": .string("worker"),
+                "agentstudio.bridge.worker.action": .string("applySelectedFact"),
+                "agentstudio.bridge.worker.command": .string("select"),
+                "agentstudio.bridge.worker.handler_duration_ms": .double(2.5),
+                "agentstudio.bridge.worker.lane": .string("selected"),
+                "agentstudio.bridge.worker.patch_count": .int(2),
+                "agentstudio.bridge.worker.payload_class": .string("inline"),
+                "agentstudio.bridge.worker.queue_wait_ms": .double(4.25),
+                "agentstudio.bridge.worker.source_epoch": .int(7),
+                "agentstudio.bridge.worker.task_kind": .string("store_action"),
+                "agentstudio.bridge.worker.touched_key_count": .int(5),
+                "agentstudio.bridge.worker.work_kind": .string("review_content_ready"),
+                "agentstudio.trace.tag": .string("bridge.performance.web"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.attributes["agentstudio.bridge.worker.action"] == .string("applySelectedFact"))
+        #expect(projection.attributes["agentstudio.bridge.worker.command"] == .string("select"))
+        #expect(projection.attributes["agentstudio.bridge.worker.handler_duration_ms"] == .double(2.5))
+        #expect(projection.attributes["agentstudio.bridge.worker.lane"] == .string("selected"))
+        #expect(projection.attributes["agentstudio.bridge.worker.patch_count"] == .int(2))
+        #expect(projection.attributes["agentstudio.bridge.worker.payload_class"] == .string("inline"))
+        #expect(projection.attributes["agentstudio.bridge.worker.queue_wait_ms"] == .double(4.25))
+        #expect(projection.attributes["agentstudio.bridge.worker.source_epoch"] == .int(7))
+        #expect(projection.attributes["agentstudio.bridge.worker.task_kind"] == .string("store_action"))
+        #expect(projection.attributes["agentstudio.bridge.worker.touched_key_count"] == .int(5))
+        #expect(projection.attributes["agentstudio.bridge.worker.work_kind"] == .string("review_content_ready"))
+    }
 }

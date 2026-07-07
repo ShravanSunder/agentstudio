@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -390,4 +391,187 @@ func viewerSample(
         numericAttributes: extraNumbers,
         booleanAttributes: extraBooleans
     )
+}
+
+@Suite
+struct BridgeTelemetryCommWorkerContractTests {
+    @Test
+    func validatorAcceptsCurrentCommWorkerTaskTelemetryContracts() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let messageHandlerBatch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.worker.task",
+                phase: "worker_task",
+                plane: "data",
+                priority: "hot",
+                slice: "worker_task",
+                transport: "worker",
+                extraStrings: [
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.worker.command": "select",
+                    "agentstudio.bridge.worker.lane": "selected",
+                    "agentstudio.bridge.worker.task_kind": "message_handler",
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.worker.handler_duration_ms": 2,
+                    "agentstudio.bridge.worker.queue_wait_ms": 4,
+                ]
+            )
+        )
+        let contentPreparationBatch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.worker.task",
+                phase: "worker_task",
+                plane: "data",
+                priority: "warm",
+                slice: "worker_task",
+                transport: "worker",
+                extraStrings: [
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.worker.lane": "visible",
+                    "agentstudio.bridge.worker.payload_class": "inline",
+                    "agentstudio.bridge.worker.task_kind": "content_preparation",
+                    "agentstudio.bridge.worker.work_kind": "review_content_ready",
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.worker.handler_duration_ms": 3,
+                    "agentstudio.bridge.worker.queue_wait_ms": 5,
+                    "agentstudio.bridge.worker.source_epoch": 7,
+                ]
+            )
+        )
+        let storeActionBatch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.worker.task",
+                phase: "worker_task",
+                plane: "data",
+                priority: "hot",
+                slice: "worker_task",
+                transport: "worker",
+                extraStrings: [
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.worker.action": "applySelectedFact",
+                    "agentstudio.bridge.worker.lane": "selected",
+                    "agentstudio.bridge.worker.task_kind": "store_action",
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.worker.handler_duration_ms": 2,
+                    "agentstudio.bridge.worker.patch_count": 2,
+                    "agentstudio.bridge.worker.touched_key_count": 5,
+                ]
+            )
+        )
+        #expect(validator.validate(messageHandlerBatch) == .accepted(messageHandlerBatch))
+        #expect(validator.validate(contentPreparationBatch) == .accepted(contentPreparationBatch))
+        #expect(validator.validate(storeActionBatch) == .accepted(storeActionBatch))
+    }
+
+    @Test
+    func validatorAcceptsReasonedCommWorkerTerminalTelemetryContracts() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let terminalStoreActionBatch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.worker.task",
+                phase: "worker_task",
+                plane: "data",
+                priority: "warm",
+                slice: "worker_task",
+                transport: "worker",
+                extraStrings: [
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.result_reason": "load_failed",
+                    "agentstudio.bridge.worker.action": "applyContentTerminalAvailability",
+                    "agentstudio.bridge.worker.lane": "visible",
+                    "agentstudio.bridge.worker.task_kind": "store_action",
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.worker.handler_duration_ms": 2,
+                    "agentstudio.bridge.worker.patch_count": 1,
+                    "agentstudio.bridge.worker.source_epoch": 7,
+                    "agentstudio.bridge.worker.touched_key_count": 1,
+                ]
+            )
+        )
+        let sourceResetStoreActionBatch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.worker.task",
+                phase: "worker_task",
+                plane: "data",
+                priority: "warm",
+                slice: "worker_task",
+                transport: "worker",
+                extraStrings: [
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.result_reason": "source_reset",
+                    "agentstudio.bridge.worker.action": "applyFileViewSourceUpdateFact",
+                    "agentstudio.bridge.worker.lane": "file_view",
+                    "agentstudio.bridge.worker.task_kind": "store_action",
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.worker.handler_duration_ms": 2,
+                    "agentstudio.bridge.worker.patch_count": 2,
+                    "agentstudio.bridge.worker.source_epoch": 12,
+                    "agentstudio.bridge.worker.touched_key_count": 4,
+                ]
+            )
+        )
+
+        #expect(validator.validate(terminalStoreActionBatch) == .accepted(terminalStoreActionBatch))
+        #expect(validator.validate(sourceResetStoreActionBatch) == .accepted(sourceResetStoreActionBatch))
+    }
+
+    @Test
+    func validatorRejectsUnsafeCommWorkerTaskTelemetry() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let unknownCommandBatch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.worker.task",
+                phase: "worker_task",
+                plane: "data",
+                priority: "hot",
+                slice: "worker_task",
+                transport: "worker",
+                extraStrings: [
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.worker.command": "openRawPath",
+                    "agentstudio.bridge.worker.lane": "selected",
+                    "agentstudio.bridge.worker.task_kind": "message_handler",
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.worker.handler_duration_ms": 2,
+                    "agentstudio.bridge.worker.queue_wait_ms": 4,
+                ]
+            )
+        )
+        let unknownAttributeBatch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.worker.task",
+                phase: "worker_task",
+                plane: "data",
+                priority: "hot",
+                slice: "worker_task",
+                transport: "worker",
+                extraStrings: [
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.worker.command": "select",
+                    "agentstudio.bridge.worker.lane": "selected",
+                    "agentstudio.bridge.worker.raw_payload": "selection_payload",
+                    "agentstudio.bridge.worker.task_kind": "message_handler",
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.worker.handler_duration_ms": 2,
+                    "agentstudio.bridge.worker.queue_wait_ms": 4,
+                ]
+            )
+        )
+
+        #expect(validator.validate(unknownCommandBatch) == .dropped(.unsafeAttribute))
+        #expect(validator.validate(unknownAttributeBatch) == .dropped(.unsafeAttribute))
+    }
 }

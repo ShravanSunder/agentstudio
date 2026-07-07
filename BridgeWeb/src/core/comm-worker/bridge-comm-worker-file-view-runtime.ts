@@ -45,6 +45,7 @@ export type BridgeWorkerFileViewContentReadyFetchResult =
 	  }
 	| {
 			readonly status: 'terminal';
+			readonly reason: BridgeWorkerTerminalContentAvailabilityReason;
 			readonly state: BridgeWorkerTerminalContentAvailabilityState;
 	  }
 	| {
@@ -54,6 +55,9 @@ export type BridgeWorkerFileViewContentReadyFetchResult =
 type BridgeWorkerTerminalContentAvailabilityState = Extract<
 	BridgeWorkerContentAvailabilityPatchPayload['state'],
 	'failed' | 'unavailable'
+>;
+type BridgeWorkerTerminalContentAvailabilityReason = NonNullable<
+	BridgeWorkerContentAvailabilityPatchPayload['reason']
 >;
 
 export async function dispatchSelectedBridgeWorkerFileViewContentReady(
@@ -71,12 +75,12 @@ export async function fetchSelectedBridgeWorkerFileViewContentReadyResource(
 	}
 	const metadata = selectedFileViewContentMetadata(props);
 	if (metadata === null) {
-		return { status: 'terminal', state: 'unavailable' };
+		return { reason: 'content_unavailable', status: 'terminal', state: 'unavailable' };
 	}
 	const descriptor =
 		props.contentRequestDescriptors.find((candidate) => candidate.itemId === props.itemId) ?? null;
 	if (descriptor === null) {
-		return { status: 'terminal', state: 'unavailable' };
+		return { reason: 'descriptor_missing', status: 'terminal', state: 'unavailable' };
 	}
 	let resource: BridgeWorkerFetchedFileViewContentResource;
 	try {
@@ -85,7 +89,7 @@ export async function fetchSelectedBridgeWorkerFileViewContentReadyResource(
 			...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
 		});
 	} catch {
-		return { status: 'terminal', state: 'failed' };
+		return { reason: 'load_failed', status: 'terminal', state: 'failed' };
 	}
 	if (!isSelectedFileViewContentReadyPreparationCurrent(props)) {
 		return { status: 'stale' };
@@ -102,7 +106,11 @@ export function publishSelectedBridgeWorkerFileViewContentReadyFetchResult(
 		return;
 	}
 	if (props.fetchResult.status === 'terminal') {
-		postSelectedFileViewContentTerminalAvailability({ ...props, state: props.fetchResult.state });
+		postSelectedFileViewContentTerminalAvailability({
+			...props,
+			reason: props.fetchResult.reason,
+			state: props.fetchResult.state,
+		});
 		return;
 	}
 	if (!isSelectedFileViewContentReadyPreparationCurrent(props)) {
@@ -115,7 +123,11 @@ export function publishSelectedBridgeWorkerFileViewContentReadyFetchResult(
 		resource: props.fetchResult.resource,
 	});
 	if (preparedJobEvent === null) {
-		postSelectedFileViewContentTerminalAvailability({ ...props, state: 'unavailable' });
+		postSelectedFileViewContentTerminalAvailability({
+			...props,
+			reason: 'descriptor_rejected',
+			state: 'unavailable',
+		});
 		return;
 	}
 
@@ -141,6 +153,7 @@ export function isSelectedFileViewContentReadyPreparationCurrent(
 
 function postSelectedFileViewContentTerminalAvailability(
 	props: DispatchSelectedBridgeWorkerFileViewContentReadyProps & {
+		readonly reason: BridgeWorkerTerminalContentAvailabilityReason;
 		readonly state: BridgeWorkerTerminalContentAvailabilityState;
 	},
 ): void {
@@ -149,6 +162,8 @@ function postSelectedFileViewContentTerminalAvailability(
 	}
 	props.store.actions.applyContentTerminalAvailability({
 		itemId: props.itemId,
+		reason: props.reason,
+		sourceEpoch: props.epoch,
 		state: props.state,
 	});
 	const slicePatchEvent = props.store.actions.takePendingSlicePatchEvent({

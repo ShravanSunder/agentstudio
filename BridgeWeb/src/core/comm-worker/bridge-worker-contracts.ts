@@ -121,6 +121,16 @@ export const bridgeWorkerRowPaintPatchPayloadSchema = z
 
 export const bridgeWorkerContentAvailabilityPatchPayloadSchema = z
 	.object({
+		reason: z
+			.enum([
+				'content_unavailable',
+				'descriptor_missing',
+				'descriptor_rejected',
+				'load_failed',
+				'none',
+				'source_reset',
+			])
+			.optional(),
 		state: z.enum(['loading', 'ready', 'failed', 'stale', 'unavailable']),
 	})
 	.strict();

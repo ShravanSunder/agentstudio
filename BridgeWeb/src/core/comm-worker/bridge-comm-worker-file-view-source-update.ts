@@ -17,6 +17,10 @@ import type {
 	BridgeWorkerSlicePatch,
 } from './bridge-worker-contracts.js';
 
+type BridgeCommWorkerContentAvailabilityReason = NonNullable<
+	BridgeWorkerContentAvailabilityPatchPayload['reason']
+>;
+
 export interface ApplyBridgeCommWorkerFileViewSourceUpdateFactProps {
 	readonly contentItems: readonly BridgeWorkerFileViewContentMetadata[];
 	readonly epoch: number;
@@ -57,6 +61,7 @@ export function applyBridgeCommWorkerFileViewSourceUpdateFact(
 		selectedDemandEpoch,
 		visibleIds: previousState.visibleIds,
 	});
+	let resultReason: BridgeCommWorkerContentAvailabilityReason | null = null;
 
 	for (const itemId of sourceRepairCandidateIds(previousState)) {
 		const metadata = sourceIndexes.contentMetadataByItemId.get(itemId) ?? null;
@@ -93,14 +98,21 @@ export function applyBridgeCommWorkerFileViewSourceUpdateFact(
 			nextAvailability !== null &&
 			previousState.availabilityByItemId.get(itemId) !== nextAvailability
 		) {
+			const payload =
+				nextAvailability === 'unavailable'
+					? ({ reason: 'source_reset', state: nextAvailability } as const)
+					: ({ state: nextAvailability } as const);
 			nextAvailabilityByItemId.set(itemId, nextAvailability);
 			touchedKeys.add(`availability:${itemId}`);
 			nextSlicePatches.push({
 				slice: 'contentAvailability',
 				operation: 'upsert',
 				itemId,
-				payload: { state: nextAvailability },
+				payload,
 			});
+			if (nextAvailability === 'unavailable') {
+				resultReason = 'source_reset';
+			}
 		}
 		if (demandByKey.get(itemId) !== previousState.demandByKey.get(itemId)) {
 			touchedKeys.add(`demand:${itemId}`);
@@ -119,6 +131,12 @@ export function applyBridgeCommWorkerFileViewSourceUpdateFact(
 	props.pendingSlicePatches.push(...nextSlicePatches);
 
 	return {
+		...(resultReason === null
+			? {}
+			: {
+					resultReason,
+					sourceEpoch: props.epoch,
+				}),
 		selectedFileViewContentMetadataChanged,
 		touchedKeys: [...touchedKeys],
 	};

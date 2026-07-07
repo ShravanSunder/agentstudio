@@ -336,6 +336,8 @@ function handleBridgeWorkerReviewSourceUpdateCommand(
 			}
 			props.store.actions.applyContentTerminalAvailability({
 				itemId,
+				reason: 'source_reset',
+				sourceEpoch: props.message.epoch,
 				state: 'unavailable',
 			});
 			appliedTerminalAvailability = true;
@@ -374,6 +376,8 @@ function handleBridgeWorkerReviewSourceUpdateCommand(
 		}
 		props.store.actions.applyContentTerminalAvailability({
 			itemId,
+			reason: 'source_reset',
+			sourceEpoch: props.message.epoch,
 			state: 'unavailable',
 		});
 		appliedTerminalAvailability = true;

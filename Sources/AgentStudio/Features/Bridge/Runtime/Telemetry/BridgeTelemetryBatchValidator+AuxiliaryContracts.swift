@@ -130,19 +130,129 @@ extension BridgeTelemetryBatchValidator {
     }
 
     private static func workerTaskContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
-        contract.matches(
-            .init(
-                phase: "worker_task",
-                plane: .data,
-                priority: .warm,
-                slice: .workerTask,
-                transport: "worker",
+        legacyWorkerTaskContractMatches(contract)
+            || commWorkerMessageHandlerContractMatches(contract)
+            || commWorkerContentPreparationContractMatches(contract)
+            || commWorkerStoreActionContractMatches(contract)
+    }
+
+    private static func legacyWorkerTaskContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+        workerTaskContractMatches(
+            contract,
+            priority: .warm,
+            attributeKeys: .init(
                 additionalStringKeys: [
                     "agentstudio.bridge.item_count_bucket",
                     "agentstudio.bridge.result",
                     "agentstudio.bridge.worker.lane",
                     "agentstudio.bridge.worker.task_kind",
                 ]
+            )
+        )
+    }
+
+    private static func commWorkerMessageHandlerContractMatches(
+        _ contract: BridgeTelemetryEventContract
+    ) -> Bool {
+        workerTaskContractMatches(
+            contract,
+            attributeKeys: .init(
+                additionalStringKeys: [
+                    "agentstudio.bridge.result",
+                    "agentstudio.bridge.worker.command",
+                    "agentstudio.bridge.worker.lane",
+                    "agentstudio.bridge.worker.task_kind",
+                ],
+                numericKeys: [
+                    "agentstudio.bridge.worker.handler_duration_ms",
+                    "agentstudio.bridge.worker.queue_wait_ms",
+                ]
+            )
+        )
+    }
+
+    private static func commWorkerContentPreparationContractMatches(
+        _ contract: BridgeTelemetryEventContract
+    ) -> Bool {
+        workerTaskContractMatches(
+            contract,
+            attributeKeys: .init(
+                additionalStringKeys: [
+                    "agentstudio.bridge.result",
+                    "agentstudio.bridge.worker.lane",
+                    "agentstudio.bridge.worker.payload_class",
+                    "agentstudio.bridge.worker.task_kind",
+                    "agentstudio.bridge.worker.work_kind",
+                ],
+                numericKeys: [
+                    "agentstudio.bridge.worker.handler_duration_ms",
+                    "agentstudio.bridge.worker.queue_wait_ms",
+                    "agentstudio.bridge.worker.source_epoch",
+                ]
+            )
+        )
+    }
+
+    private static func commWorkerStoreActionContractMatches(
+        _ contract: BridgeTelemetryEventContract
+    ) -> Bool {
+        workerTaskContractMatches(
+            contract,
+            attributeKeys: .init(
+                additionalStringKeys: [
+                    "agentstudio.bridge.result",
+                    "agentstudio.bridge.worker.action",
+                    "agentstudio.bridge.worker.lane",
+                    "agentstudio.bridge.worker.task_kind",
+                ],
+                numericKeys: [
+                    "agentstudio.bridge.worker.handler_duration_ms",
+                    "agentstudio.bridge.worker.patch_count",
+                    "agentstudio.bridge.worker.touched_key_count",
+                ]
+            )
+        )
+            || workerTaskContractMatches(
+                contract,
+                attributeKeys: .init(
+                    additionalStringKeys: [
+                        "agentstudio.bridge.result",
+                        "agentstudio.bridge.result_reason",
+                        "agentstudio.bridge.worker.action",
+                        "agentstudio.bridge.worker.lane",
+                        "agentstudio.bridge.worker.task_kind",
+                    ],
+                    numericKeys: [
+                        "agentstudio.bridge.worker.handler_duration_ms",
+                        "agentstudio.bridge.worker.patch_count",
+                        "agentstudio.bridge.worker.source_epoch",
+                        "agentstudio.bridge.worker.touched_key_count",
+                    ]
+                )
+            )
+    }
+
+    private static func workerTaskContractMatches(
+        _ contract: BridgeTelemetryEventContract,
+        attributeKeys: BridgeTelemetryEventAttributeKeys
+    ) -> Bool {
+        workerTaskContractMatches(contract, priority: .hot, attributeKeys: attributeKeys)
+            || workerTaskContractMatches(contract, priority: .warm, attributeKeys: attributeKeys)
+    }
+
+    private static func workerTaskContractMatches(
+        _ contract: BridgeTelemetryEventContract,
+        priority: BridgeTelemetryPriority,
+        attributeKeys: BridgeTelemetryEventAttributeKeys
+    ) -> Bool {
+        contract.matches(
+            .init(
+                phase: "worker_task",
+                plane: .data,
+                priority: priority,
+                slice: .workerTask,
+                transport: "worker",
+                attributeKeys: attributeKeys
             )
         )
     }

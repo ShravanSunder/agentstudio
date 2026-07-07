@@ -102,8 +102,12 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.visible_row_bucket",
         "agentstudio.bridge.viewer",
         "agentstudio.bridge.viewer.ttfi_variant",
+        "agentstudio.bridge.worker.action",
+        "agentstudio.bridge.worker.command",
         "agentstudio.bridge.worker.lane",
+        "agentstudio.bridge.worker.payload_class",
         "agentstudio.bridge.worker.task_kind",
+        "agentstudio.bridge.worker.work_kind",
         "agentstudio.command.name",
         "agentstudio.command.source",
         "agentstudio.envelope.scope",
@@ -221,7 +225,8 @@ enum AgentStudioOTLPTraceProjection {
     ]
 
     private static let allowedPayloadNamedStringAttributeKeys: Set<String> = [
-        "agentstudio.bridge.tree_path_count_bucket"
+        "agentstudio.bridge.tree_path_count_bucket",
+        "agentstudio.bridge.worker.payload_class",
     ]
 
     private static let allowedNumericAttributeKeys: Set<String> = [
@@ -300,6 +305,11 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.worktree_file.tree.window.sequence",
         "agentstudio.bridge.worktree_file.tree.window.start_index",
         "agentstudio.bridge.worktree_file.tree.window.count",
+        "agentstudio.bridge.worker.handler_duration_ms",
+        "agentstudio.bridge.worker.patch_count",
+        "agentstudio.bridge.worker.queue_wait_ms",
+        "agentstudio.bridge.worker.source_epoch",
+        "agentstudio.bridge.worker.touched_key_count",
         "agentstudio.display.count",
         "agentstudio.envelope.schema_version",
         "agentstudio.envelope.seq",

@@ -51,6 +51,7 @@ export type BridgeWorkerReviewContentReadyFetchResult =
 	  }
 	| {
 			readonly status: 'terminal';
+			readonly reason: BridgeWorkerTerminalContentAvailabilityReason;
 			readonly state: BridgeWorkerTerminalContentAvailabilityState;
 	  }
 	| {
@@ -96,7 +97,7 @@ export async function fetchBridgeWorkerReviewContentReadyResources(
 	}
 	const semantics = props.renderSemantics.find((candidate) => candidate.itemId === props.itemId);
 	if (semantics === undefined) {
-		return { status: 'terminal', state: 'unavailable' };
+		return { reason: 'descriptor_missing', status: 'terminal', state: 'unavailable' };
 	}
 	let resources: readonly BridgeWorkerFetchedReviewContentResource[];
 	try {
@@ -109,7 +110,7 @@ export async function fetchBridgeWorkerReviewContentReadyResources(
 			}).map(fetchReviewContentResource),
 		);
 	} catch {
-		return { status: 'terminal', state: 'failed' };
+		return { reason: 'load_failed', status: 'terminal', state: 'failed' };
 	}
 	if (!isReviewContentReadyDemandCurrent(props)) {
 		return { status: 'stale' };
@@ -137,7 +138,11 @@ export function publishBridgeWorkerReviewContentReadyFetchResult(
 		return;
 	}
 	if (props.fetchResult.status === 'terminal') {
-		postReviewContentTerminalAvailability({ ...props, state: props.fetchResult.state });
+		postReviewContentTerminalAvailability({
+			...props,
+			reason: props.fetchResult.reason,
+			state: props.fetchResult.state,
+		});
 		return;
 	}
 	if (!isReviewContentReadyDemandCurrent(props)) {
@@ -150,7 +155,11 @@ export function publishBridgeWorkerReviewContentReadyFetchResult(
 		semantics: props.fetchResult.semantics,
 	});
 	if (preparedJobEvent === null) {
-		postReviewContentTerminalAvailability({ ...props, state: 'unavailable' });
+		postReviewContentTerminalAvailability({
+			...props,
+			reason: 'descriptor_rejected',
+			state: 'unavailable',
+		});
 		return;
 	}
 
@@ -168,12 +177,16 @@ type BridgeWorkerTerminalContentAvailabilityState = Extract<
 	BridgeWorkerContentAvailabilityPatchPayload['state'],
 	'failed' | 'unavailable'
 >;
+type BridgeWorkerTerminalContentAvailabilityReason = NonNullable<
+	BridgeWorkerContentAvailabilityPatchPayload['reason']
+>;
 
 type BridgeWorkerReviewContentRole = BridgeWorkerReviewContentRequestDescriptor['role'];
 type BridgeWorkerReviewContentRoleGroup = readonly BridgeWorkerReviewContentRole[];
 
 function postReviewContentTerminalAvailability(
 	props: DispatchBridgeWorkerReviewContentReadyProps & {
+		readonly reason: BridgeWorkerTerminalContentAvailabilityReason;
 		readonly state: BridgeWorkerTerminalContentAvailabilityState;
 	},
 ): void {
@@ -182,6 +195,8 @@ function postReviewContentTerminalAvailability(
 	}
 	props.store.actions.applyContentTerminalAvailability({
 		itemId: props.itemId,
+		reason: props.reason,
+		sourceEpoch: props.epoch,
 		state: props.state,
 	});
 	const slicePatchEvent = props.store.actions.takePendingSlicePatchEvent({

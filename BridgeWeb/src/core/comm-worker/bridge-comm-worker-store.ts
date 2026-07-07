@@ -60,7 +60,9 @@ export interface CreateBridgeCommWorkerStoreProps {
 }
 
 export interface BridgeCommWorkerTouchedResult {
+	readonly resultReason?: BridgeCommWorkerContentAvailabilityReason;
 	readonly selectedFileViewContentMetadataChanged?: boolean;
+	readonly sourceEpoch?: number;
 	readonly touchedKeys: readonly string[];
 }
 
@@ -84,9 +86,14 @@ type BridgeCommWorkerTerminalContentAvailabilityState = Extract<
 	BridgeWorkerContentAvailabilityPatchPayload['state'],
 	'failed' | 'unavailable'
 >;
+type BridgeCommWorkerContentAvailabilityReason = NonNullable<
+	BridgeWorkerContentAvailabilityPatchPayload['reason']
+>;
 
 export interface ApplyBridgeCommWorkerContentTerminalAvailabilityProps {
 	readonly itemId: string;
+	readonly reason: BridgeCommWorkerContentAvailabilityReason;
+	readonly sourceEpoch: number;
 	readonly state: BridgeCommWorkerTerminalContentAvailabilityState;
 }
 
@@ -347,7 +354,7 @@ export function createBridgeCommWorkerStore(
 					slice: 'contentAvailability',
 					operation: 'upsert',
 					itemId: fact.itemId,
-					payload: { state: fact.state },
+					payload: { reason: fact.reason, state: fact.state },
 				});
 				return {
 					touchedKeys: [...touchedKeys, `availability:${fact.itemId}`],
@@ -732,6 +739,8 @@ function instrumentBridgeCommWorkerStoreActions(
 				action: 'applyContentTerminalAvailability',
 				lane: 'visible',
 				operation: () => props.actions.applyContentTerminalAvailability(fact),
+				resultReason: fact.reason,
+				sourceEpoch: fact.sourceEpoch,
 				...telemetryProps,
 			}),
 		applyReviewInvalidationFact: (fact): BridgeCommWorkerTouchedResult =>
@@ -766,17 +775,23 @@ function recordBridgeCommWorkerStoreActionTelemetry(props: {
 	readonly now: () => number;
 	readonly operation: () => BridgeCommWorkerTouchedResult;
 	readonly pendingSlicePatches: readonly BridgeWorkerSlicePatch[];
+	readonly resultReason?: NonNullable<BridgeWorkerContentAvailabilityPatchPayload['reason']>;
+	readonly sourceEpoch?: number;
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
 }): BridgeCommWorkerTouchedResult {
 	const patchCountBefore = props.pendingSlicePatches.length;
 	const startedAtMilliseconds = props.now();
 	const result = props.operation();
 	const durationMilliseconds = props.now() - startedAtMilliseconds;
+	const resultReason = props.resultReason ?? result.resultReason;
+	const sourceEpoch = props.sourceEpoch ?? result.sourceEpoch;
 	recordBridgeCommWorkerTaskTelemetry({
 		action: props.action,
 		durationMilliseconds,
 		lane: props.lane,
 		patchCount: props.pendingSlicePatches.length - patchCountBefore,
+		...(resultReason === undefined ? {} : { resultReason }),
+		...(sourceEpoch === undefined ? {} : { sourceEpoch }),
 		taskKind: 'store_action',
 		touchedKeyCount: result.touchedKeys.length,
 		...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),

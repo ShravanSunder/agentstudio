@@ -558,9 +558,15 @@ describe('Bridge comm worker store', () => {
 	});
 
 	test('publishes terminal availability for selected content failures', () => {
+		const telemetrySamples: BridgeTelemetrySample[] = [];
 		const store = createBridgeCommWorkerStore({
 			contentItems: [makeWorkerReviewContentMetadata('item-1')],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			telemetryClient: {
+				record: (sample): void => {
+					telemetrySamples.push(sample);
+				},
+			},
 		});
 
 		store.actions.applySelectedFact({
@@ -570,6 +576,8 @@ describe('Bridge comm worker store', () => {
 		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 14 });
 		const failedResult = store.actions.applyContentTerminalAvailability({
 			itemId: 'item-1',
+			reason: 'load_failed',
+			sourceEpoch: 7,
 			state: 'failed',
 		});
 
@@ -580,9 +588,20 @@ describe('Bridge comm worker store', () => {
 				slice: 'contentAvailability',
 				operation: 'upsert',
 				itemId: 'item-1',
-				payload: { state: 'failed' },
+				payload: { reason: 'load_failed', state: 'failed' },
 			},
 		]);
+		expect(telemetrySamples.at(-1)).toMatchObject({
+			name: 'performance.bridge.worker.task',
+			stringAttributes: {
+				'agentstudio.bridge.result_reason': 'load_failed',
+				'agentstudio.bridge.worker.action': 'applyContentTerminalAvailability',
+				'agentstudio.bridge.worker.task_kind': 'store_action',
+			},
+			numericAttributes: {
+				'agentstudio.bridge.worker.source_epoch': 7,
+			},
+		});
 	});
 
 	test('worker-local store owns file metadata content cache demand and protocol truth', () => {
@@ -718,9 +737,15 @@ describe('Bridge comm worker store', () => {
 	});
 
 	test('file view source updates remove ready paint when content becomes unavailable', () => {
+		const telemetrySamples: BridgeTelemetrySample[] = [];
 		const store = createBridgeCommWorkerStore({
 			contentItems: [makeWorkerFileViewContentMetadata('file-1')],
 			rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			telemetryClient: {
+				record: (sample): void => {
+					telemetrySamples.push(sample);
+				},
+			},
 		});
 		store.actions.applySelectedFact({ itemId: 'file-1', epoch: 11 });
 		store.actions.applyContentReady({
@@ -743,6 +768,8 @@ describe('Bridge comm worker store', () => {
 		expect(store.getState().paintReadyByItemId.has('file-1')).toBe(false);
 		expect(store.getState().byteCache.has('file-view:sha256:file-1')).toBe(false);
 		expect(store.getState().availabilityByItemId.get('file-1')).toBe('unavailable');
+		expect(sourceUpdateResult.resultReason).toBe('source_reset');
+		expect(sourceUpdateResult.sourceEpoch).toBe(12);
 		expect(Object.fromEntries(store.getState().demandByKey)).toEqual({});
 		expect(sourceUpdateResult.touchedKeys).toEqual([
 			'sourceRows',
@@ -759,9 +786,20 @@ describe('Bridge comm worker store', () => {
 				slice: 'contentAvailability',
 				operation: 'upsert',
 				itemId: 'file-1',
-				payload: { state: 'unavailable' },
+				payload: { reason: 'source_reset', state: 'unavailable' },
 			},
 		]);
+		expect(telemetrySamples.at(-1)).toMatchObject({
+			name: 'performance.bridge.worker.task',
+			stringAttributes: {
+				'agentstudio.bridge.result_reason': 'source_reset',
+				'agentstudio.bridge.worker.action': 'applyFileViewSourceUpdateFact',
+				'agentstudio.bridge.worker.task_kind': 'store_action',
+			},
+			numericAttributes: {
+				'agentstudio.bridge.worker.source_epoch': 12,
+			},
+		});
 	});
 });
 

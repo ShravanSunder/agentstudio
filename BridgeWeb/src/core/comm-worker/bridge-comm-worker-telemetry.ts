@@ -12,6 +12,7 @@ import {
 	nullBridgeTelemetrySink,
 	type BridgeTelemetrySink,
 } from '../../foundation/telemetry/bridge-telemetry-sink.js';
+import type { BridgeWorkerContentAvailabilityPatchPayload } from './bridge-worker-contracts.js';
 
 type BridgeCommWorkerTelemetryIdleFlushScheduler = (callback: () => void) => void;
 
@@ -124,6 +125,7 @@ export interface RecordBridgeCommWorkerTaskTelemetryProps {
 	readonly lane: BridgeCommWorkerTelemetryLane;
 	readonly payloadClass?: string;
 	readonly queueWaitMilliseconds?: number;
+	readonly resultReason?: BridgeCommWorkerTelemetryResultReason;
 	readonly sourceEpoch?: number;
 	readonly taskKind: BridgeCommWorkerTelemetryTaskKind;
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
@@ -156,6 +158,9 @@ export function recordBridgeCommWorkerTaskTelemetry(
 			...(props.payloadClass === undefined
 				? {}
 				: { 'agentstudio.bridge.worker.payload_class': props.payloadClass }),
+			...(props.resultReason === undefined
+				? {}
+				: { 'agentstudio.bridge.result_reason': props.resultReason }),
 			...(props.workKind === undefined
 				? {}
 				: { 'agentstudio.bridge.worker.work_kind': props.workKind }),
@@ -180,6 +185,10 @@ export function recordBridgeCommWorkerTaskTelemetry(
 		booleanAttributes: {},
 	});
 }
+
+type BridgeCommWorkerTelemetryResultReason = NonNullable<
+	BridgeWorkerContentAvailabilityPatchPayload['reason']
+>;
 
 function bridgeCommWorkerTaskPriority(lane: BridgeCommWorkerTelemetryLane): string {
 	return lane === 'selected' ? 'hot' : 'warm';
