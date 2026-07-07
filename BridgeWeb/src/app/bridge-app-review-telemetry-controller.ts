@@ -56,7 +56,7 @@ export function useBridgeReviewRenderTelemetryController(
 			numericAttributes: {},
 			booleanAttributes: {},
 		});
-		props.telemetryRecorderRef.current.flush({ force: true });
+		props.telemetryRecorderRef.current.flush();
 	}, [
 		props.hasProjection,
 		props.isActive,

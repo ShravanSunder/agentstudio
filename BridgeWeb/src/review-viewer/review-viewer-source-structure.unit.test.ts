@@ -160,6 +160,21 @@ describe('Review viewer source structure', () => {
 		expect(selectionControllerSource).not.toContain('@pierre/');
 	});
 
+	test('keeps Review hot-path telemetry off forced flushes', () => {
+		const forbiddenOwners = [
+			'../app/bridge-app-review-selection-controller.ts',
+			'../app/bridge-app-review-telemetry-controller.ts',
+			'../app/bridge-app-review-telemetry.ts',
+		].flatMap((relativePath): string[] => {
+			const source = readOptionalSource(relativePath);
+			return ['flush({ force: true })', 'flush({force: true})']
+				.filter((token): boolean => source.includes(token))
+				.map((token): string => `${relativePath}: ${token}`);
+		});
+
+		expect(forbiddenOwners).toEqual([]);
+	});
+
 	test('routes Review selection and viewport display facts through the comm-worker render snapshot seam', () => {
 		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
 		const renderSnapshotControllerSource = readSource(
