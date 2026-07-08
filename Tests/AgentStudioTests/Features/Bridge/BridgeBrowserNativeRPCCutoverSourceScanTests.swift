@@ -106,6 +106,26 @@ final class BridgeBrowserNativeRPCCutoverSourceScanTests {
     }
 
     @Test
+    func nativeIPCPageControlValidation_usesPagePublishedReviewControlProbeSlot() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let nativeProjectionSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/Bridge/Runtime/BridgePaneController+IPCProjection.swift"),
+            encoding: .utf8
+        )
+        let bridgeWebControlSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "BridgeWeb/src/app/bridge-app-control-commands.ts"),
+            encoding: .utf8
+        )
+
+        #expect(bridgeWebControlSource.contains("window.bridgeReviewControlProbe = props.probe"))
+        #expect(nativeProjectionSource.contains("window.bridgeReviewControlProbe = undefined"))
+        #expect(nativeProjectionSource.contains("const nextProbe = window.bridgeReviewControlProbe || null"))
+        #expect(nativeProjectionSource.contains("__bridgeReviewControlProbe") == false)
+    }
+
+    @Test
     func forbiddenRPCSourceScanDetectsAlternateSpellings() {
         let alternateSpellings = [
             #"document.addEventListener("__bridge_command", handler)"#,

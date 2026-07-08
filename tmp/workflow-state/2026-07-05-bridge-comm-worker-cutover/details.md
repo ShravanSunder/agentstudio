@@ -4604,3 +4604,45 @@ counts before claiming a gate.
   does not prove zero-copy transfer-list delivery, does not complete
   implementation-review-swarm, does not prove PR readiness, and does not
   complete the full goal.
+
+## 2026-07-08T23:03:01Z - Native IPC review control probe slot alignment
+
+- Scope:
+  Fixed the native IPC page-control validation JavaScript to clear and read the
+  page-published `window.bridgeReviewControlProbe` slot instead of the private
+  `window.__bridgeReviewControlProbe` slot. This is a proof-loop fix for
+  `bridge-diff-scroll-to-file`/page-control automation, not a product transport
+  ownership change.
+- Root cause:
+  BridgeWeb publishes page-control outcomes at
+  `window.bridgeReviewControlProbe`, but
+  `BridgePaneController+IPCProjection.swift` cleared/read
+  `window.__bridgeReviewControlProbe`. IPC scroll commands therefore rejected
+  with `-32007 validation rejected`, preventing repeatable native scroll/jank
+  proof even when the page handled the event.
+- Red evidence:
+  Added
+  `nativeIPCPageControlValidation_usesPagePublishedReviewControlProbeSlot` to
+  `BridgeBrowserNativeRPCCutoverSourceScanTests`. The focused Swift gate failed
+  because native projection source still contained
+  `window.__bridgeReviewControlProbe` and did not read
+  `window.bridgeReviewControlProbe`.
+- Green evidence:
+  `SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 SWIFT_TEST_TIMEOUT_SECONDS=240 mise
+  run test -- --filter BridgeBrowserNativeRPCCutoverSourceScanTests` passed 4/4
+  after the production fix. `mise run format`, `mise run lint`, and
+  `git diff --check` passed.
+- Metrics sidekick evidence:
+  Sagan the 3rd queried the fresh oq4s marker
+  `debug-observability-oq4s-1783550867-42829` from
+  `2026-07-08T22:47:50Z` to `2026-07-08T22:56:34Z` and did not reproduce the
+  old materialization storm: 7 total `code_view_item_materialize` rows, 1
+  visible/unselected row, 98 worker task rows, 57 telemetry-drop rows, and 0
+  `scroll_frame_gap` / `frame_jank` rows.
+- Known proof boundary:
+  The currently running oq4s app is pre-fix, so live IPC scroll still rejects
+  until a fresh debug app launch picks up the rebuilt Swift binary. I did not
+  kill/relaunch oq4s because current marker activity was recent. This
+  checkpoint does not prove live scroll/click UX budgets, zero-copy
+  transfer-list delivery, implementation-review-swarm, PR readiness, or full
+  goal completion.

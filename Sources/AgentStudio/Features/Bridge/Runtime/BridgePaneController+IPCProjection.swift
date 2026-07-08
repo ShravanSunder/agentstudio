@@ -194,11 +194,11 @@ extension BridgePaneController {
         let result = try await page.callJavaScript(
             """
             return JSON.stringify((() => {
-              window.__bridgeReviewControlProbe = undefined;
+              window.bridgeReviewControlProbe = undefined;
               window.dispatchEvent(new CustomEvent('__bridge_review_control', {
                 detail: \(commandLiteral)
               }));
-              const nextProbe = window.__bridgeReviewControlProbe || null;
+              const nextProbe = window.bridgeReviewControlProbe || null;
               return nextProbe || {
                 sequence: -1,
                 method: \(methodLiteral),
