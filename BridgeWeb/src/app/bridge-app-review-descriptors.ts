@@ -23,6 +23,7 @@ import type {
 	BridgeReviewPackage,
 } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeReviewFrameAuthority } from './bridge-app-review-frame-authority.js';
+import { bridgeReviewContentByteBoundsForHandle } from './bridge-review-content-byte-budget.js';
 
 export const bridgeReviewAllowedResourceKindsByProtocol = {
 	review: new Set(['content']),
@@ -342,11 +343,12 @@ function contentDescriptorByteBoundsMatchPackageHandle(args: {
 	readonly attachedDescriptor: BridgeAttachedResourceDescriptor;
 	readonly handle: BridgeContentHandle;
 }): boolean {
-	const expectedBytes = args.attachedDescriptor.descriptor.content.expectedBytes;
-	if (expectedBytes !== undefined) {
-		return expectedBytes === args.handle.sizeBytes;
-	}
-	return args.attachedDescriptor.descriptor.content.maxBytes >= Math.max(args.handle.sizeBytes, 1);
+	const descriptorBounds = args.attachedDescriptor.descriptor.content;
+	const handleBounds = bridgeReviewContentByteBoundsForHandle(args.handle);
+	return (
+		descriptorBounds.expectedBytes === handleBounds.expectedBytes &&
+		descriptorBounds.maxBytes === handleBounds.maxBytes
+	);
 }
 
 function contentHandlesByIdForReviewPackage(
@@ -437,6 +439,7 @@ function deriveReviewContentDescriptorFromHandle(props: {
 					value: props.handle.contentHash,
 				} as const)
 			: undefined;
+	const byteBounds = bridgeReviewContentByteBoundsForHandle(props.handle);
 	const descriptor = {
 		descriptorId: parsedResourceUrl.opaqueId,
 		protocol: 'review',
@@ -446,8 +449,10 @@ function deriveReviewContentDescriptorFromHandle(props: {
 		content: {
 			mediaType: props.handle.mimeType,
 			encoding: props.handle.isBinary ? 'binary' : 'utf-8',
-			expectedBytes: props.handle.sizeBytes,
-			maxBytes: Math.max(props.handle.sizeBytes, 1),
+			...(byteBounds.expectedBytes === undefined
+				? {}
+				: { expectedBytes: byteBounds.expectedBytes }),
+			maxBytes: byteBounds.maxBytes,
 			...(integrity === undefined ? {} : { integrity }),
 		},
 	} satisfies BridgeAttachedResourceDescriptor['descriptor'];

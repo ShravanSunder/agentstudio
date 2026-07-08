@@ -38,20 +38,27 @@ export async function fetchBridgeWorkerReviewContentResource(
 		throw new Error(`Bridge worker review content request failed: ${response.status}.`);
 	}
 	const streamedText = await readBridgeTextResourceStream(response, {
-		maxBytes: descriptor.sizeBytes,
+		maxBytes: descriptor.maxBytes,
 		...(props.signal === undefined ? {} : { signal: props.signal }),
 	});
+	if (
+		descriptor.expectedBytes !== undefined &&
+		streamedText.byteLength !== descriptor.expectedBytes
+	) {
+		throw new Error(
+			`Bridge worker review content expected ${descriptor.expectedBytes} bytes but received ${streamedText.byteLength}.`,
+		);
+	}
 	const text = streamedText.readText();
-	const textBytes = new TextEncoder().encode(text);
 	return {
 		itemId: descriptor.itemId,
 		role: descriptor.role,
 		contentHash: descriptor.contentHash,
 		contentHashAlgorithm: descriptor.contentHashAlgorithm,
 		language: descriptor.language,
-		byteLength: textBytes.byteLength,
+		byteLength: streamedText.byteLength,
 		text,
-		textBytes: textBytes.buffer,
+		textBytes: streamedText.copyBytes(),
 	};
 }
 

@@ -141,7 +141,7 @@ describe('Bridge comm worker review runtime', () => {
 			{
 				name: 'added diff prefers head over full file',
 				semantics: makeRenderSemantics({ changeKind: 'added' }),
-				descriptors: [
+				makeDescriptors: () => [
 					makeContentRequestDescriptor({ role: 'file', text: 'unused file content' }),
 					makeContentRequestDescriptor({ role: 'head', text: 'added head content' }),
 				],
@@ -150,7 +150,7 @@ describe('Bridge comm worker review runtime', () => {
 			{
 				name: 'non-diff review item prefers head over fallback roles',
 				semantics: makeRenderSemantics({ itemKind: 'file' }),
-				descriptors: [
+				makeDescriptors: () => [
 					makeContentRequestDescriptor({ role: 'base', text: 'unused base content' }),
 					makeContentRequestDescriptor({ role: 'diff', text: 'unused diff content' }),
 					makeContentRequestDescriptor({ role: 'head', text: 'file head content' }),
@@ -160,64 +160,10 @@ describe('Bridge comm worker review runtime', () => {
 			},
 		];
 
-		await Promise.all(
-			cases.map(async (scenario) => {
-				const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
-				const fetchCalls: string[] = [];
-				const store = createSelectedReviewRuntimeStore();
-				store.actions.applySelectedFact({ epoch: 7, itemId: 'item-1' });
-				store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
-
-				await dispatchSelectedBridgeWorkerReviewContentReady({
-					bridgeDemandRank: { lane: 'selected', priority: 0 },
-					budget: {
-						className: 'interactive',
-						maxBytes: 512 * 1024,
-						maxWindowLines: 50,
-					},
-					contentRequestDescriptors: scenario.descriptors,
-					epoch: 7,
-					fetchContent: async (url: string): Promise<Response> => {
-						fetchCalls.push(url);
-						const descriptor = descriptorByUrl.get(url);
-						if (descriptor === undefined) {
-							throw new Error(`Unexpected review content URL ${url}.`);
-						}
-						return new Response(descriptor.text);
-					},
-					itemId: 'item-1',
-					port: {
-						postMessage: (
-							message: BridgeWorkerServerToMainMessage,
-							transferList?: Transferable[],
-						): void => {
-							postedMessages.push({ message, transferList });
-						},
-						addEventListener: (): void => {},
-					},
-					renderSemantics: [scenario.semantics],
-					sequence: 12,
-					store,
-				});
-
-				expect(fetchCalls, scenario.name).toEqual(scenario.expectedUrls);
-				expect(postedMessages[0]?.message, scenario.name).toMatchObject({
-					kind: 'pierreRenderJob',
-					job: { itemId: 'item-1' },
-				});
-				expect(postedMessages[1]?.message, scenario.name).toMatchObject({
-					kind: 'slicePatch',
-					patches: [
-						{ slice: 'rowPaint', operation: 'upsert', itemId: 'item-1' },
-						{
-							slice: 'contentAvailability',
-							operation: 'upsert',
-							itemId: 'item-1',
-							payload: { state: 'ready' },
-						},
-					],
-				});
-			}),
+		await cases.reduce<Promise<void>>(
+			(previousRun, scenario) =>
+				previousRun.then(() => runRuntimeDescriptorSelectionCase(scenario)),
+			Promise.resolve(),
 		);
 	});
 
@@ -347,10 +293,70 @@ describe('Bridge comm worker review runtime', () => {
 const descriptorByUrl = new Map<string, { readonly text: string }>();
 
 interface RuntimeDescriptorSelectionCase {
-	readonly descriptors: readonly BridgeWorkerReviewContentRequestDescriptor[];
 	readonly expectedUrls: readonly string[];
+	readonly makeDescriptors: () => readonly BridgeWorkerReviewContentRequestDescriptor[];
 	readonly name: string;
 	readonly semantics: BridgeWorkerReviewRenderSemantics;
+}
+
+async function runRuntimeDescriptorSelectionCase(
+	scenario: RuntimeDescriptorSelectionCase,
+): Promise<void> {
+	const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
+	const fetchCalls: string[] = [];
+	const store = createSelectedReviewRuntimeStore();
+	store.actions.applySelectedFact({ epoch: 7, itemId: 'item-1' });
+	store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
+
+	await dispatchSelectedBridgeWorkerReviewContentReady({
+		bridgeDemandRank: { lane: 'selected', priority: 0 },
+		budget: {
+			className: 'interactive',
+			maxBytes: 512 * 1024,
+			maxWindowLines: 50,
+		},
+		contentRequestDescriptors: scenario.makeDescriptors(),
+		epoch: 7,
+		fetchContent: async (url: string): Promise<Response> => {
+			fetchCalls.push(url);
+			const descriptor = descriptorByUrl.get(url);
+			if (descriptor === undefined) {
+				throw new Error(`Unexpected review content URL ${url}.`);
+			}
+			return new Response(descriptor.text);
+		},
+		itemId: 'item-1',
+		port: {
+			postMessage: (
+				message: BridgeWorkerServerToMainMessage,
+				transferList?: Transferable[],
+			): void => {
+				postedMessages.push({ message, transferList });
+			},
+			addEventListener: (): void => {},
+		},
+		renderSemantics: [scenario.semantics],
+		sequence: 12,
+		store,
+	});
+
+	expect(fetchCalls, scenario.name).toEqual(scenario.expectedUrls);
+	expect(postedMessages[0]?.message, scenario.name).toMatchObject({
+		kind: 'pierreRenderJob',
+		job: { itemId: 'item-1' },
+	});
+	expect(postedMessages[1]?.message, scenario.name).toMatchObject({
+		kind: 'slicePatch',
+		patches: [
+			{ slice: 'rowPaint', operation: 'upsert', itemId: 'item-1' },
+			{
+				slice: 'contentAvailability',
+				operation: 'upsert',
+				itemId: 'item-1',
+				payload: { state: 'ready' },
+			},
+		],
+	});
 }
 
 interface MakeDispatchPropsOptions {
@@ -438,6 +444,7 @@ function makeContentRequestDescriptor(props: {
 	readonly role: BridgeWorkerReviewContentRequestDescriptor['role'];
 	readonly text: string;
 }): BridgeWorkerReviewContentRequestDescriptor {
+	const textByteLength = new TextEncoder().encode(props.text).byteLength;
 	const descriptor: BridgeWorkerReviewContentRequestDescriptor = {
 		itemId: 'item-1',
 		role: props.role,
@@ -447,7 +454,9 @@ function makeContentRequestDescriptor(props: {
 		contentHash: `sha256:item-1:${props.role}`,
 		contentHashAlgorithm: 'fixture-preview',
 		language: 'swift',
-		sizeBytes: 1024,
+		sizeBytes: textByteLength,
+		expectedBytes: textByteLength,
+		maxBytes: Math.max(textByteLength, 1),
 		isBinary: false,
 	};
 	descriptorByUrl.set(descriptor.resourceUrl, { text: props.text });

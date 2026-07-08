@@ -49,8 +49,8 @@ describe('Bridge comm worker review preparation', () => {
 				maxWindowLines: 50,
 			},
 			contentRequestDescriptors: [
-				makeContentRequestDescriptor({ role: 'base', text: 'base content' }),
-				makeContentRequestDescriptor({ role: 'head', text: 'head content' }),
+				makeContentRequestDescriptor({ role: 'base', text: 'base content\n' }),
+				makeContentRequestDescriptor({ role: 'head', text: 'head content\n' }),
 			],
 			epoch: 7,
 			fetchContent: async (url: string): Promise<Response> => {
@@ -118,8 +118,8 @@ describe('Bridge comm worker review preparation', () => {
 				maxWindowLines: 50,
 			},
 			contentRequestDescriptors: [
-				makeContentRequestDescriptor({ role: 'base', text: 'base content' }),
-				makeContentRequestDescriptor({ role: 'head', text: 'head content' }),
+				makeContentRequestDescriptor({ role: 'base', text: 'base content\n' }),
+				makeContentRequestDescriptor({ role: 'head', text: 'head content\n' }),
 			],
 			epoch: 7,
 			fetchContent: async (url: string): Promise<Response> => {
@@ -411,6 +411,7 @@ function makeContentRequestDescriptor(props: {
 	readonly role: BridgeWorkerReviewContentRequestDescriptor['role'];
 	readonly text: string;
 }): BridgeWorkerReviewContentRequestDescriptor {
+	const textByteLength = new TextEncoder().encode(props.text).byteLength;
 	const descriptor: BridgeWorkerReviewContentRequestDescriptor = {
 		itemId: 'item-1',
 		role: props.role,
@@ -420,7 +421,9 @@ function makeContentRequestDescriptor(props: {
 		contentHash: `sha256:item-1:${props.role}`,
 		contentHashAlgorithm: 'fixture-preview',
 		language: 'swift',
-		sizeBytes: 1024,
+		sizeBytes: textByteLength,
+		expectedBytes: textByteLength,
+		maxBytes: Math.max(textByteLength, 1),
 		isBinary: false,
 	};
 	descriptorByUrl.set(descriptor.resourceUrl, { text: props.text });

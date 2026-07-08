@@ -811,6 +811,8 @@ function areReviewContentRequestDescriptorEquivalent(
 		left.contentHashAlgorithm === right.contentHashAlgorithm &&
 		left.language === right.language &&
 		left.sizeBytes === right.sizeBytes &&
+		(left.expectedBytes ?? null) === (right.expectedBytes ?? null) &&
+		left.maxBytes === right.maxBytes &&
 		left.isBinary === right.isBinary
 	);
 }

@@ -196,6 +196,7 @@ export function makeContentRequestDescriptor(props: {
 }): BridgeWorkerReviewContentRequestDescriptor {
 	const generation = props.generation ?? 4;
 	const itemId = props.itemId ?? 'item-1';
+	const textByteLength = new TextEncoder().encode(props.text).byteLength;
 	const descriptor: BridgeWorkerReviewContentRequestDescriptor = {
 		itemId,
 		role: props.role,
@@ -205,7 +206,9 @@ export function makeContentRequestDescriptor(props: {
 		contentHash: `sha256:${itemId}:${props.role}:generation-${generation}`,
 		contentHashAlgorithm: 'fixture-preview',
 		language: 'swift',
-		sizeBytes: 1024,
+		sizeBytes: textByteLength,
+		expectedBytes: textByteLength,
+		maxBytes: Math.max(textByteLength, 1),
 		isBinary: false,
 	};
 	descriptorByUrl.set(descriptor.resourceUrl, { itemId, text: props.text });

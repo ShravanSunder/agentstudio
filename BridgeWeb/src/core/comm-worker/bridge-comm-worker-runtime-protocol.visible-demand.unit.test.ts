@@ -35,7 +35,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
 			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
 			contentRequestDescriptors: [
-				makeContentRequestDescriptor({
+				makeInexactContentRequestDescriptor({
 					generation: 4,
 					itemId: 'item-1',
 					role: 'base',
@@ -118,6 +118,95 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 		expect(JSON.stringify(pierreJobMessages[1])).toContain('fresh head');
 	});
 
+	test('refreshes visible Review demand after source update changes only descriptor byte bounds', async () => {
+		const clockMs = 0;
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const baseDescriptor = makeInexactContentRequestDescriptor({
+			generation: 4,
+			itemId: 'item-1',
+			role: 'base',
+			text: 'same base',
+		});
+		const headDescriptor = makeInexactContentRequestDescriptor({
+			generation: 4,
+			itemId: 'item-1',
+			role: 'head',
+			text: 'same head',
+		});
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
+			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+			contentRequestDescriptors: [baseDescriptor, headDescriptor],
+			createSequence: createBridgeWorkerSequenceCounter(801),
+			fetchContent: (url: string): Promise<Response> => {
+				const descriptor = descriptorByUrl.get(url);
+				if (descriptor === undefined) {
+					throw new Error(`Unexpected review content URL ${url}.`);
+				}
+				return Promise.resolve(makeImmediateTextResponse(descriptor.text));
+			},
+			pump: createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => clockMs }),
+			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				requestId: 'request-visible-before-byte-bound-source-update',
+				epoch: 5,
+				visibleItemIds: ['item-1'],
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+			}),
+		);
+		const firstDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
+		await firstDrain;
+		expect(
+			postedMessages.filter((postedMessage) => postedMessage.message.kind === 'pierreRenderJob'),
+		).toHaveLength(1);
+
+		dispatch.message(
+			encodeBridgeWorkerReviewSourceUpdateCommand({
+				requestId: 'request-byte-bound-only-source-update',
+				epoch: 6,
+				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+				contentRequestDescriptors: [
+					{
+						...baseDescriptor,
+						expectedBytes: 9,
+						maxBytes: 9,
+					},
+					{
+						...headDescriptor,
+						expectedBytes: 9,
+						maxBytes: 9,
+					},
+				],
+				renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+				rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+		const refreshDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[3])();
+		await refreshDrain;
+
+		const pierreJobMessages = postedMessages.flatMap((postedMessage) =>
+			postedMessage.message.kind === 'pierreRenderJob' ? [postedMessage.message] : [],
+		);
+		expect(pierreJobMessages).toHaveLength(2);
+	});
+
 	test('keeps source-update rerun sticky when viewport arrives before stale in-flight completion', async () => {
 		const clockMs = 0;
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
@@ -129,7 +218,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
 			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
 			contentRequestDescriptors: [
-				makeContentRequestDescriptor({
+				makeInexactContentRequestDescriptor({
 					generation: 4,
 					itemId: 'item-1',
 					role: 'base',
@@ -268,7 +357,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
 			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
 			contentRequestDescriptors: [
-				makeContentRequestDescriptor({
+				makeInexactContentRequestDescriptor({
 					generation: 4,
 					itemId: 'item-1',
 					role: 'base',
@@ -561,8 +650,12 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 				],
 			}),
 		);
-		for (const deferredResponse of deferredResponsesByUrl.values()) {
-			deferredResponse.resolve('old body');
+		for (const [url, deferredResponse] of deferredResponsesByUrl) {
+			const descriptor = descriptorByUrl.get(url);
+			if (descriptor === undefined) {
+				throw new Error(`Unexpected review content URL ${url}.`);
+			}
+			deferredResponse.resolve(descriptor.text);
 		}
 		await flushBridgeWorkerRuntimeContinuations();
 		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
@@ -599,13 +692,13 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
 			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
 			contentRequestDescriptors: [
-				makeContentRequestDescriptor({
+				makeInexactContentRequestDescriptor({
 					generation: 4,
 					itemId: 'item-1',
 					role: 'base',
 					text: 'old base',
 				}),
-				makeContentRequestDescriptor({
+				makeInexactContentRequestDescriptor({
 					generation: 4,
 					itemId: 'item-1',
 					role: 'head',
@@ -657,8 +750,8 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 				scope: 'items',
 			}),
 		);
-		for (const deferredResponse of deferredResponsesByUrl.values()) {
-			deferredResponse.resolve('old body');
+		for (const [url, deferredResponse] of deferredResponsesByUrl) {
+			deferredResponse.resolve(url.includes('-base?') ? 'old base' : 'old head');
 		}
 		await flushBridgeWorkerRuntimeContinuations();
 		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
@@ -671,11 +764,20 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 		const rerunDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(deferredResponsesByUrl.size).toBe(2);
-		for (const deferredResponse of deferredResponsesByUrl.values()) {
-			deferredResponse.resolve('fresh body');
+		for (const [url, deferredResponse] of deferredResponsesByUrl) {
+			deferredResponse.resolve(url.includes('-base?') ? 'fresh base' : 'fresh body');
 		}
 		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[3])();
+		await drainBridgeWorkerVisibleDemandRuntimeUntil({
+			hasExpectedEvent: () =>
+				postedMessages.some(
+					(postedMessage) =>
+						postedMessage.message.kind === 'pierreRenderJob' &&
+						JSON.stringify(postedMessage.message).includes('fresh body'),
+				),
+			scheduledDrains,
+			startIndex: 3,
+		});
 		await rerunDrain;
 
 		const pierreJobMessages = postedMessages.flatMap((postedMessage) =>
@@ -723,4 +825,15 @@ async function waitBridgeWorkerVisibleDemandRuntimeTaskBoundary(): Promise<void>
 	await new Promise<void>((resolve) => {
 		setTimeout(resolve, 0);
 	});
+}
+
+function makeInexactContentRequestDescriptor(
+	props: Parameters<typeof makeContentRequestDescriptor>[0],
+): ReturnType<typeof makeContentRequestDescriptor> {
+	const descriptor = makeContentRequestDescriptor(props);
+	return {
+		...descriptor,
+		expectedBytes: undefined,
+		maxBytes: 512 * 1024,
+	};
 }

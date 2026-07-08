@@ -542,6 +542,45 @@ describe('Bridge app review render snapshot controller', () => {
 		expect(bridgeCommWorkerContentRequestDescriptorsFromReviewPackage(null)).toEqual([]);
 	});
 
+	test('preserves inexact review handle byte caps in worker request descriptors', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const sourceItem = reviewPackage.itemsById['item-source'];
+		const baseHandle = sourceItem?.contentRoles.base ?? null;
+		if (sourceItem === undefined || baseHandle === null) {
+			throw new Error('Expected fixture review package to include base content');
+		}
+		const packageWithInexactBase = {
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				[sourceItem.itemId]: {
+					...sourceItem,
+					contentRoles: {
+						...sourceItem.contentRoles,
+						base: {
+							...baseHandle,
+							sizeBytes: 4,
+							sizeBytesIsExact: false,
+							maxBytes: 64,
+						},
+					},
+				},
+			},
+		};
+
+		const requestDescriptors =
+			bridgeCommWorkerContentRequestDescriptorsFromReviewPackage(packageWithInexactBase);
+		const baseDescriptor = requestDescriptors.find((descriptor) => descriptor.role === 'base');
+
+		expect(baseDescriptor).toMatchObject({
+			itemId: 'item-source',
+			role: 'base',
+			sizeBytes: 4,
+			maxBytes: 64,
+		});
+		expect(baseDescriptor).not.toHaveProperty('expectedBytes');
+	});
+
 	test('maps review package items into worker render semantics without content handles', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 

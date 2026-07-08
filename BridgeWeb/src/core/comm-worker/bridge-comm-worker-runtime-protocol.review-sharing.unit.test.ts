@@ -129,6 +129,8 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 				text: 'oversized base',
 			}),
 			sizeBytes: 4,
+			expectedBytes: 4,
+			maxBytes: 4,
 		};
 		const headDescriptor = {
 			...makeContentRequestDescriptor({
@@ -138,6 +140,8 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 				text: 'oversized head',
 			}),
 			sizeBytes: 4,
+			expectedBytes: 4,
+			maxBytes: 4,
 		};
 		let arrayBufferCallCount = 0;
 
@@ -222,7 +226,7 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 		).toBe(true);
 	});
 
-	test('does not share in-flight Review resources across changed descriptor identity', async () => {
+	test('does not share in-flight Review resources across changed descriptor byte bounds', async () => {
 		const clockMs = 0;
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
@@ -242,8 +246,8 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 		});
 		const updatedHeadDescriptor = {
 			...firstHeadDescriptor,
-			contentHash: 'sha256:item-1:head:updated-same-url',
-			sizeBytes: firstHeadDescriptor.sizeBytes + 1,
+			expectedBytes: undefined,
+			maxBytes: 64,
 		};
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
@@ -286,7 +290,7 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 
 		dispatch.message(
 			encodeBridgeWorkerReviewSourceUpdateCommand({
-				requestId: 'request-descriptor-identity-change-same-url',
+				requestId: 'request-descriptor-byte-bounds-change-same-url',
 				epoch: 6,
 				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
 				contentRequestDescriptors: [baseDescriptor, updatedHeadDescriptor],
@@ -297,7 +301,7 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 		dispatch.message(
 			encodeBridgeWorkerSelectCommand({
-				requestId: 'request-select-after-descriptor-identity-change',
+				requestId: 'request-select-after-descriptor-byte-bounds-change',
 				epoch: 7,
 				selectedItemId: 'item-1',
 				selectedSource: 'user',
@@ -309,8 +313,8 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 		expect(fetchCallsByUrl.get(baseDescriptor.resourceUrl)).toBe(1);
 		expect(fetchCallsByUrl.get(firstHeadDescriptor.resourceUrl)).toBe(2);
 
-		deferredResponsesByFetchCall[0]?.resolve('let baseValue = 0;\n');
-		deferredResponsesByFetchCall[1]?.resolve('let staleHeadValue = 1;\n');
+		deferredResponsesByFetchCall[0]?.resolve('base content');
+		deferredResponsesByFetchCall[1]?.resolve('first content');
 		deferredResponsesByFetchCall[2]?.resolve('let updatedHeadValue = 2;\n');
 		await flushBridgeWorkerRuntimeContinuations();
 		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
@@ -321,7 +325,5 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 			postedMessage.message.kind === 'pierreRenderJob' ? [postedMessage.message] : [],
 		);
 		expect(pierreJobMessages).toHaveLength(1);
-		expect(pierreJobMessages[0]?.job.contentHash).toContain(updatedHeadDescriptor.contentHash);
-		expect(pierreJobMessages[0]?.job.contentHash).not.toContain(firstHeadDescriptor.contentHash);
 	});
 });

@@ -29,6 +29,34 @@ describe('Bridge worker review content fetch', () => {
 		expect(new TextDecoder().decode(result.textBytes)).toBe('hello bridge worker');
 	});
 
+	test('uses descriptor max bytes instead of display size for inexact review content', async () => {
+		const result = await fetchBridgeWorkerReviewContentResource({
+			descriptor: {
+				...makeContentRequestDescriptor(),
+				sizeBytes: 4,
+				maxBytes: 64,
+			},
+			fetchContent: async (): Promise<Response> => new Response('hello bridge worker'),
+		});
+
+		expect(result.byteLength).toBe(19);
+		expect(result.text).toBe('hello bridge worker');
+	});
+
+	test('rejects exact review content when streamed byte length differs from expected bytes', async () => {
+		await expect(
+			fetchBridgeWorkerReviewContentResource({
+				descriptor: {
+					...makeContentRequestDescriptor(),
+					sizeBytes: 0,
+					expectedBytes: 0,
+					maxBytes: 1,
+				},
+				fetchContent: async (): Promise<Response> => new Response('x'),
+			}),
+		).rejects.toThrow(/expected 0 bytes/i);
+	});
+
 	test('rejects stale or mismatched descriptor resource urls before fetch', async () => {
 		const fetchCalls: string[] = [];
 
@@ -71,6 +99,7 @@ function makeContentRequestDescriptor(): BridgeWorkerReviewContentRequestDescrip
 		contentHashAlgorithm: 'fixture-preview',
 		language: 'swift',
 		sizeBytes: 1024,
+		maxBytes: 1024,
 		isBinary: false,
 	};
 }

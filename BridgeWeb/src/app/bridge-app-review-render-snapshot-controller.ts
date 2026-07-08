@@ -59,6 +59,7 @@ import {
 	createBridgeReviewCommWorkerTransportDispatcher,
 	type BridgeReviewCommWorkerTransportDispatcher,
 } from '../review-viewer/workers/shared-rpc/bridge-comm-worker-transport.js';
+import { bridgeReviewContentByteBoundsForHandle } from './bridge-review-content-byte-budget.js';
 
 export interface UseBridgeReviewRenderSnapshotControllerProps {
 	readonly panelChromeSlice: BridgeReviewPanelChromeSlice;
@@ -621,6 +622,7 @@ function contentRequestDescriptorsForReviewItem(
 function bridgeWorkerReviewContentRequestDescriptorFromHandle(
 	handle: BridgeContentHandle,
 ): BridgeWorkerReviewContentRequestDescriptor {
+	const byteBounds = bridgeReviewContentByteBoundsForHandle(handle);
 	return bridgeWorkerReviewContentRequestDescriptorSchema.parse({
 		itemId: handle.itemId,
 		role: handle.role,
@@ -631,6 +633,8 @@ function bridgeWorkerReviewContentRequestDescriptorFromHandle(
 		contentHashAlgorithm: handle.contentHashAlgorithm,
 		language: handle.language ?? null,
 		sizeBytes: handle.sizeBytes,
+		...(byteBounds.expectedBytes === undefined ? {} : { expectedBytes: byteBounds.expectedBytes }),
+		maxBytes: byteBounds.maxBytes,
 		isBinary: handle.isBinary,
 	});
 }

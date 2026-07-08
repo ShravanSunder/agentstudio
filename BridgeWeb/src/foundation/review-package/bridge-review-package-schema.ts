@@ -71,6 +71,8 @@ export const bridgeContentHandleSchema = z
 		mimeType: z.string(),
 		language: z.string().nullable().optional(),
 		sizeBytes: z.number().int().nonnegative(),
+		sizeBytesIsExact: z.boolean().optional(),
+		maxBytes: z.number().int().positive().optional(),
 		isBinary: z.boolean(),
 	})
 	.strict();

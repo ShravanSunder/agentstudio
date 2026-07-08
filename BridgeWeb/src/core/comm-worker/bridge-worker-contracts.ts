@@ -147,7 +147,7 @@ export const bridgeWorkerReviewContentMetadataSchema = z
 	})
 	.strict();
 
-export const bridgeWorkerReviewContentRequestDescriptorSchema = z
+const bridgeWorkerReviewContentRequestDescriptorBaseSchema = z
 	.object({
 		itemId: z.string().min(1),
 		role: bridgeContentRoleSchema,
@@ -158,9 +158,20 @@ export const bridgeWorkerReviewContentRequestDescriptorSchema = z
 		contentHashAlgorithm: z.string().min(1),
 		language: z.string().nullable(),
 		sizeBytes: z.number().int().nonnegative(),
+		expectedBytes: z.number().int().nonnegative().optional(),
+		maxBytes: z.number().int().positive(),
 		isBinary: z.boolean(),
 	})
 	.strict();
+
+type BridgeWorkerReviewContentRequestDescriptorDraft = z.infer<
+	typeof bridgeWorkerReviewContentRequestDescriptorBaseSchema
+>;
+
+export const bridgeWorkerReviewContentRequestDescriptorSchema =
+	bridgeWorkerReviewContentRequestDescriptorBaseSchema.superRefine(
+		validateBridgeWorkerReviewContentRequestDescriptor,
+	);
 
 export const bridgeWorkerReviewRenderSemanticsSchema = z
 	.object({
@@ -356,6 +367,29 @@ function validateBridgeWorkerFileViewDescriptorMatchesMetadata(props: {
 		message: `File View descriptor ${props.descriptor.itemId} does not match metadata fields: ${mismatchedFields.join(', ')}.`,
 		path: ['contentRequestDescriptors'],
 	});
+}
+
+function validateBridgeWorkerReviewContentRequestDescriptor(
+	descriptor: BridgeWorkerReviewContentRequestDescriptorDraft,
+	context: z.RefinementCtx,
+): void {
+	if (descriptor.expectedBytes !== undefined && descriptor.expectedBytes !== descriptor.sizeBytes) {
+		context.addIssue({
+			code: z.ZodIssueCode.custom,
+			message: `Review content request descriptor ${descriptor.itemId} expectedBytes must match sizeBytes when present.`,
+			path: ['expectedBytes'],
+		});
+	}
+	if (
+		descriptor.expectedBytes !== undefined &&
+		descriptor.maxBytes < Math.max(descriptor.expectedBytes, 1)
+	) {
+		context.addIssue({
+			code: z.ZodIssueCode.custom,
+			message: `Review content request descriptor ${descriptor.itemId} maxBytes must cover expectedBytes.`,
+			path: ['maxBytes'],
+		});
+	}
 }
 
 function validateBridgeWorkerFileViewContentRequestDescriptor(

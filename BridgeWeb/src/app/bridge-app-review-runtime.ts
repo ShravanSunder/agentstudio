@@ -14,30 +14,10 @@ import {
 	type BridgeReviewViewerStore,
 } from '../review-viewer/state/review-viewer-store.js';
 import { bridgeReviewAllowedResourceKindsByProtocol } from './bridge-app-review-descriptors.js';
-
-const bridgeReviewContentMaxBytesPerRole = 50 * 1024 * 1024;
-const bridgeReviewContentMaxRolesPerItem = 2;
-
-export interface BridgeReviewContentDemandByteBudget {
-	readonly maxContentBytesPerRole: number;
-	readonly maxContentRolesPerItem: number;
-	readonly bodyRegistryMaxBytes: number;
-	readonly resourceExecutorMaxInFlightBytes: number;
-	readonly resourceExecutorMaxQueuedBytes: number;
-	readonly demandMaxQueuedEstimatedBytes: number;
-}
-
-export const bridgeReviewContentDemandByteBudget: BridgeReviewContentDemandByteBudget = {
-	maxContentBytesPerRole: bridgeReviewContentMaxBytesPerRole,
-	maxContentRolesPerItem: bridgeReviewContentMaxRolesPerItem,
-	bodyRegistryMaxBytes: bridgeReviewContentMaxBytesPerRole,
-	resourceExecutorMaxInFlightBytes:
-		bridgeReviewContentMaxBytesPerRole * bridgeReviewContentMaxRolesPerItem,
-	resourceExecutorMaxQueuedBytes:
-		bridgeReviewContentMaxBytesPerRole * bridgeReviewContentMaxRolesPerItem,
-	demandMaxQueuedEstimatedBytes:
-		bridgeReviewContentMaxBytesPerRole * bridgeReviewContentMaxRolesPerItem,
-};
+export {
+	bridgeReviewContentDemandByteBudget,
+	type BridgeReviewContentDemandByteBudget,
+} from './bridge-review-content-byte-budget.js';
 
 export const foregroundSelectionVisibleHydrationReleaseDelayMilliseconds = 180;
 export const bridgeReviewIntakeMaxFrameBytes = 1024 * 1024;

@@ -409,6 +409,8 @@ function sharedBridgeWorkerReviewContentResourceKey(
 		descriptor.contentHash,
 		descriptor.language ?? '',
 		descriptor.sizeBytes,
+		descriptor.expectedBytes ?? '',
+		descriptor.maxBytes,
 		descriptor.isBinary,
 	].join('\u0000');
 }

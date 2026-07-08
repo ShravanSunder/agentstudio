@@ -1,7 +1,10 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import { createBridgeResourceDescriptorRegistry } from '../core/resources/bridge-resource-registry.js';
-import type { ReviewMaterializerDelta } from '../features/review/materialization/review-materializer.js';
+import {
+	applyValidatedReviewProtocolFrame,
+	type ReviewMaterializerDelta,
+} from '../features/review/materialization/review-materializer.js';
 import type {
 	ReviewInvalidationFrame,
 	ReviewTreeRowMetadata,
@@ -13,6 +16,7 @@ import {
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import { makeBridgeViewerBrowserFixture } from '../review-viewer/test-support/bridge-viewer-mocked-backend.js';
 import { applyReviewProtocolTransportFrame } from './bridge-app-review-controller.js';
+import { bridgeReviewPackageFromMetadataSnapshot } from './bridge-app-review-metadata-package.js';
 import {
 	applyReviewMetadataDeltaToReviewPackage,
 	contentDemandResourceUrl,
@@ -418,7 +422,7 @@ describe('BridgeApp review metadata delta materialization', () => {
 			reviewPackage,
 			contentByteBounds: {
 				expectedBytes: undefined,
-				maxBytes: 50 * 1024 * 1024,
+				maxBytes: 4 * 1024 * 1024,
 			},
 		});
 		const headDescriptor = makeReviewAttachedContentDescriptor({
@@ -443,12 +447,29 @@ describe('BridgeApp review metadata delta materialization', () => {
 				reviewFrameAuthority,
 				reviewPackage,
 			}),
+		).toBe(false);
+		const materializeResult = applyValidatedReviewProtocolFrame({
+			frame,
+			paneId: reviewFrameAuthority.paneId,
+			registry: descriptorRegistry,
+		});
+		if (!materializeResult.ok || materializeResult.delta.kind !== 'metadataSnapshot') {
+			throw new Error('Expected metadata snapshot to materialize');
+		}
+		const materializedPackage = bridgeReviewPackageFromMetadataSnapshot(materializeResult.delta);
+
+		expect(
+			reviewSnapshotFrameDescriptorsMatchPackage({
+				frame,
+				reviewFrameAuthority,
+				reviewPackage: materializedPackage,
+			}),
 		).toBe(true);
 		const descriptorRefsByHandleId = reviewSnapshotDescriptorRefsByHandleIdForPackage({
 			descriptorRegistry,
 			frame,
 			reviewFrameAuthority,
-			reviewPackage,
+			reviewPackage: materializedPackage,
 		});
 		if (descriptorRefsByHandleId === null) {
 			throw new Error('Expected native descriptor refs to register');
@@ -462,9 +483,141 @@ describe('BridgeApp review metadata delta materialization', () => {
 		const registeredHeadDescriptor = descriptorRegistry.lookup(headDescriptorRef);
 
 		expect(registeredBaseDescriptor?.content.expectedBytes).toBeUndefined();
-		expect(registeredBaseDescriptor?.content.maxBytes).toBe(50 * 1024 * 1024);
+		expect(registeredBaseDescriptor?.content.maxBytes).toBe(4 * 1024 * 1024);
 		expect(registeredHeadDescriptor?.content.expectedBytes).toBe(headHandle.sizeBytes);
 		expect(registeredHeadDescriptor?.content.maxBytes).toBe(headHandle.sizeBytes);
+	});
+
+	test('materializes inexact native descriptor byte bounds into review package handles', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const reviewFrameAuthority: BridgeReviewFrameAuthority = {
+			paneId: 'pane-1',
+			streamId: 'review:pane-1',
+		};
+		const item = reviewPackage.itemsById['item-source'];
+		const baseHandle = item?.contentRoles.base ?? null;
+		const headHandle = item?.contentRoles.head ?? null;
+		if (baseHandle === null || headHandle === null) {
+			throw new Error('Expected fixture review package to include modified base/head content');
+		}
+		const frame = makeReviewMetadataSnapshotFrame({
+			contentDescriptors: [
+				makeReviewAttachedContentDescriptor({
+					handle: baseHandle,
+					reviewFrameAuthority,
+					reviewPackage,
+					contentByteBounds: {
+						expectedBytes: undefined,
+						maxBytes: 64,
+					},
+				}),
+				makeReviewAttachedContentDescriptor({
+					handle: headHandle,
+					reviewFrameAuthority,
+					reviewPackage,
+				}),
+			],
+			reviewFrameAuthority,
+			reviewPackage,
+		});
+		const materializeResult = applyValidatedReviewProtocolFrame({
+			frame,
+			paneId: reviewFrameAuthority.paneId,
+			registry: createBridgeResourceDescriptorRegistry({
+				allowedResourceKindsByProtocol: {
+					review: new Set(['content']),
+				},
+			}),
+		});
+		if (!materializeResult.ok || materializeResult.delta.kind !== 'metadataSnapshot') {
+			throw new Error('Expected metadata snapshot to materialize');
+		}
+
+		const materializedPackage = bridgeReviewPackageFromMetadataSnapshot(materializeResult.delta);
+		const materializedBaseHandle =
+			materializedPackage.itemsById['item-source']?.contentRoles.base ?? null;
+
+		expect(materializedBaseHandle).toMatchObject({
+			handleId: baseHandle.handleId,
+			sizeBytes: 0,
+			sizeBytesIsExact: false,
+			maxBytes: 64,
+		});
+	});
+
+	test('rejects same-revision inexact descriptor reannounces with stale max bytes', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const reviewFrameAuthority: BridgeReviewFrameAuthority = {
+			paneId: 'pane-1',
+			streamId: 'review:pane-1',
+		};
+		const item = reviewPackage.itemsById['item-source'];
+		const baseHandle = item?.contentRoles.base ?? null;
+		const headHandle = item?.contentRoles.head ?? null;
+		if (baseHandle === null || headHandle === null) {
+			throw new Error('Expected fixture review package to include modified base/head content');
+		}
+		const frame = makeReviewMetadataSnapshotFrame({
+			contentDescriptors: [
+				makeReviewAttachedContentDescriptor({
+					handle: baseHandle,
+					reviewFrameAuthority,
+					reviewPackage,
+					contentByteBounds: {
+						expectedBytes: undefined,
+						maxBytes: 64,
+					},
+				}),
+				makeReviewAttachedContentDescriptor({
+					handle: headHandle,
+					reviewFrameAuthority,
+					reviewPackage,
+				}),
+			],
+			reviewFrameAuthority,
+			reviewPackage,
+		});
+		const materializeResult = applyValidatedReviewProtocolFrame({
+			frame,
+			paneId: reviewFrameAuthority.paneId,
+			registry: createBridgeResourceDescriptorRegistry({
+				allowedResourceKindsByProtocol: {
+					review: new Set(['content']),
+				},
+			}),
+		});
+		if (!materializeResult.ok || materializeResult.delta.kind !== 'metadataSnapshot') {
+			throw new Error('Expected metadata snapshot to materialize');
+		}
+		const materializedPackage = bridgeReviewPackageFromMetadataSnapshot(materializeResult.delta);
+		const staleCapFrame = makeReviewMetadataSnapshotFrame({
+			contentDescriptors: [
+				makeReviewAttachedContentDescriptor({
+					handle: baseHandle,
+					reviewFrameAuthority,
+					reviewPackage,
+					contentByteBounds: {
+						expectedBytes: undefined,
+						maxBytes: 128,
+					},
+				}),
+				makeReviewAttachedContentDescriptor({
+					handle: headHandle,
+					reviewFrameAuthority,
+					reviewPackage,
+				}),
+			],
+			reviewFrameAuthority,
+			reviewPackage: materializedPackage,
+		});
+
+		expect(
+			reviewSnapshotFrameDescriptorsMatchPackage({
+				frame: staleCapFrame,
+				reviewFrameAuthority,
+				reviewPackage: materializedPackage,
+			}),
+		).toBe(false);
 	});
 
 	test('preserves authoritative review summary totals while applying streamed metadata deltas', () => {

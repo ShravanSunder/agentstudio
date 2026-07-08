@@ -196,6 +196,8 @@ describe('BridgeWorkerContracts', () => {
 			contentHashAlgorithm: handle?.contentHashAlgorithm ?? 'fixture-preview',
 			language: handle?.language ?? null,
 			sizeBytes: handle?.sizeBytes ?? 0,
+			expectedBytes: handle?.sizeBytes ?? 0,
+			maxBytes: handle?.sizeBytes ?? 1,
 			isBinary: handle?.isBinary ?? false,
 		} satisfies BridgeWorkerReviewContentRequestDescriptor;
 
@@ -204,10 +206,39 @@ describe('BridgeWorkerContracts', () => {
 			/"contentRoles"|endpointId|itemsById|"cacheKey"|mimeType/i,
 		);
 		expect(descriptor.resourceUrl).toMatch(/^agentstudio:\/\//);
+		const inexactDescriptor = {
+			...descriptor,
+			sizeBytes: 80,
+			expectedBytes: undefined,
+			maxBytes: 64,
+		} satisfies BridgeWorkerReviewContentRequestDescriptor;
+		expect(bridgeWorkerReviewContentRequestDescriptorSchema.parse(inexactDescriptor)).toEqual(
+			inexactDescriptor,
+		);
 		expect(
 			bridgeWorkerReviewContentRequestDescriptorSchema.safeParse({
 				...descriptor,
 				endpointId: 'endpoint-head',
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeWorkerReviewContentRequestDescriptorSchema.safeParse({
+				...descriptor,
+				expectedBytes: descriptor.sizeBytes,
+				maxBytes: 0,
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeWorkerReviewContentRequestDescriptorSchema.safeParse({
+				...descriptor,
+				expectedBytes: descriptor.sizeBytes + 1,
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeWorkerReviewContentRequestDescriptorSchema.safeParse({
+				...descriptor,
+				expectedBytes: descriptor.sizeBytes,
+				maxBytes: descriptor.sizeBytes - 1,
 			}).success,
 		).toBe(false);
 	});

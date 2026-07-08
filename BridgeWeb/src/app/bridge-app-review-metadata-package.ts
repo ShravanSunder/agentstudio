@@ -773,6 +773,7 @@ function metadataContentHandleForRole(props: {
 		return null;
 	}
 	const descriptor = attachedDescriptor.descriptor;
+	const expectedBytes = descriptor.content.expectedBytes;
 	const integrity = descriptor.content.integrity;
 	const contentHash =
 		integrity?.kind === 'wholeHash'
@@ -793,7 +794,9 @@ function metadataContentHandleForRole(props: {
 		cacheKey: `metadata:${props.item.itemId}:${props.role}:${props.metadataFrame.revision}`,
 		mimeType: descriptor.content.mediaType,
 		language: props.item.language,
-		sizeBytes: descriptor.content.expectedBytes ?? 0,
+		sizeBytes: expectedBytes ?? 0,
+		sizeBytesIsExact: expectedBytes !== undefined,
+		maxBytes: descriptor.content.maxBytes,
 		isBinary: descriptor.content.encoding === 'binary',
 	};
 }
