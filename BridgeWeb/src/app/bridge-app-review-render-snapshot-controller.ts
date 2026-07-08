@@ -2,6 +2,7 @@ import type { MutableRefObject } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 
 import {
+	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerReviewInvalidateCommand,
 	encodeBridgeWorkerReviewSourceUpdateCommand,
 	encodeBridgeWorkerSelectCommand,
@@ -72,6 +73,7 @@ export interface UseBridgeReviewRenderSnapshotControllerProps {
 
 export interface BridgeReviewRenderSnapshotController {
 	readonly invalidateReviewContent: (frame: ReviewInvalidationFrame) => void;
+	readonly markFileViewed: (itemId: string, onDeliveryFailure?: () => void) => boolean;
 	readonly rootSnapshot: BridgeReviewViewerRootSnapshot;
 	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null;
 	readonly selectedContentAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
@@ -143,9 +145,14 @@ export function useBridgeReviewRenderSnapshotController(
 	selectionSliceRef.current = selectionSlice;
 	const viewportSliceRef = useRef(viewportSlice);
 	viewportSliceRef.current = viewportSlice;
+	const markFileViewedFailureCallbacksRef = useRef<Map<string, () => void>>(new Map());
 
 	const publishWorkerMessages = useCallback(
 		(messages: readonly BridgeWorkerServerToMainMessage[]): void => {
+			resolveBridgeWorkerMarkFileViewedFailureCallbacks({
+				failureCallbacksByRequestId: markFileViewedFailureCallbacksRef.current,
+				messages,
+			});
 			applyBridgeWorkerMessagesToMainRenderSnapshotStore({
 				messages,
 				pierreCourier,
@@ -244,6 +251,27 @@ export function useBridgeReviewRenderSnapshotController(
 		},
 		[renderSnapshotStore, runtimeDispatcher, synchronizeLatestReviewSource],
 	);
+	const markFileViewed = useCallback(
+		(itemId: string, onDeliveryFailure?: () => void): boolean => {
+			if (props.reviewPackage === null || !(itemId in props.reviewPackage.itemsById)) {
+				return false;
+			}
+			const requestId = nextBridgeReviewWorkerRequestId(requestSequenceRef);
+			if (onDeliveryFailure !== undefined) {
+				markFileViewedFailureCallbacksRef.current.set(requestId, onDeliveryFailure);
+			}
+			synchronizeLatestReviewSource();
+			runtimeDispatcher.dispatch(
+				encodeBridgeWorkerMarkFileViewedCommand({
+					requestId,
+					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
+					fileId: itemId,
+				}),
+			);
+			return true;
+		},
+		[props.reviewPackage, runtimeDispatcher, synchronizeLatestReviewSource],
+	);
 	const setReviewViewportItemIds = useCallback(
 		(itemIds: readonly string[]): void => {
 			synchronizeLatestReviewSource();
@@ -287,6 +315,7 @@ export function useBridgeReviewRenderSnapshotController(
 	);
 	return {
 		invalidateReviewContent,
+		markFileViewed,
 		rootSnapshot,
 		selectedCodeViewItem,
 		selectedContentAvailability,
@@ -667,6 +696,25 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 				break;
 			default:
 				assertNeverBridgeWorkerServerMessage(message);
+		}
+	}
+}
+
+export function resolveBridgeWorkerMarkFileViewedFailureCallbacks(props: {
+	readonly failureCallbacksByRequestId: Map<string, () => void>;
+	readonly messages: readonly BridgeWorkerServerToMainMessage[];
+}): void {
+	for (const message of props.messages) {
+		if (message.kind !== 'health' || message.requestId === undefined) {
+			continue;
+		}
+		const onDeliveryFailure = props.failureCallbacksByRequestId.get(message.requestId);
+		if (onDeliveryFailure === undefined) {
+			continue;
+		}
+		props.failureCallbacksByRequestId.delete(message.requestId);
+		if (message.status === 'degraded') {
+			onDeliveryFailure();
 		}
 	}
 }

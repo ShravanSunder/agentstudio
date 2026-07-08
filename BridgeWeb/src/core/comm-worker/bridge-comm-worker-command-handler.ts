@@ -238,8 +238,9 @@ function handleBridgeWorkerCommand(
 				fileViewRuntimeSource: props.fileViewRuntimeSource,
 				updateFileViewRuntimeSource: props.updateFileViewRuntimeSource,
 			});
-		case 'hover':
 		case 'markFileViewed':
+			return [buildBridgeWorkerReadyHealthEvent(props.message.requestId)];
+		case 'hover':
 		case 'mode':
 			return [buildBridgeWorkerUnimplementedHealthEvent(props.message)];
 		default:

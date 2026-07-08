@@ -376,14 +376,6 @@ describe('Bridge comm worker command handler', () => {
 				}),
 			),
 			handler.handleMessage(
-				encodeBridgeWorkerMarkFileViewedCommand({
-					requestId: 'request-mark-viewed',
-					epoch: 1,
-					filePathHash: 'file-hash',
-					viewedAtSequence: 5,
-				}),
-			),
-			handler.handleMessage(
 				encodeBridgeWorkerModeCommand({
 					requestId: 'request-mode',
 					epoch: 1,
@@ -410,22 +402,39 @@ describe('Bridge comm worker command handler', () => {
 					direction: 'serverWorkerToMain',
 					transferDescriptors: [],
 					kind: 'health',
-					requestId: 'request-mark-viewed',
-					status: 'degraded',
-					message: 'Bridge comm worker command markFileViewed is not implemented.',
-				},
-			],
-			[
-				{
-					wireVersion: 1,
-					direction: 'serverWorkerToMain',
-					transferDescriptors: [],
-					kind: 'health',
 					requestId: 'request-mode',
 					status: 'degraded',
 					message: 'Bridge comm worker command mode is not implemented.',
 				},
 			],
+		]);
+	});
+
+	test('markFileViewed commands are accepted as worker-owned ordinary RPC intents', () => {
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [makeWorkerReviewContentMetadata('item-1')],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
+		});
+
+		const messages = handler.handleMessage(
+			encodeBridgeWorkerMarkFileViewedCommand({
+				requestId: 'request-mark-viewed',
+				epoch: 1,
+				fileId: 'item-1',
+			}),
+		);
+
+		expect(messages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
+				kind: 'health',
+				requestId: 'request-mark-viewed',
+				status: 'ready',
+			},
 		]);
 	});
 

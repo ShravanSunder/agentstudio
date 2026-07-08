@@ -1,3 +1,4 @@
+import { sendBridgeRPCRequest, type BridgeRPCCommand } from '../../bridge/bridge-rpc-client.js';
 import { bridgeContentDemandExecutionPolicy } from '../demand/bridge-content-demand-policy.js';
 import {
 	createBridgeCommWorkerCommandHandler,
@@ -72,10 +73,13 @@ export interface RegisterBridgeCommWorkerRuntimePortProtocolProps {
 	readonly renderSemantics: readonly BridgeWorkerReviewRenderSemantics[];
 	readonly rows: readonly BridgeCommWorkerRow[];
 	readonly schedulePreparationDrain?: (drain: BridgeCommWorkerPreparationDrain) => void;
+	readonly sendSchemeRpcCommand?: BridgeCommWorkerSchemeRpcCommandSender;
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
 }
 
 const bridgeCommWorkerReviewSourceResetChunkItemCount = 64;
+
+export type BridgeCommWorkerSchemeRpcCommandSender = (command: BridgeRPCCommand) => Promise<void>;
 
 export function registerBridgeCommWorkerRuntimePortProtocol(
 	port: BridgeCommWorkerPort,
@@ -91,6 +95,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		});
 	const schedulePreparationDrain =
 		props.schedulePreparationDrain ?? scheduleDefaultBridgeCommWorkerPreparationDrain;
+	const sendSchemeRpcCommand = props.sendSchemeRpcCommand ?? sendBridgeCommWorkerSchemeRpcCommand;
 	const preparationCompletions: Promise<void>[] = [];
 	let drainScheduled = false;
 	let shouldRequestDrainAfterMessage = false;
@@ -342,14 +347,80 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			taskKind: 'message_handler',
 			...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 		});
-		for (const message of messages) {
+		const markFileViewedMessage =
+			parsedMessage.data.command === 'markFileViewed' ? parsedMessage.data : null;
+		const shouldForwardMarkFileViewed =
+			markFileViewedMessage !== null &&
+			bridgeWorkerRuntimeMessagesContainReadyRequest({
+				messages,
+				requestId: markFileViewedMessage.requestId,
+			});
+		const immediateMessages = shouldForwardMarkFileViewed
+			? messages.filter(
+					(message): boolean =>
+						!bridgeWorkerRuntimeMessageIsReadyRequest({
+							message,
+							requestId: markFileViewedMessage.requestId,
+						}),
+				)
+			: messages;
+		for (const message of immediateMessages) {
 			port.postMessage(message);
+		}
+		if (markFileViewedMessage !== null && shouldForwardMarkFileViewed) {
+			void sendSchemeRpcCommand({
+				method: 'review.markFileViewed',
+				params: { fileId: markFileViewedMessage.fileId },
+			})
+				.then((): void => {
+					for (const message of messages) {
+						if (
+							bridgeWorkerRuntimeMessageIsReadyRequest({
+								message,
+								requestId: markFileViewedMessage.requestId,
+							})
+						) {
+							port.postMessage(message);
+						}
+					}
+				})
+				.catch((): void => {
+					port.postMessage(
+						buildBridgeWorkerRuntimeCommandFailedHealthEvent({
+							requestId: markFileViewedMessage.requestId,
+							message: 'Bridge comm worker failed to forward review.markFileViewed.',
+						}),
+					);
+				});
 		}
 		if (shouldRequestDrainAfterMessage) {
 			requestPreparationDrain();
 		}
 	});
 	port.start?.();
+}
+
+function bridgeWorkerRuntimeMessagesContainReadyRequest(props: {
+	readonly messages: readonly BridgeWorkerServerToMainMessage[];
+	readonly requestId: string;
+}): boolean {
+	return props.messages.some((message): boolean =>
+		bridgeWorkerRuntimeMessageIsReadyRequest({
+			message,
+			requestId: props.requestId,
+		}),
+	);
+}
+
+function bridgeWorkerRuntimeMessageIsReadyRequest(props: {
+	readonly message: BridgeWorkerServerToMainMessage;
+	readonly requestId: string;
+}): boolean {
+	return (
+		props.message.kind === 'health' &&
+		props.message.requestId === props.requestId &&
+		props.message.status === 'ready'
+	);
 }
 
 function buildBridgeWorkerRuntimeDegradedHealthEvent(): BridgeWorkerServerToMainMessage {
@@ -361,6 +432,25 @@ function buildBridgeWorkerRuntimeDegradedHealthEvent(): BridgeWorkerServerToMain
 		status: 'degraded',
 		message: 'Bridge comm worker received invalid message.',
 	};
+}
+
+function buildBridgeWorkerRuntimeCommandFailedHealthEvent(props: {
+	readonly message: string;
+	readonly requestId: string;
+}): BridgeWorkerServerToMainMessage {
+	return {
+		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		direction: 'serverWorkerToMain',
+		transferDescriptors: [],
+		kind: 'health',
+		requestId: props.requestId,
+		status: 'degraded',
+		message: props.message,
+	};
+}
+
+async function sendBridgeCommWorkerSchemeRpcCommand(command: BridgeRPCCommand): Promise<void> {
+	await sendBridgeRPCRequest({ command });
 }
 
 function createBridgeWorkerRuntimeSequenceCounter(): () => number {

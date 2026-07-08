@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
+import type { BridgeRPCCommand } from '../../bridge/bridge-rpc-client.js';
 import {
 	encodeBridgeWorkerFileViewSourceUpdateCommand,
+	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerReviewSourceUpdateCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
@@ -28,6 +30,159 @@ import {
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 
 describe('Bridge comm worker runtime protocol', () => {
+	test('forwards markFileViewed commands to Swift through worker-owned scheme RPC', async () => {
+		const sentCommands: BridgeRPCCommand[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const schemeRpcCompletion = createDeferredVoid();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+			contentRequestDescriptors: [],
+			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			sendSchemeRpcCommand: async (command): Promise<void> => {
+				sentCommands.push(command);
+				await schemeRpcCompletion.promise;
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerMarkFileViewedCommand({
+				requestId: 'request-mark-viewed',
+				epoch: 3,
+				fileId: 'item-1',
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		expect(sentCommands).toEqual([
+			{
+				method: 'review.markFileViewed',
+				params: { fileId: 'item-1' },
+			},
+		]);
+		expect(postedMessages.map((postedMessage) => postedMessage.message)).not.toContainEqual(
+			expect.objectContaining({
+				kind: 'health',
+				requestId: 'request-mark-viewed',
+				status: 'ready',
+			}),
+		);
+		schemeRpcCompletion.resolve();
+		await flushBridgeWorkerRuntimeContinuations();
+
+		expect(postedMessages.map((postedMessage) => postedMessage.message)).toContainEqual(
+			expect.objectContaining({
+				kind: 'health',
+				requestId: 'request-mark-viewed',
+				status: 'ready',
+			}),
+		);
+	});
+
+	test('reports degraded health when markFileViewed scheme RPC forwarding fails', async () => {
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+			contentRequestDescriptors: [],
+			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			sendSchemeRpcCommand: async (): Promise<void> => {
+				throw new Error('scheme down');
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerMarkFileViewedCommand({
+				requestId: 'request-mark-viewed',
+				epoch: 3,
+				fileId: 'item-1',
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		expect(postedMessages.map((postedMessage) => postedMessage.message)).toContainEqual(
+			expect.objectContaining({
+				kind: 'health',
+				requestId: 'request-mark-viewed',
+				status: 'degraded',
+				message: 'Bridge comm worker failed to forward review.markFileViewed.',
+			}),
+		);
+		expect(postedMessages.map((postedMessage) => postedMessage.message)).not.toContainEqual(
+			expect.objectContaining({
+				kind: 'health',
+				requestId: 'request-mark-viewed',
+				status: 'ready',
+			}),
+		);
+	});
+
+	test('does not forward rejected markFileViewed commands through scheme RPC', async () => {
+		const sentCommands: BridgeRPCCommand[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+			contentRequestDescriptors: [],
+			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			sendSchemeRpcCommand: async (command): Promise<void> => {
+				sentCommands.push(command);
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerMarkFileViewedCommand({
+				requestId: 'request-current',
+				epoch: 3,
+				fileId: 'item-1',
+			}),
+		);
+		dispatch.message(
+			encodeBridgeWorkerMarkFileViewedCommand({
+				requestId: 'request-stale',
+				epoch: 2,
+				fileId: 'item-1',
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		expect(sentCommands).toEqual([
+			{
+				method: 'review.markFileViewed',
+				params: { fileId: 'item-1' },
+			},
+		]);
+		expect(postedMessages.map((postedMessage) => postedMessage.message)).toContainEqual(
+			expect.objectContaining({
+				kind: 'health',
+				requestId: 'request-stale',
+				status: 'degraded',
+				message: 'Bridge comm worker rejected stale epoch 2 after 3.',
+			}),
+		);
+	});
+
 	test('selected Review demand preempts an in-progress source reset and uses the newest generation only', async () => {
 		const clockMs = 0;
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
@@ -1212,6 +1367,22 @@ async function waitBridgeWorkerRuntimeTaskBoundary(): Promise<void> {
 	await new Promise<void>((resolve) => {
 		setTimeout(resolve, 0);
 	});
+}
+
+function createDeferredVoid(): { readonly promise: Promise<void>; readonly resolve: () => void } {
+	let resolvePromise: (() => void) | null = null;
+	const promise = new Promise<void>((resolve): void => {
+		resolvePromise = resolve;
+	});
+	return {
+		promise,
+		resolve: (): void => {
+			if (resolvePromise === null) {
+				throw new Error('Deferred promise resolver was not initialized.');
+			}
+			resolvePromise();
+		},
+	};
 }
 
 async function drainBridgeWorkerRuntimeUntil(props: {

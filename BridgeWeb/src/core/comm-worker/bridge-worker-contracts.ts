@@ -72,8 +72,7 @@ export const bridgeWorkerHoverCommandSchema = bridgeWorkerMainToServerBaseSchema
 export const bridgeWorkerMarkFileViewedCommandSchema = bridgeWorkerMainToServerBaseSchema
 	.extend({
 		command: z.literal('markFileViewed'),
-		filePathHash: z.string().min(1),
-		viewedAtSequence: bridgeWorkerSequenceSchema,
+		fileId: z.string().min(1),
 	})
 	.strict();
 

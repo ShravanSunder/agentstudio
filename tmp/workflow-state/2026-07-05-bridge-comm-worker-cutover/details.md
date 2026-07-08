@@ -3160,3 +3160,62 @@ counts before claiming a gate.
   fire-and-forget telemetry POST acceptance gap if that remains, does not prove
   selected paint/materialize rows on the current oq4s app, and does not close
   Review scroll/click budgets.
+
+### 2026-07-08 G6 Review mark-viewed worker RPC hard cutover
+
+- Scope: narrow G6 ordinary-RPC cutover for `review.markFileViewed`. Review
+  selection no longer owns page-world `BridgeRPCClient` for mark-viewed. The
+  render snapshot controller dispatches a typed `markFileViewed` comm-worker
+  command carrying native `fileId`; the comm worker forwards it to Swift through
+  scheme RPC POST and reports correlated ready/degraded health.
+- Root cause: the pre-cutover page-owned RPC path could keep an ordinary Review
+  command on the deprecated script-message/page-world boundary. The first fix
+  also left a silent-loss gap where post-bootstrap in-flight mark-viewed
+  requests had no request-correlated degraded event if the worker died before
+  replying.
+- Fix: `BridgeWorkerContracts` and protocol encoders now use `fileId` for
+  `markFileViewed`; `BridgeAppReviewSelectionController` receives a worker
+  callback instead of an RPC client; `BridgeAppReviewRenderSnapshotController`
+  owns request ids and delivery-failure callbacks; the worker runtime withholds
+  ready health until scheme RPC resolves and emits degraded health on scheme
+  failure; transport tracks queued and in-flight mark-viewed request ids and
+  emits correlated degraded health on startup, invalid-message, worker-error, or
+  command-post failure before state reset.
+- Red evidence:
+  The focused G6 unit battery first failed six tests because old protocol fields
+  and page-owned RPC were still present. A hostile stale-forwarding test failed
+  because stale `markFileViewed` commands still forwarded. The scheme-RPC
+  completion tests failed because ready health emitted before Swift scheme RPC
+  resolved. The queued transport-failure test failed because only bootstrap
+  degraded health emitted. After sidekick review, the new
+  `in-flight mark-viewed` transport test failed because post-bootstrap worker
+  error still omitted correlated degraded health for the command request id.
+- Green evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/review-viewer-source-structure.unit.test.ts
+  src/app/bridge-app-review-selection-controller.unit.test.ts
+  src/app/bridge-app-review-render-snapshot-controller.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-protocol.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-command-handler.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-runtime-protocol.unit.test.ts
+  src/review-viewer/workers/shared-rpc/bridge-comm-worker-transport.unit.test.ts
+  --reporter dot` passed 7 files / 95 tests. `pnpm --dir BridgeWeb exec
+  tsc --noEmit --pretty false` passed. Scoped `oxfmt --check`, scoped
+  `oxlint --type-aware`, and `git diff --check` passed. Source scans found no
+  `filePathHash` or `viewedAtSequence` in the converted BridgeWeb surfaces, and
+  no `review.markFileViewed`, `BridgeRPCClient`, `sendCommandAndWait`, or
+  `rpcClient` in the Review selection controller/test. The only remaining
+  `review.markFileViewed` matches in the converted implementation are the
+  worker-owned scheme RPC forwarder and tests.
+- Sidekick evidence:
+  Rawls mapped the smallest cutover route and recommended render-snapshot
+  ownership plus native `fileId`. Euler mapped the next metadata-interest
+  sibling cutover. Maxwell found the premature-ready P1, then the in-flight
+  post-bootstrap transport P1; both were fixed red-to-green, and Maxwell's final
+  re-review reported `ready` with no remaining concrete issue for this closure.
+- Known proof boundary:
+  This is one ordinary Review RPC cutover only. It does not remove the remaining
+  Review metadata-interest page RPC, does not finish scheme-stream push/intake/
+  ack cutover, does not prove native oq4s scroll/click budgets, does not close
+  Review main-thread apply/materialization lag, does not claim implementation
+  review swarm, PR readiness, or full goal completion.

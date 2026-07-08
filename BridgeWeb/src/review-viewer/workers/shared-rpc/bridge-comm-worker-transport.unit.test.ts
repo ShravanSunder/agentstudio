@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
-import { encodeBridgeWorkerSelectCommand } from '../../../core/comm-worker/bridge-comm-worker-protocol.js';
+import {
+	encodeBridgeWorkerMarkFileViewedCommand,
+	encodeBridgeWorkerSelectCommand,
+} from '../../../core/comm-worker/bridge-comm-worker-protocol.js';
 import type {
 	BridgeCommWorkerBootstrapRequest,
 	BridgeWorkerServerToMainMessage,
@@ -108,6 +111,49 @@ describe('Bridge comm worker transport dispatcher', () => {
 				requestId: 'bootstrap-request',
 				status: 'degraded',
 				message: 'Bridge comm worker transport failed during bootstrap.',
+				transferDescriptors: [],
+			},
+		]);
+	});
+
+	test('publishes degraded health for queued mark-viewed commands when worker startup fails', async () => {
+		const publishedMessages: BridgeWorkerServerToMainMessage[] = [];
+		const dispatcher = createBridgeReviewCommWorkerTransportDispatcher({
+			bootstrapRequest: makeBootstrapRequest(),
+			publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]): void => {
+				publishedMessages.push(...messages);
+			},
+			workerFactory: async (): Promise<Worker> => {
+				throw new Error('asset fetch failed');
+			},
+		});
+
+		dispatcher.dispatch(
+			encodeBridgeWorkerMarkFileViewedCommand({
+				requestId: 'request-mark-viewed',
+				epoch: 1,
+				fileId: 'item-1',
+			}),
+		);
+		await flushTransportMicrotasks();
+
+		expect(publishedMessages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'bootstrap-request',
+				status: 'degraded',
+				message: 'Bridge comm worker transport failed during bootstrap.',
+				transferDescriptors: [],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'request-mark-viewed',
+				status: 'degraded',
+				message: 'Bridge comm worker transport failed before review.markFileViewed delivery.',
 				transferDescriptors: [],
 			},
 		]);
@@ -264,6 +310,78 @@ describe('Bridge comm worker transport dispatcher', () => {
 				requestId: 'bootstrap-request',
 				status: 'degraded',
 				message: 'Bridge comm worker transport failed during bootstrap.',
+				transferDescriptors: [],
+			},
+		]);
+	});
+
+	test('publishes degraded health for in-flight mark-viewed commands when a ready worker fails', async () => {
+		const worker = new RecordingBridgeCommWorker();
+		const publishedMessages: BridgeWorkerServerToMainMessage[] = [];
+		const dispatcher = createBridgeReviewCommWorkerTransportDispatcher({
+			bootstrapRequest: makeBootstrapRequest(),
+			publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]): void => {
+				publishedMessages.push(...messages);
+			},
+			workerFactory: async (): Promise<Worker> => worker,
+		});
+
+		dispatcher.dispatch(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-before-ready',
+				epoch: 1,
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+			}),
+		);
+		await flushTransportMicrotasks();
+		worker.emitMessage({
+			wireVersion: 1,
+			direction: 'serverWorkerToMain',
+			kind: 'health',
+			requestId: 'bootstrap-request',
+			status: 'ready',
+			transferDescriptors: [],
+		});
+		await flushTransportMicrotasks();
+
+		dispatcher.dispatch(
+			encodeBridgeWorkerMarkFileViewedCommand({
+				requestId: 'request-mark-viewed-after-ready',
+				epoch: 2,
+				fileId: 'item-2',
+			}),
+		);
+		await flushTransportMicrotasks();
+		worker.emitError();
+		await flushTransportMicrotasks();
+
+		expect(worker.terminateCount).toBe(1);
+		expect(publishedMessages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'bootstrap-request',
+				status: 'ready',
+				transferDescriptors: [],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'bootstrap-request',
+				status: 'degraded',
+				message: 'Bridge comm worker transport failed during bootstrap.',
+				transferDescriptors: [],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'request-mark-viewed-after-ready',
+				status: 'degraded',
+				message: 'Bridge comm worker transport failed before review.markFileViewed delivery.',
 				transferDescriptors: [],
 			},
 		]);

@@ -39,8 +39,7 @@ describe('Bridge comm worker protocol', () => {
 			encodeBridgeWorkerMarkFileViewedCommand({
 				requestId: 'request-mark-viewed',
 				epoch: 1,
-				filePathHash: 'file-hash-1',
-				viewedAtSequence: 7,
+				fileId: 'item-1',
 			}),
 			encodeBridgeWorkerModeCommand({
 				requestId: 'request-mode',
@@ -63,6 +62,10 @@ describe('Bridge comm worker protocol', () => {
 			expect(command.transferDescriptors).toEqual([]);
 			expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
 		}
+		expect(commands[3]).toMatchObject({
+			command: 'markFileViewed',
+			fileId: 'item-1',
+		});
 	});
 
 	test('preserves explicit dispatch timestamps for worker queue-wait telemetry', () => {

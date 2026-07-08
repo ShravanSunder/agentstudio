@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 
 import { describe, expect, test } from 'vitest';
 
-import type { BridgeRPCClient, BridgeRPCCommand } from '../bridge/bridge-rpc-client.js';
 import {
 	createBridgeReviewSelectionControllerInteractionContract,
 	scheduleReviewMarkFileViewedCommand,
@@ -101,33 +100,29 @@ describe('Bridge review selection controller command scheduling', () => {
 		);
 	});
 
-	test('defers markFileViewed RPC dispatch outside the selection call stack', async () => {
-		const sentCommands: BridgeRPCCommand[] = [];
-		const rpcClient: BridgeRPCClient = {
-			sendCommand: (command: BridgeRPCCommand): boolean => {
-				sentCommands.push(command);
-				return true;
-			},
-			sendCommandAndWait: async (command: BridgeRPCCommand): Promise<boolean> => {
-				sentCommands.push(command);
-				return true;
-			},
-		};
+	test('defers markFileViewed worker dispatch outside the selection call stack', async () => {
+		const markedItemIds: string[] = [];
+		let receivedFailureCallback: (() => void) | undefined;
+		let deliveryFailureCount = 0;
 
 		scheduleReviewMarkFileViewedCommand({
 			itemId: 'async-target-item',
-			rpcClient,
+			markFileViewed: (itemId, onDeliveryFailure): void => {
+				markedItemIds.push(itemId);
+				receivedFailureCallback = onDeliveryFailure;
+			},
+			onDeliveryFailure: (): void => {
+				deliveryFailureCount += 1;
+			},
 		});
 
-		expect(sentCommands).toEqual([]);
+		expect(markedItemIds).toEqual([]);
 
 		await Promise.resolve();
 
-		expect(sentCommands).toEqual([
-			{
-				method: 'review.markFileViewed',
-				params: { fileId: 'async-target-item' },
-			},
-		]);
+		expect(markedItemIds).toEqual(['async-target-item']);
+		expect(receivedFailureCallback).toBeTypeOf('function');
+		receivedFailureCallback?.();
+		expect(deliveryFailureCount).toBe(1);
 	});
 });

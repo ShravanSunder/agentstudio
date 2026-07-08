@@ -151,7 +151,9 @@ describe('Review viewer source structure', () => {
 		expect(selectionControllerSource).toContain('useBridgeReviewSelectionController');
 		expect(selectionControllerSource).toContain('pendingSelectionCommitTelemetryRef');
 		expect(selectionControllerSource).toContain('lastTelemetryMarkedItemRef');
-		expect(selectionControllerSource).toContain('review.markFileViewed');
+		expect(selectionControllerSource).toContain('markFileViewed');
+		expect(selectionControllerSource).not.toContain('review.markFileViewed');
+		expect(selectionControllerSource).not.toContain('BridgeRPCClient');
 		expect(selectionControllerSource).toContain('recordReviewStartupTelemetry({');
 		expect(selectionControllerSource).not.toContain('BridgeReviewViewerShellBoundary');
 		expect(selectionControllerSource).not.toContain('useBridgeReviewViewerStore');

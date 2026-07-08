@@ -45,8 +45,7 @@ export interface EncodeBridgeWorkerHoverCommandProps extends EncodeBridgeWorkerC
 }
 
 export interface EncodeBridgeWorkerMarkFileViewedCommandProps extends EncodeBridgeWorkerCommandBaseProps {
-	readonly filePathHash: string;
-	readonly viewedAtSequence: number;
+	readonly fileId: string;
 }
 
 export interface EncodeBridgeWorkerModeCommandProps extends EncodeBridgeWorkerCommandBaseProps {
@@ -109,8 +108,7 @@ export function encodeBridgeWorkerMarkFileViewedCommand(
 ): BridgeWorkerMarkFileViewedCommand {
 	return bridgeWorkerMarkFileViewedCommandSchema.parse({
 		...bridgeWorkerCommandEnvelope(props, 'markFileViewed'),
-		filePathHash: props.filePathHash,
-		viewedAtSequence: props.viewedAtSequence,
+		fileId: props.fileId,
 	});
 }
 

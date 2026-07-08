@@ -41,6 +41,7 @@ export function createBridgeReviewCommWorkerTransportDispatcher(
 		});
 	const now = props.now ?? readBridgeCommWorkerTransportNowMilliseconds;
 	const queuedCommands: BridgeWorkerMainToServerMessage[] = [];
+	const inFlightMarkFileViewedRequestIds = new Set<string>();
 	let worker: Worker | null = null;
 	let workerPromise: Promise<Worker> | null = null;
 	let isBootstrapReady = false;
@@ -48,6 +49,7 @@ export function createBridgeReviewCommWorkerTransportDispatcher(
 
 	const resetWorkerBootstrapState = (activeWorker: Worker | null): void => {
 		queuedCommands.splice(0, queuedCommands.length);
+		inFlightMarkFileViewedRequestIds.clear();
 		isBootstrapReady = false;
 		if (activeWorker !== null) {
 			activeWorker.terminate();
@@ -73,9 +75,45 @@ export function createBridgeReviewCommWorkerTransportDispatcher(
 			},
 		]);
 	};
+	const publishQueuedMarkFileViewedFailures = (): void => {
+		if (isDisposed) {
+			return;
+		}
+		publishMarkFileViewedFailuresForRequestIds({
+			publishWorkerMessages: props.publishWorkerMessages,
+			requestIds: queuedCommands
+				.filter((queuedCommand): boolean => queuedCommand.command === 'markFileViewed')
+				.map((queuedCommand): string => queuedCommand.requestId),
+		});
+	};
+	const publishInFlightMarkFileViewedFailures = (): void => {
+		if (isDisposed) {
+			return;
+		}
+		publishMarkFileViewedFailuresForRequestIds({
+			publishWorkerMessages: props.publishWorkerMessages,
+			requestIds: inFlightMarkFileViewedRequestIds,
+		});
+	};
 	const failBootstrap = (activeWorker: Worker | null, message: string): void => {
-		resetWorkerBootstrapState(activeWorker);
 		publishBootstrapFailure(message);
+		publishQueuedMarkFileViewedFailures();
+		publishInFlightMarkFileViewedFailures();
+		resetWorkerBootstrapState(activeWorker);
+	};
+	const postWorkerCommand = (
+		activeWorker: Worker,
+		message: BridgeWorkerMainToServerMessage,
+	): void => {
+		if (message.command === 'markFileViewed') {
+			inFlightMarkFileViewedRequestIds.add(message.requestId);
+		}
+		activeWorker.postMessage(
+			stampBridgeWorkerDispatchTimestamp({
+				message,
+				now,
+			}),
+		);
 	};
 	const getWorker = async (): Promise<Worker> => {
 		if (worker !== null) {
@@ -100,6 +138,9 @@ export function createBridgeReviewCommWorkerTransportDispatcher(
 						);
 						return;
 					}
+					if (parsed.data.kind === 'health' && parsed.data.requestId !== undefined) {
+						inFlightMarkFileViewedRequestIds.delete(parsed.data.requestId);
+					}
 					props.publishWorkerMessages([parsed.data]);
 					if (
 						parsed.data.kind === 'health' &&
@@ -107,7 +148,11 @@ export function createBridgeReviewCommWorkerTransportDispatcher(
 					) {
 						if (parsed.data.status === 'ready') {
 							isBootstrapReady = true;
-							flushQueuedCommands(nextWorker, queuedCommands, now);
+							flushQueuedCommands({
+								postWorkerCommand,
+								queuedCommands,
+								worker: nextWorker,
+							});
 							return;
 						}
 						resetWorkerBootstrapState(nextWorker);
@@ -148,12 +193,7 @@ export function createBridgeReviewCommWorkerTransportDispatcher(
 				.then((activeWorker: Worker): void => {
 					if (!isDisposed) {
 						try {
-							activeWorker.postMessage(
-								stampBridgeWorkerDispatchTimestamp({
-									message,
-									now,
-								}),
-							);
+							postWorkerCommand(activeWorker, message);
 						} catch {
 							failBootstrap(activeWorker, 'Bridge comm worker transport failed during bootstrap.');
 						}
@@ -214,18 +254,34 @@ function createDefaultBridgeReviewCommWorkerFactory(
 	};
 }
 
-function flushQueuedCommands(
-	worker: Worker,
-	queuedCommands: BridgeWorkerMainToServerMessage[],
-	now: () => number,
-): void {
-	for (const queuedCommand of queuedCommands.splice(0, queuedCommands.length)) {
-		worker.postMessage(
-			stampBridgeWorkerDispatchTimestamp({
-				message: queuedCommand,
-				now,
-			}),
-		);
+function flushQueuedCommands(props: {
+	readonly postWorkerCommand: (worker: Worker, message: BridgeWorkerMainToServerMessage) => void;
+	readonly queuedCommands: BridgeWorkerMainToServerMessage[];
+	readonly worker: Worker;
+}): void {
+	for (const queuedCommand of props.queuedCommands.splice(0, props.queuedCommands.length)) {
+		props.postWorkerCommand(props.worker, queuedCommand);
+	}
+}
+
+function publishMarkFileViewedFailuresForRequestIds(props: {
+	readonly publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
+	readonly requestIds: Iterable<string>;
+}): void {
+	const markFileViewedFailures: BridgeWorkerServerToMainMessage[] = Array.from(
+		new Set(props.requestIds),
+		(requestId): BridgeWorkerServerToMainMessage => ({
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'serverWorkerToMain',
+			kind: 'health',
+			requestId,
+			status: 'degraded',
+			message: 'Bridge comm worker transport failed before review.markFileViewed delivery.',
+			transferDescriptors: [],
+		}),
+	);
+	if (markFileViewedFailures.length > 0) {
+		props.publishWorkerMessages(markFileViewedFailures);
 	}
 }
 

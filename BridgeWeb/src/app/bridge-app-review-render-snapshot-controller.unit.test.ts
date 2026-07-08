@@ -1,7 +1,10 @@
 import { parseDiffFromFile } from '@pierre/diffs';
 import { describe, expect, test } from 'vitest';
 
-import { encodeBridgeWorkerSelectCommand } from '../core/comm-worker/bridge-comm-worker-protocol.js';
+import {
+	encodeBridgeWorkerMarkFileViewedCommand,
+	encodeBridgeWorkerSelectCommand,
+} from '../core/comm-worker/bridge-comm-worker-protocol.js';
 import {
 	createBridgeMainRenderSnapshotStore,
 	type BridgeMainCodeViewItem,
@@ -26,6 +29,7 @@ import {
 	bridgeCommWorkerRenderSemanticsFromReviewPackage,
 	createBridgeReviewWorkerPierreCourier,
 	createBridgeReviewRuntimeProtocolDispatcher,
+	resolveBridgeWorkerMarkFileViewedFailureCallbacks,
 	selectedContentAvailabilityForReviewPackage,
 	selectedBridgeCodeViewItemForReviewPackage,
 	visibleBridgeCodeViewItemsForReviewPackage,
@@ -140,6 +144,89 @@ describe('Bridge app review render snapshot controller', () => {
 				selectedItemId: 'item-source',
 			}),
 		]);
+	});
+
+	test('dispatches mark-viewed review commands through the real worker transport seam', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const dispatchedMessages: BridgeWorkerMainToServerMessage[] = [];
+		const runtimeDispatcher = createBridgeReviewRuntimeProtocolDispatcher({
+			bootstrapRequestId: 'bootstrap-review-runtime',
+			contentItems: bridgeCommWorkerContentItemsFromReviewPackage(reviewPackage),
+			contentRequestDescriptors:
+				bridgeCommWorkerContentRequestDescriptorsFromReviewPackage(reviewPackage),
+			publishWorkerMessages: (): void => {},
+			renderSemantics: bridgeCommWorkerRenderSemanticsFromReviewPackage(reviewPackage),
+			rows: [{ id: 'item-source', parentId: null, index: 0 }],
+			transportFactory: () => ({
+				dispatch: (message: BridgeWorkerMainToServerMessage): void => {
+					dispatchedMessages.push(message);
+				},
+				dispose: (): void => {},
+			}),
+		});
+
+		runtimeDispatcher.dispatch(
+			encodeBridgeWorkerMarkFileViewedCommand({
+				requestId: 'request-mark-viewed',
+				epoch: 7,
+				fileId: 'item-source',
+			}),
+		);
+
+		expect(dispatchedMessages).toEqual([
+			expect.objectContaining({
+				kind: 'command',
+				command: 'markFileViewed',
+				requestId: 'request-mark-viewed',
+				fileId: 'item-source',
+			}),
+		]);
+	});
+
+	test('resolves mark-viewed failure callbacks from correlated worker health', () => {
+		let failedRequestCount = 0;
+		let readyRequestFailureCount = 0;
+		const failureCallbacksByRequestId = new Map<string, () => void>([
+			[
+				'request-mark-failed',
+				(): void => {
+					failedRequestCount += 1;
+				},
+			],
+			[
+				'request-mark-ready',
+				(): void => {
+					readyRequestFailureCount += 1;
+				},
+			],
+		]);
+
+		resolveBridgeWorkerMarkFileViewedFailureCallbacks({
+			failureCallbacksByRequestId,
+			messages: [
+				{
+					wireVersion: 1,
+					direction: 'serverWorkerToMain',
+					transferDescriptors: [],
+					kind: 'health',
+					requestId: 'request-mark-ready',
+					status: 'ready',
+				},
+				{
+					wireVersion: 1,
+					direction: 'serverWorkerToMain',
+					transferDescriptors: [],
+					kind: 'health',
+					requestId: 'request-mark-failed',
+					status: 'degraded',
+					message: 'Bridge comm worker failed to forward review.markFileViewed.',
+				},
+			],
+		});
+
+		expect(failedRequestCount).toBe(1);
+		expect(readyRequestFailureCount).toBe(0);
+		expect([...failureCallbacksByRequestId.keys()]).toEqual([]);
 	});
 
 	test('disposes the real worker transport when the runtime dispatcher retires', () => {
