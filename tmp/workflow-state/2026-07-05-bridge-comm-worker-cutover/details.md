@@ -4435,3 +4435,40 @@ counts before claiming a gate.
   RPC deletion, does not prove zero-copy transfer-list delivery, does not
   complete implementation-review-swarm, does not prove PR readiness, and does
   not complete the full goal.
+
+## 2026-07-08T21:19:42Z - F1 live worker-fetch scheme proof
+
+- Scope:
+  Ran the native oq4s debug worker-fetch diagnostic on current HEAD
+  `05db1a36` after the main render snapshot publish checkpoint. This is the
+  plan slice F1 live WebKit/WKURLSchemeHandler gate that blocks ordinary G
+  cutovers from claiming worker-owned `agentstudio://` content fetch and
+  streamed-response push semantics.
+- Launch evidence:
+  `mise run observability:up` reported the shared Victoria/OTLP stack healthy.
+  Existing oq4s debug PID `94455` from `tmp/debug-observability/latest-observability.env`
+  was verified as the exact debug executable and killed directly. The F1 launch
+  command used
+  `AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=bridge-worker-fetch-scheme-smoke`,
+  `AGENTSTUDIO_TRACE_TAGS="app.startup,performance,bridge.performance.*"`, and
+  `AGENTSTUDIO_STARTUP_WATCH_FOLDER="$PWD"` with
+  `mise run run-debug-observability -- --detach`. The launch exited 0 with PID
+  `17692`, marker `debug-observability-oq4s-1783545267-14744`, and launch
+  method `launchservices`.
+- Green evidence:
+  `mise run verify-debug-observability` exited 0 for marker
+  `debug-observability-oq4s-1783545267-14744`. `mise run
+  verify-bridge-worker-fetch-scheme-smoke` exited 0 and reported:
+  worker-originated request used the content scheme and content resource kind;
+  worker fetch completed successfully; worker streamed response read completed
+  successfully; worker observed returned byte count 82; streamed first chunk
+  byte count 82; worker held the streamed response reader open; summary
+  `worker_bootstrap_mode=blob_classic`, `worker_observed_byte_count=82`,
+  `stream_first_chunk_byte_count=82`.
+- Known proof boundary:
+  F1 is now green on this build and unblocks G cutover work that depends on
+  worker-originated scheme fetch and streamed response readability. This does
+  not itself finish G6 ordinary script-message RPC deletion, convert all
+  remaining Review/File surfaces, prove zero-copy transfer-list delivery, prove
+  live Review scroll/click UX budgets, complete implementation-review-swarm,
+  prove PR readiness, or complete the full goal.
