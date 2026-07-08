@@ -4683,3 +4683,52 @@ counts before claiming a gate.
   scroll/click metrics. This does not prove live Review UX budgets,
   zero-copy transfer-list delivery, implementation-review-swarm, PR readiness,
   or full goal completion.
+
+## 2026-07-08T23:41:44Z - Live oq4s IPC tree search acceptance and marker metrics
+
+- Scope:
+  Relaunched only the deterministic oq4s debug app from commit `a68cd973` and
+  proved the IPC Review tree search schema fix in the live WebKit app.
+- Launch evidence:
+  Killed exact oq4s PID `60216` after verifying its executable path, launched
+  fresh oq4s PID `4515`, marker
+  `debug-observability-oq4s-1783553862-3981`, proof token
+  `fc601642-2bb5-42f3-a11c-02235c2d2818`, and
+  `mise run verify-debug-observability` exited 0.
+- IPC evidence:
+  Opened fresh Review pane
+  `pane:019F4418-C5D3-7348-8761-0CEF088CA0BC`; package status was ready with
+  1077 files changed and 1071 visible files. `bridge-file-tree-search` returned
+  `status=accepted`, `method=bridge.fileTree.search`, and
+  `treeSearchText=bridge-code-view-panel`. A 12-search burst and 3
+  `bridge-file-tree-reveal-path` commands all returned `accepted`.
+- Marker metrics:
+  Parent VictoriaLogs query after the burst found 233
+  `performance.bridge.worker.task` rows, 5
+  `performance.bridge.web.code_view_item_materialize` rows, 45
+  `performance.bridge.web.telemetry_drop` rows, 0
+  `performance.bridge.trees.scroll_frame_gap` rows, 0
+  `performance.bridge.web.frame_jank` rows, and no `invalid_control_command`
+  rows. Worker task breakdown was 106 `content_preparation`, 107
+  `store_action`, and 20 `message_handler`; materialize samples were
+  worker transport.
+- Sidekick evidence:
+  Averroes the 3rd independently queried the same marker and launch token after
+  waiting for the parent-driven traffic. It reported 233 worker tasks, only 3
+  materialize rows at its earlier cutoff, no scroll-gap/frame-jank/click/hover
+  rows, no file-tree search rejection rows, and concluded the old `~106/sec`
+  materialize storm did not reproduce.
+- Follow-up query:
+  Additional marker-scoped push/apply/intake query found 4
+  `performance.bridge.web.selection_commit` rows with max 87ms, 21
+  `performance.bridge.webkit.push_envelope` rows with max 114.614417ms, 21
+  `performance.bridge.web.push_apply` rows, 22
+  `performance.bridge.web.intake_frame` rows, 20
+  `performance.bridge.swift.review_metadata_window_batch` rows with max
+  31.41625ms, and 1 `performance.bridge.web.review_metadata_apply` row with
+  max 5ms.
+- Known proof boundary:
+  This is live IPC/control-loop and marker telemetry proof, not a manual
+  heavy-scroll UX verdict. It does not prove live Review scroll/click budgets,
+  zero-copy transfer-list delivery, implementation-review-swarm, PR readiness,
+  or full goal completion.
