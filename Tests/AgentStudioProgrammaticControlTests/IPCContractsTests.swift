@@ -166,4 +166,36 @@ struct IPCContractsTests {
         #expect(result.visibleHydrationDiscardProbe == nil)
         #expect(result.frameJankProbe == nil)
     }
+
+    @Test("bridge file tree search page-control command encodes web search mode")
+    func bridgeFileTreeSearchPageControlCommandEncodesWebSearchMode() throws {
+        let encoded = try JSONEncoder().encode(
+            IPCBridgePageControlCommand.fileTreeSearch(searchText: "BridgePaneController")
+        )
+        let object = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        let searchMode = try #require(object["searchMode"] as? [String: Any])
+
+        #expect(object["method"] as? String == "bridge.fileTree.search")
+        #expect(object["searchText"] as? String == "BridgePaneController")
+        #expect(searchMode["kind"] as? String == "text")
+    }
+
+    @Test("bridge file tree search params default to web text search mode")
+    func bridgeFileTreeSearchParamsDefaultToWebTextSearchMode() throws {
+        let payload = """
+            {
+              "handle": "pane:1",
+              "searchText": "BridgePaneController"
+            }
+            """
+
+        let params = try JSONDecoder().decode(
+            IPCBridgeFileTreeSearchParams.self,
+            from: Data(payload.utf8)
+        )
+
+        #expect(params.searchMode == .text)
+    }
 }

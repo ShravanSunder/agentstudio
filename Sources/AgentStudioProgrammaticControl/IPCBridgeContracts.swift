@@ -490,12 +490,35 @@ public struct IPCBridgeDiffCollapseFileParams: Codable, Equatable, Sendable {
 public struct IPCBridgeFileTreeSearchParams: Codable, Equatable, Sendable {
     public let handle: String
     public let searchText: String
+    public let searchMode: IPCBridgeReviewSearchMode
     public let correlationId: UUID?
 
-    public init(handle: String, searchText: String, correlationId: UUID? = nil) {
+    public init(
+        handle: String,
+        searchText: String,
+        searchMode: IPCBridgeReviewSearchMode = .text,
+        correlationId: UUID? = nil
+    ) {
         self.handle = handle
         self.searchText = searchText
+        self.searchMode = searchMode
         self.correlationId = correlationId
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case handle
+        case searchText
+        case searchMode
+        case correlationId
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        handle = try container.decode(String.self, forKey: .handle)
+        searchText = try container.decode(String.self, forKey: .searchText)
+        searchMode =
+            try container.decodeIfPresent(IPCBridgeReviewSearchMode.self, forKey: .searchMode) ?? .text
+        correlationId = try container.decodeIfPresent(UUID.self, forKey: .correlationId)
     }
 }
 
@@ -542,11 +565,27 @@ public struct IPCBridgeFileViewShowMarkdownPreviewParams: Codable, Equatable, Se
     }
 }
 
+public struct IPCBridgeReviewSearchMode: Codable, Equatable, Sendable {
+    public enum Kind: String, Codable, Equatable, Sendable {
+        case text
+        case regex
+    }
+
+    public static let text = Self(kind: .text)
+    public static let regex = Self(kind: .regex)
+
+    public let kind: Kind
+
+    public init(kind: Kind) {
+        self.kind = kind
+    }
+}
+
 public enum IPCBridgePageControlCommand: Equatable, Sendable {
     case scrollToFile(itemId: String)
     case expandFile(itemId: String)
     case collapseFile(itemId: String)
-    case fileTreeSearch(searchText: String)
+    case fileTreeSearch(searchText: String, searchMode: IPCBridgeReviewSearchMode = .text)
     case fileTreeSetFilter(gitStatusFilter: String, fileClassFilter: String)
     case fileTreeRevealPath(path: String)
     case fileViewShowMarkdownPreview(itemId: String?)
@@ -576,6 +615,7 @@ extension IPCBridgePageControlCommand: Codable {
         case method
         case itemId
         case searchText
+        case searchMode
         case gitStatusFilter
         case fileClassFilter
         case path
@@ -592,7 +632,10 @@ extension IPCBridgePageControlCommand: Codable {
         case "bridge.diff.collapseFile":
             self = .collapseFile(itemId: try container.decode(String.self, forKey: .itemId))
         case "bridge.fileTree.search":
-            self = .fileTreeSearch(searchText: try container.decode(String.self, forKey: .searchText))
+            self = .fileTreeSearch(
+                searchText: try container.decode(String.self, forKey: .searchText),
+                searchMode: try container.decode(IPCBridgeReviewSearchMode.self, forKey: .searchMode)
+            )
         case "bridge.fileTree.setFilter":
             self = .fileTreeSetFilter(
                 gitStatusFilter: try container.decode(String.self, forKey: .gitStatusFilter),
@@ -623,8 +666,9 @@ extension IPCBridgePageControlCommand: Codable {
             try container.encode(itemId, forKey: .itemId)
         case .collapseFile(let itemId):
             try container.encode(itemId, forKey: .itemId)
-        case .fileTreeSearch(let searchText):
+        case .fileTreeSearch(let searchText, let searchMode):
             try container.encode(searchText, forKey: .searchText)
+            try container.encode(searchMode, forKey: .searchMode)
         case .fileTreeSetFilter(let gitStatusFilter, let fileClassFilter):
             try container.encode(gitStatusFilter, forKey: .gitStatusFilter)
             try container.encode(fileClassFilter, forKey: .fileClassFilter)

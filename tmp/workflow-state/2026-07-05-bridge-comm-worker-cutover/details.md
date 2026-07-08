@@ -4646,3 +4646,40 @@ counts before claiming a gate.
   checkpoint does not prove live scroll/click UX budgets, zero-copy
   transfer-list delivery, implementation-review-swarm, PR readiness, or full
   goal completion.
+
+## 2026-07-08T23:34:14Z - IPC Review tree search command schema alignment
+
+- Scope:
+  Aligned the native IPC `bridge-file-tree-search` command path with the
+  BridgeWeb page-control command schema by carrying a typed
+  `IPCBridgeReviewSearchMode` through `IPCBridgeFileTreeSearchParams`,
+  `IPCBridgePageControlCommand.fileTreeSearch`, and
+  `AgentStudioIPCBridgeAdapter.searchFileTree`.
+- Root cause:
+  BridgeWeb validates `bridge.fileTree.search` with a required `searchMode`
+  field, while native IPC encoded only `method` and `searchText`. The live
+  control command therefore reached the page with an invalid schema and
+  returned `invalid_control_command`, blocking repeatable tree-search driven
+  Review automation.
+- Red evidence:
+  Added
+  `bridgeFileTreeSearchPageControlCommandEncodesWebSearchMode`; before the
+  production edit the focused `IPCContractsTests` run failed because the
+  encoded page-control command had no `searchMode`.
+- Green evidence:
+  `SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180
+  SWIFT_TEST_TIMEOUT_SECONDS=240 mise run test -- --filter
+  "IPCContractsTests|AgentStudioIPCBridgeServiceTests|AgentStudioIPCClientCoreTests"`
+  passed 41 tests / 3 suites. `pnpm -C BridgeWeb exec vitest run
+  src/app/bridge-app-control.unit.test.ts --reporter dot` passed 1 file / 3
+  tests. `mise run lint -- Sources/AgentStudio/App/IPCComposition/AgentStudioIPCBridgeAdapter.swift
+  Sources/AgentStudioProgrammaticControl/IPCBridgeContracts.swift
+  Tests/AgentStudioProgrammaticControlTests/IPCContractsTests.swift` exited 0,
+  and `git diff --check` exited 0.
+- Known proof boundary:
+  This fixes the native IPC command schema and service contract only. A fresh
+  oq4s relaunch is still required to prove the live `bridge-file-tree-search`
+  command is accepted in the debug app and to collect marker-scoped Review
+  scroll/click metrics. This does not prove live Review UX budgets,
+  zero-copy transfer-list delivery, implementation-review-swarm, PR readiness,
+  or full goal completion.
