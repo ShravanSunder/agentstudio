@@ -7,6 +7,7 @@ import {
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerMetadataInterestUpdateCommand,
 	encodeBridgeWorkerModeCommand,
+	encodeBridgeWorkerReviewIntakeReadyCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
@@ -55,6 +56,12 @@ describe('Bridge comm worker protocol', () => {
 					loaded_by: 'visible',
 				},
 			}),
+			encodeBridgeWorkerReviewIntakeReadyCommand({
+				requestId: 'request-review-intake-ready',
+				epoch: 1,
+				streamId: 'review:pane-1',
+				reason: 'bridge-ready',
+			}),
 			encodeBridgeWorkerModeCommand({
 				requestId: 'request-mode',
 				epoch: 1,
@@ -82,6 +89,7 @@ describe('Bridge comm worker protocol', () => {
 			'hover',
 			'markFileViewed',
 			'metadataInterestUpdate',
+			'reviewIntakeReady',
 			'mode',
 			'activeViewerModeUpdate',
 		]);
@@ -104,7 +112,13 @@ describe('Bridge comm worker protocol', () => {
 				lane: 'visible',
 			},
 		});
-		expect(commands[6]).toMatchObject({
+		expect(commands[5]).toMatchObject({
+			command: 'reviewIntakeReady',
+			protocolId: 'review',
+			streamId: 'review:pane-1',
+			reason: 'bridge-ready',
+		});
+		expect(commands[7]).toMatchObject({
 			command: 'activeViewerModeUpdate',
 			update: {
 				sessionId: 'active-viewer-session',

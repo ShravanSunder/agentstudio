@@ -23,6 +23,20 @@ export function resolveBridgeWorkerMetadataInterestRequestResolvers(props: {
 	readonly messages: readonly BridgeWorkerServerToMainMessage[];
 	readonly resolversByRequestId: Map<string, (didSend: boolean) => void>;
 }): void {
+	resolveBridgeWorkerBooleanRequestResolvers(props);
+}
+
+export function resolveBridgeWorkerReviewIntakeReadyRequestResolvers(props: {
+	readonly messages: readonly BridgeWorkerServerToMainMessage[];
+	readonly resolversByRequestId: Map<string, (didSend: boolean) => void>;
+}): void {
+	resolveBridgeWorkerBooleanRequestResolvers(props);
+}
+
+function resolveBridgeWorkerBooleanRequestResolvers(props: {
+	readonly messages: readonly BridgeWorkerServerToMainMessage[];
+	readonly resolversByRequestId: Map<string, (didSend: boolean) => void>;
+}): void {
 	for (const message of props.messages) {
 		if (message.kind !== 'health' || message.requestId === undefined) {
 			continue;

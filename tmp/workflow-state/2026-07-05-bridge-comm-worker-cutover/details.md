@@ -3406,3 +3406,87 @@ counts before claiming a gate.
   not finish scheme-stream push/intake/ack cutover, native oq4s scroll/click
   proof, Review apply/materialization lag closure, implementation-review-swarm,
   PR readiness, or full goal completion.
+
+### 2026-07-08 G6 Review intake-ready ordinary RPC cutover
+
+- Scope:
+  Review `bridge.intakeReady` is routed through the comm-worker ordinary
+  command path and worker-owned scheme RPC forwarding. `BridgePageHandshakeSession`
+  no longer owns `markIntakeReady`, and the Review intake controller no longer
+  imports or calls the page-world handshake RPC sender for this command.
+- Implementation:
+  Added typed `reviewIntakeReady` worker command encoding, inert client method,
+  command handler acceptance, runtime command routing to `bridge.intakeReady`,
+  and transport failure wording. `useBridgeReviewRenderSnapshotController` now
+  dispatches a request-correlated `reviewIntakeReady` worker command and
+  resolves completion from worker health. `useBridgeReviewIntakeController`
+  now receives stable `getPushNonce` and `sendReviewIntakeReady` callbacks,
+  gates success until a push nonce exists, and preserves the existing retry /
+  replay behavior. Browser reannounce proof now observes the worker runtime's
+  injected scheme-RPC sender instead of spying page `fetch`.
+- Accepted sidekick findings:
+  Avicenna the 2nd found the browser proof was still booting the real
+  comm-worker transport and failing Chromium's custom-scheme worker-script
+  fetch before `bridge.intakeReady` could be observed. The fix uses the existing
+  in-process review-worker transport and exposes its runtime `sendSchemeRpcCommand`
+  seam for browser tests. Kierkegaard the 2nd found two P1 production regressions:
+  intake-ready could be marked successful before the page had a push nonce, and
+  the new inline `getPushNonce` closure reinstalled the intake controller effect
+  on every render, causing repeated announces. The fix restores the nonce gate
+  and memoizes `getPushNonce` in Review mode. Kierkegaard also found a P2
+  missing negative-path proof; this checkpoint adds dedicated runtime tests for
+  failed and never-settling `reviewIntakeReady` scheme RPC forwarding. Russell
+  the 2nd supplied the source-scan and proof-pack commands used below.
+- Red / green evidence:
+  Browser red before the P1 fixes:
+  `CI=true pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts
+  run --project integration-browser
+  src/app/bridge-app-review-intake-reannounce.browser.test.tsx --reporter dot`
+  failed with `reviewIntakeReadyCount` inflating to 3-4 and
+  `TypeError: Failed to fetch`. After the test seam isolation, nonce gate, and
+  stable `getPushNonce`, the same command passed 1 file / 4 tests.
+- Green evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/core/comm-worker/bridge-comm-worker-protocol.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-command-handler.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-command-handler.review-intake-ready.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-runtime-protocol.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-runtime-protocol.review-intake-ready.unit.test.ts
+  src/review-viewer/review-viewer-source-structure.unit.test.ts
+  src/bridge/bridge-page-handshake.unit.test.ts --reporter dot` passed
+  7 files / 87 tests. Browser proof `CI=true pnpm --dir BridgeWeb exec vitest
+  --config vitest.browser.config.ts run --project integration-browser
+  src/app/bridge-app-review-intake-reannounce.browser.test.tsx --reporter dot`
+  passed 1 file / 4 tests. Adjacent proof:
+  `CI=true pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts
+  run --project integration-browser
+  src/app/bridge-app-protocol-router.browser.test.tsx --reporter dot` passed
+  1 file / 14 tests, and
+  `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/workers/shared-rpc/bridge-comm-worker-transport.unit.test.ts
+  --reporter dot` passed 1 file / 16 tests. `pnpm --dir BridgeWeb exec tsc
+  --noEmit --pretty false` passed. Scoped `oxfmt --check`, scoped
+  `oxlint --type-aware`, and `git diff --check` passed.
+- Source scans:
+  `rg -n "markIntakeReady|bridge\.intakeReady"
+  BridgeWeb/src/app/bridge-app-review-intake-controller.ts
+  BridgeWeb/src/bridge/bridge-page-handshake.ts` returned no matches.
+  `rg -n "spyOn\(globalThis, 'fetch'\)|recordBridgeSchemeRPCFetch"
+  BridgeWeb/src/app/bridge-app-review-intake-reannounce.browser.test.tsx`
+  returned no matches. Wider scans show `bridge.intakeReady` only in allowed
+  worktree-file paths, tests, source-structure guards, worker runtime routing,
+  and comm-worker transport failure wording.
+- Package check boundary:
+  `pnpm -C BridgeWeb check` still exits 1 on pre-existing branch-level
+  architecture lint / line-cap debt, including worker-boundary rules,
+  `bridge-comm-worker-command-handler.unit.test.ts` (1161 lines at HEAD and
+  after this split), `bridge-comm-worker-runtime-protocol.unit.test.ts`
+  (1733 lines at HEAD, 1734 after this split), and generic core import
+  boundary findings in `bridge-worker-contracts.ts`. This checkpoint moved new
+  review-intake runtime and command-handler proof into dedicated small files
+  instead of growing the oversized suites further.
+- Known proof boundary:
+  This is one Review intake-ready ordinary RPC hard-cutover checkpoint. It does
+  not finish worktree-file intake-ready migration, scheme-stream push/intake/ack
+  cutover, native oq4s scroll/click proof, Review apply/materialization lag
+  closure, implementation-review-swarm, PR readiness, or full goal completion.

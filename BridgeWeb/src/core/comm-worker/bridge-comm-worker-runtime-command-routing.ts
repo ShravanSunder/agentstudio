@@ -22,6 +22,18 @@ export function bridgeWorkerRuntimeSchemeRpcCommandForMessage(
 				},
 				requestId: message.requestId,
 			};
+		case 'reviewIntakeReady':
+			return {
+				command: {
+					method: 'bridge.intakeReady',
+					params: {
+						protocolId: message.protocolId,
+						streamId: message.streamId ?? null,
+						reason: message.reason ?? null,
+					},
+				},
+				requestId: message.requestId,
+			};
 		case 'activeViewerModeUpdate':
 			return {
 				command: {
@@ -61,6 +73,7 @@ export function bridgeCommWorkerTelemetryLaneForMessage(
 			return 'background';
 		case 'markFileViewed':
 		case 'mode':
+		case 'reviewIntakeReady':
 		case 'reviewSourceUpdate':
 			return 'background';
 		default:

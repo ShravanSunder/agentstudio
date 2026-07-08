@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'r
 import {
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerMetadataInterestUpdateCommand,
+	encodeBridgeWorkerReviewIntakeReadyCommand,
 	encodeBridgeWorkerReviewInvalidateCommand,
 	encodeBridgeWorkerReviewSourceUpdateCommand,
 	encodeBridgeWorkerSelectCommand,
@@ -65,6 +66,7 @@ import type { ReviewMetadataInterestRequest } from './bridge-app-review-metadata
 import {
 	resolveBridgeWorkerMarkFileViewedFailureCallbacks,
 	resolveBridgeWorkerMetadataInterestRequestResolvers,
+	resolveBridgeWorkerReviewIntakeReadyRequestResolvers,
 } from './bridge-app-review-worker-health-resolvers.js';
 import { bridgeReviewContentByteBoundsForHandle } from './bridge-review-content-byte-budget.js';
 
@@ -89,6 +91,10 @@ export interface BridgeReviewRenderSnapshotController {
 	readonly sendMetadataInterestRequest: (
 		request: ReviewMetadataInterestRequest,
 	) => Promise<boolean>;
+	readonly sendReviewIntakeReady: (props: {
+		readonly reason: string | null;
+		readonly streamId: string | null;
+	}) => Promise<boolean>;
 	readonly setSelectedReviewItemId: (itemId: string | null) => void;
 	readonly synchronizeReviewSource: (source: BridgeReviewRuntimeSourceSnapshot) => void;
 	readonly visibleCodeViewItems: readonly BridgeMainCodeViewItem[];
@@ -155,6 +161,9 @@ export function useBridgeReviewRenderSnapshotController(
 	const viewportSliceRef = useRef(viewportSlice);
 	viewportSliceRef.current = viewportSlice;
 	const markFileViewedFailureCallbacksRef = useRef<Map<string, () => void>>(new Map());
+	const reviewIntakeReadyRequestResolversRef = useRef<Map<string, (didSend: boolean) => void>>(
+		new Map(),
+	);
 	const metadataInterestRequestResolversRef = useRef<Map<string, (didSend: boolean) => void>>(
 		new Map(),
 	);
@@ -168,6 +177,10 @@ export function useBridgeReviewRenderSnapshotController(
 			resolveBridgeWorkerMetadataInterestRequestResolvers({
 				messages,
 				resolversByRequestId: metadataInterestRequestResolversRef.current,
+			});
+			resolveBridgeWorkerReviewIntakeReadyRequestResolvers({
+				messages,
+				resolversByRequestId: reviewIntakeReadyRequestResolversRef.current,
 			});
 			applyBridgeWorkerMessagesToMainRenderSnapshotStore({
 				messages,
@@ -306,6 +319,27 @@ export function useBridgeReviewRenderSnapshotController(
 		},
 		[runtimeDispatcher, synchronizeLatestReviewSource],
 	);
+	const sendReviewIntakeReady = useCallback(
+		(request: {
+			readonly reason: string | null;
+			readonly streamId: string | null;
+		}): Promise<boolean> => {
+			const requestId = nextBridgeReviewWorkerRequestId(requestSequenceRef);
+			const completion = new Promise<boolean>((resolve): void => {
+				reviewIntakeReadyRequestResolversRef.current.set(requestId, resolve);
+			});
+			runtimeDispatcher.dispatch(
+				encodeBridgeWorkerReviewIntakeReadyCommand({
+					requestId,
+					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
+					streamId: request.streamId,
+					reason: request.reason,
+				}),
+			);
+			return completion;
+		},
+		[runtimeDispatcher],
+	);
 	const setReviewViewportItemIds = useCallback(
 		(itemIds: readonly string[]): void => {
 			synchronizeLatestReviewSource();
@@ -357,6 +391,7 @@ export function useBridgeReviewRenderSnapshotController(
 		selectionSliceRef,
 		setReviewViewportItemIds,
 		sendMetadataInterestRequest,
+		sendReviewIntakeReady,
 		setSelectedReviewItemId,
 		synchronizeReviewSource,
 		visibleCodeViewItems,

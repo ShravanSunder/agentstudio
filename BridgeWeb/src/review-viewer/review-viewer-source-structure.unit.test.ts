@@ -177,6 +177,18 @@ describe('Review viewer source structure', () => {
 		expect(metadataInterestRuntimeSource).toContain('sendMetadataInterestRequest');
 	});
 
+	test('keeps Review intake-ready off page-owned RPC after ordinary RPC cutover', () => {
+		const intakeControllerSource = readSource('../app/bridge-app-review-intake-controller.ts');
+		const pageHandshakeSource = readSource('../bridge/bridge-page-handshake.ts');
+
+		expect(intakeControllerSource).not.toContain('BridgePageHandshakeSession');
+		expect(intakeControllerSource).not.toContain('markIntakeReady');
+		expect(intakeControllerSource).not.toContain('bridge.intakeReady');
+		expect(intakeControllerSource).toContain('sendReviewIntakeReady');
+		expect(pageHandshakeSource).not.toContain('markIntakeReady');
+		expect(pageHandshakeSource).not.toContain('bridge.intakeReady');
+	});
+
 	test('keeps Review hot-path telemetry off forced flushes', () => {
 		const forbiddenOwners = [
 			'../app/bridge-app-review-selection-controller.ts',

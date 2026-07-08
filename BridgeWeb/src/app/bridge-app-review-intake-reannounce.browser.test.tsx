@@ -4,17 +4,15 @@ import { render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode renders need app CSS.
 import './bridge-app.css';
-import {
-	bridgeRPCRequestEnvelopeSchema,
-	type BridgeRPCCommand,
-} from '../bridge/bridge-rpc-client.js';
+import type { BridgeRPCCommand } from '../bridge/bridge-rpc-client.js';
 import type { BridgeIntakeFrame } from '../core/models/bridge-intake-frame.js';
 import { buildReviewMetadataSnapshotFrame } from '../features/review/protocol/review-metadata-frame-builder.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import { waitForBridgeViewerAnimationFrame } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import {
+	createInProcessBridgeReviewWorkerTransportFactory,
 	installBridgeReadyHandshake,
-	recordBridgeSchemeRPCFetch,
+	type InProcessBridgeReviewWorkerTransportFactory,
 } from './bridge-app-native-review-error.browser.test-support.js';
 import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
 
@@ -52,7 +50,17 @@ describe('Bridge review intake re-announce on activation', () => {
 			installBridgeReadyHandshake({ pushNonce: 'push-initial-snapshot' }).dispose,
 		];
 
-		render(<BridgeAppProtocolRouter protocol="review" projectionWorkerClient={null} />);
+		render(
+			<BridgeAppProtocolRouter
+				codeViewWorkerPoolEnabled={false}
+				markdownWorkerClient={null}
+				projectionWorkerClient={null}
+				protocol="review"
+				reviewWorkerTransportFactory={createInProcessBridgeReviewWorkerTransportFactory({
+					sendSchemeRpcCommand: async (): Promise<void> => {},
+				})}
+			/>,
+		);
 		expect(
 			await pollWithinActUntilPresent(() =>
 				document.querySelector('[data-testid="bridge-review-empty-shell"]'),
@@ -93,7 +101,15 @@ describe('Bridge review intake re-announce on activation', () => {
 			installBridgeReadyHandshake({ pushNonce: 'push-reannounce-gap' }).dispose,
 		];
 
-		render(<BridgeAppProtocolRouter protocol="review" />);
+		render(
+			<BridgeAppProtocolRouter
+				codeViewWorkerPoolEnabled={false}
+				markdownWorkerClient={null}
+				projectionWorkerClient={null}
+				protocol="review"
+				reviewWorkerTransportFactory={reviewIntakeReadyCount.transportFactory}
+			/>,
+		);
 		expect(await pollWithinActUntilEqual(() => reviewIntakeReadyCount.value, 1)).toBe(1);
 
 		// A frame dropped mid-stream opens a sequence gap; the receiver locks
@@ -115,7 +131,15 @@ describe('Bridge review intake re-announce on activation', () => {
 		// Mount in file mode: the review intake controller announces once at
 		// mount, but no review package ever arrives (dropped while inactive,
 		// failed first load — the wedge classes).
-		render(<BridgeAppProtocolRouter protocol="worktree-file" />);
+		render(
+			<BridgeAppProtocolRouter
+				codeViewWorkerPoolEnabled={false}
+				markdownWorkerClient={null}
+				projectionWorkerClient={null}
+				protocol="worktree-file"
+				reviewWorkerTransportFactory={reviewIntakeReadyCount.transportFactory}
+			/>,
+		);
 		expect(await pollWithinActUntilEqual(() => reviewIntakeReadyCount.value, 1)).toBe(1);
 
 		// Switching INTO review with no applied package must re-announce so
@@ -143,7 +167,15 @@ describe('Bridge review intake re-announce on activation', () => {
 			installBridgeReadyHandshake({ pushNonce: 'push-reannounce-retry' }).dispose,
 		];
 
-		render(<BridgeAppProtocolRouter protocol="worktree-file" />);
+		render(
+			<BridgeAppProtocolRouter
+				codeViewWorkerPoolEnabled={false}
+				markdownWorkerClient={null}
+				projectionWorkerClient={null}
+				protocol="worktree-file"
+				reviewWorkerTransportFactory={reviewIntakeReadyCount.transportFactory}
+			/>,
+		);
 		expect(await pollWithinActUntilEqual(() => reviewIntakeReadyCount.value, 1)).toBe(1);
 
 		await clickContext('review');
@@ -237,34 +269,24 @@ function installReviewIntakeReadyCounter(
 	props: {
 		readonly failReviewIntakeReadyCommandNumbers?: ReadonlySet<number>;
 	} = {},
-): { readonly value: number } {
+): {
+	readonly transportFactory: InProcessBridgeReviewWorkerTransportFactory;
+	readonly value: number;
+} {
 	const commands: BridgeRPCCommand[] = [];
-	vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init): Promise<Response> => {
-		const response = recordBridgeSchemeRPCFetch(input, init, commands);
-		if (response === null) {
-			return new Response('unexpected request', { status: 404 });
-		}
-		const command = commands.at(-1);
-		if (command === undefined || !isReviewIntakeReadyCommand(command)) {
-			return response;
-		}
-		const reviewIntakeReadyCount = commands.filter(isReviewIntakeReadyCommand).length;
-		if (props.failReviewIntakeReadyCommandNumbers?.has(reviewIntakeReadyCount) !== true) {
-			return response;
-		}
-		const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
-		const parsedEnvelope = bridgeRPCRequestEnvelopeSchema.safeParse(body);
-		const responseId = parsedEnvelope.success ? parsedEnvelope.data['id'] : null;
-		return new Response(
-			JSON.stringify({
-				jsonrpc: '2.0',
-				id: responseId,
-				error: { code: -32_003, message: 'temporary intake failure' },
-			}),
-			{ status: 200 },
-		);
-	});
 	return {
+		transportFactory: createInProcessBridgeReviewWorkerTransportFactory({
+			sendSchemeRpcCommand: async (command): Promise<void> => {
+				commands.push(command);
+				if (!isReviewIntakeReadyCommand(command)) {
+					return;
+				}
+				const reviewIntakeReadyCount = commands.filter(isReviewIntakeReadyCommand).length;
+				if (props.failReviewIntakeReadyCommandNumbers?.has(reviewIntakeReadyCount) === true) {
+					throw new Error('temporary intake failure');
+				}
+			},
+		}),
 		get value(): number {
 			return commands.filter(isReviewIntakeReadyCommand).length;
 		},

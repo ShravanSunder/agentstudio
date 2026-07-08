@@ -10,6 +10,7 @@ import { buildBridgeWorkerReadyHealthEvent } from '../core/comm-worker/bridge-co
 import {
 	registerBridgeCommWorkerRuntimePortProtocol,
 	type BridgeCommWorkerPreparationDrain,
+	type BridgeCommWorkerSchemeRpcCommandSender,
 } from '../core/comm-worker/bridge-comm-worker-runtime-protocol.js';
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeWorkerContentFetch } from '../core/comm-worker/bridge-worker-review-content-fetch.js';
@@ -385,6 +386,8 @@ export function chunkedTextResponse(chunks: readonly string[]): Response {
 
 export interface InProcessBridgeReviewWorkerTransportFactoryOptions {
 	readonly fetchContent?: BridgeWorkerContentFetch;
+	readonly sendSchemeRpcCommand?: BridgeCommWorkerSchemeRpcCommandSender;
+	readonly schemeRpcTimeoutMilliseconds?: number;
 }
 
 export type InProcessBridgeReviewWorkerTransportFactory = NonNullable<
@@ -449,6 +452,12 @@ export function createInProcessBridgeReviewWorkerTransportFactory(
 				? {}
 				: { maxPreparationSliceMs: bootstrapRequest.runtime.maxPreparationSliceMs }),
 			...(options.fetchContent === undefined ? {} : { fetchContent: options.fetchContent }),
+			...(options.sendSchemeRpcCommand === undefined
+				? {}
+				: { sendSchemeRpcCommand: options.sendSchemeRpcCommand }),
+			...(options.schemeRpcTimeoutMilliseconds === undefined
+				? {}
+				: { schemeRpcTimeoutMilliseconds: options.schemeRpcTimeoutMilliseconds }),
 		});
 		publishWorkerMessages([buildBridgeWorkerReadyHealthEvent(bootstrapRequest.requestId)]);
 		return {

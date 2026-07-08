@@ -112,6 +112,7 @@ export function BridgeReviewViewerMode(
 		markFileViewed,
 		setReviewViewportItemIds,
 		sendMetadataInterestRequest,
+		sendReviewIntakeReady,
 		setSelectedReviewItemId,
 		synchronizeReviewSource,
 		visibleCodeViewItems,
@@ -298,11 +299,15 @@ export function BridgeReviewViewerMode(
 		setSelectedMarkdownPreviewState,
 		viewerActions,
 	});
+	const getPushNonce = useCallback(
+		(): string | null => bridgeHandshakeSessionRef.current?.getPushNonce() ?? null,
+		[bridgeHandshakeSessionRef],
+	);
 
 	useBridgeReviewIntakeController({
 		target,
 		isActive: props.isActive,
-		bridgeHandshakeSessionRef,
+		getPushNonce,
 		getReviewFrameAuthority,
 		registerBridgeReadyCallback,
 		reviewEnvelopeApplyTailRef,
@@ -319,6 +324,7 @@ export function BridgeReviewViewerMode(
 		reviewReadyStartMillisecondsByPackageKeyRef,
 		descriptorRegistry,
 		dispatchReviewInvalidation: invalidateReviewContent,
+		sendReviewIntakeReady,
 		synchronizeReviewWorkerSource: synchronizeReviewSource,
 		telemetryRecorderRef,
 	});

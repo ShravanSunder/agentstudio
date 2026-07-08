@@ -4,11 +4,7 @@ import {
 	decodeBridgeTelemetryBootstrapConfig,
 	type BridgeTelemetryBootstrapConfig,
 } from '../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
-import {
-	bridgeRPCErrorPayloadSchema,
-	bridgeRPCIdSchema,
-	createBridgeRPCClient,
-} from './bridge-rpc-client.js';
+import { bridgeRPCErrorPayloadSchema, bridgeRPCIdSchema } from './bridge-rpc-client.js';
 
 type BridgeHandshakeTarget = Pick<
 	EventTarget,
@@ -18,7 +14,6 @@ type BridgeHandshakeTarget = Pick<
 export interface BridgePageHandshakeSession {
 	readonly getPushNonce: () => string | null;
 	readonly getTelemetryConfig: () => BridgeTelemetryBootstrapConfig | null;
-	readonly markIntakeReady: (props: BridgeIntakeReadyProps) => Promise<boolean>;
 	readonly uninstall: () => void;
 }
 
@@ -29,18 +24,10 @@ export interface BridgePageReadyError {
 }
 
 export interface InstallBridgePageHandshakeSessionProps {
-	readonly endpointUrl?: string;
-	readonly fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> | Response;
 	readonly onReadyError?: (error: BridgePageReadyError) => void;
 	readonly onTelemetryConfig?: (telemetryConfig: BridgeTelemetryBootstrapConfig) => void;
 	readonly onReady?: () => void;
 	readonly readyAcknowledgementTimeoutMilliseconds?: number;
-}
-
-export interface BridgeIntakeReadyProps {
-	readonly protocolId: 'review' | 'worktree-file';
-	readonly reason?: string | null;
-	readonly streamId?: string | null;
 }
 
 const bridgeReadyAcknowledgementSchema = z
@@ -77,10 +64,6 @@ export function installBridgePageHandshakeSession(
 	let readyRequestId: string | null = null;
 	let didResolveReadyRequest = false;
 	let readyAcknowledgementTimeout: ReturnType<typeof globalThis.setTimeout> | null = null;
-	const rpcClient = createBridgeRPCClient({
-		endpointUrl: props.endpointUrl,
-		fetch: props.fetch,
-	});
 	const readyAcknowledgementTimeoutMilliseconds =
 		props.readyAcknowledgementTimeoutMilliseconds ?? 5000;
 
@@ -169,19 +152,6 @@ export function installBridgePageHandshakeSession(
 	return {
 		getPushNonce: (): string | null => pushNonce,
 		getTelemetryConfig: (): BridgeTelemetryBootstrapConfig | null => telemetryConfig,
-		markIntakeReady: async (intakeReadyProps: BridgeIntakeReadyProps): Promise<boolean> => {
-			if (pushNonce === null) {
-				return false;
-			}
-			return await rpcClient.sendCommandAndWait({
-				method: 'bridge.intakeReady',
-				params: {
-					protocolId: intakeReadyProps.protocolId,
-					reason: intakeReadyProps.reason ?? null,
-					streamId: intakeReadyProps.streamId ?? null,
-				},
-			});
-		},
 		uninstall: (): void => {
 			isInstalled = false;
 			clearReadyAcknowledgementTimeout();

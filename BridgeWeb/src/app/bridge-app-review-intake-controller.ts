@@ -1,6 +1,5 @@
 import { type MutableRefObject, useEffect, useRef } from 'react';
 
-import type { BridgePageHandshakeSession } from '../bridge/bridge-page-handshake.js';
 import type { BridgePushEnvelope } from '../bridge/bridge-push-envelope.js';
 import {
 	type BridgePushDropReason,
@@ -46,7 +45,7 @@ import {
 export interface UseBridgeReviewIntakeControllerProps {
 	readonly target: EventTarget;
 	readonly isActive: boolean;
-	readonly bridgeHandshakeSessionRef: MutableRefObject<BridgePageHandshakeSession | null>;
+	readonly getPushNonce: () => string | null;
 	readonly getReviewFrameAuthority: () => BridgeReviewFrameAuthority | null;
 	readonly registerBridgeReadyCallback: (callback: () => void) => () => void;
 	readonly reviewEnvelopeApplyTailRef: MutableRefObject<Promise<void>>;
@@ -69,6 +68,10 @@ export interface UseBridgeReviewIntakeControllerProps {
 	readonly reviewReadyStartMillisecondsByPackageKeyRef: MutableRefObject<Map<string, number>>;
 	readonly descriptorRegistry: BridgeResourceDescriptorRegistry;
 	readonly dispatchReviewInvalidation: (frame: ReviewInvalidationFrame) => void;
+	readonly sendReviewIntakeReady: (props: {
+		readonly reason: string | null;
+		readonly streamId: string | null;
+	}) => Promise<boolean>;
 	readonly synchronizeReviewWorkerSource: (source: {
 		readonly reviewPackage: BridgeReviewPackage | null;
 		readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
@@ -80,7 +83,7 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 	const {
 		target,
 		isActive,
-		bridgeHandshakeSessionRef,
+		getPushNonce,
 		getReviewFrameAuthority,
 		registerBridgeReadyCallback,
 		reviewEnvelopeApplyTailRef,
@@ -97,6 +100,7 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 		reviewReadyStartMillisecondsByPackageKeyRef,
 		descriptorRegistry,
 		dispatchReviewInvalidation,
+		sendReviewIntakeReady,
 		synchronizeReviewWorkerSource,
 		telemetryRecorderRef,
 	} = props;
@@ -145,21 +149,17 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 			if (didMarkReviewIntakeReady || isMarkingReviewIntakeReady) {
 				return true;
 			}
-			const handshakeSession = bridgeHandshakeSessionRef.current;
-			if (handshakeSession === null) {
+			if (getPushNonce() === null) {
 				return false;
 			}
 			const streamId = getReviewFrameAuthority()?.streamId ?? null;
 			isMarkingReviewIntakeReady = true;
-			const didSendIntakeReady = await handshakeSession
-				.markIntakeReady({
-					protocolId: 'review',
-					reason,
-					streamId,
-				})
-				.finally((): void => {
-					isMarkingReviewIntakeReady = false;
-				});
+			const didSendIntakeReady = await sendReviewIntakeReady({
+				reason,
+				streamId,
+			}).finally((): void => {
+				isMarkingReviewIntakeReady = false;
+			});
 			if (!didSendIntakeReady) {
 				return false;
 			}
@@ -283,7 +283,7 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 		const uninstallIntakeCarrier = installBridgeIntakeEventCarrier({
 			target,
 			eventName: '__bridge_intake_json',
-			getNonce: (): string | null => bridgeHandshakeSessionRef.current?.getPushNonce() ?? null,
+			getNonce: getPushNonce,
 			receiver: reviewIntakeReceiver,
 			maxFrameBytes: bridgeReviewIntakeMaxFrameBytes,
 			requestReplayOnInstall: false,
@@ -309,7 +309,7 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 		scheduleMarkReviewIntakeReady();
 		const uninstallPushReceiver = installBridgePushReceiver({
 			target,
-			getPushNonce: (): string | null => bridgeHandshakeSessionRef.current?.getPushNonce() ?? null,
+			getPushNonce,
 			onEnvelope: (envelope: BridgePushEnvelope): void => {
 				reviewEnvelopeApplyTailRef.current = reviewEnvelopeApplyTailRef.current
 					.catch((): void => {})
@@ -348,9 +348,9 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 	}, [
 		descriptorRegistry,
 		dispatchReviewInvalidation,
-		bridgeHandshakeSessionRef,
 		beginForegroundReviewSelection,
 		currentReviewPackageTelemetryContextRef,
+		getPushNonce,
 		getReviewFrameAuthority,
 		getReviewTreeRows,
 		registerBridgeReadyCallback,
@@ -358,6 +358,7 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 		reviewPackageRef,
 		reviewPackageTelemetryContextRef,
 		reviewReadyStartMillisecondsByPackageKeyRef,
+		sendReviewIntakeReady,
 		setDiffStatus,
 		setReviewPackage,
 		setReviewTreeRows,

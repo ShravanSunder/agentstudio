@@ -1,7 +1,10 @@
 import { z } from 'zod';
 
 import { parseBridgeResourceUrl } from '../../bridge/bridge-resource-url.js';
-import { bridgeActiveViewerModeUpdateSchema } from '../../bridge/bridge-rpc-client.js';
+import {
+	bridgeActiveViewerModeUpdateSchema,
+	bridgeIntakeReadyParamsSchema,
+} from '../../bridge/bridge-rpc-client.js';
 import { worktreeFileVirtualizedExtentKindSchema } from '../../features/worktree-file/models/worktree-file-protocol-models.js';
 import {
 	bridgeContentRoleSchema,
@@ -94,6 +97,19 @@ export const bridgeWorkerMetadataInterestUpdateCommandSchema = bridgeWorkerMainT
 	.extend({
 		command: z.literal('metadataInterestUpdate'),
 		request: bridgeWorkerMetadataInterestRequestSchema,
+	})
+	.strict();
+
+const bridgeWorkerReviewIntakeReadyParamsSchema = bridgeIntakeReadyParamsSchema
+	.extend({
+		protocolId: z.literal('review'),
+	})
+	.strict();
+
+export const bridgeWorkerReviewIntakeReadyCommandSchema = bridgeWorkerMainToServerBaseSchema
+	.merge(bridgeWorkerReviewIntakeReadyParamsSchema)
+	.extend({
+		command: z.literal('reviewIntakeReady'),
 	})
 	.strict();
 
@@ -300,6 +316,7 @@ const bridgeWorkerMainToServerCommandBaseSchema = z.discriminatedUnion('command'
 	bridgeWorkerHoverCommandSchema,
 	bridgeWorkerMarkFileViewedCommandSchema,
 	bridgeWorkerMetadataInterestUpdateCommandSchema,
+	bridgeWorkerReviewIntakeReadyCommandSchema,
 	bridgeWorkerActiveViewerModeUpdateCommandSchema,
 	bridgeWorkerModeCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
@@ -482,6 +499,9 @@ export type BridgeWorkerMetadataInterestRequest = z.infer<
 >;
 export type BridgeWorkerMetadataInterestUpdateCommand = z.infer<
 	typeof bridgeWorkerMetadataInterestUpdateCommandSchema
+>;
+export type BridgeWorkerReviewIntakeReadyCommand = z.infer<
+	typeof bridgeWorkerReviewIntakeReadyCommandSchema
 >;
 export type BridgeWorkerActiveViewerModeUpdateCommand = z.infer<
 	typeof bridgeWorkerActiveViewerModeUpdateCommandSchema

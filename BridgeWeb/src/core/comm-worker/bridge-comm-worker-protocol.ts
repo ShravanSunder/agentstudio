@@ -6,6 +6,7 @@ import {
 	bridgeWorkerMarkFileViewedCommandSchema,
 	bridgeWorkerMetadataInterestUpdateCommandSchema,
 	bridgeWorkerModeCommandSchema,
+	bridgeWorkerReviewIntakeReadyCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
 	bridgeWorkerReviewSourceUpdateCommandSchema,
 	bridgeWorkerSelectCommandSchema,
@@ -19,6 +20,7 @@ import {
 	type BridgeWorkerMetadataInterestRequest,
 	type BridgeWorkerMetadataInterestUpdateCommand,
 	type BridgeWorkerModeCommand,
+	type BridgeWorkerReviewIntakeReadyCommand,
 	type BridgeWorkerReviewInvalidateCommand,
 	type BridgeWorkerReviewSourceUpdateCommand,
 	type BridgeWorkerSelectCommand,
@@ -55,6 +57,11 @@ export interface EncodeBridgeWorkerMarkFileViewedCommandProps extends EncodeBrid
 
 export interface EncodeBridgeWorkerMetadataInterestUpdateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
 	readonly request: BridgeWorkerMetadataInterestRequest;
+}
+
+export interface EncodeBridgeWorkerReviewIntakeReadyCommandProps extends EncodeBridgeWorkerCommandBaseProps {
+	readonly reason?: BridgeWorkerReviewIntakeReadyCommand['reason'];
+	readonly streamId: BridgeWorkerReviewIntakeReadyCommand['streamId'];
 }
 
 export interface EncodeBridgeWorkerActiveViewerModeUpdateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
@@ -131,6 +138,17 @@ export function encodeBridgeWorkerMetadataInterestUpdateCommand(
 	return bridgeWorkerMetadataInterestUpdateCommandSchema.parse({
 		...bridgeWorkerCommandEnvelope(props, 'metadataInterestUpdate'),
 		request: props.request,
+	});
+}
+
+export function encodeBridgeWorkerReviewIntakeReadyCommand(
+	props: EncodeBridgeWorkerReviewIntakeReadyCommandProps,
+): BridgeWorkerReviewIntakeReadyCommand {
+	return bridgeWorkerReviewIntakeReadyCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'reviewIntakeReady'),
+		protocolId: 'review',
+		streamId: props.streamId,
+		reason: props.reason ?? null,
 	});
 }
 
