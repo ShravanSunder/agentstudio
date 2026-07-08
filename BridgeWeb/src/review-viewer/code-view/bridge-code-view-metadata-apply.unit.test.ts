@@ -7,7 +7,10 @@ import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer
 import type { BridgeCodeViewItem } from './bridge-code-view-materialization.js';
 import { materializeBridgeCodeViewLoadingItem } from './bridge-code-view-materialization.js';
 import { runBridgeCodeViewMetadataApplyInChunks } from './bridge-code-view-metadata-apply.js';
-import { createBridgeCodeViewInitialItemsForPanel } from './bridge-code-view-panel-support.js';
+import {
+	bridgeCodeViewInitialSeedItemIdsForPanel,
+	createBridgeCodeViewInitialItemsForPanel,
+} from './bridge-code-view-panel-support.js';
 import { createBridgeCodeViewMetadataDeltaItemsForPanel } from './bridge-code-view-worker-prepared-items.js';
 
 describe('Bridge CodeView metadata apply pump', () => {
@@ -29,10 +32,6 @@ describe('Bridge CodeView metadata apply pump', () => {
 			request: { mode: { kind: 'normalReview' }, facets: [] },
 		});
 
-		const sourceResetItems = createBridgeCodeViewInitialItemsForPanel({
-			projection,
-			reviewPackage,
-		});
 		const deltaItems = createBridgeCodeViewMetadataDeltaItemsForPanel({
 			reviewPackage,
 			selectedCodeViewItem,
@@ -40,11 +39,83 @@ describe('Bridge CodeView metadata apply pump', () => {
 			selectedItemPresentation: null,
 			visibleCodeViewItems: [visibleCodeViewItem],
 		});
+		const sourceResetItems = createBridgeCodeViewInitialItemsForPanel({
+			projection,
+			reviewPackage,
+			seedItemIds: deltaItems.map((item) => item.id),
+		});
 
-		expect(sourceResetItems.length).toBeGreaterThan(deltaItems.length);
+		expect(sourceResetItems.map((item) => item.id).toSorted()).toEqual(
+			[sourceItem.itemId, visibleItem.itemId].toSorted(),
+		);
 		expect(deltaItems.map((item) => item.id).toSorted()).toEqual(
 			[sourceItem.itemId, visibleItem.itemId].toSorted(),
 		);
+	});
+
+	test('dedupes selected seed and skips visible items without matching worker metadata', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const sourceItem = reviewPackage.itemsById['source-high'];
+		const visibleItem = reviewPackage.itemsById['docs-plan'];
+		if (sourceItem === undefined || visibleItem === undefined) {
+			throw new Error('expected projection fixture items');
+		}
+		const visibleSelectedCodeViewItem = workerPreparedCodeViewItem(
+			materializeBridgeCodeViewLoadingItem(sourceItem),
+		);
+		const mismatchedVisibleCodeViewItem = {
+			...workerPreparedCodeViewItem(materializeBridgeCodeViewLoadingItem(visibleItem)),
+			bridgeMetadata: {
+				...visibleSelectedCodeViewItem.bridgeMetadata,
+				itemId: sourceItem.itemId,
+			},
+		};
+
+		const seedItemIds = bridgeCodeViewInitialSeedItemIdsForPanel({
+			selectedItemId: sourceItem.itemId,
+			visibleCodeViewItems: [visibleSelectedCodeViewItem, mismatchedVisibleCodeViewItem],
+		});
+
+		expect(seedItemIds).toEqual([sourceItem.itemId]);
+	});
+
+	test('keeps selected source-reset seed first when visible items precede it in projection order', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+
+		const sourceResetItems = createBridgeCodeViewInitialItemsForPanel({
+			projection,
+			reviewPackage,
+			seedItemIds: ['docs-plan', 'source-high'],
+		});
+
+		expect(sourceResetItems.map((item) => item.id)).toEqual(['docs-plan', 'source-high']);
+		expect(sourceResetItems).toHaveLength(2);
+	});
+
+	test('does not scan projection order when source-reset seed ids are provided', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const projectionWithThrowingOrder = {
+			...projection,
+			get orderedItemIds(): readonly string[] {
+				throw new Error('seeded source reset must not scan full projection order');
+			},
+		} satisfies typeof projection;
+
+		const sourceResetItems = createBridgeCodeViewInitialItemsForPanel({
+			projection: projectionWithThrowingOrder,
+			reviewPackage,
+			seedItemIds: ['docs-plan', 'source-high'],
+		});
+
+		expect(sourceResetItems.map((item) => item.id)).toEqual(['docs-plan', 'source-high']);
 	});
 
 	test('includes selected presentation changes in non-reset metadata deltas', () => {

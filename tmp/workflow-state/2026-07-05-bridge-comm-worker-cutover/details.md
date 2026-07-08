@@ -3760,3 +3760,64 @@ counts before claiming a gate.
   It does not itself prove Review scroll/click smoothness, close Review
   placeholder main-thread diff residue, finish scheme-stream push/intake/ack
   cutover, run implementation-review-swarm, or prove PR readiness.
+
+## 2026-07-08 - Review CodeView Source-Reset Seed Bounding
+
+- Commit target:
+  pending local checkpoint `fix(bridge): bound review codeview source reset seed`.
+- Scope:
+  Remove one remaining package-shaped main-thread Review CodeView reset path.
+  Source-reset initial CodeView seeding now uses selected plus visible
+  worker-prepared item ids instead of rebuilding placeholders for the full
+  projection. This is an R45/R46/R57 cleanup slice only; it does not claim full
+  Review UX proof, native oq4s scroll/click proof, or final comm-worker
+  cutover completion.
+- Implementation:
+  `BridgeCodeViewPanel` derives a selected-first seed list from selected id and
+  visible worker-prepared items. The seed helper dedupes selected and skips
+  visible candidates whose `bridgeMetadata.itemId` does not match the item id.
+  `createBridgeCodeViewInitialItemsForPanel` passes that seed list into
+  materialization and reorders returned items by seed rank so selected stays
+  first for the panel reset path. `buildBridgeReviewProjection` now records
+  `orderedItemRankByItemId`; the seeded low-level materializer iterates only the
+  seed ids, validates membership with the precomputed rank map, and sorts by
+  projection rank without reading `projection.orderedItemIds`.
+- Accepted sidekick findings:
+  Socrates the 2nd and Noether the 2nd both found the first draft only bounded
+  output size: it still filtered the full `projection.orderedItemIds` list, and
+  the new panel dependencies would make that O(package) scan hotter. The fix
+  moved the true seeded fast path into `createBridgeCodeViewInitialItems` and
+  added projection rank data to preserve the existing low-level projection-order
+  contract. Bernoulli the 2nd re-reviewed the final diff and returned `ready`
+  with no findings.
+- Red / green evidence:
+  The original new test failed before the seed support because source reset
+  returned full projection items instead of selected + visible. The
+  selected-first guard failed before panel-level seed-rank ordering because the
+  low-level helper preserved projection order. Review then supplied the stronger
+  red condition: seeded initialization must not scan `projection.orderedItemIds`.
+  The final test uses a throwing `orderedItemIds` getter and passed only after
+  the O(seed) fast path.
+- Green evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/code-view/bridge-code-view-panel.unit.test.ts
+  src/review-viewer/code-view/bridge-code-view-panel-reconcile.unit.test.ts
+  src/review-viewer/code-view/bridge-code-view-materialization.unit.test.ts
+  src/review-viewer/code-view/bridge-code-view-materialization.hydration.unit.test.ts
+  src/review-viewer/code-view/bridge-code-view-selected-apply-pump.unit.test.ts
+  src/review-viewer/code-view/bridge-code-view-metadata-apply.unit.test.ts
+  src/review-viewer/navigation/review-projection.unit.test.ts --reporter dot`
+  passed 7 files / 78 tests. `pnpm --dir BridgeWeb exec tsc --noEmit
+  --pretty false` passed. Scoped `oxfmt --check`, scoped
+  `oxlint --type-aware`, and `git diff --check` passed.
+- Line-cap evidence:
+  Pre/post touched over-800 files:
+  `bridge-code-view-materialization.ts` 865 -> 903,
+  `bridge-code-view-panel-support.tsx` 874 -> 920,
+  `bridge-code-view-panel.tsx` 969 -> 977. All remain below the 1000-line hard
+  cap.
+- Known proof boundary:
+  This removes one Review CodeView package-shaped source-reset residue. It does
+  not finish Review main-thread parse/window/diff residues, native oq4s
+  scroll/click metrics, browser Vitest full-suite proof, Swift full-suite proof,
+  implementation-review-swarm, PR readiness, or full goal completion.

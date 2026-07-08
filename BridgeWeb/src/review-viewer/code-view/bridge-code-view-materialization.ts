@@ -95,12 +95,50 @@ export function createBridgeCodeViewInitialItems(
 	props: CreateBridgeCodeViewInitialItemsProps,
 ): readonly BridgeCodeViewItem[] {
 	const items: BridgeCodeViewItem[] = [];
-	const seedItemIds = props.seedItemIds === undefined ? null : new Set<string>(props.seedItemIds);
+	const seedItemIds = props.seedItemIds;
+
+	if (seedItemIds !== undefined) {
+		const projectionRankByItemId = props.projection.orderedItemRankByItemId;
+		const seededIds: string[] = [];
+		const seenItemIds = new Set<string>();
+		for (const itemId of seedItemIds) {
+			if (seenItemIds.has(itemId)) {
+				continue;
+			}
+			seenItemIds.add(itemId);
+			if (
+				projectionRankByItemId === undefined
+					? !Object.hasOwn(props.projection.primaryDisplayPathByItemId, itemId)
+					: projectionRankByItemId[itemId] === undefined
+			) {
+				continue;
+			}
+			seededIds.push(itemId);
+		}
+		const orderedSeedIds =
+			projectionRankByItemId === undefined
+				? seededIds
+				: seededIds.toSorted(
+						(first, second): number =>
+							(projectionRankByItemId[first] ?? Number.MAX_SAFE_INTEGER) -
+							(projectionRankByItemId[second] ?? Number.MAX_SAFE_INTEGER),
+					);
+		for (const itemId of orderedSeedIds) {
+			const item = props.reviewPackage.itemsById[itemId];
+			if (item === undefined) {
+				continue;
+			}
+			items.push(
+				createPlaceholderItem({
+					item,
+					presentation: props.itemPresentationsByItemId?.get(item.itemId) ?? null,
+				}),
+			);
+		}
+		return items;
+	}
 
 	for (const itemId of props.projection.orderedItemIds) {
-		if (seedItemIds !== null && !seedItemIds.has(itemId)) {
-			continue;
-		}
 		const item = props.reviewPackage.itemsById[itemId];
 		if (item === undefined) {
 			continue;

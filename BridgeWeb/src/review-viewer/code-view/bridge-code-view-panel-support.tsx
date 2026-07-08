@@ -134,11 +134,57 @@ export function shouldRequestForegroundDemandForItemExpansion(props: {
 export function createBridgeCodeViewInitialItemsForPanel(props: {
 	readonly projection: BridgeReviewProjectionResult;
 	readonly reviewPackage: BridgeReviewPackage;
+	readonly seedItemIds?: readonly string[] | undefined;
 }): readonly BridgeCodeViewItem[] {
-	return createBridgeCodeViewInitialItems({
+	const initialItems = createBridgeCodeViewInitialItems({
 		reviewPackage: props.reviewPackage,
 		projection: props.projection,
+		...(props.seedItemIds === undefined ? {} : { seedItemIds: props.seedItemIds }),
 	});
+	if (props.seedItemIds === undefined) {
+		return initialItems;
+	}
+	const rankByItemId = new Map<string, number>();
+	for (const [index, itemId] of props.seedItemIds.entries()) {
+		if (!rankByItemId.has(itemId)) {
+			rankByItemId.set(itemId, index);
+		}
+	}
+	return initialItems.toSorted(
+		(first, second): number =>
+			(rankByItemId.get(first.id) ?? Number.MAX_SAFE_INTEGER) -
+			(rankByItemId.get(second.id) ?? Number.MAX_SAFE_INTEGER),
+	);
+}
+
+interface BridgeCodeViewInitialSeedCandidate {
+	readonly id: string;
+	readonly bridgeMetadata: {
+		readonly itemId: string;
+	};
+}
+
+export function bridgeCodeViewInitialSeedItemIdsForPanel(props: {
+	readonly selectedItemId: string | null;
+	readonly visibleCodeViewItems?: readonly BridgeCodeViewInitialSeedCandidate[] | undefined;
+}): readonly string[] {
+	const seedItemIds: string[] = [];
+	const seenItemIds = new Set<string>();
+	if (props.selectedItemId !== null) {
+		seedItemIds.push(props.selectedItemId);
+		seenItemIds.add(props.selectedItemId);
+	}
+	for (const visibleCodeViewItem of props.visibleCodeViewItems ?? []) {
+		if (
+			visibleCodeViewItem.bridgeMetadata.itemId !== visibleCodeViewItem.id ||
+			seenItemIds.has(visibleCodeViewItem.id)
+		) {
+			continue;
+		}
+		seedItemIds.push(visibleCodeViewItem.id);
+		seenItemIds.add(visibleCodeViewItem.id);
+	}
+	return seedItemIds;
 }
 
 export function bridgeCodeViewInitialItemsWithMetadataDeltaItems(props: {

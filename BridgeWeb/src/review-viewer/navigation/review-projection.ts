@@ -153,11 +153,20 @@ export function buildBridgeReviewProjectionFromInput(
 		projectionId: projectionIdForRequest(props.projectionInput, props.request),
 		label: labelForMode(props.request.mode),
 		orderedItemIds,
+		orderedItemRankByItemId: orderedItemRankByItemId(orderedItemIds),
 		...maps,
 		facetCounts: facetCountsForItems(projectedItems),
 	};
 
 	return bridgeReviewProjectionSchema.parse(projection);
+}
+
+function orderedItemRankByItemId(orderedItemIds: readonly string[]): Record<string, number> {
+	const rankByItemId: Record<string, number> = {};
+	for (const [index, itemId] of orderedItemIds.entries()) {
+		rankByItemId[itemId] = index;
+	}
+	return rankByItemId;
 }
 
 function itemsForMode(

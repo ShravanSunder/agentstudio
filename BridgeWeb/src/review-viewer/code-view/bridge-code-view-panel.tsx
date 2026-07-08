@@ -19,6 +19,7 @@ import {
 import { BridgeCodeViewPanelFrame } from './bridge-code-view-panel-frame.js';
 import {
 	bridgeCodeViewInitialItemsWithMetadataDeltaItems,
+	bridgeCodeViewInitialSeedItemIdsForPanel,
 	bridgeCodeViewItemsWithMetadataItem,
 	bridgeCodeViewLoadingMaterializationItemIdsForPanel,
 	codeViewHandleHasInstance,
@@ -459,12 +460,19 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	}, [props.selectedContentLoadingItemId]);
 	const selectedItemIdForMetadataReconcileRef = useRef(props.selectedItemId);
 	selectedItemIdForMetadataReconcileRef.current = props.selectedItemId;
+	const initialItemSeedIds = useMemo((): readonly string[] => {
+		return bridgeCodeViewInitialSeedItemIdsForPanel({
+			selectedItemId: props.selectedItemId,
+			visibleCodeViewItems: props.visibleCodeViewItems,
+		});
+	}, [props.selectedItemId, props.visibleCodeViewItems]);
 	const initialItems = useMemo(() => {
 		return createBridgeCodeViewInitialItemsForPanel({
+			seedItemIds: initialItemSeedIds,
 			projection: props.projection,
 			reviewPackage: props.reviewPackage,
 		});
-	}, [props.projection, props.reviewPackage]);
+	}, [initialItemSeedIds, props.projection, props.reviewPackage]);
 	const metadataDeltaItems = useMemo((): readonly BridgeCodeViewItem[] => {
 		return createBridgeCodeViewMetadataDeltaItemsForPanel({
 			reviewPackage: props.reviewPackage,

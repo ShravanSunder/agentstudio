@@ -168,6 +168,7 @@ export const bridgeReviewProjectionResultSchema = z.object({
 	projectionId: z.string().min(1),
 	label: z.string().min(1),
 	orderedItemIds: z.array(z.string().min(1)).readonly(),
+	orderedItemRankByItemId: z.record(z.string(), z.number().int().nonnegative()).optional(),
 	orderedPaths: z.array(z.string()).readonly(),
 	primaryDisplayPathByItemId: z.record(z.string(), z.string()),
 	primaryItemIdByTreePath: z.record(z.string(), z.string()),
