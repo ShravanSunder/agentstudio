@@ -94,6 +94,7 @@ export function buildBridgeDevContentResponseTelemetryBatch(
 	return {
 		schemaVersion: 1,
 		scenario: props.scenario,
+		streamId: 'page',
 		samples: [
 			bridgeDevContentResponseSample({
 				durationMilliseconds: props.getProviderMilliseconds,

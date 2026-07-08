@@ -6,6 +6,7 @@ import {
 import {
 	makeBridgeTelemetryBatch,
 	type BridgeTelemetrySample,
+	type BridgeTelemetryStreamId,
 } from '../../foundation/telemetry/bridge-telemetry-event.js';
 import type { BridgeTelemetryScope } from '../../foundation/telemetry/bridge-telemetry-scope.js';
 import {
@@ -53,6 +54,7 @@ export interface CreateBridgeCommWorkerTelemetryClientProps {
 	readonly config: BridgeTelemetryBootstrapConfig;
 	readonly sink?: BridgeTelemetrySink;
 	readonly scheduleIdleFlush?: BridgeCommWorkerTelemetryIdleFlushScheduler;
+	readonly streamId: BridgeTelemetryStreamId;
 }
 
 export function createBridgeCommWorkerTelemetryClient(
@@ -87,7 +89,14 @@ export function createBridgeCommWorkerTelemetryClient(
 			return true;
 		}
 		const sequence = peekNextBatchSequence();
-		const didFlush = sink.flush(makeBridgeTelemetryBatch(props.config.scenario, sequence, samples));
+		const didFlush = sink.flush(
+			makeBridgeTelemetryBatch({
+				scenario: props.config.scenario,
+				streamId: props.streamId,
+				sequence,
+				samples,
+			}),
+		);
 		if (!didFlush) {
 			buffer.restore(snapshot);
 			return false;

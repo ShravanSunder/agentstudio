@@ -28,6 +28,7 @@ describe('Bridge comm worker telemetry', () => {
 				minimumFlushIntervalMilliseconds: 250,
 				scenario: 'bridge-runtime',
 			},
+			streamId: 'comm-worker',
 			scheduleIdleFlush: (callback): void => {
 				idleCallbacks.push(callback);
 			},
@@ -48,6 +49,7 @@ describe('Bridge comm worker telemetry', () => {
 			{
 				schemaVersion: 1,
 				scenario: 'bridge-runtime',
+				streamId: 'comm-worker',
 				sequence: 1,
 				samples: [makeSample('performance.bridge.web.first_render')],
 			},
@@ -69,6 +71,7 @@ describe('Bridge comm worker telemetry', () => {
 				minimumFlushIntervalMilliseconds: 250,
 				scenario: 'bridge-runtime',
 			},
+			streamId: 'comm-worker',
 			sink: {
 				flush: (batch): boolean => {
 					batches.push(batch);
@@ -98,6 +101,7 @@ describe('Bridge comm worker telemetry', () => {
 				minimumFlushIntervalMilliseconds: 250,
 				scenario: 'bridge-runtime',
 			},
+			streamId: 'comm-worker',
 			sink: {
 				flush: (batch): boolean => {
 					if (!shouldAcceptFlush) {

@@ -192,6 +192,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			} else {
 				const telemetryClient = createBridgeCommWorkerTelemetryClient({
 					config: nextTelemetryConfig,
+					streamId: 'page',
 					sink: createBridgeTelemetryEventSink({
 						endpointUrl: nextTelemetryConfig.endpointUrl,
 					}),

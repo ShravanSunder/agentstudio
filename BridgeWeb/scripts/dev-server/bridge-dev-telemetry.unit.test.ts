@@ -409,6 +409,7 @@ describe('Bridge dev telemetry sink', () => {
 		expect(batch).toEqual({
 			schemaVersion: 1,
 			scenario: 'vite-dev-worktree-current-worktree',
+			streamId: 'page',
 			samples: [
 				expect.objectContaining({
 					name: 'performance.bridge.web.dev_content_response',
@@ -491,6 +492,7 @@ describe('Bridge dev telemetry sink', () => {
 function makeTelemetryBatch(): {
 	readonly schemaVersion: 1;
 	readonly scenario: string;
+	readonly streamId: 'page';
 	readonly samples: readonly [
 		{
 			readonly scope: 'web';
@@ -506,6 +508,7 @@ function makeTelemetryBatch(): {
 	return {
 		schemaVersion: 1,
 		scenario: 'vite-dev-current-worktree',
+		streamId: 'page',
 		samples: [
 			{
 				scope: 'web',

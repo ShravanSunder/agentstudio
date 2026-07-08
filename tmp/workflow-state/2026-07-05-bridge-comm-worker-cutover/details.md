@@ -3112,3 +3112,51 @@ counts before claiming a gate.
   not prove `selected_content_painted` live emission, does not close remaining
   `missing_drop_counter` rows, and does not claim Review scroll/click budget
   closure.
+
+### 2026-07-08 Telemetry stream-id sequence hard cutover
+
+- Scope: narrow R43 telemetry integrity repair for browser/page and comm-worker
+  telemetry producer identity. The wire batch contract now requires
+  `streamId: "page" | "comm-worker"`; the page recorder, comm-worker telemetry
+  client, real worker entry, Vite/dev telemetry builder, and direct tests emit
+  the stream id.
+- Root cause: page and comm-worker telemetry are separate producers with
+  independent sequence counters, but Swift validator state previously keyed
+  monotonic sequence by one global scenario stream. That made live proof fragile:
+  a valid worker batch could collide with page sequencing and produce
+  `missing_drop_counter` drops. Sidekick correction remains important: this was
+  not the only possible missing-drop source, because the current telemetry
+  scheme sink is still fire-and-forget and can report success before native
+  acceptance.
+- Fix: `BridgeTelemetryBatch` carries `streamId`; JSON without `streamId` fails
+  decode; `BridgeTelemetryBatchSequenceState` tracks last sequence per stream;
+  TS batch construction is props-based and cannot omit the stream id without
+  TypeScript failure.
+- Red evidence:
+  Focused BridgeWeb telemetry tests failed before production edits because page
+  and worker batches lacked `streamId`. The Swift legacy JSON test failed before
+  the native model change because a batch without `streamId` decoded as valid.
+- Green evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/foundation/telemetry/bridge-telemetry-recorder.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-telemetry.unit.test.ts
+  src/bridge/bridge-telemetry-event-sink.unit.test.ts
+  scripts/dev-server/bridge-dev-telemetry.unit.test.ts --reporter dot` passed
+  4 files / 24 tests. `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false`
+  passed. `pnpm --dir BridgeWeb exec oxfmt --check` on touched TS files passed.
+  `pnpm --dir BridgeWeb exec oxlint --type-aware` on touched TS files exited 0
+  with one warning-only pre-existing `no-array-sort` note in dev telemetry.
+  `swift test --filter BridgeTelemetryBatchValidatorTests` passed 28 tests /
+  3 suites. `swift test --filter BridgeTelemetryBatchValidatorSequenceTests`
+  passed 3 tests / 1 suite. `mise run lint -- <touched files>` passed
+  swift-format, SwiftLint, AgentStudio architecture lint, and release script
+  checks. `git diff --check` passed.
+- File-size guard:
+  `BridgeTelemetryBatchValidatorTests.swift` is 895 lines after moving sequence
+  coverage into `BridgeTelemetryBatchValidatorSequenceTests.swift` at 224 lines.
+- Known proof boundary:
+  This closes producer stream identity and native sequence scoping only. It does
+  not prove live Victoria non-lossy telemetry yet, does not fix the async
+  fire-and-forget telemetry POST acceptance gap if that remains, does not prove
+  selected paint/materialize rows on the current oq4s app, and does not close
+  Review scroll/click budgets.

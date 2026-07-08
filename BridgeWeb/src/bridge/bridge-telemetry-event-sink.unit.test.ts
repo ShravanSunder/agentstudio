@@ -25,6 +25,7 @@ describe('bridge telemetry event sink', () => {
 		const didFlush = sink.flush({
 			schemaVersion: 1,
 			scenario: 'bridge-runtime',
+			streamId: 'page',
 			sequence: 1,
 			samples: [],
 		});
@@ -35,6 +36,7 @@ describe('bridge telemetry event sink', () => {
 			{
 				schemaVersion: 1,
 				scenario: 'bridge-runtime',
+				streamId: 'page',
 				sequence: 1,
 				samples: [],
 			},

@@ -162,7 +162,14 @@ function createEnabledBridgeTelemetryRecorder(
 				return true;
 			}
 			const sequence = peekNextBatchSequence();
-			const didFlush = sink.flush(makeBridgeTelemetryBatch(config.scenario, sequence, samples));
+			const didFlush = sink.flush(
+				makeBridgeTelemetryBatch({
+					scenario: config.scenario,
+					streamId: 'page',
+					sequence,
+					samples,
+				}),
+			);
 			if (!didFlush) {
 				buffer.restore(snapshot);
 				return false;

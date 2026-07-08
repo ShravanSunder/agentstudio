@@ -57,6 +57,9 @@ struct BridgeTelemetryBatchValidator: Sendable {
         guard Self.isSafeControlledString(batch.scenario) else {
             return Self.dropped(.unsafeAttribute)
         }
+        guard Self.isSafeControlledString(batch.streamId.rawValue) else {
+            return Self.dropped(.unsafeAttribute)
+        }
         if let sequenceFailure = sequenceState.validateSequence(batch) {
             return Self.dropped(
                 sequenceFailure.reason,
@@ -102,20 +105,21 @@ struct BridgeTelemetryBatchValidator: Sendable {
 
 private final class BridgeTelemetryBatchSequenceState: @unchecked Sendable {
     private let lock = NSLock()
-    private var lastSequence: Int?
+    private var lastSequenceByStreamId: [BridgeTelemetryStreamId: Int] = [:]
 
     func validateSequence(_ batch: BridgeTelemetryBatch) -> BridgeTelemetryBatchSequenceValidationFailure? {
         guard let sequence = batch.sequence else {
             return nil
         }
         return lock.withLock {
-            guard let previousSequence = lastSequence else {
-                lastSequence = sequence
+            let streamId = batch.streamId
+            guard let previousSequence = lastSequenceByStreamId[streamId] else {
+                lastSequenceByStreamId[streamId] = sequence
                 return nil
             }
             let expectedSequence = previousSequence + 1
             guard sequence > expectedSequence else {
-                lastSequence = max(sequence, previousSequence)
+                lastSequenceByStreamId[streamId] = max(sequence, previousSequence)
                 return nil
             }
             if BridgeTelemetryBatchValidator.hasRequiredEventShedCounter(batch) {
@@ -131,7 +135,7 @@ private final class BridgeTelemetryBatchSequenceState: @unchecked Sendable {
                     firstRejectedEventName: BridgeTelemetryBatchValidator.firstAllowedEventName(in: batch)
                 )
             }
-            lastSequence = sequence
+            lastSequenceByStreamId[streamId] = sequence
             return nil
         }
     }

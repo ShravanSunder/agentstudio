@@ -55,6 +55,7 @@ describe('bridge telemetry recorder', () => {
 		expect(batches[0]?.samples.map((sample) => sample.name)).toEqual([
 			'performance.bridge.web.first_render',
 		]);
+		expect(batches[0]?.streamId).toBe('page');
 		expect(batches[0]?.sequence).toBe(1);
 	});
 

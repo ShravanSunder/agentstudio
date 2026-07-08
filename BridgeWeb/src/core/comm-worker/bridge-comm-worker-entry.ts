@@ -158,6 +158,7 @@ function runtimePropsFromBootstrapRequest(
 			? null
 			: createBridgeCommWorkerTelemetryClient({
 					config: bridgeTelemetryBootstrapConfigFromWorkerConfig(request.runtime.telemetryConfig),
+					streamId: 'comm-worker',
 					sink: createBridgeTelemetryEventSink({
 						endpointUrl: request.runtime.telemetryConfig.endpointUrl,
 					}),
