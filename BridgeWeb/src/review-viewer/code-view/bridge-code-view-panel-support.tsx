@@ -16,7 +16,6 @@ import {
 	type BridgeFrameApplyUnitRank,
 } from '../../core/rendering/bridge-frame-apply-pump.js';
 import type {
-	BridgeContentRole,
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package.js';
@@ -414,18 +413,6 @@ export function shouldRearmCodeViewInstantRevealForMaterialization(props: {
 	return false;
 }
 
-export function selectedContentStateForPanel(props: {
-	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null | undefined;
-	readonly selectedItemId: string | null;
-}): 'none' | 'pending' | 'ready' {
-	if (props.selectedItemId === null) {
-		return 'none';
-	}
-	return props.selectedCodeViewItem === null || props.selectedCodeViewItem === undefined
-		? 'pending'
-		: 'ready';
-}
-
 export function hasRenderedItemsSource(value: unknown): value is BridgeCodeViewRenderedItemsSource {
 	return (
 		typeof value === 'object' &&
@@ -568,99 +555,6 @@ function cssEscapeBridgeCodeViewSelectorValue(value: string): string {
 	return typeof CSS === 'undefined' || CSS.escape === undefined
 		? value.replaceAll('"', '\\"')
 		: CSS.escape(value);
-}
-
-interface SelectedContentSummary {
-	readonly cacheKeyCount: number;
-	readonly characterCount: number;
-	readonly lineCount: number;
-}
-
-export interface SelectedContentDiagnostics {
-	readonly cacheKeys: string;
-	readonly roleCount: number;
-	readonly roleNames: string;
-	readonly state: 'none' | 'pending' | 'ready';
-	readonly summary: SelectedContentSummary;
-}
-
-const selectedContentRoleOrder: readonly BridgeContentRole[] = ['base', 'head', 'diff', 'file'];
-
-export function selectedContentRoleNamesForPanel(props: {
-	readonly selectedContentResources: BridgeCodeViewContentResources | null | undefined;
-}): string {
-	if (props.selectedContentResources === null || props.selectedContentResources === undefined) {
-		return '';
-	}
-	return selectedContentRoleOrder
-		.filter((role): boolean => props.selectedContentResources?.[role] !== undefined)
-		.join(',');
-}
-
-export function selectedContentCacheKeysForPanel(props: {
-	readonly selectedContentResources: BridgeCodeViewContentResources | null | undefined;
-}): string {
-	if (props.selectedContentResources === null || props.selectedContentResources === undefined) {
-		return '';
-	}
-	const cacheKeys: string[] = [];
-	for (const role of selectedContentRoleOrder) {
-		const resource = props.selectedContentResources[role];
-		if (resource !== undefined) {
-			cacheKeys.push(`${role}:${resource.handle.cacheKey}`);
-		}
-	}
-	return cacheKeys.join(',');
-}
-
-export function selectedContentSummaryForPanel(props: {
-	readonly selectedContentResources: BridgeCodeViewContentResources | null | undefined;
-}): SelectedContentSummary {
-	if (props.selectedContentResources === null || props.selectedContentResources === undefined) {
-		return {
-			cacheKeyCount: 0,
-			characterCount: 0,
-			lineCount: 0,
-		};
-	}
-
-	const resources = Object.values(props.selectedContentResources).filter(
-		(resource): resource is NonNullable<typeof resource> => resource !== undefined,
-	);
-	return {
-		cacheKeyCount: new Set(resources.map((resource): string => resource.handle.cacheKey)).size,
-		characterCount: resources.reduce(
-			(totalCharacters, resource): number =>
-				totalCharacters + (resource.byteLength ?? resource.handle.sizeBytes),
-			0,
-		),
-		lineCount: 0,
-	};
-}
-
-export function selectedContentDiagnosticsForPanel(props: {
-	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null | undefined;
-	readonly selectedItemId: string | null;
-}): SelectedContentDiagnostics {
-	const selectedCodeViewItem = props.selectedCodeViewItem;
-	const contentRoles = selectedCodeViewItem?.bridgeMetadata.contentRoles ?? [];
-	return {
-		cacheKeys:
-			selectedCodeViewItem === null || selectedCodeViewItem === undefined
-				? ''
-				: selectedCodeViewItem.bridgeMetadata.cacheKey,
-		roleCount: contentRoles.length,
-		roleNames: contentRoles.join(','),
-		state: selectedContentStateForPanel({
-			selectedCodeViewItem,
-			selectedItemId: props.selectedItemId,
-		}),
-		summary: {
-			cacheKeyCount: selectedCodeViewItem === null || selectedCodeViewItem === undefined ? 0 : 1,
-			characterCount: 0,
-			lineCount: selectedCodeViewItem?.bridgeMetadata.lineCount ?? 0,
-		},
-	};
 }
 
 export function emptyMaterializationDiagnostic(): BridgeCodeViewMaterializationDiagnostic {

@@ -23,7 +23,6 @@ import {
 	makeBridgeCodeViewSourceKey,
 	nextCodeViewItemForCollapse,
 	reconcileBridgeCodeViewMetadataItems,
-	selectedContentDiagnosticsForPanel,
 	shouldRearmCodeViewInstantRevealForMaterialization,
 	uniqueItemIds,
 	uniqueRenderedItemIds,
@@ -47,6 +46,10 @@ import {
 	cancelBridgeCodeViewPendingProgrammaticReveal,
 	createBridgeCodeViewProgrammaticRevealGate,
 } from './bridge-code-view-programmatic-reveal-gate.js';
+import {
+	selectedContentDiagnosticsForPanel,
+	selectedMaterializationDiagnosticForPanel,
+} from './bridge-code-view-selected-diagnostics.js';
 import { createBridgeCodeViewVisibleInterestPublisher } from './bridge-code-view-visible-interest-publisher.js';
 import { useBridgeCodeViewCollapseController } from './use-bridge-code-view-collapse-controller.js';
 import { useBridgeCodeViewSelectionScroll } from './use-bridge-code-view-selection-scroll.js';
@@ -55,8 +58,8 @@ export { bridgeCodeViewOptions } from './bridge-code-view-options.js';
 export {
 	makeBridgeCodeViewSourceKey,
 	reconcileBridgeCodeViewMetadataItems,
-	selectedContentSummaryForPanel,
 } from './bridge-code-view-panel-support.js';
+export { selectedContentSummaryForPanel } from './bridge-code-view-selected-diagnostics.js';
 export {
 	recordBridgeSelectedContentPaintedProbeAnchoredDelivery,
 	scheduleSelectedContentPaintedTelemetry,
@@ -132,6 +135,10 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const onControlHandleChange = props.onControlHandleChange;
 	const [materializationDiagnostic, setMaterializationDiagnostic] =
 		useState<BridgeCodeViewMaterializationDiagnostic>(() => emptyMaterializationDiagnostic());
+	const selectedMaterializationDiagnostic = selectedMaterializationDiagnosticForPanel({
+		materializationDiagnostic,
+		selectedCodeViewItem: props.selectedCodeViewItem,
+	});
 	const cancelPendingProgrammaticReveal = useCallback((): void => {
 		cancelBridgeCodeViewPendingProgrammaticReveal({
 			pendingPreHydrationSelectionScrollKeyRef,
@@ -702,7 +709,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			handleCodeViewScroll={handleCodeViewScroll}
 			headerRenderers={headerRenderers}
 			initialItems={initialItems}
-			materializationDiagnostic={materializationDiagnostic}
+			materializationDiagnostic={selectedMaterializationDiagnostic}
 			materializationResourceEntryCount={0}
 			materializationResourceEntryItemIds=""
 			selectedChangeKind={selectedReviewItem?.changeKind ?? 'none'}
