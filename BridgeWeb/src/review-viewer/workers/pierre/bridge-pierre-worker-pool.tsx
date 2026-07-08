@@ -85,6 +85,8 @@ export interface BridgePierreBlobWorkerFactory {
 	readonly revoke: () => void;
 }
 
+export type BridgePierreWorkerSourceFetch = (workerScriptUrl: string) => Promise<string>;
+
 export interface BridgePierreWorkerPoolProviderProps {
 	readonly children: ReactNode;
 	readonly enabled?: boolean;
@@ -117,8 +119,12 @@ const defaultBridgePierreWorkerKind = 'classicWorker' satisfies BridgePierreWork
 const defaultPoolSize = 3;
 const defaultTotalASTLRUCacheSize = 128;
 const bridgePierreWorkerPoolStatsPollIntervalMilliseconds = 100;
+const bridgePierreWorkerSourceLoadTimeoutMilliseconds = 5_000;
 const bridgePierreUnrankedWorkerTaskRank = Number.MAX_SAFE_INTEGER;
 let bridgePierreWorkerPoolProviderInstanceCount = 0;
+let bridgePierreDefaultWorkerFactoryPromise: Promise<BridgePierreBlobWorkerFactory> | null = null;
+let bridgePierreDefaultWorkerFactory: BridgePierreBlobWorkerFactory | null = null;
+let bridgePierreDefaultWorkerFactoryLoaderGeneration = 0;
 
 export function createBridgePierreWorkerFactory(
 	props: CreateBridgePierreWorkerFactoryProps = {},
@@ -154,6 +160,13 @@ export function terminateBridgePierreWorkerPoolSingletonForTest(): void {
 	terminateWorkerPoolSingleton();
 }
 
+export function resetBridgePierreWorkerFactoryLoaderForTest(): void {
+	bridgePierreDefaultWorkerFactoryLoaderGeneration += 1;
+	bridgePierreDefaultWorkerFactoryPromise = null;
+	bridgePierreDefaultWorkerFactory?.revoke();
+	bridgePierreDefaultWorkerFactory = null;
+}
+
 export function createBridgePierreBlobWorkerFactory(
 	props: CreateBridgePierreBlobWorkerFactoryProps,
 ): BridgePierreBlobWorkerFactory {
@@ -180,6 +193,78 @@ export function createBridgePierreBlobWorkerFactory(
 			revokeObjectURL(workerScriptUrl);
 		},
 	};
+}
+
+export function loadBridgePierreDefaultWorkerFactory(): Promise<BridgePierreBlobWorkerFactory> {
+	if (bridgePierreDefaultWorkerFactory !== null) {
+		return Promise.resolve(bridgePierreDefaultWorkerFactory);
+	}
+	if (bridgePierreDefaultWorkerFactoryPromise !== null) {
+		return bridgePierreDefaultWorkerFactoryPromise;
+	}
+	const loaderGeneration = bridgePierreDefaultWorkerFactoryLoaderGeneration;
+	bridgePierreDefaultWorkerFactoryPromise = loadBridgePierreWorkerFactory({
+		fetchWorkerSource: defaultFetchBridgePierreWorkerSource,
+	})
+		.then((workerFactory): BridgePierreBlobWorkerFactory => {
+			if (loaderGeneration !== bridgePierreDefaultWorkerFactoryLoaderGeneration) {
+				workerFactory.revoke();
+				throw new Error('Bridge Pierre worker factory load was reset');
+			}
+			bridgePierreDefaultWorkerFactory = workerFactory;
+			return workerFactory;
+		})
+		.catch((error: unknown): never => {
+			if (loaderGeneration === bridgePierreDefaultWorkerFactoryLoaderGeneration) {
+				bridgePierreDefaultWorkerFactoryPromise = null;
+			}
+			throw error;
+		});
+	return bridgePierreDefaultWorkerFactoryPromise;
+}
+
+async function loadBridgePierreWorkerFactory(props: {
+	readonly fetchWorkerSource: BridgePierreWorkerSourceFetch;
+}): Promise<BridgePierreBlobWorkerFactory> {
+	const workerSource = await props.fetchWorkerSource(defaultWorkerScriptUrl);
+	return createBridgePierreBlobWorkerFactory({ workerSource });
+}
+
+async function defaultFetchBridgePierreWorkerSource(workerScriptUrl: string): Promise<string> {
+	if (typeof fetch === 'undefined') {
+		throw new Error('Bridge Pierre worker factory requires fetch');
+	}
+	const abortController = new AbortController();
+	let timeoutId: ReturnType<typeof setTimeout> | null = null;
+	const timeoutPromise = new Promise<never>((_resolve, reject): void => {
+		timeoutId = setTimeout((): void => {
+			abortController.abort();
+			reject(new Error('Timed out loading packaged worker'));
+		}, bridgePierreWorkerSourceLoadTimeoutMilliseconds);
+	});
+	try {
+		const response = await Promise.race([
+			fetch(workerScriptUrl, { signal: abortController.signal }),
+			timeoutPromise,
+		]);
+		if (!response.ok) {
+			throw new Error(`Failed to load packaged worker: ${response.status}`);
+		}
+		return await response.text();
+	} catch (error: unknown) {
+		if (
+			typeof DOMException !== 'undefined' &&
+			error instanceof DOMException &&
+			error.name === 'AbortError'
+		) {
+			throw new Error('Timed out loading packaged worker', { cause: error });
+		}
+		throw error;
+	} finally {
+		if (timeoutId !== null) {
+			clearTimeout(timeoutId);
+		}
+	}
 }
 
 export function createBridgePierreWorkerHighlighterOptions(): WorkerInitializationRenderOptions {
@@ -714,24 +799,16 @@ function useBridgePierreWorkerPoolLoadState(props: {
 		}
 
 		let didCancel = false;
-		let loadedFactory: BridgePierreBlobWorkerFactory | null = null;
 		setLoadState({ kind: 'loading' });
 
-		void fetch(defaultWorkerScriptUrl)
-			.then(async (response: Response): Promise<string> => {
-				if (!response.ok) {
-					throw new Error(`Failed to load packaged worker: ${response.status}`);
-				}
-				return await response.text();
-			})
-			.then((workerSource: string): void => {
+		void loadBridgePierreDefaultWorkerFactory()
+			.then((workerFactory: BridgePierreBlobWorkerFactory): void => {
 				if (didCancel) {
 					return;
 				}
-				loadedFactory = createBridgePierreBlobWorkerFactory({ workerSource });
 				setLoadState({
 					kind: 'ready',
-					workerFactory: loadedFactory.workerFactory,
+					workerFactory: workerFactory.workerFactory,
 				});
 			})
 			.catch((error: unknown): void => {
@@ -746,7 +823,6 @@ function useBridgePierreWorkerPoolLoadState(props: {
 
 		return (): void => {
 			didCancel = true;
-			loadedFactory?.revoke();
 		};
 	}, [props.enabled, props.workerFactory]);
 

@@ -6,10 +6,9 @@ import {
 	bridgePierreDarkThemeName,
 } from '../../code-view/bridge-code-view-theme.js';
 import {
-	bridgePierreDefaultWorkerScriptUrl,
-	createBridgePierreBlobWorkerFactory,
 	createBridgePierreWorkerHighlighterOptions,
 	createBridgePierreWorkerPoolOptions,
+	loadBridgePierreDefaultWorkerFactory,
 } from './bridge-pierre-worker-pool.js';
 
 export interface BridgePierreWorkerPoolPrewarmRequest {
@@ -19,7 +18,6 @@ export interface BridgePierreWorkerPoolPrewarmRequest {
 export interface PrewarmBridgePierreWorkerPoolProps extends BridgePierreWorkerPoolPrewarmRequest {
 	readonly enabled?: boolean;
 	readonly ensureCodeViewThemeResolved?: () => Promise<void>;
-	readonly fetchWorkerSource?: (workerScriptUrl: string) => Promise<string>;
 	readonly getWorkerPoolManager?: (props: {
 		readonly workerFactory: () => Worker;
 	}) => WorkerPoolManager;
@@ -76,10 +74,7 @@ async function runBridgePierreWorkerPoolPrewarm(
 		props.ensureCodeViewThemeResolved ?? ensureBridgeCodeViewThemeResolved;
 	await ensureThemeResolved();
 	const workerFactory =
-		props.workerFactory ??
-		(await loadBridgePierreWorkerFactory(
-			props.fetchWorkerSource === undefined ? {} : { fetchWorkerSource: props.fetchWorkerSource },
-		));
+		props.workerFactory ?? (await loadBridgePierreDefaultWorkerFactory()).workerFactory;
 	const getWorkerPoolManager = props.getWorkerPoolManager ?? defaultGetWorkerPoolManager;
 	const workerPool = getWorkerPoolManager({ workerFactory });
 	subscribeToPrewarmReadinessUntilSettled(workerPool);
@@ -87,25 +82,6 @@ async function runBridgePierreWorkerPoolPrewarm(
 	if (typeof document !== 'undefined') {
 		document.documentElement.dataset['bridgePierreWorkerPoolPrewarmState'] = 'ready';
 	}
-}
-
-async function loadBridgePierreWorkerFactory(props: {
-	readonly fetchWorkerSource?: (workerScriptUrl: string) => Promise<string>;
-}): Promise<() => Worker> {
-	const fetchWorkerSource = props.fetchWorkerSource ?? defaultFetchWorkerSource;
-	const workerSource = await fetchWorkerSource(bridgePierreDefaultWorkerScriptUrl);
-	return createBridgePierreBlobWorkerFactory({ workerSource }).workerFactory;
-}
-
-async function defaultFetchWorkerSource(workerScriptUrl: string): Promise<string> {
-	if (typeof fetch === 'undefined') {
-		throw new Error('Bridge Pierre prewarm requires fetch');
-	}
-	const response = await fetch(workerScriptUrl);
-	if (!response.ok) {
-		throw new Error(`Bridge Pierre prewarm failed to load worker: ${response.status}`);
-	}
-	return await response.text();
 }
 
 function defaultGetWorkerPoolManager(props: {

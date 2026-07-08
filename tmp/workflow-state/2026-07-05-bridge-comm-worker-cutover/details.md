@@ -2818,3 +2818,52 @@ counts before claiming a gate.
   not claim full scheme-stream push/intake/ack cutover, native/manual UX
   closure, Review scroll/click budget closure, Victoria/debug smoke closure,
   PR readiness, or full goal completion.
+
+### 2026-07-08 Pierre shared worker factory/prewarm hardening
+
+- Scope:
+  This is a narrow Pierre startup/prewarm support slice. It makes the default
+  packaged Pierre worker source load shared between the runtime worker-pool
+  provider and activation prewarm, rejects stale in-flight loads after reset,
+  and removes the unshared `fetchWorkerSource` prewarm escape hatch. It is
+  adjacent to R57/R60 worker bootstrap/prewarm pressure, but it is not a G5/G6
+  protocol or final UX-budget closure.
+- Changed files:
+  `BridgeWeb/src/review-viewer/workers/pierre/bridge-pierre-worker-pool.tsx`,
+  `BridgeWeb/src/review-viewer/workers/pierre/bridge-pierre-worker-prewarm.ts`,
+  and
+  `BridgeWeb/src/review-viewer/workers/pierre/bridge-pierre-worker-factory-loader.unit.test.ts`.
+- Red evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/workers/pierre/bridge-pierre-worker-factory-loader.unit.test.ts
+  --reporter dot` failed on the new
+  `rejects an in-flight load that resolves after reset` test because the stale
+  promise resolved with `blob:bridge-pierre-stale` instead of rejecting.
+- Green evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/app/bridge-viewer-activation-prewarm.unit.test.ts
+  src/review-viewer/workers/pierre/bridge-pierre-worker-factory-loader.unit.test.ts
+  src/review-viewer/workers/pierre/bridge-pierre-worker-pool.rank.unit.test.ts
+  src/review-viewer/workers/pierre/bridge-pierre-worker-initialization-probe.unit.test.ts
+  --reporter dot` passed 4 files / 17 tests.
+  `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
+  `pnpm --dir BridgeWeb exec oxfmt --check
+  src/review-viewer/workers/pierre/bridge-pierre-worker-pool.tsx
+  src/review-viewer/workers/pierre/bridge-pierre-worker-prewarm.ts
+  src/review-viewer/workers/pierre/bridge-pierre-worker-factory-loader.unit.test.ts`
+  passed. `pnpm --dir BridgeWeb exec oxlint --type-aware` on the same three
+  files passed. `git diff --check` passed.
+- Sidekick evidence:
+  Volta mapped the dirty Pierre files to startup/prewarm support rather than
+  G5/G6 closure. Hume found two accepted P2s: stale-reset awaiters could receive
+  a revoked factory, and injected prewarm fetch bypassed the shared loader and
+  revoke lifecycle. Both were fixed. Hume re-review returned ready with no
+  P0-P2 findings. The reviewer still named the concurrent prewarm/provider proof
+  as non-blocking missing evidence, but the current test file includes
+  `shares one default packaged worker fetch across concurrent prewarm and pool
+  load`, and the parent 17-test batch covered it.
+- Known proof boundary:
+  This checkpoint does not claim full scheme-stream push/intake/ack cutover,
+  native/manual UX closure, Review scroll/click budget closure, Victoria/debug
+  smoke closure, zero-copy Pierre delivery, PR readiness, or full goal
+  completion.
