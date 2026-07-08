@@ -35,45 +35,49 @@ extension BridgeTelemetryBatchValidator {
     }
 
     static func codeViewItemMaterializeContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
-        contract.matches(
-            .init(
-                phase: "code_view_item_materialize",
-                plane: .data,
-                priority: .hot,
-                slice: .codeViewItem,
-                transport: "swift",
-                attributeKeys: .init(
-                    additionalStringKeys: [
-                        "agentstudio.bridge.content_bytes_bucket",
-                        "agentstudio.bridge.item_count_bucket",
-                        "agentstudio.bridge.language_class",
-                        "agentstudio.bridge.result",
-                        "agentstudio.bridge.viewer",
-                    ],
-                    booleanKeys: ["agentstudio.bridge.selected"]
+        ["swift", "worker"].contains { transport in
+            contract.matches(
+                .init(
+                    phase: "code_view_item_materialize",
+                    plane: .data,
+                    priority: .hot,
+                    slice: .codeViewItem,
+                    transport: transport,
+                    attributeKeys: .init(
+                        additionalStringKeys: [
+                            "agentstudio.bridge.content_bytes_bucket",
+                            "agentstudio.bridge.item_count_bucket",
+                            "agentstudio.bridge.language_class",
+                            "agentstudio.bridge.result",
+                            "agentstudio.bridge.viewer",
+                        ],
+                        booleanKeys: ["agentstudio.bridge.selected"]
+                    )
                 )
             )
-        )
+        }
     }
 
     static func selectedContentPaintedContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
-        contract.matches(
-            .init(
-                phase: "selected_content_painted",
-                plane: .data,
-                priority: .hot,
-                slice: .codeViewItem,
-                transport: "swift",
-                attributeKeys: .init(
-                    additionalStringKeys: ["agentstudio.bridge.viewer"],
-                    numericKeys: [
-                        "agentstudio.bridge.selected_content.click_to_paint_ms",
-                        "agentstudio.bridge.selected_content.frame_wait_ms",
-                        "agentstudio.bridge.selected_content.materialize_ms",
-                    ]
+        ["swift", "worker"].contains { transport in
+            contract.matches(
+                .init(
+                    phase: "selected_content_painted",
+                    plane: .data,
+                    priority: .hot,
+                    slice: .codeViewItem,
+                    transport: transport,
+                    attributeKeys: .init(
+                        additionalStringKeys: ["agentstudio.bridge.viewer"],
+                        numericKeys: [
+                            "agentstudio.bridge.selected_content.click_to_paint_ms",
+                            "agentstudio.bridge.selected_content.frame_wait_ms",
+                            "agentstudio.bridge.selected_content.materialize_ms",
+                        ]
+                    )
                 )
             )
-        )
+        }
     }
 
     static func selectedContentDroppedContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {

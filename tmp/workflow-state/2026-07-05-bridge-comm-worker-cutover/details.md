@@ -2993,3 +2993,31 @@ counts before claiming a gate.
   Review click/apply telemetry and oq4s marker-scoped Victoria proof for
   `code_view_item_materialize` selected true/false with
   `agentstudio.bridge.transport=worker` remain open.
+
+### 2026-07-08 Native admission for worker review paint telemetry
+
+- Scope: native telemetry validator admission only. BridgeWeb already emits
+  worker-prepared Review paint/materialization telemetry with
+  `agentstudio.bridge.transport=worker`; native validation still accepted those
+  two hot paint contracts only when transport was `swift`, so worker paint rows
+  were rejected before they could reach VictoriaLogs.
+- Fix: `BridgeTelemetryBatchValidator+ClickLatencyContracts.swift` now accepts
+  both `swift` and `worker` transport for
+  `code_view_item_materialize` and `selected_content_painted`, while preserving
+  the exact phase, plane, priority, slice, and attribute-key contracts.
+- Red evidence:
+  `swift test --filter
+  BridgeTelemetryBatchValidatorTests/validatorAcceptsWorkerPreparedReviewPaintEmitterShapes`
+  failed before the fix with both worker samples rejected as unsafe attributes.
+- Green evidence:
+  `swift test --filter BridgeTelemetryBatchValidatorWorkerPaintTests` passed
+  1 test / 1 suite. `swift test --filter BridgeTelemetryBatchValidatorTests`
+  passed 29 tests / 3 suites. `swift test --filter BridgeTelemetryIngestorTests`
+  passed 8 tests / 1 suite. `git diff --check` passed. `mise run lint` passed
+  swift-format, SwiftLint with 0 violations, AgentStudio architecture lint, and
+  release script verification.
+- Known proof boundary:
+  This repairs the native telemetry admission layer only. It does not prove the
+  browser emitted selected paint in the current live app, does not prove
+  Victoria percentile movement, does not prove render-proof success, and does
+  not close the Review scroll/click UX issue.
