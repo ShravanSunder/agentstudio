@@ -500,6 +500,32 @@ describe('Review viewer source structure', () => {
 		expect(sourceResetEffectSource).toContain('pendingMetadataApplyFrameRef.current = null');
 	});
 
+	test('reports selected paint telemetry anchors only when click start matches the selected item', () => {
+		const codeViewPanelSource = readSource('./code-view/bridge-code-view-panel.tsx');
+		const workerApplyTelemetrySource = codeViewPanelSource.slice(
+			codeViewPanelSource.indexOf('const recordWorkerPreparedApplyTelemetry ='),
+			codeViewPanelSource.indexOf('runBridgeCodeViewMetadataApplyInChunks({'),
+		);
+
+		expect(workerApplyTelemetrySource).toContain('hasSelectedContentPaintTelemetryAnchor');
+		expect(workerApplyTelemetrySource).toContain(
+			'hasAnchor: hasSelectedContentPaintTelemetryAnchor',
+		);
+		expect(workerApplyTelemetrySource).not.toContain('hasAnchor: true');
+	});
+
+	test('source reset records worker materialization telemetry for every reset item', () => {
+		const codeViewPanelSource = readSource('./code-view/bridge-code-view-panel.tsx');
+		const setItemsSource = codeViewPanelSource.slice(
+			codeViewPanelSource.indexOf('setItems: (items): void => {'),
+			codeViewPanelSource.indexOf('\t\t\tsourceReset,'),
+		);
+
+		expect(setItemsSource).toContain('for (const item of items)');
+		expect(setItemsSource).not.toContain('if (selectedItem !== null)');
+		expect(setItemsSource).toContain('recordWorkerPreparedApplyTelemetry');
+	});
+
 	test('does not preserve selected current item while applying CodeView source reset', () => {
 		const codeViewPanelSource = readSource('./code-view/bridge-code-view-panel.tsx');
 		const metadataReconcileSource = codeViewPanelSource.slice(

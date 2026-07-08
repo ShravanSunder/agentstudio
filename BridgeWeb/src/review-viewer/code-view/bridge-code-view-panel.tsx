@@ -596,13 +596,14 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				return;
 			}
 			const selectedContentPaintTelemetryStart = props.selectedContentPaintTelemetryStart ?? null;
-			const selectionDemandStartedAtMilliseconds =
+			const hasSelectedContentPaintTelemetryAnchor =
 				selectedContentPaintTelemetryStart?.itemId === params.item.bridgeMetadata.itemId &&
-				isSelectedItem
-					? selectedContentPaintTelemetryStart.startedAtMilliseconds
-					: null;
+				isSelectedItem;
+			const selectionDemandStartedAtMilliseconds = hasSelectedContentPaintTelemetryAnchor
+				? selectedContentPaintTelemetryStart.startedAtMilliseconds
+				: null;
 			recordBridgeSelectedContentPaintedProbeAnchoredDelivery({
-				hasAnchor: true,
+				hasAnchor: hasSelectedContentPaintTelemetryAnchor,
 				isSelectedItem,
 				hasTelemetryRecorder: true,
 				didFindMatchingPaintedContent: params.didFindMatchingPaintedContent,
@@ -616,7 +617,9 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			) {
 				scheduleSelectedContentPaintedTelemetry({
 					telemetryRecorder: props.telemetryRecorder,
-					traceContext: selectedContentPaintTelemetryStart?.actionTraceContext ?? null,
+					traceContext: hasSelectedContentPaintTelemetryAnchor
+						? selectedContentPaintTelemetryStart.actionTraceContext
+						: null,
 					selectionDemandStartedAtMilliseconds,
 					materializationStartedAtMilliseconds: params.materializationStartedAtMilliseconds,
 					materializationCompletedAtMilliseconds: params.materializationCompletedAtMilliseconds,
@@ -672,30 +675,27 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			},
 			scheduleNextTurn: scheduleMetadataApplyTurn,
 			setItems: (items): void => {
-				const selectedItem =
-					props.selectedItemId === null
-						? null
-						: (items.find((item): boolean => item.bridgeMetadata.itemId === props.selectedItemId) ??
-							null);
-				const previousSelectedItem =
-					props.selectedItemId === null ? undefined : codeViewHandle.getItem(props.selectedItemId);
-				const didFindMatchingPaintedContent =
-					selectedItem !== null &&
-					isBridgeCodeViewItem(previousSelectedItem) &&
-					isMaterializedBridgeCodeViewContentState(
-						previousSelectedItem.bridgeMetadata.contentState,
-					) &&
-					previousSelectedItem.bridgeMetadata.cacheKey === selectedItem.bridgeMetadata.cacheKey;
+				const previousItemsById = new Map<string, CodeViewItem | undefined>(
+					items.map((item): readonly [string, CodeViewItem | undefined] => [
+						item.id,
+						codeViewHandle.getItem(item.id),
+					]),
+				);
 				const materializationStartedAtMilliseconds = performance.now();
 				currentCodeViewItemsRef.current = items;
 				codeViewInstance.setItems(items);
 				const materializationCompletedAtMilliseconds = performance.now();
-				if (selectedItem !== null) {
+				for (const item of items) {
+					const previousItem = previousItemsById.get(item.id);
+					const didFindMatchingPaintedContent =
+						isBridgeCodeViewItem(previousItem) &&
+						isMaterializedBridgeCodeViewContentState(previousItem.bridgeMetadata.contentState) &&
+						previousItem.bridgeMetadata.cacheKey === item.bridgeMetadata.cacheKey;
 					recordWorkerPreparedApplyTelemetry({
-						item: selectedItem,
-						updateResult: applyResultForSetItemsSelectedItem({
-							currentItem: previousSelectedItem,
-							nextItem: selectedItem,
+						item,
+						updateResult: applyResultForSetItemsItem({
+							currentItem: previousItem,
+							nextItem: item,
 						}),
 						materializationStartedAtMilliseconds,
 						materializationCompletedAtMilliseconds,
@@ -954,7 +954,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	);
 }
 
-function applyResultForSetItemsSelectedItem(props: {
+function applyResultForSetItemsItem(props: {
 	readonly currentItem: CodeViewItem | undefined;
 	readonly nextItem: BridgeCodeViewItem;
 }): ApplyBridgeCodeViewItemUpdateResult {
