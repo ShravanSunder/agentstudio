@@ -7,10 +7,22 @@ import type {
 import { bridgePierreOptionalHighlightLanguage } from '../workers/pierre/bridge-pierre-language-normalization.js';
 import {
 	materializeBridgeCodeViewLoadingItem,
+	type BridgeCodeViewDiffItem,
+	type BridgeCodeViewFileItem,
 	type BridgeCodeViewFilePresentationVersion,
 	type BridgeCodeViewItem,
 	type BridgeCodeViewItemPresentation,
 } from './bridge-code-view-materialization.js';
+
+type BridgeWorkerPreparedFilePayload = Extract<
+	BridgeMainCodeViewItem,
+	{ readonly type: 'file' }
+>['file'];
+type BridgeWorkerPreparedDiffPayload = Extract<
+	BridgeMainCodeViewItem,
+	{ readonly type: 'diff' }
+>['fileDiff'];
+type BridgeNormalizedLanguage = ReturnType<typeof bridgePierreOptionalHighlightLanguage>;
 
 export function createBridgeCodeViewMetadataDeltaItemsForPanel(props: {
 	readonly reviewPackage: BridgeReviewPackage;
@@ -125,6 +137,90 @@ function contentRoleForFilePresentation(props: {
 	return null;
 }
 
+function bridgeWorkerPreparedFileWithNormalizedLanguage(
+	file: BridgeWorkerPreparedFilePayload,
+	normalizedLanguage: BridgeNormalizedLanguage,
+): BridgeCodeViewFileItem['file'] {
+	if (bridgeWorkerPreparedFileUsesNormalizedLanguage(file, normalizedLanguage)) {
+		return file;
+	}
+	return {
+		name: file.name,
+		contents: file.contents,
+		...(normalizedLanguage === undefined ? {} : { lang: normalizedLanguage }),
+		...(file.header === undefined ? {} : { header: file.header }),
+		...(file.cacheKey === undefined ? {} : { cacheKey: file.cacheKey }),
+	} satisfies BridgeCodeViewFileItem['file'];
+}
+
+function bridgeWorkerPreparedDiffWithNormalizedLanguage(
+	fileDiff: BridgeWorkerPreparedDiffPayload,
+	normalizedLanguage: BridgeNormalizedLanguage,
+): BridgeCodeViewDiffItem['fileDiff'] {
+	if (bridgeWorkerPreparedDiffUsesNormalizedLanguage(fileDiff, normalizedLanguage)) {
+		return fileDiff;
+	}
+	if (!bridgeWorkerPreparedDiffUsesPierreArrayReferences(fileDiff)) {
+		throw new Error('Expected worker-prepared diff arrays to be Pierre-compatible arrays.');
+	}
+	return {
+		name: fileDiff.name,
+		...(fileDiff.prevName === undefined ? {} : { prevName: fileDiff.prevName }),
+		...(normalizedLanguage === undefined ? {} : { lang: normalizedLanguage }),
+		...(fileDiff.newObjectId === undefined ? {} : { newObjectId: fileDiff.newObjectId }),
+		...(fileDiff.prevObjectId === undefined ? {} : { prevObjectId: fileDiff.prevObjectId }),
+		...(fileDiff.mode === undefined ? {} : { mode: fileDiff.mode }),
+		...(fileDiff.prevMode === undefined ? {} : { prevMode: fileDiff.prevMode }),
+		type: fileDiff.type,
+		hunks: fileDiff.hunks,
+		splitLineCount: fileDiff.splitLineCount,
+		unifiedLineCount: fileDiff.unifiedLineCount,
+		isPartial: fileDiff.isPartial,
+		deletionLines: fileDiff.deletionLines,
+		additionLines: fileDiff.additionLines,
+		...(fileDiff.cacheKey === undefined ? {} : { cacheKey: fileDiff.cacheKey }),
+	} satisfies BridgeCodeViewDiffItem['fileDiff'];
+}
+
+function bridgeWorkerPreparedFileUsesNormalizedLanguage(
+	file: BridgeWorkerPreparedFilePayload,
+	normalizedLanguage: BridgeNormalizedLanguage,
+): file is BridgeCodeViewFileItem['file'] {
+	return file.lang === normalizedLanguage;
+}
+
+function bridgeWorkerPreparedDiffUsesNormalizedLanguage(
+	fileDiff: BridgeWorkerPreparedDiffPayload,
+	normalizedLanguage: BridgeNormalizedLanguage,
+): fileDiff is BridgeCodeViewDiffItem['fileDiff'] {
+	return fileDiff.lang === normalizedLanguage;
+}
+
+function bridgeWorkerPreparedDiffUsesPierreArrayReferences(
+	fileDiff: BridgeWorkerPreparedDiffPayload,
+): fileDiff is BridgeWorkerPreparedDiffPayload &
+	Pick<BridgeCodeViewDiffItem['fileDiff'], 'additionLines' | 'deletionLines' | 'hunks'> {
+	return (
+		Array.isArray(fileDiff.hunks) &&
+		Array.isArray(fileDiff.additionLines) &&
+		Array.isArray(fileDiff.deletionLines)
+	);
+}
+
+function bridgeWorkerPreparedFileItemUsesNormalizedLanguage(
+	item: Extract<BridgeMainCodeViewItem, { readonly type: 'file' }>,
+	normalizedLanguage: BridgeNormalizedLanguage,
+): item is BridgeCodeViewFileItem {
+	return bridgeWorkerPreparedFileUsesNormalizedLanguage(item.file, normalizedLanguage);
+}
+
+function bridgeWorkerPreparedDiffItemUsesNormalizedLanguage(
+	item: Extract<BridgeMainCodeViewItem, { readonly type: 'diff' }>,
+	normalizedLanguage: BridgeNormalizedLanguage,
+): item is BridgeCodeViewDiffItem {
+	return bridgeWorkerPreparedDiffUsesNormalizedLanguage(item.fileDiff, normalizedLanguage);
+}
+
 export function bridgeCodeViewItemFromWorkerPreparedItem(
 	item: BridgeMainCodeViewItem | null | undefined,
 ): BridgeCodeViewItem | null {
@@ -133,65 +229,31 @@ export function bridgeCodeViewItemFromWorkerPreparedItem(
 	}
 	if (item.type === 'file') {
 		const normalizedLanguage = bridgePierreOptionalHighlightLanguage(item.file.lang);
+		if (bridgeWorkerPreparedFileItemUsesNormalizedLanguage(item, normalizedLanguage)) {
+			return item;
+		}
+		const file = bridgeWorkerPreparedFileWithNormalizedLanguage(item.file, normalizedLanguage);
 		return {
 			id: item.id,
 			type: item.type,
-			file: {
-				name: item.file.name,
-				contents: item.file.contents,
-				...(normalizedLanguage === undefined ? {} : { lang: normalizedLanguage }),
-				...(item.file.header === undefined ? {} : { header: item.file.header }),
-				...(item.file.cacheKey === undefined ? {} : { cacheKey: item.file.cacheKey }),
-			},
+			file,
 			...(item.version === undefined ? {} : { version: item.version }),
 			...(item.collapsed === undefined ? {} : { collapsed: item.collapsed }),
 			bridgeMetadata: item.bridgeMetadata,
 		} satisfies BridgeCodeViewItem;
 	}
 	const normalizedLanguage = bridgePierreOptionalHighlightLanguage(item.fileDiff.lang);
+	if (bridgeWorkerPreparedDiffItemUsesNormalizedLanguage(item, normalizedLanguage)) {
+		return item;
+	}
+	const fileDiff = bridgeWorkerPreparedDiffWithNormalizedLanguage(
+		item.fileDiff,
+		normalizedLanguage,
+	);
 	return {
 		id: item.id,
 		type: item.type,
-		fileDiff: {
-			name: item.fileDiff.name,
-			...(item.fileDiff.prevName === undefined ? {} : { prevName: item.fileDiff.prevName }),
-			...(normalizedLanguage === undefined ? {} : { lang: normalizedLanguage }),
-			...(item.fileDiff.newObjectId === undefined
-				? {}
-				: { newObjectId: item.fileDiff.newObjectId }),
-			...(item.fileDiff.prevObjectId === undefined
-				? {}
-				: { prevObjectId: item.fileDiff.prevObjectId }),
-			...(item.fileDiff.mode === undefined ? {} : { mode: item.fileDiff.mode }),
-			...(item.fileDiff.prevMode === undefined ? {} : { prevMode: item.fileDiff.prevMode }),
-			type: item.fileDiff.type,
-			hunks: item.fileDiff.hunks.map((hunk) => ({
-				collapsedBefore: hunk.collapsedBefore,
-				additionStart: hunk.additionStart,
-				additionCount: hunk.additionCount,
-				additionLines: hunk.additionLines,
-				additionLineIndex: hunk.additionLineIndex,
-				deletionStart: hunk.deletionStart,
-				deletionCount: hunk.deletionCount,
-				deletionLines: hunk.deletionLines,
-				deletionLineIndex: hunk.deletionLineIndex,
-				hunkContent: hunk.hunkContent.map((content) => ({ ...content })),
-				...(hunk.hunkContext === undefined ? {} : { hunkContext: hunk.hunkContext }),
-				...(hunk.hunkSpecs === undefined ? {} : { hunkSpecs: hunk.hunkSpecs }),
-				splitLineStart: hunk.splitLineStart,
-				splitLineCount: hunk.splitLineCount,
-				unifiedLineStart: hunk.unifiedLineStart,
-				unifiedLineCount: hunk.unifiedLineCount,
-				noEOFCRDeletions: hunk.noEOFCRDeletions,
-				noEOFCRAdditions: hunk.noEOFCRAdditions,
-			})),
-			splitLineCount: item.fileDiff.splitLineCount,
-			unifiedLineCount: item.fileDiff.unifiedLineCount,
-			isPartial: item.fileDiff.isPartial,
-			deletionLines: [...item.fileDiff.deletionLines],
-			additionLines: [...item.fileDiff.additionLines],
-			...(item.fileDiff.cacheKey === undefined ? {} : { cacheKey: item.fileDiff.cacheKey }),
-		},
+		fileDiff,
 		...(item.version === undefined ? {} : { version: item.version }),
 		...(item.collapsed === undefined ? {} : { collapsed: item.collapsed }),
 		bridgeMetadata: item.bridgeMetadata,

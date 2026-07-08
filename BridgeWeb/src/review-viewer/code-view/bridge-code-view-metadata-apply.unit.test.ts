@@ -206,6 +206,78 @@ describe('Bridge CodeView metadata apply pump', () => {
 		expect(deltaItems[0]?.bridgeMetadata.contentState).toBe('hydrated');
 	});
 
+	test('preserves worker-prepared diff payload identity in visible metadata deltas', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const sourceItem = reviewPackage.itemsById['source-high'];
+		if (sourceItem === undefined) {
+			throw new Error('expected fixture item');
+		}
+		const visibleCodeViewItem = workerPreparedCodeViewItem(
+			materializeBridgeCodeViewLoadingItem(sourceItem),
+		);
+		if (visibleCodeViewItem.type !== 'diff') {
+			throw new Error('expected fixture diff item');
+		}
+
+		const deltaItems = createBridgeCodeViewMetadataDeltaItemsForPanel({
+			reviewPackage,
+			selectedCodeViewItem: null,
+			selectedItemId: null,
+			selectedItemPresentation: null,
+			visibleCodeViewItems: [visibleCodeViewItem],
+		});
+		const deltaItem = deltaItems[0];
+		if (deltaItem?.type !== 'diff') {
+			throw new Error('expected visible diff delta item');
+		}
+
+		expect(deltaItem).toBe(visibleCodeViewItem);
+		expect(deltaItem.fileDiff.hunks).toBe(visibleCodeViewItem.fileDiff.hunks);
+		expect(deltaItem.fileDiff.additionLines).toBe(visibleCodeViewItem.fileDiff.additionLines);
+		expect(deltaItem.fileDiff.deletionLines).toBe(visibleCodeViewItem.fileDiff.deletionLines);
+	});
+
+	test('normalizes worker-prepared diff language without rebuilding payload arrays', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const sourceItem = reviewPackage.itemsById['source-high'];
+		if (sourceItem === undefined) {
+			throw new Error('expected fixture item');
+		}
+		const visibleCodeViewItem = workerPreparedCodeViewItem(
+			materializeBridgeCodeViewLoadingItem(sourceItem),
+		);
+		if (visibleCodeViewItem.type !== 'diff') {
+			throw new Error('expected fixture diff item');
+		}
+		const visibleCodeViewItemWithLanguageVariant = {
+			...visibleCodeViewItem,
+			fileDiff: {
+				...visibleCodeViewItem.fileDiff,
+				lang: ' TypeScript ',
+			},
+		};
+
+		const deltaItems = createBridgeCodeViewMetadataDeltaItemsForPanel({
+			reviewPackage,
+			selectedCodeViewItem: null,
+			selectedItemId: null,
+			selectedItemPresentation: null,
+			visibleCodeViewItems: [visibleCodeViewItemWithLanguageVariant],
+		});
+		const deltaItem = deltaItems[0];
+		if (deltaItem?.type !== 'diff') {
+			throw new Error('expected visible diff delta item');
+		}
+
+		expect(deltaItem).not.toBe(visibleCodeViewItemWithLanguageVariant);
+		expect(deltaItem.fileDiff).not.toBe(visibleCodeViewItemWithLanguageVariant.fileDiff);
+		expect(deltaItem.fileDiff.lang).toBe('typescript');
+		expect(visibleCodeViewItemWithLanguageVariant.fileDiff.lang).toBe(' TypeScript ');
+		expect(deltaItem.fileDiff.hunks).toBe(visibleCodeViewItem.fileDiff.hunks);
+		expect(deltaItem.fileDiff.additionLines).toBe(visibleCodeViewItem.fileDiff.additionLines);
+		expect(deltaItem.fileDiff.deletionLines).toBe(visibleCodeViewItem.fileDiff.deletionLines);
+	});
+
 	test('keeps one-sided diff worker item for file-targeted selected presentation', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const deletedSourceItem = reviewPackage.itemsById['deleted-source'];

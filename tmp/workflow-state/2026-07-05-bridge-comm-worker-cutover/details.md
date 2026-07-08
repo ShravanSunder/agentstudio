@@ -3938,3 +3938,62 @@ counts before claiming a gate.
   deep-copy/rebuild work, visible-item re-materialization churn, native oq4s
   scroll/click metrics, live Victoria percentile proof, implementation-review
   swarm, PR readiness, or full goal completion.
+
+## 2026-07-08 - Review Worker-Prepared Diff Identity Preservation
+
+- Commit target:
+  checkpoint label `fix(bridge): preserve review worker diff identity`.
+- Scope:
+  Narrow R45/R46/R57 main-thread apply-path cleanup for Review CodeView
+  metadata deltas. `bridgeCodeViewItemFromWorkerPreparedItem` no longer
+  deep-copies worker-prepared diff payloads on main for metadata delta apply.
+  When worker language is already Pierre-normalized, the existing worker item
+  is returned by reference. When language normalization is still required, the
+  helper shallow-replaces only the top-level `file` / `fileDiff` wrapper and
+  preserves existing hunks, hunk content, addition lines, and deletion lines.
+- Root cause:
+  The previous helper rebuilt worker-prepared items on main, including
+  `hunks.map(...)`, `hunkContent.map(...)`, `[...deletionLines]`, and
+  `[...additionLines]`, so each visible metadata delta paid a deep-copy cost
+  before the R46 apply pump could bound DOM apply.
+- Red evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/code-view/bridge-code-view-metadata-apply.unit.test.ts
+  -t "preserves worker-prepared diff payload identity" --reporter verbose`
+  failed before production changes because the delta item was structurally
+  equal but not the same object reference. The normalization-focused variant
+  also failed because normalized output rebuilt the `hunks` array.
+- Green evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/code-view/bridge-code-view-metadata-apply.unit.test.ts
+  --reporter dot` passed 1 file / 17 tests. The wider Review CodeView battery
+  passed 7 files / 106 tests:
+  `bridge-code-view-panel.unit.test.ts`,
+  `bridge-code-view-panel-reconcile.unit.test.ts`,
+  `bridge-code-view-materialization.unit.test.ts`,
+  `bridge-code-view-materialization.hydration.unit.test.ts`,
+  `bridge-code-view-selected-apply-pump.unit.test.ts`,
+  `bridge-code-view-metadata-apply.unit.test.ts`, and
+  `review-viewer-source-structure.unit.test.ts`. The adjacent
+  projection/materialization battery passed 4 files / 59 tests.
+  `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed. Scoped
+  `oxfmt --check`, scoped `oxlint --type-aware`, and `git diff --check`
+  passed. Source scan for the old deep-copy patterns in the touched helper
+  returned no matches.
+- Review evidence:
+  Poincare the 2nd found no repo-visible downstream mutation of incoming
+  CodeView items, with language normalization as the only caveat. Averroes the
+  2nd reviewed the two-file diff, reported one accepted P2 test gap proving the
+  normalization path did not mutate the input worker item, then re-reviewed the
+  added assertions and returned ready with no P0-P3 findings.
+- Line-cap evidence:
+  Touched line counts after formatting:
+  `bridge-code-view-worker-prepared-items.ts` 261 and
+  `bridge-code-view-metadata-apply.unit.test.ts` 660. Both remain below the
+  1000-line hard cap.
+- Known proof boundary:
+  This removes the worker-prepared diff deep-copy/rebuild residue only. It does
+  not prove live oq4s scroll/click percentile movement, visible-item
+  re-materialization storm closure, native worker-fetch F1, zero-copy
+  transfer-list delivery, implementation-review-swarm, PR readiness, or full
+  goal completion.
