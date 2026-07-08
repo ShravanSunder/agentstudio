@@ -3064,3 +3064,51 @@ counts before claiming a gate.
   `missing_drop_counter` rows. Follow-up work must trace whether invalid
   first-render emission and the fire-and-forget fetch telemetry sink are still
   advancing streams past native rejection.
+
+### 2026-07-08 Review first-render telemetry revision-key repair
+
+- Scope: narrow BridgeWeb telemetry emitter correctness repair for the live
+  oq4s `unsafe_attribute` drop where
+  `performance.bridge.web.first_render` was the first rejected event.
+- Root cause: the Review intake/apply path stores telemetry context and
+  review-ready timing under the revision-aware `makeTelemetryPackageKey()`
+  (`packageId:reviewGeneration:revision`), but
+  `useBridgeReviewRenderTelemetryController` looked up both `first_render` and
+  `review_ready` with only `packageId:reviewGeneration`. After the earlier
+  revision-key hardening, that guaranteed a miss and made `first_render` emit
+  `agentstudio.bridge.slice=unknown` and
+  `agentstudio.bridge.transport=unknown`, which Swift correctly rejected.
+- Fix: `bridge-app-review-telemetry-controller.ts` now imports and uses
+  `makeTelemetryPackageKey(props.reviewPackage)` for both first-render and
+  review-ready lookup/dedupe paths.
+- Red evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/review-viewer-source-structure.unit.test.ts -t "keeps
+  Review render telemetry package keys aligned" --reporter dot` failed before
+  the fix because the render telemetry controller did not use
+  `makeTelemetryPackageKey(` and still contained the raw
+  `` `${props.reviewPackage.packageId}:${props.reviewPackage.reviewGeneration}` ``
+  lookup.
+- Green evidence:
+  The same filtered source-structure test passed after the fix. The focused
+  BridgeWeb unit battery
+  `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/review-viewer-source-structure.unit.test.ts
+  src/app/bridge-app-review-telemetry.unit.test.ts
+  src/app/bridge-app.unit.test.ts --reporter dot` passed 3 files / 55 tests.
+  `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed. Scoped
+  `oxfmt --check`, scoped `oxlint --type-aware`, and `git diff --check`
+  passed. `swift test --filter BridgeTelemetryBatchValidatorTests` passed
+  29 tests / 3 suites, proving the native first-render contract stayed strict.
+- Sidekick evidence:
+  Tesla the 2nd independently traced the live drop to this BridgeWeb-side
+  revision-key mismatch and recommended fixing the emitter rather than widening
+  Swift. Laplace the 2nd reviewed the two-file implementation diff and reported
+  `ready` with no P0-P3 findings and no material missing proof for the scoped
+  diff.
+- Known proof boundary:
+  This should eliminate the first-render `unsafe_attribute` source on a fresh
+  build, but it does not fix async telemetry POST false-success semantics, does
+  not prove `selected_content_painted` live emission, does not close remaining
+  `missing_drop_counter` rows, and does not claim Review scroll/click budget
+  closure.

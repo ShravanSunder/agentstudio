@@ -5,6 +5,7 @@ import type { BridgeReviewPackage } from '../foundation/review-package/bridge-re
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import {
 	createChildTraceContext,
+	makeTelemetryPackageKey,
 	recordReviewStartupTelemetry,
 	type BridgeReviewPackageTelemetryContext,
 } from './bridge-app-review-telemetry.js';
@@ -35,7 +36,7 @@ export function useBridgeReviewRenderTelemetryController(
 		) {
 			return;
 		}
-		const packageKey = `${props.reviewPackage.packageId}:${props.reviewPackage.reviewGeneration}`;
+		const packageKey = makeTelemetryPackageKey(props.reviewPackage);
 		if (lastFirstRenderPackageRef.current === packageKey) {
 			return;
 		}
@@ -75,7 +76,7 @@ export function useBridgeReviewRenderTelemetryController(
 		) {
 			return;
 		}
-		const packageKey = `${props.reviewPackage.packageId}:${props.reviewPackage.reviewGeneration}`;
+		const packageKey = makeTelemetryPackageKey(props.reviewPackage);
 		const selectedReadyKey = `${packageKey}:${props.selectedCodeViewItem.bridgeMetadata.itemId}:${props.selectedCodeViewItem.bridgeMetadata.cacheKey}`;
 		if (lastReviewReadyPackageRef.current === selectedReadyKey) {
 			return;

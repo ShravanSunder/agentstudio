@@ -175,6 +175,17 @@ describe('Review viewer source structure', () => {
 		expect(forbiddenOwners).toEqual([]);
 	});
 
+	test('keeps Review render telemetry package keys aligned with revision-aware intake keys', () => {
+		const renderTelemetryControllerSource = readSource(
+			'../app/bridge-app-review-telemetry-controller.ts',
+		);
+
+		expect(renderTelemetryControllerSource).toContain('makeTelemetryPackageKey(');
+		expect(renderTelemetryControllerSource).not.toContain(
+			'`${props.reviewPackage.packageId}:${props.reviewPackage.reviewGeneration}`',
+		);
+	});
+
 	test('keeps selected CodeView materialize and paint telemetry wired to live apply path', () => {
 		const panelSource = readSource('code-view/bridge-code-view-panel.tsx');
 		const metadataApplySource = panelSource.slice(
