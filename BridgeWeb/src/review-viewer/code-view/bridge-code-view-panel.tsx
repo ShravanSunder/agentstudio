@@ -5,6 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import { bridgeContentDemandExecutionPolicy } from '../../core/demand/bridge-content-demand-policy.js';
 import type { ApplyBridgeCodeViewItemUpdateResult } from './bridge-code-view-controller.js';
+import { createBridgeCodeViewInitialItemsForPanelSelector } from './bridge-code-view-initial-items-selector.js';
 import { scheduleBridgeCodeViewInstantRevealRetargetForPanel } from './bridge-code-view-instant-reveal-retarget.js';
 import {
 	materializeBridgeCodeViewLoadingItem,
@@ -22,9 +23,9 @@ import {
 	bridgeCodeViewInitialSeedItemIdsForPanel,
 	bridgeCodeViewItemsWithMetadataItem,
 	bridgeCodeViewLoadingMaterializationItemIdsForPanel,
+	bridgeCodeViewLoadingPlaceholderMatchesDescriptor,
 	codeViewHandleHasInstance,
 	controllerForHandle,
-	createBridgeCodeViewInitialItemsForPanel,
 	createBridgeCodeViewHeaderRenderers,
 	emptyMaterializationDiagnostic,
 	hasRenderedItemsSource,
@@ -62,7 +63,7 @@ import {
 	selectedMaterializationDiagnosticForPanel,
 } from './bridge-code-view-selected-diagnostics.js';
 import { createBridgeCodeViewVisibleInterestPublisher } from './bridge-code-view-visible-interest-publisher.js';
-import { createBridgeCodeViewMetadataDeltaItemsForPanel } from './bridge-code-view-worker-prepared-items.js';
+import { createBridgeCodeViewMetadataDeltaItemsForPanelSelector } from './bridge-code-view-worker-prepared-items.js';
 import { useBridgeCodeViewCollapseController } from './use-bridge-code-view-collapse-controller.js';
 import { useBridgeCodeViewSelectionScroll } from './use-bridge-code-view-selection-scroll.js';
 
@@ -99,6 +100,12 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		selectedItemId: props.selectedItemId,
 	});
 	const reviewItemsById = props.reviewPackage.itemsById;
+	const reviewPackageRef = useRef(props.reviewPackage);
+	const projectionRef = useRef(props.projection);
+	useLayoutEffect((): void => {
+		reviewPackageRef.current = props.reviewPackage;
+		projectionRef.current = props.projection;
+	}, [props.projection, props.reviewPackage]);
 	const codeViewHandleRef = useRef<CodeViewHandle<undefined> | null>(null);
 	const controllerEntryRef = useRef<BridgeCodeViewControllerEntry | null>(null);
 	const completedSelectionScrollKeyRef = useRef<string | null>(null);
@@ -460,6 +467,14 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	}, [props.selectedContentLoadingItemId]);
 	const selectedItemIdForMetadataReconcileRef = useRef(props.selectedItemId);
 	selectedItemIdForMetadataReconcileRef.current = props.selectedItemId;
+	const initialItemsSelector = useMemo(
+		() => createBridgeCodeViewInitialItemsForPanelSelector(),
+		[],
+	);
+	const metadataDeltaItemsSelector = useMemo(
+		() => createBridgeCodeViewMetadataDeltaItemsForPanelSelector(),
+		[],
+	);
 	const initialItemSeedIds = useMemo((): readonly string[] => {
 		return bridgeCodeViewInitialSeedItemIdsForPanel({
 			selectedItemId: props.selectedItemId,
@@ -467,26 +482,30 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		});
 	}, [props.selectedItemId, props.visibleCodeViewItems]);
 	const initialItems = useMemo(() => {
-		return createBridgeCodeViewInitialItemsForPanel({
+		return initialItemsSelector({
 			seedItemIds: initialItemSeedIds,
 			projection: props.projection,
 			reviewPackage: props.reviewPackage,
+			sourceKey,
 		});
-	}, [initialItemSeedIds, props.projection, props.reviewPackage]);
+	}, [initialItemSeedIds, initialItemsSelector, props.projection, props.reviewPackage, sourceKey]);
 	const metadataDeltaItems = useMemo((): readonly BridgeCodeViewItem[] => {
-		return createBridgeCodeViewMetadataDeltaItemsForPanel({
+		return metadataDeltaItemsSelector({
 			reviewPackage: props.reviewPackage,
 			selectedCodeViewItem: props.selectedCodeViewItem,
 			selectedItemId: props.selectedItemId,
 			selectedItemPresentation: props.selectedItemPresentation,
+			sourceKey,
 			visibleCodeViewItems: props.visibleCodeViewItems,
 		});
 	}, [
+		metadataDeltaItemsSelector,
 		props.reviewPackage,
 		props.selectedCodeViewItem,
 		props.selectedItemId,
 		props.selectedItemPresentation,
 		props.visibleCodeViewItems,
+		sourceKey,
 	]);
 
 	const scheduleCodeViewRecoveryRender = useCallback((): void => {
@@ -583,7 +602,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			) {
 				return;
 			}
-			const reviewItem = props.reviewPackage.itemsById[params.item.bridgeMetadata.itemId];
+			const reviewItem = reviewPackageRef.current.itemsById[params.item.bridgeMetadata.itemId];
 			if (reviewItem === undefined) {
 				return;
 			}
@@ -594,7 +613,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					params.materializationStartedAtMilliseconds,
 				item: reviewItem,
 				parentTraceContext: props.telemetryParentTraceContext ?? null,
-				projection: props.projection,
+				projection: projectionRef.current,
 				result: params.updateResult,
 				selectedItemId: props.selectedItemId,
 				telemetryRecorder: props.telemetryRecorder,
@@ -726,8 +745,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		codeViewMountVersion,
 		initialItems,
 		metadataDeltaItems,
-		props.projection,
-		props.reviewPackage,
 		scheduleCodeViewRecoveryRender,
 		props.selectedItemId,
 		props.selectedContentPaintTelemetryStart,
@@ -856,10 +873,10 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				);
 				const existingItem = codeViewHandle.getItem(itemId);
 				if (
-					existingItem !== undefined &&
-					isBridgeCodeViewItem(existingItem) &&
-					existingItem.bridgeMetadata.contentState === 'loading' &&
-					existingItem.bridgeMetadata.cacheKey === loadingItem.bridgeMetadata.cacheKey
+					bridgeCodeViewLoadingPlaceholderMatchesDescriptor({
+						existingItem,
+						loadingItem,
+					})
 				) {
 					continue;
 				}

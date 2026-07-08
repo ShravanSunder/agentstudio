@@ -4,14 +4,20 @@ import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-
 import { bridgeContentDemandExecutionPolicy } from '../../core/demand/bridge-content-demand-policy.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
+import { createBridgeCodeViewInitialItemsForPanelSelector } from './bridge-code-view-initial-items-selector.js';
 import type { BridgeCodeViewItem } from './bridge-code-view-materialization.js';
 import { materializeBridgeCodeViewLoadingItem } from './bridge-code-view-materialization.js';
 import { runBridgeCodeViewMetadataApplyInChunks } from './bridge-code-view-metadata-apply.js';
 import {
 	bridgeCodeViewInitialSeedItemIdsForPanel,
+	bridgeCodeViewLoadingPlaceholderMatchesDescriptor,
 	createBridgeCodeViewInitialItemsForPanel,
+	makeBridgeCodeViewSourceKey,
 } from './bridge-code-view-panel-support.js';
-import { createBridgeCodeViewMetadataDeltaItemsForPanel } from './bridge-code-view-worker-prepared-items.js';
+import {
+	createBridgeCodeViewMetadataDeltaItemsForPanel,
+	createBridgeCodeViewMetadataDeltaItemsForPanelSelector,
+} from './bridge-code-view-worker-prepared-items.js';
 
 describe('Bridge CodeView metadata apply pump', () => {
 	test('builds non-reset metadata deltas from selected and visible worker-prepared items only', () => {
@@ -116,6 +122,109 @@ describe('Bridge CodeView metadata apply pump', () => {
 		});
 
 		expect(sourceResetItems.map((item) => item.id)).toEqual(['docs-plan', 'source-high']);
+	});
+
+	test('keeps initial CodeView reset items stable across same-source package clones', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const sourceItem = reviewPackage.itemsById['source-high'];
+		if (sourceItem === undefined) {
+			throw new Error('expected projection fixture item');
+		}
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const sourceKey = makeBridgeCodeViewSourceKey({ projection, reviewPackage });
+		const selector = createBridgeCodeViewInitialItemsForPanelSelector();
+		const seedItemIds = ['source-high', 'docs-plan'];
+
+		const firstItems = selector({
+			projection,
+			reviewPackage,
+			seedItemIds,
+			sourceKey,
+		});
+		const clonedReviewPackage = {
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				[sourceItem.itemId]: {
+					...sourceItem,
+					cacheKey: `${sourceItem.cacheKey}:metadata-retouch`,
+					itemVersion: sourceItem.itemVersion + 1,
+				},
+			},
+			revision: reviewPackage.revision + 1,
+		};
+		const clonedProjection = { ...projection };
+		const clonedSourceKey = makeBridgeCodeViewSourceKey({
+			projection: clonedProjection,
+			reviewPackage: clonedReviewPackage,
+		});
+		const secondItems = selector({
+			projection: clonedProjection,
+			reviewPackage: clonedReviewPackage,
+			seedItemIds,
+			sourceKey: clonedSourceKey,
+		});
+		const changedItems = selector({
+			projection,
+			reviewPackage,
+			seedItemIds: ['source-high'],
+			sourceKey,
+		});
+
+		expect(clonedSourceKey).toBe(sourceKey);
+		expect(secondItems).toBe(firstItems);
+		expect(changedItems).not.toBe(firstItems);
+	});
+
+	test('refreshes initial CodeView reset items when same-source placeholder shape changes', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const sourceItem = reviewPackage.itemsById['source-high'];
+		if (sourceItem === undefined) {
+			throw new Error('expected projection fixture item');
+		}
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const sourceKey = makeBridgeCodeViewSourceKey({ projection, reviewPackage });
+		const selector = createBridgeCodeViewInitialItemsForPanelSelector();
+
+		const firstItems = selector({
+			projection,
+			reviewPackage,
+			seedItemIds: [sourceItem.itemId],
+			sourceKey,
+		});
+		const changedReviewPackage = {
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				[sourceItem.itemId]: {
+					...sourceItem,
+					contentLineCountsByRole: {
+						...sourceItem.contentLineCountsByRole,
+						head: (sourceItem.contentLineCountsByRole?.head ?? sourceItem.additions) + 7,
+					},
+					headPath: 'src/renamed-source.ts',
+				},
+			},
+			revision: reviewPackage.revision + 1,
+		};
+		const secondItems = selector({
+			projection: { ...projection },
+			reviewPackage: changedReviewPackage,
+			seedItemIds: [sourceItem.itemId],
+			sourceKey,
+		});
+
+		expect(secondItems).not.toBe(firstItems);
+		expect(secondItems[0]?.bridgeMetadata.displayPath).toBe('src/renamed-source.ts');
+		expect(secondItems[0]?.bridgeMetadata.lineCount).not.toBe(
+			firstItems[0]?.bridgeMetadata.lineCount,
+		);
 	});
 
 	test('includes selected presentation changes in non-reset metadata deltas', () => {
@@ -235,6 +344,156 @@ describe('Bridge CodeView metadata apply pump', () => {
 		expect(deltaItem.fileDiff.hunks).toBe(visibleCodeViewItem.fileDiff.hunks);
 		expect(deltaItem.fileDiff.additionLines).toBe(visibleCodeViewItem.fileDiff.additionLines);
 		expect(deltaItem.fileDiff.deletionLines).toBe(visibleCodeViewItem.fileDiff.deletionLines);
+	});
+
+	test('keeps metadata deltas stable across same-source package clones', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const sourceItem = reviewPackage.itemsById['source-high'];
+		const visibleItem = reviewPackage.itemsById['docs-plan'];
+		if (sourceItem === undefined || visibleItem === undefined) {
+			throw new Error('expected projection fixture items');
+		}
+		const selectedCodeViewItem = workerPreparedCodeViewItem(
+			materializeBridgeCodeViewLoadingItem(sourceItem),
+		);
+		const visibleCodeViewItem = workerPreparedCodeViewItem(
+			materializeBridgeCodeViewLoadingItem(visibleItem),
+		);
+		const selector = createBridgeCodeViewMetadataDeltaItemsForPanelSelector();
+
+		const firstItems = selector({
+			reviewPackage,
+			selectedCodeViewItem,
+			selectedItemId: sourceItem.itemId,
+			selectedItemPresentation: null,
+			sourceKey: 'source-a',
+			visibleCodeViewItems: [visibleCodeViewItem],
+		});
+		const clonedReviewPackage = {
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				[sourceItem.itemId]: {
+					...sourceItem,
+					cacheKey: `${sourceItem.cacheKey}:metadata-retouch`,
+					itemVersion: sourceItem.itemVersion + 1,
+				},
+			},
+			revision: reviewPackage.revision + 1,
+		};
+		const secondItems = selector({
+			reviewPackage: clonedReviewPackage,
+			selectedCodeViewItem,
+			selectedItemId: sourceItem.itemId,
+			selectedItemPresentation: null,
+			sourceKey: 'source-a',
+			visibleCodeViewItems: [visibleCodeViewItem],
+		});
+		const changedItems = selector({
+			reviewPackage,
+			selectedCodeViewItem,
+			selectedItemId: sourceItem.itemId,
+			selectedItemPresentation: { kind: 'file', version: 'current' },
+			sourceKey: 'source-a',
+			visibleCodeViewItems: [visibleCodeViewItem],
+		});
+
+		expect(secondItems).toBe(firstItems);
+		expect(changedItems).not.toBe(firstItems);
+	});
+
+	test('refreshes selected metadata loading delta when same-source placeholder shape changes', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const sourceItem = reviewPackage.itemsById['source-high'];
+		if (sourceItem === undefined) {
+			throw new Error('expected projection fixture item');
+		}
+		const selector = createBridgeCodeViewMetadataDeltaItemsForPanelSelector();
+
+		const firstItems = selector({
+			reviewPackage,
+			selectedCodeViewItem: null,
+			selectedItemId: sourceItem.itemId,
+			selectedItemPresentation: { kind: 'file', version: 'current' },
+			sourceKey: 'source-a',
+			visibleCodeViewItems: [],
+		});
+		const changedReviewPackage = {
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				[sourceItem.itemId]: {
+					...sourceItem,
+					contentLineCountsByRole: {
+						...sourceItem.contentLineCountsByRole,
+						head: (sourceItem.contentLineCountsByRole?.head ?? sourceItem.additions) + 7,
+					},
+					headPath: 'src/renamed-source.ts',
+				},
+			},
+			revision: reviewPackage.revision + 1,
+		};
+		const secondItems = selector({
+			reviewPackage: changedReviewPackage,
+			selectedCodeViewItem: null,
+			selectedItemId: sourceItem.itemId,
+			selectedItemPresentation: { kind: 'file', version: 'current' },
+			sourceKey: 'source-a',
+			visibleCodeViewItems: [],
+		});
+
+		expect(secondItems).not.toBe(firstItems);
+		expect(secondItems[0]?.bridgeMetadata.displayPath).toBe('src/renamed-source.ts');
+		expect(secondItems[0]?.bridgeMetadata.lineCount).toBe(
+			(sourceItem.contentLineCountsByRole?.head ?? sourceItem.additions) + 7,
+		);
+	});
+
+	test('keeps selected loading placeholder stable across descriptor metadata retouches', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const sourceItem = reviewPackage.itemsById['source-high'];
+		if (sourceItem === undefined) {
+			throw new Error('expected source fixture item');
+		}
+		const loadingItem = materializeBridgeCodeViewLoadingItem(sourceItem);
+		const retouchedDescriptor = {
+			...sourceItem,
+			cacheKey: `${sourceItem.cacheKey}:metadata-retouch`,
+			itemVersion: sourceItem.itemVersion + 1,
+		};
+		const retouchedLoadingItem = materializeBridgeCodeViewLoadingItem(retouchedDescriptor);
+
+		expect(
+			bridgeCodeViewLoadingPlaceholderMatchesDescriptor({
+				existingItem: loadingItem,
+				loadingItem: retouchedLoadingItem,
+			}),
+		).toBe(true);
+	});
+
+	test('refreshes selected loading placeholder when descriptor shape changes', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const sourceItem = reviewPackage.itemsById['source-high'];
+		if (sourceItem === undefined) {
+			throw new Error('expected source fixture item');
+		}
+		const loadingItem = materializeBridgeCodeViewLoadingItem(sourceItem);
+		const shapeChangedDescriptor = {
+			...sourceItem,
+			contentLineCountsByRole: {
+				...sourceItem.contentLineCountsByRole,
+				head: (sourceItem.contentLineCountsByRole?.head ?? sourceItem.additions) + 7,
+			},
+			headPath: 'src/renamed-source.ts',
+		};
+		const shapeChangedLoadingItem = materializeBridgeCodeViewLoadingItem(shapeChangedDescriptor);
+
+		expect(
+			bridgeCodeViewLoadingPlaceholderMatchesDescriptor({
+				existingItem: loadingItem,
+				loadingItem: shapeChangedLoadingItem,
+			}),
+		).toBe(false);
 	});
 
 	test('normalizes worker-prepared diff language without rebuilding payload arrays', () => {

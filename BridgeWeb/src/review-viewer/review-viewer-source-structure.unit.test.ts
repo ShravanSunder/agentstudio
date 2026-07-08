@@ -521,10 +521,47 @@ describe('Review viewer source structure', () => {
 			codeViewPanelSource.indexOf('const metadataDeltaItems = useMemo'),
 		);
 
-		expect(resetItemsMemoSource).toContain('createBridgeCodeViewInitialItemsForPanel');
+		expect(resetItemsMemoSource).toContain('initialItemsSelector');
+		expect(resetItemsMemoSource).toContain('sourceKey');
 		expect(resetItemsMemoSource).not.toContain('props.selectedCodeViewItem');
 		expect(resetItemsMemoSource).not.toContain('props.selectedItemPresentation');
 		expect(resetItemsMemoSource).not.toContain('props.visibleCodeViewItems');
+	});
+
+	test('keys Review CodeView metadata apply by derived inputs instead of raw package identity', () => {
+		const codeViewPanelSource = readSource('./code-view/bridge-code-view-panel.tsx');
+		const metadataApplyStartIndex = codeViewPanelSource.indexOf(
+			'const metadataSourceItems = sourceReset',
+		);
+		const metadataApplyEffectSource = codeViewPanelSource.slice(
+			metadataApplyStartIndex,
+			codeViewPanelSource.indexOf(
+				'\tuseEffect(\n\t\t(): (() => void) => (): void => {',
+				metadataApplyStartIndex,
+			),
+		);
+
+		expect(metadataApplyEffectSource).toContain('metadataDeltaItems');
+		expect(metadataApplyEffectSource).toContain('initialItems');
+		expect(metadataApplyEffectSource).toContain('sourceKey');
+		expect(metadataApplyEffectSource).not.toContain('props.projection,');
+		expect(metadataApplyEffectSource).not.toContain('props.reviewPackage,');
+	});
+
+	test('keeps Review worker item selector signatures off large payload fields', () => {
+		const workerPreparedSource = readSource(
+			'./code-view/bridge-code-view-worker-prepared-items.ts',
+		);
+		const signatureSource = workerPreparedSource.slice(
+			workerPreparedSource.indexOf('function bridgeMainCodeViewItemSignature'),
+			workerPreparedSource.indexOf('function bridgeCodeViewItemPresentationKey'),
+		);
+
+		expect(signatureSource).not.toContain('contents');
+		expect(signatureSource).not.toContain('hunks');
+		expect(signatureSource).not.toContain('hunkContent');
+		expect(signatureSource).not.toContain('additionLines');
+		expect(signatureSource).not.toContain('deletionLines');
 	});
 
 	test('invalidates pending CodeView metadata apply turns during source reset', () => {

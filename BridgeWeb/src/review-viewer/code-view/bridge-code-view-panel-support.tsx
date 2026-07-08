@@ -399,6 +399,32 @@ export function bridgeCodeViewLoadingMaterializationItemIdsForPanel(props: {
 		: [props.selectedContentLoadingItemId];
 }
 
+export function bridgeCodeViewLoadingPlaceholderMatchesDescriptor(props: {
+	readonly existingItem: CodeViewItem | undefined;
+	readonly loadingItem: BridgeCodeViewItem;
+}): boolean {
+	return (
+		isBridgeCodeViewItem(props.existingItem) &&
+		props.existingItem.bridgeMetadata.contentState === 'loading' &&
+		bridgeCodeViewLoadingPlaceholderSignature(props.existingItem) ===
+			bridgeCodeViewLoadingPlaceholderSignature(props.loadingItem)
+	);
+}
+
+function bridgeCodeViewLoadingPlaceholderSignature(item: BridgeCodeViewItem): string {
+	const metadata = item.bridgeMetadata;
+	return [
+		item.id,
+		item.type,
+		metadata.displayPath,
+		metadata.contentRoles.join(','),
+		String(metadata.lineCount ?? ''),
+		item.type === 'file' ? item.file.name : (item.fileDiff.prevName ?? ''),
+		item.type === 'file' ? '' : item.fileDiff.name,
+		item.type === 'file' ? '' : item.fileDiff.type,
+	].join('\u001f');
+}
+
 export interface BridgeCodeViewInstantRevealRearmCandidate {
 	readonly itemId: string;
 	readonly revealedAtMilliseconds: number;

@@ -5,6 +5,7 @@ import type {
 	BridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package.js';
 import { bridgePierreOptionalHighlightLanguage } from '../workers/pierre/bridge-pierre-language-normalization.js';
+import { bridgeCodeViewDescriptorPlaceholderSignature } from './bridge-code-view-descriptor-signature.js';
 import {
 	materializeBridgeCodeViewLoadingItem,
 	type BridgeCodeViewDiffItem,
@@ -69,6 +70,171 @@ export function createBridgeCodeViewMetadataDeltaItemsForPanel(props: {
 		);
 	}
 	return [...deltaItemsById.values()];
+}
+
+export type BridgeCodeViewMetadataDeltaItemsForPanelSelector = (props: {
+	readonly reviewPackage: BridgeReviewPackage;
+	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null | undefined;
+	readonly selectedItemId: string | null;
+	readonly selectedItemPresentation: BridgeCodeViewItemPresentation | null | undefined;
+	readonly sourceKey: string;
+	readonly visibleCodeViewItems?: readonly BridgeMainCodeViewItem[] | undefined;
+}) => readonly BridgeCodeViewItem[];
+
+interface BridgeCodeViewMetadataDeltaItemsCacheEntry {
+	readonly result: readonly BridgeCodeViewItem[];
+	readonly selectedDescriptorSignature: string | null;
+	readonly selectedCodeViewItemSignature: string;
+	readonly selectedItemId: string | null;
+	readonly selectedItemPresentationKey: string;
+	readonly sourceKey: string;
+	readonly visibleCodeViewItemSignatures: readonly string[] | undefined;
+}
+
+export function createBridgeCodeViewMetadataDeltaItemsForPanelSelector(): BridgeCodeViewMetadataDeltaItemsForPanelSelector {
+	let previousEntry: BridgeCodeViewMetadataDeltaItemsCacheEntry | null = null;
+	return (props): readonly BridgeCodeViewItem[] => {
+		const selectedDescriptor =
+			props.selectedItemId === null
+				? undefined
+				: props.reviewPackage.itemsById[props.selectedItemId];
+		const selectedDescriptorSignature = bridgeReviewSelectedDescriptorSignature(selectedDescriptor);
+		const selectedItemPresentationKey = bridgeCodeViewItemPresentationKey(
+			props.selectedItemPresentation,
+		);
+		const selectedCodeViewItemSignature = bridgeOptionalMainCodeViewItemSignature(
+			props.selectedCodeViewItem,
+		);
+		const visibleCodeViewItemSignatures = bridgeMainCodeViewItemSignatures(
+			props.visibleCodeViewItems,
+		);
+		if (
+			previousEntry !== null &&
+			previousEntry.sourceKey === props.sourceKey &&
+			previousEntry.selectedItemId === props.selectedItemId &&
+			previousEntry.selectedCodeViewItemSignature === selectedCodeViewItemSignature &&
+			previousEntry.selectedItemPresentationKey === selectedItemPresentationKey &&
+			previousEntry.selectedDescriptorSignature === selectedDescriptorSignature &&
+			optionalStringArraysEqual(
+				previousEntry.visibleCodeViewItemSignatures,
+				visibleCodeViewItemSignatures,
+			)
+		) {
+			return previousEntry.result;
+		}
+		const result = createBridgeCodeViewMetadataDeltaItemsForPanel(props);
+		previousEntry = {
+			result,
+			selectedCodeViewItemSignature,
+			selectedDescriptorSignature,
+			selectedItemId: props.selectedItemId,
+			selectedItemPresentationKey,
+			sourceKey: props.sourceKey,
+			visibleCodeViewItemSignatures,
+		};
+		return result;
+	};
+}
+
+function optionalStringArraysEqual(
+	first: readonly string[] | undefined,
+	second: readonly string[] | undefined,
+): boolean {
+	if (first === undefined || second === undefined) {
+		return first === second;
+	}
+	if (first.length !== second.length) {
+		return false;
+	}
+	return first.every((value, index): boolean => value === second[index]);
+}
+
+function bridgeMainCodeViewItemSignatures(
+	items: readonly BridgeMainCodeViewItem[] | undefined,
+): readonly string[] | undefined {
+	return items === undefined ? undefined : items.map(bridgeMainCodeViewItemSignature);
+}
+
+function bridgeOptionalMainCodeViewItemSignature(
+	item: BridgeMainCodeViewItem | null | undefined,
+): string {
+	if (item === null) {
+		return 'null';
+	}
+	if (item === undefined) {
+		return 'undefined';
+	}
+	return bridgeMainCodeViewItemSignature(item);
+}
+
+function bridgeMainCodeViewItemSignature(item: BridgeMainCodeViewItem): string {
+	const metadata = item.bridgeMetadata;
+	const baseFields = [
+		item.id,
+		item.type,
+		String(item.version ?? ''),
+		String(item.collapsed ?? ''),
+		metadata.itemId,
+		metadata.displayPath,
+		metadata.contentState,
+		metadata.contentRoles.join(','),
+		metadata.cacheKey,
+		String(metadata.lineCount ?? ''),
+	];
+	return item.type === 'file'
+		? [...baseFields, bridgePreparedFilePayloadSignature(item.file)].join('\u001f')
+		: [...baseFields, bridgePreparedDiffPayloadSignature(item.fileDiff)].join('\u001f');
+}
+
+function bridgePreparedFilePayloadSignature(file: BridgeWorkerPreparedFilePayload): string {
+	return [
+		file.name,
+		normalizedWorkerPreparedLanguage(file.lang),
+		file.header ?? '',
+		file.cacheKey ?? 'unkeyed-file',
+	].join('\u001e');
+}
+
+function bridgePreparedDiffPayloadSignature(fileDiff: BridgeWorkerPreparedDiffPayload): string {
+	return [
+		fileDiff.name,
+		fileDiff.prevName ?? '',
+		normalizedWorkerPreparedLanguage(fileDiff.lang),
+		fileDiff.newObjectId ?? '',
+		fileDiff.prevObjectId ?? '',
+		fileDiff.mode ?? '',
+		fileDiff.prevMode ?? '',
+		fileDiff.type,
+		String(fileDiff.splitLineCount),
+		String(fileDiff.unifiedLineCount),
+		String(fileDiff.isPartial),
+		fileDiff.cacheKey ?? 'unkeyed-diff',
+	].join('\u001e');
+}
+
+function normalizedWorkerPreparedLanguage(language: string | undefined): string {
+	return bridgePierreOptionalHighlightLanguage(language) ?? '';
+}
+
+function bridgeCodeViewItemPresentationKey(
+	presentation: BridgeCodeViewItemPresentation | null | undefined,
+): string {
+	if (presentation === null || presentation === undefined) {
+		return 'none';
+	}
+	if (presentation.kind === 'diff') {
+		return 'diff';
+	}
+	return `file:${presentation.version}`;
+}
+
+function bridgeReviewSelectedDescriptorSignature(
+	descriptor: BridgeReviewItemDescriptor | undefined,
+): string | null {
+	if (descriptor === undefined) {
+		return null;
+	}
+	return bridgeCodeViewDescriptorPlaceholderSignature(descriptor);
 }
 
 function selectedCodeViewItemMatchesPresentation(props: {

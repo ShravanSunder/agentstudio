@@ -3997,3 +3997,82 @@ counts before claiming a gate.
   re-materialization storm closure, native worker-fetch F1, zero-copy
   transfer-list delivery, implementation-review-swarm, PR readiness, or full
   goal completion.
+
+## 2026-07-08 - Review Visible Metadata Delta Selector Stability
+
+- Commit target:
+  checkpoint label `fix(bridge): stabilize review metadata apply inputs`.
+- Scope:
+  Narrow R45/R46 Review CodeView main-thread churn fix. The panel now derives
+  `initialItems` and `metadataDeltaItems` through per-panel selector factories
+  keyed by source identity and emitted placeholder / worker-prepared item
+  signatures, so same-source package clones and payload-identical worker item
+  clones do not create fresh apply arrays. The metadata apply effect no longer
+  depends on raw `reviewPackage` / `projection` identity; telemetry callbacks
+  read those values through refs. Selected loading placeholders compare emitted
+  placeholder shape instead of descriptor cache-key churn.
+- Root cause:
+  The prior R46 frame pump bounded each apply turn, but the turn source still
+  changed on every benign package / worker item clone. A fresh
+  `metadataDeltaItems` array retriggered the metadata apply effect, cancelled
+  the previous generation, and requeued visible item apply work, matching the
+  live materialization-storm signature.
+- Red evidence:
+  `CI=true pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/code-view/bridge-code-view-metadata-apply.unit.test.ts
+  --reporter dot` failed after adding payload-clone selector tests because
+  `keeps metadata deltas stable across selected worker item payload clones` and
+  `keeps metadata deltas stable across visible worker item payload clones`
+  returned structurally equal but different arrays. Earlier red checks in this
+  slice also caught missing selector exports, benign descriptor retouch churn,
+  placeholder-shape refresh, and selected-loading cache-key-only equivalence.
+- Green evidence:
+  The repaired focused selector / source-structure proof passed 3 files / 57
+  tests:
+  `bridge-code-view-metadata-apply.unit.test.ts`,
+  `bridge-code-view-worker-prepared-items-selector.unit.test.ts`, and
+  `review-viewer-source-structure.unit.test.ts`.
+  After the Mencius reviewer fixes, the narrower
+  `bridge-code-view-worker-prepared-items-selector.unit.test.ts` plus
+  `review-viewer-source-structure.unit.test.ts` proof passed 2 files / 36
+  tests. The wider scoped Review CodeView battery passed 8 files / 117 tests:
+  `bridge-code-view-panel.unit.test.ts`,
+  `bridge-code-view-panel-reconcile.unit.test.ts`,
+  `bridge-code-view-materialization.unit.test.ts`,
+  `bridge-code-view-materialization.hydration.unit.test.ts`,
+  `bridge-code-view-selected-apply-pump.unit.test.ts`,
+  `bridge-code-view-metadata-apply.unit.test.ts`,
+  `bridge-code-view-worker-prepared-items-selector.unit.test.ts`, and
+  `review-viewer-source-structure.unit.test.ts`.
+  `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed. Scoped
+  `oxfmt --check`, scoped `oxlint --type-aware`, and `git diff --check`
+  passed.
+- Review evidence:
+  Lagrange the 2nd returned `needs fixes` with one accepted P2: metadata-delta
+  caching still keyed selected and visible worker items by raw object identity.
+  The fix added semantic worker-item signatures plus red/green payload-clone
+  tests. Mencius the 2nd then returned two accepted findings: the first semantic
+  signature walked large `contents` / `hunks` / hunk-content payloads in the
+  render-path selector, and signature comparison keyed raw worker `lang` values
+  instead of Pierre-normalized language. The final fix keeps selector signatures
+  to bounded metadata/cache-key fields, normalizes language before comparison,
+  adds the normalization-equivalent worker-language test, and adds a
+  source-structure guard over the selector signature block so large payload
+  fields cannot re-enter that comparison.
+- Line-cap evidence:
+  Touched line counts after formatting:
+  `bridge-code-view-panel.tsx` 994,
+  `bridge-code-view-panel-support.tsx` 946,
+  `bridge-code-view-worker-prepared-items.ts` 427,
+  `bridge-code-view-descriptor-signature.ts` 34,
+  `bridge-code-view-initial-items-selector.ts` 76,
+  `bridge-code-view-metadata-apply.unit.test.ts` 921,
+  `bridge-code-view-worker-prepared-items-selector.unit.test.ts` 159, and
+  `review-viewer-source-structure.unit.test.ts` 786. All remain below the
+  1000-line hard cap.
+- Known proof boundary:
+  This closes the visible metadata-delta re-materialization storm mechanism at
+  the unit/source-structure layer. It does not by itself prove live oq4s
+  scroll/click percentile movement, telemetry non-lossiness on a fresh marker,
+  remaining Review browser/native UX proof, implementation-review-swarm, PR
+  readiness, or full goal completion.
