@@ -1,9 +1,9 @@
+import { createBridgeTelemetryEventSink } from '../bridge/bridge-telemetry-event-sink.js';
 import type { BridgeIntakeReceiveDropReason } from '../core/intake/bridge-intake-receiver.js';
 import {
 	decodeBridgeTelemetryBootstrapConfig,
 	type BridgeTelemetryBootstrapConfig,
 } from '../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
-import type { BridgeTelemetryBatch } from '../foundation/telemetry/bridge-telemetry-event.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTelemetrySink } from '../foundation/telemetry/bridge-telemetry-sink.js';
 
@@ -58,19 +58,9 @@ export function createNativeWorktreeFileTelemetrySink(props: {
 	readonly endpointUrl: BridgeTelemetryBootstrapConfig['endpointUrl'];
 	readonly fetch?: (input: RequestInfo | URL, init?: RequestInit) => boolean | Promise<Response>;
 }): BridgeTelemetrySink {
-	const fetchTelemetry = props.fetch ?? globalThis.fetch.bind(globalThis);
-	return {
-		flush: (batch: BridgeTelemetryBatch): boolean => {
-			try {
-				void fetchTelemetry(props.endpointUrl, {
-					body: JSON.stringify(batch),
-					headers: { 'Content-Type': 'application/json' },
-					method: 'POST',
-				});
-				return true;
-			} catch {
-				return false;
-			}
-		},
-	};
+	return createBridgeTelemetryEventSink(
+		props.fetch === undefined
+			? { endpointUrl: props.endpointUrl }
+			: { endpointUrl: props.endpointUrl, fetch: props.fetch },
+	);
 }
