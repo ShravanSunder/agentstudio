@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import type { BridgeTelemetrySample } from './bridge-telemetry-event.js';
+import type { BridgeTelemetryBatch, BridgeTelemetrySample } from './bridge-telemetry-event.js';
 import type {
 	BridgeTelemetryMeasureProps,
 	BridgeTelemetryRecorder,
 } from './bridge-telemetry-recorder.js';
+import { createBridgeTelemetryRecorder } from './bridge-telemetry-recorder.js';
 import {
 	recordBridgeCodeViewHydrationTelemetrySamples,
 	recordBridgeFrameJankTelemetrySample,
@@ -16,6 +17,7 @@ import {
 	recordBridgeTreeScrollFrameGapTelemetrySample,
 	recordBridgeTreeScrollToPathTelemetrySample,
 	recordBridgeTreeVisibleIdsCaptureTelemetrySample,
+	recordBridgeCodeViewItemMaterializeTelemetrySample,
 	recordBridgeViewerFirstInteractionReadyTelemetrySample,
 } from './bridge-viewer-telemetry-adapter.js';
 
@@ -58,6 +60,18 @@ describe('bridge viewer telemetry adapter flushing', () => {
 			traceContext: null,
 			viewer: 'review',
 		});
+		recordBridgeCodeViewItemMaterializeTelemetrySample({
+			contentBytesBucket: 'small',
+			durationMilliseconds: 6,
+			itemCountBucket: 'small',
+			languageClass: 'typescript',
+			result: 'updated',
+			selected: false,
+			telemetryRecorder: recorder,
+			traceContext: null,
+			transport: 'worker',
+			viewer: 'review',
+		});
 
 		expect(recorder.samples.map((sample) => sample.name)).toEqual([
 			'performance.bridge.viewer.time_to_first_interaction',
@@ -66,8 +80,9 @@ describe('bridge viewer telemetry adapter flushing', () => {
 			'performance.bridge.worker.task',
 			'performance.bridge.web.selected_content_painted',
 			'performance.bridge.web.selected_content_dropped',
+			'performance.bridge.web.code_view_item_materialize',
 		]);
-		expect(recorder.flushForces).toEqual([undefined, undefined, undefined, undefined]);
+		expect(recorder.flushForces).toEqual([undefined, undefined, undefined]);
 	});
 
 	test('does not force-flush tree hot-path samples per record', () => {
@@ -89,6 +104,51 @@ describe('bridge viewer telemetry adapter flushing', () => {
 			'performance.bridge.trees.click_to_row_highlight',
 		]);
 		expect(recorder.flushForces).toEqual([]);
+	});
+
+	test('idle flushes materialize telemetry through the recorder scheduler', () => {
+		const batches: BridgeTelemetryBatch[] = [];
+		const idleCallbacks: Array<() => void> = [];
+		const recorder = createBridgeTelemetryRecorder(
+			{
+				enabledScopes: new Set(['web']),
+				maxSamplesPerBatch: 4,
+				maxEncodedBatchBytes: 16_384,
+				minimumFlushIntervalMilliseconds: 0,
+				endpointUrl: 'agentstudio://telemetry/batch',
+				scenario: 'bridge-runtime',
+			},
+			{
+				flush: (batch): boolean => {
+					batches.push(batch);
+					return true;
+				},
+			},
+			(): number => 1_000,
+			(callback): void => {
+				idleCallbacks.push(callback);
+			},
+		);
+
+		recordBridgeCodeViewItemMaterializeTelemetrySample({
+			contentBytesBucket: 'small',
+			durationMilliseconds: 6,
+			itemCountBucket: 'small',
+			languageClass: 'typescript',
+			result: 'updated',
+			selected: false,
+			telemetryRecorder: recorder,
+			traceContext: null,
+			transport: 'worker',
+			viewer: 'review',
+		});
+
+		expect(batches).toEqual([]);
+		expect(idleCallbacks).toHaveLength(1);
+		idleCallbacks[0]?.();
+		expect(batches.map((batch) => batch.samples.map((sample) => sample.name))).toEqual([
+			['performance.bridge.web.code_view_item_materialize'],
+		]);
 	});
 
 	test('summarizes hover_to_render bursts after settle', async () => {

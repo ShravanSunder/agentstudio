@@ -716,7 +716,6 @@ export function recordBridgeCodeViewItemMaterializeTelemetrySample(
 				'agentstudio.bridge.selected': props.selected,
 			},
 		});
-		props.telemetryRecorder.flush();
 	});
 }
 
@@ -751,7 +750,6 @@ export function recordBridgeSelectedContentPaintedTelemetrySample(
 			},
 			booleanAttributes: {},
 		});
-		props.telemetryRecorder.flush();
 	});
 }
 

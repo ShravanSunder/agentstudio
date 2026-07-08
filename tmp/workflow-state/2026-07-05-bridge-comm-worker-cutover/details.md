@@ -4543,3 +4543,64 @@ counts before claiming a gate.
   prove zero-copy transfer-list delivery, does not complete
   implementation-review-swarm, does not prove PR readiness, and does not
   complete the full goal.
+
+## 2026-07-08T22:43:40Z - Review CodeView hot telemetry direct-flush removal
+
+- Scope:
+  Removed direct synchronous `telemetryRecorder.flush()` calls from the two
+  Review CodeView hot-path telemetry helpers that run during worker-prepared
+  DOM apply and selected-content paint reporting:
+  `recordBridgeCodeViewItemMaterializeTelemetrySample` and
+  `recordBridgeSelectedContentPaintedTelemetrySample`. Delivery still relies on
+  the recorder/client idle-flush path, which already schedules flushing when a
+  sample is recorded.
+- Root cause:
+  The comm worker and Pierre preparation path can be healthy while main still
+  stalls if UI apply work also forces telemetry transport work in the same
+  interaction frame. The materialize and selected-paint helpers were adding
+  explicit flush calls on top of recorder idle scheduling, putting telemetry
+  pressure on the CodeView apply path.
+- Red evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/foundation/telemetry/bridge-viewer-telemetry-adapter.unit.test.ts
+  --reporter dot` failed because
+  `recordBridgeCodeViewItemMaterializeTelemetrySample` produced an extra
+  direct flush. After the materialize change, the same test failed again after
+  tightening the expected flush count, proving
+  `recordBridgeSelectedContentPaintedTelemetrySample` still direct-flushed.
+- Green evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/foundation/telemetry/bridge-viewer-telemetry-adapter.unit.test.ts
+  src/review-viewer/code-view/bridge-code-view-panel.unit.test.ts --reporter
+  dot` passed 2 files / 31 tests. The adapter test now includes a real-recorder
+  guard proving materialize telemetry does not hit the sink until the idle
+  scheduler runs, even with `minimumFlushIntervalMilliseconds: 0`. The existing
+  CodeView panel test
+  `idle flushes selected content painted telemetry after recorder burst
+  throttling` proves selected paint telemetry still drains through the recorder
+  idle path after direct helper flush removal. `pnpm --dir BridgeWeb exec tsc
+  --noEmit --pretty false` passed. Scoped `oxfmt --check` and scoped
+  `oxlint --type-aware` passed for the touched telemetry/panel test files.
+  `git diff --check` passed.
+- Source-scan evidence:
+  A focused block scan reported
+  `recordBridgeCodeViewItemMaterializeTelemetrySample.has_flush=False`,
+  `recordBridgeSelectedContentPaintedTelemetrySample.has_flush=False`, while
+  `recordBridgeProjectionCoordinatorTelemetrySample.has_flush=True`, confirming
+  the patch stayed inside the intended hot-path boundary and did not remove the
+  projection boundary flush.
+- Sidekick evidence:
+  Nash the 3rd completed a read-only flush classification and confirmed Review
+  tree click/hover/scroll telemetry helpers no longer direct-flush, while the
+  remaining Review CodeView hot-path direct flushes were materialize and
+  selected-content-painted. Nash recommended this exact first patch boundary;
+  later possible slices are File View visible-demand and frame-jank diagnostic
+  flushes if live metrics still show pressure.
+- Known proof boundary:
+  This removes one telemetry-pressure source from the Review CodeView apply
+  path only. It does not prove live oq4s scroll/click percentile movement, does
+  not remove remaining File View/frame-jank direct flushes, does not replace
+  whole-root `useSyncExternalStore` subscribers with keyed/sliced subscriptions,
+  does not prove zero-copy transfer-list delivery, does not complete
+  implementation-review-swarm, does not prove PR readiness, and does not
+  complete the full goal.
