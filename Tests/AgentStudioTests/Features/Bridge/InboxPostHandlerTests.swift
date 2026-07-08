@@ -24,12 +24,12 @@ extension WebKitSerializedTests {
             defer { controller.teardown() }
             var iterator = controller.runtime.subscribe().makeAsyncIterator()
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
 
             let payload = try loadFixture("valid/rpc-command-inbox-post.json")
-            await controller.handleIncomingRPC(payload)
+            await controller.dispatchIncomingSchemeCommand(payload)
 
             let envelope = try #require(await iterator.next())
             guard case .pane(let paneEnvelope) = envelope else {
@@ -52,13 +52,13 @@ extension WebKitSerializedTests {
             defer { controller.teardown() }
             var iterator = controller.runtime.subscribe().makeAsyncIterator()
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
 
             let payload =
                 #"{"jsonrpc":"2.0","method":"inbox.post","params":{"title":"Fake","body":"Fake","paneId":"019DB51A-E1C5-75D1-9539-8F80D7F615F8"}}"#
-            await controller.handleIncomingRPC(payload)
+            await controller.dispatchIncomingSchemeCommand(payload)
 
             let envelope = try #require(await iterator.next())
             guard case .pane(let paneEnvelope) = envelope else {
@@ -74,7 +74,7 @@ extension WebKitSerializedTests {
             defer { controller.teardown() }
             var iterator = controller.runtime.subscribe().makeAsyncIterator()
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
 
@@ -90,7 +90,7 @@ extension WebKitSerializedTests {
                 )
             )
             let payload = try #require(String(bytes: payloadData, encoding: .utf8))
-            await controller.handleIncomingRPC(payload)
+            await controller.dispatchIncomingSchemeCommand(payload)
 
             let envelope = try #require(await iterator.next())
             guard case .pane(let paneEnvelope) = envelope,
@@ -111,13 +111,13 @@ extension WebKitSerializedTests {
             let controller = makeController()
             defer { controller.teardown() }
             var errorCode: Int?
-            controller.router.onError = { code, _, _ in errorCode = code }
+            controller.schemeCommandDispatcher.onError = { code, _, _ in errorCode = code }
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"inbox.post","params":{"title":"   ","body":"ignored"},"id":1}"#
             )
 
@@ -129,18 +129,18 @@ extension WebKitSerializedTests {
             let controller = makeController()
             defer { controller.teardown() }
             var errorCode: Int?
-            controller.router.onError = { code, _, _ in errorCode = code }
+            controller.schemeCommandDispatcher.onError = { code, _, _ in errorCode = code }
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
 
             for index in 0..<AppPolicies.InboxNotification.maxRPCPostsPerWindow {
-                await controller.handleIncomingRPC(
+                await controller.dispatchIncomingSchemeCommand(
                     #"{"jsonrpc":"2.0","method":"inbox.post","params":{"title":"Notice \#(index)"}}"#
                 )
             }
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"inbox.post","params":{"title":"Overflow"},"id":1}"#
             )
 

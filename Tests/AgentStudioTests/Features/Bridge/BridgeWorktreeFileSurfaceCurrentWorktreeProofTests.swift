@@ -29,7 +29,7 @@ extension WebKitSerializedTests {
                 }
             )
             let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
+            fixture.controller.schemeCommandDispatcher.onResponse = { responseJSON in
                 await responseCapture.set(responseJSON)
             }
             return BridgeCurrentWorktreeProofHarness(
@@ -181,10 +181,10 @@ extension WebKitSerializedTests {
             fixture: BridgeWorktreeFileSurfaceControllerFixture,
             responseCapture: BridgeWorktreeFileSurfaceResponseCapture
         ) async throws -> BridgeWorktreeFileSurfaceSuccessResponse {
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 try BridgeWorktreeFileSurfaceRPCRequest(
                     id: "open-current-worktree-headless-proof",
                     method: "worktreeFileSurface.openSourceStream",
@@ -229,7 +229,7 @@ extension WebKitSerializedTests {
             for lane in Self.demandLaneProofOrder {
                 let path = try #require(paths[lane])
                 let requestStartedAt = Date()
-                await controller.handleIncomingRPC(
+                await controller.dispatchIncomingSchemeCommand(
                     """
                     {"jsonrpc":"2.0","method":"bridge.metadata_interest.update","params":{"protocol":"worktree-file","streamId":"\(streamId)","generation":\(generation),"paths":["\(path)"],"lane":"\(lane.rawValue)"},"id":"current-worktree-\(lane.rawValue)-interest"}
                     """

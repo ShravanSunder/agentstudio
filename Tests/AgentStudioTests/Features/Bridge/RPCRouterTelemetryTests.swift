@@ -117,7 +117,7 @@ final class RPCRouterTelemetryTests {
     @Test
     func oversized_bridge_telemetry_rpc_rejects_without_ingest_or_drop_recording() async {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let recorder = BridgeTelemetryRecorderSpy()
         let ingestor = BridgeTelemetryIngestorSpy()
         router.telemetryRecorder = recorder
@@ -152,19 +152,20 @@ final class RPCRouterTelemetryTests {
                 path: "Sources/AgentStudio/Features/Bridge/Transport/Methods/SystemMethods.swift"),
             encoding: .utf8
         )
-        let routerSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/Bridge/Transport/RPCRouter.swift"),
+        let dispatcherSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/Bridge/Transport/BridgeSchemeCommandDispatcher.swift"),
             encoding: .utf8
         )
 
         #expect(!systemMethods.contains("BridgeTelemetryMethod"))
-        #expect(!routerSource.contains("dispatchBridgeTelemetryBatch"))
+        #expect(!dispatcherSource.contains("dispatchBridgeTelemetryBatch"))
     }
 
     @Test
     func interactiveRPCRejectsProductionBridgeTelemetryBatches() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let recorder = BridgeTelemetryRecorderSpy()
         let ingestor = BridgeTelemetryIngestorSpy()
         router.telemetryRecorder = recorder

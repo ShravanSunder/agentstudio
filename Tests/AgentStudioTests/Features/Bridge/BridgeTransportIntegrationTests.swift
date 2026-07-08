@@ -84,7 +84,7 @@ private struct TraceparentCaptureSchemeHandler: URLSchemeHandler {
 /// Integration tests for the BridgePaneController's assembled transport pipeline.
 ///
 /// These tests verify that the controller's components (WebPage, BridgeSchemeHandler,
-/// BridgeReadyMessageHandler, RPCRouter, BridgeBootstrap) work together correctly:
+/// BridgeReadyMessageHandler, BridgeSchemeCommandDispatcher, BridgeBootstrap) work together correctly:
 ///
 /// 1. Bridge.ready handshake gating — `isBridgeReady` transitions and idempotency (§4.5)
 /// 2. Scheme handler serves HTML — `loadApp()` loads content from `agentstudio://app/index.html`
@@ -219,17 +219,17 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(paneId: paneId, state: state)
             let capturedResponse = ResponseCaptureBox()
 
-            controller.router.register(method: EchoMethod.self) { params in
+            controller.schemeCommandDispatcher.register(method: EchoMethod.self) { params in
                 .init(echoed: params.text)
             }
-            controller.router.onResponse = { responseJSON in
+            controller.schemeCommandDispatcher.onResponse = { responseJSON in
                 await capturedResponse.set(responseJSON)
             }
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","id":42,"method":"agent.responseEcho","params":{"text":"hello"}}"#
             )
 

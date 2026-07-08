@@ -210,13 +210,13 @@ extension WebKitSerializedTests {
             defer { controller.teardown() }
             let executedToken = SendableBox<String?>(nil)
 
-            controller.router.register(method: AgentDedupProbeMethod.self) { params in
+            controller.schemeCommandDispatcher.register(method: AgentDedupProbeMethod.self) { params in
                 await executedToken.set(params.token)
                 return nil
             }
 
             // Act
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"agent.dedupProbe","params":{"token":"abc123"},"id":1}"#
             )
 
@@ -232,19 +232,19 @@ extension WebKitSerializedTests {
             defer { controller.teardown() }
             let executedToken = SendableBox<String?>(nil)
 
-            controller.router.register(method: AgentDedupProbeMethod.self) { params in
+            controller.schemeCommandDispatcher.register(method: AgentDedupProbeMethod.self) { params in
                 await executedToken.set(params.token)
                 return nil
             }
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
             #expect(controller.isBridgeReady == true)
             controller.paneState.connection.setHealth(.connected)
 
             // Act
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"agent.dedupProbe","params":{"token":"abc123"},"id":1}"#
             )
 
@@ -258,11 +258,11 @@ extension WebKitSerializedTests {
             let controller = makeController()
             defer { controller.teardown() }
             var errorCode: Int?
-            controller.router.onError = { code, _, _ in errorCode = code }
-            controller.router.onResponse = { _ in }
+            controller.schemeCommandDispatcher.onError = { code, _, _ in errorCode = code }
+            controller.schemeCommandDispatcher.onResponse = { _ in }
 
             // Act
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"agent.dedupProbe","params":{},"id":1}"#
             )
 
@@ -277,11 +277,11 @@ extension WebKitSerializedTests {
             let controller = makeController()
             defer { controller.teardown() }
             var errorCode: Int?
-            controller.router.onError = { code, _, _ in errorCode = code }
+            controller.schemeCommandDispatcher.onError = { code, _, _ in errorCode = code }
 
             // Act + Assert: implemented handlers succeed
             errorCode = nil
-            await controller.router.dispatch(
+            await controller.schemeCommandDispatcher.dispatch(
                 json: #"{"jsonrpc":"2.0","method":"review.markFileViewed","params":{"fileId":"abc"},"id":1}"#,
                 isBridgeReady: true
             )
@@ -289,7 +289,7 @@ extension WebKitSerializedTests {
             #expect(controller.paneState.review.viewedFiles.contains("abc"))
 
             errorCode = nil
-            await controller.router.dispatch(
+            await controller.schemeCommandDispatcher.dispatch(
                 json: #"{"jsonrpc":"2.0","method":"review.unmarkFileViewed","params":{"fileId":"abc"},"id":2}"#,
                 isBridgeReady: true
             )
@@ -298,7 +298,7 @@ extension WebKitSerializedTests {
 
             // Stubbed handlers reject with explicit error path
             errorCode = nil
-            await controller.router.dispatch(
+            await controller.schemeCommandDispatcher.dispatch(
                 json:
                     #"{"jsonrpc":"2.0","method":"review.addComment","params":{"fileId":"abc","lineNumber":12,"side":"left","text":"hello"},"id":1}"#,
                 isBridgeReady: true
@@ -306,14 +306,14 @@ extension WebKitSerializedTests {
             #expect(errorCode == -32_603)
 
             errorCode = nil
-            await controller.router.dispatch(
+            await controller.schemeCommandDispatcher.dispatch(
                 json: #"{"jsonrpc":"2.0","method":"agent.cancelTask","params":{"taskId":"task-001"},"id":3}"#,
                 isBridgeReady: true
             )
             #expect(errorCode == -32_603)
 
             errorCode = nil
-            await controller.router.dispatch(
+            await controller.schemeCommandDispatcher.dispatch(
                 json: #"{"jsonrpc":"2.0","method":"system.resyncAgentEvents","params":{"fromSeq":42},"id":4}"#,
                 isBridgeReady: true
             )
@@ -365,7 +365,7 @@ extension WebKitSerializedTests {
             controller.handleBridgeReady()
             let worktreeId = headEndpoint.worktreeId.uuidString
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"diff.loadDiff","params":{"worktreeId":"\#(worktreeId)"},"id":7}"#
             )
 
@@ -381,9 +381,9 @@ extension WebKitSerializedTests {
             defer { controller.teardown() }
             controller.handleBridgeReady()
             var errorCode: Int?
-            controller.router.onError = { code, _, _ in errorCode = code }
+            controller.schemeCommandDispatcher.onError = { code, _, _ in errorCode = code }
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"diff.loadDiff","params":{},"id":7}"#
             )
 
@@ -396,15 +396,15 @@ extension WebKitSerializedTests {
             let controller = makeController()
             defer { controller.teardown() }
             var errorCode: Int?
-            controller.router.onError = { code, _, _ in errorCode = code }
+            controller.schemeCommandDispatcher.onError = { code, _, _ in errorCode = code }
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
             #expect(controller.isBridgeReady == true)
 
             // Act
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"nonexistent.namespaceMethod","params":{},"id":"abc"}"#
             )
 
@@ -418,15 +418,15 @@ extension WebKitSerializedTests {
             let controller = makeController()
             defer { controller.teardown() }
             var errorCode: Int?
-            controller.router.onError = { code, _, _ in errorCode = code }
+            controller.schemeCommandDispatcher.onError = { code, _, _ in errorCode = code }
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
             #expect(controller.isBridgeReady == true)
 
             // Act
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"diff.requestFileContents","params":{"fileId":"abc123"},"id":"content"}"#
             )
 
@@ -440,13 +440,13 @@ extension WebKitSerializedTests {
             let controller = makeController()
             defer { controller.teardown() }
             var observedAck: CommandAck?
-            controller.router.onCommandAck = { observedAck = $0 }
+            controller.schemeCommandDispatcher.onCommandAck = { observedAck = $0 }
 
             // Act
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{},"id":1}"#
             )
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"review.markFileViewed","params":{"fileId":"abc"},"__commandId":"cmd-001"}"#
             )
 
@@ -461,11 +461,11 @@ extension WebKitSerializedTests {
             let controller = makeController()
             defer { controller.teardown() }
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"review.markFileViewed","params":{"fileId":"abc"},"__commandId":"cmd-unique-001"}"#
             )
 
@@ -483,26 +483,26 @@ extension WebKitSerializedTests {
             let executionCount = SendableBox(0)
             var ackCount = 0
 
-            let originalCommandAckHandler = controller.router.onCommandAck
-            controller.router.onCommandAck = { ack in
+            let originalCommandAckHandler = controller.schemeCommandDispatcher.onCommandAck
+            controller.schemeCommandDispatcher.onCommandAck = { ack in
                 originalCommandAckHandler(ack)
                 if ack.commandId == "cmd-dedup-001" {
                     ackCount += 1
                 }
             }
-            controller.router.register(method: AgentDedupProbeMethod.self) { _ in
+            controller.schemeCommandDispatcher.register(method: AgentDedupProbeMethod.self) { _ in
                 await executionCount.update { $0 + 1 }
                 return nil
             }
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
 
             let duplicatePayload =
                 #"{"jsonrpc":"2.0","method":"agent.dedupProbe","params":{"token":"abc"},"__commandId":"cmd-dedup-001"}"#
-            await controller.handleIncomingRPC(duplicatePayload)
-            await controller.handleIncomingRPC(duplicatePayload)
+            await controller.dispatchIncomingSchemeCommand(duplicatePayload)
+            await controller.dispatchIncomingSchemeCommand(duplicatePayload)
 
             #expect(await executionCount.get() == 1)
             #expect(ackCount == 1)
@@ -515,7 +515,7 @@ extension WebKitSerializedTests {
             let controller = makeController()
             defer { controller.teardown() }
 
-            controller.router.register(method: AgentFailureProbeMethod.self) { _ in
+            controller.schemeCommandDispatcher.register(method: AgentFailureProbeMethod.self) { _ in
                 throw NSError(
                     domain: "BridgePaneControllerTests",
                     code: 901,
@@ -523,10 +523,10 @@ extension WebKitSerializedTests {
                 )
             }
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"agent.failureProbe","params":{},"__commandId":"cmd-failure-001"}"#
             )
 
@@ -541,10 +541,10 @@ extension WebKitSerializedTests {
             let controller = makeController()
             defer { controller.teardown() }
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"review.markFileViewed","params":{"fileId":"abc"},"__commandId":"cmd-clear-001"}"#
             )
             #expect(controller.paneState.commandAcks["cmd-clear-001"] != nil)
@@ -624,7 +624,7 @@ extension WebKitSerializedTests {
             defer { controller.teardown() }
             controller.paneState.connection.setHealth(.connected)
 
-            await controller.router.onResponse("not-json")
+            await controller.schemeCommandDispatcher.onResponse("not-json")
 
             #expect(controller.paneState.connection.health == .error)
         }

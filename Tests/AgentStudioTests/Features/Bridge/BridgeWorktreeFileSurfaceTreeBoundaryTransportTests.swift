@@ -50,15 +50,15 @@ extension WebKitSerializedTests {
                 encoding: .utf8
             )
             let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
+            fixture.controller.schemeCommandDispatcher.onResponse = { responseJSON in
                 await eventCapture.recordResponse()
                 await responseCapture.set(responseJSON)
             }
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
 
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 try BridgeWorktreeFileSurfaceRPCRequest(
                     id: "open-bounded-root-descriptors",
                     method: "worktreeFileSurface.openSourceStream",
@@ -132,13 +132,13 @@ extension WebKitSerializedTests {
                 }
             )
             let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
+            fixture.controller.schemeCommandDispatcher.onResponse = { responseJSON in
                 await responseCapture.set(responseJSON)
             }
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 try BridgeWorktreeFileSurfaceRPCRequest(
                     id: "open-git-truth-policy-root",
                     method: "worktreeFileSurface.openSourceStream",
@@ -206,13 +206,13 @@ extension WebKitSerializedTests {
                 }
             )
             let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
+            fixture.controller.schemeCommandDispatcher.onResponse = { responseJSON in
                 await responseCapture.set(responseJSON)
             }
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 try BridgeWorktreeFileSurfaceRPCRequest(
                     id: "open-gitignore-filtered-root",
                     method: "worktreeFileSurface.openSourceStream",
@@ -287,13 +287,13 @@ extension WebKitSerializedTests {
                 }
             )
             let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
+            fixture.controller.schemeCommandDispatcher.onResponse = { responseJSON in
                 await responseCapture.set(responseJSON)
             }
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 try BridgeWorktreeFileSurfaceRPCRequest(
                     id: "open-continuation-gitignore-filtered-root",
                     method: "worktreeFileSurface.openSourceStream",
@@ -379,13 +379,13 @@ extension WebKitSerializedTests {
                 }
             )
             let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
+            fixture.controller.schemeCommandDispatcher.onResponse = { responseJSON in
                 await responseCapture.set(responseJSON)
             }
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 try BridgeWorktreeFileSurfaceRPCRequest(
                     id: "open-submodule-parent-root",
                     method: "worktreeFileSurface.openSourceStream",
@@ -433,13 +433,13 @@ extension WebKitSerializedTests {
                 }
             )
             let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
+            fixture.controller.schemeCommandDispatcher.onResponse = { responseJSON in
                 await responseCapture.set(responseJSON)
             }
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 try BridgeWorktreeFileSurfaceRPCRequest(
                     id: "open-index-interest",
                     method: "worktreeFileSurface.openSourceStream",
@@ -464,7 +464,7 @@ extension WebKitSerializedTests {
             await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let framesBeforeInterest = (await eventCapture.intakeFrames()).count
             for (probeIndex, lane) in ["foreground", "visible", "nearby"].enumerated() {
-                await fixture.controller.handleIncomingRPC(
+                await fixture.controller.dispatchIncomingSchemeCommand(
                     """
                     {"jsonrpc":"2.0","method":"bridge.metadata_interest.update","params":{"protocol":"worktree-file","streamId":"\(response.result.streamId)","generation":\(response.result.generation),"paths":["Sources/F\(probeIndex).swift"],"lane":"\(lane)"},"id":"index-interest-\(lane)"}
                     """
@@ -500,13 +500,13 @@ extension WebKitSerializedTests {
                 }
             )
             let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
+            fixture.controller.schemeCommandDispatcher.onResponse = { responseJSON in
                 await responseCapture.set(responseJSON)
             }
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 try BridgeWorktreeFileSurfaceRPCRequest(
                     id: "open-index-stat-truth",
                     method: "worktreeFileSurface.openSourceStream",
@@ -527,7 +527,7 @@ extension WebKitSerializedTests {
             try FileManager.default.removeItem(at: repoURL.appending(path: deletedPath))
             await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let framesBeforeInterest = (await eventCapture.intakeFrames()).count
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 """
                 {"jsonrpc":"2.0","method":"bridge.metadata_interest.update","params":{"protocol":"worktree-file","streamId":"\(response.result.streamId)","generation":\(response.result.generation),"paths":["\(deletedPath)"],"lane":"visible"},"id":"index-stat-truth-interest"}
                 """
@@ -602,13 +602,13 @@ extension WebKitSerializedTests {
                 }
             )
             let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
+            fixture.controller.schemeCommandDispatcher.onResponse = { responseJSON in
                 await responseCapture.set(responseJSON)
             }
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 try BridgeWorktreeFileSurfaceRPCRequest(
                     id: "open-watch-index-patch",
                     method: "worktreeFileSurface.openSourceStream",
@@ -693,13 +693,13 @@ extension WebKitSerializedTests {
                 }
             )
             let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
+            fixture.controller.schemeCommandDispatcher.onResponse = { responseJSON in
                 await responseCapture.set(responseJSON)
             }
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 try BridgeWorktreeFileSurfaceRPCRequest(
                     id: "open-sequence-order",
                     method: "worktreeFileSurface.openSourceStream",
@@ -717,7 +717,7 @@ extension WebKitSerializedTests {
             // window (higher sequence), reprioritized ahead of it. Delivery
             // order must still be sequence order for the strict monotonic
             // browser receiver.
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 """
                 {"jsonrpc":"2.0","method":"bridge.metadata_interest.update","params":{"protocol":"worktree-file","streamId":"\(response.result.streamId)","generation":\(response.result.generation),"paths":["Sources/S000.swift"],"lane":"visible"},"id":"sequence-order-interest"}
                 """

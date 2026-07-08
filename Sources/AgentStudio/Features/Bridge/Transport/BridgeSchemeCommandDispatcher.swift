@@ -7,7 +7,8 @@ import os.log
 /// and error reporting. This is the command channel entry point.
 ///
 /// See bridge architecture docs for command format, batch behavior, and runtime integration.
-private let rpcRouterLogger = Logger(subsystem: "com.agentstudio", category: "RPCRouter")
+private let schemeCommandDispatcherLogger = Logger(
+    subsystem: "com.agentstudio", category: "BridgeSchemeCommandDispatcher")
 
 private enum RPCErrorCode: Int, Sendable {
     case parseError = -32_700
@@ -19,7 +20,7 @@ private enum RPCErrorCode: Int, Sendable {
 }
 
 @MainActor
-final class RPCRouter {
+final class BridgeSchemeCommandDispatcher {
 
     // MARK: - Private State
 
@@ -44,15 +45,16 @@ final class RPCRouter {
     /// Command-ack callback uses Swift-native command IDs found in the `__commandId` payload.
     var onError: (@MainActor @Sendable (Int, String, RPCIdentifier?) -> Void) = { code, message, id in
         let requestID = id.map { String(describing: $0) } ?? "nil"
-        rpcRouterLogger.warning("RPC error code=\(code) message=\(message) id=\(requestID)")
+        schemeCommandDispatcherLogger.warning("RPC error code=\(code) message=\(message) id=\(requestID)")
     }
     var onCommandAck: (@MainActor @Sendable (CommandAck) -> Void) = { ack in
-        rpcRouterLogger.debug(
+        schemeCommandDispatcherLogger.debug(
             "RPC ack commandId=\(ack.commandId) method=\(ack.method) status=\(ack.status.rawValue)"
         )
     }
     var onResponse: (@MainActor @Sendable (String) async -> Void) = { responseJSON in
-        rpcRouterLogger.warning("RPC response dropped because onResponse is not configured: \(responseJSON)")
+        schemeCommandDispatcherLogger.warning(
+            "RPC response dropped because onResponse is not configured: \(responseJSON)")
     }
     var onSuccessResponseDelivered: (@MainActor @Sendable (String) async -> Void) = { _ in }
     var telemetryIngestor: (any BridgeTelemetryBatchIngesting)?
@@ -89,7 +91,7 @@ final class RPCRouter {
         await dispatch(json: json, isBridgeReady: isBridgeReady, responseSink: nil)
     }
 
-    func dispatchForSchemeRPC(json: String, isBridgeReady: Bool) async -> String? {
+    func dispatchSchemeCommand(json: String, isBridgeReady: Bool) async -> String? {
         var responseJSON: String?
         await dispatch(json: json, isBridgeReady: isBridgeReady) { response in
             responseJSON = response
@@ -109,13 +111,15 @@ final class RPCRouter {
             await reportError(parseError.code, parseError.message, id: parseError.id, responseSink: responseSink)
             return
         } catch {
-            rpcRouterLogger.error("RPC parse failed: \(self.errorMessage(from: error), privacy: .private)")
+            schemeCommandDispatcherLogger.error(
+                "RPC parse failed: \(self.errorMessage(from: error), privacy: .private)")
             await reportError(.parseError, "Parse error", id: .null, responseSink: responseSink)
             return
         }
 
         guard isBridgeReady || Self.isPreReadyControlMethod(request.method) else {
-            rpcRouterLogger.info("[RPCRouter] dropped pre-ready command: \(request.method)")
+            schemeCommandDispatcherLogger.info(
+                "[BridgeSchemeCommandDispatcher] dropped pre-ready command: \(request.method)")
             await reportError(
                 .bridgeNotReady,
                 "Bridge not ready: \(request.method)",
@@ -178,7 +182,7 @@ final class RPCRouter {
             }
         } catch {
             let (rpcErrorCode, dispatchErrorMessage) = classifyDispatchError(error)
-            rpcRouterLogger.error(
+            schemeCommandDispatcherLogger.error(
                 "RPC dispatch failed method=\(request.method, privacy: .public) code=\(rpcErrorCode.rawValue) error=\(self.errorMessage(from: error), privacy: .private)"
             )
             reportCommandAck(
@@ -311,7 +315,7 @@ final class RPCRouter {
             return false
         }
         guard !seenCommandIdSet.contains(commandId) else {
-            rpcRouterLogger.debug("[RPCRouter] dedup skip commandId=\(commandId)")
+            schemeCommandDispatcherLogger.debug("[BridgeSchemeCommandDispatcher] dedup skip commandId=\(commandId)")
             return true
         }
 
@@ -331,7 +335,7 @@ final class RPCRouter {
 
     private func classifyDispatchError(_ error: Error) -> (RPCErrorCode, String) {
         let rpcErrorCode: RPCErrorCode
-        if error is RPCRouterParamsError {
+        if error is BridgeSchemeCommandParamsError {
             rpcErrorCode = .invalidParams
         } else if let dispatchError = error as? RPCMethodDispatchError {
             switch dispatchError {
@@ -470,7 +474,7 @@ final class RPCRouter {
                 )
                 await deliverResponse(fallback, responseSink: responseSink)
             } catch {
-                rpcRouterLogger.error(
+                schemeCommandDispatcherLogger.error(
                     "RPC success response and fallback error encoding both failed id=\(String(describing: id)): \(self.errorMessage(from: error))"
                 )
             }
@@ -491,7 +495,7 @@ final class RPCRouter {
             await deliverResponse(responseJSON, responseSink: responseSink)
         } catch {
             let fallbackMessage = "Internal error: failed to encode error response: \(self.errorMessage(from: error))"
-            rpcRouterLogger.error(
+            schemeCommandDispatcherLogger.error(
                 "RPC error response encoding failed id=\(String(describing: id)) code=\(code): \(self.errorMessage(from: error))"
             )
             onError(RPCErrorCode.internalError.rawValue, fallbackMessage, id)
@@ -532,7 +536,7 @@ final class RPCRouter {
         encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(JSONRPCValue.object(object))
         guard let encoded = String(data: data, encoding: .utf8) else {
-            throw RPCRouterResponseEncodingError.invalidUTF8
+            throw BridgeSchemeCommandResponseEncodingError.invalidUTF8
         }
         return encoded
     }
@@ -652,7 +656,7 @@ final class RPCRouter {
         }
 
         if case .null = rawParams {
-            throw RPCRouterParamsError.invalid("params is null")
+            throw BridgeSchemeCommandParamsError.invalid("params is null")
         }
 
         return try JSONEncoder().encode(rawParams)
@@ -722,7 +726,7 @@ private enum JSONRPCValue: Codable, Sendable {
     }
 }
 
-private enum RPCRouterParamsError: Error, LocalizedError {
+private enum BridgeSchemeCommandParamsError: Error, LocalizedError {
     case invalid(String)
 
     var errorDescription: String? {
@@ -733,6 +737,6 @@ private enum RPCRouterParamsError: Error, LocalizedError {
     }
 }
 
-private enum RPCRouterResponseEncodingError: Error {
+private enum BridgeSchemeCommandResponseEncodingError: Error {
     case invalidUTF8
 }

@@ -85,6 +85,27 @@ final class BridgeBrowserNativeRPCCutoverSourceScanTests {
     }
 
     @Test
+    func productionRPCRouter_isCompileDeadForSchemeCommandDispatch() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let productionSourceRoot = projectRoot.appending(path: "Sources/AgentStudio")
+        let violations = try sourceFiles(in: productionSourceRoot).compactMap { fileURL -> String? in
+            let relativePath = relativePath(for: fileURL, under: projectRoot)
+            let source = try String(contentsOf: fileURL, encoding: .utf8)
+            let matches = [
+                "RPCRouter",
+                "dispatchForSchemeRPC",
+                "handleIncomingRPC(",
+            ].filter { source.contains($0) }
+            return matches.isEmpty ? nil : "\(relativePath): \(matches.joined(separator: ", "))"
+        }
+
+        #expect(
+            violations.isEmpty,
+            "Production ordinary scheme command dispatch must not route through RPCRouter: \(violations.joined(separator: ", "))"
+        )
+    }
+
+    @Test
     func forbiddenRPCSourceScanDetectsAlternateSpellings() {
         let alternateSpellings = [
             #"document.addEventListener("__bridge_command", handler)"#,

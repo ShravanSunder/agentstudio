@@ -32,10 +32,10 @@ extension WebKitSerializedTests {
             )
             try "struct View {}\n".write(to: fileURL, atomically: true, encoding: .utf8)
             let firstResponseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
+            fixture.controller.schemeCommandDispatcher.onResponse = { responseJSON in
                 await firstResponseCapture.set(responseJSON)
             }
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
 
@@ -44,7 +44,7 @@ extension WebKitSerializedTests {
                 clientRequestId: "request-file",
                 pathScope: ["Sources/App/View.swift"]
             )
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 try BridgeWorktreeFileSurfaceRPCRequest(
                     id: "open-file",
                     method: "worktreeFileSurface.openSourceStream",
@@ -78,7 +78,7 @@ extension WebKitSerializedTests {
             #expect(firstSnapshot.payload.treeRows.last?.lineCount == nil)
 
             let secondResponseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
+            fixture.controller.schemeCommandDispatcher.onResponse = { responseJSON in
                 await secondResponseCapture.set(responseJSON)
             }
             let secondSpec = sourceSpec(
@@ -86,7 +86,7 @@ extension WebKitSerializedTests {
                 clientRequestId: "request-root",
                 pathScope: []
             )
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 try BridgeWorktreeFileSurfaceRPCRequest(
                     id: "open-root",
                     method: "worktreeFileSurface.openSourceStream",
@@ -118,11 +118,11 @@ extension WebKitSerializedTests {
             )
             try fileText.write(to: fileURL, atomically: true, encoding: .utf8)
             let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
+            fixture.controller.schemeCommandDispatcher.onResponse = { responseJSON in
                 await eventCapture.recordResponse()
                 await responseCapture.set(responseJSON)
             }
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
             let spec = sourceSpec(
@@ -131,7 +131,7 @@ extension WebKitSerializedTests {
                 pathScope: ["Sources/App/View.swift"]
             )
 
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 try BridgeWorktreeFileSurfaceRPCRequest(
                     id: "open-file-metadata",
                     method: "worktreeFileSurface.openSourceStream",
@@ -222,14 +222,14 @@ extension WebKitSerializedTests {
             }
             #expect(FileManager.default.fileExists(atPath: selectedFileURL.path))
             let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
+            fixture.controller.schemeCommandDispatcher.onResponse = { responseJSON in
                 await eventCapture.recordResponse()
                 await responseCapture.set(responseJSON)
             }
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 try BridgeWorktreeFileSurfaceRPCRequest(
                     id: "open-tree-before-demand",
                     method: "worktreeFileSurface.openSourceStream",
@@ -299,11 +299,11 @@ extension WebKitSerializedTests {
             defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
             try writeRootScopedDescriptorFixtureFiles(rootURL: fixture.rootURL)
             let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
+            fixture.controller.schemeCommandDispatcher.onResponse = { responseJSON in
                 await eventCapture.recordResponse()
                 await responseCapture.set(responseJSON)
             }
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
             let spec = sourceSpec(
@@ -312,7 +312,7 @@ extension WebKitSerializedTests {
                 pathScope: []
             )
 
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 try BridgeWorktreeFileSurfaceRPCRequest(
                     id: "open-root-descriptors",
                     method: "worktreeFileSurface.openSourceStream",
@@ -426,15 +426,15 @@ extension WebKitSerializedTests {
                 encoding: .utf8
             )
             let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
+            fixture.controller.schemeCommandDispatcher.onResponse = { responseJSON in
                 await eventCapture.recordResponse()
                 await responseCapture.set(responseJSON)
             }
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
 
-            await fixture.controller.handleIncomingRPC(
+            await fixture.controller.dispatchIncomingSchemeCommand(
                 try BridgeWorktreeFileSurfaceRPCRequest(
                     id: "open-source-priority",
                     method: "worktreeFileSurface.openSourceStream",

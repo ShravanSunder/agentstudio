@@ -440,7 +440,7 @@ extension WebKitSerializedTests {
             await controller.activeWorktreeFileTreeWindowTask?.value
             await controller.worktreeFileMetadataScheduler.waitUntilDrained()
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 Self.activeViewerModeUpdateJSON(
                     sessionId: "session-active-file",
                     sequence: 1,
@@ -486,7 +486,7 @@ extension WebKitSerializedTests {
             await controller.activeReviewRefreshTask?.value
             await controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let reviewGeneration = try #require(controller.paneState.diff.packageMetadata?.reviewGeneration.rawValue)
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 Self.activeViewerModeUpdateJSON(
                     sessionId: "session-active-review",
                     sequence: 1,
@@ -537,7 +537,7 @@ extension WebKitSerializedTests {
             await controller.activeReviewRefreshTask?.value
             await controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let reviewGeneration = try #require(controller.paneState.diff.packageMetadata?.reviewGeneration.rawValue)
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 Self.activeViewerModeUpdateJSON(
                     sessionId: "session-stale-review-before-file-open",
                     sequence: 1,
@@ -609,7 +609,7 @@ extension WebKitSerializedTests {
             await controller.activeReviewRefreshTask?.value
             await controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let reviewGeneration = try #require(controller.paneState.diff.packageMetadata?.reviewGeneration.rawValue)
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 Self.activeViewerModeUpdateJSON(
                     sessionId: "session-stale-sequence",
                     sequence: 2,
@@ -619,7 +619,7 @@ extension WebKitSerializedTests {
                     generation: reviewGeneration
                 )
             )
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 Self.activeViewerModeUpdateJSON(
                     sessionId: "session-stale-sequence",
                     sequence: 1,
@@ -689,7 +689,7 @@ extension WebKitSerializedTests {
             await controller.activeReviewRefreshTask?.value
             await controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let reviewGeneration = try #require(controller.paneState.diff.packageMetadata?.reviewGeneration.rawValue)
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 Self.activeViewerModeUpdateJSON(
                     sessionId: "session-descriptor-stale-review",
                     sequence: 1,
@@ -740,7 +740,7 @@ extension WebKitSerializedTests {
                     rootURL: rootURL
                 )
             )
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 Self.activeViewerModeUpdateJSON(
                     sessionId: "session-stale-file",
                     sequence: 1,
@@ -786,7 +786,7 @@ extension WebKitSerializedTests {
             defer { controller.teardown() }
             controller.handleBridgeReady()
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 Self.activeViewerModeUpdateJSON(
                     sessionId: "session-null-source",
                     sequence: 1,

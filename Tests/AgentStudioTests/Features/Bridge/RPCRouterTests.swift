@@ -3,11 +3,12 @@ import Testing
 
 @testable import AgentStudio
 
-/// Tests for RPCRouter dispatch, error handling, batch rejection, and commandId dedup.
+/// Tests for scheme-command dispatch, error handling, batch rejection, and commandId dedup.
 ///
-/// The RPC router is the command channel entry point (design doc §5.1, §9.2).
-/// Scheme RPC and ready-bootstrap JSON flow into RPCRouter. The router dispatches to registered handlers,
-/// deduplicates by __commandId (sliding window of 100), and rejects batch requests.
+/// The scheme command dispatcher is the typed command channel entry point.
+/// Scheme RPC JSON flows into BridgeSchemeCommandDispatcher after page-load bootstrap.
+/// The dispatcher routes registered handlers, deduplicates by __commandId (sliding window of 100),
+/// and rejects batch requests.
 /// Error codes follow JSON-RPC 2.0 standard (§5.3).
 @MainActor
 @Suite(.serialized)
@@ -133,7 +134,7 @@ final class RPCRouterTests {
     @Test
     func test_dispatches_to_registered_handler() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let receivedFileId = SendableBox<String?>(nil)
 
         router.register(method: ReviewMarkFileViewedFixtureMethod.self) { params in
@@ -152,7 +153,7 @@ final class RPCRouterTests {
     @Test
     func test_request_with_id_emits_success_response_envelope() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let responseJSON = SendableBox<String?>(nil)
         router.register(method: ResponseMethod.self) { params in
             .init(echoed: params.value)
@@ -179,7 +180,7 @@ final class RPCRouterTests {
     @Test
     func test_success_response_round_trips_double_id() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let responseJSON = SendableBox<String?>(nil)
         router.register(method: ResponseMethod.self) { params in
             .init(echoed: params.value)
@@ -205,7 +206,7 @@ final class RPCRouterTests {
     @Test
     func test_nil_handler_result_emits_result_null() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let responseJSON = SendableBox<String?>(nil)
         router.register(method: DiffRequestFileContentsMethod.self) { _ in
             nil
@@ -231,7 +232,7 @@ final class RPCRouterTests {
     @Test
     func test_request_with_null_id_echoes_null_in_response() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let responseJSON = SendableBox<String?>(nil)
         router.register(method: ResponseMethod.self) { params in
             .init(echoed: params.value)
@@ -256,7 +257,7 @@ final class RPCRouterTests {
     @Test
     func test_notification_without_id_does_not_emit_response() async {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let responseCount = SendableBox(0)
         router.register(method: ResponseMethod.self) { params in
             .init(echoed: params.value)
@@ -278,7 +279,7 @@ final class RPCRouterTests {
     @Test
     func rpc_trace_context_is_decoded_outside_params_and_recorded() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let recorder = BridgeTelemetryRecorderSpy()
         let receivedFileId = SendableBox<String?>(nil)
         router.telemetryRecorder = recorder
@@ -320,7 +321,7 @@ final class RPCRouterTests {
     @Test
     func invalid_rpc_trace_context_does_not_reject_valid_command() async {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let recorder = BridgeTelemetryRecorderSpy()
         let receivedFileId = SendableBox<String?>(nil)
         var errorCode: Int?
@@ -358,7 +359,7 @@ final class RPCRouterTests {
     @Test
     func bridge_telemetry_rpc_is_method_not_found_without_ingest_or_generic_rpc_self_observation() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let recorder = BridgeTelemetryRecorderSpy()
         let ingestor = BridgeTelemetryIngestorSpy()
         router.telemetryRecorder = recorder
@@ -397,7 +398,7 @@ final class RPCRouterTests {
     @Test
     func bridge_telemetry_rpc_is_method_not_found_without_ingestor() async {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         var errorCode: Int?
         router.onError = { code, _, _ in errorCode = code }
 
@@ -415,7 +416,7 @@ final class RPCRouterTests {
     @Test
     func test_pre_ready_request_with_id_emits_bridge_not_ready_error_response() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let responseJSON = SendableBox<String?>(nil)
         var errorCode: Int?
         router.register(method: ResponseMethod.self) { _ in
@@ -443,7 +444,7 @@ final class RPCRouterTests {
     @Test
     func test_pre_ready_notification_reports_bridge_not_ready_without_response() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let responseCount = SendableBox(0)
         var errorCode: Int?
         router.register(method: ResponseMethod.self) { _ in
@@ -468,7 +469,7 @@ final class RPCRouterTests {
     @Test
     func test_pre_ready_review_intake_ready_is_accepted_as_control_signal() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let receivedParams = SendableBox<BridgeIntakeReadyMethod.Params?>(nil)
         var errorCode: Int?
         router.register(method: BridgeIntakeReadyMethod.self) { params in
@@ -498,7 +499,7 @@ final class RPCRouterTests {
     @Test
     func test_unknown_method_reports_32601() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         var errorCode: Int?
 
         router.onError = { code, _, _ in errorCode = code }
@@ -519,7 +520,7 @@ final class RPCRouterTests {
     @Test
     func test_missing_method_reports_32600() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         var errorCode: Int?
 
         router.onError = { code, _, _ in errorCode = code }
@@ -535,7 +536,7 @@ final class RPCRouterTests {
     @Test
     func test_invalid_request_with_id_emits_32600_error_response() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let responseJSON = SendableBox<String?>(nil)
         var errorCode: Int?
         router.onError = { code, _, _ in errorCode = code }
@@ -561,7 +562,7 @@ final class RPCRouterTests {
     @Test
     func test_invalid_jsonrpc_version_reports_32600() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         var errorCode: Int?
         router.onError = { code, _, _ in errorCode = code }
 
@@ -580,7 +581,7 @@ final class RPCRouterTests {
     @Test
     func test_invalid_id_reports_32600() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         var errorCode: Int?
         router.onError = { code, _, _ in errorCode = code }
 
@@ -599,7 +600,7 @@ final class RPCRouterTests {
     @Test
     func test_id_false_is_rejected() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         var errorCode: Int?
 
         router.onError = { code, _, _ in errorCode = code }
@@ -616,7 +617,7 @@ final class RPCRouterTests {
     @Test
     func test_missing_params_reports_32602() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         var errorCode: Int?
         let requestedFileId = SendableBox<String?>(nil)
 
@@ -639,7 +640,7 @@ final class RPCRouterTests {
     @Test
     func test_invalid_params_with_id_emits_32602_error_response() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let responseJSON = SendableBox<String?>(nil)
         var errorCode: Int?
         router.register(method: DiffRequestFileContentsMethod.self) { _ in nil }
@@ -665,7 +666,7 @@ final class RPCRouterTests {
     @Test
     func test_null_params_is_rejected() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         var errorCode: Int?
 
         router.register(method: DiffRequestFileContentsMethod.self) { _ in
@@ -687,7 +688,7 @@ final class RPCRouterTests {
     @Test
     func test_wrong_params_shape_reports_32602() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         var errorCode: Int?
 
         router.register(method: DiffRequestFileContentsMethod.self) { _ in nil }
@@ -709,7 +710,7 @@ final class RPCRouterTests {
     @Test
     func test_array_params_reports_32602() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         var errorCode: Int?
 
         router.register(method: DiffRequestFileContentsMethod.self) { _ in nil }
@@ -728,7 +729,7 @@ final class RPCRouterTests {
     @Test
     func test_handler_failure_reports_32603() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         var errorCode: Int?
         var errorMessage: String?
 
@@ -755,7 +756,7 @@ final class RPCRouterTests {
     @Test
     func test_handler_failure_with_id_emits_32603_error_response() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let responseJSON = SendableBox<String?>(nil)
         var errorCode: Int?
         router.register(method: FailingMethod.self) { _ in
@@ -784,7 +785,7 @@ final class RPCRouterTests {
     @Test
     func test_safe_dispatch_diagnostic_code_survives_error_response() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let responseJSON = SendableBox<String?>(nil)
         router.register(method: SafeDiagnosticFailingMethod.self) { _ in
             throw RPCMethodDispatchError.invalidParams("worktree_file.root_token_mismatch")
@@ -809,7 +810,7 @@ final class RPCRouterTests {
     @Test
     func test_unsafe_dispatch_error_message_stays_generic() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let responseJSON = SendableBox<String?>(nil)
         router.register(method: SafeDiagnosticFailingMethod.self) { _ in
             throw RPCMethodDispatchError.handlerFailure("raw failure at /Users/example/private")
@@ -836,7 +837,7 @@ final class RPCRouterTests {
     @Test
     func test_batch_array_reports_32600() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         var errorCode: Int?
 
         router.onError = { code, _, _ in errorCode = code }
@@ -854,7 +855,7 @@ final class RPCRouterTests {
     @Test
     func test_malformed_json_reports_32700() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         var errorCode: Int?
         let responseJSON = SendableBox<String?>(nil)
         router.onError = { code, _, _ in errorCode = code }
@@ -878,7 +879,7 @@ final class RPCRouterTests {
     @Test
     func test_duplicate_commandId_is_idempotent() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let callCount = SendableBox(0)
 
         router.register(method: ReviewMarkFileViewedFixtureMethod.self) { _ in
@@ -898,7 +899,7 @@ final class RPCRouterTests {
     @Test
     func test_dedup_history_eviction_allows_redispatch() async {
         // Arrange
-        let router = RPCRouter(maxCommandIdHistory: 2)
+        let router = BridgeSchemeCommandDispatcher(maxCommandIdHistory: 2)
         let callCount = SendableBox(0)
         router.register(method: DiffRequestFileContentsMethod.self) { _ in
             await callCount.update { $0 + 1 }

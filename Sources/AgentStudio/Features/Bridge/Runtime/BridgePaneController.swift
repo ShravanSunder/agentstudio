@@ -13,7 +13,7 @@ private let bridgeControllerLogger = Logger(subsystem: "com.agentstudio", catego
 /// - Bootstrap `WKUserScript` injected at document start in the bridge world
 /// - `BridgeSchemeHandler` registered for the `agentstudio://` custom URL scheme
 ///
-/// The controller owns the `RPCRouter` used by scheme RPC. Push plans are started
+/// The controller owns the scheme-command dispatcher used by scheme RPC. Push plans are started
 /// only after the `bridge.ready` handshake completes.
 ///
 /// Unlike `WebviewPaneController` which uses a shared static configuration,
@@ -77,7 +77,7 @@ final class BridgePaneController {
 
     // MARK: - Private State
 
-    let router: RPCRouter
+    let schemeCommandDispatcher: BridgeSchemeCommandDispatcher
     private let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
     let pushNonce: String
     let pushEnvelopeSink: @MainActor (WebPage, String, String) async throws -> Void
@@ -219,15 +219,15 @@ final class BridgePaneController {
             dialogPresenter: WebviewDialogHandler()
         )
 
-        self.router = RPCRouter()
-        configureRouter(
-            router,
+        self.schemeCommandDispatcher = BridgeSchemeCommandDispatcher()
+        configureSchemeCommandDispatcher(
+            schemeCommandDispatcher,
             readyMessageHandler: readyMessageHandler,
             telemetryRecorder: resolvedTelemetryRecorder,
             telemetryIngestor: resolvedTelemetryIngestor
         )
         schemeRPCDispatcher.handler = { [weak self] json in
-            await self?.handleIncomingSchemeRPC(json)
+            await self?.dispatchIncomingSchemeCommand(json)
         }
 
         onRuntimeEvent = { [weak self] event, commandId, correlationId in
@@ -241,27 +241,27 @@ final class BridgePaneController {
         registerNamespaceHandlers()
     }
 
-    private func configureRouter(
-        _ router: RPCRouter,
+    private func configureSchemeCommandDispatcher(
+        _ dispatcher: BridgeSchemeCommandDispatcher,
         readyMessageHandler: BridgeReadyMessageHandler,
         telemetryRecorder: (any BridgePerformanceTraceRecording)?,
         telemetryIngestor: (any BridgeTelemetryBatchIngesting)?
     ) {
-        router.telemetryRecorder = telemetryRecorder
-        router.telemetryIngestor = telemetryIngestor
+        dispatcher.telemetryRecorder = telemetryRecorder
+        dispatcher.telemetryIngestor = telemetryIngestor
 
         // Log all RPC errors (parse errors, unknown methods, batch rejection, handler failures).
         // All error codes are reported through this single callback.
-        router.onError = { code, message, id in
+        dispatcher.onError = { code, message, id in
             bridgeControllerLogger.warning(
                 "[BridgePaneController] RPC error code=\(code) msg=\(message) id=\(String(describing: id))"
             )
         }
 
-        router.onCommandAck = { [weak self] ack in
+        dispatcher.onCommandAck = { [weak self] ack in
             self?.handleRuntimeCommandAck(ack)
         }
-        router.onSuccessResponseDelivered = { [weak self] method in
+        dispatcher.onSuccessResponseDelivered = { [weak self] method in
             await self?.handleRPCSuccessResponseDelivered(method: method)
         }
 
@@ -290,11 +290,11 @@ final class BridgePaneController {
 
         // Register bridge.ready handler — the ONLY trigger for starting push plans.
         // The closure is @Sendable and async — awaits the @MainActor-isolated handleBridgeReady.
-        router.register(method: BridgeReadyMethod.self) { [weak self] _ in
+        dispatcher.register(method: BridgeReadyMethod.self) { [weak self] _ in
             self?.handleBridgeReady()
             return nil
         }
-        router.register(method: BridgeIntakeReadyMethod.self) { [weak self] params in
+        dispatcher.register(method: BridgeIntakeReadyMethod.self) { [weak self] params in
             let result =
                 await self?.handleBridgeIntakeReadyResult(params)
                 ?? .rejected("bridge.intake_ready.controller_missing")
@@ -305,7 +305,7 @@ final class BridgePaneController {
                 throw RPCMethodDispatchError.invalidParams(reason)
             }
         }
-        router.register(method: BridgeActiveViewerModeUpdateMethod.self) { [weak self] params in
+        dispatcher.register(method: BridgeActiveViewerModeUpdateMethod.self) { [weak self] params in
             await self?.handleBridgeActiveViewerModeUpdate(params)
             return nil
         }
@@ -381,17 +381,17 @@ final class BridgePaneController {
     /// are observable (prevents silent false-positive acks from hiding wiring gaps).
     private func registerNamespaceHandlers() {
         // diff namespace
-        router.register(method: DiffMethods.LoadDiffMethod.self) { @MainActor [weak self] params in
+        schemeCommandDispatcher.register(method: DiffMethods.LoadDiffMethod.self) { @MainActor [weak self] params in
             try await self?.handleLoadDiffRPC(params)
             return nil
         }
         typealias OpenWorktreeFileSurface = WorktreeFileSurfaceMethods.OpenSourceStreamMethod
-        router.register(method: OpenWorktreeFileSurface.self) { @MainActor [weak self] params in
+        schemeCommandDispatcher.register(method: OpenWorktreeFileSurface.self) { @MainActor [weak self] params in
             guard let self else { return nil }
             return try await self.handleWorktreeFileSurfaceOpenSourceStream(params)
         }
         typealias RequestWorktreeFileDescriptor = WorktreeFileSurfaceMethods.RequestFileDescriptorMethod
-        router.register(method: RequestWorktreeFileDescriptor.self) { @MainActor [weak self] params in
+        schemeCommandDispatcher.register(method: RequestWorktreeFileDescriptor.self) { @MainActor [weak self] params in
             guard let self else { return nil }
             return try await self.handleWorktreeFileDescriptorRequest(params)
         }
@@ -401,15 +401,18 @@ final class BridgePaneController {
         registerStub(ReviewMethods.ResolveThreadMethod.self)
         registerStub(ReviewMethods.UnresolveThreadMethod.self)
         registerStub(ReviewMethods.DeleteCommentMethod.self)
-        router.register(method: ReviewMethods.MarkFileViewedMethod.self) { @MainActor [weak self] params in
+        typealias MarkFileViewed = ReviewMethods.MarkFileViewedMethod
+        schemeCommandDispatcher.register(method: MarkFileViewed.self) { @MainActor [weak self] params in
             self?.paneState.review.markFileViewed(params.fileId)
             return nil
         }
-        router.register(method: ReviewMethods.UnmarkFileViewedMethod.self) { @MainActor [weak self] params in
+        typealias UnmarkFileViewed = ReviewMethods.UnmarkFileViewedMethod
+        schemeCommandDispatcher.register(method: UnmarkFileViewed.self) { @MainActor [weak self] params in
             self?.paneState.review.unmarkFileViewed(params.fileId)
             return nil
         }
-        router.register(method: ReviewMethods.MetadataInterestUpdateMethod.self) { @MainActor [weak self] params in
+        typealias MetadataInterestUpdate = ReviewMethods.MetadataInterestUpdateMethod
+        schemeCommandDispatcher.register(method: MetadataInterestUpdate.self) { @MainActor [weak self] params in
             guard let self else { return nil }
             if params.protocolId == "worktree-file" {
                 try await self.handleWorktreeFileMetadataInterestUpdate(params)
@@ -425,7 +428,7 @@ final class BridgePaneController {
         registerStub(AgentMethods.InjectPromptMethod.self)
 
         // inbox namespace
-        router.register(method: InboxMethods.PostMethod.self) { @MainActor [weak self] params in
+        schemeCommandDispatcher.register(method: InboxMethods.PostMethod.self) { @MainActor [weak self] params in
             guard let self else { return nil }
             let sanitizedParams = try self.sanitizeInboxPostParams(params)
             // Pane identity comes from this controller, not RPC params, so web content cannot spoof another pane.
@@ -444,7 +447,7 @@ final class BridgePaneController {
     /// Register a no-op stub handler that logs when called.
     /// Prevents -32601 for known methods while behavior wiring is pending.
     private func registerStub<M: RPCMethod>(_ method: M.Type) {
-        router.register(method: method) { _ in
+        schemeCommandDispatcher.register(method: method) { _ in
             bridgeControllerLogger.info("[BridgePaneController] stub: \(M.method) called (not yet wired)")
             throw BridgeMethodUnimplementedError(method: M.method)
         }
@@ -714,18 +717,15 @@ final class BridgePaneController {
     /// Entry point for valid command payloads.
     ///
     /// Separated for tests and command-handler reuse.
-    func handleIncomingRPC(_ json: String) async {
-        await router.dispatch(json: json, isBridgeReady: isBridgeReady)
-    }
-
-    func handleIncomingSchemeRPC(_ json: String) async -> String? {
+    @discardableResult
+    func dispatchIncomingSchemeCommand(_ json: String) async -> String? {
         if let rejection = Self.schemeRPCBootstrapOnlyRejection(for: json) {
             bridgeControllerLogger.warning(
                 "[BridgePaneController] rejected bridge.ready over scheme RPC for pane \(self.paneId.uuidString, privacy: .public)"
             )
             return rejection.responseJSON
         }
-        return await router.dispatchForSchemeRPC(json: json, isBridgeReady: isBridgeReady)
+        return await schemeCommandDispatcher.dispatchSchemeCommand(json: json, isBridgeReady: isBridgeReady)
     }
 
     private struct SchemeRPCBootstrapOnlyRejection: Sendable {

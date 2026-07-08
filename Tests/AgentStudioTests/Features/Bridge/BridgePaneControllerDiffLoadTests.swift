@@ -724,7 +724,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         defer { controller.teardown() }
         let commandId = UUID()
 
-        await controller.handleIncomingRPC(
+        await controller.dispatchIncomingSchemeCommand(
             #"{"jsonrpc":"2.0","method":"bridge.intakeReady","params":{"protocolId":"review","streamId":null}}"#
         )
         async let result = controller.handleDiffCommand(

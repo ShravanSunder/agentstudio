@@ -19,7 +19,7 @@ struct BridgePaneControllerSchemeRPCTests {
         controller.handleBridgeReady()
 
         let responseJSON = try #require(
-            await controller.handleIncomingSchemeRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"""
                 {
                   "jsonrpc": "2.0",
@@ -51,7 +51,7 @@ struct BridgePaneControllerSchemeRPCTests {
         let controller = BridgePaneController(paneId: paneId, state: state)
 
         let responseJSON = try #require(
-            await controller.handleIncomingSchemeRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"""
                 {
                   "jsonrpc": "2.0",
@@ -90,7 +90,7 @@ struct BridgePaneControllerSchemeRPCTests {
         let state = BridgePaneState(panelKind: .diffViewer, source: nil)
         let controller = BridgePaneController(paneId: paneId, state: state)
 
-        let responseJSON = try #require(await controller.handleIncomingSchemeRPC(requestJSON))
+        let responseJSON = try #require(await controller.dispatchIncomingSchemeCommand(requestJSON))
         let envelope = try parseJSONObject(responseJSON)
         let error = try #require(envelope["error"] as? [String: Any])
 

@@ -55,7 +55,7 @@ extension WebKitSerializedTests {
         @Test
         func test_pre_ready_active_viewer_mode_update_is_accepted_as_control_signal() async throws {
             // Arrange
-            let router = RPCRouter()
+            let router = BridgeSchemeCommandDispatcher()
             let receivedParams = SendableBox<BridgeActiveViewerModeUpdateMethod.Params?>(nil)
             var errorCode: Int?
             router.register(method: BridgeActiveViewerModeUpdateMethod.self) { params in
@@ -100,7 +100,7 @@ extension WebKitSerializedTests {
         @Test
         func test_active_viewer_mode_update_is_allowed() async throws {
             // Arrange
-            let router = RPCRouter()
+            let router = BridgeSchemeCommandDispatcher()
             let receivedParams = SendableBox<BridgeActiveViewerModeUpdateMethod.Params?>(nil)
             var errorCode: Int?
             router.register(method: BridgeActiveViewerModeUpdateMethod.self) { params in
@@ -153,7 +153,7 @@ extension WebKitSerializedTests {
             defer { controller.teardown() }
 
             // Act
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"""
                 {
                   "jsonrpc": "2.0",
@@ -206,7 +206,7 @@ extension WebKitSerializedTests {
             defer { controller.teardown() }
 
             // Act
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"""
                 {
                   "jsonrpc": "2.0",
@@ -220,7 +220,7 @@ extension WebKitSerializedTests {
                 }
                 """#
             )
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"""
                 {
                   "jsonrpc": "2.0",

@@ -41,7 +41,7 @@ final class RPCRouterIdentifierTests {
     @Test
     func test_parse_request_id_string_is_preserved() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         var requestID: RPCIdentifier?
 
         router.register(method: FailingMethod.self) { _ in
@@ -62,7 +62,7 @@ final class RPCRouterIdentifierTests {
     @Test
     func test_parse_request_id_integer_is_preserved() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         var requestID: RPCIdentifier?
 
         router.register(method: FailingMethod.self) { _ in
@@ -83,7 +83,7 @@ final class RPCRouterIdentifierTests {
     @Test
     func test_parse_request_id_double_is_preserved() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         var requestID: RPCIdentifier?
 
         router.onError = { _, _, id in requestID = id }
@@ -101,7 +101,7 @@ final class RPCRouterIdentifierTests {
     @Test
     func test_error_response_round_trips_double_id() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let responseJSON = SendableBox<String?>(nil)
         router.onResponse = { json in
             await responseJSON.set(json)
@@ -123,7 +123,7 @@ final class RPCRouterIdentifierTests {
     @Test
     func test_parse_request_id_null_is_preserved() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         var requestID: RPCIdentifier?
 
         router.register(method: FailingMethod.self) { _ in
@@ -144,7 +144,7 @@ final class RPCRouterIdentifierTests {
     @Test
     func test_empty_params_falls_back_to_empty_object() async throws {
         // Arrange
-        let router = RPCRouter()
+        let router = BridgeSchemeCommandDispatcher()
         let called = SendableBox(false)
 
         router.register(method: NoParamsMethod.self) { _ in

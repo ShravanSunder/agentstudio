@@ -4472,3 +4472,32 @@ counts before claiming a gate.
   remaining Review/File surfaces, prove zero-copy transfer-list delivery, prove
   live Review scroll/click UX budgets, complete implementation-review-swarm,
   prove PR readiness, or complete the full goal.
+
+## 2026-07-08T22:05:42Z - G6 native scheme-command dispatcher deletion
+
+- Scope:
+  Deleted the production Swift `RPCRouter` implementation and replaced the
+  native Bridge command entry point with `BridgeSchemeCommandDispatcher`.
+  `BridgePaneController` now owns `schemeCommandDispatcher`, registers typed
+  namespace handlers through it, rejects `bridge.ready` over scheme RPC, and
+  dispatches ordinary scheme commands through `dispatchIncomingSchemeCommand`.
+- Green evidence:
+  `SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 SWIFT_TEST_TIMEOUT_SECONDS=240 mise run test -- --filter "BridgeBrowserNativeRPCCutoverSourceScanTests|RPCRouterTests|BridgeTransportIntegrationTests"` passed
+  35 tests / 2 suites in 144.98s. Earlier in this checkpoint, the broader G6
+  Swift gate passed 173 tests / 26 suites, `pnpm --dir BridgeWeb exec tsc
+  --noEmit --pretty false` passed, `mise run format` passed, `mise run lint`
+  passed, and `git diff --check` passed.
+- Deletion-scan evidence:
+  `rg -n "RPCRouter|dispatchForSchemeRPC|handleIncomingRPC\\("
+  Sources/AgentStudio -g '*.swift'` returned no production matches. The wider
+  script-message/RPC scan over Bridge production surfaces returned only the
+  allowed one-shot bootstrap in `BridgeBootstrap.swift` plus two negative-proof
+  unit-test references under `BridgeWeb/src`.
+- Known proof boundary:
+  This checkpoint removes the native production router implementation and the
+  old native method names. It does not rename legacy test suite files/classes
+  that still carry `RPCRouter` as historical proof names, does not prove live
+  oq4s Review scroll/click budgets, does not close the remaining Review
+  visible-item/materialization storm investigation, does not prove zero-copy
+  transfer-list delivery, does not complete implementation-review-swarm, does
+  not prove PR readiness, and does not complete the full goal.

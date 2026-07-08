@@ -238,7 +238,7 @@ extension WebKitSerializedTests {
             #expect(result == .success(commandId: commandId))
             #expect(await capturedIntakeFrames.get().isEmpty)
             #expect(await controller.worktreeFileMetadataScheduler.queuedJobCount == 5)
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 """
                 {"jsonrpc":"2.0","method":"bridge.metadata_interest.update","params":{"protocol":"review","streamId":"\(controller.reviewProtocolStreamId())","itemIds":["item-changed-160"],"lane":"foreground"},"id":"foreground-interest"}
                 """
@@ -320,7 +320,7 @@ extension WebKitSerializedTests {
                 ("speculative", "item-changed-153", "speculative"),
             ]
             for laneExpectation in laneExpectations {
-                await controller.handleIncomingRPC(
+                await controller.dispatchIncomingSchemeCommand(
                     """
                     {"jsonrpc":"2.0","method":"bridge.metadata_interest.update","params":{"protocol":"review","streamId":"\(controller.reviewProtocolStreamId())","itemIds":["\(laneExpectation.itemId)"],"lane":"\(laneExpectation.lane)"},"id":"review-\(laneExpectation.lane)-interest"}
                     """

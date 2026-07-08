@@ -36,10 +36,10 @@ extension WebKitSerializedTests {
                 }
             }
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"inbox.post","params":{"title":"Claude Code finished","body":"3 files changed"}}"#
             )
 
@@ -96,10 +96,10 @@ extension WebKitSerializedTests {
             )
             let payload = try #require(String(bytes: payloadData, encoding: .utf8))
 
-            await controller.handleIncomingRPC(
+            await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
-            await controller.handleIncomingRPC(payload)
+            await controller.dispatchIncomingSchemeCommand(payload)
 
             await assertEventuallyMain("bounded bridge inbox.post should reach the inbox atom") {
                 fixture.inboxAtom.notifications.count == 1

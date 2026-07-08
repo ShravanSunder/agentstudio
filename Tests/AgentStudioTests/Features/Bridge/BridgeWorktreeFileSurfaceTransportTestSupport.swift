@@ -160,7 +160,7 @@ extension BridgeWorktreeFileSurfaceTransportTestHelpers {
         path: String,
         lane: BridgeDemandLane
     ) async throws {
-        await controller.handleIncomingRPC(
+        await controller.dispatchIncomingSchemeCommand(
             try BridgeWorktreeFileSurfaceRPCRequest(
                 id: requestId,
                 method: "worktreeFileSurface.requestFileDescriptor",
