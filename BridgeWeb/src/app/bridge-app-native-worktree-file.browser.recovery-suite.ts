@@ -12,6 +12,7 @@ import {
 	makeSnapshotFrame,
 	makeSourceIdentity,
 	makeTreeWindowFrame,
+	nativeWorktreeFileInjectedSenderProps,
 	requireMessagePort,
 } from './bridge-app-native-worktree-file.browser.test-support.js';
 import { createBridgeAppNativeWorktreeFileBackend } from './bridge-app-native-worktree-file.js';
@@ -39,8 +40,8 @@ describe('Bridge app native Worktree/File backend recovery', () => {
 		);
 		const backend = createBridgeAppNativeWorktreeFileBackend({
 			createRequestId: () => 'request-1',
-			fetchRPC: rpcFetch.fetch,
 			sendWorktreeFileIntakeReady: rpcFetch.sendWorktreeFileIntakeReady,
+			...nativeWorktreeFileInjectedSenderProps(rpcFetch),
 			target: document,
 		});
 		if (backend === null) {
@@ -121,8 +122,8 @@ describe('Bridge app native Worktree/File backend recovery', () => {
 		});
 		const backend = createBridgeAppNativeWorktreeFileBackend({
 			createRequestId: () => 'request-1',
-			fetchRPC: rpcFetch.fetch,
 			sendWorktreeFileIntakeReady: rpcFetch.sendWorktreeFileIntakeReady,
+			...nativeWorktreeFileInjectedSenderProps(rpcFetch),
 			responseTimeoutMilliseconds: 10,
 			target: document,
 		});
@@ -464,8 +465,8 @@ describe('Bridge app native Worktree/File backend recovery', () => {
 		});
 		const backend = createBridgeAppNativeWorktreeFileBackend({
 			createRequestId: () => 'request-1',
-			fetchRPC: rpcFetch.fetch,
 			sendWorktreeFileIntakeReady: rpcFetch.sendWorktreeFileIntakeReady,
+			...nativeWorktreeFileInjectedSenderProps(rpcFetch),
 			responseTimeoutMilliseconds: 500,
 			target: document,
 		});
@@ -545,8 +546,8 @@ describe('Bridge app native Worktree/File backend recovery', () => {
 		});
 		const backend = createBridgeAppNativeWorktreeFileBackend({
 			createRequestId: () => 'request-1',
-			fetchRPC: rpcFetch.fetch,
 			sendWorktreeFileIntakeReady: rpcFetch.sendWorktreeFileIntakeReady,
+			...nativeWorktreeFileInjectedSenderProps(rpcFetch),
 			responseTimeoutMilliseconds: 500,
 			target: document,
 		});

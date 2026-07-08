@@ -427,6 +427,7 @@ export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: 
 				}
 				break;
 			case 'subscription':
+			case 'worktreeFileOpenSourceStreamResult':
 				break;
 			case 'pierreRenderJob':
 				props.renderSnapshotStore.setWorkerCodeViewItem({

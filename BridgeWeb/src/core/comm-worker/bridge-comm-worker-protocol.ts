@@ -12,6 +12,8 @@ import {
 	bridgeWorkerSelectCommandSchema,
 	bridgeWorkerViewportCommandSchema,
 	bridgeWorkerWorktreeFileIntakeReadyCommandSchema,
+	bridgeWorkerWorktreeFileOpenSourceStreamCommandSchema,
+	bridgeWorkerWorktreeFileRequestDescriptorCommandSchema,
 	type BridgeWorkerHealthEvent,
 	type BridgeWorkerActiveViewerModeUpdateCommand,
 	type BridgeWorkerFileViewSourceUpdateCommand,
@@ -27,6 +29,8 @@ import {
 	type BridgeWorkerSelectCommand,
 	type BridgeWorkerViewportCommand,
 	type BridgeWorkerWorktreeFileIntakeReadyCommand,
+	type BridgeWorkerWorktreeFileOpenSourceStreamCommand,
+	type BridgeWorkerWorktreeFileRequestDescriptorCommand,
 } from './bridge-worker-contracts.js';
 
 export type BridgeWorkerCommandName = BridgeWorkerMainToServerCommand['command'];
@@ -69,6 +73,14 @@ export interface EncodeBridgeWorkerReviewIntakeReadyCommandProps extends EncodeB
 export interface EncodeBridgeWorkerWorktreeFileIntakeReadyCommandProps extends EncodeBridgeWorkerCommandBaseProps {
 	readonly generation: BridgeWorkerWorktreeFileIntakeReadyCommand['generation'];
 	readonly streamId: BridgeWorkerWorktreeFileIntakeReadyCommand['streamId'];
+}
+
+export interface EncodeBridgeWorkerWorktreeFileOpenSourceStreamCommandProps extends EncodeBridgeWorkerCommandBaseProps {
+	readonly sourceSpec: BridgeWorkerWorktreeFileOpenSourceStreamCommand['sourceSpec'];
+}
+
+export interface EncodeBridgeWorkerWorktreeFileRequestDescriptorCommandProps extends EncodeBridgeWorkerCommandBaseProps {
+	readonly descriptorRequest: BridgeWorkerWorktreeFileRequestDescriptorCommand['descriptorRequest'];
 }
 
 export interface EncodeBridgeWorkerActiveViewerModeUpdateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
@@ -167,6 +179,24 @@ export function encodeBridgeWorkerWorktreeFileIntakeReadyCommand(
 		generation: props.generation,
 		protocolId: 'worktree-file',
 		streamId: props.streamId,
+	});
+}
+
+export function encodeBridgeWorkerWorktreeFileOpenSourceStreamCommand(
+	props: EncodeBridgeWorkerWorktreeFileOpenSourceStreamCommandProps,
+): BridgeWorkerWorktreeFileOpenSourceStreamCommand {
+	return bridgeWorkerWorktreeFileOpenSourceStreamCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'worktreeFileOpenSourceStream'),
+		sourceSpec: props.sourceSpec,
+	});
+}
+
+export function encodeBridgeWorkerWorktreeFileRequestDescriptorCommand(
+	props: EncodeBridgeWorkerWorktreeFileRequestDescriptorCommandProps,
+): BridgeWorkerWorktreeFileRequestDescriptorCommand {
+	return bridgeWorkerWorktreeFileRequestDescriptorCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'worktreeFileRequestDescriptor'),
+		descriptorRequest: props.descriptorRequest,
 	});
 }
 

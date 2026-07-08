@@ -5,7 +5,12 @@ import {
 	bridgeActiveViewerModeUpdateSchema,
 	bridgeIntakeReadyParamsSchema,
 } from '../../bridge/bridge-rpc-client.js';
-import { worktreeFileVirtualizedExtentKindSchema } from '../../features/worktree-file/models/worktree-file-protocol-models.js';
+import {
+	worktreeFileDescriptorRequestSchema,
+	worktreeFileSurfaceOpenSourceOutcomeSchema,
+	worktreeFileSurfaceSourceSpecSchema,
+	worktreeFileVirtualizedExtentKindSchema,
+} from '../../features/worktree-file/models/worktree-file-protocol-models.js';
 import {
 	bridgeContentRoleSchema,
 	bridgeFileChangeKindSchema,
@@ -127,6 +132,22 @@ export const bridgeWorkerWorktreeFileIntakeReadyCommandSchema = bridgeWorkerMain
 		command: z.literal('worktreeFileIntakeReady'),
 	})
 	.strict();
+
+export const bridgeWorkerWorktreeFileOpenSourceStreamCommandSchema =
+	bridgeWorkerMainToServerBaseSchema
+		.extend({
+			command: z.literal('worktreeFileOpenSourceStream'),
+			sourceSpec: worktreeFileSurfaceSourceSpecSchema,
+		})
+		.strict();
+
+export const bridgeWorkerWorktreeFileRequestDescriptorCommandSchema =
+	bridgeWorkerMainToServerBaseSchema
+		.extend({
+			command: z.literal('worktreeFileRequestDescriptor'),
+			descriptorRequest: worktreeFileDescriptorRequestSchema,
+		})
+		.strict();
 
 export const bridgeWorkerActiveViewerModeUpdateCommandSchema = bridgeWorkerMainToServerBaseSchema
 	.extend({
@@ -333,6 +354,8 @@ const bridgeWorkerMainToServerCommandBaseSchema = z.discriminatedUnion('command'
 	bridgeWorkerMetadataInterestUpdateCommandSchema,
 	bridgeWorkerReviewIntakeReadyCommandSchema,
 	bridgeWorkerWorktreeFileIntakeReadyCommandSchema,
+	bridgeWorkerWorktreeFileOpenSourceStreamCommandSchema,
+	bridgeWorkerWorktreeFileRequestDescriptorCommandSchema,
 	bridgeWorkerActiveViewerModeUpdateCommandSchema,
 	bridgeWorkerModeCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
@@ -521,6 +544,12 @@ export type BridgeWorkerReviewIntakeReadyCommand = z.infer<
 >;
 export type BridgeWorkerWorktreeFileIntakeReadyCommand = z.infer<
 	typeof bridgeWorkerWorktreeFileIntakeReadyCommandSchema
+>;
+export type BridgeWorkerWorktreeFileOpenSourceStreamCommand = z.infer<
+	typeof bridgeWorkerWorktreeFileOpenSourceStreamCommandSchema
+>;
+export type BridgeWorkerWorktreeFileRequestDescriptorCommand = z.infer<
+	typeof bridgeWorkerWorktreeFileRequestDescriptorCommandSchema
 >;
 export type BridgeWorkerActiveViewerModeUpdateCommand = z.infer<
 	typeof bridgeWorkerActiveViewerModeUpdateCommandSchema
@@ -786,11 +815,21 @@ export const bridgeWorkerPierreRenderJobEventSchema = bridgeWorkerServerToMainBa
 	})
 	.strict();
 
+export const bridgeWorkerWorktreeFileOpenSourceStreamResultEventSchema =
+	bridgeWorkerServerToMainBaseSchema
+		.extend({
+			kind: z.literal('worktreeFileOpenSourceStreamResult'),
+			requestId: bridgeWorkerRequestIdSchema,
+			outcome: worktreeFileSurfaceOpenSourceOutcomeSchema,
+		})
+		.strict();
+
 export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind', [
 	bridgeWorkerHealthEventSchema,
 	bridgeWorkerSlicePatchEventSchema,
 	bridgeWorkerSubscriptionEventSchema,
 	bridgeWorkerPierreRenderJobEventSchema,
+	bridgeWorkerWorktreeFileOpenSourceStreamResultEventSchema,
 ]);
 
 export type BridgeWorkerHealthEvent = z.infer<typeof bridgeWorkerHealthEventSchema>;
@@ -798,6 +837,9 @@ export type BridgeWorkerSlicePatchEvent = z.infer<typeof bridgeWorkerSlicePatchE
 export type BridgeWorkerSubscriptionEvent = z.infer<typeof bridgeWorkerSubscriptionEventSchema>;
 export type BridgeWorkerPierreRenderJobEvent = z.infer<
 	typeof bridgeWorkerPierreRenderJobEventSchema
+>;
+export type BridgeWorkerWorktreeFileOpenSourceStreamResultEvent = z.infer<
+	typeof bridgeWorkerWorktreeFileOpenSourceStreamResultEventSchema
 >;
 export type BridgeWorkerServerToMainMessage = z.infer<typeof bridgeWorkerServerToMainMessageSchema>;
 

@@ -242,6 +242,8 @@ function handleBridgeWorkerCommand(
 		case 'metadataInterestUpdate':
 		case 'reviewIntakeReady':
 		case 'worktreeFileIntakeReady':
+		case 'worktreeFileOpenSourceStream':
+		case 'worktreeFileRequestDescriptor':
 		case 'activeViewerModeUpdate':
 			return [buildBridgeWorkerReadyHealthEvent(props.message.requestId)];
 		case 'hover':

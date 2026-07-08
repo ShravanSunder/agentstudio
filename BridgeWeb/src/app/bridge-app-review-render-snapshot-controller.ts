@@ -756,6 +756,7 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 				break;
 			case 'health':
 			case 'subscription':
+			case 'worktreeFileOpenSourceStreamResult':
 				break;
 			case 'pierreRenderJob':
 				props.pierreCourier.enqueue(message.job);

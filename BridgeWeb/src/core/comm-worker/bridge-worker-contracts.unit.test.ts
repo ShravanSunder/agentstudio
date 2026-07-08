@@ -11,6 +11,9 @@ import {
 	bridgeWorkerReviewContentMetadataSchema,
 	bridgeWorkerMainToServerMessageSchema,
 	bridgeWorkerServerToMainMessageSchema,
+	bridgeWorkerWorktreeFileOpenSourceStreamCommandSchema,
+	bridgeWorkerWorktreeFileOpenSourceStreamResultEventSchema,
+	bridgeWorkerWorktreeFileRequestDescriptorCommandSchema,
 	bridgeWorkerSlicePatchEventSchema,
 	parseBridgeWorkerMainToServerMessage,
 	type BridgeWorkerMainToServerMessage,
@@ -76,6 +79,75 @@ describe('BridgeWorkerContracts', () => {
 			transferDescriptors: [],
 		};
 		expectTypeOf(invalidCommand).toMatchTypeOf<BridgeWorkerMainToServerMessage>();
+	});
+
+	test('defines strict Worktree/File surface RPC command and result contracts', () => {
+		const openCommand = {
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'mainToServerWorker',
+			kind: 'command',
+			command: 'worktreeFileOpenSourceStream',
+			requestId: 'request-open-source',
+			epoch: 3,
+			transferDescriptors: [],
+			sourceSpec: makeWorktreeFileSourceSpec(),
+		};
+		const descriptorCommand = {
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'mainToServerWorker',
+			kind: 'command',
+			command: 'worktreeFileRequestDescriptor',
+			requestId: 'request-descriptor',
+			epoch: 3,
+			transferDescriptors: [],
+			descriptorRequest: makeWorktreeFileDescriptorRequest(),
+		};
+		const resultEvent = {
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'serverWorkerToMain',
+			transferDescriptors: [],
+			kind: 'worktreeFileOpenSourceStreamResult',
+			requestId: 'request-open-source',
+			outcome: {
+				status: 'accepted',
+				protocol: 'worktree-file',
+				streamId: 'worktree-file:pane-1',
+				generation: 4,
+			},
+		};
+
+		expect(bridgeWorkerWorktreeFileOpenSourceStreamCommandSchema.parse(openCommand)).toEqual(
+			openCommand,
+		);
+		expect(bridgeWorkerWorktreeFileRequestDescriptorCommandSchema.parse(descriptorCommand)).toEqual(
+			descriptorCommand,
+		);
+		expect(bridgeWorkerMainToServerMessageSchema.parse(openCommand)).toEqual(openCommand);
+		expect(bridgeWorkerMainToServerMessageSchema.parse(descriptorCommand)).toEqual(
+			descriptorCommand,
+		);
+		expect(bridgeWorkerWorktreeFileOpenSourceStreamResultEventSchema.parse(resultEvent)).toEqual(
+			resultEvent,
+		);
+		expect(bridgeWorkerServerToMainMessageSchema.parse(resultEvent)).toEqual(resultEvent);
+		expect(
+			bridgeWorkerWorktreeFileOpenSourceStreamResultEventSchema.safeParse({
+				...resultEvent,
+				outcome: { status: 'accepted', protocol: 'worktree-file', streamId: 'stream-only' },
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeWorkerServerToMainMessageSchema.safeParse({
+				...resultEvent,
+				payload: { streamId: 'unknown-shaped-result' },
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeWorkerWorktreeFileOpenSourceStreamCommandSchema.safeParse({
+				...openCommand,
+				payload: openCommand.sourceSpec,
+			}).success,
+		).toBe(false);
 	});
 
 	test('requires every worker message to declare transfer descriptors explicitly', () => {
@@ -534,5 +606,55 @@ function makeBridgeWorkerFileViewSourceUpdateCommand(): {
 			},
 		],
 		rows: [{ id: 'file-1', parentId: null, index: 0 }],
+	};
+}
+
+function makeWorktreeFileSourceSpec(): {
+	readonly clientRequestId: string;
+	readonly repoId: string;
+	readonly worktreeId: string;
+	readonly rootPathToken: string;
+	readonly includeStatuses: true;
+	readonly includeComments: false;
+	readonly includeAgentComms: false;
+	readonly freshness: 'live';
+} {
+	return {
+		clientRequestId: 'client-open-1',
+		repoId: 'repo-1',
+		worktreeId: 'worktree-1',
+		rootPathToken: 'root-token-1',
+		includeStatuses: true,
+		includeComments: false,
+		includeAgentComms: false,
+		freshness: 'live',
+	};
+}
+
+function makeWorktreeFileDescriptorRequest(): {
+	readonly sourceIdentity: {
+		readonly sourceId: string;
+		readonly repoId: string;
+		readonly worktreeId: string;
+		readonly subscriptionGeneration: number;
+		readonly sourceCursor: string;
+	};
+	readonly rowId: string;
+	readonly path: string;
+	readonly fileId: string;
+	readonly lane: 'foreground';
+} {
+	return {
+		sourceIdentity: {
+			sourceId: 'source-1',
+			repoId: 'repo-1',
+			worktreeId: 'worktree-1',
+			subscriptionGeneration: 4,
+			sourceCursor: 'cursor-1',
+		},
+		rowId: 'row-1',
+		path: 'Sources/App/File.swift',
+		fileId: 'file-1',
+		lane: 'foreground',
 	};
 }

@@ -15,6 +15,7 @@ import {
 	makeIntakeEnvelope,
 	makeSnapshotFrame,
 	makeSourceIdentity,
+	nativeWorktreeFileInjectedSenderProps,
 } from './bridge-app-native-worktree-file.browser.test-support.js';
 import {
 	createBridgeAppNativeWorktreeFileBackend,
@@ -26,7 +27,7 @@ describe('Bridge app native Worktree/File backend', () => {
 		cleanupNativeWorktreeFileBackendBrowserTest();
 	});
 
-	test('posts native Worktree/File open and intake-ready commands through scheme RPC', async () => {
+	test('posts native Worktree/File open and intake-ready commands through injected worker senders', async () => {
 		const rpcFetch = createNativeWorktreeFileRPCFetchHarness();
 		document.documentElement.setAttribute(
 			'data-bridge-worktree-file-source-spec',
@@ -43,8 +44,8 @@ describe('Bridge app native Worktree/File backend', () => {
 		);
 		const backend = createBridgeAppNativeWorktreeFileBackend({
 			createRequestId: () => 'request-1',
-			fetchRPC: rpcFetch.fetch,
 			sendWorktreeFileIntakeReady: rpcFetch.sendWorktreeFileIntakeReady,
+			...nativeWorktreeFileInjectedSenderProps(rpcFetch),
 			target: document,
 		});
 		if (backend === null) {
@@ -69,9 +70,11 @@ describe('Bridge app native Worktree/File backend', () => {
 			{
 				id: 'request-1',
 				method: 'worktreeFileSurface.openSourceStream',
+				sentBy: 'open-source-stream-sender',
 			},
 			{
 				method: 'bridge.intakeReady',
+				sentBy: 'intake-ready-sender',
 				params: {
 					protocolId: 'worktree-file',
 					streamId: 'worktree-file:pane-1',
@@ -81,7 +84,7 @@ describe('Bridge app native Worktree/File backend', () => {
 		backend.dispose();
 	});
 
-	test('requests native Worktree/File descriptors through RPC and publishes intake frames', async () => {
+	test('requests native Worktree/File descriptors through injected worker senders and publishes intake frames', async () => {
 		const rpcFetch = createNativeWorktreeFileRPCFetchHarness();
 		const commandDetails = rpcFetch.commandDetails;
 		document.documentElement.setAttribute(
@@ -105,8 +108,8 @@ describe('Bridge app native Worktree/File backend', () => {
 					return `request-${sequence}`;
 				};
 			})(),
-			fetchRPC: rpcFetch.fetch,
 			sendWorktreeFileIntakeReady: rpcFetch.sendWorktreeFileIntakeReady,
+			...nativeWorktreeFileInjectedSenderProps(rpcFetch),
 			target: document,
 		});
 		if (backend === null) {
@@ -147,6 +150,7 @@ describe('Bridge app native Worktree/File backend', () => {
 			jsonrpc: '2.0',
 			id: 'request-2',
 			method: 'worktreeFileSurface.requestFileDescriptor',
+			sentBy: 'request-file-descriptor-sender',
 			params: {
 				sourceIdentity: makeSourceIdentity(),
 				rowId: 'row:src/app.ts',
@@ -206,6 +210,7 @@ describe('Bridge app native Worktree/File backend', () => {
 		expect(commandDetails[2]).toMatchObject({
 			id: 'request-2',
 			method: 'worktreeFileSurface.requestFileDescriptor',
+			sentBy: 'request-file-descriptor-sender',
 		});
 
 		await expect(requestPromise).rejects.toThrow(
@@ -238,6 +243,7 @@ describe('Bridge app native Worktree/File backend', () => {
 		expect(commandDetails[2]).toMatchObject({
 			id: 'request-2',
 			method: 'worktreeFileSurface.requestFileDescriptor',
+			sentBy: 'request-file-descriptor-sender',
 		});
 
 		await expect(requestPromise).rejects.toThrow(
@@ -265,8 +271,8 @@ describe('Bridge app native Worktree/File backend', () => {
 			}),
 		);
 		const backend = createBridgeAppNativeWorktreeFileBackend({
-			fetchRPC: rpcFetch.fetch,
 			sendWorktreeFileIntakeReady: rpcFetch.sendWorktreeFileIntakeReady,
+			...nativeWorktreeFileInjectedSenderProps(rpcFetch),
 			target: document,
 		});
 		if (backend === null) {
@@ -281,6 +287,7 @@ describe('Bridge app native Worktree/File backend', () => {
 		expect(openCommand).toMatchObject({
 			jsonrpc: '2.0',
 			method: 'worktreeFileSurface.openSourceStream',
+			sentBy: 'open-source-stream-sender',
 		});
 		expect(openCommand).toHaveProperty('id');
 		const commandId = commandIdFromUnknownCommand(openCommand);
@@ -290,6 +297,7 @@ describe('Bridge app native Worktree/File backend', () => {
 			.poll(() => commandDetails[1])
 			.toMatchObject({
 				method: 'bridge.intakeReady',
+				sentBy: 'intake-ready-sender',
 				params: {
 					protocolId: 'worktree-file',
 					streamId: 'worktree-file:pane-1',
@@ -333,8 +341,8 @@ describe('Bridge app native Worktree/File backend', () => {
 		);
 		const backend = createBridgeAppNativeWorktreeFileBackend({
 			createRequestId: () => 'request-1',
-			fetchRPC: rpcFetch.fetch,
 			sendWorktreeFileIntakeReady: rpcFetch.sendWorktreeFileIntakeReady,
+			...nativeWorktreeFileInjectedSenderProps(rpcFetch),
 			target: document,
 		});
 		if (backend === null) {
@@ -348,6 +356,7 @@ describe('Bridge app native Worktree/File backend', () => {
 		expect(commandDetails[0]).toMatchObject({
 			id: 'request-1',
 			method: 'worktreeFileSurface.openSourceStream',
+			sentBy: 'open-source-stream-sender',
 		});
 
 		await expect(surfacePromise).rejects.toThrow(

@@ -1,4 +1,7 @@
+import { z } from 'zod';
+
 import { sendBridgeRPCRequest, type BridgeRPCCommand } from '../../bridge/bridge-rpc-client.js';
+import { worktreeFileSurfaceOpenSourceOutcomeSchema } from '../../features/worktree-file/models/worktree-file-protocol-models.js';
 import { bridgeContentDemandExecutionPolicy } from '../demand/bridge-content-demand-policy.js';
 import {
 	createBridgeCommWorkerCommandHandler,
@@ -82,8 +85,11 @@ export interface RegisterBridgeCommWorkerRuntimePortProtocolProps {
 
 const bridgeCommWorkerReviewSourceResetChunkItemCount = 64;
 const bridgeCommWorkerSchemeRpcTimeoutMilliseconds = 5000;
+const bridgeCommWorkerSchemeRpcEmptyResultSchema = z.object({}).strict();
 
-export type BridgeCommWorkerSchemeRpcCommandSender = (command: BridgeRPCCommand) => Promise<void>;
+export type BridgeCommWorkerSchemeRpcCommandSender = (
+	command: BridgeRPCCommand,
+) => Promise<unknown>;
 
 export function registerBridgeCommWorkerRuntimePortProtocol(
 	port: BridgeCommWorkerPort,
@@ -380,7 +386,15 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				sendSchemeRpcCommand,
 				timeoutMilliseconds: schemeRpcTimeoutMilliseconds,
 			})
-				.then((): void => {
+				.then((schemeRpcResult): void => {
+					const resultEvent = buildBridgeWorkerRuntimeSchemeRpcResultEvent({
+						command: ordinarySchemeRpcCommand.command,
+						requestId: ordinarySchemeRpcCommand.requestId,
+						schemeRpcResult,
+					});
+					if (resultEvent !== null) {
+						port.postMessage(resultEvent);
+					}
 					for (const message of messages) {
 						if (
 							bridgeWorkerRuntimeMessageIsReadyRequest({
@@ -392,11 +406,14 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 						}
 					}
 				})
-				.catch((): void => {
+				.catch((error: unknown): void => {
 					port.postMessage(
 						buildBridgeWorkerRuntimeCommandFailedHealthEvent({
 							requestId: ordinarySchemeRpcCommand.requestId,
-							message: `Bridge comm worker failed to forward ${ordinarySchemeRpcCommand.command.method}.`,
+							message: bridgeCommWorkerSchemeRpcFailureMessage({
+								command: ordinarySchemeRpcCommand.command,
+								error,
+							}),
 							...(ordinarySchemeRpcCommand.command.method === 'bridge.activeViewerMode.update'
 								? { deliveryStatus: 'unknownAfterDispatch' }
 								: {}),
@@ -462,19 +479,62 @@ function buildBridgeWorkerRuntimeCommandFailedHealthEvent(props: {
 	};
 }
 
-async function sendBridgeCommWorkerSchemeRpcCommand(command: BridgeRPCCommand): Promise<void> {
-	await sendBridgeRPCRequest({
+async function sendBridgeCommWorkerSchemeRpcCommand(command: BridgeRPCCommand): Promise<unknown> {
+	return await sendBridgeRPCRequest({
 		command,
 		timeoutMilliseconds: bridgeCommWorkerSchemeRpcTimeoutMilliseconds,
 	});
+}
+
+function bridgeCommWorkerSchemeRpcFailureMessage(props: {
+	readonly command: BridgeRPCCommand;
+	readonly error: unknown;
+}): string {
+	const baseMessage = `Bridge comm worker failed to forward ${props.command.method}`;
+	if (
+		props.command.method !== 'worktreeFileSurface.requestFileDescriptor' ||
+		!(props.error instanceof Error) ||
+		!bridgeCommWorkerDescriptorErrorRequiresForwardedDetail(props.error.message)
+	) {
+		return `${baseMessage}.`;
+	}
+	return `${baseMessage}: ${props.error.message}`;
+}
+
+function bridgeCommWorkerDescriptorErrorRequiresForwardedDetail(errorMessage: string): boolean {
+	return (
+		errorMessage.endsWith('worktree_file.source_identity_mismatch') ||
+		errorMessage.endsWith('worktree_file.stale_source_generation')
+	);
+}
+
+function buildBridgeWorkerRuntimeSchemeRpcResultEvent(props: {
+	readonly command: BridgeRPCCommand;
+	readonly requestId: string;
+	readonly schemeRpcResult: unknown;
+}): BridgeWorkerServerToMainMessage | null {
+	if (props.command.method !== 'worktreeFileSurface.openSourceStream') {
+		if (props.command.method === 'worktreeFileSurface.requestFileDescriptor') {
+			bridgeCommWorkerSchemeRpcEmptyResultSchema.parse(props.schemeRpcResult);
+		}
+		return null;
+	}
+	return {
+		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		direction: 'serverWorkerToMain',
+		transferDescriptors: [],
+		kind: 'worktreeFileOpenSourceStreamResult',
+		requestId: props.requestId,
+		outcome: worktreeFileSurfaceOpenSourceOutcomeSchema.parse(props.schemeRpcResult),
+	};
 }
 
 function sendBridgeCommWorkerSchemeRpcCommandWithTimeout(props: {
 	readonly command: BridgeRPCCommand;
 	readonly sendSchemeRpcCommand: BridgeCommWorkerSchemeRpcCommandSender;
 	readonly timeoutMilliseconds: number;
-}): Promise<void> {
-	return new Promise<void>((resolve, reject): void => {
+}): Promise<unknown> {
+	return new Promise<unknown>((resolve, reject): void => {
 		let didSettle = false;
 		const timeoutId = globalThis.setTimeout((): void => {
 			if (didSettle) {
@@ -484,13 +544,13 @@ function sendBridgeCommWorkerSchemeRpcCommandWithTimeout(props: {
 			reject(new Error('Bridge comm worker scheme RPC timed out.'));
 		}, props.timeoutMilliseconds);
 		void props.sendSchemeRpcCommand(props.command).then(
-			(): void => {
+			(schemeRpcResult: unknown): void => {
 				if (didSettle) {
 					return;
 				}
 				didSettle = true;
 				globalThis.clearTimeout(timeoutId);
-				resolve();
+				resolve(schemeRpcResult);
 			},
 			(error: unknown): void => {
 				if (didSettle) {

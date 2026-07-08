@@ -3578,3 +3578,86 @@ counts before claiming a gate.
   It does not finish scheme-stream push/intake/ack cutover, native oq4s
   scroll/click proof, Review apply/materialization lag closure,
   implementation-review-swarm, PR readiness, or full goal completion.
+
+## 2026-07-08 - G6 Worktree/File Surface RPC Cutover
+
+- Commit target:
+  pending local checkpoint `feat(bridge): route worktree file surface rpc
+  through comm worker`.
+- Scope:
+  Worktree/File `worktreeFileSurface.openSourceStream` and
+  `worktreeFileSurface.requestFileDescriptor` now route through the packaged
+  comm-worker ordinary command path and worker-owned scheme RPC forwarding.
+  The app-side Worktree/File backend no longer constructs those page/main RPC
+  commands directly.
+- Implementation:
+  Added typed `worktreeFileOpenSourceStream` and
+  `worktreeFileRequestDescriptor` worker commands, runtime routing to
+  `worktreeFileSurface.openSourceStream` and
+  `worktreeFileSurface.requestFileDescriptor`, and a typed
+  `worktreeFileOpenSourceStreamResult` server-to-main event for the open
+  outcome. The Worktree/File worker RPC transport now owns pending open,
+  descriptor, and intake-ready requests in one discriminated pending map. Open
+  commands reserve monotonic worker epochs, intake/descriptor commands record
+  observed generations, and open-result success records the accepted generation
+  before resolving.
+- Accepted sidekick findings:
+  Hypatia the 2nd initially found a stale-epoch P1: repeated open after
+  intake-ready could reuse `epoch: 0` and be rejected by the worker command
+  handler after generation-bearing commands advanced `currentEpoch`. The fix
+  adds monotonic epoch tracking and a default-transport red-to-green regression.
+  The same review also found degraded intake-ready health parked pending
+  requests and descriptor stale/source-identity errors lost backend detail.
+  Both were fixed red-to-green: degraded intake-ready resolves `false`
+  immediately, and descriptor stale/source-identity errors preserve the backend
+  suffix needed by the stream-reset detector. Hypatia re-reviewed the final
+  dirty diff and returned `ready` with no accepted remaining findings.
+- Red / green evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/app/bridge-app-native-worktree-file-intake-ready.unit.test.ts -t
+  "uses monotonic epochs" --reporter dot` failed before the epoch tracker with
+  first open `epoch: 0` instead of `1`, then passed. The degraded intake-ready
+  regression failed before the fix with `"still-pending"` and then passed. The
+  descriptor failure-detail regression failed before the fix because degraded
+  health emitted only
+  `Bridge comm worker failed to forward worktreeFileSurface.requestFileDescriptor.`
+  and then passed with the stale-generation suffix preserved.
+- Green evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/app/bridge-app-source-structure.unit.test.ts
+  src/app/bridge-app-native-worktree-file-intake-ready.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-command-handler.worktree-file-intake-ready.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-runtime-protocol.worktree-file-intake-ready.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-runtime-protocol.worktree-file-surface-rpc.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-protocol.unit.test.ts
+  src/core/comm-worker/bridge-worker-contracts.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-command-handler.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-runtime-protocol.unit.test.ts
+  src/review-viewer/workers/shared-rpc/bridge-comm-worker-transport.unit.test.ts
+  src/review-viewer/workers/shared-rpc/bridge-comm-worker-transport.worktree-file-intake-ready.unit.test.ts
+  src/features/worktree-file/models/worktree-file-protocol-models.unit.test.ts
+  src/app/bridge-app-native-worktree-file-telemetry.unit.test.ts
+  src/app/bridge-file-viewer-worktree-file-surface-transport-adapter.unit.test.ts
+  --reporter dot` passed 14 files / 103 tests. Browser proof
+  `CI=true pnpm --dir BridgeWeb exec vitest --config
+  vitest.browser.config.ts run --project integration-browser
+  src/app/bridge-app-native-worktree-file.browser.test.ts
+  src/app/bridge-app-native-review-error.browser.test.tsx --reporter dot`
+  passed 2 files / 41 tests. `pnpm --dir BridgeWeb exec tsc --noEmit
+  --pretty false` passed. Scoped `oxfmt --check`, scoped `oxlint --type-aware`,
+  and `git diff --check` passed. `oxlint --type-aware` still prints the
+  pre-existing `__bridgeNativeWorktreeFileProbe` underscore warnings in
+  `bridge-app-native-worktree-file.ts`; exit code was 0.
+- Source scans:
+  Targeted scans in `BridgeWeb/src/app/bridge-app-native-worktree-file.ts` and
+  `BridgeWeb/src/app/bridge-app-native-worktree-file-intake-ready.ts` for
+  `createBridgeRPCClient`, `sendCommandAndWait`, `fetchRPC`, direct
+  `worktreeFileSurface.openSourceStream`, and direct
+  `worktreeFileSurface.requestFileDescriptor` returned no production app-side
+  matches. The two method names now appear in the worker runtime command
+  routing/protocol and source-structure negative tests.
+- Known proof boundary:
+  This is one Worktree/File surface ordinary RPC hard-cutover checkpoint. It
+  does not finish scheme-stream push/intake/ack cutover, native oq4s
+  scroll/click proof, Review apply/materialization lag closure,
+  implementation-review-swarm, PR readiness, or full goal completion.

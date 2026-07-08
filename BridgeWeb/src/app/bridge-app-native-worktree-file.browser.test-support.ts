@@ -1,4 +1,5 @@
 import { expect, vi } from 'vitest';
+import { z } from 'zod';
 
 import {
 	bridgeRPCRequestEnvelopeSchema,
@@ -7,13 +8,22 @@ import {
 import type { BridgeAttachedResourceDescriptor } from '../core/models/bridge-resource-descriptor.js';
 import type {
 	WorktreeFileProtocolFrame,
+	WorktreeFileSurfaceOpenSourceOutcome,
 	WorktreeFileSurfaceSourceIdentity,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
-import type { BridgeAppNativeWorktreeFileIntakeReadySender } from './bridge-app-native-worktree-file-intake-ready.js';
+import { worktreeFileSurfaceOpenSourceOutcomeSchema } from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import type {
+	BridgeAppNativeWorktreeFileIntakeReadySender,
+	BridgeAppNativeWorktreeFileOpenSourceStreamSender,
+	BridgeAppNativeWorktreeFileRequestDescriptorSender,
+} from './bridge-app-native-worktree-file-intake-ready.js';
 import {
 	type BridgeAppNativeWorktreeFileBackend,
 	createBridgeAppNativeWorktreeFileBackend,
 } from './bridge-app-native-worktree-file.js';
+
+const nativeWorktreeFileOpenSourceOutcomeTestPassthroughSchema =
+	z.custom<WorktreeFileSurfaceOpenSourceOutcome>(() => true);
 
 export function cleanupNativeWorktreeFileBackendBrowserTest(): void {
 	vi.useRealTimers();
@@ -26,12 +36,24 @@ export interface NativeWorktreeFileRPCFetchHarness {
 	readonly commandDetails: unknown[];
 	readonly fetch: typeof fetch;
 	readonly sendWorktreeFileIntakeReady: BridgeAppNativeWorktreeFileIntakeReadySender;
+	readonly sendWorktreeFileOpenSourceStream: BridgeAppNativeWorktreeFileOpenSourceStreamSender;
+	readonly sendWorktreeFileRequestDescriptor: BridgeAppNativeWorktreeFileRequestDescriptorSender;
 }
 
 export interface NativeWorktreeFileRPCFetchHarnessOptions {
 	readonly intakeReadyResponse?: (command: unknown) => unknown;
 	readonly openSourceStreamResponse?: (command: unknown) => unknown;
 	readonly requestFileDescriptorResponse?: (command: unknown) => unknown;
+}
+
+export function nativeWorktreeFileInjectedSenderProps(harness: NativeWorktreeFileRPCFetchHarness): {
+	readonly sendWorktreeFileOpenSourceStream: BridgeAppNativeWorktreeFileOpenSourceStreamSender;
+	readonly sendWorktreeFileRequestDescriptor: BridgeAppNativeWorktreeFileRequestDescriptorSender;
+} {
+	return {
+		sendWorktreeFileOpenSourceStream: harness.sendWorktreeFileOpenSourceStream,
+		sendWorktreeFileRequestDescriptor: harness.sendWorktreeFileRequestDescriptor,
+	};
 }
 
 export function createNativeWorktreeFileRPCFetchHarness(
@@ -44,35 +66,83 @@ export function createNativeWorktreeFileRPCFetchHarness(
 			expect(input).toBe('agentstudio://rpc/command');
 			expect(init?.method).toBe('POST');
 			const command = decodeNativeWorktreeFileRPCCommand(init);
-			commandDetails.push(command);
+			commandDetails.push(markNativeWorktreeFileCommand(command, 'direct-fetch'));
 			const requestId = rpcRequestId(command);
 			const method = rpcMethod(command);
 			if (method === 'worktreeFileSurface.openSourceStream') {
-				return Promise.resolve(
-					strictNativeWorktreeFileRPCResponse(
-						options.openSourceStreamResponse?.(command) ?? {
-							id: requestId,
-							result: makeOpenSourceOutcome(),
-						},
-						requestId,
-					),
-				);
+				throw new Error('Worktree/File open-source-stream must use the injected worker sender');
 			}
 			if (method === 'worktreeFileSurface.requestFileDescriptor') {
-				return Promise.resolve(
-					strictNativeWorktreeFileRPCResponse(
-						options.requestFileDescriptorResponse?.(command) ?? {
-							id: requestId,
-							result: {},
-						},
-						requestId,
-					),
+				throw new Error(
+					'Worktree/File request-file-descriptor must use the injected worker sender',
 				);
 			}
 			if (method === 'bridge.intakeReady') {
 				throw new Error('Worktree/File intake-ready must use the injected worker sender');
 			}
 			return Promise.resolve(strictNativeWorktreeFileRPCResponse({ result: {} }, requestId));
+		},
+		sendWorktreeFileOpenSourceStream: async (
+			props,
+		): Promise<WorktreeFileSurfaceOpenSourceOutcome> => {
+			const command = bridgeRPCRequestEnvelopeSchema.parse({
+				jsonrpc: '2.0',
+				id: props.requestId,
+				__commandId: props.requestId,
+				method: 'worktreeFileSurface.openSourceStream',
+				params: props.sourceSpec,
+			});
+			commandDetails.push(markNativeWorktreeFileCommand(command, 'open-source-stream-sender'));
+			const responseEnvelope = bridgeRPCResponseEnvelopeSchema.parse(
+				nativeWorktreeFileRPCResponseEnvelope(
+					options.openSourceStreamResponse?.(command) ?? {
+						id: props.requestId,
+						result: makeOpenSourceOutcome(),
+					},
+					props.requestId,
+				),
+			);
+			if ('error' in responseEnvelope) {
+				throw new Error(
+					`Native Worktree/File open stream failed: ${responseEnvelope.error.message}`,
+				);
+			}
+			const parsedOutcome = worktreeFileSurfaceOpenSourceOutcomeSchema.safeParse(
+				responseEnvelope.result,
+			);
+			if (parsedOutcome.success) {
+				return parsedOutcome.data;
+			}
+			return nativeWorktreeFileOpenSourceOutcomeTestPassthroughSchema.parse(
+				responseEnvelope.result,
+			);
+		},
+		sendWorktreeFileRequestDescriptor: async (props): Promise<void> => {
+			const command = bridgeRPCRequestEnvelopeSchema.parse({
+				jsonrpc: '2.0',
+				id: props.requestId,
+				__commandId: props.requestId,
+				method: 'worktreeFileSurface.requestFileDescriptor',
+				params: props.request,
+			});
+			commandDetails.push(markNativeWorktreeFileCommand(command, 'request-file-descriptor-sender'));
+			const responseEnvelope = bridgeRPCResponseEnvelopeSchema.parse(
+				nativeWorktreeFileRPCResponseEnvelope(
+					options.requestFileDescriptorResponse?.(command) ?? {
+						id: props.requestId,
+						result: {},
+					},
+					props.requestId,
+				),
+			);
+			if ('error' in responseEnvelope) {
+				throw new Error(
+					`Native Worktree/File descriptor request failed: ${responseEnvelope.error.message}`,
+				);
+			}
+			if (!isStrictEmptyObject(responseEnvelope.result)) {
+				throw new Error('Native Worktree/File descriptor request returned invalid acknowledgement');
+			}
 		},
 		sendWorktreeFileIntakeReady: async (props): Promise<boolean> => {
 			const command = bridgeRPCRequestEnvelopeSchema.parse({
@@ -86,7 +156,7 @@ export function createNativeWorktreeFileRPCFetchHarness(
 					streamId: props.streamId,
 				},
 			});
-			commandDetails.push(command);
+			commandDetails.push(markNativeWorktreeFileCommand(command, 'intake-ready-sender'));
 			const responseEnvelope = bridgeRPCResponseEnvelopeSchema.parse(
 				nativeWorktreeFileRPCResponseEnvelope(
 					options.intakeReadyResponse?.(command) ?? {
@@ -147,8 +217,8 @@ export async function installReadyNativeWorktreeFileBackend(
 				return `request-${sequence}`;
 			};
 		})(),
-		fetchRPC: rpcFetch.fetch,
 		sendWorktreeFileIntakeReady: rpcFetch.sendWorktreeFileIntakeReady,
+		...nativeWorktreeFileInjectedSenderProps(rpcFetch),
 		target: document,
 	});
 	if (backend === null) {
@@ -163,6 +233,7 @@ export async function installReadyNativeWorktreeFileBackend(
 		.poll(() => rpcFetch.commandDetails[1])
 		.toMatchObject({
 			method: 'bridge.intakeReady',
+			sentBy: 'intake-ready-sender',
 		});
 	document.dispatchEvent(
 		new CustomEvent('__bridge_intake_json', {
@@ -250,6 +321,22 @@ function decodeNativeWorktreeFileRPCCommand(init: RequestInit | undefined): unkn
 		throw new Error('expected string RPC request body');
 	}
 	return bridgeRPCRequestEnvelopeSchema.parse(JSON.parse(body));
+}
+
+function markNativeWorktreeFileCommand(command: unknown, sentBy: string): unknown {
+	if (typeof command !== 'object' || command === null) {
+		return command;
+	}
+	return { ...command, sentBy };
+}
+
+function isStrictEmptyObject(value: unknown): boolean {
+	return (
+		typeof value === 'object' &&
+		value !== null &&
+		Object.getPrototypeOf(value) === Object.prototype &&
+		Object.keys(value).length === 0
+	);
 }
 
 function strictNativeWorktreeFileRPCResponse(

@@ -11,6 +11,8 @@ import {
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 	encodeBridgeWorkerWorktreeFileIntakeReadyCommand,
+	encodeBridgeWorkerWorktreeFileOpenSourceStreamCommand,
+	encodeBridgeWorkerWorktreeFileRequestDescriptorCommand,
 } from './bridge-comm-worker-protocol.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
@@ -69,6 +71,16 @@ describe('Bridge comm worker protocol', () => {
 				generation: 3,
 				streamId: 'worktree-file:pane-1',
 			}),
+			encodeBridgeWorkerWorktreeFileOpenSourceStreamCommand({
+				requestId: 'request-worktree-file-open-source',
+				epoch: 1,
+				sourceSpec: makeWorktreeFileSourceSpec(),
+			}),
+			encodeBridgeWorkerWorktreeFileRequestDescriptorCommand({
+				requestId: 'request-worktree-file-descriptor',
+				epoch: 1,
+				descriptorRequest: makeWorktreeFileDescriptorRequest(),
+			}),
 			encodeBridgeWorkerModeCommand({
 				requestId: 'request-mode',
 				epoch: 1,
@@ -98,6 +110,8 @@ describe('Bridge comm worker protocol', () => {
 			'metadataInterestUpdate',
 			'reviewIntakeReady',
 			'worktreeFileIntakeReady',
+			'worktreeFileOpenSourceStream',
+			'worktreeFileRequestDescriptor',
 			'mode',
 			'activeViewerModeUpdate',
 		]);
@@ -132,7 +146,25 @@ describe('Bridge comm worker protocol', () => {
 			streamId: 'worktree-file:pane-1',
 			generation: 3,
 		});
+		expect(commands[7]).toMatchObject({
+			command: 'worktreeFileOpenSourceStream',
+			sourceSpec: {
+				clientRequestId: 'client-open-1',
+				repoId: 'repo-1',
+				worktreeId: 'worktree-1',
+				freshness: 'live',
+			},
+		});
 		expect(commands[8]).toMatchObject({
+			command: 'worktreeFileRequestDescriptor',
+			descriptorRequest: {
+				rowId: 'row-1',
+				path: 'Sources/App/File.swift',
+				fileId: 'file-1',
+				lane: 'foreground',
+			},
+		});
+		expect(commands[10]).toMatchObject({
 			command: 'activeViewerModeUpdate',
 			update: {
 				sessionId: 'active-viewer-session',
@@ -208,3 +240,32 @@ describe('Bridge comm worker protocol', () => {
 		expect(JSON.stringify(command.contentItems)).not.toMatch(/resourceUrl|contents|body/i);
 	});
 });
+
+function makeWorktreeFileSourceSpec() {
+	return {
+		clientRequestId: 'client-open-1',
+		repoId: 'repo-1',
+		worktreeId: 'worktree-1',
+		rootPathToken: 'root-token-1',
+		includeStatuses: true,
+		includeComments: false,
+		includeAgentComms: false,
+		freshness: 'live',
+	} as const;
+}
+
+function makeWorktreeFileDescriptorRequest() {
+	return {
+		sourceIdentity: {
+			sourceId: 'source-1',
+			repoId: 'repo-1',
+			worktreeId: 'worktree-1',
+			subscriptionGeneration: 4,
+			sourceCursor: 'cursor-1',
+		},
+		rowId: 'row-1',
+		path: 'Sources/App/File.swift',
+		fileId: 'file-1',
+		lane: 'foreground',
+	} as const;
+}

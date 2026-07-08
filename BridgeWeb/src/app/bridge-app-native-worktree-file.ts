@@ -1,12 +1,6 @@
 import { z } from 'zod';
 
 import {
-	BridgeRPCRequestTimeoutError,
-	BridgeRPCResponseError,
-	sendBridgeRPCRequest,
-	type BridgeRPCFetch,
-} from '../bridge/bridge-rpc-client.js';
-import {
 	installBridgeIntakeEventCarrier,
 	type BridgeIntakeCarrierDrop,
 } from '../core/intake/bridge-intake-carrier.js';
@@ -41,9 +35,12 @@ import type {
 	WorktreeFileSurfaceRuntimeFetchResourceProps,
 } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import {
-	createBridgeAppNativeWorktreeFileIntakeReadyTransport,
+	createBridgeAppNativeWorktreeFileWorkerRpcTransport,
 	sendWorktreeFileIntakeReady,
 	type BridgeAppNativeWorktreeFileIntakeReadySender,
+	type BridgeAppNativeWorktreeFileOpenSourceStreamSender,
+	type BridgeAppNativeWorktreeFileRequestDescriptorSender,
+	type BridgeAppNativeWorktreeFileWorkerRpcTransport,
 } from './bridge-app-native-worktree-file-intake-ready.js';
 import {
 	createNativeWorktreeFileTelemetrySink,
@@ -68,17 +65,15 @@ export interface CreateBridgeAppNativeWorktreeFileBackendProps {
 	readonly target?: Document;
 	readonly createRequestId?: () => string;
 	readonly fetchResource?: typeof fetch;
-	readonly fetchRPC?: BridgeRPCFetch;
-	readonly rpcEndpointUrl?: string;
 	readonly responseTimeoutMilliseconds?: number;
 	readonly maxFrameBytes?: number;
 	readonly sendWorktreeFileIntakeReady?: BridgeAppNativeWorktreeFileIntakeReadySender;
+	readonly sendWorktreeFileOpenSourceStream?: BridgeAppNativeWorktreeFileOpenSourceStreamSender;
+	readonly sendWorktreeFileRequestDescriptor?: BridgeAppNativeWorktreeFileRequestDescriptorSender;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 }
 
 const nativeWorktreeFileSourceSpecAttribute = 'data-bridge-worktree-file-source-spec';
-const nativeWorktreeFileOpenSourceStreamMethod = 'worktreeFileSurface.openSourceStream';
-const nativeWorktreeFileRequestDescriptorMethod = 'worktreeFileSurface.requestFileDescriptor';
 const defaultResponseTimeoutMilliseconds = 10_000;
 const defaultMaxFrameBytes = 8 * 1024 * 1024;
 let fallbackRequestIdSequence = 0;
@@ -147,8 +142,6 @@ declare global {
 	}
 }
 
-const bridgeRPCNoResponseResultSchema = z.object({}).strict();
-
 export function createBridgeAppNativeWorktreeFileBackend(
 	props: CreateBridgeAppNativeWorktreeFileBackendProps = {},
 ): BridgeAppNativeWorktreeFileBackend | null {
@@ -162,16 +155,7 @@ export function createBridgeAppNativeWorktreeFileBackend(
 	const streamResetRequiredCallbacks = new Set<() => void>();
 	const pendingFrames: WorktreeFileProtocolFrame[] = [];
 	const pendingOpenResolvers = new Set<PendingOpenResolver>();
-	const worktreeFileIntakeReadyTransport =
-		props.sendWorktreeFileIntakeReady === undefined
-			? createBridgeAppNativeWorktreeFileIntakeReadyTransport({
-					timeoutMilliseconds:
-						props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
-				})
-			: {
-					send: props.sendWorktreeFileIntakeReady,
-					dispose: (): void => {},
-				};
+	const worktreeFileWorkerRpcTransport = createNativeWorktreeFileWorkerRpcTransport(props);
 	let pushNonce: string | null = null;
 	let disposeIntakeListener: (() => void) | null = null;
 	let activeIntakeListenerIdentity: NativeWorktreeFileStreamIdentity | null = null;
@@ -387,15 +371,12 @@ export function createBridgeAppNativeWorktreeFileBackend(
 			try {
 				const requestId = props.createRequestId?.() ?? createNativeWorktreeFileRequestId();
 				const response = await sendNativeWorktreeFileOpenStreamCommand({
-					endpointUrl: props.rpcEndpointUrl,
-					fetchRPC: props.fetchRPC,
 					requestId,
+					send: worktreeFileWorkerRpcTransport.sendOpenSourceStream,
 					sourceSpec: {
 						...sourceSpec,
 						clientRequestId: requestId,
 					},
-					timeoutMilliseconds:
-						props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
 				});
 				const parsedOutcome = worktreeFileSurfaceOpenSourceOutcomeSchema.safeParse(response);
 				if (!parsedOutcome.success) {
@@ -437,7 +418,7 @@ export function createBridgeAppNativeWorktreeFileBackend(
 					});
 					await sendWorktreeFileIntakeReady({
 						generation: outcome.generation,
-						send: worktreeFileIntakeReadyTransport.send,
+						send: worktreeFileWorkerRpcTransport.sendIntakeReady,
 						streamId: outcome.streamId,
 					});
 					const snapshotFrame = await snapshotWait.promise;
@@ -485,13 +466,9 @@ export function createBridgeAppNativeWorktreeFileBackend(
 			}
 			const requestId = props.createRequestId?.() ?? createNativeWorktreeFileRequestId();
 			try {
-				await sendNativeWorktreeFileDescriptorRequestCommand({
-					endpointUrl: props.rpcEndpointUrl,
-					fetchRPC: props.fetchRPC,
+				await worktreeFileWorkerRpcTransport.sendRequestDescriptor({
 					request: parsedRequest.data,
 					requestId,
-					timeoutMilliseconds:
-						props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
 				});
 			} catch (error) {
 				if (nativeWorktreeFileDescriptorErrorRequiresStreamReset(error)) {
@@ -534,8 +511,36 @@ export function createBridgeAppNativeWorktreeFileBackend(
 			initialSurfaceReplayBuffer = null;
 			resolvedStreamIdentity = null;
 			streamResetRequiredEpisodeKey = null;
-			worktreeFileIntakeReadyTransport.dispose();
+			worktreeFileWorkerRpcTransport.dispose();
 		},
+	};
+}
+
+function createNativeWorktreeFileWorkerRpcTransport(
+	props: CreateBridgeAppNativeWorktreeFileBackendProps,
+): BridgeAppNativeWorktreeFileWorkerRpcTransport {
+	const injectedSenderCount = [
+		props.sendWorktreeFileIntakeReady,
+		props.sendWorktreeFileOpenSourceStream,
+		props.sendWorktreeFileRequestDescriptor,
+	].filter((sender): sender is NonNullable<typeof sender> => sender !== undefined).length;
+	if (injectedSenderCount === 0) {
+		return createBridgeAppNativeWorktreeFileWorkerRpcTransport({
+			timeoutMilliseconds: props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
+		});
+	}
+	if (
+		props.sendWorktreeFileIntakeReady === undefined ||
+		props.sendWorktreeFileOpenSourceStream === undefined ||
+		props.sendWorktreeFileRequestDescriptor === undefined
+	) {
+		throw new Error('Native Worktree/File worker RPC sender injection must be complete');
+	}
+	return {
+		sendIntakeReady: props.sendWorktreeFileIntakeReady,
+		sendOpenSourceStream: props.sendWorktreeFileOpenSourceStream,
+		sendRequestDescriptor: props.sendWorktreeFileRequestDescriptor,
+		dispose: (): void => {},
 	};
 }
 
@@ -559,99 +564,29 @@ function readNativeWorktreeFileSourceSpec(
 }
 
 async function sendNativeWorktreeFileOpenStreamCommand(props: {
-	readonly endpointUrl: string | undefined;
-	readonly fetchRPC: BridgeRPCFetch | undefined;
 	readonly requestId: string;
+	readonly send: BridgeAppNativeWorktreeFileOpenSourceStreamSender;
 	readonly sourceSpec: z.infer<typeof worktreeFileSurfaceSourceSpecSchema>;
-	readonly timeoutMilliseconds: number;
 }): Promise<unknown> {
 	try {
-		const result = await sendBridgeRPCRequest({
-			command: {
-				id: props.requestId,
-				method: nativeWorktreeFileOpenSourceStreamMethod,
-				params: props.sourceSpec,
-			},
-			endpointUrl: props.endpointUrl,
-			fetch: props.fetchRPC,
-			timeoutMilliseconds: props.timeoutMilliseconds,
+		const result = await props.send({
+			requestId: props.requestId,
+			sourceSpec: props.sourceSpec,
 		});
 		recordNativeWorktreeFileProbe({ reason: 'open_response_received' });
 		return result;
 	} catch (error) {
-		if (error instanceof BridgeRPCRequestTimeoutError) {
+		if (error instanceof Error && error.message.includes('timed out')) {
 			recordNativeWorktreeFileProbe({ reason: 'open_response_timeout' });
-			throw new Error('Native Worktree/File open stream timed out', { cause: error });
+			throw error;
 		}
-		if (error instanceof BridgeRPCResponseError) {
+		if (
+			error instanceof Error &&
+			error.message.startsWith('Native Worktree/File open stream failed:')
+		) {
 			recordNativeWorktreeFileProbe({ reason: 'open_response_error' });
-			throw new Error(
-				`Native Worktree/File open stream failed: ${nativeWorktreeFileOpenStreamErrorClass(error)}`,
-				{ cause: error },
-			);
 		}
 		throw error;
-	}
-}
-
-async function sendNativeWorktreeFileDescriptorRequestCommand(props: {
-	readonly endpointUrl: string | undefined;
-	readonly fetchRPC: BridgeRPCFetch | undefined;
-	readonly request: WorktreeFileDescriptorRequest;
-	readonly requestId: string;
-	readonly timeoutMilliseconds: number;
-}): Promise<void> {
-	try {
-		const result = await sendBridgeRPCRequest({
-			command: {
-				id: props.requestId,
-				method: nativeWorktreeFileRequestDescriptorMethod,
-				params: props.request,
-			},
-			endpointUrl: props.endpointUrl,
-			fetch: props.fetchRPC,
-			timeoutMilliseconds: props.timeoutMilliseconds,
-		});
-		const parsedAck = bridgeRPCNoResponseResultSchema.safeParse(result);
-		if (!parsedAck.success) {
-			throw new Error('Native Worktree/File descriptor request returned invalid acknowledgement');
-		}
-	} catch (error) {
-		if (error instanceof BridgeRPCRequestTimeoutError) {
-			throw new Error('Native Worktree/File descriptor request timed out', { cause: error });
-		}
-		if (error instanceof BridgeRPCResponseError) {
-			throw new Error(
-				`Native Worktree/File descriptor request failed: ${nativeWorktreeFileOpenStreamErrorClass(error)}`,
-				{ cause: error },
-			);
-		}
-		throw error;
-	}
-}
-
-function nativeWorktreeFileOpenStreamErrorClass(error: {
-	readonly code: number;
-	readonly message: string;
-}): string {
-	if (/^worktree_file\.[a-z0-9_.-]+$/u.test(error.message)) {
-		return error.message;
-	}
-	switch (error.code) {
-		case -32_004:
-			return 'bridge_not_ready';
-		case -32_600:
-			return 'invalid_request';
-		case -32_601:
-			return 'method_not_found';
-		case -32_602:
-			return 'invalid_params';
-		case -32_603:
-			return 'internal_error';
-		case -32_700:
-			return 'parse_error';
-		default:
-			return 'jsonrpc_error';
 	}
 }
 

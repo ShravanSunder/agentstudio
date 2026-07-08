@@ -46,6 +46,24 @@ export function bridgeWorkerRuntimeSchemeRpcCommandForMessage(
 				},
 				requestId: message.requestId,
 			};
+		case 'worktreeFileOpenSourceStream':
+			return {
+				command: {
+					id: message.requestId,
+					method: 'worktreeFileSurface.openSourceStream',
+					params: message.sourceSpec,
+				},
+				requestId: message.requestId,
+			};
+		case 'worktreeFileRequestDescriptor':
+			return {
+				command: {
+					id: message.requestId,
+					method: 'worktreeFileSurface.requestFileDescriptor',
+					params: message.descriptorRequest,
+				},
+				requestId: message.requestId,
+			};
 		case 'activeViewerModeUpdate':
 			return {
 				command: {
@@ -87,6 +105,8 @@ export function bridgeCommWorkerTelemetryLaneForMessage(
 		case 'mode':
 		case 'reviewIntakeReady':
 		case 'worktreeFileIntakeReady':
+		case 'worktreeFileOpenSourceStream':
+		case 'worktreeFileRequestDescriptor':
 		case 'reviewSourceUpdate':
 			return 'background';
 		default:

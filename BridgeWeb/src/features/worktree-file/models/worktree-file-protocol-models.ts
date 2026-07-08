@@ -376,6 +376,9 @@ export const worktreeFileDemandStimulusSchema = z.discriminatedUnion('kind', [
 ]);
 
 export type WorktreeFileSurfaceSourceSpec = z.infer<typeof worktreeFileSurfaceSourceSpecSchema>;
+export type WorktreeFileSurfaceOpenSourceOutcome = z.infer<
+	typeof worktreeFileSurfaceOpenSourceOutcomeSchema
+>;
 export type WorktreeFileSurfaceSourceIdentity = z.infer<
 	typeof worktreeFileSurfaceSourceIdentitySchema
 >;
