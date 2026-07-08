@@ -2964,3 +2964,32 @@ counts before claiming a gate.
   percentile movement, render-proof success, G6 scheme-stream push/intake/ack
   closure, zero-copy Pierre delivery, implementation-review-swarm, PR
   readiness, or full goal completion.
+
+### 2026-07-08 Review worker paint probe P2 closure
+
+- Checkpoint commit: `f5a03faa fix(bridge): correct review worker paint probes`
+  (unsigned; signed commit attempt failed before object write with
+  `1Password: agent returned an error`).
+- Scope: closed the two P2 findings from Goodall the 2nd's second review.
+  Anchored-delivery debug probes now report `hasAnchor` only when the
+  selected-content paint start token actually matches the selected worker item,
+  and source-reset `setItems` records worker materialization telemetry for every
+  materialized worker-prepared reset item instead of selected-only.
+- Red evidence:
+  `CI=true pnpm -C BridgeWeb exec vitest run
+  src/review-viewer/review-viewer-source-structure.unit.test.ts -t "reports
+  selected paint telemetry anchors|source reset records worker materialization
+  telemetry" --reporter dot` failed 2/2 before the fix: the source still
+  contained `hasAnchor: true` and the reset path did not loop over every item.
+- Green evidence:
+  The same filtered test passed 2/2 after the fix. `CI=true pnpm -C BridgeWeb
+  exec vitest run` over the focused 8-file Review CodeView/telemetry battery
+  passed 8 files / 79 tests. `pnpm -C BridgeWeb exec tsc --noEmit --pretty
+  false` passed. `pnpm -C BridgeWeb exec oxfmt --check .` passed. `pnpm -C
+  BridgeWeb exec oxlint --type-aware` exited 0 with repo warning-only output.
+  `git diff --check` passed.
+- Known proof boundary:
+  This closes the deterministic P2s only. Browser-worker proof for actual
+  Review click/apply telemetry and oq4s marker-scoped Victoria proof for
+  `code_view_item_materialize` selected true/false with
+  `agentstudio.bridge.transport=worker` remain open.
