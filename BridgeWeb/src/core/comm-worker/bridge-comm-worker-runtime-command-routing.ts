@@ -22,6 +22,14 @@ export function bridgeWorkerRuntimeSchemeRpcCommandForMessage(
 				},
 				requestId: message.requestId,
 			};
+		case 'activeViewerModeUpdate':
+			return {
+				command: {
+					method: 'bridge.activeViewerMode.update',
+					params: message.update,
+				},
+				requestId: message.requestId,
+			};
 		case 'fileViewSourceUpdate':
 		case 'hover':
 		case 'mode':
@@ -49,6 +57,8 @@ export function bridgeCommWorkerTelemetryLaneForMessage(
 			return 'file_view';
 		case 'metadataInterestUpdate':
 			return message.request.lane === 'foreground' ? 'selected' : 'visible';
+		case 'activeViewerModeUpdate':
+			return 'background';
 		case 'markFileViewed':
 		case 'mode':
 		case 'reviewSourceUpdate':

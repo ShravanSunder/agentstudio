@@ -1,5 +1,6 @@
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
+	bridgeWorkerActiveViewerModeUpdateCommandSchema,
 	bridgeWorkerFileViewSourceUpdateCommandSchema,
 	bridgeWorkerHoverCommandSchema,
 	bridgeWorkerMarkFileViewedCommandSchema,
@@ -10,6 +11,7 @@ import {
 	bridgeWorkerSelectCommandSchema,
 	bridgeWorkerViewportCommandSchema,
 	type BridgeWorkerHealthEvent,
+	type BridgeWorkerActiveViewerModeUpdateCommand,
 	type BridgeWorkerFileViewSourceUpdateCommand,
 	type BridgeWorkerHoverCommand,
 	type BridgeWorkerMainToServerCommand,
@@ -53,6 +55,10 @@ export interface EncodeBridgeWorkerMarkFileViewedCommandProps extends EncodeBrid
 
 export interface EncodeBridgeWorkerMetadataInterestUpdateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
 	readonly request: BridgeWorkerMetadataInterestRequest;
+}
+
+export interface EncodeBridgeWorkerActiveViewerModeUpdateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
+	readonly update: BridgeWorkerActiveViewerModeUpdateCommand['update'];
 }
 
 export interface EncodeBridgeWorkerModeCommandProps extends EncodeBridgeWorkerCommandBaseProps {
@@ -125,6 +131,15 @@ export function encodeBridgeWorkerMetadataInterestUpdateCommand(
 	return bridgeWorkerMetadataInterestUpdateCommandSchema.parse({
 		...bridgeWorkerCommandEnvelope(props, 'metadataInterestUpdate'),
 		request: props.request,
+	});
+}
+
+export function encodeBridgeWorkerActiveViewerModeUpdateCommand(
+	props: EncodeBridgeWorkerActiveViewerModeUpdateCommandProps,
+): BridgeWorkerActiveViewerModeUpdateCommand {
+	return bridgeWorkerActiveViewerModeUpdateCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'activeViewerModeUpdate'),
+		update: props.update,
 	});
 }
 

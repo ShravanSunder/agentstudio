@@ -2,6 +2,7 @@ import { readBridgeCommWorkerAbsoluteNowMilliseconds } from '../../../core/comm-
 // oxlint-disable unicorn/require-post-message-target-origin -- Worker postMessage does not accept a targetOrigin argument.
 import type {
 	BridgeCommWorkerBootstrapRequest,
+	BridgeWorkerHealthEvent,
 	BridgeWorkerMainToServerMessage,
 	BridgeWorkerServerToMainMessage,
 } from '../../../core/comm-worker/bridge-worker-contracts.js';
@@ -41,7 +42,10 @@ export function createBridgeReviewCommWorkerTransportDispatcher(
 		});
 	const now = props.now ?? readBridgeCommWorkerTransportNowMilliseconds;
 	const queuedCommands: BridgeWorkerMainToServerMessage[] = [];
-	const inFlightAwaitedOrdinaryRpcFailuresByRequestId = new Map<string, string>();
+	const inFlightAwaitedOrdinaryRpcFailuresByRequestId = new Map<
+		string,
+		AwaitedOrdinaryRpcFailure
+	>();
 	let worker: Worker | null = null;
 	let workerPromise: Promise<Worker> | null = null;
 	let isBootstrapReady = false;
@@ -95,10 +99,22 @@ export function createBridgeReviewCommWorkerTransportDispatcher(
 			return;
 		}
 		publishAwaitedOrdinaryRpcFailures({
-			failures: Array.from(
-				inFlightAwaitedOrdinaryRpcFailuresByRequestId,
-				([requestId, message]): AwaitedOrdinaryRpcFailure => ({ requestId, message }),
-			),
+			failures: Array.from(inFlightAwaitedOrdinaryRpcFailuresByRequestId.values()),
+			publishWorkerMessages: props.publishWorkerMessages,
+		});
+	};
+	const publishDefiniteAwaitedOrdinaryRpcFailure = (
+		message: BridgeWorkerMainToServerMessage,
+	): void => {
+		if (isDisposed) {
+			return;
+		}
+		const failureMessage = awaitedOrdinaryRpcFailureMessageForCommand(message);
+		if (failureMessage === null) {
+			return;
+		}
+		publishAwaitedOrdinaryRpcFailures({
+			failures: [{ requestId: message.requestId, message: failureMessage }],
 			publishWorkerMessages: props.publishWorkerMessages,
 		});
 	};
@@ -112,16 +128,16 @@ export function createBridgeReviewCommWorkerTransportDispatcher(
 		activeWorker: Worker,
 		message: BridgeWorkerMainToServerMessage,
 	): void => {
-		const failureMessage = awaitedOrdinaryRpcFailureMessageForCommand(message);
-		if (failureMessage !== null) {
-			inFlightAwaitedOrdinaryRpcFailuresByRequestId.set(message.requestId, failureMessage);
-		}
 		activeWorker.postMessage(
 			stampBridgeWorkerDispatchTimestamp({
 				message,
 				now,
 			}),
 		);
+		const failure = inFlightAwaitedOrdinaryRpcFailureForCommand(message);
+		if (failure !== null) {
+			inFlightAwaitedOrdinaryRpcFailuresByRequestId.set(message.requestId, failure);
+		}
 	};
 	const getWorker = async (): Promise<Worker> => {
 		if (worker !== null) {
@@ -157,12 +173,21 @@ export function createBridgeReviewCommWorkerTransportDispatcher(
 						if (parsed.data.status === 'ready') {
 							isBootstrapReady = true;
 							flushQueuedCommands({
+								onPostFailure: (queuedCommand): void => {
+									failBootstrap(
+										nextWorker,
+										'Bridge comm worker transport failed during bootstrap.',
+									);
+									publishDefiniteAwaitedOrdinaryRpcFailure(queuedCommand);
+								},
 								postWorkerCommand,
 								queuedCommands,
 								worker: nextWorker,
 							});
 							return;
 						}
+						publishQueuedAwaitedOrdinaryRpcFailures();
+						publishInFlightAwaitedOrdinaryRpcFailures();
 						resetWorkerBootstrapState(nextWorker);
 					}
 				});
@@ -204,6 +229,7 @@ export function createBridgeReviewCommWorkerTransportDispatcher(
 							postWorkerCommand(activeWorker, message);
 						} catch {
 							failBootstrap(activeWorker, 'Bridge comm worker transport failed during bootstrap.');
+							publishDefiniteAwaitedOrdinaryRpcFailure(message);
 						}
 					}
 				})
@@ -263,16 +289,27 @@ function createDefaultBridgeReviewCommWorkerFactory(
 }
 
 function flushQueuedCommands(props: {
+	readonly onPostFailure: (message: BridgeWorkerMainToServerMessage) => void;
 	readonly postWorkerCommand: (worker: Worker, message: BridgeWorkerMainToServerMessage) => void;
 	readonly queuedCommands: BridgeWorkerMainToServerMessage[];
 	readonly worker: Worker;
 }): void {
-	for (const queuedCommand of props.queuedCommands.splice(0, props.queuedCommands.length)) {
-		props.postWorkerCommand(props.worker, queuedCommand);
+	while (props.queuedCommands.length > 0) {
+		const queuedCommand = props.queuedCommands.shift();
+		if (queuedCommand === undefined) {
+			return;
+		}
+		try {
+			props.postWorkerCommand(props.worker, queuedCommand);
+		} catch {
+			props.onPostFailure(queuedCommand);
+			return;
+		}
 	}
 }
 
 interface AwaitedOrdinaryRpcFailure {
+	readonly deliveryStatus?: BridgeWorkerHealthEvent['deliveryStatus'];
 	readonly message: string;
 	readonly requestId: string;
 }
@@ -294,12 +331,28 @@ function publishAwaitedOrdinaryRpcFailures(props: {
 			requestId: failure.requestId,
 			status: 'degraded',
 			message: failure.message,
+			...(failure.deliveryStatus === undefined ? {} : { deliveryStatus: failure.deliveryStatus }),
 			transferDescriptors: [],
 		}),
 	);
 	if (failures.length > 0) {
 		props.publishWorkerMessages(failures);
 	}
+}
+
+function inFlightAwaitedOrdinaryRpcFailureForCommand(
+	message: BridgeWorkerMainToServerMessage,
+): AwaitedOrdinaryRpcFailure | null {
+	if (message.command === 'activeViewerModeUpdate') {
+		return {
+			requestId: message.requestId,
+			message:
+				'Bridge comm worker transport lost confirmation after bridge.activeViewerMode.update dispatch.',
+			deliveryStatus: 'unknownAfterDispatch',
+		};
+	}
+	const failureMessage = awaitedOrdinaryRpcFailureMessageForCommand(message);
+	return failureMessage === null ? null : { requestId: message.requestId, message: failureMessage };
 }
 
 function awaitedOrdinaryRpcFailureMessageForCommand(
@@ -310,6 +363,8 @@ function awaitedOrdinaryRpcFailureMessageForCommand(
 			return 'Bridge comm worker transport failed before review.markFileViewed delivery.';
 		case 'metadataInterestUpdate':
 			return 'Bridge comm worker transport failed before bridge.metadata_interest.update delivery.';
+		case 'activeViewerModeUpdate':
+			return 'Bridge comm worker transport failed before bridge.activeViewerMode.update delivery.';
 		case 'fileViewSourceUpdate':
 		case 'hover':
 		case 'mode':

@@ -3330,3 +3330,79 @@ counts before claiming a gate.
   finish active-viewer-mode cutover, scheme-stream push/intake/ack cutover,
   native oq4s scroll/click proof, Review apply/materialization lag closure,
   implementation-review-swarm, PR readiness, or full goal completion.
+
+### 2026-07-08 G6 active-viewer-mode ordinary RPC cutover
+
+- Scope:
+  Active viewer mode updates are routed through the comm-worker ordinary command
+  path and worker-owned scheme RPC forwarding. `BridgeApp` no longer owns a
+  page-world `BridgeRPCClient` for `bridge.activeViewerMode.update`.
+- Implementation:
+  Added typed `activeViewerModeUpdate` worker command encoding, client surface,
+  command handler acceptance, runtime command routing, scheme-RPC forwarding,
+  and transport health semantics. `BridgeApp` now creates a narrow
+  `createBridgeReviewRuntimeProtocolDispatcher` for active-mode notifications,
+  resolves request promises from request-correlated worker health, retries
+  definite pre-delivery failures, and treats `unknownAfterDispatch` as sent to
+  avoid duplicate fresh-sequence notifications after ambiguous delivery.
+- Accepted sidekick findings:
+  Hooke the 2nd found a P1 queued-bootstrap-flush gap: a synchronous
+  `postMessage` throw while flushing queued `activeViewerModeUpdate` commands
+  could escape without request-scoped degraded health, leaving the app-side
+  resolver pending. Red proof failed on the new queued-flush test with an
+  unhandled `worker postMessage failed` and no terminate/reset. The fix shifts
+  queued commands one at a time, catches flush-time post failures, publishes the
+  failed queued command as a definite pre-delivery failure, and lets remaining
+  queued awaited commands be failed by bootstrap reset.
+  Volta the 2nd found a P1 degraded-bootstrap gap: queued
+  `activeViewerModeUpdate` commands were reset after bootstrap degraded health
+  without request-scoped failure. Red proof failed because only bootstrap
+  degraded health was published. The fix publishes queued and in-flight awaited
+  ordinary-RPC failures before degraded-bootstrap reset, and the browser proof
+  verifies `BridgeApp` retries the first active-mode signal after receiving
+  that request-scoped failure.
+- Green evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/workers/shared-rpc/bridge-comm-worker-transport.unit.test.ts
+  -t "queued active-viewer-mode flush" --reporter dot` passed 1/1 after the
+  red failure. `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/workers/shared-rpc/bridge-comm-worker-transport.unit.test.ts
+  -t "bootstrap degrades" --reporter dot` passed 1/1 after the degraded-health
+  red failure. `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/workers/shared-rpc/bridge-comm-worker-transport.unit.test.ts
+  --reporter dot` passed 16/16. Browser proof
+  `CI=true pnpm --dir BridgeWeb exec vitest --config
+  vitest.browser.config.ts run --project integration-browser
+  src/app/bridge-app-protocol-router.browser.test.tsx -t "queued bootstrap
+  degradation" --reporter dot` passed 1/1. Focused G6 battery
+  `pnpm --dir BridgeWeb exec vitest run
+  src/core/comm-worker/bridge-comm-worker-protocol.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-command-handler.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-runtime-protocol.unit.test.ts
+  src/review-viewer/workers/shared-rpc/bridge-comm-worker-transport.unit.test.ts
+  src/app/bridge-app-source-structure.unit.test.ts --reporter dot` passed
+  5 files / 59 tests. Browser protocol router
+  `CI=true pnpm --dir BridgeWeb exec vitest --config
+  vitest.browser.config.ts run --project integration-browser
+  src/app/bridge-app-protocol-router.browser.test.tsx --reporter dot` passed
+  1 file / 14 tests. `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false`
+  passed. Scoped `oxfmt --check`, scoped `oxlint --type-aware`, and
+  `git diff --check` passed.
+- Source scans:
+  `rg -n "createBridgeRPCClient|sendCommandAndWait|method:
+  'bridge.activeViewerMode.update'|activeViewerModeRPCClient"
+  BridgeWeb/src/app/bridge-app.tsx || true` returned no production
+  `BridgeApp` matches. Wider scan matches are limited to browser assertion,
+  negative source guard, worker command routing, and worker runtime tests.
+- Line proof:
+  `bridge-app.tsx` 610 lines, `bridge-app-protocol-router.browser.test.tsx`
+  900 lines, `bridge-worker-contracts.ts` 781 lines,
+  `bridge-comm-worker-command-handler.ts` 940 lines,
+  `bridge-comm-worker-runtime-protocol.ts` 856 lines, and
+  `bridge-comm-worker-transport.unit.test.ts` 956 lines. The extracted
+  `bridge-comm-worker-transport.test-support.ts` is 68 lines.
+- Known proof boundary:
+  This is one active-viewer-mode ordinary RPC hard-cutover checkpoint. It does
+  not finish scheme-stream push/intake/ack cutover, native oq4s scroll/click
+  proof, Review apply/materialization lag closure, implementation-review-swarm,
+  PR readiness, or full goal completion.

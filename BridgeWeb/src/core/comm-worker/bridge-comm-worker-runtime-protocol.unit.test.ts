@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from 'vitest';
 import type { BridgeRPCCommand } from '../../bridge/bridge-rpc-client.js';
 import {
 	encodeBridgeWorkerFileViewSourceUpdateCommand,
+	encodeBridgeWorkerActiveViewerModeUpdateCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerMetadataInterestUpdateCommand,
 	encodeBridgeWorkerReviewSourceUpdateCommand,
@@ -369,6 +370,131 @@ describe('Bridge comm worker runtime protocol', () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	test('forwards activeViewerModeUpdate commands to Swift through worker-owned scheme RPC', async () => {
+		const sentCommands: BridgeRPCCommand[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const schemeRpcCompletion = createDeferredVoid();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+			contentRequestDescriptors: [],
+			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			sendSchemeRpcCommand: async (command): Promise<void> => {
+				sentCommands.push(command);
+				await schemeRpcCompletion.promise;
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				requestId: 'request-active-viewer-mode',
+				epoch: 3,
+				update: {
+					sessionId: 'active-viewer-session',
+					sequence: 4,
+					mode: 'review',
+					activeSource: {
+						protocol: 'review',
+						streamId: 'review:pane-1',
+						generation: 5,
+					},
+				},
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		expect(sentCommands).toEqual([
+			{
+				method: 'bridge.activeViewerMode.update',
+				params: {
+					sessionId: 'active-viewer-session',
+					sequence: 4,
+					mode: 'review',
+					activeSource: {
+						protocol: 'review',
+						streamId: 'review:pane-1',
+						generation: 5,
+					},
+				},
+			},
+		]);
+		expect(postedMessages.map((postedMessage) => postedMessage.message)).not.toContainEqual(
+			expect.objectContaining({
+				kind: 'health',
+				requestId: 'request-active-viewer-mode',
+				status: 'ready',
+			}),
+		);
+		schemeRpcCompletion.resolve();
+		await flushBridgeWorkerRuntimeContinuations();
+
+		expect(postedMessages.map((postedMessage) => postedMessage.message)).toContainEqual(
+			expect.objectContaining({
+				kind: 'health',
+				requestId: 'request-active-viewer-mode',
+				status: 'ready',
+			}),
+		);
+	});
+
+	test('reports degraded health when activeViewerModeUpdate scheme RPC forwarding fails', async () => {
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+			contentRequestDescriptors: [],
+			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			sendSchemeRpcCommand: async (): Promise<void> => {
+				throw new Error('scheme down');
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				requestId: 'request-active-viewer-mode',
+				epoch: 3,
+				update: {
+					sessionId: 'active-viewer-session',
+					sequence: 4,
+					mode: 'file',
+					activeSource: null,
+				},
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		expect(postedMessages.map((postedMessage) => postedMessage.message)).toContainEqual(
+			expect.objectContaining({
+				kind: 'health',
+				requestId: 'request-active-viewer-mode',
+				status: 'degraded',
+				message: 'Bridge comm worker failed to forward bridge.activeViewerMode.update.',
+				deliveryStatus: 'unknownAfterDispatch',
+			}),
+		);
+		expect(postedMessages.map((postedMessage) => postedMessage.message)).not.toContainEqual(
+			expect.objectContaining({
+				kind: 'health',
+				requestId: 'request-active-viewer-mode',
+				status: 'ready',
+			}),
+		);
 	});
 
 	test('selected Review demand preempts an in-progress source reset and uses the newest generation only', async () => {

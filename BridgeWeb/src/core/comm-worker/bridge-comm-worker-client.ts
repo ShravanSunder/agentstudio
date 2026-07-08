@@ -1,6 +1,7 @@
 // oxlint-disable unicorn/require-post-message-target-origin -- The inert client posts through a MessagePort-like worker transport, not Window.postMessage.
 import {
 	buildBridgeWorkerReadyHealthEvent,
+	encodeBridgeWorkerActiveViewerModeUpdateCommand,
 	encodeBridgeWorkerHoverCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerMetadataInterestUpdateCommand,
@@ -10,6 +11,7 @@ import {
 	type EncodeBridgeWorkerHoverCommandProps,
 	type EncodeBridgeWorkerMarkFileViewedCommandProps,
 	type EncodeBridgeWorkerMetadataInterestUpdateCommandProps,
+	type EncodeBridgeWorkerActiveViewerModeUpdateCommandProps,
 	type EncodeBridgeWorkerModeCommandProps,
 	type EncodeBridgeWorkerSelectCommandProps,
 	type EncodeBridgeWorkerViewportCommandProps,
@@ -48,6 +50,9 @@ export interface InertBridgeCommWorkerClient {
 	) => Promise<BridgeWorkerHealthEvent>;
 	readonly metadataInterestUpdate: (
 		props: Omit<EncodeBridgeWorkerMetadataInterestUpdateCommandProps, 'requestId'>,
+	) => Promise<BridgeWorkerHealthEvent>;
+	readonly activeViewerModeUpdate: (
+		props: Omit<EncodeBridgeWorkerActiveViewerModeUpdateCommandProps, 'requestId'>,
 	) => Promise<BridgeWorkerHealthEvent>;
 	readonly mode: (
 		props: Omit<EncodeBridgeWorkerModeCommandProps, 'requestId'>,
@@ -92,22 +97,29 @@ export function createInertBridgeCommWorkerClient(
 					requestId: createRequestId(),
 				}),
 			),
-			markFileViewed: (markFileViewedProps): Promise<BridgeWorkerHealthEvent> =>
-				postAndWait(
-					encodeBridgeWorkerMarkFileViewedCommand({
-						...markFileViewedProps,
-						requestId: createRequestId(),
-					}),
-				),
-			metadataInterestUpdate: (metadataInterestUpdateProps): Promise<BridgeWorkerHealthEvent> =>
-				postAndWait(
-					encodeBridgeWorkerMetadataInterestUpdateCommand({
-						...metadataInterestUpdateProps,
-						requestId: createRequestId(),
-					}),
-				),
-			mode: (modeProps): Promise<BridgeWorkerHealthEvent> =>
-				postAndWait(
+		markFileViewed: (markFileViewedProps): Promise<BridgeWorkerHealthEvent> =>
+			postAndWait(
+				encodeBridgeWorkerMarkFileViewedCommand({
+					...markFileViewedProps,
+					requestId: createRequestId(),
+				}),
+			),
+		metadataInterestUpdate: (metadataInterestUpdateProps): Promise<BridgeWorkerHealthEvent> =>
+			postAndWait(
+				encodeBridgeWorkerMetadataInterestUpdateCommand({
+					...metadataInterestUpdateProps,
+					requestId: createRequestId(),
+				}),
+			),
+		activeViewerModeUpdate: (activeViewerModeUpdateProps): Promise<BridgeWorkerHealthEvent> =>
+			postAndWait(
+				encodeBridgeWorkerActiveViewerModeUpdateCommand({
+					...activeViewerModeUpdateProps,
+					requestId: createRequestId(),
+				}),
+			),
+		mode: (modeProps): Promise<BridgeWorkerHealthEvent> =>
+			postAndWait(
 				encodeBridgeWorkerModeCommand({
 					...modeProps,
 					requestId: createRequestId(),

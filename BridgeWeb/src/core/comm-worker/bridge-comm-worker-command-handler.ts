@@ -240,6 +240,7 @@ function handleBridgeWorkerCommand(
 			});
 		case 'markFileViewed':
 		case 'metadataInterestUpdate':
+		case 'activeViewerModeUpdate':
 			return [buildBridgeWorkerReadyHealthEvent(props.message.requestId)];
 		case 'hover':
 		case 'mode':

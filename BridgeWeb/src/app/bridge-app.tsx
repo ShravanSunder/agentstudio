@@ -6,11 +6,16 @@ import {
 	installBridgePageHandshakeSession,
 } from '../bridge/bridge-page-handshake.js';
 import {
-	createBridgeRPCClient,
+	type BridgeActiveViewerModeUpdate,
 	type BridgeActiveViewerSource,
 } from '../bridge/bridge-rpc-client.js';
 import { createBridgeTelemetryEventSink } from '../bridge/bridge-telemetry-event-sink.js';
+import { encodeBridgeWorkerActiveViewerModeUpdateCommand } from '../core/comm-worker/bridge-comm-worker-protocol.js';
 import { createBridgeCommWorkerTelemetryClient } from '../core/comm-worker/bridge-comm-worker-telemetry.js';
+import type {
+	BridgeWorkerHealthEvent,
+	BridgeWorkerServerToMainMessage,
+} from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeFileViewerAppProps } from '../file-viewer/bridge-file-viewer-app.js';
 import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
 import type { BridgeTelemetryBootstrapConfig } from '../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
@@ -24,7 +29,10 @@ import type { BridgeMarkdownRenderWorkerClient } from '../review-viewer/workers/
 import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-client.js';
 import type { BridgeAppControlProbe } from './bridge-app-control.js';
 import { BridgeFileViewerMode } from './bridge-app-file-viewer-mode.js';
-import type { CreateBridgeReviewRuntimeProtocolDispatcherProps } from './bridge-app-review-render-snapshot-controller.js';
+import {
+	createBridgeReviewRuntimeProtocolDispatcher,
+	type CreateBridgeReviewRuntimeProtocolDispatcherProps,
+} from './bridge-app-review-render-snapshot-controller.js';
 import { BridgeReviewViewerMode } from './bridge-app-review-viewer-mode.js';
 export { bridgeReviewNavigationCommandForWorktreeDescriptor } from './bridge-review-navigation.js';
 export {
@@ -174,6 +182,11 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const isBridgeReadyGateOpenRef = useRef(false);
 	const isBridgeReadyRef = useRef(false);
 	const bridgeReadyCallbacksRef = useRef<Set<() => void>>(new Set());
+	const activeViewerModeWorkerRequestSequenceRef = useRef(0);
+	const activeViewerModeWorkerEpochRef = useRef(0);
+	const activeViewerModeRequestResolversRef = useRef<Map<string, (didSend: boolean) => void>>(
+		new Map(),
+	);
 	const registerBridgeReadyCallback = useCallback((callback: () => void): (() => void) => {
 		bridgeReadyCallbacksRef.current.add(callback);
 		if (isBridgeReadyGateOpenRef.current) {
@@ -237,7 +250,57 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			telemetryRecorderRef.current = createBridgeTelemetryRecorder(null);
 		};
 	}, [target]);
-	const activeViewerModeRPCClient = useMemo(() => createBridgeRPCClient({ target }), [target]);
+	const publishActiveViewerModeWorkerMessages = useCallback(
+		(messages: readonly BridgeWorkerServerToMainMessage[]): void => {
+			resolveBridgeWorkerActiveViewerModeRequestResolvers({
+				messages,
+				resolversByRequestId: activeViewerModeRequestResolversRef.current,
+			});
+		},
+		[],
+	);
+	const activeViewerModeRuntimeDispatcher = useMemo(
+		() =>
+			createBridgeReviewRuntimeProtocolDispatcher({
+				bootstrapRequestId: 'active-viewer-mode-worker-bootstrap',
+				contentItems: [],
+				contentRequestDescriptors: [],
+				publishWorkerMessages: publishActiveViewerModeWorkerMessages,
+				renderSemantics: [],
+				rows: [],
+				...(props.reviewWorkerTransportFactory === undefined
+					? {}
+					: { transportFactory: props.reviewWorkerTransportFactory }),
+			}),
+		[publishActiveViewerModeWorkerMessages, props.reviewWorkerTransportFactory],
+	);
+	useEffect(
+		(): (() => void) => (): void => {
+			activeViewerModeRuntimeDispatcher.dispose();
+			resolvePendingBridgeWorkerActiveViewerModeRequests({
+				didSend: false,
+				resolversByRequestId: activeViewerModeRequestResolversRef.current,
+			});
+		},
+		[activeViewerModeRuntimeDispatcher],
+	);
+	const sendActiveViewerModeWorkerUpdate = useCallback(
+		(update: BridgeActiveViewerModeUpdate): Promise<boolean> => {
+			const requestId = `active-viewer-mode-${++activeViewerModeWorkerRequestSequenceRef.current}`;
+			const completion = new Promise<boolean>((resolve): void => {
+				activeViewerModeRequestResolversRef.current.set(requestId, resolve);
+			});
+			activeViewerModeRuntimeDispatcher.dispatch(
+				encodeBridgeWorkerActiveViewerModeUpdateCommand({
+					requestId,
+					epoch: ++activeViewerModeWorkerEpochRef.current,
+					update,
+				}),
+			);
+			return completion;
+		},
+		[activeViewerModeRuntimeDispatcher],
+	);
 	activeViewerModeRef.current = activeViewerState.viewerMode;
 	activeViewerSourcesRef.current = activeViewerSources;
 	const sendActiveViewerModeUpdate = useCallback((): void => {
@@ -257,31 +320,26 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			}
 			lastSentActiveViewerModeSignalKeyRef.current = pendingSignalKey;
 			activeViewerModeSequenceRef.current += 1;
-			void activeViewerModeRPCClient
-				.sendCommandAndWait({
-					method: 'bridge.activeViewerMode.update',
-					params: {
-						sessionId: activeViewerModeSessionIdRef.current,
-						sequence: activeViewerModeSequenceRef.current,
-						mode: activeViewerMode,
-						activeSource: null,
-					},
-				})
-				.then((didSend): void => {
-					if (!didSend && lastSentActiveViewerModeSignalKeyRef.current === pendingSignalKey) {
-						lastSentActiveViewerModeSignalKeyRef.current = null;
-						if (
-							activeViewerModeRetryAttemptAvailable({
-								retryAttemptsBySignalKey: activeViewerModeRetryAttemptsBySignalKeyRef.current,
-								signalKey: pendingSignalKey,
-							})
-						) {
-							setActiveViewerModeRetryRevision(
-								(currentRetryRevision): number => currentRetryRevision + 1,
-							);
-						}
+			void sendActiveViewerModeWorkerUpdate({
+				sessionId: activeViewerModeSessionIdRef.current,
+				sequence: activeViewerModeSequenceRef.current,
+				mode: activeViewerMode,
+				activeSource: null,
+			}).then((didSend): void => {
+				if (!didSend && lastSentActiveViewerModeSignalKeyRef.current === pendingSignalKey) {
+					lastSentActiveViewerModeSignalKeyRef.current = null;
+					if (
+						activeViewerModeRetryAttemptAvailable({
+							retryAttemptsBySignalKey: activeViewerModeRetryAttemptsBySignalKeyRef.current,
+							signalKey: pendingSignalKey,
+						})
+					) {
+						setActiveViewerModeRetryRevision(
+							(currentRetryRevision): number => currentRetryRevision + 1,
+						);
 					}
-				});
+				}
+			});
 			return;
 		}
 		const signalKey = `${activationRevision}:${activeViewerMode}:${activeSource.protocol}:${activeSource.streamId}:${activeSource.generation}`;
@@ -291,38 +349,33 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		lastSentActiveViewerModeSignalKeyRef.current = signalKey;
 		activeViewerModeSourceSentActivationRevisionsRef.current.add(activationRevision);
 		activeViewerModeSequenceRef.current += 1;
-		void activeViewerModeRPCClient
-			.sendCommandAndWait({
-				method: 'bridge.activeViewerMode.update',
-				params: {
-					sessionId: activeViewerModeSessionIdRef.current,
-					sequence: activeViewerModeSequenceRef.current,
-					mode: activeViewerMode,
-					activeSource,
-				},
-			})
-			.then((didSend): void => {
-				if (didSend) {
-					activeViewerModeRetryAttemptsBySignalKeyRef.current.delete(signalKey);
-					return;
-				}
-				if (lastSentActiveViewerModeSignalKeyRef.current !== signalKey) {
-					return;
-				}
-				lastSentActiveViewerModeSignalKeyRef.current = null;
-				activeViewerModeSourceSentActivationRevisionsRef.current.delete(activationRevision);
-				if (
-					activeViewerModeRetryAttemptAvailable({
-						retryAttemptsBySignalKey: activeViewerModeRetryAttemptsBySignalKeyRef.current,
-						signalKey,
-					})
-				) {
-					setActiveViewerModeRetryRevision(
-						(currentRetryRevision): number => currentRetryRevision + 1,
-					);
-				}
-			});
-	}, [activeViewerModeRPCClient]);
+		void sendActiveViewerModeWorkerUpdate({
+			sessionId: activeViewerModeSessionIdRef.current,
+			sequence: activeViewerModeSequenceRef.current,
+			mode: activeViewerMode,
+			activeSource,
+		}).then((didSend): void => {
+			if (didSend) {
+				activeViewerModeRetryAttemptsBySignalKeyRef.current.delete(signalKey);
+				return;
+			}
+			if (lastSentActiveViewerModeSignalKeyRef.current !== signalKey) {
+				return;
+			}
+			lastSentActiveViewerModeSignalKeyRef.current = null;
+			activeViewerModeSourceSentActivationRevisionsRef.current.delete(activationRevision);
+			if (
+				activeViewerModeRetryAttemptAvailable({
+					retryAttemptsBySignalKey: activeViewerModeRetryAttemptsBySignalKeyRef.current,
+					signalKey,
+				})
+			) {
+				setActiveViewerModeRetryRevision(
+					(currentRetryRevision): number => currentRetryRevision + 1,
+				);
+			}
+		});
+	}, [sendActiveViewerModeWorkerUpdate]);
 	useLayoutEffect((): void => {
 		if (previousActiveViewerModeRef.current === activeViewerState.viewerMode) {
 			return;
@@ -520,4 +573,38 @@ function activeViewerModeRetryAttemptAvailable(props: {
 	}
 	props.retryAttemptsBySignalKey.set(props.signalKey, currentAttemptCount + 1);
 	return true;
+}
+
+function resolveBridgeWorkerActiveViewerModeRequestResolvers(props: {
+	readonly messages: readonly BridgeWorkerServerToMainMessage[];
+	readonly resolversByRequestId: Map<string, (didSend: boolean) => void>;
+}): void {
+	for (const message of props.messages) {
+		if (message.kind !== 'health' || message.requestId === undefined) {
+			continue;
+		}
+		const resolve = props.resolversByRequestId.get(message.requestId);
+		if (resolve === undefined) {
+			continue;
+		}
+		props.resolversByRequestId.delete(message.requestId);
+		resolve(bridgeWorkerActiveViewerModeHealthDidSend(message));
+	}
+}
+
+function bridgeWorkerActiveViewerModeHealthDidSend(message: BridgeWorkerHealthEvent): boolean {
+	if (message.status === 'ready') {
+		return true;
+	}
+	return message.deliveryStatus === 'unknownAfterDispatch';
+}
+
+function resolvePendingBridgeWorkerActiveViewerModeRequests(props: {
+	readonly didSend: boolean;
+	readonly resolversByRequestId: Map<string, (didSend: boolean) => void>;
+}): void {
+	for (const resolve of props.resolversByRequestId.values()) {
+		resolve(props.didSend);
+	}
+	props.resolversByRequestId.clear();
 }

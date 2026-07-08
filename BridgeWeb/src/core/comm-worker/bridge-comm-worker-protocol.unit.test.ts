@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
 	encodeBridgeWorkerFileViewSourceUpdateCommand,
+	encodeBridgeWorkerActiveViewerModeUpdateCommand,
 	encodeBridgeWorkerHoverCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerMetadataInterestUpdateCommand,
@@ -59,6 +60,20 @@ describe('Bridge comm worker protocol', () => {
 				epoch: 1,
 				mode: 'fileView',
 			}),
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				requestId: 'request-active-viewer-mode',
+				epoch: 1,
+				update: {
+					sessionId: 'active-viewer-session',
+					sequence: 2,
+					mode: 'file',
+					activeSource: {
+						protocol: 'worktree-file',
+						streamId: 'worktree-file:pane-1',
+						generation: 3,
+					},
+				},
+			}),
 		] satisfies readonly BridgeWorkerMainToServerCommand[];
 
 		expect(commands.map((command) => command.command)).toEqual([
@@ -68,6 +83,7 @@ describe('Bridge comm worker protocol', () => {
 			'markFileViewed',
 			'metadataInterestUpdate',
 			'mode',
+			'activeViewerModeUpdate',
 		]);
 		for (const command of commands) {
 			expect(command.wireVersion).toBe(BRIDGE_WORKER_WIRE_VERSION);
@@ -86,6 +102,19 @@ describe('Bridge comm worker protocol', () => {
 				protocol: 'review',
 				itemIds: ['item-1', 'item-2'],
 				lane: 'visible',
+			},
+		});
+		expect(commands[6]).toMatchObject({
+			command: 'activeViewerModeUpdate',
+			update: {
+				sessionId: 'active-viewer-session',
+				sequence: 2,
+				mode: 'file',
+				activeSource: {
+					protocol: 'worktree-file',
+					streamId: 'worktree-file:pane-1',
+					generation: 3,
+				},
 			},
 		});
 	});

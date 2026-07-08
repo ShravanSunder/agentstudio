@@ -8,6 +8,7 @@ import {
 import {
 	encodeBridgeWorkerFileViewSourceUpdateCommand,
 	encodeBridgeWorkerHoverCommand,
+	encodeBridgeWorkerActiveViewerModeUpdateCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerMetadataInterestUpdateCommand,
 	encodeBridgeWorkerModeCommand,
@@ -469,6 +470,39 @@ describe('Bridge comm worker command handler', () => {
 				transferDescriptors: [],
 				kind: 'health',
 				requestId: 'request-metadata-interest',
+				status: 'ready',
+			},
+		]);
+	});
+
+	test('activeViewerModeUpdate commands are accepted as worker-owned ordinary RPC intents', () => {
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [makeWorkerReviewContentMetadata('item-1')],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
+		});
+
+		const messages = handler.handleMessage(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				requestId: 'request-active-viewer-mode',
+				epoch: 1,
+				update: {
+					sessionId: 'active-viewer-session',
+					sequence: 2,
+					mode: 'review',
+					activeSource: null,
+				},
+			}),
+		);
+
+		expect(messages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
+				kind: 'health',
+				requestId: 'request-active-viewer-mode',
 				status: 'ready',
 			},
 		]);

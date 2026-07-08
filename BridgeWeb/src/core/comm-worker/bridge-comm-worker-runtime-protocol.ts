@@ -397,6 +397,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 						buildBridgeWorkerRuntimeCommandFailedHealthEvent({
 							requestId: ordinarySchemeRpcCommand.requestId,
 							message: `Bridge comm worker failed to forward ${ordinarySchemeRpcCommand.command.method}.`,
+							...(ordinarySchemeRpcCommand.command.method === 'bridge.activeViewerMode.update'
+								? { deliveryStatus: 'unknownAfterDispatch' }
+								: {}),
 						}),
 					);
 				});
@@ -443,6 +446,7 @@ function buildBridgeWorkerRuntimeDegradedHealthEvent(): BridgeWorkerServerToMain
 }
 
 function buildBridgeWorkerRuntimeCommandFailedHealthEvent(props: {
+	readonly deliveryStatus?: 'unknownAfterDispatch';
 	readonly message: string;
 	readonly requestId: string;
 }): BridgeWorkerServerToMainMessage {
@@ -454,6 +458,7 @@ function buildBridgeWorkerRuntimeCommandFailedHealthEvent(props: {
 		requestId: props.requestId,
 		status: 'degraded',
 		message: props.message,
+		...(props.deliveryStatus === undefined ? {} : { deliveryStatus: props.deliveryStatus }),
 	};
 }
 

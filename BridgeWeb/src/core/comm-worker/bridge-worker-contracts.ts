@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { parseBridgeResourceUrl } from '../../bridge/bridge-resource-url.js';
+import { bridgeActiveViewerModeUpdateSchema } from '../../bridge/bridge-rpc-client.js';
 import { worktreeFileVirtualizedExtentKindSchema } from '../../features/worktree-file/models/worktree-file-protocol-models.js';
 import {
 	bridgeContentRoleSchema,
@@ -93,6 +94,13 @@ export const bridgeWorkerMetadataInterestUpdateCommandSchema = bridgeWorkerMainT
 	.extend({
 		command: z.literal('metadataInterestUpdate'),
 		request: bridgeWorkerMetadataInterestRequestSchema,
+	})
+	.strict();
+
+export const bridgeWorkerActiveViewerModeUpdateCommandSchema = bridgeWorkerMainToServerBaseSchema
+	.extend({
+		command: z.literal('activeViewerModeUpdate'),
+		update: bridgeActiveViewerModeUpdateSchema,
 	})
 	.strict();
 
@@ -292,6 +300,7 @@ const bridgeWorkerMainToServerCommandBaseSchema = z.discriminatedUnion('command'
 	bridgeWorkerHoverCommandSchema,
 	bridgeWorkerMarkFileViewedCommandSchema,
 	bridgeWorkerMetadataInterestUpdateCommandSchema,
+	bridgeWorkerActiveViewerModeUpdateCommandSchema,
 	bridgeWorkerModeCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
 	bridgeWorkerReviewSourceUpdateCommandSchema,
@@ -473,6 +482,9 @@ export type BridgeWorkerMetadataInterestRequest = z.infer<
 >;
 export type BridgeWorkerMetadataInterestUpdateCommand = z.infer<
 	typeof bridgeWorkerMetadataInterestUpdateCommandSchema
+>;
+export type BridgeWorkerActiveViewerModeUpdateCommand = z.infer<
+	typeof bridgeWorkerActiveViewerModeUpdateCommandSchema
 >;
 export type BridgeWorkerModeCommand = z.infer<typeof bridgeWorkerModeCommandSchema>;
 export type BridgeWorkerReviewInvalidateCommand = z.infer<
@@ -705,6 +717,7 @@ export const bridgeWorkerHealthEventSchema = bridgeWorkerServerToMainBaseSchema
 		kind: z.literal('health'),
 		requestId: bridgeWorkerRequestIdSchema.optional(),
 		status: z.enum(['ready', 'degraded']),
+		deliveryStatus: z.enum(['unknownAfterDispatch']).optional(),
 		message: z.string().min(1).optional(),
 	})
 	.strict();

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+	encodeBridgeWorkerActiveViewerModeUpdateCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerMetadataInterestUpdateCommand,
 	encodeBridgeWorkerSelectCommand,
@@ -13,6 +14,7 @@ import {
 	bridgeReviewCommWorkerDefaultScriptUrl,
 	createBridgeReviewCommWorkerTransportDispatcher,
 } from './bridge-comm-worker-transport.js';
+import { RecordingBridgeCommWorker } from './bridge-comm-worker-transport.test-support.js';
 
 describe('Bridge comm worker transport dispatcher', () => {
 	test('loads the packaged worker asset and buffers commands until bootstrap is ready', async () => {
@@ -210,6 +212,55 @@ describe('Bridge comm worker transport dispatcher', () => {
 		]);
 	});
 
+	test('publishes degraded health for queued active-viewer-mode commands when worker startup fails', async () => {
+		const publishedMessages: BridgeWorkerServerToMainMessage[] = [];
+		const dispatcher = createBridgeReviewCommWorkerTransportDispatcher({
+			bootstrapRequest: makeBootstrapRequest(),
+			publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]): void => {
+				publishedMessages.push(...messages);
+			},
+			workerFactory: async (): Promise<Worker> => {
+				throw new Error('asset fetch failed');
+			},
+		});
+
+		dispatcher.dispatch(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				requestId: 'request-active-viewer-mode',
+				epoch: 1,
+				update: {
+					sessionId: 'active-viewer-session',
+					sequence: 2,
+					mode: 'review',
+					activeSource: null,
+				},
+			}),
+		);
+		await flushTransportMicrotasks();
+
+		expect(publishedMessages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'bootstrap-request',
+				status: 'degraded',
+				message: 'Bridge comm worker transport failed during bootstrap.',
+				transferDescriptors: [],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'request-active-viewer-mode',
+				status: 'degraded',
+				message:
+					'Bridge comm worker transport failed before bridge.activeViewerMode.update delivery.',
+				transferDescriptors: [],
+			},
+		]);
+	});
+
 	test('treats degraded bootstrap health as terminal for queued commands', async () => {
 		const worker = new RecordingBridgeCommWorker();
 		const publishedMessages: BridgeWorkerServerToMainMessage[] = [];
@@ -251,6 +302,65 @@ describe('Bridge comm worker transport dispatcher', () => {
 				requestId: 'bootstrap-request',
 				status: 'degraded',
 				message: 'Bridge comm worker runtime was already bootstrapped.',
+				transferDescriptors: [],
+			},
+		]);
+	});
+
+	test('publishes degraded health for queued active-viewer-mode commands when bootstrap degrades', async () => {
+		const worker = new RecordingBridgeCommWorker();
+		const publishedMessages: BridgeWorkerServerToMainMessage[] = [];
+		const dispatcher = createBridgeReviewCommWorkerTransportDispatcher({
+			bootstrapRequest: makeBootstrapRequest(),
+			publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]): void => {
+				publishedMessages.push(...messages);
+			},
+			workerFactory: async (): Promise<Worker> => worker,
+		});
+
+		dispatcher.dispatch(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				requestId: 'request-active-viewer-mode-queued',
+				epoch: 1,
+				update: {
+					sessionId: 'active-viewer-session',
+					sequence: 2,
+					mode: 'review',
+					activeSource: null,
+				},
+			}),
+		);
+		await flushTransportMicrotasks();
+		worker.emitMessage({
+			wireVersion: 1,
+			direction: 'serverWorkerToMain',
+			kind: 'health',
+			requestId: 'bootstrap-request',
+			status: 'degraded',
+			message: 'Bridge comm worker runtime was already bootstrapped.',
+			transferDescriptors: [],
+		});
+		await flushTransportMicrotasks();
+
+		expect(worker.terminateCount).toBe(1);
+		expect(publishedMessages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'bootstrap-request',
+				status: 'degraded',
+				message: 'Bridge comm worker runtime was already bootstrapped.',
+				transferDescriptors: [],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'request-active-viewer-mode-queued',
+				status: 'degraded',
+				message:
+					'Bridge comm worker transport failed before bridge.activeViewerMode.update delivery.',
 				transferDescriptors: [],
 			},
 		]);
@@ -517,6 +627,89 @@ describe('Bridge comm worker transport dispatcher', () => {
 		]);
 	});
 
+	test('publishes degraded health for in-flight active-viewer-mode commands when a ready worker fails', async () => {
+		const worker = new RecordingBridgeCommWorker();
+		const publishedMessages: BridgeWorkerServerToMainMessage[] = [];
+		const dispatcher = createBridgeReviewCommWorkerTransportDispatcher({
+			bootstrapRequest: makeBootstrapRequest(),
+			publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]): void => {
+				publishedMessages.push(...messages);
+			},
+			workerFactory: async (): Promise<Worker> => worker,
+		});
+
+		dispatcher.dispatch(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-before-ready',
+				epoch: 1,
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+			}),
+		);
+		await flushTransportMicrotasks();
+		worker.emitMessage({
+			wireVersion: 1,
+			direction: 'serverWorkerToMain',
+			kind: 'health',
+			requestId: 'bootstrap-request',
+			status: 'ready',
+			transferDescriptors: [],
+		});
+		await flushTransportMicrotasks();
+
+		dispatcher.dispatch(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				requestId: 'request-active-viewer-mode-after-ready',
+				epoch: 2,
+				update: {
+					sessionId: 'active-viewer-session',
+					sequence: 3,
+					mode: 'file',
+					activeSource: {
+						protocol: 'worktree-file',
+						streamId: 'worktree-file:pane-1',
+						generation: 4,
+					},
+				},
+			}),
+		);
+		await flushTransportMicrotasks();
+		worker.emitError();
+		await flushTransportMicrotasks();
+
+		expect(worker.terminateCount).toBe(1);
+		expect(publishedMessages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'bootstrap-request',
+				status: 'ready',
+				transferDescriptors: [],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'bootstrap-request',
+				status: 'degraded',
+				message: 'Bridge comm worker transport failed during bootstrap.',
+				transferDescriptors: [],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'request-active-viewer-mode-after-ready',
+				status: 'degraded',
+				message:
+					'Bridge comm worker transport lost confirmation after bridge.activeViewerMode.update dispatch.',
+				deliveryStatus: 'unknownAfterDispatch',
+				transferDescriptors: [],
+			},
+		]);
+	});
+
 	test('publishes degraded health when command postMessage throws after bootstrap', async () => {
 		const worker = new RecordingBridgeCommWorker();
 		const publishedMessages: BridgeWorkerServerToMainMessage[] = [];
@@ -579,6 +772,161 @@ describe('Bridge comm worker transport dispatcher', () => {
 			},
 		]);
 	});
+
+	test('classifies active-viewer-mode postMessage throw as definite pre-delivery failure', async () => {
+		const worker = new RecordingBridgeCommWorker();
+		const publishedMessages: BridgeWorkerServerToMainMessage[] = [];
+		const dispatcher = createBridgeReviewCommWorkerTransportDispatcher({
+			bootstrapRequest: makeBootstrapRequest(),
+			publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]): void => {
+				publishedMessages.push(...messages);
+			},
+			workerFactory: async (): Promise<Worker> => worker,
+		});
+
+		dispatcher.dispatch(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-before-ready',
+				epoch: 1,
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+			}),
+		);
+		await flushTransportMicrotasks();
+		worker.emitMessage({
+			wireVersion: 1,
+			direction: 'serverWorkerToMain',
+			kind: 'health',
+			requestId: 'bootstrap-request',
+			status: 'ready',
+			transferDescriptors: [],
+		});
+		await flushTransportMicrotasks();
+		worker.throwOnNextPostMessage = true;
+
+		dispatcher.dispatch(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				requestId: 'request-active-viewer-mode-after-ready',
+				epoch: 2,
+				update: {
+					sessionId: 'active-viewer-session',
+					sequence: 3,
+					mode: 'file',
+					activeSource: {
+						protocol: 'worktree-file',
+						streamId: 'worktree-file:pane-1',
+						generation: 4,
+					},
+				},
+			}),
+		);
+		await flushTransportMicrotasks();
+
+		expect(worker.terminateCount).toBe(1);
+		expect(publishedMessages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'bootstrap-request',
+				status: 'ready',
+				transferDescriptors: [],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'bootstrap-request',
+				status: 'degraded',
+				message: 'Bridge comm worker transport failed during bootstrap.',
+				transferDescriptors: [],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'request-active-viewer-mode-after-ready',
+				status: 'degraded',
+				message:
+					'Bridge comm worker transport failed before bridge.activeViewerMode.update delivery.',
+				transferDescriptors: [],
+			},
+		]);
+	});
+
+	test('classifies queued active-viewer-mode flush postMessage throw as definite pre-delivery failure', async () => {
+		const worker = new RecordingBridgeCommWorker();
+		const publishedMessages: BridgeWorkerServerToMainMessage[] = [];
+		const dispatcher = createBridgeReviewCommWorkerTransportDispatcher({
+			bootstrapRequest: makeBootstrapRequest(),
+			publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]): void => {
+				publishedMessages.push(...messages);
+			},
+			workerFactory: async (): Promise<Worker> => worker,
+		});
+
+		dispatcher.dispatch(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				requestId: 'request-active-viewer-mode-queued',
+				epoch: 1,
+				update: {
+					sessionId: 'active-viewer-session',
+					sequence: 2,
+					mode: 'file',
+					activeSource: {
+						protocol: 'worktree-file',
+						streamId: 'worktree-file:pane-1',
+						generation: 4,
+					},
+				},
+			}),
+		);
+		await flushTransportMicrotasks();
+		worker.throwOnNextPostMessage = true;
+
+		expect((): void => {
+			worker.emitMessage({
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'bootstrap-request',
+				status: 'ready',
+				transferDescriptors: [],
+			});
+		}).not.toThrow();
+		await flushTransportMicrotasks();
+
+		expect(worker.terminateCount).toBe(1);
+		expect(publishedMessages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'bootstrap-request',
+				status: 'ready',
+				transferDescriptors: [],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'bootstrap-request',
+				status: 'degraded',
+				message: 'Bridge comm worker transport failed during bootstrap.',
+				transferDescriptors: [],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'request-active-viewer-mode-queued',
+				status: 'degraded',
+				message:
+					'Bridge comm worker transport failed before bridge.activeViewerMode.update delivery.',
+				transferDescriptors: [],
+			},
+		]);
+	});
 });
 
 function makeBootstrapRequest(): BridgeCommWorkerBootstrapRequest {
@@ -605,73 +953,4 @@ async function flushTransportMicrotasks(): Promise<void> {
 	await Promise.resolve();
 	await Promise.resolve();
 	await Promise.resolve();
-}
-
-class RecordingBridgeCommWorker extends EventTarget implements Worker {
-	onmessage: ((this: Worker, event: MessageEvent) => void) | null = null;
-	onmessageerror: ((this: Worker, event: MessageEvent) => void) | null = null;
-	onerror: ((this: AbstractWorker, event: ErrorEvent) => void) | null = null;
-	readonly postedMessages: unknown[] = [];
-	terminateCount = 0;
-	throwOnNextPostMessage = false;
-
-	override addEventListener<KEventName extends keyof WorkerEventMap>(
-		type: KEventName,
-		listener: (this: Worker, event: WorkerEventMap[KEventName]) => void,
-		options?: boolean | AddEventListenerOptions,
-	): void;
-	override addEventListener(
-		type: string,
-		listener: EventListenerOrEventListenerObject | null,
-		options?: boolean | AddEventListenerOptions,
-	): void;
-	override addEventListener(
-		type: string,
-		listener: EventListenerOrEventListenerObject | null,
-		options?: boolean | AddEventListenerOptions,
-	): void {
-		super.addEventListener(type, listener, options);
-	}
-
-	override removeEventListener<KEventName extends keyof WorkerEventMap>(
-		type: KEventName,
-		listener: (this: Worker, event: WorkerEventMap[KEventName]) => void,
-		options?: boolean | EventListenerOptions,
-	): void;
-	override removeEventListener(
-		type: string,
-		listener: EventListenerOrEventListenerObject | null,
-		options?: boolean | EventListenerOptions,
-	): void;
-	override removeEventListener(
-		type: string,
-		listener: EventListenerOrEventListenerObject | null,
-		options?: boolean | EventListenerOptions,
-	): void {
-		super.removeEventListener(type, listener, options);
-	}
-
-	postMessage(message: unknown): void {
-		if (this.throwOnNextPostMessage) {
-			this.throwOnNextPostMessage = false;
-			throw new Error('worker postMessage failed');
-		}
-		this.postedMessages.push(message);
-	}
-
-	terminate(): void {
-		this.terminateCount += 1;
-	}
-
-	override dispatchEvent(event: Event): boolean {
-		return super.dispatchEvent(event);
-	}
-
-	emitMessage(message: unknown): void {
-		this.dispatchEvent(new MessageEvent('message', { data: message }));
-	}
-
-	emitError(): void {
-		this.dispatchEvent(new Event('error'));
-	}
 }
