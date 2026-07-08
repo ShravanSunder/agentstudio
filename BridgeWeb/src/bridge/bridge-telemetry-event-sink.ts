@@ -13,11 +13,14 @@ export function createBridgeTelemetryEventSink(
 	const fetchTelemetry = props.fetch ?? globalThis.fetch.bind(globalThis);
 	const pendingPostBodies: string[] = [];
 	let isPostInFlight = false;
-	const startNextPost = (): void => {
+	const startNextPost = (startProps: {
+		readonly propagateStartError: boolean;
+		readonly retainBodyOnStartError: boolean;
+	}): void => {
 		if (isPostInFlight) {
 			return;
 		}
-		const body = pendingPostBodies.shift();
+		const body = pendingPostBodies[0];
 		if (body === undefined) {
 			return;
 		}
@@ -31,18 +34,31 @@ export function createBridgeTelemetryEventSink(
 			});
 		} catch (error) {
 			isPostInFlight = false;
+			if (!startProps.retainBodyOnStartError) {
+				pendingPostBodies.shift();
+			}
+			if (!startProps.propagateStartError) {
+				return;
+			}
 			throw error;
 		}
+		pendingPostBodies.shift();
 		void Promise.resolve(postResult)
 			.catch(() => undefined)
 			.finally((): void => {
 				isPostInFlight = false;
-				startNextPost();
+				startNextPost({
+					propagateStartError: false,
+					retainBodyOnStartError: true,
+				});
 			});
 	};
 	const enqueuePost = (body: string): void => {
 		pendingPostBodies.push(body);
-		startNextPost();
+		startNextPost({
+			propagateStartError: true,
+			retainBodyOnStartError: false,
+		});
 	};
 	return {
 		flush: (batch: BridgeTelemetryBatch): boolean => {

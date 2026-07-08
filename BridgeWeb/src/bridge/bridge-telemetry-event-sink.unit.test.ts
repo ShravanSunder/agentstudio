@@ -87,7 +87,123 @@ describe('bridge telemetry event sink', () => {
 		);
 		expect(postedBodies.map((body) => body.sequence)).toEqual([1, 2]);
 	});
+
+	test('continues queued telemetry posts after the active post rejects', async () => {
+		const firstPost = deferredResponse();
+		const fetchTelemetry = vi
+			.fn<NonNullable<Parameters<typeof createBridgeTelemetryEventSink>[0]['fetch']>>()
+			.mockReturnValueOnce(firstPost.promise)
+			.mockResolvedValueOnce(new Response('', { status: 200 }));
+		const sink = createBridgeTelemetryEventSink({
+			endpointUrl: 'agentstudio://telemetry/batch',
+			fetch: fetchTelemetry,
+		});
+
+		expect(sink.flush(makeTelemetryBatch(1))).toBe(true);
+		expect(sink.flush(makeTelemetryBatch(2))).toBe(true);
+
+		firstPost.reject(new Error('network failed'));
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(fetchTelemetry).toHaveBeenCalledTimes(2);
+		expect(postedTelemetrySequences(fetchTelemetry)).toEqual([1, 2]);
+	});
+
+	test('retains a queued telemetry body when starting the queued post throws', async () => {
+		const firstPost = deferredResponse();
+		let shouldThrowForQueuedStart = true;
+		const fetchTelemetry = vi.fn<
+			NonNullable<Parameters<typeof createBridgeTelemetryEventSink>[0]['fetch']>
+		>((_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> | boolean => {
+			if (fetchTelemetry.mock.calls.length === 1) {
+				return firstPost.promise;
+			}
+			if (shouldThrowForQueuedStart) {
+				shouldThrowForQueuedStart = false;
+				throw new Error('queued post failed to start');
+			}
+			return true;
+		});
+		const sink = createBridgeTelemetryEventSink({
+			endpointUrl: 'agentstudio://telemetry/batch',
+			fetch: fetchTelemetry,
+		});
+
+		expect(sink.flush(makeTelemetryBatch(1))).toBe(true);
+		expect(sink.flush(makeTelemetryBatch(2))).toBe(true);
+
+		firstPost.resolve(new Response('', { status: 200 }));
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(fetchTelemetry).toHaveBeenCalledTimes(2);
+		expect(postedTelemetrySequences(fetchTelemetry)).toEqual([1, 2]);
+
+		expect(sink.flush(makeTelemetryBatch(3))).toBe(true);
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(fetchTelemetry).toHaveBeenCalledTimes(4);
+		expect(postedTelemetrySequences(fetchTelemetry)).toEqual([1, 2, 2, 3]);
+	});
+
+	test('returns false when the immediate telemetry post fails to start', () => {
+		let shouldThrow = true;
+		const fetchTelemetry = vi.fn<
+			NonNullable<Parameters<typeof createBridgeTelemetryEventSink>[0]['fetch']>
+		>(() => {
+			if (shouldThrow) {
+				shouldThrow = false;
+				throw new Error('post failed to start');
+			}
+			return true;
+		});
+		const sink = createBridgeTelemetryEventSink({
+			endpointUrl: 'agentstudio://telemetry/batch',
+			fetch: fetchTelemetry,
+		});
+
+		expect(sink.flush(makeTelemetryBatch(1))).toBe(false);
+		expect(sink.flush(makeTelemetryBatch(1))).toBe(true);
+
+		expect(fetchTelemetry).toHaveBeenCalledTimes(2);
+		expect(postedTelemetrySequences(fetchTelemetry)).toEqual([1, 1]);
+	});
 });
+
+function makeTelemetryBatch(
+	sequence: number,
+): Parameters<ReturnType<typeof createBridgeTelemetryEventSink>['flush']>[0] {
+	return {
+		schemaVersion: 1,
+		scenario: 'bridge-runtime',
+		streamId: 'page',
+		sequence,
+		samples: [],
+	};
+}
+
+function postedTelemetrySequences(
+	fetchTelemetry: ReturnType<
+		typeof vi.fn<NonNullable<Parameters<typeof createBridgeTelemetryEventSink>[0]['fetch']>>
+	>,
+): number[] {
+	return fetchTelemetry.mock.calls.map((call) => telemetryPostSequence(call[1]));
+}
+
+function telemetryPostSequence(init: RequestInit | undefined): number {
+	const parsedBody: unknown = JSON.parse(telemetryPostBodyString(init));
+	if (
+		typeof parsedBody !== 'object' ||
+		parsedBody === null ||
+		!('sequence' in parsedBody) ||
+		typeof parsedBody.sequence !== 'number'
+	) {
+		throw new Error('Expected telemetry POST body to include a numeric sequence');
+	}
+	return parsedBody.sequence;
+}
 
 function telemetryPostBodyString(init: RequestInit | undefined): string {
 	const body = init?.body;
@@ -100,14 +216,20 @@ function telemetryPostBodyString(init: RequestInit | undefined): string {
 
 function deferredResponse(): {
 	readonly promise: Promise<Response>;
+	readonly reject: (error: Error) => void;
 	readonly resolve: (response: Response) => void;
 } {
+	let rejectDeferred: ((error: Error) => void) | null = null;
 	let resolveDeferred: ((response: Response) => void) | null = null;
-	const promise = new Promise<Response>((resolve) => {
+	const promise = new Promise<Response>((resolve, reject) => {
+		rejectDeferred = reject;
 		resolveDeferred = resolve;
 	});
 	return {
 		promise,
+		reject: (error): void => {
+			rejectDeferred?.(error);
+		},
 		resolve: (response): void => {
 			resolveDeferred?.(response);
 		},
