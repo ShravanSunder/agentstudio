@@ -4221,3 +4221,44 @@ counts before claiming a gate.
   visible-item re-materialization storm closure, final G6 script-message RPC
   deletion, zero-copy transfer-list delivery, implementation-review-swarm, PR
   readiness, or full goal completion.
+
+## 2026-07-08T18:31:06Z - Review demand policy resource-result deletion
+
+- Scope:
+  Deleted `BridgeWeb/src/review-viewer/content/review-content-demand-policy.ts`,
+  the remaining dead Review FE demand-policy scaffold that could build
+  `BridgeContentResource` results with `readText()` closures. Kept only the
+  still-live demand telemetry DTO surface and moved its `assertNever` helper
+  local to `review-content-demand-telemetry.ts`.
+- Root cause:
+  Review content demand truth has moved to the comm-worker/render-snapshot path,
+  but the old policy file still preserved app-side demand planning, resource
+  result assembly, and resource body reader vocabulary. Only telemetry DTOs were
+  still used by app/shell/telemetry surfaces; the policy functions had no live
+  production callers.
+- Red / failure evidence:
+  Added source-structure guards and ran
+  `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/review-viewer-source-structure.unit.test.ts -t "dead Review
+  FE content authority|demand telemetry types" --reporter verbose`. It failed
+  2 tests because `./content/review-content-demand-policy.ts` still existed and
+  `review-content-demand-types.ts` still imported
+  `BridgeCodeViewContentResources` / `BridgeContentHandle`.
+- Green evidence:
+  Filtered source-structure proof passed 1 file / 2 tests after deletion.
+  Broader focused proof passed 3 files / 56 tests:
+  `review-viewer-source-structure.unit.test.ts`,
+  `review-viewer-shell.integration.test.tsx`, and
+  `bridge-review-viewer-telemetry.unit.test.ts`. `pnpm --dir BridgeWeb exec
+  tsc --noEmit --pretty false` passed. Scoped `oxfmt --check`, scoped
+  `oxlint --type-aware`, and `git diff --check` passed.
+- Deletion-scan evidence:
+  `rg -n
+  "review-content-demand-policy|BridgeCodeViewContentResources|ReviewContentDemandPlan|BridgeContentHandle"
+  BridgeWeb/src/review-viewer/content -S` returned no matches.
+- Known proof boundary:
+  This removes one dead Review FE demand/resource compatibility island only. It
+  does not remove the remaining CodeView resource helper type, File View
+  `readText()` production surface, live oq4s scroll/click proof gaps,
+  zero-copy transfer-list delivery, implementation-review-swarm, PR readiness,
+  or full goal completion.

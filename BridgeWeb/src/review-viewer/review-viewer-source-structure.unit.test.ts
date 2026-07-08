@@ -439,6 +439,7 @@ describe('Review viewer source structure', () => {
 			'./content/review-content-demand-loader.ts',
 			'./content/review-content-loader.ts',
 			'./content/review-content-registry.ts',
+			'./content/review-content-demand-policy.ts',
 		].filter((relativePath): boolean => sourceFileExists(relativePath));
 		const forbiddenLegacyImports = (
 			[
@@ -464,6 +465,14 @@ describe('Review viewer source structure', () => {
 			"from '../review-viewer/content/visible-review-content-hydration-identity.js'",
 		);
 		expect(forbiddenLegacyImports).toEqual([]);
+	});
+
+	test('keeps Review demand telemetry types off CodeView content resources', () => {
+		const demandTypesSource = readSource('./content/review-content-demand-types.ts');
+
+		expect(demandTypesSource).not.toContain('BridgeCodeViewContentResources');
+		expect(demandTypesSource).not.toContain('ReviewContentDemandPlan');
+		expect(demandTypesSource).not.toContain('BridgeContentHandle');
 	});
 
 	test('keeps Review selected display loading on worker availability slices', () => {

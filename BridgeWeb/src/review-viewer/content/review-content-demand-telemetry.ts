@@ -7,7 +7,6 @@ import type {
 	BridgeDemandLane,
 } from '../../core/models/bridge-demand-models.js';
 import type { BridgeTextResourceStreamResult } from '../../core/resources/bridge-resource-stream.js';
-import { assertNever } from './review-content-demand-policy.js';
 import type {
 	LoadedReviewContentDemandSettledResult,
 	ReviewContentDemandInterest,
@@ -229,4 +228,8 @@ function isDeferredExecutorResult(
 			return false;
 	}
 	return assertNever(result.reason);
+}
+
+function assertNever(value: never): never {
+	throw new Error(`Unhandled review content demand result: ${JSON.stringify(value)}`);
 }

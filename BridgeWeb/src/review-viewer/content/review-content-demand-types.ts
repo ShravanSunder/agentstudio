@@ -6,13 +6,8 @@ import type {
 	BridgeDemandIntent,
 	BridgeDemandLane,
 } from '../../core/models/bridge-demand-models.js';
-import type { BridgeDescriptorRef } from '../../core/models/bridge-resource-descriptor.js';
 import type { BridgeTextResourceStreamResult } from '../../core/resources/bridge-resource-stream.js';
-import type {
-	BridgeContentHandle,
-	BridgeContentRole,
-} from '../../foundation/review-package/bridge-review-package.js';
-import type { BridgeCodeViewContentResources } from '../code-view/bridge-code-view-materialization.js';
+import type { BridgeContentRole } from '../../foundation/review-package/bridge-review-package.js';
 
 export type ReviewContentDemandInterest =
 	| 'selected'
@@ -24,7 +19,6 @@ export type ReviewContentDemandInterest =
 export type ReviewContentDemandLoadResult =
 	| {
 			readonly status: 'ready';
-			readonly resources: BridgeCodeViewContentResources;
 	  }
 	| {
 			readonly status: 'deferred';
@@ -84,12 +78,6 @@ export interface ReviewContentDemandTelemetry {
 	readonly failedCount: number;
 	readonly loadedCount: number;
 	readonly staleDropCount: number;
-}
-
-export interface ReviewContentDemandPlan {
-	readonly handle: BridgeContentHandle;
-	readonly role: BridgeContentRole;
-	readonly descriptorRef: BridgeDescriptorRef;
 }
 
 export interface LoadedReviewContentDemandResult {
