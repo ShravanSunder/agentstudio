@@ -3282,3 +3282,51 @@ counts before claiming a gate.
   scroll/click budgets, does not close Review main-thread apply/materialization
   lag, does not claim implementation review swarm, PR readiness, or full goal
   completion.
+
+### 2026-07-08 G6 worker scheme RPC timeout follow-up
+
+- Scope: narrow reliability follow-up for the G6 ordinary-RPC worker forwarder
+  shared by `review.markFileViewed` and `bridge.metadata_interest.update`.
+  Worker-owned scheme RPC forwarding now has a bounded timeout so a
+  never-settling scheme sender cannot withhold request-correlated `ready` or
+  `degraded` health forever.
+- Root cause: the metadata-interest cutover correctly withheld `ready` until
+  Swift scheme RPC resolved, but the worker wrapper trusted the scheme sender to
+  always settle. The old page-world RPC client had a bounded timeout, so the
+  cutover accidentally weakened the failure contract for hung native delivery.
+- Fix: `registerBridgeCommWorkerRuntimePortProtocol` accepts an injectable
+  `schemeRpcTimeoutMilliseconds`, defaults scheme RPC forwarding to 5000 ms,
+  wraps both injected and default scheme senders with timeout handling, forwards
+  the timeout through `sendBridgeRPCRequest`, and reports request-correlated
+  degraded health instead of leaving the request parked.
+- Red evidence:
+  The new runtime-protocol test
+  `reports degraded health when metadataInterestUpdate scheme RPC forwarding
+  never settles` failed before the production change because no degraded health
+  was emitted after advancing fake timers.
+- Green evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/core/comm-worker/bridge-comm-worker-runtime-protocol.unit.test.ts
+  --reporter dot` passed 1 file / 17 tests. The focused G6 worker/control
+  battery passed 6 files / 95 tests:
+  `src/core/comm-worker/bridge-comm-worker-protocol.unit.test.ts`,
+  `src/core/comm-worker/bridge-comm-worker-command-handler.unit.test.ts`,
+  `src/core/comm-worker/bridge-comm-worker-runtime-protocol.unit.test.ts`,
+  `src/app/bridge-app-review-render-snapshot-controller.unit.test.ts`,
+  `src/review-viewer/review-viewer-source-structure.unit.test.ts`, and
+  `src/review-viewer/workers/shared-rpc/bridge-comm-worker-transport.unit.test.ts`.
+  `CI=true pnpm --dir BridgeWeb exec vitest --config
+  vitest.browser.config.ts run --project integration-browser
+  src/app/bridge-app-review-metadata-interest-runtime.browser.test.tsx
+  --reporter dot` passed 1 file / 6 tests. `pnpm --dir BridgeWeb exec tsc
+  --noEmit --pretty false` passed. Scoped `oxfmt --check`, scoped
+  `oxlint --type-aware`, and `git diff --check` passed.
+- Sidekick evidence:
+  Ohm the 2nd identified the accepted P1: worker-owned metadata-interest RPC
+  could hang forever if scheme RPC never settled. The red fake-timer test and
+  timeout wrapper represent that finding.
+- Known proof boundary:
+  This checkpoint only bounds the ordinary scheme-RPC forwarder. It does not
+  finish active-viewer-mode cutover, scheme-stream push/intake/ack cutover,
+  native oq4s scroll/click proof, Review apply/materialization lag closure,
+  implementation-review-swarm, PR readiness, or full goal completion.

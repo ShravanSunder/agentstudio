@@ -76,10 +76,12 @@ export interface RegisterBridgeCommWorkerRuntimePortProtocolProps {
 	readonly rows: readonly BridgeCommWorkerRow[];
 	readonly schedulePreparationDrain?: (drain: BridgeCommWorkerPreparationDrain) => void;
 	readonly sendSchemeRpcCommand?: BridgeCommWorkerSchemeRpcCommandSender;
+	readonly schemeRpcTimeoutMilliseconds?: number;
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
 }
 
 const bridgeCommWorkerReviewSourceResetChunkItemCount = 64;
+const bridgeCommWorkerSchemeRpcTimeoutMilliseconds = 5000;
 
 export type BridgeCommWorkerSchemeRpcCommandSender = (command: BridgeRPCCommand) => Promise<void>;
 
@@ -98,6 +100,8 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	const schedulePreparationDrain =
 		props.schedulePreparationDrain ?? scheduleDefaultBridgeCommWorkerPreparationDrain;
 	const sendSchemeRpcCommand = props.sendSchemeRpcCommand ?? sendBridgeCommWorkerSchemeRpcCommand;
+	const schemeRpcTimeoutMilliseconds =
+		props.schemeRpcTimeoutMilliseconds ?? bridgeCommWorkerSchemeRpcTimeoutMilliseconds;
 	const preparationCompletions: Promise<void>[] = [];
 	let drainScheduled = false;
 	let shouldRequestDrainAfterMessage = false;
@@ -371,7 +375,11 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			port.postMessage(message);
 		}
 		if (ordinarySchemeRpcCommand !== null && shouldForwardOrdinarySchemeRpcCommand) {
-			void sendSchemeRpcCommand(ordinarySchemeRpcCommand.command)
+			void sendBridgeCommWorkerSchemeRpcCommandWithTimeout({
+				command: ordinarySchemeRpcCommand.command,
+				sendSchemeRpcCommand,
+				timeoutMilliseconds: schemeRpcTimeoutMilliseconds,
+			})
 				.then((): void => {
 					for (const message of messages) {
 						if (
@@ -450,7 +458,45 @@ function buildBridgeWorkerRuntimeCommandFailedHealthEvent(props: {
 }
 
 async function sendBridgeCommWorkerSchemeRpcCommand(command: BridgeRPCCommand): Promise<void> {
-	await sendBridgeRPCRequest({ command });
+	await sendBridgeRPCRequest({
+		command,
+		timeoutMilliseconds: bridgeCommWorkerSchemeRpcTimeoutMilliseconds,
+	});
+}
+
+function sendBridgeCommWorkerSchemeRpcCommandWithTimeout(props: {
+	readonly command: BridgeRPCCommand;
+	readonly sendSchemeRpcCommand: BridgeCommWorkerSchemeRpcCommandSender;
+	readonly timeoutMilliseconds: number;
+}): Promise<void> {
+	return new Promise<void>((resolve, reject): void => {
+		let didSettle = false;
+		const timeoutId = globalThis.setTimeout((): void => {
+			if (didSettle) {
+				return;
+			}
+			didSettle = true;
+			reject(new Error('Bridge comm worker scheme RPC timed out.'));
+		}, props.timeoutMilliseconds);
+		void props.sendSchemeRpcCommand(props.command).then(
+			(): void => {
+				if (didSettle) {
+					return;
+				}
+				didSettle = true;
+				globalThis.clearTimeout(timeoutId);
+				resolve();
+			},
+			(error: unknown): void => {
+				if (didSettle) {
+					return;
+				}
+				didSettle = true;
+				globalThis.clearTimeout(timeoutId);
+				reject(error);
+			},
+		);
+	});
 }
 
 function createBridgeWorkerRuntimeSequenceCounter(): () => number {

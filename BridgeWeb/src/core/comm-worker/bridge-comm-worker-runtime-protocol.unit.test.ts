@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import type { BridgeRPCCommand } from '../../bridge/bridge-rpc-client.js';
 import {
@@ -303,6 +303,72 @@ describe('Bridge comm worker runtime protocol', () => {
 				status: 'ready',
 			}),
 		);
+	});
+
+	test('reports degraded health when metadataInterestUpdate scheme RPC forwarding never settles', async () => {
+		vi.useFakeTimers();
+		try {
+			const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+
+			registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+				bridgeDemandRank: { lane: 'selected', priority: 0 },
+				budget: {
+					className: 'interactive',
+					maxBytes: 512 * 1024,
+					maxWindowLines: 50,
+				},
+				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+				contentRequestDescriptors: [],
+				renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+				rows: [{ id: 'item-1', parentId: null, index: 0 }],
+				schemeRpcTimeoutMilliseconds: 25,
+				sendSchemeRpcCommand: async (): Promise<void> => new Promise((): void => {}),
+			});
+
+			dispatch.message(
+				encodeBridgeWorkerMetadataInterestUpdateCommand({
+					requestId: 'request-metadata-interest',
+					epoch: 3,
+					request: {
+						protocol: 'review',
+						streamId: 'stream-1',
+						generation: 7,
+						itemIds: ['item-1'],
+						lane: 'foreground',
+					},
+				}),
+			);
+			await flushBridgeWorkerRuntimeContinuations();
+
+			expect(postedMessages.map((postedMessage) => postedMessage.message)).not.toContainEqual(
+				expect.objectContaining({
+					kind: 'health',
+					requestId: 'request-metadata-interest',
+					status: 'degraded',
+				}),
+			);
+
+			await vi.advanceTimersByTimeAsync(25);
+			await flushBridgeWorkerRuntimeContinuations();
+
+			expect(postedMessages.map((postedMessage) => postedMessage.message)).toContainEqual(
+				expect.objectContaining({
+					kind: 'health',
+					requestId: 'request-metadata-interest',
+					status: 'degraded',
+					message: 'Bridge comm worker failed to forward bridge.metadata_interest.update.',
+				}),
+			);
+			expect(postedMessages.map((postedMessage) => postedMessage.message)).not.toContainEqual(
+				expect.objectContaining({
+					kind: 'health',
+					requestId: 'request-metadata-interest',
+					status: 'ready',
+				}),
+			);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	test('selected Review demand preempts an in-progress source reset and uses the newest generation only', async () => {
