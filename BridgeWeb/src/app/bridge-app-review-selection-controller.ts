@@ -8,7 +8,10 @@ import type {
 	BridgeReviewSelectionSlice,
 	BridgeReviewViewportSlice,
 } from '../review-viewer/state/review-viewer-store.js';
-import type { BridgeReviewFileNavigationTarget } from './bridge-app-review-selection-state.js';
+import type {
+	BridgeReviewFileNavigationTarget,
+	SelectedContentPaintTelemetryStart,
+} from './bridge-app-review-selection-state.js';
 import {
 	createChildTraceContext,
 	makeTelemetryMarkedItemKey,
@@ -56,6 +59,7 @@ export interface BridgeReviewSelectionController {
 		presentationTarget?: BridgeReviewFileNavigationTarget | null,
 	) => boolean;
 	readonly lastSelectionCommitDurationMilliseconds: number | null;
+	readonly selectedContentPaintTelemetryStart: SelectedContentPaintTelemetryStart | null;
 	readonly selectReviewItem: (
 		itemId: string,
 		presentationTarget?: BridgeReviewFileNavigationTarget | null,
@@ -86,6 +90,8 @@ export function useBridgeReviewSelectionController(
 	);
 	const [lastSelectionCommitDurationMilliseconds, setLastSelectionCommitDurationMilliseconds] =
 		useState<number | null>(null);
+	const [selectedContentPaintTelemetryStart, setSelectedContentPaintTelemetryStart] =
+		useState<SelectedContentPaintTelemetryStart | null>(null);
 
 	const beginForegroundReviewSelection = useCallback(
 		(
@@ -99,16 +105,29 @@ export function useBridgeReviewSelectionController(
 			const previousSelectedItemId = selectionSliceRef.current.selectedItemId;
 			const isSelectionChange = previousSelectedItemId !== itemId;
 			if (isSelectionChange) {
-				pendingSelectionCommitTelemetryRef.current = telemetryRecorderRef.current.isEnabled('web')
+				const packageKey = makeTelemetryPackageKey(currentReviewPackage);
+				const startedAtMilliseconds = performance.now();
+				const actionTraceContext = createChildTraceContext(
+					currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
+				);
+				const paintTelemetryStart = telemetryRecorderRef.current.isEnabled('web')
 					? {
 							itemId,
-							packageKey: makeTelemetryPackageKey(currentReviewPackage),
-							startedAtMilliseconds: performance.now(),
-							traceContext: createChildTraceContext(
-								currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
-							),
+							packageKey,
+							startedAtMilliseconds,
+							actionTraceContext,
 						}
 					: null;
+				setSelectedContentPaintTelemetryStart(paintTelemetryStart);
+				pendingSelectionCommitTelemetryRef.current =
+					paintTelemetryStart === null
+						? null
+						: {
+								itemId,
+								packageKey,
+								startedAtMilliseconds,
+								traceContext: actionTraceContext,
+							};
 			}
 			if (presentationTarget !== null || isSelectionChange) {
 				setSelectedReviewFileTarget(presentationTarget);
@@ -176,6 +195,9 @@ export function useBridgeReviewSelectionController(
 		}
 		if (makeTelemetryPackageKey(reviewPackage) !== pendingTelemetry.packageKey) {
 			pendingSelectionCommitTelemetryRef.current = null;
+			setSelectedContentPaintTelemetryStart((currentStart) =>
+				currentStart?.packageKey === pendingTelemetry.packageKey ? null : currentStart,
+			);
 			return;
 		}
 		pendingSelectionCommitTelemetryRef.current = null;
@@ -221,6 +243,7 @@ export function useBridgeReviewSelectionController(
 	return {
 		beginForegroundReviewSelection,
 		lastSelectionCommitDurationMilliseconds,
+		selectedContentPaintTelemetryStart,
 		selectReviewItem,
 	};
 }

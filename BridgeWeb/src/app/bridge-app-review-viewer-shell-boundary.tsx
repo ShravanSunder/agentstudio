@@ -28,6 +28,7 @@ import type {
 import type { BridgeDiffStatusState } from './bridge-app-review-controller.js';
 import type { BridgeReviewMetadataInterestRuntime } from './bridge-app-review-metadata-interest-runtime.js';
 import type { SelectedMarkdownPreviewState } from './bridge-app-review-selection-state.js';
+import type { SelectedContentPaintTelemetryStart } from './bridge-app-review-selection-state.js';
 
 const LazyReviewViewerShell = lazy(async () => {
 	const module = await import('../review-viewer/shell/review-viewer-shell.js');
@@ -54,6 +55,7 @@ export interface BridgeReviewViewerShellBoundaryProps {
 	readonly selectedCanvasLoadingReason: BridgeReviewCanvasLoadingReason | null;
 	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null;
 	readonly selectedContentLoadingItemId: string | null;
+	readonly selectedContentPaintTelemetryStart: SelectedContentPaintTelemetryStart | null;
 	readonly selectedContentUnavailablePath: string | null;
 	readonly selectedItemPresentation: BridgeCodeViewItemPresentation | null;
 	readonly selectedMarkdownPreviewState: SelectedMarkdownPreviewState | null;
@@ -186,6 +188,7 @@ function reviewViewerShellPropsForBoundary(
 		viewerHeaderControls: props.viewerHeaderControls,
 		selectedCodeViewItem: props.selectedCodeViewItem,
 		selectedContentLoadingItemId: props.selectedContentLoadingItemId,
+		selectedContentPaintTelemetryStart: props.selectedContentPaintTelemetryStart,
 		selectedItemPresentation: props.selectedItemPresentation,
 		selectedContentUnavailablePath: props.selectedContentUnavailablePath,
 		selectedCanvasLoadingReason: props.selectedCanvasLoadingReason,

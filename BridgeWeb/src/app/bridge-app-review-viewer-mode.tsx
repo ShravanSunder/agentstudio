@@ -58,6 +58,7 @@ import {
 import { useBridgeReviewRenderTelemetryController } from './bridge-app-review-telemetry-controller.js';
 import {
 	createChildTraceContext,
+	makeTelemetryPackageKey,
 	type BridgeReviewPackageTelemetryContext,
 } from './bridge-app-review-telemetry.js';
 import { BridgeReviewViewerShellBoundary } from './bridge-app-review-viewer-shell-boundary.js';
@@ -274,6 +275,7 @@ export function BridgeReviewViewerMode(
 	const {
 		beginForegroundReviewSelection,
 		lastSelectionCommitDurationMilliseconds,
+		selectedContentPaintTelemetryStart,
 		selectReviewItem,
 	} = useBridgeReviewSelectionController({
 		currentReviewPackageTelemetryContextRef,
@@ -391,6 +393,12 @@ export function BridgeReviewViewerMode(
 	});
 	const selectedContentLoadingItemId =
 		selectedCanvasLoadingReason === 'content' ? rootSnapshot.selectedItemId : null;
+	const selectedContentPaintTelemetryStartForPackage =
+		reviewPackage !== null &&
+		selectedContentPaintTelemetryStart !== null &&
+		selectedContentPaintTelemetryStart.packageKey === makeTelemetryPackageKey(reviewPackage)
+			? selectedContentPaintTelemetryStart
+			: null;
 	return (
 		<BridgeReviewViewerShellBoundary
 			codeViewWorkerFactory={props.codeViewWorkerFactory}
@@ -418,6 +426,7 @@ export function BridgeReviewViewerMode(
 			selectedCanvasLoadingReason={selectedCanvasLoadingReason}
 			selectedCodeViewItem={selectedCodeViewItem}
 			selectedContentLoadingItemId={selectedContentLoadingItemId}
+			selectedContentPaintTelemetryStart={selectedContentPaintTelemetryStartForPackage}
 			selectedContentUnavailablePath={selectedContentUnavailablePathForCurrentSelection({
 				reviewPackage,
 				selectedContentAvailability,

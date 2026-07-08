@@ -21,7 +21,10 @@ import type {
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
-import { recordBridgeCodeViewItemMaterializeTelemetry } from '../telemetry/bridge-review-viewer-telemetry.js';
+import {
+	recordBridgeCodeViewItemMaterializeTelemetry,
+	recordBridgeWorkerPreparedCodeViewItemMaterializeTelemetry,
+} from '../telemetry/bridge-review-viewer-telemetry.js';
 import {
 	BridgeCodeViewController,
 	type ApplyBridgeCodeViewItemUpdateResult,
@@ -60,6 +63,17 @@ export interface RecordBridgeCodeViewItemMaterializeTelemetryForPanelProps {
 	readonly projection: BridgeReviewProjectionResult;
 	readonly item: BridgeReviewItemDescriptor;
 	readonly resources: BridgeCodeViewContentResources;
+	readonly durationMilliseconds: number;
+	readonly result: ApplyBridgeCodeViewItemUpdateResult;
+	readonly selectedItemId: string | null;
+}
+
+export interface RecordBridgeWorkerPreparedCodeViewItemMaterializeTelemetryForPanelProps {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly parentTraceContext: BridgeTraceContext | null;
+	readonly projection: BridgeReviewProjectionResult;
+	readonly item: BridgeReviewItemDescriptor;
+	readonly codeViewItem: BridgeCodeViewItem;
 	readonly durationMilliseconds: number;
 	readonly result: ApplyBridgeCodeViewItemUpdateResult;
 	readonly selectedItemId: string | null;
@@ -306,6 +320,21 @@ export function recordBridgeCodeViewItemMaterializeTelemetryForPanel(
 		projection: props.projection,
 		item: props.item,
 		resources: props.resources,
+		durationMilliseconds: props.durationMilliseconds,
+		result: props.result,
+		selected: props.item.itemId === props.selectedItemId,
+	});
+}
+
+export function recordBridgeWorkerPreparedCodeViewItemMaterializeTelemetryForPanel(
+	props: RecordBridgeWorkerPreparedCodeViewItemMaterializeTelemetryForPanelProps,
+): void {
+	recordBridgeWorkerPreparedCodeViewItemMaterializeTelemetry({
+		telemetryRecorder: props.telemetryRecorder,
+		parentTraceContext: props.parentTraceContext,
+		projection: props.projection,
+		item: props.item,
+		codeViewItem: props.codeViewItem,
 		durationMilliseconds: props.durationMilliseconds,
 		result: props.result,
 		selected: props.item.itemId === props.selectedItemId,

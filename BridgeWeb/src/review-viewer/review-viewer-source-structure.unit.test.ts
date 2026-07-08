@@ -175,6 +175,27 @@ describe('Review viewer source structure', () => {
 		expect(forbiddenOwners).toEqual([]);
 	});
 
+	test('keeps selected CodeView materialize and paint telemetry wired to live apply path', () => {
+		const panelSource = readSource('code-view/bridge-code-view-panel.tsx');
+		const metadataApplySource = panelSource.slice(
+			panelSource.indexOf('runBridgeCodeViewMetadataApplyInChunks({'),
+			panelSource.indexOf(
+				'frameBudgetMilliseconds:',
+				panelSource.indexOf('runBridgeCodeViewMetadataApplyInChunks({'),
+			),
+		);
+
+		expect(panelSource).toContain('selectedContentPaintTelemetryStart');
+		expect(panelSource).toContain(
+			'recordBridgeWorkerPreparedCodeViewItemMaterializeTelemetryForPanel',
+		);
+		expect(metadataApplySource).toContain('const updateResult = controller.applyItemUpdate(item)');
+		expect(metadataApplySource).toContain('recordWorkerPreparedApplyTelemetry');
+		expect(panelSource).toContain('shouldScheduleSelectedContentPaintedTelemetry');
+		expect(panelSource).toContain('scheduleSelectedContentPaintedTelemetry');
+		expect(panelSource).toContain("transport: 'worker'");
+	});
+
 	test('routes Review selection and viewport display facts through the comm-worker render snapshot seam', () => {
 		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
 		const renderSnapshotControllerSource = readSource(

@@ -1,5 +1,6 @@
 import type { CodeViewScrollBehavior } from '@pierre/diffs';
 
+import type { SelectedContentPaintTelemetryStart } from '../../app/bridge-app-review-selection-state.js';
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
@@ -14,6 +15,7 @@ export interface BridgeCodeViewPanelProps {
 	readonly selectedItemId: string | null;
 	readonly selectedCodeViewItem?: BridgeMainCodeViewItem | null;
 	readonly selectedContentLoadingItemId?: string | null;
+	readonly selectedContentPaintTelemetryStart?: SelectedContentPaintTelemetryStart | null;
 	readonly selectedItemPresentation?: BridgeCodeViewItemPresentation | null;
 	readonly visibleCodeViewItems?: readonly BridgeMainCodeViewItem[];
 	readonly workerPoolEnabled?: boolean;

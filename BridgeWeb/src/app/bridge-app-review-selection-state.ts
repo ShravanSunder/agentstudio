@@ -3,6 +3,7 @@ import type {
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
 } from '../foundation/review-package/bridge-review-package.js';
+import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-types.js';
 import { makeReviewItemContentResourcesKey } from '../review-viewer/content/visible-review-content-hydration-identity.js';
 import type { BridgeReviewCanvasLoadingReason } from '../review-viewer/shell/review-viewer-shell.js';
@@ -23,6 +24,13 @@ export interface SelectedMarkdownPreviewState {
 	readonly sourcePath: string;
 	readonly status: 'rendering' | 'ready' | 'failed';
 	readonly html: string | null;
+}
+
+export interface SelectedContentPaintTelemetryStart {
+	readonly itemId: string;
+	readonly packageKey: string;
+	readonly startedAtMilliseconds: number;
+	readonly actionTraceContext: BridgeTraceContext | null;
 }
 
 export function makeSelectedContentResourcesKey(

@@ -215,6 +215,7 @@ export function scheduleSelectedContentPaintedTelemetry(props: {
 	readonly materializationCompletedAtMilliseconds: number;
 	readonly now?: () => number;
 	readonly requestAnimationFrame?: (callback: FrameRequestCallback) => number;
+	readonly transport?: 'swift' | 'worker';
 }): void {
 	recordBridgeSelectedContentPaintedProbeScheduleEntered();
 	if (props.selectionDemandStartedAtMilliseconds === null) {
@@ -257,6 +258,7 @@ export function scheduleSelectedContentPaintedTelemetry(props: {
 			frameWaitMilliseconds: paintedAtMilliseconds - props.materializationCompletedAtMilliseconds,
 			materializeMilliseconds:
 				props.materializationCompletedAtMilliseconds - props.materializationStartedAtMilliseconds,
+			transport: props.transport ?? 'swift',
 		});
 		recordBridgeSelectedContentPaintedProbeFlushCalled();
 	});

@@ -151,6 +151,7 @@ export interface BridgeCodeViewItemMaterializeTelemetrySampleProps {
 	readonly languageClass: 'config' | 'markdown' | 'other' | 'swift' | 'text' | 'typescript';
 	readonly result: 'added' | 'unchanged' | 'updated';
 	readonly selected: boolean;
+	readonly transport: 'swift' | 'worker';
 	readonly viewer: 'review';
 }
 
@@ -160,6 +161,7 @@ export interface BridgeSelectedContentPaintedTelemetrySampleProps {
 	readonly materializeMilliseconds: number;
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly traceContext: BridgeTraceContext | null;
+	readonly transport: 'swift' | 'worker';
 	readonly viewer: 'review';
 }
 
@@ -658,7 +660,7 @@ export function recordBridgeCodeViewItemMaterializeTelemetrySample(
 				'agentstudio.bridge.priority': 'hot',
 				'agentstudio.bridge.result': props.result,
 				'agentstudio.bridge.slice': 'code_view_item',
-				'agentstudio.bridge.transport': 'swift',
+				'agentstudio.bridge.transport': props.transport,
 				'agentstudio.bridge.viewer': props.viewer,
 			},
 			numericAttributes: {},
@@ -685,7 +687,7 @@ export function recordBridgeSelectedContentPaintedTelemetrySample(
 				'agentstudio.bridge.plane': 'data',
 				'agentstudio.bridge.priority': 'hot',
 				'agentstudio.bridge.slice': 'code_view_item',
-				'agentstudio.bridge.transport': 'swift',
+				'agentstudio.bridge.transport': props.transport,
 				'agentstudio.bridge.viewer': props.viewer,
 			},
 			numericAttributes: {

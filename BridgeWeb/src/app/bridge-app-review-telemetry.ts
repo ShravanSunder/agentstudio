@@ -56,7 +56,7 @@ export function makeTelemetryMarkedItemKey(
 }
 
 export function makeTelemetryPackageKey(reviewPackage: BridgeReviewPackage): string {
-	return `${reviewPackage.packageId}:${reviewPackage.reviewGeneration}`;
+	return `${reviewPackage.packageId}:${reviewPackage.reviewGeneration}:${reviewPackage.revision}`;
 }
 
 interface RecordMarkdownRenderQueueTelemetryProps {

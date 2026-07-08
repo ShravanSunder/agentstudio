@@ -48,6 +48,7 @@ describe('bridge viewer telemetry adapter flushing', () => {
 			materializeMilliseconds: 11,
 			telemetryRecorder: recorder,
 			traceContext: null,
+			transport: 'swift',
 			viewer: 'review',
 		});
 		recordBridgeSelectedContentDroppedTelemetrySample({

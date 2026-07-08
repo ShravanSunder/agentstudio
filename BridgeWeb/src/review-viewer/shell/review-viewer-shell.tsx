@@ -1,5 +1,6 @@
 import type { ReactElement, ReactNode } from 'react';
 
+import type { SelectedContentPaintTelemetryStart } from '../../app/bridge-app-review-selection-state.js';
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
 import { BridgeViewerRailToolbar } from '../../app/bridge-viewer-rail-toolbar.js';
 import { BridgeViewerResizableRailLayout } from '../../app/bridge-viewer-resizable-rail-layout.js';
@@ -46,6 +47,7 @@ export interface ReviewViewerShellProps {
 	readonly projection: BridgeReviewProjectionResult;
 	readonly selectedItemId: string | null;
 	readonly selectedContentLoadingItemId?: string | null;
+	readonly selectedContentPaintTelemetryStart?: SelectedContentPaintTelemetryStart | null;
 	readonly onSelectItem: (itemId: string) => void;
 	readonly selectedContentText?: string | null;
 	readonly selectedCodeViewItem?: BridgeMainCodeViewItem | null;
@@ -294,6 +296,9 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 									reviewPackage={props.reviewPackage}
 									selectedCodeViewItem={props.selectedCodeViewItem ?? null}
 									selectedContentLoadingItemId={props.selectedContentLoadingItemId ?? null}
+									selectedContentPaintTelemetryStart={
+										props.selectedContentPaintTelemetryStart ?? null
+									}
 									selectedItemId={props.selectedItemId}
 									selectedItemPresentation={props.selectedItemPresentation ?? null}
 									telemetryParentTraceContext={props.telemetryParentTraceContext ?? null}

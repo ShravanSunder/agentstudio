@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'vitest';
 
+import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
 import type {
 	BridgeTelemetryFlushProps,
 	BridgeTelemetryRecorder,
 } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import {
+	makeTelemetryPackageKey,
 	recordIntakeApplyTelemetryForSlice,
 	recordPushDropTelemetry,
 	recordReviewIntakeFrameTelemetry,
@@ -13,6 +15,17 @@ import {
 } from './bridge-app-review-telemetry.js';
 
 describe('bridge app review telemetry', () => {
+	test('package telemetry keys include revision to reject stale paint tokens', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+
+		expect(makeTelemetryPackageKey(reviewPackage)).not.toBe(
+			makeTelemetryPackageKey({
+				...reviewPackage,
+				revision: reviewPackage.revision + 1,
+			}),
+		);
+	});
+
 	test('uses idle flushes for review startup hot-path samples', () => {
 		const samples: BridgeTelemetrySample[] = [];
 		const flushes: BridgeTelemetryFlushProps[] = [];

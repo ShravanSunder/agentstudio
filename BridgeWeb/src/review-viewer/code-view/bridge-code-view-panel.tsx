@@ -4,12 +4,18 @@ import type { ReactElement } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { bridgeContentDemandExecutionPolicy } from '../../core/demand/bridge-content-demand-policy.js';
+import type { ApplyBridgeCodeViewItemUpdateResult } from './bridge-code-view-controller.js';
 import { scheduleBridgeCodeViewInstantRevealRetargetForPanel } from './bridge-code-view-instant-reveal-retarget.js';
 import {
 	materializeBridgeCodeViewLoadingItem,
 	type BridgeCodeViewItem,
 } from './bridge-code-view-materialization.js';
 import { runBridgeCodeViewMetadataApplyInChunks } from './bridge-code-view-metadata-apply.js';
+import {
+	recordBridgeSelectedContentPaintedProbeAnchoredDelivery,
+	scheduleSelectedContentPaintedTelemetry,
+	shouldScheduleSelectedContentPaintedTelemetry,
+} from './bridge-code-view-painted-telemetry.js';
 import { BridgeCodeViewPanelFrame } from './bridge-code-view-panel-frame.js';
 import {
 	bridgeCodeViewInitialItemsWithMetadataDeltaItems,
@@ -25,6 +31,7 @@ import {
 	isMaterializedBridgeCodeViewContentState,
 	makeBridgeCodeViewSourceKey,
 	nextCodeViewItemForCollapse,
+	recordBridgeWorkerPreparedCodeViewItemMaterializeTelemetryForPanel,
 	reconcileBridgeCodeViewMetadataItems,
 	shouldRearmCodeViewInstantRevealForMaterialization,
 	uniqueItemIds,
@@ -555,12 +562,88 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			handle: codeViewHandle,
 			controllerEntryRef,
 		});
+		const recordWorkerPreparedApplyTelemetry = (params: {
+			readonly item: BridgeCodeViewItem;
+			readonly updateResult: ApplyBridgeCodeViewItemUpdateResult;
+			readonly materializationStartedAtMilliseconds: number;
+			readonly materializationCompletedAtMilliseconds: number;
+			readonly didFindMatchingPaintedContent: boolean;
+		}): void => {
+			if (
+				props.telemetryRecorder === undefined ||
+				!isMaterializedBridgeCodeViewContentState(params.item.bridgeMetadata.contentState)
+			) {
+				return;
+			}
+			const reviewItem = props.reviewPackage.itemsById[params.item.bridgeMetadata.itemId];
+			if (reviewItem === undefined) {
+				return;
+			}
+			recordBridgeWorkerPreparedCodeViewItemMaterializeTelemetryForPanel({
+				codeViewItem: params.item,
+				durationMilliseconds:
+					params.materializationCompletedAtMilliseconds -
+					params.materializationStartedAtMilliseconds,
+				item: reviewItem,
+				parentTraceContext: props.telemetryParentTraceContext ?? null,
+				projection: props.projection,
+				result: params.updateResult,
+				selectedItemId: props.selectedItemId,
+				telemetryRecorder: props.telemetryRecorder,
+			});
+			const isSelectedItem = props.selectedItemId === params.item.bridgeMetadata.itemId;
+			if (!isSelectedItem) {
+				return;
+			}
+			const selectedContentPaintTelemetryStart = props.selectedContentPaintTelemetryStart ?? null;
+			const selectionDemandStartedAtMilliseconds =
+				selectedContentPaintTelemetryStart?.itemId === params.item.bridgeMetadata.itemId &&
+				isSelectedItem
+					? selectedContentPaintTelemetryStart.startedAtMilliseconds
+					: null;
+			recordBridgeSelectedContentPaintedProbeAnchoredDelivery({
+				hasAnchor: true,
+				isSelectedItem,
+				hasTelemetryRecorder: true,
+				didFindMatchingPaintedContent: params.didFindMatchingPaintedContent,
+			});
+			if (
+				shouldScheduleSelectedContentPaintedTelemetry({
+					didFindMatchingPaintedContent: params.didFindMatchingPaintedContent,
+					selectionDemandStartedAtMilliseconds,
+					updateResult: params.updateResult,
+				})
+			) {
+				scheduleSelectedContentPaintedTelemetry({
+					telemetryRecorder: props.telemetryRecorder,
+					traceContext: selectedContentPaintTelemetryStart?.actionTraceContext ?? null,
+					selectionDemandStartedAtMilliseconds,
+					materializationStartedAtMilliseconds: params.materializationStartedAtMilliseconds,
+					materializationCompletedAtMilliseconds: params.materializationCompletedAtMilliseconds,
+					transport: 'worker',
+				});
+			}
+		};
 		runBridgeCodeViewMetadataApplyInChunks({
 			applyItemUpdate: (item): void => {
-				controller.applyItemUpdate(item);
+				const previousItem = codeViewHandle.getItem(item.id);
+				const didFindMatchingPaintedContent =
+					isBridgeCodeViewItem(previousItem) &&
+					isMaterializedBridgeCodeViewContentState(previousItem.bridgeMetadata.contentState) &&
+					previousItem.bridgeMetadata.cacheKey === item.bridgeMetadata.cacheKey;
+				const materializationStartedAtMilliseconds = performance.now();
+				const updateResult = controller.applyItemUpdate(item);
+				const materializationCompletedAtMilliseconds = performance.now();
 				currentCodeViewItemsRef.current = bridgeCodeViewItemsWithMetadataItem({
 					currentItems: currentCodeViewItemsRef.current,
 					item,
+				});
+				recordWorkerPreparedApplyTelemetry({
+					item,
+					updateResult,
+					materializationStartedAtMilliseconds,
+					materializationCompletedAtMilliseconds,
+					didFindMatchingPaintedContent,
 				});
 			},
 			frameBudgetMilliseconds: bridgeContentDemandExecutionPolicy.applyPumpFrameBudgetMilliseconds,
@@ -589,8 +672,36 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			},
 			scheduleNextTurn: scheduleMetadataApplyTurn,
 			setItems: (items): void => {
+				const selectedItem =
+					props.selectedItemId === null
+						? null
+						: (items.find((item): boolean => item.bridgeMetadata.itemId === props.selectedItemId) ??
+							null);
+				const previousSelectedItem =
+					props.selectedItemId === null ? undefined : codeViewHandle.getItem(props.selectedItemId);
+				const didFindMatchingPaintedContent =
+					selectedItem !== null &&
+					isBridgeCodeViewItem(previousSelectedItem) &&
+					isMaterializedBridgeCodeViewContentState(
+						previousSelectedItem.bridgeMetadata.contentState,
+					) &&
+					previousSelectedItem.bridgeMetadata.cacheKey === selectedItem.bridgeMetadata.cacheKey;
+				const materializationStartedAtMilliseconds = performance.now();
 				currentCodeViewItemsRef.current = items;
 				codeViewInstance.setItems(items);
+				const materializationCompletedAtMilliseconds = performance.now();
+				if (selectedItem !== null) {
+					recordWorkerPreparedApplyTelemetry({
+						item: selectedItem,
+						updateResult: applyResultForSetItemsSelectedItem({
+							currentItem: previousSelectedItem,
+							nextItem: selectedItem,
+						}),
+						materializationStartedAtMilliseconds,
+						materializationCompletedAtMilliseconds,
+						didFindMatchingPaintedContent,
+					});
+				}
 			},
 			sourceReset,
 			staleScanLimit: bridgeContentDemandExecutionPolicy.applyPumpStaleScanLimit,
@@ -606,9 +717,14 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		codeViewMountVersion,
 		initialItems,
 		metadataDeltaItems,
+		props.projection,
+		props.reviewPackage,
 		scheduleCodeViewRecoveryRender,
 		props.selectedItemId,
+		props.selectedContentPaintTelemetryStart,
 		props.selectedItemPresentation,
+		props.telemetryParentTraceContext,
+		props.telemetryRecorder,
 		sourceKey,
 	]);
 
@@ -836,4 +952,17 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				: { workerPoolEnabled: props.workerPoolEnabled })}
 		/>
 	);
+}
+
+function applyResultForSetItemsSelectedItem(props: {
+	readonly currentItem: CodeViewItem | undefined;
+	readonly nextItem: BridgeCodeViewItem;
+}): ApplyBridgeCodeViewItemUpdateResult {
+	if (!isBridgeCodeViewItem(props.currentItem)) {
+		return 'added';
+	}
+	return props.currentItem.type === props.nextItem.type &&
+		props.currentItem.version === props.nextItem.version
+		? 'unchanged'
+		: 'updated';
 }

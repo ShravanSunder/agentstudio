@@ -20,7 +20,10 @@ import {
 	recordBridgeViewerContentQueueTelemetrySample,
 } from '../../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import type { ApplyBridgeCodeViewItemUpdateResult } from '../code-view/bridge-code-view-controller.js';
-import type { BridgeCodeViewContentResources } from '../code-view/bridge-code-view-materialization.js';
+import type {
+	BridgeCodeViewContentResources,
+	BridgeCodeViewItem,
+} from '../code-view/bridge-code-view-materialization.js';
 import type { ReviewContentDemandTelemetry } from '../content/review-content-demand-types.js';
 import type {
 	BridgeReviewProjectionMode,
@@ -84,12 +87,24 @@ export interface RecordBridgeCodeViewItemMaterializeTelemetryProps {
 	readonly selected: boolean;
 }
 
+export interface RecordBridgeWorkerPreparedCodeViewItemMaterializeTelemetryProps {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly parentTraceContext: BridgeTraceContext | null;
+	readonly projection: BridgeReviewProjectionResult;
+	readonly item: BridgeReviewItemDescriptor;
+	readonly codeViewItem: BridgeCodeViewItem;
+	readonly durationMilliseconds: number;
+	readonly result: ApplyBridgeCodeViewItemUpdateResult;
+	readonly selected: boolean;
+}
+
 export interface RecordBridgeSelectedContentPaintedTelemetryProps {
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly traceContext: BridgeTraceContext | null;
 	readonly clickToPaintMilliseconds: number;
 	readonly frameWaitMilliseconds: number;
 	readonly materializeMilliseconds: number;
+	readonly transport?: 'swift' | 'worker';
 }
 
 export interface RecordBridgeSelectedContentDroppedTelemetryProps {
@@ -193,6 +208,27 @@ export function recordBridgeCodeViewItemMaterializeTelemetry(
 		languageClass: languageClassForItem(props.item),
 		result: props.result,
 		selected: props.selected,
+		transport: 'swift',
+		viewer: 'review',
+	});
+}
+
+export function recordBridgeWorkerPreparedCodeViewItemMaterializeTelemetry(
+	props: RecordBridgeWorkerPreparedCodeViewItemMaterializeTelemetryProps,
+): void {
+	if (!props.telemetryRecorder.isEnabled('web')) {
+		return;
+	}
+	recordBridgeCodeViewItemMaterializeTelemetrySample({
+		telemetryRecorder: props.telemetryRecorder,
+		traceContext: childTraceContext(props.parentTraceContext),
+		contentBytesBucket: byteCountBucket(contentByteCountForCodeViewItem(props.codeViewItem)),
+		durationMilliseconds: props.durationMilliseconds,
+		itemCountBucket: countBucket(props.projection.orderedItemIds.length),
+		languageClass: languageClassForItem(props.item),
+		result: props.result,
+		selected: props.selected,
+		transport: 'worker',
 		viewer: 'review',
 	});
 }
@@ -206,6 +242,7 @@ export function recordBridgeSelectedContentPaintedTelemetry(
 		clickToPaintMilliseconds: props.clickToPaintMilliseconds,
 		frameWaitMilliseconds: props.frameWaitMilliseconds,
 		materializeMilliseconds: props.materializeMilliseconds,
+		transport: props.transport ?? 'swift',
 		viewer: 'review',
 	});
 }
@@ -376,6 +413,16 @@ function contentByteCountForResources(resources: BridgeCodeViewContentResources)
 		}
 		return total + resource.handle.sizeBytes;
 	}, 0);
+}
+
+function contentByteCountForCodeViewItem(item: BridgeCodeViewItem): number {
+	if (item.type === 'file') {
+		return item.file.contents.length;
+	}
+	return (
+		item.fileDiff.additionLines.reduce((total: number, line): number => total + line.length, 0) +
+		item.fileDiff.deletionLines.reduce((total: number, line): number => total + line.length, 0)
+	);
 }
 
 function assertNever(value: never): never {

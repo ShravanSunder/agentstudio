@@ -66,6 +66,26 @@ describe('Bridge review selection controller command scheduling', () => {
 		expect(callbackSource).not.toContain('viewerActions.setRenderMode');
 	});
 
+	test('selection path exposes click start for selected content paint telemetry', () => {
+		const source = readFileSync(
+			new URL('./bridge-app-review-selection-controller.ts', import.meta.url),
+			'utf8',
+		);
+		const controllerContractSource = source.slice(
+			source.indexOf('export interface BridgeReviewSelectionController'),
+			source.indexOf('export function useBridgeReviewSelectionController'),
+		);
+		const callbackSource = source.slice(
+			source.indexOf('const beginForegroundReviewSelection = useCallback'),
+			source.indexOf('const selectReviewItem = useCallback'),
+		);
+
+		expect(controllerContractSource).toContain('selectedContentPaintTelemetryStart');
+		expect(callbackSource).toContain('setSelectedContentPaintTelemetryStart');
+		expect(callbackSource).toContain('startedAtMilliseconds');
+		expect(callbackSource).toContain('actionTraceContext');
+	});
+
 	test('review mode wiring does not pass content-demand owners into selection controller', () => {
 		const source = readFileSync(
 			new URL('./bridge-app-review-viewer-mode.tsx', import.meta.url),
