@@ -3021,3 +3021,46 @@ counts before claiming a gate.
   browser emitted selected paint in the current live app, does not prove
   Victoria percentile movement, does not prove render-proof success, and does
   not close the Review scroll/click UX issue.
+
+### 2026-07-08 Telemetry flush sequence retry integrity
+
+- Scope: narrow R43 telemetry integrity repair for browser/page and comm-worker
+  telemetry batch sequencing. Live oq4s after worker paint admission still
+  showed `missing_drop_counter` storms. Source inspection found both telemetry
+  clients advanced their batch sequence before knowing whether `sink.flush(...)`
+  accepted the drained snapshot. If the sink returned `false`, samples were
+  restored but the next accepted retry used sequence 2, so native correctly
+  rejected the stream as a sequence gap without a lossless drop counter.
+- Fix: `createEnabledBridgeTelemetryRecorder` and
+  `createBridgeCommWorkerTelemetryClient` now peek the next sequence, restore
+  the drained snapshot on `flush === false`, and commit the sequence only after
+  a successful flush.
+- Red evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/foundation/telemetry/bridge-telemetry-recorder.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-telemetry.unit.test.ts --reporter dot`
+  failed before the fix: three retry-path assertions observed sequence `2`
+  instead of sequence `1`.
+- Green evidence:
+  The same focused command passed 2 files / 12 tests after the fix. A wider
+  focused telemetry battery passed 4 files / 16 tests:
+  `src/core/comm-worker/bridge-comm-worker-telemetry.unit.test.ts`,
+  `src/foundation/telemetry/bridge-telemetry-recorder.unit.test.ts`,
+  `src/foundation/telemetry/bridge-telemetry-buffer.unit.test.ts`, and
+  `src/core/comm-worker/bridge-comm-worker-runtime-protocol.telemetry.unit.test.ts`.
+  `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed. Scoped
+  `oxfmt --check`, scoped `oxlint --type-aware`, and `git diff --check`
+  passed. Parent re-ran the focused 2-file command immediately before commit
+  and it passed 2 files / 12 tests.
+- Sidekick evidence:
+  Hegel the 2nd reviewed the four-file diff and reported `ready` with no
+  P0-P3 findings. The sidekick independently checked the focused Vitest, `tsc`,
+  and scoped `oxlint` gates.
+- Known proof boundary:
+  This fixes retry sequencing only for a `false` sink return. The current oq4s
+  marker still shows one `unsafe_attribute` rejection for
+  `performance.bridge.web.first_render`, no
+  `performance.bridge.web.selected_content_painted` rows, and remaining
+  `missing_drop_counter` rows. Follow-up work must trace whether invalid
+  first-render emission and the fire-and-forget fetch telemetry sink are still
+  advancing streams past native rejection.

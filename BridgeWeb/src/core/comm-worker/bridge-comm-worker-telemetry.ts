@@ -76,9 +76,9 @@ export function createBridgeCommWorkerTelemetryClient(
 			flush();
 		});
 	};
-	const nextBatchSequence = (): number => {
-		nextSequence += 1;
-		return nextSequence;
+	const peekNextBatchSequence = (): number => nextSequence + 1;
+	const commitBatchSequence = (sequence: number): void => {
+		nextSequence = sequence;
 	};
 	const flushSnapshot = (): boolean => {
 		const snapshot = buffer.drain();
@@ -86,13 +86,13 @@ export function createBridgeCommWorkerTelemetryClient(
 		if (samples.length === 0) {
 			return true;
 		}
-		const didFlush = sink.flush(
-			makeBridgeTelemetryBatch(props.config.scenario, nextBatchSequence(), samples),
-		);
+		const sequence = peekNextBatchSequence();
+		const didFlush = sink.flush(makeBridgeTelemetryBatch(props.config.scenario, sequence, samples));
 		if (!didFlush) {
 			buffer.restore(snapshot);
 			return false;
 		}
+		commitBatchSequence(sequence);
 		return true;
 	};
 	const client: BridgeCommWorkerTelemetryClient = {

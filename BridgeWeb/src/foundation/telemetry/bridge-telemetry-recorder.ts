@@ -116,9 +116,9 @@ function createEnabledBridgeTelemetryRecorder(
 			flush();
 		});
 	};
-	const nextBatchSequence = (): number => {
-		nextSequence += 1;
-		return nextSequence;
+	const peekNextBatchSequence = (): number => nextSequence + 1;
+	const commitBatchSequence = (sequence: number): void => {
+		nextSequence = sequence;
 	};
 	const recorder: BridgeTelemetryRecorder = {
 		isEnabled: (scope: BridgeTelemetryScope): boolean => config.enabledScopes.has(scope),
@@ -161,13 +161,13 @@ function createEnabledBridgeTelemetryRecorder(
 			if (samples.length === 0) {
 				return true;
 			}
-			const didFlush = sink.flush(
-				makeBridgeTelemetryBatch(config.scenario, nextBatchSequence(), samples),
-			);
+			const sequence = peekNextBatchSequence();
+			const didFlush = sink.flush(makeBridgeTelemetryBatch(config.scenario, sequence, samples));
 			if (!didFlush) {
 				buffer.restore(snapshot);
 				return false;
 			}
+			commitBatchSequence(sequence);
 			lastFlushAtMilliseconds = currentTimeMilliseconds;
 			return true;
 		},

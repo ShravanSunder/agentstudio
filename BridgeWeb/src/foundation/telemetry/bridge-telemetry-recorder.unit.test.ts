@@ -244,6 +244,7 @@ describe('bridge telemetry recorder', () => {
 
 		expect(recorder.flush({ force: true })).toBe(false);
 		expect(recorder.flush({ force: true })).toBe(true);
+		expect(batches[0]?.sequence).toBe(1);
 		expect(batches.map((batch) => batch.samples.map((sample) => sample.name))).toEqual([
 			['performance.bridge.web.rpc_send'],
 		]);
@@ -278,6 +279,7 @@ describe('bridge telemetry recorder', () => {
 
 		expect(recorder.flush()).toBe(false);
 		expect(recorder.flush()).toBe(true);
+		expect(batches[0]?.sequence).toBe(1);
 		expect(batches.map((batch) => batch.samples.map((sample) => sample.name))).toEqual([
 			['performance.bridge.web.first_render'],
 		]);

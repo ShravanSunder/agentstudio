@@ -86,6 +86,40 @@ describe('Bridge comm worker telemetry', () => {
 		]);
 	});
 
+	test('retries failed flushes without advancing batch sequence', () => {
+		const batches: BridgeTelemetryBatch[] = [];
+		let shouldAcceptFlush = false;
+		const client = createBridgeCommWorkerTelemetryClient({
+			config: {
+				enabledScopes: new Set(['web']),
+				endpointUrl: 'agentstudio://telemetry/batch',
+				maxEncodedBatchBytes: 16_384,
+				maxSamplesPerBatch: 4,
+				minimumFlushIntervalMilliseconds: 250,
+				scenario: 'bridge-runtime',
+			},
+			sink: {
+				flush: (batch): boolean => {
+					if (!shouldAcceptFlush) {
+						shouldAcceptFlush = true;
+						return false;
+					}
+					batches.push(batch);
+					return true;
+				},
+			},
+		});
+
+		client.record(makeSample('performance.bridge.worker.task'));
+
+		expect(client.flush()).toBe(false);
+		expect(client.flush()).toBe(true);
+		expect(batches[0]?.sequence).toBe(1);
+		expect(batches.map((batch) => batch.samples.map((sample) => sample.name))).toEqual([
+			['performance.bridge.worker.task'],
+		]);
+	});
+
 	test('normalizes main and worker clocks with different time origins', () => {
 		const mainIssuedAtMilliseconds = readBridgeCommWorkerAbsoluteNowMilliseconds({
 			timeOrigin: 1_000,
