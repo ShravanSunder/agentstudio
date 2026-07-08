@@ -3,9 +3,6 @@ import { describe, expect, test } from 'vitest';
 
 import { demandRankForContentRole } from '../../../core/demand/bridge-content-demand-policy.js';
 import type { BridgeContentDemandRole } from '../../../core/models/bridge-demand-models.js';
-import type { BridgeContentResource } from '../../../foundation/content/content-resource-loader.js';
-import { makeBridgeReviewItem } from '../../../foundation/review-package/bridge-review-package-test-support.js';
-import { materializeBridgeCodeViewItem } from '../../code-view/bridge-code-view-materialization.js';
 import {
 	bridgePierreDemandRankForWorkerTask,
 	installBridgePierreWorkerPoolRankScheduler,
@@ -211,28 +208,8 @@ function materializedCodeViewFileForWorkerTask(props: {
 	readonly itemId: string;
 	readonly path: string;
 }): FileContents & { readonly bridgeDemandRank?: number } {
-	const item = makeBridgeReviewItem({ itemId: props.itemId, path: props.path });
-	const headHandle = item.contentRoles.head;
-	if (headHandle === null || headHandle === undefined) {
-		throw new Error(`expected fixture head content handle for ${props.itemId}`);
-	}
-	const materializedItem = materializeBridgeCodeViewItem({
-		contentDemandRole: props.contentDemandRole,
-		item,
-		presentation: { kind: 'file', version: 'head' },
-		resources: {
-			head: makeContentResource(headHandle, `let ${props.itemId.replaceAll('-', '')} = 1\n`),
-		},
+	return makeRankedFile({
+		name: props.path,
+		demandRank: demandRankForContentRole(props.contentDemandRole),
 	});
-	if (materializedItem?.type !== 'file') {
-		throw new Error(`expected file materialization for ${props.itemId}`);
-	}
-	return materializedItem.file;
-}
-
-function makeContentResource(
-	handle: BridgeContentResource['handle'],
-	text: string,
-): BridgeContentResource {
-	return { handle, readText: (): string => text };
 }

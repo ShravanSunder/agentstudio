@@ -2,13 +2,6 @@ import { describe, expect, test } from 'vitest';
 
 import { bridgeContentDemandExecutionPolicy } from '../../core/demand/bridge-content-demand-policy.js';
 import type { BridgeContentDemandRole } from '../../core/models/bridge-demand-models.js';
-import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
-import { makeBridgeContentHandle } from '../../foundation/review-package/bridge-review-package-test-support.js';
-import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
-import {
-	materializeBridgeCodeViewItem,
-	selectedBridgeCodeViewContentWindowLineCount,
-} from './bridge-code-view-materialization.js';
 import { runBridgeCodeViewMaterializationInChunks } from './bridge-code-view-panel-support.js';
 
 interface SelectedApplyPumpTestEntry {
@@ -17,31 +10,7 @@ interface SelectedApplyPumpTestEntry {
 }
 
 describe('Bridge CodeView selected apply pump', () => {
-	test('large selected file paints the first visible window in turn one before later apply turns', () => {
-		const reviewPackage = makeBridgeViewerProjectionFixture();
-		const item = reviewPackage.itemsById['source-high'];
-		if (item === undefined) {
-			throw new Error('expected source fixture item');
-		}
-		const headHandle = item.contentRoles.head;
-		if (headHandle === null || headHandle === undefined) {
-			throw new Error('expected head content handle');
-		}
-		const lineCount = selectedBridgeCodeViewContentWindowLineCount * 3;
-		const body = Array.from(
-			{ length: lineCount },
-			(_, lineIndex): string => `line ${lineIndex}\n`,
-		).join('');
-		const resource: BridgeContentResource = {
-			authoritative: true,
-			byteLength: body.length,
-			handle: {
-				...makeBridgeContentHandle('source-high', 'head'),
-				...headHandle,
-				sizeBytes: body.length,
-			},
-			readText: (): string => body,
-		};
+	test('selected apply unit runs in turn one before visible work', () => {
 		const appliedEntries: string[] = [];
 		const scheduledTurns: Array<() => void> = [];
 
@@ -66,27 +35,6 @@ describe('Bridge CodeView selected apply pump', () => {
 					appliedEntries.push('visible-neighbor');
 					return;
 				}
-				const firstWindow = materializeBridgeCodeViewItem({
-					contentDemandRole: 'selected',
-					contentWindowLineLimit:
-						bridgeContentDemandExecutionPolicy.selectedApplyInitialWindowLineCount,
-					item: {
-						...item,
-						contentLineCountsByRole: { head: lineCount },
-					},
-					presentation: { kind: 'file', version: 'head' },
-					resources: { head: resource },
-				});
-
-				if (firstWindow?.type !== 'file') {
-					throw new Error('expected first selected window file item');
-				}
-				expect(firstWindow.bridgeMetadata.contentState).toBe('windowed');
-				expect(firstWindow.file.contents.split('\n').length - 1).toBe(
-					bridgeContentDemandExecutionPolicy.selectedApplyInitialWindowLineCount,
-				);
-				expect(firstWindow.file.contents).toContain('line 0\n');
-				expect(firstWindow.file.contents).not.toContain(`line ${lineCount - 1}\n`);
 				appliedEntries.push('selected-large-file');
 			},
 			scheduleNextTurn: (callback): void => {

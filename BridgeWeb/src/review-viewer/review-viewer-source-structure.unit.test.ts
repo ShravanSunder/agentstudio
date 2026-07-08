@@ -607,7 +607,7 @@ describe('Review viewer source structure', () => {
 		const materializationSource = readSource('./code-view/bridge-code-view-materialization.ts');
 		const placeholderDiffSource = materializationSource.slice(
 			materializationSource.indexOf('function createPlaceholderDiffItem'),
-			materializationSource.indexOf('interface CreateFileItemProps'),
+			materializationSource.indexOf('interface CreatePlaceholderFileItemProps'),
 		);
 		const placeholderContentSource = readSource(
 			'./code-view/bridge-code-view-placeholder-content.ts',
@@ -615,6 +615,21 @@ describe('Review viewer source structure', () => {
 
 		expect(placeholderDiffSource).not.toContain('parseDiffFromFile');
 		expect(placeholderContentSource).not.toContain('parseDiffFromFile');
+	});
+
+	test('keeps Review CodeView materialization off the main-thread diff parser', () => {
+		const materializationSource = readSource('./code-view/bridge-code-view-materialization.ts');
+		const placeholderContentSource = readSource(
+			'./code-view/bridge-code-view-placeholder-content.ts',
+		);
+
+		expect(materializationSource).not.toContain('parseDiffFromFile');
+		expect(materializationSource).not.toContain('materializeBridgeCodeViewItem');
+		expect(materializationSource).not.toContain('.readText()');
+		expect(materializationSource).not.toContain('windowTextForCodeView');
+		expect(materializationSource).not.toContain('createBridgeCodeViewDirectFileDiff');
+		expect(placeholderContentSource).not.toContain('createBridgeCodeViewDirectFileDiff');
+		expect(placeholderContentSource).not.toContain('splitFileContents');
 	});
 
 	test('does not preserve selected current item while applying CodeView source reset', () => {

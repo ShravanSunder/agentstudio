@@ -17,9 +17,9 @@ import { buildBridgeReviewProjection } from '../navigation/review-projection.js'
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
 import { BridgeCodeViewController } from './bridge-code-view-controller.js';
 import {
+	bridgeCodeViewMaterializationCacheKeysForItem,
 	type BridgeCodeViewContentResources,
 	type BridgeCodeViewItem,
-	materializeBridgeCodeViewItem,
 	materializeBridgeCodeViewLoadingItem,
 } from './bridge-code-view-materialization.js';
 import { runBridgeCodeViewMetadataApplyInChunks } from './bridge-code-view-metadata-apply.js';
@@ -42,6 +42,7 @@ import {
 	selectedContentSummaryForPanel,
 	shouldScheduleSelectedContentPaintedTelemetry,
 } from './bridge-code-view-panel.js';
+import { makeHydratedWorkerPreparedCodeViewFileItem } from './bridge-code-view-test-fixtures.js';
 
 describe('BridgeCodeViewPanel diagnostics', () => {
 	test('keys the mounted Pierre viewer by review source and projection identity', () => {
@@ -320,11 +321,19 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 				},
 			},
 		};
-		const existingItem = materializeBridgeCodeViewItem({ item, resources });
-		if (existingItem === null) {
-			throw new Error('Expected item to materialize');
+		const expectedCacheKey = bridgeCodeViewMaterializationCacheKeysForItem({
+			item,
+			presentation: null,
+			resources,
+		})[0];
+		if (expectedCacheKey === undefined) {
+			throw new Error('Expected materialization cache key');
 		}
-		readTextCallCount = 0;
+		const existingItem = makeHydratedWorkerPreparedCodeViewFileItem({
+			cacheKey: expectedCacheKey,
+			contentRoles: ['head'],
+			item,
+		});
 
 		expect(
 			shouldSkipBridgeCodeViewItemMaterializationBeforeWork({
@@ -371,7 +380,7 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 		expect(scheduledTurns).toHaveLength(0);
 	});
 
-	test('does not retokenize same content-hash descriptor file on chunked re-exposure', () => {
+	test('does not retokenize same content-hash worker-prepared file on chunked re-exposure', () => {
 		vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback): number => {
 			callback(0);
 			return 1;
@@ -416,6 +425,23 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 					},
 				},
 			};
+			const workerPreparedCacheKey = bridgeCodeViewMaterializationCacheKeysForItem({
+				item,
+				presentation: { kind: 'file', version: 'head' },
+				resources,
+			})[0];
+			if (workerPreparedCacheKey === undefined) {
+				throw new Error('Expected worker-prepared cache key');
+			}
+			const workerPreparedItem = makeHydratedWorkerPreparedCodeViewFileItem({
+				cacheKey: workerPreparedCacheKey,
+				contentRoles: ['head'],
+				contents: 'struct SameR46Content {}\n',
+				item,
+			});
+			if (workerPreparedItem.type !== 'file') {
+				throw new Error('Expected worker-prepared file item');
+			}
 			const appliedEntries: string[] = [];
 			const skippedEntries: string[] = [];
 			const scheduledTurns: Array<() => void> = [];
@@ -444,21 +470,12 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 						skippedEntries.push(entry);
 						return;
 					}
-					const materializedItem = materializeBridgeCodeViewItem({
-						contentDemandRole: 'selected',
-						item,
-						presentation: { kind: 'file', version: 'head' },
-						resources,
-					});
-					if (materializedItem?.type !== 'file') {
-						throw new Error('Expected descriptor-backed file materialization');
-					}
-					const cacheKey = materializedItem.file.cacheKey;
+					const cacheKey = workerPreparedItem.file.cacheKey;
 					if (cacheKey === undefined) {
-						throw new Error('Expected descriptor-backed file cache key');
+						throw new Error('Expected worker-prepared file cache key');
 					}
-					appliedEntries.push(`${entry}:${controller.applyItemUpdate(materializedItem)}`);
-					workerPoolManager.highlightFileAST(rendererInstance, materializedItem.file);
+					appliedEntries.push(`${entry}:${controller.applyItemUpdate(workerPreparedItem)}`);
+					workerPoolManager.highlightFileAST(rendererInstance, workerPreparedItem.file);
 					workerPoolManager
 						.inspectCaches()
 						.fileCache.set(cacheKey, cachedRenderFileResultFor(workerPoolManager));
@@ -469,14 +486,14 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 			});
 
 			scheduledTurns.shift()?.();
-			expect(readTextCallCount).toBe(1);
+			expect(readTextCallCount).toBe(0);
 			expect(highlightSpy).toHaveBeenCalledTimes(1);
 			expect(workerPoolManager.getStats().queuedTasks).toBe(1);
 			scheduledTurns.shift()?.();
 
 			expect(appliedEntries).toEqual(['initial-exposure:added', 'drained']);
 			expect(skippedEntries).toEqual(['second-exposure']);
-			expect(readTextCallCount).toBe(1);
+			expect(readTextCallCount).toBe(0);
 			expect(highlightSpy).toHaveBeenCalledTimes(1);
 			expect(workerPoolManager.getStats()).toMatchObject({
 				fileCacheSize: 1,
@@ -693,19 +710,15 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 	test('records selected content painted when hydration paints before the selected anchor arrives', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const selectedItem = reviewPackage.itemsById['item-source'];
-		const baseHandle = selectedItem?.contentRoles.base ?? null;
-		const headHandle = selectedItem?.contentRoles.head ?? null;
-		if (selectedItem === undefined || baseHandle === null || headHandle === null) {
-			throw new Error('Expected modified item with base/head handles');
+		if (selectedItem === undefined) {
+			throw new Error('Expected modified item');
 		}
-		const resources: BridgeCodeViewContentResources = {
-			base: { handle: baseHandle, readText: (): string => 'base body' },
-			head: { handle: headHandle, readText: (): string => 'head body' },
-		};
-		const materializedItem = materializeBridgeCodeViewItem({ item: selectedItem, resources });
-		if (materializedItem === null) {
-			throw new Error('Expected selected item to materialize');
-		}
+		const materializedItem = makeHydratedWorkerPreparedCodeViewFileItem({
+			cacheKey: `${selectedItem.cacheKey}:worker-prepared-test`,
+			contentRoles: ['base', 'head'],
+			contents: 'worker prepared selected content\n',
+			item: selectedItem,
+		});
 		const samples: BridgeTelemetrySample[] = [];
 		const frameCallbacks: FrameRequestCallback[] = [];
 		const telemetryRecorder = enabledTelemetryRecorder(samples);

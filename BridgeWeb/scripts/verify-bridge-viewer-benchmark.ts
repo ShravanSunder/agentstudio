@@ -58,7 +58,7 @@ type BridgeViewerBenchmarkWorkloadId = BenchmarkArtifact['workloadId'];
 interface BridgeViewerBenchmarkExpectation {
 	readonly expectedPathCount: number;
 	readonly expectedDiffRows: number;
-	readonly expectedMaterializedLineSampleCount?: number;
+	readonly expectedCodeViewCacheIdentityCount?: number;
 	readonly expectedMarkdownFencedBlockCount?: number;
 	readonly metricBudgets: Readonly<Record<string, number>>;
 }
@@ -82,13 +82,13 @@ const requiredWorkloads: Record<BridgeViewerBenchmarkWorkloadId, BridgeViewerBen
 		bridge_viewer_large_diff_scroll_v1: {
 			expectedPathCount: 25,
 			expectedDiffRows: 100_000,
-			expectedMaterializedLineSampleCount: 8_000,
+			expectedCodeViewCacheIdentityCount: 1,
 			expectedMarkdownFencedBlockCount: 64,
 			metricBudgets: {
+				codeViewCacheIdentityMilliseconds: 5,
 				markdownRenderMilliseconds: 10_000,
 				markdownRenderWallMilliseconds: 10_000,
 				projectionBuildMilliseconds: 25,
-				materializeDiffMilliseconds: 10_000,
 				scrollTraceMilliseconds: 5,
 			},
 		},
@@ -131,11 +131,11 @@ function verifyBenchmarkArtifact(artifact: BenchmarkArtifact): void {
 			`${artifact.workloadId}: expectedDiffRows expected ${expectations.expectedDiffRows}, got ${artifact.workload.expectedDiffRows}`,
 		);
 	}
-	if (expectations.expectedMaterializedLineSampleCount !== undefined) {
-		const sampleCount = artifact.summary.medians['materializedLineSampleCount'];
-		if (sampleCount !== expectations.expectedMaterializedLineSampleCount) {
+	if (expectations.expectedCodeViewCacheIdentityCount !== undefined) {
+		const cacheIdentityCount = artifact.summary.medians['codeViewCacheIdentityCount'];
+		if (cacheIdentityCount !== expectations.expectedCodeViewCacheIdentityCount) {
 			throw new Error(
-				`${artifact.workloadId}: materializedLineSampleCount expected ${expectations.expectedMaterializedLineSampleCount}, got ${sampleCount}`,
+				`${artifact.workloadId}: codeViewCacheIdentityCount expected ${expectations.expectedCodeViewCacheIdentityCount}, got ${cacheIdentityCount}`,
 			);
 		}
 	}

@@ -4076,3 +4076,92 @@ counts before claiming a gate.
   scroll/click percentile movement, telemetry non-lossiness on a fresh marker,
   remaining Review browser/native UX proof, implementation-review-swarm, PR
   readiness, or full goal completion.
+
+## 2026-07-08 - Review Dormant Main Materializer Deletion
+
+- Commit target:
+  checkpoint label `fix(bridge): delete dormant review main materializer`.
+- Scope:
+  Narrow R44/R45/R52/R57 hard-cutover residue deletion. Review CodeView
+  production materialization now keeps placeholder/loading and cache-key
+  helpers only; the dormant hydrated/windowed `materializeBridgeCodeViewItem`
+  path, app-side raw body reads, app-side text windowing, app-side diff
+  construction, and app-side Pierre descriptor file construction are removed.
+  Tests and the node benchmark were moved to worker-prepared fixtures or
+  cache-identity measurement rather than resurrecting the deleted main-thread
+  materializer.
+- Root cause:
+  The old helper was no longer a live production caller, but it still preserved
+  a forbidden mental model and compile surface: main/React could read content
+  resources, window text, construct Pierre file payloads, and parse diff
+  payloads. Keeping the helper made source scans and tests compatible with the
+  pre-cutover architecture even though Review content truth belongs in the comm
+  worker.
+- Red / failure evidence:
+  After deleting the helper, `pnpm --dir BridgeWeb exec tsc --noEmit --pretty
+  false` failed on the remaining stale imports in
+  `scripts/bridge-viewer-benchmark.benchmark.ts`,
+  `bridge-code-view-panel.unit.test.ts`,
+  `bridge-code-view-selected-apply-pump.unit.test.ts`, and
+  `bridge-pierre-worker-pool.rank.unit.test.ts`, plus the dangling deleted type
+  and unused loading text in `bridge-code-view-materialization.ts`. The first
+  focused test run also failed the source-structure line cap because
+  `bridge-code-view-panel.unit.test.ts` reached 1024 lines; the fixture was
+  extracted to `bridge-code-view-test-fixtures.ts`.
+- Green evidence:
+  Focused Review/Pierre battery passed 7 files / 92 tests:
+  `bridge-code-view-materialization.unit.test.ts`,
+  `bridge-code-view-materialization.hydration.unit.test.ts`,
+  `review-viewer-source-structure.unit.test.ts`,
+  `bridge-code-view-panel.unit.test.ts`,
+  `bridge-code-view-selected-apply-pump.unit.test.ts`,
+  `bridge-pierre-worker-pool.rank.unit.test.ts`, and
+  `bridge-worker-review-pierre-job-planner.unit.test.ts`.
+  Wider Review CodeView battery passed 7 files / 99 tests:
+  `bridge-code-view-materialization.unit.test.ts`,
+  `bridge-code-view-materialization.hydration.unit.test.ts`,
+  `bridge-code-view-metadata-apply.unit.test.ts`,
+  `bridge-code-view-worker-prepared-items-selector.unit.test.ts`,
+  `bridge-code-view-panel-reconcile.unit.test.ts`,
+  `review-viewer-source-structure.unit.test.ts`, and
+  `bridge-app-review-render-snapshot-controller.unit.test.ts`.
+  `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
+  `pnpm --dir BridgeWeb exec vitest --config vitest.benchmark.config.ts run
+  scripts/bridge-viewer-benchmark.benchmark.ts --reporter dot` passed 1 file /
+  1 test. `bash scripts/verify-bridge-viewer-benchmark.sh` passed and verified
+  the fresh artifact
+  `tmp/bridge-viewer-benchmark/2026-07-08T18-10-57-144Z`.
+  Scoped `oxfmt --check`, scoped `oxlint --type-aware`, and
+  `git diff --check` passed.
+- Deletion-scan evidence:
+  Production scan found no `parseDiffFromFile` in `BridgeWeb/src/app`,
+  `BridgeWeb/src/review-viewer`, or `BridgeWeb/src/file-viewer` excluding unit,
+  browser, and test-support files. The wider parser/highlighter/decode scan
+  found only `TextDecoder` in
+  `BridgeWeb/src/review-viewer/workers/pierre/bridge-pierre-worker-content-descriptor.ts`,
+  which is the Pierre worker descriptor path, not main-thread Review
+  materialization. Old benchmark metrics `materializeDiffMilliseconds` and
+  `materializedLineSampleCount` are gone; `materializeBridgeCodeViewItem`
+  remains only in the source-structure guard assertion.
+- Review evidence:
+  Sartre the 3rd performed the read-only stale-caller analysis and recommended
+  cache-key / worker-prepared fixture replacements. Helmholtz the 3rd reviewed
+  the implementation as `ready` with no P0/P1 findings and one accepted P2:
+  `bridge-code-view-selected-apply-pump.unit.test.ts` used a fake
+  `selectedPreparedWindow` object that looked like real worker-window coverage.
+  The fix narrowed that test to the selected-first scheduling contract and
+  paired proof with `bridge-worker-review-pierre-job-planner.unit.test.ts`,
+  which owns the worker-prepared window-shape contract. The focused P2 closure
+  passed 2 files / 15 tests.
+- Line-cap evidence:
+  Touched line counts after formatting:
+  `bridge-code-view-panel.unit.test.ts` 992,
+  `bridge-code-view-test-fixtures.ts` 33,
+  `bridge-code-view-materialization.ts` 611, and
+  `review-viewer-source-structure.unit.test.ts` 801.
+- Known proof boundary:
+  This removes the dormant Review main raw materializer and its benchmark/test
+  compatibility residue. It does not prove fresh oq4s live scroll/click
+  percentile movement, final G6 browser/native script-message RPC deletion,
+  zero-copy transfer-list delivery, implementation-review-swarm, PR readiness,
+  or full goal completion.

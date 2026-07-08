@@ -8,7 +8,7 @@ import { promisify } from 'node:util';
 
 import { describe, expect, test } from 'vitest';
 
-import { materializeBridgeCodeViewItem } from '../src/review-viewer/code-view/bridge-code-view-materialization.js';
+import { bridgeCodeViewMaterializationCacheKeysForItem } from '../src/review-viewer/code-view/bridge-code-view-materialization.js';
 import type { BridgeReviewProjectionWorkloadId } from '../src/review-viewer/models/review-projection-models.js';
 import {
 	buildBridgeReviewProjection,
@@ -163,7 +163,7 @@ async function runWorkloadBenchmark(
 		summary,
 		checksum,
 		notes: [
-			'Node benchmark uses deterministic Pierre input preparation, CodeView item materialization, and markdown worker rendering.',
+			'Node benchmark uses deterministic Pierre input preparation, CodeView cache-identity preparation, and markdown worker rendering.',
 			'The scroll trace is a deterministic scroll-budget checksum; packaged WKWebView visual proof remains the runtime gate for actual browser painting and scrolling.',
 		],
 	};
@@ -248,24 +248,27 @@ async function runLargeDiffIteration(
 	});
 	const projectionBuildMilliseconds = elapsedSince(projectionStart);
 
-	const materializeStart = performance.now();
-	const materializationLineSampleCount = 8_000;
-	const materializedItem = materializeBridgeCodeViewItem({
+	const cacheIdentityStart = performance.now();
+	const cacheKeys = bridgeCodeViewMaterializationCacheKeysForItem({
 		item: diffItem,
 		resources: {
 			base: {
 				handle: baseHandle,
-				readText: (): string => firstLines(largeDiff.baseText, materializationLineSampleCount),
+				readText: (): string => {
+					throw new Error('benchmark cache identity prep must not read base text');
+				},
 			},
 			head: {
 				handle: headHandle,
-				readText: (): string => firstLines(largeDiff.headText, materializationLineSampleCount),
+				readText: (): string => {
+					throw new Error('benchmark cache identity prep must not read head text');
+				},
 			},
 		},
 	});
-	const materializeDiffMilliseconds = elapsedSince(materializeStart);
-	if (materializedItem === null) {
-		throw new Error('large diff benchmark failed to materialize CodeView item');
+	const codeViewCacheIdentityMilliseconds = elapsedSince(cacheIdentityStart);
+	if (cacheKeys.length === 0) {
+		throw new Error('large diff benchmark failed to prepare CodeView cache identity');
 	}
 
 	const markdownStart = performance.now();
@@ -289,8 +292,8 @@ async function runLargeDiffIteration(
 		markdownRenderMilliseconds: markdownResponse.metrics.durationMilliseconds,
 		markdownRenderWallMilliseconds,
 		markdownRenderedOutputBytes: markdownResponse.metrics.outputBytes,
-		materializeDiffMilliseconds,
-		materializedLineSampleCount: materializationLineSampleCount,
+		codeViewCacheIdentityCount: cacheKeys.length,
+		codeViewCacheIdentityMilliseconds,
 		projectionBuildMilliseconds,
 		scrollDistancePixels: scroll.targetScrollTop,
 		scrollSteps: scroll.steps,
@@ -317,19 +320,6 @@ function markdownBenchmarkRequest(props: {
 		markdownText: props.markdownText,
 		sourcePath: 'docs/plans/benchmark-plan.md',
 	};
-}
-
-function firstLines(text: string, lineCount: number): string {
-	let currentLine = 0;
-	for (let index = 0; index < text.length; index += 1) {
-		if (text[index] === '\n') {
-			currentLine += 1;
-		}
-		if (currentLine >= lineCount) {
-			return text.slice(0, index);
-		}
-	}
-	return text;
 }
 
 interface DeterministicScrollTrace {

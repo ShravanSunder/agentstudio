@@ -1,12 +1,7 @@
 import type { CodeViewDiffItem, CodeViewFileItem } from '@pierre/diffs';
-import { parseDiffFromFile, type FileContents } from '@pierre/diffs';
 import { z } from 'zod';
 
-import {
-	bridgeContentDemandExecutionPolicy,
-	demandRankForContentRole,
-} from '../../core/demand/bridge-content-demand-policy.js';
-import type { BridgeContentDemandRole } from '../../core/models/bridge-demand-models.js';
+import { bridgeContentDemandExecutionPolicy } from '../../core/demand/bridge-content-demand-policy.js';
 import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import type {
 	BridgeContentHandle,
@@ -16,11 +11,7 @@ import type {
 } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
 import { bridgeContentRoleSchema } from '../models/review-projection-models.js';
-import { bridgePierreOptionalHighlightLanguage } from '../workers/pierre/bridge-pierre-language-normalization.js';
-import {
-	bridgePierreContentDescriptorCacheKey,
-	createBridgePierreContentDescriptorFile,
-} from '../workers/pierre/bridge-pierre-worker-content-descriptor.js';
+import { bridgePierreContentDescriptorCacheKey } from '../workers/pierre/bridge-pierre-worker-content-descriptor.js';
 import {
 	createBridgeCodeViewPlaceholderDiffFiles,
 	createBridgeCodeViewPlaceholderFileDiff,
@@ -59,7 +50,6 @@ export type BridgeCodeViewDiffItem = CodeViewDiffItem & {
 };
 
 export type BridgeCodeViewItem = BridgeCodeViewFileItem | BridgeCodeViewDiffItem;
-type BridgeDemandRankedFileContents = FileContents & { readonly bridgeDemandRank?: number };
 
 export interface BridgeCodeViewContentResources {
 	readonly base?: BridgeContentResource;
@@ -84,8 +74,7 @@ export interface CreateBridgeCodeViewInitialItemsProps {
 	readonly seedItemIds?: readonly string[];
 }
 
-export interface MaterializeBridgeCodeViewItemProps {
-	readonly contentDemandRole?: BridgeContentDemandRole | undefined;
+export interface BridgeCodeViewMaterializationCacheKeysForItemProps {
 	readonly contentWindowLineLimit?: number | undefined;
 	readonly item: BridgeReviewItemDescriptor;
 	readonly presentation?: BridgeCodeViewItemPresentation | null;
@@ -155,73 +144,8 @@ export function createBridgeCodeViewInitialItems(
 	return items;
 }
 
-export function materializeBridgeCodeViewItem(
-	props: MaterializeBridgeCodeViewItemProps,
-): BridgeCodeViewItem | null {
-	const { item, resources } = props;
-	// A one-sided change (added/deleted) always renders as a diff (all-addition / all-deletion
-	// rows), even under an explicit file navigation target — there is no meaningful whole-file
-	// "version" to show for it. Resolving the one-sided resources before honoring a file
-	// presentation keeps placeholder/loading/hydrated on the same Pierre `type` for these items,
-	// which CodeView.syncItemRecord requires (it throws on any file<->diff type change for an id).
-	const oneSidedDiffResources = oneSidedDiffResourcesForItem({ item, resources });
-	if (props.presentation?.kind === 'file' && oneSidedDiffResources === null) {
-		const preferredResource = resourceForFilePresentation({
-			resources,
-			version: props.presentation.version,
-		});
-		return preferredResource === null
-			? null
-			: createFileItem({
-					contentDemandRole: props.contentDemandRole,
-					contentWindow: codeViewContentWindowForLineLimit(props.contentWindowLineLimit),
-					item,
-					resource: preferredResource,
-					version: item.itemVersion,
-					contentState: 'hydrated',
-				});
-	}
-
-	if (oneSidedDiffResources !== null) {
-		return createDiffItem({
-			...oneSidedDiffResources,
-			contentDemandRole: props.contentDemandRole,
-			contentWindow: codeViewContentWindowForLineLimit(props.contentWindowLineLimit),
-			item,
-		});
-	}
-
-	if (
-		shouldUseDiffPlaceholder(item) &&
-		(resources.base !== undefined || resources.head !== undefined)
-	) {
-		return createDiffItem({
-			contentDemandRole: props.contentDemandRole,
-			contentWindow: codeViewContentWindowForLineLimit(props.contentWindowLineLimit),
-			item,
-			base: resources.base ?? null,
-			head: resources.head ?? null,
-		});
-	}
-
-	const preferredResource =
-		resources.head ?? resources.file ?? resources.diff ?? resources.base ?? null;
-	if (preferredResource === null) {
-		return null;
-	}
-
-	return createFileItem({
-		contentDemandRole: props.contentDemandRole,
-		contentWindow: codeViewContentWindowForLineLimit(props.contentWindowLineLimit),
-		item,
-		resource: preferredResource,
-		version: item.itemVersion,
-		contentState: 'hydrated',
-	});
-}
-
 export function bridgeCodeViewMaterializationCacheKeysForItem(
-	props: MaterializeBridgeCodeViewItemProps,
+	props: BridgeCodeViewMaterializationCacheKeysForItemProps,
 ): readonly string[] {
 	const { item, resources } = props;
 	const contentWindow = codeViewContentWindowForLineLimit(props.contentWindowLineLimit);
@@ -317,11 +241,9 @@ function createPlaceholderItem(props: {
 	readonly presentation: BridgeCodeViewItemPresentation | null;
 }): BridgeCodeViewItem {
 	if (props.presentation?.kind === 'file' && !itemIsOneSidedChange(props.item)) {
-		return createFileItem({
+		return createPlaceholderFileItem({
 			item: props.item,
 			placeholderVersion: props.presentation.version,
-			resource: null,
-			version: 0,
 			contentState: 'placeholder',
 		});
 	}
@@ -330,11 +252,9 @@ function createPlaceholderItem(props: {
 			item: props.item,
 		});
 	}
-	return createFileItem({
+	return createPlaceholderFileItem({
 		item: props.item,
 		placeholderVersion: 'current',
-		resource: null,
-		version: 0,
 		contentState: 'placeholder',
 	});
 }
@@ -392,113 +312,46 @@ function createPlaceholderDiffItem(props: {
 	};
 }
 
-interface CreateFileItemProps {
-	readonly contentDemandRole?: BridgeContentDemandRole | undefined;
-	readonly contentWindow?: CodeViewContentWindow | undefined;
+interface CreatePlaceholderFileItemProps {
 	readonly item: BridgeReviewItemDescriptor;
 	readonly placeholderVersion?: BridgeCodeViewFilePresentationVersion;
-	readonly resource: BridgeContentResource | null;
-	readonly version: number;
-	readonly contentState: BridgeCodeViewItemMetadata['contentState'];
+	readonly contentState: Extract<BridgeCodeViewItemMetadata['contentState'], 'placeholder'>;
 }
 
-function createFileItem(props: CreateFileItemProps): BridgeCodeViewFileItem {
-	const contentWindow = codeViewContentWindowForResource({
-		contentWindow: props.contentWindow,
+function createPlaceholderFileItem(props: CreatePlaceholderFileItemProps): BridgeCodeViewFileItem {
+	const placeholderFile = createBridgeCodeViewPlaceholderFileContents({
 		item: props.item,
-		resource: props.resource,
+		path: displayPathForItem(props.item),
+		version: props.placeholderVersion ?? 'current',
 	});
-	const placeholderFile =
-		props.contentState === 'placeholder' && props.resource === null
-			? createBridgeCodeViewPlaceholderFileContents({
-					item: props.item,
-					path: displayPathForItem(props.item),
-					version: props.placeholderVersion ?? 'current',
-				})
-			: null;
-	const file =
-		placeholderFile?.file ??
-		createFileContents({
-			item: props.item,
-			resource: props.resource,
-			path: displayPathForItem(props.item),
-			contentState: props.contentState,
-			contentWindow,
-			contentDemandRole: props.contentDemandRole,
-		});
-	const contentState =
-		props.contentState === 'hydrated' && contentWindow.truncated ? 'windowed' : props.contentState;
 	return {
 		id: props.item.itemId,
 		type: 'file',
-		file,
+		file: placeholderFile.file,
 		version: codeViewRenderVersion({
-			contentState,
-			itemVersion: props.version,
+			contentState: props.contentState,
+			itemVersion: 0,
 		}),
 		bridgeMetadata: createMetadata({
 			item: props.item,
-			contentState,
-			contentRoles: props.resource === null ? [] : [props.resource.handle.role],
-			cacheKey: file.cacheKey ?? props.item.cacheKey,
-			...(placeholderFile === null ? {} : { lineCountOverride: placeholderFile.lineCount }),
+			contentState: props.contentState,
+			contentRoles: [],
+			cacheKey: placeholderFile.file.cacheKey ?? props.item.cacheKey,
+			lineCountOverride: placeholderFile.lineCount,
 		}),
 	};
 }
 
-interface CreateDiffItemProps {
-	readonly contentDemandRole?: BridgeContentDemandRole | undefined;
+interface BridgeCodeViewDiffMaterializationCacheKeyProps {
 	readonly contentWindow?: CodeViewContentWindow | undefined;
 	readonly item: BridgeReviewItemDescriptor;
 	readonly base: BridgeContentResource | null;
 	readonly head: BridgeContentResource | null;
 }
 
-function createDiffItem(props: CreateDiffItemProps): BridgeCodeViewDiffItem {
-	const contentWindow = codeViewContentWindowForDiffItem(props);
-	const oldFile = createFileContents({
-		item: props.item,
-		resource: props.base,
-		path: props.item.basePath ?? displayPathForItem(props.item),
-		contentState: 'placeholder',
-		contentWindow,
-		contentDemandRole: props.contentDemandRole,
-	});
-	const newFile = createFileContents({
-		item: props.item,
-		resource: props.head,
-		path: props.item.headPath ?? displayPathForItem(props.item),
-		contentState: 'placeholder',
-		contentWindow,
-		contentDemandRole: props.contentDemandRole,
-	});
-	const fileDiff = parseDiffFromFile(oldFile, newFile);
-	const fallbackLanguage = bridgePierreOptionalHighlightLanguage(
-		newFile.lang ?? oldFile.lang ?? props.item.language,
-	);
-	if (fileDiff.lang === undefined && fallbackLanguage !== undefined) {
-		fileDiff.lang = fallbackLanguage;
-	}
-	const contentState = contentWindow.truncated ? 'windowed' : 'hydrated';
-	const cacheKey = bridgeCodeViewDiffMaterializationCacheKey({ ...props, contentWindow });
-	return {
-		id: props.item.itemId,
-		type: 'diff',
-		fileDiff,
-		version: codeViewRenderVersion({
-			contentState,
-			itemVersion: props.item.itemVersion,
-		}),
-		bridgeMetadata: createMetadata({
-			item: props.item,
-			contentState,
-			contentRoles: loadedDiffContentRoles(props),
-			cacheKey,
-		}),
-	};
-}
-
-function bridgeCodeViewDiffMaterializationCacheKey(props: CreateDiffItemProps): string {
+function bridgeCodeViewDiffMaterializationCacheKey(
+	props: BridgeCodeViewDiffMaterializationCacheKeyProps,
+): string {
 	const contentWindow = codeViewContentWindowForDiffItem(props);
 	const baseCacheKey = bridgeCodeViewFileContentCacheKey({
 		contentState: 'placeholder',
@@ -567,21 +420,10 @@ function codeViewRenderVersion(props: {
 	throw new Error('Unhandled Bridge CodeView content state');
 }
 
-function loadedDiffContentRoles(props: CreateDiffItemProps): readonly BridgeContentRole[] {
-	const roles: BridgeContentRole[] = [];
-	if (props.base !== null) {
-		roles.push('base');
-	}
-	if (props.head !== null) {
-		roles.push('head');
-	}
-	return roles;
-}
-
 function oneSidedDiffResourcesForItem(props: {
 	readonly item: BridgeReviewItemDescriptor;
 	readonly resources: BridgeCodeViewContentResources;
-}): Omit<CreateDiffItemProps, 'item'> | null {
+}): Pick<BridgeCodeViewDiffMaterializationCacheKeyProps, 'base' | 'head'> | null {
 	switch (props.item.changeKind) {
 		case 'added': {
 			const head = props.resources.head ?? props.resources.file ?? null;
@@ -601,93 +443,6 @@ function oneSidedDiffResourcesForItem(props: {
 	throw new Error('Unhandled Bridge review file change kind');
 }
 
-interface CreateFileContentsProps {
-	readonly contentDemandRole?: BridgeContentDemandRole | undefined;
-	readonly item: BridgeReviewItemDescriptor;
-	readonly missingResourceText?: string;
-	readonly resource: BridgeContentResource | null;
-	readonly path: string;
-	readonly contentState?: BridgeCodeViewItemMetadata['contentState'];
-	readonly contentWindow?: CodeViewContentWindow;
-}
-
-function createFileContents(props: CreateFileContentsProps): FileContents {
-	if (props.resource !== null) {
-		const text = props.resource.readText();
-		return createFileContentsForResource({
-			contentWindow: props.contentWindow ?? fullCodeViewContentWindow(),
-			item: props.item,
-			path: props.path,
-			resource: props.resource,
-			text,
-			contentDemandRole: props.contentDemandRole,
-		});
-	}
-
-	const windowedText = windowTextForCodeView({
-		contentWindow: props.contentWindow ?? fullCodeViewContentWindow(),
-		text:
-			props.missingResourceText ??
-			(props.contentState === 'loading' ? loadingMissingResourceText : ''),
-	});
-	return fileContentsWithDemandRank({
-		contentDemandRole: props.contentDemandRole,
-		file: {
-			name: props.path,
-			contents: windowedText.text,
-			cacheKey: `${props.item.cacheKey}:${props.contentState ?? 'placeholder'}`,
-		},
-	});
-}
-
-function createFileContentsForResource(props: {
-	readonly contentDemandRole?: BridgeContentDemandRole | undefined;
-	readonly contentWindow: CodeViewContentWindow;
-	readonly item: BridgeReviewItemDescriptor;
-	readonly path: string;
-	readonly resource: BridgeContentResource;
-	readonly text: string;
-}): FileContents {
-	const windowedText = windowTextForCodeView({
-		contentWindow: props.contentWindow,
-		text: props.text,
-	});
-	const cacheKey = bridgeCodeViewContentResourceMaterializationCacheKey({
-		contentWindow: windowedText,
-		resource: props.resource,
-	});
-	const normalizedLanguage = bridgePierreOptionalHighlightLanguage(
-		props.resource.handle.language ?? props.item.language,
-	);
-	if (windowedText.truncated) {
-		return fileContentsWithDemandRank({
-			contentDemandRole: props.contentDemandRole,
-			file: {
-				name: props.path,
-				contents: windowedText.text,
-				cacheKey,
-				...(normalizedLanguage === undefined ? {} : { lang: normalizedLanguage }),
-			},
-		});
-	}
-	const lineCount = props.item.contentLineCountsByRole?.[props.resource.handle.role] ?? null;
-	return fileContentsWithDemandRank({
-		contentDemandRole: props.contentDemandRole,
-		file: createBridgePierreContentDescriptorFile({
-			cacheKey,
-			contentHash: props.resource.handle.contentHash,
-			contentHashAlgorithm: props.resource.handle.contentHashAlgorithm,
-			generation: props.resource.handle.reviewGeneration,
-			lang: normalizedLanguage,
-			lineCount,
-			maxBytes: Math.max(1, props.resource.handle.sizeBytes),
-			name: props.path,
-			resourceUrl: props.resource.handle.resourceUrl,
-			text: windowedText.text,
-		}),
-	});
-}
-
 function bridgeCodeViewContentResourceMaterializationCacheKey(props: {
 	readonly contentWindow: Pick<CodeViewContentWindow, 'maxLines' | 'truncated'>;
 	readonly resource: BridgeContentResource;
@@ -699,19 +454,6 @@ function bridgeCodeViewContentResourceMaterializationCacheKey(props: {
 	return props.contentWindow.truncated
 		? `${cacheKey}:window:${props.contentWindow.maxLines}`
 		: cacheKey;
-}
-
-function fileContentsWithDemandRank(props: {
-	readonly contentDemandRole?: BridgeContentDemandRole | undefined;
-	readonly file: FileContents;
-}): BridgeDemandRankedFileContents {
-	if (props.contentDemandRole === undefined) {
-		return props.file;
-	}
-	return {
-		...props.file,
-		bridgeDemandRank: demandRankForContentRole(props.contentDemandRole),
-	};
 }
 
 interface CodeViewContentWindow {
@@ -726,7 +468,9 @@ function fullCodeViewContentWindow(): CodeViewContentWindow {
 	};
 }
 
-function codeViewContentWindowForDiffItem(props: CreateDiffItemProps): CodeViewContentWindow {
+function codeViewContentWindowForDiffItem(
+	props: BridgeCodeViewDiffMaterializationCacheKeyProps,
+): CodeViewContentWindow {
 	if (props.contentWindow !== undefined) {
 		return props.contentWindow;
 	}
@@ -805,41 +549,6 @@ function maxKnownContentByteCount(resources: BridgeCodeViewContentResources): nu
 	);
 }
 
-function windowTextForCodeView(props: {
-	readonly contentWindow: CodeViewContentWindow;
-	readonly text: string;
-}): {
-	readonly maxLines: number;
-	readonly text: string;
-	readonly truncated: boolean;
-} {
-	if (!Number.isFinite(props.contentWindow.maxLines)) {
-		return {
-			maxLines: props.contentWindow.maxLines,
-			text: props.text,
-			truncated: false,
-		};
-	}
-	const maxLines = Math.max(1, Math.floor(props.contentWindow.maxLines));
-	let currentIndex = 0;
-	for (let lineIndex = 0; lineIndex < maxLines; lineIndex += 1) {
-		const newlineIndex = props.text.indexOf('\n', currentIndex);
-		if (newlineIndex === -1) {
-			return {
-				maxLines,
-				text: props.text,
-				truncated: false,
-			};
-		}
-		currentIndex = newlineIndex + 1;
-	}
-	return {
-		maxLines,
-		text: props.text.slice(0, currentIndex),
-		truncated: true,
-	};
-}
-
 interface CreateMetadataProps {
 	readonly item: BridgeReviewItemDescriptor;
 	readonly contentState: BridgeCodeViewItemMetadata['contentState'];
@@ -896,8 +605,6 @@ function oneSidedDiffContentRoleLineCount(
 	}
 	return null;
 }
-
-const loadingMissingResourceText = 'Loading content...\nLoading syntax view...\n';
 
 function displayPathForItem(item: BridgeReviewItemDescriptor): string {
 	return item.headPath ?? item.basePath ?? item.itemId;
