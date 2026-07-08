@@ -2924,3 +2924,43 @@ counts before claiming a gate.
   percentile movement, G6 scheme-stream push/intake/ack closure, zero-copy
   Pierre delivery, implementation-review-swarm, PR readiness, or full goal
   completion.
+
+### 2026-07-08 Review worker paint telemetry checkpoint
+
+- Checkpoint commit: `9169c24d fix(bridge): tag worker review paint telemetry`
+  (unsigned; signed commit attempt failed before object write with
+  `1Password: failed to fill whole buffer`).
+- Scope: Review CodeView worker-prepared materialization now records
+  `agentstudio.bridge.transport=worker`, selected worker materialization can
+  schedule selected-content-painted telemetry with the original click token, and
+  selected-content paint package identity is revision-aware so revision-only
+  package updates cannot reuse stale click timing.
+- Red evidence:
+  `CI=true pnpm -C BridgeWeb exec vitest run
+  src/app/bridge-app-review-telemetry.unit.test.ts -t "package telemetry keys
+  include revision" --reporter dot` failed because both telemetry package keys
+  were `package-1:1` before the fix.
+- Green evidence:
+  `CI=true pnpm -C BridgeWeb exec vitest run
+  src/review-viewer/code-view/bridge-code-view-metadata-apply.unit.test.ts
+  src/review-viewer/code-view/bridge-code-view-panel.unit.test.ts
+  src/review-viewer/code-view/bridge-code-view-panel-reconcile.unit.test.ts
+  src/review-viewer/code-view/bridge-code-view-panel-worker-telemetry.unit.test.ts
+  src/review-viewer/review-viewer-source-structure.unit.test.ts
+  src/foundation/telemetry/bridge-viewer-telemetry-adapter.unit.test.ts
+  src/app/bridge-app-review-selection-controller.unit.test.ts
+  src/app/bridge-app-review-telemetry.unit.test.ts --reporter dot` passed 8
+  files / 77 tests. `pnpm -C BridgeWeb exec tsc --noEmit --pretty false`
+  passed. `pnpm -C BridgeWeb exec oxfmt --check .` passed. `pnpm -C BridgeWeb
+  exec oxlint --type-aware` exited 0 with repo warning-only output. `git diff
+  --check` passed.
+- Sidekick evidence:
+  Goodall the 2nd reviewed the dirty diff and reported one P2 telemetry
+  correctness issue: selected-content paint tokens were keyed without
+  `revision`. The fix made `makeTelemetryPackageKey()` revision-aware and added
+  the regression above. No P0/P1 findings were reported.
+- Known proof boundary:
+  This checkpoint does not claim live Review scroll/click UX closure, Victoria
+  percentile movement, render-proof success, G6 scheme-stream push/intake/ack
+  closure, zero-copy Pierre delivery, implementation-review-swarm, PR
+  readiness, or full goal completion.
