@@ -538,25 +538,69 @@ export function pruneEmptyWorktreeFileTreeDirectories(
 	treeRowsByPath: Map<string, WorktreeTreeRowMetadata>,
 ): void {
 	const pathsToDelete: string[] = [];
+	const directoryRowsByNormalizedPath = new Map<string, WorktreeTreeRowMetadata>();
+	const directoryPathsByNormalizedPath = new Map<string, string[]>();
+	const directoriesWithFileDescendants = new Set<string>();
+	const queuedDirectoryPaths = new Set<string>();
+	const markedDirectoryQueue: string[] = [];
+	const queueKnownDirectory = (normalizedPath: string): void => {
+		if (
+			queuedDirectoryPaths.has(normalizedPath) ||
+			!directoryRowsByNormalizedPath.has(normalizedPath)
+		) {
+			return;
+		}
+		queuedDirectoryPaths.add(normalizedPath);
+		markedDirectoryQueue.push(normalizedPath);
+	};
+	const markDirectoryWithFileDescendant = (path: string | null): void => {
+		if (path === null) {
+			return;
+		}
+		const normalizedPath = normalizedWorktreeDirectoryPath(path);
+		if (normalizedPath.length === 0 || directoriesWithFileDescendants.has(normalizedPath)) {
+			return;
+		}
+		directoriesWithFileDescendants.add(normalizedPath);
+		queueKnownDirectory(normalizedPath);
+	};
 	for (const [path, treeRow] of treeRowsByPath) {
-		if (!treeRow.isDirectory) {
+		if (treeRow.isDirectory) {
+			const normalizedPath = normalizedWorktreeDirectoryPath(path);
+			directoryRowsByNormalizedPath.set(normalizedPath, treeRow);
+			const pathsForDirectory = directoryPathsByNormalizedPath.get(normalizedPath) ?? [];
+			pathsForDirectory.push(path);
+			directoryPathsByNormalizedPath.set(normalizedPath, pathsForDirectory);
+			if (directoriesWithFileDescendants.has(normalizedPath)) {
+				queueKnownDirectory(normalizedPath);
+			}
 			continue;
 		}
-		const descendantPathPrefix = `${path.replace(/\/+$/, '')}/`;
-		let hasFileDescendant = false;
-		for (const candidate of treeRowsByPath.values()) {
-			if (!candidate.isDirectory && candidate.path.startsWith(descendantPathPrefix)) {
-				hasFileDescendant = true;
-				break;
-			}
+		markDirectoryWithFileDescendant(treeRow.parentPath);
+	}
+	for (let index = 0; index < markedDirectoryQueue.length; index += 1) {
+		const normalizedPath = markedDirectoryQueue[index];
+		if (normalizedPath === undefined) {
+			continue;
 		}
-		if (!hasFileDescendant) {
+		const directoryRow = directoryRowsByNormalizedPath.get(normalizedPath);
+		markDirectoryWithFileDescendant(directoryRow?.parentPath ?? null);
+	}
+	for (const [normalizedPath, directoryPaths] of directoryPathsByNormalizedPath) {
+		if (directoriesWithFileDescendants.has(normalizedPath)) {
+			continue;
+		}
+		for (const path of directoryPaths) {
 			pathsToDelete.push(path);
 		}
 	}
 	for (const path of pathsToDelete) {
 		treeRowsByPath.delete(path);
 	}
+}
+
+function normalizedWorktreeDirectoryPath(path: string): string {
+	return path.replace(/\/+$/, '');
 }
 
 export function reconcileOpenFileStateWithFrames(props: {

@@ -3661,3 +3661,48 @@ counts before claiming a gate.
   does not finish scheme-stream push/intake/ack cutover, native oq4s
   scroll/click proof, Review apply/materialization lag closure,
   implementation-review-swarm, PR readiness, or full goal completion.
+
+## 2026-07-08 - File View O(N2) Directory Prune Deletion
+
+- Commit target:
+  pending local checkpoint `fix(bridge): prune file tree directories bottom-up`.
+- Scope:
+  Delete the File View O(N2) directory prune called out in the Slice G deletion
+  checklist. This is a narrow File View frame-application cleanup; it does not
+  claim full Review/File UX proof, telemetry proof, or PR readiness.
+- Implementation:
+  `pruneEmptyWorktreeFileTreeDirectories` now builds directory indexes once,
+  marks direct file parents, and propagates `has file descendant` upward through
+  row `parentPath` metadata with each known directory enqueued at most once.
+  The old nested per-directory descendant scan and the intermediate per-file
+  ancestor-string walk are gone.
+- Red / review evidence:
+  The first red test failed on the old production code with `valuesCallCount`
+  equal to 80, proving one full row scan per directory. Popper the 2nd then
+  found the first fix still had deep-tree O(N2) behavior. The stronger red test
+  failed before the parentPath propagation fix because prune called
+  `String.prototype.lastIndexOf` 3320 times on an 80-deep tree.
+- Green evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/file-viewer/bridge-file-viewer-app.unit.test.ts -t
+  "prunes deep directory rows" --reporter dot` passed 1/1. `pnpm --dir
+  BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.ts
+  -t "BridgeFileViewerApp tree row pruning" --reporter dot` passed 2/2.
+  Scoped File View battery `pnpm --dir BridgeWeb exec vitest run
+  src/file-viewer/bridge-file-viewer-app.unit.test.ts
+  src/file-viewer/bridge-file-viewer-store-source-structure.unit.test.ts
+  src/file-viewer/bridge-file-viewer-render-snapshot-controller.unit.test.ts
+  --reporter dot` passed 3 files / 31 tests. `pnpm --dir BridgeWeb exec tsc
+  --noEmit --pretty false` passed. Scoped `oxfmt --check`, scoped
+  `oxlint --type-aware`, and `git diff --check` passed.
+- Source scans:
+  Targeted scan for the old nested prune pattern
+  `for (const candidate of treeRowsByPath.values())` and the intermediate
+  `ancestorDirectoryPathsForWorktreeFile` helper returned no matches. Remaining
+  File View `lastIndexOf('/')` matches are the unit-test row helper and
+  `bridge-file-viewer-tree-delta.ts` path helper, not the prune.
+- Known proof boundary:
+  This removes one File View checklist hot-path residue. It does not finish
+  telemetry non-lossiness, Review placeholder main-thread diff residue, native
+  oq4s scroll/click proof, implementation-review-swarm, PR readiness, or full
+  goal completion.

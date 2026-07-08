@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import type {
 	WorktreeFileDescriptor,
@@ -63,6 +63,45 @@ describe('BridgeFileViewerApp tree row pruning', () => {
 		pruneEmptyWorktreeFileTreeDirectories(treeRowsByPath);
 
 		expect([...treeRowsByPath.keys()]).toEqual(['src', 'src/b', 'src/b/File.swift']);
+	});
+
+	test('prunes deep directory rows from parent metadata instead of reparsing ancestor paths', () => {
+		const treeRowsByPath = new Map<string, WorktreeTreeRowMetadata>();
+		let parentPath: string | null = null;
+		for (let index = 0; index < 80; index += 1) {
+			const directoryPath: string = parentPath === null ? 'src' : `${parentPath}/package-${index}`;
+			treeRowsByPath.set(
+				directoryPath,
+				makeWorktreeTreeRow({
+					rowId: `row-dir-${index}`,
+					path: directoryPath,
+					parentPath,
+					depth: index,
+					isDirectory: true,
+				}),
+			);
+			treeRowsByPath.set(
+				`${directoryPath}/File.swift`,
+				makeWorktreeTreeRow({
+					rowId: `row-file-${index}`,
+					path: `${directoryPath}/File.swift`,
+					parentPath: directoryPath,
+					depth: index + 1,
+					isDirectory: false,
+				}),
+			);
+			parentPath = directoryPath;
+		}
+		const lastIndexOfSpy = vi.spyOn(String.prototype, 'lastIndexOf');
+
+		try {
+			pruneEmptyWorktreeFileTreeDirectories(treeRowsByPath);
+
+			expect(lastIndexOfSpy).not.toHaveBeenCalled();
+			expect(treeRowsByPath.size).toBe(160);
+		} finally {
+			lastIndexOfSpy.mockRestore();
+		}
 	});
 });
 
@@ -511,6 +550,7 @@ describe('BridgeFileViewerApp visible demand batching', () => {
 function makeWorktreeTreeRow(props: {
 	readonly rowId: string;
 	readonly path: string;
+	readonly parentPath?: string | null;
 	readonly depth: number;
 	readonly isDirectory: boolean;
 }): WorktreeTreeRowMetadata {
@@ -518,7 +558,12 @@ function makeWorktreeTreeRow(props: {
 		rowId: props.rowId,
 		path: props.path,
 		name: props.path.split('/').at(-1) ?? props.path,
-		parentPath: props.path.includes('/') ? props.path.slice(0, props.path.lastIndexOf('/')) : null,
+		parentPath:
+			props.parentPath !== undefined
+				? props.parentPath
+				: props.path.includes('/')
+					? props.path.slice(0, props.path.lastIndexOf('/'))
+					: null,
 		depth: props.depth,
 		isDirectory: props.isDirectory,
 	};
