@@ -1,6 +1,6 @@
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgeContentRole } from '../../foundation/review-package/bridge-review-package.js';
-import type { BridgeCodeViewContentResources } from './bridge-code-view-materialization.js';
+import type { BridgeCodeViewContentFacts } from './bridge-code-view-materialization.js';
 import type { BridgeCodeViewMaterializationDiagnostic } from './bridge-code-view-panel-support.js';
 
 interface SelectedContentSummary {
@@ -32,7 +32,7 @@ export function selectedContentStateForPanel(props: {
 }
 
 export function selectedContentRoleNamesForPanel(props: {
-	readonly selectedContentResources: BridgeCodeViewContentResources | null | undefined;
+	readonly selectedContentResources: BridgeCodeViewContentFacts | null | undefined;
 }): string {
 	if (props.selectedContentResources === null || props.selectedContentResources === undefined) {
 		return '';
@@ -43,7 +43,7 @@ export function selectedContentRoleNamesForPanel(props: {
 }
 
 export function selectedContentCacheKeysForPanel(props: {
-	readonly selectedContentResources: BridgeCodeViewContentResources | null | undefined;
+	readonly selectedContentResources: BridgeCodeViewContentFacts | null | undefined;
 }): string {
 	if (props.selectedContentResources === null || props.selectedContentResources === undefined) {
 		return '';
@@ -52,14 +52,14 @@ export function selectedContentCacheKeysForPanel(props: {
 	for (const role of selectedContentRoleOrder) {
 		const resource = props.selectedContentResources[role];
 		if (resource !== undefined) {
-			cacheKeys.push(`${role}:${resource.handle.cacheKey}`);
+			cacheKeys.push(`${role}:${resource.cacheKey}`);
 		}
 	}
 	return cacheKeys.join(',');
 }
 
 export function selectedContentSummaryForPanel(props: {
-	readonly selectedContentResources: BridgeCodeViewContentResources | null | undefined;
+	readonly selectedContentResources: BridgeCodeViewContentFacts | null | undefined;
 }): SelectedContentSummary {
 	if (props.selectedContentResources === null || props.selectedContentResources === undefined) {
 		return {
@@ -73,10 +73,10 @@ export function selectedContentSummaryForPanel(props: {
 		(resource): resource is NonNullable<typeof resource> => resource !== undefined,
 	);
 	return {
-		cacheKeyCount: new Set(resources.map((resource): string => resource.handle.cacheKey)).size,
+		cacheKeyCount: new Set(resources.map((resource): string => resource.cacheKey)).size,
 		characterCount: resources.reduce(
 			(totalCharacters, resource): number =>
-				totalCharacters + (resource.byteLength ?? resource.handle.sizeBytes),
+				totalCharacters + (resource.byteLength ?? resource.sizeBytes),
 			0,
 		),
 		lineCount: 0,

@@ -34,7 +34,7 @@ import {
 	bridgeCodeViewMaterializationCacheKeysForItem,
 	createBridgeCodeViewInitialItems,
 	materializeBridgeCodeViewLoadingItem,
-	type BridgeCodeViewContentResources,
+	type BridgeCodeViewContentFacts,
 	type BridgeCodeViewItem,
 	type BridgeCodeViewItemPresentation,
 } from './bridge-code-view-materialization.js';
@@ -62,7 +62,7 @@ export interface RecordBridgeCodeViewItemMaterializeTelemetryForPanelProps {
 	readonly parentTraceContext: BridgeTraceContext | null;
 	readonly projection: BridgeReviewProjectionResult;
 	readonly item: BridgeReviewItemDescriptor;
-	readonly resources: BridgeCodeViewContentResources;
+	readonly resources: BridgeCodeViewContentFacts;
 	readonly durationMilliseconds: number;
 	readonly result: ApplyBridgeCodeViewItemUpdateResult;
 	readonly selectedItemId: string | null;
@@ -278,7 +278,7 @@ export function shouldSkipBridgeCodeViewItemMaterializationBeforeWork(props: {
 	readonly existingItem: BridgeCodeViewItem | undefined;
 	readonly item: BridgeReviewItemDescriptor;
 	readonly presentation: BridgeCodeViewItemPresentation | null;
-	readonly resources: BridgeCodeViewContentResources;
+	readonly resources: BridgeCodeViewContentFacts;
 }): boolean {
 	if (
 		props.existingItem === undefined ||
@@ -344,12 +344,11 @@ export function runBridgeCodeViewMaterializationInChunks<TEntry>(props: {
 function bridgeCodeViewDiffMaterializationCacheKeyContainsCurrentIdentity(props: {
 	readonly existingCacheKey: string;
 	readonly item: BridgeReviewItemDescriptor;
-	readonly resources: BridgeCodeViewContentResources;
+	readonly resources: BridgeCodeViewContentFacts;
 }): boolean {
-	const resourceCacheKeys = [
-		props.resources.base?.handle.cacheKey,
-		props.resources.head?.handle.cacheKey,
-	].filter((cacheKey): cacheKey is string => cacheKey !== undefined);
+	const resourceCacheKeys = [props.resources.base?.cacheKey, props.resources.head?.cacheKey].filter(
+		(cacheKey): cacheKey is string => cacheKey !== undefined,
+	);
 	return (
 		resourceCacheKeys.length > 0 &&
 		props.existingCacheKey.includes(props.item.cacheKey) &&

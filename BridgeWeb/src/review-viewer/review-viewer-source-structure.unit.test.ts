@@ -641,6 +641,36 @@ describe('Review viewer source structure', () => {
 		expect(placeholderContentSource).not.toContain('splitFileContents');
 	});
 
+	test('keeps Review CodeView content facts body-free after worker cutover', () => {
+		const productionSources = [
+			'./code-view/bridge-code-view-materialization.ts',
+			'./code-view/bridge-code-view-panel-support.tsx',
+			'./code-view/bridge-code-view-selected-diagnostics.ts',
+			'./telemetry/bridge-review-viewer-telemetry.ts',
+		].map((relativePath) => ({
+			relativePath,
+			source: readSource(relativePath),
+		}));
+		const forbiddenTokens = [
+			'content-resource-loader',
+			'BridgeContentResource',
+			'BridgeCodeViewContentResources',
+			'readText(): string',
+		];
+		const violations = productionSources.flatMap((entry): readonly string[] =>
+			forbiddenTokens
+				.filter((token): boolean => entry.source.includes(token))
+				.map((token): string => `${entry.relativePath}: ${token}`),
+		);
+		const materializationSource = productionSources.find(
+			(entry): boolean => entry.relativePath === './code-view/bridge-code-view-materialization.ts',
+		)?.source;
+
+		expect(violations).toEqual([]);
+		expect(materializationSource).toContain('BridgeCodeViewContentFacts');
+		expect(materializationSource).toContain('BridgeCodeViewContentRoleFacts');
+	});
+
 	test('keeps Review markdown preview off main-thread content resources', () => {
 		const markdownRenderModeSource = readSource('./markdown/bridge-markdown-render-mode.ts');
 

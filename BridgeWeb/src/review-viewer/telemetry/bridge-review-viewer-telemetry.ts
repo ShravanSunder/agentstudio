@@ -21,7 +21,7 @@ import {
 } from '../../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import type { ApplyBridgeCodeViewItemUpdateResult } from '../code-view/bridge-code-view-controller.js';
 import type {
-	BridgeCodeViewContentResources,
+	BridgeCodeViewContentFacts,
 	BridgeCodeViewItem,
 } from '../code-view/bridge-code-view-materialization.js';
 import type { ReviewContentDemandTelemetry } from '../content/review-content-demand-types.js';
@@ -72,7 +72,7 @@ export interface RecordBridgeCodeViewHydrationTelemetryProps {
 	readonly parentTraceContext: BridgeTraceContext | null;
 	readonly projection: BridgeReviewProjectionResult;
 	readonly item: BridgeReviewItemDescriptor;
-	readonly resources: BridgeCodeViewContentResources;
+	readonly resources: BridgeCodeViewContentFacts;
 	readonly workerPoolEnabled: boolean;
 }
 
@@ -81,7 +81,7 @@ export interface RecordBridgeCodeViewItemMaterializeTelemetryProps {
 	readonly parentTraceContext: BridgeTraceContext | null;
 	readonly projection: BridgeReviewProjectionResult;
 	readonly item: BridgeReviewItemDescriptor;
-	readonly resources: BridgeCodeViewContentResources;
+	readonly resources: BridgeCodeViewContentFacts;
 	readonly durationMilliseconds: number;
 	readonly result: ApplyBridgeCodeViewItemUpdateResult;
 	readonly selected: boolean;
@@ -403,7 +403,7 @@ function languageClassForItem(
 	return 'other';
 }
 
-function contentByteCountForResources(resources: BridgeCodeViewContentResources): number {
+function contentByteCountForResources(resources: BridgeCodeViewContentFacts): number {
 	return Object.values(resources).reduce((total: number, resource): number => {
 		if (resource === undefined) {
 			return total;
@@ -411,7 +411,7 @@ function contentByteCountForResources(resources: BridgeCodeViewContentResources)
 		if (resource.byteLength !== undefined) {
 			return total + resource.byteLength;
 		}
-		return total + resource.handle.sizeBytes;
+		return total + resource.sizeBytes;
 	}, 0);
 }
 

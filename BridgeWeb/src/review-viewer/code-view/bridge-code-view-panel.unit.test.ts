@@ -2,7 +2,6 @@ import type { RenderFileResult } from '@pierre/diffs';
 import { WorkerPoolManager, type FileRendererInstance } from '@pierre/diffs/worker';
 import { describe, expect, test, vi } from 'vitest';
 
-import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import {
 	makeBridgeContentHandle,
 	makeBridgeReviewPackage,
@@ -18,7 +17,8 @@ import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer
 import { BridgeCodeViewController } from './bridge-code-view-controller.js';
 import {
 	bridgeCodeViewMaterializationCacheKeysForItem,
-	type BridgeCodeViewContentResources,
+	bridgeCodeViewContentRoleFactsForHandle,
+	type BridgeCodeViewContentFacts,
 	type BridgeCodeViewItem,
 	materializeBridgeCodeViewLoadingItem,
 } from './bridge-code-view-materialization.js';
@@ -247,17 +247,11 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 		expect(model.setItemsCalls[0]?.map((item) => item.id)).toEqual([firstItem.id]);
 	});
 
-	test('does not read large selected content bodies to build panel summary attributes', () => {
-		let readTextCallCount = 0;
-		const resource: BridgeContentResource = {
-			authoritative: true,
+	test('summarizes selected content from body-free facts', () => {
+		const resource = bridgeCodeViewContentRoleFactsForHandle({
 			byteLength: 512_000,
 			handle: makeBridgeContentHandle('source-high', 'head'),
-			readText: (): string => {
-				readTextCallCount += 1;
-				return 'large body\n'.repeat(50_000);
-			},
-		};
+		});
 
 		const summary = selectedContentSummaryForPanel({
 			selectedContentResources: { head: resource },
@@ -266,7 +260,6 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 		expect(summary.cacheKeyCount).toBe(1);
 		expect(summary.characterCount).toBe(512_000);
 		expect(summary.lineCount).toBe(0);
-		expect(readTextCallCount).toBe(0);
 	});
 
 	test('emits materialize telemetry for visible non-selected item paints', () => {
@@ -288,7 +281,7 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 			parentTraceContext: null,
 			projection,
 			resources: {
-				head: { handle: headHandle, readText: (): string => 'head body' },
+				head: bridgeCodeViewContentRoleFactsForHandle({ handle: headHandle }),
 			},
 			result: 'updated',
 			selectedItemId: 'different-selected-item',
@@ -304,22 +297,15 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 		});
 	});
 
-	test('skips unchanged materialized items before reading content resources', () => {
+	test('skips unchanged materialized items from body-free content facts', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const item = reviewPackage.itemsById['item-source'];
 		const headHandle = item?.contentRoles.head ?? null;
 		if (item === undefined || headHandle === null) {
 			throw new Error('Expected modified item with head handle');
 		}
-		let readTextCallCount = 0;
-		const resources: BridgeCodeViewContentResources = {
-			head: {
-				handle: headHandle,
-				readText: (): string => {
-					readTextCallCount += 1;
-					return 'head body';
-				},
-			},
+		const resources: BridgeCodeViewContentFacts = {
+			head: bridgeCodeViewContentRoleFactsForHandle({ handle: headHandle }),
 		};
 		const expectedCacheKey = bridgeCodeViewMaterializationCacheKeysForItem({
 			item,
@@ -344,7 +330,6 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 				resources,
 			}),
 		).toBe(true);
-		expect(readTextCallCount).toBe(0);
 	});
 
 	test('runs large materialization sets across multiple event-loop turns', () => {
@@ -407,10 +392,8 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 			);
 			const highlightSpy = vi.spyOn(workerPoolManager, 'highlightFileAST');
 			const rendererInstance = makeFileRendererInstance('r46-reexposure');
-			let readTextCallCount = 0;
-			const resources: BridgeCodeViewContentResources = {
-				head: {
-					authoritative: true,
+			const resources: BridgeCodeViewContentFacts = {
+				head: bridgeCodeViewContentRoleFactsForHandle({
 					byteLength: 42,
 					handle: {
 						...headHandle,
@@ -419,11 +402,7 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 						cacheKey: 'item-source:head:revision-46',
 						sizeBytes: 42,
 					},
-					readText: (): string => {
-						readTextCallCount += 1;
-						return 'struct SameR46Content {}\n';
-					},
-				},
+				}),
 			};
 			const workerPreparedCacheKey = bridgeCodeViewMaterializationCacheKeysForItem({
 				item,
@@ -486,14 +465,12 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 			});
 
 			scheduledTurns.shift()?.();
-			expect(readTextCallCount).toBe(0);
 			expect(highlightSpy).toHaveBeenCalledTimes(1);
 			expect(workerPoolManager.getStats().queuedTasks).toBe(1);
 			scheduledTurns.shift()?.();
 
 			expect(appliedEntries).toEqual(['initial-exposure:added', 'drained']);
 			expect(skippedEntries).toEqual(['second-exposure']);
-			expect(readTextCallCount).toBe(0);
 			expect(highlightSpy).toHaveBeenCalledTimes(1);
 			expect(workerPoolManager.getStats()).toMatchObject({
 				fileCacheSize: 1,

@@ -8,7 +8,10 @@ import { promisify } from 'node:util';
 
 import { describe, expect, test } from 'vitest';
 
-import { bridgeCodeViewMaterializationCacheKeysForItem } from '../src/review-viewer/code-view/bridge-code-view-materialization.js';
+import {
+	bridgeCodeViewContentRoleFactsForHandle,
+	bridgeCodeViewMaterializationCacheKeysForItem,
+} from '../src/review-viewer/code-view/bridge-code-view-materialization.js';
 import type { BridgeReviewProjectionWorkloadId } from '../src/review-viewer/models/review-projection-models.js';
 import {
 	buildBridgeReviewProjection,
@@ -252,18 +255,8 @@ async function runLargeDiffIteration(
 	const cacheKeys = bridgeCodeViewMaterializationCacheKeysForItem({
 		item: diffItem,
 		resources: {
-			base: {
-				handle: baseHandle,
-				readText: (): string => {
-					throw new Error('benchmark cache identity prep must not read base text');
-				},
-			},
-			head: {
-				handle: headHandle,
-				readText: (): string => {
-					throw new Error('benchmark cache identity prep must not read head text');
-				},
-			},
+			base: bridgeCodeViewContentRoleFactsForHandle({ handle: baseHandle }),
+			head: bridgeCodeViewContentRoleFactsForHandle({ handle: headHandle }),
 		},
 	});
 	const codeViewCacheIdentityMilliseconds = elapsedSince(cacheIdentityStart);

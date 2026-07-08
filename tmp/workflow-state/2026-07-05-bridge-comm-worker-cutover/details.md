@@ -4262,3 +4262,69 @@ counts before claiming a gate.
   `readText()` production surface, live oq4s scroll/click proof gaps,
   zero-copy transfer-list delivery, implementation-review-swarm, PR readiness,
   or full goal completion.
+
+## 2026-07-08T18:44:05Z - Review CodeView content facts body-free DTO cleanup
+
+- Scope:
+  Replaced the remaining production Review CodeView
+  `BridgeCodeViewContentResources` / `BridgeContentResource` type surface with
+  body-free `BridgeCodeViewContentFacts` and
+  `BridgeCodeViewContentRoleFacts`. The DTO carries only cache key, content
+  hash/algo, size, and optional measured byte length. CodeView cache-key
+  derivation, bounded-window decisions, selected diagnostics, telemetry byte
+  buckets, and the benchmark now consume those facts instead of a
+  body-capable `readText()` resource object.
+- Root cause:
+  Earlier slices deleted the raw main-thread materializer, markdown resource
+  resolver, and Review demand policy, but CodeView materialization/support still
+  imported the body-capable `BridgeContentResource` contract from
+  `content-resource-loader`. That preserved a misleading main-thread content
+  reader API even though the live uses were metadata-only.
+- Red / failure evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/review-viewer-source-structure.unit.test.ts --reporter dot`
+  failed 1 test / 37 as expected. The new source-structure guard reported
+  `content-resource-loader`, `BridgeContentResource`, and
+  `BridgeCodeViewContentResources` in the Review CodeView materialization,
+  panel-support, selected-diagnostics, and telemetry files.
+- Green evidence:
+  Focused green proof passed 3 files / 58 tests:
+  `review-viewer-source-structure.unit.test.ts`,
+  `bridge-code-view-panel.unit.test.ts`, and
+  `bridge-review-viewer-telemetry.unit.test.ts`. Wider slice proof passed 5
+  files / 61 tests:
+  `bridge-code-view-panel.unit.test.ts`,
+  `bridge-code-view-materialization.hydration.unit.test.ts`,
+  `bridge-code-view-selected-apply-pump.unit.test.ts`,
+  `bridge-review-viewer-telemetry.unit.test.ts`,
+  `review-viewer-source-structure.unit.test.ts`, and
+  `scripts/bridge-viewer-benchmark.benchmark.ts`. `pnpm --dir BridgeWeb exec
+  tsc --noEmit --pretty false` passed. Scoped `oxfmt --check`, scoped
+  `oxlint --type-aware`, and `git diff --check` passed.
+- Deletion-scan evidence:
+  `rg -n
+  "BridgeContentResource|BridgeCodeViewContentResources|content-resource-loader|readText\\(\\): string"
+  BridgeWeb/src/review-viewer/code-view/bridge-code-view-materialization.ts
+  BridgeWeb/src/review-viewer/code-view/bridge-code-view-panel-support.tsx
+  BridgeWeb/src/review-viewer/code-view/bridge-code-view-selected-diagnostics.ts
+  BridgeWeb/src/review-viewer/telemetry/bridge-review-viewer-telemetry.ts
+  BridgeWeb/scripts/bridge-viewer-benchmark.benchmark.ts` returned no matches.
+- Line-cap evidence:
+  Touched line counts after formatting:
+  `bridge-code-view-materialization.ts` 631,
+  `bridge-code-view-panel-support.tsx` 945,
+  `bridge-review-viewer-telemetry.ts` 430,
+  `review-viewer-source-structure.unit.test.ts` 848, and
+  `bridge-code-view-panel.unit.test.ts` 969.
+- Sidekick boundary:
+  An initial sidekick spawn failed because the agent thread limit was reached.
+  After closing one old completed sidekick, Russell the 3rd was spawned as a
+  read-only reviewer for this diff but did not return inside the two-minute
+  wait. The slice is committed on parent-owned proof; any later accepted
+  reviewer finding routes back to implementation-execute-plan as a follow-up.
+- Known proof boundary:
+  This removes the remaining Review CodeView body-capable content resource DTO
+  surface only. It does not remove File View `readText()` production surface,
+  prove live oq4s scroll/click percentile movement, finish G6 ordinary
+  script-message RPC deletion, prove zero-copy transfer-list delivery, complete
+  implementation-review-swarm, prove PR readiness, or complete the full goal.
