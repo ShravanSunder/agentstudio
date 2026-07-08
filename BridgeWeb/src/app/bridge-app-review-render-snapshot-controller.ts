@@ -135,6 +135,10 @@ export function useBridgeReviewRenderSnapshotController(
 			}),
 		[props.panelChromeSlice, selectionSlice],
 	);
+	const visibleCodeViewItemsSelector = useMemo(
+		(): VisibleBridgeCodeViewItemsSelector => createVisibleBridgeCodeViewItemsSelector(),
+		[],
+	);
 	const selectedRawContentAvailability =
 		selectionSlice.selectedItemId === null
 			? null
@@ -144,7 +148,7 @@ export function useBridgeReviewRenderSnapshotController(
 		reviewPackage: props.reviewPackage,
 		selectedItemId: selectionSlice.selectedItemId,
 	});
-	const visibleCodeViewItems = visibleBridgeCodeViewItemsForReviewPackage({
+	const visibleCodeViewItems = visibleCodeViewItemsSelector({
 		codeViewItemsById: renderSnapshot.codeViewItemsById,
 		reviewPackage: props.reviewPackage,
 		visibleItemIds: viewportSlice.visibleItemIds,
@@ -448,6 +452,29 @@ export function visibleBridgeCodeViewItemsForReviewPackage(props: {
 		}
 	}
 	return visibleCodeViewItems;
+}
+
+export type VisibleBridgeCodeViewItemsSelector = (props: {
+	readonly codeViewItemsById: Readonly<Record<string, BridgeMainCodeViewItem>>;
+	readonly reviewPackage: BridgeReviewPackage | null;
+	readonly visibleItemIds: readonly string[];
+}) => readonly BridgeMainCodeViewItem[];
+
+export function createVisibleBridgeCodeViewItemsSelector(): VisibleBridgeCodeViewItemsSelector {
+	let previousItems: readonly BridgeMainCodeViewItem[] | null = null;
+
+	return (props): readonly BridgeMainCodeViewItem[] => {
+		const nextItems = visibleBridgeCodeViewItemsForReviewPackage(props);
+		if (
+			previousItems !== null &&
+			previousItems.length === nextItems.length &&
+			previousItems.every((previousItem, index): boolean => previousItem === nextItems[index])
+		) {
+			return previousItems;
+		}
+		previousItems = nextItems;
+		return nextItems;
+	};
 }
 
 export function selectedContentAvailabilityForReviewPackage(props: {

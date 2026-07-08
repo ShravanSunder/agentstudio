@@ -29,6 +29,7 @@ import {
 	bridgeCommWorkerRenderSemanticsFromReviewPackage,
 	createBridgeReviewWorkerPierreCourier,
 	createBridgeReviewRuntimeProtocolDispatcher,
+	createVisibleBridgeCodeViewItemsSelector,
 	selectedContentAvailabilityForReviewPackage,
 	selectedBridgeCodeViewItemForReviewPackage,
 	visibleBridgeCodeViewItemsForReviewPackage,
@@ -435,6 +436,39 @@ describe('Bridge app review render snapshot controller', () => {
 				visibleItemIds: ['item-source'],
 			}),
 		).toEqual([]);
+	});
+
+	test('visible CodeView selector memoizes unchanged visible worker-prepared item references', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const visibleCodeViewItem = makeSelectedCodeViewItem({
+			cacheKey:
+				'pierre-content:fixture-preview:sha256:item-source:base|pierre-content:fixture-preview:sha256:item-source:head',
+		});
+		const changedCodeViewItem = {
+			...visibleCodeViewItem,
+			version: (visibleCodeViewItem.version ?? 0) + 1,
+		};
+		const selector = createVisibleBridgeCodeViewItemsSelector();
+
+		const firstSelection = selector({
+			codeViewItemsById: { 'item-source': visibleCodeViewItem },
+			reviewPackage,
+			visibleItemIds: ['item-source'],
+		});
+		const secondSelection = selector({
+			codeViewItemsById: { 'item-source': visibleCodeViewItem },
+			reviewPackage,
+			visibleItemIds: ['item-source'],
+		});
+		const changedSelection = selector({
+			codeViewItemsById: { 'item-source': changedCodeViewItem },
+			reviewPackage,
+			visibleItemIds: ['item-source'],
+		});
+
+		expect(secondSelection).toBe(firstSelection);
+		expect(changedSelection).not.toBe(firstSelection);
+		expect(changedSelection).toEqual([changedCodeViewItem]);
 	});
 
 	test('selected availability treats stale ready worker content as loading across package rollover', () => {
