@@ -56,6 +56,40 @@ struct BridgeTelemetryBatchValidatorTests {
     }
 
     @Test
+    func validatorAcceptsFrameJankTelemetrySamples() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let batch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.frame_jank",
+                phase: "frame_jank",
+                plane: "control",
+                priority: "hot",
+                slice: "frame_jank",
+                transport: "local",
+                extraStrings: [
+                    "agentstudio.bridge.frame_jank.kind": "dropped_frame",
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.viewer": "review",
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.frame_jank.dropped_frame.count": 3,
+                    "agentstudio.bridge.frame_jank.dropped_frame.worst_gap_ms": 72,
+                    "agentstudio.bridge.frame_jank.long_task.count": 2,
+                    "agentstudio.bridge.frame_jank.long_task.max_ms": 54,
+                    "agentstudio.bridge.frame_jank.long_task.total_ms": 94,
+                ],
+                extraBooleans: [
+                    "agentstudio.bridge.viewer.active": false
+                ]
+            )
+        )
+
+        #expect(validator.validate(batch) == .accepted(batch))
+    }
+
+    @Test
     func validatorRejectsReviewPackageDataOverPushTransport() {
         let validator = BridgeTelemetryBatchValidator(
             scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])

@@ -9,6 +9,7 @@ import {
 import { startBridgeFrameJankProbe } from '../foundation/diagnostics/bridge-frame-jank-probe.js';
 import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-frame-liveness-probe.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
+import { recordBridgeFrameJankTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import { useBridgeFileViewerFrameControllerProps } from './bridge-file-viewer-frame-controller.js';
 import { bridgeReviewNavigationCommandForWorktreeDescriptor } from './bridge-review-navigation.js';
 import type {
@@ -48,9 +49,25 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 	const wasFileViewerActiveRef = useRef(props.isActive);
 	const fileSurfaceOpenAttemptedRef = useRef(props.isActive);
 	const fileSurfaceOpenResolvedRef = useRef(false);
+	const isActiveRef = useRef(props.isActive);
+	isActiveRef.current = props.isActive;
 	const pendingFileSurfaceReopenRef = useRef(false);
 	useEffect((): (() => void) => startBridgeFrameLivenessProbe(), []);
-	useEffect((): (() => void) => startBridgeFrameJankProbe(), []);
+	useEffect(
+		(): (() => void) =>
+			startBridgeFrameJankProbe({
+				onJankSample: (sample): void => {
+					recordBridgeFrameJankTelemetrySample({
+						...sample,
+						telemetryRecorder: props.telemetryRecorder,
+						traceContext: null,
+						viewer: 'file',
+						viewerIsActive: isActiveRef.current,
+					});
+				},
+			}),
+		[props.telemetryRecorder],
+	);
 	const handleFileSurfaceOpenResolved = useCallback((): void => {
 		fileSurfaceOpenResolvedRef.current = true;
 		pendingFileSurfaceReopenRef.current = false;

@@ -15,10 +15,21 @@ export interface BridgeFrameJankDroppedFrameProbe {
 	worst_gap_ms: number;
 }
 
+export interface BridgeFrameJankSample {
+	readonly droppedFrameCount: number;
+	readonly droppedFrameWorstGapMilliseconds: number;
+	readonly durationMilliseconds: number;
+	readonly kind: 'dropped_frame' | 'long_task';
+	readonly longTaskCount: number;
+	readonly longTaskMaxMilliseconds: number;
+	readonly longTaskTotalMilliseconds: number;
+}
+
 export interface StartBridgeFrameJankProbeOptions {
 	readonly PerformanceObserver?: BridgeFrameJankPerformanceObserverConstructor;
 	readonly cancelAnimationFrame?: (frameId: number) => void;
 	readonly nominalFrameDurationMilliseconds?: number;
+	readonly onJankSample?: (sample: BridgeFrameJankSample) => void;
 	readonly requestAnimationFrame?: (callback: FrameRequestCallback) => number;
 }
 
@@ -30,6 +41,7 @@ interface BridgeFrameJankPerformanceObserverConstructor {
 interface ActiveBridgeFrameJankProbeSession {
 	frameId: number | null;
 	isRunning: boolean;
+	onJankSampleCallbacks: Set<(sample: BridgeFrameJankSample) => void>;
 	observer: PerformanceObserver | null;
 	refCount: number;
 }
@@ -63,7 +75,9 @@ export function startBridgeFrameJankProbe(
 	if (activeSession !== null) {
 		const session = activeSession;
 		session.refCount += 1;
+		registerBridgeFrameJankSampleCallback(session, options.onJankSample);
 		return (): void => {
+			unregisterBridgeFrameJankSampleCallback(session, options.onJankSample);
 			stopBridgeFrameJankProbeSession(session, cancelFrame);
 		};
 	}
@@ -75,16 +89,20 @@ export function startBridgeFrameJankProbe(
 	const droppedFrameThresholdMilliseconds =
 		nominalFrameDurationMilliseconds * droppedFrameGapMultiplier;
 	let previousFrameTimestampMilliseconds: number | null = null;
+	const onJankSampleCallbacks = new Set<(sample: BridgeFrameJankSample) => void>();
 
 	const session: ActiveBridgeFrameJankProbeSession = {
 		frameId: null,
 		isRunning: true,
+		onJankSampleCallbacks,
 		observer: createBridgeFrameJankLongTaskObserver({
+			getSampleCallbacks: () => onJankSampleCallbacks,
 			observerConstructor,
 			probe,
 		}),
 		refCount: 1,
 	};
+	registerBridgeFrameJankSampleCallback(session, options.onJankSample);
 	activeSession = session;
 
 	const onFrame = (timestampMilliseconds: DOMHighResTimeStamp): void => {
@@ -98,6 +116,10 @@ export function startBridgeFrameJankProbe(
 				if (gapMilliseconds > probe.dropped_frame.worst_gap_ms) {
 					probe.dropped_frame.worst_gap_ms = gapMilliseconds;
 				}
+				emitBridgeFrameJankSample(session.onJankSampleCallbacks, probe, {
+					durationMilliseconds: gapMilliseconds,
+					kind: 'dropped_frame',
+				});
 			}
 		}
 		previousFrameTimestampMilliseconds = timestampMilliseconds;
@@ -107,6 +129,7 @@ export function startBridgeFrameJankProbe(
 	session.frameId = requestFrame(onFrame);
 
 	return (): void => {
+		unregisterBridgeFrameJankSampleCallback(session, options.onJankSample);
 		stopBridgeFrameJankProbeSession(session, cancelFrame);
 	};
 }
@@ -131,6 +154,7 @@ export function resetBridgeFrameJankProbeForTesting(): void {
 }
 
 function createBridgeFrameJankLongTaskObserver(props: {
+	readonly getSampleCallbacks: () => ReadonlySet<(sample: BridgeFrameJankSample) => void>;
 	readonly observerConstructor: BridgeFrameJankPerformanceObserverConstructor | undefined;
 	readonly probe: BridgeFrameJankProbe;
 }): PerformanceObserver | null {
@@ -144,6 +168,10 @@ function createBridgeFrameJankLongTaskObserver(props: {
 		const entries = entryList.getEntries();
 		for (const entry of entries) {
 			recordBridgeFrameJankLongTaskEntry(props.probe, entry);
+			emitBridgeFrameJankSample(props.getSampleCallbacks(), props.probe, {
+				durationMilliseconds: entry.duration,
+				kind: 'long_task',
+			});
 		}
 	});
 	try {
@@ -153,6 +181,51 @@ function createBridgeFrameJankLongTaskObserver(props: {
 		return null;
 	}
 	return observer;
+}
+
+function registerBridgeFrameJankSampleCallback(
+	session: ActiveBridgeFrameJankProbeSession,
+	onJankSample: ((sample: BridgeFrameJankSample) => void) | undefined,
+): void {
+	if (onJankSample === undefined) {
+		return;
+	}
+	session.onJankSampleCallbacks.add(onJankSample);
+}
+
+function unregisterBridgeFrameJankSampleCallback(
+	session: ActiveBridgeFrameJankProbeSession,
+	onJankSample: ((sample: BridgeFrameJankSample) => void) | undefined,
+): void {
+	if (onJankSample === undefined) {
+		return;
+	}
+	session.onJankSampleCallbacks.delete(onJankSample);
+}
+
+function emitBridgeFrameJankSample(
+	callbacks: ReadonlySet<(sample: BridgeFrameJankSample) => void>,
+	probe: BridgeFrameJankProbe,
+	props: {
+		readonly durationMilliseconds: number;
+		readonly kind: BridgeFrameJankSample['kind'];
+	},
+): void {
+	if (callbacks.size === 0) {
+		return;
+	}
+	const sample: BridgeFrameJankSample = {
+		droppedFrameCount: probe.dropped_frame.count,
+		droppedFrameWorstGapMilliseconds: probe.dropped_frame.worst_gap_ms,
+		durationMilliseconds: Math.max(0, props.durationMilliseconds),
+		kind: props.kind,
+		longTaskCount: probe.long_task.count,
+		longTaskMaxMilliseconds: probe.long_task.max_ms,
+		longTaskTotalMilliseconds: probe.long_task.total_ms,
+	};
+	for (const callback of callbacks) {
+		callback(sample);
+	}
 }
 
 function recordBridgeFrameJankLongTaskEntry(

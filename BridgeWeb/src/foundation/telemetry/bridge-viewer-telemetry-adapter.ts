@@ -102,6 +102,20 @@ export interface BridgeTreeScrollVisibleDemandTelemetrySampleProps {
 	readonly visibleItemCount: number;
 }
 
+export interface BridgeFrameJankTelemetrySampleProps {
+	readonly droppedFrameCount: number;
+	readonly droppedFrameWorstGapMilliseconds: number;
+	readonly durationMilliseconds: number;
+	readonly kind: 'dropped_frame' | 'long_task';
+	readonly longTaskCount: number;
+	readonly longTaskMaxMilliseconds: number;
+	readonly longTaskTotalMilliseconds: number;
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly viewer: 'file' | 'review';
+	readonly viewerIsActive: boolean;
+}
+
 export interface BridgeViewerFirstInteractionReadyTelemetrySampleProps {
 	readonly durationMilliseconds: number;
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
@@ -487,6 +501,40 @@ export function recordBridgeTreeScrollVisibleDemandTelemetrySample(
 			booleanAttributes: {},
 		});
 		props.telemetryRecorder.flush();
+	});
+}
+
+export function recordBridgeFrameJankTelemetrySample(
+	props: BridgeFrameJankTelemetrySampleProps,
+): void {
+	recordWhenEnabled(props.telemetryRecorder, () => {
+		props.telemetryRecorder.record({
+			scope: 'web',
+			name: 'performance.bridge.web.frame_jank',
+			durationMilliseconds: Math.max(0, props.durationMilliseconds),
+			traceContext: props.traceContext,
+			stringAttributes: {
+				'agentstudio.bridge.frame_jank.kind': props.kind,
+				'agentstudio.bridge.phase': 'frame_jank',
+				'agentstudio.bridge.plane': 'control',
+				'agentstudio.bridge.priority': 'hot',
+				'agentstudio.bridge.result': 'success',
+				'agentstudio.bridge.slice': 'frame_jank',
+				'agentstudio.bridge.transport': 'local',
+				'agentstudio.bridge.viewer': props.viewer,
+			},
+			numericAttributes: {
+				'agentstudio.bridge.frame_jank.dropped_frame.count': props.droppedFrameCount,
+				'agentstudio.bridge.frame_jank.dropped_frame.worst_gap_ms':
+					props.droppedFrameWorstGapMilliseconds,
+				'agentstudio.bridge.frame_jank.long_task.count': props.longTaskCount,
+				'agentstudio.bridge.frame_jank.long_task.max_ms': props.longTaskMaxMilliseconds,
+				'agentstudio.bridge.frame_jank.long_task.total_ms': props.longTaskTotalMilliseconds,
+			},
+			booleanAttributes: {
+				'agentstudio.bridge.viewer.active': props.viewerIsActive,
+			},
+		});
 	});
 }
 

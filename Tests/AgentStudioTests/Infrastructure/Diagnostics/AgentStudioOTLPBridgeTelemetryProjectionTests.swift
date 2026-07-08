@@ -77,6 +77,67 @@ struct AgentStudioOTLPBridgeTelemetryProjectionTests {
     }
 
     @Test
+    func bridgeProjectionPreservesFrameJankDiagnostics() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 517,
+            severityText: .info,
+            body: "performance.bridge.web.frame_jank",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [
+                "service.name": "AgentStudio"
+            ],
+            scope: .init(name: "agentstudio.bridge.performance.web", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.frame_jank.dropped_frame.count": .int(3),
+                "agentstudio.bridge.frame_jank.dropped_frame.worst_gap_ms": .double(72),
+                "agentstudio.bridge.frame_jank.kind": .string("dropped_frame"),
+                "agentstudio.bridge.frame_jank.long_task.count": .int(2),
+                "agentstudio.bridge.frame_jank.long_task.max_ms": .double(54),
+                "agentstudio.bridge.frame_jank.long_task.total_ms": .double(94),
+                "agentstudio.bridge.phase": .string("frame_jank"),
+                "agentstudio.bridge.plane": .string("control"),
+                "agentstudio.bridge.priority": .string("hot"),
+                "agentstudio.bridge.result": .string("success"),
+                "agentstudio.bridge.slice": .string("frame_jank"),
+                "agentstudio.bridge.transport": .string("local"),
+                "agentstudio.bridge.viewer": .string("review"),
+                "agentstudio.bridge.viewer.active": .bool(false),
+                "agentstudio.trace.tag": .string("bridge.performance.web"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(
+            projection.attributes["agentstudio.bridge.frame_jank.kind"]
+                == .string("dropped_frame")
+        )
+        #expect(
+            projection.attributes["agentstudio.bridge.frame_jank.dropped_frame.count"]
+                == .int(3)
+        )
+        #expect(
+            projection.attributes["agentstudio.bridge.frame_jank.dropped_frame.worst_gap_ms"]
+                == .double(72)
+        )
+        #expect(
+            projection.attributes["agentstudio.bridge.frame_jank.long_task.count"]
+                == .int(2)
+        )
+        #expect(
+            projection.attributes["agentstudio.bridge.frame_jank.long_task.max_ms"]
+                == .double(54)
+        )
+        #expect(
+            projection.attributes["agentstudio.bridge.frame_jank.long_task.total_ms"]
+                == .double(94)
+        )
+        #expect(projection.attributes["agentstudio.bridge.viewer.active"] == .bool(false))
+    }
+
+    @Test
     func bridgeProjectionPreservesCommWorkerTaskTelemetryKeys() {
         let record = AgentStudioTraceRecord(
             timeUnixNano: 516,

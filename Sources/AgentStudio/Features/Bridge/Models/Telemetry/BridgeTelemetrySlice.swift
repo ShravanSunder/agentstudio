@@ -16,6 +16,7 @@ enum BridgeTelemetrySlice: String, CaseIterable, Codable, Equatable, Hashable, S
     case codeViewItem = "code_view_item"
     case codeViewScroll = "code_view_scroll"
     case codeViewVirtualRange = "code_view_virtual_range"
+    case frameJank = "frame_jank"
     case markdownPreview = "markdown_preview"
     case shikiHighlight = "shiki_highlight"
     case workerTask = "worker_task"

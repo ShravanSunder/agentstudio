@@ -24,6 +24,8 @@ extension BridgeTelemetryBatchValidator {
             codeViewItemMaterializeContractMatches(contract)
         case "performance.bridge.web.content_fetch":
             contentFetchContractMatches(contract)
+        case "performance.bridge.web.frame_jank":
+            frameJankContractMatches(contract)
         case "performance.bridge.web.file_open_ready":
             fileOpenReadyContractMatches(contract)
         case "performance.bridge.web.visible_demand_settled":
@@ -146,6 +148,35 @@ extension BridgeTelemetryBatchValidator {
             && contract.priority == .hot
             && firstRenderSliceIsBrowserRenderable(contract.slice, transport: contract.transport)
             && contract.hasOnlyCommonKeys()
+    }
+
+    private static func frameJankContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+        contract.matches(
+            .init(
+                phase: "frame_jank",
+                plane: .control,
+                priority: .hot,
+                slice: .frameJank,
+                transport: "local",
+                attributeKeys: .init(
+                    additionalStringKeys: [
+                        "agentstudio.bridge.frame_jank.kind",
+                        "agentstudio.bridge.result",
+                        "agentstudio.bridge.viewer",
+                    ],
+                    numericKeys: [
+                        "agentstudio.bridge.frame_jank.dropped_frame.count",
+                        "agentstudio.bridge.frame_jank.dropped_frame.worst_gap_ms",
+                        "agentstudio.bridge.frame_jank.long_task.count",
+                        "agentstudio.bridge.frame_jank.long_task.max_ms",
+                        "agentstudio.bridge.frame_jank.long_task.total_ms",
+                    ],
+                    booleanKeys: [
+                        "agentstudio.bridge.viewer.active"
+                    ]
+                )
+            )
+        )
     }
 
     private static func packageApplyContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
@@ -700,6 +731,7 @@ extension BridgeTelemetryBatchValidator {
             .codeViewItem,
             .codeViewScroll,
             .codeViewVirtualRange,
+            .frameJank,
             .markdownPreview,
             .shikiHighlight,
             .workerTask,
@@ -746,6 +778,7 @@ extension BridgeTelemetryBatchValidator {
             .codeViewItem,
             .codeViewScroll,
             .codeViewVirtualRange,
+            .frameJank,
             .markdownPreview,
             .shikiHighlight,
             .workerTask,
@@ -759,7 +792,7 @@ extension BridgeTelemetryBatchValidator {
 
     private static func priorityForBrowserPushSlice(_ slice: BridgeTelemetrySlice) -> BridgeTelemetryPriority {
         switch slice {
-        case .diffStatus, .connectionHealth:
+        case .diffStatus, .connectionHealth, .frameJank:
             .hot
         case .reviewDelta,
             .reviewInvalidation,
@@ -790,7 +823,7 @@ extension BridgeTelemetryBatchValidator {
 
     private static func planeForBrowserPushSlice(_ slice: BridgeTelemetrySlice) -> BridgeTelemetryPlane {
         switch slice {
-        case .connectionHealth, .commandAcks, .reviewRPC:
+        case .connectionHealth, .commandAcks, .reviewRPC, .frameJank:
             .control
         case .telemetryBatch, .telemetryIngest, .telemetryDrop:
             .observability
@@ -836,6 +869,7 @@ extension BridgeTelemetryBatchValidator {
             .codeViewItem,
             .codeViewScroll,
             .codeViewVirtualRange,
+            .frameJank,
             .markdownPreview,
             .shikiHighlight,
             .workerTask,
@@ -867,6 +901,7 @@ extension BridgeTelemetryBatchValidator {
             .codeViewItem,
             .codeViewScroll,
             .codeViewVirtualRange,
+            .frameJank,
             .markdownPreview,
             .shikiHighlight,
             .workerTask,

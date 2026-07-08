@@ -283,7 +283,7 @@ extension BridgePaneController: PushTransport {
 
     private func pushTelemetryPriority(for slice: BridgeTelemetrySlice) -> BridgeTelemetryPriority {
         switch slice {
-        case .diffStatus, .connectionHealth:
+        case .diffStatus, .connectionHealth, .frameJank:
             .hot
         case .codeViewItem,
             .codeViewScroll,

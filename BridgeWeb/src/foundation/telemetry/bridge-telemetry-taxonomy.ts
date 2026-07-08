@@ -20,6 +20,7 @@ export const bridgeTelemetrySliceSchema = z.enum([
 	'code_view_item',
 	'code_view_scroll',
 	'code_view_virtual_range',
+	'frame_jank',
 	'shiki_highlight',
 	'worker_task',
 	'telemetry_batch',
@@ -37,6 +38,7 @@ export function planeForBridgeTelemetrySlice(slice: BridgeTelemetrySlice): Bridg
 		case 'connection_health':
 		case 'command_acks':
 		case 'review_rpc':
+		case 'frame_jank':
 			return 'control';
 		case 'telemetry_batch':
 		case 'telemetry_ingest':
@@ -87,6 +89,7 @@ export function priorityForBridgeTelemetrySlice(
 		case 'code_view_item':
 		case 'code_view_scroll':
 		case 'code_view_virtual_range':
+		case 'frame_jank':
 		case 'shiki_highlight':
 			return 'hot';
 		case 'telemetry_batch':

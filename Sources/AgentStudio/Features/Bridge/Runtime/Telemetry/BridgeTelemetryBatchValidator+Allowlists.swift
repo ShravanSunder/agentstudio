@@ -15,6 +15,7 @@ extension BridgeTelemetryBatchValidator {
         "performance.bridge.web.code_view_item_materialize",
         "performance.bridge.web.content_fetch",
         "performance.bridge.web.first_render",
+        "performance.bridge.web.frame_jank",
         "performance.bridge.web.file_open_ready",
         "performance.bridge.web.intake_apply",
         "performance.bridge.web.intake_frame",
@@ -137,6 +138,10 @@ extension BridgeTelemetryBatchValidator {
             "huge",
             "unknown",
         ],
+        "agentstudio.bridge.frame_jank.kind": [
+            "dropped_frame",
+            "long_task",
+        ],
         "agentstudio.bridge.content.priority": [
             "background",
             "nearby",
@@ -207,6 +212,7 @@ extension BridgeTelemetryBatchValidator {
             "error",
             "file_open_ready",
             "fetch",
+            "frame_jank",
             "package_apply",
             "package_build",
             "render",
@@ -459,6 +465,7 @@ extension BridgeTelemetryBatchValidator {
         "agentstudio.bridge.transport": [
             "content",
             "intake",
+            "local",
             "push",
             "rpc",
             "scheme",
@@ -554,6 +561,11 @@ extension BridgeTelemetryBatchValidator {
         "agentstudio.bridge.content.resource_count",
         "agentstudio.bridge.content.stream_read_ms",
         "agentstudio.bridge.content.total_bytes_read",
+        "agentstudio.bridge.frame_jank.dropped_frame.count",
+        "agentstudio.bridge.frame_jank.dropped_frame.worst_gap_ms",
+        "agentstudio.bridge.frame_jank.long_task.count",
+        "agentstudio.bridge.frame_jank.long_task.max_ms",
+        "agentstudio.bridge.frame_jank.long_task.total_ms",
         "agentstudio.bridge.demand.active.count",
         "agentstudio.bridge.demand.deferred.count",
         "agentstudio.bridge.demand.duration_ms",
@@ -629,5 +641,6 @@ extension BridgeTelemetryBatchValidator {
         "agentstudio.bridge.scroll.active",
         "agentstudio.bridge.selected",
         "agentstudio.bridge.stream_id_matches",
+        "agentstudio.bridge.viewer.active",
     ]
 }

@@ -7,6 +7,7 @@ import type {
 } from './bridge-telemetry-recorder.js';
 import {
 	recordBridgeCodeViewHydrationTelemetrySamples,
+	recordBridgeFrameJankTelemetrySample,
 	recordBridgeSelectedContentDroppedTelemetrySample,
 	recordBridgeSelectedContentPaintedTelemetrySample,
 	recordBridgeTreeAnchorRestoreTelemetrySample,
@@ -253,6 +254,49 @@ describe('bridge tree telemetry adapter sample shapes', () => {
 				'agentstudio.bridge.scroll.frame_gap.over_50ms.count': 0,
 				'agentstudio.bridge.visible_publisher.skipped.count': 2,
 				'agentstudio.bridge.visible_row.count': 22,
+			},
+		});
+	});
+
+	test('records frame_jank as browser-local main-thread pressure telemetry', () => {
+		const recorder = makeCapturingRecorder();
+
+		recordBridgeFrameJankTelemetrySample({
+			droppedFrameCount: 3,
+			droppedFrameWorstGapMilliseconds: 72,
+			durationMilliseconds: 72,
+			kind: 'dropped_frame',
+			longTaskCount: 2,
+			longTaskMaxMilliseconds: 54,
+			longTaskTotalMilliseconds: 94,
+			telemetryRecorder: recorder,
+			traceContext: null,
+			viewer: 'review',
+			viewerIsActive: false,
+		});
+
+		expect(recorder.samples[0]).toMatchObject({
+			name: 'performance.bridge.web.frame_jank',
+			durationMilliseconds: 72,
+			stringAttributes: {
+				'agentstudio.bridge.frame_jank.kind': 'dropped_frame',
+				'agentstudio.bridge.phase': 'frame_jank',
+				'agentstudio.bridge.plane': 'control',
+				'agentstudio.bridge.priority': 'hot',
+				'agentstudio.bridge.result': 'success',
+				'agentstudio.bridge.slice': 'frame_jank',
+				'agentstudio.bridge.transport': 'local',
+				'agentstudio.bridge.viewer': 'review',
+			},
+			numericAttributes: {
+				'agentstudio.bridge.frame_jank.dropped_frame.count': 3,
+				'agentstudio.bridge.frame_jank.dropped_frame.worst_gap_ms': 72,
+				'agentstudio.bridge.frame_jank.long_task.count': 2,
+				'agentstudio.bridge.frame_jank.long_task.max_ms': 54,
+				'agentstudio.bridge.frame_jank.long_task.total_ms': 94,
+			},
+			booleanAttributes: {
+				'agentstudio.bridge.viewer.active': false,
 			},
 		});
 	});

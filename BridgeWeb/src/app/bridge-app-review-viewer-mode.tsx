@@ -12,6 +12,7 @@ import type {
 	BridgeTelemetryFlushProps,
 	BridgeTelemetryRecorder,
 } from '../foundation/telemetry/bridge-telemetry-recorder.js';
+import { recordBridgeFrameJankTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
 import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-types.js';
 import { useBridgeReviewProjectionCoordinator } from '../review-viewer/projections/use-review-projection-coordinator.js';
@@ -149,6 +150,8 @@ export function BridgeReviewViewerMode(
 	selectedMarkdownPreviewStateRef.current = selectedMarkdownPreviewState;
 	const [isTreeSearchOpen, setIsTreeSearchOpen] = useState(false);
 	const telemetryRecorderRef = props.telemetryRecorderRef;
+	const isActiveRef = useRef(props.isActive);
+	isActiveRef.current = props.isActive;
 	const bridgeHandshakeSessionRef = props.handshakeSessionRef;
 	const onActiveSourceChange = props.onActiveSourceChange;
 	const registerBridgeReadyCallback = props.registerBridgeReadyCallback;
@@ -169,7 +172,21 @@ export function BridgeReviewViewerMode(
 	rootSnapshotRef.current = rootSnapshot;
 	const controlProbeSequenceRef = useRef(0);
 	useEffect((): (() => void) => startBridgeFrameLivenessProbe(), []);
-	useEffect((): (() => void) => startBridgeFrameJankProbe(), []);
+	useEffect(
+		(): (() => void) =>
+			startBridgeFrameJankProbe({
+				onJankSample: (sample): void => {
+					recordBridgeFrameJankTelemetrySample({
+						...sample,
+						telemetryRecorder: telemetryRecorderRef.current,
+						traceContext: currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
+						viewer: 'review',
+						viewerIsActive: isActiveRef.current,
+					});
+				},
+			}),
+		[telemetryRecorderRef],
+	);
 	useEffect((): void => {
 		const authority = getReviewFrameAuthority();
 		if (reviewPackage === null || authority === null) {

@@ -49,11 +49,15 @@ describe('Bridge frame jank probe', () => {
 		resetBridgeFrameJankProbeForTesting();
 		const fakeObserverController = installFakePerformanceObserver();
 		const frameController = createFakeAnimationFrameController();
+		const samples: unknown[] = [];
 
 		const stopProbe = startBridgeFrameJankProbe({
 			PerformanceObserver: fakeObserverController.PerformanceObserver,
 			cancelAnimationFrame: frameController.cancelAnimationFrame,
 			nominalFrameDurationMilliseconds: 16,
+			onJankSample: (sample): void => {
+				samples.push(sample);
+			},
 			requestAnimationFrame: frameController.requestAnimationFrame,
 		});
 
@@ -69,6 +73,18 @@ describe('Bridge frame jank probe', () => {
 				worst_gap_ms: 55,
 			},
 		});
+		expect(samples).toEqual([
+			expect.objectContaining({
+				droppedFrameCount: 1,
+				droppedFrameWorstGapMilliseconds: 25,
+				kind: 'dropped_frame',
+			}),
+			expect.objectContaining({
+				droppedFrameCount: 2,
+				droppedFrameWorstGapMilliseconds: 55,
+				kind: 'dropped_frame',
+			}),
+		]);
 
 		stopProbe();
 	});
@@ -106,6 +122,20 @@ describe('Bridge frame jank probe', () => {
 		expect(
 			readSource(new URL('../../app/bridge-app-file-viewer-mode.tsx', import.meta.url)),
 		).toContain('startBridgeFrameJankProbe');
+	});
+
+	test('viewer mode owners preserve inactive jank samples with activity labels', () => {
+		const reviewModeSource = readSource(
+			new URL('../../app/bridge-app-review-viewer-mode.tsx', import.meta.url),
+		);
+		const fileModeSource = readSource(
+			new URL('../../app/bridge-app-file-viewer-mode.tsx', import.meta.url),
+		);
+
+		for (const modeSource of [reviewModeSource, fileModeSource]) {
+			expect(modeSource).toContain('viewerIsActive: isActiveRef.current');
+			expect(modeSource).not.toContain('if (!isActiveRef.current)');
+		}
 	});
 });
 
