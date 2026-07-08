@@ -115,6 +115,7 @@ struct ApplicationEntrypointArchitectureTests {
             path: "Sources/AgentStudio/App/Boot/AppDelegate+BridgeReviewStartupDiagnostics.swift")
         let diagnosticActionURL = projectRoot.appending(
             path: "Sources/AgentStudio/App/Boot/AgentStudioStartupDiagnosticAction.swift")
+        let appPoliciesURL = projectRoot.appending(path: "Sources/AgentStudio/Infrastructure/AppPolicies.swift")
         let paneTabViewControllerURL = projectRoot.appending(
             path: "Sources/AgentStudio/App/Panes/PaneTabViewController.swift")
 
@@ -125,6 +126,7 @@ struct ApplicationEntrypointArchitectureTests {
             encoding: .utf8
         )
         let diagnosticActionSource = try String(contentsOf: diagnosticActionURL, encoding: .utf8)
+        let appPoliciesSource = try String(contentsOf: appPoliciesURL, encoding: .utf8)
         let paneTabViewControllerSource = try String(contentsOf: paneTabViewControllerURL, encoding: .utf8)
 
         let presentationCompleteIndex = try #require(
@@ -190,6 +192,13 @@ struct ApplicationEntrypointArchitectureTests {
             diagnosticActionSource: diagnosticActionSource,
             paneTabViewControllerSource: paneTabViewControllerSource
         )
+        #expect(appPoliciesSource.contains("bridgeReviewSmokeReadinessTimeout"))
+        #expect(
+            reviewStartupDiagnosticsSource.contains(
+                "AppPolicies.StartupDiagnostic.bridgeReviewSmokeReadinessTimeout"))
+        #expect(
+            !reviewStartupDiagnosticsSource.contains(
+                "AppPolicies.StartupDiagnostic.ipcTerminalSmokeReadinessTimeout"))
         #expect(startupDiagnosticsSource.contains("app.startup_diagnostic_action.command_exercised"))
         #expect(startupDiagnosticsSource.contains("app.startup_diagnostic_action.blocked"))
         let diagnosticDispatchIndex = try #require(

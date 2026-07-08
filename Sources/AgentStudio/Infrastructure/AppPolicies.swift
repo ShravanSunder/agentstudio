@@ -250,6 +250,11 @@ enum AppPolicies {
         static let launchRestoreBoundsTimeout: Duration = .seconds(3)
         static let ipcTerminalSmokeReadinessTimeout: Duration = .seconds(10)
         static let bridgeFileViewSmokeReadinessTimeout: Duration = .seconds(15)
+        /// Review startup smoke covers pane mount, BridgeWeb intake-ready,
+        /// native package load, metadata apply, projection, selected content,
+        /// worker-pool readiness, and tree/click convergence. It is a heavier
+        /// proof path than the IPC terminal and File View smokes.
+        static let bridgeReviewSmokeReadinessTimeout: Duration = .seconds(20)
     }
 
     enum SelectablePopover {

@@ -175,7 +175,7 @@ extension AppDelegate {
             let start = clock.now
             var proof = await bridgeReviewObservabilitySmokeRenderProof(for: controller)
             while !proof.succeeded
-                && start.duration(to: clock.now) < AppPolicies.StartupDiagnostic.ipcTerminalSmokeReadinessTimeout
+                && start.duration(to: clock.now) < AppPolicies.StartupDiagnostic.bridgeReviewSmokeReadinessTimeout
             {
                 try? await Task.sleep(nanoseconds: Duration.milliseconds(50).nanosecondsForTaskSleep)
                 proof = await bridgeReviewObservabilitySmokeRenderProof(for: controller)
