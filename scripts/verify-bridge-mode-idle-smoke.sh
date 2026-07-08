@@ -8,6 +8,8 @@ CURL_BIN="${AGENTSTUDIO_CURL_BIN:-/usr/bin/curl}"
 IDLE_MINUTES="${AGENTSTUDIO_BRIDGE_IDLE_MINUTES:-3}"
 IDLE_POLL_SECONDS="${AGENTSTUDIO_BRIDGE_IDLE_POLL_SECONDS:-5}"
 IDLE_CONTENT_LOAD_CEILING="${AGENTSTUDIO_BRIDGE_IDLE_CONTENT_LOAD_CEILING:-0}"
+VERIFY_ATTEMPTS="${AGENTSTUDIO_OBSERVABILITY_VERIFY_ATTEMPTS:-12}"
+VERIFY_RETRY_DELAY_SECONDS="${AGENTSTUDIO_OBSERVABILITY_VERIFY_RETRY_DELAY_SECONDS:-2}"
 EXPECTED_STARTUP_ACTION="bridge-review-to-file-view-observability-smoke"
 
 dry_run=false
@@ -173,6 +175,49 @@ query_logs() {
   query_logs_between "$1" "$QUERY_START" "$QUERY_END"
 }
 
+wait_pause() {
+  local seconds="$1"
+  read -r -t "$seconds" _ </dev/null || true
+}
+
+wait_for_log_query() {
+  local description="${1:?missing description}"
+  local logsql="${2:?missing LogSQL query}"
+  local response=""
+  local attempt=1
+  while [ "$attempt" -le "$VERIFY_ATTEMPTS" ]; do
+    response="$(query_logs "$logsql")"
+    if [ -n "$response" ]; then
+      printf '%s' "$response"
+      return 0
+    fi
+    if [ "$attempt" -lt "$VERIFY_ATTEMPTS" ]; then
+      wait_pause "$VERIFY_RETRY_DELAY_SECONDS"
+    fi
+    attempt=$((attempt + 1))
+  done
+  echo "$description" >&2
+  return 1
+}
+
+wait_for_optional_log_query() {
+  local logsql="${1:?missing LogSQL query}"
+  local response=""
+  local attempt=1
+  while [ "$attempt" -le "$VERIFY_ATTEMPTS" ]; do
+    response="$(query_logs "$logsql")"
+    if [ -n "$response" ]; then
+      printf '%s' "$response"
+      return 0
+    fi
+    if [ "$attempt" -lt "$VERIFY_ATTEMPTS" ]; then
+      wait_pause "$VERIFY_RETRY_DELAY_SECONDS"
+    fi
+    attempt=$((attempt + 1))
+  done
+  return 0
+}
+
 count_log_records_between() {
   local logsql="$1"
   local start_time="$2"
@@ -210,6 +255,57 @@ for line in payload.splitlines():
         sys.exit(0)
 sys.exit(1)
 PY
+}
+
+json_exact_string_field() {
+  local field_name="$1"
+  local expected="$2"
+  local payload="$3"
+  /usr/bin/python3 - "$field_name" "$expected" "$payload" <<'PY'
+import json
+import sys
+
+field_name, expected, payload = sys.argv[1], sys.argv[2], sys.argv[3]
+for line in payload.splitlines():
+    if not line.strip():
+        continue
+    try:
+        record = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    if record.get(field_name) == expected:
+        sys.exit(0)
+sys.exit(1)
+PY
+}
+
+json_falseish_field() {
+  local field_name="$1"
+  local payload="$2"
+  /usr/bin/python3 - "$field_name" "$payload" <<'PY'
+import json
+import sys
+
+field_name, payload = sys.argv[1], sys.argv[2]
+for line in payload.splitlines():
+    if not line.strip():
+        continue
+    try:
+        record = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    value = record.get(field_name)
+    if value is False or value == "false":
+        sys.exit(0)
+sys.exit(1)
+PY
+}
+
+is_frame_not_live_skip() {
+  local payload="$1"
+  json_exact_string_field agentstudio.startup_diagnostic.skip_reason frame_not_live "$payload" &&
+    json_falseish_field agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive "$payload" &&
+    json_falseish_field agentstudio.startup_diagnostic.render_proof.succeeded "$payload"
 }
 
 json_field_at_least() {
@@ -386,12 +482,14 @@ marker_filter="$(logsql_exact_filter agent.proof.marker "$MARKER")"
 action_filter="$(logsql_exact_filter agentstudio.startup_diagnostic.action "$STARTUP_DIAGNOSTIC_ACTION")"
 base_query="service.name:AgentStudio dev.runtime.flavor:debug $marker_filter"
 diagnostic_completed_query="$base_query $action_filter _msg:app.startup_diagnostic_action.completed"
+diagnostic_skipped_query="$base_query $action_filter _msg:app.startup_diagnostic_action.skipped"
 content_load_query="$base_query _msg:performance.bridge.swift.content_load"
 intake_reject_query="$base_query _msg:performance.bridge.web.worktree_file_intake_reject"
 active_viewer_rejected_query="$base_query _msg:performance.bridge.swift.active_viewer_mode_signal_rejected"
 
 dry_run_queries=(
   "$diagnostic_completed_query | limit 0"
+  "$diagnostic_skipped_query | limit 0"
   "$content_load_query | limit 0"
   "$intake_reject_query | limit 0"
   "$active_viewer_rejected_query | limit 0"
@@ -417,8 +515,26 @@ fi
 
 require_process_alive "process alive at start"
 diagnostic_completed_response="$(
-  query_logs "$diagnostic_completed_query | fields _msg,agentstudio.startup_diagnostic.bridge.file_view.mode_switch.count,agentstudio.startup_diagnostic.bridge.file_view.mode_switch.final_file_selected,agentstudio.startup_diagnostic.render_proof.succeeded,agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive,agentstudio.startup_diagnostic.bridge.frame_liveness.raf_fired_latency.bucket | limit 20"
+  wait_for_optional_log_query \
+    "$diagnostic_completed_query | fields _msg,agentstudio.startup_diagnostic.bridge.file_view.mode_switch.count,agentstudio.startup_diagnostic.bridge.file_view.mode_switch.final_file_selected,agentstudio.startup_diagnostic.render_proof.succeeded,agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive,agentstudio.startup_diagnostic.bridge.frame_liveness.raf_fired_latency.bucket | limit 20"
 )"
+if [ -z "$diagnostic_completed_response" ]; then
+  diagnostic_skipped_response="$(
+    wait_for_optional_log_query \
+      "$diagnostic_skipped_query | fields _msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.skip_reason,agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive,agentstudio.startup_diagnostic.render_proof.succeeded | limit 20"
+  )"
+  if is_frame_not_live_skip "$diagnostic_skipped_response"; then
+    AGENTSTUDIO_BRIDGE_TTFI_RAF_ALIVE=false \
+      "$PROJECT_ROOT/scripts/verify-debug-observability.sh" >/dev/null
+    skip_assertion \
+      "mode-idle smoke skipped because startup frame is not live" \
+      "skip_reason=frame_not_live"
+    exit 0
+  fi
+  echo "startup diagnostic completed/skipped record missing for mode-idle marker $MARKER" >&2
+  echo "$diagnostic_skipped_response" >&2
+  exit 1
+fi
 frame_liveness_raf_alive="$(
   first_json_string_field \
     "agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive" \

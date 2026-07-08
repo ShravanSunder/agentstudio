@@ -4328,3 +4328,55 @@ counts before claiming a gate.
   prove live oq4s scroll/click percentile movement, finish G6 ordinary
   script-message RPC deletion, prove zero-copy transfer-list delivery, complete
   implementation-review-swarm, prove PR readiness, or complete the full goal.
+
+## 2026-07-08T20:41:37Z - Review startup no-RAF diagnostic SKIP classification
+
+- Scope:
+  Classified the Review startup diagnostic no-rAF condition as an honest
+  `skipped` outcome instead of a product `blocked` failure. The SKIP is accepted
+  only when the diagnostic record carries the full evidence triplet:
+  `agentstudio.startup_diagnostic.skip_reason=frame_not_live`,
+  `agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive=false`, and
+  `agentstudio.startup_diagnostic.render_proof.succeeded=false`.
+- Root cause:
+  On this host the live Review startup smoke can reach a state where the frame
+  never becomes rAF-live. That is an environment/frame-liveness condition, not a
+  product Review render verdict. Previous verifier flow accepted the SKIP only
+  after noisy completed-record waits, which made a valid SKIP look like a
+  missing diagnostic failure in stderr.
+- Green evidence:
+  `git diff --check` passed. `bash -n
+  scripts/verify-debug-observability.sh
+  scripts/verify-bridge-observability.sh
+  scripts/verify-bridge-review-journey-smoke.sh
+  scripts/verify-bridge-mode-idle-smoke.sh` passed. `mise run format` passed.
+  `mise run lint` passed swift-format lint, SwiftLint with 0 violations across
+  1473 files, architecture lint, and release script checks. Focused Swift proof
+  passed 62 tests / 5 suites:
+  `SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 SWIFT_TEST_TIMEOUT_SECONDS=180
+  mise run test -- --filter BridgeReviewSmokeFrameLivenessTests --filter
+  AgentStudioStartupDiagnosticActionTests --filter
+  ObservabilityDebugVerifierBridgeDiagnosticTests --filter
+  BridgeObservabilityVerifierScriptTests --filter
+  BridgeFullPyramidSmokeVerifierScriptTests`.
+- Live oq4s evidence:
+  `mise run observability:up` reported VictoriaLogs, VictoriaMetrics,
+  VictoriaTraces, and the OTLP collector healthy. The previous recorded oq4s
+  PID `41028` was alive as the exact debug executable and was killed directly.
+  Fresh launch with
+  `AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=bridge-review-observability-smoke`
+  produced PID `68474` and marker
+  `debug-observability-oq4s-1783543072-67921`. `mise run
+  verify-debug-observability` exited 0 with `SKIP startup diagnostic
+  bridge-review-observability-smoke: frame_not_live` and the evidence triplet.
+  `mise run verify-bridge-observability` exited 0 with `SKIP Bridge startup
+  diagnostic bridge-review-observability-smoke: frame_not_live` and the same
+  evidence triplet. Neither live verifier printed stale
+  completed/skipped-missing or did-not-complete-successfully noise on the
+  accepted SKIP path.
+- Known proof boundary:
+  This fixes the diagnostic/verifier classification for no-rAF Review startup
+  smoke outcomes only. It does not prove Review scroll/click UX budgets, finish
+  F1 worker-fetch proof, finish G6 script-message RPC deletion, prove
+  zero-copy transfer-list delivery, complete implementation-review-swarm, prove
+  PR readiness, or complete the full goal.

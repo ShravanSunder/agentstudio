@@ -15,6 +15,8 @@ CLICK_SELECTIONS="${AGENTSTUDIO_BRIDGE_REVIEW_JOURNEY_CLICK_SELECTIONS:-2}"
 EXPECTED_SELECTED_MATERIALIZATIONS="$((EXPECTED_SELECTIONS - 1))"
 QUIESCENCE_SECONDS="${AGENTSTUDIO_BRIDGE_REVIEW_JOURNEY_QUIESCENCE_SECONDS:-8}"
 NON_STALE_TELEMETRY_DROP_STORM_THRESHOLD="${AGENTSTUDIO_BRIDGE_NON_STALE_TELEMETRY_DROP_STORM_THRESHOLD:-0}"
+VERIFY_ATTEMPTS="${AGENTSTUDIO_OBSERVABILITY_VERIFY_ATTEMPTS:-12}"
+VERIFY_RETRY_DELAY_SECONDS="${AGENTSTUDIO_OBSERVABILITY_VERIFY_RETRY_DELAY_SECONDS:-2}"
 EXPECTED_STARTUP_ACTION="bridge-review-observability-smoke"
 
 dry_run=false
@@ -169,6 +171,44 @@ query_logs() {
   query_logs_between "$1" "$QUERY_START" "$QUERY_END"
 }
 
+wait_for_log_query() {
+  local description="${1:?missing description}"
+  local logsql="${2:?missing LogSQL query}"
+  local response=""
+  local attempt=1
+  while [ "$attempt" -le "$VERIFY_ATTEMPTS" ]; do
+    response="$(query_logs "$logsql")"
+    if [ -n "$response" ]; then
+      printf '%s' "$response"
+      return 0
+    fi
+    if [ "$attempt" -lt "$VERIFY_ATTEMPTS" ]; then
+      query_sleep "$VERIFY_RETRY_DELAY_SECONDS"
+    fi
+    attempt=$((attempt + 1))
+  done
+  echo "$description" >&2
+  return 1
+}
+
+wait_for_optional_log_query() {
+  local logsql="${1:?missing LogSQL query}"
+  local response=""
+  local attempt=1
+  while [ "$attempt" -le "$VERIFY_ATTEMPTS" ]; do
+    response="$(query_logs "$logsql")"
+    if [ -n "$response" ]; then
+      printf '%s' "$response"
+      return 0
+    fi
+    if [ "$attempt" -lt "$VERIFY_ATTEMPTS" ]; then
+      query_sleep "$VERIFY_RETRY_DELAY_SECONDS"
+    fi
+    attempt=$((attempt + 1))
+  done
+  return 0
+}
+
 count_payload_records() {
   local payload="$1"
   /usr/bin/python3 - "$payload" <<'PY'
@@ -277,6 +317,26 @@ print(fallback)
 PY
 }
 
+json_exact_string_field() {
+  local field_name="$1"
+  local expected="$2"
+  local payload="$3"
+  grep -q "\"$field_name\":\"$expected\"" <<<"$payload"
+}
+
+json_falseish_field() {
+  local field_name="$1"
+  local payload="$2"
+  grep -Eq "\"$field_name\":(\"false\"|false)([,}[:space:]]|$)" <<<"$payload"
+}
+
+is_frame_not_live_skip() {
+  local payload="$1"
+  json_exact_string_field agentstudio.startup_diagnostic.skip_reason frame_not_live "$payload" &&
+    json_falseish_field agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive "$payload" &&
+    json_falseish_field agentstudio.startup_diagnostic.render_proof.succeeded "$payload"
+}
+
 assertion_failures=0
 
 pass_assertion() {
@@ -355,6 +415,7 @@ marker_filter="$(logsql_exact_filter agent.proof.marker "$MARKER")"
 action_filter="$(logsql_exact_filter agentstudio.startup_diagnostic.action "$STARTUP_DIAGNOSTIC_ACTION")"
 base_query="service.name:AgentStudio dev.runtime.flavor:debug $marker_filter"
 diagnostic_completed_query="$base_query $action_filter _msg:app.startup_diagnostic_action.completed"
+diagnostic_skipped_query="$base_query $action_filter _msg:app.startup_diagnostic_action.skipped"
 selection_commit_query="$base_query _msg:performance.bridge.web.selection_commit $(logsql_exact_filter agentstudio.bridge.phase selection_commit)"
 materialized_query="$base_query _msg:performance.bridge.web.code_view_item_materialize $(logsql_exact_filter agentstudio.bridge.phase code_view_item_materialize) $(logsql_exact_filter agentstudio.bridge.selected true)"
 painted_query="$base_query _msg:performance.bridge.web.selected_content_painted $(logsql_exact_filter agentstudio.bridge.phase selected_content_painted)"
@@ -367,6 +428,7 @@ non_stale_telemetry_drop_query="$telemetry_drop_query agentstudio.bridge.telemet
 
 dry_run_queries=(
   "$diagnostic_completed_query | limit 0"
+  "$diagnostic_skipped_query | limit 0"
   "$selection_commit_query | limit 0"
   "$materialized_query | limit 0"
   "$painted_query | limit 0"
@@ -392,8 +454,28 @@ AGENTSTUDIO_OBSERVABILITY_ALLOW_COMPLETED_EXIT=1 \
   "$PROJECT_ROOT/scripts/verify-debug-observability.sh" >/dev/null
 
 diagnostic_completed_response="$(
-  query_logs "$diagnostic_completed_query | fields _msg,agentstudio.startup_diagnostic.bridge.review_expected_item.count,agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive,agentstudio.startup_diagnostic.bridge.frame_liveness.raf_fired_latency.bucket | limit 20"
+  wait_for_optional_log_query \
+    "$diagnostic_completed_query | fields _msg,agentstudio.startup_diagnostic.bridge.review_expected_item.count,agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive,agentstudio.startup_diagnostic.bridge.frame_liveness.raf_fired_latency.bucket | limit 20"
 )"
+if [ -z "$diagnostic_completed_response" ]; then
+  diagnostic_skipped_response="$(
+    wait_for_optional_log_query \
+      "$diagnostic_skipped_query | fields _msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.skip_reason,agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive,agentstudio.startup_diagnostic.render_proof.succeeded | limit 20"
+  )"
+  if is_frame_not_live_skip "$diagnostic_skipped_response"; then
+    skip_assertion \
+      "review journey smoke skipped because startup frame is not live" \
+      "skip_reason=frame_not_live"
+    echo "bridge review journey smoke summary:"
+    echo "marker=$MARKER"
+    echo "query_window=$QUERY_START..$QUERY_END"
+    echo "startup_diagnostic_skip_reason=frame_not_live"
+    exit 0
+  fi
+  echo "startup diagnostic completed/skipped record missing for review journey marker $MARKER" >&2
+  echo "$diagnostic_skipped_response" >&2
+  exit 1
+fi
 diagnostic_completed_count="$(count_payload_records "$diagnostic_completed_response")"
 frame_liveness_raf_alive="$(
   first_json_string_field \

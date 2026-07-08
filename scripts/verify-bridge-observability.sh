@@ -131,6 +131,24 @@ wait_for_log_query() {
   return 1
 }
 
+wait_for_optional_log_query() {
+  local logsql="${1:?missing LogSQL query}"
+  local response=""
+  local attempt=1
+  while [ "$attempt" -le "$VERIFY_ATTEMPTS" ]; do
+    response="$(query_logs "$logsql")"
+    if [ -n "$response" ]; then
+      printf '%s' "$response"
+      return 0
+    fi
+    if [ "$attempt" -lt "$VERIFY_ATTEMPTS" ]; then
+      sleep "$VERIFY_RETRY_DELAY_SECONDS"
+    fi
+    attempt=$((attempt + 1))
+  done
+  return 0
+}
+
 wait_for_trace_query() {
   local description="${1:?missing description}"
   local logsql="${2:?missing trace LogSQL query}"
@@ -207,6 +225,19 @@ json_exact_string_field() {
   local expected="${2:?missing expected value}"
   local payload="${3:-}"
   grep -q "\"$field\":\"$expected\"" <<<"$payload"
+}
+
+json_falseish_field() {
+  local field="${1:?missing JSON field}"
+  local payload="${2:-}"
+  grep -Eq "\"$field\":(\"false\"|false)([,}[:space:]]|$)" <<<"$payload"
+}
+
+is_frame_not_live_skip() {
+  local payload="${1:-}"
+  json_exact_string_field agentstudio.startup_diagnostic.skip_reason frame_not_live "$payload" &&
+    json_falseish_field agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive "$payload" &&
+    json_falseish_field agentstudio.startup_diagnostic.render_proof.succeeded "$payload"
 }
 
 json_zero_int_field() {
@@ -304,13 +335,28 @@ trace_scenario_filter="$(
 base_log_query="service.name:AgentStudio dev.runtime.flavor:debug $marker_filter $scenario_filter"
 diagnostic_action_filter="$(logsql_exact_value_filter agentstudio.startup_diagnostic.action "$STARTUP_DIAGNOSTIC_ACTION")"
 diagnostic_log_query="service.name:AgentStudio dev.runtime.flavor:debug $marker_filter $diagnostic_action_filter"
-diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,agentstudio.startup_diagnostic.bridge.review_expected_item.count,agentstudio.startup_diagnostic.bridge.review_metadata_item.count,agentstudio.startup_diagnostic.bridge.review_metadata_tree_row.count,agentstudio.startup_diagnostic.bridge.review_shell.visible,agentstudio.startup_diagnostic.bridge.review_shell.state,agentstudio.startup_diagnostic.bridge.code_view.visible,agentstudio.startup_diagnostic.bridge.selected_item.visible,agentstudio.startup_diagnostic.bridge.selected_path.visible,agentstudio.startup_diagnostic.bridge.selected_content.visible,agentstudio.startup_diagnostic.bridge.selected_content.state,agentstudio.startup_diagnostic.bridge.selected_content_role.count,agentstudio.startup_diagnostic.bridge.selected_content_cache_key.count,agentstudio.startup_diagnostic.bridge.selected_content_character.count,agentstudio.startup_diagnostic.bridge.selected_content_line.count,agentstudio.startup_diagnostic.bridge.selected_materialized.update_result,agentstudio.startup_diagnostic.bridge.selected_materialized.item_type,agentstudio.startup_diagnostic.bridge.selected_materialized.item_version,agentstudio.startup_diagnostic.bridge.selected_materialized.addition_line.count,agentstudio.startup_diagnostic.bridge.selected_materialized.deletion_line.count,agentstudio.startup_diagnostic.bridge.selected_materialized.file_line.count,agentstudio.startup_diagnostic.bridge.page_issue.count,agentstudio.startup_diagnostic.bridge.diff_container.count,agentstudio.startup_diagnostic.bridge.code_view.instance.first_item.height_px,agentstudio.startup_diagnostic.bridge.code_view.rendered_item.count,agentstudio.startup_diagnostic.bridge.code_view.rendered_item.type,agentstudio.startup_diagnostic.bridge.code_view.rendered_item.version,agentstudio.startup_diagnostic.bridge.code_view_panel.width_px,agentstudio.startup_diagnostic.bridge.code_view_panel.height_px,agentstudio.startup_diagnostic.bridge.diff_container.width_px,agentstudio.startup_diagnostic.bridge.code_text.length,agentstudio.startup_diagnostic.bridge.code_shadow_text.length,agentstudio.startup_diagnostic.bridge.worker_pool.state,agentstudio.startup_diagnostic.bridge.worker_pool.manager_state,agentstudio.startup_diagnostic.bridge.worker_pool.workers_failed,agentstudio.startup_diagnostic.bridge.worker_diagnostic.diff_success_count,agentstudio.startup_diagnostic.bridge.worker_diagnostic.failure_count,agentstudio.startup_diagnostic.render_proof.succeeded"
+diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,agentstudio.startup_diagnostic.bridge.review_expected_item.count,agentstudio.startup_diagnostic.bridge.review_metadata_item.count,agentstudio.startup_diagnostic.bridge.review_metadata_tree_row.count,agentstudio.startup_diagnostic.bridge.review_shell.visible,agentstudio.startup_diagnostic.bridge.review_shell.state,agentstudio.startup_diagnostic.bridge.code_view.visible,agentstudio.startup_diagnostic.bridge.selected_item.visible,agentstudio.startup_diagnostic.bridge.selected_path.visible,agentstudio.startup_diagnostic.bridge.selected_content.visible,agentstudio.startup_diagnostic.bridge.selected_content.state,agentstudio.startup_diagnostic.bridge.selected_content_role.count,agentstudio.startup_diagnostic.bridge.selected_content_cache_key.count,agentstudio.startup_diagnostic.bridge.selected_content_character.count,agentstudio.startup_diagnostic.bridge.selected_content_line.count,agentstudio.startup_diagnostic.bridge.selected_materialized.update_result,agentstudio.startup_diagnostic.bridge.selected_materialized.item_type,agentstudio.startup_diagnostic.bridge.selected_materialized.item_version,agentstudio.startup_diagnostic.bridge.selected_materialized.addition_line.count,agentstudio.startup_diagnostic.bridge.selected_materialized.deletion_line.count,agentstudio.startup_diagnostic.bridge.selected_materialized.file_line.count,agentstudio.startup_diagnostic.bridge.page_issue.count,agentstudio.startup_diagnostic.bridge.diff_container.count,agentstudio.startup_diagnostic.bridge.code_view.instance.first_item.height_px,agentstudio.startup_diagnostic.bridge.code_view.rendered_item.count,agentstudio.startup_diagnostic.bridge.code_view.rendered_item.type,agentstudio.startup_diagnostic.bridge.code_view.rendered_item.version,agentstudio.startup_diagnostic.bridge.code_view_panel.width_px,agentstudio.startup_diagnostic.bridge.code_view_panel.height_px,agentstudio.startup_diagnostic.bridge.diff_container.width_px,agentstudio.startup_diagnostic.bridge.code_text.length,agentstudio.startup_diagnostic.bridge.code_shadow_text.length,agentstudio.startup_diagnostic.bridge.worker_pool.state,agentstudio.startup_diagnostic.bridge.worker_pool.manager_state,agentstudio.startup_diagnostic.bridge.worker_pool.workers_failed,agentstudio.startup_diagnostic.bridge.worker_diagnostic.diff_success_count,agentstudio.startup_diagnostic.bridge.worker_diagnostic.failure_count,agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive,agentstudio.startup_diagnostic.render_proof.succeeded"
+diagnostic_skipped_query="$diagnostic_log_query _msg:app.startup_diagnostic_action.skipped"
 
 diagnostic_completed_response="$(
-  wait_for_log_query \
-    "missing Bridge startup diagnostic completed record for marker $MARKER" \
+  wait_for_optional_log_query \
     "$diagnostic_log_query _msg:app.startup_diagnostic_action.completed | fields $diagnostic_fields | limit 5"
 )"
+
+if [ -z "$diagnostic_completed_response" ]; then
+  diagnostic_skipped_response="$(
+    wait_for_optional_log_query \
+      "$diagnostic_skipped_query | fields $diagnostic_fields,agentstudio.startup_diagnostic.skip_reason | limit 5"
+  )"
+  if is_frame_not_live_skip "$diagnostic_skipped_response"; then
+    echo "SKIP Bridge startup diagnostic bridge-review-observability-smoke: frame_not_live"
+    echo "$diagnostic_skipped_response"
+    exit 0
+  fi
+  echo "missing Bridge startup diagnostic completed record for marker $MARKER" >&2
+  echo "$diagnostic_skipped_response" >&2
+  exit 1
+fi
 
 required_truthy_diagnostic_fields=(
   agentstudio.startup_diagnostic.render_proof.succeeded

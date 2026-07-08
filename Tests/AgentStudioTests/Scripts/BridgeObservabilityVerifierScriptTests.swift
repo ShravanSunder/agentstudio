@@ -76,6 +76,126 @@ struct BridgeObservabilityVerifierScriptTests {
         #expect(result.exitCode == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
     }
 
+    @Test("verifier accepts skipped review startup diagnostic when frame is not live")
+    func verifierAcceptsSkippedReviewStartupDiagnosticFrameNotLive() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = fixture.url("latest.env")
+        try """
+        AGENTSTUDIO_OBSERVABILITY_STATUS=running
+        AGENTSTUDIO_OBSERVABILITY_MARKER=debug-marker
+        AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=testcode
+        AGENTSTUDIO_OBSERVABILITY_PID=999999999
+        AGENTSTUDIO_OBSERVABILITY_QUERY_START=2026-06-12T00:00:00Z
+        AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=bridge-review-observability-smoke
+        AGENTSTUDIO_BRIDGE_OBSERVABILITY_SCENARIO=package_apply_content_fetch_v1
+        """
+        .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
+        let skippedRecord = """
+            {"_msg":"app.startup_diagnostic_action.skipped","agentstudio.startup_diagnostic.action":"bridge-review-observability-smoke","agentstudio.startup_diagnostic.render_proof.succeeded":false,"agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive":"false","agentstudio.startup_diagnostic.skip_reason":"frame_not_live"}
+            """
+        let result = try fixture.runVerifier(
+            scriptPath: "scripts/verify-bridge-observability.sh",
+            stateFile: stateFile,
+            environment: [
+                "AGENTSTUDIO_OBSERVABILITY_ALLOW_COMPLETED_EXIT": "1",
+                "AGENTSTUDIO_OBSERVABILITY_VERIFY_ATTEMPTS": "1",
+                "AGENTSTUDIO_OBSERVABILITY_VERIFY_RETRY_DELAY_SECONDS": "0",
+                "AGENTSTUDIO_CURL_BIN": try fixture.executable(
+                    "curl-bridge-verifier-skipped-frame",
+                    """
+                    #!/bin/bash
+                    args="$*"
+                    if [[ "$args" == *"app.zmx_startup_reconciliation.completed"* ]]; then
+                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                      exit 0
+                    fi
+                    if [[ "$args" == *"app.startup_diagnostic_action.command_exercised"* ]]; then
+                      printf '%s\\n' '\(skippedRecord.replacingOccurrences(of: "_msg\":\"app.startup_diagnostic_action.skipped", with: "_msg\":\"app.startup_diagnostic_action.command_exercised"))'
+                      exit 0
+                    fi
+                    if [[ "$args" == *"app.startup_diagnostic_action.completed"* ]]; then
+                      exit 0
+                    fi
+                    if [[ "$args" == *"app.startup_diagnostic_action.skipped"* ]]; then
+                      printf '%s\\n' '\(skippedRecord)'
+                      exit 0
+                    fi
+                    if [[ "$args" == *":*"* ]]; then
+                      exit 0
+                    fi
+                    printf '{"service.name":"AgentStudio","service.version":"0.0.1-debug+testcode","dev.runtime.flavor":"debug","_msg":"app.process.start"}\\n'
+                    exit 0
+                    """
+                ).path,
+            ]
+        )
+
+        #expect(result.exitCode == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
+        #expect(result.stdout.contains("SKIP Bridge startup diagnostic"))
+        #expect(result.stdout.contains("frame_not_live"))
+        #expect(!result.stderr.contains("missing Bridge startup diagnostic completed record"))
+    }
+
+    @Test("verifier rejects skipped review startup diagnostic unless render proof failed")
+    func verifierRejectsSkippedReviewStartupDiagnosticWithoutFailedRenderProof() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = fixture.url("latest.env")
+        try """
+        AGENTSTUDIO_OBSERVABILITY_STATUS=running
+        AGENTSTUDIO_OBSERVABILITY_MARKER=debug-marker
+        AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=testcode
+        AGENTSTUDIO_OBSERVABILITY_PID=999999999
+        AGENTSTUDIO_OBSERVABILITY_QUERY_START=2026-06-12T00:00:00Z
+        AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=bridge-review-observability-smoke
+        AGENTSTUDIO_BRIDGE_OBSERVABILITY_SCENARIO=package_apply_content_fetch_v1
+        """
+        .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
+        let skippedRecord = """
+            {"_msg":"app.startup_diagnostic_action.skipped","agentstudio.startup_diagnostic.action":"bridge-review-observability-smoke","agentstudio.startup_diagnostic.render_proof.succeeded":true,"agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive":"false","agentstudio.startup_diagnostic.skip_reason":"frame_not_live"}
+            """
+        let result = try fixture.runVerifier(
+            scriptPath: "scripts/verify-bridge-observability.sh",
+            stateFile: stateFile,
+            environment: [
+                "AGENTSTUDIO_OBSERVABILITY_ALLOW_COMPLETED_EXIT": "1",
+                "AGENTSTUDIO_OBSERVABILITY_VERIFY_ATTEMPTS": "1",
+                "AGENTSTUDIO_OBSERVABILITY_VERIFY_RETRY_DELAY_SECONDS": "0",
+                "AGENTSTUDIO_CURL_BIN": try fixture.executable(
+                    "curl-bridge-verifier-spoofed-skipped-frame",
+                    """
+                    #!/bin/bash
+                    args="$*"
+                    if [[ "$args" == *"app.zmx_startup_reconciliation.completed"* ]]; then
+                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                      exit 0
+                    fi
+                    if [[ "$args" == *"app.startup_diagnostic_action.command_exercised"* ]]; then
+                      printf '%s\\n' '\(skippedRecord.replacingOccurrences(of: "_msg\":\"app.startup_diagnostic_action.skipped", with: "_msg\":\"app.startup_diagnostic_action.command_exercised"))'
+                      exit 0
+                    fi
+                    if [[ "$args" == *"app.startup_diagnostic_action.completed"* ]]; then
+                      exit 0
+                    fi
+                    if [[ "$args" == *"app.startup_diagnostic_action.skipped"* ]]; then
+                      printf '%s\\n' '\(skippedRecord)'
+                      exit 0
+                    fi
+                    if [[ "$args" == *":*"* ]]; then
+                      exit 0
+                    fi
+                    printf '{"service.name":"AgentStudio","service.version":"0.0.1-debug+testcode","dev.runtime.flavor":"debug","_msg":"app.process.start"}\\n'
+                    exit 0
+                    """
+                ).path,
+            ]
+        )
+
+        #expect(result.exitCode != 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
+        #expect(!result.stdout.contains("SKIP Bridge startup diagnostic"))
+    }
+
     @Test("verifier covers all bridge telemetry planes with marker-scoped Victoria proof")
     func verifierCoversBridgeTelemetryPlanesWithMarkerScopedVictoriaProof() throws {
         let verifierScript = try String(

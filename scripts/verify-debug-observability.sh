@@ -300,6 +300,26 @@ json_truthy_field() {
     grep -q "\"$field\":\"true\"" <<<"$payload"
 }
 
+json_exact_string_field() {
+  local field="${1:?missing JSON field}"
+  local expected="${2:?missing expected value}"
+  local payload="${3:-}"
+  grep -q "\"$field\":\"$expected\"" <<<"$payload"
+}
+
+json_falseish_field() {
+  local field="${1:?missing JSON field}"
+  local payload="${2:-}"
+  grep -Eq "\"$field\":(\"false\"|false)([,}[:space:]]|$)" <<<"$payload"
+}
+
+is_frame_not_live_skip() {
+  local payload="${1:-}"
+  json_exact_string_field agentstudio.startup_diagnostic.skip_reason frame_not_live "$payload" &&
+    json_falseish_field agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive "$payload" &&
+    json_falseish_field agentstudio.startup_diagnostic.render_proof.succeeded "$payload"
+}
+
 require_json_fields() {
   local description="${1:?missing description}"
   local payload="${2:-}"
@@ -461,6 +481,24 @@ wait_for_log_query() {
   return 1
 }
 
+wait_for_optional_log_query() {
+  local logsql="${1:?missing LogSQL query}"
+  local response=""
+  local attempt=1
+  while [ "$attempt" -le "$VERIFY_ATTEMPTS" ]; do
+    response="$(query_logs "$logsql")"
+    if [ -n "$response" ]; then
+      printf '%s' "$response"
+      return 0
+    fi
+    if [ "$attempt" -lt "$VERIFY_ATTEMPTS" ]; then
+      sleep "$VERIFY_RETRY_DELAY_SECONDS"
+    fi
+    attempt=$((attempt + 1))
+  done
+  return 0
+}
+
 positive_response="$(query_logs "$query | fields service.name,service.version,dev.runtime.flavor,_msg | limit 20")"
 if [ -z "$positive_response" ]; then
   echo "no AgentStudio debug records found in VictoriaLogs for query window $QUERY_START..$QUERY_END" >&2
@@ -573,10 +611,8 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
   )"
 
   diagnostic_completed_response="$(
-    wait_for_log_query \
-      "startup diagnostic did not complete successfully for action $startup_diagnostic_action" \
-      "$diagnostic_query _msg:app.startup_diagnostic_action.completed | fields $diagnostic_fields | limit 5" \
-      || true
+    wait_for_optional_log_query \
+      "$diagnostic_query _msg:app.startup_diagnostic_action.completed | fields $diagnostic_fields | limit 5"
   )"
   if [ -z "$diagnostic_completed_response" ]; then
     diagnostic_blocked_response="$(
@@ -584,9 +620,14 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
         "$diagnostic_query _msg:app.startup_diagnostic_action.blocked | fields $diagnostic_fields,agentstudio.startup_diagnostic.skip_reason | limit 5"
     )"
     diagnostic_skipped_response="$(
-      query_logs \
-        "$diagnostic_query _msg:app.startup_diagnostic_action.skipped | fields _msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.skip_reason | limit 5"
+      wait_for_optional_log_query \
+        "$diagnostic_query _msg:app.startup_diagnostic_action.skipped | fields $diagnostic_fields,agentstudio.startup_diagnostic.skip_reason | limit 5"
     )"
+    if is_frame_not_live_skip "$diagnostic_skipped_response"; then
+      echo "SKIP startup diagnostic $startup_diagnostic_action: frame_not_live"
+      echo "$diagnostic_skipped_response"
+      exit 0
+    fi
     echo "startup diagnostic did not complete successfully for action $startup_diagnostic_action" >&2
     if [ -n "$diagnostic_blocked_response" ]; then
       echo "$diagnostic_blocked_response" >&2

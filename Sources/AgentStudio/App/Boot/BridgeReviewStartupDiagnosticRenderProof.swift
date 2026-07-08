@@ -580,6 +580,7 @@ struct BridgeReviewObservabilitySmokeRenderProof: Equatable {
             selectedMaterializedAdditionLineCount
             + selectedMaterializedDeletionLineCount
             + selectedMaterializedFileLineCount
+        let frameBecameLive = frameLivenessRafAlive != "false"
         let modifiedClickRoles = Set(
             modifiedClickSelectedContentRoles
                 .split(separator: ",")
@@ -650,6 +651,7 @@ struct BridgeReviewObservabilitySmokeRenderProof: Equatable {
             && codeViewRenderedItemVersion == selectedMaterializedItemVersion
             && codeTextLength > 0
             && codeShadowTextLength > 0
+            && frameBecameLive
             && workerPoolState == "ready"
             && workerPoolManagerState == "initialized"
             && !workerPoolWorkersFailed

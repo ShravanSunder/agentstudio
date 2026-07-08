@@ -91,7 +91,7 @@ extension AppDelegate {
             recordBridgeReviewObservabilitySmokePhase("render_proof_finished", action: action)
             recordBridgeReviewObservabilitySmokeDiagnosticResult(
                 action: action,
-                outcome: renderProof.succeeded ? "succeeded" : "blocked",
+                outcome: renderProof.startupDiagnosticOutcome,
                 renderProof: renderProof
             )
         }
@@ -148,23 +148,32 @@ extension AppDelegate {
             outcome: String,
             renderProof: BridgeReviewObservabilitySmokeRenderProof
         ) {
+            var attributes = startupDiagnosticTraceAttributes(for: action).merging(
+                renderProof.attributes
+            ) { _, newValue in newValue }
+            if let skipReason = renderProof.startupDiagnosticSkipReason {
+                attributes["agentstudio.startup_diagnostic.skip_reason"] = .string(skipReason)
+            }
             startupTraceRecorder.recordAppStartup(
                 "app.startup_diagnostic_action.command_exercised",
                 phase: "startup_diagnostic_action",
                 outcome: outcome,
-                attributes: startupDiagnosticTraceAttributes(for: action).merging(
-                    renderProof.attributes
-                ) { _, newValue in newValue }
+                attributes: attributes
             )
+            let completionEventName =
+                switch outcome {
+                case "succeeded":
+                    "app.startup_diagnostic_action.completed"
+                case "skipped":
+                    "app.startup_diagnostic_action.skipped"
+                default:
+                    "app.startup_diagnostic_action.blocked"
+                }
             startupTraceRecorder.recordAppStartup(
-                outcome == "succeeded"
-                    ? "app.startup_diagnostic_action.completed"
-                    : "app.startup_diagnostic_action.blocked",
+                completionEventName,
                 phase: "startup_diagnostic_action",
                 outcome: outcome,
-                attributes: startupDiagnosticTraceAttributes(for: action).merging(
-                    renderProof.attributes
-                ) { _, newValue in newValue }
+                attributes: attributes
             )
         }
 

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -32,7 +33,14 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
         )
         #expect(script.contains("agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive"))
         #expect(script.contains("skip_assertion"))
+        #expect(script.contains("diagnostic_skipped_query"))
+        #expect(script.contains("wait_for_log_query"))
+        #expect(script.contains("is_frame_not_live_skip"))
+        #expect(script.contains("frame_not_live"))
+        #expect(script.contains("agentstudio.startup_diagnostic.render_proof.succeeded"))
         #expect(script.contains("raf_alive=false"))
+        #expect(script.contains("wait_for_optional_log_query"))
+        #expect(completedResponseAppearsBeforeSkippedResponse(in: script))
         #expect(script.contains("selected_content_painted skipped because requestAnimationFrame is not live"))
         #expect(script.contains("frame_liveness_raf_alive=$frame_liveness_raf_alive"))
         #expect(script.contains("agentstudio.bridge.selected_content.materialize_ms:*"))
@@ -79,9 +87,68 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
         #expect(script.contains("stale_sequence"))
         #expect(script.contains("session_reset"))
         #expect(script.contains("agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive"))
+        #expect(script.contains("diagnostic_skipped_query"))
+        #expect(script.contains("wait_for_log_query"))
+        #expect(script.contains("is_frame_not_live_skip"))
+        #expect(script.contains("frame_not_live"))
+        #expect(script.contains("agentstudio.startup_diagnostic.render_proof.succeeded"))
+        #expect(script.contains("wait_for_optional_log_query"))
+        #expect(completedResponseAppearsBeforeSkippedResponse(in: script))
         #expect(script.contains("time_to_first_interaction skipped because requestAnimationFrame is not live"))
         #expect(script.contains("frame_liveness_raf_alive=$frame_liveness_raf_alive"))
         #expect(script.contains("OTLP exporter alive"))
+    }
+
+    @Test("review-journey verifier accepts frame-not-live skip without miss noise")
+    func reviewJourneyVerifierAcceptsFrameNotLiveSkipWithoutMissNoise() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = try writeStateFile(
+            fixture: fixture,
+            action: "bridge-review-observability-smoke"
+        )
+
+        let result = try fixture.runVerifier(
+            scriptPath: "scripts/verify-bridge-review-journey-smoke.sh",
+            stateFile: stateFile,
+            environment: frameNotLiveSkipEnvironment(
+                fixture: fixture,
+                action: "bridge-review-observability-smoke",
+                curlName: "curl-review-journey-frame-not-live"
+            )
+        )
+
+        #expect(result.exitCode == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
+        #expect(result.stdout.contains("review journey smoke skipped because startup frame is not live"))
+        #expect(!result.stderr.contains("completed/skipped record missing"))
+        #expect(!result.stderr.contains("skipped record missing"))
+        #expect(!result.stderr.contains("did not complete successfully"))
+    }
+
+    @Test("mode-idle verifier accepts frame-not-live skip without miss noise")
+    func modeIdleVerifierAcceptsFrameNotLiveSkipWithoutMissNoise() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = try writeStateFile(
+            fixture: fixture,
+            action: "bridge-review-to-file-view-observability-smoke"
+        )
+
+        let result = try fixture.runVerifier(
+            scriptPath: "scripts/verify-bridge-mode-idle-smoke.sh",
+            stateFile: stateFile,
+            environment: frameNotLiveSkipEnvironment(
+                fixture: fixture,
+                action: "bridge-review-to-file-view-observability-smoke",
+                curlName: "curl-mode-idle-frame-not-live"
+            )
+        )
+
+        #expect(result.exitCode == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
+        #expect(result.stdout.contains("mode-idle smoke skipped because startup frame is not live"))
+        #expect(!result.stderr.contains("completed/skipped record missing"))
+        #expect(!result.stderr.contains("skipped record missing"))
+        #expect(!result.stderr.contains("did not complete successfully"))
     }
 
     @Test(
@@ -132,6 +199,71 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
         return [
             "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION": "bridge-review-to-file-view-observability-smoke",
             "AGENTSTUDIO_OBSERVABILITY_MARKER": "dry-run-idle-marker",
+        ]
+    }
+
+    private func writeStateFile(
+        fixture: LauncherScriptFixture,
+        action: String
+    ) throws -> URL {
+        let stateFile = fixture.url("latest.env")
+        try """
+        AGENTSTUDIO_OBSERVABILITY_STATUS=running
+        AGENTSTUDIO_OBSERVABILITY_MARKER=debug-marker
+        AGENTSTUDIO_OBSERVABILITY_QUERY_START=2026-06-12T00:00:00Z
+        AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=\(action)
+        AGENTSTUDIO_OBSERVABILITY_PID=\(getpid())
+        """
+        .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
+        return stateFile
+    }
+
+    private func completedResponseAppearsBeforeSkippedResponse(in script: String) -> Bool {
+        guard
+            let completedIndex = script.range(of: #"diagnostic_completed_response="$("#)?.lowerBound,
+            let skippedIndex = script.range(of: #"diagnostic_skipped_response="$("#)?.lowerBound
+        else {
+            return false
+        }
+        return completedIndex < skippedIndex
+    }
+
+    private func frameNotLiveSkipEnvironment(
+        fixture: LauncherScriptFixture,
+        action: String,
+        curlName: String
+    ) throws -> [String: String] {
+        [
+            "AGENTSTUDIO_OBSERVABILITY_ALLOW_COMPLETED_EXIT": "1",
+            "AGENTSTUDIO_OBSERVABILITY_VERIFY_ATTEMPTS": "1",
+            "AGENTSTUDIO_OBSERVABILITY_VERIFY_RETRY_DELAY_SECONDS": "0",
+            "AGENTSTUDIO_CURL_BIN": try fixture.executable(
+                curlName,
+                """
+                #!/bin/bash
+                args="$*"
+                if [[ "$args" == *"app.zmx_startup_reconciliation.completed"* ]]; then
+                  printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                  exit 0
+                fi
+                if [[ "$args" == *"app.startup_diagnostic_action.command_exercised"* ]]; then
+                  printf '{"_msg":"app.startup_diagnostic_action.command_exercised","agentstudio.startup_diagnostic.action":"\(action)","agentstudio.startup_diagnostic.render_proof.succeeded":false,"agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive":"false","agentstudio.startup_diagnostic.skip_reason":"frame_not_live"}\\n'
+                  exit 0
+                fi
+                if [[ "$args" == *"app.startup_diagnostic_action.completed"* ]]; then
+                  exit 0
+                fi
+                if [[ "$args" == *"app.startup_diagnostic_action.skipped"* ]]; then
+                  printf '{"_msg":"app.startup_diagnostic_action.skipped","agentstudio.startup_diagnostic.action":"\(action)","agentstudio.startup_diagnostic.render_proof.succeeded":false,"agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive":"false","agentstudio.startup_diagnostic.skip_reason":"frame_not_live"}\\n'
+                  exit 0
+                fi
+                if [[ "$args" == *":*"* ]]; then
+                  exit 0
+                fi
+                printf '{"service.name":"AgentStudio","service.version":"0.0.1-debug+testcode","dev.runtime.flavor":"debug","_msg":"app.process.start"}\\n'
+                exit 0
+                """
+            ).path,
         ]
     }
 }

@@ -131,6 +131,120 @@ struct ObservabilityDebugVerifierBridgeDiagnosticTests {
         #expect(queries.contains("agentstudio.startup_diagnostic.bridge.modified_click.shell_selected_matches_target"))
     }
 
+    @Test("debug observability verifier accepts skipped Bridge Review diagnostic when frame is not live")
+    func debugObservabilityVerifierAcceptsSkippedBridgeReviewFrameNotLive() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = fixture.url("latest.env")
+        try """
+        AGENTSTUDIO_OBSERVABILITY_STATUS=running
+        AGENTSTUDIO_OBSERVABILITY_MARKER=debug-marker
+        AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=testcode
+        AGENTSTUDIO_OBSERVABILITY_PID=999999999
+        AGENTSTUDIO_OBSERVABILITY_QUERY_START=2026-06-12T00:00:00Z
+        AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=bridge-review-observability-smoke
+        AGENTSTUDIO_OBSERVABILITY_APP=\(shellEscapedStateValue(fixture.url("Agent Studio Debug testcode.app").path))
+        """
+        .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
+
+        let result = try fixture.runVerifier(
+            scriptPath: "scripts/verify-debug-observability.sh",
+            stateFile: stateFile,
+            environment: [
+                "AGENTSTUDIO_OBSERVABILITY_ALLOW_COMPLETED_EXIT": "1",
+                "AGENTSTUDIO_OBSERVABILITY_VERIFY_ATTEMPTS": "1",
+                "AGENTSTUDIO_OBSERVABILITY_VERIFY_RETRY_DELAY_SECONDS": "0",
+                "AGENTSTUDIO_CURL_BIN": try fixture.executable(
+                    "curl-skipped-bridge-review-diagnostic",
+                    """
+                    #!/bin/bash
+                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
+                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                      exit 0
+                    fi
+                    if [[ "$*" == *"app.startup_diagnostic_action.command_exercised"* ]]; then
+                      printf '{"_msg":"app.startup_diagnostic_action.command_exercised","agentstudio.startup_diagnostic.action":"bridge-review-observability-smoke","agentstudio.startup_diagnostic.render_proof.succeeded":false,"agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive":"false","agentstudio.startup_diagnostic.skip_reason":"frame_not_live"}\\n'
+                      exit 0
+                    fi
+                    if [[ "$*" == *"app.startup_diagnostic_action.completed"* ]]; then
+                      exit 0
+                    fi
+                    if [[ "$*" == *"app.startup_diagnostic_action.skipped"* ]]; then
+                      printf '{"_msg":"app.startup_diagnostic_action.skipped","agentstudio.startup_diagnostic.action":"bridge-review-observability-smoke","agentstudio.startup_diagnostic.render_proof.succeeded":false,"agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive":"false","agentstudio.startup_diagnostic.skip_reason":"frame_not_live"}\\n'
+                      exit 0
+                    fi
+                    if [[ "$*" == *":*"* ]]; then
+                      exit 0
+                    fi
+                    printf '{"service.name":"AgentStudio","service.version":"0.0.1-debug+testcode","dev.runtime.flavor":"debug","_msg":"app.process.start"}\\n'
+                    exit 0
+                    """
+                ).path,
+            ]
+        )
+
+        #expect(result.exitCode == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
+        #expect(result.stdout.contains("SKIP startup diagnostic bridge-review-observability-smoke"))
+        #expect(result.stdout.contains("frame_not_live"))
+        #expect(!result.stderr.contains("startup diagnostic did not complete successfully"))
+    }
+
+    @Test("debug observability verifier rejects skipped Bridge Review diagnostic unless RAF is false")
+    func debugObservabilityVerifierRejectsSkippedBridgeReviewWithoutFrameNotLiveProof() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = fixture.url("latest.env")
+        try """
+        AGENTSTUDIO_OBSERVABILITY_STATUS=running
+        AGENTSTUDIO_OBSERVABILITY_MARKER=debug-marker
+        AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=testcode
+        AGENTSTUDIO_OBSERVABILITY_PID=999999999
+        AGENTSTUDIO_OBSERVABILITY_QUERY_START=2026-06-12T00:00:00Z
+        AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=bridge-review-observability-smoke
+        AGENTSTUDIO_OBSERVABILITY_APP=\(shellEscapedStateValue(fixture.url("Agent Studio Debug testcode.app").path))
+        """
+        .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
+
+        let result = try fixture.runVerifier(
+            scriptPath: "scripts/verify-debug-observability.sh",
+            stateFile: stateFile,
+            environment: [
+                "AGENTSTUDIO_OBSERVABILITY_ALLOW_COMPLETED_EXIT": "1",
+                "AGENTSTUDIO_OBSERVABILITY_VERIFY_ATTEMPTS": "1",
+                "AGENTSTUDIO_OBSERVABILITY_VERIFY_RETRY_DELAY_SECONDS": "0",
+                "AGENTSTUDIO_CURL_BIN": try fixture.executable(
+                    "curl-spoofed-skipped-bridge-review-diagnostic",
+                    """
+                    #!/bin/bash
+                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
+                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                      exit 0
+                    fi
+                    if [[ "$*" == *"app.startup_diagnostic_action.command_exercised"* ]]; then
+                      printf '{"_msg":"app.startup_diagnostic_action.command_exercised","agentstudio.startup_diagnostic.action":"bridge-review-observability-smoke","agentstudio.startup_diagnostic.render_proof.succeeded":false,"agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive":"true","agentstudio.startup_diagnostic.skip_reason":"frame_not_live"}\\n'
+                      exit 0
+                    fi
+                    if [[ "$*" == *"app.startup_diagnostic_action.completed"* ]]; then
+                      exit 0
+                    fi
+                    if [[ "$*" == *"app.startup_diagnostic_action.skipped"* ]]; then
+                      printf '{"_msg":"app.startup_diagnostic_action.skipped","agentstudio.startup_diagnostic.action":"bridge-review-observability-smoke","agentstudio.startup_diagnostic.render_proof.succeeded":false,"agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive":"true","agentstudio.startup_diagnostic.skip_reason":"frame_not_live"}\\n'
+                      exit 0
+                    fi
+                    if [[ "$*" == *":*"* ]]; then
+                      exit 0
+                    fi
+                    printf '{"service.name":"AgentStudio","service.version":"0.0.1-debug+testcode","dev.runtime.flavor":"debug","_msg":"app.process.start"}\\n'
+                    exit 0
+                    """
+                ).path,
+            ]
+        )
+
+        #expect(result.exitCode != 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
+        #expect(!result.stdout.contains("SKIP startup diagnostic bridge-review-observability-smoke"))
+    }
+
     @Test("debug observability verifier waits for Bridge diagnostic telemetry ingestion")
     func debugObservabilityVerifierWaitsForBridgeDiagnosticTelemetryIngestion() throws {
         let fixture = try LauncherScriptFixture()
