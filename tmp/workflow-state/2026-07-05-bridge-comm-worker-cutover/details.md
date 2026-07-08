@@ -4165,3 +4165,59 @@ counts before claiming a gate.
   percentile movement, final G6 browser/native script-message RPC deletion,
   zero-copy transfer-list delivery, implementation-review-swarm, PR readiness,
   or full goal completion.
+
+## 2026-07-08T18:25:44Z - Review markdown preview resource API deletion
+
+- Scope:
+  Removed the production-dead Review markdown preview resolver that accepted
+  `BridgeContentResource` / `BridgeCodeViewContentResources` and synchronously
+  called `readText()` on the main page. The live production entrypoint remains
+  `resolveBridgeMarkdownPreviewDecisionFromCodeViewItem(...)`, used by the
+  app-level markdown preview controller and control command path.
+- Root cause:
+  The old resolver had no non-test production callers, but kept the forbidden
+  resource-reader contract alive in the markdown module and allowed tests to
+  prove the old page-owned content model instead of the worker-prepared
+  CodeView-item model.
+- Red / failure evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/markdown/bridge-markdown-render-mode.unit.test.ts
+  src/review-viewer/review-viewer-source-structure.unit.test.ts --reporter
+  verbose` failed 1 test / 46 because
+  `keeps Review markdown preview off main-thread content resources` found
+  `BridgeContentResource` in `bridge-markdown-render-mode.ts`.
+- Green evidence:
+  Focused markdown/source-structure proof passed 2 files / 45 tests:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/markdown/bridge-markdown-render-mode.unit.test.ts
+  src/review-viewer/review-viewer-source-structure.unit.test.ts --reporter dot`.
+  Shell integration markdown preview proof passed 1 file / 19 tests:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/shell/review-viewer-shell.integration.test.tsx --reporter
+  dot`. `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
+  Scoped `oxfmt --check`, scoped `oxlint --type-aware`, and `git diff --check`
+  passed.
+- Deletion-scan evidence:
+  Tight markdown scan returned no matches for
+  `BridgeContentResource|readText|resolveBridgeMarkdownPreviewDecision\(|makeContentResource|invalidResourceUrl|diffPatchResource|binaryContent|twoSidedDiff|roleForMarkdownPreviewSource`
+  under `BridgeWeb/src/review-viewer/markdown`.
+- Browser proof boundary:
+  The higher browser-large markdown path was attempted with
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run
+  --project integration-browser
+  src/review-viewer/test-support/bridge-viewer-browser.integration-large.browser.test.tsx
+  --reporter dot`; it exited 1 because the global browser failure guard tripped
+  on existing React `act(...)` warning spam at `tests/vitest-browser-setup.ts:54`
+  across 16 tests. This is recorded as a browser harness blocker for this slice,
+  not as a markdown assertion regression.
+- Sidekick boundary:
+  Mendel the 3rd completed the read-only caller/deletion analysis and validated
+  that the old resolver had no non-test production callers. A post-patch
+  reviewer sidekick could not be spawned because the agent thread limit was
+  reached, so final integration review for this slice was done locally.
+- Known proof boundary:
+  This deletes the Review markdown main-thread resource/readText compatibility
+  path only. It does not prove live oq4s scroll/click percentile movement,
+  visible-item re-materialization storm closure, final G6 script-message RPC
+  deletion, zero-copy transfer-list delivery, implementation-review-swarm, PR
+  readiness, or full goal completion.

@@ -1,15 +1,12 @@
 import { z } from 'zod';
 
-import { parseBridgeContentResourceUrl } from '../../bridge/bridge-resource-url.js';
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
-import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import type {
 	BridgeContentHandle,
 	BridgeContentRole,
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package.js';
-import type { BridgeCodeViewContentResources } from '../code-view/bridge-code-view-materialization.js';
 import { bridgeContentRoleSchema } from '../models/review-projection-models.js';
 import { bridgePierreContentDescriptorCacheKey } from '../workers/pierre/bridge-pierre-worker-content-descriptor.js';
 
@@ -20,10 +17,6 @@ export const bridgeMarkdownPreviewFallbackReasonSchema = z.enum([
 	'missingSelectedItem',
 	'contentPending',
 	'contentUnavailable',
-	'twoSidedDiff',
-	'diffPatchResource',
-	'invalidResourceUrl',
-	'binaryContent',
 	'largeContent',
 	'notMarkdown',
 ]);
@@ -57,81 +50,11 @@ export type BridgeMarkdownPreviewSource = z.infer<typeof bridgeMarkdownPreviewSo
 
 export type BridgeMarkdownPreviewDecision = z.infer<typeof bridgeMarkdownPreviewDecisionSchema>;
 
-export interface ResolveBridgeMarkdownPreviewDecisionProps {
-	readonly reviewPackage: BridgeReviewPackage;
-	readonly selectedItemId: string | null;
-	readonly resources: BridgeCodeViewContentResources | null;
-	readonly maxBytes?: number;
-}
-
 export interface ResolveBridgeMarkdownPreviewDecisionFromCodeViewItemProps {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null;
 	readonly selectedItemId: string | null;
 	readonly maxBytes?: number;
-}
-
-export function resolveBridgeMarkdownPreviewDecision(
-	props: ResolveBridgeMarkdownPreviewDecisionProps,
-): BridgeMarkdownPreviewDecision {
-	if (props.selectedItemId === null) {
-		return { kind: 'codeView', reason: 'noSelectedItem' };
-	}
-
-	const item = props.reviewPackage.itemsById[props.selectedItemId];
-	if (item === undefined) {
-		return { kind: 'codeView', reason: 'missingSelectedItem' };
-	}
-
-	if (props.resources === null) {
-		return { kind: 'codeView', reason: 'contentPending' };
-	}
-
-	if (props.resources.diff !== undefined) {
-		return { kind: 'codeView', reason: 'diffPatchResource' };
-	}
-
-	const selectedResource = preferredMarkdownPreviewResource(props.resources);
-	if (selectedResource === null) {
-		return { kind: 'codeView', reason: 'contentUnavailable' };
-	}
-
-	const parsedResourceUrl = parseBridgeContentResourceUrl(selectedResource.handle.resourceUrl);
-	if (
-		parsedResourceUrl === null ||
-		parsedResourceUrl.handleId !== selectedResource.handle.handleId ||
-		parsedResourceUrl.generation !== props.reviewPackage.reviewGeneration
-	) {
-		return { kind: 'codeView', reason: 'invalidResourceUrl' };
-	}
-
-	if (selectedResource.handle.isBinary) {
-		return { kind: 'codeView', reason: 'binaryContent' };
-	}
-
-	const maxBytes = props.maxBytes ?? bridgeMarkdownPreviewMaxBytes;
-	const selectedResourceText = selectedResource.readText();
-	const contentBytes = new TextEncoder().encode(selectedResourceText).byteLength;
-	if (selectedResource.handle.sizeBytes > maxBytes || contentBytes > maxBytes) {
-		return { kind: 'codeView', reason: 'largeContent' };
-	}
-
-	if (!isMarkdownReviewItem(item, selectedResource)) {
-		return { kind: 'codeView', reason: 'notMarkdown' };
-	}
-
-	return {
-		kind: 'preview',
-		source: {
-			itemId: item.itemId,
-			itemVersion: item.itemVersion,
-			role: selectedResource.handle.role,
-			sourcePath: displayPathForMarkdownResource(item, selectedResource),
-			contentCacheKey: selectedResource.handle.cacheKey,
-			contentHash: selectedResource.handle.contentHash,
-			markdownText: selectedResourceText,
-		},
-	};
 }
 
 export function resolveBridgeMarkdownPreviewDecisionFromCodeViewItem(
@@ -201,34 +124,6 @@ export function resolveBridgeMarkdownPreviewDecisionFromCodeViewItem(
 			markdownText: previewSource.markdownText,
 		},
 	};
-}
-
-function preferredMarkdownPreviewResource(
-	resources: BridgeCodeViewContentResources,
-): BridgeContentResource | null {
-	return resources.file ?? resources.head ?? resources.base ?? null;
-}
-
-function isMarkdownReviewItem(
-	item: BridgeReviewItemDescriptor,
-	resource: BridgeContentResource,
-): boolean {
-	const extension = normalizedExtension(
-		item.extension ?? extensionForPath(displayPathForMarkdownItem(item)),
-	);
-	if (extension === 'md' || extension === 'mdx') {
-		return true;
-	}
-	if (item.language === 'markdown' || resource.handle.language === 'markdown') {
-		return true;
-	}
-	if (
-		resource.handle.mimeType === 'text/markdown' ||
-		resource.handle.mimeType === 'text/x-markdown'
-	) {
-		return true;
-	}
-	return item.fileClass === 'docs' && isPlanOrDocsMarkdownPath(displayPathForMarkdownItem(item));
 }
 
 interface MarkdownPreviewCodeViewSource {
@@ -364,16 +259,6 @@ function displayPathForMarkdownItem(item: BridgeReviewItemDescriptor): string {
 	return item.headPath ?? item.basePath ?? item.itemId;
 }
 
-function displayPathForMarkdownResource(
-	item: BridgeReviewItemDescriptor,
-	resource: BridgeContentResource,
-): string {
-	if (resource.handle.role === 'base') {
-		return item.basePath ?? item.headPath ?? item.itemId;
-	}
-	return item.headPath ?? item.basePath ?? item.itemId;
-}
-
 function displayPathForMarkdownRole(
 	item: BridgeReviewItemDescriptor,
 	role: Extract<BridgeContentRole, 'base' | 'head'>,
@@ -415,10 +300,4 @@ function isPlanOrDocsMarkdownPath(path: string): boolean {
 			normalizedPath.startsWith('readme') ||
 			normalizedPath.includes('/docs/'))
 	);
-}
-
-export function roleForMarkdownPreviewSource(
-	source: BridgeMarkdownPreviewSource,
-): BridgeContentRole {
-	return source.role;
 }

@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
-import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import {
 	makeBridgeContentHandle,
 	makeBridgeReviewPackage,
@@ -11,26 +10,19 @@ import type {
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package.js';
-import {
-	resolveBridgeMarkdownPreviewDecision,
-	resolveBridgeMarkdownPreviewDecisionFromCodeViewItem,
-} from './bridge-markdown-render-mode.js';
+import { resolveBridgeMarkdownPreviewDecisionFromCodeViewItem } from './bridge-markdown-render-mode.js';
 
 describe('bridge markdown render mode', () => {
-	test('previews one-sided added markdown with a valid Bridge content resource URL', () => {
+	test('previews one-sided added markdown from a worker-prepared CodeView item', () => {
 		const reviewPackage = makePackageWithItem(makeAddedMarkdownItem());
-		const selectedItem = reviewPackage.itemsById['item-plan'];
-		const head = selectedItem?.contentRoles.head;
-		if (selectedItem === undefined || head === undefined || head === null) {
-			throw new Error('expected markdown head handle');
-		}
 
-		const decision = resolveBridgeMarkdownPreviewDecision({
+		const decision = resolveBridgeMarkdownPreviewDecisionFromCodeViewItem({
 			reviewPackage,
-			selectedItemId: selectedItem.itemId,
-			resources: {
-				head: makeContentResource(head, '# Plan\n\n```ts\nconst value = 1;\n```'),
-			},
+			selectedItemId: 'item-plan',
+			selectedCodeViewItem: makeWorkerDiffCodeViewItem({
+				additionLines: ['# Plan', '', '```ts', 'const value = 1;', '```'],
+				contentRoles: ['head'],
+			}),
 		});
 
 		expect(decision).toMatchObject({
@@ -45,7 +37,7 @@ describe('bridge markdown render mode', () => {
 		});
 	});
 
-	test('previews the head side of two-sided markdown diffs', () => {
+	test('previews the head side of two-sided worker markdown diffs', () => {
 		const modifiedMarkdownItem = makeAddedMarkdownItem({
 			basePath: 'docs/plans/bridge-plan.md',
 			changeKind: 'modified',
@@ -57,19 +49,15 @@ describe('bridge markdown render mode', () => {
 			},
 		});
 		const reviewPackage = makePackageWithItem(modifiedMarkdownItem);
-		const base = modifiedMarkdownItem.contentRoles.base;
-		const head = modifiedMarkdownItem.contentRoles.head;
-		if (base === undefined || base === null || head === undefined || head === null) {
-			throw new Error('expected markdown diff handles');
-		}
 
-		const decision = resolveBridgeMarkdownPreviewDecision({
+		const decision = resolveBridgeMarkdownPreviewDecisionFromCodeViewItem({
 			reviewPackage,
 			selectedItemId: modifiedMarkdownItem.itemId,
-			resources: {
-				base: makeContentResource(base, '# Before'),
-				head: makeContentResource(head, '# After'),
-			},
+			selectedCodeViewItem: makeWorkerDiffCodeViewItem({
+				additionLines: ['# After'],
+				deletionLines: ['# Before'],
+				contentRoles: ['base', 'head'],
+			}),
 		});
 
 		expect(decision).toMatchObject({
@@ -82,7 +70,7 @@ describe('bridge markdown render mode', () => {
 		});
 	});
 
-	test('previews partially available modified markdown diffs from the loaded side', () => {
+	test('previews partially available worker markdown diffs from the loaded side', () => {
 		const modifiedMarkdownItem = makeAddedMarkdownItem({
 			basePath: 'docs/plans/bridge-plan.md',
 			changeKind: 'modified',
@@ -94,15 +82,14 @@ describe('bridge markdown render mode', () => {
 			},
 		});
 		const reviewPackage = makePackageWithItem(modifiedMarkdownItem);
-		const head = modifiedMarkdownItem.contentRoles.head;
-		if (head === undefined || head === null) {
-			throw new Error('expected markdown head handle');
-		}
 
-		const decision = resolveBridgeMarkdownPreviewDecision({
+		const decision = resolveBridgeMarkdownPreviewDecisionFromCodeViewItem({
 			reviewPackage,
 			selectedItemId: modifiedMarkdownItem.itemId,
-			resources: { head: makeContentResource(head, '# After') },
+			selectedCodeViewItem: makeWorkerDiffCodeViewItem({
+				additionLines: ['# After'],
+				contentRoles: ['head'],
+			}),
 		});
 
 		expect(decision).toMatchObject({
@@ -115,7 +102,7 @@ describe('bridge markdown render mode', () => {
 		});
 	});
 
-	test('uses the base path when a renamed markdown preview is loaded from base content', () => {
+	test('uses the base path when a renamed markdown preview is loaded from worker base content', () => {
 		const renamedMarkdownItem = makeAddedMarkdownItem({
 			basePath: 'docs/plans/old-bridge-plan.md',
 			headPath: 'docs/plans/new-bridge-plan.md',
@@ -128,15 +115,14 @@ describe('bridge markdown render mode', () => {
 			},
 		});
 		const reviewPackage = makePackageWithItem(renamedMarkdownItem);
-		const base = renamedMarkdownItem.contentRoles.base;
-		if (base === undefined || base === null) {
-			throw new Error('expected markdown base handle');
-		}
 
-		const decision = resolveBridgeMarkdownPreviewDecision({
+		const decision = resolveBridgeMarkdownPreviewDecisionFromCodeViewItem({
 			reviewPackage,
 			selectedItemId: renamedMarkdownItem.itemId,
-			resources: { base: makeContentResource(base, '# Before rename') },
+			selectedCodeViewItem: makeWorkerDiffCodeViewItem({
+				deletionLines: ['# Before rename'],
+				contentRoles: ['base'],
+			}),
 		});
 
 		expect(decision).toMatchObject({
@@ -150,7 +136,7 @@ describe('bridge markdown render mode', () => {
 		});
 	});
 
-	test('previews file markdown content', () => {
+	test('previews worker file markdown content', () => {
 		const fileHandle = makeMarkdownHandle('item-plan', 'head');
 		const fileMarkdownItem = makeAddedMarkdownItem({
 			itemKind: 'file',
@@ -166,10 +152,13 @@ describe('bridge markdown render mode', () => {
 		});
 		const reviewPackage = makePackageWithItem(fileMarkdownItem);
 
-		const decision = resolveBridgeMarkdownPreviewDecision({
+		const decision = resolveBridgeMarkdownPreviewDecisionFromCodeViewItem({
 			reviewPackage,
 			selectedItemId: fileMarkdownItem.itemId,
-			resources: { file: makeContentResource(fileHandle, '# File plan') },
+			selectedCodeViewItem: makeWorkerFileCodeViewItem({
+				cacheKey: 'pierre-content:fixture-preview:sha256:item-plan:head',
+				contents: '# File plan',
+			}),
 		});
 
 		expect(decision).toMatchObject({
@@ -181,34 +170,7 @@ describe('bridge markdown render mode', () => {
 		});
 	});
 
-	test('falls back when the selected content handle URL is malformed', () => {
-		const item = makeAddedMarkdownItem({
-			contentRoles: {
-				base: null,
-				head: {
-					...makeMarkdownHandle('item-plan', 'head'),
-					resourceUrl: 'agentstudio://resource/file/item-plan?epoch=1',
-				},
-				diff: null,
-				file: null,
-			},
-		});
-		const reviewPackage = makePackageWithItem(item);
-		const head = item.contentRoles.head;
-		if (head === undefined || head === null) {
-			throw new Error('expected markdown head handle');
-		}
-
-		const decision = resolveBridgeMarkdownPreviewDecision({
-			reviewPackage,
-			selectedItemId: item.itemId,
-			resources: { head: makeContentResource(head, '# Plan') },
-		});
-
-		expect(decision).toEqual({ kind: 'codeView', reason: 'invalidResourceUrl' });
-	});
-
-	test('falls back when selected markdown exceeds the preview budget', () => {
+	test('falls back when worker markdown exceeds the preview budget', () => {
 		const item = makeAddedMarkdownItem({
 			sizeBytes: 6,
 			contentRoles: {
@@ -222,15 +184,14 @@ describe('bridge markdown render mode', () => {
 			},
 		});
 		const reviewPackage = makePackageWithItem(item);
-		const head = item.contentRoles.head;
-		if (head === undefined || head === null) {
-			throw new Error('expected markdown head handle');
-		}
 
-		const decision = resolveBridgeMarkdownPreviewDecision({
+		const decision = resolveBridgeMarkdownPreviewDecisionFromCodeViewItem({
 			reviewPackage,
 			selectedItemId: item.itemId,
-			resources: { head: makeContentResource(head, '# Plan') },
+			selectedCodeViewItem: makeWorkerDiffCodeViewItem({
+				additionLines: ['# Plan'],
+				contentRoles: ['head'],
+			}),
 			maxBytes: 5,
 		});
 
@@ -415,13 +376,6 @@ function makeMarkdownHandle(itemId: string, role: 'base' | 'head'): BridgeConten
 	};
 }
 
-function makeContentResource(handle: BridgeContentHandle, text: string): BridgeContentResource {
-	return {
-		handle,
-		readText: (): string => text,
-	};
-}
-
 function makeWorkerFileCodeViewItem(props: {
 	readonly cacheKey?: string;
 	readonly contents: string;
@@ -449,10 +403,17 @@ function makeWorkerFileCodeViewItem(props: {
 }
 
 function makeWorkerDiffCodeViewItem(props: {
-	readonly additionLines: readonly string[];
+	readonly additionLines?: readonly string[];
 	readonly contentRoles: readonly ('base' | 'head')[];
+	readonly deletionLines?: readonly string[];
 }): BridgeMainCodeViewItem {
-	const cacheKey = 'pierre-content:empty|pierre-content:fixture-preview:sha256:item-plan:head';
+	const additionLines = props.additionLines ?? [];
+	const deletionLines = props.deletionLines ?? [];
+	const cacheKey = `${props.contentRoles.includes('base') ? 'pierre-content:fixture-preview:sha256:item-plan:base' : 'pierre-content:empty'}|${
+		props.contentRoles.includes('head')
+			? 'pierre-content:fixture-preview:sha256:item-plan:head'
+			: 'pierre-content:empty'
+	}`;
 	return {
 		id: 'item-plan',
 		type: 'diff',
@@ -460,11 +421,11 @@ function makeWorkerDiffCodeViewItem(props: {
 			name: 'docs/plans/bridge-plan.md',
 			type: 'new',
 			hunks: [],
-			splitLineCount: props.additionLines.length,
-			unifiedLineCount: props.additionLines.length,
+			splitLineCount: additionLines.length + deletionLines.length,
+			unifiedLineCount: additionLines.length + deletionLines.length,
 			isPartial: false,
-			deletionLines: [],
-			additionLines: props.additionLines,
+			deletionLines,
+			additionLines,
 			cacheKey,
 		},
 		version: 2,
@@ -474,7 +435,7 @@ function makeWorkerDiffCodeViewItem(props: {
 			contentState: 'hydrated',
 			contentRoles: props.contentRoles,
 			cacheKey,
-			lineCount: props.additionLines.length,
+			lineCount: additionLines.length + deletionLines.length,
 		},
 	};
 }

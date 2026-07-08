@@ -632,6 +632,14 @@ describe('Review viewer source structure', () => {
 		expect(placeholderContentSource).not.toContain('splitFileContents');
 	});
 
+	test('keeps Review markdown preview off main-thread content resources', () => {
+		const markdownRenderModeSource = readSource('./markdown/bridge-markdown-render-mode.ts');
+
+		expect(markdownRenderModeSource).not.toContain('BridgeContentResource');
+		expect(markdownRenderModeSource).not.toContain('readText');
+		expect(markdownRenderModeSource).not.toContain('resolveBridgeMarkdownPreviewDecision(');
+	});
+
 	test('does not preserve selected current item while applying CodeView source reset', () => {
 		const codeViewPanelSource = readSource('./code-view/bridge-code-view-panel.tsx');
 		const metadataReconcileSource = codeViewPanelSource.slice(
