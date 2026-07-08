@@ -167,7 +167,7 @@ function bridgeOptionalMainCodeViewItemSignature(
 	return bridgeMainCodeViewItemSignature(item);
 }
 
-function bridgeMainCodeViewItemSignature(item: BridgeMainCodeViewItem): string {
+export function bridgeMainCodeViewItemSignature(item: BridgeMainCodeViewItem): string {
 	const metadata = item.bridgeMetadata;
 	const baseFields = [
 		item.id,

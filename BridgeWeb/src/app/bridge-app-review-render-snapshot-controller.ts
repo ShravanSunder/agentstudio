@@ -51,6 +51,7 @@ import type {
 	BridgeReviewPackage,
 } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryBootstrapConfig } from '../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
+import { bridgeMainCodeViewItemSignature } from '../review-viewer/code-view/bridge-code-view-worker-prepared-items.js';
 import type {
 	BridgeReviewPanelChromeSlice,
 	BridgeReviewSelectionSlice,
@@ -786,6 +787,15 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 			case 'worktreeFileOpenSourceStreamResult':
 				break;
 			case 'pierreRenderJob':
+				if (
+					bridgeMainCodeViewItemMatchesExistingRenderSnapshot({
+						itemId: message.job.itemId,
+						nextItem: message.job.payload.item,
+						renderSnapshotStore: props.renderSnapshotStore,
+					})
+				) {
+					break;
+				}
 				props.pierreCourier.enqueue(message.job);
 				props.renderSnapshotStore.setWorkerCodeViewItem({
 					itemId: message.job.itemId,
@@ -796,6 +806,19 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 				assertNeverBridgeWorkerServerMessage(message);
 		}
 	}
+}
+
+function bridgeMainCodeViewItemMatchesExistingRenderSnapshot(props: {
+	readonly itemId: string;
+	readonly nextItem: BridgeMainCodeViewItem;
+	readonly renderSnapshotStore: BridgeMainRenderSnapshotStore;
+}): boolean {
+	const previousItem = props.renderSnapshotStore.getSnapshot().codeViewItemsById[props.itemId];
+	return (
+		previousItem !== undefined &&
+		bridgeMainCodeViewItemSignature(previousItem) ===
+			bridgeMainCodeViewItemSignature(props.nextItem)
+	);
 }
 
 export function createBridgeReviewWorkerPierreCourier(): BridgeWorkerPierreCourier {

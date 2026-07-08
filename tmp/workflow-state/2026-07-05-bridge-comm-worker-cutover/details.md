@@ -4501,3 +4501,45 @@ counts before claiming a gate.
   visible-item/materialization storm investigation, does not prove zero-copy
   transfer-list delivery, does not complete implementation-review-swarm, does
   not prove PR readiness, and does not complete the full goal.
+
+## 2026-07-08T22:23:58Z - Review duplicate Pierre courier replay guard
+
+- Scope:
+  Added a main-render-snapshot boundary guard for duplicate worker
+  `pierreRenderJob` messages. If the current display-copy item for the same
+  worker job target has the same CodeView item signature, main now skips both
+  `BridgeWorkerPierreCourier.enqueue(job)` and the display-copy upsert. This
+  removes one visible-item re-materialization replay class while preserving the
+  spec boundary: the comm worker still owns content identity/window/payload
+  preparation, and main remains only the Pierre courier plus display apply
+  owner.
+- Red evidence:
+  The new regression
+  `does not suppress a worker Pierre render job for a different item id` first
+  failed in
+  `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-review-render-snapshot-controller.unit.test.ts --reporter dot`.
+  The failure showed the original duplicate guard keyed by
+  `payload.item.id`, so a retargeted worker job with the same payload id was
+  incorrectly skipped and only one job was enqueued.
+- Green evidence:
+  `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-review-render-snapshot-controller.unit.test.ts src/review-viewer/code-view/bridge-code-view-worker-prepared-items-selector.unit.test.ts src/review-viewer/review-viewer-source-structure.unit.test.ts --reporter dot`
+  passed 3 files / 60 tests. `pnpm --dir BridgeWeb exec vitest run
+  src/core/comm-worker/bridge-main-render-snapshot-store.unit.test.ts
+  src/app/bridge-app-review-render-snapshot-controller.unit.test.ts --reporter
+  dot` passed 2 files / 26 tests. `pnpm --dir BridgeWeb exec tsc --noEmit
+  --pretty false` passed. Scoped `oxfmt --check`, scoped `oxlint
+  --type-aware`, and `git diff --check` passed. Touched line counts:
+  `bridge-app-review-render-snapshot-controller.ts` 855 lines,
+  `bridge-app-review-render-snapshot-controller.unit.test.ts` 964 lines, and
+  `bridge-code-view-worker-prepared-items.ts` 427 lines.
+- Known proof boundary:
+  This checkpoint prevents duplicate semantic worker Pierre jobs from
+  re-enqueueing the main-to-Pierre courier or republishing the same CodeView
+  display-copy item. It does not prove the whole visible-item
+  re-materialization storm is gone, does not prove fresh oq4s Review
+  scroll/click metrics, does not remove the remaining CodeView item
+  upsert/delete table clone, does not replace whole-root
+  `useSyncExternalStore` subscribers with keyed/sliced subscriptions, does not
+  prove zero-copy transfer-list delivery, does not complete
+  implementation-review-swarm, does not prove PR readiness, and does not
+  complete the full goal.

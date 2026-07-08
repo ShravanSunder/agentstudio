@@ -346,6 +346,88 @@ describe('Bridge app review render snapshot controller', () => {
 		).toEqual(job.payload.item);
 	});
 
+	test('does not replay duplicate worker Pierre render jobs through the main courier', () => {
+		const renderSnapshotStore = createBridgeMainRenderSnapshotStore();
+		const job = makeReviewPierreRenderJob('item-duplicate');
+		const event = makePierreRenderJobEvent(job);
+		const duplicateJob = makeReviewPierreRenderJob('item-duplicate');
+		const duplicateEvent = makePierreRenderJobEvent(duplicateJob);
+		const enqueuedJobs: BridgeWorkerPierreRenderJob[] = [];
+		let publishCount = 0;
+		const unsubscribe = renderSnapshotStore.subscribe(() => {
+			publishCount += 1;
+		});
+		const pierreCourier: BridgeWorkerPierreCourier = {
+			enqueue: (receivedJob: BridgeWorkerPierreRenderJob) => {
+				enqueuedJobs.push(receivedJob);
+				return {
+					status: 'enqueued',
+					itemId: receivedJob.itemId,
+					payloadByteLength: receivedJob.payloadByteLength,
+					budgetClass: receivedJob.budgetClass,
+				};
+			},
+		};
+
+		applyBridgeWorkerMessagesToMainRenderSnapshotStore({
+			messages: [event],
+			pierreCourier,
+			renderSnapshotStore,
+		});
+		applyBridgeWorkerMessagesToMainRenderSnapshotStore({
+			messages: [duplicateEvent],
+			pierreCourier,
+			renderSnapshotStore,
+		});
+
+		expect(enqueuedJobs).toEqual([job]);
+		expect(publishCount).toBe(1);
+		expect(renderSnapshotStore.getSnapshot().codeViewItemsById['item-duplicate']).toBe(
+			job.payload.item,
+		);
+
+		unsubscribe();
+	});
+
+	test('does not suppress a worker Pierre render job for a different item id', () => {
+		const renderSnapshotStore = createBridgeMainRenderSnapshotStore();
+		const job = makeReviewPierreRenderJob('item-duplicate');
+		const event = makePierreRenderJobEvent(job);
+		const retargetedJob = {
+			...makeReviewPierreRenderJob('item-duplicate'),
+			itemId: 'item-retargeted',
+		} satisfies BridgeWorkerPierreRenderJob;
+		const retargetedEvent = makePierreRenderJobEvent(retargetedJob);
+		const enqueuedJobs: BridgeWorkerPierreRenderJob[] = [];
+		const pierreCourier: BridgeWorkerPierreCourier = {
+			enqueue: (receivedJob: BridgeWorkerPierreRenderJob) => {
+				enqueuedJobs.push(receivedJob);
+				return {
+					status: 'enqueued',
+					itemId: receivedJob.itemId,
+					payloadByteLength: receivedJob.payloadByteLength,
+					budgetClass: receivedJob.budgetClass,
+				};
+			},
+		};
+
+		applyBridgeWorkerMessagesToMainRenderSnapshotStore({
+			messages: [event],
+			pierreCourier,
+			renderSnapshotStore,
+		});
+		applyBridgeWorkerMessagesToMainRenderSnapshotStore({
+			messages: [retargetedEvent],
+			pierreCourier,
+			renderSnapshotStore,
+		});
+
+		expect(enqueuedJobs).toEqual([job, retargetedJob]);
+		expect(renderSnapshotStore.getSnapshot().codeViewItemsById['item-retargeted']).toBe(
+			retargetedJob.payload.item,
+		);
+	});
+
 	test('selected CodeView selector rejects stale same-item package rollover content', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const reviewItem = reviewPackage.itemsById['item-source'];
@@ -810,5 +892,73 @@ function makeSelectedCodeViewItem(props: { readonly cacheKey: string }): BridgeM
 			cacheKey: props.cacheKey,
 			lineCount: 2,
 		},
+	};
+}
+
+function makeReviewPierreRenderJob(itemId: string): BridgeWorkerPierreRenderJob {
+	return buildBridgeWorkerPierreRenderJob({
+		itemId,
+		renderKind: 'reviewDiff',
+		contentCacheKey: 'pierre-content:sha256:base|pierre-content:sha256:head',
+		contentHash: 'sha256:base+head',
+		language: 'typescript',
+		bridgeDemandRank: { lane: 'selected', priority: 0 },
+		window: {
+			startLine: 1,
+			endLine: 10,
+			totalLineCount: 100,
+		},
+		payload: {
+			kind: 'codeViewDiffItem',
+			item: {
+				id: itemId,
+				type: 'diff',
+				fileDiff: parseDiffFromFile(
+					{
+						name: 'Sources/App.ts',
+						contents: 'export const answer = 41;\n',
+						cacheKey: 'pierre-content:sha256:base',
+					},
+					{
+						name: 'Sources/App.ts',
+						contents: 'export const answer = 42;\n',
+						cacheKey: 'pierre-content:sha256:head',
+					},
+				),
+				version: 2,
+				bridgeMetadata: {
+					itemId,
+					displayPath: 'Sources/App.ts',
+					contentState: 'hydrated',
+					contentRoles: ['base', 'head'],
+					cacheKey: 'pierre-content:sha256:base|pierre-content:sha256:head',
+					lineCount: 2,
+				},
+			},
+		},
+		budget: {
+			className: 'interactive',
+			maxBytes: 512 * 1024,
+			maxWindowLines: 400,
+		},
+	});
+}
+
+function makePierreRenderJobEvent(
+	job: BridgeWorkerPierreRenderJob,
+): BridgeWorkerPierreRenderJobEvent {
+	return {
+		wireVersion: 1,
+		direction: 'serverWorkerToMain',
+		transferDescriptors: [
+			{
+				messageKind: 'pierreRenderJob',
+				fieldPath: ['job', 'payload'],
+				byteLength: job.payloadByteLength,
+				mode: 'clone',
+			},
+		],
+		kind: 'pierreRenderJob',
+		job,
 	};
 }
