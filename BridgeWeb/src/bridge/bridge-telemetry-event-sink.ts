@@ -6,59 +6,55 @@ export interface CreateBridgeTelemetryEventSinkProps {
 	readonly fetch?: (input: RequestInfo | URL, init?: RequestInit) => boolean | Promise<Response>;
 }
 
+interface PendingTelemetryPost {
+	readonly body: string;
+}
+
 export function createBridgeTelemetryEventSink(
 	props: CreateBridgeTelemetryEventSinkProps,
 ): BridgeTelemetrySink {
 	const endpointUrl = props.endpointUrl ?? 'agentstudio://telemetry/batch';
 	const fetchTelemetry = props.fetch ?? globalThis.fetch.bind(globalThis);
-	const pendingPostBodies: string[] = [];
+	const pendingPosts: PendingTelemetryPost[] = [];
 	let isPostInFlight = false;
 	const startNextPost = (startProps: {
-		readonly propagateStartError: boolean;
-		readonly retainBodyOnStartError: boolean;
+		readonly currentFlushPost?: PendingTelemetryPost;
 	}): void => {
 		if (isPostInFlight) {
 			return;
 		}
-		const body = pendingPostBodies[0];
-		if (body === undefined) {
+		const post = pendingPosts[0];
+		if (post === undefined) {
 			return;
 		}
 		isPostInFlight = true;
 		let postResult: boolean | Promise<Response>;
 		try {
 			postResult = fetchTelemetry(endpointUrl, {
-				body,
+				body: post.body,
 				headers: { 'Content-Type': 'application/json' },
 				method: 'POST',
 			});
 		} catch (error) {
 			isPostInFlight = false;
-			if (!startProps.retainBodyOnStartError) {
-				pendingPostBodies.shift();
+			if (startProps.currentFlushPost === post) {
+				pendingPosts.shift();
+				throw error;
 			}
-			if (!startProps.propagateStartError) {
-				return;
-			}
-			throw error;
+			return;
 		}
-		pendingPostBodies.shift();
+		pendingPosts.shift();
 		void Promise.resolve(postResult)
 			.catch(() => undefined)
 			.finally((): void => {
 				isPostInFlight = false;
-				startNextPost({
-					propagateStartError: false,
-					retainBodyOnStartError: true,
-				});
+				startNextPost({});
 			});
 	};
 	const enqueuePost = (body: string): void => {
-		pendingPostBodies.push(body);
-		startNextPost({
-			propagateStartError: true,
-			retainBodyOnStartError: false,
-		});
+		const post = { body };
+		pendingPosts.push(post);
+		startNextPost({ currentFlushPost: post });
 	};
 	return {
 		flush: (batch: BridgeTelemetryBatch): boolean => {

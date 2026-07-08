@@ -148,6 +148,51 @@ describe('bridge telemetry event sink', () => {
 		expect(postedTelemetrySequences(fetchTelemetry)).toEqual([1, 2, 2, 3]);
 	});
 
+	test('keeps a retained telemetry head when a later flush retries and throws again', async () => {
+		const firstPost = deferredResponse();
+		let sequenceTwoThrowCount = 0;
+		const fetchTelemetry = vi.fn<
+			NonNullable<Parameters<typeof createBridgeTelemetryEventSink>[0]['fetch']>
+		>((_input: RequestInfo | URL, init?: RequestInit): Promise<Response> | boolean => {
+			const sequence = telemetryPostSequence(init);
+			if (sequence === 1) {
+				return firstPost.promise;
+			}
+			if (sequence === 2 && sequenceTwoThrowCount < 2) {
+				sequenceTwoThrowCount += 1;
+				throw new Error('queued post failed to start');
+			}
+			return true;
+		});
+		const sink = createBridgeTelemetryEventSink({
+			endpointUrl: 'agentstudio://telemetry/batch',
+			fetch: fetchTelemetry,
+		});
+
+		expect(sink.flush(makeTelemetryBatch(1))).toBe(true);
+		expect(sink.flush(makeTelemetryBatch(2))).toBe(true);
+
+		firstPost.resolve(new Response('', { status: 200 }));
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(fetchTelemetry).toHaveBeenCalledTimes(2);
+		expect(postedTelemetrySequences(fetchTelemetry)).toEqual([1, 2]);
+		expect(sequenceTwoThrowCount).toBe(1);
+
+		expect(sink.flush(makeTelemetryBatch(3))).toBe(true);
+
+		expect(fetchTelemetry).toHaveBeenCalledTimes(3);
+		expect(postedTelemetrySequences(fetchTelemetry)).toEqual([1, 2, 2]);
+		expect(sequenceTwoThrowCount).toBe(2);
+
+		expect(sink.flush(makeTelemetryBatch(4))).toBe(true);
+		await drainTelemetryPostTurns(4);
+
+		expect(fetchTelemetry).toHaveBeenCalledTimes(6);
+		expect(postedTelemetrySequences(fetchTelemetry)).toEqual([1, 2, 2, 2, 3, 4]);
+	});
+
 	test('returns false when the immediate telemetry post fails to start', () => {
 		let shouldThrow = true;
 		const fetchTelemetry = vi.fn<
@@ -212,6 +257,13 @@ function telemetryPostBodyString(init: RequestInit | undefined): string {
 		throw new Error('Expected telemetry POST body to be a string');
 	}
 	return body;
+}
+
+function drainTelemetryPostTurns(count: number): Promise<void> {
+	if (count <= 0) {
+		return Promise.resolve();
+	}
+	return Promise.resolve().then(() => drainTelemetryPostTurns(count - 1));
 }
 
 function deferredResponse(): {
