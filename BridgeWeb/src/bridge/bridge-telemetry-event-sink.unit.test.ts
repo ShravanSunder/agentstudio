@@ -88,7 +88,7 @@ describe('bridge telemetry event sink', () => {
 		expect(postedBodies.map((body) => body.sequence)).toEqual([1, 2]);
 	});
 
-	test('continues queued telemetry posts after the active post rejects', async () => {
+	test('retries the active telemetry post before queued posts after async rejection', async () => {
 		const firstPost = deferredResponse();
 		const fetchTelemetry = vi
 			.fn<NonNullable<Parameters<typeof createBridgeTelemetryEventSink>[0]['fetch']>>()
@@ -103,11 +103,43 @@ describe('bridge telemetry event sink', () => {
 		expect(sink.flush(makeTelemetryBatch(2))).toBe(true);
 
 		firstPost.reject(new Error('network failed'));
-		await Promise.resolve();
-		await Promise.resolve();
+		await drainTelemetryPostTurns(4);
+
+		expect(fetchTelemetry).toHaveBeenCalledTimes(3);
+		expect(postedTelemetrySequences(fetchTelemetry)).toEqual([1, 1, 2]);
+	});
+
+	test('retains the active telemetry head after its retry rejects', async () => {
+		const firstPost = deferredResponse();
+		const retriedPost = deferredResponse();
+		const fetchTelemetry = vi
+			.fn<NonNullable<Parameters<typeof createBridgeTelemetryEventSink>[0]['fetch']>>()
+			.mockReturnValueOnce(firstPost.promise)
+			.mockReturnValueOnce(retriedPost.promise)
+			.mockResolvedValueOnce(new Response('', { status: 200 }))
+			.mockResolvedValueOnce(new Response('', { status: 200 }))
+			.mockResolvedValueOnce(new Response('', { status: 200 }));
+		const sink = createBridgeTelemetryEventSink({
+			endpointUrl: 'agentstudio://telemetry/batch',
+			fetch: fetchTelemetry,
+		});
+
+		expect(sink.flush(makeTelemetryBatch(1))).toBe(true);
+		expect(sink.flush(makeTelemetryBatch(2))).toBe(true);
+
+		firstPost.reject(new Error('network failed'));
+		await drainTelemetryPostTurns(4);
+		retriedPost.reject(new Error('network failed again'));
+		await drainTelemetryPostTurns(4);
 
 		expect(fetchTelemetry).toHaveBeenCalledTimes(2);
-		expect(postedTelemetrySequences(fetchTelemetry)).toEqual([1, 2]);
+		expect(postedTelemetrySequences(fetchTelemetry)).toEqual([1, 1]);
+
+		expect(sink.flush(makeTelemetryBatch(3))).toBe(true);
+		await drainTelemetryPostTurns(4);
+
+		expect(fetchTelemetry).toHaveBeenCalledTimes(5);
+		expect(postedTelemetrySequences(fetchTelemetry)).toEqual([1, 1, 1, 2, 3]);
 	});
 
 	test('retains a queued telemetry body when starting the queued post throws', async () => {

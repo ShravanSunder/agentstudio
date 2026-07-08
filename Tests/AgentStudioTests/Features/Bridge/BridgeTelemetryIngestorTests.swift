@@ -205,12 +205,12 @@ struct BridgeTelemetryIngestorTests {
 
         for _ in 0..<4 {
             let result = await ingestor.ingest(
-                try JSONEncoder().encode(Self.selectedContentPaintedBatch(sampleCount: 8))
+                try JSONEncoder().encode(Self.visibleDemandSettledBatch(sampleCount: 8))
             )
             #expect(result == .accepted(sampleCount: 8))
         }
         let saturatedResult = await ingestor.ingest(
-            try JSONEncoder().encode(Self.selectedContentPaintedBatch(sampleCount: 2))
+            try JSONEncoder().encode(Self.visibleDemandSettledBatch(sampleCount: 2))
         )
         let saturatedSamples = await recorder.samples
 
@@ -218,14 +218,14 @@ struct BridgeTelemetryIngestorTests {
         #expect(saturatedSamples.count == expectedAdmittedHighVolumeSampleCount)
         #expect(await recorder.dropReasons == [.rateLimited])
         #expect(await recorder.droppedCounts == [2])
-        #expect(await recorder.firstRejectedEventNames == ["performance.bridge.web.selected_content_painted"])
+        #expect(await recorder.firstRejectedEventNames == ["performance.bridge.web.visible_demand_settled"])
 
         let stillSaturatedResult = await ingestor.ingest(
             try JSONEncoder().encode(
                 BridgeTelemetryBatch(
                     schemaVersion: 1,
                     scenario: "package_apply_content_fetch_v1",
-                    samples: [Self.selectedContentPaintedSample()]
+                    samples: [Self.visibleDemandSettledSample()]
                 )
             )
         )
@@ -240,7 +240,7 @@ struct BridgeTelemetryIngestorTests {
                 BridgeTelemetryBatch(
                     schemaVersion: 1,
                     scenario: "package_apply_content_fetch_v1",
-                    samples: [Self.selectedContentPaintedSample()]
+                    samples: [Self.visibleDemandSettledSample()]
                 )
             )
         )
@@ -259,7 +259,7 @@ struct BridgeTelemetryIngestorTests {
         )
         for _ in 0..<4 {
             let result = await ingestor.ingest(
-                try JSONEncoder().encode(Self.selectedContentPaintedBatch(sampleCount: 8))
+                try JSONEncoder().encode(Self.visibleDemandSettledBatch(sampleCount: 8))
             )
             #expect(result == .accepted(sampleCount: 8))
         }
@@ -267,7 +267,7 @@ struct BridgeTelemetryIngestorTests {
             schemaVersion: 1,
             scenario: "package_apply_content_fetch_v1",
             samples: (0..<2).map { _ in
-                Self.selectedContentPaintedSample()
+                Self.visibleDemandSettledSample()
             } + [Self.pushApplySample()]
         )
 
@@ -276,11 +276,77 @@ struct BridgeTelemetryIngestorTests {
 
         #expect(result == .accepted(sampleCount: 1))
         #expect(
-            recordedNames.filter { $0 == "performance.bridge.web.selected_content_painted" }.count
+            recordedNames.filter { $0 == "performance.bridge.web.visible_demand_settled" }.count
                 == AppPolicies.Bridge.telemetryHighVolumeAdmissionLimit
         )
         #expect(recordedNames.last == "performance.bridge.web.push_apply")
         #expect(await recorder.dropReasons == [.rateLimited])
+    }
+
+    @Test
+    func ingestorDoesNotRateLimitSelectedProofRowsWhenHighVolumeBudgetIsSpent() async throws {
+        let recorder = RecordingBridgePerformanceTraceRecorder()
+        let ingestor = BridgeTelemetryIngestor(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web]),
+            recorder: recorder,
+            timeUnixNano: { 0 }
+        )
+        for _ in 0..<4 {
+            let result = await ingestor.ingest(
+                try JSONEncoder().encode(Self.visibleDemandSettledBatch(sampleCount: 8))
+            )
+            #expect(result == .accepted(sampleCount: 8))
+        }
+        let proofBatch = BridgeTelemetryBatch(
+            schemaVersion: 1,
+            scenario: "package_apply_content_fetch_v1",
+            samples: [
+                Self.selectedCodeViewItemMaterializeSample(),
+                Self.selectedContentPaintedSample(),
+            ]
+        )
+
+        let result = await ingestor.ingest(try JSONEncoder().encode(proofBatch))
+        let recordedNames = await recorder.samples.map(\.name)
+
+        #expect(result == .accepted(sampleCount: 2))
+        #expect(recordedNames.suffix(2) == proofBatch.samples.map(\.name)[...])
+        #expect(await recorder.dropReasons.isEmpty)
+    }
+
+    @Test
+    func ingestorStillRateLimitsUnselectedMaterializeRowsWhenHighVolumeBudgetIsSpent() async throws {
+        let recorder = RecordingBridgePerformanceTraceRecorder()
+        let ingestor = BridgeTelemetryIngestor(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web]),
+            recorder: recorder,
+            timeUnixNano: { 0 }
+        )
+        for _ in 0..<4 {
+            let result = await ingestor.ingest(
+                try JSONEncoder().encode(Self.visibleDemandSettledBatch(sampleCount: 8))
+            )
+            #expect(result == .accepted(sampleCount: 8))
+        }
+        let proofBatch = BridgeTelemetryBatch(
+            schemaVersion: 1,
+            scenario: "package_apply_content_fetch_v1",
+            samples: [
+                Self.unselectedCodeViewItemMaterializeSample(),
+                Self.selectedCodeViewItemMaterializeSample(),
+            ]
+        )
+
+        let result = await ingestor.ingest(try JSONEncoder().encode(proofBatch))
+        let recordedNames = await recorder.samples.map(\.name)
+        let recordedMaterializeSample = await recorder.samples.last
+
+        #expect(result == .accepted(sampleCount: 1))
+        #expect(recordedNames.last == "performance.bridge.web.code_view_item_materialize")
+        #expect(recordedMaterializeSample?.booleanAttributes["agentstudio.bridge.selected"] == true)
+        #expect(await recorder.dropReasons == [.rateLimited])
+        #expect(await recorder.droppedCounts == [1])
+        #expect(await recorder.firstRejectedEventNames == ["performance.bridge.web.code_view_item_materialize"])
     }
 
     private static func selectedContentPaintedBatch(
@@ -292,6 +358,64 @@ struct BridgeTelemetryIngestorTests {
             scenario: "package_apply_content_fetch_v1",
             sequence: sequence,
             samples: (0..<sampleCount).map { _ in Self.selectedContentPaintedSample() }
+        )
+    }
+
+    private static func visibleDemandSettledBatch(sampleCount: Int) -> BridgeTelemetryBatch {
+        BridgeTelemetryBatch(
+            schemaVersion: 1,
+            scenario: "package_apply_content_fetch_v1",
+            samples: (0..<sampleCount).map { _ in Self.visibleDemandSettledSample() }
+        )
+    }
+
+    private static func selectedCodeViewItemMaterializeSample() -> BridgeTelemetrySample {
+        BridgeTelemetrySample(
+            scope: .web,
+            name: "performance.bridge.web.code_view_item_materialize",
+            durationMilliseconds: 3,
+            traceContext: nil,
+            stringAttributes: [
+                "agentstudio.bridge.content_bytes_bucket": "small",
+                "agentstudio.bridge.item_count_bucket": "small",
+                "agentstudio.bridge.language_class": "swift",
+                "agentstudio.bridge.phase": "code_view_item_materialize",
+                "agentstudio.bridge.plane": "data",
+                "agentstudio.bridge.priority": "hot",
+                "agentstudio.bridge.result": "success",
+                "agentstudio.bridge.slice": "code_view_item",
+                "agentstudio.bridge.transport": "swift",
+                "agentstudio.bridge.viewer": "review",
+            ],
+            numericAttributes: [:],
+            booleanAttributes: [
+                "agentstudio.bridge.selected": true
+            ]
+        )
+    }
+
+    private static func unselectedCodeViewItemMaterializeSample() -> BridgeTelemetrySample {
+        BridgeTelemetrySample(
+            scope: .web,
+            name: "performance.bridge.web.code_view_item_materialize",
+            durationMilliseconds: 3,
+            traceContext: nil,
+            stringAttributes: [
+                "agentstudio.bridge.content_bytes_bucket": "small",
+                "agentstudio.bridge.item_count_bucket": "small",
+                "agentstudio.bridge.language_class": "swift",
+                "agentstudio.bridge.phase": "code_view_item_materialize",
+                "agentstudio.bridge.plane": "data",
+                "agentstudio.bridge.priority": "hot",
+                "agentstudio.bridge.result": "success",
+                "agentstudio.bridge.slice": "code_view_item",
+                "agentstudio.bridge.transport": "swift",
+                "agentstudio.bridge.viewer": "review",
+            ],
+            numericAttributes: [:],
+            booleanAttributes: [
+                "agentstudio.bridge.selected": false
+            ]
         )
     }
 
@@ -313,6 +437,43 @@ struct BridgeTelemetryIngestorTests {
                 "agentstudio.bridge.selected_content.click_to_paint_ms": 7,
                 "agentstudio.bridge.selected_content.frame_wait_ms": 2,
                 "agentstudio.bridge.selected_content.materialize_ms": 5,
+            ],
+            booleanAttributes: [:]
+        )
+    }
+
+    private static func visibleDemandSettledSample() -> BridgeTelemetrySample {
+        BridgeTelemetrySample(
+            scope: .web,
+            name: "performance.bridge.web.visible_demand_settled",
+            durationMilliseconds: 3,
+            traceContext: nil,
+            stringAttributes: [
+                "agentstudio.bridge.content.role": "file",
+                "agentstudio.bridge.demand.lane": "visible",
+                "agentstudio.bridge.phase": "visible_demand_settled",
+                "agentstudio.bridge.plane": "data",
+                "agentstudio.bridge.priority": "hot",
+                "agentstudio.bridge.result": "success",
+                "agentstudio.bridge.result_reason": "none",
+                "agentstudio.bridge.slice": "content_fetch",
+                "agentstudio.bridge.transport": "content",
+                "agentstudio.bridge.viewer": "file",
+            ],
+            numericAttributes: [
+                "agentstudio.bridge.content.first_chunk_wait_ms": 2,
+                "agentstudio.bridge.content.response_wait_ms": 3,
+                "agentstudio.bridge.content.stream_read_ms": 4,
+                "agentstudio.bridge.demand.enqueue_accepted.count": 12,
+                "agentstudio.bridge.demand.enqueue_rejected.count": 0,
+                "agentstudio.bridge.demand.executor_in_flight_ms": 5,
+                "agentstudio.bridge.demand.executor_pending_wait_ms": 6,
+                "agentstudio.bridge.demand.failed.count": 0,
+                "agentstudio.bridge.demand.intent.count": 12,
+                "agentstudio.bridge.demand.loaded.count": 12,
+                "agentstudio.bridge.demand.request.sequence": 8,
+                "agentstudio.bridge.demand.scheduler_queue_wait_ms": 7,
+                "agentstudio.bridge.visible_item.count": 12,
             ],
             booleanAttributes: [:]
         )

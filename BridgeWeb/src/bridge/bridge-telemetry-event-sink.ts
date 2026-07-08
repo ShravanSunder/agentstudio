@@ -8,6 +8,7 @@ export interface CreateBridgeTelemetryEventSinkProps {
 
 interface PendingTelemetryPost {
 	readonly body: string;
+	didRetryAfterAsyncFailure: boolean;
 }
 
 export function createBridgeTelemetryEventSink(
@@ -44,15 +45,22 @@ export function createBridgeTelemetryEventSink(
 			return;
 		}
 		pendingPosts.shift();
+		let shouldStartNextPost = true;
 		void Promise.resolve(postResult)
-			.catch(() => undefined)
+			.catch((): void => {
+				pendingPosts.unshift(post);
+				shouldStartNextPost = !post.didRetryAfterAsyncFailure;
+				post.didRetryAfterAsyncFailure = true;
+			})
 			.finally((): void => {
 				isPostInFlight = false;
-				startNextPost({});
+				if (shouldStartNextPost) {
+					startNextPost({});
+				}
 			});
 	};
 	const enqueuePost = (body: string): void => {
-		const post = { body };
+		const post = { body, didRetryAfterAsyncFailure: false };
 		pendingPosts.push(post);
 		startNextPost({ currentFlushPost: post });
 	};

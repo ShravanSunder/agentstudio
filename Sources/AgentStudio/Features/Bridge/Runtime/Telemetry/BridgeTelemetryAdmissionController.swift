@@ -20,7 +20,7 @@ struct BridgeTelemetryAdmissionController: Sendable {
         var firstDroppedEventName: String?
 
         for sample in samples {
-            guard Self.isHighVolume(sample) else {
+            guard Self.isAdmittedThroughHighVolumeBudget(sample) else {
                 admittedSamples.append(sample)
                 continue
             }
@@ -57,7 +57,19 @@ struct BridgeTelemetryAdmissionController: Sendable {
         }
     }
 
-    private static func isHighVolume(_ sample: BridgeTelemetrySample) -> Bool {
-        sample.scope == .web && AppPolicies.Bridge.telemetryHighVolumeEventNames.contains(sample.name)
+    private static func isAdmittedThroughHighVolumeBudget(_ sample: BridgeTelemetrySample) -> Bool {
+        sample.scope == .web
+            && AppPolicies.Bridge.telemetryHighVolumeEventNames.contains(sample.name)
+            && !isProofRequiredSelectedSample(sample)
+    }
+
+    private static func isProofRequiredSelectedSample(_ sample: BridgeTelemetrySample) -> Bool {
+        if AppPolicies.Bridge.telemetryAlwaysProofRequiredEventNames.contains(sample.name) {
+            return true
+        }
+        guard AppPolicies.Bridge.telemetrySelectedProofRequiredEventNames.contains(sample.name) else {
+            return false
+        }
+        return sample.booleanAttributes[AppPolicies.Bridge.telemetrySelectedBooleanAttributeKey] == true
     }
 }

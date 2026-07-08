@@ -3706,3 +3706,57 @@ counts before claiming a gate.
   telemetry non-lossiness, Review placeholder main-thread diff residue, native
   oq4s scroll/click proof, implementation-review-swarm, PR readiness, or full
   goal completion.
+
+## 2026-07-08 - Telemetry Sequence And Proof-Signal Integrity
+
+- Commit target:
+  pending local checkpoint `fix(bridge): preserve telemetry proof signals`.
+- Scope:
+  Close the telemetry non-lossiness gap before using Victoria metrics as the
+  next Review/File View UX proof source. This slice fixes producer-side async
+  POST failure ordering in the BridgeWeb telemetry sink and native admission
+  shedding for proof-required selected paint/materialize rows. It does not
+  claim native oq4s UX improvement by itself.
+- Implementation:
+  `createBridgeTelemetryEventSink` now retries the active async-failed POST
+  before queued batches. If that retry also rejects, it keeps the failed head at
+  the front of the queue and waits for a later flush to wake the queue, so later
+  sequences cannot leap ahead and manufacture Swift `missing_drop_counter`
+  evidence. Native `BridgeTelemetryAdmissionController` now treats
+  `selected_content_painted` as always proof-required and
+  `code_view_item_materialize` as proof-required only when the sample carries
+  `agentstudio.bridge.selected == true`; visible/unselected high-volume rows
+  still spend the normal high-volume budget.
+- Red / review evidence:
+  The original JS retry test failed before the sink change because async
+  rejection advanced to the queued sequence without retrying the active
+  sequence. The retained-head recovery test failed during review with
+  `expected "spy" to be called 2 times, but got 3 times` when a drop-head
+  variant advanced the queue after a second rejection. Mill the 2nd supplied
+  Swift red evidence for
+  `ingestorDoesNotRateLimitSelectedProofRowsWhenHighVolumeBudgetIsSpent`:
+  before the admission change the selected proof batch returned
+  `.accepted(sampleCount: 0)` with a rate-limited drop. Confucius the 2nd
+  reviewed the dirty slice twice; accepted findings forced retained-head JS
+  recovery and a discriminating selected-vs-unselected Swift assertion. Final
+  re-review verdict: ready, no P0-P2 blockers.
+- Green evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/bridge/bridge-telemetry-event-sink.unit.test.ts
+  src/foundation/telemetry/bridge-telemetry-recorder.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-telemetry.unit.test.ts --reporter dot`
+  passed 3 files / 19 tests. `swift test --disable-sandbox --filter
+  ingestorStillRateLimitsUnselectedMaterializeRowsWhenHighVolumeBudgetIsSpent`
+  passed 1 test. `swift test --disable-sandbox --filter
+  BridgeTelemetryIngestorTests` passed 10 tests. `pnpm --dir BridgeWeb exec tsc
+  --noEmit --pretty false` passed. Scoped `oxfmt --check`, scoped
+  `oxlint --type-aware`, `git diff --check`, and scoped `mise run lint --`
+  over the touched telemetry files passed; the repo lint wrapper reported
+  swift-format OK, SwiftLint 0 violations, architecture lint OK, and release
+  script verification passed.
+- Known proof boundary:
+  This makes the next Victoria/debug run more trustworthy by preserving
+  telemetry sequence ordering and selected proof rows under high-volume pressure.
+  It does not itself prove Review scroll/click smoothness, close Review
+  placeholder main-thread diff residue, finish scheme-stream push/intake/ack
+  cutover, run implementation-review-swarm, or prove PR readiness.

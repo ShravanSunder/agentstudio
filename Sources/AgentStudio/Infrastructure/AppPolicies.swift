@@ -69,6 +69,17 @@ enum AppPolicies {
             "performance.bridge.web.selected_content_painted",
             "performance.bridge.web.visible_demand_settled",
         ]
+        /// Selected review paint/materialize events are proof signals for
+        /// click-to-paint validation. They may share event names with
+        /// high-volume rows, so admission must use the selected sample
+        /// attribute where the event carries one instead of shedding by name.
+        static let telemetrySelectedBooleanAttributeKey = "agentstudio.bridge.selected"
+        static let telemetrySelectedProofRequiredEventNames: Set<String> = [
+            "performance.bridge.web.code_view_item_materialize"
+        ]
+        static let telemetryAlwaysProofRequiredEventNames: Set<String> = [
+            "performance.bridge.web.selected_content_painted"
+        ]
         /// Per-lane queued-job cap for the metadata lane scheduler. A pane
         /// whose gate never reopens (wedged or dead WebView) must not grow
         /// its queues without bound from watch-driven producers; on overflow
