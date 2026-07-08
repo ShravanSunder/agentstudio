@@ -28,6 +28,7 @@ export interface RunBridgeCodeViewMetadataApplyInChunksProps {
 	) => readonly BridgeCodeViewItem[] | null;
 	readonly scheduleNextTurn: (callback: () => void) => void;
 	readonly setItems: (items: readonly BridgeCodeViewItem[]) => void;
+	readonly shouldSkipItem?: (item: BridgeCodeViewItem) => boolean;
 	readonly sourceReset: boolean;
 	readonly staleScanLimit: number;
 }
@@ -40,6 +41,10 @@ export function runBridgeCodeViewMetadataApplyInChunks(
 		props.onComplete();
 		return;
 	}
+	const applyItems =
+		props.shouldSkipItem === undefined
+			? props.items
+			: props.items.filter((item): boolean => !props.shouldSkipItem?.(item));
 
 	runBridgeFrameApplyPump({
 		frameBudgetMilliseconds: props.frameBudgetMilliseconds,
@@ -50,7 +55,7 @@ export function runBridgeCodeViewMetadataApplyInChunks(
 		onDrained: props.onComplete,
 		scheduleNextTurn: props.scheduleNextTurn,
 		staleScanLimit: props.staleScanLimit,
-		units: props.items.map((item) => ({
+		units: applyItems.map((item) => ({
 			id: item.id,
 			item,
 			rank: props.rankForItem(item),

@@ -219,6 +219,104 @@ describe('Bridge CodeView metadata apply pump', () => {
 		expect(appliedItemIds).toEqual([...entries.map((item) => item.id), 'drained']);
 	});
 
+	test('skips unchanged reconciled item references before apply work', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const entries = reviewPackage.orderedItemIds.slice(0, 2).map((itemId): BridgeCodeViewItem => {
+			const item = reviewPackage.itemsById[itemId];
+			if (item === undefined) {
+				throw new Error(`expected fixture item ${itemId}`);
+			}
+			return materializeBridgeCodeViewLoadingItem(item);
+		});
+		const unchangedItem = entries[0];
+		const changedItem = entries[1];
+		if (unchangedItem === undefined || changedItem === undefined) {
+			throw new Error('expected fixture apply entries');
+		}
+		const appliedItemIds: string[] = [];
+		const scheduledTurns: Array<() => void> = [];
+
+		runBridgeCodeViewMetadataApplyInChunks({
+			applyItemUpdate: (item): void => {
+				appliedItemIds.push(item.id);
+			},
+			frameBudgetMilliseconds: bridgeContentDemandExecutionPolicy.applyPumpFrameBudgetMilliseconds,
+			isStale: (): boolean => false,
+			items: entries,
+			maxUnitsPerFrame: bridgeContentDemandExecutionPolicy.applyPumpMaxUnitsPerFrame,
+			noStarvationSelectedBatchLimit:
+				bridgeContentDemandExecutionPolicy.applyPumpNoStarvationSelectedBatchLimit,
+			now: (): number => 0,
+			onComplete: (): void => {
+				appliedItemIds.push('drained');
+			},
+			rankForItem: (): 'visible' => 'visible',
+			scheduleNextTurn: (callback): void => {
+				scheduledTurns.push(callback);
+			},
+			setItems: (): void => {
+				throw new Error('source reset setItems must not run for non-reset metadata apply');
+			},
+			shouldSkipItem: (item): boolean => item === unchangedItem,
+			sourceReset: false,
+			staleScanLimit: bridgeContentDemandExecutionPolicy.applyPumpStaleScanLimit,
+		});
+
+		scheduledTurns.shift()?.();
+
+		expect(appliedItemIds).toEqual([changedItem.id, 'drained']);
+	});
+
+	test('does not spend apply slots on skipped unchanged items', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const entries = reviewPackage.orderedItemIds
+			.slice(0, bridgeContentDemandExecutionPolicy.applyPumpMaxUnitsPerFrame + 1)
+			.map((itemId): BridgeCodeViewItem => {
+				const item = reviewPackage.itemsById[itemId];
+				if (item === undefined) {
+					throw new Error(`expected fixture item ${itemId}`);
+				}
+				return materializeBridgeCodeViewLoadingItem(item);
+			});
+		const changedItem = entries.at(-1);
+		if (changedItem === undefined) {
+			throw new Error('expected changed fixture item');
+		}
+		const appliedItemIds: string[] = [];
+		const scheduledTurns: Array<() => void> = [];
+
+		runBridgeCodeViewMetadataApplyInChunks({
+			applyItemUpdate: (item): void => {
+				appliedItemIds.push(item.id);
+			},
+			frameBudgetMilliseconds: bridgeContentDemandExecutionPolicy.applyPumpFrameBudgetMilliseconds,
+			isStale: (): boolean => false,
+			items: entries,
+			maxUnitsPerFrame: bridgeContentDemandExecutionPolicy.applyPumpMaxUnitsPerFrame,
+			noStarvationSelectedBatchLimit:
+				bridgeContentDemandExecutionPolicy.applyPumpNoStarvationSelectedBatchLimit,
+			now: (): number => 0,
+			onComplete: (): void => {
+				appliedItemIds.push('drained');
+			},
+			rankForItem: (): 'visible' => 'visible',
+			scheduleNextTurn: (callback): void => {
+				scheduledTurns.push(callback);
+			},
+			setItems: (): void => {
+				throw new Error('source reset setItems must not run for non-reset metadata apply');
+			},
+			shouldSkipItem: (item): boolean => item !== changedItem,
+			sourceReset: false,
+			staleScanLimit: bridgeContentDemandExecutionPolicy.applyPumpStaleScanLimit,
+		});
+
+		scheduledTurns.shift()?.();
+
+		expect(appliedItemIds).toEqual([changedItem.id, 'drained']);
+		expect(scheduledTurns).toHaveLength(0);
+	});
+
 	test('uses setItems replacement for non-reset metadata items that cannot update in place', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const sourceItem = reviewPackage.itemsById['source-high'];

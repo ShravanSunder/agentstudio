@@ -703,6 +703,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					});
 				}
 			},
+			shouldSkipItem: (item): boolean => codeViewHandle.getItem(item.id) === item,
 			sourceReset,
 			staleScanLimit: bridgeContentDemandExecutionPolicy.applyPumpStaleScanLimit,
 		});

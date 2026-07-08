@@ -43,6 +43,33 @@ describe('BridgeCodeViewPanel worker telemetry', () => {
 			},
 		});
 	});
+
+	test('does not emit materialize telemetry for unchanged worker-prepared no-ops', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const item = reviewPackage.itemsById['item-source'];
+		if (item === undefined) {
+			throw new Error('Expected modified item');
+		}
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const workerPreparedItem = materializeBridgeCodeViewLoadingItem(item);
+		const samples: BridgeTelemetrySample[] = [];
+
+		recordBridgeWorkerPreparedCodeViewItemMaterializeTelemetryForPanel({
+			codeViewItem: workerPreparedItem,
+			durationMilliseconds: 0,
+			item,
+			parentTraceContext: null,
+			projection,
+			result: 'unchanged',
+			selectedItemId: item.itemId,
+			telemetryRecorder: enabledTelemetryRecorder(samples),
+		});
+
+		expect(samples).toEqual([]);
+	});
 });
 
 function enabledTelemetryRecorder(samples: BridgeTelemetrySample[]): BridgeTelemetryRecorder {

@@ -329,6 +329,9 @@ export function recordBridgeCodeViewItemMaterializeTelemetryForPanel(
 export function recordBridgeWorkerPreparedCodeViewItemMaterializeTelemetryForPanel(
 	props: RecordBridgeWorkerPreparedCodeViewItemMaterializeTelemetryForPanelProps,
 ): void {
+	if (props.result === 'unchanged') {
+		return;
+	}
 	recordBridgeWorkerPreparedCodeViewItemMaterializeTelemetry({
 		telemetryRecorder: props.telemetryRecorder,
 		parentTraceContext: props.parentTraceContext,
