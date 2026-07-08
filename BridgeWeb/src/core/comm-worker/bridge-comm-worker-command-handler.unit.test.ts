@@ -9,6 +9,7 @@ import {
 	encodeBridgeWorkerFileViewSourceUpdateCommand,
 	encodeBridgeWorkerHoverCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
+	encodeBridgeWorkerMetadataInterestUpdateCommand,
 	encodeBridgeWorkerModeCommand,
 	encodeBridgeWorkerReviewInvalidateCommand,
 	encodeBridgeWorkerReviewSourceUpdateCommand,
@@ -433,6 +434,41 @@ describe('Bridge comm worker command handler', () => {
 				transferDescriptors: [],
 				kind: 'health',
 				requestId: 'request-mark-viewed',
+				status: 'ready',
+			},
+		]);
+	});
+
+	test('metadataInterestUpdate commands are accepted as worker-owned ordinary RPC intents', () => {
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [makeWorkerReviewContentMetadata('item-1')],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
+		});
+
+		const messages = handler.handleMessage(
+			encodeBridgeWorkerMetadataInterestUpdateCommand({
+				requestId: 'request-metadata-interest',
+				epoch: 1,
+				request: {
+					protocol: 'review',
+					streamId: 'stream-1',
+					generation: 7,
+					itemIds: ['item-1'],
+					lane: 'foreground',
+					loaded_by: 'foreground',
+				},
+			}),
+		);
+
+		expect(messages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
+				kind: 'health',
+				requestId: 'request-metadata-interest',
 				status: 'ready',
 			},
 		]);

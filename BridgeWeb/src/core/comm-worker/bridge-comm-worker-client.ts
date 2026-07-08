@@ -3,11 +3,13 @@ import {
 	buildBridgeWorkerReadyHealthEvent,
 	encodeBridgeWorkerHoverCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
+	encodeBridgeWorkerMetadataInterestUpdateCommand,
 	encodeBridgeWorkerModeCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 	type EncodeBridgeWorkerHoverCommandProps,
 	type EncodeBridgeWorkerMarkFileViewedCommandProps,
+	type EncodeBridgeWorkerMetadataInterestUpdateCommandProps,
 	type EncodeBridgeWorkerModeCommandProps,
 	type EncodeBridgeWorkerSelectCommandProps,
 	type EncodeBridgeWorkerViewportCommandProps,
@@ -43,6 +45,9 @@ export interface InertBridgeCommWorkerClient {
 	) => Promise<BridgeWorkerHealthEvent>;
 	readonly markFileViewed: (
 		props: Omit<EncodeBridgeWorkerMarkFileViewedCommandProps, 'requestId'>,
+	) => Promise<BridgeWorkerHealthEvent>;
+	readonly metadataInterestUpdate: (
+		props: Omit<EncodeBridgeWorkerMetadataInterestUpdateCommandProps, 'requestId'>,
 	) => Promise<BridgeWorkerHealthEvent>;
 	readonly mode: (
 		props: Omit<EncodeBridgeWorkerModeCommandProps, 'requestId'>,
@@ -87,15 +92,22 @@ export function createInertBridgeCommWorkerClient(
 					requestId: createRequestId(),
 				}),
 			),
-		markFileViewed: (markFileViewedProps): Promise<BridgeWorkerHealthEvent> =>
-			postAndWait(
-				encodeBridgeWorkerMarkFileViewedCommand({
-					...markFileViewedProps,
-					requestId: createRequestId(),
-				}),
-			),
-		mode: (modeProps): Promise<BridgeWorkerHealthEvent> =>
-			postAndWait(
+			markFileViewed: (markFileViewedProps): Promise<BridgeWorkerHealthEvent> =>
+				postAndWait(
+					encodeBridgeWorkerMarkFileViewedCommand({
+						...markFileViewedProps,
+						requestId: createRequestId(),
+					}),
+				),
+			metadataInterestUpdate: (metadataInterestUpdateProps): Promise<BridgeWorkerHealthEvent> =>
+				postAndWait(
+					encodeBridgeWorkerMetadataInterestUpdateCommand({
+						...metadataInterestUpdateProps,
+						requestId: createRequestId(),
+					}),
+				),
+			mode: (modeProps): Promise<BridgeWorkerHealthEvent> =>
+				postAndWait(
 				encodeBridgeWorkerModeCommand({
 					...modeProps,
 					requestId: createRequestId(),

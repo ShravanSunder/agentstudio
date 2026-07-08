@@ -239,6 +239,7 @@ function handleBridgeWorkerCommand(
 				updateFileViewRuntimeSource: props.updateFileViewRuntimeSource,
 			});
 		case 'markFileViewed':
+		case 'metadataInterestUpdate':
 			return [buildBridgeWorkerReadyHealthEvent(props.message.requestId)];
 		case 'hover':
 		case 'mode':

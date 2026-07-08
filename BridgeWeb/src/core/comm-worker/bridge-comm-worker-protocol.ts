@@ -3,6 +3,7 @@ import {
 	bridgeWorkerFileViewSourceUpdateCommandSchema,
 	bridgeWorkerHoverCommandSchema,
 	bridgeWorkerMarkFileViewedCommandSchema,
+	bridgeWorkerMetadataInterestUpdateCommandSchema,
 	bridgeWorkerModeCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
 	bridgeWorkerReviewSourceUpdateCommandSchema,
@@ -13,6 +14,8 @@ import {
 	type BridgeWorkerHoverCommand,
 	type BridgeWorkerMainToServerCommand,
 	type BridgeWorkerMarkFileViewedCommand,
+	type BridgeWorkerMetadataInterestRequest,
+	type BridgeWorkerMetadataInterestUpdateCommand,
 	type BridgeWorkerModeCommand,
 	type BridgeWorkerReviewInvalidateCommand,
 	type BridgeWorkerReviewSourceUpdateCommand,
@@ -46,6 +49,10 @@ export interface EncodeBridgeWorkerHoverCommandProps extends EncodeBridgeWorkerC
 
 export interface EncodeBridgeWorkerMarkFileViewedCommandProps extends EncodeBridgeWorkerCommandBaseProps {
 	readonly fileId: string;
+}
+
+export interface EncodeBridgeWorkerMetadataInterestUpdateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
+	readonly request: BridgeWorkerMetadataInterestRequest;
 }
 
 export interface EncodeBridgeWorkerModeCommandProps extends EncodeBridgeWorkerCommandBaseProps {
@@ -109,6 +116,15 @@ export function encodeBridgeWorkerMarkFileViewedCommand(
 	return bridgeWorkerMarkFileViewedCommandSchema.parse({
 		...bridgeWorkerCommandEnvelope(props, 'markFileViewed'),
 		fileId: props.fileId,
+	});
+}
+
+export function encodeBridgeWorkerMetadataInterestUpdateCommand(
+	props: EncodeBridgeWorkerMetadataInterestUpdateCommandProps,
+): BridgeWorkerMetadataInterestUpdateCommand {
+	return bridgeWorkerMetadataInterestUpdateCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'metadataInterestUpdate'),
+		request: props.request,
 	});
 }
 

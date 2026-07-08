@@ -41,7 +41,7 @@ export function createBridgeReviewCommWorkerTransportDispatcher(
 		});
 	const now = props.now ?? readBridgeCommWorkerTransportNowMilliseconds;
 	const queuedCommands: BridgeWorkerMainToServerMessage[] = [];
-	const inFlightMarkFileViewedRequestIds = new Set<string>();
+	const inFlightAwaitedOrdinaryRpcFailuresByRequestId = new Map<string, string>();
 	let worker: Worker | null = null;
 	let workerPromise: Promise<Worker> | null = null;
 	let isBootstrapReady = false;
@@ -49,7 +49,7 @@ export function createBridgeReviewCommWorkerTransportDispatcher(
 
 	const resetWorkerBootstrapState = (activeWorker: Worker | null): void => {
 		queuedCommands.splice(0, queuedCommands.length);
-		inFlightMarkFileViewedRequestIds.clear();
+		inFlightAwaitedOrdinaryRpcFailuresByRequestId.clear();
 		isBootstrapReady = false;
 		if (activeWorker !== null) {
 			activeWorker.terminate();
@@ -75,38 +75,46 @@ export function createBridgeReviewCommWorkerTransportDispatcher(
 			},
 		]);
 	};
-	const publishQueuedMarkFileViewedFailures = (): void => {
+	const publishQueuedAwaitedOrdinaryRpcFailures = (): void => {
 		if (isDisposed) {
 			return;
 		}
-		publishMarkFileViewedFailuresForRequestIds({
+		publishAwaitedOrdinaryRpcFailures({
+			failures: queuedCommands.flatMap((queuedCommand): readonly AwaitedOrdinaryRpcFailure[] => {
+				const message = awaitedOrdinaryRpcFailureMessageForCommand(queuedCommand);
+				if (message === null) {
+					return [];
+				}
+				return [{ requestId: queuedCommand.requestId, message }];
+			}),
 			publishWorkerMessages: props.publishWorkerMessages,
-			requestIds: queuedCommands
-				.filter((queuedCommand): boolean => queuedCommand.command === 'markFileViewed')
-				.map((queuedCommand): string => queuedCommand.requestId),
 		});
 	};
-	const publishInFlightMarkFileViewedFailures = (): void => {
+	const publishInFlightAwaitedOrdinaryRpcFailures = (): void => {
 		if (isDisposed) {
 			return;
 		}
-		publishMarkFileViewedFailuresForRequestIds({
+		publishAwaitedOrdinaryRpcFailures({
+			failures: Array.from(
+				inFlightAwaitedOrdinaryRpcFailuresByRequestId,
+				([requestId, message]): AwaitedOrdinaryRpcFailure => ({ requestId, message }),
+			),
 			publishWorkerMessages: props.publishWorkerMessages,
-			requestIds: inFlightMarkFileViewedRequestIds,
 		});
 	};
 	const failBootstrap = (activeWorker: Worker | null, message: string): void => {
 		publishBootstrapFailure(message);
-		publishQueuedMarkFileViewedFailures();
-		publishInFlightMarkFileViewedFailures();
+		publishQueuedAwaitedOrdinaryRpcFailures();
+		publishInFlightAwaitedOrdinaryRpcFailures();
 		resetWorkerBootstrapState(activeWorker);
 	};
 	const postWorkerCommand = (
 		activeWorker: Worker,
 		message: BridgeWorkerMainToServerMessage,
 	): void => {
-		if (message.command === 'markFileViewed') {
-			inFlightMarkFileViewedRequestIds.add(message.requestId);
+		const failureMessage = awaitedOrdinaryRpcFailureMessageForCommand(message);
+		if (failureMessage !== null) {
+			inFlightAwaitedOrdinaryRpcFailuresByRequestId.set(message.requestId, failureMessage);
 		}
 		activeWorker.postMessage(
 			stampBridgeWorkerDispatchTimestamp({
@@ -139,7 +147,7 @@ export function createBridgeReviewCommWorkerTransportDispatcher(
 						return;
 					}
 					if (parsed.data.kind === 'health' && parsed.data.requestId !== undefined) {
-						inFlightMarkFileViewedRequestIds.delete(parsed.data.requestId);
+						inFlightAwaitedOrdinaryRpcFailuresByRequestId.delete(parsed.data.requestId);
 					}
 					props.publishWorkerMessages([parsed.data]);
 					if (
@@ -264,25 +272,59 @@ function flushQueuedCommands(props: {
 	}
 }
 
-function publishMarkFileViewedFailuresForRequestIds(props: {
+interface AwaitedOrdinaryRpcFailure {
+	readonly message: string;
+	readonly requestId: string;
+}
+
+function publishAwaitedOrdinaryRpcFailures(props: {
+	readonly failures: readonly AwaitedOrdinaryRpcFailure[];
 	readonly publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
-	readonly requestIds: Iterable<string>;
 }): void {
-	const markFileViewedFailures: BridgeWorkerServerToMainMessage[] = Array.from(
-		new Set(props.requestIds),
-		(requestId): BridgeWorkerServerToMainMessage => ({
+	const uniqueFailuresByRequestId = new Map<string, AwaitedOrdinaryRpcFailure>();
+	for (const failure of props.failures) {
+		uniqueFailuresByRequestId.set(failure.requestId, failure);
+	}
+	const failures: BridgeWorkerServerToMainMessage[] = Array.from(
+		uniqueFailuresByRequestId.values(),
+		(failure): BridgeWorkerServerToMainMessage => ({
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 			direction: 'serverWorkerToMain',
 			kind: 'health',
-			requestId,
+			requestId: failure.requestId,
 			status: 'degraded',
-			message: 'Bridge comm worker transport failed before review.markFileViewed delivery.',
+			message: failure.message,
 			transferDescriptors: [],
 		}),
 	);
-	if (markFileViewedFailures.length > 0) {
-		props.publishWorkerMessages(markFileViewedFailures);
+	if (failures.length > 0) {
+		props.publishWorkerMessages(failures);
 	}
+}
+
+function awaitedOrdinaryRpcFailureMessageForCommand(
+	message: BridgeWorkerMainToServerMessage,
+): string | null {
+	switch (message.command) {
+		case 'markFileViewed':
+			return 'Bridge comm worker transport failed before review.markFileViewed delivery.';
+		case 'metadataInterestUpdate':
+			return 'Bridge comm worker transport failed before bridge.metadata_interest.update delivery.';
+		case 'fileViewSourceUpdate':
+		case 'hover':
+		case 'mode':
+		case 'reviewInvalidate':
+		case 'reviewSourceUpdate':
+		case 'select':
+		case 'viewport':
+			return null;
+		default:
+			return assertNeverBridgeWorkerTransportCommand(message);
+	}
+}
+
+function assertNeverBridgeWorkerTransportCommand(_message: never): never {
+	throw new Error('Unhandled bridge worker transport command.');
 }
 
 function stampBridgeWorkerDispatchTimestamp(props: {

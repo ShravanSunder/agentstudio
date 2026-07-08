@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
 	encodeBridgeWorkerMarkFileViewedCommand,
+	encodeBridgeWorkerMetadataInterestUpdateCommand,
 	encodeBridgeWorkerSelectCommand,
 } from '../../../core/comm-worker/bridge-comm-worker-protocol.js';
 import type {
@@ -154,6 +155,56 @@ describe('Bridge comm worker transport dispatcher', () => {
 				requestId: 'request-mark-viewed',
 				status: 'degraded',
 				message: 'Bridge comm worker transport failed before review.markFileViewed delivery.',
+				transferDescriptors: [],
+			},
+		]);
+	});
+
+	test('publishes degraded health for queued metadata-interest commands when worker startup fails', async () => {
+		const publishedMessages: BridgeWorkerServerToMainMessage[] = [];
+		const dispatcher = createBridgeReviewCommWorkerTransportDispatcher({
+			bootstrapRequest: makeBootstrapRequest(),
+			publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]): void => {
+				publishedMessages.push(...messages);
+			},
+			workerFactory: async (): Promise<Worker> => {
+				throw new Error('asset fetch failed');
+			},
+		});
+
+		dispatcher.dispatch(
+			encodeBridgeWorkerMetadataInterestUpdateCommand({
+				requestId: 'request-metadata-interest',
+				epoch: 1,
+				request: {
+					protocol: 'review',
+					streamId: 'stream-1',
+					generation: 3,
+					itemIds: ['item-1'],
+					lane: 'foreground',
+				},
+			}),
+		);
+		await flushTransportMicrotasks();
+
+		expect(publishedMessages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'bootstrap-request',
+				status: 'degraded',
+				message: 'Bridge comm worker transport failed during bootstrap.',
+				transferDescriptors: [],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'request-metadata-interest',
+				status: 'degraded',
+				message:
+					'Bridge comm worker transport failed before bridge.metadata_interest.update delivery.',
 				transferDescriptors: [],
 			},
 		]);
@@ -382,6 +433,85 @@ describe('Bridge comm worker transport dispatcher', () => {
 				requestId: 'request-mark-viewed-after-ready',
 				status: 'degraded',
 				message: 'Bridge comm worker transport failed before review.markFileViewed delivery.',
+				transferDescriptors: [],
+			},
+		]);
+	});
+
+	test('publishes degraded health for in-flight metadata-interest commands when a ready worker fails', async () => {
+		const worker = new RecordingBridgeCommWorker();
+		const publishedMessages: BridgeWorkerServerToMainMessage[] = [];
+		const dispatcher = createBridgeReviewCommWorkerTransportDispatcher({
+			bootstrapRequest: makeBootstrapRequest(),
+			publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]): void => {
+				publishedMessages.push(...messages);
+			},
+			workerFactory: async (): Promise<Worker> => worker,
+		});
+
+		dispatcher.dispatch(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-before-ready',
+				epoch: 1,
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+			}),
+		);
+		await flushTransportMicrotasks();
+		worker.emitMessage({
+			wireVersion: 1,
+			direction: 'serverWorkerToMain',
+			kind: 'health',
+			requestId: 'bootstrap-request',
+			status: 'ready',
+			transferDescriptors: [],
+		});
+		await flushTransportMicrotasks();
+
+		dispatcher.dispatch(
+			encodeBridgeWorkerMetadataInterestUpdateCommand({
+				requestId: 'request-metadata-interest-after-ready',
+				epoch: 2,
+				request: {
+					protocol: 'review',
+					streamId: 'stream-1',
+					generation: 3,
+					itemIds: ['item-2'],
+					lane: 'visible',
+				},
+			}),
+		);
+		await flushTransportMicrotasks();
+		worker.emitError();
+		await flushTransportMicrotasks();
+
+		expect(worker.terminateCount).toBe(1);
+		expect(publishedMessages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'bootstrap-request',
+				status: 'ready',
+				transferDescriptors: [],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'bootstrap-request',
+				status: 'degraded',
+				message: 'Bridge comm worker transport failed during bootstrap.',
+				transferDescriptors: [],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'request-metadata-interest-after-ready',
+				status: 'degraded',
+				message:
+					'Bridge comm worker transport failed before bridge.metadata_interest.update delivery.',
 				transferDescriptors: [],
 			},
 		]);

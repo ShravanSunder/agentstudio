@@ -2,10 +2,7 @@ import type { MutableRefObject, ReactElement } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { BridgePageHandshakeSession } from '../bridge/bridge-page-handshake.js';
-import {
-	createBridgeRPCClient,
-	type BridgeActiveViewerSource,
-} from '../bridge/bridge-rpc-client.js';
+import type { BridgeActiveViewerSource } from '../bridge/bridge-rpc-client.js';
 import type { ReviewTreeRowMetadata } from '../features/review/models/review-protocol-models.js';
 import { startBridgeFrameJankProbe } from '../foundation/diagnostics/bridge-frame-jank-probe.js';
 import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-frame-liveness-probe.js';
@@ -15,7 +12,6 @@ import type {
 	BridgeTelemetryFlushProps,
 	BridgeTelemetryRecorder,
 } from '../foundation/telemetry/bridge-telemetry-recorder.js';
-import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
 import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-types.js';
 import { useBridgeReviewProjectionCoordinator } from '../review-viewer/projections/use-review-projection-coordinator.js';
@@ -57,7 +53,6 @@ import {
 } from './bridge-app-review-selection-state.js';
 import { useBridgeReviewRenderTelemetryController } from './bridge-app-review-telemetry-controller.js';
 import {
-	createChildTraceContext,
 	makeTelemetryPackageKey,
 	type BridgeReviewPackageTelemetryContext,
 } from './bridge-app-review-telemetry.js';
@@ -116,6 +111,7 @@ export function BridgeReviewViewerMode(
 		selectionSliceRef,
 		markFileViewed,
 		setReviewViewportItemIds,
+		sendMetadataInterestRequest,
 		setSelectedReviewItemId,
 		synchronizeReviewSource,
 		visibleCodeViewItems,
@@ -185,25 +181,6 @@ export function BridgeReviewViewerMode(
 			generation: reviewPackage.reviewGeneration,
 		});
 	}, [getReviewFrameAuthority, onActiveSourceChange, reviewPackage]);
-	const rpcClient = useMemo(
-		() =>
-			createBridgeRPCClient({
-				target,
-				getTraceContext: (): BridgeTraceContext | null =>
-					telemetryRecorderRef.current.isEnabled('web')
-						? createChildTraceContext(
-								currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
-							)
-						: null,
-				telemetryRecorder: {
-					isEnabled: (scope) => telemetryRecorderRef.current.isEnabled(scope),
-					record: (sample) => telemetryRecorderRef.current.record(sample),
-					measure: (measureProps) => telemetryRecorderRef.current.measure(measureProps),
-					flush: (flushProps) => telemetryRecorderRef.current.flush(flushProps),
-				},
-			}),
-		[target, telemetryRecorderRef],
-	);
 	const projectionWorkerClient = useMemo(
 		(): BridgeReviewProjectionWorkerClient | null =>
 			props.projectionWorkerClient === undefined
@@ -254,8 +231,8 @@ export function BridgeReviewViewerMode(
 		bridgeReadyEpoch,
 		isActive: props.isActive,
 		reviewPackage,
-		rpcClient,
 		selectedItemId: rootSnapshot.selectedItemId,
+		sendMetadataInterestRequest,
 		setVisibleContentItemIds: setReviewVisibleItemIds,
 	});
 	useEffect(

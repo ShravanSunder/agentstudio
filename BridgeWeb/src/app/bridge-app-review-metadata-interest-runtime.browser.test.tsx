@@ -2,29 +2,19 @@ import { act, type ReactElement, useState } from 'react';
 import { describe, expect, test } from 'vitest';
 import { render } from 'vitest-browser-react';
 
-import type { BridgeRPCClient, BridgeRPCCommand } from '../bridge/bridge-rpc-client.js';
 import {
 	makeBridgeReviewItem,
 	makeBridgeReviewPackage,
 } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
+import type { ReviewMetadataInterestRequest } from './bridge-app-review-metadata-interest-controller.js';
 import { useBridgeReviewMetadataInterestRuntime } from './bridge-app-review-metadata-interest-runtime.js';
 
 describe('Bridge review metadata interest runtime', () => {
 	test('replays current interest after bridge-ready when pre-ready dispatch was dropped', async () => {
 		document.body.replaceChildren();
-		const commandDetails: BridgeRPCCommand[] = [];
+		const commandDetails: SentMetadataInterestCommand[] = [];
 		let sendAccepted = false;
-		const rpcClient: BridgeRPCClient = {
-			sendCommand: (command): boolean => {
-				commandDetails.push(command);
-				return sendAccepted;
-			},
-			sendCommandAndWait: async (command): Promise<boolean> => {
-				commandDetails.push(command);
-				return sendAccepted;
-			},
-		};
 		const reviewPackage = makeReviewPackageWithIdentity({
 			itemIds: ['item-a', 'item-b'],
 			packageId: 'package-a',
@@ -34,7 +24,13 @@ describe('Bridge review metadata interest runtime', () => {
 		render(
 			<RuntimeHarness
 				reviewPackage={reviewPackage}
-				rpcClient={rpcClient}
+				sendMetadataInterestRequest={(request): Promise<boolean> =>
+					recordMetadataInterestCommand({
+						commands: commandDetails,
+						didSend: sendAccepted,
+						request,
+					})
+				}
 				selectedItemId="item-a"
 				setVisibleContentItemIds={(): void => {}}
 			/>,
@@ -63,19 +59,8 @@ describe('Bridge review metadata interest runtime', () => {
 
 	test('retries current interest after a transient post-ready RPC failure without UI input', async () => {
 		document.body.replaceChildren();
-		const commandDetails: BridgeRPCCommand[] = [];
+		const commandDetails: SentMetadataInterestCommand[] = [];
 		let sendAttemptCount = 0;
-		const rpcClient: BridgeRPCClient = {
-			sendCommand: (command): boolean => {
-				commandDetails.push(command);
-				return true;
-			},
-			sendCommandAndWait: async (command): Promise<boolean> => {
-				sendAttemptCount += 1;
-				commandDetails.push(command);
-				return sendAttemptCount > 1;
-			},
-		};
 		const reviewPackage = makeReviewPackageWithIdentity({
 			itemIds: ['item-a', 'item-b'],
 			packageId: 'package-a',
@@ -86,7 +71,14 @@ describe('Bridge review metadata interest runtime', () => {
 		render(
 			<RuntimeHarness
 				reviewPackage={reviewPackage}
-				rpcClient={rpcClient}
+				sendMetadataInterestRequest={(request): Promise<boolean> => {
+					sendAttemptCount += 1;
+					return recordMetadataInterestCommand({
+						commands: commandDetails,
+						didSend: sendAttemptCount > 1,
+						request,
+					});
+				}}
 				selectedItemId="item-a"
 				setVisibleContentItemIds={(): void => {}}
 			/>,
@@ -113,27 +105,8 @@ describe('Bridge review metadata interest runtime', () => {
 
 	test('retries only the failed interest lane after a partial transient RPC failure', async () => {
 		document.body.replaceChildren();
-		const commandDetails: BridgeRPCCommand[] = [];
+		const commandDetails: SentMetadataInterestCommand[] = [];
 		let visibleFailureConsumed = false;
-		const rpcClient: BridgeRPCClient = {
-			sendCommand: (command): boolean => {
-				commandDetails.push(command);
-				return true;
-			},
-			sendCommandAndWait: async (command): Promise<boolean> => {
-				commandDetails.push(command);
-				if (
-					command.method === 'bridge.metadata_interest.update' &&
-					command.params.lane === 'visible' &&
-					command.params.itemIds?.includes('item-b') === true &&
-					!visibleFailureConsumed
-				) {
-					visibleFailureConsumed = true;
-					return false;
-				}
-				return true;
-			},
-		};
 		const reviewPackage = makeReviewPackageWithIdentity({
 			itemIds: ['item-a', 'item-b'],
 			packageId: 'package-a',
@@ -144,7 +117,20 @@ describe('Bridge review metadata interest runtime', () => {
 		render(
 			<RuntimeHarness
 				reviewPackage={reviewPackage}
-				rpcClient={rpcClient}
+				sendMetadataInterestRequest={(request): Promise<boolean> => {
+					const shouldFailVisible =
+						request.lane === 'visible' &&
+						request.itemIds.includes('item-b') &&
+						!visibleFailureConsumed;
+					if (shouldFailVisible) {
+						visibleFailureConsumed = true;
+					}
+					return recordMetadataInterestCommand({
+						commands: commandDetails,
+						didSend: !shouldFailVisible,
+						request,
+					});
+				}}
 				selectedItemId="item-a"
 				setVisibleContentItemIds={(): void => {}}
 			/>,
@@ -193,22 +179,8 @@ describe('Bridge review metadata interest runtime', () => {
 
 	test('resets exhausted metadata retry budget for a fresh request signature', async () => {
 		document.body.replaceChildren();
-		const commandDetails: BridgeRPCCommand[] = [];
+		const commandDetails: SentMetadataInterestCommand[] = [];
 		let failForegroundInterest = false;
-		const rpcClient: BridgeRPCClient = {
-			sendCommand: (command): boolean => {
-				commandDetails.push(command);
-				return true;
-			},
-			sendCommandAndWait: async (command): Promise<boolean> => {
-				commandDetails.push(command);
-				return !(
-					failForegroundInterest &&
-					command.method === 'bridge.metadata_interest.update' &&
-					command.params.lane === 'foreground'
-				);
-			},
-		};
 		const reviewPackage = makeReviewPackageWithIdentity({
 			itemIds: ['item-a', 'item-b'],
 			packageId: 'package-a',
@@ -219,7 +191,13 @@ describe('Bridge review metadata interest runtime', () => {
 		render(
 			<RuntimeHarness
 				reviewPackage={reviewPackage}
-				rpcClient={rpcClient}
+				sendMetadataInterestRequest={(request): Promise<boolean> =>
+					recordMetadataInterestCommand({
+						commands: commandDetails,
+						didSend: !(failForegroundInterest && request.lane === 'foreground'),
+						request,
+					})
+				}
 				selectedItemId="item-a"
 				setVisibleContentItemIds={(): void => {}}
 			/>,
@@ -262,18 +240,8 @@ describe('Bridge review metadata interest runtime', () => {
 
 	test('dispatches hook-driven interest updates and clears stale surface ids across package revisions', async () => {
 		document.body.replaceChildren();
-		const commandDetails: BridgeRPCCommand[] = [];
+		const commandDetails: SentMetadataInterestCommand[] = [];
 		const visibleContentItemIdsCalls: string[][] = [];
-		const rpcClient: BridgeRPCClient = {
-			sendCommand: (command): boolean => {
-				commandDetails.push(command);
-				return true;
-			},
-			sendCommandAndWait: async (command): Promise<boolean> => {
-				commandDetails.push(command);
-				return true;
-			},
-		};
 		const packageRevisionA = makeReviewPackageWithIdentity({
 			itemIds: ['item-a', 'item-b'],
 			packageId: 'package-a',
@@ -283,7 +251,13 @@ describe('Bridge review metadata interest runtime', () => {
 		render(
 			<RuntimeHarness
 				reviewPackage={packageRevisionA}
-				rpcClient={rpcClient}
+				sendMetadataInterestRequest={(request): Promise<boolean> =>
+					recordMetadataInterestCommand({
+						commands: commandDetails,
+						didSend: true,
+						request,
+					})
+				}
 				selectedItemId="item-a"
 				setVisibleContentItemIds={(itemIds): void => {
 					visibleContentItemIdsCalls.push([...itemIds]);
@@ -335,17 +309,7 @@ describe('Bridge review metadata interest runtime', () => {
 
 	test('clears both interest lanes on hide and re-declares interest on show', async () => {
 		document.body.replaceChildren();
-		const commandDetails: BridgeRPCCommand[] = [];
-		const rpcClient: BridgeRPCClient = {
-			sendCommand: (command): boolean => {
-				commandDetails.push(command);
-				return true;
-			},
-			sendCommandAndWait: async (command): Promise<boolean> => {
-				commandDetails.push(command);
-				return true;
-			},
-		};
+		const commandDetails: SentMetadataInterestCommand[] = [];
 		const reviewPackage = makeReviewPackageWithIdentity({
 			itemIds: ['item-a', 'item-b'],
 			packageId: 'package-a',
@@ -357,7 +321,13 @@ describe('Bridge review metadata interest runtime', () => {
 		render(
 			<RuntimeHarness
 				reviewPackage={reviewPackage}
-				rpcClient={rpcClient}
+				sendMetadataInterestRequest={(request): Promise<boolean> =>
+					recordMetadataInterestCommand({
+						commands: commandDetails,
+						didSend: true,
+						request,
+					})
+				}
 				selectedItemId="item-a"
 				setVisibleContentItemIds={(): void => {}}
 			/>,
@@ -400,7 +370,9 @@ describe('Bridge review metadata interest runtime', () => {
 function RuntimeHarness(props: {
 	readonly isActive?: boolean;
 	readonly reviewPackage: BridgeReviewPackage;
-	readonly rpcClient: BridgeRPCClient;
+	readonly sendMetadataInterestRequest: (
+		request: ReviewMetadataInterestRequest,
+	) => Promise<boolean>;
 	readonly selectedItemId: string | null;
 	readonly setVisibleContentItemIds: (itemIds: readonly string[]) => void;
 }): ReactElement {
@@ -413,7 +385,7 @@ function RuntimeHarness(props: {
 		bridgeReadyEpoch,
 		isActive,
 		reviewPackage,
-		rpcClient: props.rpcClient,
+		sendMetadataInterestRequest: props.sendMetadataInterestRequest,
 		selectedItemId,
 		setVisibleContentItemIds: props.setVisibleContentItemIds,
 	});
@@ -494,8 +466,28 @@ function makeReviewPackageWithIdentity(props: {
 	};
 }
 
+interface SentMetadataInterestCommand {
+	readonly method: 'bridge.metadata_interest.update';
+	readonly params: ReviewMetadataInterestRequest;
+}
+
+function recordMetadataInterestCommand(props: {
+	readonly commands: SentMetadataInterestCommand[];
+	readonly didSend: boolean;
+	readonly request: ReviewMetadataInterestRequest;
+}): Promise<boolean> {
+	props.commands.push({
+		method: 'bridge.metadata_interest.update',
+		params: {
+			...props.request,
+			itemIds: [...props.request.itemIds],
+		},
+	});
+	return Promise.resolve(props.didSend);
+}
+
 function lastCommandsByLane(
-	commands: readonly BridgeRPCCommand[],
+	commands: readonly SentMetadataInterestCommand[],
 ): Readonly<Record<'foreground' | 'visible', readonly string[] | null>> {
 	return {
 		foreground: lastItemIdsForLane({
@@ -510,7 +502,7 @@ function lastCommandsByLane(
 }
 
 function lastItemIdsForLane(props: {
-	readonly commands: readonly BridgeRPCCommand[];
+	readonly commands: readonly SentMetadataInterestCommand[];
 	readonly lane: 'foreground' | 'visible';
 }): readonly string[] | null {
 	for (const command of props.commands.toReversed()) {
@@ -525,7 +517,7 @@ function lastItemIdsForLane(props: {
 }
 
 function metadataInterestCommandCount(props: {
-	readonly commands: readonly BridgeRPCCommand[];
+	readonly commands: readonly SentMetadataInterestCommand[];
 	readonly lane: 'foreground' | 'visible';
 }): number {
 	return props.commands.filter(

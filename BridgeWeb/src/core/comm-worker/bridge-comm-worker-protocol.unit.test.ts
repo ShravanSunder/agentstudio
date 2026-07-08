@@ -4,6 +4,7 @@ import {
 	encodeBridgeWorkerFileViewSourceUpdateCommand,
 	encodeBridgeWorkerHoverCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
+	encodeBridgeWorkerMetadataInterestUpdateCommand,
 	encodeBridgeWorkerModeCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
@@ -15,7 +16,7 @@ import {
 } from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker protocol', () => {
-	test('encodes select viewport hover markViewed and mode commands through BridgeWorkerContracts', () => {
+	test('encodes select viewport hover ordinary RPC and mode commands through BridgeWorkerContracts', () => {
 		const commands = [
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-select',
@@ -41,6 +42,18 @@ describe('Bridge comm worker protocol', () => {
 				epoch: 1,
 				fileId: 'item-1',
 			}),
+			encodeBridgeWorkerMetadataInterestUpdateCommand({
+				requestId: 'request-metadata-interest',
+				epoch: 1,
+				request: {
+					protocol: 'review',
+					streamId: 'stream-1',
+					generation: 7,
+					itemIds: ['item-1', 'item-2'],
+					lane: 'visible',
+					loaded_by: 'visible',
+				},
+			}),
 			encodeBridgeWorkerModeCommand({
 				requestId: 'request-mode',
 				epoch: 1,
@@ -53,6 +66,7 @@ describe('Bridge comm worker protocol', () => {
 			'viewport',
 			'hover',
 			'markFileViewed',
+			'metadataInterestUpdate',
 			'mode',
 		]);
 		for (const command of commands) {
@@ -65,6 +79,14 @@ describe('Bridge comm worker protocol', () => {
 		expect(commands[3]).toMatchObject({
 			command: 'markFileViewed',
 			fileId: 'item-1',
+		});
+		expect(commands[4]).toMatchObject({
+			command: 'metadataInterestUpdate',
+			request: {
+				protocol: 'review',
+				itemIds: ['item-1', 'item-2'],
+				lane: 'visible',
+			},
 		});
 	});
 

@@ -3219,3 +3219,66 @@ counts before claiming a gate.
   ack cutover, does not prove native oq4s scroll/click budgets, does not close
   Review main-thread apply/materialization lag, does not claim implementation
   review swarm, PR readiness, or full goal completion.
+
+### 2026-07-08 G6 Review metadata-interest worker RPC hard cutover
+
+- Scope: narrow G6 ordinary-RPC cutover for
+  `bridge.metadata_interest.update`. Review metadata-interest runtime no longer
+  owns a page-world `BridgeRPCClient`; it receives a full
+  `ReviewMetadataInterestRequest` sender callback. The render snapshot
+  controller dispatches typed `metadataInterestUpdate` worker commands, and the
+  comm worker forwards them to Swift through scheme RPC POST.
+- Root cause: metadata-interest was the remaining Review ordinary-RPC sibling
+  after `review.markFileViewed`. Keeping it on page-owned RPC preserved a dual
+  carrier and could mask worker-path failures. The first WIP also needed the
+  same correlated transport failure semantics as mark-viewed, otherwise
+  metadata-interest retry could hang or stop without true native delivery.
+- Fix: added Zod-derived `metadataInterestUpdate` worker contract, protocol
+  encoder, inert client method, command-handler acceptance, worker runtime
+  scheme-RPC forwarding, and request-correlated ready/degraded resolution in
+  the render snapshot controller. Transport failure fan-out is generalized from
+  mark-viewed-only tracking to awaited ordinary RPC command tracking for queued
+  and in-flight requests. Runtime command routing and Review worker health
+  resolution were extracted so touched large files did not keep growing.
+- Red evidence:
+  The focused metadata-interest battery first failed because
+  `encodeBridgeWorkerMetadataInterestUpdateCommand` was missing and the source
+  guard still found `createBridgeRPCClient`/`rpcClient` in
+  `BridgeReviewViewerMode`. After sidekick review, added queued and in-flight
+  metadata-interest transport failure tests; they failed because transport
+  emitted only bootstrap degraded health and no request-correlated degraded
+  event. Runtime metadata-interest tests also failed until the command had a
+  worker telemetry lane.
+- Green evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/core/comm-worker/bridge-comm-worker-protocol.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-command-handler.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-runtime-protocol.unit.test.ts
+  src/app/bridge-app-review-render-snapshot-controller.unit.test.ts
+  src/review-viewer/review-viewer-source-structure.unit.test.ts
+  src/review-viewer/workers/shared-rpc/bridge-comm-worker-transport.unit.test.ts
+  --reporter dot` passed 6 files / 94 tests. `CI=true pnpm --dir BridgeWeb
+  exec vitest --config vitest.browser.config.ts run --project
+  integration-browser
+  src/app/bridge-app-review-metadata-interest-runtime.browser.test.tsx
+  --reporter dot` passed 1 file / 6 tests. `pnpm --dir BridgeWeb exec
+  tsc --noEmit --pretty false` passed. Scoped `oxfmt --check`, scoped
+  `oxlint --type-aware`, and `git diff --check` passed. Source scans found no
+  `createBridgeRPCClient`, `BridgeRPCClient`, `sendCommandAndWait`,
+  `rpcClient`, or `bridge.metadata_interest.update` in the production Review
+  metadata-interest runtime/mode files.
+- File-size proof:
+  `bridge-app-review-render-snapshot-controller.ts` was 753 lines at HEAD and
+  is 769 after extraction. `bridge-comm-worker-runtime-protocol.ts` was 830
+  lines at HEAD and is 806 after extracting runtime command routing.
+- Sidekick evidence:
+  Hilbert reviewed the metadata-interest cutover and identified the
+  request-correlated delivery contract, the mark-viewed-only transport fan-out,
+  full DTO preservation for stale clears, and mandatory deletion fence. The
+  accepted P1/P2 items are represented in the tests and fixes above.
+- Known proof boundary:
+  This is one ordinary Review RPC cutover only. It does not finish
+  scheme-stream push/intake/ack cutover, does not prove native oq4s
+  scroll/click budgets, does not close Review main-thread apply/materialization
+  lag, does not claim implementation review swarm, PR readiness, or full goal
+  completion.

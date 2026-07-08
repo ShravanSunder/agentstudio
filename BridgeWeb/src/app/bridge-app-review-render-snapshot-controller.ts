@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'r
 
 import {
 	encodeBridgeWorkerMarkFileViewedCommand,
+	encodeBridgeWorkerMetadataInterestUpdateCommand,
 	encodeBridgeWorkerReviewInvalidateCommand,
 	encodeBridgeWorkerReviewSourceUpdateCommand,
 	encodeBridgeWorkerSelectCommand,
@@ -60,6 +61,11 @@ import {
 	createBridgeReviewCommWorkerTransportDispatcher,
 	type BridgeReviewCommWorkerTransportDispatcher,
 } from '../review-viewer/workers/shared-rpc/bridge-comm-worker-transport.js';
+import type { ReviewMetadataInterestRequest } from './bridge-app-review-metadata-interest-controller.js';
+import {
+	resolveBridgeWorkerMarkFileViewedFailureCallbacks,
+	resolveBridgeWorkerMetadataInterestRequestResolvers,
+} from './bridge-app-review-worker-health-resolvers.js';
 import { bridgeReviewContentByteBoundsForHandle } from './bridge-review-content-byte-budget.js';
 
 export interface UseBridgeReviewRenderSnapshotControllerProps {
@@ -80,6 +86,9 @@ export interface BridgeReviewRenderSnapshotController {
 	readonly selectionSlice: BridgeReviewSelectionSlice;
 	readonly selectionSliceRef: MutableRefObject<BridgeReviewSelectionSlice>;
 	readonly setReviewViewportItemIds: (itemIds: readonly string[]) => void;
+	readonly sendMetadataInterestRequest: (
+		request: ReviewMetadataInterestRequest,
+	) => Promise<boolean>;
 	readonly setSelectedReviewItemId: (itemId: string | null) => void;
 	readonly synchronizeReviewSource: (source: BridgeReviewRuntimeSourceSnapshot) => void;
 	readonly visibleCodeViewItems: readonly BridgeMainCodeViewItem[];
@@ -146,12 +155,19 @@ export function useBridgeReviewRenderSnapshotController(
 	const viewportSliceRef = useRef(viewportSlice);
 	viewportSliceRef.current = viewportSlice;
 	const markFileViewedFailureCallbacksRef = useRef<Map<string, () => void>>(new Map());
+	const metadataInterestRequestResolversRef = useRef<Map<string, (didSend: boolean) => void>>(
+		new Map(),
+	);
 
 	const publishWorkerMessages = useCallback(
 		(messages: readonly BridgeWorkerServerToMainMessage[]): void => {
 			resolveBridgeWorkerMarkFileViewedFailureCallbacks({
 				failureCallbacksByRequestId: markFileViewedFailureCallbacksRef.current,
 				messages,
+			});
+			resolveBridgeWorkerMetadataInterestRequestResolvers({
+				messages,
+				resolversByRequestId: metadataInterestRequestResolversRef.current,
 			});
 			applyBridgeWorkerMessagesToMainRenderSnapshotStore({
 				messages,
@@ -272,6 +288,24 @@ export function useBridgeReviewRenderSnapshotController(
 		},
 		[props.reviewPackage, runtimeDispatcher, synchronizeLatestReviewSource],
 	);
+	const sendMetadataInterestRequest = useCallback(
+		(request: ReviewMetadataInterestRequest): Promise<boolean> => {
+			const requestId = nextBridgeReviewWorkerRequestId(requestSequenceRef);
+			const completion = new Promise<boolean>((resolve): void => {
+				metadataInterestRequestResolversRef.current.set(requestId, resolve);
+			});
+			synchronizeLatestReviewSource();
+			runtimeDispatcher.dispatch(
+				encodeBridgeWorkerMetadataInterestUpdateCommand({
+					requestId,
+					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
+					request,
+				}),
+			);
+			return completion;
+		},
+		[runtimeDispatcher, synchronizeLatestReviewSource],
+	);
 	const setReviewViewportItemIds = useCallback(
 		(itemIds: readonly string[]): void => {
 			synchronizeLatestReviewSource();
@@ -322,6 +356,7 @@ export function useBridgeReviewRenderSnapshotController(
 		selectionSlice,
 		selectionSliceRef,
 		setReviewViewportItemIds,
+		sendMetadataInterestRequest,
 		setSelectedReviewItemId,
 		synchronizeReviewSource,
 		visibleCodeViewItems,
@@ -696,25 +731,6 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 				break;
 			default:
 				assertNeverBridgeWorkerServerMessage(message);
-		}
-	}
-}
-
-export function resolveBridgeWorkerMarkFileViewedFailureCallbacks(props: {
-	readonly failureCallbacksByRequestId: Map<string, () => void>;
-	readonly messages: readonly BridgeWorkerServerToMainMessage[];
-}): void {
-	for (const message of props.messages) {
-		if (message.kind !== 'health' || message.requestId === undefined) {
-			continue;
-		}
-		const onDeliveryFailure = props.failureCallbacksByRequestId.get(message.requestId);
-		if (onDeliveryFailure === undefined) {
-			continue;
-		}
-		props.failureCallbacksByRequestId.delete(message.requestId);
-		if (message.status === 'degraded') {
-			onDeliveryFailure();
 		}
 	}
 }

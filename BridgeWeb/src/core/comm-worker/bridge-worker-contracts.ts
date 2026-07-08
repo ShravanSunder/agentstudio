@@ -8,6 +8,7 @@ import {
 	bridgeReviewContentLineCountsByRoleSchema,
 } from '../../foundation/review-package/bridge-review-package-schema.js';
 import { bridgeTelemetryScopeSchema } from '../../foundation/telemetry/bridge-telemetry-scope.js';
+import { bridgeDemandLaneSchema } from '../models/bridge-demand-models.js';
 import {
 	bridgeWorkerDemandRankSchema,
 	bridgeWorkerPierreRenderBudgetSchema,
@@ -73,6 +74,25 @@ export const bridgeWorkerMarkFileViewedCommandSchema = bridgeWorkerMainToServerB
 	.extend({
 		command: z.literal('markFileViewed'),
 		fileId: z.string().min(1),
+	})
+	.strict();
+
+export const bridgeWorkerMetadataInterestRequestSchema = z
+	.object({
+		protocol: z.literal('review'),
+		streamId: z.string().min(1).optional(),
+		generation: z.number().int().nonnegative().optional(),
+		itemIds: z.array(z.string().min(1)).readonly().optional(),
+		paths: z.array(z.string().min(1)).readonly().optional(),
+		lane: bridgeDemandLaneSchema,
+		loaded_by: z.enum(['foreground', 'visible', 'nearby', 'speculative', 'idle']).optional(),
+	})
+	.strict();
+
+export const bridgeWorkerMetadataInterestUpdateCommandSchema = bridgeWorkerMainToServerBaseSchema
+	.extend({
+		command: z.literal('metadataInterestUpdate'),
+		request: bridgeWorkerMetadataInterestRequestSchema,
 	})
 	.strict();
 
@@ -271,6 +291,7 @@ const bridgeWorkerMainToServerCommandBaseSchema = z.discriminatedUnion('command'
 	bridgeWorkerViewportCommandSchema,
 	bridgeWorkerHoverCommandSchema,
 	bridgeWorkerMarkFileViewedCommandSchema,
+	bridgeWorkerMetadataInterestUpdateCommandSchema,
 	bridgeWorkerModeCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
 	bridgeWorkerReviewSourceUpdateCommandSchema,
@@ -446,6 +467,12 @@ export type BridgeWorkerViewportCommand = z.infer<typeof bridgeWorkerViewportCom
 export type BridgeWorkerHoverCommand = z.infer<typeof bridgeWorkerHoverCommandSchema>;
 export type BridgeWorkerMarkFileViewedCommand = z.infer<
 	typeof bridgeWorkerMarkFileViewedCommandSchema
+>;
+export type BridgeWorkerMetadataInterestRequest = z.infer<
+	typeof bridgeWorkerMetadataInterestRequestSchema
+>;
+export type BridgeWorkerMetadataInterestUpdateCommand = z.infer<
+	typeof bridgeWorkerMetadataInterestUpdateCommandSchema
 >;
 export type BridgeWorkerModeCommand = z.infer<typeof bridgeWorkerModeCommandSchema>;
 export type BridgeWorkerReviewInvalidateCommand = z.infer<

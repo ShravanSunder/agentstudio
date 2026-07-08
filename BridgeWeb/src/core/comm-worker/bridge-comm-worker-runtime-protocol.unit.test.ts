@@ -4,6 +4,7 @@ import type { BridgeRPCCommand } from '../../bridge/bridge-rpc-client.js';
 import {
 	encodeBridgeWorkerFileViewSourceUpdateCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
+	encodeBridgeWorkerMetadataInterestUpdateCommand,
 	encodeBridgeWorkerReviewSourceUpdateCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
@@ -179,6 +180,127 @@ describe('Bridge comm worker runtime protocol', () => {
 				requestId: 'request-stale',
 				status: 'degraded',
 				message: 'Bridge comm worker rejected stale epoch 2 after 3.',
+			}),
+		);
+	});
+
+	test('forwards metadataInterestUpdate commands to Swift through worker-owned scheme RPC', async () => {
+		const sentCommands: BridgeRPCCommand[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const schemeRpcCompletion = createDeferredVoid();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+			contentRequestDescriptors: [],
+			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			sendSchemeRpcCommand: async (command): Promise<void> => {
+				sentCommands.push(command);
+				await schemeRpcCompletion.promise;
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerMetadataInterestUpdateCommand({
+				requestId: 'request-metadata-interest',
+				epoch: 3,
+				request: {
+					protocol: 'review',
+					streamId: 'stream-1',
+					generation: 7,
+					itemIds: ['item-1'],
+					lane: 'foreground',
+					loaded_by: 'foreground',
+				},
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		expect(sentCommands).toEqual([
+			{
+				method: 'bridge.metadata_interest.update',
+				params: {
+					protocol: 'review',
+					streamId: 'stream-1',
+					generation: 7,
+					itemIds: ['item-1'],
+					lane: 'foreground',
+					loaded_by: 'foreground',
+				},
+			},
+		]);
+		expect(postedMessages.map((postedMessage) => postedMessage.message)).not.toContainEqual(
+			expect.objectContaining({
+				kind: 'health',
+				requestId: 'request-metadata-interest',
+				status: 'ready',
+			}),
+		);
+		schemeRpcCompletion.resolve();
+		await flushBridgeWorkerRuntimeContinuations();
+
+		expect(postedMessages.map((postedMessage) => postedMessage.message)).toContainEqual(
+			expect.objectContaining({
+				kind: 'health',
+				requestId: 'request-metadata-interest',
+				status: 'ready',
+			}),
+		);
+	});
+
+	test('reports degraded health when metadataInterestUpdate scheme RPC forwarding fails', async () => {
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+			contentRequestDescriptors: [],
+			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			sendSchemeRpcCommand: async (): Promise<void> => {
+				throw new Error('scheme down');
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerMetadataInterestUpdateCommand({
+				requestId: 'request-metadata-interest',
+				epoch: 3,
+				request: {
+					protocol: 'review',
+					streamId: 'stream-1',
+					generation: 7,
+					itemIds: ['item-1'],
+					lane: 'foreground',
+				},
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		expect(postedMessages.map((postedMessage) => postedMessage.message)).toContainEqual(
+			expect.objectContaining({
+				kind: 'health',
+				requestId: 'request-metadata-interest',
+				status: 'degraded',
+				message: 'Bridge comm worker failed to forward bridge.metadata_interest.update.',
+			}),
+		);
+		expect(postedMessages.map((postedMessage) => postedMessage.message)).not.toContainEqual(
+			expect.objectContaining({
+				kind: 'health',
+				requestId: 'request-metadata-interest',
+				status: 'ready',
 			}),
 		);
 	});

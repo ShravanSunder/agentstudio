@@ -24,6 +24,10 @@ import {
 	canRenderBridgeWorkerReviewContentForSemantics,
 	type BridgeWorkerReviewContentResourceFetch,
 } from './bridge-comm-worker-review-runtime.js';
+import {
+	bridgeCommWorkerTelemetryLaneForMessage,
+	bridgeWorkerRuntimeSchemeRpcCommandForMessage,
+} from './bridge-comm-worker-runtime-command-routing.js';
 import type {
 	BridgeCommWorkerRow,
 	BridgeCommWorkerStore,
@@ -32,7 +36,6 @@ import type {
 import {
 	recordBridgeCommWorkerTaskTelemetry,
 	readBridgeCommWorkerAbsoluteNowMilliseconds,
-	type BridgeCommWorkerTelemetryLane,
 	type BridgeCommWorkerTelemetryRecorder,
 } from './bridge-comm-worker-telemetry.js';
 import {
@@ -43,7 +46,6 @@ import {
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeWorkerMainToServerMessageSchema,
-	type BridgeWorkerMainToServerMessage,
 	type BridgeWorkerReviewContentMetadata,
 	type BridgeWorkerReviewContentRequestDescriptor,
 	type BridgeWorkerReviewRenderSemantics,
@@ -342,42 +344,40 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		recordBridgeCommWorkerTaskTelemetry({
 			command: parsedMessage.data.command,
 			durationMilliseconds: handlerDurationMilliseconds,
-			lane: bridgeCommWorkerTelemetryLaneForCommand(parsedMessage.data.command),
+			lane: bridgeCommWorkerTelemetryLaneForMessage(parsedMessage.data),
 			queueWaitMilliseconds,
 			taskKind: 'message_handler',
 			...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 		});
-		const markFileViewedMessage =
-			parsedMessage.data.command === 'markFileViewed' ? parsedMessage.data : null;
-		const shouldForwardMarkFileViewed =
-			markFileViewedMessage !== null &&
+		const ordinarySchemeRpcCommand = bridgeWorkerRuntimeSchemeRpcCommandForMessage(
+			parsedMessage.data,
+		);
+		const shouldForwardOrdinarySchemeRpcCommand =
+			ordinarySchemeRpcCommand !== null &&
 			bridgeWorkerRuntimeMessagesContainReadyRequest({
 				messages,
-				requestId: markFileViewedMessage.requestId,
+				requestId: ordinarySchemeRpcCommand.requestId,
 			});
-		const immediateMessages = shouldForwardMarkFileViewed
+		const immediateMessages = shouldForwardOrdinarySchemeRpcCommand
 			? messages.filter(
 					(message): boolean =>
 						!bridgeWorkerRuntimeMessageIsReadyRequest({
 							message,
-							requestId: markFileViewedMessage.requestId,
+							requestId: ordinarySchemeRpcCommand.requestId,
 						}),
 				)
 			: messages;
 		for (const message of immediateMessages) {
 			port.postMessage(message);
 		}
-		if (markFileViewedMessage !== null && shouldForwardMarkFileViewed) {
-			void sendSchemeRpcCommand({
-				method: 'review.markFileViewed',
-				params: { fileId: markFileViewedMessage.fileId },
-			})
+		if (ordinarySchemeRpcCommand !== null && shouldForwardOrdinarySchemeRpcCommand) {
+			void sendSchemeRpcCommand(ordinarySchemeRpcCommand.command)
 				.then((): void => {
 					for (const message of messages) {
 						if (
 							bridgeWorkerRuntimeMessageIsReadyRequest({
 								message,
-								requestId: markFileViewedMessage.requestId,
+								requestId: ordinarySchemeRpcCommand.requestId,
 							})
 						) {
 							port.postMessage(message);
@@ -387,8 +387,8 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				.catch((): void => {
 					port.postMessage(
 						buildBridgeWorkerRuntimeCommandFailedHealthEvent({
-							requestId: markFileViewedMessage.requestId,
-							message: 'Bridge comm worker failed to forward review.markFileViewed.',
+							requestId: ordinarySchemeRpcCommand.requestId,
+							message: `Bridge comm worker failed to forward ${ordinarySchemeRpcCommand.command.method}.`,
 						}),
 					);
 				});
@@ -794,31 +794,6 @@ function readBridgeCommWorkerRuntimeNowMilliseconds(now: (() => number) | undefi
 		return now();
 	}
 	return readBridgeCommWorkerAbsoluteNowMilliseconds();
-}
-
-function bridgeCommWorkerTelemetryLaneForCommand(
-	command: BridgeWorkerMainToServerMessage['command'],
-): BridgeCommWorkerTelemetryLane {
-	switch (command) {
-		case 'select':
-			return 'selected';
-		case 'viewport':
-		case 'hover':
-		case 'reviewInvalidate':
-			return 'visible';
-		case 'fileViewSourceUpdate':
-			return 'file_view';
-		case 'markFileViewed':
-		case 'mode':
-		case 'reviewSourceUpdate':
-			return 'background';
-		default:
-			return assertNeverBridgeWorkerCommand(command);
-	}
-}
-
-function assertNeverBridgeWorkerCommand(_command: never): never {
-	throw new Error('Unhandled bridge worker command.');
 }
 
 function scheduleDefaultBridgeCommWorkerPreparationDrain(

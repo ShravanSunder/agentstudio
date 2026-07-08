@@ -162,6 +162,21 @@ describe('Review viewer source structure', () => {
 		expect(selectionControllerSource).not.toContain('@pierre/');
 	});
 
+	test('keeps Review metadata interest off page-owned RPC after ordinary RPC cutover', () => {
+		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
+		const metadataInterestRuntimeSource = readSource(
+			'../app/bridge-app-review-metadata-interest-runtime.ts',
+		);
+
+		expect(modeSource).not.toContain('createBridgeRPCClient');
+		expect(modeSource).not.toContain('rpcClient');
+		expect(metadataInterestRuntimeSource).not.toContain('BridgeRPCClient');
+		expect(metadataInterestRuntimeSource).not.toContain('BridgeRPCCommand');
+		expect(metadataInterestRuntimeSource).not.toContain('sendCommandAndWait');
+		expect(metadataInterestRuntimeSource).not.toContain('bridge.metadata_interest.update');
+		expect(metadataInterestRuntimeSource).toContain('sendMetadataInterestRequest');
+	});
+
 	test('keeps Review hot-path telemetry off forced flushes', () => {
 		const forbiddenOwners = [
 			'../app/bridge-app-review-selection-controller.ts',

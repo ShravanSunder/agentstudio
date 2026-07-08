@@ -29,11 +29,11 @@ import {
 	bridgeCommWorkerRenderSemanticsFromReviewPackage,
 	createBridgeReviewWorkerPierreCourier,
 	createBridgeReviewRuntimeProtocolDispatcher,
-	resolveBridgeWorkerMarkFileViewedFailureCallbacks,
 	selectedContentAvailabilityForReviewPackage,
 	selectedBridgeCodeViewItemForReviewPackage,
 	visibleBridgeCodeViewItemsForReviewPackage,
 } from './bridge-app-review-render-snapshot-controller.js';
+import { resolveBridgeWorkerMarkFileViewedFailureCallbacks } from './bridge-app-review-worker-health-resolvers.js';
 
 describe('Bridge app review render snapshot controller', () => {
 	test('builds a typed bootstrap request for the real comm worker transport', () => {

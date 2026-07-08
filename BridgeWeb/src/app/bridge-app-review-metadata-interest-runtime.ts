@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { BridgeRPCClient, BridgeRPCCommand } from '../bridge/bridge-rpc-client.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeReviewFrameAuthority } from './bridge-app-review-frame-authority.js';
 import {
@@ -27,8 +26,10 @@ export interface UseBridgeReviewMetadataInterestRuntimeProps {
 	readonly bridgeReadyEpoch: number;
 	readonly isActive: boolean;
 	readonly reviewPackage: BridgeReviewPackage | null;
-	readonly rpcClient: BridgeRPCClient;
 	readonly selectedItemId: string | null;
+	readonly sendMetadataInterestRequest: (
+		request: ReviewMetadataInterestRequest,
+	) => Promise<boolean>;
 	readonly setVisibleContentItemIds: (itemIds: readonly string[]) => void;
 }
 
@@ -60,8 +61,8 @@ export function useBridgeReviewMetadataInterestRuntime(
 		bridgeReadyEpoch,
 		isActive,
 		reviewPackage,
-		rpcClient,
 		selectedItemId,
+		sendMetadataInterestRequest,
 		setVisibleContentItemIds,
 	} = props;
 	const latestDispatchIdentityRef = useRef<ReviewMetadataInterestIdentity | null>(null);
@@ -177,10 +178,7 @@ export function useBridgeReviewMetadataInterestRuntime(
 		void Promise.all(
 			requestsToSend.map(
 				async (request): Promise<{ readonly didSend: boolean; readonly requestKey: string }> => ({
-					didSend: await sendReviewMetadataInterestRequest({
-						request,
-						rpcClient,
-					}),
+					didSend: await sendMetadataInterestRequest(request),
 					requestKey: metadataInterestRequestRetryKey(request),
 				}),
 			),
@@ -216,7 +214,7 @@ export function useBridgeReviewMetadataInterestRuntime(
 				setRetryEpoch((currentRetryEpoch): number => currentRetryEpoch + 1);
 			}
 		});
-	}, [bridgeReadyEpoch, requests, retryEpoch, rpcClient]);
+	}, [bridgeReadyEpoch, requests, retryEpoch, sendMetadataInterestRequest]);
 
 	const onCodeViewVisibleItemIdsChange = useCallback(
 		(itemIds: readonly string[]): void => {
@@ -284,20 +282,6 @@ export function reviewMetadataInterestSurfaceIdentityKeyForViewState(props: {
 		String(props.reviewPackage.reviewGeneration),
 		props.reviewPackage.revision,
 	].join(':');
-}
-
-function sendReviewMetadataInterestRequest(props: {
-	readonly request: ReviewMetadataInterestRequest;
-	readonly rpcClient: BridgeRPCClient;
-}): Promise<boolean> {
-	const command: BridgeRPCCommand = {
-		method: 'bridge.metadata_interest.update',
-		params: {
-			...props.request,
-			itemIds: [...props.request.itemIds],
-		},
-	};
-	return props.rpcClient.sendCommandAndWait(command);
 }
 
 function metadataInterestRetryAttemptAvailable(props: {
