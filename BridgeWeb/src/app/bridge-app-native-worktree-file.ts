@@ -41,6 +41,11 @@ import type {
 	WorktreeFileSurfaceRuntimeFetchResourceProps,
 } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import {
+	createBridgeAppNativeWorktreeFileIntakeReadyTransport,
+	sendWorktreeFileIntakeReady,
+	type BridgeAppNativeWorktreeFileIntakeReadySender,
+} from './bridge-app-native-worktree-file-intake-ready.js';
+import {
 	createNativeWorktreeFileTelemetrySink,
 	extractNativeWorktreeFileTelemetryConfig,
 	recordNativeWorktreeFileIntakeRejectTelemetry,
@@ -67,13 +72,13 @@ export interface CreateBridgeAppNativeWorktreeFileBackendProps {
 	readonly rpcEndpointUrl?: string;
 	readonly responseTimeoutMilliseconds?: number;
 	readonly maxFrameBytes?: number;
+	readonly sendWorktreeFileIntakeReady?: BridgeAppNativeWorktreeFileIntakeReadySender;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 }
 
 const nativeWorktreeFileSourceSpecAttribute = 'data-bridge-worktree-file-source-spec';
 const nativeWorktreeFileOpenSourceStreamMethod = 'worktreeFileSurface.openSourceStream';
 const nativeWorktreeFileRequestDescriptorMethod = 'worktreeFileSurface.requestFileDescriptor';
-const bridgeIntakeReadyMethod = 'bridge.intakeReady';
 const defaultResponseTimeoutMilliseconds = 10_000;
 const defaultMaxFrameBytes = 8 * 1024 * 1024;
 let fallbackRequestIdSequence = 0;
@@ -157,6 +162,16 @@ export function createBridgeAppNativeWorktreeFileBackend(
 	const streamResetRequiredCallbacks = new Set<() => void>();
 	const pendingFrames: WorktreeFileProtocolFrame[] = [];
 	const pendingOpenResolvers = new Set<PendingOpenResolver>();
+	const worktreeFileIntakeReadyTransport =
+		props.sendWorktreeFileIntakeReady === undefined
+			? createBridgeAppNativeWorktreeFileIntakeReadyTransport({
+					timeoutMilliseconds:
+						props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
+				})
+			: {
+					send: props.sendWorktreeFileIntakeReady,
+					dispose: (): void => {},
+				};
 	let pushNonce: string | null = null;
 	let disposeIntakeListener: (() => void) | null = null;
 	let activeIntakeListenerIdentity: NativeWorktreeFileStreamIdentity | null = null;
@@ -420,13 +435,10 @@ export function createBridgeAppNativeWorktreeFileBackend(
 						generation: outcome.generation,
 						streamIdMatches: true,
 					});
-					await sendNativeBridgeIntakeReadyCommand({
-						endpointUrl: props.rpcEndpointUrl,
-						fetchRPC: props.fetchRPC,
+					await sendWorktreeFileIntakeReady({
 						generation: outcome.generation,
+						send: worktreeFileIntakeReadyTransport.send,
 						streamId: outcome.streamId,
-						timeoutMilliseconds:
-							props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
 					});
 					const snapshotFrame = await snapshotWait.promise;
 					const replayedFrames = initialSurfaceReplayBuffer?.frames ?? [];
@@ -522,6 +534,7 @@ export function createBridgeAppNativeWorktreeFileBackend(
 			initialSurfaceReplayBuffer = null;
 			resolvedStreamIdentity = null;
 			streamResetRequiredEpisodeKey = null;
+			worktreeFileIntakeReadyTransport.dispose();
 		},
 	};
 }
@@ -650,41 +663,6 @@ function nativeWorktreeFileDescriptorErrorRequiresStreamReset(error: unknown): b
 		error.message.endsWith('worktree_file.source_identity_mismatch') ||
 		error.message.endsWith('worktree_file.stale_source_generation')
 	);
-}
-
-async function sendNativeBridgeIntakeReadyCommand(props: {
-	readonly endpointUrl: string | undefined;
-	readonly fetchRPC: BridgeRPCFetch | undefined;
-	readonly generation: number;
-	readonly streamId: string;
-	readonly timeoutMilliseconds: number;
-}): Promise<void> {
-	try {
-		await sendBridgeRPCRequest({
-			command: {
-				id: `${props.streamId}:generation-${props.generation}:intake-ready`,
-				method: bridgeIntakeReadyMethod,
-				params: {
-					generation: props.generation,
-					protocolId: 'worktree-file',
-					streamId: props.streamId,
-				},
-			},
-			endpointUrl: props.endpointUrl,
-			fetch: props.fetchRPC,
-			timeoutMilliseconds: props.timeoutMilliseconds,
-		});
-	} catch (error) {
-		if (error instanceof BridgeRPCRequestTimeoutError) {
-			throw new Error('Native Worktree/File intake-ready command timed out', { cause: error });
-		}
-		if (error instanceof BridgeRPCResponseError) {
-			throw new Error(`Native Worktree/File intake-ready command failed: ${error.rpcMessage}`, {
-				cause: error,
-			});
-		}
-		throw error;
-	}
 }
 
 function waitForNativeWorktreeSnapshot(props: {

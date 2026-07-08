@@ -365,6 +365,8 @@ function awaitedOrdinaryRpcFailureMessageForCommand(
 			return 'Bridge comm worker transport failed before bridge.metadata_interest.update delivery.';
 		case 'reviewIntakeReady':
 			return 'Bridge comm worker transport failed before bridge.intakeReady delivery.';
+		case 'worktreeFileIntakeReady':
+			return 'Bridge comm worker transport failed before bridge.intakeReady delivery.';
 		case 'activeViewerModeUpdate':
 			return 'Bridge comm worker transport failed before bridge.activeViewerMode.update delivery.';
 		case 'fileViewSourceUpdate':

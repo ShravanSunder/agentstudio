@@ -3490,3 +3490,91 @@ counts before claiming a gate.
   not finish worktree-file intake-ready migration, scheme-stream push/intake/ack
   cutover, native oq4s scroll/click proof, Review apply/materialization lag
   closure, implementation-review-swarm, PR readiness, or full goal completion.
+
+## 2026-07-08 - G6 Worktree/File Intake-Ready Ordinary RPC Cutover
+
+- Commit target:
+  pending local checkpoint `feat(bridge): route worktree file intake ready
+  through comm worker`.
+- Scope:
+  Worktree/File `bridge.intakeReady` no longer uses the page/main direct
+  `sendBridgeRPCRequest` sender from
+  `BridgeWeb/src/app/bridge-app-native-worktree-file.ts`. The backend now calls
+  `sendWorktreeFileIntakeReady` through a typed comm-worker ordinary RPC sender
+  in `BridgeWeb/src/app/bridge-app-native-worktree-file-intake-ready.ts`.
+- Implementation:
+  Added `worktreeFileIntakeReady` to the zod-derived comm-worker command union,
+  encoder, inert client, command handler, telemetry lane, runtime scheme-RPC
+  routing, and shared transport awaited-RPC failure classification. Runtime
+  routing maps to `bridge.intakeReady` with `protocolId`, `streamId`, and
+  `generation`. The default Worktree/File intake-ready sender bootstraps the
+  packaged comm worker, dispatches
+  `encodeBridgeWorkerWorktreeFileIntakeReadyCommand`, resolves only from
+  request-correlated worker health, and now has a bounded timeout wired to
+  `responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds`.
+- Browser harness honesty:
+  Worktree/File browser test support now injects a fake worker sender for
+  `bridge.intakeReady` and rejects any `bridge.intakeReady` call observed on
+  the `fetchRPC` path, so direct page-RPC regressions cannot false-green the
+  browser suites.
+- Line-cap containment:
+  `BridgeWeb/src/app/bridge-app-native-worktree-file.ts` is 956 lines after the
+  helper extraction, down from 978 at HEAD and below the 1000-line cap. New
+  proof lives in small dedicated files instead of growing the oversized shared
+  transport suite.
+- Accepted sidekick findings:
+  Hubble the 2nd verified deletion scans and typed routing, then flagged proof
+  holes around the default sender and shared transport coverage. Newton the
+  2nd found two accepted findings: the default sender could park forever when
+  worker health never arrived, and the browser harness still allowed deleted
+  direct `bridge.intakeReady` fetches to pass. The fix adds default sender
+  timeout proof, default transport proof, dedicated Worktree/File transport
+  failure proof, and harness rejection for direct intake-ready fetches.
+- Red / green evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/app/bridge-app-native-worktree-file-intake-ready.unit.test.ts --reporter
+  dot` failed before the timeout fix with the new timeout test receiving
+  `"still-pending"` instead of `false`; the same file passed after the timeout
+  implementation. A first version of the shared transport in-flight test also
+  failed because the setup queued an awaited intake-ready command before
+  bootstrap; the corrected setup uses a non-awaited select primer and passed,
+  confirming queued awaited commands are degraded when appropriate.
+- Green evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/app/bridge-app-source-structure.unit.test.ts
+  src/app/bridge-app-native-worktree-file-intake-ready.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-command-handler.worktree-file-intake-ready.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-runtime-protocol.worktree-file-intake-ready.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-protocol.unit.test.ts
+  src/core/comm-worker/bridge-worker-contracts.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-command-handler.unit.test.ts
+  src/core/comm-worker/bridge-comm-worker-runtime-protocol.unit.test.ts
+  src/review-viewer/workers/shared-rpc/bridge-comm-worker-transport.unit.test.ts
+  src/review-viewer/workers/shared-rpc/bridge-comm-worker-transport.worktree-file-intake-ready.unit.test.ts
+  --reporter dot` passed 10 files / 79 tests.
+  Browser proof `CI=true pnpm --dir BridgeWeb exec vitest --config
+  vitest.browser.config.ts run --project integration-browser
+  src/app/bridge-app-native-worktree-file.browser.test.ts
+  src/app/bridge-app-native-review-error.browser.test.tsx --reporter dot`
+  passed 2 files / 41 tests. `pnpm --dir BridgeWeb exec tsc --noEmit --pretty
+  false` passed. Scoped `oxfmt --check`, scoped `oxlint --type-aware`, and
+  `git diff --check` passed. `oxlint --type-aware` still prints pre-existing
+  warning-only output for `__bridgeNativeWorktreeFileProbe`, missing
+  `targetOrigin` in older recovery-suite test postMessage calls, and
+  `handleReady` consistent-function-scoping in Review test support; exit code
+  was 0.
+- Source scans:
+  Targeted scans in `BridgeWeb/src/app/bridge-app-native-worktree-file.ts` for
+  `sendNativeBridgeIntakeReadyCommand`, `method: bridgeIntakeReadyMethod`,
+  `protocolId: 'worktree-file'`, and `bridgeIntakeReadyMethod` returned no
+  matches. Wider production scan for `bridge.intakeReady` found only allowed
+  schema/routing/failure-text/mock-backend surfaces:
+  `BridgeWeb/src/bridge/bridge-rpc-client.ts`,
+  `BridgeWeb/src/core/comm-worker/bridge-comm-worker-runtime-command-routing.ts`,
+  `BridgeWeb/src/review-viewer/workers/shared-rpc/bridge-comm-worker-transport.ts`,
+  and `BridgeWeb/src/review-viewer/test-support/bridge-viewer-mocked-backend.ts`.
+- Known proof boundary:
+  This is one Worktree/File intake-ready ordinary RPC hard-cutover checkpoint.
+  It does not finish scheme-stream push/intake/ack cutover, native oq4s
+  scroll/click proof, Review apply/materialization lag closure,
+  implementation-review-swarm, PR readiness, or full goal completion.

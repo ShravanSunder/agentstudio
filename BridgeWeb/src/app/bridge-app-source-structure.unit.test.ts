@@ -12,6 +12,15 @@ describe('BridgeApp source structure', () => {
 		expect(source).not.toContain("method: 'bridge.activeViewerMode.update'");
 		expect(source).toContain('encodeBridgeWorkerActiveViewerModeUpdateCommand');
 	});
+
+	test('routes Worktree/File intake-ready through the comm worker instead of page-owned RPC', () => {
+		const source = readSource('bridge-app-native-worktree-file.ts');
+
+		expect(source).not.toContain('sendNativeBridgeIntakeReadyCommand');
+		expect(source).not.toContain('method: bridgeIntakeReadyMethod');
+		expect(source).not.toContain("protocolId: 'worktree-file'");
+		expect(source).toContain('sendWorktreeFileIntakeReady');
+	});
 });
 
 function readSource(relativePath: string): string {

@@ -9,6 +9,7 @@ import type {
 	WorktreeFileProtocolFrame,
 	WorktreeFileSurfaceSourceIdentity,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import type { BridgeAppNativeWorktreeFileIntakeReadySender } from './bridge-app-native-worktree-file-intake-ready.js';
 import {
 	type BridgeAppNativeWorktreeFileBackend,
 	createBridgeAppNativeWorktreeFileBackend,
@@ -24,6 +25,7 @@ export function cleanupNativeWorktreeFileBackendBrowserTest(): void {
 export interface NativeWorktreeFileRPCFetchHarness {
 	readonly commandDetails: unknown[];
 	readonly fetch: typeof fetch;
+	readonly sendWorktreeFileIntakeReady: BridgeAppNativeWorktreeFileIntakeReadySender;
 }
 
 export interface NativeWorktreeFileRPCFetchHarnessOptions {
@@ -67,12 +69,39 @@ export function createNativeWorktreeFileRPCFetchHarness(
 					),
 				);
 			}
-			if (method === 'bridge.intakeReady' && options.intakeReadyResponse !== undefined) {
-				return Promise.resolve(
-					strictNativeWorktreeFileRPCResponse(options.intakeReadyResponse(command), requestId),
-				);
+			if (method === 'bridge.intakeReady') {
+				throw new Error('Worktree/File intake-ready must use the injected worker sender');
 			}
 			return Promise.resolve(strictNativeWorktreeFileRPCResponse({ result: {} }, requestId));
+		},
+		sendWorktreeFileIntakeReady: async (props): Promise<boolean> => {
+			const command = bridgeRPCRequestEnvelopeSchema.parse({
+				jsonrpc: '2.0',
+				id: props.requestId,
+				__commandId: props.requestId,
+				method: 'bridge.intakeReady',
+				params: {
+					generation: props.generation,
+					protocolId: 'worktree-file',
+					streamId: props.streamId,
+				},
+			});
+			commandDetails.push(command);
+			const responseEnvelope = bridgeRPCResponseEnvelopeSchema.parse(
+				nativeWorktreeFileRPCResponseEnvelope(
+					options.intakeReadyResponse?.(command) ?? {
+						id: props.requestId,
+						result: {},
+					},
+					props.requestId,
+				),
+			);
+			if ('error' in responseEnvelope) {
+				throw new Error(
+					`Native Worktree/File intake-ready command failed: ${responseEnvelope.error.message}`,
+				);
+			}
+			return true;
 		},
 	};
 }
@@ -119,6 +148,7 @@ export async function installReadyNativeWorktreeFileBackend(
 			};
 		})(),
 		fetchRPC: rpcFetch.fetch,
+		sendWorktreeFileIntakeReady: rpcFetch.sendWorktreeFileIntakeReady,
 		target: document,
 	});
 	if (backend === null) {

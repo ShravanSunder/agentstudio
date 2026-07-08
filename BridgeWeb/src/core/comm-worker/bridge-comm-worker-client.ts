@@ -9,6 +9,7 @@ import {
 	encodeBridgeWorkerReviewIntakeReadyCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
+	encodeBridgeWorkerWorktreeFileIntakeReadyCommand,
 	type EncodeBridgeWorkerHoverCommandProps,
 	type EncodeBridgeWorkerMarkFileViewedCommandProps,
 	type EncodeBridgeWorkerMetadataInterestUpdateCommandProps,
@@ -17,6 +18,7 @@ import {
 	type EncodeBridgeWorkerReviewIntakeReadyCommandProps,
 	type EncodeBridgeWorkerSelectCommandProps,
 	type EncodeBridgeWorkerViewportCommandProps,
+	type EncodeBridgeWorkerWorktreeFileIntakeReadyCommandProps,
 } from './bridge-comm-worker-protocol.js';
 import type {
 	BridgeWorkerHealthEvent,
@@ -55,6 +57,9 @@ export interface InertBridgeCommWorkerClient {
 	) => Promise<BridgeWorkerHealthEvent>;
 	readonly reviewIntakeReady: (
 		props: Omit<EncodeBridgeWorkerReviewIntakeReadyCommandProps, 'requestId'>,
+	) => Promise<BridgeWorkerHealthEvent>;
+	readonly worktreeFileIntakeReady: (
+		props: Omit<EncodeBridgeWorkerWorktreeFileIntakeReadyCommandProps, 'requestId'>,
 	) => Promise<BridgeWorkerHealthEvent>;
 	readonly activeViewerModeUpdate: (
 		props: Omit<EncodeBridgeWorkerActiveViewerModeUpdateCommandProps, 'requestId'>,
@@ -120,6 +125,13 @@ export function createInertBridgeCommWorkerClient(
 			postAndWait(
 				encodeBridgeWorkerReviewIntakeReadyCommand({
 					...reviewIntakeReadyProps,
+					requestId: createRequestId(),
+				}),
+			),
+		worktreeFileIntakeReady: (worktreeFileIntakeReadyProps): Promise<BridgeWorkerHealthEvent> =>
+			postAndWait(
+				encodeBridgeWorkerWorktreeFileIntakeReadyCommand({
+					...worktreeFileIntakeReadyProps,
 					requestId: createRequestId(),
 				}),
 			),

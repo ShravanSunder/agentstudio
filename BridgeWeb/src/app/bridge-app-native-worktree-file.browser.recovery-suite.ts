@@ -40,6 +40,7 @@ describe('Bridge app native Worktree/File backend recovery', () => {
 		const backend = createBridgeAppNativeWorktreeFileBackend({
 			createRequestId: () => 'request-1',
 			fetchRPC: rpcFetch.fetch,
+			sendWorktreeFileIntakeReady: rpcFetch.sendWorktreeFileIntakeReady,
 			target: document,
 		});
 		if (backend === null) {
@@ -121,6 +122,7 @@ describe('Bridge app native Worktree/File backend recovery', () => {
 		const backend = createBridgeAppNativeWorktreeFileBackend({
 			createRequestId: () => 'request-1',
 			fetchRPC: rpcFetch.fetch,
+			sendWorktreeFileIntakeReady: rpcFetch.sendWorktreeFileIntakeReady,
 			responseTimeoutMilliseconds: 10,
 			target: document,
 		});
@@ -463,6 +465,7 @@ describe('Bridge app native Worktree/File backend recovery', () => {
 		const backend = createBridgeAppNativeWorktreeFileBackend({
 			createRequestId: () => 'request-1',
 			fetchRPC: rpcFetch.fetch,
+			sendWorktreeFileIntakeReady: rpcFetch.sendWorktreeFileIntakeReady,
 			responseTimeoutMilliseconds: 500,
 			target: document,
 		});
@@ -543,6 +546,7 @@ describe('Bridge app native Worktree/File backend recovery', () => {
 		const backend = createBridgeAppNativeWorktreeFileBackend({
 			createRequestId: () => 'request-1',
 			fetchRPC: rpcFetch.fetch,
+			sendWorktreeFileIntakeReady: rpcFetch.sendWorktreeFileIntakeReady,
 			responseTimeoutMilliseconds: 500,
 			target: document,
 		});

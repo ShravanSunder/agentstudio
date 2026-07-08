@@ -15,6 +15,7 @@ import type { WorktreeFileInitialSurface } from '../worktree-file-surface/worktr
 import {
 	actClick,
 	chunkedTextResponse,
+	createInProcessBridgeReviewWorkerTransportFactory,
 	dispatchHostAdmittedReviewIntakeFrame,
 	dispatchHostDiffStatus,
 	installBridgeReadyHandshake,
@@ -37,12 +38,6 @@ describe('BridgeApp native review intake Browser Mode', () => {
 	test('marks review intake ready through scheme RPC after bridge ready', async () => {
 		const commands: BridgeRPCCommand[] = [];
 		const handshake = installBridgeReadyHandshake();
-		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init): Promise<Response> => {
-			return (
-				recordBridgeSchemeRPCFetch(input, init, commands) ??
-				new Response('unexpected request', { status: 404 })
-			);
-		});
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute(
 			'data-bridge-review-stream-id',
@@ -50,12 +45,25 @@ describe('BridgeApp native review intake Browser Mode', () => {
 		);
 
 		try {
-			render(<BridgeApp />);
+			render(
+				<BridgeApp
+					reviewWorkerTransportFactory={createInProcessBridgeReviewWorkerTransportFactory({
+						sendSchemeRpcCommand: async (command): Promise<void> => {
+							commands.push(command);
+						},
+					})}
+				/>,
+			);
 			await act(async (): Promise<void> => {
 				await waitForBridgeViewerAnimationFrame();
 			});
+			const reviewIntakeReadyCommands = await pollWithinAct({
+				getValue: () =>
+					commands.filter((command): boolean => command.method === 'bridge.intakeReady'),
+				isSatisfied: (value): boolean => value.length > 0,
+			});
 
-			expect(commands).toEqual([
+			expect(reviewIntakeReadyCommands).toEqual([
 				expect.objectContaining({
 					method: 'bridge.intakeReady',
 					params: {

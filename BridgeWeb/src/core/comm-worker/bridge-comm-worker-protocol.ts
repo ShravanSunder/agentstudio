@@ -11,6 +11,7 @@ import {
 	bridgeWorkerReviewSourceUpdateCommandSchema,
 	bridgeWorkerSelectCommandSchema,
 	bridgeWorkerViewportCommandSchema,
+	bridgeWorkerWorktreeFileIntakeReadyCommandSchema,
 	type BridgeWorkerHealthEvent,
 	type BridgeWorkerActiveViewerModeUpdateCommand,
 	type BridgeWorkerFileViewSourceUpdateCommand,
@@ -25,6 +26,7 @@ import {
 	type BridgeWorkerReviewSourceUpdateCommand,
 	type BridgeWorkerSelectCommand,
 	type BridgeWorkerViewportCommand,
+	type BridgeWorkerWorktreeFileIntakeReadyCommand,
 } from './bridge-worker-contracts.js';
 
 export type BridgeWorkerCommandName = BridgeWorkerMainToServerCommand['command'];
@@ -62,6 +64,11 @@ export interface EncodeBridgeWorkerMetadataInterestUpdateCommandProps extends En
 export interface EncodeBridgeWorkerReviewIntakeReadyCommandProps extends EncodeBridgeWorkerCommandBaseProps {
 	readonly reason?: BridgeWorkerReviewIntakeReadyCommand['reason'];
 	readonly streamId: BridgeWorkerReviewIntakeReadyCommand['streamId'];
+}
+
+export interface EncodeBridgeWorkerWorktreeFileIntakeReadyCommandProps extends EncodeBridgeWorkerCommandBaseProps {
+	readonly generation: BridgeWorkerWorktreeFileIntakeReadyCommand['generation'];
+	readonly streamId: BridgeWorkerWorktreeFileIntakeReadyCommand['streamId'];
 }
 
 export interface EncodeBridgeWorkerActiveViewerModeUpdateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
@@ -149,6 +156,17 @@ export function encodeBridgeWorkerReviewIntakeReadyCommand(
 		protocolId: 'review',
 		streamId: props.streamId,
 		reason: props.reason ?? null,
+	});
+}
+
+export function encodeBridgeWorkerWorktreeFileIntakeReadyCommand(
+	props: EncodeBridgeWorkerWorktreeFileIntakeReadyCommandProps,
+): BridgeWorkerWorktreeFileIntakeReadyCommand {
+	return bridgeWorkerWorktreeFileIntakeReadyCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'worktreeFileIntakeReady'),
+		generation: props.generation,
+		protocolId: 'worktree-file',
+		streamId: props.streamId,
 	});
 }
 

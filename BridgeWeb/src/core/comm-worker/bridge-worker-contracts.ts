@@ -113,6 +113,21 @@ export const bridgeWorkerReviewIntakeReadyCommandSchema = bridgeWorkerMainToServ
 	})
 	.strict();
 
+const bridgeWorkerWorktreeFileIntakeReadyParamsSchema = bridgeIntakeReadyParamsSchema
+	.extend({
+		protocolId: z.literal('worktree-file'),
+		generation: z.number().int().nonnegative(),
+		streamId: z.string().min(1),
+	})
+	.strict();
+
+export const bridgeWorkerWorktreeFileIntakeReadyCommandSchema = bridgeWorkerMainToServerBaseSchema
+	.merge(bridgeWorkerWorktreeFileIntakeReadyParamsSchema)
+	.extend({
+		command: z.literal('worktreeFileIntakeReady'),
+	})
+	.strict();
+
 export const bridgeWorkerActiveViewerModeUpdateCommandSchema = bridgeWorkerMainToServerBaseSchema
 	.extend({
 		command: z.literal('activeViewerModeUpdate'),
@@ -317,6 +332,7 @@ const bridgeWorkerMainToServerCommandBaseSchema = z.discriminatedUnion('command'
 	bridgeWorkerMarkFileViewedCommandSchema,
 	bridgeWorkerMetadataInterestUpdateCommandSchema,
 	bridgeWorkerReviewIntakeReadyCommandSchema,
+	bridgeWorkerWorktreeFileIntakeReadyCommandSchema,
 	bridgeWorkerActiveViewerModeUpdateCommandSchema,
 	bridgeWorkerModeCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
@@ -502,6 +518,9 @@ export type BridgeWorkerMetadataInterestUpdateCommand = z.infer<
 >;
 export type BridgeWorkerReviewIntakeReadyCommand = z.infer<
 	typeof bridgeWorkerReviewIntakeReadyCommandSchema
+>;
+export type BridgeWorkerWorktreeFileIntakeReadyCommand = z.infer<
+	typeof bridgeWorkerWorktreeFileIntakeReadyCommandSchema
 >;
 export type BridgeWorkerActiveViewerModeUpdateCommand = z.infer<
 	typeof bridgeWorkerActiveViewerModeUpdateCommandSchema

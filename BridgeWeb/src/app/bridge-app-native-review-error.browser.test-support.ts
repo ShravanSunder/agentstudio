@@ -34,6 +34,8 @@ import { waitForBridgeViewerAnimationFrame } from '../review-viewer/test-support
 import type { BridgeReviewCommWorkerTransportDispatcher } from '../review-viewer/workers/shared-rpc/bridge-comm-worker-transport.js';
 import type { CreateBridgeReviewRuntimeProtocolDispatcherProps } from './bridge-app-review-render-snapshot-controller.js';
 
+const inProcessBridgeWorkerPreparationDrainPromises = new Set<Promise<unknown>>();
+
 export interface DispatchHostAdmittedReviewIntakeFrameOptions {
 	readonly telemetryConfig?: unknown;
 }
@@ -79,6 +81,8 @@ export async function dispatchHostAdmittedReviewIntakeFrame(
 			}),
 		);
 		await Promise.resolve();
+		await waitForBridgeViewerAnimationFrame();
+		await waitForInProcessBridgeWorkerPreparationDrains();
 		await waitForBridgeViewerAnimationFrame();
 	});
 }
@@ -403,6 +407,10 @@ export function createInProcessBridgeReviewWorkerTransportFactory(
 	}): BridgeReviewCommWorkerTransportDispatcher => {
 		let listener: ((event: MessageEvent<unknown>) => void) | null = null;
 		let isDisposed = false;
+		const fixtureContentFetch = createInProcessBridgeWorkerFixtureContentFetch();
+		fixtureContentFetch.rememberContentDescriptors(
+			bootstrapRequest.runtime.contentRequestDescriptors,
+		);
 		const publishWorkerMessage = (message: BridgeWorkerServerToMainMessage): void => {
 			if (!isDisposed) {
 				publishWorkerMessages([message]);
@@ -421,11 +429,16 @@ export function createInProcessBridgeReviewWorkerTransportFactory(
 		};
 		const schedulePreparationDrain = (drain: BridgeCommWorkerPreparationDrain): void => {
 			queueMicrotask((): void => {
-				void drain().catch((): void => {
+				const drainPromise = drain().catch((): void => {
 					publishDegradedHealth('In-process bridge comm worker preparation drain failed.');
+				});
+				inProcessBridgeWorkerPreparationDrainPromises.add(drainPromise);
+				void drainPromise.finally((): void => {
+					inProcessBridgeWorkerPreparationDrainPromises.delete(drainPromise);
 				});
 			});
 		};
+		const fetchContent = options.fetchContent ?? fixtureContentFetch.fetchContent;
 		const port: BridgeCommWorkerPort = {
 			postMessage: (message: BridgeWorkerServerToMainMessage): void => {
 				publishWorkerMessage(message);
@@ -451,7 +464,7 @@ export function createInProcessBridgeReviewWorkerTransportFactory(
 			...(bootstrapRequest.runtime.maxPreparationSliceMs === undefined
 				? {}
 				: { maxPreparationSliceMs: bootstrapRequest.runtime.maxPreparationSliceMs }),
-			...(options.fetchContent === undefined ? {} : { fetchContent: options.fetchContent }),
+			fetchContent,
 			...(options.sendSchemeRpcCommand === undefined
 				? {}
 				: { sendSchemeRpcCommand: options.sendSchemeRpcCommand }),
@@ -465,6 +478,9 @@ export function createInProcessBridgeReviewWorkerTransportFactory(
 				if (isDisposed) {
 					return;
 				}
+				if (message.command === 'reviewSourceUpdate') {
+					fixtureContentFetch.rememberContentDescriptors(message.contentRequestDescriptors);
+				}
 				if (listener === null) {
 					publishDegradedHealth('In-process bridge comm worker dispatch before listener.');
 					return;
@@ -477,6 +493,74 @@ export function createInProcessBridgeReviewWorkerTransportFactory(
 			},
 		};
 	};
+}
+
+function createInProcessBridgeWorkerFixtureContentFetch(): {
+	readonly fetchContent: BridgeWorkerContentFetch;
+	readonly rememberContentDescriptors: (
+		descriptors: readonly {
+			readonly expectedBytes?: number | undefined;
+			readonly resourceUrl: string;
+		}[],
+	) => void;
+} {
+	const expectedBytesByResourceUrl = new Map<string, number>();
+	return {
+		fetchContent: async (url, init): Promise<Response> => {
+			const response = await fetch(url, init);
+			const expectedBytes = expectedBytesByResourceUrl.get(url);
+			if (!response.ok || expectedBytes === undefined) {
+				return response;
+			}
+			const text = await response.text();
+			const encoder = new TextEncoder();
+			const actualBytes = encoder.encode(text).byteLength;
+			if (actualBytes >= expectedBytes) {
+				return new Response(text, {
+					headers: response.headers,
+					status: response.status,
+					statusText: response.statusText,
+				});
+			}
+			return new Response(`${text}${' '.repeat(expectedBytes - actualBytes)}`, {
+				headers: response.headers,
+				status: response.status,
+				statusText: response.statusText,
+			});
+		},
+		rememberContentDescriptors: (
+			descriptors: readonly {
+				readonly expectedBytes?: number | undefined;
+				readonly resourceUrl: string;
+			}[],
+		): void => {
+			for (const descriptor of descriptors) {
+				if (descriptor.expectedBytes !== undefined) {
+					expectedBytesByResourceUrl.set(descriptor.resourceUrl, descriptor.expectedBytes);
+				}
+			}
+		},
+	};
+}
+
+async function waitForInProcessBridgeWorkerPreparationDrains(): Promise<void> {
+	for (let attempt = 0; attempt < 20; attempt += 1) {
+		// oxlint-disable-next-line no-await-in-loop -- Each pass observes the worker-drain set after the previous scheduled drain settles.
+		await Promise.resolve();
+		const activeDrains = [...inProcessBridgeWorkerPreparationDrainPromises];
+		if (activeDrains.length > 0) {
+			// oxlint-disable-next-line no-await-in-loop -- The active set is intentionally snapshotted and settled before checking for follow-up drains.
+			await Promise.allSettled(activeDrains);
+			continue;
+		}
+		// oxlint-disable-next-line no-await-in-loop -- Worker preparation is scheduled after paint, so the harness advances one browser frame at a time.
+		await waitForBridgeViewerAnimationFrame();
+		// oxlint-disable-next-line no-await-in-loop -- Check the drain set after the frame task and its microtasks complete.
+		await Promise.resolve();
+		if (inProcessBridgeWorkerPreparationDrainPromises.size === 0) {
+			return;
+		}
+	}
 }
 
 export function makeWorktreeFileSourceIdentityForFrameTest(): WorktreeFileSurfaceSourceIdentity {
