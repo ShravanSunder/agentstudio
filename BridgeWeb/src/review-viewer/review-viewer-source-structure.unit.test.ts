@@ -453,6 +453,46 @@ describe('Review viewer source structure', () => {
 		);
 	});
 
+	test('keeps Review CodeView reset items independent from worker-prepared hot deltas', () => {
+		const codeViewPanelSource = readSource('./code-view/bridge-code-view-panel.tsx');
+		const resetItemsMemoSource = codeViewPanelSource.slice(
+			codeViewPanelSource.indexOf('const initialItems = useMemo'),
+			codeViewPanelSource.indexOf('const metadataDeltaItems = useMemo'),
+		);
+
+		expect(resetItemsMemoSource).toContain('createBridgeCodeViewInitialItemsForPanel');
+		expect(resetItemsMemoSource).not.toContain('props.selectedCodeViewItem');
+		expect(resetItemsMemoSource).not.toContain('props.selectedItemPresentation');
+		expect(resetItemsMemoSource).not.toContain('props.visibleCodeViewItems');
+	});
+
+	test('invalidates pending CodeView metadata apply turns during source reset', () => {
+		const codeViewPanelSource = readSource('./code-view/bridge-code-view-panel.tsx');
+		const sourceResetEffectSource = codeViewPanelSource.slice(
+			codeViewPanelSource.indexOf('useLayoutEffect((): void => {'),
+			codeViewPanelSource.indexOf('\t}, [sourceKey]);'),
+		);
+
+		expect(sourceResetEffectSource).toContain('metadataApplyTaskGenerationRef.current += 1');
+		expect(sourceResetEffectSource).toContain('pendingMetadataApplyFrameRef.current !== null');
+		expect(sourceResetEffectSource).toContain('clearTimeout(pendingMetadataApplyFrameRef.current)');
+		expect(sourceResetEffectSource).toContain('pendingMetadataApplyFrameRef.current = null');
+	});
+
+	test('does not preserve selected current item while applying CodeView source reset', () => {
+		const codeViewPanelSource = readSource('./code-view/bridge-code-view-panel.tsx');
+		const metadataReconcileSource = codeViewPanelSource.slice(
+			codeViewPanelSource.indexOf('const metadataItems = reconcileBridgeCodeViewMetadataItems'),
+			codeViewPanelSource.indexOf('const scheduleMetadataApplyTurn'),
+		);
+
+		expect(metadataReconcileSource).toContain('preserveItemIds: sourceReset');
+		expect(metadataReconcileSource).toContain('? []');
+		expect(metadataReconcileSource).toContain(
+			': selectedItemIdForMetadataReconcileRef.current === null',
+		);
+	});
+
 	test('selected review path does not schedule FE retry after descriptor registration', () => {
 		const forbiddenRetryOwners = [
 			'../app/bridge-app-review-viewer-mode.tsx',

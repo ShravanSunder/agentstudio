@@ -2867,3 +2867,60 @@ counts before claiming a gate.
   native/manual UX closure, Review scroll/click budget closure, Victoria/debug
   smoke closure, zero-copy Pierre delivery, PR readiness, or full goal
   completion.
+
+### 2026-07-08 Review CodeView metadata delta apply pump
+
+- Scope:
+  This is a narrow Review CodeView main-thread apply-path slice. It keeps
+  source reset / mount as the only full baseline `setItems` path, moves stable
+  selected / visible / presentation worker-prepared updates into small metadata
+  deltas, applies non-reset deltas through the frame apply pump, and cancels
+  stale queued metadata apply turns on source reset. It is an R45/R46 hot-path
+  repair, not full Review browser/native UX closure.
+- Changed files:
+  `BridgeWeb/src/review-viewer/code-view/bridge-code-view-metadata-apply.ts`,
+  `BridgeWeb/src/review-viewer/code-view/bridge-code-view-metadata-apply.unit.test.ts`,
+  `BridgeWeb/src/review-viewer/code-view/bridge-code-view-worker-prepared-items.ts`,
+  `BridgeWeb/src/review-viewer/code-view/bridge-code-view-panel.tsx`,
+  `BridgeWeb/src/review-viewer/code-view/bridge-code-view-panel-support.tsx`,
+  `BridgeWeb/src/review-viewer/code-view/bridge-code-view-panel.unit.test.ts`,
+  `BridgeWeb/src/review-viewer/code-view/bridge-code-view-panel-reconcile.unit.test.ts`,
+  and
+  `BridgeWeb/src/review-viewer/review-viewer-source-structure.unit.test.ts`.
+- Red evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/code-view/bridge-code-view-metadata-apply.unit.test.ts
+  src/review-viewer/review-viewer-source-structure.unit.test.ts --reporter dot`
+  failed 3 tests: visible selected worker item was downgraded to loading,
+  one-sided file-targeted `diff` worker item was downgraded to loading, and
+  source reset did not invalidate pending metadata apply turns.
+- Green evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/code-view/bridge-code-view-metadata-apply.unit.test.ts
+  src/review-viewer/code-view/bridge-code-view-panel-reconcile.unit.test.ts
+  src/review-viewer/code-view/bridge-code-view-panel.unit.test.ts
+  src/review-viewer/code-view/bridge-code-view-selected-diagnostics.unit.test.ts
+  src/review-viewer/code-view/bridge-code-view-selected-apply-pump.unit.test.ts
+  src/core/rendering/bridge-frame-apply-pump.unit.test.ts
+  src/review-viewer/review-viewer-source-structure.unit.test.ts --reporter dot`
+  passed 7 files / 63 tests. `pnpm --dir BridgeWeb exec tsc --noEmit --pretty
+  false` passed. `pnpm --dir BridgeWeb exec oxfmt --check` on the 8 touched
+  files passed after formatting. `pnpm --dir BridgeWeb run lint:types` exited
+  0 with repo-wide warning-only output. `git diff --check` passed. Source scan
+  for `applyBridgeCodeViewMetadataItems` in `BridgeWeb/src` was clean. Touched
+  line counts stayed under 1000 lines.
+- Sidekick evidence:
+  Wegener found two accepted issues after the first implementation pass:
+  selected metadata deltas could still blank valid hydrated selected content,
+  and pending metadata apply turns were not invalidated early enough on source
+  reset. Both were fixed red-to-green. Faraday found two later P1 hazards:
+  non-reset same-id `diff` -> `file` updates could hit Pierre's forbidden
+  type-mismatch update path, and source reset could still preserve an old-source
+  selected item. Both were fixed: type flips now route through a replacement
+  `setItems` path, and source reset passes no preserved item ids. Dalton
+  re-reviewed those closures and returned ready with no P0/P1/P2 findings.
+- Known proof boundary:
+  This checkpoint does not claim full Review scroll/click UX closure, Victoria
+  percentile movement, G6 scheme-stream push/intake/ack closure, zero-copy
+  Pierre delivery, implementation-review-swarm, PR readiness, or full goal
+  completion.

@@ -10,7 +10,6 @@ import {
 } from '../../app/bridge-viewer-chrome.js';
 import { cn } from '../../app/class-name.js';
 import { Button } from '../../components/ui/button.js';
-import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
 import {
 	runBridgeFrameApplyPump,
 	type BridgeFrameApplyUnitRank,
@@ -23,7 +22,6 @@ import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
 import { recordBridgeCodeViewItemMaterializeTelemetry } from '../telemetry/bridge-review-viewer-telemetry.js';
-import { bridgePierreOptionalHighlightLanguage } from '../workers/pierre/bridge-pierre-language-normalization.js';
 import {
 	BridgeCodeViewController,
 	type ApplyBridgeCodeViewItemUpdateResult,
@@ -122,32 +120,57 @@ export function shouldRequestForegroundDemandForItemExpansion(props: {
 export function createBridgeCodeViewInitialItemsForPanel(props: {
 	readonly projection: BridgeReviewProjectionResult;
 	readonly reviewPackage: BridgeReviewPackage;
-	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null | undefined;
-	readonly selectedItemId: string | null;
-	readonly selectedItemPresentation: BridgeCodeViewItemPresentation | null | undefined;
-	readonly visibleCodeViewItems?: readonly BridgeMainCodeViewItem[] | undefined;
 }): readonly BridgeCodeViewItem[] {
-	const itemPresentationsByItemId =
-		props.selectedItemId === null ||
-		props.selectedItemPresentation === null ||
-		props.selectedItemPresentation === undefined
-			? undefined
-			: new Map([[props.selectedItemId, props.selectedItemPresentation]]);
-	return bridgeCodeViewInitialItemsWithWorkerPreparedCodeViewItems({
-		initialItems: createBridgeCodeViewInitialItems({
-			...(itemPresentationsByItemId === undefined ? {} : { itemPresentationsByItemId }),
-			reviewPackage: props.reviewPackage,
-			projection: props.projection,
-		}),
-		selectedCodeViewItem: bridgeCodeViewItemFromWorkerPreparedItem(props.selectedCodeViewItem),
-		selectedItemId: props.selectedItemId,
-		visibleCodeViewItems: (props.visibleCodeViewItems ?? []).flatMap(
-			(item): readonly BridgeCodeViewItem[] => {
-				const codeViewItem = bridgeCodeViewItemFromWorkerPreparedItem(item);
-				return codeViewItem === null ? [] : [codeViewItem];
-			},
-		),
+	return createBridgeCodeViewInitialItems({
+		reviewPackage: props.reviewPackage,
+		projection: props.projection,
 	});
+}
+
+export function bridgeCodeViewInitialItemsWithMetadataDeltaItems(props: {
+	readonly initialItems: readonly BridgeCodeViewItem[];
+	readonly metadataDeltaItems: readonly BridgeCodeViewItem[];
+}): readonly BridgeCodeViewItem[] {
+	if (props.metadataDeltaItems.length === 0) {
+		return props.initialItems;
+	}
+	const deltaItemsByItemId = new Map<string, BridgeCodeViewItem>();
+	for (const item of props.metadataDeltaItems) {
+		if (item.bridgeMetadata.itemId === item.id) {
+			deltaItemsByItemId.set(item.id, item);
+		}
+	}
+	if (deltaItemsByItemId.size === 0) {
+		return props.initialItems;
+	}
+	const replacedItemIds = new Set<string>();
+	const nextItems = props.initialItems.map((item): BridgeCodeViewItem => {
+		const deltaItem = deltaItemsByItemId.get(item.id);
+		if (deltaItem === undefined) {
+			return item;
+		}
+		replacedItemIds.add(item.id);
+		return deltaItem;
+	});
+	const appendedItems = [...deltaItemsByItemId.values()].filter(
+		(item): boolean => !replacedItemIds.has(item.id),
+	);
+	return appendedItems.length === 0 ? nextItems : [...nextItems, ...appendedItems];
+}
+
+export function bridgeCodeViewItemsWithMetadataItem(props: {
+	readonly currentItems: readonly BridgeCodeViewItem[];
+	readonly item: BridgeCodeViewItem;
+}): readonly BridgeCodeViewItem[] {
+	let replaced = false;
+	const nextItems = props.currentItems.map((currentItem): BridgeCodeViewItem => {
+		if (currentItem.id !== props.item.id) {
+			return currentItem;
+		}
+		replaced = true;
+		return props.item;
+	});
+	return replaced ? nextItems : [...nextItems, props.item];
 }
 
 export function bridgeCodeViewInitialItemsWithWorkerPreparedCodeViewItems(props: {
@@ -187,79 +210,6 @@ export function bridgeCodeViewInitialItemsWithWorkerPreparedCodeViewItems(props:
 		(item): boolean => !replacedItemIds.has(item.id),
 	);
 	return appendedItems.length === 0 ? nextItems : [...nextItems, ...appendedItems];
-}
-
-function bridgeCodeViewItemFromWorkerPreparedItem(
-	item: BridgeMainCodeViewItem | null | undefined,
-): BridgeCodeViewItem | null {
-	if (item === null || item === undefined) {
-		return null;
-	}
-	if (item.type === 'file') {
-		const normalizedLanguage = bridgePierreOptionalHighlightLanguage(item.file.lang);
-		return {
-			id: item.id,
-			type: item.type,
-			file: {
-				name: item.file.name,
-				contents: item.file.contents,
-				...(normalizedLanguage === undefined ? {} : { lang: normalizedLanguage }),
-				...(item.file.header === undefined ? {} : { header: item.file.header }),
-				...(item.file.cacheKey === undefined ? {} : { cacheKey: item.file.cacheKey }),
-			},
-			...(item.version === undefined ? {} : { version: item.version }),
-			...(item.collapsed === undefined ? {} : { collapsed: item.collapsed }),
-			bridgeMetadata: item.bridgeMetadata,
-		} satisfies BridgeCodeViewItem;
-	}
-	const normalizedLanguage = bridgePierreOptionalHighlightLanguage(item.fileDiff.lang);
-	return {
-		id: item.id,
-		type: item.type,
-		fileDiff: {
-			name: item.fileDiff.name,
-			...(item.fileDiff.prevName === undefined ? {} : { prevName: item.fileDiff.prevName }),
-			...(normalizedLanguage === undefined ? {} : { lang: normalizedLanguage }),
-			...(item.fileDiff.newObjectId === undefined
-				? {}
-				: { newObjectId: item.fileDiff.newObjectId }),
-			...(item.fileDiff.prevObjectId === undefined
-				? {}
-				: { prevObjectId: item.fileDiff.prevObjectId }),
-			...(item.fileDiff.mode === undefined ? {} : { mode: item.fileDiff.mode }),
-			...(item.fileDiff.prevMode === undefined ? {} : { prevMode: item.fileDiff.prevMode }),
-			type: item.fileDiff.type,
-			hunks: item.fileDiff.hunks.map((hunk) => ({
-				collapsedBefore: hunk.collapsedBefore,
-				additionStart: hunk.additionStart,
-				additionCount: hunk.additionCount,
-				additionLines: hunk.additionLines,
-				additionLineIndex: hunk.additionLineIndex,
-				deletionStart: hunk.deletionStart,
-				deletionCount: hunk.deletionCount,
-				deletionLines: hunk.deletionLines,
-				deletionLineIndex: hunk.deletionLineIndex,
-				hunkContent: hunk.hunkContent.map((content) => ({ ...content })),
-				...(hunk.hunkContext === undefined ? {} : { hunkContext: hunk.hunkContext }),
-				...(hunk.hunkSpecs === undefined ? {} : { hunkSpecs: hunk.hunkSpecs }),
-				splitLineStart: hunk.splitLineStart,
-				splitLineCount: hunk.splitLineCount,
-				unifiedLineStart: hunk.unifiedLineStart,
-				unifiedLineCount: hunk.unifiedLineCount,
-				noEOFCRDeletions: hunk.noEOFCRDeletions,
-				noEOFCRAdditions: hunk.noEOFCRAdditions,
-			})),
-			splitLineCount: item.fileDiff.splitLineCount,
-			unifiedLineCount: item.fileDiff.unifiedLineCount,
-			isPartial: item.fileDiff.isPartial,
-			deletionLines: [...item.fileDiff.deletionLines],
-			additionLines: [...item.fileDiff.additionLines],
-			...(item.fileDiff.cacheKey === undefined ? {} : { cacheKey: item.fileDiff.cacheKey }),
-		},
-		...(item.version === undefined ? {} : { version: item.version }),
-		...(item.collapsed === undefined ? {} : { collapsed: item.collapsed }),
-		bridgeMetadata: item.bridgeMetadata,
-	} satisfies BridgeCodeViewItem;
 }
 
 export function shouldSkipBridgeCodeViewItemMaterializationBeforeWork(props: {
@@ -810,6 +760,7 @@ export function makeBridgeCodeViewSourceKey(props: BridgeCodeViewSourceKeyProps)
 export function reconcileBridgeCodeViewMetadataItems(
 	props: BridgeCodeViewMetadataReconcileProps,
 ): readonly BridgeCodeViewItem[] {
+	const forceReplaceItemIds = new Set(props.forceReplaceItemIds ?? []);
 	const reconciledItems = props.metadataItems.map(
 		(metadataItem: BridgeCodeViewItem): BridgeCodeViewItem => {
 			const currentItem = props.getCurrentItem(metadataItem.id);
@@ -825,6 +776,12 @@ export function reconcileBridgeCodeViewMetadataItems(
 			}
 			if (replacementItem !== null) {
 				return replacementItem;
+			}
+			if (forceReplaceItemIds.has(metadataItem.id)) {
+				return bridgeCodeViewForcedMetadataReplacementForCurrentItem({
+					currentItem,
+					metadataItem,
+				});
 			}
 			return currentItem;
 		},
@@ -845,6 +802,21 @@ export function reconcileBridgeCodeViewMetadataItems(
 		reconciledItemIds.add(currentItem.id);
 	}
 	return reconciledItems;
+}
+
+function bridgeCodeViewForcedMetadataReplacementForCurrentItem(props: {
+	readonly currentItem: BridgeCodeViewItem;
+	readonly metadataItem: BridgeCodeViewItem;
+}): BridgeCodeViewItem {
+	const replacementItem =
+		props.currentItem.collapsed === undefined
+			? props.metadataItem
+			: { ...props.metadataItem, collapsed: props.currentItem.collapsed };
+	const currentVersion = props.currentItem.version ?? 0;
+	const metadataVersion = props.metadataItem.version ?? 0;
+	return metadataVersion > currentVersion
+		? replacementItem
+		: { ...replacementItem, version: currentVersion + 1 };
 }
 
 function bridgeCodeViewMetadataReplacementForCurrentItem(props: {

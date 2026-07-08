@@ -22,7 +22,7 @@ import {
 	materializeBridgeCodeViewItem,
 	materializeBridgeCodeViewLoadingItem,
 } from './bridge-code-view-materialization.js';
-import { applyBridgeCodeViewMetadataItems } from './bridge-code-view-metadata-apply.js';
+import { runBridgeCodeViewMetadataApplyInChunks } from './bridge-code-view-metadata-apply.js';
 import {
 	bridgeCodeViewInitialItemsWithWorkerPreparedCodeViewItems,
 	bridgeCodeViewLoadingMaterializationItemIdsForPanel,
@@ -193,31 +193,53 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 		};
 		const model = new RecordingMetadataApplyModel([firstItem]);
 
-		applyBridgeCodeViewMetadataItems({
+		const scheduledTurns: Array<() => void> = [];
+		runBridgeCodeViewMetadataApplyInChunks({
 			applyItemUpdate: (item: BridgeCodeViewItem): void => {
 				model.applyItemUpdate(item);
 			},
-			getCurrentItem: (itemId: string) => model.getItem(itemId),
+			frameBudgetMilliseconds: 8,
+			isStale: (): boolean => false,
 			items: [patchedItem, appendedItem],
+			maxUnitsPerFrame: 50,
+			noStarvationSelectedBatchLimit: 4,
+			now: (): number => 0,
+			onComplete: (): void => {},
+			rankForItem: (): 'visible' => 'visible',
+			scheduleNextTurn: (callback): void => {
+				scheduledTurns.push(callback);
+			},
 			setItems: (items: readonly BridgeCodeViewItem[]): void => {
 				model.setItems(items);
 			},
 			sourceReset: false,
+			staleScanLimit: 50,
 		});
+		flushScheduledTurns(scheduledTurns);
 
 		expect(model.setItemsCalls).toEqual([]);
 		expect(model.appliedItemIds).toEqual([firstItem.id, 'appended-item']);
 
-		applyBridgeCodeViewMetadataItems({
+		runBridgeCodeViewMetadataApplyInChunks({
 			applyItemUpdate: (item: BridgeCodeViewItem): void => {
 				model.applyItemUpdate(item);
 			},
-			getCurrentItem: (itemId: string) => model.getItem(itemId),
+			frameBudgetMilliseconds: 8,
+			isStale: (): boolean => false,
 			items: [patchedItem],
+			maxUnitsPerFrame: 50,
+			noStarvationSelectedBatchLimit: 4,
+			now: (): number => 0,
+			onComplete: (): void => {},
+			rankForItem: (): 'visible' => 'visible',
+			scheduleNextTurn: (callback): void => {
+				scheduledTurns.push(callback);
+			},
 			setItems: (items: readonly BridgeCodeViewItem[]): void => {
 				model.setItems(items);
 			},
 			sourceReset: true,
+			staleScanLimit: 50,
 		});
 
 		expect(model.setItemsCalls).toHaveLength(1);
@@ -888,6 +910,15 @@ function cachedRenderFileResultFor(workerPoolManager: WorkerPoolManager): Render
 		result: { code: [], themeStyles: '', baseThemeType: undefined },
 		options: workerPoolManager.getFileRenderOptions(),
 	};
+}
+
+function flushScheduledTurns(scheduledTurns: Array<() => void>): void {
+	for (let index = 0; index < 100 && scheduledTurns.length > 0; index += 1) {
+		scheduledTurns.shift()?.();
+	}
+	if (scheduledTurns.length > 0) {
+		throw new Error('expected scheduled turns to drain');
+	}
 }
 
 class RecordingMetadataApplyModel {
