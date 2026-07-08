@@ -3764,7 +3764,7 @@ counts before claiming a gate.
 ## 2026-07-08 - Review CodeView Source-Reset Seed Bounding
 
 - Commit target:
-  pending local checkpoint `fix(bridge): bound review codeview source reset seed`.
+  `d6eda41d fix(bridge): bound review codeview source reset seed`.
 - Scope:
   Remove one remaining package-shaped main-thread Review CodeView reset path.
   Source-reset initial CodeView seeding now uses selected plus visible
@@ -3821,3 +3821,59 @@ counts before claiming a gate.
   not finish Review main-thread parse/window/diff residues, native oq4s
   scroll/click metrics, browser Vitest full-suite proof, Swift full-suite proof,
   implementation-review-swarm, PR readiness, or full goal completion.
+
+## 2026-07-08 - Review CodeView Source-Reset Apply Pump
+
+- Commit target:
+  checkpoint label `fix(bridge): pump review codeview source reset apply`.
+- Scope:
+  Remove the remaining synchronous full-reset `setItems(props.items)` path in
+  Review CodeView metadata apply. A source reset now seeds only the selected
+  items synchronously, or at most one fallback item when there is no selected
+  rank, then drains the remaining reset payload through the existing R46 frame
+  apply pump. This is a narrow R46 main-thread apply-budget slice only.
+- Implementation:
+  `runBridgeCodeViewMetadataApplyInChunks` now routes source-reset payloads
+  through `sourceResetSeedItemsForApply` and then `runBridgeCodeViewMetadataApplyPump`
+  for the remaining items. `shouldSkipItem` filtering applies only to non-reset
+  incremental metadata apply, because reset membership must preserve skipped but
+  still-present items after the synchronous seed. The shared pump path continues
+  to own stale checks, replacement-item handling, selected/visible ranking, and
+  drain-coupled completion for the remaining reset work.
+- Red / green evidence:
+  The first new source-reset test failed before the initial fix because source
+  reset called `setItems` with the full `[source-high, docs-plan]` payload
+  synchronously. Copernicus the 2nd then found a P1 in the first fix:
+  pre-filtering with `shouldSkipItem` could drop a skipped selected item from
+  reset membership. The targeted regression test
+  `keeps skipped selected item in source-reset seed membership` failed red with
+  received seed `[docs-plan]` instead of expected `[source-high]`. After moving
+  skip filtering below the reset branch, that test passed. A compact fallback
+  test now covers the no-selected seed path.
+- Green evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/code-view/bridge-code-view-metadata-apply.unit.test.ts
+  --reporter dot` passed 1 file / 15 tests. `pnpm --dir BridgeWeb exec vitest
+  run src/review-viewer/code-view/bridge-code-view-panel.unit.test.ts
+  src/review-viewer/code-view/bridge-code-view-panel-reconcile.unit.test.ts
+  src/review-viewer/code-view/bridge-code-view-materialization.unit.test.ts
+  src/review-viewer/code-view/bridge-code-view-materialization.hydration.unit.test.ts
+  src/review-viewer/code-view/bridge-code-view-selected-apply-pump.unit.test.ts
+  src/review-viewer/code-view/bridge-code-view-metadata-apply.unit.test.ts
+  src/review-viewer/navigation/review-projection.unit.test.ts
+  src/review-viewer/review-viewer-source-structure.unit.test.ts --reporter dot`
+  passed 8 files / 111 tests. `pnpm --dir BridgeWeb exec tsc --noEmit
+  --pretty false` passed. Scoped `oxfmt --check`, scoped
+  `oxlint --type-aware`, and `git diff --check` passed.
+- Review evidence:
+  Copernicus the 2nd initially returned `needs fixes` with the skipped-selected
+  P1. After the red/green fix and fallback test, Copernicus re-reviewed and
+  returned `ready` with no P0-P3 findings.
+- Line-cap evidence:
+  Touched files are `bridge-code-view-metadata-apply.ts` at 105 lines and
+  `bridge-code-view-metadata-apply.unit.test.ts` at 590 lines.
+- Known proof boundary:
+  This removes the Review CodeView synchronous full-reset apply residue. It does
+  not finish Review placeholder main-thread diff/parse/window residues, native
+  oq4s scroll/click metrics, live Victoria percentile proof, implementation
+  review swarm, PR readiness, or full goal completion.

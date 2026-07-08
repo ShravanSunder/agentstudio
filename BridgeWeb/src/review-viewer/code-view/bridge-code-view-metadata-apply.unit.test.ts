@@ -290,6 +290,150 @@ describe('Bridge CodeView metadata apply pump', () => {
 		expect(appliedItemIds).toEqual([...entries.map((item) => item.id), 'drained']);
 	});
 
+	test('seeds selected source-reset items synchronously and pumps remaining visible items', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const entries = ['source-high', 'docs-plan'].map((itemId): BridgeCodeViewItem => {
+			const item = reviewPackage.itemsById[itemId];
+			if (item === undefined) {
+				throw new Error(`expected fixture item ${itemId}`);
+			}
+			return materializeBridgeCodeViewLoadingItem(item);
+		});
+		const selectedItem = entries[0];
+		const visibleItem = entries[1];
+		if (selectedItem === undefined || visibleItem === undefined) {
+			throw new Error('expected source-reset entries');
+		}
+		const appliedItemIds: string[] = [];
+		const scheduledTurns: Array<() => void> = [];
+		const setItemsCalls: Array<readonly BridgeCodeViewItem[]> = [];
+
+		runBridgeCodeViewMetadataApplyInChunks({
+			applyItemUpdate: (item): void => {
+				appliedItemIds.push(item.id);
+			},
+			frameBudgetMilliseconds: bridgeContentDemandExecutionPolicy.applyPumpFrameBudgetMilliseconds,
+			isStale: (): boolean => false,
+			items: entries,
+			maxUnitsPerFrame: bridgeContentDemandExecutionPolicy.applyPumpMaxUnitsPerFrame,
+			noStarvationSelectedBatchLimit:
+				bridgeContentDemandExecutionPolicy.applyPumpNoStarvationSelectedBatchLimit,
+			now: (): number => 0,
+			onComplete: (): void => {
+				appliedItemIds.push('drained');
+			},
+			rankForItem: (item): 'selected' | 'visible' =>
+				item.id === selectedItem.id ? 'selected' : 'visible',
+			scheduleNextTurn: (callback): void => {
+				scheduledTurns.push(callback);
+			},
+			setItems: (items): void => {
+				setItemsCalls.push(items);
+			},
+			sourceReset: true,
+			staleScanLimit: bridgeContentDemandExecutionPolicy.applyPumpStaleScanLimit,
+		});
+
+		expect(setItemsCalls.map((items) => items.map((item) => item.id))).toEqual([[selectedItem.id]]);
+		expect(appliedItemIds).toEqual([]);
+		expect(scheduledTurns).toHaveLength(1);
+
+		scheduledTurns.shift()?.();
+
+		expect(appliedItemIds).toEqual([visibleItem.id, 'drained']);
+	});
+
+	test('keeps skipped selected item in source-reset seed membership', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const entries = ['source-high', 'docs-plan'].map((itemId): BridgeCodeViewItem => {
+			const item = reviewPackage.itemsById[itemId];
+			if (item === undefined) {
+				throw new Error(`expected fixture item ${itemId}`);
+			}
+			return materializeBridgeCodeViewLoadingItem(item);
+		});
+		const selectedItem = entries[0];
+		const visibleItem = entries[1];
+		if (selectedItem === undefined || visibleItem === undefined) {
+			throw new Error('expected source-reset entries');
+		}
+		const appliedItemIds: string[] = [];
+		const scheduledTurns: Array<() => void> = [];
+		const setItemsCalls: Array<readonly BridgeCodeViewItem[]> = [];
+
+		runBridgeCodeViewMetadataApplyInChunks({
+			applyItemUpdate: (item): void => {
+				appliedItemIds.push(item.id);
+			},
+			frameBudgetMilliseconds: bridgeContentDemandExecutionPolicy.applyPumpFrameBudgetMilliseconds,
+			isStale: (): boolean => false,
+			items: entries,
+			maxUnitsPerFrame: bridgeContentDemandExecutionPolicy.applyPumpMaxUnitsPerFrame,
+			noStarvationSelectedBatchLimit:
+				bridgeContentDemandExecutionPolicy.applyPumpNoStarvationSelectedBatchLimit,
+			now: (): number => 0,
+			onComplete: (): void => {
+				appliedItemIds.push('drained');
+			},
+			rankForItem: (item): 'selected' | 'visible' =>
+				item.id === selectedItem.id ? 'selected' : 'visible',
+			scheduleNextTurn: (callback): void => {
+				scheduledTurns.push(callback);
+			},
+			setItems: (items): void => {
+				setItemsCalls.push(items);
+			},
+			shouldSkipItem: (item): boolean => item === selectedItem,
+			sourceReset: true,
+			staleScanLimit: bridgeContentDemandExecutionPolicy.applyPumpStaleScanLimit,
+		});
+
+		expect(setItemsCalls.map((items) => items.map((item) => item.id))).toEqual([[selectedItem.id]]);
+		expect(appliedItemIds).toEqual([]);
+		expect(scheduledTurns).toHaveLength(1);
+
+		scheduledTurns.shift()?.();
+
+		expect(appliedItemIds).toEqual([visibleItem.id, 'drained']);
+	});
+
+	test('seeds at most one fallback item when source reset has no selected item', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const entries = ['source-high', 'docs-plan'].map((itemId): BridgeCodeViewItem => {
+			const item = reviewPackage.itemsById[itemId];
+			if (item === undefined) {
+				throw new Error(`expected fixture item ${itemId}`);
+			}
+			return materializeBridgeCodeViewLoadingItem(item);
+		});
+		const setItemsCalls: Array<readonly BridgeCodeViewItem[]> = [];
+		const scheduledTurns: Array<() => void> = [];
+
+		runBridgeCodeViewMetadataApplyInChunks({
+			applyItemUpdate: (): void => {},
+			frameBudgetMilliseconds: bridgeContentDemandExecutionPolicy.applyPumpFrameBudgetMilliseconds,
+			isStale: (): boolean => false,
+			items: entries,
+			maxUnitsPerFrame: bridgeContentDemandExecutionPolicy.applyPumpMaxUnitsPerFrame,
+			noStarvationSelectedBatchLimit:
+				bridgeContentDemandExecutionPolicy.applyPumpNoStarvationSelectedBatchLimit,
+			now: (): number => 0,
+			onComplete: (): void => {},
+			rankForItem: (): 'visible' => 'visible',
+			scheduleNextTurn: (callback): void => {
+				scheduledTurns.push(callback);
+			},
+			setItems: (items): void => {
+				setItemsCalls.push(items);
+			},
+			sourceReset: true,
+			staleScanLimit: bridgeContentDemandExecutionPolicy.applyPumpStaleScanLimit,
+		});
+
+		expect(setItemsCalls.map((items) => items.map((item) => item.id))).toEqual([[entries[0]?.id]]);
+		expect(scheduledTurns).toHaveLength(1);
+	});
+
 	test('skips unchanged reconciled item references before apply work', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const entries = reviewPackage.orderedItemIds.slice(0, 2).map((itemId): BridgeCodeViewItem => {
