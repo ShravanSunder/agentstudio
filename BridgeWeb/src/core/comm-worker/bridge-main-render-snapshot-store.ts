@@ -283,17 +283,21 @@ function buildRowPaintPatchSnapshot(
 		};
 	}
 	const nextEntries = { ...snapshot.rowPaintById };
-	const nextCodeViewItemsById = { ...snapshot.codeViewItemsById };
 	if (patch.operation === 'delete') {
+		const nextCodeViewItemsById = { ...snapshot.codeViewItemsById };
 		delete nextEntries[patch.itemId];
 		delete nextCodeViewItemsById[patch.itemId];
+		return {
+			...snapshot,
+			rowPaintById: nextEntries,
+			codeViewItemsById: nextCodeViewItemsById,
+		};
 	} else {
 		nextEntries[patch.itemId] = patch.payload;
 	}
 	return {
 		...snapshot,
 		rowPaintById: nextEntries,
-		codeViewItemsById: nextCodeViewItemsById,
 	};
 }
 

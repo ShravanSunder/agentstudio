@@ -349,6 +349,61 @@ describe('Bridge File Viewer render snapshot controller', () => {
 		});
 	});
 
+	test('file view applies a worker slice-patch message as one render snapshot publish', () => {
+		const descriptor = makeFileDescriptor({
+			contentHandle: 'content-worker-batch',
+			fileId: 'file-worker-batch',
+			path: 'Sources/WorkerBatch.swift',
+		});
+		const store = createBridgeMainRenderSnapshotStore();
+		let publishCount = 0;
+		const unsubscribe = store.subscribe(() => {
+			publishCount += 1;
+		});
+
+		applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
+			messages: [
+				{
+					wireVersion: 1,
+					direction: 'serverWorkerToMain',
+					transferDescriptors: [],
+					kind: 'slicePatch',
+					epoch: 5,
+					sequence: 15,
+					patches: [
+						{
+							slice: 'rowPaint',
+							operation: 'upsert',
+							itemId: descriptor.fileId,
+							payload: {
+								contentCacheKey: 'content-worker-batch:hash-worker-batch',
+								status: 'ready',
+							},
+						},
+						{
+							slice: 'contentAvailability',
+							operation: 'upsert',
+							itemId: descriptor.fileId,
+							payload: { state: 'ready' },
+						},
+					],
+				},
+			],
+			renderSnapshotStore: store,
+		});
+
+		expect(publishCount).toBe(1);
+		expect(store.getSnapshot().rowPaintById[descriptor.fileId]).toEqual({
+			contentCacheKey: 'content-worker-batch:hash-worker-batch',
+			status: 'ready',
+		});
+		expect(store.getSnapshot().contentAvailabilityById[descriptor.fileId]).toEqual({
+			state: 'ready',
+		});
+
+		unsubscribe();
+	});
+
 	test('degraded worker health fails the selected File View request', () => {
 		const descriptor = makeFileDescriptor({
 			contentHandle: 'content-worker-degraded',

@@ -777,9 +777,9 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 	for (const message of props.messages) {
 		switch (message.kind) {
 			case 'slicePatch':
-				for (const patch of message.patches) {
-					props.renderSnapshotStore.applyWorkerPatch(patch);
-				}
+				props.renderSnapshotStore.applySnapshotUpdate({
+					workerPatches: message.patches,
+				});
 				break;
 			case 'health':
 			case 'subscription':

@@ -621,6 +621,65 @@ describe('Bridge app review render snapshot controller', () => {
 		expect(enqueuedJobs).toEqual([]);
 	});
 
+	test('applies a worker slice-patch message as one render snapshot publish', () => {
+		const renderSnapshotStore = createBridgeMainRenderSnapshotStore();
+		const pierreCourier: BridgeWorkerPierreCourier = {
+			enqueue: (receivedJob: BridgeWorkerPierreRenderJob) => ({
+				status: 'enqueued',
+				itemId: receivedJob.itemId,
+				payloadByteLength: receivedJob.payloadByteLength,
+				budgetClass: receivedJob.budgetClass,
+			}),
+		};
+		let publishCount = 0;
+		const unsubscribe = renderSnapshotStore.subscribe(() => {
+			publishCount += 1;
+		});
+
+		applyBridgeWorkerMessagesToMainRenderSnapshotStore({
+			messages: [
+				{
+					wireVersion: 1,
+					direction: 'serverWorkerToMain',
+					transferDescriptors: [],
+					kind: 'slicePatch',
+					epoch: 4,
+					sequence: 7,
+					patches: [
+						{
+							slice: 'rowPaint',
+							operation: 'upsert',
+							itemId: 'item-2',
+							payload: {
+								status: 'modified',
+							},
+						},
+						{
+							slice: 'contentAvailability',
+							operation: 'upsert',
+							itemId: 'item-2',
+							payload: {
+								state: 'ready',
+							},
+						},
+					],
+				},
+			],
+			pierreCourier,
+			renderSnapshotStore,
+		});
+
+		expect(publishCount).toBe(1);
+		expect(renderSnapshotStore.getSnapshot().rowPaintById['item-2']).toEqual({
+			status: 'modified',
+		});
+		expect(renderSnapshotStore.getSnapshot().contentAvailabilityById['item-2']).toEqual({
+			state: 'ready',
+		});
+
+		unsubscribe();
+	});
+
 	test('maps review package items into worker content metadata without package snapshots', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 

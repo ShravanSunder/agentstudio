@@ -417,9 +417,9 @@ export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: 
 				) {
 					break;
 				}
-				for (const patch of message.patches) {
-					props.renderSnapshotStore.applyWorkerPatch(patch);
-				}
+				props.renderSnapshotStore.applySnapshotUpdate({
+					workerPatches: message.patches,
+				});
 				break;
 			case 'health':
 				if (message.status === 'degraded') {

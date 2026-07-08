@@ -174,6 +174,54 @@ describe('Bridge main render snapshot store', () => {
 		expect(store.getSnapshot().codeViewItemsById).toEqual({});
 	});
 
+	test('keeps CodeView display cache identity stable for row paint upserts', () => {
+		const store = createBridgeMainRenderSnapshotStore();
+		const item = makeBridgeMainCodeViewItem('item-1');
+
+		store.setWorkerCodeViewItem({ itemId: 'item-1', item });
+		const beforeRowPaint = store.getSnapshot().codeViewItemsById;
+
+		store.applyWorkerPatch({
+			slice: 'rowPaint',
+			operation: 'upsert',
+			itemId: 'item-1',
+			payload: {
+				contentCacheKey: 'pierre-content:item-1',
+				status: 'ready',
+			},
+		});
+
+		const afterRowPaint = store.getSnapshot();
+		expect(afterRowPaint.codeViewItemsById).toBe(beforeRowPaint);
+		expect(afterRowPaint.codeViewItemsById['item-1']).toBe(item);
+		expect(afterRowPaint.rowPaintById['item-1']).toEqual({
+			contentCacheKey: 'pierre-content:item-1',
+			status: 'ready',
+		});
+	});
+
+	test('does not mutate previous snapshots for single CodeView item patches', () => {
+		const store = createBridgeMainRenderSnapshotStore();
+		const item = makeBridgeMainCodeViewItem('item-1');
+		const emptySnapshot = store.getSnapshot();
+
+		store.setWorkerCodeViewItem({ itemId: 'item-1', item });
+		const populatedSnapshot = store.getSnapshot();
+
+		store.applySnapshotUpdate({
+			codeViewItemPatches: [
+				{
+					operation: 'delete',
+					itemId: 'item-1',
+				},
+			],
+		});
+
+		expect(emptySnapshot.codeViewItemsById['item-1']).toBeUndefined();
+		expect(populatedSnapshot.codeViewItemsById['item-1']).toBe(item);
+		expect(store.getSnapshot().codeViewItemsById['item-1']).toBeUndefined();
+	});
+
 	test('batches local selection, CodeView item, and worker patches into one publish', () => {
 		const store = createBridgeMainRenderSnapshotStore();
 		const item = makeBridgeMainCodeViewItem('item-1');

@@ -4380,3 +4380,58 @@ counts before claiming a gate.
   F1 worker-fetch proof, finish G6 script-message RPC deletion, prove
   zero-copy transfer-list delivery, complete implementation-review-swarm, prove
   PR readiness, or complete the full goal.
+
+## 2026-07-08T21:08:08Z - Main render snapshot publish granularity checkpoint
+
+- Scope:
+  Reduced a confirmed main-thread display-store churn seam shared by Review and
+  File View. A worker `slicePatch` message now applies its patch array as one
+  `BridgeMainRenderSnapshotStore.applySnapshotUpdate` publish in both
+  controllers, and row-paint upserts no longer clone the CodeView display cache
+  table when they do not invalidate CodeView items. The store tests also pin
+  previous-snapshot immutability for single CodeView item upsert/delete patches
+  so future work does not "optimize" by mutating a published table in place.
+- Red evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/core/comm-worker/bridge-main-render-snapshot-store.unit.test.ts
+  src/app/bridge-app-review-render-snapshot-controller.unit.test.ts
+  src/file-viewer/bridge-file-viewer-render-snapshot-controller.unit.test.ts
+  --reporter dot` failed 3 expected tests before the production edit:
+  Review slice-patch publish count was 2 instead of 1, File View slice-patch
+  publish count was 2 instead of 1, and row-paint upsert replaced
+  `codeViewItemsById`.
+- Green evidence:
+  The same focused Vitest command passed 3 files / 39 tests. `pnpm --dir
+  BridgeWeb exec tsc --noEmit --pretty false` passed. Scoped `pnpm --dir
+  BridgeWeb exec oxfmt --check` passed for the six touched files. Scoped
+  `pnpm --dir BridgeWeb exec oxlint --type-aware` passed for the six touched
+  files. `git diff --check` passed.
+- Line-count evidence:
+  After formatting: `bridge-main-render-snapshot-store.ts` 324,
+  `bridge-main-render-snapshot-store.unit.test.ts` 289,
+  `bridge-app-review-render-snapshot-controller.ts` 832,
+  `bridge-app-review-render-snapshot-controller.unit.test.ts` 814,
+  `bridge-file-viewer-render-snapshot-controller.ts` 715,
+  `bridge-file-viewer-render-snapshot-controller.unit.test.ts` 677.
+- Sidekick boundary:
+  Ampere the 3rd completed the read-only Victoria marker check for
+  `debug-observability-oq4s-1783544318-91323`: 4 total
+  `performance.bridge.web.code_view_item_materialize` samples, all
+  `selected=true`, `viewer=review`, `transport=worker`; 408
+  `performance.bridge.worker.task` samples; 0 `frame_jank` and 0
+  `scroll_frame_gap` samples. Ampere classified the missing jank/scroll samples
+  as a proof gap, not a green signal, because the same marker skipped with
+  `frame_not_live` and `raf_alive=false`. Avicenna the 3rd completed the
+  read-only pre-implementation review: P1 row-paint upsert clone, P1 Review
+  per-patch publish fanout, and P2 missing safe-fix regression coverage were
+  accepted and fixed in this checkpoint; Avicenna explicitly warned not to
+  mutate `codeViewItemsById` in place for single CodeView item upsert/delete.
+- Known proof boundary:
+  This checkpoint removes one unnecessary CodeView table clone and two per-patch
+  publish fanouts. It does not remove the remaining CodeView item upsert/delete
+  table clone, does not replace whole-root `useSyncExternalStore` subscribers
+  with keyed/sliced subscriptions, does not prove fresh oq4s live scroll/click
+  percentile movement, does not finish F1, does not finish G6 script-message
+  RPC deletion, does not prove zero-copy transfer-list delivery, does not
+  complete implementation-review-swarm, does not prove PR readiness, and does
+  not complete the full goal.
