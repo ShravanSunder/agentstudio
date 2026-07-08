@@ -1,3 +1,4 @@
+import { parseDiffFromFile, type CodeViewDiffItem, type FileContents } from '@pierre/diffs';
 import { describe, expect, expectTypeOf, test } from 'vitest';
 
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
@@ -7,6 +8,10 @@ import {
 	materializeBridgeCodeViewLoadingItem,
 	type BridgeCodeViewItem,
 } from './bridge-code-view-materialization.js';
+import {
+	createBridgeCodeViewPlaceholderFileDiff,
+	type BridgeCodeViewPlaceholderDiffFilesResult,
+} from './bridge-code-view-placeholder-content.js';
 
 describe('Bridge CodeView materialization', () => {
 	test('creates placeholder CodeView items from review projection order', () => {
@@ -433,6 +438,40 @@ describe('Bridge CodeView materialization', () => {
 		});
 	});
 
+	test('builds placeholder diffs with the same Pierre shape as parsed placeholder contents', () => {
+		for (const placeholderFiles of [
+			placeholderDiffFiles({
+				baseName: 'Sources/App.swift',
+				headName: 'Sources/App.swift',
+				baseLineCount: 2,
+				headLineCount: 3,
+			}),
+			placeholderDiffFiles({
+				baseName: 'Sources/Old.swift',
+				headName: 'Sources/New.swift',
+				baseLineCount: 2,
+				headLineCount: 3,
+			}),
+			placeholderDiffFiles({
+				baseName: 'Sources/New.swift',
+				headName: 'Sources/New.swift',
+				baseLineCount: 0,
+				headLineCount: 3,
+			}),
+			placeholderDiffFiles({
+				baseName: 'Sources/Deleted.swift',
+				headName: 'Sources/Deleted.swift',
+				baseLineCount: 2,
+				headLineCount: 0,
+			}),
+		]) {
+			const helperDiff = createBridgeCodeViewPlaceholderFileDiff(placeholderFiles);
+			const parsedDiff = parseDiffFromFile(placeholderFiles.base, placeholderFiles.head);
+
+			expect(normalizedPlaceholderDiff(helperDiff)).toEqual(normalizedPlaceholderDiff(parsedDiff));
+		}
+	});
+
 	test('preserves streamed line extents in visible loading file-target items', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['source-high'];
@@ -620,4 +659,77 @@ describe('Bridge CodeView materialization', () => {
 
 function countPierreContentLines(contents: string): number {
 	return contents.match(/[^\n]*\n|[^\n]+/g)?.length ?? 0;
+}
+
+function placeholderDiffFiles(props: {
+	readonly baseName: string;
+	readonly headName: string;
+	readonly baseLineCount: number;
+	readonly headLineCount: number;
+}): BridgeCodeViewPlaceholderDiffFilesResult {
+	return {
+		base: placeholderFileContents({
+			cacheKey: `base:${props.baseName}:${props.baseLineCount}`,
+			line: '-\n',
+			lineCount: props.baseLineCount,
+			name: props.baseName,
+		}),
+		baseLineCount: props.baseLineCount,
+		head: placeholderFileContents({
+			cacheKey: `head:${props.headName}:${props.headLineCount}`,
+			line: '+\n',
+			lineCount: props.headLineCount,
+			name: props.headName,
+		}),
+		headLineCount: props.headLineCount,
+		lineCount: props.baseLineCount + props.headLineCount,
+	};
+}
+
+function placeholderFileContents(props: {
+	readonly cacheKey: string;
+	readonly line: string;
+	readonly lineCount: number;
+	readonly name: string;
+}): FileContents {
+	return {
+		name: props.name,
+		contents: props.line.repeat(props.lineCount),
+		cacheKey: props.cacheKey,
+	};
+}
+
+function normalizedPlaceholderDiff(
+	fileDiff: CodeViewDiffItem['fileDiff'],
+): Readonly<Record<string, unknown>> {
+	return {
+		name: fileDiff.name,
+		prevName: fileDiff.prevName,
+		type: fileDiff.type,
+		splitLineCount: fileDiff.splitLineCount,
+		unifiedLineCount: fileDiff.unifiedLineCount,
+		isPartial: fileDiff.isPartial,
+		additionLines: fileDiff.additionLines,
+		deletionLines: fileDiff.deletionLines,
+		cacheKey: fileDiff.cacheKey,
+		hunks: fileDiff.hunks.map((hunk) => ({
+			collapsedBefore: hunk.collapsedBefore,
+			additionStart: hunk.additionStart,
+			additionCount: hunk.additionCount,
+			additionLines: hunk.additionLines,
+			additionLineIndex: hunk.additionLineIndex,
+			deletionStart: hunk.deletionStart,
+			deletionCount: hunk.deletionCount,
+			deletionLines: hunk.deletionLines,
+			deletionLineIndex: hunk.deletionLineIndex,
+			hunkContent: hunk.hunkContent,
+			hunkSpecs: hunk.hunkSpecs,
+			splitLineStart: hunk.splitLineStart,
+			splitLineCount: hunk.splitLineCount,
+			unifiedLineStart: hunk.unifiedLineStart,
+			unifiedLineCount: hunk.unifiedLineCount,
+			noEOFCRDeletions: hunk.noEOFCRDeletions,
+			noEOFCRAdditions: hunk.noEOFCRAdditions,
+		})),
+	};
 }

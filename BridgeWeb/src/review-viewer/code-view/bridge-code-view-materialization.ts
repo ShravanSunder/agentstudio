@@ -23,6 +23,7 @@ import {
 } from '../workers/pierre/bridge-pierre-worker-content-descriptor.js';
 import {
 	createBridgeCodeViewPlaceholderDiffFiles,
+	createBridgeCodeViewPlaceholderFileDiff,
 	createBridgeCodeViewPlaceholderFileContents,
 } from './bridge-code-view-placeholder-content.js';
 
@@ -372,7 +373,7 @@ function createPlaceholderDiffItem(props: {
 		basePath: props.item.basePath ?? displayPathForItem(props.item),
 		headPath: props.item.headPath ?? displayPathForItem(props.item),
 	});
-	const fileDiff = parseDiffFromFile(placeholderFiles.base, placeholderFiles.head);
+	const fileDiff = createBridgeCodeViewPlaceholderFileDiff(placeholderFiles);
 	return {
 		id: props.item.itemId,
 		type: 'diff',

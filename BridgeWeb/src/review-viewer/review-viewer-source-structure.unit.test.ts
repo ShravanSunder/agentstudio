@@ -566,6 +566,20 @@ describe('Review viewer source structure', () => {
 		expect(setItemsSource).toContain('recordWorkerPreparedApplyTelemetry');
 	});
 
+	test('keeps placeholder diff creation off the main-thread diff parser', () => {
+		const materializationSource = readSource('./code-view/bridge-code-view-materialization.ts');
+		const placeholderDiffSource = materializationSource.slice(
+			materializationSource.indexOf('function createPlaceholderDiffItem'),
+			materializationSource.indexOf('interface CreateFileItemProps'),
+		);
+		const placeholderContentSource = readSource(
+			'./code-view/bridge-code-view-placeholder-content.ts',
+		);
+
+		expect(placeholderDiffSource).not.toContain('parseDiffFromFile');
+		expect(placeholderContentSource).not.toContain('parseDiffFromFile');
+	});
+
 	test('does not preserve selected current item while applying CodeView source reset', () => {
 		const codeViewPanelSource = readSource('./code-view/bridge-code-view-panel.tsx');
 		const metadataReconcileSource = codeViewPanelSource.slice(

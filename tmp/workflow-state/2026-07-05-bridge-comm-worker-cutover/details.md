@@ -3877,3 +3877,64 @@ counts before claiming a gate.
   not finish Review placeholder main-thread diff/parse/window residues, native
   oq4s scroll/click metrics, live Victoria percentile proof, implementation
   review swarm, PR readiness, or full goal completion.
+
+## 2026-07-08 - Review CodeView Placeholder Diff Parser Removal
+
+- Commit target:
+  checkpoint label `fix(bridge): remove review placeholder diff parser`.
+- Scope:
+  Remove the placeholder/loading Review CodeView diff path's dependency on
+  Pierre's `parseDiffFromFile` on the main thread. This is a narrow R52/R57
+  cleanup slice for placeholder diff construction only. Hydrated legacy/test
+  materialization still uses `parseDiffFromFile` and remains a separate deletion
+  target for later Review content-protocol cutover work.
+- Implementation:
+  `createPlaceholderDiffItem` now delegates to
+  `createBridgeCodeViewPlaceholderFileDiff`, which builds the bounded
+  placeholder `fileDiff` directly from already-known line counts, paths, and
+  placeholder cache keys. `createBridgeCodeViewPlaceholderDiffFiles` now carries
+  explicit base/head line counts so placeholder diff construction does not need
+  to synthesize placeholder text and then parse it back. The helper lives beside
+  the placeholder content builders, keeping `bridge-code-view-materialization.ts`
+  under the TS line cap.
+- Red / review evidence:
+  The source-structure test
+  `keeps placeholder diff creation off the main-thread diff parser` failed red
+  before the first implementation because `createPlaceholderDiffItem` contained
+  `parseDiffFromFile`. Harvey the 2nd then found a P2 proof gap: the first guard
+  scanned only the caller and did not directly prove the new helper's Pierre
+  shape. The follow-up test
+  `builds placeholder diffs with the same Pierre shape as parsed placeholder
+  contents` compares the helper against `parseDiffFromFile` for modified,
+  renamed, added, and deleted placeholder inputs, including normalized type,
+  previous name, hunk fields, line counts, and cache key. The source-structure
+  guard now scans both the materialization caller and the placeholder-content
+  helper module for `parseDiffFromFile`.
+- Green evidence:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/code-view/bridge-code-view-materialization.unit.test.ts -t
+  "same Pierre shape" --reporter verbose` passed 1 file / 1 selected test.
+  `pnpm --dir BridgeWeb exec vitest run
+  src/review-viewer/code-view/bridge-code-view-materialization.unit.test.ts
+  src/review-viewer/code-view/bridge-code-view-materialization.hydration.unit.test.ts
+  src/review-viewer/review-viewer-source-structure.unit.test.ts --reporter dot`
+  passed 3 files / 64 tests. `pnpm --dir BridgeWeb exec tsc --noEmit
+  --pretty false` passed. Scoped `oxfmt --check`, scoped
+  `oxlint --type-aware`, and `git diff --check` passed.
+- Review evidence:
+  Harvey the 2nd initially returned `needs fixes` with the P2 helper-proof gap.
+  After the parity test and expanded source scan, Harvey re-reviewed and
+  returned `ready` with no findings for the P2 closure.
+- Line-cap evidence:
+  Touched line counts after formatting:
+  `bridge-code-view-materialization.ts` 904,
+  `bridge-code-view-placeholder-content.ts` 273,
+  `bridge-code-view-materialization.unit.test.ts` 735,
+  `review-viewer-source-structure.unit.test.ts` 749. All remain below the
+  1000-line hard cap.
+- Known proof boundary:
+  This removes one Review placeholder main-thread diff-parse residue. It does
+  not remove hydrated legacy `createDiffItem` parsing, worker-prepared diff
+  deep-copy/rebuild work, visible-item re-materialization churn, native oq4s
+  scroll/click metrics, live Victoria percentile proof, implementation-review
+  swarm, PR readiness, or full goal completion.
