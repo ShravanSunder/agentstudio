@@ -703,7 +703,7 @@ const bridgeReviewRuntimeInteractiveDemandRank: BridgeWorkerDemandRank = {
 };
 
 const bridgeReviewRuntimeInteractiveBudget: BridgeWorkerPierreRenderBudget = {
-	...bridgeWorkerPierreRenderPolicy.interactiveRenderBudget,
+	...bridgeWorkerPierreRenderPolicy.reviewInteractiveRenderBudget,
 };
 
 function availableContentRolesForReviewItem(

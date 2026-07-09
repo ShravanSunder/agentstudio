@@ -51,11 +51,17 @@ export const bridgeContentDemandRetentionPolicy = {
 } as const;
 
 export const bridgeWorkerPierreRenderPolicy = {
-	/** R57 selected courier byte/line ceiling; validated by worker render-job budget tests and clone/submit telemetry. */
-	interactiveRenderBudget: {
+	/** R57 Review courier byte/line ceiling; Review owns continuation/window-follow beyond this first window. */
+	reviewInteractiveRenderBudget: {
 		className: 'interactive',
 		maxBytes: 512 * 1024,
 		maxWindowLines: 400,
+	} satisfies BridgeWorkerPierreRenderBudget,
+	/** R57 File View selected first-window ceiling; File View does not promise continuation beyond this envelope. */
+	fileViewSelectedRenderBudget: {
+		className: 'interactive',
+		maxBytes: 2 * 1024 * 1024,
+		maxWindowLines: 10_000,
 	} satisfies BridgeWorkerPierreRenderBudget,
 } as const;
 

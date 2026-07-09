@@ -722,8 +722,10 @@ mirror:
 
 | Policy | Initial ceiling | Derivation / proof |
 | --- | --- | --- |
-| `interactivePierreRenderJobMaxBytes` | <= 512 KiB | stays far below `contentMaxBytesPerItem`; protects click queue wait from stock-Pierre clone cost |
-| `interactivePierreRenderJobMaxWindowLines` | <= 400 lines | first visible content window, not full-file hydration |
+| `reviewInteractivePierreRenderJobMaxBytes` | <= 512 KiB | Review selected/visible continuation window; Review owns follow-up windows past this ceiling |
+| `reviewInteractivePierreRenderJobMaxWindowLines` | <= 400 lines | Review selected/visible continuation window; Review owns follow-up windows past this ceiling |
+| `fileViewSelectedPierreRenderJobMaxBytes` | <= 2 MiB | File View selected first bounded window; File View does not promise continuation past this ceiling |
+| `fileViewSelectedPierreRenderJobMaxWindowLines` | <= 10,000 lines | File View selected first bounded window; File View does not promise continuation past this ceiling |
 | `pierreCourierCloneSubmitP95Ms` | < 4 ms | at most one quarter of the 16 ms foreground queue-wait p95 budget |
 | `pierreCourierCloneSubmitP99Ms` | < 8 ms | leaves the frame budget available for local chrome and R46 apply |
 
@@ -864,8 +866,8 @@ Initial worker compute policy:
 | Policy | Initial ceiling | Constants Annex class | Rule |
 | --- | --- | --- | --- |
 | `workerComputeSliceMaxMs` | <= 8 ms | worker content-preparation compute slice | every synchronous worker compute slice, including parse/window/diff/highlight prep, must yield before this cap |
-| `workerContentPrepInlineMaxBytes` | <= 512 KiB | worker inline preparation payload | larger payloads must split windows or offload; this does not override the duration cap and does not replace R57's main -> Pierre courier byte cap |
-| `workerContentPrepInlineMaxLines` | <= 400 lines | worker inline preparation window | larger windows must split or offload before compute begins and does not replace R57's main -> Pierre courier line cap |
+| `workerContentPrepInlineMaxBytes` | <= 512 KiB by default | worker inline preparation payload | Review continuation windows and non-selected prep stay on this default; selected File View first-window prep uses the R57 File View 2 MiB safety envelope |
+| `workerContentPrepInlineMaxLines` | <= 400 lines by default | worker inline preparation slice | Review continuation windows and non-selected prep stay on this default; selected File View first-window prep uses the R57 File View 10,000-line safety envelope |
 | R58 worker selected queue-wait p95 | < 16 ms | shared worker selected queue-wait SLO | selected/click facts must not wait behind background content prep |
 | R58 worker selected queue-wait p99 | < 32 ms | shared worker selected queue-wait SLO | same budget as R32-R40 foreground queue wait |
 

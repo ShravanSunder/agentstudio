@@ -283,7 +283,7 @@ function bridgeAppNativeWorktreeFileCommWorkerBootstrapRequest(): BridgeCommWork
 				lane: 'selected',
 				priority: 0,
 			},
-			budget: bridgeWorkerPierreRenderPolicy.interactiveRenderBudget,
+			budget: bridgeWorkerPierreRenderPolicy.fileViewSelectedRenderBudget,
 			contentItems: [],
 			contentRequestDescriptors: [],
 			renderSemantics: [],

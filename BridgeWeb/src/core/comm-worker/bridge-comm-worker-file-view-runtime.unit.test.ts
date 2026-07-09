@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { bridgeWorkerPierreRenderPolicy } from '../demand/bridge-content-demand-policy.js';
 import type { BridgeCommWorkerPort } from './bridge-comm-worker-entry.js';
 import { dispatchSelectedBridgeWorkerFileViewContentReady } from './bridge-comm-worker-file-view-runtime.js';
 import {
@@ -122,6 +123,131 @@ describe('Bridge comm worker File View runtime', () => {
 				],
 			},
 			transferList: [],
+		});
+	});
+
+	test('publishes the full selected File View safety window inside 2 MiB and 10k lines', async () => {
+		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
+		const longFileText = makeNumberedFileText(450);
+		const store = createBridgeCommWorkerStore({
+			contentItems: [makeWorkerFileViewContentMetadata('file-1', { lineCount: 450 })],
+			rows: [{ id: 'file-1', parentId: null, index: 0 }],
+		});
+		store.actions.applySelectedFact({ epoch: 7, itemId: 'file-1' });
+		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
+
+		await dispatchSelectedBridgeWorkerFileViewContentReady({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: bridgeWorkerPierreRenderPolicy.fileViewSelectedRenderBudget,
+			contentRequestDescriptors: [makeContentRequestDescriptor(longFileText)],
+			epoch: 7,
+			fetchContent: async (url: string): Promise<Response> => {
+				const descriptor = descriptorByUrl.get(url);
+				if (descriptor === undefined) {
+					throw new Error(`Unexpected File View content URL ${url}.`);
+				}
+				return new Response(descriptor.text);
+			},
+			itemId: 'file-1',
+			port: makePostedMessagePort(postedMessages),
+			sequence: 12,
+			store,
+		});
+
+		expect(postedMessages.map((postedMessage) => postedMessage.message.kind).slice(0, 2)).toEqual([
+			'pierreRenderJob',
+			'slicePatch',
+		]);
+		const pierreJobMessage = postedMessages.find(
+			(postedMessage) => postedMessage.message.kind === 'pierreRenderJob',
+		)?.message;
+		if (pierreJobMessage?.kind !== 'pierreRenderJob') {
+			throw new Error('Expected selected long File View content to publish a Pierre job.');
+		}
+		expect(pierreJobMessage.job.window).toEqual({
+			startLine: 1,
+			endLine: 450,
+			totalLineCount: 450,
+		});
+		expect(pierreJobMessage.job.budget).toMatchObject({
+			maxBytes: 2 * 1024 * 1024,
+			maxWindowLines: 10_000,
+		});
+		expect(pierreJobMessage.job.windowLineCount).toBe(450);
+		expect(pierreJobMessage.job.payload.kind).toBe('codeViewFileItem');
+		if (pierreJobMessage.job.payload.kind !== 'codeViewFileItem') {
+			throw new Error('Expected selected long File View content to publish a File View payload.');
+		}
+		const contents = pierreJobMessage.job.payload.item.file.contents;
+		expect(contents).toContain('line-450');
+		expect(pierreJobMessage.job.payload.item.bridgeMetadata).toMatchObject({
+			contentState: 'hydrated',
+			lineCount: 450,
+		});
+	});
+
+	test('publishes selected File View content above the old 512KiB ceiling inside the 2MiB window', async () => {
+		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
+		const denseFileText = makeDenseNumberedFileText({ lineCount: 6_000, linePayloadLength: 90 });
+		const denseFileByteLength = new TextEncoder().encode(denseFileText).byteLength;
+		expect(denseFileByteLength).toBeGreaterThan(512 * 1024);
+		expect(denseFileByteLength).toBeLessThan(2 * 1024 * 1024);
+		const store = createBridgeCommWorkerStore({
+			contentItems: [
+				makeWorkerFileViewContentMetadata('file-1', {
+					lineCount: 6_000,
+					sizeBytes: denseFileByteLength,
+				}),
+			],
+			rows: [{ id: 'file-1', parentId: null, index: 0 }],
+		});
+		store.actions.applySelectedFact({ epoch: 7, itemId: 'file-1' });
+		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
+
+		await dispatchSelectedBridgeWorkerFileViewContentReady({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: bridgeWorkerPierreRenderPolicy.fileViewSelectedRenderBudget,
+			contentRequestDescriptors: [
+				makeContentRequestDescriptor(denseFileText, {
+					maxBytes: bridgeWorkerPierreRenderPolicy.fileViewSelectedRenderBudget.maxBytes,
+					sizeBytes: denseFileByteLength,
+				}),
+			],
+			epoch: 7,
+			fetchContent: async (url: string): Promise<Response> => {
+				const descriptor = descriptorByUrl.get(url);
+				if (descriptor === undefined) {
+					throw new Error(`Unexpected File View content URL ${url}.`);
+				}
+				return new Response(descriptor.text);
+			},
+			itemId: 'file-1',
+			port: makePostedMessagePort(postedMessages),
+			sequence: 12,
+			store,
+		});
+
+		const pierreJobMessage = postedMessages.find(
+			(postedMessage) => postedMessage.message.kind === 'pierreRenderJob',
+		)?.message;
+		if (pierreJobMessage?.kind !== 'pierreRenderJob') {
+			throw new Error('Expected selected dense File View content to publish a Pierre job.');
+		}
+		expect(pierreJobMessage.job.window).toEqual({
+			startLine: 1,
+			endLine: 6_000,
+			totalLineCount: 6_000,
+		});
+		expect(pierreJobMessage.job.payloadByteLength).toBeGreaterThan(512 * 1024);
+		expect(pierreJobMessage.job.payloadByteLength).toBeLessThanOrEqual(2 * 1024 * 1024);
+		expect(pierreJobMessage.job.payload.kind).toBe('codeViewFileItem');
+		if (pierreJobMessage.job.payload.kind !== 'codeViewFileItem') {
+			throw new Error('Expected selected dense File View content to publish a File View payload.');
+		}
+		expect(pierreJobMessage.job.payload.item.file.contents).toContain('line-006000');
+		expect(pierreJobMessage.job.payload.item.bridgeMetadata).toMatchObject({
+			contentState: 'hydrated',
+			lineCount: 6_000,
 		});
 	});
 
@@ -420,19 +546,23 @@ function createSelectedFileViewRuntimeStore(): BridgeCommWorkerStore {
 
 function makeWorkerFileViewContentMetadata(
 	itemId: string,
-	props: { readonly omitContentHash?: boolean } = {},
+	props: {
+		readonly lineCount?: number;
+		readonly omitContentHash?: boolean;
+		readonly sizeBytes?: number;
+	} = {},
 ): BridgeWorkerFileViewContentMetadata {
 	return {
 		itemId,
 		path: 'Sources/App/FileView.swift',
 		language: 'swift',
 		cacheKey: `file-view:metadata-cache:${itemId}`,
-		sizeBytes: 128,
+		sizeBytes: props.sizeBytes ?? 128,
 		contentHandle: `handle-${itemId}`,
 		descriptorId: `descriptor-${itemId}`,
 		...(props.omitContentHash === true ? {} : { contentHash: `sha256:${itemId}` }),
 		virtualizedExtentKind: 'exactLineCount',
-		lineCount: 1,
+		lineCount: props.lineCount ?? 1,
 		isBinary: false,
 		canFetchContent: true,
 	};
@@ -456,7 +586,11 @@ function makeWorkerReviewContentMetadata(itemId: string): BridgeWorkerReviewCont
 
 function makeContentRequestDescriptor(
 	text: string,
-	props: { readonly omitContentHash?: boolean } = {},
+	props: {
+		readonly maxBytes?: number;
+		readonly omitContentHash?: boolean;
+		readonly sizeBytes?: number;
+	} = {},
 ): BridgeWorkerFileViewContentRequestDescriptor {
 	const descriptor: BridgeWorkerFileViewContentRequestDescriptor = {
 		itemId: 'file-1',
@@ -470,10 +604,28 @@ function makeContentRequestDescriptor(
 			? {}
 			: { contentHash: 'sha256:file-1', contentHashAlgorithm: 'sha256' }),
 		language: 'swift',
-		sizeBytes: 128,
-		maxBytes: 4096,
+		sizeBytes: props.sizeBytes ?? 128,
+		maxBytes: props.maxBytes ?? 4096,
 		isBinary: false,
 	};
 	descriptorByUrl.set(descriptor.resourceUrl, { text });
 	return descriptor;
+}
+
+function makeNumberedFileText(lineCount: number): string {
+	return Array.from(
+		{ length: lineCount },
+		(_, lineIndex): string => `line-${String(lineIndex + 1).padStart(3, '0')}`,
+	).join('\n');
+}
+
+function makeDenseNumberedFileText(props: {
+	readonly lineCount: number;
+	readonly linePayloadLength: number;
+}): string {
+	const payload = 'x'.repeat(props.linePayloadLength);
+	return Array.from(
+		{ length: props.lineCount },
+		(_, lineIndex): string => `line-${String(lineIndex + 1).padStart(6, '0')} ${payload}`,
+	).join('\n');
 }

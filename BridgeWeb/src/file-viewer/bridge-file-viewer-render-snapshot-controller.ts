@@ -366,7 +366,7 @@ const bridgeFileViewerRuntimeInteractiveDemandRank: BridgeWorkerDemandRank = {
 };
 
 const bridgeFileViewerRuntimeInteractiveBudget: BridgeWorkerPierreRenderBudget = {
-	...bridgeWorkerPierreRenderPolicy.interactiveRenderBudget,
+	...bridgeWorkerPierreRenderPolicy.fileViewSelectedRenderBudget,
 };
 
 export function bridgeCommWorkerContentItemsFromFileViewRenderState(
