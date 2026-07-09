@@ -270,6 +270,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				requestPreparationDrain,
 				sequence: createSequence(),
 				store: request.store,
+				...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 			});
 			if (ticket.enqueued) {
 				preparationCompletions.push(ticket.completion);

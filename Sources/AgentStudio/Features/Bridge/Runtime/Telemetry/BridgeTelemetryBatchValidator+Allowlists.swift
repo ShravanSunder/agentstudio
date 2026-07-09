@@ -129,6 +129,9 @@ extension BridgeTelemetryBatchValidator {
             "contenthash_change",
             "generation_rotation",
             "revision_churn",
+            "stale_after_fetch",
+            "stale_before_fetch",
+            "stale_before_publish",
         ],
         "agentstudio.bridge.file_size_bucket": [
             "empty",

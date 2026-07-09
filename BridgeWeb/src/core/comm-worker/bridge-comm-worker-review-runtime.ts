@@ -3,6 +3,11 @@ import {
 	postPreparedBridgeCommWorkerMessage,
 } from './bridge-comm-worker-entry.js';
 import type { BridgeCommWorkerStore } from './bridge-comm-worker-store.js';
+import {
+	recordBridgeCommWorkerSelectedContentDroppedTelemetry,
+	type BridgeCommWorkerSelectedContentDropReason,
+	type BridgeCommWorkerTelemetryRecorder,
+} from './bridge-comm-worker-telemetry.js';
 import type {
 	BridgeWorkerContentAvailabilityPatchPayload,
 	BridgeWorkerReviewContentRequestDescriptor,
@@ -36,11 +41,13 @@ export interface DispatchSelectedBridgeWorkerReviewContentReadyProps {
 	readonly renderSemantics: readonly BridgeWorkerReviewRenderSemantics[];
 	readonly sequence: number;
 	readonly store: BridgeCommWorkerStore;
+	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
 }
 
 export interface DispatchBridgeWorkerReviewContentReadyProps extends DispatchSelectedBridgeWorkerReviewContentReadyProps {
 	readonly demandKey: string;
 	readonly isDemandCurrent?: () => boolean;
+	readonly recordSelectedContentDrops?: boolean;
 }
 
 export type BridgeWorkerReviewContentReadyFetchResult =
@@ -55,6 +62,7 @@ export type BridgeWorkerReviewContentReadyFetchResult =
 			readonly state: BridgeWorkerTerminalContentAvailabilityState;
 	  }
 	| {
+			readonly reason: BridgeCommWorkerSelectedContentDropReason;
 			readonly status: 'stale';
 	  };
 
@@ -70,6 +78,7 @@ export async function dispatchSelectedBridgeWorkerReviewContentReady(
 	await dispatchBridgeWorkerReviewContentReady({
 		...props,
 		demandKey: selectedReviewContentReadyDemandKey(props),
+		recordSelectedContentDrops: true,
 	});
 }
 
@@ -93,7 +102,7 @@ export async function fetchBridgeWorkerReviewContentReadyResources(
 	props: DispatchBridgeWorkerReviewContentReadyProps,
 ): Promise<BridgeWorkerReviewContentReadyFetchResult> {
 	if (!isReviewContentReadyDemandCurrent(props)) {
-		return { status: 'stale' };
+		return { reason: 'stale_before_fetch', status: 'stale' };
 	}
 	const semantics = props.renderSemantics.find((candidate) => candidate.itemId === props.itemId);
 	if (semantics === undefined) {
@@ -113,7 +122,7 @@ export async function fetchBridgeWorkerReviewContentReadyResources(
 		return { reason: 'load_failed', status: 'terminal', state: 'failed' };
 	}
 	if (!isReviewContentReadyDemandCurrent(props)) {
-		return { status: 'stale' };
+		return { reason: 'stale_after_fetch', status: 'stale' };
 	}
 	return { status: 'ready', resources, semantics };
 }
@@ -126,6 +135,7 @@ export function publishSelectedBridgeWorkerReviewContentReadyFetchResult(
 	publishBridgeWorkerReviewContentReadyFetchResult({
 		...props,
 		demandKey: selectedReviewContentReadyDemandKey(props),
+		recordSelectedContentDrops: true,
 	});
 }
 
@@ -135,6 +145,11 @@ export function publishBridgeWorkerReviewContentReadyFetchResult(
 	},
 ): void {
 	if (props.fetchResult.status === 'stale') {
+		recordSelectedReviewContentDropIfNeeded({
+			dropReason: props.fetchResult.reason,
+			recordSelectedContentDrops: props.recordSelectedContentDrops,
+			telemetryClient: props.telemetryClient,
+		});
 		return;
 	}
 	if (props.fetchResult.status === 'terminal') {
@@ -146,6 +161,11 @@ export function publishBridgeWorkerReviewContentReadyFetchResult(
 		return;
 	}
 	if (!isReviewContentReadyDemandCurrent(props)) {
+		recordSelectedReviewContentDropIfNeeded({
+			dropReason: 'stale_before_publish',
+			recordSelectedContentDrops: props.recordSelectedContentDrops,
+			telemetryClient: props.telemetryClient,
+		});
 		return;
 	}
 	const preparedJobEvent = prepareBridgeWorkerReviewContentRenderJobEvent({
@@ -171,6 +191,20 @@ export function publishBridgeWorkerReviewContentReadyFetchResult(
 		store: props.store,
 	});
 	postPreparedBridgeCommWorkerMessage(props.port, contentReadyCommit.preparedMessage);
+}
+
+function recordSelectedReviewContentDropIfNeeded(props: {
+	readonly dropReason: BridgeCommWorkerSelectedContentDropReason;
+	readonly recordSelectedContentDrops: boolean | undefined;
+	readonly telemetryClient: BridgeCommWorkerTelemetryRecorder | undefined;
+}): void {
+	if (props.recordSelectedContentDrops !== true) {
+		return;
+	}
+	recordBridgeCommWorkerSelectedContentDroppedTelemetry({
+		dropReason: props.dropReason,
+		...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
+	});
 }
 
 type BridgeWorkerTerminalContentAvailabilityState = Extract<

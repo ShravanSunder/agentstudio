@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
 import type { BridgeCommWorkerPort } from './bridge-comm-worker-entry.js';
 import { enqueueSelectedBridgeWorkerReviewContentReadyPreparation } from './bridge-comm-worker-review-preparation.js';
 import { createBridgeCommWorkerStore } from './bridge-comm-worker-store.js';
@@ -172,6 +173,7 @@ describe('Bridge comm worker review preparation', () => {
 	test('drops stale selected review preparation before publishing content messages', async () => {
 		const postedMessages: PostedBridgeWorkerPreparationMessage[] = [];
 		const fetchCalls: string[] = [];
+		const telemetrySamples: BridgeTelemetrySample[] = [];
 		const pump = createWorkerContentPreparationPump({
 			maxSliceMs: 5,
 			now: () => 0,
@@ -216,6 +218,11 @@ describe('Bridge comm worker review preparation', () => {
 			renderSemantics: [makeRenderSemantics()],
 			sequence: 12,
 			store,
+			telemetryClient: {
+				record: (sample): void => {
+					telemetrySamples.push(sample);
+				},
+			},
 		});
 
 		const runResult = pump.runUntilBudget();
@@ -229,6 +236,156 @@ describe('Bridge comm worker review preparation', () => {
 			'agentstudio://resource/review/content/handle-item-1-base?generation=4',
 			'agentstudio://resource/review/content/handle-item-1-head?generation=4',
 		]);
+		expect(telemetrySamples).toContainEqual(
+			expect.objectContaining({
+				name: 'performance.bridge.web.selected_content_dropped',
+				durationMilliseconds: null,
+				stringAttributes: expect.objectContaining({
+					'agentstudio.bridge.drop_reason': 'stale_after_fetch',
+					'agentstudio.bridge.phase': 'selected_content_dropped',
+					'agentstudio.bridge.result': 'dropped',
+					'agentstudio.bridge.viewer': 'review',
+				}),
+			}),
+		);
+		expect(postedMessages).toEqual([]);
+	});
+
+	test('records stale selected review preparation before fetch starts', async () => {
+		const postedMessages: PostedBridgeWorkerPreparationMessage[] = [];
+		const fetchCalls: string[] = [];
+		const telemetrySamples: BridgeTelemetrySample[] = [];
+		const pump = createWorkerContentPreparationPump({
+			maxSliceMs: 5,
+			now: () => 0,
+		});
+		const store = createBridgeCommWorkerStore({
+			contentItems: [
+				makeWorkerReviewContentMetadata('item-1'),
+				makeWorkerReviewContentMetadata('item-2'),
+			],
+			rows: [
+				{ id: 'item-1', parentId: null, index: 0 },
+				{ id: 'item-2', parentId: null, index: 1 },
+			],
+		});
+		store.actions.applySelectedFact({ epoch: 7, itemId: 'item-1' });
+		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
+
+		const preparation = enqueueSelectedBridgeWorkerReviewContentReadyPreparation({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentRequestDescriptors: [
+				makeContentRequestDescriptor({ role: 'base', text: 'base content' }),
+				makeContentRequestDescriptor({ role: 'head', text: 'head content' }),
+			],
+			epoch: 7,
+			fetchContent: async (url: string): Promise<Response> => {
+				fetchCalls.push(url);
+				const descriptor = descriptorByUrl.get(url);
+				if (descriptor === undefined) {
+					throw new Error(`Unexpected review content URL ${url}.`);
+				}
+				return makeImmediateTextResponse(descriptor.text);
+			},
+			itemId: 'item-1',
+			port: makePostedMessagePort(postedMessages),
+			pump,
+			renderSemantics: [makeRenderSemantics()],
+			sequence: 12,
+			store,
+			telemetryClient: {
+				record: (sample): void => {
+					telemetrySamples.push(sample);
+				},
+			},
+		});
+		store.actions.applySelectedFact({ epoch: 8, itemId: 'item-2' });
+		store.actions.takePendingSlicePatchEvent({ epoch: 8, sequence: 13 });
+
+		const runResult = pump.runUntilBudget();
+		await preparation.completion;
+
+		expect(runResult.completedIds).toEqual([preparation.workId]);
+		expect(fetchCalls).toEqual([]);
+		expectSelectedContentDroppedTelemetry(telemetrySamples, 'stale_before_fetch');
+		expect(postedMessages).toEqual([]);
+	});
+
+	test('records stale selected review preparation after fetch before publish', async () => {
+		const postedMessages: PostedBridgeWorkerPreparationMessage[] = [];
+		const fetchResponses = [
+			createDeferredResponse('base content'),
+			createDeferredResponse('head content'),
+		];
+		const allFetchResponses = [...fetchResponses];
+		const telemetrySamples: BridgeTelemetrySample[] = [];
+		const pump = createWorkerContentPreparationPump({
+			maxSliceMs: 5,
+			now: () => 0,
+		});
+		const store = createBridgeCommWorkerStore({
+			contentItems: [
+				makeWorkerReviewContentMetadata('item-1'),
+				makeWorkerReviewContentMetadata('item-2'),
+			],
+			rows: [
+				{ id: 'item-1', parentId: null, index: 0 },
+				{ id: 'item-2', parentId: null, index: 1 },
+			],
+		});
+		store.actions.applySelectedFact({ epoch: 7, itemId: 'item-1' });
+		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
+
+		const preparation = enqueueSelectedBridgeWorkerReviewContentReadyPreparation({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentRequestDescriptors: [
+				makeContentRequestDescriptor({ role: 'base', text: 'base content' }),
+				makeContentRequestDescriptor({ role: 'head', text: 'head content' }),
+			],
+			epoch: 7,
+			fetchContent: async (): Promise<Response> => {
+				const response = fetchResponses.shift();
+				if (response === undefined) {
+					throw new Error('Unexpected review content fetch.');
+				}
+				return response.promise;
+			},
+			itemId: 'item-1',
+			port: makePostedMessagePort(postedMessages),
+			pump,
+			renderSemantics: [makeRenderSemantics()],
+			sequence: 12,
+			store,
+			telemetryClient: {
+				record: (sample): void => {
+					telemetrySamples.push(sample);
+				},
+			},
+		});
+
+		const firstRun = pump.runUntilBudget();
+		for (const response of allFetchResponses) {
+			response.resolve();
+		}
+		await flushBridgeWorkerPreparationContinuations();
+		store.actions.applySelectedFact({ epoch: 8, itemId: 'item-2' });
+		store.actions.takePendingSlicePatchEvent({ epoch: 8, sequence: 13 });
+		const secondRun = pump.runUntilBudget();
+		await preparation.completion;
+
+		expect(firstRun.completedIds).toEqual([]);
+		expect(secondRun.completedIds).toEqual([preparation.workId]);
+		expectSelectedContentDroppedTelemetry(telemetrySamples, 'stale_before_publish');
 		expect(postedMessages).toEqual([]);
 	});
 
@@ -358,6 +515,25 @@ async function flushBridgeWorkerPreparationContinuations(): Promise<void> {
 }
 
 function noopResolveDeferredResponse(_response: Response): void {}
+
+function expectSelectedContentDroppedTelemetry(
+	telemetrySamples: readonly BridgeTelemetrySample[],
+	dropReason: string,
+): void {
+	expect(telemetrySamples).toContainEqual(
+		expect.objectContaining({
+			name: 'performance.bridge.web.selected_content_dropped',
+			durationMilliseconds: null,
+			stringAttributes: expect.objectContaining({
+				'agentstudio.bridge.drop_reason': dropReason,
+				'agentstudio.bridge.phase': 'selected_content_dropped',
+				'agentstudio.bridge.result': 'dropped',
+				'agentstudio.bridge.transport': 'content',
+				'agentstudio.bridge.viewer': 'review',
+			}),
+		}),
+	);
+}
 
 function makePostedMessagePort(
 	postedMessages: PostedBridgeWorkerPreparationMessage[],

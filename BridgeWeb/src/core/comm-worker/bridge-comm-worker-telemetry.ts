@@ -43,6 +43,11 @@ export interface BridgeCommWorkerTelemetryTransport {
 	readonly endpointUrl: string;
 }
 
+export type BridgeCommWorkerSelectedContentDropReason =
+	| 'stale_after_fetch'
+	| 'stale_before_fetch'
+	| 'stale_before_publish';
+
 export interface BridgeCommWorkerTelemetryClient extends BridgeCommWorkerTelemetryRecorder {
 	readonly record: (sample: BridgeTelemetrySample) => void;
 	readonly flush: () => boolean;
@@ -191,6 +196,34 @@ export function recordBridgeCommWorkerTaskTelemetry(
 				? {}
 				: { 'agentstudio.bridge.worker.patch_count': props.patchCount }),
 		},
+		booleanAttributes: {},
+	});
+}
+
+export interface RecordBridgeCommWorkerSelectedContentDroppedTelemetryProps {
+	readonly dropReason: BridgeCommWorkerSelectedContentDropReason;
+	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
+}
+
+export function recordBridgeCommWorkerSelectedContentDroppedTelemetry(
+	props: RecordBridgeCommWorkerSelectedContentDroppedTelemetryProps,
+): void {
+	props.telemetryClient?.record({
+		scope: 'web',
+		name: 'performance.bridge.web.selected_content_dropped',
+		durationMilliseconds: null,
+		traceContext: null,
+		stringAttributes: {
+			'agentstudio.bridge.drop_reason': props.dropReason,
+			'agentstudio.bridge.phase': 'selected_content_dropped',
+			'agentstudio.bridge.plane': 'data',
+			'agentstudio.bridge.priority': 'hot',
+			'agentstudio.bridge.result': 'dropped',
+			'agentstudio.bridge.slice': 'content_fetch',
+			'agentstudio.bridge.transport': 'content',
+			'agentstudio.bridge.viewer': 'review',
+		},
+		numericAttributes: {},
 		booleanAttributes: {},
 	});
 }

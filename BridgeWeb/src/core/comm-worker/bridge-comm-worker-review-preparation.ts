@@ -6,6 +6,7 @@ import {
 	type DispatchBridgeWorkerReviewContentReadyProps,
 	type DispatchSelectedBridgeWorkerReviewContentReadyProps,
 } from './bridge-comm-worker-review-runtime.js';
+import { recordBridgeCommWorkerSelectedContentDroppedTelemetry } from './bridge-comm-worker-telemetry.js';
 import type {
 	BridgeWorkerContentPreparationRank,
 	BridgeWorkerContentPreparationWork,
@@ -38,6 +39,7 @@ export function enqueueSelectedBridgeWorkerReviewContentReadyPreparation(
 		...props,
 		demandKey: `selected:${props.epoch}`,
 		preparationRank: 'selected',
+		recordSelectedContentDrops: true,
 		workId: props.workId ?? selectedReviewContentReadyWorkId(props),
 	});
 }
@@ -50,6 +52,10 @@ export function enqueueBridgeWorkerReviewContentReadyPreparation(
 	let fetchStarted = false;
 	let fetchResult: BridgeWorkerReviewContentReadyFetchResult | null = null;
 	if (!isReviewContentReadyDemandCurrent(dispatchProps)) {
+		recordBridgeWorkerReviewPreparationSelectedContentDrop({
+			...dispatchProps,
+			dropReason: 'stale_before_fetch',
+		});
 		completion.resolve();
 		return { completion: completion.promise, enqueued: false, workId };
 	}
@@ -63,11 +69,15 @@ export function enqueueBridgeWorkerReviewContentReadyPreparation(
 			workKind: 'review_content_ready',
 		},
 		runSlice: () => {
-			if (!isReviewContentReadyDemandCurrent(dispatchProps)) {
-				completion.resolve();
-				return { complete: true };
-			}
 			if (!fetchStarted) {
+				if (!isReviewContentReadyDemandCurrent(dispatchProps)) {
+					recordBridgeWorkerReviewPreparationSelectedContentDrop({
+						...dispatchProps,
+						dropReason: 'stale_before_fetch',
+					});
+					completion.resolve();
+					return { complete: true };
+				}
 				fetchStarted = true;
 				void fetchBridgeWorkerReviewContentReadyResources(dispatchProps)
 					.then((result) => {
@@ -96,6 +106,20 @@ export function enqueueBridgeWorkerReviewContentReadyPreparation(
 	pump.enqueueOrPromote(work);
 
 	return { completion: completion.promise, enqueued: true, workId };
+}
+
+function recordBridgeWorkerReviewPreparationSelectedContentDrop(
+	props: DispatchBridgeWorkerReviewContentReadyProps & {
+		readonly dropReason: 'stale_before_fetch';
+	},
+): void {
+	if (props.recordSelectedContentDrops !== true) {
+		return;
+	}
+	recordBridgeCommWorkerSelectedContentDroppedTelemetry({
+		dropReason: props.dropReason,
+		...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
+	});
 }
 
 function reviewContentReadyWorkId(
