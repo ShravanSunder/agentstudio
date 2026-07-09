@@ -4732,3 +4732,74 @@ counts before claiming a gate.
   heavy-scroll UX verdict. It does not prove live Review scroll/click budgets,
   zero-copy transfer-list delivery, implementation-review-swarm, PR readiness,
   or full goal completion.
+
+## 2026-07-08T23:59:21Z - User live UX feedback and open product bug queue
+
+- User-observed improvements:
+  Review scrolling is more responsive, and Review scrolling no longer appears
+  to block the file tree as badly as earlier rounds.
+- Open Review bug:
+  Review-mode click-to-see remains slow. Some clicked files in Review mode do
+  not load and appear wedged, while scrolling can still reveal/load other files.
+  This needs fresh marker-scoped click metrics and a code-path trace before any
+  next fix claim.
+- Open File View bug:
+  Long File View documents appear to stop loading/rendering beyond roughly
+  400-500 lines. Example called out by the user: `spec.md`, which is much
+  longer. Treat this as a separate File View window/render continuation bug
+  until proven otherwise; do not hide it under the R53 transfer-byte slice.
+- Active sidekick:
+  Schrodinger the 3rd is collecting read-only Victoria metrics from the
+  current oq4s marker while the user interacts with the app.
+- Task order impact:
+  Finish and verify the current R53 File View transferable-bytes slice first,
+  then attack Review click/wedged-load metrics, then File View long-file
+  truncation. Both product bugs remain blockers for a PR-ready UX verdict.
+
+## 2026-07-09T00:06:43Z - R53 review blocker and live click metrics
+
+- R53 review verdict:
+  Leibniz the 3rd reviewed the current uncommitted File View transfer diff and
+  returned `needs fixes`. The accepted blocker is that main currently decodes
+  `contentsBytes` with `TextDecoder` and reconstructs a string payload before
+  storing the item for Pierre. That proves worker-to-main transfer, but it
+  violates R52/R57 because main is no longer only a bounded Pierre courier.
+- R53 validation gap:
+  The current uncommitted tests also allow a byte-backed File View
+  `pierreRenderJob` with empty `transferDescriptors`, so receive-side transfer
+  descriptor validation is incomplete. This must be fixed or the slice must be
+  replanned before commit.
+- Controller verification:
+  Parent checked the spec/plan anchors. R52/R57 explicitly forbid main parse,
+  window, diff, decode, highlight, or payload reconstruction before Pierre; R53
+  requires runtime validation that declared transfer fields and payload values
+  agree. The review finding is accepted.
+- Live Review metrics:
+  Schrodinger the 3rd queried marker
+  `debug-observability-oq4s-1783553862-3981` and found 17
+  `selection_commit` events versus only 6 `selected_content_painted` events.
+  Selection commit p50 was 2ms, p95 149ms, max 149ms; selected paint p50 was
+  318ms, p95 6224ms, max 7978ms. The worst click committed at
+  `2026-07-08T23:57:15.759055Z` and painted at
+  `2026-07-08T23:57:23.740713Z`.
+- Live Review interpretation:
+  Tree click/highlight is not the long tail: click-to-row-highlight p50 was
+  13ms and max 25ms. Materialize and final frame wait were not the worst-click
+  tail either (`materialize_ms=0`, `frame_wait_ms=14`). The missing span is
+  before selected content reaches painted state, likely selected-demand/loading
+  lifecycle or a telemetry-blind worker path.
+- Telemetry gap:
+  Marker-scoped logs had 0 `performance.bridge.web.review_content_demand` and
+  0 `performance.bridge.web.selected_content_dropped` rows, even though those
+  contracts exist in the telemetry adapter. This prevents distinguishing
+  same-item/no-op clicks, demand wedge, stale drop, and missing worker activity.
+- File View telemetry gap:
+  The same marker had 0 `performance.bridge.web.file_open_ready` and 0
+  `performance.bridge.web.visible_demand_settled` rows, so the long-file
+  truncation bug remains telemetry-blind until File View emits window/truncation
+  facts.
+- Next action:
+  Do not commit the current R53 diff. Replan or fix it so File View main does
+  not decode/reconstruct before Pierre, and add receive-side transfer
+  descriptor validation. Then add the missing Review click lifecycle telemetry
+  before attacking the click/wedge bug.
