@@ -46,6 +46,8 @@ extension AppDelegate {
                     await self.runBridgeReviewToFileViewObservabilitySmokeDiagnostic(action: action)
                 case .bridgeWorkerFetchSchemeSmoke:
                     await self.runBridgeWorkerFetchSchemeSmokeDiagnostic(action: action)
+                case .bridgeProductStreamWebKitFeasibility:
+                    await self.runBridgeProductStreamWebKitFeasibilityDiagnostic(action: action)
             #endif
             case .addWatchFolder:
                 guard let folderURL = AgentStudioStartupDiagnosticAction.watchFolderURL() else {

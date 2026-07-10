@@ -61,6 +61,14 @@ const defaultPackageRootPath = fileURLToPath(new URL('../', import.meta.url));
 const checkedExtensions = new Set(['.ts', '.tsx']);
 const ignoredDirectoryNames = new Set(['node_modules', 'dist', 'coverage', '.vite']);
 const maxSourceFileLineCount = 1000;
+const allowedPostMessagePaths = new Set([
+	'src/app/diagnostics/bridge-product-stream-webkit-feasibility-probe.ts',
+	'src/app/diagnostics/bridge-worker-fetch-probe-worker-entry.ts',
+	'src/core/comm-worker/bridge-comm-worker-client.ts',
+	'src/core/comm-worker/bridge-comm-worker-entry.ts',
+	'src/core/comm-worker/bridge-comm-worker-runtime-protocol.ts',
+	'src/core/comm-worker/bridge-product-session-contracts.ts',
+]);
 const publicPierreExports = new Set([
 	'@pierre/diffs',
 	'@pierre/diffs/react',
@@ -297,11 +305,12 @@ function checkImportSource(context: SourceContext, node: ts.Node): void {
 }
 
 function checkWorkerUsage(context: SourceContext, node: ts.Node): void {
-	if (isTestPath(context.relativePath) || isAllowedWorkerPath(context.relativePath)) {
+	if (isTestPath(context.relativePath)) {
 		return;
 	}
 
 	if (
+		!isAllowedWorkerConstructionPath(context.relativePath) &&
 		ts.isNewExpression(node) &&
 		ts.isIdentifier(node.expression) &&
 		node.expression.text === 'Worker'
@@ -315,6 +324,7 @@ function checkWorkerUsage(context: SourceContext, node: ts.Node): void {
 	}
 
 	if (
+		!isAllowedPostMessagePath(context.relativePath) &&
 		ts.isCallExpression(node) &&
 		ts.isPropertyAccessExpression(node.expression) &&
 		node.expression.name.text === 'postMessage'
@@ -323,7 +333,7 @@ function checkWorkerUsage(context: SourceContext, node: ts.Node): void {
 			ruleId: 'worker-boundary',
 			node,
 			message:
-				'postMessage usage belongs under review-viewer/workers/projection, workers/pierre, workers/markdown, or workers/shared-rpc',
+				'postMessage usage belongs to an owned worker lane, exact comm-worker gateway, or exact packaged diagnostic boundary',
 		});
 	}
 }
@@ -537,13 +547,17 @@ function isAllowedPierreWorkerImportPath(relativePath: string): boolean {
 	return isPathInside(relativePath, 'src/review-viewer/workers/pierre/');
 }
 
-function isAllowedWorkerPath(relativePath: string): boolean {
+function isAllowedWorkerConstructionPath(relativePath: string): boolean {
 	return (
 		isPathInside(relativePath, 'src/review-viewer/workers/projection/') ||
 		isPathInside(relativePath, 'src/review-viewer/workers/pierre/') ||
 		isPathInside(relativePath, 'src/review-viewer/workers/markdown/') ||
 		isPathInside(relativePath, 'src/review-viewer/workers/shared-rpc/')
 	);
+}
+
+function isAllowedPostMessagePath(relativePath: string): boolean {
+	return isAllowedWorkerConstructionPath(relativePath) || allowedPostMessagePaths.has(relativePath);
 }
 
 function isMarkdownRenderImport(importSource: string): boolean {

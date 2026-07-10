@@ -98,5 +98,95 @@ extension WebKitSerializedTests {
             #expect(!source.contains("agentstudio.startup_diagnostic.bridge.worker_fetch.raw_url"))
             #expect(!source.contains("agentstudio.startup_diagnostic.bridge.worker_fetch.raw_path"))
         }
+
+        @Test("product stream startup diagnostic runs the packaged worker feasibility probe")
+        func productStreamStartupDiagnosticRunsPackagedWorkerFeasibilityProbe() throws {
+            let source = try String(
+                contentsOfFile:
+                    "Sources/AgentStudio/App/Boot/AppDelegate+BridgeProductStreamWebKitFeasibilityStartupDiagnostics.swift",
+                encoding: .utf8
+            )
+
+            #expect(source.contains("BridgeAppAssetStore().load("))
+            #expect(source.contains("assets/bridge-worker-fetch-probe-worker.js"))
+            #expect(source.contains("BridgeProductStreamWebKitFeasibilityDiagnostic.run("))
+            #expect(source.contains("app.startup_diagnostic_action.completed"))
+            #expect(source.contains("app.startup_diagnostic_action.blocked"))
+            #expect(!source.contains("raw_capability"))
+            #expect(!source.contains("raw_body"))
+        }
+
+        @Test("product stream positive verdict rejects incomplete lifecycle proof")
+        func productStreamPositiveVerdictRejectsFalseGreenProof() {
+            let exactResult = BridgeProductStreamFeasibilityDiagnosticResult(
+                proof: makeProductStreamFeasibilityProof()
+            )
+            let authenticationResult = BridgeProductStreamFeasibilityDiagnosticResult(
+                proof: makeProductStreamFeasibilityProof(authenticationBeforeBodySucceeded: false)
+            )
+            let bufferedFrameResult = BridgeProductStreamFeasibilityDiagnosticResult(
+                proof: makeProductStreamFeasibilityProof(workerObservedIncrementalFrames: false)
+            )
+            let producerResidueResult = BridgeProductStreamFeasibilityDiagnosticResult(
+                proof: makeProductStreamFeasibilityProof(activeProducerTaskCount: 1)
+            )
+            let postTerminalResult = BridgeProductStreamFeasibilityDiagnosticResult(
+                proof: makeProductStreamFeasibilityProof(postTerminalFrameCount: 1)
+            )
+            let missingAcknowledgementResult = BridgeProductStreamFeasibilityDiagnosticResult(
+                proof: makeProductStreamFeasibilityProof(
+                    cancellationOrder: [.producerStopped, .producerUnregistered]
+                )
+            )
+
+            #expect(exactResult.carrierSucceeded)
+            #expect(exactResult.framedStreamSucceeded)
+            #expect(exactResult.abortCausalCancellationSucceeded)
+            #expect(!authenticationResult.carrierSucceeded)
+            #expect(!bufferedFrameResult.carrierSucceeded)
+            #expect(!producerResidueResult.carrierSucceeded)
+            #expect(!postTerminalResult.carrierSucceeded)
+            #expect(!missingAcknowledgementResult.carrierSucceeded)
+        }
+
+        private func makeProductStreamFeasibilityProof(
+            authenticationBeforeBodySucceeded: Bool = true,
+            workerObservedIncrementalFrames: Bool = true,
+            activeProducerTaskCount: Int = 0,
+            postTerminalFrameCount: Int = 0,
+            cancellationOrder: [BridgeWebKitFeasibilityCancellationEvent] = [
+                .producerStopped, .producerUnregistered, .resultAcknowledged,
+            ]
+        ) -> BridgeProductStreamWebKitFeasibilityProof {
+            BridgeProductStreamWebKitFeasibilityProof(
+                authenticationBeforeBodySucceeded: authenticationBeforeBodySucceeded,
+                bodyCapBeforeDecodeSucceeded: true,
+                strictRouteDecodeSucceeded: true,
+                missingContentLengthAccepted: true,
+                exactRequestBodyBytesSucceeded: true,
+                bodyReadCount: 11,
+                bodyReadByteCount: 66_000,
+                decodeCallCount: 10,
+                providerCallCount: 8,
+                unauthorizedBodyReadCount: 0,
+                validBodyByteCount: 128,
+                firstFrameByteCount: 45,
+                validStreamEnded: true,
+                workerStartPostObserved: true,
+                workerObservedExactFrames: true,
+                workerObservedIncrementalFrames: workerObservedIncrementalFrames,
+                workerObservedCancellation: true,
+                frameReceiptCount: 4,
+                cancellationOrder: cancellationOrder,
+                activeProducerCount: 0,
+                activeProducerTaskCount: activeProducerTaskCount,
+                queuedFrameCount: 0,
+                maximumQueuedFrameCount: 1,
+                producerOverflowCount: 0,
+                postTerminalFrameCount: postTerminalFrameCount,
+                requestAPIObservations: [],
+                failureReason: "none"
+            )
+        }
     }
 }

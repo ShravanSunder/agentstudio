@@ -1,0 +1,24 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"declaration": false,
+		"declarationMap": false,
+		"noEmit": true
+	},
+	"include": [
+		"src/core/comm-worker/bridge-product-call-contracts.ts",
+		"src/core/comm-worker/bridge-product-content-contracts.ts",
+		"src/core/comm-worker/bridge-product-content-frame-decoder.ts",
+		"src/core/comm-worker/bridge-product-content-frame-codec.ts",
+		"src/core/comm-worker/bridge-product-contract-primitives.ts",
+		"src/core/comm-worker/bridge-product-frame-decoder-support.ts",
+		"src/core/comm-worker/bridge-product-metadata-frame-codec.ts",
+		"src/core/comm-worker/bridge-product-session-contracts.ts",
+		"src/core/comm-worker/bridge-product-strict-json.ts",
+		"src/core/comm-worker/bridge-product-subscription-contracts.ts",
+		"src/core/comm-worker/bridge-product-subscription-interest-state-codec.ts",
+		"src/core/comm-worker/bridge-product-transport-contract.ts",
+		"src/core/comm-worker/bridge-product-transport-contract.type-test.ts"
+	],
+	"exclude": ["node_modules", "dist"]
+}

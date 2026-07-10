@@ -1,82 +1,90 @@
 import Foundation
 
-private enum BridgeProductControlRequestIdentityCodingKeys: String, CodingKey, CaseIterable {
-    case wireVersion
-    case paneSessionId
-    case workerInstanceId
-    case requestId
-    case requestSequence
-}
-
-private struct BridgeProductControlRequestIdentity: Codable, Equatable, Sendable {
-    static let codingKeyNames = Set(BridgeProductControlRequestIdentityCodingKeys.allCases.map(\.rawValue))
-
-    let wireVersion: Int
-    let paneSessionId: String
-    let workerInstanceId: String
-    let requestId: String
-    let requestSequence: Int
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: BridgeProductControlRequestIdentityCodingKeys.self)
-        self.wireVersion = try container.decode(Int.self, forKey: .wireVersion)
-        self.paneSessionId = try container.decode(String.self, forKey: .paneSessionId)
-        self.workerInstanceId = try container.decode(String.self, forKey: .workerInstanceId)
-        self.requestId = try container.decode(String.self, forKey: .requestId)
-        self.requestSequence = try container.decode(Int.self, forKey: .requestSequence)
-        try BridgeProductContractDecoding.validateWireVersion(wireVersion, codingPath: decoder.codingPath)
-        try BridgeProductContractDecoding.validateIdentifier(paneSessionId, codingPath: decoder.codingPath)
-        try BridgeProductContractDecoding.validateIdentifier(workerInstanceId, codingPath: decoder.codingPath)
-        try BridgeProductContractDecoding.validateIdentifier(requestId, codingPath: decoder.codingPath)
-        try BridgeProductContractDecoding.validatePositive(
-            requestSequence,
-            name: "requestSequence",
-            codingPath: decoder.codingPath
-        )
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: BridgeProductControlRequestIdentityCodingKeys.self)
-        try container.encode(wireVersion, forKey: .wireVersion)
-        try container.encode(paneSessionId, forKey: .paneSessionId)
-        try container.encode(workerInstanceId, forKey: .workerInstanceId)
-        try container.encode(requestId, forKey: .requestId)
-        try container.encode(requestSequence, forKey: .requestSequence)
-    }
-}
+private typealias BridgeProductPaneControlRequestIdentity = BridgeProductControlCorrelation
+private typealias BridgeProductSurfaceControlRequestIdentity = BridgeProductSurfaceRequestIdentity
 
 enum BridgeProductControlRequest: Codable, Equatable, Sendable {
     case workerSessionOpen(BridgeProductWorkerSessionOpenRequest)
-    case productCommand(BridgeProductCommandRequest)
-    case streamOpen(BridgeProductStreamOpenRequest)
-    case streamCancel(BridgeProductStreamCancelRequest)
+    case productCall(BridgeProductCallControlRequest)
+    case subscriptionOpen(BridgeProductSubscriptionOpenRequest)
+    case subscriptionUpdateBatch(BridgeProductSubscriptionUpdateBatchRequest)
+    case subscriptionCancel(BridgeProductSubscriptionCancelRequest)
     case workerSessionResync(BridgeProductWorkerSessionResyncRequest)
 
-    private enum KindCodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey {
         case kind
     }
 
     var kind: String {
         switch self {
         case .workerSessionOpen: "workerSession.open"
-        case .productCommand: "product.command"
-        case .streamOpen: "stream.open"
-        case .streamCancel: "stream.cancel"
+        case .productCall: "product.call"
+        case .subscriptionOpen: "subscription.open"
+        case .subscriptionUpdateBatch: "subscription.updateBatch"
+        case .subscriptionCancel: "subscription.cancel"
         case .workerSessionResync: "workerSession.resync"
         }
     }
 
+    var correlation: BridgeProductControlCorrelation {
+        switch self {
+        case .workerSessionOpen(let request): request.correlation
+        case .productCall(let request): request.correlation
+        case .subscriptionOpen(let request): request.correlation
+        case .subscriptionUpdateBatch(let request): request.correlation
+        case .subscriptionCancel(let request): request.correlation
+        case .workerSessionResync(let request): request.correlation
+        }
+    }
+
+    var paneSessionId: String { correlation.paneSessionId }
+    var requestId: String { correlation.requestId }
+    var requestSequence: Int { correlation.requestSequence }
+    var workerInstanceId: String { correlation.workerInstanceId }
+
+    var surface: BridgeProductSurface? {
+        switch self {
+        case .workerSessionOpen, .workerSessionResync:
+            nil
+        case .productCall(let request):
+            request.surface
+        case .subscriptionOpen(let request):
+            request.surface
+        case .subscriptionUpdateBatch(let request):
+            request.surface
+        case .subscriptionCancel(let request):
+            request.surface
+        }
+    }
+
+    var workerDerivationEpoch: Int? {
+        switch self {
+        case .workerSessionOpen, .workerSessionResync:
+            nil
+        case .productCall(let request):
+            request.workerDerivationEpoch
+        case .subscriptionOpen(let request):
+            request.workerDerivationEpoch
+        case .subscriptionUpdateBatch(let request):
+            request.workerDerivationEpoch
+        case .subscriptionCancel(let request):
+            request.workerDerivationEpoch
+        }
+    }
+
     init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: KindCodingKeys.self)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(String.self, forKey: .kind) {
         case "workerSession.open":
             self = .workerSessionOpen(try BridgeProductWorkerSessionOpenRequest(from: decoder))
-        case "product.command":
-            self = .productCommand(try BridgeProductCommandRequest(from: decoder))
-        case "stream.open":
-            self = .streamOpen(try BridgeProductStreamOpenRequest(from: decoder))
-        case "stream.cancel":
-            self = .streamCancel(try BridgeProductStreamCancelRequest(from: decoder))
+        case "product.call":
+            self = .productCall(try BridgeProductCallControlRequest(from: decoder))
+        case "subscription.open":
+            self = .subscriptionOpen(try BridgeProductSubscriptionOpenRequest(from: decoder))
+        case "subscription.updateBatch":
+            self = .subscriptionUpdateBatch(try BridgeProductSubscriptionUpdateBatchRequest(from: decoder))
+        case "subscription.cancel":
+            self = .subscriptionCancel(try BridgeProductSubscriptionCancelRequest(from: decoder))
         case "workerSession.resync":
             self = .workerSessionResync(try BridgeProductWorkerSessionResyncRequest(from: decoder))
         default:
@@ -91,9 +99,10 @@ enum BridgeProductControlRequest: Codable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         switch self {
         case .workerSessionOpen(let request): try request.encode(to: encoder)
-        case .productCommand(let request): try request.encode(to: encoder)
-        case .streamOpen(let request): try request.encode(to: encoder)
-        case .streamCancel(let request): try request.encode(to: encoder)
+        case .productCall(let request): try request.encode(to: encoder)
+        case .subscriptionOpen(let request): try request.encode(to: encoder)
+        case .subscriptionUpdateBatch(let request): try request.encode(to: encoder)
+        case .subscriptionCancel(let request): try request.encode(to: encoder)
         case .workerSessionResync(let request): try request.encode(to: encoder)
         }
     }
@@ -102,159 +111,261 @@ enum BridgeProductControlRequest: Codable, Equatable, Sendable {
 struct BridgeProductWorkerSessionOpenRequest: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case kind
+        case request
     }
 
-    private let identity: BridgeProductControlRequestIdentity
+    private let identity: BridgeProductPaneControlRequestIdentity
+
+    var correlation: BridgeProductControlCorrelation { identity }
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
             from: decoder,
-            allowedKeys: BridgeProductControlRequestIdentity.codingKeyNames.union(
+            allowedKeys: BridgeProductPaneControlRequestIdentity.codingKeyNames.union(
                 CodingKeys.allCases.map(\.rawValue)
             ),
             contract: "workerSession.open request"
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
         guard try container.decode(String.self, forKey: .kind) == "workerSession.open" else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .kind,
-                in: container,
-                debugDescription: "Invalid workerSession.open request kind"
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid workerSession.open request kind",
+                codingPath: decoder.codingPath
             )
         }
-        self.identity = try BridgeProductControlRequestIdentity(from: decoder)
+        try BridgeProductContractDecoding.decodeRequiredNull(
+            forKey: .request,
+            from: container,
+            codingPath: decoder.codingPath
+        )
+        self.identity = try BridgeProductPaneControlRequestIdentity(from: decoder)
     }
 
     func encode(to encoder: Encoder) throws {
         try identity.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode("workerSession.open", forKey: .kind)
+        try container.encodeNil(forKey: .request)
     }
 }
 
-struct BridgeProductCommandRequest: Codable, Equatable, Sendable {
+struct BridgeProductCallControlRequest: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
+        case call
         case kind
-        case surface
-        case sourceGeneration
-        case workerEpoch
-        case command
     }
 
-    private let identity: BridgeProductControlRequestIdentity
-    let surface: BridgeProductSurface
-    let sourceGeneration: Int
-    let workerEpoch: Int
-    let command: BridgeProductCommand
+    private let identity: BridgeProductSurfaceControlRequestIdentity
+    let call: BridgeProductCallRequest
+
+    var correlation: BridgeProductControlCorrelation { identity.correlation }
+    var surface: BridgeProductSurface { call.surface }
+    var workerDerivationEpoch: Int { identity.workerDerivationEpoch }
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
             from: decoder,
-            allowedKeys: BridgeProductControlRequestIdentity.codingKeyNames.union(
+            allowedKeys: BridgeProductSurfaceControlRequestIdentity.codingKeyNames.union(
                 CodingKeys.allCases.map(\.rawValue)
             ),
-            contract: "product.command request"
+            contract: "product.call request"
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        guard try container.decode(String.self, forKey: .kind) == "product.command" else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .kind,
-                in: container,
-                debugDescription: "Invalid product.command request kind"
+        self.call = try container.decode(BridgeProductCallRequest.self, forKey: .call)
+        guard try container.decode(String.self, forKey: .kind) == "product.call" else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid product.call request kind",
+                codingPath: decoder.codingPath
             )
         }
-        self.identity = try BridgeProductControlRequestIdentity(from: decoder)
-        self.surface = try container.decode(BridgeProductSurface.self, forKey: .surface)
-        self.sourceGeneration = try container.decode(Int.self, forKey: .sourceGeneration)
-        self.workerEpoch = try container.decode(Int.self, forKey: .workerEpoch)
-        self.command = try container.decode(BridgeProductCommand.self, forKey: .command)
-        try BridgeProductContractDecoding.validateNonnegative(
-            sourceGeneration,
-            name: "sourceGeneration",
-            codingPath: decoder.codingPath
-        )
-        try BridgeProductContractDecoding.validateNonnegative(
-            workerEpoch,
-            name: "workerEpoch",
-            codingPath: decoder.codingPath
-        )
+        self.identity = try BridgeProductSurfaceControlRequestIdentity(from: decoder)
     }
 
     func encode(to encoder: Encoder) throws {
         try identity.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode("product.command", forKey: .kind)
-        try container.encode(surface, forKey: .surface)
-        try container.encode(sourceGeneration, forKey: .sourceGeneration)
-        try container.encode(workerEpoch, forKey: .workerEpoch)
-        try container.encode(command, forKey: .command)
+        try container.encode(call, forKey: .call)
+        try container.encode("product.call", forKey: .kind)
     }
 }
 
-struct BridgeProductStreamOpenRequest: Codable, Equatable, Sendable {
+struct BridgeProductSubscriptionOpenRequest: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case kind
-        case surface
-        case sourceGeneration
-        case workerEpoch
-        case streamId
-        case sourceRef
-        case resumeFromSequence
+        case subscription
+        case subscriptionId
     }
 
-    private let identity: BridgeProductControlRequestIdentity
-    let surface: BridgeProductSurface
-    let sourceGeneration: Int
-    let workerEpoch: Int
-    let streamId: String
-    let sourceRef: String
-    let resumeFromSequence: Int?
+    private let identity: BridgeProductSurfaceControlRequestIdentity
+    let subscription: BridgeProductSubscriptionRequest
+    let subscriptionId: String
+
+    var correlation: BridgeProductControlCorrelation { identity.correlation }
+    var surface: BridgeProductSurface { subscription.surface }
+    var workerDerivationEpoch: Int { identity.workerDerivationEpoch }
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
             from: decoder,
-            allowedKeys: BridgeProductControlRequestIdentity.codingKeyNames.union(
+            allowedKeys: BridgeProductSurfaceControlRequestIdentity.codingKeyNames.union(
                 CodingKeys.allCases.map(\.rawValue)
             ),
-            contract: "stream.open request"
+            contract: "subscription.open request"
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        guard try container.decode(String.self, forKey: .kind) == "stream.open" else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .kind,
-                in: container,
-                debugDescription: "Invalid stream.open request kind"
+        guard try container.decode(String.self, forKey: .kind) == "subscription.open" else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid subscription.open request kind",
+                codingPath: decoder.codingPath
             )
         }
-        self.identity = try BridgeProductControlRequestIdentity(from: decoder)
-        self.surface = try container.decode(BridgeProductSurface.self, forKey: .surface)
-        self.sourceGeneration = try container.decode(Int.self, forKey: .sourceGeneration)
-        self.workerEpoch = try container.decode(Int.self, forKey: .workerEpoch)
-        self.streamId = try container.decode(String.self, forKey: .streamId)
-        self.sourceRef = try container.decode(String.self, forKey: .sourceRef)
-        guard container.contains(.resumeFromSequence) else {
-            throw DecodingError.keyNotFound(
-                CodingKeys.resumeFromSequence,
-                .init(codingPath: decoder.codingPath, debugDescription: "Missing stream resume sequence")
+        self.subscription = try container.decode(BridgeProductSubscriptionRequest.self, forKey: .subscription)
+        self.subscriptionId = try container.decode(String.self, forKey: .subscriptionId)
+        self.identity = try BridgeProductSurfaceControlRequestIdentity(from: decoder)
+        try BridgeProductContractDecoding.validateIdentifier(subscriptionId, codingPath: decoder.codingPath)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try identity.encode(to: encoder)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode("subscription.open", forKey: .kind)
+        try container.encode(subscription, forKey: .subscription)
+        try container.encode(subscriptionId, forKey: .subscriptionId)
+    }
+}
+
+struct BridgeProductSubscriptionUpdateBatchRequest: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case baseInterestRevision
+        case baseInterestSha256
+        case batchCount
+        case batchIndex
+        case delta
+        case kind
+        case subscriptionId
+        case subscriptionKind
+        case targetInterestRevision
+        case targetInterestSha256
+        case totalDeltaItemCount
+        case updateId
+    }
+
+    private let identity: BridgeProductSurfaceControlRequestIdentity
+    let baseInterestRevision: Int
+    let baseInterestSha256: String
+    let batchCount: Int
+    let batchIndex: Int
+    let delta: BridgeProductSubscriptionInterestDelta
+    let subscriptionId: String
+    let subscriptionKind: BridgeProductSubscriptionKind
+    let targetInterestRevision: Int
+    let targetInterestSha256: String
+    let totalDeltaItemCount: Int
+    let updateId: String
+
+    var correlation: BridgeProductControlCorrelation { identity.correlation }
+    var surface: BridgeProductSurface { subscriptionKind.surface }
+    var workerDerivationEpoch: Int { identity.workerDerivationEpoch }
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: BridgeProductSurfaceControlRequestIdentity.codingKeyNames.union(
+                CodingKeys.allCases.map(\.rawValue)
+            ),
+            contract: "subscription.updateBatch request"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.baseInterestRevision = try container.decode(Int.self, forKey: .baseInterestRevision)
+        self.baseInterestSha256 = try container.decode(String.self, forKey: .baseInterestSha256)
+        self.batchCount = try container.decode(Int.self, forKey: .batchCount)
+        self.batchIndex = try container.decode(Int.self, forKey: .batchIndex)
+        self.delta = try container.decode(BridgeProductSubscriptionInterestDelta.self, forKey: .delta)
+        guard try container.decode(String.self, forKey: .kind) == "subscription.updateBatch" else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid subscription.updateBatch request kind",
+                codingPath: decoder.codingPath
             )
         }
-        self.resumeFromSequence = try container.decodeIfPresent(Int.self, forKey: .resumeFromSequence)
+        self.subscriptionId = try container.decode(String.self, forKey: .subscriptionId)
+        self.subscriptionKind = try container.decode(
+            BridgeProductSubscriptionKind.self,
+            forKey: .subscriptionKind
+        )
+        self.targetInterestRevision = try container.decode(Int.self, forKey: .targetInterestRevision)
+        self.targetInterestSha256 = try container.decode(String.self, forKey: .targetInterestSha256)
+        self.totalDeltaItemCount = try container.decode(Int.self, forKey: .totalDeltaItemCount)
+        self.updateId = try container.decode(String.self, forKey: .updateId)
+        self.identity = try BridgeProductSurfaceControlRequestIdentity(from: decoder)
+
         try BridgeProductContractDecoding.validateNonnegative(
-            sourceGeneration,
-            name: "sourceGeneration",
+            baseInterestRevision,
+            name: "baseInterestRevision",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validateSHA256(baseInterestSha256, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validatePositive(
+            batchCount,
+            name: "batchCount",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validateMaximum(
+            batchCount,
+            maximum: BridgeProductWireContract.maximumSubscriptionDeltaItemCount,
+            name: "batchCount",
             codingPath: decoder.codingPath
         )
         try BridgeProductContractDecoding.validateNonnegative(
-            workerEpoch,
-            name: "workerEpoch",
+            batchIndex,
+            name: "batchIndex",
             codingPath: decoder.codingPath
         )
-        try BridgeProductContractDecoding.validateIdentifier(streamId, codingPath: decoder.codingPath)
-        try BridgeProductContractDecoding.validateOpaqueReference(sourceRef, codingPath: decoder.codingPath)
-        if let resumeFromSequence {
-            try BridgeProductContractDecoding.validateNonnegative(
-                resumeFromSequence,
-                name: "resumeFromSequence",
+        try BridgeProductContractDecoding.validateIdentifier(subscriptionId, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validatePositive(
+            targetInterestRevision,
+            name: "targetInterestRevision",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validateSHA256(targetInterestSha256, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validatePositive(
+            totalDeltaItemCount,
+            name: "totalDeltaItemCount",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validateMaximum(
+            totalDeltaItemCount,
+            maximum: BridgeProductWireContract.maximumSubscriptionDeltaItemCount,
+            name: "totalDeltaItemCount",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validateIdentifier(updateId, codingPath: decoder.codingPath)
+        guard subscriptionKind == delta.subscriptionKind else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Subscription update kind must match its typed interest delta",
+                codingPath: decoder.codingPath
+            )
+        }
+        guard targetInterestRevision == baseInterestRevision + 1 else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Subscription update must advance exactly one interest revision",
+                codingPath: decoder.codingPath
+            )
+        }
+        guard batchIndex < batchCount else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Subscription update batch index must be below its batch count",
+                codingPath: decoder.codingPath
+            )
+        }
+        guard delta.itemCount > 0, delta.itemCount <= totalDeltaItemCount else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Subscription update batch item count must fit its declared total",
+                codingPath: decoder.codingPath
+            )
+        }
+        guard batchCount <= totalDeltaItemCount else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Subscription update cannot declare more nonempty batches than items",
                 codingPath: decoder.codingPath
             )
         }
@@ -263,113 +374,201 @@ struct BridgeProductStreamOpenRequest: Codable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         try identity.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode("stream.open", forKey: .kind)
-        try container.encode(surface, forKey: .surface)
-        try container.encode(sourceGeneration, forKey: .sourceGeneration)
-        try container.encode(workerEpoch, forKey: .workerEpoch)
-        try container.encode(streamId, forKey: .streamId)
-        try container.encode(sourceRef, forKey: .sourceRef)
-        try container.encode(resumeFromSequence, forKey: .resumeFromSequence)
+        try container.encode(baseInterestRevision, forKey: .baseInterestRevision)
+        try container.encode(baseInterestSha256, forKey: .baseInterestSha256)
+        try container.encode(batchCount, forKey: .batchCount)
+        try container.encode(batchIndex, forKey: .batchIndex)
+        try container.encode(delta, forKey: .delta)
+        try container.encode("subscription.updateBatch", forKey: .kind)
+        try container.encode(subscriptionId, forKey: .subscriptionId)
+        try container.encode(subscriptionKind, forKey: .subscriptionKind)
+        try container.encode(targetInterestRevision, forKey: .targetInterestRevision)
+        try container.encode(targetInterestSha256, forKey: .targetInterestSha256)
+        try container.encode(totalDeltaItemCount, forKey: .totalDeltaItemCount)
+        try container.encode(updateId, forKey: .updateId)
     }
 }
 
-struct BridgeProductStreamCancelRequest: Codable, Equatable, Sendable {
+struct BridgeProductSubscriptionCancelRequest: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case kind
-        case surface
-        case streamId
+        case subscriptionId
+        case subscriptionKind
     }
 
-    private let identity: BridgeProductControlRequestIdentity
-    let surface: BridgeProductSurface
-    let streamId: String
+    private let identity: BridgeProductSurfaceControlRequestIdentity
+    let subscriptionId: String
+    let subscriptionKind: BridgeProductSubscriptionKind
+
+    var correlation: BridgeProductControlCorrelation { identity.correlation }
+    var surface: BridgeProductSurface { subscriptionKind.surface }
+    var workerDerivationEpoch: Int { identity.workerDerivationEpoch }
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
             from: decoder,
-            allowedKeys: BridgeProductControlRequestIdentity.codingKeyNames.union(
+            allowedKeys: BridgeProductSurfaceControlRequestIdentity.codingKeyNames.union(
                 CodingKeys.allCases.map(\.rawValue)
             ),
-            contract: "stream.cancel request"
+            contract: "subscription.cancel request"
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        guard try container.decode(String.self, forKey: .kind) == "stream.cancel" else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .kind,
-                in: container,
-                debugDescription: "Invalid stream.cancel request kind"
+        guard try container.decode(String.self, forKey: .kind) == "subscription.cancel" else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid subscription.cancel request kind",
+                codingPath: decoder.codingPath
             )
         }
-        self.identity = try BridgeProductControlRequestIdentity(from: decoder)
-        self.surface = try container.decode(BridgeProductSurface.self, forKey: .surface)
-        self.streamId = try container.decode(String.self, forKey: .streamId)
-        try BridgeProductContractDecoding.validateIdentifier(streamId, codingPath: decoder.codingPath)
+        self.subscriptionId = try container.decode(String.self, forKey: .subscriptionId)
+        self.subscriptionKind = try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind)
+        self.identity = try BridgeProductSurfaceControlRequestIdentity(from: decoder)
+        try BridgeProductContractDecoding.validateIdentifier(subscriptionId, codingPath: decoder.codingPath)
     }
 
     func encode(to encoder: Encoder) throws {
         try identity.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode("stream.cancel", forKey: .kind)
-        try container.encode(surface, forKey: .surface)
-        try container.encode(streamId, forKey: .streamId)
+        try container.encode("subscription.cancel", forKey: .kind)
+        try container.encode(subscriptionId, forKey: .subscriptionId)
+        try container.encode(subscriptionKind, forKey: .subscriptionKind)
+    }
+}
+
+struct BridgeProductActiveSubscription: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case interestRevision
+        case interestSha256
+        case subscriptionId
+        case subscriptionKind
+        case workerDerivationEpoch
+    }
+
+    let interestRevision: Int
+    let interestSha256: String
+    let subscriptionId: String
+    let subscriptionKind: BridgeProductSubscriptionKind
+    let workerDerivationEpoch: Int
+
+    var surface: BridgeProductSurface { subscriptionKind.surface }
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
+            contract: "active Bridge product subscription"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.interestRevision = try container.decode(Int.self, forKey: .interestRevision)
+        self.interestSha256 = try container.decode(String.self, forKey: .interestSha256)
+        self.subscriptionId = try container.decode(String.self, forKey: .subscriptionId)
+        self.subscriptionKind = try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind)
+        self.workerDerivationEpoch = try container.decode(
+            Int.self,
+            forKey: .workerDerivationEpoch
+        )
+        try BridgeProductContractDecoding.validateNonnegative(
+            interestRevision,
+            name: "interestRevision",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validateSHA256(interestSha256, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateIdentifier(subscriptionId, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateNonnegative(
+            workerDerivationEpoch,
+            name: "workerDerivationEpoch",
+            codingPath: decoder.codingPath
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(interestRevision, forKey: .interestRevision)
+        try container.encode(interestSha256, forKey: .interestSha256)
+        try container.encode(subscriptionId, forKey: .subscriptionId)
+        try container.encode(subscriptionKind, forKey: .subscriptionKind)
+        try container.encode(workerDerivationEpoch, forKey: .workerDerivationEpoch)
     }
 }
 
 struct BridgeProductWorkerSessionResyncRequest: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
+        case activeSubscriptions
         case kind
         case lastAcceptedRequestSequence
-        case activeStreamIds
+        case lastAcceptedStreamSequence
     }
 
-    private let identity: BridgeProductControlRequestIdentity
+    private let identity: BridgeProductPaneControlRequestIdentity
+    let activeSubscriptions: [BridgeProductActiveSubscription]
     let lastAcceptedRequestSequence: Int
-    let activeStreamIds: [String]
+    let lastAcceptedStreamSequence: Int
+
+    var correlation: BridgeProductControlCorrelation { identity }
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
             from: decoder,
-            allowedKeys: BridgeProductControlRequestIdentity.codingKeyNames.union(
+            allowedKeys: BridgeProductPaneControlRequestIdentity.codingKeyNames.union(
                 CodingKeys.allCases.map(\.rawValue)
             ),
             contract: "workerSession.resync request"
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.activeSubscriptions = try container.decode(
+            [BridgeProductActiveSubscription].self,
+            forKey: .activeSubscriptions
+        )
         guard try container.decode(String.self, forKey: .kind) == "workerSession.resync" else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .kind,
-                in: container,
-                debugDescription: "Invalid workerSession.resync request kind"
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid workerSession.resync request kind",
+                codingPath: decoder.codingPath
             )
         }
-        self.identity = try BridgeProductControlRequestIdentity(from: decoder)
         self.lastAcceptedRequestSequence = try container.decode(Int.self, forKey: .lastAcceptedRequestSequence)
-        self.activeStreamIds = try container.decode([String].self, forKey: .activeStreamIds)
+        self.lastAcceptedStreamSequence = try container.decode(Int.self, forKey: .lastAcceptedStreamSequence)
+        self.identity = try BridgeProductPaneControlRequestIdentity(from: decoder)
+        try BridgeProductContractDecoding.validateCollectionCount(
+            activeSubscriptions.count,
+            maximum: BridgeProductWireContract.maximumActiveSubscriptionCount,
+            name: "active subscriptions",
+            codingPath: decoder.codingPath
+        )
+        guard Set(activeSubscriptions.map(\.subscriptionId)).count == activeSubscriptions.count else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Duplicate active Bridge product subscription id",
+                codingPath: decoder.codingPath
+            )
+        }
+        var workerDerivationEpochBySurface: [BridgeProductSurface: Int] = [:]
+        for subscription in activeSubscriptions {
+            if let existingEpoch = workerDerivationEpochBySurface[subscription.surface],
+                existingEpoch != subscription.workerDerivationEpoch
+            {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Active subscriptions for one surface must share a derivation epoch",
+                    codingPath: decoder.codingPath
+                )
+            }
+            workerDerivationEpochBySurface[subscription.surface] = subscription.workerDerivationEpoch
+        }
         try BridgeProductContractDecoding.validateNonnegative(
             lastAcceptedRequestSequence,
             name: "lastAcceptedRequestSequence",
             codingPath: decoder.codingPath
         )
-        guard activeStreamIds.count <= BridgeProductWireContract.maximumActiveStreamCount else {
-            throw DecodingError.dataCorrupted(
-                .init(codingPath: decoder.codingPath, debugDescription: "Too many active Bridge product streams")
-            )
-        }
-        for streamId in activeStreamIds {
-            try BridgeProductContractDecoding.validateIdentifier(streamId, codingPath: decoder.codingPath)
-        }
-        guard Set(activeStreamIds).count == activeStreamIds.count else {
-            throw DecodingError.dataCorrupted(
-                .init(codingPath: decoder.codingPath, debugDescription: "Duplicate active Bridge product stream id")
-            )
-        }
+        try BridgeProductContractDecoding.validateNonnegative(
+            lastAcceptedStreamSequence,
+            name: "lastAcceptedStreamSequence",
+            codingPath: decoder.codingPath
+        )
     }
 
     func encode(to encoder: Encoder) throws {
         try identity.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(activeSubscriptions, forKey: .activeSubscriptions)
         try container.encode("workerSession.resync", forKey: .kind)
         try container.encode(lastAcceptedRequestSequence, forKey: .lastAcceptedRequestSequence)
-        try container.encode(activeStreamIds, forKey: .activeStreamIds)
+        try container.encode(lastAcceptedStreamSequence, forKey: .lastAcceptedStreamSequence)
     }
 }

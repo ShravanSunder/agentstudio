@@ -51,7 +51,7 @@ enum AgentStudioOTLPTraceProjection {
 
     private static let allowedSafeResourceKeys: Set<String> = allowedResourceKeys
 
-    private static let allowedStringAttributeKeys: Set<String> = [
+    private static let allowedStringAttributeKeys: Set<String> = Set([
         "agent.proof.marker",
         "agent.proof.launch",
         "agentstudio.app.startup.outcome",
@@ -223,14 +223,14 @@ enum AgentStudioOTLPTraceProjection {
         "dev.branch.name",
         "terminal.activity.close_reason",
         "terminal.activity.source",
-    ]
+    ]).union(BridgeProductStreamProjectionKeys.stringKeys)
 
     private static let allowedPayloadNamedStringAttributeKeys: Set<String> = [
         "agentstudio.bridge.tree_path_count_bucket",
         "agentstudio.bridge.worker.payload_class",
     ]
 
-    private static let allowedNumericAttributeKeys: Set<String> = [
+    private static let allowedNumericAttributeKeys: Set<String> = Set([
         "agentstudio.bridge.batch.sample_count",
         "agentstudio.bridge.content.byte_count",
         "agentstudio.bridge.content.byte_length",
@@ -560,9 +560,9 @@ enum AgentStudioOTLPTraceProjection {
         "terminal.activity.latest_rows",
         "terminal.activity.rows_added",
         "terminal.activity.threshold_rows",
-    ]
+    ]).union(BridgeProductStreamProjectionKeys.numericKeys)
 
-    private static let allowedBooleanAttributeKeys: Set<String> = [
+    private static let allowedBooleanAttributeKeys: Set<String> = Set([
         "agentstudio.app.is_active",
         "agentstudio.bridge.cache_hit",
         "agentstudio.bridge.content.binary",
@@ -661,7 +661,7 @@ enum AgentStudioOTLPTraceProjection {
         "terminal.activity.is_agent_settled_candidate",
         "terminal.activity.is_inferred",
         "terminal.activity.is_pinned_to_bottom",
-    ]
+    ]).union(BridgeProductStreamProjectionKeys.booleanKeys)
 
     private static let resourceKeysProjectedAsLogAttributes: Set<String> = [
         "agentstudio.release_channel",
@@ -830,4 +830,44 @@ enum AgentStudioOTLPTraceProjection {
         }
         return value
     }
+}
+
+private enum BridgeProductStreamProjectionKeys {
+    private static let prefix = "agentstudio.startup_diagnostic.bridge.product_stream_webkit"
+
+    static let stringKeys: Set<String> = ["\(prefix).failure.reason"]
+    static let numericKeys: Set<String> = Set(
+        [
+            "total_body_read.count",
+            "total_body_read_byte.count",
+            "total_decode_call.count",
+            "total_provider_call.count",
+            "unauthorized_body_read.count",
+            "valid_body_byte.count",
+            "first_frame_byte.count",
+            "frame_receipt.count",
+            "cancellation_event.count",
+            "active_producer.count",
+            "active_producer_task.count",
+            "queued_frame.count",
+            "maximum_queued_frame.count",
+            "producer_overflow.count",
+            "post_terminal_frame.count",
+        ].map { "\(prefix).\($0)" })
+    static let booleanKeys: Set<String> = Set(
+        [
+            "carrier.succeeded",
+            "authentication_before_body.succeeded",
+            "body_cap_before_decode.succeeded",
+            "strict_route_decode.succeeded",
+            "missing_content_length.accepted",
+            "exact_request_body_bytes.succeeded",
+            "valid_stream_ended",
+            "worker_start_post.observed",
+            "worker_observed_exact_frames",
+            "worker_observed_incremental_frames",
+            "framed_stream.succeeded",
+            "worker_observed_cancellation",
+            "abort_causal_cancellation.succeeded",
+        ].map { "\(prefix).\($0)" })
 }

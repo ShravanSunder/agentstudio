@@ -422,6 +422,68 @@ describe('BridgeWeb architecture checker', () => {
 		);
 	});
 
+	test('allows only owned comm-worker and diagnostic message boundaries', async () => {
+		await withFixtureTree(
+			{
+				'src/core/comm-worker/bridge-comm-worker-client.ts': `
+					const worker = new Worker(new URL('./bridge-comm-worker.js', import.meta.url));
+					worker.postMessage({ kind: 'client' });
+				`,
+				'src/core/comm-worker/bridge-comm-worker-entry.ts': `
+					self.postMessage({ kind: 'entry' });
+				`,
+				'src/core/comm-worker/bridge-comm-worker-runtime-protocol.ts': `
+					const port = { postMessage: (_message: unknown): void => undefined };
+					port.postMessage({ kind: 'runtime' });
+				`,
+				'src/core/comm-worker/bridge-product-session-contracts.ts': `
+					const port = { postMessage: (_message: unknown): void => undefined };
+					port.postMessage({ kind: 'product-session' });
+				`,
+				'src/app/diagnostics/bridge-worker-fetch-probe-worker-entry.ts': `
+					self.postMessage({ kind: 'worker-fetch-probe' });
+				`,
+				'src/app/diagnostics/bridge-product-stream-webkit-feasibility-probe.ts': `
+					const worker = { postMessage: (_message: unknown): void => undefined };
+					worker.postMessage({ kind: 'product-stream-probe' });
+				`,
+				'src/core/comm-worker/unowned-message-boundary.ts': `
+					const port = { postMessage: (_message: unknown): void => undefined };
+					port.postMessage({ kind: 'unowned-comm-message' });
+				`,
+				'src/app/diagnostics/unowned-diagnostic-message-boundary.ts': `
+					const worker = { postMessage: (_message: unknown): void => undefined };
+					worker.postMessage({ kind: 'unowned-diagnostic-message' });
+				`,
+			},
+			async (packageRootPath: string): Promise<void> => {
+				const report = await checkBridgeWebArchitecture({ packageRootPath });
+
+				expect(report.ok).toBe(false);
+				expect(report.violations).toHaveLength(3);
+				expect(report.violations).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							ruleId: 'worker-boundary',
+							relativePath: 'src/core/comm-worker/bridge-comm-worker-client.ts',
+							message: expect.stringContaining('Worker construction'),
+						}),
+						expect.objectContaining({
+							ruleId: 'worker-boundary',
+							relativePath: 'src/core/comm-worker/unowned-message-boundary.ts',
+							message: expect.stringContaining('postMessage usage'),
+						}),
+						expect.objectContaining({
+							ruleId: 'worker-boundary',
+							relativePath: 'src/app/diagnostics/unowned-diagnostic-message-boundary.ts',
+							message: expect.stringContaining('postMessage usage'),
+						}),
+					]),
+				);
+			},
+		);
+	});
+
 	test('reports content loading imports from review-viewer shell files', async () => {
 		await withFixtureTree(
 			{

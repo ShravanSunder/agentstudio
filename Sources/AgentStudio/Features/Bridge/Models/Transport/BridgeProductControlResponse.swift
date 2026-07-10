@@ -1,89 +1,71 @@
 import Foundation
 
-enum BridgeProductRequestErrorCode: String, Codable, Equatable, Sendable {
-    case invalidRequest = "invalid_request"
-    case unauthorized
-    case staleWorker = "stale_worker"
-    case sequenceConflict = "sequence_conflict"
-    case resyncRequired = "resync_required"
-    case payloadTooLarge = "payload_too_large"
-    case unknownCommand = "unknown_command"
-    case `internal`
-}
+private typealias BridgeProductControlResponseIdentity = BridgeProductControlCorrelation
 
-private enum BridgeProductControlResponseIdentityCodingKeys: String, CodingKey, CaseIterable {
-    case wireVersion
-    case paneSessionId
-    case workerInstanceId
-    case requestId
-    case requestSequence
-}
-
-private struct BridgeProductControlResponseIdentity: Codable, Equatable, Sendable {
-    static let codingKeyNames = Set(BridgeProductControlResponseIdentityCodingKeys.allCases.map(\.rawValue))
-
-    let wireVersion: Int
-    let paneSessionId: String
-    let workerInstanceId: String
-    let requestId: String
-    let requestSequence: Int
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: BridgeProductControlResponseIdentityCodingKeys.self)
-        self.wireVersion = try container.decode(Int.self, forKey: .wireVersion)
-        self.paneSessionId = try container.decode(String.self, forKey: .paneSessionId)
-        self.workerInstanceId = try container.decode(String.self, forKey: .workerInstanceId)
-        self.requestId = try container.decode(String.self, forKey: .requestId)
-        self.requestSequence = try container.decode(Int.self, forKey: .requestSequence)
-        try BridgeProductContractDecoding.validateWireVersion(wireVersion, codingPath: decoder.codingPath)
-        try BridgeProductContractDecoding.validateIdentifier(paneSessionId, codingPath: decoder.codingPath)
-        try BridgeProductContractDecoding.validateIdentifier(workerInstanceId, codingPath: decoder.codingPath)
-        try BridgeProductContractDecoding.validateIdentifier(requestId, codingPath: decoder.codingPath)
-        try BridgeProductContractDecoding.validatePositive(
-            requestSequence,
-            name: "requestSequence",
-            codingPath: decoder.codingPath
-        )
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: BridgeProductControlResponseIdentityCodingKeys.self)
-        try container.encode(wireVersion, forKey: .wireVersion)
-        try container.encode(paneSessionId, forKey: .paneSessionId)
-        try container.encode(workerInstanceId, forKey: .workerInstanceId)
-        try container.encode(requestId, forKey: .requestId)
-        try container.encode(requestSequence, forKey: .requestSequence)
-    }
+enum BridgeProductControlResponseFactoryError: Error, Equatable {
+    case mismatchedRequestKind
+    case mismatchedCallResult
 }
 
 enum BridgeProductControlResponse: Codable, Equatable, Sendable {
     case workerSessionAccepted(BridgeProductWorkerSessionAcceptedResponse)
-    case commandAccepted(BridgeProductCommandAcceptedResponse)
-    case streamCancelled(BridgeProductStreamCancelledResponse)
+    case callCompleted(BridgeProductCallCompletedResponse)
+    case subscriptionOpenAccepted(BridgeProductSubscriptionOpenAcceptedResponse)
+    case subscriptionUpdateBatchAccepted(BridgeProductSubscriptionBatchAcceptedResponse)
+    case subscriptionCancelAccepted(BridgeProductSubscriptionCancelAcceptedResponse)
+    case resyncAccepted(BridgeProductResyncAcceptedResponse)
     case requestError(BridgeProductRequestErrorResponse)
 
-    private enum KindCodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey {
         case kind
     }
 
     var kind: String {
         switch self {
         case .workerSessionAccepted: "workerSession.accepted"
-        case .commandAccepted: "command.accepted"
-        case .streamCancelled: "stream.cancelled"
+        case .callCompleted: "call.completed"
+        case .subscriptionOpenAccepted: "subscription.openAccepted"
+        case .subscriptionUpdateBatchAccepted: "subscription.updateBatchAccepted"
+        case .subscriptionCancelAccepted: "subscription.cancelAccepted"
+        case .resyncAccepted: "resync.accepted"
         case .requestError: "request.error"
         }
     }
 
+    var correlation: BridgeProductControlCorrelation {
+        switch self {
+        case .workerSessionAccepted(let response): response.correlation
+        case .callCompleted(let response): response.correlation
+        case .subscriptionOpenAccepted(let response): response.correlation
+        case .subscriptionUpdateBatchAccepted(let response): response.correlation
+        case .subscriptionCancelAccepted(let response): response.correlation
+        case .resyncAccepted(let response): response.correlation
+        case .requestError(let response): response.correlation
+        }
+    }
+
+    var paneSessionId: String { correlation.paneSessionId }
+    var requestId: String { correlation.requestId }
+    var requestSequence: Int { correlation.requestSequence }
+    var workerInstanceId: String { correlation.workerInstanceId }
+
     init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: KindCodingKeys.self)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(String.self, forKey: .kind) {
         case "workerSession.accepted":
             self = .workerSessionAccepted(try BridgeProductWorkerSessionAcceptedResponse(from: decoder))
-        case "command.accepted":
-            self = .commandAccepted(try BridgeProductCommandAcceptedResponse(from: decoder))
-        case "stream.cancelled":
-            self = .streamCancelled(try BridgeProductStreamCancelledResponse(from: decoder))
+        case "call.completed":
+            self = .callCompleted(try BridgeProductCallCompletedResponse(from: decoder))
+        case "subscription.openAccepted":
+            self = .subscriptionOpenAccepted(try BridgeProductSubscriptionOpenAcceptedResponse(from: decoder))
+        case "subscription.updateBatchAccepted":
+            self = .subscriptionUpdateBatchAccepted(
+                try BridgeProductSubscriptionBatchAcceptedResponse(from: decoder)
+            )
+        case "subscription.cancelAccepted":
+            self = .subscriptionCancelAccepted(try BridgeProductSubscriptionCancelAcceptedResponse(from: decoder))
+        case "resync.accepted":
+            self = .resyncAccepted(try BridgeProductResyncAcceptedResponse(from: decoder))
         case "request.error":
             self = .requestError(try BridgeProductRequestErrorResponse(from: decoder))
         default:
@@ -98,19 +80,143 @@ enum BridgeProductControlResponse: Codable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         switch self {
         case .workerSessionAccepted(let response): try response.encode(to: encoder)
-        case .commandAccepted(let response): try response.encode(to: encoder)
-        case .streamCancelled(let response): try response.encode(to: encoder)
+        case .callCompleted(let response): try response.encode(to: encoder)
+        case .subscriptionOpenAccepted(let response): try response.encode(to: encoder)
+        case .subscriptionUpdateBatchAccepted(let response): try response.encode(to: encoder)
+        case .subscriptionCancelAccepted(let response): try response.encode(to: encoder)
+        case .resyncAccepted(let response): try response.encode(to: encoder)
         case .requestError(let response): try response.encode(to: encoder)
         }
+    }
+}
+
+extension BridgeProductControlResponse {
+    static func workerSessionAccepted(
+        correlating request: BridgeProductControlRequest
+    ) throws -> Self {
+        guard case .workerSessionOpen = request else {
+            throw BridgeProductControlResponseFactoryError.mismatchedRequestKind
+        }
+        return .workerSessionAccepted(.init(correlation: request.correlation))
+    }
+
+    static func callCompleted(
+        correlating request: BridgeProductControlRequest,
+        result: BridgeProductCallResult
+    ) throws -> Self {
+        guard case .productCall(let callRequest) = request else {
+            throw BridgeProductControlResponseFactoryError.mismatchedRequestKind
+        }
+        guard callRequest.call.method == result.method else {
+            throw BridgeProductControlResponseFactoryError.mismatchedCallResult
+        }
+        return .callCompleted(.init(correlation: request.correlation, call: result))
+    }
+
+    static func subscriptionOpenAccepted(
+        correlating request: BridgeProductControlRequest,
+        interestSha256: String
+    ) throws -> Self {
+        guard case .subscriptionOpen(let subscriptionRequest) = request else {
+            throw BridgeProductControlResponseFactoryError.mismatchedRequestKind
+        }
+        return .subscriptionOpenAccepted(
+            try .init(
+                correlation: request.correlation,
+                interestSha256: interestSha256,
+                subscriptionId: subscriptionRequest.subscriptionId,
+                subscriptionKind: subscriptionRequest.subscription.subscriptionKind
+            )
+        )
+    }
+
+    static func subscriptionUpdateBatchAccepted(
+        correlating request: BridgeProductControlRequest,
+        disposition: BridgeProductSubscriptionUpdateBatchDisposition
+    ) throws -> Self {
+        guard case .subscriptionUpdateBatch(let subscriptionRequest) = request else {
+            throw BridgeProductControlResponseFactoryError.mismatchedRequestKind
+        }
+        return .subscriptionUpdateBatchAccepted(
+            try .init(
+                batchIndex: subscriptionRequest.batchIndex,
+                correlation: request.correlation,
+                disposition: disposition,
+                subscriptionId: subscriptionRequest.subscriptionId,
+                subscriptionKind: subscriptionRequest.subscriptionKind,
+                targetInterestRevision: subscriptionRequest.targetInterestRevision,
+                targetInterestSha256: subscriptionRequest.targetInterestSha256,
+                updateId: subscriptionRequest.updateId
+            )
+        )
+    }
+
+    static func subscriptionCancelAccepted(
+        correlating request: BridgeProductControlRequest
+    ) throws -> Self {
+        guard case .subscriptionCancel(let subscriptionRequest) = request else {
+            throw BridgeProductControlResponseFactoryError.mismatchedRequestKind
+        }
+        return .subscriptionCancelAccepted(
+            .init(
+                correlation: request.correlation,
+                subscriptionId: subscriptionRequest.subscriptionId,
+                subscriptionKind: subscriptionRequest.subscriptionKind
+            )
+        )
+    }
+
+    static func resyncAccepted(
+        correlating request: BridgeProductControlRequest,
+        nextExpectedRequestSequence: Int,
+        resumeFromStreamSequence: Int
+    ) throws -> Self {
+        guard case .workerSessionResync = request else {
+            throw BridgeProductControlResponseFactoryError.mismatchedRequestKind
+        }
+        return .resyncAccepted(
+            try .init(
+                correlation: request.correlation,
+                nextExpectedRequestSequence: nextExpectedRequestSequence,
+                resumeFromStreamSequence: resumeFromStreamSequence
+            )
+        )
+    }
+
+    static func requestError(
+        correlating request: BridgeProductControlRequest,
+        code: BridgeProductRequestErrorCode,
+        nextExpectedRequestSequence: Int?,
+        retryAfterMilliseconds: Int?,
+        retryable: Bool,
+        safeMessage: String?
+    ) throws -> Self {
+        .requestError(
+            try .init(
+                correlation: request.correlation,
+                code: code,
+                nextExpectedRequestSequence: nextExpectedRequestSequence,
+                retryAfterMilliseconds: retryAfterMilliseconds,
+                retryable: retryable,
+                safeMessage: safeMessage
+            )
+        )
     }
 }
 
 struct BridgeProductWorkerSessionAcceptedResponse: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case kind
+        case result
     }
 
     private let identity: BridgeProductControlResponseIdentity
+
+    var correlation: BridgeProductControlCorrelation { identity }
+
+    init(correlation: BridgeProductControlCorrelation) {
+        self.identity = correlation
+    }
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
@@ -122,12 +228,16 @@ struct BridgeProductWorkerSessionAcceptedResponse: Codable, Equatable, Sendable 
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
         guard try container.decode(String.self, forKey: .kind) == "workerSession.accepted" else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .kind,
-                in: container,
-                debugDescription: "Invalid workerSession.accepted response kind"
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid workerSession.accepted response kind",
+                codingPath: decoder.codingPath
             )
         }
+        try BridgeProductContractDecoding.decodeRequiredNull(
+            forKey: .result,
+            from: container,
+            codingPath: decoder.codingPath
+        )
         self.identity = try BridgeProductControlResponseIdentity(from: decoder)
     }
 
@@ -135,15 +245,25 @@ struct BridgeProductWorkerSessionAcceptedResponse: Codable, Equatable, Sendable 
         try identity.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode("workerSession.accepted", forKey: .kind)
+        try container.encodeNil(forKey: .result)
     }
 }
 
-struct BridgeProductCommandAcceptedResponse: Codable, Equatable, Sendable {
+struct BridgeProductCallCompletedResponse: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
+        case call
         case kind
     }
 
     private let identity: BridgeProductControlResponseIdentity
+    let call: BridgeProductCallResult
+
+    var correlation: BridgeProductControlCorrelation { identity }
+
+    init(correlation: BridgeProductControlCorrelation, call: BridgeProductCallResult) {
+        self.identity = correlation
+        self.call = call
+    }
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
@@ -151,14 +271,14 @@ struct BridgeProductCommandAcceptedResponse: Codable, Equatable, Sendable {
             allowedKeys: BridgeProductControlResponseIdentity.codingKeyNames.union(
                 CodingKeys.allCases.map(\.rawValue)
             ),
-            contract: "command.accepted response"
+            contract: "call.completed response"
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        guard try container.decode(String.self, forKey: .kind) == "command.accepted" else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .kind,
-                in: container,
-                debugDescription: "Invalid command.accepted response kind"
+        self.call = try container.decode(BridgeProductCallResult.self, forKey: .call)
+        guard try container.decode(String.self, forKey: .kind) == "call.completed" else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid call.completed response kind",
+                codingPath: decoder.codingPath
             )
         }
         self.identity = try BridgeProductControlResponseIdentity(from: decoder)
@@ -167,18 +287,43 @@ struct BridgeProductCommandAcceptedResponse: Codable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         try identity.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode("command.accepted", forKey: .kind)
+        try container.encode(call, forKey: .call)
+        try container.encode("call.completed", forKey: .kind)
     }
 }
 
-struct BridgeProductStreamCancelledResponse: Codable, Equatable, Sendable {
+struct BridgeProductResyncAcceptedResponse: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case kind
-        case streamId
+        case nextExpectedRequestSequence
+        case resumeFromStreamSequence
     }
 
     private let identity: BridgeProductControlResponseIdentity
-    let streamId: String
+    let nextExpectedRequestSequence: Int
+    let resumeFromStreamSequence: Int
+
+    var correlation: BridgeProductControlCorrelation { identity }
+
+    init(
+        correlation: BridgeProductControlCorrelation,
+        nextExpectedRequestSequence: Int,
+        resumeFromStreamSequence: Int
+    ) throws {
+        try BridgeProductContractDecoding.validatePositive(
+            nextExpectedRequestSequence,
+            name: "nextExpectedRequestSequence",
+            codingPath: []
+        )
+        try BridgeProductContractDecoding.validateNonnegative(
+            resumeFromStreamSequence,
+            name: "resumeFromStreamSequence",
+            codingPath: []
+        )
+        self.identity = correlation
+        self.nextExpectedRequestSequence = nextExpectedRequestSequence
+        self.resumeFromStreamSequence = resumeFromStreamSequence
+    }
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
@@ -186,45 +331,90 @@ struct BridgeProductStreamCancelledResponse: Codable, Equatable, Sendable {
             allowedKeys: BridgeProductControlResponseIdentity.codingKeyNames.union(
                 CodingKeys.allCases.map(\.rawValue)
             ),
-            contract: "stream.cancelled response"
+            contract: "resync.accepted response"
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        guard try container.decode(String.self, forKey: .kind) == "stream.cancelled" else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .kind,
-                in: container,
-                debugDescription: "Invalid stream.cancelled response kind"
+        guard try container.decode(String.self, forKey: .kind) == "resync.accepted" else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid resync.accepted response kind",
+                codingPath: decoder.codingPath
             )
         }
+        self.nextExpectedRequestSequence = try container.decode(Int.self, forKey: .nextExpectedRequestSequence)
+        self.resumeFromStreamSequence = try container.decode(Int.self, forKey: .resumeFromStreamSequence)
         self.identity = try BridgeProductControlResponseIdentity(from: decoder)
-        self.streamId = try container.decode(String.self, forKey: .streamId)
-        try BridgeProductContractDecoding.validateIdentifier(streamId, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validatePositive(
+            nextExpectedRequestSequence,
+            name: "nextExpectedRequestSequence",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validateNonnegative(
+            resumeFromStreamSequence,
+            name: "resumeFromStreamSequence",
+            codingPath: decoder.codingPath
+        )
     }
 
     func encode(to encoder: Encoder) throws {
         try identity.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode("stream.cancelled", forKey: .kind)
-        try container.encode(streamId, forKey: .streamId)
+        try container.encode("resync.accepted", forKey: .kind)
+        try container.encode(nextExpectedRequestSequence, forKey: .nextExpectedRequestSequence)
+        try container.encode(resumeFromStreamSequence, forKey: .resumeFromStreamSequence)
     }
 }
 
 struct BridgeProductRequestErrorResponse: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
-        case kind
         case code
-        case retryable
-        case retryAfterMilliseconds
+        case kind
         case nextExpectedRequestSequence
+        case retryAfterMilliseconds
+        case retryable
         case safeMessage
     }
 
     private let identity: BridgeProductControlResponseIdentity
     let code: BridgeProductRequestErrorCode
-    let retryable: Bool
-    let retryAfterMilliseconds: Int?
     let nextExpectedRequestSequence: Int?
+    let retryAfterMilliseconds: Int?
+    let retryable: Bool
     let safeMessage: String?
+
+    var correlation: BridgeProductControlCorrelation { identity }
+
+    init(
+        correlation: BridgeProductControlCorrelation,
+        code: BridgeProductRequestErrorCode,
+        nextExpectedRequestSequence: Int?,
+        retryAfterMilliseconds: Int?,
+        retryable: Bool,
+        safeMessage: String?
+    ) throws {
+        if let nextExpectedRequestSequence {
+            try BridgeProductContractDecoding.validatePositive(
+                nextExpectedRequestSequence,
+                name: "nextExpectedRequestSequence",
+                codingPath: []
+            )
+        }
+        if let retryAfterMilliseconds {
+            try BridgeProductContractDecoding.validateNonnegative(
+                retryAfterMilliseconds,
+                name: "retryAfterMilliseconds",
+                codingPath: []
+            )
+        }
+        if let safeMessage {
+            try BridgeProductContractDecoding.validateSafeMessage(safeMessage, codingPath: [])
+        }
+        self.identity = correlation
+        self.code = code
+        self.nextExpectedRequestSequence = nextExpectedRequestSequence
+        self.retryAfterMilliseconds = retryAfterMilliseconds
+        self.retryable = retryable
+        self.safeMessage = safeMessage
+    }
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
@@ -235,45 +425,44 @@ struct BridgeProductRequestErrorResponse: Codable, Equatable, Sendable {
             contract: "request.error response"
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.code = try container.decode(BridgeProductRequestErrorCode.self, forKey: .code)
         guard try container.decode(String.self, forKey: .kind) == "request.error" else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .kind,
-                in: container,
-                debugDescription: "Invalid request.error response kind"
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid request.error response kind",
+                codingPath: decoder.codingPath
             )
         }
-        self.identity = try BridgeProductControlResponseIdentity(from: decoder)
-        self.code = try container.decode(BridgeProductRequestErrorCode.self, forKey: .code)
-        self.retryable = try container.decode(Bool.self, forKey: .retryable)
-        self.retryAfterMilliseconds = try BridgeProductContractDecoding.decodeOptionalRejectingNull(
-            Int.self,
-            forKey: .retryAfterMilliseconds,
-            from: container,
-            codingPath: decoder.codingPath
-        )
-        self.nextExpectedRequestSequence = try BridgeProductContractDecoding.decodeOptionalRejectingNull(
+        self.nextExpectedRequestSequence = try BridgeProductContractDecoding.decodeRequiredNullable(
             Int.self,
             forKey: .nextExpectedRequestSequence,
             from: container,
             codingPath: decoder.codingPath
         )
-        self.safeMessage = try BridgeProductContractDecoding.decodeOptionalRejectingNull(
+        self.retryAfterMilliseconds = try BridgeProductContractDecoding.decodeRequiredNullable(
+            Int.self,
+            forKey: .retryAfterMilliseconds,
+            from: container,
+            codingPath: decoder.codingPath
+        )
+        self.retryable = try container.decode(Bool.self, forKey: .retryable)
+        self.safeMessage = try BridgeProductContractDecoding.decodeRequiredNullable(
             String.self,
             forKey: .safeMessage,
             from: container,
             codingPath: decoder.codingPath
         )
-        if let retryAfterMilliseconds {
-            try BridgeProductContractDecoding.validateNonnegative(
-                retryAfterMilliseconds,
-                name: "retryAfterMilliseconds",
-                codingPath: decoder.codingPath
-            )
-        }
+        self.identity = try BridgeProductControlResponseIdentity(from: decoder)
         if let nextExpectedRequestSequence {
             try BridgeProductContractDecoding.validatePositive(
                 nextExpectedRequestSequence,
                 name: "nextExpectedRequestSequence",
+                codingPath: decoder.codingPath
+            )
+        }
+        if let retryAfterMilliseconds {
+            try BridgeProductContractDecoding.validateNonnegative(
+                retryAfterMilliseconds,
+                name: "retryAfterMilliseconds",
                 codingPath: decoder.codingPath
             )
         }
@@ -285,11 +474,11 @@ struct BridgeProductRequestErrorResponse: Codable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         try identity.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode("request.error", forKey: .kind)
         try container.encode(code, forKey: .code)
+        try container.encode("request.error", forKey: .kind)
+        try container.encode(nextExpectedRequestSequence, forKey: .nextExpectedRequestSequence)
+        try container.encode(retryAfterMilliseconds, forKey: .retryAfterMilliseconds)
         try container.encode(retryable, forKey: .retryable)
-        try container.encodeIfPresent(retryAfterMilliseconds, forKey: .retryAfterMilliseconds)
-        try container.encodeIfPresent(nextExpectedRequestSequence, forKey: .nextExpectedRequestSequence)
-        try container.encodeIfPresent(safeMessage, forKey: .safeMessage)
+        try container.encode(safeMessage, forKey: .safeMessage)
     }
 }

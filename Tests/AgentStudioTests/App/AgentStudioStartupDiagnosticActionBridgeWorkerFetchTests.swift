@@ -14,4 +14,16 @@ extension AgentStudioStartupDiagnosticActionTests {
         #expect(action.commandName == "bridgeWorkerFetchSchemeSmoke")
         #expect(action.suppressesAutomaticLaunchPaneRestore)
     }
+
+    @Test("startup diagnostic action parses product stream WebKit feasibility command")
+    func parsesBridgeProductStreamWebKitFeasibilityCommand() throws {
+        let action = try #require(
+            AgentStudioStartupDiagnosticAction.fromEnvironment([
+                AgentStudioStartupDiagnosticAction.environmentKey:
+                    " bridge-product-stream-webkit-feasibility "
+            ]))
+
+        #expect(action.commandName == "bridgeProductStreamWebKitFeasibility")
+        #expect(action.suppressesAutomaticLaunchPaneRestore)
+    }
 }

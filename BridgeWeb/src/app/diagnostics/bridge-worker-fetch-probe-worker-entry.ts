@@ -1,9 +1,20 @@
+import {
+	runProductStreamWebKitFeasibilityProbe,
+	type BridgeProductStreamWebKitFeasibilityRequest,
+} from './bridge-product-stream-webkit-feasibility-probe.js';
+
+// oxlint-disable unicorn/require-post-message-target-origin -- Worker postMessage has no targetOrigin.
+
 type BridgeWorkerFetchProbeMode = 'fetch' | 'stream';
 
-interface BridgeWorkerFetchProbeRequest {
+interface BridgeWorkerContentFetchProbeRequest {
 	readonly mode: BridgeWorkerFetchProbeMode;
 	readonly resourceUrl: string;
 }
+
+type BridgeWorkerFetchProbeRequest =
+	| BridgeWorkerContentFetchProbeRequest
+	| BridgeProductStreamWebKitFeasibilityRequest;
 
 interface BridgeWorkerFetchProbeResponse {
 	readonly mode: BridgeWorkerFetchProbeMode;
@@ -22,7 +33,7 @@ function holdStreamOpen(): Promise<never> {
 }
 
 function failedResponse(
-	request: BridgeWorkerFetchProbeRequest,
+	request: BridgeWorkerContentFetchProbeRequest,
 	failureReason: string,
 ): BridgeWorkerFetchProbeResponse {
 	return {
@@ -47,10 +58,14 @@ function contentUrlScheme(resourceUrl: string): string {
 }
 
 self.addEventListener('message', (event: MessageEvent<BridgeWorkerFetchProbeRequest>): void => {
+	if (event.data.mode === 'product-stream-s2a') {
+		void runProductStreamWebKitFeasibilityProbe(event.data);
+		return;
+	}
 	void runProbe(event.data);
 });
 
-async function runProbe(request: BridgeWorkerFetchProbeRequest): Promise<void> {
+async function runProbe(request: BridgeWorkerContentFetchProbeRequest): Promise<void> {
 	try {
 		const response = await fetch(request.resourceUrl);
 		if (request.mode === 'stream') {
