@@ -103,23 +103,33 @@ Owned write scope:
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Admission/**` (new)
 - `Tests/AgentStudioTests/Core/PaneRuntime/Admission/**` (new)
 
-Implement the normative `AdmissionGeneration`, domain-free `AdmissionReceipt`,
-typed `CoalescingOfferReceipt<Repair>`, `AdmissionWakeDirective`, base and
-generation/mailbox-bound drain token/disposition/acknowledgement results, base
-and primitive-specific diagnostics, `LatestValueMailbox`, `CoalescingMailbox`,
-and the typed offer/replay/gap results for `OrderedFactJournal`. Domain policy
-does not enter this module.
+Implement the closed `PressureStreamID` manifest, `AdmissionGeneration`,
+domain-free admission results, capability-separated producer/consumer and
+doorbell ports, binding-scoped drain tokens, base/primitive diagnostics,
+`LatestValueMailbox`, value-only `BoundedGatherMailbox`, and the typed
+offer/replay/gap results for `OrderedFactJournal`. The gather primitive stores
+opaque contributions and checked footprints only; domain merge, repair
+evidence, routing, dedupe, and projection do not enter this module.
 
 Checkpoint: deterministic state-machine tests prove fixed-generation isolation,
 explicit undeclared-key rejection, one pending wake plus one
-acknowledgement-released follow-up wake, bounded keys/items/bytes, one exact
-non-evictable typed repair slot per declared key, exact fact sequencing,
-persistent product-gap versus query-local replay-gap semantics, graceful seal,
-immediate invalidation only after authority transfer, lease-not-destructive
-drain semantics, stale/double/foreign token rejection, persistent-gap widening
-for later exact offers, and current/high-water hint/repair/drain diagnostics.
-Literal state tables also prove persistent product-gap precedence over
-query-local history gaps and matching latest-token recovery.
+acknowledgement-released follow-up wake, O(1) fixed-shape offers across
+1/100/300 declared keys, pending-plus-leased retained limits globally/per key,
+one-key lease quanta, orthogonal payload/recovery receipts, and exact per-key
+recovery revisions. Cancellation/rebind re-presents identical custody under a
+new binding token; retries rotate behind already-ready unrelated keys while
+remaining ahead of newer same-key work. Tests also prove graceful seal,
+post-transfer invalidation, stale/double/foreign/old-binding rejection,
+non-aliasing exhaustion, truthful retained/pending/leased diagnostics, and no
+task, payload queue, stored domain closure, fleet scan, or payload-derived
+telemetry dimension.
+
+The ordered-journal RED/GREEN matrix separately proves exact fact sequencing,
+persistent versus query-local gaps, immediate post-recovery replay with empty
+retained history, oversized snapshot atomic rejection before sequence
+assignment, persistent-gap precedence over future/invalid cursors, invalidated
+non-current diagnostics, gap widening, and near-maximum non-aliasing authority.
+Independent literal state tables—not production helpers—own every oracle.
 
 ### Shared lane S2 — Runtime fact contracts and bus
 
@@ -452,7 +462,7 @@ High-conflict files are single-owner at each gate: `WorkspaceSurfaceCoordinator.
 
 | Claim | Source | Owner | Public seam and independent oracle | Layer and freshness | RED/GREEN / fit |
 | --- | --- | --- | --- | --- | --- |
-| admission is bounded before per-sample task allocation | parent shared interfaces | S1; W1–W2; T3/T6/T7 | typed `offer/takeDrain`; literal state-machine histories and diagnostics | unit, then pressure integration; current HEAD/run | required; tasks split by primitive/domain |
+| admission is bounded before per-sample task allocation | parent shared interfaces | S1; W1–W2; T3/T6/T7 | typed producer/consumer ports, one-key gather lease, `offer/takeDrain`; literal custody/counter/journal histories | unit, then pressure integration; current HEAD/run | required; S1 fails rejected compute-in-mailbox and journal false-green shapes before GREEN |
 | one global semantic fact bus filters before queue/replay | parent fact taxonomy; EV1–EV11 | S2/S4/IG1 | `RuntimeFactBus.subscribe/post`; independent topic/replay table and structural source inventory | unit + integration + architecture lint; current source tree | required; IG1 atomic |
 | MainActor attribution and availability are causal and bounded | parent MainActor last mile; TA8 | S3, every applier, DQ1 | `MainActorWorkLedger`; independent heartbeat plus interaction stages | unit + Victoria observability + native E2E; current PID/run/build/root manifest | required; queue/service/liveness/interaction gates all pass |
 | watched loss never authorizes false removal | WF/WS/FI | W1–W5 | callback/source-gate/scheduler/topology applier; literal filesystem manifest | unit + real filesystem/Git integration + workload | required; split callback, scan, apply |

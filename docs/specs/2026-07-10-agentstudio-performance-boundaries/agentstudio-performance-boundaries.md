@@ -120,7 +120,7 @@ and no caller-selected drop policy:
 | Primitive family | Admission/overflow contract | Intended inputs |
 | --- | --- | --- |
 | latest-value mailbox | one bounded slot per declared key plus at most one pending drain; replacement is the contract and is counted | scrollbar/search/cursor/viewport/current presentation samples |
-| coalescing batcher | bounded keys/items/bytes with debounce and maximum latency; values merge by a typed accumulator; overflow creates explicit repair/invalidation rather than silent loss | filesystem paths, Bridge dirty IDs, source invalidations |
+| bounded gather mailbox | bounded declared keys, contributions, items, and bytes with distinct global, per-key, and lease-quantum limits; it retains opaque value contributions without domain computation; overflow advances exact per-key recovery custody rather than silently losing detail | filesystem observations, Bridge dirty IDs, source invalidations |
 | ordered fact journal | synchronous sequence/current-state commit before transport; bounded history with an explicit non-evictable gap marker when exact retention is impossible; lag and authoritative recovery are explicit | lifecycle, command completion, health/security, agent-state transitions |
 
 Producer-side admission occurs before allocating one task/message per raw
@@ -137,8 +137,28 @@ atomic, storage, and wake primitive is implementation detail only when the
 observable state machine below is preserved.
 
 ```swift
-struct PressureStreamID: Hashable, Sendable {
-    let rawValue: String
+enum PressureStreamID: UInt8, CaseIterable, Sendable {
+    case filesystemObservation
+    case filesystemRepair
+    case filesystemGitInvalidation
+    case terminalViewport
+    case terminalActivity
+    case runtimeFacts
+    case bridgeInvalidation
+    case performanceEvidence
+
+    var telemetryName: StaticString {
+        switch self {
+        case .filesystemObservation: "filesystem_observation"
+        case .filesystemRepair: "filesystem_repair"
+        case .filesystemGitInvalidation: "filesystem_git_invalidation"
+        case .terminalViewport: "terminal_viewport"
+        case .terminalActivity: "terminal_activity"
+        case .runtimeFacts: "runtime_facts"
+        case .bridgeInvalidation: "bridge_invalidation"
+        case .performanceEvidence: "performance_evidence"
+        }
+    }
 }
 
 struct AdmissionGeneration: Hashable, Sendable {
@@ -149,26 +169,130 @@ struct AdmissionGeneration: Hashable, Sendable {
 enum AdmissionReceipt: Sendable, Equatable {
     case admitted
     case replacedPrevious
-    case merged
     case staleGeneration
     case undeclaredKey
+    case invalidFootprint
     case closed
 }
 
-enum CoalescingOfferReceipt<Repair: Sendable>: Sendable {
-    case admission(AdmissionReceipt)
-    case repairRequired(Repair)
+struct GatherFootprint: Sendable, Equatable {
+    let itemCount: Int
+    let byteCount: Int
+}
+
+struct GatherMailboxLimits: Sendable, Equatable {
+    let maximumDeclaredKeys: Int
+    let maximumRetainedContributions: Int
+    let maximumRetainedItems: Int
+    let maximumRetainedBytes: Int
+    let maximumRetainedContributionsPerKey: Int
+    let maximumRetainedItemsPerKey: Int
+    let maximumRetainedBytesPerKey: Int
+    let maximumContributionsPerLease: Int
+    let maximumItemsPerLease: Int
+    let maximumBytesPerLease: Int
+}
+
+enum GatherRecoverySignal: Sendable, Equatable {
+    case ordinary
+    case authoritativeRecoveryRequired
+}
+
+struct GatherContribution<Key, Payload>: Sendable
+where Key: Hashable & Sendable, Payload: Sendable {
+    let key: Key
+    let payload: Payload
+    let footprint: GatherFootprint
+    let recoverySignal: GatherRecoverySignal
+}
+
+enum GatherRecoveryStamp: Hashable, Sendable {
+    case sequenced(UInt64)
+    case authorityExhausted
+}
+
+struct GatherRecoveryRevision<Key>: Hashable, Sendable
+where Key: Hashable & Sendable {
+    let generation: AdmissionGeneration
+    let key: Key
+    private let stamp: GatherRecoveryStamp
+}
+
+enum GatherPayloadDisposition: Sendable, Equatable {
+    case retained
+    case contractedToRecovery
+}
+
+struct GatherAdmissionReceipt<Key>: Sendable
+where Key: Hashable & Sendable {
+    let payload: GatherPayloadDisposition
+    let recoveryRevision: GatherRecoveryRevision<Key>?
+}
+
+enum GatherOfferReceipt<Key>: Sendable where Key: Hashable & Sendable {
+    case admitted(GatherAdmissionReceipt<Key>)
+    case staleGeneration
+    case undeclaredKey
+    case invalidFootprint
+    case closed
 }
 
 enum AdmissionWakeDirective: Sendable, Equatable {
-    case none
+    case noWake
     case scheduleDrain
+}
+
+enum AdmissionDoorbellResult: Sendable, Equatable {
+    case signaled
+    case finished
+}
+
+protocol AdmissionDoorbellSignaler: Sendable {
+    func signal()
+}
+
+protocol AdmissionDoorbellConsumer: Sendable {
+    func nextSignal() async -> AdmissionDoorbellResult
+}
+
+protocol AdmissionDoorbellOwner: AdmissionDoorbellSignaler,
+    AdmissionDoorbellConsumer
+{
+    func finish()
+}
+
+struct AdmissionConsumerBinding: Hashable, Sendable {
+    private let mailboxIdentity: UInt64
+    private let bindingSequence: UInt64
 }
 
 struct AdmissionDrainToken: Hashable, Sendable {
     let generation: AdmissionGeneration
     private let mailboxIdentity: UInt64
+    private let bindingSequence: UInt64
     private let leaseSequence: UInt64
+}
+
+struct GatherOfferResult<Key>: Sendable where Key: Hashable & Sendable {
+    let receipt: GatherOfferReceipt<Key>
+    let wake: AdmissionWakeDirective
+}
+
+struct GatherDrainLease<Key, Payload>: Sendable
+where Key: Hashable & Sendable, Payload: Sendable {
+    let token: AdmissionDrainToken
+    let key: Key
+    let contributions: [GatherContribution<Key, Payload>]
+    let recoveryRevision: GatherRecoveryRevision<Key>?
+}
+
+enum GatherTakeDrainResult<Key, Payload>: Sendable
+where Key: Hashable & Sendable, Payload: Sendable {
+    case lease(GatherDrainLease<Key, Payload>)
+    case empty
+    case alreadyLeased
+    case staleGeneration
+    case closed
 }
 
 enum AdmissionDrainDisposition: Sendable, Equatable {
@@ -189,75 +313,177 @@ struct AdmissionDiagnostics: Sendable, Equatable {
     let contracted: UInt64
     let rejectedStale: UInt64
     let rejectedUndeclared: UInt64
+    let rejectedInvalid: UInt64
+    let rejectedClosed: UInt64
     let repairEscalations: UInt64
     let pendingKeyCount: Int
     let pendingKeyHighWater: Int
     let oldestPendingAge: Duration?
 }
 
-struct CoalescingAdmissionDiagnostics: Sendable, Equatable {
+struct GatherAdmissionDiagnostics: Sendable, Equatable {
     let admission: AdmissionDiagnostics
+    let retainedContributionCount: Int
+    let retainedContributionHighWater: Int
+    let retainedItemCount: Int
+    let retainedItemHighWater: Int
+    let retainedByteCount: Int
+    let retainedByteHighWater: Int
     let pendingItemCount: Int
     let pendingByteCount: Int
-    let pendingItemHighWater: Int
-    let pendingByteHighWater: Int
-    let repairSlotCount: Int
-    let repairSlotHighWater: Int
-    let oldestRepairAge: Duration?
-    let outstandingDrainCount: Int
+    let leasedContributionCount: Int
+    let leasedItemCount: Int
+    let leasedByteCount: Int
+    let recoverySlotCount: Int
+    let recoverySlotHighWater: Int
+    let oldestRecoveryAge: Duration?
+    let outstandingLeaseCount: Int
 }
 ```
 
-`PressureStreamID` values are bounded, content-free domain constants. User
-input, paths, pane/surface/root identifiers, terminal content, and payload
-values cannot construct telemetry-facing stream dimensions.
+`PressureStreamID` is one closed compile-time manifest with an exhaustive
+`StaticString` telemetry-name mapping. Adding a stream requires adding a manifest case and its
+pressure contract. There is no raw-string initializer. User input, paths,
+pane/surface/root/registration identifiers, terminal content, UUIDs, and
+payload values cannot construct telemetry-facing stream dimensions. The
+architecture linter rejects parallel declarations, dynamic construction, and
+telemetry stream dimensions derived from runtime identity or content.
 
 `LatestValueMailbox<Key, Value>` has one bounded current-generation slot per
 declared key, a synchronous nonblocking `offer` that returns its receipt and
 wake directive, at most one pending consumer wake, generation-consistent
 `takeDrain`, acknowledgement, `seal`, `invalidate`, and diagnostics. Replacement
 is its declared semantics and is counted. An undeclared key is rejected; a
-dynamic callback race cannot become a precondition failure.
+dynamic callback race cannot become a precondition failure. Replacing an
+already-pending same-key value is admitted and contracted. A same-key offer
+arriving after the earlier value is captured by an active lease creates a new
+independently drainable pending value and is not contracted unless it replaces
+another pending value.
 
-`CoalescingMailbox<Key, Accumulator, Repair>` has a domain-owned associative
-merge algebra, bounded key/item/byte limits, one pending consumer wake, and a
-separate exact typed repair slot per declared key. Ordinary overflow clears or
-reduces replaceable hints for the affected key and atomically joins every
-cleared hint's domain-supplied fallback into that repair slot; it cannot replace
-or weaken repair debt. `CoalescingOfferReceipt<Repair>` keeps this payload typed
-without importing a filesystem, terminal, or other domain repair type into the
-shared module. Declared-key cardinality bounds exact repair-slot cardinality.
+`BoundedGatherMailbox<Key, Payload>` is a synchronous lock-backed contribution
+custodian, not an actor and not a semantic coalescer. Its immutable declared-key
+set and `GatherMailboxLimits` bound retained pending-plus-leased custody globally
+and per key. The independent per-lease fields bound one consumer turn; they do
+not enlarge retained capacity. `offer` receives an already-created opaque payload,
+checked `GatherFootprint` and recovery signal. The mailbox stamps monotonic
+retention time from its injected clock; domain capture time remains inside the
+opaque payload and cannot control queue-age diagnostics. Shared code may
+validate, retain, move, lease, release, and count those values; it cannot inspect
+payload meaning or accept/invoke merge, repair-join, footprint, path, regex,
+projection, or other domain callbacks.
 
-`takeDrain` creates one generation-bearing lease over the captured hint and
-repair revisions; it does not destructively remove exact repair state. The
-acknowledgement disposition is `transferred` or `retry`. `transferred` means the
-domain owner synchronously accepted the captured repair obligation into its
-authoritative state, not that domain recovery completed. It clears only the
-exact captured revisions; a newer merge/escalation survives and produces the
-single follow-up wake. `retry`, cancellation without acknowledgement, and a
-stale/double/foreign token cannot clear repair. Acknowledgement atomically
-returns the follow-up `AdmissionWakeDirective`. The domain gate—not the generic
-mailbox—owns scan/rebuild completion and participant acknowledgement.
+Producer admission is expected O(1) for a fixed contribution shape. It touches
+only the addressed declared-key slot, maintained global/per-key counters,
+current lease metadata, recovery revision, lifecycle, and one wake bit. It does
+not copy or scan retained collections or registered keys. Detached or
+invalidated payload storage is released after unlocking so arbitrary payload
+deinitialization cannot extend state occupancy. Invalid/negative footprint
+values and checked-arithmetic overflow receive typed rejection or conservative
+recovery; they never become zero-cost admission.
+
+Ordinary capacity overflow contracts replaceable pending detail only for the
+affected key and advances one exact, non-evictable
+`GatherRecoveryRevision<Key>`. Recovery slots are outside ordinary capacity and
+bounded by the immutable declared-key set. Each marker means only that the key's
+current generation requires authoritative recovery. The generic primitive does
+not choose a scan/rebuild, retain a domain `RepairGeneration`, or join domain
+repair payloads.
+
+`takeDrain` creates one generation-bearing, single-key logical lease over a
+bounded contribution/item/byte quantum and the captured recovery revision; no
+lock remains held while the consumer
+processes it. The mailbox retains correctness custody until acknowledgement.
+`transferred` means the domain owner synchronously accepted every captured
+contribution into domain-owned reduction state and every captured recovery
+revision into its authoritative recovery owner—not that recovery completed.
+It clears only identical captured custody; a newer recovery revision survives
+and produces the single follow-up wake. `retry` re-presents the identical
+immutable lease before newer same-key contributions and never calls domain merge
+code. Cancellation without acknowledgement, stale/double/foreign tokens, and a
+closed doorbell cannot clear or strand custody.
+
+The mailbox maintains a mechanical O(1) ready-key queue without inspecting key
+or payload meaning. A first pending contribution makes that key ready once.
+`takeDrain` selects one ready key and one bounded quantum. A retry remains ahead
+of newer contributions for the same key but rotates behind unrelated keys that
+were already ready, so one failing source cannot block bounded service to quiet
+sources. This is custody scheduling only; actor-owned semantic priority,
+debounce, routing, and coalescing remain outside the mailbox.
+
+Producer and consumer capabilities are structurally separate. Callback owners
+receive only a generation-scoped `GatherProducerPort` plus an
+`AdmissionDoorbellSignaler`. The one domain drain owner receives a
+`GatherConsumerPort` plus `AdmissionDoorbellConsumer`; lifecycle composition
+alone retains `AdmissionDoorbellOwner`. A callback cannot wait, finish, drain,
+acknowledge, seal, or invalidate; a consumer cannot bypass producer admission.
+
+`GatherConsumerPort.bindConsumer()` returns one current
+`AdmissionConsumerBinding`. Binding a replacement atomically revokes the prior
+binding's acknowledgement authority, observes retained custody, and reconstructs
+a level signal. If a prior binding held a lease, the replacement `takeDrain`
+re-presents the identical immutable key/contributions/recovery capture under a
+new binding-scoped token; the abandoned token becomes invalid. The same binding
+cannot take a second lease while one is outstanding.
+
+The split doorbell capabilities form one payload-free, capacity-one,
+level-triggered liveness
+hint owned beside the mailbox. The primitive mutates custody first and returns
+`scheduleDrain`; signaling occurs only after unlocking. Duplicate signals may
+collapse because the mailbox—not the doorbell—owns data. Consumer bind/rebind
+atomically observes retained work and reconstructs a pending signal; doorbell
+completion closes waiting only. One long-lived consumer wait is permitted, but
+no per-offer task or payload-bearing transport queue is.
 
 The wake/lease state machine is normative:
 
 | State | Operation | Next state and result |
 | --- | --- | --- |
 | `idle` | first accepted offer | `wakePending`; exactly one `scheduleDrain` |
-| `wakePending` | additional offer | remains `wakePending`; `.none` |
+| `wakePending` | additional offer | remains `wakePending`; `.noWake` |
 | `wakePending` | `takeDrain` | `draining(token)`; pending wake is consumed |
-| `draining(token)` | additional offer | `drainingAndDirty(token)`; `.none` |
-| `draining*` | matching `acknowledge(transferred/retry)` | atomically commit/requeue; if retained work remains, `wakePending` plus exactly one `scheduleDrain`, otherwise `idle`/drained-sealed plus `.none` |
+| `draining(token)` | additional offer | `drainingAndDirty(token)`; `.noWake` |
+| `draining*` | matching `acknowledge(transferred)` | clear identical captured custody; if pending/newer recovery remains, `wakePending` plus exactly one `scheduleDrain`, otherwise `idle`/drained-sealed plus `.noWake` |
+| `draining*` | matching `acknowledge(retry)` | retain the identical lease ahead of newer same-key contributions; requeue that key behind already-ready unrelated keys; `wakePending` plus exactly one `scheduleDrain` |
+| `draining*` | consumer cancellation/rebind | revoke the old binding token; custody remains authoritative; replacement binding re-presents the identical lease with a new token without another source offer |
 | any | stale, duplicate, or foreign acknowledgement | no mutation; typed rejection |
 | open state | `seal` | reject new offers; retain and drain accepted work |
 | any non-invalidated state | `invalidate` | discard generic state, revoke token, terminally reject; domain transfer precondition applies |
 
-`AdmissionDiagnostics` reports current pending-key depth as well as high-water;
-coalescing diagnostics additionally report current and high-water item/byte
-pressure, current/high-water repair-slot count, oldest repair age, and whether a
-drain transfer remains outstanding. A stream is not quiescent while a repair
-slot or drain lease remains. Diagnostic snapshots never contain keys or
-payloads.
+Shared counter algebra is explicit. `offered` counts every attempt before
+generation/lifecycle/key/footprint validation. `admitted` counts attempts for
+which the primitive retained ordinary payload or an exact substitute custody
+obligation. Rejection reasons are mutually exclusive and, before saturation,
+`offered = admitted + rejectedStale + rejectedUndeclared + rejectedInvalid +
+rejectedClosed`. `contracted` is the subset of admitted attempts whose payload
+does not remain independently drainable because it was replaced or represented
+by recovery/gap custody; therefore `contracted <= admitted`.
+`repairEscalations` is the orthogonal admitted subset that creates or advances
+an exact recovery/gap revision. Actor-owned semantic coalescing input/output is
+a later pipeline stage and never inferred from mailbox depth.
+
+Gather admission makes payload and recovery disposition orthogonal:
+
+| Offer condition | Payload disposition | Recovery revision | Counters |
+| --- | --- | --- | --- |
+| ordinary and within capacity | `retained` | none | offered + admitted |
+| explicit recovery signal, payload within capacity | `retained` | advanced | offered + admitted + repair escalation |
+| global/per-key capacity contraction | `contractedToRecovery` | advanced | offered + admitted + contracted + repair escalation |
+| already exhausted recovery authority | `contractedToRecovery` | `authorityExhausted` | offered + admitted + contracted; escalation only on first transition |
+| stale/undeclared/invalid/closed | no admission receipt | none | offered + exactly one rejection |
+
+A consumer never infers retained payload from the presence of a recovery
+revision; it uses the explicit payload disposition and the lease contents.
+
+`AdmissionDiagnostics` reports current retained-key depth and high-water.
+Gather diagnostics additionally report current pending and leased
+contribution/item/byte custody and combined retained contribution/item/byte
+current values and high-waters. The equations are
+`retained = pending + leased` for every custody dimension. Lease quantum is a
+subset of retained custody, never additive capacity. Recovery-slot
+count/high-water/age, and outstanding lease count. Capacity includes pending
+plus leased custody; taking a lease cannot make memory disappear from
+diagnostics. A stream is not quiescent while contributions, a recovery slot, or
+a lease remains. Diagnostic snapshots never contain keys or payloads.
 
 `OrderedFactJournal<Fact, Snapshot>` synchronously validates generation,
 assigns a monotonic per-stream sequence, and commits either the fact/current
@@ -269,6 +495,14 @@ and replay fail or resynchronize from the named snapshot. It never pretends the
 missing occurrence was delivered. `FactGap` is shared sequence-range and opaque
 gap-token mechanics, not a domain `RepairGeneration`; the domain fact owner maps
 the gap to its authoritative recovery policy.
+
+Fact-history count/bytes and current-snapshot bytes have independent limits;
+total retained payload memory is bounded by their declared sum plus bounded
+metadata. A required initial or atomic replacement snapshot that exceeds its
+snapshot budget receives typed configuration/offer rejection. An atomic
+fact-plus-snapshot offer assigns no sequence and reports no partial admission
+when its snapshot is rejected. Oversize is never silently ignored and never
+creates an artificial occurrence gap for a fact the journal did not accept.
 
 Ordinary eviction of already-acknowledged bounded replay history does not mark a
 healthy stream globally non-current. A request older than retained acknowledged
@@ -286,12 +520,21 @@ an authoritative snapshot/rebuild capable of covering the latest upper
 sequence remains explicitly non-current; it cannot acknowledge occurrence loss
 away.
 
+The journal separately retains `historyUnavailableThrough`, initialized from a
+nonzero initial sequence without retained occurrences and advanced by
+acknowledged-history eviction and successful persistent-gap recovery. Clearing
+product non-currentness therefore does not pretend exact occurrence history was
+recreated. Even when the retained fact array is empty, an exact-history cursor
+at or below this watermark receives `ReplayHistoryGap`; a covering current
+snapshot is returned only for explicit current-snapshot recovery.
+
 The journal exposes distinct typed offer/replay results. An admitted offer
 returns its sequence and wake directive; an overflow offer returns
 `gapCommitted(FactGap, wake:)`, never ordinary admission. A replay result is one
 of exact retained facts, current-snapshot resynchronization, persistent product
 gap, query-local replay-history gap, invalid cursor, stale generation, or
-invalidated. Persistent product currentness has precedence over cursor history:
+invalidated. Persistent product currentness has precedence over every cursor
+validation/result, including a future cursor:
 
 | Journal state | Replay request | Result |
 | --- | --- | --- |
@@ -318,6 +561,9 @@ All three families:
 - return at most one `scheduleDrain` directive before a take; offers during a
   drain produce at most one follow-up directive after acknowledgement, and the
   primitive never creates a task or invokes domain code while holding state;
+- keep producer admission expected O(1) for a fixed input shape; consumer-side
+  bounded lease formation may scale only with the declared lease quantum, not
+  the full fleet;
 - define `seal` as graceful terminal admission closure that drains accepted
   work, and `invalidate` as immediate terminal revocation that discards pending
   work and makes outstanding tokens stale;
@@ -325,8 +571,23 @@ All three families:
   before invalidation; generic invalidation cannot be the last owner of
   correctness debt;
 - keep diagnostic-record loss separate from product repair/fact gaps;
-- have domain-specific wrappers that fix key, merge, repair, and callback-return
-  policy at compile time.
+- have domain-specific wrappers that fix key/contribution types, actor-owned
+  reduction, recovery mapping, capacity policy, and callback-return behavior at
+  compile time.
+
+Lease, recovery, gap, generation, and sequence authority tuples never alias
+after counter exhaustion. For gather recovery, incrementing a sequenced stamp
+at `UInt64.max` atomically installs the distinct `authorityExhausted` stamp,
+seals further ordinary admission, returns an admitted receipt with
+`contractedToRecovery` plus the typed exhausted revision,
+and retains exact custody until the domain owner transfers it and rotates the
+mailbox generation. An acknowledgement for `.sequenced(.max)` cannot clear the
+exhausted marker. Other primitives equivalently rotate an opaque epoch/identity
+only when safe or return a typed terminal/non-current result while retaining
+accepted custody and exact debt. No counter resets within the same authority
+epoch, and exhaustion never silently invalidates or discards accepted work. Invalidated
+journal diagnostics report non-current even when no persistent product gap is
+retained.
 
 The shared admission module owns mechanics only. Terminal, filesystem, Git,
 Bridge, and performance domains own their typed payloads and semantic policy.
@@ -712,6 +973,7 @@ confounded causal claim.
 
 | Requirement family | Contract owner | Required proof |
 | --- | --- | --- |
+| shared source admission custody | parent | literal latest/gather/journal state models; O(1) producer-operation probe across 1/100/300 declared keys; no domain closure/task/payload queue; cancellation/rebind, capacity, token-exhaustion, counter-algebra, and payload-free diagnostic proof |
 | FSEvent loss and topology repair | watched-folder child | deterministic loss/repair plus independent final oracle |
 | topology/MainActor/persistence fairness | watched-folder child | work-item spans, responsiveness probe, scaling workload |
 | semantic topic transport | parent + watched-folder child | structural policy, queue admission, lag/recovery proof |
@@ -719,6 +981,18 @@ confounded causal claim.
 | terminal sample contraction/activity parity | terminal child | sequence oracle, bounded flood, semantic parity |
 | secure input/screen boundary | terminal child | owner-state races, denied capture, export canaries |
 | combined typing/cursor symptom | shared harness | correlated watched-pressure, input-to-frame-layer-publication tails, and native visible outcomes |
+
+The shared ordered-journal proof is a mandatory red/green regression matrix,
+not an inference from general sequencing tests. It covers: immediate exact
+replay after successful persistent-gap recovery when retained fact history is
+empty; oversized initial and atomic replacement snapshots with no sequence
+assignment or partial commit; persistent-gap precedence over invalid and future
+cursors; invalidated diagnostics reporting non-current; and near-maximum
+sequence/gap/lease authority without wrap, alias, lost custody, or an older
+acknowledgement clearing newer debt. Each case asserts public offer/replay/
+diagnostic results and history/currentness invariants against an independent
+oracle, and each must fail against the rejected S1 implementation for the named
+reason before the corrected implementation passes.
 
 ## Threat Model
 

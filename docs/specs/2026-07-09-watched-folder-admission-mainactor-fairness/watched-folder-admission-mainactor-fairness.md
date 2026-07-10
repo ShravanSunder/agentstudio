@@ -180,12 +180,19 @@ WF1. The Darwin callback boundary must synchronously produce an owned
 `Sendable` observation containing registration identity/generation, monotonic
 capture time, unioned inspected flags, first/last event-ID watermarks, and only
 the bounded number/bytes of copied path records permitted by the source
-contract. A single callback cannot allocate or iterate path payload without a
-bound.
+contract. Inspected native-record count, copied-path count, copied UTF-8 bytes,
+and maximum bytes per path are separate hard bounds. A single callback cannot
+allocate, bridge, measure, or iterate native payload without a bound. Array
+shape/count mismatch, conversion/arithmetic overflow, an oversized record, or
+an uninspected tail records truncation and synchronously advances conservative
+source-scoped recovery without dereferencing the tail.
 
-WF2. Callback admission must be nonblocking and memory-bounded. It may coalesce
-path hints by source/root generation, but it must not silently discard a
-correctness obligation.
+WF2. Callback admission must be nonblocking, memory-bounded, and expected O(1)
+for a fixed observation shape regardless of whether 1, 100, or 300 source keys
+are registered. It may gather bounded path observations by source/root
+generation, but it performs no path dedupe, normalization, routing, subtree
+collapse, domain merge, repair join, fleet scan/copy, actor call, or per-callback
+task creation. It must not silently discard a correctness obligation.
 
 WF3. `MustScanSubDirs`, kernel/user drops, wrapped event IDs, root replacement,
 callback-capture truncation, callback-gate overflow, registration replacement,
@@ -206,8 +213,12 @@ labels.
 WF6. Removing or replacing a watched root invalidates queued observations,
 running scans, and repair completions from the old generation.
 
-WF7. Source admission must expose admitted, coalesced, rejected, overflowed,
-and repaired counts plus queue high-water and oldest-item age.
+WF7. Source admission exposes offered, admitted, contracted, rejection-reason,
+overflow/recovery-escalation, pending-plus-leased custody, high-water, and
+oldest-item/recovery age using the parent's counter algebra. Filesystem actor
+diagnostics separately expose gathered inputs, equality duplicates, unique
+paths, subtree/root contractions, emitted outputs, and repaired-current results;
+mailbox counters never pretend to measure actor-owned semantic coalescing.
 
 WF8. A typed `FSEventFlagDisposition` or equivalent exhaustive policy decides
 which paths are ordinary file hints, sentinel paths to ignore, diagnostics-only
@@ -241,7 +252,18 @@ WS3. Initial add, callback-triggered refresh, manual refresh, fallback refresh,
 and overflow repair use the same per-folder scheduler and generation rules.
 
 WS4. One hot folder cannot starve other folders or interactive work. Scheduler
-fairness and concurrency must be explicit and measurable.
+fairness and concurrency must be explicit and measurable at both admission and
+actor/scan processing. The actor processes at most one calibrated
+contribution/item/byte/service quantum for a ready root before requeueing a
+still-dirty root behind other ready roots. Attended-root priority may reduce
+latency but uses a finite `maximumAttendedPriorityBurst` policy value and cannot
+eliminate background repair service. Ready-root membership is unique and the
+baseline queue is round-robin. With `R` roots ready when a quiet root enters the
+queue and configured priority burst `P`, that root receives a turn within at
+most `(R + 1) * (P + 1)` successful root selections; retries remain ahead of
+newer same-root work but rotate behind already-ready unrelated roots. Production
+`P` and work quantum sizes are frozen through calibration, while this scheduling
+formula is invariant. The 300-source oracle does not depend on wall-clock sleeps.
 
 WS5. A scan result must declare `complete`, `partialTraversal`,
 `partialValidation`, `cancelled`, `rootUnavailable`, `permissionDenied`, or an
@@ -487,17 +509,26 @@ DarwinFSEventStreamClient
                  bounded observations
                           |
                           v
+FilesystemObservationMailbox + AdmissionDoorbell
+  owns: declared-key admission, bounded custody, per-key recovery revision,
+        logical leases, one payload-free level-triggered wake
+  exposes: bounded contribution leases + opaque recovery revisions
+  does not own: path semantics, repair policy, actor work, EventBus
+
+                          |
+                          v
 FilesystemSourceGate
-  owns: capacity, path-hint coalescing, queue age, dirty/repair debt
-  exposes: admitted observations + RepairObligation
+  owns: source currentness, semantic RepairGeneration,
+        recovery lifecycle and participant acknowledgement
+  exposes: accepted repair custody + source-state transitions
 
                           |
                           +-------------------------------+
                           v                               v
-WatchedFolderScanScheduler                        FilesystemRootIndexSnapshot
-  owns: per-root single-flight, generation,         owns: canonical registered
-        fairness, completion classification               ownership snapshot
-  exposes: ScanResultSnapshot                       exposes: routed path hints
+FilesystemActor / ScanScheduler                   FilesystemRootIndexSnapshot
+  owns: path dedupe/reduction, fairness,            owns: canonical registered
+        scan policy and bounded actor turns                ownership snapshot
+  exposes: reduced hints + ScanResultSnapshot       exposes: routed path hints
 
                           \                               /
                            \                             /
@@ -565,12 +596,18 @@ struct FSEventObservation: Sendable {
 owns the token, lexical and resolved root aliases, dispatch queue, open/closing
 state, callback leases, capture item/byte limits, and mailbox reference.
 Callback entry acquires a short lease and inspects/copies only through those
-limits. When the OS count exceeds either limit, it records the total count and
-last watermark without dereferencing/copying remaining paths, sets
-`captureWasTruncated`, and atomically installs repair debt before returning. It
-then offers the bounded observation synchronously and releases the lease. It
-does not reconstruct an unretained client, allocate an unbounded record array,
-or call an actor per callback.
+limits. `unionedInspectedFlags` and event-ID watermarks describe only the
+bounded inspected prefix. When the OS count/native-array shape exceeds the
+inspection bound, copied count/bytes exceed their bounds, checked arithmetic
+fails, or one record is oversized, callback capture records the available total
+and prefix watermark without dereferencing/copying the tail, sets
+`captureWasTruncated`, and synchronously advances the mailbox's conservative
+recovery-required revision before returning. Any loss flag hidden in an
+uninspected suffix is therefore subsumed by truncation recovery. It then offers
+the bounded observation synchronously, signals the payload-free doorbell only
+when requested after mailbox state is unlocked, and releases the callback
+lease. It does not reconstruct an unretained client, allocate an unbounded
+record array, call an actor, or create a task per callback.
 
 Registration lifecycle is:
 
@@ -598,45 +635,122 @@ Flag disposition is exhaustive:
 | `OwnEvent` | retained as provenance/diagnostic; never silently suppressed without separate feedback proof |
 | unknown future flag | conservative discontinuity plus unsupported-flag diagnostic; never silent ordinary admission |
 
+Disposition joins every inspected set bit rather than selecting the first
+matching row. Root-identity discontinuity outranks ordinary hints; ordinary
+paths remain non-authoritative hints. Unknown bits and capture truncation add
+conservative recovery without replacing already-known reasons. For example,
+`KernelDropped | RootChanged | ItemRenamed` requires both continuity repair and
+root revalidation; rename cannot hide either obligation.
+
 Event IDs are retained for provenance, watermark, wrap, and duplicate analysis.
 Numerical gaps alone do not prove loss because FSEvent IDs are not a per-stream
 contiguous sequence; loss comes from source-defined flags or gate overflow.
 
 #### Filesystem observation mailbox
 
-`FilesystemObservationMailbox` is a lock-backed
-`CoalescingMailbox<FSEventRegistrationToken, FilesystemObservationAccumulator,
-RepairGeneration>`. It is not an actor and never uses default-unbounded
-`AsyncStream` buffering.
+`FilesystemObservationMailbox` is a domain wrapper over the parent's
+`BoundedGatherMailbox<FSEventRegistrationToken, FSEventObservation>`. It is a
+synchronous lock-backed custodian, not an actor, accumulator, path set, or
+repair owner. It accepts no merge/repair/footprint closures and never uses a
+payload-bearing or default-unbounded `AsyncStream`.
 
-One accumulator stores:
+The callback control block receives only a generation-scoped producer port and
+doorbell signaler. `FilesystemActor` is the sole owner of the consumer port,
+doorbell wait, lease retry/acknowledgement, seal, and post-transfer
+invalidation. Lifecycle composition alone may finish the doorbell.
+`FilesystemSourceGate` does not drain the generic mailbox; it synchronously
+accepts recovery revisions from the actor and owns their semantic repair state.
+A separate capacity-one doorbell carries no payload, key, or authority; it wakes
+one long-lived drain loop. Mailbox retained state is authoritative and doorbell
+signaling is level-triggered/reconstructible: binding or replacing the consumer
+atomically observes retained work, and a lost/closed signal cannot strand
+accepted contributions or recovery custody.
 
-- bounded unique lexical path hints plus first/last event ID and captured time;
-- unioned item/provenance flags and source sequence watermark;
-- exact discontinuity reasons and newest root/registration generation;
-- one pending-drain bit.
+`FilesystemObservationMailbox` also owns a domain-specific, fixed-size
+`FilesystemRecoveryEvidenceRegister` beside—not inside—the generic gather
+primitive. It monotonically joins the exhaustive bounded reason bitset for each
+source generation: continuity loss, root-identity revalidation, callback
+capture truncation, callback admission overflow, and unsupported native flags.
+The wrapper's short coordination lock serializes evidence registration with
+generic offer/take visibility; the generic mailbox never invokes domain code or
+inspects this evidence. Native recovery evidence is registered before its
+observation can be contracted. If generic admission contracts the payload, the
+wrapper registers callback-admission overflow and couples the returned gather
+revision to the evidence revision before signaling the doorbell. A consumer
+therefore never observes a recovery revision without the monotonic evidence
+needed to choose the strongest applicable source repair.
 
-Ordinary path pressure deduplicates paths. Crossing the calibrated key/item/byte
-limit clears replaceable exact-path detail, retains a bounded dirty-subtree or
-dirty-root hint, and atomically installs or joins `RepairGeneration` in the
-exact repair slot for that declared registration key. Discontinuity/repair
-state uses separate non-replaceable per-registration storage and cannot be
-evicted by paths. The current registered-key set bounds repair-slot cardinality;
-an unknown key is rejected without trapping and cannot be reported handled.
+The coordination critical section performs only fixed-size bitset/revision
+updates plus the generic O(1) offer/take operation. Path dedupe, routing,
+normalization, subtree collapse, scans, participant selection, and semantic
+repair remain actor/source-gate work outside both locks. Evidence clears only
+after `FilesystemSourceGate` accepts the matching revision; an older mailbox
+acknowledgement cannot clear newer joined evidence.
+
+Capacity dimensions are distinct and exhaustive:
+
+- registered-source cardinality and exact recovery-slot cardinality;
+- inspected native records, copied records, copied UTF-8 bytes, and maximum
+  bytes for one copied path;
+- pending plus leased callback contributions/items/bytes globally;
+- pending plus leased contributions/items/bytes per registration key;
+- maximum contribution/item/byte lease quantum processed in one actor turn;
+- actor-owned transformed unique-path/subtree custody;
+- downstream envelope count/bytes, including the independent current
+  256-path-per-`filesChanged` transport chunk.
+
+All arithmetic is checked/saturating and every hard-bound exceedance has an
+exhaustive typed outcome. Global registration-capacity rejection is explicit in
+the configuration receipt; partial registration cannot be reported healthy.
+Ordinary global pressure never evicts another source's retained work. The
+affected incoming registration contracts its replaceable pending detail and
+advances its own exact `GatherRecoveryRevision`. Per-source limits prevent one
+noisy root from consuming global ordinary capacity. Recovery slots remain
+outside ordinary capacity and are bounded by declared registrations. Production
+values are supplied by calibrated `AppPolicies`; the legacy 128 envelope queue
+and downstream 256-path chunk are not source-capacity defaults.
+
+`takeDrain` leases one source key and a bounded immutable
+contribution/item/byte quantum plus its captured recovery revision without
+holding a lock during filesystem work. `FilesystemActor`
+owns equality dedupe, flag/reason joins, deepest-root routing, normalization,
+latest/OR/count reduction, subtree/root collapse, debounce, and fair bounded
+root turns. `FilesystemSourceGate` maps opaque recovery revisions and bounded
+native evidence to source-kind-specific `RepairGeneration` and participant
+debt. Only after the actor accepts leased observations and the source gate
+synchronously accepts every captured recovery revision may mailbox
+acknowledgement clear identical custody. A newer revision survives.
+
+Retry/cancellation re-presents the identical immutable lease before newer
+same-key contributions, while a retrying key rotates behind unrelated keys that
+were already ready; it never merges inside mailbox state. Every drain-owner
+exit path retries or leaves the outstanding lease discoverable by the
+replacement owner, and consumer rebind reconstructs a wake without another
+source event. Timeout-based expiry is never correctness.
+
 Every callback that acquired a valid registration lease remains declared in its
 sealed mailbox generation through stream stop/invalidation, callback-queue
-barrier, lease drain, and atomic repair transfer/disposition into
+barrier, lease drain, and atomic recovery transfer/disposition into
 `FilesystemSourceGate`. Only then may that old key/mailbox generation be
 invalidated. A late callback without a valid lease is rejected by the control
-block; a leased callback that detects loss must either enter the old mailbox or
-synchronously install conservative old-generation debt in the source gate.
+block; a leased callback that detects loss enters the old mailbox or
+synchronously advances conservative old-generation recovery custody.
 
-Topology replacement creates a fresh mailbox generation and seals the old one;
-the source gate serializes drains from current and sealed generations behind one
-filesystem-owner wake. Old repair debt is transferred or explicitly joined into
-the replacement recovery obligation before old-generation invalidation, and is
-never relabeled as new-generation evidence. There is at most one drain owner
-wake even while sealed and current generations coexist.
+Topology replacement creates a fresh mailbox generation and seals the old one.
+For one source, at most one current and one transferring sealed generation may
+coexist. If N is transferring and N+1 is replaced by N+2, N+1 callback admission
+closes immediately and its existing mailbox occupies the single current slot in
+`sealedAwaitingTransfer`; N+2 is retained only as one bounded newest desired
+registration identity and no N+2 stream starts yet. Valid N+1 callback leases
+drain through the normal barrier/evidence path. After N transfers, N+1 becomes
+the sole transferring generation; its accepted evidence/debt transfers without
+being relabeled, and only then may the newest desired identity create/start a
+fresh current generation. Additional desired replacements overwrite only that
+bounded not-yet-authoritative desired identity. Create/start failure leaves no
+new callback authority and keeps the source non-current with exact retry.
+`FilesystemActor` serializes drains behind one filesystem-owner doorbell. The
+source gate accepts old debt before actor acknowledgement/invalidation and never
+relabels old evidence as new-generation evidence.
 
 #### Source configuration boundary
 
@@ -655,8 +769,28 @@ struct FilesystemSourceConfigurationBatch: Sendable {
 
 struct FilesystemSourceConfigurationReceipt: Sendable {
     let acceptedTopologyRevision: UInt64
-    let registrationTokens: [FilesystemSourceID: FSEventRegistrationToken]
-    let rejectedStale: Bool
+    let dispositions: [FilesystemSourceID: FilesystemSourceConfigurationDisposition]
+    let currentness: FilesystemSourceConfigurationCurrentness
+}
+
+enum FilesystemSourceConfigurationDisposition: Sendable {
+    case installed(FSEventRegistrationToken)
+    case unchanged(FSEventRegistrationToken)
+    case removalComplete
+    case deferredBehindTransfer(desiredRootGeneration: UInt64)
+    case rejectedCapacity
+    case failedCreate
+    case failedStart
+}
+
+enum FilesystemSourceConfigurationCurrentness: Sendable {
+    case current
+    case nonCurrent(retrySources: Set<FilesystemSourceID>)
+}
+
+enum FilesystemSourceConfigurationResult: Sendable {
+    case applied(FilesystemSourceConfigurationReceipt)
+    case stale(currentTopologyRevision: UInt64)
 }
 ```
 
@@ -665,7 +799,13 @@ and may produce this batch from accepted changed keys. Initial boot may use one
 full immutable bootstrap snapshot; steady state uses changed-key batches from
 the accepted topology transaction. `FilesystemActor.applyConfiguration` owns
 registration/filter-load concurrency, token generation, and stale rejection.
-MainActor applies only the returned compact receipt/current-state mutation.
+Every requested source receives exactly one disposition; an omitted dictionary
+entry is invalid. Mixed application is permitted only with explicit
+`nonCurrent` retry sources, so accepted topology revision never implies watcher
+authority that was not installed. Deferred, capacity-rejected, or create/start-
+failed sources retain old safe authority when available and otherwise remain
+visibly non-current with exact retry. MainActor applies only the returned compact
+receipt/current-state mutation.
 
 #### Persistent root ownership index
 
@@ -1152,11 +1292,11 @@ globally.
 | Owner | Owns | Explicitly does not own |
 | --- | --- | --- |
 | `DarwinFSEventStreamClient` | OS stream lifecycle and complete callback capture | scan policy, topology, MainActor state |
-| `FilesystemSourceGate` | bounded admission and repair debt | filesystem traversal or UI state |
+| `FilesystemSourceGate` | semantic repair debt, currentness, and participant acknowledgements | generic mailbox drain or UI state |
 | `WatchedFolderScanScheduler` | single-flight, dirty collapse, fairness, generations | scan implementation or canonical atoms |
 | `RepoScanner` | bounded traversal and repository validation result | scheduling, deletion policy, state apply |
 | `FilesystemRootIndexSnapshot` | topology-updated canonical ownership lookup | global fanout or pane projection |
-| `FilesystemActor` | filesystem-domain orchestration and fact production | MainActor mutation |
+| `FilesystemActor` | sole mailbox drain lifecycle, filesystem-domain reduction/orchestration, and fact production | MainActor mutation |
 | `FilesystemProjectionIndex` | pane/worktree projection and stale rejection | source admission or UI ownership |
 | content-repair projector | generation-bearing coarse invalidation, captured consumer set, acknowledgement/retry transfer | full-tree path enumeration, Git snapshots, visual rendering |
 | `WorktreeContentRepairConsumerRegistry` | generation-bearing consumer registration, repair snapshot, acknowledgement and retry transfer | live UI discovery, content rebuilding |
@@ -1187,6 +1327,12 @@ globally.
 
 The repo-owned SwiftSyntax linter must approximate these rules:
 
+- exactly one closed `PressureStreamID` manifest exists, every case has an
+  exhaustive static telemetry name, and production code cannot construct a
+  pressure-stream dimension from raw strings, runtime IDs, paths, or content;
+- shared admission custody types cannot declare stored callback/closure fields,
+  domain merge/repair/footprint algebra, or filesystem/terminal/Bridge imports;
+  only domain wrappers may own semantic reduction and recovery evidence;
 - production `AsyncStream` construction requires an explicit buffering policy
   or a narrow allowlisted exact/recovery contract;
 - MainActor files/types cannot call `resolvingSymlinksInPath`, directory
@@ -1281,8 +1427,9 @@ variant cannot support a relative regression claim.
 Every run records:
 
 ```text
-source       callback batches, paths, flags, registrations, duplicates
-admission    admitted/coalesced/overflowed, depth, oldest age, repair debt
+source       callbacks, inspected/copied/truncated records, paths/bytes, flags, registrations
+admission    offered/admitted/contracted/rejected, pending+leased custody, oldest age, recovery revisions
+reduction    gathered inputs, equality duplicates, unique paths, subtree/root contractions, outputs
 scan         triggers, starts, dirty collapses, follow-ups, outcomes, duration
 routing      roots, paths, unique/projected/suppressed, queue wait, service
 content      coarse invalidations, captured consumers, rebuild/current-invalid/retry acknowledgements
@@ -1319,9 +1466,23 @@ trace queue.
 Deterministic proof must cover:
 
 - admission saturation with bounded memory and preserved repair debt;
+- callback admission touching only one source slot and maintained counters at
+  1/100/300 registrations, with no payload/domain closure, fleet scan/copy,
+  actor call, or per-callback task;
+- exact-bound/bound-plus-one, integer-near-maximum, oversized-single-path,
+  duplicate-heavy, pending-plus-leased, per-source noisy/global quiet, and
+  recovery-slot-outside-ordinary-capacity cases for every declared limit;
+- level-triggered doorbell and lease custody across cancellation before take,
+  after take, during processing, before acknowledgement, and consumer rebind,
+  without another source event or timeout expiry;
+- one current plus one transferring sealed generation under repeated
+  replacement, including stream create/start failure, delayed callback, queue
+  barrier, callback lease drain, debt transfer, and shutdown;
 - one oversized callback is bounded before record-array construction and
   atomically creates repair debt;
-- all FSEvents discontinuity flags;
+- bounded native prefix inspection across count/array mismatch, uninspected
+  tail, unknown bits, arithmetic overflow, and every joined combination of
+  FSEvents discontinuity/root/item flags;
 - source-kind repair matrices and acknowledgement failure after a successful
   scan;
 - registered-worktree discontinuity during ordinary non-Git changes produces
@@ -1361,6 +1522,9 @@ Deterministic proof must cover:
 - retained bootstrap/checkpoint pages do not force a fleet-sized copy in the
   first subsequent MainActor mutation;
 - final topology/Git equivalence with an independent fixture-manifest oracle;
+- 300 ready sources with one continuously noisy source, bounded root-turn
+  service for every quiet ready source, and zero unresolved quiet-root debt at
+  quiescence;
 - forced trace-queue loss invalidating the run through independent evidence
   accounting;
 - terminal interaction fairness during the watched-parent variant.
@@ -1489,8 +1653,8 @@ candidate acceptance:
 
 | Gate | Owner / evidence | Required disposition |
 | --- | --- | --- |
-| source mailbox key/item/byte and dirty-subtree limits | performance owner using fixed burst/overflow workloads | bounded values in the calibration manifest; ordinary overflow always upgrades exact repair debt |
-| scan concurrency and per-turn/root fairness bound | performance owner using mixed hot/cold root fixtures | oldest-ready-root and repair age remain within the approved bound; one root cannot monopolize slots |
+| source registration, native-inspection/copy, per-source/global pending+leased custody, lease-quantum, transformed-path, and downstream-envelope limits | performance owner using fixed burst/overflow workloads | each distinct bounded value appears in the calibration manifest; ordinary overflow advances exact affected-source recovery custody and never borrows the legacy 128 or downstream 256 constants |
+| scan concurrency, `maximumAttendedPriorityBurst`, and per-turn work quantum | performance owner using mixed hot/cold root fixtures | values are frozen in `AppPolicies`; the invariant `(R + 1) * (P + 1)` root-turn bound passes and one root cannot monopolize slots |
 | root-index rebuild and memory envelope | filesystem performance owner using scale/case/symlink fixtures | component-trie routing remains component-bound and rebuild stays outside MainActor |
 | absolute and control-relative interaction/currentness ceilings | human owner from baseline/control distributions before candidate acceptance | no done claim until approved; stale/non-current beyond its ceiling is failure |
 | per-operation MainActor service/scaling ceilings | human/performance owner from fixed changed-key work across 10/100/300 fleets | topology apply, persistence page, Bridge capture/WebKit send, and first post-page mutation each pass independently of end-to-end latency |

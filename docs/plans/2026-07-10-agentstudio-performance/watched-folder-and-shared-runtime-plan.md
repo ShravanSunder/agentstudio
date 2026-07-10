@@ -52,7 +52,9 @@ W1a does not invent a temporary repair owner and does not yet switch the Darwin 
 
 ### W1b — Dormant real callback adapter after W2a
 
-Depends on W2a's real `FilesystemObservationMailbox`, `FilesystemSourceGate`, and exact per-registration repair slots. Modify:
+Depends on W2a's real `FilesystemObservationMailbox`, recovery-evidence
+register, `FilesystemSourceGate`, and exact per-registration recovery custody.
+Modify:
 
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FSEventStreamClient.swift`
   - Replace `FSEventBatch` as the callback contract with `FSEventObservation`.
@@ -60,12 +62,15 @@ Depends on W2a's real `FilesystemObservationMailbox`, `FilesystemSourceGate`, an
   - Keep `FSEventStreamClient` protocol methods generation-bearing.
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/DarwinFSEventStreamClient.swift`
   - Replace `CallbackContext`/unretained teardown with a retained `FSEventRegistrationControlBlock`.
-  - Bound count and copied UTF-8 bytes before materializing the complete Swift path array.
+  - Enforce distinct inspected-native-record, copied-record, copied-byte, and
+    maximum-single-path-byte limits before materializing any complete Swift path array.
   - Acquire a callback lease before touching registration state.
-  - Classify flags and install repair debt in the W2a gate synchronously before returning when capture is incomplete.
+  - Join bounded flag/truncation evidence into the W2a recovery-evidence
+    register before the observation can be contracted; capacity overflow adds
+    callback-admission-overflow evidence before signaling the doorbell.
   - Teardown sequence: mark closing, seal the old mailbox generation,
     stop/invalidate stream, execute callback-queue barrier, drain callback
-    leases, transfer/disposition exact repair debt into `FilesystemSourceGate`,
+    leases, transfer/disposition exact recovery evidence into `FilesystemSourceGate`,
     invalidate the old mailbox generation, then release context.
 
 Do not call an actor, schedule one task per path, access MainActor state, scan, canonicalize every path, or clear repair state in the callback.
@@ -115,15 +120,25 @@ Requirements: WF2–WF5, WF9–WF10.
 Add:
 
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemObservationMailbox.swift`
-  - Domain wrapper over `CoalescingMailbox`.
+  - Domain wrapper over value-only `BoundedGatherMailbox` with a short wrapper
+    lock coupling generic custody to a fixed-size monotonic
+    `FilesystemRecoveryEvidenceRegister`.
   - Key by source/registration generation.
-  - Merge bounded path hints/flags/watermarks.
-  - Keep repair debt in the exact non-evictable typed repair slot for each
-    declared registration key; reject unknown keys without trapping and let the
-    source gate resolve stale/replacement races.
-  - Lease, rather than destructively remove, captured repair state until the
-    source gate acknowledges transfer of the same repair revision. A newer
-    repair join survives an older drain acknowledgement.
+  - Retain opaque bounded `FSEventObservation` values and checked footprints;
+    perform no path/flag merge, dedupe, normalization, routing, or repair join
+    under generic mailbox state.
+  - Enforce calibrated retained pending-plus-leased contribution/item/byte
+    limits globally and per source, plus distinct one-key lease quanta.
+  - Register exact monotonic continuity/root-identity/truncation/overflow/
+    unsupported-flag evidence before a recovery revision becomes visible.
+  - Expose capability-separated callback producer/signaler and actor consumer/
+    waiter ports; only lifecycle composition can finish the doorbell.
+  - Lease one source key at a time. Cancellation/rebind re-presents identical
+    custody with a new binding token; retry stays ahead of newer same-key work
+    but rotates behind already-ready unrelated keys.
+  - Reject unknown keys without trapping. Lease, rather than destructively
+    remove, captured recovery state until `FilesystemActor` transfers it into
+    `FilesystemSourceGate`; newer evidence/revision survives an older ack.
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemSourceGate.swift`
   - Exact states: `healthy`, `dirty`, `reconciling`, `reconcilingAndDirty`, `awaitingAcknowledgements`, `repairFailed`, `shuttingDown`.
   - Own `RepairGeneration`, current registration, scan state, and acknowledgement set.
@@ -134,7 +149,17 @@ Add:
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemContentRepairProjector.swift`
   - Convert coarse registered-worktree repair into bounded consumer-specific rebuild requests; never fabricate a full file inventory.
 
-Prepare `FilesystemActor.startIngressTaskIfNeeded` and `ingestRawPaths` as one mailbox drain loop in the isolated W1b/W2a assembly. W2b installs that drain in production. At most one wake/drain is pending. Source-kind policy decides watched-parent membership repair versus registered-worktree content/Git/pane repair.
+Prepare `FilesystemActor.startIngressTaskIfNeeded` and `ingestRawPaths` as the
+sole mailbox drain loop in the isolated W1b/W2a assembly. The actor owns equality
+dedupe, flag/reason reduction, routing, latest/OR/count aggregation, subtree/root
+collapse, debounce, and the post-transfer semantic fair-root queue. The generic
+mailbox alone owns the mechanical unique ready-key queue used for one-key lease
+selection and retry rotation. W2b installs that drain in production. At most one
+wake is pending and one lease is outstanding. The configured
+`maximumAttendedPriorityBurst = P` and actor-owned round-robin semantic
+ready-root queue must satisfy the spec's `(R + 1) * (P + 1)` root-turn bound.
+`FilesystemSourceGate` owns semantic repair/currentness only; it does not wait on
+the doorbell or drain/acknowledge generic custody.
 
 The initial registered-worktree repair participant matrix is fixed before implementation:
 
@@ -162,11 +187,24 @@ Add:
 
 Extend `FilesystemActorTests.swift`.
 
-Invariants: replaceable hints cannot evict repair; starting/completing scan does not clear repair; every captured current participant acknowledges the same generation; disappearing UI state cannot acknowledge; replacement transfers or explicitly withdraws retained authority.
+Invariants: ordinary pressure contracts only the affected source after exact
+recovery custody exists; native joined evidence survives payload contraction;
+starting/completing scan does not clear repair; every captured current
+participant acknowledges the same generation; disappearing UI state cannot
+acknowledge; replacement transfers or explicitly withdraws retained authority.
+N→N+1→N+2 retains at most one transferring mailbox, one sealed/current-slot
+mailbox, and one newest not-yet-authoritative desired identity. Configuration
+receipts give every requested source an exhaustive installed/unchanged/removed/
+deferred/capacity/create/start disposition and explicit current/non-current
+retry state.
 
 Oracle: independent participant/repair ledger and final source-state model.
 
-RED/GREEN: required for overflow without repair, Git-only acknowledgement, unregister/replacement, and late/stale acknowledgement.
+RED/GREEN: required for overflow without recovery, mixed loss/root evidence
+under contraction, pending-plus-leased bound-plus-one, one noisy/299 quiet root
+fairness, cancellation/rebind/late-old-ack, N→N+1→N+2 replacement, partial
+configuration/start failure, Git-only acknowledgement, unregister/replacement,
+and late/stale acknowledgement.
 
 W2a completion proves mechanics only. W2b is the production repair/admission gate and tests visible, background, closed, replaced, failed, and not-applicable Bridge states against an independent captured-participant ledger. Its integration proof injects oversized/drop input through the real production callback composition, captures the exact live participant generations, and reaches `healthy` only after every matching receipt.
 
@@ -598,6 +636,13 @@ Outside W5b's spec-required watched-root currentness integration, treat `RepoExp
 Add source/SwiftSyntax guards for fleet maps/sorts/path normalization in SwiftUI body/row builders and for direct fleet dictionary reads where a keyed read model exists. Add one projection invocation/scaling test across 10/100/300 items with fixed changed rows.
 
 Integrate the shared architecture rules from S5 for filesystem callback queues, MainActor forbidden work, direct persistence writers, legacy global posts, and unsafe watcher authority. Every rule has one good and one bad fixture plus inventory registration.
+
+Add two mandatory SwiftSyntax rules with red-first bad fixtures: exactly one
+closed `PressureStreamID` manifest with exhaustive static telemetry names and no
+raw/runtime-derived construction; and no stored closures, domain algebra, or
+filesystem/terminal/Bridge imports in shared admission custody types. These are
+structural approximations only—S1/W2 runtime proofs still own O(1), fairness,
+memory, and latency behavior.
 
 ## 14. Task W12 — Watched Workload And Acceptance
 
