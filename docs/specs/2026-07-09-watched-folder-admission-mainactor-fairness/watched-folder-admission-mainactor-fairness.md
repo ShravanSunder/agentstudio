@@ -2,7 +2,7 @@
 
 Date: 2026-07-09
 Revised: 2026-07-10 after adversarial spec review
-Status: accepted for implementation-plan creation after focused adversarial review
+Status: accepted technical contract after adversarial review
 Scope: pre-plan architecture contract
 Runtime dominance: unresolved; static mechanisms are source-proven
 
@@ -150,8 +150,7 @@ this spec records those boundaries separately.
 
 The parent performance-boundaries spec owns the shared declaration vocabulary.
 Every high-cardinality or latency-sensitive asynchronous path must have an
-inspectable `PressureStreamContract` (the exact symbol name may change without
-changing the contract). It declares:
+inspectable `PressureStreamContract`. It declares:
 
 | Field | Required meaning |
 | --- | --- |
@@ -177,16 +176,20 @@ fairness, or repair loss.
 
 ### Source Admission and Repair
 
-WF1. The Darwin callback boundary must synchronously copy event paths, event
-flags, event IDs, registration identity, registration generation, and a
-monotonic callback timestamp into an owned `Sendable` observation.
+WF1. The Darwin callback boundary must synchronously produce an owned
+`Sendable` observation containing registration identity/generation, monotonic
+capture time, unioned inspected flags, first/last event-ID watermarks, and only
+the bounded number/bytes of copied path records permitted by the source
+contract. A single callback cannot allocate or iterate path payload without a
+bound.
 
 WF2. Callback admission must be nonblocking and memory-bounded. It may coalesce
 path hints by source/root generation, but it must not silently discard a
 correctness obligation.
 
 WF3. `MustScanSubDirs`, kernel/user drops, wrapped event IDs, root replacement,
-callback-gate overflow, registration replacement, and any internal lossy
+callback-capture truncation, callback-gate overflow, registration replacement,
+and any internal lossy
 admission must receive an exhaustive disposition and create durable repair debt
 when continuity or root identity is no longer authoritative.
 
@@ -195,9 +198,10 @@ source kind acknowledges the same `RepairGeneration`. Starting or completing a
 scan does not clear debt if topology apply, Git/content rebuild, or another
 declared downstream canonical acknowledgement fails, is stale, or is rejected.
 
-WF5. The source state must distinguish at least `healthy`, `dirty`,
-`reconciling`, and `repairFailed`. State naming may vary; the distinctions may
-not be collapsed into logs alone.
+WF5. `FilesystemSourceGate` uses the exact state vocabulary `healthy`, `dirty`,
+`reconciling`, `reconcilingAndDirty`, `awaitingAcknowledgements`,
+`repairFailed`, and `shuttingDown`. These are product/runtime state, not log-only
+labels.
 
 WF6. Removing or replacing a watched root invalidates queued observations,
 running scans, and repair completions from the old generation.
@@ -218,6 +222,12 @@ one source kind cannot silently borrow the other's scan as sufficient repair.
 Because AgentStudio has no canonical full-file inventory, registered-worktree
 content repair uses the coarse invalidation/consumer-transfer contract below;
 it never fabricates completeness by replaying an unbounded list of paths.
+
+WF10. Registered-worktree repair consumers register through one
+generation-bearing registry. The captured participant set, unregister/
+replacement transfer, late registration currentness, acknowledgement receipt,
+and retry ownership are exhaustive; disappearing from live UI state cannot
+clear repair debt.
 
 ### Scan Scheduling and Completeness
 
@@ -333,10 +343,12 @@ trace identity, and repair acknowledgements. Downstream failure preserves the
 matching repair obligation only for owners named by the source-kind matrix;
 independent enrichment/durability/telemetry owners retain their own retry state.
 
-TA11. Topology persistence receives an immutable snapshot or changed-key record
-through a budgeted handoff. MainActor does not normalize or copy the full pane,
-tab, repository, and worktree fleet merely because a debounced datastore write
-is about to begin. SQLite schema and I/O ownership remain unchanged.
+TA11. Ordinary topology persistence receives only the revisioned changed-key
+record produced by the accepted topology transaction. Full state is available
+only through the bounded paged checkpoint contract for boot, import, export, or
+revision-gap recovery. MainActor neither normalizes nor retains a fleet-wide
+copy-on-write snapshot merely because a datastore write is about to begin.
+SQLite schema and I/O ownership remain unchanged.
 
 ### Event Admission, Scheduling, and Replay
 
@@ -367,9 +379,10 @@ EV8. Same-global-bus reposting requires a named derivation and a contraction
 budget demonstrating fewer outputs than inputs. Otherwise producer-to-consumer
 composition uses a targeted call or internal typed channel.
 
-EV9. The current `NotificationReducer` contract is split conceptually into
-source admission, semantic scheduling, and domain apply. Scheduling buffers and
-timers do not live on MainActor merely because final UI state does.
+EV9. `NotificationReducer` is removed from terminal and filesystem paths.
+Source-specific mailboxes own contraction, topic-filtered projectors own
+semantic scheduling, and named MainActor appliers own final mutation. No generic
+MainActor reducer receives these topics.
 
 EV10. The semantic scheduler consumes already-admitted facts, uses an immutable
 visibility snapshot for best-effort priority, and yields bounded typed batches
@@ -379,8 +392,8 @@ EV11. The first cut preserves one generic runtime EventBus with exhaustive typed
 topic interest. Several domain buses are a future measured escape, not an equal
 implementation-plan option.
 
-EV12. Filesystem-to-Git invalidation is an internal typed channel or targeted
-call with no product replay or global fanout. The global EventBus receives the
+EV12. Filesystem-to-Git invalidation uses the accumulated
+`WorktreeGitInvalidationMailbox` with no product replay or global fanout. The global EventBus receives the
 deduplicated Git snapshot/transition and only filesystem facts with named
 product consumers; it is not an intermediate queue between two owners in one
 projection pipeline.
@@ -400,6 +413,17 @@ delta, never both as ordinary steady-state publication.
 BR4. Detailed Bridge package normalization, React windowing, and selected-file
 content virtualization are a separable follow-up boundary. This spec owns only
 the critical-lane enqueue/fairness contract.
+
+BR5. `BridgeFilesystemRefreshRequest` is bounded independently of package size:
+it carries generations/revisions, bounded changed IDs or a coarse rebuild
+reason, and an off-main source-provider handle. `BridgeRefreshInputProvider`
+performs repository/source reads and constructs immutable package input off-main.
+
+BR6. Before a visible Bridge consumer acknowledges stale-content transfer, a
+current-generation `BridgeCurrentnessPresentationState` must synchronously
+publish a native refreshing/retrying/failed-last-known overlay. JavaScript apply
+and React commit remain correlated downstream evidence, not repair
+acknowledgements or render-speed claims.
 
 ### Native Display Projection Guardrail
 
@@ -470,7 +494,7 @@ FilesystemSourceGate
                           |
                           +-------------------------------+
                           v                               v
-WatchedFolderScanScheduler                        FilesystemRootIndex
+WatchedFolderScanScheduler                        FilesystemRootIndexSnapshot
   owns: per-root single-flight, generation,         owns: canonical registered
         fairness, completion classification               ownership snapshot
   exposes: ScanResultSnapshot                       exposes: routed path hints
@@ -493,6 +517,400 @@ Bridge subscriber
   consumes: relevant invalidation topic only
   action: enqueue generation and return
 ```
+
+### Normative Filesystem Types And Owners
+
+The following names and responsibilities are the selected architecture.
+Planning maps them to files and existing symbols; it does not choose alternate
+actors, queues, indexes, or persistence shapes.
+
+#### Source identity, callback lifetime, and observation schema
+
+```swift
+enum FilesystemSourceKind: Sendable {
+    case watchedParentMembership
+    case registeredWorktreeContent
+}
+
+struct FilesystemSourceID: Hashable, Sendable {
+    let kind: FilesystemSourceKind
+    let rootID: UUID
+}
+
+struct FSEventRegistrationToken: Hashable, Sendable {
+    let sourceID: FilesystemSourceID
+    let registrationGeneration: UInt64
+    let rootGeneration: UInt64
+}
+
+struct FSEventRecord: Sendable {
+    let path: String
+    let flags: FSEventFlags
+    let eventID: UInt64
+}
+
+struct FSEventObservation: Sendable {
+    let registration: FSEventRegistrationToken
+    let capturedAt: ContinuousClock.Instant
+    let totalRecordCount: Int
+    let records: [FSEventRecord]
+    let unionedInspectedFlags: FSEventFlags
+    let firstEventID: UInt64?
+    let lastEventID: UInt64?
+    let captureWasTruncated: Bool
+}
+```
+
+`FSEventRegistrationControlBlock` is the stable retained callback userdata. It
+owns the token, lexical and resolved root aliases, dispatch queue, open/closing
+state, callback leases, capture item/byte limits, and mailbox reference.
+Callback entry acquires a short lease and inspects/copies only through those
+limits. When the OS count exceeds either limit, it records the total count and
+last watermark without dereferencing/copying remaining paths, sets
+`captureWasTruncated`, and atomically installs repair debt before returning. It
+then offers the bounded observation synchronously and releases the lease. It
+does not reconstruct an unretained client, allocate an unbounded record array,
+or call an actor per callback.
+
+Registration lifecycle is:
+
+```text
+open(token)
+  -> closing(token): close admission before replacement/unregister
+  -> streamInvalidated(token): stop + invalidate selected FSEvent stream
+  -> callbackQueueDrained(token): dispatch-queue barrier completed
+  -> leasesDrained(token)
+  -> released(token)
+```
+
+Replacement closes the old generation before publishing the new one. Callback
+context storage remains retained through stream invalidation, queue barrier, and
+lease drain. No callback from N can be relabeled as N+1 merely because the same
+worktree/root ID is registered again.
+
+Flag disposition is exhaustive:
+
+| Flags | Disposition |
+| --- | --- |
+| `MustScanSubDirs`, `UserDropped`, `KernelDropped`, `EventIdsWrapped` | exact discontinuity; create/upgrade repair debt and treat paths as hints only |
+| `RootChanged`, `Mount`, `Unmount` | registration/root identity discontinuity; close currentness and require root revalidation before destructive effects |
+| item create/remove/rename/modified/inode/Finder/owner/xattr/cloned/hardlink/type flags | ordinary path hints accumulated by source/root generation |
+| `OwnEvent` | retained as provenance/diagnostic; never silently suppressed without separate feedback proof |
+| unknown future flag | conservative discontinuity plus unsupported-flag diagnostic; never silent ordinary admission |
+
+Event IDs are retained for provenance, watermark, wrap, and duplicate analysis.
+Numerical gaps alone do not prove loss because FSEvent IDs are not a per-stream
+contiguous sequence; loss comes from source-defined flags or gate overflow.
+
+#### Filesystem observation mailbox
+
+`FilesystemObservationMailbox` is a lock-backed
+`CoalescingMailbox<FSEventRegistrationToken, FilesystemObservationAccumulator,
+RepairGeneration>`. It is not an actor and never uses default-unbounded
+`AsyncStream` buffering.
+
+One accumulator stores:
+
+- bounded unique lexical path hints plus first/last event ID and captured time;
+- unioned item/provenance flags and source sequence watermark;
+- exact discontinuity reasons and newest root/registration generation;
+- one pending-drain bit.
+
+Ordinary path pressure deduplicates paths. Crossing the calibrated key/item/byte
+limit clears replaceable exact-path detail, retains a bounded dirty-subtree or
+dirty-root hint, and atomically installs `RepairGeneration`. Discontinuity/
+repair state uses separate non-replaceable storage and cannot be evicted by
+paths. There is at most one drain wake for the filesystem owner.
+
+#### Source configuration boundary
+
+MainActor does not drive serial register/unregister/activity calls. It submits
+one immutable configuration operation:
+
+```swift
+struct FilesystemSourceConfigurationBatch: Sendable {
+    let baseTopologyRevision: UInt64
+    let acceptedTopologyRevision: UInt64
+    let upserts: [FilesystemSourceRegistration]
+    let removals: [FSEventRegistrationToken]
+    let activityChanges: [WorktreeActivityChange]
+    let activePaneWorktreeID: UUID?
+}
+
+struct FilesystemSourceConfigurationReceipt: Sendable {
+    let acceptedTopologyRevision: UInt64
+    let registrationTokens: [FilesystemSourceID: FSEventRegistrationToken]
+    let rejectedStale: Bool
+}
+```
+
+`FilesystemProjectionIndex` remains the off-main pane/worktree projection owner
+and may produce this batch from accepted changed keys. Initial boot may use one
+full immutable bootstrap snapshot; steady state uses changed-key batches from
+the accepted topology transaction. `FilesystemActor.applyConfiguration` owns
+registration/filter-load concurrency, token generation, and stale rejection.
+MainActor applies only the returned compact receipt/current-state mutation.
+
+#### Persistent root ownership index
+
+`FilesystemActor` owns one in-memory immutable
+`FilesystemRootIndexSnapshot` per accepted topology revision. The snapshot is a
+path-component radix trie, rebuilt off-main only when registered root identity
+changes and atomically swapped after generation validation. It is derived cache,
+never persisted watcher authority.
+
+Each `RegisteredRootDescriptor` contains source/root/registration generation,
+standardized lexical components, once-resolved canonical components, volume
+identity/case policy, and both aliases in the trie. Incoming event routing
+standardizes separators and `.`/`..` components without filesystem I/O and
+selects the deepest component-complete alias match. It does not lowercase every
+path, compare raw string prefixes, scan every root, or call
+`resolvingSymlinksInPath()` per event.
+
+Component comparison uses one `FilesystemPathCanonicalizer` with source-
+verified volume semantics; unknown/ambiguous case, Unicode, alias, symlink, or
+replacement identity rejects exact routing and creates repair debt rather than
+guessing. Every routed hint carries index and registration generation and is
+revalidated before destructive projection.
+
+#### Scan scheduler and result
+
+`WatchedFolderScanScheduler` is a dedicated actor. It owns global bounded scan
+concurrency, a fair ready-root queue, and per-root state:
+
+```text
+idle
+queued(pending trigger + repair obligations)
+running(run generation)
+runningAndDirty(run generation, newest trigger + unioned repair obligations)
+```
+
+Triggers merge by retaining the newest source/root generation and the union of
+unresolved repair obligations. A hot root's follow-up reenters the fair ready
+queue; it does not recursively retain a scan slot. Oldest-ready-root age and
+per-root repair age are bounded/observable. Scan traversal and Git validation
+run outside actor-isolated service and return through a generation-bearing
+completion.
+
+```swift
+struct WatchedFolderScanRequest: Sendable {
+    let source: FSEventRegistrationToken
+    let repair: RepairGeneration?
+    let trigger: WatchedFolderScanTrigger
+    let canonicalRoot: RegisteredRootDescriptor
+}
+
+enum ScanCompletionClass: Sendable {
+    case completeAuthoritative
+    case partial
+    case unavailable
+    case cancelled
+    case failed
+}
+
+struct WatchedFolderScanResult: Sendable {
+    let request: WatchedFolderScanRequest
+    let positiveDiscoveries: [DiscoveredRepoTopologyInfo]
+    let removalCandidates: [CanonicalRepositoryIdentity]
+    let completion: ScanCompletionClass
+    let failures: [ScanFailureReason]
+    let counts: ScanResultCounts
+    let startedAt: ContinuousClock.Instant
+    let completedAt: ContinuousClock.Instant
+}
+```
+
+`RepoScanner` returns this exhaustive result rather than collapsing traversal,
+stat, validation, timeout, cancellation, and permission failures into an empty
+array. Only `completeAuthoritative` may authorize absence/removal. Partial
+positive discoveries may merge while repair debt remains; negative results do
+not delete last-known topology.
+
+#### Topology projection, apply, and currentness
+
+`FilesystemTopologyProjector` is an actor. It consumes accepted scan results,
+current immutable topology/field-ownership input, and canonical revision; it
+performs normalization, repository/worktree joins, pane/cache reconciliation,
+and stale-result rejection off-main. It produces one `TopologyApplyBatch` with
+field-scoped inserts/updates/removals, pane/cache patches, currentness, and
+ordered post-apply effects.
+
+The projector owns `WorkspaceTopologyProjectionMirror`, a rebuildable off-main
+mirror of the discovery-owned repository/worktree fields, user-owned field
+markers, pane associations required for orphan/reassociation, and canonical
+revision. It is seeded before source admission from
+`WorkspaceStateSnapshotPager`, not from a retained fleet-wide copy-on-write
+dictionary. The pager acquires one `WorkspaceStateSnapshotLease` at a canonical
+base revision and reads that lease's stable indexed membership and raw values in
+calibrated item/byte/service-bounded pages. It retains no atom backing buffer.
+Each keyed state owner preserves at most the base value or tombstone for a key
+first changed while the lease is live; repeated changes do not append versions.
+Every
+canonical topology mutation returns a compact `TopologyProjectionUpdate` from
+the same transaction; `WorkspaceTopologyApplier` sends that update directly to
+the projector, which advances only through contiguous accepted revisions. It
+does not subscribe to atoms or infer changes from observation. A revision gap
+marks the mirror non-current and requests one new bootstrap capture; no scan
+result projects against a guessed or stale fleet.
+
+Initial bootstrap completes under a topology-admission barrier. Live gap repair
+uses the same versioned lease plus the exact contiguous
+`TopologyProjectionUpdate` journal that begins after the lease's base revision;
+the actor applies later updates after the last page. Mutation does not restart a
+live lease. A missing post-base update rejects mirror acceptance and opens a new
+lease only after the current lease drains. Paging performs no
+normalization, matching, sorting, filtering, or rich model composition on
+MainActor. Mirror construction is off-main. Proof retains each emitted page
+while measuring the next MainActor mutation so hidden copy-on-write detachment
+cannot satisfy the budget.
+
+`WorkspaceTopologyApplier` is the sole MainActor applier. It revalidates source
+and base revision, commits all causally related canonical changes in one
+transaction, and returns `TopologyApplyReceipt`. It replaces the topology-
+mutation/reconciliation role currently performed from broad EventBus callbacks;
+`WorkspaceCacheCoordinator` may retain topic-filtered Git/Forge cache applies
+but does not rediscover or reconcile topology. `NotificationReducer` does not
+classify filesystem or terminal source traffic; source gates already own
+contraction.
+
+Product currentness is exhaustive:
+
+```swift
+enum WatchedFolderCurrentness: Sendable {
+    case discovering
+    case current
+    case repairing(lastKnownRevision: UInt64)
+    case nonCurrentRetrying(lastKnownRevision: UInt64)
+    case repairFailed(lastKnownRevision: UInt64)
+    case unavailable(lastKnownRevision: UInt64)
+}
+```
+
+Last-known state remains usable, but non-current/failed/unavailable state cannot
+render indistinguishably from `current`. `watchRequestAccepted`,
+`firstUsefulTopology`, and `repairQuiescent` retain the parent meanings and have
+separate ceilings.
+
+#### Filesystem-to-Git invalidation
+
+`WorktreeGitInvalidationMailbox` is the only filesystem-to-Git seam. It has one
+accumulator per registered worktree generation:
+
+```swift
+struct WorktreeGitInvalidation: Sendable {
+    let worktreeID: UUID
+    let registrationGeneration: UInt64
+    let highestSourceSequence: UInt64
+    let boundedRelevantHints: Set<GitInvalidationHint>
+    let reasons: Set<WorktreeInvalidationReason>
+    let needsFullSnapshot: Bool
+    let repairGeneration: RepairGeneration?
+    let lifecycle: WorktreeInvalidationLifecycle
+}
+```
+
+Merge is monotonic: reasons/hints union, sequence increases, and uncertainty may
+upgrade but never downgrade `needsFullSnapshot`. Register/unregister/replacement
+are barriers. `GitWorkingDirectoryProjector` is the sole consumer; Git compute
+does not run inline with filesystem ingress. The mailbox has no product replay
+or global subscribers; only deduped Git state becomes a `gitState` fact.
+
+#### Revisioned persistence handoff
+
+`WorkspacePersistenceRevisionOwner` is the one process-generation-scoped
+MainActor authority for persistence-affecting canonical mutations.
+`WorkspacePersistenceCoordinator` is the sole caller of product datastore write
+APIs. Existing `WorkspaceStore` and `RepositoryTopologyStore` observation may
+request/coalesce persistence, but neither builds a bundle nor writes the
+datastore directly after cutover.
+
+Steady-state topology persistence uses one atomic change-set architecture:
+
+```swift
+struct WorkspacePersistenceChangeSet: Sendable {
+    let processGeneration: UUID
+    let expectedPreviousRevision: UInt64
+    let committedRevision: UInt64
+    let repositoryChanges: [RepositoryPersistenceChange]
+    let worktreeChanges: [WorktreePersistenceChange]
+    let paneChanges: [PanePersistenceChange]
+    let tabChanges: [TabPersistenceChange]
+    let tombstones: [WorkspacePersistenceTombstone]
+}
+```
+
+`TopologyApplyReceipt` obtains the next persistence revision and constructs this
+causally complete change set from the same accepted mutation; it never rereads
+the fleet to discover changes. `WorkspacePersistenceCoordinator` validates
+process generation/revision order, coalesces only when final-state equivalence
+is proven, retains tombstones until acknowledgement, and asks
+`WorkspaceSQLiteDatastore` to apply one atomic transaction. Every ordinary
+non-topology autosave request also carries the revision observed after its
+canonical mutation and enters this same arbiter. An older full/checkpoint write
+arriving after a newer change set is rejected before datastore replacement. A
+revision gap requests one authoritative checkpoint.
+
+Checkpoint recovery is part of this architecture, not a legacy parallel path.
+`WorkspaceStateSnapshotPager` captures bounded raw keyed pages for workspace,
+pane, tab, repository, and worktree state through one
+`WorkspaceStateSnapshotLease` at a fixed persistence revision; it never hands
+off or retains a fleet-wide atom backing buffer. While paging runs, each keyed
+owner retains at most one base value/tombstone for a key first changed after the
+lease began, and all post-base mutations continue into the exact persistence
+revision stream. They are admitted contiguously into one
+`WorkspacePersistenceCompactedRange`, not retained as one journal entry per
+mutation. New keys are excluded from base membership and appear in the compacted
+range; removed keys remain readable at base and later apply their tombstone.
+Repeated mutation of one key does not grow lease or range storage.
+
+The range records `expectedPreviousRevision`, `committedRevision`, contiguous
+covered revision count, and at most one final-state patch or tombstone per
+entity key. Merge is permitted only when the next transaction's expected
+revision equals the range's committed revision. Whole canonical transactions
+merge atomically before becoming visible. A key absent at base and absent at
+the range end is removed as net-zero; a base key absent at the end retains one
+tombstone; every other key retains only its final value. Memory is therefore
+bounded by unique keys whose final state differs from the base plus bounded
+transaction metadata, not mutation/revision count. The calibrated item/byte
+bound is proportional to base/current canonical state; exceeding the supported
+canonical-state envelope marks persistence non-current and fails the workload
+rather than dropping revisions or restarting indefinitely.
+
+The current lease runs to completion under sustained mutation. A newer
+checkpoint request marks one running-plus-dirty target and starts only after the
+current base checkpoint commits or fails; it never cancels/restarts every page
+on revision movement. The actor builds and commits the base checkpoint off-main,
+then atomically applies the final-state-equivalent compacted range through the
+newest committed revision. Missing revision continuity keeps durability
+non-current and opens a new current-base lease; it does not overwrite or falsely
+acknowledge the gap. One active lease, retained-key/byte high-water, oldest
+unsaved revision age, compacted-range key/byte high-water, checkpoint age, and
+dirty follow-up are bounded/observable. Boot, import,
+export, non-topology coalesced autosave, and gap recovery may use checkpoints.
+Ordinary topology changes may not construct a full MainActor snapshot. The
+process-local revision protects queued writes; restart has no surviving stale
+task and seeds a new process generation from the persisted database. SQLite
+schema, transaction, and datastore ownership otherwise remain unchanged.
+
+#### Bridge containment owner
+
+`BridgeRefreshCoordinator` is one actor keyed by pane/repository generation. A
+topic-filtered consumer calls `offer(BridgeInvalidation)` and returns. Per key it
+owns `idle`, `running`, or `runningAndDirty` state, one newest dirty follow-up,
+currentness, stale rejection, and exact retry. Previous content becomes
+`nonCurrentRefreshing`, `nonCurrentRetrying`, or `failed(lastKnown)` before the
+filesystem repair acknowledgement can transfer retry.
+
+The filesystem-triggered refresh path admits a bounded
+`BridgeFilesystemRefreshRequest`. `BridgeRefreshInputProvider` resolves the
+source-provider handle and builds immutable package input, package/delta, and
+the final JSON envelope off-main. MainActor captures only bounded
+generation/revision/request state and performs the generation-checked WebKit
+call. `BridgeCurrentnessPresentationState` applies a native overlay before the
+consumer transfers retry/acknowledges non-current state. JavaScript/React apply
+may be correlated but does not block filesystem repair.
+All-source Bridge mutation journals, normalized React state, and list/content
+virtualization remain the adjacent Bridge spec defined by the parent.
 
 ### Source Gate State
 
@@ -546,10 +964,35 @@ same-generation acknowledgements.
 
 AgentStudio does not own a canonical full-file inventory. After a registered-
 worktree discontinuity, the source therefore emits one generation-bearing
-`WorktreeContentInvalidation` (exact symbol may vary), not an invented list of
-every file. It contains the repair/root generations, canonical root identity,
+`WorktreeContentInvalidation`, not an invented list of every file. It contains
+the repair/root generations, canonical root identity,
 controlled reason, and the content-consumer set captured when repair begins. It
 contains no raw path expansion.
+
+`WorktreeContentRepairConsumerRegistry` is the actor that owns the dynamic
+consumer set. Registration returns a generation-bearing
+`ContentRepairConsumerToken`; replacement closes the old token before the new
+one becomes visible. Starting a repair atomically snapshots the applicable
+tokens and current invalidation generation. A late registrant receives the
+latest current/non-current snapshot before it can publish content.
+
+```swift
+enum ContentRepairAcknowledgement: Sendable {
+    case rebuiltCurrent(revision: UInt64)
+    case markedNonCurrent(retry: ContentRepairRetryToken)
+    case notApplicable
+    case withdrawnNoRetainedState
+    case transferredToReplacement(ContentRepairConsumerToken)
+    case staleGeneration
+    case rejected(ContentRepairRejectionReason)
+}
+```
+
+Only the matching token may acknowledge. Unregister during repair must either
+prove `withdrawnNoRetainedState` or atomically transfer exact retry/currentness
+to a replacement token; disappearing from the registry is not an
+acknowledgement. `staleGeneration` and `rejected` retain source repair debt.
+The registry, not live UI discovery, decides the captured acknowledgement set.
 
 One off-main content-repair projector owns delivery and acknowledgement. For
 the same generation:
@@ -647,24 +1090,37 @@ The declared dependency order is:
    matrix above acknowledges the same accepted generation. Persistence, Forge,
    Bridge rendering, and telemetry completion are not used as substitutes.
 
-### Persistence Snapshot Handoff Contract
+### Persistence Change-Set And Checkpoint Contract
 
-Topology mutation may request one coalesced persistence operation, but the
-request does not authorize synchronous fleet reconstruction on MainActor. The
-persistence boundary captures changed-key records or an immutable snapshot with
-bounded MainActor service, then performs normalization and datastore preparation
-off-main. It records enqueue delay, MainActor capture service, entity counts,
-off-main preparation, and datastore service separately.
+Ordinary topology mutation produces the revisioned
+`WorkspacePersistenceChangeSet` from the same accepted transaction. It does not
+authorize synchronous fleet reconstruction, a retained fleet copy-on-write
+snapshot, or a full workspace snapshot on MainActor. The one persistence
+revision owner and coordinator arbitrate topology changes, non-topology
+checkpoint requests, and datastore replacement writes. The coordinator applies
+revisions atomically, retains tombstones through acknowledgement, rejects stale
+checkpoint delivery, and requests the paged checkpoint path only for boot,
+import, export, non-topology coalesced autosave, or a detected revision gap.
 
-This contract changes snapshot preparation, not SQLite schema, transaction
-ownership, recovery, or datastore actor sequencing.
+The checkpoint pager copies bounded raw keyed pages from one versioned snapshot
+lease without retaining atom backing storage; normalization and datastore
+bundle construction run off-main. A live lease is not invalidated by ordinary
+mutation; post-base change sets advance the persisted result after the base
+checkpoint commits.
+The boundary records enqueue delay, every MainActor page/apply service, page
+bytes/entities, first subsequent mutation service/allocation, off-main
+checkpoint/change-set preparation, revision gaps, retries, and datastore
+service separately.
+
+This contract changes steady-state handoff and checkpoint preparation, not the
+SQLite schema or datastore transaction/I/O owner.
 
 ### Event Topic and Recovery Contract
 
-Topic selection must be visible at the type/API boundary. The first cut uses the
-existing generic runtime bus whose subscription takes an exhaustive typed topic
-set. A subscriber that receives all topics and ignores most cases is not
-acceptable for a steady production path.
+Topic selection uses the parent `RuntimeFactBus`/`RuntimeTopic` contract. The
+existing generic EventBus machinery remains underneath, but a subscriber that
+receives all topics and ignores most cases is not acceptable for a steady
+production path.
 
 This contract deliberately revises the older “topicless dumb fanout” decision.
 The bus remains dumb about domain meaning, but it no longer creates queue work
@@ -683,14 +1139,15 @@ globally.
 | `FilesystemSourceGate` | bounded admission and repair debt | filesystem traversal or UI state |
 | `WatchedFolderScanScheduler` | single-flight, dirty collapse, fairness, generations | scan implementation or canonical atoms |
 | `RepoScanner` | bounded traversal and repository validation result | scheduling, deletion policy, state apply |
-| `FilesystemRootIndex` | topology-updated canonical ownership lookup | global fanout or pane projection |
+| `FilesystemRootIndexSnapshot` | topology-updated canonical ownership lookup | global fanout or pane projection |
 | `FilesystemActor` | filesystem-domain orchestration and fact production | MainActor mutation |
 | `FilesystemProjectionIndex` | pane/worktree projection and stale rejection | source admission or UI ownership |
 | content-repair projector | generation-bearing coarse invalidation, captured consumer set, acknowledgement/retry transfer | full-tree path enumeration, Git snapshots, visual rendering |
+| `WorktreeContentRepairConsumerRegistry` | generation-bearing consumer registration, repair snapshot, acknowledgement and retry transfer | live UI discovery, content rebuilding |
 | topology projector | immutable discovery-to-mutation diff | canonical observable state |
 | domain MainActor appliers | field-scoped canonical mutations and typed post-effects | backlog, projection, I/O, serialization |
-| persistence snapshot handoff | bounded immutable capture plus off-main normalization | SQLite schema, canonical UI mutation |
-| `EventBus` | topic-aware semantic replay/fanout and diagnostics | raw samples, domain joins, UI work |
+| `WorkspacePersistenceRevisionOwner` + `WorkspacePersistenceCoordinator` | one write sequence, changed sets, paged checkpoints, stale-write rejection | SQLite schema, canonical UI mutation |
+| `RuntimeFactBus` | topic-aware semantic replay/fanout and diagnostics | raw samples, domain joins, UI work |
 | Bridge refresh owner | invalidation collapse and package generation | blocking global consumer |
 | `RepoExplorerRowIndex` / native display-projection owner | keyed/prederived row facts and stable row identity | Bridge packages, filesystem scans, view-body fleet transforms |
 
@@ -722,7 +1179,8 @@ The repo-owned SwiftSyntax linter must approximate these rules:
 - production `.criticalUnbounded` subscriptions require an allowlisted owner,
   pressure diagnostic, and recovery rationale;
 - MainActor persistence coordinators are flagged when they construct or
-  normalize full fleet snapshots before their first actor/datastore handoff;
+  normalize full fleet snapshots, retain atom COW backing, or bypass the paged
+  capture/sole-writer contract;
 - global subscribers must declare topics and cannot implement large
   ignore/default case groups for unrelated topics;
 - same-bus reposting from a subscription consumer requires an allowlisted
@@ -770,9 +1228,11 @@ product build, in addition to the terminal child's 24 factorial cells:
 | `WF-COLD-BOOT-V1` | identical persisted 300-repository/worktree topology; no-watched-parent control and persisted-watched-parent variant | 2 |
 | `WF-HUGE-STEADY-V1` | one local canonical parent containing 300 settled repositories/worktrees; identical watcher-disabled control and watched variant execute 32 concurrent count-driven `.git` writers on distinct worktrees, 256 ordered mutation batches per writer, plus one count-driven non-repository producer with 8,192 mutations | 2 |
 
-The ten cells hold sidebar hidden, Bridge closed, and one deterministic echo/
-caret victim terminal unless the scenario explicitly measures interaction
-readiness before that terminal exists. All mutation traces, seeds, operation
+All ten cells hold sidebar hidden, Bridge closed, and one deterministic echo/
+caret victim terminal. `interactionReady` is recorded before the watched/add,
+boot-pressure, or churn trigger and always satisfies the parent's terminal-
+bearing definition; no nonterminal readiness marker reuses that name. All
+mutation traces, seeds, operation
 counts, fixture shape, and build/configuration identities are versioned and
 digest-recorded. `WF-HUGE-STEADY-V1` starts pressure only after topology/source
 health and the interaction-ready marker; pressure stops after every count-
@@ -782,10 +1242,11 @@ work in flight, and the independent topology/Git/content-consumer oracle equal
 or explicitly current-invalid-with-retry as allowed by the repair contract.
 
 The terminal child's loaded-workspace and combined-pressure rows use the
-watched variant of `WF-HUGE-STEADY-V1`. Their same-build idle/no-watch and
-terminal-pressure/no-watch rows are the respective watcher-factor controls;
-any additional changed factor is labeled composite pressure rather than a pure
-watcher comparison.
+watched variant of `WF-HUGE-STEADY-V1` as composite stress gates. Idle/no-watch
+and terminal-pressure/no-watch rows are not watcher-factor controls and no
+watcher attribution is made from those comparisons. The selected-product-build
+pair in this child is the sole watcher-factor comparison because its control
+executes the identical writers/noise trace with watching disabled.
 
 Each phase also has a scenario contract:
 
@@ -842,6 +1303,8 @@ trace queue.
 Deterministic proof must cover:
 
 - admission saturation with bounded memory and preserved repair debt;
+- one oversized callback is bounded before record-array construction and
+  atomically creates repair debt;
 - all FSEvents discontinuity flags;
 - source-kind repair matrices and acknowledgement failure after a successful
   scan;
@@ -858,13 +1321,29 @@ Deterministic proof must cover:
 - changed-key topology apply, canonical revision conflict, user-tag preservation,
   ordered post-effects, and stale-generation rejection;
 - topic filtering before subscriber queue admission;
+- exactly one global `RuntimeFactBus` exists; retained pane runtime channels are
+  local-only and no production path posts `RuntimeEnvelope` globally;
 - internal filesystem-to-Git invalidation creates no global replay/fanout and
   only deduped Git/product facts reach global topics;
 - EventBus lag/drop/pressure export with safe dimensions;
 - Bridge invalidation enqueue without critical-lane waiting;
+- filesystem Bridge refresh captures bounded request state independent of
+  package size, builds input/envelope off-main, and applies the native
+  non-current overlay before repair acknowledgement;
 - native keyed/prederived row projection remains separate from Bridge and view-
   body fleet transforms are rejected by structure plus recompute evidence;
 - bounded MainActor persistence capture with off-main snapshot normalization;
+- stale checkpoint/full-save delivery after a newer topology change set cannot
+  overwrite it, and all datastore writes pass one revision arbiter;
+- a revision-gap checkpoint completes while count-driven concurrent mutations
+  continue, then applies contiguous post-base changes without restart
+  starvation; maximum unsaved revision/checkpoint age remains within its
+  approved bound;
+- the same workload proves post-base retention is bounded by unique final-state
+  keys/bytes rather than mutation count, including repeated updates and
+  create/remove net-zero churn;
+- retained bootstrap/checkpoint pages do not force a fleet-sized copy in the
+  first subsequent MainActor mutation;
 - final topology/Git equivalence with an independent fixture-manifest oracle;
 - forced trace-queue loss invalidating the run through independent evidence
   accounting;
@@ -877,12 +1356,12 @@ does not contaminate the claimed latency distribution.
 
 | Requirement group | Contract | Proof modality | Owning slice |
 | --- | --- | --- | --- |
-| WF1-WF9 | source gate, flag disposition, repair generation | deterministic callback/loss/state tests plus pressure metrics | source admission |
+| WF1-WF10 | source gate, flag disposition, repair generation, consumer registry | deterministic callback/loss/state/registration-race tests plus pressure metrics | source admission |
 | WS1-WS9 | scan scheduler and authoritative completion | injected scanner/clock tests plus fixture traversal | scan scheduling |
 | FI1-FI7 | canonical containment and authority | path/property cases plus external-link/non-local fixtures | root ownership |
 | TA1-TA11 | revisioned patch apply, post-effects, persistence handoff | race/state tests, MainActor spans, scaling workload | topology apply |
 | EV1-EV12 | topic-aware semantic transport | structural lint/tests, replay/order/lag pressure plus internal-channel isolation | semantic transport |
-| BR1-BR4 | enqueue-only global boundary | focused coordinator/Bridge integration plus stage traces | Bridge containment |
+| BR1-BR6 | enqueue-only global boundary, bounded input, visible currentness | focused coordinator/Bridge integration plus stage traces | Bridge containment |
 | NR1 | keyed/prederived native display input | architecture lint plus native row-index/recompute proof | native display projection |
 | PF1-PF9 | scenario/oracle/evidence validity | shared native workload and acceptance report | shared harness |
 
@@ -940,11 +1419,12 @@ bus per event family.
 
 ### Pragmatic selected direction
 
-Keep current proven actors and explicit subscriber policies. Add a bounded
-loss-aware source gate, per-folder scheduler, persistent root index, immutable
-revisioned topology projector, field-scoped MainActor applies with ordered
-post-effects, bounded persistence snapshot handoff, topic-aware fact fanout, and
-Bridge invalidation enqueue. This is a hard semantic cutover at each touched
+Keep current proven projection/datastore actors and explicit subscriber
+policies. Add the bounded loss-aware mailbox, dedicated fair scan actor,
+persistent path-component root index, immutable revisioned topology projector,
+field-scoped `WorkspaceTopologyApplier`, revisioned change-set/checkpoint
+persistence, accumulated FS-to-Git mailbox, topic-aware fact fanout, and
+`BridgeRefreshCoordinator`. This is a hard semantic cutover at each touched
 boundary; no old/new dual event path remains indefinitely.
 
 Tradeoff: more explicit types and generations. The added ceremony is accepted
@@ -960,8 +1440,9 @@ MainActor work reviewable and independently testable.
 - No Git status provider rewrite or return to shell Git.
 - No full Bridge package/React redesign in this spec.
 - No native sidebar visual redesign.
-- No SQLite schema or datastore-actor redesign. MainActor snapshot preparation
-  and handoff remain in scope.
+- No SQLite schema or datastore-actor redesign. Bounded paged raw-state capture,
+  the global persistence revision arbiter, and off-main preparation remain in
+  scope; retained fleet-wide MainActor snapshots do not.
 - No new watcher authority outside persisted user-selected roots.
 - No copied Ghostty buffer sizes, spin constants, or gather timings.
 
@@ -985,27 +1466,35 @@ These are separable ownership contracts, not implementation phases:
 The Ghostty callback, terminal sample, agent-state, geometry, and presentation
 contracts are owned by the companion terminal-interaction spec.
 
-## Open Decisions
+## Calibration And Revisit Gates
 
-| Decision | Owner / evidence | Must resolve before | Safe default / reconvergence |
-| --- | --- | --- | --- |
-| source-gate item/key/byte capacity | implementation calibration from fixed workloads | source-admission rollout | bounded conservative values; never copy Ghostty constants |
-| one physical overlapping stream versus stream per root | architecture owner plus duplicate/overflow evidence | watcher topology cutover | preserve per-registration streams behind the new gate |
-| exact `RootIndex` representation | implementation owner plus containment/scale proof | root-index implementation | any immutable component-correct lookup meeting the contract |
-| absolute and control-relative interaction ceilings | human owner after baseline distributions | final performance acceptance | no done claim until approved |
-| incomplete positive discovery merge | spec default plus correctness proof | scan result implementation | positive-only merge while repair debt remains |
+The architecture is closed. These remaining values are calibrated before
+candidate acceptance:
 
-The first-cut transport topology, local-root authority, non-destructive
-non-local behavior, and external Git-link watcher authority are resolved by the
-parent contract. Changing those defaults requires spec reconvergence, not a
-planner-local choice.
+| Gate | Owner / evidence | Required disposition |
+| --- | --- | --- |
+| source mailbox key/item/byte and dirty-subtree limits | performance owner using fixed burst/overflow workloads | bounded values in the calibration manifest; ordinary overflow always upgrades exact repair debt |
+| scan concurrency and per-turn/root fairness bound | performance owner using mixed hot/cold root fixtures | oldest-ready-root and repair age remain within the approved bound; one root cannot monopolize slots |
+| root-index rebuild and memory envelope | filesystem performance owner using scale/case/symlink fixtures | component-trie routing remains component-bound and rebuild stays outside MainActor |
+| absolute and control-relative interaction/currentness ceilings | human owner from baseline/control distributions before candidate acceptance | no done claim until approved; stale/non-current beyond its ceiling is failure |
+| per-operation MainActor service/scaling ceilings | human/performance owner from fixed changed-key work across 10/100/300 fleets | topology apply, persistence page, Bridge capture/WebKit send, and first post-page mutation each pass independently of end-to-end latency |
+
+The first cut keeps one physical FSEvent stream per registration behind the
+mailbox; stream consolidation is not a planner option. Revisit it only when
+measured duplicate delivery, stream count, CPU, or drop rate materially violates
+the approved workload. The path-component radix trie, positive-only partial
+merge with retained repair debt, internal accumulated FS-to-Git mailbox,
+revisioned change-set persistence, local-root authority, non-destructive non-
+local behavior, and external Git-link authority are resolved here. Changing
+them requires spec reconvergence.
 
 ## Design Decision
 
-Focused review accepted the revised pragmatic direction, including repair
-acknowledgement, validation completeness, coarse content invalidation,
-canonical-revision patches, ordered post-effects, persistence handoff,
-independent oracle, and enumerable scenario controls. This child is ready for
-implementation-plan creation under the parent contract. Runtime dominance and
-the final human-approved latency ceilings remain proof obligations, not planner
-assumptions.
+This revision selects generation-safe FSEvent registrations, the bounded source
+mailbox, persistent component trie, fair scan actor, exhaustive scan results,
+off-main topology projector, typed MainActor applier, exact repair
+acknowledgement, accumulated FS-to-Git invalidation, revisioned persistence,
+currentness states, Bridge containment, and enumerable scenario controls. It
+passed fresh adversarial spec review and is ready for implementation planning.
+Runtime dominance and final human-approved ceilings remain proof obligations,
+not planner assumptions.
