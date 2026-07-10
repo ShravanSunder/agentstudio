@@ -224,7 +224,7 @@ ONE PER-PANE COMM WORKER
 Swift product server
   owns: provider/source authority, sourceGeneration, metadata/content service,
         product scheme endpoints, leases, stream production/admission
-  exposes: disposable pane-scoped request/stream/resource service
+  exposes: disposable pane-scoped call/metadata/content POST service
 
 main producer port + comm producer port
   -> OPTIONAL PER-PANE TELEMETRY WORKER
@@ -293,10 +293,10 @@ Extended truth ownership:
 | `uiIntentRevision` | FE local surface | comm worker | every local selection/mode/filter intent | latest-wins worker acceptance/repair | retained per mounted viewer; grants no protocol authority |
 | `workerInstanceId` | pane session lifecycle | main/worker/Swift | every worker creation | reset barrier cancels prior-instance work | one active instance per pane |
 | `workerDerivationEpoch` | comm worker, scoped by surface/source context | FE diagnostics, Swift freshness echo, worker tests | worker accepts sourceGeneration/stream tuple | epoch reset clears derived worker truth for that context | retained per pane worker; inactive foreground work demotes/aborts |
-| request/stream sequence | request sequence: comm worker; stream sequence: Swift, both scoped by worker/surface/stream | opposite endpoint | accepted send order | duplicate/gap/reset rules in R64 | no global Review/File sequence |
+| control/stream sequence | control: comm worker per pane/worker; physical metadata: Swift per pane stream; logical subscription: Swift per subscription | opposite endpoint | accepted send order | duplicate/gap/reset rules in R64 | inactive subscriptions retain their sequence; one physical sequence spans Review/File |
 | staleness classification | comm worker | FE health/render slices | worker validates source, stream, epoch, and sequence | reset-required -> reopen or unhealthy | inactive stale results cannot mutate active UI |
 | content-demand membership | comm worker reconciler | worker executor/cache | worker reconciles selected/viewport/hover/cache facts | re-derive every fact change; no parked membership | inactive selected becomes demoted/aborted, not foreground |
-| content bytes / byte cache | comm worker | worker parse/window/diff/highlight | worker `fetch()` from content scheme | retry/backoff or unavailable slice | retained by retention policy; not active foreground |
+| content bytes / byte cache | comm worker | worker parse/window/diff/highlight | worker `BridgeProductTransport.openContent()` POST | retry/backoff or unavailable slice | retained by retention policy; not active foreground |
 | paint-ready rows/runs/extents | comm worker produces; FE slice store owns current render copy | components | transferable worker slice update | stale slice replacement or explicit unavailable/error slice | inactive copies may persist but cannot overwrite active mode |
 | selected UI intent, `uiIntentRevision`, and selected display copy | FE local slice | comm worker as fact input | synchronous click/keyboard/programmatic mutation | worker accepts/supersedes by UI revision; never mints worker freshness | each mounted viewer retains local selection memory |
 | accepted selected product identity | comm worker, scoped by surface | demand/cache/protocol logic; FE receives display copy | worker accepts a current UI intent under its source context | stale/reset/superseded intent re-derives; main never mints worker epoch | inactive selection retains memory but has no foreground authority |
@@ -481,7 +481,8 @@ Lossy telemetry runs are debugging aids, not performance proof.
 
 ### R44. Content bytes stream to the worker, not the main thread.
 
-Source bytes are fetched by the comm worker from the content scheme. Main never
+Source bytes are streamed by the comm worker through its worker-local
+`BridgeProductTransport.openContent()` facade. Main never
 receives raw strings, full package bodies, or canonical byte-cache entries. Its
 only source-bearing value is one bounded R52/R57 Pierre window submission whose
 `ArrayBuffer` fields transfer worker -> main, are forwarded unchanged through
@@ -684,7 +685,7 @@ Worker seam:
 Server seam:
 
 - tests Swift against recorded worker traffic;
-- proves metadata plane stability, content scheme serving,
+- proves metadata plane stability, typed content-stream serving,
   `BridgeContentDemandAdmission`, telemetry POST admission, source authority,
   and reset/unhealthy responses;
 - cannot prove FE slice correctness, worker cache policy, worker backoff,
@@ -694,8 +695,8 @@ Real-worker browser seam:
 
 - runs the actual pane comm worker, telemetry worker when enabled, and Pierre
   workers against deterministic Review and File View fixtures;
-- proves one comm-worker identity across mode switches, direct worker stream and
-  content fetch in the controlled environment, structured-clone/transfer cost,
+- proves one comm-worker identity across mode switches, direct worker metadata
+  and content streams in the controlled environment, structured-clone/transfer cost,
   markdown compute/sanitize/paint, telemetry producer isolation, DOM
   apply/disposition flow, event-loop/long-task evidence, and the controlled
   p95/p99 product budgets; and
@@ -740,7 +741,7 @@ worker exists.
 | Channel family | Contract | Required payload shape |
 | --- | --- | --- |
 | main <-> comm worker | one typed RPC/event protocol over the pane-owned `MessageChannel`; all messages are surface/session scoped | UI intents carry UI revision; bounded replies, slices, transferred Pierre windows, health, dispositions/reset barriers; no store snapshots or main-minted worker epoch/sequence |
-| comm worker <-> Swift product server | typed scheme-handler POST request/response, leased content fetch, and long-lived streamed responses consumed directly in the worker | source/session capability, request/stream/surface identity, generation/epoch/sequence, bounded frames, content descriptors, command acks, resets, health |
+| comm worker <-> Swift product server | one worker-owned typed product transport over custom-scheme POST bodies and streamed responses | capability-only privileged header; typed call/subscription/content bodies; in-band identity, generation/epoch/sequence, lengths, checksums, acks, resets, and health |
 | main <-> Pierre workers | Pierre public API exclusively, through one shared opaque courier | complete worker-prepared render job, demand rank, identity, window and budget; no AgentStudio main transform or private Pierre worker traffic |
 | main + comm -> telemetry worker -> Swift telemetry endpoint | two dedicated producer ports into one optional per-pane telemetry worker, then telemetry-only scheme POST | compact port-bound samples in; validated/scrubbed sequenced batches and exact loss summaries out |
 
@@ -748,12 +749,31 @@ A comm-owned stateless content-compute pool is internal execution, not another
 product authority/channel: it receives jobs only from and returns only to the
 comm worker and cannot reach main or Swift.
 
-The long-lived streamed-response fetch is the decided Swift product-push
-mechanism. `WKScriptMessage`, `callJavaScript`, DOM-event intake, or page-owned
-scheme fetch/relay are rejected production alternatives: they land on or use the
-page main loop, restore main as a sequence/backpressure participant, and recreate
-the run-loop hazard. If direct worker streaming cannot pass native proof, stop
-and redesign R44/R49.
+Exactly one `BridgeProductTransport` facade exists inside the pane comm worker:
+
+```ts
+call<K extends BridgeProductCallKind>(kind: K, request: BridgeProductCallRequest<K>): Promise<BridgeProductCallResponse<K>>
+subscribe<K extends BridgeProductSubscriptionKind>(kind: K, options: BridgeProductSubscriptionOptions<K>): BridgeProductSubscription<K>
+openContent<K extends BridgeProductContentKind>(descriptor: BridgeProductContentDescriptor<K>, options: BridgeProductContentOptions): BridgeProductContentStream<K>
+```
+
+`BridgeProductContentOptions` requires an `AbortSignal`; the concrete types are
+closed registry lookups under R50, not generic JSON. React/main cannot import or
+own this facade, a native subscription, the capability, or raw content. It uses
+typed domain/pane clients over the installed `MessagePort` and bounded render
+slices. Only the shared worker transport module knows product routes or fetches.
+
+One long-lived physical metadata response stream exists per pane. `subscribe()`
+multiplexes logical typed subscriptions on it; it never creates a stream per
+file/feature. Each demanded descriptor/window/role gets one independent bounded,
+cancellable `openContent()` POST response. Content is not eager or multiplexed
+with metadata, avoiding head-of-line blocking.
+
+Direct worker streamed responses are the decided Swift product mechanism.
+`WKScriptMessage`, `callJavaScript`, DOM-event intake, page-owned scheme relay,
+or feature-owned fetch helpers are rejected production alternatives because
+they restore main or a second module as a sequence/backpressure participant. If
+direct worker streaming cannot pass native proof, stop and redesign R44/R49.
 
 Direct page/native exceptions are exactly:
 
@@ -773,9 +793,8 @@ deletion set. Content worlds remain only for minimal bootstrap isolation and
 typed control/probe injection. No ordinary product carrier survives beside the
 comm-worker path.
 
-The rationale is one product initiator and one recoverable product state machine
-per pane, plus an observability sidecar that cannot contend with that state
-machine's JavaScript event loop.
+A future domain such as comments adds closed registry cases, a native handler,
+and a worker reducer; it adds no transport route/fetch/cache/retry/IPC pathway.
 
 Current script-message RPC inventory and post-migration carriers:
 
@@ -808,44 +827,41 @@ Telemetry-off benchmarks use this same typed outer-control clock and correlated
 post-paint completion. They do not restore telemetry, inspect a worker store, or
 use untyped evaluation as a timing shortcut.
 
-No ordinary product command irreducibly requires a page/native bypass because
-scheme `fetch()` is reachable from the comm worker. Content worlds remain only
-as bootstrap/control isolation machinery, not product intake, command,
-telemetry, content, subscription, or push transport.
-
-On the Pierre edge, main is a courier, never a processor. The comm worker
-produces one complete `BridgeWorkerPierreWindowSubmission` with rank, semantic
-identity, manifest/window, bounds, and declared transfer fields. Main
-structurally validates the outer envelope and forwards that exact object once
-through `submitWindow`; it must not wrap, copy, normalize, reconstruct, parse,
-classify, window, diff, decode, or highlight it.
-
 ### R50. Channel contracts are typed and constant.
 
-`BridgeWorkerContracts` is the working-name single schema source for channel
-[1], the main <-> comm-worker `MessageChannel`. Both endpoints compile
-against this module. It owns zod-derived types, the versioned wire format, and
-runtime validation at the worker boundary. A message shape that is not in this
-contract must be a compile error, not an unchecked runtime convention.
+`BridgeWorkerContracts` is the single schema source for main <-> comm-worker
+`MessageChannel`; both endpoints compile against its zod-derived versioned wire
+types and runtime validators. An absent message shape is a compile error.
 
-The main <-> comm-worker channel is typed RPC plus typed events, not a shared
-store. Commands carry `requestId`, epoch/revision freshness, payload DTO, and
-declared transfer fields. Replies/events correlate to the request or stream they
-advance. Fire-and-forget facts are still schema-defined messages with explicit
-freshness semantics; no path may send `store.getState()`, a query-cache value, or
-another runtime store shape as the protocol payload.
+Every product API/wire is closed, correlated, and strictly typed at compile time
+AND runtime. Closed `BridgeProductCallRegistry`, `BridgeProductSubscriptionRegistry`,
+and `BridgeProductContentRegistry` maps use constrained generic lookups to derive
+requests, results, options, descriptors, frames, and terminals. Strict Zod schemas
+form closed discriminated unions for all call/ack/error, subscription control/data,
+content accepted/data/end/error/reset/cancel, and main <-> comm DTO variants;
+switches are exhaustive.
 
-Channel [2] shares vocabulary with the Swift-side contracts through one
-scheme-RPC contract module: one named contract vocabulary crosses the
-Swift/browser boundary, and page, worker, and server implementation code consume
-that vocabulary instead of inventing local frame shapes. No channel may add
-ad-hoc message shapes.
+Forbidden: `any`; `unknown` fields/retained untyped JSON; `method: string` plus
+`Record<string, unknown>`; recursive JSON-value payloads; catch-all variants;
+declaration-merging/plugin augmentation; or an unvalidated escape hatch. `unknown`
+is allowed only as immediate untrusted parser input and must synchronously become
+a closed union, never stored/transport/post-parse handler/API data. Strict object
+schemas reject extra/mismatched fields, invalid bounds, and unsupported versions.
+Registry requests/results with no data use literal `null`; `{}` is forbidden.
 
-`BridgeTelemetryWorkerContracts` is a separate schema source for the telemetry
-sidecar. It owns worker bootstrap, port-bound compact sample unions, credit and
-loss-summary control frames, worker health, and drain/close acknowledgements.
-It does not import or expose product command, content, stream, cache, demand, or
-health DTOs.
+The main <-> comm-worker channel is typed RPC/events, not a shared store. Each
+discriminant selects exact correlated identity/freshness and request/result DTOs.
+Even fire-and-forget facts are closed; store/query snapshots and generic payloads
+are forbidden.
+
+Channel [2] shares the closed vocabulary in TypeScript and Swift. Swift uses
+closed `Codable` enums, typed associated structs, and strict coding-key checks.
+One versioned hostile corpus proves parity and rejects unknown/extra/missing,
+mismatched, oversized, and stale cases in both runtimes; no local frame shapes.
+
+`BridgeTelemetryWorkerContracts` separately owns telemetry bootstrap, port-bound
+sample/control unions, credit/loss/health, and drain/close acknowledgements. It
+follows the same closed rules but shares no product registry, DTO, or capability.
 
 ### R51. Forbidden edges are part of the contract.
 
@@ -953,8 +969,8 @@ high-frequency row/content patch stream, canonical result cache, demand queue,
 byte cache, retry owner, refetch owner, or protocol owner.
 
 No store snapshot may cross the worker boundary in either direction. The only
-cross-boundary values are `BridgeWorkerContracts` DTOs, scheme-RPC DTOs, and
-declared transfer fields.
+cross-boundary values are closed `BridgeWorkerContracts` DTOs, closed product
+transport variants, and declared transfer fields.
 
 Required type families:
 
@@ -969,12 +985,12 @@ Required type families:
 | `BridgeWorkerMarkdownPatch` | comm worker -> main | bounded structural patch union | semantic/attempt identity, node/depth/count bounds, sanitized inert node batch, final flag | source bytes/HTML, script/style/events/URLs, whole document graph |
 | `BridgeRenderDisposition` | main -> comm worker product DTO | bounded idempotent union | pane/worker/surface, interaction/attempt/submission id, semantic document/window, worker epoch, `queued`/`applied`/`painted`/`rejected`/`superseded`, reason | telemetry-only receipt, content body, main-owned retry decision |
 | `BridgeWorkerTransferDescriptor` | wire metadata | explicit transfer-list helper | message kind, unique field paths, byte lengths, transfer mode, detached-after-send expectation | implicit content, content clone mode, unmeasured ownership |
-| `BridgeSchemeRpcRequest` / `BridgeSchemeRpcResponse` / `BridgeSchemeStreamFrame` | comm worker <-> Swift product scheme boundary | shared browser/native product contract vocabulary | method/path/resource kind, request id, stream id, source generation, byte limits, product sequence/reset/health/error frames | telemetry samples/counters, script-message command payloads, page-relay fields, ad-hoc frame shapes |
+| `BridgeProductTransport` plus closed call/subscription/content registries | comm worker <-> Swift product scheme boundary | worker-only facade and shared browser/native contract vocabulary | constrained generic `call`/`subscribe`/`openContent`, correlated typed variants, byte limits, product sequence/reset/health/error frames | React/main imports, feature fetches, generic payloads, URL/header product identity, telemetry DTOs, ad-hoc frame shapes |
 | `BridgeWorkerRpcLifecycleStore` | main/React | non-Zustand store/helper with `useSyncExternalStore` React integration | request id, command kind, lifecycle state, timeout state, progress envelope, optimistic intent id, rollback metadata, correlated worker ack/repair references | row arrays, content windows, byte buffers, demand membership, canonical cache entries, refetch/retry authority, worker protocol truth |
 | `BridgeWorkerRpcClient` | main/React | typed `MessageChannel` client helper | request id creation, timeout policy, explicit command correlation, typed send/receive, transfer-list handoff to worker | store access, retry/backoff authority, direct Swift RPC, render-slice mutation outside patch helpers |
 | `BridgeWorkerPatchApplier` | main/React | non-Zustand helper | R46-budgeted application of `BridgeWorkerSlicePatch` values to `BridgeMainRenderSnapshotStore` subscriptions | protocol ownership, demand scheduling, unbounded synchronous full-list rebuilds |
 | `BridgeWorkerTransferListBuilder` | main and worker | shared helper | declared transfer fields, byte counts, detachment assertions | implicit buffers, content clones, retained main source refs |
-| `BridgeCommWorkerCommandHandler` | comm worker | worker-local helper around Zustand store | validate typed commands, update `BridgeCommWorkerStoreState`, enqueue fetch/demand work, publish typed replies/events | DOM/Pierre direct initiator behavior, React state mutation |
+| `BridgeCommWorkerCommandHandler` | comm worker | worker-local helper around Zustand store and `BridgeProductTransport` | validate typed commands, update `BridgeCommWorkerStoreState`, enqueue demand/content work, publish typed replies/events | direct product fetch/routes, DOM/Pierre direct initiator behavior, React state mutation |
 | `BridgePaneCommWorkerSession` | pane composition root plus worker port | one lifecycle/port coordinator | one active worker instance id, pane session, surface clients, bootstrap/install/reset/restart/dispose, telemetry-port replacement | product protocol/cache/demand truth, per-feature worker creation, main-minted worker epoch |
 | `BridgeTelemetryWorkerContracts` | main/comm producer ports and telemetry worker | separate typed wire unions | compact samples, producer credit/sequence, loss summaries, worker health, drain/close | product commands/content/cache/demand/health DTOs, producer-selected endpoint/session/batch sequence |
 | `BridgeTelemetryBatchRequest` / `BridgeTelemetryBatchResponse` | telemetry worker <-> Swift telemetry scheme boundary | separate browser/native telemetry contract vocabulary | native-minted telemetry session, batch sequence, scrubbed bounded samples, exact loss summaries, admission response | product command/content/stream/cache/demand DTOs, producer-selected endpoint/session, raw paths/content |
@@ -1214,10 +1230,10 @@ selector fan-out, or synchronous source reset that delays selected work beyond
 the R32-R40 foreground/visible queue budgets is a contract violation even though
 it no longer blocks the main thread.
 
-### R59. Scheme RPC and worker DTOs are an explicit trust boundary.
+### R59. Product transport and worker DTOs are an explicit trust boundary.
 
 The comm worker is not a trusted native peer merely because it runs in this app.
-Every scheme-RPC request, streamed frame, and main/worker DTO is validated at the
+Every product POST, streamed frame, and main/worker DTO is validated at the
 boundary that receives it.
 
 Required trust rules:
@@ -1225,16 +1241,22 @@ Required trust rules:
 - native mints separate per-worker-lifetime product and per-telemetry-session
   capabilities, binds them to pane/page/instance, transfers bootstrap bytes, and
   rotates/revokes them on replacement/reload/disposal; assets are capability-free;
-- every privileged product request presents the product capability outside the
-  URL and native validates pane/session binding before body read/decode;
+- the sole privileged header is the opaque product capability; no product
+  payload/envelope/identity/cursor/descriptor/length is in headers or URL.
+  Native authenticates before body access, decode, lease, or provider work;
+- every product request is a typed POST body. Worker rejects encoded bodies over
+  64 KiB before `fetch`; native counts actual `httpBody`, or at most cap + 1
+  `httpBodyStream` bytes, before decode/mutation and never trusts/requires
+  synthesized `Content-Length`;
+- WebKit may materialize that small body before the scheme handler sees it, so
+  native admission starts at body access. Large worker -> Swift uploads are out
+  of scope;
 - worker global scope accepts exactly one typed install-port bootstrap; ordinary
   commands arrive only on the installed port;
-- requests carry pane session, surface, source generation or worker epoch as
-  appropriate, stream/request id, and replay/staleness token;
-- stale, replayed, foreign-session, or wrong-epoch frames are rejected before
-  state mutation;
-- methods, paths, resource kinds, command names, string lengths, array counts,
-  and frame kinds are bounded/allowlisted before expensive validation;
+- requests carry pane/surface/source/epoch, stream/request, and replay identity;
+  stale/replayed/foreign/wrong-epoch frames are rejected before mutation;
+- routes, call/subscription/content kinds, strings, arrays, and frames are
+  bounded/allowlisted before expensive validation;
 - streamed frames are length-delimited and versioned; declared length is capped
   before allocation/decode; native producer queues are bounded and overflow
   produces reset-required rather than silent loss;
@@ -1252,22 +1274,22 @@ Required trust rules:
   Import/lint boundaries forbid raw content `postMessage`; receivers cannot
   claim to observe remote detachment;
 - browser-supplied display paths never become filesystem authority; content
-  fetch remains descriptor/lease based and pane/session/generation bound;
+  opens remain descriptor/lease based and pane/session/generation bound;
 - repository markdown, filenames, code, and worker-rendered output are untrusted
   display input; markdown keeps raw HTML disabled and is main-sanitized with
   scripts, network-capable/interactive elements, event attributes, SVG/MathML,
   unsafe CSS, and external fetches forbidden, with input/output/node/depth caps;
-- hostile worker and hostile server tests cover forged ids, stale epochs,
-  oversized bodies, unknown methods, malformed transfer descriptors, and
-  duplicate/reordered stream frames.
+- hostile seams cover forged ids/epochs, body caps/streams, absent or misleading
+  `Content-Length`, strict variants/fields, transfer descriptors, and reordered
+  or duplicate metadata/content frames.
 
 Typed diagnostics/programmatic controls are method-allowlisted, bounded, and
 limited to the same local selection/reveal/search/filter/scroll/probe intent
 surface as user actions. They cannot carry product content/intake/push or return
 session capabilities. Content-world/script-message RPC is not a fallback for
-these rules. If privileged scheme requests cannot be session-bound before
-decode, stream cancellation cannot bound native production, or any unbounded
-payload must allocate/decode before its cap, the design is blocked.
+these rules. If privileged scheme requests cannot be session-bound before body
+access/decode, content cancellation cannot bound native production, or an
+unbounded payload must decode before its cap, the design is blocked.
 
 ### R60. Worker content preparation is budgeted and preemptible.
 
@@ -1346,7 +1368,7 @@ user click / key / hover / scroll
         canonical demand/cache/protocol update
         WorkerContentPreparationPump for fetch/decode/window/rank prep
         │
-        ├─► scheme-RPC fetch/subscribe to Swift when needed
+        ├─► BridgeProductTransport call/subscribe/openContent when needed
         ├─► compact measurement sample to telemetry-worker port
         │
         └─► BridgeWorkerServerToMainMessage
@@ -1547,54 +1569,61 @@ appears.
 
 ### R64. Swift product requests and streams are framed, capable, and cancellable.
 
-The comm worker alone uses `POST agentstudio://rpc/command`, long-lived
-`POST agentstudio://rpc/stream`, and leased `GET agentstudio://resource/...`.
-Every privileged request carries a 256-bit opaque
-`X-AgentStudio-Bridge-Product-Capability`; native validates pane/page binding
-before body read, decode, allocation, lease resolution, or provider mutation.
-It is native-minted and bound to exactly one authorized `workerInstanceId`;
-minting a replacement atomically revokes the old worker streams/leases. Bootstrap
-transfers its 32-byte buffer to the worker and detaches main. It never appears in
-URL/DOM/global/log/telemetry/error/response; reload/disposal revokes it. Static
-assets and `OPTIONS` are capability-free.
+The comm worker alone uses three fixed product routes:
 
-Every request carries wire version, native `paneSessionId`, per-lifetime
-`workerInstanceId`, worker `requestId`, and contiguous worker request sequence
-from 1. The closed request union is `workerSession.open`, `product.command`,
-`stream.open`, `stream.cancel`, and `workerSession.resync`; variants carry
-surface, source generation, worker epoch, stream id/source ref/resume point as
-applicable. The closed one-shot response union is `workerSession.accepted`,
-`command.accepted`, `stream.cancelled`, and typed `request.error` with safe code,
-retryability/delay, and next expected sequence when applicable.
-Exact retry reuses id, sequence, and encoded bytes; native returns the cached
-response. Same sequence/different digest is fatal conflict; a gap returns
-`resync_required` without mutation.
+| Route | Request | Response |
+| --- | --- | --- |
+| `POST agentstudio://rpc/command` | one closed call/session/subscription control body | one closed correlated result/ack/error body |
+| `POST agentstudio://rpc/stream` | one pane metadata-stream open/resume body | one continuous length-prefixed typed metadata response |
+| `POST agentstudio://rpc/content` | one demanded descriptor/window/role body | one independently cancellable typed binary content response |
 
-One worker-owned `BridgeProductControlMux` assigns that sequence and permits one
-unacknowledged control admission. Command completes admission at its response;
-stream open at `stream.accepted` sequence 0; cancel/resync at their response.
-Admitted long streams then run concurrently across Review/File. Leased resource
-GETs carry worker capability + lease + resource request id, NOT the control
-sequence, and may run concurrently. Native scheme tasks therefore cannot create
-a valid control gap, and an unaccepted/stale worker cannot mint its own lifetime.
+Every route follows R59's actual-body 64 KiB admission. The sole privileged
+header is the 256-bit opaque `X-AgentStudio-Bridge-Product-Capability`; product
+identity/length stays in bodies/frames. It binds pane/page/worker; replacement
+revokes old subscriptions/content/leases. Bootstrap transfers its 32 bytes into
+the worker and detaches main. It never appears in URL/DOM/log/telemetry/error/
+response. Static assets and `OPTIONS` remain capability-free.
 
-Stream frames are four-byte unsigned big-endian encoded length followed by
-exactly that many UTF-8 JSON bytes. The closed union is `stream.accepted`,
-`stream.data`, `stream.reset`, `stream.end`, or `stream.error`; every frame has
-wire/pane/worker/surface/stream/source/epoch identity and Swift-owned contiguous
-stream sequence. Accepted is sequence 0; reset/end/error are terminal; no frame
-follows. Zero/oversize length, invalid UTF-8/version/shape/bounds, gap,
-conflicting duplicate, or stale identity terminates admission and reopens.
+The command union is `workerSession.open`, `product.call`, `subscription.open`,
+`subscription.update`, `subscription.cancel`, or `workerSession.resync`; every
+variant adds only registry-derived typed data to wire/pane/worker/request identity
+and a contiguous control sequence. Responses are `workerSession.accepted`, `call.completed`, `subscription.controlAccepted`, `resync.accepted`, or typed `request.error`. Exact retry reuses id/sequence/bytes;
+digest conflict is fatal and gaps require resync. `BridgeProductControlMux`
+permits one unacknowledged admission.
 
-Native queues have policy-owned frame/encoded-byte caps and reserve one terminal
-control frame. Overflow emits next-sequence reset `producer_overflow`, never
-silent loss. Explicit cancel completes only after Swift stops/unregisters
-production and returns `stream.cancelled`; fetch/page/worker disposal aborts the
-URL-scheme task and native producer. Replacement worker acceptance cancels old
-streams and leases. Resume uses only a retained contiguous suffix; otherwise
-accepted says `snapshot_required`. A shared versioned TypeScript/Swift hostile
-corpus covers capabilities, pre-decode caps, replay/gaps, split UTF-8/lengths,
-overflow, cancel, replay/snapshot, restart/stale worker, and scrubbed errors.
+One `metadataStream.open` establishes the pane stream. Each frame is u32be length
+plus strict UTF-8 JSON and is `metadataStream.accepted`, `subscription.accepted`, `subscription.data`, `subscription.reset`, `subscription.end`,
+`subscription.cancelled`, `content.cancelled`, or `metadataStream.error`. All carry wire/pane/worker/
+stream plus one Swift physical sequence; subscription frames add typed kind/id,
+surface/source/epoch, and cursor/revision. `content.cancelled` adds content kind, request/lease, descriptor/window/role identity, and `stopped | already_terminal`
+disposition; it emits only after zero producer residue. Subscription cancel stops
+only that producer and acks here; reconnect resumes a contiguous suffix or snapshot.
+
+Each `openContent()` concurrently POSTs a typed content kind, descriptor, lease, `contentRequestId`, requested window/role coordinates, declared exact length or `null`, authoritative expected SHA-256 or `null`, and mandatory maximum bytes;
+it does not consume the control sequence. Binary response framing is:
+
+```text
+u32be frameByteLength | u8 frameTag | u32be frameHeaderByteLength
+strict typed UTF-8 JSON frameHeader | raw payload bytes for content.data only
+```
+
+`frameByteLength` counts every byte after its own four-byte prefix;
+`frameHeaderByteLength` counts only the JSON frame header, so data payload length is derived without decoding. Tags are fixed: `0x01 content.accepted`, `0x02
+content.data`, `0x03 content.end`, `0x04 content.error`, and `0x05 content.reset`.
+Every header carries a content sequence: accepted is zero and later frames are contiguous positive values. End/error/reset are terminal. Accepted declares
+kind, coordinates, maximum, declared length, and expected digest. Data declares offset/raw length; bytes are never base64/JSON. End declares observed total and
+SHA-256, verifies any authoritative expectation, and lets the worker derive
+semantic identity before cache admission. Frame caps
+precede allocation; invalid length/header/offset/sequence/checksum/duplicate/
+identity or any post-terminal frame terminates without mutation.
+
+Native queues have frame/byte caps and terminal reserve; overflow resets. An
+AbortSignal closes only its content response; native stops/unregisters that
+producer before emitting the correlated `content.cancelled` lifecycle frame on the pane metadata stream. The worker settles cancellation only after local fetch
+abort and that frame. Disposal/replacement awaits the same zero-residue barrier;
+no post-terminal frame or residual producer/lease is allowed. The shared TS/Swift corpus covers admission without
+`Content-Length`, strict unions, replay/gaps, split frames, overflow/cancel/
+resume/restart, checksums, stale workers, and scrubbed errors.
 
 ### R65. File View byte, encoding, line, and truncation semantics are canonical.
 
@@ -1676,7 +1705,7 @@ Boundary notation:
 
 ```text
 main/FE -> comm worker       pane MessageChannel product boundary
-comm worker -> Swift         typed product POST/stream/resource boundary
+comm worker -> Swift         typed product call/metadata/content POST boundary
 Swift -> comm worker         streamed push/content/response boundary
 comm worker -> main/FE       typed slice/job publication boundary
 main/FE -> comm worker       typed render-disposition boundary
@@ -1836,7 +1865,7 @@ product paths never flush, await, batch, encode, retry, or fetch telemetry
 
 What stays:
 
-- `WKURLSchemeHandler` content path;
+- `WKURLSchemeHandler` as the shared POST product-stream adapter;
 - `BridgeContentDemandAdmission` as a Swift/native serving-side pacing valve;
 - native metadata plane: interest stream, metadata lane scheduler, manifest
   index, provider/source authority;
@@ -1873,6 +1902,8 @@ What dies:
 - Review first-window-as-complete behavior and File View payload-line padding;
 - Pierre native-content fetch capability and receipt-only couriers;
 - handler-splitting as a claim of WebKit IPC isolation.
+- feature-specific product fetch helpers, resource URLs/GETs, route constants,
+  and recursive JSON payload bags outside `BridgeProductTransport`;
 
 Compile-enforced deletion sets are required per cutover unit:
 
@@ -1883,7 +1914,7 @@ Compile-enforced deletion sets are required per cutover unit:
 | Review content protocol | package body loading, root selection semantics, prefetch/cache truth, prefix completion | worker continuation plus display slices | state tests + full-window browser/native oracle |
 | React Bridge data stores | main Review/File Zustand imports/mutations | RPC lifecycle, render snapshot, worker Zustand | import/architecture lint + subscription proof |
 | telemetry transport | page/pre-React/comm pipeline/fetch/flush/retry | producer ports, telemetry worker/endpoint | disjoint-schema scan + loss/failure/native tests |
-| browser/native product carrier | script-message RPC, product `callJavaScript`/DOM/page relays/router | bootstrap/assets/typed controls and worker POST/stream/resource | structural scan + packaged trace |
+| browser/native product carrier | script-message RPC, product `callJavaScript`/DOM/page relays/router, feature fetch/resource GET | bootstrap/assets/typed controls and worker-only call/metadata/content POST transport | structural scan + packaged trace |
 | render fulfillment | semantic ready rejection, silent drops, stale placeholders | structural apply, semantic identity, R63 dispositions/barrier | state-machine tests + repeated live clicks |
 | Pierre courier | receipt-only/direct payload/main reconstruction/private traffic | one released transferred `submitWindow` courier | public types + detachment/memory/anchor proof |
 | demand membership | staging caps/eviction/parked retry | reconciler membership and executor pacing | compile deletion + hostile demand proof |
