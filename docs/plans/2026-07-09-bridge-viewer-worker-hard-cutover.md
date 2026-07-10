@@ -6,7 +6,7 @@ Goal id: `2026-07-09-bridge-click-fileview-workers`
 Agent Studio implementation base: `ea7ce82a19fb6b600856a16fbe02866e131cecb6`
 Accepted spec: `docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md`
 Accepted spec SHA-256:
-`666ebe6ba0bd3f239462acb9ca9c4f89638f24df1886855eb392c1d275e90f8c`
+`e6811d761a1c785b72c8f4290003de205a478c5df9b776ea6db734522e728d91`
 Pierre source: `/Users/shravansunder/Documents/dev/open-source/libs-react/pierre`
 Pierre planning base: `origin/main` at
 `4f94a5e765195b27e1e4188b943aab2ae44613cb`

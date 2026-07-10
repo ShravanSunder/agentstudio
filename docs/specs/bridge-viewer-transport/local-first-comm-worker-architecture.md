@@ -1586,8 +1586,9 @@ Every route follows R59's actual-body 256 KiB admission. The authenticated pane 
 No product identity/length appears in URL or headers, and the capability never appears in body/response/DOM/log/telemetry/error. Static assets and `OPTIONS` remain capability-free. This not-yet-installed wire has no v1 decoder, fallback, compatibility branch, global `workerEpoch`, or dual path.
 
 The command union is `workerSession.open`, `product.call`, `subscription.open`, `subscription.updateBatch`, `subscription.cancel`, or
-`workerSession.resync`. Open carries fixed source configuration only and establishes revision zero with the kind-specific canonical empty-interest hash.
-Mutable interests/path scope move only through nonempty typed delta batches carrying update id, subscription kind/id, base revision/hash, target
+`workerSession.resync`. `workerSession.open` carries literal `request: null` and establishes only the authenticated pane/worker lifetime. Each typed
+`subscription.open` carries its kind-specific fixed source configuration, where applicable, and establishes revision zero with the kind-specific canonical
+empty-interest hash. Mutable interests/path scope move only through nonempty typed delta batches carrying update id, subscription kind/id, base revision/hash, target
 revision/hash, batch index/count, total delta count, and the kind-specific delta. Target revision is exactly base + 1. Delta adds are idempotent upserts,
 including lane changes; removes delete membership.
 
