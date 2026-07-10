@@ -52,7 +52,7 @@ W1a does not invent a temporary repair owner and does not yet switch the Darwin 
 
 ### W1b — Dormant real callback adapter after W2a
 
-Depends on W2a's real `FilesystemObservationMailbox`, `FilesystemSourceGate`, and exact repair slot. Modify:
+Depends on W2a's real `FilesystemObservationMailbox`, `FilesystemSourceGate`, and exact per-registration repair slots. Modify:
 
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FSEventStreamClient.swift`
   - Replace `FSEventBatch` as the callback contract with `FSEventObservation`.
@@ -63,7 +63,10 @@ Depends on W2a's real `FilesystemObservationMailbox`, `FilesystemSourceGate`, an
   - Bound count and copied UTF-8 bytes before materializing the complete Swift path array.
   - Acquire a callback lease before touching registration state.
   - Classify flags and install repair debt in the W2a gate synchronously before returning when capture is incomplete.
-  - Teardown sequence: mark closing, stop/invalidate stream, execute callback-queue barrier, drain leases, release context.
+  - Teardown sequence: mark closing, seal the old mailbox generation,
+    stop/invalidate stream, execute callback-queue barrier, drain callback
+    leases, transfer/disposition exact repair debt into `FilesystemSourceGate`,
+    invalidate the old mailbox generation, then release context.
 
 Do not call an actor, schedule one task per path, access MainActor state, scan, canonicalize every path, or clear repair state in the callback.
 
@@ -80,7 +83,11 @@ Create/modify:
 
 Boundary/seam: C callback capture and registration close.
 
-Invariants: bounded capture; all discontinuity flags survive; N never becomes N+1; closing rejects late callback; userdata remains alive until lease drain.
+Invariants: bounded capture; all discontinuity flags survive; N never becomes
+N+1; closing rejects callbacks without a valid lease; a leased callback either
+enters the sealed old generation or installs conservative old-generation debt;
+userdata and the declared key remain alive until callback lease drain and
+repair-authority transfer.
 
 Illegal-state/guards: exhaustive flag disposition, explicit open/closing/closed state, item/byte cap before allocation, generation match on lease.
 
@@ -88,7 +95,14 @@ Valid/invalid IO: ordinary create/rename/delete, must-scan, user/kernel drop, wr
 
 Independent oracle: literal flag/observation table and control-block counters, not production classification.
 
-RED/GREEN: required. RED must demonstrate lost flag/ID/truncation or unbounded copied records in the current seam. GREEN includes a real temporary Darwin stream lifecycle integration in which an oversized/discontinuous callback installs debt in the actual W2a source gate before returning; the fake client remains unit proof. A structural pre-W2b test proves production callback/source composition is still wholly legacy.
+RED/GREEN: required. RED must demonstrate lost flag/ID/truncation or unbounded
+copied records in the current seam. GREEN includes a real temporary Darwin
+stream lifecycle integration in which an oversized/discontinuous callback
+installs debt in the actual W2a source gate before returning; a deterministic
+replacement race acquires an old callback lease, seals/replaces the registration,
+installs loss, crosses the callback barrier, and proves debt survives transfer
+without becoming N+1. The fake client remains unit proof. A structural pre-W2b
+test proves production callback/source composition is still wholly legacy.
 
 Split/replan trigger: queue barrier plus leases cannot establish teardown quiescence on the supported Darwin callback model.
 
@@ -104,7 +118,12 @@ Add:
   - Domain wrapper over `CoalescingMailbox`.
   - Key by source/registration generation.
   - Merge bounded path hints/flags/watermarks.
-  - Keep repair debt in the exact non-evictable repair slot.
+  - Keep repair debt in the exact non-evictable typed repair slot for each
+    declared registration key; reject unknown keys without trapping and let the
+    source gate resolve stale/replacement races.
+  - Lease, rather than destructively remove, captured repair state until the
+    source gate acknowledges transfer of the same repair revision. A newer
+    repair join survives an older drain acknowledgement.
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemSourceGate.swift`
   - Exact states: `healthy`, `dirty`, `reconciling`, `reconcilingAndDirty`, `awaitingAcknowledgements`, `repairFailed`, `shuttingDown`.
   - Own `RepairGeneration`, current registration, scan state, and acknowledgement set.

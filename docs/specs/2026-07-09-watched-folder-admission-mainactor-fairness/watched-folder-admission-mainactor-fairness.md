@@ -618,9 +618,25 @@ One accumulator stores:
 
 Ordinary path pressure deduplicates paths. Crossing the calibrated key/item/byte
 limit clears replaceable exact-path detail, retains a bounded dirty-subtree or
-dirty-root hint, and atomically installs `RepairGeneration`. Discontinuity/
-repair state uses separate non-replaceable storage and cannot be evicted by
-paths. There is at most one drain wake for the filesystem owner.
+dirty-root hint, and atomically installs or joins `RepairGeneration` in the
+exact repair slot for that declared registration key. Discontinuity/repair
+state uses separate non-replaceable per-registration storage and cannot be
+evicted by paths. The current registered-key set bounds repair-slot cardinality;
+an unknown key is rejected without trapping and cannot be reported handled.
+Every callback that acquired a valid registration lease remains declared in its
+sealed mailbox generation through stream stop/invalidation, callback-queue
+barrier, lease drain, and atomic repair transfer/disposition into
+`FilesystemSourceGate`. Only then may that old key/mailbox generation be
+invalidated. A late callback without a valid lease is rejected by the control
+block; a leased callback that detects loss must either enter the old mailbox or
+synchronously install conservative old-generation debt in the source gate.
+
+Topology replacement creates a fresh mailbox generation and seals the old one;
+the source gate serializes drains from current and sealed generations behind one
+filesystem-owner wake. Old repair debt is transferred or explicitly joined into
+the replacement recovery obligation before old-generation invalidation, and is
+never relabeled as new-generation evidence. There is at most one drain owner
+wake even while sealed and current generations coexist.
 
 #### Source configuration boundary
 

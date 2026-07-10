@@ -103,9 +103,23 @@ Owned write scope:
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Admission/**` (new)
 - `Tests/AgentStudioTests/Core/PaneRuntime/Admission/**` (new)
 
-Implement the normative `AdmissionGeneration`, `AdmissionReceipt`, `AdmissionDiagnostics`, `LatestValueMailbox`, `CoalescingMailbox`, and `OrderedFactJournal` interfaces. Domain policy does not enter this module.
+Implement the normative `AdmissionGeneration`, domain-free `AdmissionReceipt`,
+typed `CoalescingOfferReceipt<Repair>`, `AdmissionWakeDirective`, base and
+generation/mailbox-bound drain token/disposition/acknowledgement results, base
+and primitive-specific diagnostics, `LatestValueMailbox`, `CoalescingMailbox`,
+and the typed offer/replay/gap results for `OrderedFactJournal`. Domain policy
+does not enter this module.
 
-Checkpoint: deterministic state-machine tests prove generation isolation, one pending wake, bounded keys/items/bytes, repair-slot non-eviction, exact fact sequencing/gap semantics, seal/invalidate, and diagnostics.
+Checkpoint: deterministic state-machine tests prove fixed-generation isolation,
+explicit undeclared-key rejection, one pending wake plus one
+acknowledgement-released follow-up wake, bounded keys/items/bytes, one exact
+non-evictable typed repair slot per declared key, exact fact sequencing,
+persistent product-gap versus query-local replay-gap semantics, graceful seal,
+immediate invalidation only after authority transfer, lease-not-destructive
+drain semantics, stale/double/foreign token rejection, persistent-gap widening
+for later exact offers, and current/high-water hint/repair/drain diagnostics.
+Literal state tables also prove persistent product-gap precedence over
+query-local history gaps and matching latest-token recovery.
 
 ### Shared lane S2 — Runtime fact contracts and bus
 

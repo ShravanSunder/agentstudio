@@ -137,6 +137,10 @@ atomic, storage, and wake primitive is implementation detail only when the
 observable state machine below is preserved.
 
 ```swift
+struct PressureStreamID: Hashable, Sendable {
+    let rawValue: String
+}
+
 struct AdmissionGeneration: Hashable, Sendable {
     let owner: PressureStreamID
     let value: UInt64
@@ -147,8 +151,36 @@ enum AdmissionReceipt: Sendable, Equatable {
     case replacedPrevious
     case merged
     case staleGeneration
+    case undeclaredKey
     case closed
-    case repairRequired(RepairGeneration)
+}
+
+enum CoalescingOfferReceipt<Repair: Sendable>: Sendable {
+    case admission(AdmissionReceipt)
+    case repairRequired(Repair)
+}
+
+enum AdmissionWakeDirective: Sendable, Equatable {
+    case none
+    case scheduleDrain
+}
+
+struct AdmissionDrainToken: Hashable, Sendable {
+    let generation: AdmissionGeneration
+    private let mailboxIdentity: UInt64
+    private let leaseSequence: UInt64
+}
+
+enum AdmissionDrainDisposition: Sendable, Equatable {
+    case transferred
+    case retry
+}
+
+enum AdmissionDrainAcknowledgement: Sendable, Equatable {
+    case accepted(wake: AdmissionWakeDirective)
+    case staleGeneration
+    case invalidToken
+    case closed
 }
 
 struct AdmissionDiagnostics: Sendable, Equatable {
@@ -156,21 +188,76 @@ struct AdmissionDiagnostics: Sendable, Equatable {
     let admitted: UInt64
     let contracted: UInt64
     let rejectedStale: UInt64
+    let rejectedUndeclared: UInt64
     let repairEscalations: UInt64
+    let pendingKeyCount: Int
     let pendingKeyHighWater: Int
     let oldestPendingAge: Duration?
 }
+
+struct CoalescingAdmissionDiagnostics: Sendable, Equatable {
+    let admission: AdmissionDiagnostics
+    let pendingItemCount: Int
+    let pendingByteCount: Int
+    let pendingItemHighWater: Int
+    let pendingByteHighWater: Int
+    let repairSlotCount: Int
+    let repairSlotHighWater: Int
+    let oldestRepairAge: Duration?
+    let outstandingDrainCount: Int
+}
 ```
 
+`PressureStreamID` values are bounded, content-free domain constants. User
+input, paths, pane/surface/root identifiers, terminal content, and payload
+values cannot construct telemetry-facing stream dimensions.
+
 `LatestValueMailbox<Key, Value>` has one bounded current-generation slot per
-declared key, a synchronous nonblocking `offer`, at most one pending consumer
-wake, generation-consistent `takeDrain`, `seal`, `invalidate`, and diagnostics.
-Replacement is its declared semantics and is counted.
+declared key, a synchronous nonblocking `offer` that returns its receipt and
+wake directive, at most one pending consumer wake, generation-consistent
+`takeDrain`, acknowledgement, `seal`, `invalidate`, and diagnostics. Replacement
+is its declared semantics and is counted. An undeclared key is rejected; a
+dynamic callback race cannot become a precondition failure.
 
 `CoalescingMailbox<Key, Accumulator, Repair>` has a domain-owned associative
 merge algebra, bounded key/item/byte limits, one pending consumer wake, and a
-separate exact repair slot. Ordinary overflow clears or reduces replaceable
-hints and atomically upgrades the repair slot; it cannot replace repair debt.
+separate exact typed repair slot per declared key. Ordinary overflow clears or
+reduces replaceable hints for the affected key and atomically joins every
+cleared hint's domain-supplied fallback into that repair slot; it cannot replace
+or weaken repair debt. `CoalescingOfferReceipt<Repair>` keeps this payload typed
+without importing a filesystem, terminal, or other domain repair type into the
+shared module. Declared-key cardinality bounds exact repair-slot cardinality.
+
+`takeDrain` creates one generation-bearing lease over the captured hint and
+repair revisions; it does not destructively remove exact repair state. The
+acknowledgement disposition is `transferred` or `retry`. `transferred` means the
+domain owner synchronously accepted the captured repair obligation into its
+authoritative state, not that domain recovery completed. It clears only the
+exact captured revisions; a newer merge/escalation survives and produces the
+single follow-up wake. `retry`, cancellation without acknowledgement, and a
+stale/double/foreign token cannot clear repair. Acknowledgement atomically
+returns the follow-up `AdmissionWakeDirective`. The domain gate—not the generic
+mailbox—owns scan/rebuild completion and participant acknowledgement.
+
+The wake/lease state machine is normative:
+
+| State | Operation | Next state and result |
+| --- | --- | --- |
+| `idle` | first accepted offer | `wakePending`; exactly one `scheduleDrain` |
+| `wakePending` | additional offer | remains `wakePending`; `.none` |
+| `wakePending` | `takeDrain` | `draining(token)`; pending wake is consumed |
+| `draining(token)` | additional offer | `drainingAndDirty(token)`; `.none` |
+| `draining*` | matching `acknowledge(transferred/retry)` | atomically commit/requeue; if retained work remains, `wakePending` plus exactly one `scheduleDrain`, otherwise `idle`/drained-sealed plus `.none` |
+| any | stale, duplicate, or foreign acknowledgement | no mutation; typed rejection |
+| open state | `seal` | reject new offers; retain and drain accepted work |
+| any non-invalidated state | `invalidate` | discard generic state, revoke token, terminally reject; domain transfer precondition applies |
+
+`AdmissionDiagnostics` reports current pending-key depth as well as high-water;
+coalescing diagnostics additionally report current and high-water item/byte
+pressure, current/high-water repair-slot count, oldest repair age, and whether a
+drain transfer remains outstanding. A stream is not quiescent while a repair
+slot or drain lease remains. Diagnostic snapshots never contain keys or
+payloads.
 
 `OrderedFactJournal<Fact, Snapshot>` synchronously validates generation,
 assigns a monotonic per-stream sequence, and commits either the fact/current
@@ -179,15 +266,64 @@ fits the declared history is never silently evicted before its required product
 owner commits. When bounded retention is impossible, the journal commits a
 non-evictable range-bearing gap, marks the stream non-current, and makes waits
 and replay fail or resynchronize from the named snapshot. It never pretends the
-missing occurrence was delivered.
+missing occurrence was delivered. `FactGap` is shared sequence-range and opaque
+gap-token mechanics, not a domain `RepairGeneration`; the domain fact owner maps
+the gap to its authoritative recovery policy.
+
+Ordinary eviction of already-acknowledged bounded replay history does not mark a
+healthy stream globally non-current. A request older than retained acknowledged
+history receives an explicit query-local `ReplayHistoryGap`, or a typed current
+snapshot resynchronization when the caller requested and the snapshot covers
+that cursor. Only inability to retain unacknowledged or leased exact facts
+commits the persistent `FactGap`. Delivery acknowledgement never clears that
+gap; only matching current-generation authoritative resynchronization carrying
+the gap token and a snapshot through the gap's upper sequence may clear it.
+While a persistent gap exists, every subsequent offered exact fact is assigned
+the next sequence and atomically widens the gap before the offer reports
+accepted-as-gap; its payload is not retained as if delivered. Widening advances
+the opaque gap token, so recovery for an older range is stale. A domain without
+an authoritative snapshot/rebuild capable of covering the latest upper
+sequence remains explicitly non-current; it cannot acknowledge occurrence loss
+away.
+
+The journal exposes distinct typed offer/replay results. An admitted offer
+returns its sequence and wake directive; an overflow offer returns
+`gapCommitted(FactGap, wake:)`, never ordinary admission. A replay result is one
+of exact retained facts, current-snapshot resynchronization, persistent product
+gap, query-local replay-history gap, invalid cursor, stale generation, or
+invalidated. Persistent product currentness has precedence over cursor history:
+
+| Journal state | Replay request | Result |
+| --- | --- | --- |
+| current; cursor retained | any supported recovery mode | exact facts |
+| current; acknowledged cursor evicted; covering current snapshot requested | state resynchronization | snapshot plus following retained facts |
+| current; acknowledged cursor evicted; exact occurrence requested or no covering snapshot | any | `ReplayHistoryGap` |
+| persistent `FactGap` | any cursor or recovery mode | persistent `FactGap`; optional snapshot may be offered only as a recovery candidate |
+| persistent `FactGap` plus later offer | offer | widen range/token synchronously; return `gapCommitted` |
+| persistent `FactGap` plus stale token/range recovery | resynchronize | typed stale/mismatch; gap unchanged |
+| persistent `FactGap` plus matching latest token, generation, upper sequence, and authoritative bounded snapshot/rebuild | resynchronize | current at the supplied sequence; later sequence allocation continues monotonically |
+
+The journal retains pending/leased facts until one required product drain owner
+acknowledges transfer into the downstream fact owner. Multiple subscriber
+acknowledgements are downstream transport policy and do not enlarge the generic
+journal. A journal drain acknowledgement is therefore mechanical transfer, not
+proof that every eventual subscriber consumed the fact.
 
 All three families:
 
-- key storage by `AdmissionGeneration`; generation N cannot merge into N+1;
+- bind each mailbox/journal instance to one `AdmissionGeneration`; generation N
+  cannot merge into N+1, and rotation creates a fresh instance;
 - expose `offer`, `takeDrain`, drain acknowledgement, `seal`, `invalidate`, and
   `diagnostics` with the semantics above;
-- schedule at most one drain wake per owner/key domain rather than one task per
-  offered sample;
+- return at most one `scheduleDrain` directive before a take; offers during a
+  drain produce at most one follow-up directive after acknowledgement, and the
+  primitive never creates a task or invokes domain code while holding state;
+- define `seal` as graceful terminal admission closure that drains accepted
+  work, and `invalidate` as immediate terminal revocation that discards pending
+  work and makes outstanding tokens stale;
+- require a domain wrapper to transfer any authoritative repair/fact-gap debt
+  before invalidation; generic invalidation cannot be the last owner of
+  correctness debt;
 - keep diagnostic-record loss separate from product repair/fact gaps;
 - have domain-specific wrappers that fix key, merge, repair, and callback-return
   policy at compile time.
