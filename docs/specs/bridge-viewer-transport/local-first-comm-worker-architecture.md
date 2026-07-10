@@ -1,31 +1,36 @@
 # Local-First Comm Worker Architecture
 
-Date: 2026-07-04
-Status: normative increment after
-[performance-demand-lanes.md](performance-demand-lanes.md) R32-R40 and its
-Constants Annex
+Date: 2026-07-09
+Status: accepted; plan-ready. Implementation and proof are not complete.
+Extends [performance-demand-lanes.md](performance-demand-lanes.md) R32-R40 and
+its Constants Annex. It supersedes only the clauses named under Explicit
+Supersessions below.
 Parent: [performance-demand-lanes.md](performance-demand-lanes.md)
 
-This file defines the next BridgeViewer transport boundary. It does not define
-implementation order. The boundary is a hard cutover contract: one converted
-viewer/protocol surface has one path, one ownership model, and one proof set.
+This file defines the BridgeViewer product, transport, worker-ownership, and
+performance boundary. It does not define implementation order. The boundary is
+a hard cutover contract: Review and File View each have one product path, one
+ownership model, and one proof set inside one pane-owned comm-worker session.
 
 R32-R40 say the browser owns content-demand initiative. This increment splits
 that browser ownership: the FE render surface owns only local render slices;
 the comm worker owns protocol truth, demand truth, cache truth, retries,
-telemetry batching, and Swift synchronization.
+health, continuation, and Swift synchronization. When telemetry is enabled, a
+separate telemetry worker owns the observability pipeline so telemetry cannot
+consume the main or comm-worker interactive event loop.
 
 ## Evidence Anchors
 
-- Phase-2 causal map: click stall, root-snapshot floor, synchronous File View
-  apply/prune work, backoff-less re-demand, and dormant R32 production wiring
-  (`tmp/debug-workflows/2026-07-04-agent-studio-luna338-scroll-placeholder-survivor/debug-investigation.md:156`).
-- WebKit transport facts from the same research lane: named script handlers
-  share one IPC queue; handler-splitting does not isolate traffic; delivery is
-  `kCFRunLoopDefaultMode`-bound and gesture starvation remains empirical-confirm
-  required; workers can fetch `WKURLSchemeHandler` schemes; telemetry belongs
-  on a dedicated scheme endpoint
-  (`tmp/debug-workflows/2026-07-04-agent-studio-luna338-scroll-placeholder-survivor/debug-investigation.md:193`).
+AgentStudio source and committed documents in this section are pinned to
+`f19929798a43ea1e0f9d8e75b239f6020299b945`. Pierre `origin/main` evidence is
+pinned to fetched commit `4f94a5e765195b27e1e4188b943aab2ae44613cb`;
+released-baseline evidence is pinned to tag `diffs-v1.2.12` at
+`9466c467ae6fc03501b6bca74c12f717d70293a7`. A mutable checkout or ignored
+`tmp/` artifact cannot satisfy a durable evidence claim.
+
+- The committed causal and transport reviews identify the click/root-snapshot
+  floor, synchronous File View work, shared WebKit delivery tail, and required
+  native proof (`docs/wip/2026-07-04-cold-architecture-review-bridge-demand-system.md`).
 - Load ceilings and copy counts: browser main thread full-package parsing,
   Swift MainActor encode/drain pressure, one shared delivery tail, and one
   file's journey carrying about 8 byte copies, 3 full hash passes, and 7
@@ -37,6 +42,138 @@ telemetry batching, and Swift synchronization.
   worker boundary, and separated retention/byte-cache tiers
   (`docs/specs/bridge-viewer-transport/performance-demand-lanes.md:148`,
   `docs/specs/bridge-viewer-transport/performance-demand-lanes.md:307`).
+- Original product contract: a DiffsHub-class Review viewer with Trees,
+  CodeView, search/facets, selection/reveal, hunk expansion, markdown, and
+  large-diff proof
+  (`docs/superpowers/specs/2026-06-15-bridge-codeview-trees-viewer.md:309`,
+  `docs/superpowers/specs/2026-06-18-bridgeweb-large-diff-fast-loop-spec.md:637`).
+- 2026-07-09 re-baseline at `f1992979`: four independently created comm
+  workers, native product intake landing on main, no production streamed
+  subscription route, multiple ready-to-loading gates, clone-only Pierre jobs,
+  split telemetry owners, and insufficient three-sample browser proof
+  (`docs/wip/communications/2026-07-09-bridge-click-fileview-workers-implementation-handoff.md:1`).
+- Pierre public API check: BridgeWeb pins `@pierre/diffs` `1.2.10`; released
+  `1.2.12` and fetched `origin/main` still define string-backed `FileContents`,
+  whole-item `CodeViewHandle` updates, and worker dispatch without transfer lists
+  (`BridgeWeb/package.json:27`,
+  `packages/diffs/src/types.ts:24`,
+  `packages/diffs/src/react/CodeView.tsx:88`,
+  `packages/diffs/src/worker/WorkerPoolManager.ts:1043` in the pinned Pierre
+  revision).
+
+## Normative Product And Success Contract
+
+The worker architecture is a means to the product contract. R41-R66 cannot be
+declared complete while Review or File View is functionally wrong, even when an
+individual worker, schema, or unit-test seam passes.
+
+The complete product obligations in
+`docs/superpowers/specs/2026-06-15-bridge-codeview-trees-viewer.md` and
+`docs/superpowers/specs/2026-06-18-bridgeweb-large-diff-fast-loop-spec.md`
+remain normative unless this increment explicitly supersedes a clause. This
+increment changes transport, state ownership, continuation representation, and
+proof strength; it does not silently delete a user journey.
+
+Review MUST:
+
+- support the 3,420+ file and 100,000-line selected-diff fixture floor;
+- preserve deep tree navigation, search, filter/facets, reveal, selection,
+  collapse/expand, hunk expansion, added/modified/deleted/renamed files, and
+  sanitized markdown presentation;
+- keep the file rail and CodeView independently scrollable and responsive;
+- demand, render, and paint later windows across the entire selected diff; and
+- produce zero blank/wrong windows, snapback, stale flash, content
+  disappearance, or wedged selections.
+
+File View MUST:
+
+- support streamed tree metadata, search/filter, selection, refresh, stale
+  repair, and explicit binary/unavailable states;
+- render one selected first window bounded by BOTH 2 MiB and 10,000 actual
+  payload lines; metadata line counts must not fabricate blank payload lines;
+  and
+- stop explicitly at that envelope. File View continuation is not promised.
+
+Product traceability:
+
+| Retained journey | Contract in this increment | Required live proof |
+| --- | --- | --- |
+| normal, guided, and plans/specs Review modes; search and composed status/class/path/language facets | one worker-owned projection truth; local intent remains synchronous | real-worker browser plus semantic-IPC packaged-native journey |
+| deep tree select/reveal, independent rail/CodeView scroll, collapse, stable header | R41-R46, R56, R61 | correct row/header/content and no blank, snapback, or cross-scroll ownership |
+| added, modified, deleted, renamed, binary, unavailable, and markdown items | R44, R59, R61 plus original sanitized-render rules | deterministic content/checksum and unsafe-markdown corpus in browser and native |
+| hunk expansion and 100,000-line traversal through the final real hunk | released Pierre window contract in R57/R61 | window ids/checksums, stable anchor/header, and final-window paint in both runtimes |
+| File View tree/search/select/refresh/stale repair and bounded real prefix | R42-R49, R61 | UTF-8/binary/truncation corpus with no fabricated padding in both runtimes |
+| source reset, reconnect, worker restart, mode switch, pane isolation, teardown | R42, R49, R63-R65 | hostile worker/server seams plus real two-pane packaged journey |
+| telemetry on, off, and failure | R43, R62, R66 | product parity; telemetry failure is product-fail-open and proof-fail |
+
+Explicit supersessions:
+
+- R32-R39 and R40's retention/cache separation remain normative. This
+  increment replaces only R40's size-overflow presentation rule: ordinary
+  Review content MUST split/window/continue and MUST NOT become terminal solely
+  for size. File View normal text instead renders one real bounded prefix plus
+  explicit truncation and has no continuation.
+- The original main-thread Zustand, direct page/native product traffic,
+  whole-item Pierre update, and multi-worker ownership descriptions are replaced
+  by R42, R49, R54-R57, and R61. Their product behavior remains required.
+
+The performance floor is:
+
+| Metric | Controlled dev server | Packaged native WKWebView |
+| --- | ---: | ---: |
+| local selection feedback | p99 < 32 ms | p99 < 32 ms |
+| fresh warm-cache readable content | p99 < 32 ms | p99 < 32 ms |
+| selected readable content | p95 < 50 ms, p99 < 100 ms | p95 < 100 ms, p99 < 200 ms |
+| file-rail scroll response | p95 < 50 ms, p99 < 100 ms | p95 < 100 ms, p99 < 200 ms |
+| CodeView scroll response | p95 < 50 ms, p99 < 100 ms | p95 < 100 ms, p99 < 200 ms |
+
+Internal stop lines apply in both environments:
+
+- selected comm-worker queue wait p95 < 16 ms and p99 < 32 ms;
+- complete main-to-Pierre public window submission p95 < 4 ms and p99 < 8 ms;
+- every owned main/comm synchronous slice has a hard maximum of 8 ms;
+- main-thread tasks at or above 50 ms: zero;
+- blank/wrong windows, wedges, disappearance, stale paint: zero; and
+- required telemetry loss, sequence gaps, or lifecycle-correlation gaps: zero.
+
+One gated benchmark cell fixes runtime, family, source/cache state, telemetry,
+fixture, viewport, machine profile, commit, bundled Pierre version, and worker
+mode. Every cell runs in three fresh browser/app process
+launches with one excluded warmup and at least 100 attempted measured actions
+PER LAUNCH: at least 300 attempted samples per pooled cell. Every launch and the
+pooled cohort must pass p95/p99; the maximum per-launch percentile is the
+reported worst launch and launch percentiles are never averaged. Percentiles
+use nearest-rank without interpolation. Warmup correctness failures fail the
+launch. Failures remain numeric samples under R62 and are never excluded.
+
+The applicability manifest is closed. EVERY row/state runs in BOTH
+`controlled_dev_chromium` and `packaged_wkwebview`, with telemetry BOTH off and
+on. `surface` below is the stimulus -> painted endpoint, so rail clicks that
+paint CodeView are not ambiguous.
+
+| Required family | Stimulus -> endpoint | Required source/cache states |
+| --- | --- | --- |
+| Review selection feedback | Review rail select -> Review rail chrome/selected placeholder | fresh display, worker cache, cold miss |
+| Review selected readable | Review rail select -> Review CodeView readable | fresh display, worker cache, cold miss |
+| Review terminal availability | Review rail select -> Review CodeView terminal | cached terminal, cold terminal |
+| Review rail scroll | Review rail gesture -> rail motion + correct rows | resident rows |
+| Review CodeView scroll | CodeView gesture -> motion + checksum window | resident window, continuation miss |
+| File selection feedback | File rail select -> File rail chrome/selected placeholder | fresh display, worker cache, cold miss |
+| File selected readable | File rail select -> file content readable | fresh display, worker cache, cold miss |
+| File terminal availability | File rail select -> file terminal/truncation | cached terminal, cold terminal |
+| File rail scroll | File rail gesture -> rail motion + correct rows | resident rows |
+| File content scroll | file-content gesture -> motion + correct prefix rows | resident prefix |
+
+No required row/state is `not_applicable`. Extra exploratory families are
+report-only and cannot satisfy a gate. Different cells or fixed invariants
+cannot pool; one action may emit distinct family rows under one interaction id.
+
+True fresh-launch evidence is the first eligible action after a real process
+launch. It remains separate and report-only until at least 100 actual launches
+exist; no fresh-launch p99 claim is permitted below that count.
+
+The thresholds are floors. Measured headroom may strengthen them. They must not
+be weakened without explicit user agreement.
 
 ## WebKit Constraints
 
@@ -52,12 +189,10 @@ The architecture uses these WebKit constraints and gates:
   registered schemes. WebKit TestWebKitAPI `FileSystemAccess.mm` and
   `IndexedDBPersistence.mm` are source-grounded research anchors, not a closed
   production proof for this app. Native WKWebView proof of worker custom-scheme
-  fetch and streamed scheme responses is REQUIRED before cutover. That same gate
-  also gates migration-era main-thread scheme-RPC callers because all
-  JavaScript-to-Swift communication shares the same network-shaped bridge. If
-  worker fetch fails, the plan must either adopt a page-fetch-and-transfer
-  fallback that preserves R44 worker ownership of bytes/cache/retry truth, or
-  stop and revise R44 before implementation.
+  fetch and streamed scheme responses is REQUIRED before cutover. If worker
+  fetch or streaming fails, stop and revise the native carrier or this
+  architecture. A page fetch/relay is not a production fallback because it
+  would restore main as a product-protocol participant.
 - A live `MessagePort` is not entangled with native for ordinary WKWebView page
   content. `MessageChannel` is page-to-worker only for this design.
 - `SharedArrayBuffer` requires cross-origin isolation headers on every scheme
@@ -67,35 +202,38 @@ The architecture uses these WebKit constraints and gates:
 ## Boundary / Separability Map
 
 ```text
-FE render surface
-  owns: local render slices, optimistic interaction state, DOM apply budget
-  exposes: local-first mutations, viewport/selection facts, paint-ready reads
-  forbidden: protocol state, generation/sequence/staleness ownership,
-             awaiting worker/native during paint
+Bridge pane composition root
+  owns: one comm-worker lifetime, optional telemetry-worker lifetime, ports,
+        session capability handoff, teardown
+  forbidden: product protocol/cache/demand truth
 
-LOCAL-FIRST message boundary
-  FE -> worker: typed RPC facts and intents, never synchronous paint dependencies
-  worker -> FE: typed RPC replies/events, transferable paint-ready structures,
-                and slice updates
+FE/main presentation
+  owns: local UI intent, bounded display copies, Trees/CodeView adapters,
+        frame-budgeted DOM apply, opaque Pierre courier, render dispositions
+  exposes: surface-scoped intent facts and disposition receipts
+  forbidden: Swift product traffic, protocol/session truth, raw bytes, demand,
+             retry/cache truth, telemetry batching, Pierre payload transforms
 
-comm worker
-  owns: protocol truth, cache truth, content-demand reconciler, R37 epochs,
-        streamId, workerDerivationEpoch, sequence, staleness,
-        retries/backoff/pacing, telemetry batching, Swift reconnect resync
-  exposes: local slice updates to FE; client requests/subscriptions to Swift
-  forbidden: relying on FE for protocol truth or on Swift liveness for paint
+ONE PER-PANE COMM WORKER
+  owns: Review/File product sessions, surface-scoped stream/epoch/sequence,
+        projection, demand, byte/paint cache, retry/backoff, health,
+        Review continuation, File View first-window preparation
+  exposes: bounded slice patches/jobs to main; product requests/streams to Swift
+  forbidden: DOM work, telemetry pipeline work, FE/native fallback ownership
 
-CLIENT/SERVER transport boundary
-  worker -> Swift: async request/response, subscription open/close,
-                   content fetches, telemetry POST batches
-  Swift -> worker: subscription pushes, descriptor/content responses,
-                   reset/unhealthy facts
+Swift product server
+  owns: provider/source authority, sourceGeneration, metadata/content service,
+        product scheme endpoints, leases, stream production/admission
+  exposes: disposable pane-scoped request/stream/resource service
 
-Swift server
-  owns: metadata plane, sourceGeneration/metadata lineage, content scheme
-        handler, BridgeContentDemandAdmission, provider/source authority
-  exposes: disposable service endpoint; reconnect rebuilds worker truth
-  forbidden: FE-observable server lifetime or UI paint coupling
+main producer port + comm producer port
+  -> OPTIONAL PER-PANE TELEMETRY WORKER
+       owns: telemetry validation, credits, buffer, bytes, shedding, batching,
+             encode, sequence, retry/outbox, telemetry scheme POST
+       forbidden: product commands/content/cache/demand/health authority
+
+main -> Pierre public API -> Pierre/Shiki workers
+  main is an opaque bounded courier; Pierre owns its render/highlight runtime
 ```
 
 Zustand is the comm-worker-local data store for Bridge viewer data. React/main
@@ -106,20 +244,44 @@ messages, not store mirroring: no Zustand snapshot, query/cache entry, store
 action/function, class instance, DOM object, `AbortController`, or other
 non-cloneable local state shape may cross the worker boundary.
 
+Exactly one `BridgePaneCommWorkerSession` exists per Bridge pane and survives
+Review/File mode mounts and switches. Review and File View are surface-scoped
+clients of that session, not worker factories. The worker owns independent
+Review and File source/stream/epoch contexts under one active-mode-aware ranked
+scheduler; one global epoch must not let one surface invalidate the other.
+
 ## Truth Ownership Tables
 
 Every datum has exactly one truth owner.
 
-Identity lineage is split into two planes:
+Identity lineage is split into semantic, UI, worker, and native planes:
 
 | Value | Mint | Validate | Reset | Observe |
 | --- | --- | --- | --- | --- |
 | `sourceGeneration` and metadata lineage | Swift/native provider source authority | Swift rejects stale source requests; worker treats it as source fact, never as worker cache epoch authority | Swift rotates on accepted source change, resets metadata stream/gates, and revokes stale source leases | comm worker subscriptions, server seam, native proof |
-| `workerDerivationEpoch` | comm worker when it accepts a new current sourceGeneration/stream tuple | worker stamps demand plans, cache admission, fetches, and slice publications; Swift may echo/validate only as request freshness metadata | worker atomically clears derived demand membership, in-flight maps, paint-ready cache, retry state, and source-bound slice facts | FE diagnostics, worker tests, Victoria proof |
+| `semanticDocumentRevision` | comm worker from algorithm-tagged content digests and document kind/ordered roles | worker and Pierre manifest/payload validation | changes only when semantic source content changes | display cache, continuation, proof oracles |
+| `uiIntentRevision` | FE, monotonic per surface | comm worker accepts/supersedes intent and echoes the accepted value | surface remount/page session reset | FE render copies and worker intent receipts only |
+| `workerInstanceId` | pane session for each comm-worker lifetime | Swift product session and main reset barrier | every comm-worker restart | product frames, reset proof, diagnostics |
+| `workerDerivationEpoch` | comm worker per surface/source context | worker stamps demand, fetch, cache admission, and publication; Swift only echoes it | worker source reset/resync; never minted by main | worker tests and correlated proof |
 
-The metadata plane remains native-owned. The worker epoch is a derived browser
-cache/demand epoch minted from accepted source changes; it is not a replacement
-for native metadata lineage.
+`semanticDocumentRevision` and its window identities EXCLUDE metadata/package
+revision, descriptor retouch, resource lease/cache key, sourceGeneration,
+stream/request sequence, worker instance/epoch, active surface, projection mode,
+and UI-intent revision. A render-affecting option has its own
+`renderSemanticsRevision`; its replacement is atomic and the prior readable
+window remains visible until the replacement paints. Transport churn may revoke
+a validation lease or stale an in-flight attempt, but unchanged semantic content
+does not become a new loading identity.
+
+An authoritative digest is `sha256` over complete canonical source bytes. Swift
+labels each role digest authoritative or provisional; metadata/status/tree,
+mtime, path, lease, and `oversized:<size>` fallbacks are provisional and cannot
+authorize ready reuse. The worker hashes a length-prefixed encoding of document
+kind, ordered role labels/digests, and diff-semantics version to mint the
+document revision. Missing/provisional digests require streamed-byte hashing and
+verification before ready. Shared Swift/TS fixtures cover same-size changed
+bytes, role/algorithm ambiguity, metadata retouch, and unchanged bytes across
+generation churn.
 
 Extended truth ownership:
 
@@ -127,22 +289,29 @@ Extended truth ownership:
 | --- | --- | --- | --- | --- | --- |
 | `streamId` | comm worker | FE diagnostics, Swift validation | worker opens/reopens source session | worker/server resync on gap or unhealthy | retained, never FE-writable |
 | `sourceGeneration` / metadata lineage | Swift/native | comm worker, server tests | native accepted-source transition | native reset/reopen or unhealthy | native may continue metadata rules; FE sees no protocol state |
-| `workerDerivationEpoch` | comm worker | FE diagnostics, Swift freshness echo, worker tests | worker accepts sourceGeneration/stream tuple | epoch reset clears derived worker truth | retained per mounted worker; inactive foreground work demotes/aborts |
-| `sequence` | comm worker | Swift server, worker tests | worker request/subscription order | worker/server resync closes gaps | retained, no inactive FE mutation |
+| `semanticDocumentRevision` / semantic window identity | comm worker from canonical content descriptors/hashes | display cache, Pierre manifest, proof | semantic content or deterministic partition change only | metadata/lease/transport churn revalidates without demoting unchanged ready content |
+| `uiIntentRevision` | FE local surface | comm worker | every local selection/mode/filter intent | latest-wins worker acceptance/repair | retained per mounted viewer; grants no protocol authority |
+| `workerInstanceId` | pane session lifecycle | main/worker/Swift | every worker creation | reset barrier cancels prior-instance work | one active instance per pane |
+| `workerDerivationEpoch` | comm worker, scoped by surface/source context | FE diagnostics, Swift freshness echo, worker tests | worker accepts sourceGeneration/stream tuple | epoch reset clears derived worker truth for that context | retained per pane worker; inactive foreground work demotes/aborts |
+| request/stream sequence | request sequence: comm worker; stream sequence: Swift, both scoped by worker/surface/stream | opposite endpoint | accepted send order | duplicate/gap/reset rules in R64 | no global Review/File sequence |
 | staleness classification | comm worker | FE health/render slices | worker validates source, stream, epoch, and sequence | reset-required -> reopen or unhealthy | inactive stale results cannot mutate active UI |
 | content-demand membership | comm worker reconciler | worker executor/cache | worker reconciles selected/viewport/hover/cache facts | re-derive every fact change; no parked membership | inactive selected becomes demoted/aborted, not foreground |
 | content bytes / byte cache | comm worker | worker parse/window/diff/highlight | worker `fetch()` from content scheme | retry/backoff or unavailable slice | retained by retention policy; not active foreground |
 | paint-ready rows/runs/extents | comm worker produces; FE slice store owns current render copy | components | transferable worker slice update | stale slice replacement or explicit unavailable/error slice | inactive copies may persist but cannot overwrite active mode |
-| `selected` row/file/item | FE local slice | comm worker as fact input | synchronous click/keyboard local mutation plus intent | worker repair may mark unavailable/stale, never block paint | each mounted viewer retains its local selection memory |
-| `activeMode` | FE app shell | comm worker as demand fact | mode switch updates local shell slice | worker demotes/aborts inactive foreground; shell can re-emit fact | inactive mode retains memory but has no foreground authority |
+| selected UI intent, `uiIntentRevision`, and selected display copy | FE local slice | comm worker as fact input | synchronous click/keyboard/programmatic mutation | worker accepts/supersedes by UI revision; never mints worker freshness | each mounted viewer retains local selection memory |
+| accepted selected product identity | comm worker, scoped by surface | demand/cache/protocol logic; FE receives display copy | worker accepts a current UI intent under its source context | stale/reset/superseded intent re-derives; main never mints worker epoch | inactive selection retains memory but has no foreground authority |
+| `activeSurfaceUiIntent` | FE app shell | comm worker | local Review/File switch with UI revision | worker acceptance/repair | retained local shell fact |
+| accepted `activeSurface` | comm worker | ranked demand/protocol contexts; FE display copy | worker accepts current surface intent | demote/abort inactive foreground and echo repair | only accepted surface has foreground authority |
+| `reviewProjectionMode` | comm-worker Review projection state | FE mode control/display slice | worker accepts normal/guided/plans-specs intent | deterministic re-projection; never changes active surface or worker epoch | retained while File is active |
 | `viewport` / rendered range | FE virtualizer slice | comm worker reconciler | rAF/idle-coalesced viewport publication | next viewport fact supersedes; worker re-derives | inactive viewport may be retained but does not create foreground demand |
 | `expanded` / collapsed rows | FE local slice | comm worker for visible derivation | user toggle writes local UI fact | source reset drops invalid row ids; worker publishes availability repairs | retained per viewer unless source reset invalidates ids |
 | viewed marks | Swift/native viewed-file command authority | FE render slices, comm worker ack tracking | FE sends write intent through worker to Swift | Swift ack or retry/unhealthy; worker emits ack health slice | inactive mode may queue intent only through worker, never direct native write |
 | diff status | Swift/native push plane | FE render slices, comm worker health | native status push through worker | failed push clears dedupe and re-emits or marks unhealthy | retained as last known health; stale status marked explicitly |
-| acks | comm worker | FE health/render slices, Swift request handlers | worker correlates requests/intents to Swift responses | timeout/backoff/retry or unhealthy | inactive acks may settle but cannot update active selection/content |
-| connectionHealth | comm worker | FE health chrome, Swift diagnostics | worker observes handshake, fetch, push, and telemetry failures | reconnect reset, source reopen, or unhealthy slice | inactive mode shows retained health only; no foreground retries |
+| command acks | comm worker | FE health/render slices, Swift request handlers | worker correlates requests/intents to Swift responses | timeout/backoff/retry or unhealthy | inactive acks may settle but cannot update active selection/content |
+| render disposition / fulfillment | main mints structural disposition; comm worker owns fulfillment state | demand reconciler, FE diagnostics | main reports queued/applied/painted/rejected/superseded for a worker job/window | missing/rejected/superseded receipt keeps current selected/visible demand live and re-derivable | inactive receipts may settle but cannot create foreground demand |
+| product connectionHealth | comm worker | FE health chrome, Swift diagnostics | worker observes bootstrap, product fetch/stream/push failures | reconnect reset, source reopen, or unhealthy slice | inactive mode shows retained health only; no foreground retries |
 | write intents | FE creates; comm worker owns queue/dedupe | Swift command handlers, FE ack slices | local intent -> worker queue -> Swift command | worker retries/backoff or fails visibly; no direct FE->native bypass | inactive writes are demoted/queued by policy or rejected visibly |
-| telemetry queue | comm worker | Swift telemetry endpoint | idle batch to dedicated scheme endpoint | drop counters and proof failure on required loss | inactive samples still carry viewer/mode labels |
+| telemetry queue / batch sequence / retry outbox | optional telemetry worker | Swift telemetry endpoint, proof tooling | compact samples arrive on port-bound main/comm producer ports | bounded credits, reserved loss summaries, proof failure on required loss | worker survives mode changes; no worker when telemetry is disabled |
 | metadata plane | Swift/native | comm worker subscriptions | native interest stream and provider scheduler | native reset/reopen/unhealthy | untouched by this spec |
 
 ## Requirements
@@ -156,18 +325,16 @@ repair later, but must not gate the click frame.
 
 Contract violations:
 
-- `flushSync` spanning package-shaped React/Pierre work while RPC delivery is
-  in flight; the verified click stall was `flushSync` after RPC post blocking
-  WebKit delivery
-  (`tmp/debug-workflows/2026-07-04-agent-studio-luna338-scroll-placeholder-survivor/debug-investigation.md:163`).
+- `flushSync` spanning package-shaped React/Pierre work while product delivery
+  is in flight; the committed handoff records this click-stall class.
 - Paint-follows-push coupling: a visible FE paint that depends on the next
   Swift push, worker response, or handler delivery.
-- Telemetry force-flush on an interactive command path. Current RPC dispatch
-  records telemetry and force-flushes on send
-  (`BridgeWeb/src/bridge/bridge-rpc-client.ts:99`,
-  `BridgeWeb/src/bridge/bridge-rpc-client.ts:116`), and the telemetry sink sends
-  through the same RPC client
-  (`BridgeWeb/src/bridge/bridge-telemetry-event-sink.ts:14`).
+- Any telemetry flush, batch, byte calculation, encode, retry, or fetch on an
+  interactive path. At the re-baseline, main and comm recorders still buffer
+  while the sink stringifies/fetches and hot adapters can request flush
+  (`BridgeWeb/src/core/comm-worker/bridge-comm-worker-telemetry.ts:65`,
+  `BridgeWeb/src/bridge/bridge-telemetry-event-sink.ts:14`,
+  `BridgeWeb/src/foundation/telemetry/bridge-viewer-telemetry-adapter.ts:291`).
 
 R41 extends R35/R39: selected work still ranks first, but selected paint cannot
 wait for the rank machinery to round-trip.
@@ -176,88 +343,152 @@ Cold-paint outcomes are part of R41:
 
 | State at click | Required first paint | Forbidden proof claim |
 | --- | --- | --- |
-| paint-ready cache hit for the selected identity | readable selected content window, with stale-safe generation/epoch match | treating a later worker confirmation as the first paint |
+| fresh paint-ready cache hit for the semantic selected/window identity and validation lease | readable selected content window | treating a later worker confirmation as the first paint |
 | cache miss for normal content | selected identity, selection chrome, and protocol-free loading/availability placeholder keyed to the new selection | claiming selection highlight alone satisfies click-to-first-visible-content |
-| stale cache hit for a prior identity/epoch | no old content; render the new selected identity plus loading/stale placeholder | painting stale readable content, even briefly |
-| oversized, binary, unavailable, or persistent failure | explicit unavailable/error state keyed to the selected identity | indefinite blank panel, old content, or success percentile sample |
+| unchanged semantic identity with stale transport validation | retain readable content with explicit stale connection health until revalidated; do not count a fresh hit | converting metadata/epoch churn into loading or readable success |
+| different semantic identity | no old content; render the new selected identity plus loading/stale placeholder | painting old readable content, even briefly |
+| binary, unavailable, unsupported encoding, or persistent non-size failure | explicit terminal state keyed to the selected identity | indefinite blank panel, old content, or readable success sample |
 
-The first-visible-content proof requires readable selected content or an
-explicit selected unavailable/error/loading state from this table. Selection
-highlight alone is only action feedback; it does not satisfy the
-click-to-first-visible-content budget.
+R41 defines separate success events:
+
+| Metric | Start | End | Loading counts? |
+| --- | --- | --- | --- |
+| `local_selection_feedback` | trusted committing event timestamp, or outer control clock before IPC | selected identity/chrome and either matching content or an honest selected placeholder have painted | yes, as feedback only |
+| `fresh_warm_cache_readable` | same authoritative action start | current readable content from matching semantic/window/render identity has painted | no |
+| `selected_readable_content` | same authoritative action start | current readable selected window has painted after worker/Pierre/apply lifecycle | no |
+| `selected_terminal_availability` | same authoritative action start | current explicit binary/unavailable/failure state has painted | terminal state only; never reported as readable |
+
+Selection chrome or a loading placeholder may satisfy local feedback. It never
+satisfies readable-content latency. A fast placeholder cannot launder a late or
+never-completing content lifecycle into a passing sample.
 
 ### R42. Every datum has exactly one truth owner.
 
-The worker is the single authority for protocol and cache truth: stream
+One pane-owned comm worker is the single authority for Review/File product
+protocol and cache truth: accepted surface selection, surface-scoped stream
 identity, R37 `workerDerivationEpoch`, sequence, staleness, cache membership,
-content-demand membership, retry/backoff, and server reconnect state.
+content-demand membership, retry/backoff, continuation, and server reconnect
+state. Review, File View, active mode, and Worktree/File RPC are clients of the
+same worker instance, not independent worker owners.
 
-FE is the single authority for render slices: selected row/file/item,
-expanded/collapsed local UI facts, local hover/focus facts, and the current
-paint-ready slice copy. FE components hold zero protocol state.
+FE is the single authority for immediate local UI intent and display copies:
+pending selected row/file/item intent, expanded/collapsed local UI facts, local
+hover/focus facts, and the current paint-ready slice copy. The comm worker owns
+the accepted surface selection and may accept, reject, supersede, or repair the
+local intent through typed slice patches. FE components hold zero protocol
+state.
 
 Swift remains the authority for provider/source metadata and content service
 truth. Swift server lifetime is disposable from FE's perspective; reconnect
 resyncs the worker, and FE observes only worker-produced render/health slices.
 
-This bans the Phase-2 defect class where R32 existed but demand membership still
-had multiple authorities
-(`tmp/debug-workflows/2026-07-04-agent-studio-luna338-scroll-placeholder-survivor/debug-investigation.md:187`)
-and the cold-review staleness class where Review and Worktree/File carried
-different generation models
+This bans the committed defect class where R32 existed but demand membership
+still had multiple authorities, and the cold-review staleness class where Review
+and Worktree/File carried different generation models
 (`docs/wip/2026-07-04-cold-architecture-review-bridge-demand-system.md:89`).
+
+Selected/visible demand is fulfilled only by a worker-current painted residency
+with a valid lease, a new matching `painted` disposition, or explicit terminal
+availability. Worker ready/delivery/queue/submission are intermediate. The
+canonical `BridgeRenderDispositionKey` is pane session, worker instance,
+surface, semantic document/partition/window, submission id, and attempt id;
+source generation/worker epoch validate its envelope and interaction id only
+correlates observation. Rejected/superseded/missing receipts keep current demand
+re-derivable; telemetry is never the control-plane ack.
+
+A fresh display hit reuses an existing worker-issued painted residency and
+validation lease. FE paints first, then MUST send the selection/UI revision;
+the worker returns `selectionAccepted` with the reused submission id and no new
+publication attempt or disposition. That acknowledgement closes the control
+interaction but cannot move the already-recorded readable endpoint. An expired
+lease is stale-display, not a fresh hit.
+
+Availability is monotonic for one semantic document/window identity:
+
+```text
+absent -> loading -> ready | unavailable | failed
+```
+
+`ready -> loading` is forbidden. Only a changed semantic document/window
+identity may begin at loading. A metadata/source-generation/lease/stream/worker
+epoch or presentation retouch does not mint that identity and cannot demote
+ready. Main validates structural envelope/barrier/identity shape and applies
+worker transitions; it must not compare route-local descriptor/cache/presentation
+keys and synthesize loading. A render-semantics replacement keeps the prior
+ready window until the replacement atomically paints.
 
 R42 is complete only when the extended truth ownership table above is
 implemented as code ownership. Adding a second writer for any row is a
 contract violation, even if both writers currently agree in tests.
 
-### R43. Telemetry uses a dedicated transport lane.
+### R43. Telemetry uses a dedicated per-pane worker and transport lane.
 
-Telemetry must use a dedicated `WKURLSchemeHandler` POST endpoint with its own
-transport lane. It must not use interactive RPC, named script-message handler
-traffic, or any queue that can run ahead of interactive commands.
+When native bootstrap exposes no enabled telemetry scope, the pane creates no
+telemetry worker, producer ports, queue, or fallback. When any scope is enabled,
+the pane creates at most one lazy telemetry worker. It survives Review/File mode
+changes and comm-worker restarts and owns the entire telemetry pipeline:
 
-Browser/worker telemetry obligations:
+```text
+main compact-sample port ----\
+                               -> TELEMETRY WORKER -> telemetry scheme POST
+comm compact-sample port ----/
+```
 
-- idle-time batching, equivalent to a `requestIdleCallback` class of policy;
-- browser-side encoded-byte cap, not sample-count-only caps;
-- drop-oldest shedding when the cap is exceeded;
-- no forced flush by interactive commands;
-- no telemetry batch queued ahead of command, content, or paint-critical work.
-- lossless aggregate counters for every shed sample, keyed by event, lane,
-  result, and drop reason;
-- monotonic batch sequence numbers per telemetry stream.
+Main and comm producers may only check enablement, capture timestamp/duration
+and safe correlation, maintain a monotonic producer sequence and granted credit,
+and `postMessage` a compact typed sample. They must not buffer full samples,
+expand events, calculate encoded bytes, stringify, batch, shed admitted events,
+retry, hold an outbox, or fetch. Telemetry-worker failure disables producer
+ports and marks the proof run unhealthy; product selection/content/paint remains
+fail-open. No telemetry work falls back to main or comm.
 
-Native telemetry obligations:
+The telemetry worker exclusively owns:
 
-- single-pass decode;
-- admission and byte/count validation before expensive work;
-- rejection/drop facts for invalid or over-budget batches;
-- no raw paths, raw URLs, payload text, prompts, tokens, or raw errors.
+- port-bound producer identity and strict per-producer ingress sequence;
+- bounded credit admission with reserved control capacity for loss summaries;
+- event-contract validation and source scrubbing before buffer admission;
+- encoded-byte accounting, drop-oldest optional shedding, and required-loss
+  accounting;
+- one telemetry-session batch sequence, bounded in-flight/outbox bytes and
+  count, bounded retry/backoff, JSON encode, and scheme fetch; and
+- explicit `drainAndClose` / acknowledgement for teardown and proof capture.
 
-R43 bans the verified shared-channel compounding path
-(`tmp/debug-workflows/2026-07-04-agent-studio-luna338-scroll-placeholder-survivor/debug-investigation.md:166`)
-and applies the Constants Annex rule that every cap protects exactly one class
-(`docs/specs/bridge-viewer-transport/performance-demand-lanes.md:315`).
+There is no meaningful total order between the main and comm producer ports.
+Lifecycle correlation uses an explicit safe interaction sequence carried by
+demand, ready, accept/reject, apply, and paint samples. Producers cannot claim
+their own producer identity, telemetry session, scenario, endpoint, or batch
+sequence; the telemetry worker stamps those from native bootstrap and port
+installation. Native repeats schema, byte/count, session, sequence, and
+source-scrubbing validation before admission.
+
+Interactive command, click, scroll, content, and paint paths cannot flush or
+await telemetry. Posting one compact sample has its own producer-side hard
+maximum of 2 ms and p99 < 1 ms, and telemetry-on product runs must independently
+pass every absolute product budget.
 
 Telemetry proof integrity:
 
 | Condition | Proof rule |
 | --- | --- |
-| required event class shed during a proof run | proof fails; the run may be retained only as exploratory evidence |
-| batch sequence gap | proof fails unless paired with a matching lossless drop counter and an accepted exploratory label |
-| slow click, reject, abort, stale, or unavailable sample shed | proof fails; tail and failure samples are required evidence |
-| optional/debug event shed | allowed only with aggregate counters and explicit lossy-run annotation |
+| required event shed before ingress, in buffer, in outbox, or at native admission | proof fails; retain only as exploratory evidence |
+| unexplained producer/batch gap, conflicting duplicate, or reorder | proof fails; an exact idempotent batch retry may return `duplicate` |
+| telemetry-worker restart or missing drain acknowledgement | proof fails |
+| slow click, reject, abort, stale, unavailable, timeout, or failure sample shed | proof fails; tail/failure samples are required |
+| optional/debug event shed | allowed only with exact aggregate counters and explicit lossy-run annotation |
 
-Percentiles can satisfy R41-R60 only from non-lossy required event streams.
+Percentiles can satisfy R41-R66 only from non-lossy required event streams.
 Lossy telemetry runs are debugging aids, not performance proof.
 
 ### R44. Content bytes stream to the worker, not the main thread.
 
-Content bytes are fetched by the comm worker from the content scheme. The main
-thread must not receive raw file text, raw diff text, full package bodies, or
-body-byte cache entries. FE receives only paint-ready structures: rows, runs,
-extents, summary facts, availability facts, and DOM-apply units.
+Source bytes are fetched by the comm worker from the content scheme. Main never
+receives raw strings, full package bodies, or canonical byte-cache entries. Its
+only source-bearing value is one bounded R52/R57 Pierre window submission whose
+`ArrayBuffer` fields transfer worker -> main, are forwarded unchanged through
+Pierre's public API, and are detached before that call returns. Main cannot
+retain, decode, split, parse, classify, diff, window, highlight, copy, or
+reconstruct them. Every other main hop is a bounded metadata/display structure:
+rows, extents, summary/availability facts, and DOM-apply units.
 
 Parse, window selection, diff preparation, highlight preparation, and cache
 admission run worker-side. This extends R29's worker-backed content-cache
@@ -273,15 +504,34 @@ Worker fetch outcomes:
 
 | Outcome | Worker state | FE slice | Re-demand rule |
 | --- | --- | --- | --- |
-| success, current epoch | bytes enter worker byte cache; parse/window/highlight may continue | paint-ready or availability slice | membership remains until UI commit if still selected/visible |
+| success, current epoch | bytes enter worker byte cache; parse/window/highlight may continue | paint-ready or availability slice | membership remains until matching `painted` disposition or explicit terminal state if still selected/visible |
 | abort from supersession or demotion | in-flight slot frees; no cache write unless completion was already fresh | no error for speculative/nearby; selected may show loading for new identity | reconciler re-derives from current facts |
 | transient failure | executor records delivery-failure fact and bounded backoff | health/loading slice with retry state, no FE-owned retry | worker re-demands from membership after backoff |
-| persistent failure or over-budget | worker records terminal availability for current epoch | explicit unavailable/error slice keyed to selected/visible identity | membership remains worker-owned; retry only after source/fact reset policy |
+| persistent non-size failure | worker records terminal availability for current semantic identity | explicit unavailable/error slice keyed to selected/visible identity | membership remains worker-owned; retry only after source/fact reset policy |
+| Review work exceeds one window/preparation budget | deterministically split/repartition or offload while preserving desired membership | honest loading for missing desired windows; existing windows stay readable | size alone never becomes terminal; demand continues through final manifest window |
+| File View reaches byte/line envelope | publish the maximal canonical prefix and truncation facts | readable prefix plus explicit truncation state | no continuation; metadata never pads payload |
 | stale sourceGeneration or workerDerivationEpoch | discard result, count stale drop | no stale content; health slice if user-visible | epoch reset/reconnect drives fresh demand |
 | reconnect reset | clear source-bound in-flight/cache memberships as required by epoch reset | connection health/loading slices | worker rebuilds membership from latest FE facts and Swift source |
 
 FE receives render and health slices only. Fetch membership, backoff, retry,
 and re-demand are worker facts; FE must not park or restart content demand.
+
+The production worker bootstrap is session-only: pane/session identity, policy,
+initial mode, and transferred ports. Main-supplied rows, descriptors, content
+metadata, render semantics, telemetry configuration, `reviewSourceUpdate`, and
+`fileViewSourceUpdate` are forbidden product bootstrap or update payloads.
+Source truth arrives through worker-owned Swift product streams.
+
+Review continuation is a product protocol, not a comment on a first-window
+constant. Viewport/line-window facts must let the worker request, prepare,
+publish, receive disposition for, and retain later windows across the selected
+100,000-line diff. Treating a first 400-line `windowed` item as fulfilled is a
+contract violation.
+
+File View payload limits apply to actual serialized/rendered payload lines and
+bytes. Padding a truncated payload toward metadata `totalLineCount` is forbidden
+because it fabricates content, defeats the line bound, and creates unnecessary
+Pierre/layout work. Total line count remains metadata, not display content.
 
 ### R45. FE render store is sliced.
 
@@ -300,6 +550,12 @@ view models are banned from interaction subscribers. A slice named
 "panel-scoped" is not compliant if selecting one item invalidates O(package)
 state.
 
+Every keyed content/display slice includes the worker-issued semantic document
+and window identity plus its structural transport envelope. Source generation,
+worker instance/epoch, sequence, and UI revision validate delivery but are not
+part of the semantic display-cache key. A route-local descriptor, cache, or
+presentation key cannot replace or reinterpret either layer.
+
 Root-snapshot subscriptions that make one interaction rebuild package-shaped
 state are contract violations. O(package) work inside interaction handlers is a
 contract violation. Proof must show click invalidation cost is
@@ -314,9 +570,8 @@ separate selectors for root, render, open-file, initial-load, refresh, and
 demand-debug state are the in-repo proof direction for narrower subscriptions
 (`BridgeWeb/src/file-viewer/use-bridge-file-viewer-store-bindings.ts:38`).
 
-R45 bans the verified flat 560ms click floor from root-snapshot world-state
-rendering
-(`tmp/debug-workflows/2026-07-04-agent-studio-luna338-scroll-placeholder-survivor/debug-investigation.md:173`).
+R45 bans the committed flat click-floor class from root-snapshot world-state
+rendering.
 
 ### R46. Main-thread ready-to-visible work is a frame-budgeted pump.
 
@@ -358,12 +613,20 @@ or deferred entries before the pump is the same violation upstream of DOM apply.
 R46 is the main-thread counterpart to R39: rank survives worker completion,
 pause release, ready-item preparation, and DOM apply.
 
-R46 bans the Phase-2 severe-freeze class where synchronous frame/projection work
-and apply work occupied the main thread
-(`tmp/debug-workflows/2026-07-04-agent-studio-luna338-scroll-placeholder-survivor/debug-investigation.md:177`).
+R46 bans the committed severe-freeze class where synchronous frame/projection
+and apply work occupied the main thread.
 It also bans the live round-5 regression where unbudgeted pause-release
 promotion produced multi-hundred-ms main-thread tasks blocking tree and clicks:
 the budget must sit upstream of the pump, not only at DOM apply.
+
+Each job/window produces at most one disposition transition of each kind.
+Receipts are idempotent and bounded by admitted apply units; rapid selection
+churn cannot create an unbounded ack loop. Pending placeholder/materialization
+tasks carry the same full identity and generation as their input and are
+invalidated when that identity leaves loading or is superseded. After structural
+apply, main observes a post-update animation-frame/content check before sending
+`painted`; teardown or identity change sends `superseded` instead of silently
+dropping fulfillment state.
 
 ### R47. File View projection and pruning obey the same frame contract.
 
@@ -371,18 +634,18 @@ File View is not exempt from R41-R46. Frame application, projection, replay,
 open-file reconciliation, and DOM apply must be chunked and yielding when their
 input can scale with frame/package size.
 
-The O(N^2) empty-directory prune is a named defect. The current implementation
-loops every directory over every row
-(`BridgeWeb/src/file-viewer/bridge-file-viewer-state.ts:511`,
-`BridgeWeb/src/file-viewer/bridge-file-viewer-state.ts:521`) and was called out
-as a severe-freeze co-cause
-(`tmp/debug-workflows/2026-07-04-agent-studio-luna338-scroll-placeholder-survivor/debug-investigation.md:178`).
+The historical O(N^2) empty-directory prune was resolved by `cfc65617` before
+this contract's pinned base. Its replacement performs bottom-up directory
+marking in O(rows + directories). R47 retains that result as a regression
+floor; it does not schedule another prune rewrite. The remaining live risk is
+scalable frame intake/projection/apply work, which must satisfy the same pump
+and event-loop proof as Review.
 
 File View frame intake is likewise covered by the apply-pump contract because
 it applies incoming frames from the subscription path synchronously today
 (`BridgeWeb/src/file-viewer/use-bridge-file-viewer-frame-intake-controller.ts:70`).
 
-### R48. Proof seams match the two boundaries.
+### R48. Proof seams match the runtime boundaries.
 
 Proof must preserve boundary honesty. Each seam proves only its side of the
 contract.
@@ -407,11 +670,14 @@ Worker seam:
 
 - tests the comm worker against a hostile mock server that is never politer than
   live Swift: out-of-order pushes, stale generations, dropped responses,
-  reconnects, oversized telemetry, slow content, persistent fetch failures,
-  and backpressure;
-- proves stream/workerDerivationEpoch/sequence/staleness authority, R32-R40
-  membership, R34 backoff/pacing, R37 epoch reset, R39 rank into worker pools,
-  R43 telemetry batching/shedding, R44 content streaming, and reconnect resync;
+  reconnects, oversized product frames, slow content, persistent fetch
+  failures, and backpressure; telemetry hostility belongs only to the separate
+  telemetry-worker seam below;
+- proves surface-scoped stream/workerDerivationEpoch/sequence/staleness
+  authority, R32-R40 membership, R34 backoff/pacing, R37 epoch reset, R39 rank
+  into worker pools, R44 content streaming, Review continuation, File View
+  first-window bounds, markdown source/compute/patch stages,
+  disposition-driven fulfillment, and reconnect resync;
 - cannot prove FE paint timing, DOM materialization, WebKit run-loop mode, or
   Swift provider correctness.
 
@@ -424,17 +690,35 @@ Server seam:
 - cannot prove FE slice correctness, worker cache policy, worker backoff,
   WebKit delivery ordering, or user-perceived paint.
 
+Real-worker browser seam:
+
+- runs the actual pane comm worker, telemetry worker when enabled, and Pierre
+  workers against deterministic Review and File View fixtures;
+- proves one comm-worker identity across mode switches, direct worker stream and
+  content fetch in the controlled environment, structured-clone/transfer cost,
+  markdown compute/sanitize/paint, telemetry producer isolation, DOM
+  apply/disposition flow, event-loop/long-task evidence, and the controlled
+  p95/p99 product budgets; and
+- cannot prove native WKWebView custom-scheme behavior, native admission,
+  packaged assets, LaunchServices identity, or Victoria ingestion.
+
+Telemetry-worker seam:
+
+- tests hostile producers and hostile native admission: forged producer fields,
+  unknown events/attributes, credit exhaustion, optional-versus-required loss,
+  batch/producer gaps, bounded retry/outbox, restart, and drain/close; and
+- cannot prove that a separate worker or shared native scheme handler is
+  scheduling-isolated in packaged WKWebView without the live gate.
+
 Live gates:
 
 - native WKWebView proof remains required for WebKit delivery, worker
-  custom-scheme fetch, streamed scheme responses, migration-era main-thread
-  scheme-RPC calls, run-loop starvation, and end-to-end click/scroll budgets;
+  custom-scheme fetch, streamed scheme responses, stream cancellation/resync,
+  run-loop starvation, telemetry-on/off behavior, and end-to-end click/scroll
+  budgets;
 - worker custom-scheme fetch plus streamed responses must pass native WKWebView
-  proof before the R44/R49 cutover. If worker fetch fails, the blocking decision
-  is page-fetch-and-transfer fallback versus R44 redesign; if streamed responses
-  fail, R49's fallback ordering applies. Implementation must not assume worker
-  fetch, streaming, or main-thread scheme-RPC migration until the same native
-  gate passes.
+  proof before the R44/R49 cutover. If worker fetch or streaming fails, stop and
+  redesign the native carrier; no main-thread product relay is admitted;
 - Victoria-backed proof remains required for performance samples and telemetry
   admission;
 - existing R32-R40 proof seams remain required and are not replaced
@@ -442,81 +726,109 @@ Live gates:
 
 ## Channel Topology And Typed Contracts
 
-### R49. The topology has exactly three runtime channels.
+### R49. The topology has three product channel families plus one telemetry sidecar.
 
-The local-first worker design has three channels, each with its own contract.
-The server worker named here is the comm worker in R41-R60. The custom-scheme
-fetch bridge is the single network boundary: a network-shaped bridge where every
-JavaScript-to-Swift call after page-load identity bootstrap uses scheme-handler
-RPC, regardless of whether the caller is the server worker or a residual
-main-thread migration path.
+The comm worker named here is the single pane-owned product worker in R41-R66.
+Every ordinary Review/File web-to-Swift edge originates in that worker. The
+telemetry worker is an explicit observability-plane exception and cannot carry
+product state or commands.
 
-| Channel | Contract | Required payload shape |
+Existing compatibility type names may retain `Server`, but every normative
+`server worker` reference means this same comm worker. No second server/product
+worker exists.
+
+| Channel family | Contract | Required payload shape |
 | --- | --- | --- |
-| main <-> server worker | typed RPC/event protocol over a `MessageChannel` port owned by the page and server worker, using transferables where payloads can avoid clone cost | typed commands down: `select`, `viewport`, `hover`, `markViewed`, and `mode`; typed replies/events and slice patches up; no store snapshots |
-| JavaScript <-> Swift | all Swift communication from server worker and migration-era main-thread callers: typed scheme-handler `POST` request/response RPC through `WKURLSchemeHandler` `fetch()`, plus subscriptions and pushes through long-lived streamed `fetch()` responses while native writes frames into the stream | Swift-side request, response, push, content, availability, telemetry, command-ack, and health frames |
-| main <-> Pierre workers | Pierre's own API exclusively | `BridgeWorkerPierreRenderJob` values received from the server worker without parsing, plus `bridgeDemandRank`; any large payload copy/transfer mode at this edge must be separately measured |
+| main <-> comm worker | one typed RPC/event protocol over the pane-owned `MessageChannel`; all messages are surface/session scoped | UI intents carry UI revision; bounded replies, slices, transferred Pierre windows, health, dispositions/reset barriers; no store snapshots or main-minted worker epoch/sequence |
+| comm worker <-> Swift product server | typed scheme-handler POST request/response, leased content fetch, and long-lived streamed responses consumed directly in the worker | source/session capability, request/stream/surface identity, generation/epoch/sequence, bounded frames, content descriptors, command acks, resets, health |
+| main <-> Pierre workers | Pierre public API exclusively, through one shared opaque courier | complete worker-prepared render job, demand rank, identity, window and budget; no AgentStudio main transform or private Pierre worker traffic |
+| main + comm -> telemetry worker -> Swift telemetry endpoint | two dedicated producer ports into one optional per-pane telemetry worker, then telemetry-only scheme POST | compact port-bound samples in; validated/scrubbed sequenced batches and exact loss summaries out |
 
-The long-lived streamed-response fetch is the decided Swift push mechanism. The
-rejected alternative is `WKScriptMessage` push delivery: those pushes land in the
-page world, force main into a relay role, share the script-message IPC delivery
-lane, and recreate the default-run-loop-mode hazard. It is not a fallback after
-cutover. If streamed-response proof fails, fallback ordering is:
+A comm-owned stateless content-compute pool is internal execution, not another
+product authority/channel: it receives jobs only from and returns only to the
+comm worker and cannot reach main or Swift.
 
-1. keep the scheme-handler boundary and prove page-owned scheme `fetch()` plus
-   transferable relay only as a temporary migration fallback that preserves
-   worker ownership of protocol, cache, retry, and backpressure truth;
-2. if that fallback cannot preserve the ownership contract or native proof, stop
-   and redesign R44/R49 before implementation.
+The long-lived streamed-response fetch is the decided Swift product-push
+mechanism. `WKScriptMessage`, `callJavaScript`, DOM-event intake, or page-owned
+scheme fetch/relay are rejected production alternatives: they land on or use the
+page main loop, restore main as a sequence/backpressure participant, and recreate
+the run-loop hazard. If direct worker streaming cannot pass native proof, stop
+and redesign R44/R49.
 
-The page-load bootstrap handshake is the sole exemption to scheme-handler RPC.
-It exists only to establish page/view identity before `fetch()` is possible, is
-minimal, one-shot, and must not carry commands, telemetry, content, subscription
-traffic, or push frames.
+Direct page/native exceptions are exactly:
 
-The `WKScriptMessage` / `__bridge_command` RPC plane is deprecated by this
-contract. Content worlds, nonce listeners, `RPCMessageHandler`, `RPCRouter`, and
-all script-message ingress for ordinary commands are deleted by the final cutover
-unit's compile-enforced deletion set. They must not survive as a parallel path
-beside scheme-handler RPC.
+- one-shot page identity, pane-session capability, policy, and port bootstrap;
+- static app/worker assets needed before workers can exist; and
+- narrowly typed native diagnostics/programmatic controls that invoke the same
+  local UI-intent boundary as a user action.
 
-The rationale is one callable carrier from page and workers alike; no
-shared-IPC-queue coupling between telemetry, interactive, content, and push
-traffic because scheme tasks have their own lane; no `kCFRunLoopDefaultMode`
-script-message delivery hazard on the Swift boundary; and one typed contract
-module for the whole browser/native boundary.
+These exceptions must not carry product intake, push, content, subscription,
+cache, retry, acknowledgement, or backpressure traffic. A diagnostic carrier is
+not permission for a product bypass; any resulting product action flows through
+the comm worker.
+
+The `WKScriptMessage` / `__bridge_command` RPC plane and every direct main-owned
+product scheme caller are deleted by the final cutover's compile-enforced
+deletion set. Content worlds remain only for minimal bootstrap isolation and
+typed control/probe injection. No ordinary product carrier survives beside the
+comm-worker path.
+
+The rationale is one product initiator and one recoverable product state machine
+per pane, plus an observability sidecar that cannot contend with that state
+machine's JavaScript event loop.
 
 Current script-message RPC inventory and post-migration carriers:
 
 | Current command or lane | Post-migration carrier |
 | --- | --- |
 | `review.markFileViewed` | main -> worker port, then worker scheme-POST |
-| active viewer mode signal | worker port; worker owns mode truth (R42), then scheme-POST |
-| `system.bridgeTelemetry` | replaced; already live as `agentstudio://telemetry/batch` in commit `e009d5fd` |
-| worktree-file telemetry sink | same replacement path as `system.bridgeTelemetry` |
-| page-control/probe commands | unaffected; native -> page `evaluateJavaScript`, not script-message RPC |
+| active viewer surface signal | FE UI intent -> worker port; worker owns accepted surface (R42), then scheme-POST |
+| `system.bridgeTelemetry` | main compact sample -> telemetry worker -> `agentstudio://telemetry/batch` |
+| worktree-file telemetry sink | same telemetry-worker path; no pre-React page recorder |
+| page-control/probe commands | typed isolated native -> page adapter; bounded command/result only, with product consequences entering the comm worker |
 | intake frames | per-unit cutover to worker streamed subscriptions |
 
-No current command irreducibly requires script messages because scheme `fetch()`
-is reachable from both page and worker contexts. Content worlds remain only as
-bootstrap code-isolation machinery, not an ordinary command, telemetry,
-content, subscription, or push transport.
+The retained semantic Agent Studio IPC surface has this closed post-cutover
+mapping. External IPC never exposes raw WebKit evaluation. An internal typed
+page-control adapter may inject one bounded command into an isolated content
+world, but it is async, validates its result, invokes the same FE local-intent
+seam as the corresponding user action, and returns only the bounded typed
+result named below.
 
-On the Pierre edge, main is a courier, never a processor. Main hands Pierre a
-`BridgeWorkerPierreRenderJob` from the server worker and the `bridgeDemandRank`;
-it must not parse, classify, window, diff, or highlight the content on that
-edge. Main may only wrap the job into the object shape required by Pierre's
-public API and invoke that API.
+| External method(s) | Authority and product carrier | Completion and returned data |
+| --- | --- | --- |
+| `bridge.diff.load`, `bridge.fileView.open`, `bridge.diff.refresh` | native source authority initiates or rotates the source; the resulting source fact/product flow enters the pane comm worker and never becomes a native/main product relay | correlated worker `sourceAccepted`/`sourceResynced` plus the method's required post-paint state; bounded pane/source identity and outcome only |
+| `bridge.diff.selectFile`, `bridge.diff.scrollToFile`, `bridge.diff.expandFile`, `bridge.diff.collapseFile`, `bridge.fileTree.search`, `bridge.fileTree.setFilter`, `bridge.fileTree.revealPath`, `bridge.fileView.showMarkdownPreview` | typed native control -> isolated page-control adapter -> the same FE local-intent function used by pointer/keyboard input; every subsequent demand, command, content, acknowledgement, retry, or write goes main -> comm worker -> Swift as required | the action's declared worker acceptance plus correlated post-paint completion when it changes visible state; bounded ids/status/reason only |
+| `bridge.diff.getPackage`, `bridge.diff.renderState` | read-only bounded diagnostic/probe projection; never product mutation, subscription, cache authority, or content carrier | bounded metadata, health, identity, counters, and render facts only; no package snapshot, raw body, source text, or worker-owned store state |
+| `bridge.fileView.getContent` | read-only content-handle probe against native lease metadata; never a body-read path | bounded handle, semantic/window metadata, availability, and MIME facts only; no body bytes or source text |
+| `bridge.telemetry.snapshot` | typed control -> telemetry-worker `snapshot` | bounded counters/session/proof-eligibility state only; never the legacy native recorder |
+| `bridge.telemetry.flush` | typed control -> telemetry-worker `drain` | correlated terminal drain acknowledgement and bounded counts/state; never the legacy native recorder |
+
+Telemetry-off benchmarks use this same typed outer-control clock and correlated
+post-paint completion. They do not restore telemetry, inspect a worker store, or
+use untyped evaluation as a timing shortcut.
+
+No ordinary product command irreducibly requires a page/native bypass because
+scheme `fetch()` is reachable from the comm worker. Content worlds remain only
+as bootstrap/control isolation machinery, not product intake, command,
+telemetry, content, subscription, or push transport.
+
+On the Pierre edge, main is a courier, never a processor. The comm worker
+produces one complete `BridgeWorkerPierreWindowSubmission` with rank, semantic
+identity, manifest/window, bounds, and declared transfer fields. Main
+structurally validates the outer envelope and forwards that exact object once
+through `submitWindow`; it must not wrap, copy, normalize, reconstruct, parse,
+classify, window, diff, decode, or highlight it.
 
 ### R50. Channel contracts are typed and constant.
 
 `BridgeWorkerContracts` is the working-name single schema source for channel
-[1], the main <-> server-worker `MessageChannel`. Both endpoints compile
+[1], the main <-> comm-worker `MessageChannel`. Both endpoints compile
 against this module. It owns zod-derived types, the versioned wire format, and
 runtime validation at the worker boundary. A message shape that is not in this
 contract must be a compile error, not an unchecked runtime convention.
 
-The main <-> server-worker channel is typed RPC plus typed events, not a shared
+The main <-> comm-worker channel is typed RPC plus typed events, not a shared
 store. Commands carry `requestId`, epoch/revision freshness, payload DTO, and
 declared transfer fields. Replies/events correlate to the request or stream they
 advance. Fire-and-forget facts are still schema-defined messages with explicit
@@ -529,56 +841,73 @@ Swift/browser boundary, and page, worker, and server implementation code consume
 that vocabulary instead of inventing local frame shapes. No channel may add
 ad-hoc message shapes.
 
+`BridgeTelemetryWorkerContracts` is a separate schema source for the telemetry
+sidecar. It owns worker bootstrap, port-bound compact sample unions, credit and
+loss-summary control frames, worker health, and drain/close acknowledgements.
+It does not import or expose product command, content, stream, cache, demand, or
+health DTOs.
+
 ### R51. Forbidden edges are part of the contract.
 
-| Forbidden edge | Reason |
-| --- | --- |
-| main -> Swift through script messages | forbidden after final cutover except the minimal one-shot page-load bootstrap handshake; ordinary commands, telemetry, content, subscriptions, and pushes must use scheme-handler RPC and the script-message RPC plane must be compile-deleted |
-| main -> Swift as protocol/backpressure owner | residual main-thread migration callers may use scheme-handler RPC only as typed client calls; ordinary content, subscriptions, retries, cache, and backpressure ownership still moves through the server worker |
-| server worker -> DOM/render | the worker owns protocol, cache, parse, window, diff, and slice production, but DOM materialization remains main-thread/Pierre-owned |
-| Pierre workers -> any initiator role | Pierre workers are pure compute/apply workers driven through Pierre's API, never demand, fetch, protocol, or Swift initiators |
-| any untyped message anywhere | untyped traffic bypasses the schema source, version fence, validation boundary, and proof seams |
+| Forbidden edge | Reason | Required enforcement classes |
+| --- | --- | --- |
+| main -> Swift ordinary Review/File product traffic by any carrier | only bootstrap/assets/typed controls are exempt | import/architecture lint, structural carrier scan, packaged protocol trace |
+| Swift product push/intake -> main | `callJavaScript`, DOM/content-world/page relays restore main protocol ownership | Swift/TS structural scan plus packaged trace |
+| more than one pane comm-worker instance or feature-owned session | fragments protocol/cache/recovery truth | lifecycle type/API boundary, real-worker identity test, packaged identity trace |
+| comm worker -> DOM/render | DOM materialization remains main/Pierre-owned | worker import lint and build boundary |
+| comm-owned compute pool -> main/Swift | stateless compute returns only to comm worker | disjoint ports/types and hostile reset test |
+| Pierre workers -> demand/fetch/protocol initiator | Pierre is render compute only | public-API types, source scan, worker integration test |
+| main or comm -> telemetry endpoint/buffer/outbox | compact samples go only to telemetry worker | import lint, structural scan, telemetry failure test |
+| telemetry worker -> product endpoint/state | observability has no product authority | disjoint schemas/routes and hostile worker test |
+| any untyped message | bypasses schema/version/validation | closed discriminated unions, exhaustive switches, cross-runtime fixture corpus |
 
 ### R52. Main is a bounded courier on the content path.
 
-The content path is Swift -> server worker for parse/window/diff and slice
-production, then server worker -> main for a typed `BridgeWorkerPierreRenderJob`
-hand-off, then main -> Pierre worker for highlighting and DOM-owned apply, then
-Pierre/main -> DOM. The main hop is bounded to transfer/clone accounting plus
-the Pierre API call because Pierre must be driven from its thread; the no-fork
-constraint is not permission to make main parse, diff, classify, or re-window
-content.
+The sole standard text/diff content route is:
 
-The stock Pierre worker-pool API is not assumed to preserve transfer lists. At
-the time this spec was amended, `@pierre/diffs` `WorkerPoolManager` dispatches
-worker work with `worker.postMessage(task.request)` and no transfer-list
-argument. Therefore G may not claim zero-copy main -> Pierre delivery unless it
-adds a sanctioned courier/adapter that proves transfer-list use. Without that
-adapter, `BridgeWorkerPierreRenderJob` payloads crossing main -> Pierre must be
-bounded, cache-keyed, and instrumented for clone/submit duration.
+```text
+Swift source bytes -> comm-worker canonical byte cache
+  -> transferred BridgeWorkerPierreWindowSubmission -> main courier
+  -> released Pierre submitWindow() -> transferred Pierre worker payload
+  -> Pierre-owned layout/DOM apply -> BridgeRenderDisposition
+```
+
+Main may structurally validate the outer identity, bounds, and transfer
+descriptor, then call `submitWindow()` exactly once with the received object.
+Pierre gathers transfer fields internally and detaches every accepted payload
+buffer before returning. Main retains no source buffer, string, decoded line,
+or submission object after the synchronous call and cannot copy or reconstruct
+one. The complete validation + public-call + worker-submit corridor satisfies
+p95 < 4 ms and p99 < 8 ms independently for Review and File View.
+
+Courier admission is credit-bounded. At most one call executes synchronously;
+pending main ownership is bounded by the selected window plus one visible
+window, and every buffer reference has a disposition or cancellation lease.
+After accepted submission, retained main source bytes and duplicate main source
+bytes are both zero. Repeated add/replace/evict traversal keeps main retained
+heap O(visible-window metadata), never O(document lines).
 
 ### R53. Worker messages are transferable-first.
 
-All main <-> server-worker `postMessage` payloads prefer structuredClone
-TRANSFER over copy when payload size can affect interaction latency. Small
-plain DTOs may use normal structured clone. Content bytes, binary indexes,
-large paint-ready payloads, and any persistent-cache payload must use
-`ArrayBuffer` as the byte representation instead of strings or large object
-graphs.
+All content-bearing main <-> comm-worker messages use transferable
+`ArrayBuffer` representations. Transfer is mandatory, not preferred. Small
+ids/ranges/enums/health/display DTOs may use structured clone. Strings or large
+object graphs cannot carry file/diff/markdown bodies, line tables, binary
+indexes, Pierre window payloads, or persistent-cache content.
 
 When ownership moves across the boundary, the sender must include the
 `ArrayBuffer` (or a typed array's underlying `.buffer`) in the transfer list:
 `postMessage(payload, [buffer])` or `structuredClone(payload, { transfer:
 [buffer] })`. A transferred buffer detaches from the sender and becomes
 unavailable there after send. No sender or receiver path may rely on an O(bytes)
-clone to keep a second live copy. If an explicit copy is required for a small or
-retained value, that message must declare clone semantics and be measured under
-the same per-message boundary instrumentation.
+clone. If the comm worker must retain canonical cache bytes, it creates one
+derived window buffer inside the worker, accounts that allocation, and transfers
+ownership; main never owns canonical and derived copies.
 
 `BridgeWorkerContracts` message types must name transfer fields explicitly. A
 message with no transfer fields declares an empty transfer list; a message with
 content bytes, large paint-ready payloads, or persistent-cache payloads declares
-the exact fields that are transferred or explicitly cloned. Runtime validation
+the exact fields that are transferred. Runtime validation
 must reject a payload whose declared transfer fields and values disagree.
 
 ```text
@@ -592,11 +921,10 @@ sender owns buffer
   └─► receiver owns buffer, with no O(bytes) clone
 ```
 
-Boundary instrumentation follows the Constants Annex rule: measure
-serialize/clone/transfer duration and bytes per message class, not as one
-aggregate worker number. R53 applies at cutover slice G and to the future
-persistent-cache PR; persistent-cache payloads do not get a copy-based
-exemption.
+Boundary instrumentation measures clone/transfer duration, bytes, sender
+detachment, receiver ownership lifetime, and retained duplicate bytes per
+message class. R53 applies to this cutover and the future persistent-cache PR;
+there is no content-bearing clone exception.
 
 ### R54. Zustand moves to the comm worker; React RPC lifecycle is typed and local.
 
@@ -632,19 +960,25 @@ Required type families:
 
 | Type family | Runtime | May use | Must contain | Must not contain |
 | --- | --- | --- | --- | --- |
-| `BridgeMainRenderSnapshotStore` | main/React | non-Zustand store with `useSyncExternalStore` React integration | selected id, active mode, viewport/range, hover/focus, expanded/collapsed UI intent, panel chrome, `rowPaintSlice(id)`, `contentAvailabilitySlice(id)`, worker health copy | Zustand store, content bytes, byte cache, demand membership, retry/backoff, stream id authority, worker epoch authority, sequence authority, Swift request ownership, query cache reads |
-| `BridgeCommWorkerStoreState` | comm worker | Zustand vanilla | canonical rows/indexes, byte cache, paint-ready cache, demand membership, in-flight/executor queues, retry/backoff, stream/session/protocol state, worker epoch, telemetry buffer | DOM nodes, React state, component refs, direct Pierre worker initiator state, main-thread query cache objects |
-| `BridgeWorkerMainToServerMessage` | wire DTO | `BridgeWorkerContracts` zod-derived union | `requestId`, wire version, epoch/revision freshness, command/fact kind, cloneable payload, declared transfer fields | store snapshots, functions, class instances, DOM objects, `AbortController`, non-declared buffers |
+| `BridgeMainRenderSnapshotStore` | main/React | non-Zustand store with `useSyncExternalStore` React integration | selected id/ui revision, active-surface intent/accepted copy, Review projection mode copy, viewport/range, hover/focus, expanded UI intent, keyed paint/availability, health | Zustand, source bytes, cache/demand/retry/stream/epoch authority, query cache reads |
+| `BridgeCommWorkerStoreState` | comm worker | Zustand vanilla | surface-scoped canonical rows/indexes, byte cache, paint-ready cache, demand membership, in-flight/executor queues, retry/backoff, stream/session/protocol state, worker epoch, fulfillment state | DOM nodes, React state, component refs, telemetry buffer/outbox, direct Pierre worker initiator state, main-thread query cache objects |
+| `BridgeWorkerMainToServerMessage` | main -> comm wire DTO | `BridgeWorkerContracts` zod-derived union | wire version, UI intent revision or request id, command/fact kind, small cloneable payload, declared transfer fields | main-minted worker epoch/sequence, store snapshots, functions/classes/DOM/`AbortController`, undeclared buffers |
 | `BridgeWorkerServerToMainMessage` | wire DTO | `BridgeWorkerContracts` zod-derived union | health events, correlated replies, subscription events, slice patches, availability/content events, epoch/sequence freshness, declared transfer fields | canonical worker store, full package snapshots for interaction updates, untyped payloads |
-| `BridgeWorkerSlicePatch` | wire DTO applied to main render snapshot | typed patch union | target slice, operation, item id when keyed, epoch/sequence, small cloneable render payload or transfer descriptor | protocol/cache truth, raw content bytes unless explicitly declared as transfer/copy payload |
-| `BridgeWorkerPierreRenderJob` | comm worker -> main courier -> Pierre API | `BridgeWorkerContracts` DTO plus a Pierre edge adapter | item id, render kind, content hash/cache key, language/render metadata, `bridgeDemandRank`, bounded Pierre-compatible file/diff payload or transfer descriptor, byte/clone budget class | comm-worker store snapshot, Swift protocol state, functions/classes, DOM objects, main-recomputed text/window/diff, unmeasured unbounded content payload |
-| `BridgeWorkerTransferDescriptor` | wire metadata | explicit transfer-list helper | message kind, field path, byte length, `transfer` or explicit `clone`, detached-after-send expectation | implicit large payloads, unmeasured clone cost |
-| `BridgeSchemeRpcRequest` / `BridgeSchemeRpcResponse` / `BridgeSchemeStreamFrame` | JavaScript <-> Swift scheme boundary | shared browser/native contract vocabulary | method/path/resource kind, request id, stream id, source generation, byte limits, telemetry/drop counters, health/error frames | script-message command payloads, raw paths/content in telemetry, ad-hoc frame shapes |
+| `BridgeWorkerSlicePatch` | wire DTO applied to main render snapshot | typed patch union | target slice, operation, item id when keyed, epoch/sequence, small cloneable metadata/display payload | protocol/cache truth, source content bytes, parallel Pierre content route |
+| `BridgeWorkerPierreWindowSubmission` | comm worker -> main courier -> Pierre API | public released window DTO | stable item/document/window identity, rank, manifest/checksum, bounded transferred UTF-8/table buffers, byte/line class, Pierre version | strings/source cache, main-recomputed payload, clone mode, private Pierre traffic |
+| `BridgeWorkerMarkdownPatch` | comm worker -> main | bounded structural patch union | semantic/attempt identity, node/depth/count bounds, sanitized inert node batch, final flag | source bytes/HTML, script/style/events/URLs, whole document graph |
+| `BridgeRenderDisposition` | main -> comm worker product DTO | bounded idempotent union | pane/worker/surface, interaction/attempt/submission id, semantic document/window, worker epoch, `queued`/`applied`/`painted`/`rejected`/`superseded`, reason | telemetry-only receipt, content body, main-owned retry decision |
+| `BridgeWorkerTransferDescriptor` | wire metadata | explicit transfer-list helper | message kind, unique field paths, byte lengths, transfer mode, detached-after-send expectation | implicit content, content clone mode, unmeasured ownership |
+| `BridgeSchemeRpcRequest` / `BridgeSchemeRpcResponse` / `BridgeSchemeStreamFrame` | comm worker <-> Swift product scheme boundary | shared browser/native product contract vocabulary | method/path/resource kind, request id, stream id, source generation, byte limits, product sequence/reset/health/error frames | telemetry samples/counters, script-message command payloads, page-relay fields, ad-hoc frame shapes |
 | `BridgeWorkerRpcLifecycleStore` | main/React | non-Zustand store/helper with `useSyncExternalStore` React integration | request id, command kind, lifecycle state, timeout state, progress envelope, optimistic intent id, rollback metadata, correlated worker ack/repair references | row arrays, content windows, byte buffers, demand membership, canonical cache entries, refetch/retry authority, worker protocol truth |
 | `BridgeWorkerRpcClient` | main/React | typed `MessageChannel` client helper | request id creation, timeout policy, explicit command correlation, typed send/receive, transfer-list handoff to worker | store access, retry/backoff authority, direct Swift RPC, render-slice mutation outside patch helpers |
 | `BridgeWorkerPatchApplier` | main/React | non-Zustand helper | R46-budgeted application of `BridgeWorkerSlicePatch` values to `BridgeMainRenderSnapshotStore` subscriptions | protocol ownership, demand scheduling, unbounded synchronous full-list rebuilds |
-| `BridgeWorkerTransferListBuilder` | main and worker | shared helper | declared transfer fields, byte counts, clone-vs-transfer mode, detached-after-send assertions | implicit ArrayBuffer payloads or unmeasured large clones |
+| `BridgeWorkerTransferListBuilder` | main and worker | shared helper | declared transfer fields, byte counts, detachment assertions | implicit buffers, content clones, retained main source refs |
 | `BridgeCommWorkerCommandHandler` | comm worker | worker-local helper around Zustand store | validate typed commands, update `BridgeCommWorkerStoreState`, enqueue fetch/demand work, publish typed replies/events | DOM/Pierre direct initiator behavior, React state mutation |
+| `BridgePaneCommWorkerSession` | pane composition root plus worker port | one lifecycle/port coordinator | one active worker instance id, pane session, surface clients, bootstrap/install/reset/restart/dispose, telemetry-port replacement | product protocol/cache/demand truth, per-feature worker creation, main-minted worker epoch |
+| `BridgeTelemetryWorkerContracts` | main/comm producer ports and telemetry worker | separate typed wire unions | compact samples, producer credit/sequence, loss summaries, worker health, drain/close | product commands/content/cache/demand/health DTOs, producer-selected endpoint/session/batch sequence |
+| `BridgeTelemetryBatchRequest` / `BridgeTelemetryBatchResponse` | telemetry worker <-> Swift telemetry scheme boundary | separate browser/native telemetry contract vocabulary | native-minted telemetry session, batch sequence, scrubbed bounded samples, exact loss summaries, admission response | product command/content/stream/cache/demand DTOs, producer-selected endpoint/session, raw paths/content |
+| `BridgeTelemetryWorkerRuntime` | optional telemetry worker | isolated worker-local state | validation, credit admission, buffer, encoded-byte cap, shedding, sequence, bounded retry/outbox, encode/fetch | product state, DOM state, main/comm fallback ownership |
 
 ### R55. React RPC lifecycle is not an async cache.
 
@@ -700,25 +1034,95 @@ bridge from old Zustand into the snapshot store are contract violations.
 
 ### R57. Pierre/Shiki ownership and courier budgets are explicit.
 
-The content/render chain is split by work class:
+Current Pierre cannot satisfy R52/R53/R61: it accepts complete string-backed
+items, updates whole items, dirties downstream layout, and posts worker requests
+without transfer lists. Cutover therefore REQUIRES a released, pinned public
+`@pierre/diffs` byte-backed window API. Cumulative `updateItem`, pseudo-items,
+private imports, proxy workers, `patch-package`, local paths, or an AgentStudio
+fork are not alternatives.
 
-| Stage | Owner | Owns |
-| --- | --- | --- |
-| content identity and demand rank | comm worker | item id, source/worker epoch, content hash/cache key, selected/visible rank, stale-drop identity |
-| window choice and payload class | comm worker | bounded diff/file/text window, language/render metadata, byte/line budget class, transfer descriptor when possible |
-| tokenization/highlighting/render worker execution | Pierre/Shiki worker pool | Shiki tokenization, Pierre render task execution, Pierre internal cache/pool scheduling |
-| courier enqueue and DOM apply | main/React | call Pierre API with `BridgeWorkerPierreRenderJob`, record clone/submit cost, apply DOM through R46 pump |
+The released API owns these public concepts:
 
-The comm worker must not pre-tokenize with Shiki and then ask Pierre to tokenize
-again. Main must not parse, window, diff, decode, highlight, or reconstruct a
-Pierre payload. The only sanctioned main-thread content action is
-`BridgeWorkerPierreCourier.enqueue(job)`.
+```text
+WindowIdentity:
+  semanticDocumentRevision, partitionRevision, windowId, windowRevision,
+  payloadChecksum, renderSemanticsRevision
+WindowDescriptor:
+  ordinal, displayRange, optional context/side ranges,
+  estimated split/unified rows, optional sealed payload-segment manifest
+SegmentDescriptor:
+  segmentId, ordinal, UTF-8 byte range, checksum, stable logical-line id
+TransferableUtf8Lines:
+  format, bytes:ArrayBuffer, lineStartByteOffsets:ArrayBuffer
+WindowedItem:
+  one stable item/header plus immutable manifest, total logical extent,
+  manifest checksum, and windowed-file or windowed-diff kind
+```
 
-Stock Pierre main -> worker delivery is a measured clone edge unless a
-sanctioned adapter proves transfer-list delivery. Therefore every
-`BridgeWorkerPierreRenderJob` carries a budget class and every converted surface
-must define these policy constants in `AppPolicies` or the BridgeWeb policy
-mirror:
+`CodeViewHandle` publicly exposes `submitWindow`, `cancelWindow`, `evictWindow`,
+`resetWindowedItem`, `setHunkExpansion`, `getWindowState`, and
+`subscribeWindowEvents`. `submitWindow` performs synchronous outer validation,
+collects every payload buffer internally, posts with a transfer list, and
+detaches accepted buffers before returning. Pierre exports worker-safe encoders
+and validators; AgentStudio may call them in the comm worker, never on main.
+These names express required public capabilities, not frozen upstream spelling.
+A pinned release is accepted only when one versioned AgentStudio/Pierre
+conformance corpus passes manifest/partition, mutation/no-op, segment, transfer/
+detachment, cancel, eviction/cache, hunk-event, anchor, and hostile-input cases.
+
+Coordinates and partitioning are normative:
+
+- file and diff logical ranges are zero-based and half-open;
+- a diff context line consumes one logical row; a change block consumes
+  `max(deletions, additions)` logical rows; collapsed unchanged lines retain
+  logical rows; headers/separators consume none;
+- ordered `displayRange` values form a gap-free, non-overlapping document
+  partition; tokenizer `contextRange` may overlap, but only display rows render;
+- side ranges map logical rows to deletion/addition lines; window ids derive
+  deterministically from document/partition/ordinal/display range; and
+- a manifest is sealed. Repartitioning requires `resetWindowedItem`, not append
+  or whole-item replacement.
+
+`partitionRevision` hashes document revision, algorithm version, and byte/row
+policy; split/unified presentation does not repartition. From logical row zero,
+each descriptor takes the maximal
+next display prefix within BOTH limits with deterministic earliest-boundary
+tie-breaking. Context is added then deterministically trimmed to the remaining
+budget. `submissionByteLength` is encoded envelope bytes PLUS every unique
+transferred content/context/offset/row/hunk/segment buffer; the ceiling applies
+to that total. A logical line over budget has a sealed ordered segment manifest;
+each checked segment submission stays under budget, Pierre reconstructs one
+logical row worker-side, and partial segments never paint.
+
+Submission semantics are deterministic. First payload adds; identical identity
+and checksum returns typed `already_applied` or `already_painted` state without
+DOM duplication; higher window revision atomically replaces
+that descriptor; lower is stale; equal revision with different checksum is a
+protocol error. Out-of-order windows place by manifest. Invalid ids, revisions,
+offsets, ranges, overlaps, or checksums cause no visible mutation. Coverage is
+complete only after every descriptor/segment has applied once. It is historical
+diagnostic state, not a preload or performance gate; early/middle/final checksum
+and final-window proof are the required traversal gates.
+
+Eviction removes window bytes/AST/render content while retaining descriptor
+extent, stable header/item, hunk expansion, and logical anchor; visible, pinned,
+or in-flight targets reject eviction. Pierre preserves an anchor of stable item
+plus logical row or side/line and viewport offset through add, replace, eviction,
+estimate correction, and expansion. AgentStudio never writes `scrollTop`.
+Hunks use stable `hunkId`, survive eviction, demand missing descriptor ids,
+apply cross-window expansion atomically, preserve the anchor, and never use
+blank filler. A partial source that lacks expansion bytes reports typed
+`expansion_unavailable`, not empty content.
+
+Pierre owns transferred worker request/response unions, rank-aware scheduling,
+cooperative cancellation between bounded decode/token/render slices,
+stale-result rejection, byte-bounded per-window cache accounting, layout,
+anchors, and window events. AgentStudio owns semantic identities/checksums,
+deterministic continuation demand/partition choice, comm-worker encoding,
+worker-to-main transfer, one opaque public call, and event-to-disposition mapping.
+
+Every converted surface defines these policy constants in `AppPolicies` or the
+BridgeWeb policy mirror:
 
 | Policy | Initial ceiling | Derivation / proof |
 | --- | --- | --- |
@@ -726,22 +1130,19 @@ mirror:
 | `reviewInteractivePierreRenderJobMaxWindowLines` | <= 400 lines | Review selected/visible continuation window; Review owns follow-up windows past this ceiling |
 | `fileViewSelectedPierreRenderJobMaxBytes` | <= 2 MiB | File View selected first bounded window; File View does not promise continuation past this ceiling |
 | `fileViewSelectedPierreRenderJobMaxWindowLines` | <= 10,000 lines | File View selected first bounded window; File View does not promise continuation past this ceiling |
-| `pierreCourierCloneSubmitP95Ms` | < 4 ms | at most one quarter of the 16 ms foreground queue-wait p95 budget |
-| `pierreCourierCloneSubmitP99Ms` | < 8 ms | leaves the frame budget available for local chrome and R46 apply |
+| `pierreWindowSubmissionP95Ms` | < 4 ms | main receive/validate/public-submit through transferred worker dispatch |
+| `pierreWindowSubmissionP99Ms` | < 8 ms | same corridor, leaving frame budget for local chrome/apply |
+| `pierreAnchorLandingMaxErrorPx` | <= 4 px | add/replace/evict/expansion anchor proof |
+| `pierreMainRetainedSourceBytesAfterSubmit` | 0 | detachment and reference-lifetime proof |
 
-These R57 byte/line ceilings protect the main -> Pierre courier edge and its
-stock-Pierre clone/submit cost. They are a different Constants Annex class from
-R60's worker-inline preparation ceilings, even when their initial values match.
-R57 telemetry is job byte/line size plus main -> Pierre clone/submit duration;
-R60 telemetry is worker prep-slice duration, worker queue wait, and
-split/offload behavior.
-
-If a job exceeds byte or line policy, the worker splits into smaller windows,
-publishes a placeholder/unavailable slice for the overflow, or demotes the
-non-selected portion to delayed apply. It must not send an unbounded payload and
-hope the main thread survives. If measured stock-Pierre clone/submit exceeds the
-p95/p99 budget, Slice G is not green until the windowing policy is tightened or a
-transfer-aware Pierre edge adapter lands with proof.
+Review over-budget work splits into manifest windows or offloads preparation;
+size never becomes terminal. File View publishes only its canonical bounded
+prefix. Representative and maximal-policy jobs, out-of-order/replacement,
+cancellation, cache eviction, cross-window hunk expansion, final 100,000-line
+window traversal, sender detachment, bounded heap, and anchor error must pass.
+Any cumulative whole-item clone/update, repeated header, non-detached buffer,
+unbounded worker task, O(total-lines) main memory, or failed latency/slice/
+long-task/correctness stop line blocks cutover; thresholds are not weakened.
 
 ### R58. Worker-local Zustand is normalized and O(delta).
 
@@ -805,8 +1206,10 @@ hover handling are O(visible delta) or O(1) per coalesced fact. Source reset may
 swap generations atomically, but full-list/index rebuild work must be chunked or
 performed behind a new generation so selected foreground work can preempt it.
 
-The worker message loop publishes queue-wait and handler-duration telemetry by
-lane and command class. A worker-side giant `Map` clone, full list rebuild,
+The worker message loop measures queue wait and handler duration by lane and
+command class and posts compact samples to its dedicated telemetry port. It does
+not aggregate, encode, flush, retry, or fetch telemetry. A worker-side giant
+`Map` clone, full list rebuild,
 selector fan-out, or synchronous source reset that delays selected work beyond
 the R32-R40 foreground/visible queue budgets is a contract violation even though
 it no longer blocks the main thread.
@@ -819,24 +1222,52 @@ boundary that receives it.
 
 Required trust rules:
 
-- requests carry session identity, source generation or worker epoch as
+- native mints separate per-worker-lifetime product and per-telemetry-session
+  capabilities, binds them to pane/page/instance, transfers bootstrap bytes, and
+  rotates/revokes them on replacement/reload/disposal; assets are capability-free;
+- every privileged product request presents the product capability outside the
+  URL and native validates pane/session binding before body read/decode;
+- worker global scope accepts exactly one typed install-port bootstrap; ordinary
+  commands arrive only on the installed port;
+- requests carry pane session, surface, source generation or worker epoch as
   appropriate, stream/request id, and replay/staleness token;
 - stale, replayed, foreign-session, or wrong-epoch frames are rejected before
   state mutation;
-- methods, paths, resource kinds, and command names are allowlisted before byte
-  decode or expensive validation;
-- byte caps are checked before decode and before telemetry projection;
+- methods, paths, resource kinds, command names, string lengths, array counts,
+  and frame kinds are bounded/allowlisted before expensive validation;
+- streamed frames are length-delimited and versioned; declared length is capped
+  before allocation/decode; native producer queues are bounded and overflow
+  produces reset-required rather than silent loss;
+- stream gaps, duplicates, malformed frames, or epoch mismatch cause explicit
+  drop plus reset/reopen; fetch abort, page disposal, and worker restart cancel
+  and unregister native production;
 - raw file paths, raw content, command payload bodies, errors containing source
   text, and secret-bearing metadata are scrubbed from telemetry;
-- transfer descriptors are validated against actual payload values and declared
-  byte lengths;
+- telemetry producer identity is port-bound; samples cannot claim producer,
+  session, endpoint, scenario, or batch sequence, and unknown attributes are
+  rejected before buffering;
+- receivers validate observable transfer fields/values/lengths/class/budget/
+  identity/freshness. Only the schema-driven sender helper may post content; it
+  supplies the transfer list and asserts sender `byteLength == 0` after send.
+  Import/lint boundaries forbid raw content `postMessage`; receivers cannot
+  claim to observe remote detachment;
+- browser-supplied display paths never become filesystem authority; content
+  fetch remains descriptor/lease based and pane/session/generation bound;
+- repository markdown, filenames, code, and worker-rendered output are untrusted
+  display input; markdown keeps raw HTML disabled and is main-sanitized with
+  scripts, network-capable/interactive elements, event attributes, SVG/MathML,
+  unsafe CSS, and external fetches forbidden, with input/output/node/depth caps;
 - hostile worker and hostile server tests cover forged ids, stale epochs,
   oversized bodies, unknown methods, malformed transfer descriptors, and
   duplicate/reordered stream frames.
 
-Content-world/script-message RPC is not a fallback for these rules. After the
-one-shot page-load bootstrap exemption, ordinary Swift communication crosses the
-scheme-RPC boundary only.
+Typed diagnostics/programmatic controls are method-allowlisted, bounded, and
+limited to the same local selection/reveal/search/filter/scroll/probe intent
+surface as user actions. They cannot carry product content/intake/push or return
+session capabilities. Content-world/script-message RPC is not a fallback for
+these rules. If privileged scheme requests cannot be session-bound before
+decode, stream cancellation cannot bound native production, or any unbounded
+payload must allocate/decode before its cap, the design is blocked.
 
 ### R60. Worker content preparation is budgeted and preemptible.
 
@@ -855,6 +1286,14 @@ synchronous task; selected preemption is only a valid claim when every
 background/visible compute unit yields before the selected queue-wait budget is
 spent.
 
+Markdown source stays inside the comm-worker execution boundary. The pump parses
+it in bounded slices or transfers it to a comm-owned stateless compute pool;
+that pool has no main/Swift/product port or authority. It returns bounded inert
+render-tree batches to the comm worker, which emits `BridgeWorkerMarkdownPatch`
+values for R46 final main sanitization/apply. Jobs carry semantic/worker/attempt
+identity, cancel on surface/runtime reset, and close with the normal painted
+disposition after the final batch. Raw markdown never reaches main.
+
 Worker-internal component:
 
 | Component | Runtime | Owns | Must not own |
@@ -871,14 +1310,12 @@ Initial worker compute policy:
 | R58 worker selected queue-wait p95 | < 16 ms | shared worker selected queue-wait SLO | selected/click facts must not wait behind background content prep |
 | R58 worker selected queue-wait p99 | < 32 ms | shared worker selected queue-wait SLO | same budget as R32-R40 foreground queue wait |
 
-Content preparation above the byte/line ceiling must either:
-
-- split into smaller windows and enqueue those windows through the preparation
-  pump;
-- offload to a sanctioned compute/Pierre pool while the comm worker remains the
-  protocol/cache/demand authority; or
-- publish a selected-safe placeholder/unavailable slice and demote non-selected
-  preparation.
+Review preparation above one window/slice ceiling MUST split into manifest
+windows or offload bounded compute while the comm worker remains the authority.
+The selected window may show honest loading while pending; size cannot produce
+terminal unavailable. File View may chunk/offload compute internally but emits
+only one canonical bounded prefix, not continuation windows. Speculative work
+may be demoted; selected/visible membership cannot be discarded.
 
 Content preparation below the byte/line ceiling is still not automatically safe:
 if measured slice duration exceeds `workerComputeSliceMaxMs`, the next revision
@@ -910,35 +1347,322 @@ user click / key / hover / scroll
         WorkerContentPreparationPump for fetch/decode/window/rank prep
         │
         ├─► scheme-RPC fetch/subscribe to Swift when needed
+        ├─► compact measurement sample to telemetry-worker port
         │
         └─► BridgeWorkerServerToMainMessage
               typed event/reply with slice patches and
-              BridgeWorkerPierreRenderJob values
-              ArrayBuffer transfer for large payload ownership moves
+              BridgeWorkerPierreWindowSubmission values
+              transferred for every content-bearing ownership move
               │
               ▼
             BridgeMainRenderSnapshotStore subscriptions
               R46 frame-budgeted patch apply and low-cost
               Pierre courier enqueue
+              │
+              ├─► BridgeRenderDisposition back to comm worker
+              └─► compact measurement sample to telemetry-worker port
 ```
 
-Transfer mode matrix:
+Transfer/consumer matrix. Every content-bearing message class has exactly one
+consumer and one ownership mode; an unlisted or parallel route is forbidden.
 
 | Surface | Payload class | Boundary | Mode | Rule |
 | --- | --- | --- | --- | --- |
-| Review | select, hover, mode, viewport, mark-viewed facts | main -> comm worker | structured clone DTO | Small ids, hashes, ranges, enums, and revisions; never transfer list. |
+| Review | select, hover, surface/projection mode, viewport, mark-viewed facts | main -> comm worker | structured clone DTO | Small ids, hashes, ranges, enums, and UI revisions; never worker epoch/sequence. |
 | Review | open/refresh/reconnect/search/filter RPC via typed lifecycle store | main -> comm worker | structured clone DTO | Request keys and variables are cloneable DTOs; optimistic state stays in lifecycle/render hooks, not in worker payload. |
 | Review | metadata descriptors, availability, row chrome, tree/window patches | comm worker -> main | structured clone DTO | Only bounded visible/window deltas may cross; full-package snapshots are forbidden. |
 | Review | source/diff/content bytes fetched from Swift | Swift -> comm worker | stream/`ArrayBuffer` in worker | Worker consumes `ReadableStream<Uint8Array>`/`arrayBuffer()` and owns the byte cache; main does not receive raw bytes. |
-| Review | large paint-ready runs, line windows, binary preview payloads, persistent-cache payloads | comm worker -> main/Pierre courier | transfer list | Payload uses `ArrayBuffer`; include the buffer in the transfer list when ownership moves. If the worker must retain canonical bytes, send a derived display buffer and measure the copy. |
-| Review | `BridgeWorkerPierreRenderJob` for Shiki/diff rendering | comm worker -> main -> Pierre API | transfer to main when possible; measured bounded clone into stock Pierre unless adapter proves transfer | Comm worker prepares all data/rank needed by Pierre. Main may only enqueue through the Pierre API and record clone/submit cost; no main parse/window/diff/highlight. |
-| Review | telemetry counters and health/drop summaries | comm worker -> Swift or main | structured clone DTO or scheme POST body | Counters and health summaries are small DTOs; encoded telemetry batches may use `ArrayBuffer` bodies when byte size is material. |
+| Review | diff/text `BridgeWorkerPierreWindowSubmission` | comm worker -> main -> Pierre `submitWindow` -> Pierre worker | transfer at both ownership moves | Sole CodeView content consumer. Main forwards once; accepted buffers detach before return; no separate line/run payload. |
+| Review | markdown source/render tree | comm -> optional comm-owned compute -> comm -> main patches | source transfer only inside worker execution; bounded structural DTO patches to main | Sole markdown consumer; raw source never reaches main/Pierre; final patch uses normal disposition. |
+| Review/File | render disposition | main -> comm worker | small structured-clone DTO | One idempotent transition per job/window state; full identity and reason required; no telemetry dependency or content body. |
+| Review/File | telemetry sample | main or comm -> telemetry worker | compact structured-clone DTO on dedicated producer port | Producer timestamps/correlates only. Telemetry worker owns validation, credit, buffer, bytes, sequence, encode, retry/outbox, and POST. |
 | File View | open file, select path, expand/collapse, filter/search, viewport facts | main -> comm worker | structured clone DTO | Small path ids/hashes, filter text, row ids, and ranges; never full tree state. |
 | File View | tree metadata, descriptor windows, availability, row paint patches | comm worker -> main | structured clone DTO | Only bounded visible/window deltas may cross; full manifest/list snapshots are forbidden. |
 | File View | file contents fetched from Swift | Swift -> comm worker | stream/`ArrayBuffer` in worker | Worker owns raw file bytes and decoded/cache truth; main receives availability or paint-ready display payload only. |
-| File View | large text windows, syntax/token runs, binary preview bytes, persistent-cache payloads | comm worker -> main/Pierre courier | transfer list | Payload uses `ArrayBuffer`; include transferred buffers explicitly and assert sender detachment. |
-| File View | `BridgeWorkerPierreRenderJob` for syntax/text rendering | comm worker -> main -> Pierre API | transfer to main when possible; measured bounded clone into stock Pierre unless adapter proves transfer | Comm worker prepares the render payload and rank. Main may only enqueue through the Pierre API and record clone/submit cost; no main content loading, decoding, or line-window work. |
+| File View | one text-prefix `BridgeWorkerPierreWindowSubmission` | comm worker -> main -> Pierre `submitWindow` -> Pierre worker | transfer at both ownership moves | Sole text-content consumer; exact canonical prefix, detachment asserted, no separate run/window payload. |
+| File View | binary/unsupported/unavailable result | comm worker -> main | small structured clone availability DTO | No body crosses; explicit terminal/truncation metadata only. |
 | File View | initial load/progress/worker health | comm worker -> main | structured clone DTO | Progress and health are small render-copy facts; no content bytes or raw manifest snapshot. |
+
+### R61. Review continuation and File View bounds are observable product state.
+
+Review's 512 KiB / 400-line values are per-window courier/preparation ceilings,
+not a selected-diff product cap. The worker contract includes current desired
+CodeView logical ranges and the sealed R57 manifest. Desired selected/visible
+windows remain demand members until matching paint or non-size terminal source
+failure. Windows may arrive out of order and merge only into their descriptor;
+eviction preserves extent/header/anchor and re-entry re-demands the same window.
+`coverageComplete` means every manifest window painted at least once, including
+the terminal real hunk. The 100,000-line fixture must prove early, middle, and
+final checksums without cumulative whole-item update, blank filler, or prefix
+replay.
+
+File View has no continuation state machine. It publishes one real prefix whose
+serialized content is bounded by both 2 MiB and 10,000 actual payload lines.
+The item may expose `totalLineCount` and explicit truncation/window metadata, but
+must not append whitespace/newlines to reserve full-file height or imply that
+unloaded lines are content. Binary, unsupported encoding, unavailable, and
+truncated states are explicit and stable; size alone yields readable truncation,
+not unavailable.
+
+Window selection, line slicing, continuation membership, and truncation
+classification are comm-worker facts. Main/Pierre may render the supplied
+window but cannot choose, pad, or reinterpret it.
+
+### R62. End-to-end proof is correlated, layered, and failure-preserving.
+
+One safe interaction id connects:
+
+```text
+local intent -> worker demand -> Swift request/stream -> worker ready
+  -> main accepted/rejected -> Pierre queued -> DOM applied -> painted/superseded
+```
+
+The product control plane uses typed commands, patches, and dispositions.
+Telemetry observes the same ids but cannot complete or repair the lifecycle.
+Every required stage emits accepted/rejected/superseded state so a gap has a
+named owner rather than an unmeasured wait.
+
+A benchmark cell is the Cartesian product of runtime, surface, interaction,
+cache class, and telemetry state named in the success contract. Browser timing
+starts at the trusted committing event timestamp before handler delivery;
+`input_queue_wait` ends at the first handler instruction. Synthetic DOM
+`.click()` is not a timing stimulus. Semantic IPC timing starts on the
+controller's monotonic clock before dispatch and ends at correlated post-paint
+completion on that same outer clock. Actionability controls cohort eligibility,
+never clock reset; cross-clock values are not subtracted without calibration.
+
+| Interaction metric | Required painted endpoint |
+| --- | --- |
+| selection feedback | selected chrome plus matching readable, terminal, or honest selected placeholder |
+| fresh display readable | matching semantic/window/render identity and current validation lease; no worker trip credited |
+| selected readable | matching current window after worker/Pierre/apply and post-paint check |
+| terminal availability | matching binary/unsupported/unavailable/failure state |
+| rail/CodeView scroll motion | first confirmed frame with intended nonzero motion |
+| rail/CodeView window painted | settled desired rows/window are correct, checksum-matching, nonblank, and painted |
+
+Published scroll budgets require both motion and correct-window endpoints.
+Every attempted row records cell, launch, interaction/attempt id, outcome,
+duration, and a deadline fixed before execution:
+`max(1000 ms, 5 * applicable p99 budget)`. Success uses endpoint minus start;
+detected wrong/stale/blank/disappeared/superseded uses detection minus start;
+timeout/wedge/missing endpoint uses the deadline. Every failure enters the
+nearest-rank percentile array and independently fails correctness. Nonfinite or
+negative duration invalidates the artifact.
+
+Telemetry-on baseline publication stages are:
+
+```text
+stimulus_issued -> main_intent_received -> local_intent_committed
+ -> local_feedback_painted -> worker_intent_received -> demand_issued
+ -> content_source_resolved -> [swift_request_issued -> swift_response_received]
+ -> worker_ready -> main_job_received -> main_validity_decided
+ -> apply_queued -> pierre_queued -> dom_applied
+ -> readable_painted | terminal_availability_painted
+ -> render_disposition_received -> attempt_closed
+```
+
+The lifecycle catalog is closed:
+
+| Variant | Required control path / fulfillment |
+| --- | --- |
+| fresh display or cached terminal | local paint -> mandatory worker intent -> `selectionAccepted` -> reuse current painted residency/terminal ref -> close; no new attempt/disposition |
+| worker cache | baseline path without Swift stages; new publication/painted disposition |
+| cold miss | full baseline path |
+| cold terminal | through worker/main terminal patch -> terminal paint/disposition; no Pierre |
+| markdown | demand/source -> markdown compute queued/completed -> bounded patches -> DOM paint/disposition; no Pierre |
+| continuation | baseline repeated per desired window |
+| republish | lease expired/rejected -> replacement attempt -> already-painted acknowledgement or normal apply/paint |
+| surface reset/runtime restart | barrier/ack -> facts re-emitted -> resync/re-demand -> one normal terminal path |
+
+Stale, timeout, wrong, disappearance, and failure close with that exact outcome.
+Telemetry-off has no telemetry worker or
+producer ports and proves only external input-to-paint, correctness, motion,
+console, and event-loop/frame gaps. It cannot close internal stage SLOs.
+
+The owned main-loop measurement window spans stimulus through one confirmed
+frame after endpoint/deadline. Chromium requires zero overlapping Long Tasks
+`>= 50 ms` and reports rAF gaps. WKWebView, which lacks that API, runs a
+foreground sentinel at nominal cadence `<= 8 ms`, requires zero consecutive
+callback gaps `>= 50 ms`, and reports rAF gaps over 16/33/50 ms. Startup and
+unrelated background time are separate scenarios.
+
+Required proof layers are distinct:
+
+1. deterministic dev server with real comm, telemetry, and Pierre workers,
+   3,420+ file / 100,000-line Review plus large File View, browser automation,
+   screenshots, console checks, scroll motion, long-task/event-loop evidence,
+   and raw benchmark families;
+2. headless Swift provider/manifest, scheduler, product stream,
+   generation/reset/security, capability, cancellation, sequence, queue, and
+   telemetry-admission proof without visual claims;
+3. packaged current-worktree Agent Studio WKWebView using real
+   `agentstudio://` workers/product streams/content/telemetry, semantic Agent
+   Studio IPC stimuli, and marker-scoped VictoriaLogs/VictoriaMetrics;
+4. Peekaboo visible/manual proof for correct selection/content persistence and
+   momentum scrolling; Peekaboo is not the timing oracle; and
+5. static negative proof, type/lint/format/tests, implementation review, and PR
+   checks/comments/threads/mergeability.
+
+Lower seams do not substitute for higher claims. A fake worker cannot prove
+real clone/transfer or scheduling cost; browser proof cannot prove WKWebView
+scheme behavior; headless Swift cannot prove UI; screenshots cannot prove p99.
+Required telemetry gaps, missing raw samples, omitted failures, wrong content,
+blank windows, disappearance, wedges, or stale paint fail the run even when the
+remaining numeric samples meet percentile budgets.
+
+### R63. Render fulfillment, reset, and worker restart are one state machine.
+
+```text
+desired -> preparing -> published(attempt) -> queued -> applied -> painted
+   ^             |             | rejected/superseded/lease-expired |
+   +-------------+-------------+-----------------------------------+
+```
+
+Only matching `painted` or explicit non-size terminal availability fulfills
+selected/visible membership. `attemptId` is new per publication;
+`submissionId` and semantic window identity remain stable. Dispositions are
+idempotent, monotonic (`queued -> applied -> painted`), and each kind occurs at
+most once per attempt. Conflicting/out-of-order receipts are rejected.
+
+Every published attempt owns a policy-bounded receipt lease. A current desired
+window whose lease expires, or whose attempt is rejected/superseded, returns to
+desired after bounded backoff and republishes with a new attempt id. Main/Pierre
+dedupe by submission/window identity so a lost receipt cannot duplicate DOM.
+For `already_painted`, main performs the normal post-frame identity check and
+sends `painted` for the NEW attempt; `already_applied` waits for the Pierre paint
+event. Thus idempotent no-op closes the receipt lease without inventing a paint.
+After a policy-bounded attempt burst, the worker marks transport unhealthy and
+starts reset/reconnect; demand membership is never parked or abandoned.
+
+A routine source/stream reset is `SurfaceSourceEpochReset(surface, oldEpoch,
+newEpoch, barrierId)`: the worker instance and other surface context survive;
+main cancels only old-epoch work for that surface and acks before its new-epoch
+publication. Worker error/`messageerror`, bootstrap timeout, or pane-lifetime
+health failure instead creates `CommWorkerRuntimeRestart(oldInstance,
+barrierId)`: main raises its instance floor, cancels all old work, acks, and
+rejects late receipts. The replacement gets a native-authorized instance lease,
+reopens/resyncs, re-mints epochs, and receives re-emitted FE facts, never product
+rows/content. Missing ack/repeated restart becomes visibly unhealthy; no fallback
+appears.
+
+### R64. Swift product requests and streams are framed, capable, and cancellable.
+
+The comm worker alone uses `POST agentstudio://rpc/command`, long-lived
+`POST agentstudio://rpc/stream`, and leased `GET agentstudio://resource/...`.
+Every privileged request carries a 256-bit opaque
+`X-AgentStudio-Bridge-Product-Capability`; native validates pane/page binding
+before body read, decode, allocation, lease resolution, or provider mutation.
+It is native-minted and bound to exactly one authorized `workerInstanceId`;
+minting a replacement atomically revokes the old worker streams/leases. Bootstrap
+transfers its 32-byte buffer to the worker and detaches main. It never appears in
+URL/DOM/global/log/telemetry/error/response; reload/disposal revokes it. Static
+assets and `OPTIONS` are capability-free.
+
+Every request carries wire version, native `paneSessionId`, per-lifetime
+`workerInstanceId`, worker `requestId`, and contiguous worker request sequence
+from 1. The closed request union is `workerSession.open`, `product.command`,
+`stream.open`, `stream.cancel`, and `workerSession.resync`; variants carry
+surface, source generation, worker epoch, stream id/source ref/resume point as
+applicable. The closed one-shot response union is `workerSession.accepted`,
+`command.accepted`, `stream.cancelled`, and typed `request.error` with safe code,
+retryability/delay, and next expected sequence when applicable.
+Exact retry reuses id, sequence, and encoded bytes; native returns the cached
+response. Same sequence/different digest is fatal conflict; a gap returns
+`resync_required` without mutation.
+
+One worker-owned `BridgeProductControlMux` assigns that sequence and permits one
+unacknowledged control admission. Command completes admission at its response;
+stream open at `stream.accepted` sequence 0; cancel/resync at their response.
+Admitted long streams then run concurrently across Review/File. Leased resource
+GETs carry worker capability + lease + resource request id, NOT the control
+sequence, and may run concurrently. Native scheme tasks therefore cannot create
+a valid control gap, and an unaccepted/stale worker cannot mint its own lifetime.
+
+Stream frames are four-byte unsigned big-endian encoded length followed by
+exactly that many UTF-8 JSON bytes. The closed union is `stream.accepted`,
+`stream.data`, `stream.reset`, `stream.end`, or `stream.error`; every frame has
+wire/pane/worker/surface/stream/source/epoch identity and Swift-owned contiguous
+stream sequence. Accepted is sequence 0; reset/end/error are terminal; no frame
+follows. Zero/oversize length, invalid UTF-8/version/shape/bounds, gap,
+conflicting duplicate, or stale identity terminates admission and reopens.
+
+Native queues have policy-owned frame/encoded-byte caps and reserve one terminal
+control frame. Overflow emits next-sequence reset `producer_overflow`, never
+silent loss. Explicit cancel completes only after Swift stops/unregisters
+production and returns `stream.cancelled`; fetch/page/worker disposal aborts the
+URL-scheme task and native producer. Replacement worker acceptance cancels old
+streams and leases. Resume uses only a retained contiguous suffix; otherwise
+accepted says `snapshot_required`. A shared versioned TypeScript/Swift hostile
+corpus covers capabilities, pre-decode caps, replay/gaps, split UTF-8/lengths,
+overflow, cancel, replay/snapshot, restart/stale worker, and scrubbed errors.
+
+### R65. File View byte, encoding, line, and truncation semantics are canonical.
+
+Binary/provider-unsupported classification occurs before decode; a NUL in the
+inspected prefix is binary. Invalid UTF-8 is `unsupported_encoding`, never
+replacement-decoded. Supported text is the maximal prefix satisfying BOTH
+2 * 1024 * 1024 bytes and 10,000 payload lines. A byte cut backs up to the last
+complete UTF-8 scalar; a partial final source line is displayed/counts and sets
+`endsMidLine`.
+
+LF terminates a line; CRLF is one terminator; trailing LF creates no extra empty
+line; empty content has zero lines. Thus `"a\n"` is 1 line, `"a\nb"` is 2, a
+2-line cap of `"a\nb\nc"` is exactly `"a\nb\n"`, and a cut inside the U+20AC
+scalar of escaped `"a\u20ACb"` retains only `"a"`.
+The descriptor separately carries semantic identity, prefix hash, payload byte/
+line counts, optional total line count, `byte_limit | line_limit | both | none`,
+`endsMidLine`, `endsWithNewline`, and `utf-8`. Metadata never fabricates bytes,
+lines, whitespace, or layout height. TypeScript and Swift share these fixtures.
+
+### R66. Telemetry credits, admission, restart, and drain are explicit.
+
+`BridgePaneTelemetrySession` alone creates/monitors the optional worker. Failure
+signals are worker `error`/`messageerror`, bootstrap/port timeout, fatal health,
+or missing drain ack. Failure closes producer ports and makes the run
+proof-ineligible while product continues. Replacement creates a new telemetry
+session; sessions cannot be pooled. Comm-worker restart revokes/replaces only
+its producer port and sequence; old-port traffic fails proof.
+
+`producer.install -> producer.ready(initialSampleCredits, controlCredits)` opens
+a port. One sample credit represents one pipeline slot capped by
+`compactSampleMaxEncodedBytes`; it is consumed before post and refilled only
+after native accepted/duplicate admission or accounted shedding frees that slot,
+not merely worker receipt. Reserved control credit is separate and returned only
+by control acknowledgement. Every attempted event advances producer sequence,
+including pre-ingress loss. With no sample credit, a producer retains no body;
+it increments bounded aggregate counters/ranges. `loss.summary` uses control
+credit, is ordered after its range, and must be acknowledged. Counter-key
+overflow emits `loss_counter_overflow` and fails proof. Requiredness derives
+from event kind: every R62 lifecycle/gate sample,
+abort/stale/unavailable/timeout/reset/retry/failure/jank event, and telemetry
+integrity event is required. Required loss anywhere sets `proofEligible=false`;
+optional diagnostic loss is exact and marks the run lossy.
+
+Native bootstrap supplies policy classes for sample/control credits, producer
+loss-key cap, worker sample/byte buffer, batch count/bytes, minimum flush,
+single in-flight batch, outbox count/bytes, retry/backoff, and drain deadline.
+The worker validates/scrubs before admission, sheds optional before required,
+encodes, sequences, retries, and posts with
+`X-AgentStudio-Bridge-Telemetry-Capability`.
+
+Native replies `accepted`, `duplicate`, `accepted_with_loss`, or `rejected`,
+with telemetry session/batch sequence, next expected sequence, accepted/loss
+counts, and retryability/delay when rejected. Admission is idempotent by session,
+sequence, and native body digest; retry reuses identical bytes/sequence; conflict
+is non-retryable; rejection admits zero; empty success is forbidden. Required
+native loss/rejection or retry exhaustion fails proof.
+
+Typed `snapshot`, `drain`, and `drainAndClose` address the sidecar. Drain revokes
+sample credits, sends ordered producer barriers, seals each producer at an
+acknowledged sequence/loss high-watermark, admits every required sample/summary
+through those marks, then either reopens with new grants or closes/revokes ports.
+It returns only counters/state/proof eligibility plus admitted batch and terminal
+ack. Main may courier control but cannot inspect bodies or flush. A racing event,
+missing barrier/loss/native/close ack, or post-seal required event fails proof.
+The semantic IPC methods `bridge.telemetry.snapshot` and
+`bridge.telemetry.flush` are adapters to `snapshot` and `drain` respectively;
+they cannot read or drain `BridgePerformanceTraceRecorder` or another native
+fallback pipeline.
 
 ## Action And Event Sequence Contracts
 
@@ -951,32 +1675,37 @@ synchronously into a paint.
 Boundary notation:
 
 ```text
-main/FE -> server worker     LOCAL-FIRST MessageChannel boundary crossing
-JavaScript -> Swift          scheme-handler typed POST/stream fetch boundary
-Swift -> JavaScript          streamed push/content/response crossing
-server worker -> main/FE     typed slice publication crossing
-main/FE -> Pierre worker     Pierre API compute/apply boundary crossing
+main/FE -> comm worker       pane MessageChannel product boundary
+comm worker -> Swift         typed product POST/stream/resource boundary
+Swift -> comm worker         streamed push/content/response boundary
+comm worker -> main/FE       typed slice/job publication boundary
+main/FE -> comm worker       typed render-disposition boundary
+main/comm -> telemetry worker dedicated compact-sample producer ports
+telemetry worker -> Swift    telemetry-only scheme POST boundary
+main/FE -> Pierre worker     public Pierre API compute/apply boundary
 ```
 
 ### Action/Event Inventory
 
 | Trigger | Initiating actor | Boundary crossings | Paint rule | Governing requirements |
 | --- | --- | --- | --- | --- |
-| click cache-hit | user/FE | 0 before content paint; later FE -> server worker intent/fact if needed | frame-1 paints readable selected content from fresh local paint-ready cache | R41, R42, R45, R48, R49 |
-| click cold | user/FE | 0 before frame-1; later FE -> server worker demand fact, server worker -> Swift scheme-RPC fetch/subscription, Swift -> server worker streamed content, server worker -> FE slice | frame-1 paints selected identity plus honest loading/availability; selected content applies first within R46 budget when ready | R41, R44, R45, R46, R48, R49, R52 |
-| scroll momentum | user/FE/Pierre | one rAF-coalesced FE -> server worker viewport fact per frame while moving; main -> Pierre worker through Pierre API only | Pierre scrolls existing DOM immediately; incoming slices that affect viewport are HELD while momentum continues | R41, R45, R46, R48, R49, R51 |
-| scroll settle | FE/Pierre | FE -> server worker settled viewport fact; later server worker -> FE affected slice updates; main -> Pierre worker through Pierre API only | settle frame keeps existing DOM; HELD slices apply by rank after settle inside frame budget | R41, R45, R46, R48, R49, R51 |
-| hover | user/FE | 0 before hover paint; later FE -> server worker hover fact if it changes demand | frame-1 paints local hover/focus chrome only; content demand is speculative and cannot block hover | R41, R42, R45, R49 |
-| expand/collapse | user/FE | 0 before toggle paint; later FE -> server worker expanded/collapsed fact | frame-1 paints local tree shape and placeholders from slices; server worker repairs invalid ids or supplies content deltas later | R41, R42, R45, R46, R49 |
-| mode switch | user/FE app shell | 0 before shell paint; later FE -> server worker activeMode fact | frame-1 paints retained local mode shell/slices; server worker demotes inactive foreground work and repairs availability later | R41, R42, R45, R49 |
-| tab/worktree switch | user/FE app shell | 0 before shell paint; later FE -> server worker selected context fact and server worker -> Swift scheme-RPC subscribe/reopen if needed | frame-1 paints retained local shell or honest loading; no visible old-worktree content after identity change | R41, R42, R45, R48, R49 |
-| server push/fact | Swift | Swift -> server worker streamed scheme response; server worker -> FE affected slices only | FE paints only after server worker validates stream/epoch/sequence and publishes O(delta) slice patches | R42, R45, R48, R49, R50 |
-| content-ready | Swift/server worker executor | Swift -> server worker streamed content response; server worker -> FE paint-ready slice | no direct paint from response; server worker validates current epoch and FE applies rank-first within R46 | R42, R44, R46, R48, R49, R52 |
-| generation rotation | Swift source plus server worker epoch authority | Swift -> server worker source fact; server worker atomic epoch reset; server worker -> FE reset slices | one paint observes either old epoch before reset or new epoch after reset; never half-old/half-new | R37, R42, R44, R45, R48, R49 |
-| fetch failure | server worker executor/Swift content path | Swift -> server worker failure or server worker local fetch failure; server worker -> FE availability/health slice | selected identity paints explicit retry/unavailable/error state; FE never starts its own retry | R41, R42, R44, R48, R49 |
-| reconnect | server worker transport | server worker -> Swift scheme-RPC reopen/subscriptions; Swift -> server worker streamed resync; server worker -> FE health/slice repairs | FE keeps local slices with explicit health/loading; stale incoming results cannot mutate active UI | R42, R44, R45, R48, R49 |
-| telemetry flush | server worker | server worker -> Swift dedicated scheme POST only | no user-visible paint; flush runs idle, byte-capped, drop-oldest with lossless counters | R41, R43, R48, R49 |
-| startup warm-up | FE activation/server worker | FE -> server worker warm-up fact; server worker may prewarm cache/compute and Swift subscriptions | initial shell paints from retained local slices or honest loading; warm-up cannot block first paint | R41, R42, R44, R48, R49 |
+| click cache-hit | user/FE | 0 before content paint; mandatory post-paint UI-revision fact -> comm worker -> `selectionAccepted` residency ref | frame-1 paints readable selected content; later ack closes control only | R41, R42, R45, R48, R49, R62 |
+| click cold | user/FE | 0 before frame-1; later FE -> comm worker demand, comm -> Swift fetch/subscription, Swift -> comm content, comm -> FE job/slice, FE -> comm disposition | frame-1 paints selected identity plus honest loading; readable success occurs only after current content paint and matching receipt | R41, R42, R44, R46, R49, R52, R62 |
+| scroll momentum | user/FE/Pierre | one rAF-coalesced FE -> comm worker viewport fact per frame while moving; main -> Pierre worker through Pierre API only | Pierre scrolls existing DOM immediately; incoming slices that affect viewport are HELD while momentum continues | R41, R45, R46, R48, R49, R51 |
+| scroll settle | FE/Pierre | FE -> comm worker settled viewport fact; later comm worker -> FE affected slice updates; main -> Pierre worker through Pierre API only | settle frame keeps existing DOM; HELD slices apply by rank after settle inside frame budget | R41, R45, R46, R48, R49, R51 |
+| hover | user/FE | 0 before hover paint; later FE -> comm worker hover fact if it changes demand | frame-1 paints local hover/focus chrome only; content demand is speculative and cannot block hover | R41, R42, R45, R49 |
+| expand/collapse | user/FE | 0 before toggle paint; later FE -> comm worker expanded/collapsed fact | frame-1 paints local tree shape and placeholders from slices; comm worker repairs invalid ids or supplies content deltas later | R41, R42, R45, R46, R49 |
+| hunk expansion | user/FE -> Pierre `setHunkExpansion` | Pierre missing-window event -> main typed desired-window fact -> comm continuation -> `submitWindow` -> atomic Pierre expansion/disposition | affordance paints locally; expansion content appears atomically with stable anchor, never blank filler | R42, R46, R57, R61, R63 |
+| surface switch | user/FE app shell | 0 before shell paint; later FE -> comm worker `activeSurfaceUiIntent` with UI revision | frame-1 paints retained local shell; worker accepts `activeSurface`, demotes inactive foreground, and repairs later | R41, R42, R45, R49 |
+| tab/worktree switch | user/FE app shell | 0 before shell paint; later FE -> comm worker selected context fact and comm worker -> Swift product-stream subscribe/reopen if needed | frame-1 paints retained local shell or honest loading; no visible old-worktree content after identity change | R41, R42, R45, R48, R49 |
+| server push/fact | Swift | Swift -> comm worker streamed product response; comm worker -> FE affected slices only | FE paints only after comm worker validates stream/epoch/sequence and publishes O(delta) slice patches | R42, R45, R48, R49, R50 |
+| content-ready | Swift/comm worker executor | Swift -> comm worker streamed content response; comm worker -> FE paint-ready slice | no direct paint from response; comm worker validates current epoch and FE applies rank-first within R46 | R42, R44, R46, R48, R49, R52 |
+| Review continuation window | FE/Pierre viewport | FE -> comm desired line/window fact; comm -> Swift content as needed; comm -> FE bounded window; FE -> comm disposition | existing DOM scrolls immediately; later real window applies without prefix replay/blank filler and demand remains until painted | R42, R44, R46, R57, R61 |
+| generation rotation | Swift source plus comm-worker epoch authority | Swift -> comm worker source fact; comm worker atomic epoch reset; comm worker -> FE reset slices | one paint observes either old epoch before reset or new epoch after reset; never half-old/half-new | R37, R42, R44, R45, R48, R49 |
+| fetch failure | comm-worker executor/Swift content path | Swift -> comm worker failure or comm-worker local fetch failure; comm worker -> FE availability/health slice | selected identity paints explicit retry/unavailable/error state; FE never starts its own retry | R41, R42, R44, R48, R49 |
+| reconnect | comm-worker transport | comm worker -> Swift product-stream reopen/subscriptions; Swift -> comm worker streamed resync; comm worker -> FE health/slice repairs | FE keeps local slices with explicit health/loading; stale incoming results cannot mutate active UI | R42, R44, R45, R48, R49 |
+| telemetry batch | telemetry worker | main/comm compact samples -> telemetry worker; telemetry worker -> Swift telemetry POST | no user-visible paint; no product await/flush; required loss or gap fails proof | R41, R43, R48, R49, R62 |
+| startup warm-up | FE activation/comm worker | FE -> comm worker warm-up fact; comm worker may prewarm cache/compute and Swift subscriptions | initial shell paints from retained local slices or honest loading; warm-up cannot block first paint | R41, R42, R44, R48, R49 |
 
 ### Normative Sequences
 
@@ -993,9 +1722,9 @@ FE local click handler
 frame-1 paint
   │  selected chrome + readable selected content
   │
-  ├─► server worker (optional fact/intent after paint)
+  ├─► comm worker: mandatory selection/UI-revision fact after paint
   │
-  ◄─ server worker repair slice only if epoch/staleness later disagrees
+  ◄─ `selectionAccepted` + reused painted residency, or repair if stale
 ```
 
 Click, cold:
@@ -1011,17 +1740,23 @@ FE local click handler
 frame-1 paint
   │  selected chrome + honest loading/availability for selected identity
   │
-  ├─► server worker: selected/content-demand fact
+  ├─► comm worker: selected/content-demand fact
   │      validates current workerDerivationEpoch and ranks selected first
   │
-  ├──── server worker ────► Swift: scheme-RPC fetch/subscribe if cache miss
-  │                         Swift ────► server worker: content or availability
+  ├──── comm worker ────► Swift: product fetch/subscribe if cache miss
+  │                       Swift ────► comm worker: content or availability
   │
-  ◄─ server worker: selected paint-ready slice
+  ◄─ comm worker: selected paint-ready slice
   │
   ▼
 FE apply pump
      applies selected unit first within R46 time/unit budget
+  │
+  ├─ rejected/superseded ─► comm worker re-derives current membership
+  │
+  └─ applied then post-update paint check
+       └─► comm worker: painted disposition
+             retires matching selected fulfillment only
 ```
 
 Scroll momentum and settle:
@@ -1033,15 +1768,15 @@ User gesture
 Pierre scrolls existing DOM
   │  no protocol wait, no app-side scrollTop writer
   │
-  ├─► rAF: FE ─► server worker viewport fact, at most one per frame
+  ├─► rAF: FE ─► comm worker viewport fact, at most one per frame
   │
-  ◄─ server worker slice updates that affect moving viewport
+  ◄─ comm-worker slice updates that affect moving viewport
   │      FE marks affected updates HELD while momentum continues
   │
   ▼
 settle detected by Pierre/FE
   │
-  ├─► server worker settled viewport fact
+  ├─► comm worker settled viewport fact
   │
   ▼
 FE apply pump
@@ -1053,10 +1788,10 @@ Server facts, content-ready, fetch failures, and reconnect:
 ```text
 Swift subscription/content plane
   │
-  ├─► server worker: streamed push/fact/content/failure/reconnect response
+  ├─► comm worker: streamed push/fact/content/failure/reconnect response
   │
   ▼
-server worker
+comm worker
   │  sole authority for streamId, workerDerivationEpoch, sequence, staleness
   │  validates freshness before any FE publication
   │
@@ -1073,35 +1808,28 @@ Generation rotation:
 ```text
 Swift accepts sourceGeneration change
   │
-  └─► server worker source fact
+  └─► comm-worker source fact
         │
         ▼
-      server worker atomic epoch reset
-        │  mint new workerDerivationEpoch
-        │  clear derived demand, in-flight maps, cache memberships,
-        │  retry state, stale source-bound slices, and pending applies
-        │
-        └─► FE reset/availability slices
-              paint is all-old before reset or all-new after reset;
-              half-old/half-new paint is forbidden
+      SurfaceSourceEpochReset for that surface only
+        │  mint workerDerivationEpoch; other surface/worker instance survive
+        ├─► main raises surface epoch floor, cancels old work, acks barrier
+        └─► worker clears/rebuilds that surface truth, then publishes
+              paint is all-old before barrier or all-new after acknowledgement
 ```
 
 Telemetry:
 
 ```text
-FE/server-worker instrumentation samples
-  │
-  ▼
-server worker telemetry buffer
-  │  encoded-byte cap, drop-oldest shedding,
-  │  lossless counters by event/lane/result/drop reason
-  │
-  ├─ scheme-RPC command path: never flushes telemetry
-  │
-  └─ idle flush
-       │
-       └─► Swift dedicated telemetry scheme endpoint
-             not the interactive channel, never ahead of commands
+main compact sample port ----\
+                              -> telemetry worker
+comm compact sample port ----/     validate + credit + byte cap
+                                   shed/account + encode + sequence
+                                   bounded retry/outbox
+                                            │
+                                            └─► Swift telemetry endpoint
+
+product paths never flush, await, batch, encode, retry, or fetch telemetry
 ```
 
 ## Migration Constraints
@@ -1113,11 +1841,19 @@ What stays:
 - native metadata plane: interest stream, metadata lane scheduler, manifest
   index, provider/source authority;
 - R32-R40 content-demand contract and Constants Annex;
+- one pane-owned comm-worker product session with surface-scoped contexts;
+- optional separate pane telemetry worker and telemetry-only endpoint;
 - main-thread DOM materialization, bounded by R46.
 
 What dies:
 
-- telemetry on the interactive RPC channel;
+- multiple feature-owned comm-worker instances and bootstraps seeded with
+  main-owned Review/File source packages;
+- all main-owned Review/File product intake, buffering, sequencing,
+  materialization, readiness, reopen/retry, and frame-protocol decisions;
+- native product `callJavaScript`/DOM-event push and every page fetch/relay;
+- telemetry buffers, batching, JSON encoding, retry/outbox, sinks, or scheme
+  fetch on main or the comm worker;
 - the `WKScriptMessage` / `__bridge_command` RPC plane after page-load
   bootstrap, including content-world command listeners, nonce command
   dispatch, `RPCMessageHandler`, `RPCRouter`, and script-message ingress;
@@ -1132,21 +1868,28 @@ What dies:
   patch stream;
 - root-snapshot render coupling for interaction paths;
 - package-shaped sync work inside click, selection, scroll, or paint handlers;
+- main-side ready-to-loading semantic gates and uncancelled stale placeholder
+  work;
+- Review first-window-as-complete behavior and File View payload-line padding;
+- Pierre native-content fetch capability and receipt-only couriers;
 - handler-splitting as a claim of WebKit IPC isolation.
 
 Compile-enforced deletion sets are required per cutover unit:
 
-| Cutover unit | Delete or make unbuildable | Keep only |
-| --- | --- | --- |
-| File viewer content protocol | FE raw body/frame package intake, FE generation/sequence/staleness caches for content, FE demand retry/parking fields | FE slices, worker protocol client, native metadata plane |
-| Review viewer content protocol | package-first review body loading, root-snapshot selection render path, review prefetch pump, FE cache-membership truth | FE slices, worker reconciler/cache, native metadata plane |
-| React Bridge data stores | Review/File View main-thread Zustand store imports, subscriptions, mutations, and action dispatch for Bridge viewer data | `BridgeWorkerRpcLifecycleStore` for coarse worker RPC lifecycle; `BridgeMainRenderSnapshotStore` frame-critical display copies; worker-local Zustand store |
-| telemetry transport | interactive RPC telemetry send/force-flush path and shared-command queue telemetry | dedicated scheme POST endpoint and worker batching |
-| final browser/native RPC cutover | `WKScriptMessage` / `__bridge_command` ordinary RPC, content-world command listeners, nonce command dispatch, `RPCMessageHandler`, `RPCRouter`, and script-message ingress | minimal one-shot page-load bootstrap; scheme-handler typed POST/stream RPC for all ordinary Swift communication |
-| demand membership | legacy staging buffers, membership caps, pending eviction as membership policy, parked retry versions | worker reconciler membership and executor-stage pacing only |
+| Cutover unit | Delete or make unbuildable | Keep only | Enforcement floor |
+| --- | --- | --- | --- |
+| pane comm-worker topology | feature worker factories; main-seeded product bootstrap/updates | one pane worker/session and surface clients | type/import lint + real browser/native identity |
+| File content protocol | FE body/frame protocol/cache/retry/padding | display slices, canonical prefix, worker/native owners | schema/state tests + static scan + native bytes |
+| Review content protocol | package body loading, root selection semantics, prefetch/cache truth, prefix completion | worker continuation plus display slices | state tests + full-window browser/native oracle |
+| React Bridge data stores | main Review/File Zustand imports/mutations | RPC lifecycle, render snapshot, worker Zustand | import/architecture lint + subscription proof |
+| telemetry transport | page/pre-React/comm pipeline/fetch/flush/retry | producer ports, telemetry worker/endpoint | disjoint-schema scan + loss/failure/native tests |
+| browser/native product carrier | script-message RPC, product `callJavaScript`/DOM/page relays/router | bootstrap/assets/typed controls and worker POST/stream/resource | structural scan + packaged trace |
+| render fulfillment | semantic ready rejection, silent drops, stale placeholders | structural apply, semantic identity, R63 dispositions/barrier | state-machine tests + repeated live clicks |
+| Pierre courier | receipt-only/direct payload/main reconstruction/private traffic | one released transferred `submitWindow` courier | public types + detachment/memory/anchor proof |
+| demand membership | staging caps/eviction/parked retry | reconciler membership and executor pacing | compile deletion + hostile demand proof |
 
 No old and new path may remain live for the same viewer/protocol surface. Any
-surface not converted by a cutover unit is explicitly outside R41-R60 proof and
+surface not converted by a cutover unit is explicitly outside R41-R66 proof and
 cannot satisfy the local-first comm-worker contract. Compatibility shims,
 feature flags, or dual readers for one converted surface are contract
 violations unless the old path is compile-dead in that unit.
@@ -1161,19 +1904,24 @@ Cutover readiness rule:
   browser interaction timing. It cannot close WebKit `agentstudio://` scheme
   fetch, streamed-response push, native admission, or Swift/source authority.
 - Native debug-app proof remains mandatory for the JavaScript <-> Swift scheme
-  boundary. If source scans still find a live script-message/content-world RPC
-  path, main-thread Bridge data Zustand owner, FE retry/demand owner, or
-  package-first body loader for a converted surface, that surface is unconverted
-  and no R41-R60 performance or ownership claim may be made for it.
+  boundary. If source scans still find extra comm-worker creation sites, a live
+  main/native product carrier, main-thread Bridge data Zustand owner, FE
+  retry/demand/cache owner, main/comm telemetry pipeline, package-first body
+  loader, or Pierre native fetch for a converted surface, that surface is
+  unconverted and no R41-R66 performance or ownership claim may be made for it.
 
 ## Non-Goals
 
 - No Pierre fork.
+- No private Pierre worker protocol, proxy worker, local-path dependency, or
+  `patch-package`; a required upstream change lands as a general public release.
 - No claim that DOM materialization moves off the main thread.
 - No `SharedArrayBuffer` requirement.
 - No merge of the native metadata plane into the comm worker.
 - No new browser-side diff/repo authority.
 - No server lifetime surfaced to FE as user-visible protocol state.
+- No File View continuation beyond 2 MiB / 10,000 actual payload lines.
+- No shared cross-pane comm or telemetry worker.
 - No implementation phase plan in this document.
 
 ## Open Decisions
@@ -1207,3 +1955,14 @@ later separate PR for a persistent content cache, likely OPFS or IndexedDB with
 content-addressed keys and generation-epoch invalidation. This increment does
 not need a separate coordination design for durable cache ownership, and durable
 cache implementation remains out of scope here.
+
+OD-LF5. Pierre transferable/window boundary. CLOSED by R52/R53/R57.
+
+A released, pinned public byte-backed window API is mandatory before cutover.
+There is no final string-clone corridor or whole-item compatibility path.
+
+OD-LF6. Telemetry worker topology. CLOSED by R43/R49.
+
+Each pane creates no telemetry worker when disabled and at most one isolated
+telemetry worker when enabled. Main and comm are compact-sample producers only;
+no fallback pipeline exists on either interactive loop.
