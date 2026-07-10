@@ -129,14 +129,27 @@ Can run in parallel with S1/S2.
 Owned write scope:
 
 - `Sources/AgentStudio/Infrastructure/Diagnostics/MainActorWorkLedger.swift` (new)
+- `Sources/AgentStudio/Infrastructure/Diagnostics/MainActorResponsivenessHeartbeat.swift` (new)
 - `Sources/AgentStudio/Infrastructure/Diagnostics/PerformanceProbeSink.swift` (new)
 - `Sources/AgentStudio/Infrastructure/Diagnostics/PerformanceRunEvidenceLedger.swift` (new)
 - existing performance recorder/OTLP projection/metrics files
-- focused diagnostics tests
+- focused diagnostics tests, including `MainActorResponsivenessHeartbeatTests.swift`
 
 Implement enqueue/start/synchronous-end attribution, evidence-loss accounting, stage correlation, scrubbing, and invalid-evidence propagation. Wire no product source yet beyond focused test fixtures.
 
-Checkpoint: deterministic ledger tests prove queue/service separation, no span across suspension, loss invalidates a run where required, and content canaries never project to OTLP.
+The acceptance metric contract is explicit:
+
+- `performance.mainactor.work` exports separate `queue_age_ms` and synchronous `service_ms` distributions keyed only by bounded `domain`, `operation`, and `outcome` dimensions;
+- `performance.mainactor.heartbeat` exports run-loop heartbeat gap and consecutive-overdue counts without attributing a gap to an operation by proximity alone;
+- `performance.pipeline.contraction` exports source/admitted/coalesced/fact/delivery/MainActor-apply/render counts for expansion-ratio proof;
+- terminal interaction records AppKit dispatch-to-handler, host-call service, and `inputToFrameLayerPublished` separately;
+- source/fact/repair diagnostics export queue depth/oldest age, high-water, coalesced/dropped count, exact gap/debt state, and quiescence outcome.
+
+`AgentStudioOTLPTraceProjection.swift` and `AgentStudioOTLPPerformanceMetrics.swift` must project these into VictoriaMetrics histograms/counters/gauges and marker-scoped VictoriaLogs records. Raw watched paths, pane IDs, terminal content, errors, and payloads remain forbidden; real roots use stable aliases plus `dev.worktree.hash`/run correlation only.
+
+`MainActorResponsivenessHeartbeat` is the sole producer of `performance.mainactor.heartbeat`. It uses an injected monotonic clock and independently scheduled run-loop observations; it does not inspect adjacent `MainActorWorkLedger` operations or infer causality from temporal proximity.
+
+Checkpoint: deterministic ledger, injected-clock heartbeat, and OTLP projection tests prove queue/service/liveness separation, no span across suspension, bounded metric dimensions, loss invalidates a run where required, and raw-path/content canaries never project to logs or metric labels.
 
 ### Domain lanes W and T
 
@@ -215,11 +228,20 @@ Hard-cut rules:
 
 No intermediate commit after IG1 may contain dual publication. If all consumers cannot cut together, split work before IG1 and keep the old global transport until the final atomic integration diff.
 
+Before landing the IG1 integration commit, the single integration owner assembles the complete hard-cut diff in an isolated branch/worktree and runs `mise run lint`, `mise run test`, and `mise run test-webkit`. Any failure attributable to the hard-cut composition blocks IG1; there is no mixed-state or ignored-failure allowlist. Unrelated infrastructure failures remain governed by the repo validation scope guard and are reported separately rather than edited through this plan.
+
 ### Shared lane S5 — Architecture Enforcement
 
 Depends on: stable post-cut APIs from S1/S2 and domain owners.
 
-Split the rule work so each checkpoint has a narrow RED fixture and can pass independently:
+The type system is the first guard: `RuntimeFactBus.post` accepts only `RuntimeDomainFact`; local UI/activity/diagnostic signal types cannot conform to that protocol. `MainActorMutationApplier` accepts a bounded `Sendable` mutation and exposes a synchronous non-`async` apply region, so an applier cannot hide suspension inside its acceptance span.
+
+Add two named SwiftSyntax rules to the existing registry, inventory, good/bad fixtures, and parity tests. Each starts with a narrow RED fixture and must pass independently:
+
+1. `MainActorBlockingWorkRule` (`agentstudio_mainactor_blocking_work`, error): in `@MainActor` declarations, `State/MainActor/**`, `MainActorMutationApplier` implementations, and `withMainActorWork` regions, reject filesystem enumeration/canonicalization, Git/process/network calls, JSON encode/decode, regex construction or fleet collection transforms, persistence queue/retry/checkpoint arbitration, and spans crossing `await`. Allowlist entries require an operation name, calibrated service budget, and expiry/owner comment.
+2. `RuntimeSignalPlaneRule` (`agentstudio_runtime_signal_plane`, error): reject `LocalUISample`/`ActivitySample`/diagnostic values posted or replayed through `RuntimeFactBus`, exact facts placed in lossy/latest mailboxes, terminal publication through legacy `PaneRuntimeEventChannel`, mixed fact/sample dropping queues, and unkeyed `Task { @MainActor }` scheduling from C callback routers. The rule checks declared protocol conformances and call-site receiver/argument types; runtime flood/race tests remain the behavioral oracle.
+
+The following subgroups define the broader fixtures covered by those two rules and adjacent existing rules:
 
 #### S5a — Transport/admission rules
 
@@ -262,11 +284,16 @@ Depends on: S3 and domain stage instrumentation. May be developed earlier agains
 Add:
 
 - `scripts/verify-agentstudio-performance-workload.sh`
+- `scripts/verify-agentstudio-real-root-qualification.sh`
+- `scripts/agentstudio-performance/compare-runs.sh`
+- `scripts/agentstudio-performance/query-victoria-run.sh`
 - `scripts/agentstudio-performance/task-dependencies.json`
 - `scripts/verify-agentstudio-performance-task-dependencies.sh`
 - `scripts/stop-debug-observability.sh`
 - a `.mise.toml` task for the verifier
 - `Tests/AgentStudioTests/Scripts/AgentStudioPerformanceWorkloadScriptTests.swift`
+- `Tests/AgentStudioTests/Scripts/AgentStudioRealRootQualificationScriptTests.swift`
+- `Tests/AgentStudioTests/Scripts/AgentStudioPerformanceComparisonScriptTests.swift`
 - `Tests/AgentStudioTests/Scripts/AgentStudioPerformanceTaskDependencyScriptTests.swift`
 - `Tests/AgentStudioTests/Scripts/StopDebugObservabilityScriptTests.swift`
 - `Tests/AgentStudioTests/Performance/**` fixture/oracle support
@@ -274,24 +301,71 @@ Add:
 - typed `PerformanceRunOutcome` in `PerformanceRunEvidenceLedger.swift`
 - `Tests/AgentStudioTests/Performance/PerformanceCalibrationManifestTests.swift`
 - `Tests/AgentStudioTests/Performance/PerformanceRunValidityTests.swift`
+- `docs/guides/performance_proof_runbook.md`
+- `AGENTS.md` routing and proof obligations; `CLAUDE.md` remains its existing symlink
 
-Implement this as three provable subtasks:
+Implement this as six provable subtasks:
 
-- S6a validity/report core: manifest parsing, minimum independent trials, minimum samples per percentile, stopping rule, independence assumptions, histogram/raw resolution around every ceiling, warmup/exclusion/retry policy, evidence loss, and valid-pass/valid-fail/`invalidEvidence` outcomes. RED fixtures cover early stop, insufficient p99 support, unresolved precision, undeclared trimming/retry, stale identity, and missing stages.
+- S6a validity/report core: manifest parsing, minimum independent trials, minimum samples per percentile, stopping rule, independence assumptions, histogram/raw resolution around every ceiling, warmup/exclusion/retry policy, evidence loss, and valid-pass/valid-fail/`invalidEvidence` outcomes. Write one fixed-length, non-evictable local run-summary receipt outside the high-rate OTLP queue; it records expected/admitted/completed stage counts, evidence loss, final outcome, run/build/calibration identity, and a digest of the marker-scoped query contract. The verifier compares this receipt with VictoriaMetrics/VictoriaLogs and returns `invalidEvidence` on disagreement. RED fixtures cover early stop, insufficient p99 support, unresolved precision, undeclared trimming/retry, stale identity, missing stages, summary loss, and summary/Victoria disagreement.
 - S6b standard-runner/native driver: reuse `scripts/run-debug-observability.sh`, its deterministic app/data/zmx identity, and the shared Victoria stack. Add exact-PID/identity shutdown through `stop-debug-observability.sh`; it rejects stale/mismatched state and waits for process exit without wall-clock success assumptions. Do not create a second runtime/data identity or silently fall back to JSONL.
 - S6c watched/terminal scenario adapters: bind the fixed scenario/matrix manifests and independent final-state oracles to the shared validity/report core.
+- S6d baseline-to-candidate comparison: build verified baseline and candidate manifests, run identical scenario cells with unique markers, query VictoriaMetrics for p50/p95/p99/max and counts plus VictoriaLogs for required-stage/validity records, then emit machine-readable JSON and a human summary. Comparison rows show absolute value, absolute delta, percentage delta, control-relative delta, sample support, confidence/adequacy, and pass/fail/`invalidEvidence`. No candidate result may select its own query window, retry, trimming, or threshold.
+- S6e real-root qualification: run the local read-only/controlled-sentinel profile defined by DQ1 below. The tracked plan names the two authorized roots, but OTLP and portable reports contain only `open_source`/`project_dev` aliases, root hashes, safe aggregate counts, volume class, and run/build identity. Script tests prove raw paths never enter VictoriaLogs, VictoriaMetrics labels, or committed artifacts.
+- S6f durable operator guidance: `performance_proof_runbook.md` documents the exact stack/start/run/query/compare/cleanup loop, result interpretation, invalid-evidence states, and which gates are fixture-blocking versus developer-environment qualification. `AGENTS.md` routes performance, watched-folder, Ghostty-host, MainActor, EventBus, persistence, and Bridge-refresh work to this runbook and requires baseline capture before optimization, explicit admission contracts for high-rate sources, `MainActorWorkLedger` coverage for new MainActor boundaries, and current marker-scoped Victoria proof. Each hard-cut owner updates the `AGENTS.md` component-ownership table in the same integration commit so `RuntimeFactBus`, admission/source gates, persistence, terminal lifetime/fact/activity/security owners, and performance evidence owners do not exist only in the plan. Do not copy the shared stack's generic lifecycle/query cookbook into AgentStudio.
 
-The checked task-dependency manifest is the execution source for pre-cut/post-cut gates. Its validator rejects unknown tasks, cycles, W11/W12 or T12 before IG1, any T12 performance cell without the immutable CG1 digest, and IG2 without completed W12/T12 contributor receipts.
+The checked task-dependency manifest is the execution source for pre-cut/post-cut gates. Its validator rejects unknown tasks, cycles, W11/W12 or T12 before IG1, any T12 performance cell without the immutable CG1 digest, DQ1 without completed W12/T12 contributor receipts, and IG2 without a completed DQ1 receipt.
 
 Every result records the calibration-manifest digest. The optimized candidate cannot choose adequacy, exclusions, or stopping after its results are observed.
+
+The comparison loop is fixed:
+
+```text
+shared stack healthy
+  -> verify immutable baseline/candidate build manifests
+  -> preflight one debug identity idle
+  -> run identical cell with fresh marker
+  -> drain evidence and stop exact PID
+  -> query marker-scoped VictoriaMetrics + VictoriaLogs
+  -> validate stages/support/no-loss/final-state oracle
+  -> alternate build order and repeat to manifest minimum trials
+  -> compare distributions and control-relative deltas
+  -> validPass | validFail | invalidEvidence
+```
+
+AgentStudio currently treats VictoriaMetrics and VictoriaLogs as acceptance sources; VictoriaTraces may corroborate only after the producer exports accepted spans and is never assumed by this plan.
 
 ### Calibration gate CG1 — Valid baseline/control approval
 
 Depends on S3 and S6a/S6b, and occurs before any candidate measurement or vendor acceptance. Run the pinned/current host baseline and paired controls through the real ledger/validity path. The human owner approves the typed `PerformanceCalibrationManifest` containing capacities, absolute/control-relative ceilings, minimum independent trials, minimum samples per percentile, stopping rule, independence assumptions, histogram/raw precision, warmup/exclusion/retry policy, perturbation allowance, and support counts. The approved digest is immutable for the candidate run. Failure to satisfy adequacy remains `invalidEvidence`; G0 diagnostic values cannot be promoted retroactively.
 
+### Developer qualification gate DQ1 — Real watched roots and MainActor stability
+
+Depends on CG1 plus completed deterministic W12/T12 candidate cells. This is a required local qualification on the primary development machine, not a portable CI oracle. The authorized watched roots are:
+
+- `open_source` → `/Users/shravansunder/Documents/dev/open-source`
+- `project_dev` → `/Users/shravansunder/Documents/dev/project-dev`
+
+The verifier never writes existing repositories. Controlled churn is confined to a newly created, run-token-owned `.agentstudio-performance-soak/<run-token>` sentinel directory under each authorized root; cleanup verifies the sentinel token/canonical containment before removing only that generated directory. Preflight detects older orphan sentinels and fails closed with their aliases/tokens; it never deletes a prior run directory automatically. Initial add, cold boot, and settled observation exercise the actual root shapes read-only. Run baseline and candidate in alternating order with identical settings and record pre/post aggregate root manifests so unrelated environmental churn cannot be mistaken for product improvement.
+
+DQ1 runs each root alone and both together with one attended deterministic terminal, then applies idle, controlled sentinel churn, terminal output pressure, cursor/caret, TUI mouse, focus/reveal, Bridge background/visible, and clean shutdown phases. The qualification duration, minimum trials, heartbeat cadence, sample support, and absolute/control-relative ceilings come from the immutable CG1 manifest; a short manual launch is not stability proof.
+
+“MainActor is clear” means all of these pass together:
+
+| Dimension | Blocking evidence |
+| --- | --- |
+| queue availability | `performance.mainactor.work` queue-age p50/p95/p99/max within approved limits for every named operation |
+| synchronous occupancy | service p50/p95/p99/max and fixed-changed-key 10/100/300 scaling within each operation budget; no unapproved long span |
+| independent liveness | heartbeat-gap p95/p99/max and consecutive-overdue counts within limits; no missing heartbeat interval while the process is expected runnable |
+| user interaction | dispatch-to-handler, host-call service, input-to-layer publication, cursor/TUI mouse/focus/reveal tails within limits under watch/output pressure |
+| pressure contraction | bounded mailbox/bus depths and oldest age; zero critical drops, unresolved exact-fact gaps, or unacknowledged repair debt at quiescence |
+| correctness/currentness | source gates healthy, topology/SQLite/content oracles current, no stale generation accepted, clean close/reopen/shutdown |
+| memory stability | bounded scrollback/watcher/ledger memory after fill, idle, clear/prune, and soak; no positive retained-memory slope beyond the approved envelope |
+
+A crash, hang, marker loss, missing required stage, stale build/root manifest, raw-path export, unsupported p99, failed cleanup, non-quiescent source, or any violated MainActor/interaction/correctness ceiling yields `invalidEvidence` or `validFail`, never pass.
+
 ### Final integration gate IG2 — Combined fairness and correctness
 
-After the child plans pass their local gates:
+After the child plans and DQ1 pass their local gates:
 
 1. Run the watched-pressure matrix with an attended terminal receiving causal typing, cursor, and TUI mouse input.
 2. Run the terminal output/version-host factorial matrix with watched folders idle and pressured.
@@ -328,6 +402,8 @@ G0 baseline/spec/repo identity
                       +-- watched W12 acceptance ---------+
                       +-- terminal T12 candidate proof ---+
                                       |
+                      DQ1 real-root/MainActor qualification
+                                      |
                          IG2 combined cross-pressure proof
                                       |
                          implementation-review-swarm
@@ -335,7 +411,7 @@ G0 baseline/spec/repo identity
                          lint + full tests + CI/PR gates
 ```
 
-W12 and T12 are contributors to IG2, not prerequisites that recursively own it. T11 may run candidate callback/app/surface quiescence before CG1 only as build-identity-bound correctness/compatibility proof; it does not measure or accept candidate performance. Every T12 performance cell requires the immutable human-approved CG1 manifest digest.
+W12 and T12 are contributors to DQ1/IG2, not prerequisites that recursively own them. T11 may run candidate callback/app/surface quiescence before CG1 only as build-identity-bound correctness/compatibility proof; it does not measure or accept candidate performance. Every T12 and DQ1 performance cell requires the immutable human-approved CG1 manifest digest.
 
 ## 7. Parallel Write Scopes
 
@@ -364,8 +440,9 @@ High-conflict files are single-owner at each gate: `WorkspaceSurfaceCoordinator.
 | --- | --- | --- | --- | --- | --- |
 | admission is bounded before per-sample task allocation | parent shared interfaces | S1; W1–W2; T3/T6/T7 | typed `offer/takeDrain`; literal state-machine histories and diagnostics | unit, then pressure integration; current HEAD/run | required; tasks split by primitive/domain |
 | one global semantic fact bus filters before queue/replay | parent fact taxonomy; EV1–EV11 | S2/S4/IG1 | `RuntimeFactBus.subscribe/post`; independent topic/replay table and structural source inventory | unit + integration + architecture lint; current source tree | required; IG1 atomic |
-| MainActor attribution is causal and bounded | parent MainActor last mile; TA8 | S3 and every applier | `MainActorWorkLedger`; independent responsiveness probe plus stage IDs | unit + observability E2E; current PID/run token | required for behavior; ceilings calibrated separately |
+| MainActor attribution and availability are causal and bounded | parent MainActor last mile; TA8 | S3, every applier, DQ1 | `MainActorWorkLedger`; independent heartbeat plus interaction stages | unit + Victoria observability + native E2E; current PID/run/build/root manifest | required; queue/service/liveness/interaction gates all pass |
 | watched loss never authorizes false removal | WF/WS/FI | W1–W5 | callback/source-gate/scheduler/topology applier; literal filesystem manifest | unit + real filesystem/Git integration + workload | required; split callback, scan, apply |
+| watched roots never falsely present last-known state as current | watched currentness contract | W5b/W11/DQ1 | `WatchedFolderCurrentnessAtom` + Repo Explorer currentness read model | unit + integration + PID-targeted native visibility; current source/run/root generation | required; last-known content remains usable but visibly non-current |
 | stale persistence cannot overwrite newer topology | TA10–TA11 | W7/W8 | coordinator/datastore receipts; repository reads compared to literal final map | unit + real SQLite integration + workload | required; sole-writer cut atomic |
 | filesystem-to-Git and Bridge work is contracted | EV12; BR1–BR6 | W9/W10 | typed internal mailbox and bounded refresh owner; provider counters/currentness state | unit + integration + WebKit/native currentness | required; deep render out of scope |
 | Ghostty callbacks are generation/lifetime safe | CB/GT/SF9–10 | T2–T4/T11 | control-block/gate/lifecycle APIs; vendor completion recorder and lease counts | unit + foreign-thread integration + pinned/candidate stress | required; candidate quiescence is a blocking gate |
@@ -376,6 +453,8 @@ High-conflict files are single-owner at each gate: `WorkspaceSurfaceCoordinator.
 | input/geometry/visibility/reveal remain correct | SF1–SF11 | T10–T12 | AppKit/Ghostty host seams; causal layer/cursor marks plus PID-targeted visible behavior | unit + integration + native E2E | required; callback and host edits serialize |
 | vendor benefit is independently attributable | GV1–GV8 | T1/T12 | immutable build/probe/adaptation manifests; factorial controls | build integration + native/perf E2E | required; exact candidate only |
 | combined pressure no longer stalls typing/cursor | parent scenario matrix | S6/IG2 | standard debug runner + Victoria metrics + PID-targeted UI; correlated stage ledger | observability/native E2E; exact app PID/run/vendor | required; final acceptance gate |
+| actual development roots remain usable and stable | user environment qualification; PF/interaction contracts | S6e/DQ1 | authorized-root aliases + sentinel-contained churn; Victoria comparison plus source/topology/SQLite/currentness oracle | local qualification E2E; current root/build/run manifests | required locally; not a portable CI oracle |
+| performance boundaries remain mechanically visible to future agents | parent enforcement/maintainability contract | S5/S6f | two SwiftSyntax rules, rule inventory, good/bad fixtures, AGENTS-linked runbook | compile/static + docs link checks; current source tree | required; runtime proof still mandatory |
 
 Each detailed child task expands these rows with the test boundary, invalid states, IO cases, and exact files.
 
@@ -425,7 +504,7 @@ Every native verifier declares one launch contract:
 | --- | --- |
 | `run-debug-observability -- --detach` | launch owner for one manual attached-verifier group |
 | `verify-debug-observability`, `verify-agentstudio-ipc-phase-a-smoke`, `verify-secure-input-native`, `verify-ghostty-terminal-native` | attach to the exact current PID/run marker; never launch |
-| `verify-agentstudio-agent-report-smoke`, `verify-git-refresh-performance-workload`, `verify-agentstudio-performance-workload` | launch owner; preflight idle, launch one standard debug identity, and guarantee exact-PID cleanup before returning |
+| `verify-agentstudio-agent-report-smoke`, `verify-git-refresh-performance-workload`, `verify-agentstudio-performance-workload`, `verify-agentstudio-real-root-qualification` | launch owner; preflight idle, launch one standard debug identity per cell, and guarantee exact-PID cleanup before returning |
 | `verify-ghostty-vendor-manifest` | offline/build artifact verifier; no app |
 
 Run the attach group, explicitly stop it, then run launch owners serially:
@@ -441,9 +520,12 @@ mise run stop-debug-observability
 mise run verify-agentstudio-agent-report-smoke
 mise run verify-git-refresh-performance-workload
 mise run verify-agentstudio-performance-workload
+AGENTSTUDIO_PERF_REAL_ROOT_OPEN_SOURCE=/Users/shravansunder/Documents/dev/open-source \
+AGENTSTUDIO_PERF_REAL_ROOT_PROJECT_DEV=/Users/shravansunder/Documents/dev/project-dev \
+  mise run verify-agentstudio-real-root-qualification
 ```
 
-The new workload and stop tasks are added by S6. Each launch-owning verifier must confirm no same-worktree debug identity is running before launch, record its PID/run marker, clean up that exact PID on success/failure/cancellation, and confirm the identity is idle before the next launch owner. An `already_running` state is failure, never reusable proof. The workload task must launch through the standard debug runner and query the shared Victoria stack. JSONL is diagnostic only unless a test plan explicitly authorizes it.
+The new workload, qualification, comparison, and stop tasks are added by S6. Each launch-owning verifier must confirm no same-worktree debug identity is running before launch, record its PID/run marker, clean up that exact PID on success/failure/cancellation, and confirm the identity is idle before the next launch owner. An `already_running` state is failure, never reusable proof. Workload tasks launch through the standard debug runner, query the shared Victoria stack, and write a comparison receipt containing every marker/query/build/calibration/root-manifest digest. JSONL is diagnostic only unless a test plan explicitly authorizes it.
 
 ### Native gate
 
@@ -484,9 +566,11 @@ Return to plan/spec work before continuing when:
 6. several physical product buses appear necessary—requires measured evidence and spec revision;
 7. a non-local/removable root needs destructive disappearance semantics—requires explicit product support;
 8. a required proof is too large or flaky at the task boundary—split the task before implementation rather than waiving proof.
+9. the real-root qualification cannot avoid mutation outside its run-owned sentinel or cannot prove raw-path scrubbing—stop DQ1 and redesign the harness;
+10. the proposed SwiftSyntax rules require broad permanent allowlists or cannot distinguish typed boundaries—narrow the rule contract rather than normalizing waivers.
 
 ## 12. Completion Definition
 
-Implementation is not complete until every child task and IG1/IG2 is checked, the requirements/proof matrix has current-run evidence, all critical drops/gaps/repair debts have valid dispositions, `mise run lint` and required tests pass, native/observability proof is current, the exact vendor/probe/adaptation manifests are recorded, and an `implementation-review-swarm` verifies the code and proof chain.
+Implementation is not complete until every child task and IG1/DQ1/IG2 is checked, the requirements/proof matrix has current-run evidence, the baseline-to-candidate comparison report is adequate, all critical drops/gaps/repair debts have valid dispositions, `mise run lint` and required tests pass, both named SwiftSyntax rules and inventories are green, native/observability proof is current, the exact vendor/probe/adaptation/root/calibration manifests are recorded, `AGENTS.md` routes to the verified performance runbook, and an `implementation-review-swarm` verifies the code and proof chain.
 
 The next workflow is `implementation-execute-plan`; it must first revalidate this plan against the live branch and must not implement if the accepted specs or high-conflict files have materially drifted.

@@ -75,6 +75,8 @@ Add under `scripts/ghostty-performance/`:
 
 `build-matrix.sh` stages each verified XCFramework, generated header, resources, compatibility adaptation, and probe configuration under a digest-addressed scratch root. `build-product-cell.sh` creates one disposable AgentStudio source/build worktree per matrix cell at the exact Swift host revision, installs the staged framework/resources only inside that disposable tree's normal static paths, and passes probe/adaptation definitions at compile time. Each cell has an isolated Swift build directory. The active product worktree's `Frameworks/GhosttyKit.xcframework`, `Sources/AgentStudio/Resources/ghostty`, and ordinary build settings are never overwritten or selected by a runtime manifest. The output manifest binds vendor commit, generated header, library/XCFramework, resources, Swift host revision, action manifest, `compatibilityAdaptationDigest`, `measurementProbeDigest`, executable hash, resource-bundle hash, disposable source/build identity, and compile-definition digest.
 
+The required core identities are `P0` (pinned + baseline host), `N0` (candidate + baseline host), `P1` (pinned + contracted host), and `N1` (candidate + contracted host), each with its vendor-matched measurement/action adapter. When the report makes a pure-vendor claim and the pinned/candidate adapters are not semantically equivalent without candidate-specific compatibility work, `build-matrix.sh` also produces `A0`: pinned vendor plus a semantic no-op/backport-equivalent adaptation-control patch. `A0` is an isolated benchmark identity, never a product path. Its manifest digest and measured adapter overhead are mandatory inputs to the pure-vendor attribution row; without `A0`, the report must say “vendor plus mandatory adaptation.”
+
 The benchmark-only causal fixture marker and internal frame observer compile only in the isolated performance build. Ordinary debug, beta, and stable must neither recognize the marker nor export the observer ABI. The endpoint is `frameLayerPublished`, not physical scanout.
 
 Extend `scripts/run-debug-observability.sh` with one manifest-bound `--performance-build-manifest <absolute-path>` input used only by the performance workload. The runner does not select a framework or compile definitions at launch: it verifies and wraps the already-linked executable/resource bundle named by the manifest while preserving the standard deterministic debug app identity, data root, zmx root, trace marker, and process-discovery scheme. It rejects an unverified manifest, an executable/link/resource digest mismatch, a host-revision mismatch, or a product configuration containing the private probe.
@@ -89,7 +91,7 @@ Add:
 
 Extend `GhosttyResourcesTests.swift`, `GhosttyAppHandleTests.swift`, and `GhosttyEventRoutingCoverageTests.swift`.
 
-RED/GREEN: candidate tag/ABI/resource inventory should fail before explicit adaptation. GREEN proves pinned/candidate manifests, exact action sets, separate adapter/probe digests, distinct linked executable hashes, isolated build directories, unchanged default framework/resources, and negative ordinary-product hook check. A launch-time manifest swap against one prebuilt executable is an explicit failing fixture.
+RED/GREEN: candidate tag/ABI/resource inventory should fail before explicit adaptation. GREEN proves P0/N0/P1/N1 manifests, conditional A0 adaptation-control identity, exact action sets, separate adapter/probe digests, distinct linked executable hashes, isolated build directories, unchanged default framework/resources, and negative ordinary-product hook check. A pure-vendor claim without required A0 proof and a launch-time manifest swap against one prebuilt executable are explicit failing fixtures.
 
 Replan if the pinned and candidate adapters cannot be made semantically equivalent. Label any unavoidable difference “vendor plus mandatory adaptation”; do not hide it as vendor-only.
 
@@ -521,7 +523,7 @@ Requirements: GV1–GV8, SF11, terminal benchmark/observability contract.
 
 ### Isolated candidate acceptance before product cutover
 
-After T1–T11, the shared global bus hard cut, S6, and CG1 pass, use the isolated pinned/candidate builders from T1 to execute the complete performance, action, resource, callback-quiescence, probe-perturbation, throughput, interaction, and scrollback-memory gates below. Every performance cell consumes the immutable human-approved `PerformanceCalibrationManifest` digest from CG1. The product submodule remains pinned during this comparison. Candidate failure leaves the product vendor unchanged.
+After T1–T11, the shared global bus hard cut, S6, and CG1 pass, use the isolated pinned/candidate builders from T1 to execute the complete performance, action, resource, callback-quiescence, probe-perturbation, throughput, interaction, and scrollback-memory gates below. Every performance cell consumes the immutable human-approved `PerformanceCalibrationManifest` digest from CG1 and contributes to the S6d baseline-to-candidate comparison report. The product submodule remains pinned during this comparison. Candidate failure leaves the product vendor unchanged.
 
 T11 may execute pinned/candidate callback/surface/app quiescence before CG1 only as build-identity-bound correctness and compatibility proof. That pre-CG1 result cannot set thresholds, measure performance acceptance, approve the candidate, or substitute for the T12 post-CG1 quiescence cell.
 
@@ -552,6 +554,8 @@ Use the shared standard runner/evidence ledger. Execute pinned versus candidate 
 
 Fixed workloads include ASCII, Unicode/wide, CSI/request-response, idle typing, loaded typing, cursor/caret, TUI mouse, focus, reveal, hidden/visible, watched idle/pressure, Bridge visible/background, multi-pane fairness, and scrollback fill/clear/prune. The terminal core owns 24 cells and eight probe-calibration prerequisites; the combined core matrix has 34 cells.
 
+For every cell, the S6d report queries marker-scoped VictoriaMetrics for p50/p95/p99/max and support counts and VictoriaLogs for required stages, final-state validity, and exact build/run/calibration identity. It reports absolute values, baseline-to-candidate deltas, percentage deltas, control-relative deltas, and evidence adequacy. When the pinned/candidate adapters are not semantically equivalent, a pure-vendor row consumes the conditional A0 adaptation-control digest and reports adapter cost separately; without that proof its label is “vendor plus mandatory adaptation.” MainActor evidence keeps queue age, synchronous service time, independent heartbeat gaps/overdue counts, AppKit dispatch-to-handler, Ghostty host-call service, and input-to-current-layer publication as separate distributions; proximity alone never attributes a heartbeat gap to one operation. Missing stages, unsupported tails, stale identity, evidence loss, or a violated MainActor/interaction ceiling yields `invalidEvidence` or `validFail`, never pass.
+
 Throughput reports separately:
 
 - writer completion;
@@ -576,6 +580,10 @@ Launch the exact debug app through `run-debug-observability.sh`, target its PID 
 - close/recreate and shutdown without stale surface behavior.
 
 Native unavailable hardware cells are reported as unavailable diagnostics, not fabricated passes. Core causal layer/publication and supported native cells remain blocking.
+
+After deterministic T12 candidate acceptance, atomic vendor cutover, and post-cut proof, the shared DQ1 gate qualifies the product-selected candidate with one attended deterministic terminal while watching `/Users/shravansunder/Documents/dev/open-source` and `/Users/shravansunder/Documents/dev/project-dev`. Telemetry and portable reports use only the `open_source` and `project_dev` aliases. Initial observation is read-only; controlled churn is confined to the run-owned `.agentstudio-performance-soak/<run-token>` sentinel defined by DQ1. Run each root alone and both together while exercising terminal output pressure, typing, cursor/caret, TUI mouse, focus, reveal, Bridge background/visible transitions, and clean shutdown.
+
+DQ1 is the blocking real-environment confirmation that MainActor availability survives the actual root shapes: queue-age and service tails remain within per-operation budgets, heartbeat gaps remain within the independent liveness budget, interaction and layer-publication tails remain within their causal budgets, exact facts have zero unresolved gaps/drops, repair debt reaches quiescence, final topology/SQLite/content state is current, and scrollback/watcher/ledger memory reaches the approved plateau. It is not evidence of vendor-only benefit; the isolated T12 factorial report remains the attribution oracle.
 
 ## 15. Existing-Test Audit
 
@@ -613,6 +621,7 @@ No test is deleted without replacement, redundancy, or dead-contract proof.
 | free occurs only after quiescence | T11 | lifetime owner | vendor completion + leases/publications | pinned/candidate stress; vendor identity | required |
 | candidate benefit is attributable | T1/T12 | immutable build/matrix report | action/header/resource/probe manifests + workload oracles | build + E2E; exact digests | required |
 | memory does not regress | T12 | fill/quiesce/clear/prune workload | stable bounded platform samples | performance E2E; corpus/build/hardware | required |
+| loaded terminal remains responsive with actual development roots | T12 + shared DQ1 | attended terminal + authorized root aliases | Victoria queue/service/heartbeat/interaction distributions + PID-targeted IPC/Peekaboo behavior + final-state/memory oracles | local qualification E2E; exact PID/run/build/root manifests | required locally; deterministic fixtures remain the portable regression oracle |
 
 ## 17. Terminal Execution Order
 
@@ -635,10 +644,11 @@ shared admission/ledger
   -> shared IG1 global bus hard cut
   -> shared S6 + CG1 human-approved immutable calibration digest
   -> T12 isolated candidate acceptance -> atomic cutover -> post-cut proof
+  -> shared DQ1 real-root/MainActor qualification
   -> IG2 combined cross-pressure proof
 ```
 
-T3, T4, and initial T10 owner files may develop in parallel after T2 interfaces stabilize. T7, T8, and T9 may develop in parallel after T6/T5 contracts stabilize. T12 contributes the terminal/vendor cells and accepted candidate artifact to IG2; it does not own or precede the combined IG2 decision. Existing edits to `GhosttyCallbackRouter.swift`, `GhosttyAppHandle.swift`, `GhosttySurfaceView.swift`, `SurfaceManager.swift`, `GhosttyActionRouter.swift`, `TerminalRuntime.swift`, `RuntimeRegistry.swift`, IPC server/auth files, `AgentStudioOTLPTraceProjection.swift`, `.mise.toml`, and the vendor pointer use one integration owner per gate.
+T3, T4, and initial T10 owner files may develop in parallel after T2 interfaces stabilize. T7, T8, and T9 may develop in parallel after T6/T5 contracts stabilize. T12 contributes the terminal/vendor cells and accepted candidate artifact to DQ1 and IG2; it does not own either shared decision. Existing edits to `GhosttyCallbackRouter.swift`, `GhosttyAppHandle.swift`, `GhosttySurfaceView.swift`, `SurfaceManager.swift`, `GhosttyActionRouter.swift`, `TerminalRuntime.swift`, `RuntimeRegistry.swift`, IPC server/auth files, `AgentStudioOTLPTraceProjection.swift`, `.mise.toml`, and the vendor pointer use one integration owner per gate.
 
 ## 18. Validation Commands
 
@@ -675,9 +685,12 @@ mise run stop-debug-observability
 mise run verify-agentstudio-agent-report-smoke
 mise run verify-agentstudio-performance-workload -- --matrix terminal-factorial-24
 mise run verify-agentstudio-performance-workload -- --matrix core-34
+AGENTSTUDIO_PERF_REAL_ROOT_OPEN_SOURCE=/Users/shravansunder/Documents/dev/open-source \
+AGENTSTUDIO_PERF_REAL_ROOT_PROJECT_DEV=/Users/shravansunder/Documents/dev/project-dev \
+  mise run verify-agentstudio-real-root-qualification
 ```
 
-`verify-ghostty-vendor-manifest` is offline. `run-debug-observability` owns one manual launch; `verify-debug-observability`, `verify-agentstudio-ipc-phase-a-smoke`, `verify-secure-input-native`, and `verify-ghostty-terminal-native` attach to that exact PID/run marker and never launch. `stop-debug-observability` confirms that exact identity exits. `verify-agentstudio-agent-report-smoke` and each performance-workload invocation are independent launch owners: they preflight idle, launch one standard debug identity, and guarantee exact-PID cleanup before the next owner. An `already_running` marker is failure. The new task surfaces must use exact current run markers and real product boundaries. After the atomic product switch, rerun resource/action/lifetime smoke plus the supported native cells against the product-selected candidate. Report missing higher layers separately; do not relabel unit/script tests.
+`verify-ghostty-vendor-manifest` is offline. `run-debug-observability` owns one manual launch; `verify-debug-observability`, `verify-agentstudio-ipc-phase-a-smoke`, `verify-secure-input-native`, and `verify-ghostty-terminal-native` attach to that exact PID/run marker and never launch. `stop-debug-observability` confirms that exact identity exits. `verify-agentstudio-agent-report-smoke`, each performance-workload invocation, and `verify-agentstudio-real-root-qualification` are independent launch owners: they preflight idle, launch one standard debug identity, and guarantee exact-PID cleanup before the next owner. An `already_running` marker is failure. The new task surfaces must use exact current run markers and real product boundaries. The real-root verifier also proves canonical sentinel containment, raw-path scrubbing, pre/post root-manifest validity, and cleanup before it can report a result. After the atomic product switch, rerun resource/action/lifetime smoke plus the supported native cells against the product-selected candidate. Report missing higher layers separately; do not relabel unit/script tests.
 
 ## 19. Rollback And Blocking Gates
 

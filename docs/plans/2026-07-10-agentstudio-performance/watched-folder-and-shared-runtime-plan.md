@@ -297,6 +297,8 @@ Add:
   - Allocate one canonical/persistence revision, pass it into every field-scoped keyed patch, and apply the whole batch in one transaction.
   - Publish the accepted revision only after every participating mutation succeeds; rejection/failure publishes nothing and advances no revision.
   - Return `TopologyApplyReceipt`/accepted effect record.
+- `Sources/AgentStudio/Core/State/MainActor/Atoms/WatchedFolderCurrentnessAtom.swift`
+  - Runtime-only currentness keyed by watched-path identity, with exactly `discovering`, `current`, `repairing(lastKnownRevision:)`, `nonCurrentRetrying(lastKnownRevision:)`, `repairFailed(lastKnownRevision:)`, and `unavailable(lastKnownRevision:)`.
 
 Modify:
 
@@ -304,8 +306,9 @@ Modify:
 - `RepositoryTopologyAtom.swift`, `WorkspacePaneGraphAtom.swift`, and relevant cache atoms to expose small keyed batch mutation internals used only by `WorkspaceTopologyApplier`.
 - `WorkspaceSurfaceCoordinator+FilesystemSource.swift` to capture one compact source snapshot, invoke projector, apply one batch, then dispatch accepted effects.
 - `FilesystemProjectionIndex.swift` only where the accepted effect/currentness API changes; preserve its filtering/index ownership.
+- `AtomRegistry.swift`, `Features/RepoExplorer/Models/RepoExplorerSnapshot.swift`, `Features/RepoExplorer/Models/RepoExplorerProjection.swift`, and `Features/RepoExplorer/RepoExplorerView.swift` to expose and visibly distinguish watched-root currentness without deriving it in `body`.
 
-`TopologyApplyBatch` contains field-scoped patches and cache/orphan/reassociation effects. It never carries a fleet replacement. MainActor apply performs no path, regex, JSON, scan, Git, Bridge package, persistence normalization, or same-bus repost work.
+`TopologyApplyBatch` contains field-scoped patches, exhaustive watched-root currentness transitions, and cache/orphan/reassociation effects. It never carries a fleet replacement. MainActor apply performs no path, regex, JSON, scan, Git, Bridge package, persistence normalization, or same-bus repost work. Last-known topology remains usable, but the Repo Explorer read model must not render `repairing`, `nonCurrentRetrying`, `repairFailed`, or `unavailable` indistinguishably from `current`.
 
 Every accepted canonical transaction creates exactly one normative compact `TopologyProjectionUpdate` and one causally complete `WorkspacePersistenceChangeSet` carrying that same revision; atoms never allocate their own revisions. The mirror advances only across contiguous accepted revisions. A gap marks it non-current and reboots through the versioned pager plus post-base update journal.
 
@@ -318,6 +321,7 @@ Add:
 - `FilesystemTopologyProjectorTests.swift`
 - `WorkspaceTopologyApplierTests.swift`
 - `WorkspaceTopologyApplyScalingTests.swift`
+- `WatchedFolderCurrentnessAtomTests.swift`
 
 Extend:
 
@@ -327,12 +331,13 @@ Extend:
 - `TopologyEventPipelineIntegrationTests.swift`
 - pane boundary/reassociation tests
 - `FilesystemProjectionIndexTests.swift`
+- `RepoExplorerReadModelTests.swift` and `RepoExplorerViewTests.swift` for visible currentness states
 
-Invariants: stale base has no partial mutation or revision advance; one multi-atom apply advances the revision owner exactly once; every participating atom receives the same accepted revision; discovery-owned and user-owned fields merge only per spec; cache cleanup and orphaning are atomic with topology; at most one observation invalidation and trace refresh; accepted effect record exhaustively names source/Git/projection/Forge/persistence/trace/repair follow-ups.
+Invariants: stale base has no partial mutation or revision advance; one multi-atom apply advances the revision owner exactly once; every participating atom receives the same accepted revision; discovery-owned and user-owned fields merge only per spec; cache cleanup and orphaning are atomic with topology; at most one observation invalidation and trace refresh; accepted effect record exhaustively names source/Git/projection/Forge/persistence/trace/repair follow-ups and watched-root currentness. A non-current root retains last-known state but has a distinguishable Repo Explorer presentation.
 
 Oracle: independent literal topology/pane/cache map. For 10/100/300 fleets with the same changed keys, MainActor service must remain within the calibrated fixed-change envelope.
 
-RED/GREEN: required. Split if a merge conflict cannot be resolved off-main; reject/reproject rather than broadening MainActor logic.
+RED/GREEN: required, including `unavailable`/repair-failure transitions that retain last-known topology while changing the canonical currentness read model and visible Repo Explorer presentation. Split if a merge conflict cannot be resolved off-main; reject/reproject rather than broadening MainActor logic.
 
 ## 8. Task W6 — Semantic Fact Endpoints And Cutover-Ready Scheduling
 
@@ -565,7 +570,7 @@ RED/GREEN: required. If containment still misses SLO because package/React work 
 
 Requirements: NR1 plus enforcement contract.
 
-Treat `RepoExplorerRowIndex.swift` and `RepoExplorerView.swift` as read-only unless runtime evidence proves a contract violation. Preserve/extend:
+Outside W5b's spec-required watched-root currentness integration, treat `RepoExplorerRowIndex.swift` and `RepoExplorerView.swift` as read-only unless runtime evidence proves another contract violation. Preserve/extend:
 
 - `Tests/AgentStudioTests/Architecture/RepoExplorerHotPathArchitectureTests.swift`
 - `Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerReadModelTests.swift`
@@ -582,6 +587,13 @@ Requirements: PF1–PF9 and shared harness contract.
 Use the shared S6 verifier and standard debug runner. Add the fixed scenario manifests `WF-ADD-SCALE-V1`, `WF-COLD-BOOT-V1`, and `WF-HUGE-STEADY-V1`; extend rather than fork `verify-git-refresh-performance-workload.sh` where common fixture logic is reusable.
 
 The workload includes 10/100/300 scale, real watched-enabled versus equivalent one-shot-import control, one/many writers, noise, sidebar/Bridge states, and idle/interactive/heavy attended terminal. Record request, first useful state, repair-quiescent state, topology/Git/content oracle, source/mailbox/scan/root/project/apply/persistence/Bridge stage ledgers, MainActor heartbeat, and typing/cursor/TUI mouse/layer endpoints.
+
+W12 has two proof layers:
+
+1. Reproducible blocking regression cells use generated fixtures and identical operation manifests. For watched attribution run `B0` (`cd47c511` + pinned Ghostty, one-shot/watch disabled), `B1` (same baseline build, watched), `C0` (implementation HEAD + pinned Ghostty, one-shot/watch disabled), and `C1` (same candidate host, watched). Report `C1` versus `B1`, no-watch `C0` versus `B0`, and the watcher effect difference `(C1-C0)` versus `(B1-B0)`. The candidate Ghostty watched cell is a separate terminal/vendor non-regression row, not evidence for host filesystem improvement.
+2. DQ1 developer-environment qualification watches `/Users/shravansunder/Documents/dev/open-source` and `/Users/shravansunder/Documents/dev/project-dev` under `open_source` and `project_dev` aliases. Initial scan and settled observation are read-only. Controlled writes occur only under a canonical run-owned `.agentstudio-performance-soak/<run-token>` sentinel, with containment/token proof before cleanup. Run each root alone and both together; alternate baseline/candidate order and record aggregate pre/post root manifests so unrelated changes invalidate attribution rather than becoming an apparent improvement.
+
+VictoriaMetrics is the percentile/count source and VictoriaLogs is the required-stage/validity/currentness source. For every cell report MainActor queue-age and synchronous-service p50/p95/p99/max, heartbeat gaps/overdue counts, interaction tails, source/mailbox/scan/repair age and high-water, event/fact expansion, persistence/Bridge service, memory slope/plateau, final source health, and independent topology/SQLite/content equality. Missing p99 support, missing marker stages, raw-path export, non-quiescence, or a mismatched root/build/operation manifest yields `invalidEvidence`.
 
 Run outcome is `invalidEvidence` when the victim terminal is not ready, controls differ, stages/samples are missing, repair debt remains, an accepted generation is in flight, trace/probe loss occurs, or process/build markers are stale.
 
@@ -616,9 +628,12 @@ mise run verify-debug-observability
 mise run stop-debug-observability
 mise run verify-git-refresh-performance-workload
 mise run verify-agentstudio-performance-workload
+AGENTSTUDIO_PERF_REAL_ROOT_OPEN_SOURCE=/Users/shravansunder/Documents/dev/open-source \
+AGENTSTUDIO_PERF_REAL_ROOT_PROJECT_DEV=/Users/shravansunder/Documents/dev/project-dev \
+  mise run verify-agentstudio-real-root-qualification
 ```
 
-`run-debug-observability` owns the manual launch; `verify-debug-observability` attaches; `stop-debug-observability` terminates and confirms exit for that exact PID/identity. Both performance workload tasks are independent launch owners and run serially only after the identity is idle; each preflights idle and guarantees exact-PID cleanup on every exit. The new workload task must record the exact command, exit code, run token, app PID/identity, HEAD, fixture/calibration digests, and Victoria query results.
+`run-debug-observability` owns the manual launch; `verify-debug-observability` attaches; `stop-debug-observability` terminates and confirms exit for that exact PID/identity. All three performance workload/qualification tasks are independent launch owners and run serially only after the identity is idle; each preflights idle and guarantees exact-PID cleanup on every exit. The verifier records the exact command, exit code, run token, app PID/identity, HEAD, fixture/root/build/calibration digests, Victoria queries, and comparison report.
 
 ## 15. Watched Execution Order
 
