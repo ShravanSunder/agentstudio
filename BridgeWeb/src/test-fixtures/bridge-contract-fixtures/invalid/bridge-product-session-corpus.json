@@ -1,0 +1,340 @@
+{
+  "cases": [
+    {
+      "name": "request sequence starts at zero",
+      "contract": "request",
+      "value": {
+        "kind": "workerSession.open",
+        "wireVersion": 1,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-open-1",
+        "requestSequence": 0
+      }
+    },
+    {
+      "name": "request carries unknown field",
+      "contract": "request",
+      "value": {
+        "kind": "workerSession.open",
+        "wireVersion": 1,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-open-1",
+        "requestSequence": 1,
+        "legacyNonce": "forbidden"
+      }
+    },
+    {
+      "name": "request uses unknown wire version",
+      "contract": "request",
+      "value": {
+        "kind": "workerSession.open",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-open-1",
+        "requestSequence": 1
+      }
+    },
+    {
+      "name": "product command is outside the closed allowlist",
+      "contract": "request",
+      "value": {
+        "kind": "product.command",
+        "wireVersion": 1,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-command-1",
+        "requestSequence": 2,
+        "surface": "review",
+        "sourceGeneration": 7,
+        "workerEpoch": 3,
+        "command": {
+          "name": "review.runArbitraryCommand",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "name": "stream open omits explicit resume disposition input",
+      "contract": "request",
+      "value": {
+        "kind": "stream.open",
+        "wireVersion": 1,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-stream-open-1",
+        "requestSequence": 3,
+        "surface": "review",
+        "sourceGeneration": 7,
+        "workerEpoch": 3,
+        "streamId": "review-stream-1",
+        "sourceRef": "review-source-1"
+      }
+    },
+    {
+      "name": "resync repeats an active stream identity",
+      "contract": "request",
+      "value": {
+        "kind": "workerSession.resync",
+        "wireVersion": 1,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-resync-1",
+        "requestSequence": 5,
+        "lastAcceptedRequestSequence": 4,
+        "activeStreamIds": ["review-stream-1", "review-stream-1"]
+      }
+    },
+    {
+      "name": "accepted stream does not start at zero",
+      "contract": "streamFrame",
+      "value": {
+        "kind": "stream.accepted",
+        "wireVersion": 1,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "surface": "review",
+        "streamId": "review-stream-1",
+        "sourceGeneration": 7,
+        "workerEpoch": 3,
+        "streamSequence": 1,
+        "resumeDisposition": "snapshot_required"
+      }
+    },
+    {
+      "name": "data stream uses reserved sequence zero",
+      "contract": "streamFrame",
+      "value": {
+        "kind": "stream.data",
+        "wireVersion": 1,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "surface": "review",
+        "streamId": "review-stream-1",
+        "sourceGeneration": 7,
+        "workerEpoch": 3,
+        "streamSequence": 0,
+        "payload": {}
+      }
+    },
+    {
+      "name": "safe error leaks an unknown raw error field",
+      "contract": "response",
+      "value": {
+        "kind": "request.error",
+        "wireVersion": 1,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-resync-1",
+        "requestSequence": 5,
+        "code": "invalid_request",
+        "retryable": false,
+        "rawError": "forbidden source-bearing error"
+      }
+    },
+    {
+      "name": "resource request consumes control sequence",
+      "contract": "resourceRequest",
+      "value": {
+        "wireVersion": 1,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "surface": "file",
+        "sourceGeneration": 11,
+        "workerEpoch": 3,
+        "resourceRequestId": "resource-request-1",
+        "leaseId": "lease-1",
+        "requestSequence": 6
+      }
+    },
+    {
+      "name": "resource request has a negative source generation",
+      "contract": "resourceRequest",
+      "value": {
+        "wireVersion": 1,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "surface": "file",
+        "sourceGeneration": -1,
+        "workerEpoch": 3,
+        "resourceRequestId": "resource-request-1",
+        "leaseId": "lease-1"
+      }
+    },
+    {
+      "name": "optional retry delay is explicit null",
+      "contract": "response",
+      "value": {
+        "kind": "request.error",
+        "wireVersion": 1,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-error-1",
+        "requestSequence": 6,
+        "code": "resync_required",
+        "retryable": true,
+        "retryAfterMilliseconds": null
+      }
+    },
+    {
+      "name": "nested payload key exceeds the UTF-8 byte cap",
+      "contract": "request",
+      "value": {
+        "kind": "product.command",
+        "wireVersion": 1,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-command-oversized-key",
+        "requestSequence": 6,
+        "surface": "review",
+        "sourceGeneration": 7,
+        "workerEpoch": 3,
+        "command": {
+          "name": "review.refresh",
+          "payload": {
+            "nested": {
+              "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "request sequence exceeds the shared safe integer ceiling",
+      "contract": "request",
+      "value": {
+        "kind": "workerSession.open",
+        "wireVersion": 1,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-unsafe-sequence",
+        "requestSequence": 9007199254740992
+      }
+    },
+    {
+      "name": "command payload collection exceeds the shared item cap",
+      "contract": "request",
+      "value": {
+        "kind": "product.command",
+        "wireVersion": 1,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-command-wide-payload",
+        "requestSequence": 6,
+        "surface": "review",
+        "sourceGeneration": 7,
+        "workerEpoch": 3,
+        "command": {
+          "name": "review.refresh",
+          "payload": {
+            "values": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26,
+              27,
+              28,
+              29,
+              30,
+              31,
+              32,
+              33,
+              34,
+              35,
+              36,
+              37,
+              38,
+              39,
+              40,
+              41,
+              42,
+              43,
+              44,
+              45,
+              46,
+              47,
+              48,
+              49,
+              50,
+              51,
+              52,
+              53,
+              54,
+              55,
+              56,
+              57,
+              58,
+              59,
+              60,
+              61,
+              62,
+              63,
+              64
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "stream data uses an unregistered frame kind",
+      "contract": "streamFrame",
+      "value": {
+        "kind": "stream.data",
+        "wireVersion": 1,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "surface": "review",
+        "streamId": "review-stream-1",
+        "sourceGeneration": 7,
+        "workerEpoch": 3,
+        "streamSequence": 1,
+        "payload": {
+          "frameKind": "review.arbitrary",
+          "body": {}
+        }
+      }
+    },
+    {
+      "name": "resource request exceeds the bootstrap resource byte ceiling",
+      "contract": "resourceRequest",
+      "value": {
+        "wireVersion": 1,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "surface": "file",
+        "sourceGeneration": 11,
+        "workerEpoch": 3,
+        "resourceRequestId": "resource-request-1",
+        "leaseId": "lease-1",
+        "resourceKind": "file.content",
+        "resourceRef": "file-content-1",
+        "maximumBytes": 2097153
+      }
+    }
+  ]
+}

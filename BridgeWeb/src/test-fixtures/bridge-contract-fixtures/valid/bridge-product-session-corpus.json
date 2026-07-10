@@ -1,0 +1,285 @@
+{
+  "wireVersion": 1,
+  "bootstrap": {
+    "kind": "productSession.bootstrap",
+    "wireVersion": 1,
+    "paneSessionId": "pane-session-1",
+    "workerInstanceId": "worker-instance-1",
+    "initialSurface": "review",
+    "productCapabilityBytes": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "policy": {
+      "maximumControlRequestBytes": 65536,
+      "maximumStreamFrameBytes": 262144,
+      "maximumQueuedStreamFrames": 64,
+      "maximumQueuedStreamBytes": 4194304,
+      "maximumResourceBytes": 2097152,
+      "terminalFrameReserve": 1
+    },
+    "routes": {
+      "command": {
+        "method": "POST",
+        "url": "agentstudio://rpc/command"
+      },
+      "stream": {
+        "method": "POST",
+        "url": "agentstudio://rpc/stream"
+      },
+      "resource": {
+        "method": "GET",
+        "urlPrefix": "agentstudio://resource/"
+      }
+    }
+  },
+  "capabilityHeaderCases": [
+    {
+      "bytes": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31
+      ],
+      "encoded": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+    }
+  ],
+  "requests": [
+    {
+      "kind": "workerSession.open",
+      "wireVersion": 1,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-open-1",
+      "requestSequence": 1
+    },
+    {
+      "kind": "product.command",
+      "wireVersion": 1,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-command-1",
+      "requestSequence": 2,
+      "surface": "review",
+      "sourceGeneration": 7,
+      "workerEpoch": 3,
+      "command": {
+        "name": "review.refresh",
+        "payload": {}
+      }
+    },
+    {
+      "kind": "stream.open",
+      "wireVersion": 1,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-stream-open-1",
+      "requestSequence": 3,
+      "surface": "review",
+      "sourceGeneration": 7,
+      "workerEpoch": 3,
+      "streamId": "review-stream-1",
+      "sourceRef": "review-source-1",
+      "resumeFromSequence": null
+    },
+    {
+      "kind": "stream.cancel",
+      "wireVersion": 1,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-stream-cancel-1",
+      "requestSequence": 4,
+      "surface": "review",
+      "streamId": "review-stream-1"
+    },
+    {
+      "kind": "workerSession.resync",
+      "wireVersion": 1,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-resync-1",
+      "requestSequence": 5,
+      "lastAcceptedRequestSequence": 4,
+      "activeStreamIds": ["review-stream-1"]
+    }
+  ],
+  "responses": [
+    {
+      "kind": "workerSession.accepted",
+      "wireVersion": 1,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-open-1",
+      "requestSequence": 1
+    },
+    {
+      "kind": "command.accepted",
+      "wireVersion": 1,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-command-1",
+      "requestSequence": 2
+    },
+    {
+      "kind": "stream.cancelled",
+      "wireVersion": 1,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-stream-cancel-1",
+      "requestSequence": 4,
+      "streamId": "review-stream-1"
+    },
+    {
+      "kind": "request.error",
+      "wireVersion": 1,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-resync-1",
+      "requestSequence": 5,
+      "code": "resync_required",
+      "retryable": true,
+      "retryAfterMilliseconds": 0,
+      "nextExpectedRequestSequence": 5,
+      "safeMessage": "Worker session must resynchronize."
+    }
+  ],
+  "streamFrames": [
+    {
+      "kind": "stream.accepted",
+      "wireVersion": 1,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "surface": "review",
+      "streamId": "review-stream-1",
+      "sourceGeneration": 7,
+      "workerEpoch": 3,
+      "streamSequence": 0,
+      "resumeDisposition": "snapshot_required"
+    },
+    {
+      "kind": "stream.data",
+      "wireVersion": 1,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "surface": "review",
+      "streamId": "review-stream-1",
+      "sourceGeneration": 7,
+      "workerEpoch": 3,
+      "streamSequence": 1,
+      "payload": {
+        "frameKind": "review.snapshot",
+        "body": {}
+      }
+    },
+    {
+      "kind": "stream.reset",
+      "wireVersion": 1,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "surface": "review",
+      "streamId": "review-stream-reset-1",
+      "sourceGeneration": 7,
+      "workerEpoch": 3,
+      "streamSequence": 2,
+      "reason": "producer_overflow"
+    },
+    {
+      "kind": "stream.end",
+      "wireVersion": 1,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "surface": "review",
+      "streamId": "review-stream-1",
+      "sourceGeneration": 7,
+      "workerEpoch": 3,
+      "streamSequence": 2
+    },
+    {
+      "kind": "stream.error",
+      "wireVersion": 1,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "surface": "file",
+      "streamId": "file-stream-error-1",
+      "sourceGeneration": 11,
+      "workerEpoch": 3,
+      "streamSequence": 1,
+      "code": "internal",
+      "retryable": false,
+      "safeMessage": "File stream unavailable."
+    }
+  ],
+  "resourceRequests": [
+    {
+      "wireVersion": 1,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "surface": "file",
+      "sourceGeneration": 11,
+      "workerEpoch": 3,
+      "resourceRequestId": "resource-request-1",
+      "leaseId": "lease-1",
+      "resourceKind": "file.content",
+      "resourceRef": "file-content-1",
+      "maximumBytes": 2097152
+    }
+  ]
+}
