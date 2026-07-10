@@ -1,0 +1,620 @@
+# Bridge Viewer Worker Hard Cutover Implementation Plan
+
+Date: 2026-07-09
+Status: accepted after one adversarial pass; implementation-ready through G1
+Goal id: `2026-07-09-bridge-click-fileview-workers`
+Agent Studio base: `c956a12230a855cac66c920fdeb7c197f2b8d875`
+Accepted spec: `docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md`
+Accepted spec SHA-256:
+`f11480ad1e27e6a2f3e6c6cf8cc65b62936a1bc4d51573a7cf85e355d16e3fbe`
+Pierre source: `/Users/shravansunder/Documents/dev/open-source/libs-react/pierre`
+Pierre planning base: `origin/main` at
+`4f94a5e765195b27e1e4188b943aab2ae44613cb`
+
+## Goal
+
+Deliver a functional DiffsHub-class Review diff viewer and File View whose
+ordinary product traffic is owned by one comm worker per pane, whose optional
+telemetry is owned by a separate telemetry worker, and whose large-diff/file
+behavior meets the accepted correctness and p99 gates without blocking the main
+event loop.
+
+This plan ends at an Agent Studio PR proven ready but not merged. Upstream
+Pierre merge, tag, or npm publication requires explicit release authorization.
+
+## Non-Negotiable Boundaries
+
+- One pane-owned comm worker owns every ordinary Review/File command, stream,
+  demand, content request, acknowledgement, retry, cache decision, and write
+  intent. A converted surface has no second path.
+- Main owns local intent, bounded display copies, frame-budgeted DOM apply, and
+  opaque Pierre courier calls only. It never owns source bytes or product
+  protocol state.
+- Telemetry-off creates no telemetry worker. Telemetry-on creates one separate
+  worker per pane; no main/comm fallback pipeline exists.
+- Review continues through the final real window of the 100,000-line fixture.
+  File View renders one truthful UTF-8 prefix bounded by 2 MiB and 10,000 real
+  lines and has no continuation.
+- The final Pierre dependency is a released public package. No fork, private
+  import, proxy worker, `patch-package`, local-path dependency, or string-clone
+  compatibility corridor is permitted.
+- Every behavior change is RED first. A slice is not converted while its old
+  owner remains live.
+
+## Execution DAG
+
+```text
+S0 proof reducers + current native worker-fetch baseline
+  |
+  +-- S1 Pierre public API + authorized release ---------------------+
+  |                                                                 |
+  +-- S2a native POST/stream feasibility                             |
+  |      -> S2b-e product session, adapter, install, teardown -------+-- G1
+  |                                                                 |
+  +-- G0 parent freezes shared wire/capability contract              |
+         -> S3 pane-worker client + semantic fulfillment ------------+
+                    |
+                    +-- S4 telemetry sidecar -------------------------------+
+                    |
+                    +-- S6a Review normalize/index/search off path          |
+                                                                          |
+G1 = released Pierre + packaged direct worker stream + frozen contracts   |
+  |                                                                       |
+  +-- S5 File View hard cutover ----------------------+                   |
+  |                                                   |                   |
+  +-- S6b Review window/Pierre proof -----------------+-- S7 Review cutover|
+                                                          |               |
+                                                          +---------------+
+                                                                  |
+                                                                  v
+                                                        S8 audit + full proof
+                                                                  |
+                                                                  v
+                                                  implementation review -> PR
+```
+
+S1 and S2a may start immediately. G0 is a parent-owned versioned TypeScript/
+Swift wire, capability, bootstrap, and fixture freeze; only then do S2b-e and
+S3 integrate in parallel. S4 starts after S2 admission and S3 pane-session
+contracts are integrated. S6a may run after S3 without Pierre; S6b, S5, and S7
+require G1. S7 requires both S5's File deletion gate and all S6 proof. S8
+requires S4's drain/Victoria gate and S7's Review deletion gate.
+
+Core-directory work may run in parallel, but root app composition,
+`BridgePaneController`/bootstrap, shared unions/fixtures, package/lock changes,
+and deletion scans have one parent-owned serialized integration commit per
+gate. A start-gate receipt records those predecessors and the shared-file diff
+manifest before S4, S5, S7, or S8 begins.
+
+## Slice S0: Make The Proof Honest First
+
+Source: R48, R62 and the benchmark success contract.
+
+Behavior:
+
+- Replace positive-only, single-launch reducers with a closed cell manifest,
+  three fresh processes per cell, one correctness warmup, and 100 attempted
+  measured actions per launch.
+- Preserve timeout, stale, wrong, blank, disappeared, and missing-endpoint
+  attempts as deadline-valued percentile samples.
+- Record nearest-rank per-launch, pooled, and worst-launch p95/p99 without
+  interpolation or averaging launch percentiles.
+- Materialize the closed 84-cell manifest (21 family/cache-state rows x two
+  runtimes x two telemetry states), 252 fresh launches, and 25,200 measured
+  attempts. The reducer asserts those exact floors.
+- Shard by immutable cell id. Resume a completed launch only when HEAD, dirty
+  state, packaged bundle hash, fixture/checksum, viewport, machine profile,
+  Pierre version, telemetry state, and run-manifest hash all match. Any mismatch
+  invalidates that launch rather than mixing cohorts.
+- Give every launch a bounded startup/action/drain/exit deadline, deterministic
+  source/cache-state reset, owned PID/app identity, and event-based readiness.
+  No wall-clock sleep establishes readiness.
+- Establish the current marker-scoped worker custom-scheme GET/held-stream
+  baseline before changing the native carrier.
+
+Write surface:
+
+- `BridgeWeb/scripts/bridge-viewer-browser-benchmark-runner.ts`
+- new `BridgeWeb/scripts/bridge-local-first-proof-contract.ts`
+- new browser and native orchestrators/reducers under
+  `BridgeWeb/scripts/verify-bridge-local-first-*.ts`
+- benchmark fixtures/tests under `BridgeWeb/src/**/test-support/`
+- new `scripts/verify-bridge-local-first-headless.sh` and
+  `scripts/run-bridge-local-first-native-benchmark.sh`
+- `Sources/AgentStudioIPCClientCore/` batch/control result support where the
+  native orchestrator needs one bounded typed outer-clock completion seam
+- `.mise.toml` tasks and validate-only script tests
+
+The native orchestrator launches only through `run-debug-observability`, reads
+and validates its state file/PID/bundle identity, drives typed semantic IPC,
+waits for correlated post-paint and telemetry drain, writes raw attempts, sends
+`SIGTERM` only to the owned debug PID, and performs a bounded process-exit wait
+before the next launch. It never targets stable/beta or copies production state.
+The headless driver owns the hostile Swift corpus and raw attempt schema without
+making visual claims.
+
+RED proof:
+
+- Reducer tests reject 99 attempts, fewer than three launches, omitted failures,
+  nonfinite/negative durations, averaged launch percentiles, stale HEAD/fixture/
+  Pierre identity, missing lifecycle stages, missing telemetry drain, and any
+  required loss/gap.
+- The current benchmark artifact fails the new schema for the expected reasons.
+- `--validate-only` tests reject wrong cardinality, stale resumptions, orphaned
+  PIDs, missing drain/exit, and composite re-execution.
+
+Checkpoint:
+
+```bash
+pnpm -C BridgeWeb exec vitest run scripts/verify-bridge-local-first
+mise run observability:up
+AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=bridge-worker-fetch-scheme-smoke \
+  mise run run-debug-observability -- --detach
+mise run verify-bridge-worker-fetch-scheme-smoke
+```
+
+The existing smoke proves feasibility only. S2 must extend it to the actual
+capability-bound product stream before G1 closes.
+`verify-bridge-local-first-performance` is a validate-only aggregate over the
+component artifacts; it never launches the 84-cell matrix a second time.
+
+## Slice S1: Release A Public Pierre Window API
+
+Source: R52, R53, R57, R61 and the Pierre conformance corpus.
+
+Behavior:
+
+- Work from a fresh Pierre worktree based on `origin/main`, not the stale local
+  `main` checkout.
+- Add public byte-backed logical document, manifest, window, oversized-line
+  segment, stable anchor, submission/disposition, cancellation, eviction, and
+  hunk-expansion contracts.
+- Add `CodeViewHandle.submitWindow`, current-state/idempotent admission,
+  desired-window events, hunk expansion, cancel, and evict without cumulative
+  `updateItem` or pseudo-items.
+- Teach `WorkerPoolManager` and worker unions to post declared transfer lists,
+  prove sender detachment, preserve Shiki content-addressed caching, and account
+  total transferred bytes.
+- Preserve header/item/line anchors across apply, replacement, eviction,
+  re-entry, and expansion.
+
+Likely Pierre write surface:
+
+- `packages/diffs/src/types.ts` plus new public window modules and exports
+- `packages/diffs/src/components/CodeView.ts`
+- `packages/diffs/src/react/CodeView.tsx`
+- `packages/diffs/src/worker/{types.ts,WorkerPoolManager.ts,worker.ts,index.ts}`
+- virtual file/diff renderers and layout/anchor helpers
+- new conformance, transfer, cancellation, anchoring, and 100,000-line tests
+
+RED/GREEN proof:
+
+```bash
+AGENT=1 moon run diffs:test diffs:typecheck diffs:build
+AGENT=1 moon run root:format root:lint
+CI= bun publish --cwd packages/diffs --dry-run
+```
+
+The shared versioned corpus has explicit manifest/partition, mutation/no-op,
+segment, transfer/detachment, cancel, eviction/cache, hunk-event, anchor, and
+hostile-input case classes. It includes early/middle/final windows, same-size
+different bytes, Unicode segment boundaries, cancellation races,
+`already_applied`/`already_painted`, evict/re-demand residency, bad ids/
+revisions/offsets/overlaps/checksums, stable anchors, hunk expansion, and sender
+detachment. Agent Studio reruns this same corpus against the registry-installed,
+locked release before G1.
+
+Release gate:
+
+- Upstream CI, public export/type tarball checks, approved merge, version bump,
+  `diffs-vX.Y.Z` tag, and npm publication must complete before G1.
+- Agent Studio then pins the released version in `BridgeWeb/package.json` and
+  `BridgeWeb/pnpm-lock.yaml` and reruns the corpus against the installed package.
+- A locally packed tarball may assist uncommitted development only; it cannot be
+  committed or satisfy G1.
+
+## Slice S2: Create The Native Product Session And Direct Worker Stream
+
+Source: R44, R49, R59, R63, R64.
+
+Behavior:
+
+- Add a non-MainActor per-pane product-session actor owning pane/worker identity,
+  capability digest, serialized control admission, exact retry cache, stream
+  producers, resource leases, sequence floor, cancellation, resync, and revoke.
+  It is the sole worker-lifetime/admission/lease authority. The existing lease
+  registry is folded into that actor or becomes a private descriptor index,
+  never a second source of truth.
+- Add capability-bound `POST agentstudio://rpc/command`, framed long-lived
+  `POST agentstudio://rpc/stream`, and leased resource GET admission. Validate
+  capability and size before body decode/allocation.
+- Mint a transferable 32-byte worker-lifetime capability only through typed
+  bootstrap. Replacement atomically revokes the old worker's streams and
+  leases.
+- Keep the scheme handler as an HTTP adapter. Product providers do not run
+  through the MainActor semantic IPC dispatcher.
+
+Likely write surface:
+
+- `Sources/AgentStudio/Features/Bridge/Transport/BridgeSchemeHandler*.swift`
+- new product-session and product-frame Swift types
+- `BridgeBootstrap.swift`, `BridgeTransportResourceLeaseRegistry.swift`
+- `BridgePaneController.swift` teardown and source-reset coordination
+- shared Swift/TypeScript hostile wire fixtures and Bridge scheme tests
+
+RED proof:
+
+- Capability-before-body-read, wrong pane/worker, replay/gap/digest conflict,
+  split length/UTF-8 framing, overflow terminal reserve, cancellation stopping
+  and unregistering production, resume/snapshot-required, worker replacement,
+  surface reset, runtime restart, and teardown.
+
+Ordered S2 gates:
+
+1. **S2a feasibility:** packaged WKWebView proves capability/header admission,
+   declared length/body cap before decode/provider work, framed streamed POST
+   response, and URL-scheme cancellation. If WebKit cannot expose a safe
+   pre-decode cap, stop and revise the carrier before building the actor.
+2. **S2b session core:** actor, digest/replay cache, producer/lease registry,
+   terminal reserve, reset/restart, and hostile tests.
+3. **S2c scheme adapter:** thin command/stream/resource HTTP adapter with no
+   MainActor product dispatcher or duplicate authority.
+4. **S2d capability install:** typed transferable bootstrap, accepted worker
+   instance, and old-capability revoke before replacement acceptance.
+5. **S2e lifecycle close:** tracked reload/replacement/teardown awaits producer
+   stop, unregister, lease revoke, and terminal acknowledgement. No untracked
+   reset task may outlive pane disposal.
+
+Checkpoint:
+
+```bash
+mise run test-fast -- --filter BridgeProduct
+mise run test -- --filter BridgeSchemeHandler
+mise run test-webkit
+mise run verify-bridge-worker-fetch-scheme-smoke
+```
+
+G1 requires the smoke to exercise the real capability-bound POST stream,
+resource GET, cancellation, and replacement worker, not only the old GET probe.
+It must show an oversized/missing-length request never reaches decode/provider,
+`stream.cancelled` follows producer stop/unregister, and teardown leaves zero
+streams/leases or post-terminal frames.
+
+## Slice S3: Freeze One Pane Worker And The Fulfillment State Machine
+
+Source: R41-R42, R45-R46, R49-R58, R60, R62-R63.
+
+Behavior:
+
+- Define one pane worker session with surface-scoped Review/File clients and a
+  single typed contract. The root session scaffold remains off-path until a
+  surface cutover; it does not create a second live route.
+- Add the worker-owned `BridgeProductControlMux`, typed scheme command/stream/
+  resource client, framing decoder, and install-port bootstrap client. Exactly
+  one control admission is unacknowledged; admitted Review/File streams and
+  resource GETs run concurrently. Resource GET carries capability, worker-bound
+  lease, and `resourceRequestId`, and never consumes the control sequence.
+- Introduce content-authoritative SHA-256 semantic document/window identity.
+  Metadata, cache key, lease, generation, projection, and UI revision are not
+  semantic identity.
+- Implement desired -> preparing -> published -> queued -> applied -> painted,
+  attempt leases, already-applied/already-painted resubmission, monotonic
+  dispositions, selected re-demand, `SurfaceSourceEpochReset`, and
+  `CommWorkerRuntimeRestart`.
+- Implement the post-paint UI-revision fact and `selectionAccepted` response for
+  fresh-display/cached-terminal reuse. It reuses painted residency without a new
+  publication attempt or disposition.
+- Make main snapshot acceptance structural and identity-based. Delete the
+  ready-to-loading behavior as part of the later Review cutover, backed now by
+  metadata-churn and same-size/different-bytes RED cases.
+- Add frame-budgeted patch/disposition apply with selected-first fairness.
+
+Write surface:
+
+- `BridgeWeb/src/core/comm-worker/` contracts/store/runtime/pump
+- new pane-session, semantic-identity, fulfillment, and disposition modules
+- `BridgeWorkerMarkdownPatch` plus the disjoint comm-owned stateless compute-
+  pool port/schema in the shared-contract freeze; S6 owns its implementation
+- `bridge-main-render-snapshot-store.ts` and frame-budgeted patch applier
+- hostile worker and real-worker contract tests
+
+RED proof includes metadata-only churn retaining ready semantic content,
+same-size different bytes rejecting reuse, fresh-display `selectionAccepted`
+with no attempt, monotonic receipt retries, one-unacknowledged control admission,
+concurrent Review stream plus File resource GET progress, resource GET not
+advancing control sequence, and stale worker denial before provider mutation.
+
+Checkpoint:
+
+```bash
+pnpm -C BridgeWeb exec vitest run src/core/comm-worker
+pnpm -C BridgeWeb exec vitest --config vitest.browser.config.ts run \
+  --project integration-browser src/core/comm-worker
+mise run bridge-web-check
+```
+
+## Slice S4: Cut Telemetry Onto Its Own Worker
+
+Source: R43, R48-R51, R62, R66.
+
+Behavior:
+
+- Add one optional pane telemetry worker with two dedicated producer ports.
+- Mint a distinct telemetry-session capability; product capability reuse is a
+  hard rejection. Bind producer identity to its installed port, authenticate
+  before body access, rotate/revoke on sidecar replacement, and reject old-port
+  traffic.
+- Implement sample/control credits, exact producer sequence and loss ranges,
+  required-loss proof failure, validation/scrubbing, bounded buffers/outbox,
+  idempotent native admission, retry, restart, snapshot, drain, and close
+  barriers.
+- Map `bridge.telemetry.snapshot` and `bridge.telemetry.flush` to sidecar
+  `snapshot` and `drain`; never use `BridgePerformanceTraceRecorder`.
+- Delete main/pre-React/comm batching, stringify, fetch, retry, and flush owners
+  plus the old telemetry endpoint callers in the same slice. No telemetry
+  deletion is deferred to S8.
+
+Write surface:
+
+- new `BridgeWeb/src/core/telemetry-worker/`
+- Bridge telemetry producer adapters and app composition
+- Swift Bridge telemetry session/admission/validation/projection tests
+- static ownership scans and Victoria verifier fields
+
+Checkpoint:
+
+- Telemetry-off constructs no worker or ports.
+- Telemetry-on/failure/restart/credit exhaustion/drain-race tests pass.
+- Cross-capability/session/producer, pre-body rejection, old-port-after-restart,
+  and product-capability-reuse hostile tests pass.
+- Product output is identical on/off/failure, while failure is proof-ineligible.
+- Marker-scoped Victoria shows no required loss, sequence gap, or missing drain.
+
+## Slice S5: Hard-Cut File View
+
+Source: R41-R49, R52-R53, R58-R61, R63-R65.
+
+Behavior:
+
+- The pane comm worker consumes native File metadata/content streams directly
+  and owns rows, search/filter, selection, demand, cache, retry, stale repair,
+  refresh, and the canonical UTF-8 prefix.
+- Main receives bounded display patches and forwards one released public Pierre
+  window. It does not parse, pad, retry, or own descriptors/content.
+- Atomically delete File's native-to-main intake, feature worker factory, FE
+  frame protocol/cache/retry owner, loaders, padding, File-specific semantic
+  page/DOM handlers, and native/main carrier registration. Classify and remove
+  or narrow `file-viewer/state/bridge-file-viewer-store.ts` fields into component-
+  local UI intent, the one main render snapshot, or worker truth; it is not a
+  Zustand store and must not survive as another product/render authority.
+
+Likely write surface:
+
+- `BridgeWeb/src/core/comm-worker/bridge-comm-worker-file-view-*`
+- `BridgeWeb/src/file-viewer/`
+- obsolete `BridgeWeb/src/app/bridge-app-native-worktree-file*`
+- Swift `Runtime/WorktreeFileSurface/` and resource/lease owners
+
+RED proof:
+
+- Shared Swift/TS UTF-8, CRLF/LF, invalid encoding, NUL/binary, byte/line/both
+  truncation, partial scalar, partial final line, empty file, and no-padding
+  corpus.
+- Hostile refresh/gap/reset/stale/abort cases and real browser/native
+  search-select-render journeys.
+
+Checkpoint: focused unit/Swift tests, real-worker browser File View, packaged
+native File View, installed-Pierre detachment proof, and a static scan showing
+the old File product owners/carriers are compile-dead. The packaged trace shows
+one pane-worker identity and zero page/native File product relays.
+
+## Slice S6: Prove The Review Engine Off Path
+
+Source: R42, R44, R58, R60-R63 and the retained product journeys.
+
+Behavior:
+
+- **S6a, after S3:** build worker-owned Review package normalization, tree
+  indexes, search/facets, projection, selection, visible demand, and stale
+  classification without importing Pierre.
+- **S6b, after G1:** add semantic manifests/windows, continuation, hunk
+  expansion, eviction/re-entry, and bounded markdown compute/sanitize patches
+  against only the registry-installed locked Pierre version.
+- Build the comm-owned stateless markdown/content compute pool behind the S3
+  port/schema. Hostile reset tests prove it cannot reach main or Swift and that
+  main receives only bounded `BridgeWorkerMarkdownPatch` values.
+- Exercise it through hostile worker/server tests and the released Pierre API
+  without connecting a second production Review route.
+
+Write surface:
+
+- worker Review runtime/preparation/pump/window modules and tests
+- shared Review wire fixtures
+- no root app or current Review production-owner edits in this slice
+
+Checkpoint: 3,420-file O(delta) projection tests plus early/middle/final
+checksums across the 100,000-line fixture, stable anchors, no prefix replay,
+unsafe markdown corpus, preemption, and 8 ms synchronous-slice ceiling.
+
+## Slice S7: Atomically Hard-Cut Review
+
+Source: all retained Review journeys plus R41-R64.
+
+Behavior:
+
+- Connect Review to the same pane comm worker and direct native product stream.
+- Start only after the S5 File compile-dead receipt and S6a/S6b proof receipts.
+- Main keeps local selection/viewport/chrome and bounded display residency only;
+  the worker owns package/projection/demand/content/continuation truth.
+- Route all selection, reveal, scroll, collapse, hunk, markdown, mark-viewed,
+  search, filter, and viewport consequences through the worker.
+- Delete the Review feature worker factory, native/main intake, canonical main
+  package/store ownership, projection worker, package body loader, ready-to-
+  loading gates, stale placeholders, main payload reconstruction, receipt-only
+  courier, first-window-as-complete behavior, private Pierre traffic, remaining
+  product `callJavaScript`/DOM push, post-bootstrap product script-message RPC,
+  native/main product relays, shared product router registrations, and extra
+  comm-worker creation sites. Route the retained Review semantic IPC methods
+  through the S3 typed local-intent seam before deleting their legacy handlers.
+- Classify `review-viewer/state/review-viewer-store.ts` fields into component-
+  local intent, the one main render snapshot, or worker truth; it must not remain
+  a second product/render authority.
+
+Likely write surface:
+
+- `BridgeWeb/src/app/bridge-app-review-*`
+- `BridgeWeb/src/review-viewer/`
+- shared comm-worker Review contracts/runtime
+- Swift Review metadata/provider/resource/stream owners
+
+Checkpoint:
+
+- Repeated cold/warm/metadata-churn clicks never disappear or wedge.
+- Deep tree select/reveal, search/facets, collapse, independent rail/CodeView
+  scroll, all change kinds, binary/unavailable, markdown, hunk expansion, and
+  final-window traversal pass in real-worker browser and packaged WKWebView.
+- Static scans show old Review product owners are compile-dead.
+- Packaged mode-switch/two-pane/restart/teardown traces show one comm-worker
+  identity per pane and zero page/native product relays.
+
+## Slice S8: Audit Semantic IPC And Prove The Product
+
+Source: R48-R51, R62-R66 and the closed semantic IPC mapping.
+
+Behavior:
+
+- Audit all 16 retained Bridge semantic IPC methods against their specified
+  native authority, isolated typed local-intent adapter, bounded diagnostic,
+  handle probe, or telemetry-sidecar control. File routes were closed in S5,
+  telemetry routes in S4, and final Review/shared routes in S7.
+- Run zero-result deletion scans. If S8 finds a product/telemetry bypass or old
+  owner to delete, the owning cutover failed and returns to S4, S5, or S7; S8
+  does not perform cleanup migration work.
+- Run the full benchmark applicability manifest and product journey matrix.
+
+Closed semantic IPC routing ledger:
+
+| Methods | Owning cutover | S8 zero-result audit |
+| --- | --- | --- |
+| `bridge.fileView.open`, `bridge.fileView.getContent` | S5 | source initiation enters File worker; content returns handle/metadata only |
+| `bridge.diff.load`, `bridge.diff.refresh` | S7 | native source authority -> worker accepted/resynced -> required paint |
+| `bridge.diff.selectFile`, `bridge.diff.scrollToFile`, `bridge.diff.expandFile`, `bridge.diff.collapseFile` | S7 | typed local-intent seam -> worker acceptance -> correlated paint |
+| `bridge.fileTree.search`, `bridge.fileTree.setFilter`, `bridge.fileTree.revealPath`, `bridge.fileView.showMarkdownPreview` | S7 | typed local-intent seam; no product work on the page/native adapter |
+| `bridge.diff.getPackage`, `bridge.diff.renderState` | S7 | bounded read-only metadata/render probes; no raw bodies/store snapshots |
+| `bridge.telemetry.snapshot`, `bridge.telemetry.flush` | S4 | telemetry-worker snapshot/drain; no native recorder fallback |
+
+Required proof commands:
+
+```bash
+mise run verify-bridge-local-first-browser-benchmark
+mise run verify-bridge-local-first-headless
+mise run verify-bridge-local-first-native-benchmark
+mise run verify-bridge-local-first-performance
+mise run bridge-web-check
+mise run bridge-web-test
+mise run bridge-web-browser-test
+mise run bridge-web-build
+mise run bridge-web-audit
+mise run test
+mise run test-large
+mise run test-webkit
+mise run lint
+```
+
+Native evidence uses the standard debug observability launcher, current-worktree
+bundle identity, semantic IPC stimuli, and marker-scoped Victoria queries.
+Peekaboo proves visible persistence and momentum with PID/window targeting; it
+is not the latency oracle.
+
+Raw artifacts live under:
+
+```text
+tmp/bridge-local-first-proof/{browser,native}/<run>/<cell>/<launch>/
+  attempts.jsonl
+  launch.json
+  cell-reduction.json
+tmp/bridge-local-first-proof/<runtime>/<run>/manifest.json
+tmp/bridge-local-first-proof/visual/<run>/
+```
+
+Every required cell runs telemetry off and on in both controlled Chromium and
+packaged WKWebView. Each launch and pooled cohort must pass. Required telemetry
+loss/gaps, wrong/blank/stale/disappeared content, wedges, and main-loop tasks at
+or above 50 ms are all zero.
+
+## Requirements / Proof Matrix
+
+| Source obligations | Owner | Required proof and exact floor | Freshness / task fit |
+| --- | --- | --- | --- |
+| R41, R45-R46 local paint, sliced reads, frame pump | S3/S5/S7/S8 | selection/fresh-display p99 <32 ms; owned main/comm slice <=8 ms; tasks >=50 ms zero; selected first with visible fairness | current raw interaction chain in browser/native; fits surface slice |
+| R42, R49, R50, R51, R52, R53, R54, R55, R56 one truth owner, one worker, typed boundaries, courier | G0/S3/S4/S5/S7 | one comm worker per pane; zero main/native product relays; main-to-Pierre p95 <4/p99 <8 ms | current source scan plus packaged protocol/worker identity |
+| R43, R66 telemetry isolation, credits, drain | S4/S8 | zero required loss/gaps; on/off/failure product parity; exact drain high-watermarks | current telemetry session/marker; S4 must close before S8 |
+| R44, R52-R53, R57, R60-R61 bytes, transfer, Pierre windows, continuation | S1/S3/S5/S6b/S7 | sender detached; queue p95 <16/p99 <32 ms; Review final checksum; File truthful prefix; no clone/prefix replay | registry version equals lock/bundle; installed corpus |
+| R47 scalable File projection/apply | S5/S8 | bottom-up prune regression remains linear; frame intake/projection/apply slices <=8 ms | large current File fixture; no duplicate prune task |
+| R48, R62 correlated proof | S0/S8 | exactly 84 cells, 252 launches, >=25,200 measured attempts; every launch/pooled cohort passes; failures retained | immutable manifest, HEAD/bundle/PID/fixture/machine identity |
+| R58 normalized O(delta) worker state | S3/S5/S6a/S7 | click invalidation O(selected + visible delta), selected preemption, no starvation | subscriber/key counters from current large fixture |
+| R59, R64 trust/capability/stream/cancel | S2/S3 | pre-body rejection, exact replay, no control gap, cancel/teardown leaves zero producers/leases | packaged WKWebView plus hostile cross-language corpus |
+| R63 semantic fulfillment/reset/restart | S3/S5/S7 | monotonic attempts/dispositions, fresh-display `selectionAccepted`, no stale/blank/disappeared/wedged result | same semantic/window/attempt chain; repeated live clicks |
+| R65 canonical File bytes/encoding/lines | S5 | shared Swift/TS literal byte/checksum/truncation oracle | identical corpus/version in both runtimes |
+| retained File/Review journeys and 16 IPC methods | S4/S5/S6/S7/S8 | all actions, full 3,420-file/100,000-line Review, mode switch, two-pane, restart, teardown; dev p95 <50/p99 <100, native p95 <100/p99 <200 | current run, early/middle/final checksums and routing ledger |
+| no bypass/dual owner; PR ready, no merge | each cutover/S8 | per-slice compile-dead scan; final zero-result audit; review/checks/threads/mergeability | current HEAD, packaged assets, fresh PR head SHA |
+
+## Per-Slice Test Proof
+
+Project proof-layer definitions come from `AGENTS.md`: unit, integration, real
+smoke/e2e, native/observability, then PR. Every row is RED before production
+edits; execution records failing command/output and later GREEN exit code.
+
+| Slice | Public seam / boundary and invariant | Guard + independent oracle | Exact RED target; GREEN / deferred higher layer |
+| --- | --- | --- | --- |
+| S0 | proof contract/reducer; every attempt and fixed cell is represented | schema rejects omissions; literal 84/252/25,200 manifest oracle | `pnpm -C BridgeWeb exec vitest run scripts/bridge-local-first-proof-contract.unit.test.ts`; GREEN same plus `--validate-only`; runtime matrix deferred S8 |
+| S1 | released Pierre `CodeViewHandle` window API and worker transport | validators reject hostile manifests; literal conformance/checksum/anchor oracle | `AGENT=1 moonx diffs:test -- CodeView.windowConformance.test.ts`; GREEN full S1 Moon/Bun gates; registry install deferred authorized release |
+| S2 | product-session actor + scheme command/stream/resource routes | capability/sequence/frame types reject illegal state; recorded hostile frames | `mise run test-fast -- --filter BridgeProductSession`; GREEN focused Bridge + `test-webkit` + packaged stream smoke |
+| S3 | pane worker client, mux, identity, fulfillment reducer | discriminated transitions reject conflicts; literal semantic/attempt traces | `pnpm -C BridgeWeb exec vitest run src/core/comm-worker/bridge-pane-comm-worker-session.unit.test.ts`; GREEN core unit + real Worker browser; surface/native deferred S5/S7 |
+| S4 | telemetry worker ports + native telemetry session | credit/capability/sequence guards; exact sample/loss/high-watermark oracle | `pnpm -C BridgeWeb exec vitest run src/core/telemetry-worker/bridge-telemetry-worker-runtime.unit.test.ts` + `mise run test-fast -- --filter BridgeTelemetrySession`; GREEN hostile browser/native + Victoria drain; full parity S8 |
+| S5 | File worker surface + installed Pierre window + native stream | R65 schemas; literal bytes/hash/line/truncation and DOM text | File RED files `bridge-file-prefix-corpus.unit.test.ts` and `bridge-file-viewer-local-first-cutover.browser.test.tsx` + Swift `--filter BridgeFilePrefix`; GREEN packaged File journey + compile-dead scan; full p99 S8 |
+| S6 | off-path Review engine, windows, compute-pool port | schemas reject overlap/stale/cross-port traffic; reference tree/checksum/anchor corpus | RED files `bridge-comm-worker-review-window-runtime.unit.test.ts` and `bridge-review-worker-continuation.browser.test.tsx`; GREEN 3,420-file/100,000-line real Worker proof; production/native deferred S7 |
+| S7 | Review surface through one pane worker and semantic IPC | identity/lifecycle guards; DOM/current-window + native frame/checksum oracle | RED `bridge-review-local-first-cutover.browser.test.tsx` + Swift `--filter BridgeProductReviewStream`; GREEN packaged full Review journey + compile-dead scan; full p99 S8 |
+| S8 | four authoritative proof tasks and zero-result audits | artifact/routing schemas reject stale/bypass/loss; raw outer-clock/Victoria/DOM oracles | each component `--validate-only` fails stale fixture; GREEN four tasks, full static suites, review and PR gates |
+
+Test public seams are the typed worker contracts, product-session actor, Pierre
+public API, semantic IPC methods, and real user DOM/packaged app journeys.
+Independent oracles are byte/checksum fixtures, DOM text/window identity,
+protocol frame recordings, Victoria sequence/loss queries, and outer-clock raw
+attempts. Mock-only assertions cannot close browser/native rows.
+
+## Ownership And Parallelism
+
+- Parent owns shared contracts, root composition, state-machine integration,
+  cross-repo version decisions, slice review, and final claims.
+- Pierre implementer owns only the Pierre worktree and upstream tests.
+- Native implementer owns the product session, scheme routes, bootstrap, and
+  Swift tests; root Swift composition returns to the parent for integration.
+- Telemetry implementer owns the telemetry-worker directory, Swift telemetry
+  session/admission files, and telemetry tests.
+- File and Review implementers work only after shared unions freeze. They do
+  not edit the same root worker/app files concurrently.
+- Browser, observability, and native UI sidekicks own harness lifecycle and
+  evidence collection, never product truth or done claims.
+- Claude Fable xhigh remains a read-only advisor at the plan and major
+  implementation checkpoints. Parent verification accepts or rejects findings.
+
+Each verified slice receives a scoped checkpoint commit. Do not stage unrelated
+changes. Run an implementation review after S8, address accepted findings, then
+use PR wrap-up to prove checks, threads, comments, and mergeability. Do not
+merge.
+
+## Stop / Split Triggers
+
+Stop and return to the owning design/plan boundary if any of these occurs:
+
+- WKWebView requires a page/main product relay for worker traffic.
+- The native stream cannot cancel and unregister production before ack.
+- Pierre requires a fork/private import or transferred buffers do not detach.
+- A converted surface still has an old product owner or compatibility path.
+- Semantic identity cannot distinguish same-size different bytes without
+  metadata churn invalidating unchanged content.
+- Required proof cannot retain failures, correlate lifecycle stages, or bind
+  artifacts to the current process/package/commit.
+- A validation failure is outside this plan's write scope; report it separately
+  rather than editing unrelated infrastructure.
