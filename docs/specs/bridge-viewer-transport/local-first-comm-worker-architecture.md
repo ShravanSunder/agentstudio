@@ -247,7 +247,7 @@ non-cloneable local state shape may cross the worker boundary.
 Exactly one `BridgePaneCommWorkerSession` exists per Bridge pane and survives
 Review/File mode mounts and switches. Review and File View are surface-scoped
 clients of that session, not worker factories. The worker owns independent
-Review and File source/stream/epoch contexts under one active-mode-aware ranked
+Review and File source/stream/`workerDerivationEpoch` contexts under one ranked
 scheduler; one global epoch must not let one surface invalidate the other.
 
 ## Truth Ownership Tables
@@ -261,12 +261,12 @@ Identity lineage is split into semantic, UI, worker, and native planes:
 | `sourceGeneration` and metadata lineage | Swift/native provider source authority | Swift rejects stale source requests; worker treats it as source fact, never as worker cache epoch authority | Swift rotates on accepted source change, resets metadata stream/gates, and revokes stale source leases | comm worker subscriptions, server seam, native proof |
 | `semanticDocumentRevision` | comm worker from algorithm-tagged content digests and document kind/ordered roles | worker and Pierre manifest/payload validation | changes only when semantic source content changes | display cache, continuation, proof oracles |
 | `uiIntentRevision` | FE, monotonic per surface | comm worker accepts/supersedes intent and echoes the accepted value | surface remount/page session reset | FE render copies and worker intent receipts only |
-| `workerInstanceId` | pane session for each comm-worker lifetime | Swift product session and main reset barrier | every comm-worker restart | product frames, reset proof, diagnostics |
-| `workerDerivationEpoch` | comm worker per surface/source context | worker stamps demand, fetch, cache admission, and publication; Swift only echoes it | worker source reset/resync; never minted by main | worker tests and correlated proof |
+| `workerInstanceId` | Swift/native, freshly for each comm-worker lifetime | Swift product session and main reset barrier | every comm-worker restart | product frames, reset proof, diagnostics |
+| `workerDerivationEpoch` | comm worker per surface/source context | worker stamps demand, fetch, cache admission, and publication; Swift validates new admission and echoes it on admitted surface push/lifecycle frames | worker source reset/resync; never minted by main | worker tests and correlated proof |
 
 `semanticDocumentRevision` and its window identities EXCLUDE metadata/package
 revision, descriptor retouch, resource lease/cache key, sourceGeneration,
-stream/request sequence, worker instance/epoch, active surface, projection mode,
+stream/request sequence, worker instance/derivation epoch, active surface, projection mode,
 and UI-intent revision. A render-affecting option has its own
 `renderSemanticsRevision`; its replacement is atomic and the prior readable
 window remains visible until the replacement paints. Transport churn may revoke
@@ -291,7 +291,7 @@ Extended truth ownership:
 | `sourceGeneration` / metadata lineage | Swift/native | comm worker, server tests | native accepted-source transition | native reset/reopen or unhealthy | native may continue metadata rules; FE sees no protocol state |
 | `semanticDocumentRevision` / semantic window identity | comm worker from canonical content descriptors/hashes | display cache, Pierre manifest, proof | semantic content or deterministic partition change only | metadata/lease/transport churn revalidates without demoting unchanged ready content |
 | `uiIntentRevision` | FE local surface | comm worker | every local selection/mode/filter intent | latest-wins worker acceptance/repair | retained per mounted viewer; grants no protocol authority |
-| `workerInstanceId` | pane session lifecycle | main/worker/Swift | every worker creation | reset barrier cancels prior-instance work | one active instance per pane |
+| `workerInstanceId` | Swift/native pane-session bootstrap | main/worker/Swift | every worker creation | reset barrier cancels prior-instance work | one active instance per pane |
 | `workerDerivationEpoch` | comm worker, scoped by surface/source context | FE diagnostics, Swift freshness echo, worker tests | worker accepts sourceGeneration/stream tuple | epoch reset clears derived worker truth for that context | retained per pane worker; inactive foreground work demotes/aborts |
 | control/stream sequence | control: comm worker per pane/worker; physical metadata: Swift per pane stream; logical subscription: Swift per subscription | opposite endpoint | accepted send order | duplicate/gap/reset rules in R64 | inactive subscriptions retain their sequence; one physical sequence spans Review/File |
 | staleness classification | comm worker | FE health/render slices | worker validates source, stream, epoch, and sequence | reset-required -> reopen or unhealthy | inactive stale results cannot mutate active UI |
@@ -299,10 +299,10 @@ Extended truth ownership:
 | content bytes / byte cache | comm worker | worker parse/window/diff/highlight | worker `BridgeProductTransport.openContent()` POST | retry/backoff or unavailable slice | retained by retention policy; not active foreground |
 | paint-ready rows/runs/extents | comm worker produces; FE slice store owns current render copy | components | transferable worker slice update | stale slice replacement or explicit unavailable/error slice | inactive copies may persist but cannot overwrite active mode |
 | selected UI intent, `uiIntentRevision`, and selected display copy | FE local slice | comm worker as fact input | synchronous click/keyboard/programmatic mutation | worker accepts/supersedes by UI revision; never mints worker freshness | each mounted viewer retains local selection memory |
-| accepted selected product identity | comm worker, scoped by surface | demand/cache/protocol logic; FE receives display copy | worker accepts a current UI intent under its source context | stale/reset/superseded intent re-derives; main never mints worker epoch | inactive selection retains memory but has no foreground authority |
+| accepted selected product identity | comm worker, scoped by surface | demand/cache/protocol logic; FE receives display copy | worker accepts a current UI intent under its source context | stale/reset/superseded intent re-derives; main never mints `workerDerivationEpoch` | inactive selection retains memory but has no foreground authority |
 | `activeSurfaceUiIntent` | FE app shell | comm worker | local Review/File switch with UI revision | worker acceptance/repair | retained local shell fact |
 | accepted `activeSurface` | comm worker | ranked demand/protocol contexts; FE display copy | worker accepts current surface intent | demote/abort inactive foreground and echo repair | only accepted surface has foreground authority |
-| `reviewProjectionMode` | comm-worker Review projection state | FE mode control/display slice | worker accepts normal/guided/plans-specs intent | deterministic re-projection; never changes active surface or worker epoch | retained while File is active |
+| `reviewProjectionMode` | comm-worker Review projection state | FE mode control/display slice | worker accepts normal/guided/plans-specs intent | deterministic re-projection; never changes active surface or `workerDerivationEpoch` | retained while File is active |
 | `viewport` / rendered range | FE virtualizer slice | comm worker reconciler | rAF/idle-coalesced viewport publication | next viewport fact supersedes; worker re-derives | inactive viewport may be retained but does not create foreground demand |
 | `expanded` / collapsed rows | FE local slice | comm worker for visible derivation | user toggle writes local UI fact | source reset drops invalid row ids; worker publishes availability repairs | retained per viewer unless source reset invalidates ids |
 | viewed marks | Swift/native viewed-file command authority | FE render slices, comm worker ack tracking | FE sends write intent through worker to Swift | Swift ack or retry/unhealthy; worker emits ack health slice | inactive mode may queue intent only through worker, never direct native write |
@@ -392,7 +392,7 @@ with a valid lease, a new matching `painted` disposition, or explicit terminal
 availability. Worker ready/delivery/queue/submission are intermediate. The
 canonical `BridgeRenderDispositionKey` is pane session, worker instance,
 surface, semantic document/partition/window, submission id, and attempt id;
-source generation/worker epoch validate its envelope and interaction id only
+source generation/`workerDerivationEpoch` validate its envelope and interaction id only
 correlates observation. Rejected/superseded/missing receipts keep current demand
 re-derivable; telemetry is never the control-plane ack.
 
@@ -740,7 +740,7 @@ worker exists.
 
 | Channel family | Contract | Required payload shape |
 | --- | --- | --- |
-| main <-> comm worker | one typed RPC/event protocol over the pane-owned `MessageChannel`; all messages are surface/session scoped | UI intents carry UI revision; bounded replies, slices, transferred Pierre windows, health, dispositions/reset barriers; no store snapshots or main-minted worker epoch/sequence |
+| main <-> comm worker | one typed RPC/event protocol over the pane-owned `MessageChannel`; all messages are surface/session scoped | UI intents carry UI revision; bounded replies, slices, transferred Pierre windows, health, dispositions/reset barriers; no store snapshots or main-minted `workerDerivationEpoch`/sequence |
 | comm worker <-> Swift product server | one worker-owned typed product transport over custom-scheme POST bodies and streamed responses | capability-only privileged header; typed call/subscription/content bodies; in-band identity, generation/epoch/sequence, lengths, checksums, acks, resets, and health |
 | main <-> Pierre workers | Pierre public API exclusively, through one shared opaque courier | complete worker-prepared render job, demand rank, identity, window and budget; no AgentStudio main transform or private Pierre worker traffic |
 | main + comm -> telemetry worker -> Swift telemetry endpoint | two dedicated producer ports into one optional per-pane telemetry worker, then telemetry-only scheme POST | compact port-bound samples in; validated/scrubbed sequenced batches and exact loss summaries out |
@@ -977,13 +977,13 @@ Required type families:
 | Type family | Runtime | May use | Must contain | Must not contain |
 | --- | --- | --- | --- | --- |
 | `BridgeMainRenderSnapshotStore` | main/React | non-Zustand store with `useSyncExternalStore` React integration | selected id/ui revision, active-surface intent/accepted copy, Review projection mode copy, viewport/range, hover/focus, expanded UI intent, keyed paint/availability, health | Zustand, source bytes, cache/demand/retry/stream/epoch authority, query cache reads |
-| `BridgeCommWorkerStoreState` | comm worker | Zustand vanilla | surface-scoped canonical rows/indexes, byte cache, paint-ready cache, demand membership, in-flight/executor queues, retry/backoff, stream/session/protocol state, worker epoch, fulfillment state | DOM nodes, React state, component refs, telemetry buffer/outbox, direct Pierre worker initiator state, main-thread query cache objects |
-| `BridgeWorkerMainToServerMessage` | main -> comm wire DTO | `BridgeWorkerContracts` zod-derived union | wire version, UI intent revision or request id, command/fact kind, small cloneable payload, declared transfer fields | main-minted worker epoch/sequence, store snapshots, functions/classes/DOM/`AbortController`, undeclared buffers |
+| `BridgeCommWorkerStoreState` | comm worker | Zustand vanilla | surface-scoped canonical rows/indexes, byte cache, paint-ready cache, demand membership, in-flight/executor queues, retry/backoff, stream/session/protocol state, `workerDerivationEpoch`, fulfillment state | DOM nodes, React state, component refs, telemetry buffer/outbox, direct Pierre worker initiator state, main-thread query cache objects |
+| `BridgeWorkerMainToServerMessage` | main -> comm wire DTO | `BridgeWorkerContracts` zod-derived union | wire version, UI intent revision or request id, command/fact kind, small cloneable payload, declared transfer fields | main-minted `workerDerivationEpoch`/sequence, store snapshots, functions/classes/DOM/`AbortController`, undeclared buffers |
 | `BridgeWorkerServerToMainMessage` | wire DTO | `BridgeWorkerContracts` zod-derived union | health events, correlated replies, subscription events, slice patches, availability/content events, epoch/sequence freshness, declared transfer fields | canonical worker store, full package snapshots for interaction updates, untyped payloads |
 | `BridgeWorkerSlicePatch` | wire DTO applied to main render snapshot | typed patch union | target slice, operation, item id when keyed, epoch/sequence, small cloneable metadata/display payload | protocol/cache truth, source content bytes, parallel Pierre content route |
 | `BridgeWorkerPierreWindowSubmission` | comm worker -> main courier -> Pierre API | public released window DTO | stable item/document/window identity, rank, manifest/checksum, bounded transferred UTF-8/table buffers, byte/line class, Pierre version | strings/source cache, main-recomputed payload, clone mode, private Pierre traffic |
 | `BridgeWorkerMarkdownPatch` | comm worker -> main | bounded structural patch union | semantic/attempt identity, node/depth/count bounds, sanitized inert node batch, final flag | source bytes/HTML, script/style/events/URLs, whole document graph |
-| `BridgeRenderDisposition` | main -> comm worker product DTO | bounded idempotent union | pane/worker/surface, interaction/attempt/submission id, semantic document/window, worker epoch, `queued`/`applied`/`painted`/`rejected`/`superseded`, reason | telemetry-only receipt, content body, main-owned retry decision |
+| `BridgeRenderDisposition` | main -> comm worker product DTO | bounded idempotent union | pane/worker/surface, interaction/attempt/submission id, semantic document/window, `workerDerivationEpoch`, `queued`/`applied`/`painted`/`rejected`/`superseded`, reason | telemetry-only receipt, content body, main-owned retry decision |
 | `BridgeWorkerTransferDescriptor` | wire metadata | explicit transfer-list helper | message kind, unique field paths, byte lengths, transfer mode, detached-after-send expectation | implicit content, content clone mode, unmeasured ownership |
 | `BridgeProductTransport` plus closed call/subscription/content registries | comm worker <-> Swift product scheme boundary | worker-only facade and shared browser/native contract vocabulary | constrained generic `call`/`subscribe`/`openContent`, correlated typed variants, byte limits, product sequence/reset/health/error frames | React/main imports, feature fetches, generic payloads, URL/header product identity, telemetry DTOs, ad-hoc frame shapes |
 | `BridgeWorkerRpcLifecycleStore` | main/React | non-Zustand store/helper with `useSyncExternalStore` React integration | request id, command kind, lifecycle state, timeout state, progress envelope, optimistic intent id, rollback metadata, correlated worker ack/repair references | row arrays, content windows, byte buffers, demand membership, canonical cache entries, refetch/retry authority, worker protocol truth |
@@ -991,7 +991,7 @@ Required type families:
 | `BridgeWorkerPatchApplier` | main/React | non-Zustand helper | R46-budgeted application of `BridgeWorkerSlicePatch` values to `BridgeMainRenderSnapshotStore` subscriptions | protocol ownership, demand scheduling, unbounded synchronous full-list rebuilds |
 | `BridgeWorkerTransferListBuilder` | main and worker | shared helper | declared transfer fields, byte counts, detachment assertions | implicit buffers, content clones, retained main source refs |
 | `BridgeCommWorkerCommandHandler` | comm worker | worker-local helper around Zustand store and `BridgeProductTransport` | validate typed commands, update `BridgeCommWorkerStoreState`, enqueue demand/content work, publish typed replies/events | direct product fetch/routes, DOM/Pierre direct initiator behavior, React state mutation |
-| `BridgePaneCommWorkerSession` | pane composition root plus worker port | one lifecycle/port coordinator | one active worker instance id, pane session, surface clients, bootstrap/install/reset/restart/dispose, telemetry-port replacement | product protocol/cache/demand truth, per-feature worker creation, main-minted worker epoch |
+| `BridgePaneCommWorkerSession` | pane composition root plus worker port | one lifecycle/port coordinator | one active worker instance id, pane session, surface clients, bootstrap/install/reset/restart/dispose, telemetry-port replacement | product protocol/cache/demand truth, per-feature worker creation, main-minted `workerDerivationEpoch` |
 | `BridgeTelemetryWorkerContracts` | main/comm producer ports and telemetry worker | separate typed wire unions | compact samples, producer credit/sequence, loss summaries, worker health, drain/close | product commands/content/cache/demand/health DTOs, producer-selected endpoint/session/batch sequence |
 | `BridgeTelemetryBatchRequest` / `BridgeTelemetryBatchResponse` | telemetry worker <-> Swift telemetry scheme boundary | separate browser/native telemetry contract vocabulary | native-minted telemetry session, batch sequence, scrubbed bounded samples, exact loss summaries, admission response | product command/content/stream/cache/demand DTOs, producer-selected endpoint/session, raw paths/content |
 | `BridgeTelemetryWorkerRuntime` | optional telemetry worker | isolated worker-local state | validation, credit admission, buffer, encoded-byte cap, shedding, sequence, bounded retry/outbox, encode/fetch | product state, DOM state, main/comm fallback ownership |
@@ -1244,8 +1244,8 @@ Required trust rules:
 - the sole privileged header is the opaque product capability; no product
   payload/envelope/identity/cursor/descriptor/length is in headers or URL.
   Native authenticates before body access, decode, lease, or provider work;
-- every product request is a typed POST body. Worker rejects encoded bodies over
-  64 KiB before `fetch`; native counts actual `httpBody`, or at most cap + 1
+- every product request is one complete typed POST body. Worker rejects encoded bodies over
+  256 KiB before `fetch`; native counts actual `httpBody`, or at most cap + 1
   `httpBodyStream` bytes, before decode/mutation and never trusts/requires
   synthesized `Content-Length`;
 - WebKit may materialize that small body before the scheme handler sees it, so
@@ -1253,16 +1253,20 @@ Required trust rules:
   of scope;
 - worker global scope accepts exactly one typed install-port bootstrap; ordinary
   commands arrive only on the installed port;
-- requests carry pane/surface/source/epoch, stream/request, and replay identity;
-  stale/replayed/foreign/wrong-epoch frames are rejected before mutation;
-- routes, call/subscription/content kinds, strings, arrays, and frames are
-  bounded/allowlisted before expensive validation;
+- pane-plane requests carry pane/session/instance/version plus stream/request and replay identity. Surface-scoped variants carry source plus
+  `workerDerivationEpoch`; their closed product kind derives Review or File, so ordinary variants never repeat `surface`;
+- both runtimes reject invalid UTF-8, duplicate object members, non-scalar typed
+  strings, and unknown or Unicode-lookalike keys before typed handler/state mutation.
+  TypeScript enforces byte/depth/member bounds, fatal UTF-8 decode, and duplicate
+  scanning before syntactic document `JSON.parse`; JavaScript preserves exact decoded
+  key spelling, then the selected strict Zod union rejects non-scalar strings and unknown/Kelvin-sign keys before returning typed data. Those union schemas own the vocabulary; no duplicate global TypeScript key registry is required;
+- Swift bounds and scans raw bytes, then compares every decoded member name's exact UTF-8 bytes with the closed ASCII product-key allowlist before `JSONDecoder`; it never relies on canonically equivalent `String` equality for key admission;
+- path/interest identity, uniqueness, and ordering use exact UTF-8 byte identity in both runtimes. Shared composed/decomposed vectors prove no normalization enters canonical state;
 - streamed frames are length-delimited and versioned; declared length is capped
   before allocation/decode; native producer queues are bounded and overflow
   produces reset-required rather than silent loss;
-- stream gaps, duplicates, malformed frames, or epoch mismatch cause explicit
-  drop plus reset/reopen; fetch abort, page disposal, and worker restart cancel
-  and unregister native production;
+- stream gaps, duplicates, malformed frames, or wrong-epoch NEW admissions cause explicit rejection/reset. Already-admitted producers may finish with their
+  admitted epoch after its floor advances; fetch abort, page disposal, and worker restart still cancel and unregister native production;
 - raw file paths, raw content, command payload bodies, errors containing source
   text, and secret-bearing metadata are scrubbed from telemetry;
 - telemetry producer identity is port-bound; samples cannot claim producer,
@@ -1390,7 +1394,7 @@ consumer and one ownership mode; an unlisted or parallel route is forbidden.
 
 | Surface | Payload class | Boundary | Mode | Rule |
 | --- | --- | --- | --- | --- |
-| Review | select, hover, surface/projection mode, viewport, mark-viewed facts | main -> comm worker | structured clone DTO | Small ids, hashes, ranges, enums, and UI revisions; never worker epoch/sequence. |
+| Review | select, hover, surface/projection mode, viewport, mark-viewed facts | main -> comm worker | structured clone DTO | Small ids, hashes, ranges, enums, and UI revisions; never `workerDerivationEpoch`/sequence. |
 | Review | open/refresh/reconnect/search/filter RPC via typed lifecycle store | main -> comm worker | structured clone DTO | Request keys and variables are cloneable DTOs; optimistic state stays in lifecycle/render hooks, not in worker payload. |
 | Review | metadata descriptors, availability, row chrome, tree/window patches | comm worker -> main | structured clone DTO | Only bounded visible/window deltas may cross; full-package snapshots are forbidden. |
 | Review | source/diff/content bytes fetched from Swift | Swift -> comm worker | stream/`ArrayBuffer` in worker | Worker consumes `ReadableStream<Uint8Array>`/`arrayBuffer()` and owns the byte cache; main does not receive raw bytes. |
@@ -1577,62 +1581,58 @@ The comm worker alone uses three fixed product routes:
 | `POST agentstudio://rpc/stream` | one pane metadata-stream open/resume body | one continuous length-prefixed typed metadata response |
 | `POST agentstudio://rpc/content` | one demanded descriptor/window/role body | one independently cancellable typed binary content response |
 
-Every route follows R59's actual-body 64 KiB admission. The sole privileged
-header is the 256-bit opaque `X-AgentStudio-Bridge-Product-Capability`; product
-identity/length stays in bodies/frames. It binds pane/page/worker; replacement
-revokes old subscriptions/content/leases. Bootstrap transfers its 32 bytes into
-the worker and detaches main. It never appears in URL/DOM/log/telemetry/error/
-response. Static assets and `OPTIONS` remain capability-free.
+Every route follows R59's actual-body 256 KiB admission. The authenticated pane session is `wireVersion: 2` plus `paneSessionId`, a freshly native-minted
+`workerInstanceId`, and its 256-bit opaque capability. Bootstrap transfers the capability's 32 bytes into the worker and detaches main; only the capability is a privileged header. Replacement revokes old subscriptions/content/leases.
+No product identity/length appears in URL or headers, and the capability never appears in body/response/DOM/log/telemetry/error. Static assets and `OPTIONS` remain capability-free. This not-yet-installed wire has no v1 decoder, fallback, compatibility branch, global `workerEpoch`, or dual path.
 
-The command union is `workerSession.open`, `product.call`, `subscription.open`,
-`subscription.update`, `subscription.cancel`, or `workerSession.resync`; every
-variant adds only registry-derived typed data to wire/pane/worker/request identity
-and a contiguous control sequence. Responses are `workerSession.accepted`, `call.completed`, `subscription.controlAccepted`, `resync.accepted`, or typed `request.error`. Exact retry reuses id/sequence/bytes;
-digest conflict is fatal and gaps require resync. `BridgeProductControlMux`
-permits one unacknowledged admission.
+The command union is `workerSession.open`, `product.call`, `subscription.open`, `subscription.updateBatch`, `subscription.cancel`, or
+`workerSession.resync`. Open carries fixed source configuration only and establishes revision zero with the kind-specific canonical empty-interest hash.
+Mutable interests/path scope move only through nonempty typed delta batches carrying update id, subscription kind/id, base revision/hash, target
+revision/hash, batch index/count, total delta count, and the kind-specific delta. Target revision is exactly base + 1. Delta adds are idempotent upserts,
+including lane changes; removes delete membership.
 
-One `metadataStream.open` establishes the pane stream. Each frame is u32be length
-plus strict UTF-8 JSON and is `metadataStream.accepted`, `subscription.accepted`, `subscription.data`, `subscription.reset`, `subscription.end`,
-`subscription.cancelled`, `content.cancelled`, or `metadataStream.error`. All carry wire/pane/worker/
-stream plus one Swift physical sequence; subscription frames add typed kind/id,
-surface/source/epoch, and cursor/revision. `content.cancelled` adds content kind, request/lease, descriptor/window/role identity, and `stopped | already_terminal`
-disposition; it emits only after zero producer residue. Subscription cancel stops
-only that producer and acks here; reconnect resumes a contiguous suffix or snapshot.
+Interest hashes use one canonical binary form: `u8 version=1 | u8 kind (review=1, file=2) | u32be interestCount`, then exact-UTF-8-byte-sorted records of
+`u32be keyByteLength | key bytes | u8 lane` (`foreground=1`, `active=2`, `visible=3`, `nearby=4`, `speculative=5`, `idle=6`). File state appends
+`u32be pathScopeCount` and exact-UTF-8-byte-sorted `u32be pathByteLength | path bytes` records. Fixed source configuration is excluded; no Unicode normalization occurs. SHA-256 covers exactly those bytes, whose canonical encoding is separately capped at 256 KiB. Shared empty, multi-lane, and composed/decomposed vectors bind TypeScript and Swift.
 
-Each `openContent()` concurrently POSTs a typed content kind, descriptor, lease, `contentRequestId`, requested window/role coordinates, declared exact length or `null`, authoritative expected SHA-256 or `null`, and mandatory maximum bytes;
-it does not consume the control sequence. Binary response framing is:
+`workerDerivationEpoch` exists only on a surface-scoped request or push frame. Closed call/subscription/content kinds map exhaustively to Review or File; ordinary variants MUST NOT repeat `surface`.
+It is required on `product.call`, each subscription open/update/cancel, each active `workerSession.resync` subscription entry, and each content open. Pane/session open, metadata-stream open, and the top-level resync envelope carry none. Swift checks independent Review/File floors only for NEW admission. Active resync entries deriving to one surface MUST share one epoch; Review and File may differ, but a same-surface conflict atomically rejects the whole resync before floor or subscription mutation.
+Responses are `workerSession.accepted`, `call.completed`, `subscription.openAccepted`, `subscription.updateBatchAccepted`, `subscription.cancelAccepted`, `resync.accepted`, or typed `request.error`.
+These correlated control responses do not repeat `workerDerivationEpoch`: the single pending request supplies any surface and admitted epoch. At most one update id is staged per subscription; another is rejected with
+`sequence_conflict` while the worker coalesces newer desired state. Batches start at zero, are contiguous, repeat identical update metadata, and globally
+preserve delta uniqueness/count ceilings. Exact batch retry reuses id/sequence/bytes and returns the cached response; changed bytes or reuse of a committed
+update id through a new request is fatal. Native commits only when all batches are present, the base revision/hash still match, the resultant state is valid,
+and its recomputed hash equals the target. `BridgeProductControlMux` permits one unacknowledged admission.
+
+One `metadataStream.open` establishes the pane stream. Each logical metadata frame is `u32be frameBodyLength | strict typed UTF-8 JSON body`; `frameBodyLength` counts only the body and has a hard 256 KiB ceiling. WebKit delivery chunks are non-semantic.
+Fresh `metadataStream.accepted` consumes pane-wide `streamSequence` zero; resume from N consumes N+1 for `resumed`/`snapshot_required`, then continues contiguously. Frame kinds remain `metadataStream.accepted`, `subscription.accepted`, `subscription.interestsCommitted`, `subscription.data`, `subscription.reset`, `subscription.end`, `subscription.cancelled`, `content.cancelled`, and `metadataStream.error`.
+All carry wire/pane/worker/stream plus that sequence. Pane-plane accepted/error frames carry no derivation epoch. Every subscription frame carries kind/id, source, its admitted `workerDerivationEpoch`, cursor, interest revision/hash, and subscription sequence; kind derives surface. Mixed Review/File frames interleave on one contiguous pane-wide `streamSequence`. `interestsCommitted` is the ordered barrier resolving `update()`: no new-revision data precedes it and no old-revision data follows it.
+Cancel, reset, resync, and replacement discard staged updates. Reset advances revision with canonical empty interests for add-all replay; mismatch uses `interest_mismatch`, not session-fatal failure. `content.cancelled` carries content/request/lease/descriptor/window/role identity plus `stopped | already_terminal` only after zero producer residue; subscription cancel stops only that producer, and reconnect resumes a contiguous suffix or snapshot.
+After a floor advances, older `subscription.accepted`, `subscription.interestsCommitted`, and `subscription.data` consume pane-wide sequence continuity but cannot commit interests, admit/cache/publish data, or reset current-epoch state. Cleanup-only `subscription.reset`, `subscription.end`, `subscription.cancelled`, and `content.cancelled` may close producer/request/lease correlation and reach zero residue only; they never mutate current surface truth.
+A content response is bound by its accepted epoch. A stale `content.accepted` may bind only the already-admitted response identity for abort/settlement; it and later data cannot admit/cache/publish content. After the floor advances, terminal `content.end`/`content.error`/`content.reset` may settle correlation and discard staging only. Floor gating never rejects cleanup for admitted work.
+
+Each `openContent()` concurrently POSTs a typed content kind, descriptor, lease, `contentRequestId`, requested window/role coordinates, declared exact length or `null`, authoritative expected SHA-256 or `null`, and mandatory maximum bytes; it does not consume the control sequence. Binary response framing is:
 
 ```text
-u32be frameByteLength | u8 frameTag | u32be frameHeaderByteLength
-strict typed UTF-8 JSON frameHeader | raw payload bytes for content.data only
+u32be frameBodyLength | u8 frameTag | u32be contentSequence | tag-specific body
+accepted/end/error/reset: strict typed UTF-8 JSON | data: u32be offsetBytes | raw bytes
 ```
 
-`frameByteLength` counts every byte after its own four-byte prefix;
-`frameHeaderByteLength` counts only the JSON frame header, so data payload length is derived without decoding. Tags are fixed: `0x01 content.accepted`, `0x02
-content.data`, `0x03 content.end`, `0x04 content.error`, and `0x05 content.reset`.
-Every header carries a content sequence: accepted is zero and later frames are contiguous positive values. End/error/reset are terminal. Accepted declares
-kind, coordinates, maximum, declared length, and expected digest. Data declares offset/raw length; bytes are never base64/JSON. End declares observed total and
-SHA-256, verifies any authoritative expectation, and lets the worker derive
-semantic identity before cache admission. Frame caps
-precede allocation; invalid length/header/offset/sequence/checksum/duplicate/
-identity or any post-terminal frame terminates without mutation.
-
-Native queues have frame/byte caps and terminal reserve; overflow resets. An
-AbortSignal closes only its content response; native stops/unregisters that
-producer before emitting the correlated `content.cancelled` lifecycle frame on the pane metadata stream. The worker settles cancellation only after local fetch
-abort and that frame. Disposal/replacement awaits the same zero-residue barrier;
-no post-terminal frame or residual producer/lease is allowed. The shared TS/Swift corpus covers admission without
-`Content-Length`, strict unions, replay/gaps, split frames, overflow/cancel/
-resume/restart, checksums, stale workers, and scrubbed errors.
+`frameBodyLength` counts every byte after its own four-byte prefix. Tags remain `0x01 content.accepted`, `0x02 content.data`, `0x03 content.end`, `0x04 content.error`, and `0x05 content.reset`; there is no separate header-length prefix.
+`content.accepted` is sequence zero. Its strict JSON body carries full request/lease/pane/worker-instance/content identity plus the admitted `workerDerivationEpoch`, declared and maximum length, and expected digest, binding this non-multiplexed response stream to one request and producer continuation.
+Every later sequence is positive and contiguous. `content.data` carries `u32be offsetBytes` followed by raw bytes; raw length is derived from `frameBodyLength`, never repeated in JSON, and is capped at 128 KiB. Data may not precede acceptance.
+`content.end`, `content.error`, and `content.reset` are terminal and carry only small strict JSON terminal fields; stream context comes from acceptance. End reports observed total and SHA-256, verifies authoritative expectation, and lets the worker derive semantic identity before cache admission.
+Every content frame body has the universal hostile-input ceiling of 256 KiB; every content JSON control body has a separate 16 KiB ceiling. Exactly 2 MiB of File content is sixteen full 128 KiB data frames plus accepted/end; a partial final data frame is valid.
+WebKit may split or coalesce bytes arbitrarily. Prefix/stage caps precede allocation/decode, and both decoders use fixed-capacity reference-owned accumulators rather than repeated copy-on-write append.
+Each native producer owns exactly one `URLSchemeTask` response continuation. Cross-stream writes, wrong producer identity, pre-accepted data, gaps, duplicates, offset mismatch, overflow, invalid digest, or post-terminal bytes poison that response, discard staged bytes, and perform no product-state mutation.
+Native queues retain frame/byte caps and terminal reserve. Abort closes only that response; native stops/unregisters its producer before the pane metadata stream emits correlated `content.cancelled`. The worker settles only after local fetch abort plus that lifecycle frame; disposal/replacement awaits the same zero-residue barrier.
+Shared raw TS/Swift vectors cover exact 128 KiB data and +1 rejection, exact 2 MiB segmentation, 1-byte/4 KiB arbitrary fragmentation, cross-stream/terminal hostility, strict JSON/interest semantics, and checksum/cancel/resume/restart. An ingress/relocation/allocation oracle proves bounded linear accumulation. Packaged benchmarks start at 128 KiB emission and must satisfy the existing p99 and synchronous-slice budgets before that producer policy changes.
 
 ### R65. File View byte, encoding, line, and truncation semantics are canonical.
 
-Binary/provider-unsupported classification occurs before decode; a NUL in the
-inspected prefix is binary. Invalid UTF-8 is `unsupported_encoding`, never
-replacement-decoded. Supported text is the maximal prefix satisfying BOTH
-2 * 1024 * 1024 bytes and 10,000 payload lines. A byte cut backs up to the last
-complete UTF-8 scalar; a partial final source line is displayed/counts and sets
-`endsMidLine`.
+Binary/provider-unsupported classification occurs before decode; a NUL in the inspected prefix is binary. Invalid UTF-8 is `unsupported_encoding`, never
+replacement-decoded. Supported text is the maximal prefix satisfying BOTH 2 * 1024 * 1024 bytes and 10,000 payload lines. A byte cut backs up to the last
+complete UTF-8 scalar; a partial final source line is displayed/counts and sets `endsMidLine`.
 
 LF terminates a line; CRLF is one terminator; trailing LF creates no extra empty
 line; empty content has zero lines. Thus `"a\n"` is 1 line, `"a\nb"` is 2, a

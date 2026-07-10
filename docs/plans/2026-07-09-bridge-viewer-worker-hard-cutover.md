@@ -6,7 +6,7 @@ Goal id: `2026-07-09-bridge-click-fileview-workers`
 Agent Studio implementation base: `ea7ce82a19fb6b600856a16fbe02866e131cecb6`
 Accepted spec: `docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md`
 Accepted spec SHA-256:
-`1adf439137aa5a7b24d2f3a0735397884c6e5a6745a6ebe8947bc856799a1575`
+`666ebe6ba0bd3f239462acb9ca9c4f89638f24df1886855eb392c1d275e90f8c`
 Pierre source: `/Users/shravansunder/Documents/dev/open-source/libs-react/pierre`
 Pierre planning base: `origin/main` at
 `4f94a5e765195b27e1e4188b943aab2ae44613cb`
@@ -80,14 +80,18 @@ G1 = released Pierre + packaged direct worker stream + frozen contracts   |
                                                   implementation review -> PR
 ```
 
-S1 and S2a may start immediately. G0 is a parent-owned versioned TypeScript/
-Swift wire, capability, bootstrap, and hostile-fixture freeze. It replaces the
+S1 and S2a may start immediately. G0 is a parent-owned `wireVersion: 2`
+TypeScript/Swift wire, capability, bootstrap, and hostile-fixture freeze. This
+layout has not shipped, so G0 installs no v1 compatibility path. It replaces the
 current recursive JSON payload/resource-GET shell with closed call/subscription/
-content registries, strict Zod discriminated unions, and matching strict Swift
+content registries, byte-exact canonical subscription-interest vectors, strict
+raw-member/scalar validation, Zod discriminated unions, and matching strict Swift
 `Codable` enums before S2b-e and S3 integrate. A permanent dedicated TypeScript
 compile-negative fixture proves unknown registry keys and cross-wired request,
 result, event, and content types fail. `unknown` exists only at the immediate
-parser input; it cannot enter a handler or stored/wire value. S4 starts
+parser input; it cannot enter a handler or stored/wire value. G0 also freezes an
+epoch-free pane/session identity plus independent Review/File
+`workerDerivationEpoch` values on surface-scoped variants only. S4 starts
 after S2 admission and S3 pane-session contracts integrate. S6a may run after S3
 without Pierre; S6b, S5, and S7 require G1. S7 requires S5's File deletion gate
 and all S6 proof. S8 requires S4 drain/Victoria and S7 Review deletion.
@@ -232,10 +236,11 @@ Source: R44, R49, R59, R63, R64.
 
 Behavior:
 
-- Add a non-MainActor per-pane product-session actor owning pane/worker identity,
-  capability digest, serialized control admission, exact retry cache, one
-  metadata producer, logical subscriptions, content producers/leases, sequence
-  floors, cancellation, resync, and revoke.
+- Add a non-MainActor per-pane product-session actor owning `paneSessionId`, the
+  freshly native-minted `workerInstanceId`, capability digest, serialized control
+  admission, exact retry cache, one metadata producer, logical subscriptions,
+  independent Review/File derivation-epoch admission floors, content producers/
+  leases, sequence floors, cancellation, resync, and revoke.
   It is the sole worker-lifetime/admission/lease authority. The existing lease
   registry is folded into that actor or becomes a private descriptor index,
   never a second source of truth.
@@ -243,16 +248,43 @@ Behavior:
   `/rpc/stream`, and independently cancellable `/rpc/content` requests. Product
   payload/identity lives only in bodies and in-band response frames; the sole
   privileged header is the opaque capability.
-- Enforce the shared 64 KiB encoded-request cap sender-side before fetch. Native
+- Enforce the shared 256 KiB encoded-request cap sender-side before fetch. Native
   authenticates first, then counts actual `httpBody` or bounded
   `httpBodyStream` bytes before strict decode/provider work. Never require
   `Content-Length`; WebKit pre-handler materialization of this bounded body is
   accepted, while arbitrary large worker-to-Swift upload remains out of scope.
-- Implement strict closed Swift enums/associated payload structs with extra-key
-  rejection. Metadata uses bounded length-prefixed typed JSON frames; content
-  uses typed binary accepted/data/end/error/reset frames with raw bytes, declared
-  exact/max lengths, sequence, and checksum; cancellation settles through the
-  correlated zero-residue lifecycle frame on the pane metadata stream.
+- Implement selected strict Zod unions and closed Swift enums/payload structs.
+  Both reject invalid UTF-8, duplicates, non-scalar typed strings, and unknown/
+  lookalike keys before typed mutation. TypeScript bounds and duplicate-scans
+  before document `JSON.parse`, preserves decoded key spelling, then lets the
+  selected strict union close its vocabulary. Swift exact-byte-allowlists decoded
+  member names before `JSONDecoder`. Paths/interests use exact UTF-8 byte identity
+  without normalization; canonical interest encoding has its own 256 KiB ceiling.
+- Keep metadata frames as `u32be bodyLength | strict typed JSON`, with a hard
+  256 KiB body cap. Content frames are `u32be bodyLength | u8 tag | u32be
+  sequence | tag-specific body`: accepted sequence zero binds full identity;
+  data is `u32be offset | raw bytes` with a 128 KiB raw ceiling; terminal JSON
+  contains terminal fields only. Content bodies remain universally capped at
+  256 KiB and JSON control bodies at 16 KiB. Exact 2 MiB File content is sixteen
+  full data frames plus accepted/end; a partial final frame is valid.
+- Treat every WebKit chunk boundary as non-semantic. Stage caps precede
+  allocation/decode; reference-owned fixed-capacity accumulators avoid COW
+  append. One producer owns one `URLSchemeTask` continuation, and any pre-accept,
+  cross-stream, gap/duplicate, offset, digest, or post-terminal violation poisons
+  without product-state mutation.
+- Start producer emission at 128 KiB and benchmark it in packaged WKWebView
+  against the existing p99 and <= 8 ms synchronous-slice budgets; change that
+  policy only with fresh evidence while retaining the fixed wire ceilings.
+- Keep pane/session and metadata-stream open/accepted/error identity epoch-free.
+  Closed product kind derives Review/File without a redundant surface field;
+  calls, subscription operations, active resync entries, and content opens carry
+  their comm-owned `workerDerivationEpoch`. Correlated control acks/errors omit
+  it. Same-surface resync entries require one identical epoch; Review/File may
+  differ, while conflict rejects the whole resync before mutation. Surface push/
+  accepted/lifecycle frames echo the admitted epoch. After a floor advances,
+  stale nonterminal frames preserve transport continuity with zero product
+  mutation, while cleanup-only frames settle correlation/zero residue. Mixed
+  Review/File metadata frames share one contiguous pane-wide `streamSequence`.
 - Mint a transferable 32-byte worker-lifetime capability only through typed
   bootstrap. Replacement atomically revokes the old worker's streams and
   leases.
@@ -270,20 +302,48 @@ Likely write surface:
 RED proof:
 
 - Exact POST body bytes through `httpBody`/`httpBodyStream`; no synthesized
-  `Content-Length`; capability-before-body-access; 64 KiB + 1 rejected before
-  decode/provider; strict unknown/extra/mismatched union rejection; wrong worker,
-  replay/gap/digest conflict; split metadata/binary frames; raw-byte checksum;
-  multiple chunks before completion; abort-causal stop/unregister; overflow
+  `Content-Length`; capability-before-body-access; 256 KiB + 1 rejected before
+  decode/provider; unknown/extra/cross-wired unions, duplicate raw keys, Kelvin-
+  sign key lookalikes, non-scalar strings, and composed/decomposed byte identity;
+  no global epoch or redundant surface; exhaustive kind-to-surface mapping;
+  epoch-free pane open/accepted/error and correlated ack/error; independent
+  Review/File admission floors; per-entry resync epochs; old admitted
+  subscription/content terminal cleanup after a newer floor; pane-wide
+  Review/File `streamSequence` interleaving;
+  atomic interest-delta staging/hash/barrier/reset; exact 128 KiB data and +1;
+  exact sixteen-frame 2 MiB segmentation; 1-byte/4 KiB arbitrary fragmentation;
+  ingress/relocation/allocation oracle; cross-stream/pre-accept/gap/duplicate/
+  offset/digest/post-terminal hostility; abort-causal stop/unregister; overflow
   reserve; resume/snapshot; replacement/reset/restart; and zero-residual teardown.
+- Epoch-floor RED/GREEN pair: RED fails if stale nonterminal subscription or
+  content-accepted/data mutates current truth, or if cleanup is rejected/leaks;
+  GREEN consumes stream continuity with zero interests/cache/publication/reset
+  mutation and accepts old reset/end/cancel/error cleanup through zero residue.
+- Resync RED/GREEN pair: RED fails if cross-surface different epochs are rejected
+  or a same-surface epoch conflict partially mutates floors/subscriptions; GREEN
+  accepts different Review/File epochs and atomically rejects a same-surface
+  conflict before either mutation class.
 
 Ordered S2 gates:
+
+S2a is GREEN from fresh packaged WKWebView plus marker-scoped runtime proof. The
+packaged lane accepted exactly 262,144 bytes, collected one warmup plus 100
+samples per lane, measured fetch p99 4 ms, Swift admission p99 3.415 ms, and
+decode p99 1.737 ms, and proved `stopped -> unregistered -> acknowledged`
+cancellation. Marker `debug-observability-oq4s-1783704068-24703` verified the
+`bounded_post_stream_abort` path, rejected 262,145 bytes before decode/provider,
+recorded four receipts, and left zero producer/task residue. Focused contract/
+unit proof or a zero-sample marker alone still cannot close this gate.
 
 1. **S2a feasibility:** packaged WKWebView proves exact bounded POST request
    bytes, capability-first handler admission, actual-body cap before decode/
    provider, split response chunks before completion, and abort-causal URL-
    scheme producer teardown. Missing `Content-Length` is an accepted case, not
-   rejection. If actual body bytes cannot be bounded before decode/provider,
-   stop and revise the carrier before building the actor.
+   rejection. Exact-cap proof is composite: the packaged WKWebView exact-body
+   test supplies cap evidence, while the marker-scoped run supplies runtime/
+   telemetry identity; a zero-sample marker run cannot prove the cap alone. If
+   actual body bytes cannot be bounded before decode/provider, stop and revise
+   the carrier before building the actor.
 2. **S2b session core:** actor, digest/replay cache, producer/lease registry,
    terminal reserve, reset/restart, and hostile tests.
 3. **S2c scheme adapter:** thin command/metadata/content POST adapter with no
@@ -300,7 +360,7 @@ Checkpoint:
 mise run test-fast -- --filter BridgeProduct
 mise run test -- --filter BridgeSchemeHandler
 mise run test-webkit
-mise run verify-bridge-worker-fetch-scheme-smoke
+bash scripts/verify-bridge-product-stream-webkit-feasibility.sh
 ```
 
 G1 requires the real worker-owned transport: typed call POST, one pane metadata
@@ -330,9 +390,10 @@ Behavior:
   handler values after parse, and feature-local wire shapes. Run one shared
   hostile fixture corpus against the matching strict Swift enums.
 - Open exactly one physical metadata stream per pane and multiplex logical
-  subscriptions on it. Each demanded descriptor/window/role opens one concurrent
-  independently cancellable content POST that does not consume control sequence.
-  Only the shared transport module knows product routes or invokes `fetch()`.
+  subscriptions with independent Review/File derivation epochs on it. Each
+  demanded descriptor/window/role opens one concurrent independently cancellable
+  content POST that does not consume control sequence. Only the shared transport
+  module knows product routes or invokes `fetch()`.
 - Introduce content-authoritative SHA-256 semantic document/window identity.
   Metadata, cache key, lease, generation, projection, and UI revision are not
   semantic identity.
@@ -600,13 +661,13 @@ or above 50 ms are all zero.
 | Source obligations | Owner | Required proof and exact floor | Freshness / task fit |
 | --- | --- | --- | --- |
 | R41, R45-R46 local paint, sliced reads, frame pump | S3/S5/S7/S8 | selection/fresh-display p99 <32 ms; owned main/comm slice <=8 ms; tasks >=50 ms zero; selected first with visible fairness | current raw interaction chain in browser/native; fits surface slice |
-| R42, R49-R56 one owner/worker, shared strictly typed transport, courier | G0/S3/S4/S5/S7 | one comm worker/metadata stream per pane; only shared transport owns three POST routes/fetch; closed TS/Swift corpus; zero main/native relays; Pierre p95 <4/p99 <8 ms | source scan plus packaged protocol/worker identity |
+| R42, R49-R56 one owner/worker, shared strictly typed transport, courier | G0/S3/S4/S5/S7 | one comm worker/metadata stream per pane; independent Review/File derivation epochs; only shared transport owns three POST routes/fetch; closed TS/Swift corpus; zero main/native relays; Pierre p95 <4/p99 <8 ms | source scan plus packaged protocol/worker identity |
 | R43, R66 telemetry isolation, credits, drain | S4/S8 | zero required loss/gaps; on/off/failure product parity; exact drain high-watermarks | current telemetry session/marker; S4 must close before S8 |
 | R44, R52-R53, R57, R60-R61 bytes, transfer, Pierre windows, continuation | S1/S3/S5/S6b/S7 | sender detached; queue p95 <16/p99 <32 ms; Review final checksum; File truthful prefix; no clone/prefix replay | registry version equals lock/bundle; installed corpus |
 | R47 scalable File projection/apply | S5/S8 | bottom-up prune regression remains linear; frame intake/projection/apply slices <=8 ms | large current File fixture; no duplicate prune task |
 | R48, R62 correlated proof | S0/S8 | exactly 84 cells, 252 launches, >=25,200 measured attempts; every launch/pooled cohort passes; failures retained | immutable manifest, HEAD/bundle/PID/fixture/machine identity |
 | R58 normalized O(delta) worker state | S3/S5/S6a/S7 | click invalidation O(selected + visible delta), selected preemption, no starvation | subscriber/key counters from current large fixture |
-| R59, R64 trust/capability/typed call-subscribe-content/cancel | S2/S3 | bounded POST without `Content-Length`; strict union parity/rejection; exact replay/no control gap; incremental frames; cancel/teardown leaves zero producers/leases | packaged WKWebView plus hostile cross-language corpus |
+| R59, R64 trust/capability/typed call-subscribe-content/cancel | G0/S2/S3 | epoch-free pane plane; kind-derived surface; same-surface resync epoch agreement; stale nonterminal zero mutation; old cleanup zero residue; contiguous mixed-surface stream; bounded strict POST/frame/data proof | packaged WKWebView plus shared hostile raw-byte corpus |
 | R63 semantic fulfillment/reset/restart | S3/S5/S7 | monotonic attempts/dispositions, fresh-display `selectionAccepted`, no stale/blank/disappeared/wedged result | same semantic/window/attempt chain; repeated live clicks |
 | R65 canonical File bytes/encoding/lines | S5 | shared Swift/TS literal byte/checksum/truncation oracle | identical corpus/version in both runtimes |
 | retained File/Review journeys and 16 IPC methods | S4/S5/S6/S7/S8 | all actions, full 3,420-file/100,000-line Review, mode switch, two-pane, restart, teardown; dev p95 <50/p99 <100, native p95 <100/p99 <200 | current run, early/middle/final checksums and routing ledger |
@@ -622,7 +683,7 @@ edits; execution records failing command/output and later GREEN exit code.
 | --- | --- | --- | --- |
 | S0 | proof contract/reducer; every attempt and fixed cell is represented | schema rejects omissions; literal 84/252/25,200 manifest oracle | `pnpm -C BridgeWeb exec vitest run scripts/bridge-local-first-proof-contract.unit.test.ts`; GREEN same plus `--validate-only`; runtime matrix deferred S8 |
 | S1 | released Pierre `CodeViewHandle` window API and worker transport | validators reject hostile manifests; literal conformance/checksum/anchor oracle | `AGENT=1 moonx diffs:test -- CodeView.windowConformance.test.ts`; GREEN full S1 Moon/Bun gates; registry install deferred authorized release |
-| S2 | product-session actor + call/metadata/content POST routes | capability/actual-body/strict unions/sequence/binary frames reject illegal state; recorded hostile bytes | `mise run test-fast -- --filter BridgeProductSession`; GREEN focused Bridge + `test-webkit` + packaged incremental stream/abort smoke |
+| S2 | product-session actor + call/metadata/content POST routes | paired identity/epoch vectors prove cross-surface-different acceptance, same-surface-conflict atomic rejection, stale nonterminal zero mutation, old cleanup zero residue, and mixed stream order; exact cap/segmentation oracle | `mise run test-fast -- --filter BridgeProductSession`; GREEN focused Bridge + `test-webkit` + packaged 128 KiB incremental/fragmented/abort benchmark |
 | S3 | worker-only generic transport facade, mux, identity, fulfillment reducer | closed registries/discriminated transitions reject conflicts; shared TS/Swift fixtures, dedicated `tsc` negative fixture, and semantic traces | `pnpm -C BridgeWeb exec tsc --noEmit -p tsconfig.product-contract.json` plus `pnpm -C BridgeWeb exec vitest run src/core/comm-worker/bridge-pane-comm-worker-session.unit.test.ts`; GREEN core unit + real Worker browser; surface/native deferred S5/S7 |
 | S4 | telemetry worker ports + native telemetry session | credit/capability/sequence guards; exact sample/loss/high-watermark oracle | `pnpm -C BridgeWeb exec vitest run src/core/telemetry-worker/bridge-telemetry-worker-runtime.unit.test.ts` + `mise run test-fast -- --filter BridgeTelemetrySession`; GREEN hostile browser/native + Victoria drain; full parity S8 |
 | S5 | File worker surface + installed Pierre window + native stream | R65 schemas; literal bytes/hash/line/truncation and DOM text | File RED files `bridge-file-prefix-corpus.unit.test.ts` and `bridge-file-viewer-local-first-cutover.browser.test.tsx` + Swift `--filter BridgeFilePrefix`; GREEN packaged File journey + compile-dead scan; full p99 S8 |
