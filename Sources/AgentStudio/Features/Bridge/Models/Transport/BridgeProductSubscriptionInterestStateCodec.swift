@@ -10,6 +10,20 @@ enum BridgeProductInterestStateEncodingPreflight: Equatable, Sendable {
     )
 }
 
+enum BridgeProductReviewInterestIdentity {
+    static func validate(_ value: String, codingPath: [any CodingKey]) throws {
+        guard
+            !value.isEmpty,
+            value.utf8.count <= BridgeProductWireContract.maximumIdentifierByteLength
+        else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid Bridge product review interest identity",
+                codingPath: codingPath
+            )
+        }
+    }
+}
+
 struct BridgeProductReviewMetadataInterestStateGroup: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case itemIds
@@ -27,7 +41,7 @@ struct BridgeProductReviewMetadataInterestStateGroup: Codable, Equatable, Sendab
             codingPath: []
         )
         for itemId in itemIds {
-            try BridgeProductContractDecoding.validateIdentifier(itemId, codingPath: [])
+            try BridgeProductReviewInterestIdentity.validate(itemId, codingPath: [])
         }
         self.itemIds = itemIds
         self.lane = lane
@@ -49,7 +63,7 @@ struct BridgeProductReviewMetadataInterestStateGroup: Codable, Equatable, Sendab
             codingPath: decoder.codingPath
         )
         for itemId in itemIds {
-            try BridgeProductContractDecoding.validateIdentifier(itemId, codingPath: decoder.codingPath)
+            try BridgeProductReviewInterestIdentity.validate(itemId, codingPath: decoder.codingPath)
         }
     }
 }
@@ -363,11 +377,11 @@ enum BridgeProductSubscriptionInterestState: Codable, Equatable, Sendable {
         interests: [BridgeProductReviewMetadataInterestStateGroup],
         codingPath: [any CodingKey]
     ) throws {
-        var itemIds = Set<String>()
+        var itemIdIdentities = Set<Data>()
         for interest in interests {
             for itemId in interest.itemIds {
-                try BridgeProductContractDecoding.validateIdentifier(itemId, codingPath: codingPath)
-                guard itemIds.insert(itemId).inserted else {
+                try BridgeProductReviewInterestIdentity.validate(itemId, codingPath: codingPath)
+                guard itemIdIdentities.insert(Data(itemId.utf8)).inserted else {
                     throw duplicateStateMemberError(codingPath: codingPath)
                 }
             }

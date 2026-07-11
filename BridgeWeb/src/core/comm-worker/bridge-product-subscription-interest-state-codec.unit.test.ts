@@ -10,6 +10,7 @@ import {
 import {
 	type BridgeProductSubscriptionInterestState,
 	bridgeProductFileMetadataInterestDeltaSchema,
+	bridgeProductReviewMetadataInterestDeltaSchema,
 	preflightBridgeProductSubscriptionInterestStateCanonicalEncoding,
 	validateBridgeProductSubscriptionInterestState,
 } from './bridge-product-subscription-contracts.js';
@@ -119,6 +120,67 @@ describe('Bridge product subscription interest-state codec', () => {
 				subscriptionKind: 'file.metadata',
 			}).success,
 		).toBe(true);
+	});
+
+	test('treats canonically equivalent Review item IDs as distinct UTF-8 identities', () => {
+		const composedItemId = 'review-\u00e9';
+		const decomposedItemId = 'review-e\u0301';
+		const state = {
+			interests: [
+				{
+					itemIds: [composedItemId, decomposedItemId],
+					lane: 'foreground' as const,
+				},
+			],
+			subscriptionKind: 'review.metadata' as const,
+		};
+
+		expect(composedItemId).not.toBe(decomposedItemId);
+		expect(Buffer.from(new TextEncoder().encode(composedItemId))).not.toEqual(
+			Buffer.from(new TextEncoder().encode(decomposedItemId)),
+		);
+		expect(validateBridgeProductSubscriptionInterestState(state)).toEqual(state);
+		expect(() => encodeBridgeProductSubscriptionInterestState(state)).not.toThrow();
+		expect(
+			bridgeProductReviewMetadataInterestDeltaSchema.safeParse({
+				add: [{ itemId: composedItemId, lane: 'foreground' }],
+				removeItemIds: [decomposedItemId],
+				subscriptionKind: 'review.metadata',
+			}).success,
+		).toBe(true);
+	});
+
+	test('bounds Review item IDs by exact scalar UTF-8 bytes', () => {
+		const exactMaximumItemId = '\u00e9'.repeat(64);
+		const oversizedItemId = `a${exactMaximumItemId}`;
+		const invalidScalarItemId = '\ud800';
+
+		expect(new TextEncoder().encode(exactMaximumItemId).byteLength).toBe(128);
+		expect(new TextEncoder().encode(oversizedItemId).byteLength).toBe(129);
+		expect(
+			validateBridgeProductSubscriptionInterestState({
+				interests: [{ itemIds: [exactMaximumItemId], lane: 'foreground' }],
+				subscriptionKind: 'review.metadata',
+			}),
+		).toEqual({
+			interests: [{ itemIds: [exactMaximumItemId], lane: 'foreground' }],
+			subscriptionKind: 'review.metadata',
+		});
+		for (const rejectedItemId of ['', oversizedItemId, invalidScalarItemId]) {
+			expect(() =>
+				validateBridgeProductSubscriptionInterestState({
+					interests: [{ itemIds: [rejectedItemId], lane: 'foreground' }],
+					subscriptionKind: 'review.metadata',
+				}),
+			).toThrow();
+			expect(
+				bridgeProductReviewMetadataInterestDeltaSchema.safeParse({
+					add: [{ itemId: rejectedItemId, lane: 'foreground' }],
+					removeItemIds: [],
+					subscriptionKind: 'review.metadata',
+				}).success,
+			).toBe(false);
+		}
 	});
 });
 

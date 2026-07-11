@@ -59,7 +59,7 @@ struct BridgeProductMetadataStreamRequest: Codable, Equatable, Sendable {
             )
             try BridgeProductContractDecoding.validateMaximum(
                 resumeFromStreamSequence,
-                maximum: BridgeProductWireContract.maximumSafeInteger - 1,
+                maximum: BridgeProductWireContract.maximumResumableStreamSequence,
                 name: "resumeFromStreamSequence",
                 codingPath: decoder.codingPath
             )

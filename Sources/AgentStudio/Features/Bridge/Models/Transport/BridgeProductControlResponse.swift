@@ -320,6 +320,12 @@ struct BridgeProductResyncAcceptedResponse: Codable, Equatable, Sendable {
             name: "resumeFromStreamSequence",
             codingPath: []
         )
+        try BridgeProductContractDecoding.validateMaximum(
+            resumeFromStreamSequence,
+            maximum: BridgeProductWireContract.maximumResumableStreamSequence,
+            name: "resumeFromStreamSequence",
+            codingPath: []
+        )
         self.identity = correlation
         self.nextExpectedRequestSequence = nextExpectedRequestSequence
         self.resumeFromStreamSequence = resumeFromStreamSequence
@@ -350,6 +356,12 @@ struct BridgeProductResyncAcceptedResponse: Codable, Equatable, Sendable {
         )
         try BridgeProductContractDecoding.validateNonnegative(
             resumeFromStreamSequence,
+            name: "resumeFromStreamSequence",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validateMaximum(
+            resumeFromStreamSequence,
+            maximum: BridgeProductWireContract.maximumResumableStreamSequence,
             name: "resumeFromStreamSequence",
             codingPath: decoder.codingPath
         )

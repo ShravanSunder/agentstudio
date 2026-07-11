@@ -561,6 +561,18 @@ struct BridgeProductWorkerSessionResyncRequest: Codable, Equatable, Sendable {
             name: "lastAcceptedStreamSequence",
             codingPath: decoder.codingPath
         )
+        try BridgeProductContractDecoding.validateMaximum(
+            lastAcceptedStreamSequence,
+            maximum: BridgeProductWireContract.maximumResumableStreamSequence,
+            name: "lastAcceptedStreamSequence",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validateMaximum(
+            lastAcceptedRequestSequence,
+            maximum: BridgeProductWireContract.maximumControlRequestSequence - 1,
+            name: "lastAcceptedRequestSequence",
+            codingPath: decoder.codingPath
+        )
     }
 
     func encode(to encoder: Encoder) throws {

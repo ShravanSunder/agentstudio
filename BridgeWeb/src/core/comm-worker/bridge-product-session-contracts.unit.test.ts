@@ -15,7 +15,9 @@ import { BridgeProductContentFrameEncoder } from './bridge-product-content-frame
 import { BridgeProductContentFrameDecoder } from './bridge-product-content-frame-decoder.js';
 import {
 	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
+	BRIDGE_PRODUCT_MAXIMUM_CONTROL_REQUEST_SEQUENCE,
 	BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
+	BRIDGE_PRODUCT_MAXIMUM_RESUMABLE_STREAM_SEQUENCE,
 } from './bridge-product-contract-primitives.js';
 import {
 	BridgeProductMetadataFrameDecoder,
@@ -49,7 +51,7 @@ describe('Bridge product session contracts', () => {
 				kind: 'valid',
 			},
 			{
-				expectedHash: 'f547073f989681da76df3d5908bca638e442583d34608a181a44229ecc7d94bb',
+				expectedHash: '0e713b05700a174f6ed210ff3887c571a9fd431125d05f9c75f720f3e99e4757',
 				kind: 'invalid',
 			},
 		] as const;
@@ -337,6 +339,79 @@ describe('Bridge product session contracts', () => {
 						workerDerivationEpoch: 8,
 					},
 				],
+			}).success,
+		).toBe(false);
+	});
+
+	test('reserves accepted and terminal successors for every resumable stream cursor', () => {
+		const resyncRequest = validProductSessionCorpus.controlRequests.find(
+			(request) => request.kind === 'workerSession.resync',
+		);
+		const resyncAccepted = validProductSessionCorpus.controlResponses.find(
+			(response) => response.kind === 'resync.accepted',
+		);
+		const metadataStreamRequest = validProductSessionCorpus.metadataStreamRequests[0];
+		if (
+			resyncRequest === undefined ||
+			resyncAccepted === undefined ||
+			metadataStreamRequest === undefined
+		) {
+			throw new Error('Shared corpus is missing a resumable stream contract.');
+		}
+		const firstNonresumableSequence = BRIDGE_PRODUCT_MAXIMUM_RESUMABLE_STREAM_SEQUENCE + 1;
+		const finalAdmissibleResyncPredecessor = BRIDGE_PRODUCT_MAXIMUM_CONTROL_REQUEST_SEQUENCE - 1;
+
+		expect(
+			bridgeProductControlRequestSchema.safeParse({
+				...resyncRequest,
+				lastAcceptedRequestSequence: finalAdmissibleResyncPredecessor,
+				requestSequence: BRIDGE_PRODUCT_MAXIMUM_CONTROL_REQUEST_SEQUENCE,
+			}).success,
+		).toBe(true);
+		expect(
+			bridgeProductControlRequestSchema.safeParse({
+				...resyncRequest,
+				lastAcceptedRequestSequence: BRIDGE_PRODUCT_MAXIMUM_CONTROL_REQUEST_SEQUENCE,
+				requestSequence: Number.MAX_SAFE_INTEGER,
+			}).success,
+		).toBe(false);
+
+		expect(
+			bridgeProductControlRequestSchema.safeParse({
+				...resyncRequest,
+				lastAcceptedStreamSequence: BRIDGE_PRODUCT_MAXIMUM_RESUMABLE_STREAM_SEQUENCE,
+			}).success,
+		).toBe(true);
+		expect(
+			bridgeProductControlRequestSchema.safeParse({
+				...resyncRequest,
+				lastAcceptedStreamSequence: firstNonresumableSequence,
+			}).success,
+		).toBe(false);
+
+		expect(
+			bridgeProductControlResponseSchema.safeParse({
+				...resyncAccepted,
+				resumeFromStreamSequence: BRIDGE_PRODUCT_MAXIMUM_RESUMABLE_STREAM_SEQUENCE,
+			}).success,
+		).toBe(true);
+		expect(
+			bridgeProductControlResponseSchema.safeParse({
+				...resyncAccepted,
+				resumeFromStreamSequence: firstNonresumableSequence,
+			}).success,
+		).toBe(false);
+
+		expect(
+			bridgeProductMetadataStreamRequestSchema.safeParse({
+				...metadataStreamRequest,
+				resumeFromStreamSequence: BRIDGE_PRODUCT_MAXIMUM_RESUMABLE_STREAM_SEQUENCE,
+			}).success,
+		).toBe(true);
+		expect(
+			bridgeProductMetadataStreamRequestSchema.safeParse({
+				...metadataStreamRequest,
+				resumeFromStreamSequence: firstNonresumableSequence,
 			}).success,
 		).toBe(false);
 	});

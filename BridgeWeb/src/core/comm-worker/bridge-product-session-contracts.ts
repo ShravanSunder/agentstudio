@@ -8,6 +8,7 @@ import { bridgeProductContentIdentitySchema } from './bridge-product-content-con
 import {
 	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
 	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
+	BRIDGE_PRODUCT_MAXIMUM_CONTROL_REQUEST_SEQUENCE,
 	BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
 	BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
 	BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
@@ -40,7 +41,9 @@ import {
 const bridgeProductControlIdentityShape = {
 	paneSessionId: bridgeProductIdentifierSchema,
 	requestId: bridgeProductIdentifierSchema,
-	requestSequence: bridgeProductPositiveSequenceSchema,
+	requestSequence: bridgeProductPositiveSequenceSchema.max(
+		BRIDGE_PRODUCT_MAXIMUM_CONTROL_REQUEST_SEQUENCE,
+	),
 	wireVersion: z.literal(BRIDGE_PRODUCT_WIRE_VERSION),
 	workerInstanceId: bridgeProductIdentifierSchema,
 } as const;
@@ -148,8 +151,12 @@ export const bridgeProductControlRequestSchema = z.discriminatedUnion('kind', [
 				)
 				.readonly(),
 			kind: z.literal('workerSession.resync'),
-			lastAcceptedRequestSequence: bridgeProductNonnegativeSequenceSchema,
-			lastAcceptedStreamSequence: bridgeProductNonnegativeSequenceSchema,
+			lastAcceptedRequestSequence: bridgeProductNonnegativeSequenceSchema.max(
+				BRIDGE_PRODUCT_MAXIMUM_CONTROL_REQUEST_SEQUENCE - 1,
+			),
+			lastAcceptedStreamSequence: bridgeProductNonnegativeSequenceSchema.max(
+				BRIDGE_PRODUCT_MAXIMUM_RESUMABLE_STREAM_SEQUENCE,
+			),
 		})
 		.strict()
 		.superRefine((request, context): void => {
@@ -205,7 +212,9 @@ export const bridgeProductControlResponseSchema = z.discriminatedUnion('kind', [
 			...bridgeProductControlIdentityShape,
 			kind: z.literal('resync.accepted'),
 			nextExpectedRequestSequence: bridgeProductPositiveSequenceSchema,
-			resumeFromStreamSequence: bridgeProductNonnegativeSequenceSchema,
+			resumeFromStreamSequence: bridgeProductNonnegativeSequenceSchema.max(
+				BRIDGE_PRODUCT_MAXIMUM_RESUMABLE_STREAM_SEQUENCE,
+			),
 		})
 		.strict(),
 	z

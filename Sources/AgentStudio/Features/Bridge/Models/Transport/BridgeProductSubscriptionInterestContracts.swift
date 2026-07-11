@@ -18,7 +18,7 @@ struct BridgeProductReviewMetadataInterestAddition: Codable, Equatable, Sendable
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.itemId = try container.decode(String.self, forKey: .itemId)
         self.lane = try container.decode(BridgeProductDemandLane.self, forKey: .lane)
-        try BridgeProductContractDecoding.validateIdentifier(itemId, codingPath: decoder.codingPath)
+        try BridgeProductReviewInterestIdentity.validate(itemId, codingPath: decoder.codingPath)
     }
 }
 
@@ -49,7 +49,7 @@ struct BridgeProductReviewMetadataInterestDelta: Codable, Equatable, Sendable {
             )
         }
         for itemId in removeItemIds {
-            try BridgeProductContractDecoding.validateIdentifier(itemId, codingPath: decoder.codingPath)
+            try BridgeProductReviewInterestIdentity.validate(itemId, codingPath: decoder.codingPath)
         }
         try BridgeProductSubscriptionDeltaValidation.validateCollectionPair(
             additions: add.map(\.itemId),

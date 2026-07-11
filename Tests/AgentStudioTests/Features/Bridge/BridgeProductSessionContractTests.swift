@@ -217,6 +217,52 @@ struct BridgeProductSessionContractTests {
         #expect(decodingFails(BridgeProductControlRequest.self, object: globalEpochResync))
     }
 
+    @Test("resumable cursors reserve accepted and terminal successor sequences")
+    func resumableStreamCursorsStopBeforeMaximumSafeInteger() throws {
+        let corpus = try fixtureJSONObject(
+            relativePath: "Tests/BridgeContractFixtures/valid/bridge-product-session-corpus.json"
+        )
+        let controlRequests = try fixtureArray(named: "controlRequests", in: corpus)
+        let controlResponses = try fixtureArray(named: "controlResponses", in: corpus)
+        let metadataStreamRequests = try fixtureArray(named: "metadataStreamRequests", in: corpus)
+        let resumableStreamSequence = BridgeProductWireContract.maximumResumableStreamSequence
+        let firstNonresumableStreamSequence = resumableStreamSequence + 1
+
+        var resyncRequest = try #require(
+            controlRequests.first { $0["kind"] as? String == "workerSession.resync" }
+        )
+        resyncRequest["lastAcceptedRequestSequence"] =
+            BridgeProductWireContract.maximumControlRequestSequence - 1
+        resyncRequest["requestSequence"] = BridgeProductWireContract.maximumControlRequestSequence
+        #expect(!decodingFails(BridgeProductControlRequest.self, object: resyncRequest))
+        resyncRequest["lastAcceptedRequestSequence"] =
+            BridgeProductWireContract.maximumControlRequestSequence
+        resyncRequest["requestSequence"] = BridgeProductWireContract.maximumSafeInteger
+        #expect(decodingFails(BridgeProductControlRequest.self, object: resyncRequest))
+
+        resyncRequest = try #require(
+            controlRequests.first { $0["kind"] as? String == "workerSession.resync" }
+        )
+        resyncRequest["lastAcceptedStreamSequence"] = resumableStreamSequence
+        #expect(!decodingFails(BridgeProductControlRequest.self, object: resyncRequest))
+        resyncRequest["lastAcceptedStreamSequence"] = firstNonresumableStreamSequence
+        #expect(decodingFails(BridgeProductControlRequest.self, object: resyncRequest))
+
+        var resyncAccepted = try #require(
+            controlResponses.first { $0["kind"] as? String == "resync.accepted" }
+        )
+        resyncAccepted["resumeFromStreamSequence"] = resumableStreamSequence
+        #expect(!decodingFails(BridgeProductControlResponse.self, object: resyncAccepted))
+        resyncAccepted["resumeFromStreamSequence"] = firstNonresumableStreamSequence
+        #expect(decodingFails(BridgeProductControlResponse.self, object: resyncAccepted))
+
+        var metadataStreamRequest = try #require(metadataStreamRequests.first)
+        metadataStreamRequest["resumeFromStreamSequence"] = resumableStreamSequence
+        #expect(!decodingFails(BridgeProductMetadataStreamRequest.self, object: metadataStreamRequest))
+        metadataStreamRequest["resumeFromStreamSequence"] = firstNonresumableStreamSequence
+        #expect(decodingFails(BridgeProductMetadataStreamRequest.self, object: metadataStreamRequest))
+    }
+
     @Test("shared interest-state vectors have byte-for-byte and SHA-256 parity")
     func sharedInterestStateVectorsHaveByteAndDigestParity() throws {
         let corpus = try fixtureJSONObject(
@@ -289,6 +335,28 @@ struct BridgeProductSessionContractTests {
         _ = try interestState.encodedData()
         _ = try JSONDecoder().decode(
             BridgeProductFileMetadataInterestDelta.self,
+            from: Data(deltaJSON.utf8)
+        )
+    }
+
+    @Test("review interest state and deltas compare item IDs by exact UTF-8 identity")
+    func reviewInterestStateAndDeltasUseExactUTF8ItemIdentity() throws {
+        let composedItemId = "review-\u{00e9}"
+        let decomposedItemId = "review-e\u{0301}"
+        let interestStateJSON =
+            #"{"interests":[{"itemIds":["review-\u00e9","review-e\u0301"],"lane":"foreground"}],"subscriptionKind":"review.metadata"}"#
+        let deltaJSON =
+            #"{"add":[{"itemId":"review-\u00e9","lane":"foreground"}],"removeItemIds":["review-e\u0301"],"subscriptionKind":"review.metadata"}"#
+
+        #expect(composedItemId == decomposedItemId)
+        #expect(Data(composedItemId.utf8) != Data(decomposedItemId.utf8))
+        let interestState = try JSONDecoder().decode(
+            BridgeProductSubscriptionInterestState.self,
+            from: Data(interestStateJSON.utf8)
+        )
+        _ = try interestState.encodedData()
+        _ = try JSONDecoder().decode(
+            BridgeProductReviewMetadataInterestDelta.self,
             from: Data(deltaJSON.utf8)
         )
     }

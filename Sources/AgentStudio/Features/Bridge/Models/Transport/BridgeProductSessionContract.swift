@@ -14,6 +14,8 @@ enum BridgeProductWireContract {
     static let maximumDisplayPathByteLength = 4096
     static let maximumSafeMessageByteLength = 256
     static let maximumSafeInteger = 9_007_199_254_740_991
+    static let maximumControlRequestSequence = maximumSafeInteger - 1
+    static let maximumResumableStreamSequence = maximumSafeInteger - 2
 
     static let maximumActiveSubscriptionCount = 64
     static let maximumSubscriptionInterestCount = 64
@@ -111,6 +113,12 @@ struct BridgeProductControlCorrelation: Codable, Equatable, Sendable {
         try BridgeProductContractDecoding.validateIdentifier(requestId, codingPath: codingPath)
         try BridgeProductContractDecoding.validatePositive(
             requestSequence,
+            name: "requestSequence",
+            codingPath: codingPath
+        )
+        try BridgeProductContractDecoding.validateMaximum(
+            requestSequence,
+            maximum: BridgeProductWireContract.maximumControlRequestSequence,
             name: "requestSequence",
             codingPath: codingPath
         )

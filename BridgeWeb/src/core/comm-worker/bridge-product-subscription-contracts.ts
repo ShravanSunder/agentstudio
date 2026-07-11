@@ -19,13 +19,36 @@ export type BridgeProductDemandLaneParity = BridgeProductAssert<
 >;
 
 const bridgeProductMaximumInterestGroupCount = 64;
+const bridgeProductMaximumReviewInterestIdentityBytes = 128;
+const bridgeProductExactUtf8IdentityEncoder = new TextEncoder();
 export const BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT = 10_000;
 export const BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT = 40_000;
+
+const bridgeProductReviewInterestIdentitySchema = z
+	.string()
+	.min(1)
+	.superRefine((value, context): void => {
+		const byteLength = bridgeProductUnicodeScalarUtf8ByteLength(value);
+		if (byteLength === null) {
+			context.addIssue({
+				code: 'custom',
+				message:
+					'Bridge product Review interest identities must contain only Unicode scalar values.',
+			});
+			return;
+		}
+		if (byteLength > bridgeProductMaximumReviewInterestIdentityBytes) {
+			context.addIssue({
+				code: 'custom',
+				message: `Bridge product Review interest identities cannot exceed ${bridgeProductMaximumReviewInterestIdentityBytes} UTF-8 bytes.`,
+			});
+		}
+	});
 
 const bridgeProductReviewMetadataInterestSchema = z
 	.object({
 		itemIds: z
-			.array(bridgeProductIdentifierSchema)
+			.array(bridgeProductReviewInterestIdentitySchema)
 			.max(BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT)
 			.readonly(),
 		lane: bridgeProductDemandLaneSchema,
@@ -49,7 +72,7 @@ export const bridgeProductReviewMetadataSubscriptionOptionsSchema = z
 				path: ['interests'],
 			});
 		}
-		if (new Set(itemIds).size !== itemIds.length) {
+		if (bridgeProductExactUtf8IdentitySet(itemIds).size !== itemIds.length) {
 			context.addIssue({
 				code: 'custom',
 				message: 'Review metadata interest items must be unique across demand lanes.',
@@ -101,14 +124,14 @@ export const bridgeProductFileMetadataSubscriptionOptionsSchema = z
 				path: ['interests'],
 			});
 		}
-		if (new Set(interestPaths).size !== interestPaths.length) {
+		if (bridgeProductExactUtf8IdentitySet(interestPaths).size !== interestPaths.length) {
 			context.addIssue({
 				code: 'custom',
 				message: 'File metadata interest paths must be unique across demand lanes.',
 				path: ['interests'],
 			});
 		}
-		if (new Set(options.pathScope).size !== options.pathScope.length) {
+		if (bridgeProductExactUtf8IdentitySet(options.pathScope).size !== options.pathScope.length) {
 			context.addIssue({
 				code: 'custom',
 				message: 'File metadata path scope entries must be unique.',
@@ -141,14 +164,14 @@ export const bridgeProductFileMetadataSubscriptionUpdateOptionsSchema = z
 				path: ['interests'],
 			});
 		}
-		if (new Set(interestPaths).size !== interestPaths.length) {
+		if (bridgeProductExactUtf8IdentitySet(interestPaths).size !== interestPaths.length) {
 			context.addIssue({
 				code: 'custom',
 				message: 'File metadata interest paths must be unique across demand lanes.',
 				path: ['interests'],
 			});
 		}
-		if (new Set(options.pathScope).size !== options.pathScope.length) {
+		if (bridgeProductExactUtf8IdentitySet(options.pathScope).size !== options.pathScope.length) {
 			context.addIssue({
 				code: 'custom',
 				message: 'File metadata path scope entries must be unique.',
@@ -356,7 +379,7 @@ export const bridgeProductSubscriptionOpenSchema = z.discriminatedUnion('subscri
 
 const bridgeProductReviewMetadataInterestAdditionSchema = z
 	.object({
-		itemId: bridgeProductIdentifierSchema,
+		itemId: bridgeProductReviewInterestIdentitySchema,
 		lane: bridgeProductDemandLaneSchema,
 	})
 	.strict();
@@ -375,7 +398,7 @@ export const bridgeProductReviewMetadataInterestDeltaSchema = z
 			.max(BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT)
 			.readonly(),
 		removeItemIds: z
-			.array(bridgeProductIdentifierSchema)
+			.array(bridgeProductReviewInterestIdentitySchema)
 			.max(BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT)
 			.readonly(),
 		subscriptionKind: z.literal('review.metadata'),
@@ -504,23 +527,23 @@ function validateDeltaCollection(props: {
 	readonly removedPath: readonly (number | string)[];
 	readonly removedValues: readonly string[];
 }): void {
-	const addedValueSet = new Set(props.addedValues);
-	const removedValueSet = new Set(props.removedValues);
-	if (addedValueSet.size !== props.addedValues.length) {
+	const addedIdentityKeySet = bridgeProductExactUtf8IdentitySet(props.addedValues);
+	const removedIdentityKeySet = bridgeProductExactUtf8IdentitySet(props.removedValues);
+	if (addedIdentityKeySet.size !== props.addedValues.length) {
 		props.context.addIssue({
 			code: 'custom',
 			message: 'Bridge product subscription delta additions must be unique.',
 			path: [...props.path],
 		});
 	}
-	if (removedValueSet.size !== props.removedValues.length) {
+	if (removedIdentityKeySet.size !== props.removedValues.length) {
 		props.context.addIssue({
 			code: 'custom',
 			message: 'Bridge product subscription delta removals must be unique.',
 			path: [...props.removedPath],
 		});
 	}
-	if ([...addedValueSet].some((value) => removedValueSet.has(value))) {
+	if ([...addedIdentityKeySet].some((identityKey) => removedIdentityKeySet.has(identityKey))) {
 		props.context.addIssue({
 			code: 'custom',
 			message: 'Bridge product subscription delta cannot add and remove the same member.',
@@ -537,4 +560,17 @@ function validateDeltaCollection(props: {
 			path: [...props.path],
 		});
 	}
+}
+
+function bridgeProductExactUtf8IdentitySet(values: readonly string[]): Set<string> {
+	return new Set(values.map((value) => bridgeProductExactUtf8IdentityKey(value)));
+}
+
+function bridgeProductExactUtf8IdentityKey(value: string): string {
+	const identityBytes = bridgeProductExactUtf8IdentityEncoder.encode(value);
+	const hexadecimalOctets: string[] = [];
+	for (const identityByte of identityBytes) {
+		hexadecimalOctets.push(identityByte.toString(16).padStart(2, '0'));
+	}
+	return hexadecimalOctets.join('');
 }
