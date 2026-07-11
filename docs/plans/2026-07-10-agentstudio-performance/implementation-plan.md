@@ -1,8 +1,17 @@
 # AgentStudio Performance Boundaries Implementation Plan
 
-Status: implementation-ready after plan review; no product code has been changed by this plan.
+Status: broader plan accepted; focused S1 D/R/C correction ready; S1 remains
+product-unreachable and implementation resumes only after the official
+orchestrator transition.
 
 Accepted source commit: `c9f553e1d143e01b748a3e5aa0f8f6bd4fe0f182`
+
+Focused S1 accepted hashes:
+
+```text
+92c4385e8b32718e30f50a9ca6f311171a68b4bd07b6736e4a4ac5a9d32b5017  maintained spec
+edf9061baf0e6b09318c6f3767e95055bad6191599aa9ebadbdb083f8638376f  focused API
+```
 
 Detailed plans:
 
@@ -27,7 +36,7 @@ The planning run read the complete accepted artifacts:
 
 | Source | Lines | Contract used by this plan |
 | --- | ---: | --- |
-| `docs/specs/2026-07-10-agentstudio-performance-boundaries/agentstudio-performance-boundaries.md` | 677 | shared primitives, fact transport, MainActor ledger, harness, scope |
+| `docs/specs/2026-07-10-agentstudio-performance-boundaries/agentstudio-performance-boundaries.md` | 1,698 | shared primitives, focused D/R/C physical-custody amendment, fact transport, MainActor ledger, harness, scope |
 | `docs/specs/2026-07-09-watched-folder-admission-mainactor-fairness/watched-folder-admission-mainactor-fairness.md` | 1,500 | WF/WS/FI/TA/EV/BR requirements and proof |
 | `docs/specs/2026-07-09-ghostty-terminal-interaction-fairness/ghostty-terminal-interaction-fairness.md` | 1,784 | CB/GT/GA/TS/AI/SC/SF/GV requirements and proof |
 | `docs/specs/2026-07-09-ghostty-terminal-interaction-fairness/ghostty-action-admission-manifest.md` | 186 | exhaustive action disposition and mechanical coverage |
@@ -102,6 +111,10 @@ Owned write scope:
 
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Admission/**` (new)
 - `Tests/AgentStudioTests/Core/PaneRuntime/Admission/**` (new)
+- initial creation/registration, Admission protected-state clause, inventory,
+  parity test, and fixtures for `RuntimeSignalPlaneRule` under
+  `Tools/AgentStudioArchitectureLint/**`; S5 owns the remaining rule clauses and
+  post-cut inventory
 
 Implement the closed `PressureStreamID` manifest, `AdmissionGeneration`,
 domain-free admission results, capability-separated producer/consumer and
@@ -130,6 +143,16 @@ retained history, oversized snapshot atomic rejection before sequence
 assignment, persistent-gap precedence over future/invalid cursors, invalidated
 non-current diagnostics, gap widening, and near-maximum non-aliasing authority.
 Independent literal state tables—not production helpers—own every oracle.
+
+The focused implementation-review correction is operationalized in
+[S1 Admission Correction Plan](s1-admission-correction-plan.md). It is normative
+for S1a–S1i file edits, controller-serial RED/GREEN order, and the corrected S1
+checkpoint. It hard-cuts exact shared result/cleanup types; implements latest
+`D/R/C` component pressure, finalization reservation/final-batch wake, per-value
+retry, and wrapper-currentness proof; bounds gather metadata and journal
+snapshot/replay custody; makes journal raw state lexical-private; and replaces
+manual protected-region manifests with a fail-closed wrapper/token helper graph.
+It does not wire a product caller or reopen later domain lanes.
 
 ### Shared lane S2 — Runtime fact contracts and bus
 
@@ -167,13 +190,21 @@ The acceptance metric contract is explicit:
 - `performance.mainactor.heartbeat` exports run-loop heartbeat gap and consecutive-overdue counts without attributing a gap to an operation by proximity alone;
 - `performance.pipeline.contraction` exports source/admitted/coalesced/fact/delivery/MainActor-apply/render counts for expansion-ratio proof;
 - terminal interaction records AppKit dispatch-to-handler, host-call service, and `inputToFrameLayerPublished` separately;
-- source/fact/repair diagnostics export queue depth/oldest age, high-water, coalesced/dropped count, exact gap/debt state, and quiescence outcome.
+- source/fact/repair diagnostics export queue depth/typed oldest-age measurement
+  plus bounded precision (`exact` or `pressure_conservative`), high-water,
+  coalesced/dropped count, exact gap/debt state, and quiescence outcome.
 
 `AgentStudioOTLPTraceProjection.swift` and `AgentStudioOTLPPerformanceMetrics.swift` must project these into VictoriaMetrics histograms/counters/gauges and marker-scoped VictoriaLogs records. Raw watched paths, pane IDs, terminal content, errors, and payloads remain forbidden; real roots use stable aliases plus `dev.worktree.hash`/run correlation only.
 
 `MainActorResponsivenessHeartbeat` is the sole producer of `performance.mainactor.heartbeat`. It uses an injected monotonic clock and independently scheduled run-loop observations; it does not inspect adjacent `MainActorWorkLedger` operations or infer causality from temporal proximity.
 
-Checkpoint: deterministic ledger, injected-clock heartbeat, and OTLP projection tests prove queue/service/liveness separation, no span across suspension, bounded metric dimensions, loss invalidates a run where required, and raw-path/content canaries never project to logs or metric labels.
+Checkpoint: deterministic ledger, injected-clock heartbeat, and OTLP projection
+tests prove queue/service/liveness separation, no span across suspension,
+bounded metric dimensions, loss invalidates a run where required, and
+raw-path/content canaries never project to logs or metric labels. The projection
+oracle covers both age precision cases: `exact` and `pressure_conservative`
+remain distinguishable, and a pressure-conservative sample can never enter an
+exact-latency series or exact-valued log field.
 
 ### Domain lanes W and T
 
@@ -260,10 +291,15 @@ Depends on: stable post-cut APIs from S1/S2 and domain owners.
 
 The type system is the first guard: `RuntimeFactBus.post` accepts only `RuntimeDomainFact`; local UI/activity/diagnostic signal types cannot conform to that protocol. `MainActorMutationApplier` accepts a bounded `Sendable` mutation and exposes a synchronous non-`async` apply region, so an applier cannot hide suspension inside its acceptance span.
 
-Add two named SwiftSyntax rules to the existing registry, inventory, good/bad fixtures, and parity tests. Each starts with a narrow RED fixture and must pass independently:
+Own two named SwiftSyntax rules in the existing registry, inventory, good/bad
+fixtures, and parity tests. S1h creates and registers the initial Admission
+protected-state clause of `RuntimeSignalPlaneRule`; S5 extends that same rule
+and creates/registers `MainActorBlockingWorkRule`. S5 writable work waits for
+the completed S1i handoff; read-only fixture preparation may occur earlier.
+Each new clause starts with a narrow RED fixture and must pass independently:
 
 1. `MainActorBlockingWorkRule` (`agentstudio_mainactor_blocking_work`, error): in `@MainActor` declarations, `State/MainActor/**`, `MainActorMutationApplier` implementations, and `withMainActorWork` regions, reject filesystem enumeration/canonicalization, Git/process/network calls, JSON encode/decode, regex construction or fleet collection transforms, persistence queue/retry/checkpoint arbitration, and spans crossing `await`. Allowlist entries require an operation name, calibrated service budget, and expiry/owner comment.
-2. `RuntimeSignalPlaneRule` (`agentstudio_runtime_signal_plane`, error): reject `LocalUISample`/`ActivitySample`/diagnostic values posted or replayed through `RuntimeFactBus`, exact facts placed in lossy/latest mailboxes, terminal publication through legacy `PaneRuntimeEventChannel`, mixed fact/sample dropping queues, and unkeyed `Task { @MainActor }` scheduling from C callback routers. The rule checks declared protocol conformances and call-site receiver/argument types; runtime flood/race tests remain the behavioral oracle.
+2. Extend `RuntimeSignalPlaneRule` (`agentstudio_runtime_signal_plane`, error): preserve S1h's settled structural Admission wrapper/token protected-helper graph, then reject `LocalUISample`/`ActivitySample`/diagnostic values posted or replayed through `RuntimeFactBus`, exact facts placed in lossy/latest mailboxes, terminal publication through legacy `PaneRuntimeEventChannel`, mixed fact/sample dropping queues, and unkeyed `Task { @MainActor }` scheduling from C callback routers. S5 does not restore a helper-name manifest or rescan contract. The rule checks declared protocol conformances and call-site receiver/argument types; runtime flood/race tests remain the behavioral oracle.
 
 The following subgroups define the broader fixtures covered by those two rules and adjacent existing rules:
 
@@ -443,7 +479,7 @@ The executor may allocate these disjoint initial lanes:
 
 | Lane | Exclusive initial scope | Integration owner must later touch |
 | --- | --- | --- |
-| A | admission module and focused tests | none |
+| A | admission module, focused tests, and the Admission clause/fixtures of `RuntimeSignalPlaneRule` through S1i | none |
 | B | fact contracts/bus and bus tests | event composition roots at IG1 |
 | C | diagnostics/evidence ledgers and tests | OTLP projection/metrics |
 | D | FSEvent callback/source/mailbox and tests | `FilesystemActor.swift` |
@@ -454,7 +490,11 @@ The executor may allocate these disjoint initial lanes:
 | I | IPC report contracts/contribution and tests | authentication/server/runtime adapter |
 | J | Bridge refresh request/coordinator/currentness and tests | coordinator/controller/WebKit surface |
 | K | harness/evidence types/verifier tests | `.mise.toml`, shared runner integration |
-| L | architecture rules/fixtures | rule registry/allowlists |
+| L | non-Admission architecture rules/fixtures; Admission fixture preparation is read-only until S1i | rule registry/allowlists and post-S1i `RuntimeSignalPlaneRule` extensions |
+
+Writable dependency edge: `S1i completed handoff → lane L / S5 writable
+RuntimeSignalPlaneRule work`. Before that edge, lane A is the only writer for the
+Admission clause and fixtures; lane L may only prepare read-only fixture designs.
 
 High-conflict files are single-owner at each gate: `WorkspaceSurfaceCoordinator.swift`, `AppDelegate.swift`, `AppDelegate+WorkspaceBoot.swift`, `PaneRuntimeEvent.swift`, `EventBus.swift`, `FilesystemActor.swift`, `WorkspaceCacheCoordinator.swift`, `WorkspacePersistenceTransformer.swift`, `GhosttyActionRouter.swift`, `GhosttySurfaceView.swift`, `SurfaceManager.swift`, `BridgePaneController.swift`, `.mise.toml`, and the Ghostty submodule pointer. Performance cells use disposable AgentStudio source/build worktrees at the exact host revision; they do not rewrite the active worktree's `Package.swift`, framework, or resources to select a static Ghostty build.
 
@@ -462,7 +502,7 @@ High-conflict files are single-owner at each gate: `WorkspaceSurfaceCoordinator.
 
 | Claim | Source | Owner | Public seam and independent oracle | Layer and freshness | RED/GREEN / fit |
 | --- | --- | --- | --- | --- | --- |
-| admission is bounded before per-sample task allocation | parent shared interfaces | S1; W1–W2; T3/T6/T7 | typed producer/consumer ports, one-key gather lease, `offer/takeDrain`; literal custody/counter/journal histories | unit, then pressure integration; current HEAD/run | required; S1 fails rejected compute-in-mailbox and journal false-green shapes before GREEN |
+| admission is bounded before per-sample task allocation | parent shared interfaces | S1; W1–W2; T3/T6/T7 | typed producer/consumer ports, one-key gather lease, latest `D/R/C` offer/take/cleanup, journal physical snapshots/readers; literal custody/counter/currentness histories | unit/static and in-process integration, then product pressure integration in later lanes; current source manifest/HEAD/run | required; S1 fails component-pressure, final-batch wake, retry/currentness, metadata-root, snapshot-reader, private-owner, and graph-lint REDs before GREEN |
 | one global semantic fact bus filters before queue/replay | parent fact taxonomy; EV1–EV11 | S2/S4/IG1 | `RuntimeFactBus.subscribe/post`; independent topic/replay table and structural source inventory | unit + integration + architecture lint; current source tree | required; IG1 atomic |
 | MainActor attribution and availability are causal and bounded | parent MainActor last mile; TA8 | S3, every applier, DQ1 | `MainActorWorkLedger`; independent heartbeat plus interaction stages | unit + Victoria observability + native E2E; current PID/run/build/root manifest | required; queue/service/liveness/interaction gates all pass |
 | watched loss never authorizes false removal | WF/WS/FI | W1–W5 | callback/source-gate/scheduler/topology applier; literal filesystem manifest | unit + real filesystem/Git integration + workload | required; split callback, scan, apply |

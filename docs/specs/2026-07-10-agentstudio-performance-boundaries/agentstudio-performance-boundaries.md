@@ -1,7 +1,7 @@
 # AgentStudio Performance Boundaries
 
 Date: 2026-07-10
-Status: accepted technical contract after adversarial review
+Status: accepted technical contract after focused latest-overload recheck
 Scope: parent pre-plan contract for filesystem pressure and terminal interaction
 Baseline: `ghostty-performance` at `cd47c511`
 
@@ -119,7 +119,7 @@ and no caller-selected drop policy:
 
 | Primitive family | Admission/overflow contract | Intended inputs |
 | --- | --- | --- |
-| latest-value mailbox | one bounded slot per declared key plus at most one pending drain; replacement is the contract and is counted | scrollbar/search/cursor/viewport/current presentation samples |
+| latest-value mailbox | one bounded slot per declared key, bounded delivery/auxiliary/cleanup limits, latest-among-admitted replacement, and an explicit lossy-or-resample wrapper policy | scrollbar/search/cursor/viewport/current presentation samples |
 | bounded gather mailbox | bounded declared keys, contributions, items, and bytes with distinct global, per-key, and lease-quantum limits; it retains opaque value contributions without domain computation; overflow advances exact per-key recovery custody rather than silently losing detail | filesystem observations, Bridge dirty IDs, source invalidations |
 | ordered fact journal | synchronous sequence/current-state commit before transport; bounded history with an explicit non-evictable gap marker when exact retention is impossible; lag and authoritative recovery are explicit | lifecycle, command completion, health/security, agent-state transitions |
 
@@ -169,6 +169,7 @@ struct AdmissionGeneration: Hashable, Sendable {
 enum AdmissionReceipt: Sendable, Equatable {
     case admitted
     case replacedPrevious
+    case physicalCapacityExceeded
     case staleGeneration
     case undeclaredKey
     case invalidFootprint
@@ -191,6 +192,7 @@ struct GatherMailboxLimits: Sendable, Equatable {
     let maximumContributionsPerLease: Int
     let maximumItemsPerLease: Int
     let maximumBytesPerLease: Int
+    let cleanupQuantum: AdmissionCleanupQuantum
 }
 
 enum GatherRecoverySignal: Sendable, Equatable {
@@ -266,6 +268,11 @@ struct AdmissionConsumerBinding: Hashable, Sendable {
     private let bindingSequence: UInt64
 }
 
+struct AdmissionConsumerBindResult: Sendable, Equatable {
+    let binding: AdmissionConsumerBinding
+    let wake: AdmissionWakeDirective
+}
+
 struct AdmissionDrainToken: Hashable, Sendable {
     let generation: AdmissionGeneration
     private let mailboxIdentity: UInt64
@@ -289,8 +296,28 @@ where Key: Hashable & Sendable, Payload: Sendable {
 enum GatherTakeDrainResult<Key, Payload>: Sendable
 where Key: Hashable & Sendable, Payload: Sendable {
     case lease(GatherDrainLease<Key, Payload>)
+    case cleanupRequired
     case empty
     case alreadyLeased
+    case staleGeneration
+    case closed
+}
+
+enum LatestValueDrainResult<Key, Value>: Sendable
+where Key: Hashable & Sendable, Value: Sendable {
+    case drain(LatestValueDrain<Key, Value>)
+    case cleanupRequired
+    case empty
+    case alreadyDraining
+    case staleGeneration
+    case closed
+}
+
+enum OrderedFactTakeDrainResult<Fact>: Sendable where Fact: Sendable {
+    case drain(OrderedFactDrain<Fact>)
+    case cleanupRequired
+    case empty
+    case alreadyDraining
     case staleGeneration
     case closed
 }
@@ -307,6 +334,36 @@ enum AdmissionDrainAcknowledgement: Sendable, Equatable {
     case closed
 }
 
+struct AdmissionCleanupQuantum: Sendable, Equatable {
+    let maximumEntries: Int
+    let maximumBytes: Int?
+}
+
+struct AdmissionCleanupTurn: Sendable, Equatable {
+    let releasedEntryCount: Int
+    let releasedByteCount: Int?
+    let wake: AdmissionWakeDirective
+}
+
+enum AdmissionCleanupTurnResult: Sendable, Equatable {
+    case performed(AdmissionCleanupTurn)
+    case alreadyCleaning
+    case blockedByReplayReader
+    case empty
+    case staleGeneration
+}
+
+protocol AdmissionCleanupConsumer: Sendable {
+    func performCleanup(
+        generation: AdmissionGeneration
+    ) -> AdmissionCleanupTurnResult
+}
+
+enum AdmissionAgeMeasurement: Sendable, Equatable {
+    case exact(Duration)
+    case pressureConservative(Duration)
+}
+
 struct AdmissionDiagnostics: Sendable, Equatable {
     let offered: UInt64
     let admitted: UInt64
@@ -314,11 +371,28 @@ struct AdmissionDiagnostics: Sendable, Equatable {
     let rejectedStale: UInt64
     let rejectedUndeclared: UInt64
     let rejectedInvalid: UInt64
+    let rejectedCapacity: UInt64
     let rejectedClosed: UInt64
     let repairEscalations: UInt64
     let pendingKeyCount: Int
     let pendingKeyHighWater: Int
-    let oldestPendingAge: Duration?
+    let oldestPendingAge: AdmissionAgeMeasurement?
+}
+
+struct LatestValueAdmissionDiagnostics: Sendable, Equatable {
+    let admission: AdmissionDiagnostics
+    let semanticRetainedValueCount: Int
+    let semanticRetainedValueHighWater: Int
+    let pendingValueCount: Int
+    let leasedValueCount: Int
+    let cleanupValueCount: Int
+    let cleanupValueHighWater: Int
+    let physicalRetainedValueCount: Int
+    let physicalRetainedValueHighWater: Int
+    let oldestCleanupAge: AdmissionAgeMeasurement?
+    let outstandingLeaseCount: Int
+    let outstandingCleanupTurnCount: Int
+    let isQuiescent: Bool
 }
 
 struct GatherAdmissionDiagnostics: Sendable, Equatable {
@@ -329,16 +403,107 @@ struct GatherAdmissionDiagnostics: Sendable, Equatable {
     let retainedItemHighWater: Int
     let retainedByteCount: Int
     let retainedByteHighWater: Int
+    let pendingContributionCount: Int
     let pendingItemCount: Int
     let pendingByteCount: Int
     let leasedContributionCount: Int
     let leasedItemCount: Int
     let leasedByteCount: Int
+    let cleanupContributionCount: Int
+    let cleanupContributionHighWater: Int
+    let cleanupItemCount: Int
+    let cleanupItemHighWater: Int
+    let cleanupByteCount: Int
+    let cleanupByteHighWater: Int
+    let cleanupMetadataEntryCount: Int
+    let cleanupMetadataEntryHighWater: Int
+    let physicalRetainedContributionCount: Int
+    let physicalRetainedContributionHighWater: Int
+    let physicalRetainedItemCount: Int
+    let physicalRetainedItemHighWater: Int
+    let physicalRetainedByteCount: Int
+    let physicalRetainedByteHighWater: Int
+    let oldestCleanupAge: AdmissionAgeMeasurement?
     let recoverySlotCount: Int
     let recoverySlotHighWater: Int
-    let oldestRecoveryAge: Duration?
+    let oldestRecoveryAge: AdmissionAgeMeasurement?
     let outstandingLeaseCount: Int
+    let outstandingCleanupTurnCount: Int
+    let isQuiescent: Bool
 }
+```
+
+`AdmissionAgeMeasurement` makes diagnostic precision structural. `nil` means
+the corresponding custody set is empty. `.exact(value)` equals the literal
+oldest retained age. `.pressureConservative(value)` is an upper bound on the
+literal oldest age and must never understate pressure: `value >=
+actualOldestAge`. State retains a mailbox-clock timestamp plus precision, not a
+cached duration; every diagnostic read computes `max(.zero, now - timestamp)`
+and wraps that duration in the retained precision case. A bounded mutation that
+may remove the exact oldest stamp may retain the prior timestamp as
+pressure-conservative instead of scanning or maintaining an ordered fleet
+index. The measurement resets to `nil` exactly when its custody set reaches
+zero. Diagnostic reads never traverse or repair the watermark.
+
+The custody sets are explicit. For every primitive,
+`admission.oldestPendingAge` covers all serviceable semantic custody represented
+by `pendingKeyCount`: pending plus leased values/contributions/facts and any
+recovery or persistent-gap custody that keeps the key/stream serviceable.
+Gather `oldestRecoveryAge` covers recovery slots only. Primitive-specific
+`oldestCleanupAge` covers physical cleanup payload custody only. A single known
+stamp entering an empty set starts exact. An O(1) bulk transfer into an empty set
+inherits the source watermark and precision. Combining non-empty sets chooses
+the older retained timestamp; it is exact only when a known literal custody
+owns that chosen timestamp and no input has an earlier conservative watermark,
+otherwise it is pressure-conservative. Latest-value and ordered-journal owners
+may continue to report `.exact` whenever their bounded ownership makes the
+literal oldest stamp known. Telemetry exports the bounded precision case
+separately and never presents a pressure-conservative measurement as exact
+latency.
+
+Physical custody means every primitive-owned strong reference to a previously
+accepted payload plus every nontrivial dynamic metadata owner required to
+release that payload, recovery, lease, replay, or cleanup state. A consumer's
+independently retained copy after acknowledged transfer is outside primitive
+custody. Immutable declared-key configuration and empty default slot shells are
+also outside dynamic cleanup custody; they contain no accepted payload,
+recovery, or reference-bearing dynamic state.
+
+Every accepted retirement path—including latest-value replacement—moves its
+previously accepted value into capacity-charged cleanup custody. No transition
+stops counting custody merely because a reference detached from a queue. One
+synchronous cleanup turn has exclusive opaque authority and uses three phases:
+
+```text
+locked detach: queued cleanup -> in-flight cleanup; physical charge unchanged
+unlocked release: destroy at most one cleanup quantum
+locked finalize: decrement finalized custody; clear authority; compute wake
+```
+
+Diagnostics count queued plus in-flight cleanup until release finishes.
+Temporary conservative overcount between destruction and finalization is legal;
+undercount is not. A concurrent or destructor-reentrant cleanup call returns
+`.alreadyCleaning` without mutation. Journal cleanup that exists but is pinned
+by the active replay reader returns `.blockedByReplayReader`; `.empty` means no
+cleanup custody exists. Invalidation, rebind, seal, and authority rollover never
+revoke or alias the incumbent cleanup turn.
+
+Spec boundary / separability map:
+
+```text
+producer port
+  owns: offer capability only
+       |
+       v
+private synchronous custody owner <---- typed ports ----> service/lifecycle
+  owns: raw lock/state, semantic custody, queued cleanup,
+        one in-flight cleanup turn, exact capacity and authority
+  exposes: typed transition results and immutable post-lock captures
+       |
+       +---- bounded detached batch ----> destructor release outside lock
+
+forbidden: raw lock/state escape, domain callbacks, tasks, actors,
+           product routing, unquantified protected-state traversal
 ```
 
 `PressureStreamID` is one closed compile-time manifest with an exhaustive
@@ -349,22 +514,149 @@ payload values cannot construct telemetry-facing stream dimensions. The
 architecture linter rejects parallel declarations, dynamic construction, and
 telemetry stream dimensions derived from runtime identity or content.
 
-`LatestValueMailbox<Key, Value>` has one bounded current-generation slot per
-declared key, a synchronous nonblocking `offer` that returns its receipt and
-wake directive, at most one pending consumer wake, generation-consistent
-`takeDrain`, acknowledgement, `seal`, `invalidate`, and diagnostics. Replacement
-is its declared semantics and is counted. An undeclared key is rejected; a
-dynamic callback race cannot become a precondition failure. Replacing an
-already-pending same-key value is admitted and contracted. A same-key offer
-arriving after the earlier value is captured by an active lease creates a new
-independently drainable pending value and is not contracted unless it replaces
-another pending value.
+`LatestValueMailbox<Key, Value>` has one bounded current-generation pending slot
+per declared key and three explicit limits:
+
+```swift
+struct LatestValueLimits: Sendable, Equatable {
+    let maximumValuesPerLease: Int
+    let maximumAuxiliaryRetainedValues: Int
+    let cleanupQuantum: AdmissionCleanupQuantum
+}
+```
+
+Let `D` be `maximumValuesPerLease`, `R` be
+`maximumAuxiliaryRetainedValues`, and `C` be
+`cleanupQuantum.maximumEntries`. Configuration requires `D >= 1`, `C >= 1`,
+`cleanupQuantum.maximumBytes == nil`, checked `R >= 2 * D`, and checked
+`K + R` without overflow. For a cleanup-free full lease, `R >= 2D` guarantees
+one complete refill-and-replace wave before acknowledgement; it does not claim
+rejection-free service for an arbitrary producer burst. A pre-presented lease
+formed while cleanup remains prioritizes delivery progress and may have less
+replacement headroom; no complete replacement-wave guarantee applies to that
+lease unless its residual cleanup also satisfies the component bound.
+
+For declared-key count `K`, the serviceable open/sealed state obeys:
+
+```text
+pendingValueCount <= K
+leasedValueCount <= D
+leasedValueCount + cleanupValueCount <= R
+physicalRetainedValueCount
+  == pendingValueCount + leasedValueCount + cleanupValueCount
+  <= K + R
+```
+
+`cleanupValueCount` includes queued and in-flight release custody. Moving a
+lease to cleanup on transferred acknowledgement preserves `leased + cleanup`.
+On latest-specific retry, an unsuperseded leased value returns identically to
+the replaceable pending slot and becomes subject to cleanup-first service; a
+later same-key offer may replace it through the ordinary charged-cleanup path.
+When a newer same-key value is already pending, the older leased value contracts
+to cleanup and the newer pending value survives. Neither path increases physical
+or auxiliary custody. Gather and journal retry instead retain and re-present the
+identical lease.
+
+One service cycle performs at most one cleanup turn followed by at most one
+delivery lease. If no cleanup exists, `takeDrain` may create and present a lease
+of at most `D`. If cleanup exists and no lease is already pre-presented,
+`takeDrain` returns `.cleanupRequired`. Cleanup releases at most `C` entries.
+During locked cleanup finalization, before producers can consume the freed
+auxiliary reserve, the mailbox atomically moves pending values into one
+pre-presented active lease only when the lifecycle is open or sealed, no active
+lease already exists, pending is nonempty, and the computed lease size is
+positive. Its size is at most:
+
+```text
+min(D, pendingValueCount, R - remainingCleanupValueCount)
+```
+
+That lease counts immediately against `leasedValueCount`; `takeDrain` presents
+it even when queued cleanup remains. This reservation-by-real-custody prevents
+producer refill from indefinitely stealing every cleanup-freed slot without a
+task, callback, actor, second payload queue, or uncharged reservation.
+Finalization that creates an unpresented active lease reconstructs the wake
+level and returns exactly one `.scheduleDrain` even when residual cleanup is
+zero; a lifecycle cleanup caller is not required to execute delivery directly.
+If cleanup finalizes while a lease is already outstanding, it preserves that
+exact lease/token, creates no second lease, and leaves newer pending values
+pending. The incumbent lease already guarantees delivery progress; its later
+acknowledgement and the next cleanup-first cycle create the next opportunity.
+
+Invalidation is the explicit terminal exception to the serviceable-state
+auxiliary bound. It atomically sets pending and leased semantic custody to zero
+and may move the complete valid `K + R` state
+into terminal cleanup:
+
+```text
+pendingValueCount == 0
+leasedValueCount == 0
+cleanupValueCount <= K + R
+physicalRetainedValueCount == cleanupValueCount <= K + R
+```
+
+No producer can add custody after invalidation. Each terminal cleanup turn
+still releases at most `C`, so the universal physical bound remains `K + R`
+without fleet-sized invalidation or final-turn destruction.
+
+`offer` is synchronous and nonblocking. An empty declared pending slot may
+accept one value without consuming auxiliary reserve. Replacing an occupied
+pending slot projects `leased + queuedCleanup + inFlightCleanup + 1`. It is
+accepted only when that component value is at most `R`; the previous accepted
+value then enters charged cleanup and is never destroyed outside accounting.
+If the component bound would be exceeded, the existing accepted pending value
+and all retention/wake state remain unchanged, the incoming value is not
+retained, and the offer returns `.physicalCapacityExceeded`, advancing only
+`offered` and `rejectedCapacity`. The rejection case explicitly means a
+projected violation of a physical-custody component bound even when total
+physical custody remains below `K + R`.
+
+The primitive promises the latest value among admitted offers, not among every
+attempted offer. Every domain wrapper fixes one overload policy at compile time:
+
+- `lossyPresentation`: rejection is an explicitly tolerated presentation loss;
+  this path cannot claim authoritative currentness.
+- `authoritativeResample`: before returning from a rejected offer, the wrapper
+  records one generation-scoped, coalesced dirty revision per declared key at
+  its source-owned recovery owner. It rereads and reoffers current authoritative
+  state after delivery/cleanup progress, keeps the obligation on another
+  rejection, and clears it only through the recovery owner's atomic predicate
+  `dirtyRevision == transferredRevision == currentSourceRevision`. Source
+  advance, rejection recording, and transfer clearing serialize at that owner;
+  any newer generation or revision survives an older transfer completion.
+
+The resample owner is bounded by the declared-key manifest, participates in
+doorbell reconstruction and fair service, and creates no per-rejection task or
+payload queue. A domain that cannot tolerate loss and cannot resample current
+state may not use this primitive; it uses bounded gather/recovery instead. An
+undeclared key remains typed rejection, and a dynamic callback race never
+becomes a precondition failure.
+
+Fleet invalidation performs O(1) protected ownership transfer and reclaims
+accepted value custody through bounded turns; it does not synchronously destroy
+the pending or leased fleet. Product configuration calibrates `D`, `R`, and `C`
+against delivery service time, accepted replacement burst, cleanup age, memory,
+and resample frequency; it does not collapse them back into one constant.
+
+`LatestValueAdmissionDiagnostics` is the latest-value public diagnostic surface.
+Its semantic, pending, leased, queued-plus-in-flight cleanup, physical, oldest-cleanup,
+outstanding-lease, and quiescence fields are maintained incrementally and
+contain no key or value.
+
+Every primitive consumer's `bindConsumer()` returns
+`AdmissionConsumerBindResult`, never a bare binding. The returned wake is
+`.scheduleDrain` exactly when the newly authoritative consumer must service
+semantic, recovery/gap, outstanding-lease, or cleanup custody without waiting
+for another producer offer; otherwise it is `.noWake`.
 
 `BoundedGatherMailbox<Key, Payload>` is a synchronous lock-backed contribution
 custodian, not an actor and not a semantic coalescer. Its immutable declared-key
 set and `GatherMailboxLimits` bound retained pending-plus-leased custody globally
-and per key. The independent per-lease fields bound one consumer turn; they do
-not enlarge retained capacity. `offer` receives an already-created opaque payload,
+and per key. Physically retained cleanup custody remains charged to those same
+hard global and per-key limits until bounded reclamation releases the payload;
+moving a payload from semantic custody to cleanup never creates capacity. The
+independent per-lease and cleanup-quantum fields bound one consumer/lifecycle
+turn; they do not enlarge retained capacity. `offer` receives an already-created opaque payload,
 checked `GatherFootprint` and recovery signal. The mailbox stamps monotonic
 retention time from its injected clock; domain capture time remains inside the
 opaque payload and cannot control queue-age diagnostics. Shared code may
@@ -376,8 +668,12 @@ Producer admission is expected O(1) for a fixed contribution shape. It touches
 only the addressed declared-key slot, maintained global/per-key counters,
 current lease metadata, recovery revision, lifecycle, and one wake bit. It does
 not copy or scan retained collections or registered keys. Detached or
-invalidated payload storage is released after unlocking so arbitrary payload
-deinitialization cannot extend state occupancy. Invalid/negative footprint
+invalidated payload storage is transferred in O(1) to capacity-accounted cleanup
+custody under the lock. No producer operation releases an unbounded payload
+chain after unlocking. A producer call may relinquish only its one incoming
+payload when admission cannot retain it without exceeding physical capacity;
+all pre-existing custody is released only through a bounded consumer/lifecycle
+cleanup turn. Invalid/negative footprint
 values and checked-arithmetic overflow receive typed rejection or conservative
 recovery; they never become zero-cost admission.
 
@@ -418,9 +714,11 @@ alone retains `AdmissionDoorbellOwner`. A callback cannot wait, finish, drain,
 acknowledge, seal, or invalidate; a consumer cannot bypass producer admission.
 
 `GatherConsumerPort.bindConsumer()` returns one current
-`AdmissionConsumerBinding`. Binding a replacement atomically revokes the prior
+`AdmissionConsumerBindResult`. Binding a replacement atomically revokes the prior
 binding's acknowledgement authority, observes retained custody, and reconstructs
-a level signal. If a prior binding held a lease, the replacement `takeDrain`
+a level signal in the returned wake directive. Lifecycle-owned composition
+applies `.scheduleDrain` to the payload-free doorbell only after `bindConsumer()`
+has returned and the mailbox lock is no longer held. If a prior binding held a lease, the replacement `takeDrain`
 re-presents the identical immutable key/contributions/recovery capture under a
 new binding-scoped token; the abandoned token becomes invalid. The same binding
 cannot take a second lease while one is outstanding.
@@ -430,9 +728,45 @@ level-triggered liveness
 hint owned beside the mailbox. The primitive mutates custody first and returns
 `scheduleDrain`; signaling occurs only after unlocking. Duplicate signals may
 collapse because the mailbox—not the doorbell—owns data. Consumer bind/rebind
-atomically observes retained work and reconstructs a pending signal; doorbell
+atomically observes semantic or cleanup custody and returns the signal level to
+be applied after unlocking; doorbell
 completion closes waiting only. One long-lived consumer wait is permitted, but
 no per-offer task or payload-bearing transport queue is.
+
+Cleanup is a third physical-custody state, not a semantic delivery state. Each
+primitive exposes the same bounded cleanup operation through its consumer and
+lifecycle capabilities; the producer capability cannot invoke it. One signaled
+consumer service cycle performs cleanup first and may perform at most one
+declared cleanup quantum followed by at most one declared delivery lease.
+`takeDrain` returns typed `.cleanupRequired` while cleanup remains or a release
+turn is in flight, except that latest-value cleanup finalization may already
+have pre-presented one capacity-supported active lease for the delivery half of
+that same service cycle. A delivery acknowledgement that creates cleanup
+custody reconstructs one level for the next cleanup-first cycle even when no
+semantic work remains.
+
+Cleanup references move from queued to in-flight under the lock without
+reducing any physical count, release after unlocking, then finalize counters and
+wake under the lock before the cleanup call returns. If cleanup remains, the
+call returns exactly one `.scheduleDrain`. Latest cleanup finalization also
+returns exactly one `.scheduleDrain` when it creates an unpresented active lease,
+including after the final cleanup batch; lifecycle composition may instead
+continue bounded cleanup turns directly during invalidation/teardown.
+Doorbell completion is legal only after semantic custody, recovery/gap debt,
+outstanding leases, replay-reader custody, queued cleanup, and in-flight cleanup
+are all quiescent.
+
+Each concrete consumer and lifecycle port conforms to
+`AdmissionCleanupConsumer` and implements exactly
+`performCleanup(generation:) -> AdmissionCleanupTurnResult`. The result uses the
+shared `AdmissionCleanupTurn` payload above; domains do not invent a second
+cleanup enum or callable name.
+
+Cleanup configuration must permit forward progress: its entry quantum is at
+least one. A byte-accounted family supplies a non-optional byte quantum at least
+as large as the maximum byte footprint of one admissible retained entry; the
+entry-only latest-value family uses `nil`. Configuration that cannot release one
+entry is rejected before the primitive becomes usable.
 
 The wake/lease state machine is normative:
 
@@ -442,19 +776,36 @@ The wake/lease state machine is normative:
 | `wakePending` | additional offer | remains `wakePending`; `.noWake` |
 | `wakePending` | `takeDrain` | `draining(token)`; pending wake is consumed |
 | `draining(token)` | additional offer | `drainingAndDirty(token)`; `.noWake` |
-| `draining*` | matching `acknowledge(transferred)` | clear identical captured custody; if pending/newer recovery remains, `wakePending` plus exactly one `scheduleDrain`, otherwise `idle`/drained-sealed plus `.noWake` |
-| `draining*` | matching `acknowledge(retry)` | retain the identical lease ahead of newer same-key contributions; requeue that key behind already-ready unrelated keys; `wakePending` plus exactly one `scheduleDrain` |
+| `draining*` | matching `acknowledge(transferred)` | move identical captured custody to cleanup; if pending/newer recovery or cleanup remains, `wakePending` plus exactly one `scheduleDrain`, otherwise `idle`/drained-sealed plus `.noWake` |
+| gather/journal `draining*` | matching `acknowledge(retry)` | retain and re-present the identical lease ahead of newer same-key contributions; requeue that key behind already-ready unrelated keys; `wakePending` plus exactly one `scheduleDrain` |
+| latest `draining*`, no newer same-key pending value | matching `acknowledge(retry)` | return the identical leased value to the replaceable pending slot; cleanup-first service applies and a later same-key offer may replace it through charged cleanup; revoke the acknowledged token; `wakePending` plus exactly one `scheduleDrain` |
+| latest `draining*`, newer same-key pending value exists | matching `acknowledge(retry)` | move the older leased value to charged cleanup and preserve the newer pending value; physical and auxiliary custody do not increase; `wakePending` plus exactly one `scheduleDrain` |
 | `draining*` | consumer cancellation/rebind | revoke the old binding token; custody remains authoritative; replacement binding re-presents the identical lease with a new token without another source offer |
+| cleanup queued or in flight | `takeDrain` | no lease; typed `.cleanupRequired`; custody unchanged |
+| latest cleanup finalized with a pre-presented active lease | bounded cleanup turn / next `takeDrain` | finalization returns exactly one `scheduleDrain` whether or not cleanup remains; the next authorized take presents that bounded lease, forms no second lease, and leaves auxiliary custody unchanged |
+| latest cleanup finalizes while a lease is already outstanding | bounded cleanup turn | preserve the incumbent lease/token, create no second lease, leave newer values pending, and compute the next wake from incumbent/pending/cleanup custody |
+| semantic work absent; cleanup retained | bounded cleanup turn | release at most the declared entry/byte quantum after unlocking; if cleanup remains, return exactly one `scheduleDrain` |
+| cleanup turn in flight | concurrent/reentrant cleanup | typed `.alreadyCleaning`; this precedence holds even when a replay reader is also active; no mutation |
+| queued journal cleanup exists, no cleanup turn is in flight, and a replay reader is active | bounded cleanup turn | typed `.blockedByReplayReader`; new cleanup detachment is pinned and reader completion owns the eligibility wake |
 | any | stale, duplicate, or foreign acknowledgement | no mutation; typed rejection |
 | open state | `seal` | reject new offers; retain and drain accepted work |
 | any non-invalidated state | `invalidate` | discard generic state, revoke token, terminally reject; domain transfer precondition applies |
 
+Concrete `takeDrain` precedence is normative. It validates generation,
+terminal lifecycle, and consumer/binding authority first; it re-presents or
+rejects an already-outstanding lease next. For an otherwise authorized call,
+`.cleanupRequired` precedes creation of a new lease and precedes an
+empty/sealed result. Presenting the latest-value lease atomically created by a
+completed cleanup finalization is re-presentation, not creation of a second
+lease. An invalidated primitive returns `.closed`; lifecycle cleanup remains
+available through its cleanup-capable port.
+
 Shared counter algebra is explicit. `offered` counts every attempt before
-generation/lifecycle/key/footprint validation. `admitted` counts attempts for
+generation/lifecycle/key/footprint/capacity validation. `admitted` counts attempts for
 which the primitive retained ordinary payload or an exact substitute custody
 obligation. Rejection reasons are mutually exclusive and, before saturation,
 `offered = admitted + rejectedStale + rejectedUndeclared + rejectedInvalid +
-rejectedClosed`. `contracted` is the subset of admitted attempts whose payload
+rejectedCapacity + rejectedClosed`. `contracted` is the subset of admitted attempts whose payload
 does not remain independently drainable because it was replaced or represented
 by recovery/gap custody; therefore `contracted <= admitted`.
 `repairEscalations` is the orthogonal admitted subset that creates or advances
@@ -475,15 +826,40 @@ A consumer never infers retained payload from the presence of a recovery
 revision; it uses the explicit payload disposition and the lease contents.
 
 `AdmissionDiagnostics` reports current retained-key depth and high-water.
-Gather diagnostics additionally report current pending and leased
-contribution/item/byte custody and combined retained contribution/item/byte
-current values and high-waters. The equations are
-`retained = pending + leased` for every custody dimension. Lease quantum is a
-subset of retained custody, never additive capacity. Recovery-slot
-count/high-water/age, and outstanding lease count. Capacity includes pending
-plus leased custody; taking a lease cannot make memory disappear from
-diagnostics. A stream is not quiescent while contributions, a recovery slot, or
-a lease remains. Diagnostic snapshots never contain keys or payloads.
+Gather diagnostics additionally report current pending, leased, and cleanup
+contribution/item/byte custody; queued-plus-in-flight cleanup metadata entry
+count/high-water; semantic retained and physical retained current
+values/high-waters; cleanup high-waters and typed oldest-age measurement;
+recovery-slot count/high-water/typed age measurement; and outstanding lease
+count. The equations are
+`semanticRetained = pending + leased` and
+`physicalRetained = semanticRetained + cleanupRetained` for every custody
+dimension. `maximumRetained*` limits apply to physical retained custody globally
+and per key. Lease and cleanup quanta are bounded service-turn subsets, never
+additive capacity. Taking a lease or retiring a payload cannot make memory
+disappear from diagnostics. A stream is quiescent only when physical retained
+custody is zero and no recovery slot, persistent gap, outstanding lease, or
+replay-reader debt remains. Diagnostic snapshots never contain keys or payloads.
+
+Gather diagnostics are O(1) protected-state reads. Current counts/high-waters
+are maintained incrementally. Oldest pending, recovery, and cleanup ages use
+incrementally maintained mailbox-clock timestamp and precision watermarks; the
+public `AdmissionAgeMeasurement` duration is computed at read time. A
+measurement is exact while the literal oldest stamp is known; after an
+interleaved removal
+would require a fleet scan or ordered priority index to discover the next
+literal minimum, the existing watermark becomes `.pressureConservative` and
+cannot become younger until an exact bounded transition proves it or the
+custody class becomes empty. This deliberately prefers possible over-alerting
+to understated pressure or producer-side fleet work. Invalidation performs an
+O(1) terminal state/storage ownership swap under the lock; it neither allocates
+nor rebuilds the declared-key fleet there. Every detached slot with nontrivial
+dynamic state—including recovery-only and zero-payload state—becomes exact
+cleanup metadata custody. Its storage is intrusive, paged, or otherwise shaped
+so one turn and the final cursor destruction retire at most the shared cleanup
+entry quantum. No terminal `[KeyState]` fleet may fall out of scope in one
+invalidation or final cleanup call. Immutable declared-key indexing and empty
+default shells remain fixed configuration outside dynamic cleanup custody.
 
 `OrderedFactJournal<Fact, Snapshot>` synchronously validates generation,
 assigns a monotonic per-stream sequence, and commits either the fact/current
@@ -496,13 +872,81 @@ missing occurrence was delivered. `FactGap` is shared sequence-range and opaque
 gap-token mechanics, not a domain `RepairGeneration`; the domain fact owner maps
 the gap to its authoritative recovery policy.
 
-Fact-history count/bytes and current-snapshot bytes have independent limits;
-total retained payload memory is bounded by their declared sum plus bounded
-metadata. A required initial or atomic replacement snapshot that exceeds its
-snapshot budget receives typed configuration/offer rejection. An atomic
+Journal configuration declares maximum retained fact count/bytes, one
+`OrderedFactSnapshotLimits`, maximum facts per delivery lease, and one
+`AdmissionCleanupQuantum`:
+
+```swift
+struct OrderedFactSnapshotLimits: Sendable, Equatable {
+    let maximumSnapshotBytes: Int
+    let maximumPhysicalSnapshotCount: Int
+    let maximumPhysicalSnapshotBytes: Int
+}
+```
+
+`maximumSnapshotBytes` is the individual semantic snapshot limit. Physical
+count/bytes cover the current snapshot plus queued and in-flight cleanup
+snapshots. Count is independently mandatory because zero-byte snapshots retain
+objects and metadata. Valid configuration guarantees one maximum-size atomic
+replacement overlap: physical count is at least two and physical bytes are at
+least the checked product `2 * maximumSnapshotBytes`. Larger explicit budgets
+permit a bounded replacement burst. The cleanup quantum bounds reclamation
+work only; it does not enlarge either fact-history or snapshot capacity and its
+byte quantum can release one maximum-size snapshot.
+
+Fact-history count/bytes and physical-snapshot count/bytes have independent
+limits; total retained payload memory is bounded by their declared sum plus
+bounded metadata. A required initial or atomic replacement snapshot that
+exceeds its individual snapshot budget receives typed configuration/offer
+rejection. An atomic
 fact-plus-snapshot offer assigns no sequence and reports no partial admission
 when its snapshot is rejected. Oversize is never silently ignored and never
 creates an artificial occurrence gap for a fact the journal did not accept.
+An individually valid snapshot whose projected current plus queued/in-flight
+cleanup custody would exceed either physical snapshot limit returns
+`.snapshotPhysicalCapacityExceeded`. Offer rejection occurs before sequence
+assignment, fact/history mutation, gap/currentness change, snapshot replacement,
+admission counters, or wake scheduling; it advances only `offered` and
+`rejectedCapacity`. Authoritative recovery returns the same typed pressure
+result without changing the existing gap or admission counters.
+`.snapshotTooLarge` remains reserved for an input that alone exceeds
+`maximumSnapshotBytes`.
+
+The journal result algebras include the pressure cases directly:
+
+```swift
+enum OrderedFactOfferResult: Sendable {
+    case admitted(sequence: UInt64, wake: AdmissionWakeDirective)
+    case gapCommitted(FactGap, wake: AdmissionWakeDirective)
+    case snapshotTooLarge
+    case snapshotPhysicalCapacityExceeded
+    case invalidSize
+    case authorityExhausted
+    case staleGeneration
+    case closed
+}
+
+enum OrderedFactRecoveryResult: Sendable, Equatable {
+    case recovered
+    case staleGeneration
+    case staleGapToken
+    case incorrectSequence
+    case snapshotTooLarge
+    case snapshotPhysicalCapacityExceeded
+    case invalidSize
+    case notNonCurrent
+    case closed
+}
+```
+
+Every fact or snapshot byte estimate below zero receives a distinct typed
+`invalidSize` rejection before sequence allocation, gap/currentness change,
+snapshot replacement, history mutation, or wake scheduling. Initial
+configuration distinguishes `initialSnapshotInvalidSize` from
+`initialSnapshotTooLarge`; offer and atomic replacement use
+`OrderedFactOfferResult.invalidSize`; authoritative resynchronization uses
+`OrderedFactRecoveryResult.invalidSize`. Exactly one invalid-admission counter
+advances for a rejected producer operation.
 
 Ordinary eviction of already-acknowledged bounded replay history does not mark a
 healthy stream globally non-current. A request older than retained acknowledged
@@ -532,9 +976,60 @@ The journal exposes distinct typed offer/replay results. An admitted offer
 returns its sequence and wake directive; an overflow offer returns
 `gapCommitted(FactGap, wake:)`, never ordinary admission. A replay result is one
 of exact retained facts, current-snapshot resynchronization, persistent product
-gap, query-local replay-history gap, invalid cursor, stale generation, or
-invalidated. Persistent product currentness has precedence over every cursor
-validation/result, including a future cursor:
+gap, query-local replay-history gap, invalid cursor, replay contention, stale
+generation, or invalidated. Persistent product currentness has precedence over
+every cursor validation/result, including a future cursor:
+
+```swift
+enum OrderedFactReplayResult<Fact: Sendable, Snapshot: Sendable>: Sendable {
+    case facts([SequencedFact<Fact>], nextSequence: UInt64)
+    case snapshot(
+        SequencedSnapshot<Snapshot>,
+        followingFacts: [SequencedFact<Fact>],
+        nextSequence: UInt64
+    )
+    case historyGap(ReplayHistoryGap<Fact>)
+    case factGap(FactGap)
+    case invalidCursor(latestSequence: UInt64)
+    case replayInProgress
+    case staleGeneration
+    case invalidated
+}
+
+struct OrderedFactReplayCompletion<Fact: Sendable, Snapshot: Sendable>: Sendable {
+    let result: OrderedFactReplayResult<Fact, Snapshot>
+    let wake: AdmissionWakeDirective
+}
+```
+
+`replay(after:generation:recovery:)` returns
+`OrderedFactReplayCompletion`. Its result linearizes at the bounded protected
+capture: facts offered after the captured stop tail are excluded. Exactly one
+replay reader may own capture authority. Immediate stale-generation,
+invalidated, persistent-gap, and invalid-cursor results require no reader and
+retain their stated precedence. A request that would otherwise register a
+history capture while the reader is occupied returns `.replayInProgress` with
+`.noWake` and performs no mutation. It never reports false invalidation, blocks
+a caller, queues a replay, or allocates another reader.
+
+Invalidation rejects a replay that has not captured reader authority; a replay
+registered before invalidation may finish and return its captured result. Any
+active reader conservatively pins all queued journal cleanup, regardless of
+whether its particular recovery mode will return facts or a snapshot. A cleanup
+turn that detached its batch before reader acquisition is not reachable from
+the later capture; its incumbent authority continues unlocked destruction and
+finalization normally. While that incumbent turn exists, another cleanup call
+returns `.alreadyCleaning` even if the reader is active. After it finalizes,
+`performCleanup` returns `.blockedByReplayReader` exactly when queued cleanup
+exists and the reader remains active; it returns `.empty` only when neither
+queued nor in-flight cleanup exists. This global queued-custody policy avoids a
+cleanup-queue scan or per-entry pin graph. Its accepted cost is temporary fact/
+snapshot capacity pressure during the one bounded replay materialization.
+
+Releasing reader authority at completion returns `.scheduleDrain` exactly when
+it makes retained cleanup eligible and no equivalent level is already pending.
+Lifecycle composition applies that wake only after replay returns and the
+journal lock is not held.
 
 | Journal state | Replay request | Result |
 | --- | --- | --- |
@@ -545,12 +1040,44 @@ validation/result, including a future cursor:
 | persistent `FactGap` plus later offer | offer | widen range/token synchronously; return `gapCommitted` |
 | persistent `FactGap` plus stale token/range recovery | resynchronize | typed stale/mismatch; gap unchanged |
 | persistent `FactGap` plus matching latest token, generation, upper sequence, and authoritative bounded snapshot/rebuild | resynchronize | current at the supplied sequence; later sequence allocation continues monotonically |
+| current capture required; another reader active | replay | `.replayInProgress` plus `.noWake`; no mutation |
 
 The journal retains pending/leased facts until one required product drain owner
 acknowledges transfer into the downstream fact owner. Multiple subscriber
 acknowledgements are downstream transport policy and do not enlarge the generic
 journal. A journal drain acknowledgement is therefore mechanical transfer, not
 proof that every eventual subscriber consumed the fact.
+
+Journal replay does not traverse, filter, reserve, or materialize retained
+history while holding the producer admission lock. Under the lock it captures
+only bounded scalar currentness/watermark/snapshot metadata plus immutable
+start/stop history references and registers one replay-reader authority. It
+then materializes through the captured stop tail outside the lock and releases
+that reader authority in a bounded protected-state operation that produces the
+completion wake above. Concurrent offers
+after the stop tail are excluded from that replay result. Detached history or
+snapshots that may still be referenced by a replay reader remain in queued
+capacity-accounted cleanup custody. Their physical counters do not decrement
+until the reader completes and a later bounded cleanup turn releases the
+primitive's references. An earlier in-flight batch is absent from the captured
+semantic view and finalizes under its incumbent authority.
+
+Ordered-journal diagnostics separately report semantic retained fact/snapshot
+custody, queued and in-flight cleanup fact/snapshot entry counts and bytes,
+physical retained fact/snapshot counts and bytes, matching high-waters, cleanup
+oldest age, active replay-reader count, and quiescence. Its directly assertable
+snapshot equations are:
+
+```text
+cleanupSnapshot = queuedCleanupSnapshot + inFlightCleanupSnapshot
+physicalSnapshot = semanticSnapshot + cleanupSnapshot
+```
+
+The same queued/in-flight physical equations apply to facts. Journal offer,
+bind, acknowledgement, replay capture/completion,
+diagnostics, seal, and invalidation perform bounded protected-state work;
+replay materialization scales with the requested retained history only after
+unlocking.
 
 All three families:
 
@@ -561,9 +1088,20 @@ All three families:
 - return at most one `scheduleDrain` directive before a take; offers during a
   drain produce at most one follow-up directive after acknowledgement, and the
   primitive never creates a task or invokes domain code while holding state;
+- return typed `.cleanupRequired` instead of creating another lease while
+  queued or in-flight cleanup must be serviced;
 - keep producer admission expected O(1) for a fixed input shape; consumer-side
   bounded lease formation may scale only with the declared lease quantum, not
   the full fleet;
+- keep bind/rebind, diagnostics, replay capture/completion, cleanup detachment,
+  and invalidation bounded independently of declared-key or retained-history
+  fleet size; payload release scales only with the explicit cleanup quantum;
+- keep every public oldest-age field, including drain lease age, typed as
+  `AdmissionAgeMeasurement?`; latest and journal drain ages are `.exact`;
+- keep raw locks, mutable state, cleanup cursors, and authority lexically
+  private to one storage owner; cross-file code receives only typed operations,
+  immutable captures, or pure post-lock values and never a generic lock/state
+  closure escape;
 - define `seal` as graceful terminal admission closure that drains accepted
   work, and `invalidate` as immediate terminal revocation that discards pending
   work and makes outstanding tokens stale;
@@ -574,6 +1112,32 @@ All three families:
 - have domain-specific wrappers that fix key/contribution types, actor-owned
   reduction, recovery mapping, capacity policy, and callback-return behavior at
   compile time.
+
+Protected-state architecture enforcement is structural, not a helper-name
+manifest. Each primitive enters its raw lock only through one
+`withAdmissionProtectedState`-style owner that supplies an unforgeable
+`AdmissionProtectedRegionToken`. Every helper accepting raw mutable state also
+accepts that token, and every token-bearing body is inspected. Direct raw
+`withLock` use elsewhere, raw state without the token, unresolved protected
+helpers, and lock/state escape fail lint. Inside a protected region, loops,
+eager materializers, fleet copies, and aliases of protected collections are
+rejected unless a recognized typed delivery/lease/cleanup quantum structurally
+dominates the work. Post-lock immutable replay or drain materialization carries
+no token and remains legal. Renaming a helper cannot remove coverage.
+
+The architecture linter remains SwiftParser/SwiftSyntax-only, so protected code
+uses one deliberately restricted, syntax-resolvable grammar. The wrapper and
+raw lock/state are lexically private to the same owner. Token-bearing helpers
+are uniquely declared, non-overloaded `private` functions on that owner and are
+invoked only by direct calls whose token argument is visible in the syntax
+tree. The token cannot be constructed outside the wrapper, stored, returned,
+captured by an escaping closure, converted to a function value, passed through
+protocol/dynamic dispatch, or forwarded through an unresolved generic/higher-
+order call. A direct-call target with zero or multiple matching declarations,
+an indirect helper reference, or an unsupported alias/escape is a lint failure,
+not a reason to guess or silently skip coverage. This restricted grammar lets
+the rule build a closed syntactic protected-helper graph without adding compiler
+semantic-resolution dependencies or returning to a manual name manifest.
 
 Lease, recovery, gap, generation, and sequence authority tuples never alias
 after counter exhaustion. For gather recovery, incrementing a sequenced stamp
@@ -973,7 +1537,7 @@ confounded causal claim.
 
 | Requirement family | Contract owner | Required proof |
 | --- | --- | --- |
-| shared source admission custody | parent | literal latest/gather/journal state models; O(1) producer-operation probe across 1/100/300 declared keys; no domain closure/task/payload queue; cancellation/rebind, capacity, token-exhaustion, counter-algebra, and payload-free diagnostic proof |
+| shared source admission custody | parent | literal latest/gather/journal state models; paired bind/doorbell liveness; semantic/queued-cleanup/in-flight-cleanup/physical custody equations; bounded latest `D/R/C` delivery, replacement pressure, cleanup-finalization lease progress, and lossy-or-authoritative-resample wrapper disposition; zero-byte and maximum-size journal snapshot physical limits; deterministic destructor barriers; recovery-only gather metadata cleanup; typed negative-size/capacity rejection; bounded protected-state offer/replay-capture/diagnostics/invalidation proof across 1/100/300 and large fleets; private raw-state capability proof; rename/alias/helper-pass-through structural mutations; no domain closure/task/payload queue; cancellation/rebind, capacity, token-exhaustion, counter-algebra, and payload-free diagnostic proof |
 | FSEvent loss and topology repair | watched-folder child | deterministic loss/repair plus independent final oracle |
 | topology/MainActor/persistence fairness | watched-folder child | work-item spans, responsiveness probe, scaling workload |
 | semantic topic transport | parent + watched-folder child | structural policy, queue admission, lag/recovery proof |
@@ -987,12 +1551,58 @@ not an inference from general sequencing tests. It covers: immediate exact
 replay after successful persistent-gap recovery when retained fact history is
 empty; oversized initial and atomic replacement snapshots with no sequence
 assignment or partial commit; persistent-gap precedence over invalid and future
-cursors; invalidated diagnostics reporting non-current; and near-maximum
+cursors; one-reader bound/bound-plus-one contention; global fact/snapshot
+queued-cleanup pinning during the active reader; an incumbent pre-capture
+in-flight cleanup turn continuing/finalizing while later cleanup returns
+`.alreadyCleaning`; reader-completion cleanup wake;
+invalidated diagnostics reporting non-current; and near-maximum
 sequence/gap/lease authority without wrap, alias, lost custody, or an older
 acknowledgement clearing newer debt. Each case asserts public offer/replay/
 diagnostic results and history/currentness invariants against an independent
 oracle, and each must fail against the rejected S1 implementation for the named
 reason before the corrected implementation passes.
+
+The shared protected-state proof is independently mutation-sensitive. It
+discovers every Admission raw-lock closure and token-bearing reachable helper,
+rejects raw state without the protected token, and rejects retained-history or
+declared-key fleet traversal/materialization independent of collection/member
+spelling. Production parity fails for a helper rename, unresolved protected
+call, raw lock/state escape, or alias passed to an unclassified helper. It does
+not trust production-maintained visit counters as its sole oracle. Preserved RED
+receipts insert uncounted journal-history traversal, non-hash gather slot scan,
+latest retention-order scan, helper rename, and aliased/pass-through scans and
+prove that the independent structural rule fails before restored source passes.
+
+Deterministic destructor barriers separately prove that queued cleanup becomes
+in-flight without releasing physical capacity, diagnostics during destruction
+still report the custody, concurrent offer/cleanup/rebind/invalidation cannot
+alias or over-admit, and finalization releases at most the declared quantum.
+Latest proof uses a cleanup-free full `D` lease, `D` refilled keys, `D` accepted
+replacements, the next mutation-free component-bound rejection,
+acknowledgement preserving the auxiliary sum, and a residual-cleanup case that
+proves delivery reservation without overclaiming replacement headroom. It also
+covers cleanup finalization during an incumbent lease, positive and zero-size
+pre-presentation eligibility, lifecycle cleanup of the final batch returning a
+wake for its newly created lease, and latest retry both with and without a newer
+same-key pending value. The unsuperseded retry history includes residual cleanup
+and a later same-key replacement of the returned pending value. A saturated-
+cleanup producer-refill race proves cleanup
+finalization pre-presents a lease before refill can steal the released reserve.
+Wrapper proof separately shows that lossy presentation makes no currentness
+claim and that source advance or rejection between recovery comparison and
+clear preserves the newer authoritative-resample dirty revision until the
+atomic `dirtyRevision == transferredRevision == currentSourceRevision`
+predicate succeeds. Zero-byte/max-size snapshot
+replacement and recovery-only gather invalidation prove entry and byte bounds
+independently.
+Gather proof also observes physical metadata ownership release rather than
+trusting cleanup counters. A preserved production mutation retains a full
+`KeyState` fleet, page root, or strong linked tail until invalidation or the
+final cleanup turn while reported per-turn counts remain bounded; the
+independent ownership/destructor oracle must fail. Restored-source proof covers
+recovery-only and mixed fleets at 1/100/10,000 slots and demonstrates that each
+turn, including terminal root/cursor destruction, severs at most the shared
+entry quantum of nontrivial dynamic metadata owners.
 
 ## Threat Model
 
@@ -1072,13 +1682,14 @@ that work from the older audit's ranking alone.
 
 ## Planning Gate
 
-The revised parent, child specs, and exhaustive action manifest passed fresh
-`spec-review-swarm` after accepted findings were incorporated. Planning may now
-map contracts to files and symbols, sequence slices, and
-operationalize proof gates. It may not choose different actors, mailboxes,
-indexes, transports, state owners, failure semantics, action Boolean semantics,
-source repair, MainActor ownership, signal planes, security authority, Bridge
-scope, or evidence validity.
+The parent/child contract and focused latest-overload `D/R/C`, cleanup-
+finalization delivery, latest-retry, and lossy-or-resample wrapper amendment are
+accepted. Focused S1 planning may map these contracts to files and symbols,
+sequence slices, and operationalize proof gates. Implementation remains frozen
+until that translation and its focused plan review are ready. Planning may not
+choose different actors, mailboxes, indexes, transports, state owners, failure
+semantics, action Boolean semantics, source repair, MainActor ownership, signal
+planes, security authority, Bridge scope, or evidence validity.
 
 Final capacities, measurement perturbation allowance, and latency ceilings may
 be calibrated by the measured plan where their owner is already named. A final
