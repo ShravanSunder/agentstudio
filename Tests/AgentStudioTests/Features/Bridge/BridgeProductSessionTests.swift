@@ -77,6 +77,7 @@ struct BridgeProductSessionTests {
         let foreignRequestBytes = try controlRequestData(
             workerSessionOpenObject(workerInstanceId: "worker-instance-foreign")
         )
+        let foreignRequest = try decodeControlRequest(foreignRequestBytes)
         let initialSnapshot = await session.snapshot
 
         // Act
@@ -93,7 +94,15 @@ struct BridgeProductSessionTests {
 
         // Assert
         #expect(unauthorizedAdmission == .rejected(.unauthorized))
-        #expect(foreignAdmission == .rejected(.staleWorker))
+        #expect(
+            foreignAdmission
+                == .rejected(
+                    .init(
+                        reason: .staleWorker,
+                        request: foreignRequest
+                    )
+                )
+        )
         #expect(afterUnauthorizedSnapshot == initialSnapshot)
         #expect(afterForeignSnapshot == initialSnapshot)
     }
@@ -166,6 +175,7 @@ struct BridgeProductSessionTests {
         )
 
         let staleReviewBytes = try controlRequestData(reviewCallObject(requestSequence: 4, epoch: 6))
+        let staleReviewRequest = try decodeControlRequest(staleReviewBytes)
         let staleReviewAdmission = await session.beginControl(
             exactRequestBytes: staleReviewBytes,
             presentedCapability: capabilityHeader
@@ -177,9 +187,12 @@ struct BridgeProductSessionTests {
         #expect(
             staleReviewAdmission
                 == .rejected(
-                    .staleDerivationEpoch(
-                        currentWorkerDerivationEpoch: 7,
-                        surface: .review
+                    .init(
+                        reason: .staleDerivationEpoch(
+                            currentWorkerDerivationEpoch: 7,
+                            surface: .review
+                        ),
+                        request: staleReviewRequest
                     )
                 )
         )
@@ -313,7 +326,7 @@ struct BridgeProductSessionTests {
 
 extension BridgeProductSessionControlAdmission {
     fileprivate var executionToken: BridgeProductControlAdmissionToken? {
-        guard case .execute(let token) = self else { return nil }
+        guard case .execute(let token, _) = self else { return nil }
         return token
     }
 }

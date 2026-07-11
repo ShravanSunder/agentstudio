@@ -99,7 +99,10 @@ struct BridgeProductSessionProducerBoundaryTests {
             }
         )
         let afterOpening = await harness.session.producerSnapshot()
-        let deliveredOpening = await harness.session.dequeueProducerFrame(for: lease)
+        let deliveredOpening = await consumeNextBridgeProductProducerFrame(
+            for: lease,
+            from: harness.session
+        )
         let progress = try await harness.session.enqueueProducerFrame(
             for: lease,
             build: { sequence in
@@ -126,7 +129,12 @@ struct BridgeProductSessionProducerBoundaryTests {
         #expect(afterOpening.nextMetadataStreamSequence == 3)
         #expect(bridgeProductEnqueuedFrame(progress)?.sequence == 1)
         #expect(afterProgress.nextMetadataStreamSequence == 3)
-        #expect(await harness.session.dequeueProducerFrame(for: lease)?.sequence == 1)
+        #expect(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: harness.session
+            )?.sequence == 1
+        )
         try await closeBridgeProductSessionProducer(lease, in: harness.session)
     }
 
@@ -156,7 +164,10 @@ struct BridgeProductSessionProducerBoundaryTests {
                 )
             }
         )
-        let deliveredOpening = await harness.session.dequeueProducerFrame(for: lease)
+        let deliveredOpening = await consumeNextBridgeProductProducerFrame(
+            for: lease,
+            from: harness.session
+        )
         let progress = try await harness.session.enqueueProducerFrame(
             for: lease,
             build: { sequence in
@@ -178,7 +189,12 @@ struct BridgeProductSessionProducerBoundaryTests {
         #expect(bridgeProductEnqueuedFrame(opening)?.sequence == 3)
         #expect(deliveredOpening?.sequence == 3)
         #expect(bridgeProductEnqueuedFrame(progress)?.sequence == 4)
-        #expect(await harness.session.dequeueProducerFrame(for: lease)?.sequence == 4)
+        #expect(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: harness.session
+            )?.sequence == 4
+        )
         #expect((await harness.session.producerSnapshot()).nextMetadataStreamSequence == 5)
         try await closeBridgeProductSessionProducer(lease, in: harness.session)
         #expect((await harness.session.producerSnapshot()).hasZeroResidue)
@@ -227,7 +243,12 @@ struct BridgeProductSessionProducerBoundaryTests {
         #expect(bridgeProductEnqueuedFrame(mismatchedOpening) == nil)
         #expect(afterMismatch == beforeMismatch)
         #expect(bridgeProductEnqueuedFrame(correctOpening)?.sequence == 3)
-        #expect(await harness.session.dequeueProducerFrame(for: lease)?.sequence == 3)
+        #expect(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: harness.session
+            )?.sequence == 3
+        )
         try await closeBridgeProductSessionProducer(lease, in: harness.session)
     }
 
@@ -258,7 +279,10 @@ struct BridgeProductSessionProducerBoundaryTests {
             }
         )
         let afterOpening = await harness.session.producerSnapshot()
-        let deliveredOpening = await harness.session.dequeueProducerFrame(for: lease)
+        let deliveredOpening = await consumeNextBridgeProductProducerFrame(
+            for: lease,
+            from: harness.session
+        )
         let replayedProgress = try await harness.session.enqueueProducerFrame(
             for: lease,
             build: { sequence in
@@ -283,7 +307,12 @@ struct BridgeProductSessionProducerBoundaryTests {
         #expect(afterOpening.nextMetadataStreamSequence == 3)
         #expect(bridgeProductEnqueuedFrame(replayedProgress)?.sequence == 2)
         #expect(afterReplay.nextMetadataStreamSequence == 3)
-        #expect(await harness.session.dequeueProducerFrame(for: lease)?.sequence == 2)
+        #expect(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: harness.session
+            )?.sequence == 2
+        )
         try await closeBridgeProductSessionProducer(lease, in: harness.session)
     }
 
@@ -315,7 +344,12 @@ struct BridgeProductSessionProducerBoundaryTests {
             }
         )
         #expect(bridgeProductEnqueuedFrame(opening)?.sequence == 1)
-        #expect(await harness.session.dequeueProducerFrame(for: lease)?.sequence == 1)
+        #expect(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: harness.session
+            )?.sequence == 1
+        )
         let nonterminalCapacity =
             BridgeProductWireContract.maximumQueuedStreamFrames
             - BridgeProductWireContract.terminalFrameReserve
@@ -407,7 +441,12 @@ struct BridgeProductSessionProducerBoundaryTests {
         #expect(bridgeProductEnqueuedFrame(mismatchedOpening) == nil)
         #expect(afterMismatch == beforeMismatch)
         #expect(bridgeProductEnqueuedFrame(correctOpening)?.sequence == 1)
-        #expect(await harness.session.dequeueProducerFrame(for: lease)?.sequence == 1)
+        #expect(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: harness.session
+            )?.sequence == 1
+        )
         try await closeBridgeProductSessionProducer(lease, in: harness.session)
     }
 
@@ -440,7 +479,12 @@ private func openedSessionAfterMetadataProgress(
         }
     )
     #expect(bridgeProductEnqueuedFrame(opening)?.sequence == 0)
-    #expect(await harness.session.dequeueProducerFrame(for: lease)?.sequence == 0)
+    #expect(
+        await consumeNextBridgeProductProducerFrame(
+            for: lease,
+            from: harness.session
+        )?.sequence == 0
+    )
     for expectedSequence in 1...progressFrameCount {
         let progress = try await harness.session.enqueueProducerFrame(
             for: lease,
@@ -459,7 +503,12 @@ private func openedSessionAfterMetadataProgress(
             }
         )
         #expect(bridgeProductEnqueuedFrame(progress)?.sequence == expectedSequence)
-        #expect(await harness.session.dequeueProducerFrame(for: lease)?.sequence == expectedSequence)
+        #expect(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: harness.session
+            )?.sequence == expectedSequence
+        )
     }
     try await closeBridgeProductSessionProducer(lease, in: harness.session)
     #expect(

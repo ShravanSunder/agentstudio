@@ -5,6 +5,7 @@ struct BridgeProductProducerLease: Hashable, Sendable {
 }
 
 enum BridgeProductProducerRegistrationRejection: Equatable, Sendable {
+    case contentProducerCapacityReached(maximumLifecycleResidueCount: Int)
     case closing
     case duplicate
     case inactiveSession
@@ -75,6 +76,32 @@ struct BridgeProductQueuedProducerFrame: Equatable, Sendable {
     let requiredOpening: Bool
 }
 
+struct BridgeProductProducerFrameReceipt: Hashable, Sendable {
+    let producerLease: BridgeProductProducerLease
+    let sequence: Int
+    let nonce: UUID
+}
+
+struct BridgeProductProducerFrameDelivery: Equatable, Sendable {
+    let frame: BridgeProductQueuedProducerFrame
+    let receipt: BridgeProductProducerFrameReceipt
+}
+
+enum BridgeProductProducerFramePullRejection: Equatable, Sendable {
+    case producerEndedWithoutTerminal
+    case receiptInFlight
+    case retirementFailed
+    case unknownLease
+    case waiterAlreadyRegistered
+}
+
+enum BridgeProductProducerFramePullResult: Equatable, Sendable {
+    case cancelled
+    case finished
+    case frame(BridgeProductProducerFrameDelivery)
+    case rejected(BridgeProductProducerFramePullRejection)
+}
+
 enum BridgeProductProducerEnqueueRejection: Equatable, Sendable {
     case closeRequired
     case frameIdentityMismatch
@@ -108,8 +135,11 @@ struct BridgeProductProducerRegistrySnapshot: Equatable, Sendable {
     let activeProducerCount: Int
     let activeProducerTaskCount: Int
     let activeContentLeaseCount: Int
+    let contentProducerLifecycleResidueCount: Int
     let queuedFrameCount: Int
     let queuedByteCount: Int
+    let pendingFrameWaiterCount: Int
+    let inFlightFrameReceiptCount: Int
     let pendingLifecycleAcknowledgementCount: Int
     let nextMetadataStreamSequence: Int
     let isRevoked: Bool
@@ -120,6 +150,8 @@ struct BridgeProductProducerRegistrySnapshot: Equatable, Sendable {
             && activeContentLeaseCount == 0
             && queuedFrameCount == 0
             && queuedByteCount == 0
+            && pendingFrameWaiterCount == 0
+            && inFlightFrameReceiptCount == 0
             && pendingLifecycleAcknowledgementCount == 0
     }
 }

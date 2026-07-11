@@ -103,13 +103,6 @@ enum BridgeWebKitDeclaredLengthHeaderState: String, Equatable, Sendable {
     case oversized
 }
 
-enum BridgeWebKitRequestBodySource: String, Equatable, Sendable {
-    case unread
-    case missing
-    case httpBody = "http_body"
-    case httpBodyStream = "http_body_stream"
-}
-
 enum BridgeWebKitAdmissionOutcome: Equatable, Sendable {
     case accepted
     case rejected(BridgeProductStreamWebKitFeasibilityRejection)
@@ -120,7 +113,7 @@ struct BridgeWebKitRequestAPIObservation: Equatable, Sendable {
     let method: String
     let capabilityHeaderState: BridgeWebKitCapabilityHeaderState
     let declaredLengthHeaderState: BridgeWebKitDeclaredLengthHeaderState
-    let bodySource: BridgeWebKitRequestBodySource
+    let bodySource: BridgeProductRequestBodySource
     let bodyByteCount: Int
     let decodeCallCount: Int
     let providerCallCount: Int

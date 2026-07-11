@@ -86,7 +86,12 @@ struct BridgeProductSessionLifecycleHarness {
             }
         )
         #expect(lifecycleAdmittedFrame(opening)?.sequence == 0)
-        #expect(await session.dequeueProducerFrame(for: lease)?.sequence == 0)
+        #expect(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: session
+            )?.sequence == 0
+        )
 
         if lastSequence > 0 {
             for expectedSequence in 1...lastSequence {
@@ -107,7 +112,12 @@ struct BridgeProductSessionLifecycleHarness {
                     }
                 )
                 #expect(lifecycleAdmittedFrame(result)?.sequence == expectedSequence)
-                #expect(await session.dequeueProducerFrame(for: lease)?.sequence == expectedSequence)
+                #expect(
+                    await consumeNextBridgeProductProducerFrame(
+                        for: lease,
+                        from: session
+                    )?.sequence == expectedSequence
+                )
             }
         }
         return lease
@@ -143,8 +153,11 @@ struct BridgeProductSessionLifecycleHarness {
         #expect(
             try await begin(request)
                 == .rejected(
-                    .streamSequenceConflict(
-                        nextMetadataStreamSequence: expectation.nextMetadataStreamSequence
+                    .init(
+                        reason: .streamSequenceConflict(
+                            nextMetadataStreamSequence: expectation.nextMetadataStreamSequence
+                        ),
+                        request: request
                     )
                 )
         )
@@ -295,7 +308,7 @@ func bridgeProductLifecycleResyncObject(
 private func lifecycleExecutionToken(
     _ admission: BridgeProductSessionControlAdmission
 ) -> BridgeProductControlAdmissionToken? {
-    guard case .execute(let token) = admission else { return nil }
+    guard case .execute(let token, _) = admission else { return nil }
     return token
 }
 

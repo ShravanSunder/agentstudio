@@ -334,7 +334,7 @@ private struct RawControlSessionHarness {
 
     func beginExecution(_ requestBytes: Data) async throws -> BridgeProductControlAdmissionToken {
         let admission = await begin(requestBytes)
-        guard case .execute(let token) = admission else {
+        guard case .execute(let token, _) = admission else {
             Issue.record("Expected execution admission, received \(admission)")
             throw RawControlSessionHarnessError.expectedExecution
         }

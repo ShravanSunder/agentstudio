@@ -6,7 +6,7 @@ Goal id: `2026-07-09-bridge-click-fileview-workers`
 Agent Studio implementation base: `ea7ce82a19fb6b600856a16fbe02866e131cecb6`
 Accepted spec: `docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md`
 Accepted spec SHA-256:
-`e6811d761a1c785b72c8f4290003de205a478c5df9b776ea6db734522e728d91`
+`db903d14310821f2fc10a15ad1f08ade6c01cfcb379042dc545d140a9aae69d8`
 Pierre source: `/Users/shravansunder/Documents/dev/open-source/libs-react/pierre`
 Pierre planning base: `origin/main` at
 `4f94a5e765195b27e1e4188b943aab2ae44613cb`
@@ -272,6 +272,11 @@ Behavior:
   append. One producer owns one `URLSchemeTask` continuation, and any pre-accept,
   cross-stream, gap/duplicate, offset, digest, or post-terminal violation poisons
   without product-state mutation.
+- Cap content-producer lifecycle residue at 16 per product session, counting
+  active content producers plus pending content lifecycle acknowledgements.
+  Cancellation, revoke, disposal, and replacement join one single-flight
+  retirement owner for each lease's exact lifecycle nonce. Failed acknowledgement
+  retains the residue, and every retry preserves that exact nonce.
 - Start producer emission at 128 KiB and benchmark it in packaged WKWebView
   against the existing p99 and <= 8 ms synchronous-slice budgets; change that
   policy only with fresh evidence while retaining the fixed wire ceilings.
@@ -313,8 +318,11 @@ RED proof:
   atomic interest-delta staging/hash/barrier/reset; exact 128 KiB data and +1;
   exact sixteen-frame 2 MiB segmentation; 1-byte/4 KiB arbitrary fragmentation;
   ingress/relocation/allocation oracle; cross-stream/pre-accept/gap/duplicate/
-  offset/digest/post-terminal hostility; abort-causal stop/unregister; overflow
-  reserve; resume/snapshot; replacement/reset/restart; and zero-residual teardown.
+  offset/digest/post-terminal hostility; abort-causal stop/unregister; the
+  16-residue ceiling across active content producers plus pending acknowledgements;
+  cancellation/revoke single-flight retirement; exact-nonce retry after failed
+  acknowledgement; overflow reserve; resume/snapshot; replacement/reset/restart;
+  and zero-residual teardown.
 - Epoch-floor RED/GREEN pair: RED fails if stale nonterminal subscription or
   content-accepted/data mutates current truth, or if cleanup is rejected/leaks;
   GREEN consumes stream continuity with zero interests/cache/publication/reset
@@ -347,7 +355,9 @@ unit proof or a zero-sample marker alone still cannot close this gate.
 2. **S2b session core:** actor, digest/replay cache, producer/lease registry,
    terminal reserve, reset/restart, and hostile tests.
 3. **S2c scheme adapter:** thin command/metadata/content POST adapter with no
-   MainActor product dispatcher or duplicate authority.
+   MainActor product dispatcher or duplicate authority. The current checkpoint
+   remains deliberately off-path and unregistered until S2d installs the typed
+   capability; it is not a production fallback and cannot independently close G1.
 4. **S2d capability install:** typed transferable bootstrap, accepted worker
    instance, and old-capability revoke before replacement acceptance.
 5. **S2e lifecycle close:** tracked reload/replacement/teardown awaits producer

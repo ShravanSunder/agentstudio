@@ -136,9 +136,12 @@ struct BridgeProductSessionLifecycleTests {
         #expect(
             staleAdmission
                 == .rejected(
-                    .staleDerivationEpoch(
-                        currentWorkerDerivationEpoch: 8,
-                        surface: .review
+                    .init(
+                        reason: .staleDerivationEpoch(
+                            currentWorkerDerivationEpoch: 8,
+                            surface: .review
+                        ),
+                        request: staleReviewRequest
                     )
                 )
         )
@@ -240,7 +243,12 @@ struct BridgeProductSessionLifecycleTests {
         let conflictAdmission = try await harness.begin(conflictingSequenceRequest)
         #expect(
             conflictAdmission
-                == .rejected(.sequenceConflict(nextExpectedRequestSequence: 5))
+                == .rejected(
+                    .init(
+                        reason: .sequenceConflict(nextExpectedRequestSequence: 5),
+                        request: conflictingSequenceRequest
+                    )
+                )
         )
         #expect((await harness.session.snapshot) == acceptedSnapshot)
         try await harness.closeProducer(metadataLease)
@@ -292,7 +300,7 @@ struct BridgeProductSessionLifecycleTests {
 
 extension BridgeProductSessionControlAdmission {
     fileprivate var executionToken: BridgeProductControlAdmissionToken? {
-        guard case .execute(let token) = self else { return nil }
+        guard case .execute(let token, _) = self else { return nil }
         return token
     }
 }

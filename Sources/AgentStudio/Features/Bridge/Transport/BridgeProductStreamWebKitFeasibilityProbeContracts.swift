@@ -1,12 +1,5 @@
 import Foundation
 
-enum BridgeWebKitBoundedBodyRead {
-    case missing
-    case invalid(source: BridgeWebKitRequestBodySource, observedByteCount: Int)
-    case oversized(source: BridgeWebKitRequestBodySource, observedByteCount: Int)
-    case body(Data, source: BridgeWebKitRequestBodySource)
-}
-
 extension BridgeProductStreamProbeRequestBody {
     static let strictJSONMemberVocabulary = BridgeProductStrictJSONMemberVocabulary(
         Set([

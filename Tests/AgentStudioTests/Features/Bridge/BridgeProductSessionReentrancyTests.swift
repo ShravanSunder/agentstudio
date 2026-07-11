@@ -124,7 +124,12 @@ struct BridgeProductSessionReentrancyTests {
             }
         )
         #expect(metadataOpening.admittedFrame?.sequence == 0)
-        #expect(await harness.session.dequeueProducerFrame(for: metadataLease)?.sequence == 0)
+        #expect(
+            await consumeNextBridgeProductProducerFrame(
+                for: metadataLease,
+                from: harness.session
+            )?.sequence == 0
+        )
 
         let heldProducer = HeldProducerOperation()
         let oldRegistration = await harness.session.registerContentProducer(
@@ -516,7 +521,7 @@ private func fileContentRequest(
 
 extension BridgeProductSessionControlAdmission {
     fileprivate var executionToken: BridgeProductControlAdmissionToken? {
-        guard case .execute(let token) = self else { return nil }
+        guard case .execute(let token, _) = self else { return nil }
         return token
     }
 }

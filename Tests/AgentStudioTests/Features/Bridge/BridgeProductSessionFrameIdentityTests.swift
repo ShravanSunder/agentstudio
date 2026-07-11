@@ -147,7 +147,12 @@ struct BridgeProductSessionFrameIdentityTests {
             }
         )
         #expect(openingResult.isEnqueued)
-        _ = try #require(await harness.session.dequeueProducerFrame(for: lease))
+        _ = try #require(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: harness.session
+            )
+        )
 
         // Act
         let progressResult = try await harness.session.enqueueProducerFrame(
@@ -306,7 +311,7 @@ private actor FrameIdentityProducerOperationGate {
 
 extension BridgeProductSessionControlAdmission {
     fileprivate var executionToken: BridgeProductControlAdmissionToken? {
-        guard case .execute(let token) = self else { return nil }
+        guard case .execute(let token, _) = self else { return nil }
         return token
     }
 }

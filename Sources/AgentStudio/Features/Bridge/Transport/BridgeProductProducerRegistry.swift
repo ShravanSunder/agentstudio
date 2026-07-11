@@ -10,9 +10,14 @@ struct BridgeProductProducerRegistry {
         let task: Task<Void, Never>?
     }
 
+    private struct PendingLifecycleAcknowledgement {
+        let acknowledgement: BridgeProductProducerLifecycleAcknowledgement
+        let producerKey: BridgeProductProducerKey
+    }
+
     private let limits: BridgeProductProducerQueueLimits
-    private var producersByLeaseId: [UUID: BridgeProductProducerState] = [:]
-    private var pendingAcknowledgementsByLeaseId: [UUID: BridgeProductProducerLifecycleAcknowledgement] = [:]
+    var producersByLeaseId: [UUID: BridgeProductProducerState] = [:]
+    private var pendingAcknowledgementsByLeaseId: [UUID: PendingLifecycleAcknowledgement] = [:]
     private var nextMetadataStreamSequence = 0
     private var isClosing = false
     private var isRevoked = false
@@ -96,8 +101,8 @@ struct BridgeProductProducerRegistry {
         }
         let encodedFrame: Data
         do {
-            encodedFrame = try buildAndValidateFrame(
-                for: state,
+            encodedFrame = try BridgeProductProducerFrameValidator.encode(
+                for: state.key,
                 sequence: sequence,
                 intent: .requiredOpening,
                 build: build
@@ -146,8 +151,8 @@ struct BridgeProductProducerRegistry {
         }
         let candidateData: Data
         do {
-            candidateData = try buildAndValidateFrame(
-                for: state,
+            candidateData = try BridgeProductProducerFrameValidator.encode(
+                for: state.key,
                 sequence: candidateSequence,
                 intent: .nonterminal,
                 build: build
@@ -173,12 +178,15 @@ struct BridgeProductProducerRegistry {
         guard state.openingFrameState == .delivered else {
             return .rejected(.closeRequired)
         }
+        guard state.inFlightFrameReceipt == nil else {
+            return .rejected(.closeRequired)
+        }
 
         let replacementSequence = state.queuedFrames.first?.sequence ?? candidateSequence
         let resetData: Data
         do {
-            resetData = try buildAndValidateFrame(
-                for: state,
+            resetData = try BridgeProductProducerFrameValidator.encode(
+                for: state.key,
                 sequence: replacementSequence,
                 intent: .terminal,
                 build: overflowReset
@@ -217,8 +225,8 @@ struct BridgeProductProducerRegistry {
         }
         let candidateData: Data
         do {
-            candidateData = try buildAndValidateFrame(
-                for: state,
+            candidateData = try BridgeProductProducerFrameValidator.encode(
+                for: state.key,
                 sequence: candidateSequence,
                 intent: .terminal,
                 build: build
@@ -243,6 +251,9 @@ struct BridgeProductProducerRegistry {
         guard state.openingFrameState == .delivered else {
             return .rejected(.closeRequired)
         }
+        guard state.inFlightFrameReceipt == nil else {
+            return .rejected(.closeRequired)
+        }
 
         let replacementSequence = state.queuedFrames.first?.sequence ?? candidateSequence
         let replacementData: Data
@@ -250,8 +261,8 @@ struct BridgeProductProducerRegistry {
             replacementData = candidateData
         } else {
             do {
-                replacementData = try buildAndValidateFrame(
-                    for: state,
+                replacementData = try BridgeProductProducerFrameValidator.encode(
+                    for: state.key,
                     sequence: replacementSequence,
                     intent: .terminal,
                     build: build
@@ -269,21 +280,6 @@ struct BridgeProductProducerRegistry {
             lease: lease,
             state: &state
         )
-    }
-
-    mutating func dequeueFrame(
-        for lease: BridgeProductProducerLease
-    ) -> BridgeProductQueuedProducerFrame? {
-        guard var state = producersByLeaseId[lease.id], !state.queuedFrames.isEmpty else {
-            return nil
-        }
-        let frame = state.queuedFrames.removeFirst()
-        state.queuedByteCount -= frame.data.count
-        if frame.requiredOpening {
-            state.openingFrameState = .delivered
-        }
-        producersByLeaseId[lease.id] = state
-        return frame
     }
 
     func openingFrameState(
@@ -335,10 +331,22 @@ struct BridgeProductProducerRegistry {
         producersByLeaseId[lease.id]?.lifecycle == .stopped
     }
 
-    func pendingLifecycleAcknowledgements()
-        -> [BridgeProductProducerLifecycleAcknowledgement]
-    {
-        Array(pendingAcknowledgementsByLeaseId.values)
+    func pendingLifecycleAcknowledgement(
+        for lease: BridgeProductProducerLease
+    ) -> BridgeProductProducerLifecycleAcknowledgement? {
+        pendingAcknowledgementsByLeaseId[lease.id]?.acknowledgement
+    }
+
+    func lifecycleResidueLeases() -> [BridgeProductProducerLease] {
+        Set(producersByLeaseId.keys)
+            .union(pendingAcknowledgementsByLeaseId.keys)
+            .sorted { $0.uuidString < $1.uuidString }
+            .map(BridgeProductProducerLease.init(id:))
+    }
+
+    func hasLifecycleResidue(for lease: BridgeProductProducerLease) -> Bool {
+        producersByLeaseId[lease.id] != nil
+            || pendingAcknowledgementsByLeaseId[lease.id] != nil
     }
 
     mutating func unregister(
@@ -352,14 +360,20 @@ struct BridgeProductProducerRegistry {
             producerLease: lease,
             nonce: UUID()
         )
-        pendingAcknowledgementsByLeaseId[lease.id] = acknowledgement
+        pendingAcknowledgementsByLeaseId[lease.id] = .init(
+            acknowledgement: acknowledgement,
+            producerKey: state.key
+        )
         return acknowledgement
     }
 
     mutating func acknowledgeLifecycle(
         _ acknowledgement: BridgeProductProducerLifecycleAcknowledgement
     ) -> Bool {
-        guard pendingAcknowledgementsByLeaseId[acknowledgement.producerLease.id] == acknowledgement else {
+        guard
+            pendingAcknowledgementsByLeaseId[acknowledgement.producerLease.id]?.acknowledgement
+                == acknowledgement
+        else {
             return false
         }
         pendingAcknowledgementsByLeaseId.removeValue(forKey: acknowledgement.producerLease.id)
@@ -372,8 +386,11 @@ struct BridgeProductProducerRegistry {
             activeProducerCount: states.count,
             activeProducerTaskCount: states.count { $0.lifecycle != .stopped },
             activeContentLeaseCount: states.count { $0.key.isContent },
+            contentProducerLifecycleResidueCount: contentProducerLifecycleResidueCount,
             queuedFrameCount: states.reduce(0) { $0 + $1.queuedFrames.count },
             queuedByteCount: states.reduce(0) { $0 + $1.queuedByteCount },
+            pendingFrameWaiterCount: states.count { $0.frameWaiterToken != nil },
+            inFlightFrameReceiptCount: states.count { $0.inFlightFrameReceipt != nil },
             pendingLifecycleAcknowledgementCount: pendingAcknowledgementsByLeaseId.count,
             nextMetadataStreamSequence: nextMetadataStreamSequence,
             isRevoked: isRevoked
@@ -390,6 +407,17 @@ struct BridgeProductProducerRegistry {
         if isRevoked { return .rejected(.revoked) }
         if isClosing { return .rejected(.closing) }
         if hasDuplicateProducer(for: key) { return .rejected(.duplicate) }
+        if key.isContent,
+            contentProducerLifecycleResidueCount
+                >= limits.maximumContentProducerLifecycleResidueCount
+        {
+            return .rejected(
+                .contentProducerCapacityReached(
+                    maximumLifecycleResidueCount:
+                        limits.maximumContentProducerLifecycleResidueCount
+                )
+            )
+        }
 
         let lease = BridgeProductProducerLease(id: UUID())
         producersByLeaseId[lease.id] = BridgeProductProducerState(
@@ -407,11 +435,26 @@ struct BridgeProductProducerRegistry {
 
     private func hasDuplicateProducer(for candidateKey: BridgeProductProducerKey) -> Bool {
         producersByLeaseId.values.contains { state in
-            switch (state.key, candidateKey) {
-            case (.metadata, .metadata): true
-            case (.content(let existing), .content(let candidate)): existing == candidate
-            default: false
+            Self.producerKeysMatch(state.key, candidateKey)
+        }
+            || pendingAcknowledgementsByLeaseId.values.contains { pending in
+                Self.producerKeysMatch(pending.producerKey, candidateKey)
             }
+    }
+
+    private var contentProducerLifecycleResidueCount: Int {
+        producersByLeaseId.values.count { $0.key.isContent }
+            + pendingAcknowledgementsByLeaseId.values.count { $0.producerKey.isContent }
+    }
+
+    private static func producerKeysMatch(
+        _ existingKey: BridgeProductProducerKey,
+        _ candidateKey: BridgeProductProducerKey
+    ) -> Bool {
+        switch (existingKey, candidateKey) {
+        case (.metadata, .metadata): true
+        case (.content(let existing), .content(let candidate)): existing == candidate
+        default: false
         }
     }
 
@@ -441,65 +484,6 @@ struct BridgeProductProducerRegistry {
             state.nextMetadataStreamSequence = producerNextSequence
         case .content:
             state.nextContentSequence = sequence + 1
-        }
-    }
-
-    private func buildAndValidateFrame(
-        for state: BridgeProductProducerState,
-        sequence: Int,
-        intent: BridgeProductProducerEnqueueIntent,
-        build: FrameBuilder
-    ) throws -> Data {
-        let frame = try build(sequence)
-        guard frame.sequence == sequence else {
-            throw BridgeProductProducerFrameValidationError.rejected(.frameIdentityMismatch)
-        }
-        if let producerRejection = producerRejection(frame, key: state.key) {
-            throw BridgeProductProducerFrameValidationError.rejected(producerRejection)
-        }
-        guard frameMatchesIntent(frame, intent: intent) else {
-            throw BridgeProductProducerFrameValidationError.rejected(.frameLifecycleMismatch)
-        }
-        return try frame.encode()
-    }
-
-    private func producerRejection(
-        _ frame: BridgeProductProducerFrame,
-        key: BridgeProductProducerKey
-    ) -> BridgeProductProducerEnqueueRejection? {
-        switch (frame, key) {
-        case (.metadata(let metadataFrame), .metadata(let metadataKey)):
-            let identity = metadataFrame.producerFrameIdentity
-            let correlation = metadataKey.request.correlation
-            let matches =
-                identity.metadataStreamId == correlation.metadataStreamId
-                && identity.paneSessionId == correlation.paneSessionId
-                && identity.wireVersion == correlation.wireVersion
-                && identity.workerInstanceId == correlation.workerInstanceId
-            guard matches else { return .frameIdentityMismatch }
-            if case .metadataStreamAccepted(let acceptedFrame) = metadataFrame,
-                acceptedFrame.resumeDisposition != metadataKey.expectedResumeDisposition
-            {
-                return .frameIdentityMismatch
-            }
-            return nil
-        case (.content(let contentFrame), .content(let request)):
-            guard case .accepted(let header) = contentFrame.header else { return nil }
-            return header == BridgeProductContentAcceptedHeader(admission: request.admission)
-                ? nil : .frameIdentityMismatch
-        default:
-            return .frameKindMismatch
-        }
-    }
-
-    private func frameMatchesIntent(
-        _ frame: BridgeProductProducerFrame,
-        intent: BridgeProductProducerEnqueueIntent
-    ) -> Bool {
-        switch intent {
-        case .requiredOpening: frame.isRequiredOpening && !frame.isTerminal
-        case .nonterminal: !frame.isRequiredOpening && !frame.isTerminal
-        case .terminal: !frame.isRequiredOpening && frame.isTerminal
         }
     }
 
@@ -572,16 +556,6 @@ struct BridgeProductProducerRegistry {
             state.nextMetadataStreamSequence = replacementNextSequence
         case .content:
             state.nextContentSequence = sequence + 1
-        }
-    }
-}
-
-enum BridgeProductProducerFrameValidationError: Error, Equatable {
-    case rejected(BridgeProductProducerEnqueueRejection)
-
-    var rejection: BridgeProductProducerEnqueueRejection {
-        switch self {
-        case .rejected(let rejection): rejection
         }
     }
 }

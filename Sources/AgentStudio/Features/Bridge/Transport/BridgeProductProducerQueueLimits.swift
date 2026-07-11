@@ -1,10 +1,12 @@
 import Foundation
 
 enum BridgeProductProducerQueueLimitsError: Error, Equatable, Sendable {
+    case invalidContentProducerResidueLimit
     case invalidMaximumEncodedFrameByteCount
     case invalidMaximumQueuedByteCount
     case invalidMaximumQueuedFrameCount
     case invalidTerminalFrameReserve
+    case contentProducerResidueLimitExceedsProductContract
     case maximumEncodedFrameExceedsQueue
     case maximumEncodedFrameExceedsWireContract
     case maximumQueuedBytesExceedWireContract
@@ -12,6 +14,7 @@ enum BridgeProductProducerQueueLimitsError: Error, Equatable, Sendable {
 }
 
 struct BridgeProductProducerQueueLimits: Equatable, Sendable {
+    static let maximumProductContentProducerLifecycleResidueCount = 16
     static let maximumProductEncodedFrameByteCount =
         max(
             BridgeProductWireContract.maximumMetadataFrameBytes,
@@ -19,6 +22,8 @@ struct BridgeProductProducerQueueLimits: Equatable, Sendable {
         ) + MemoryLayout<UInt32>.size
 
     static let productContract = Self(
+        maximumContentProducerLifecycleResidueCount:
+            maximumProductContentProducerLifecycleResidueCount,
         maximumQueuedFrameCount: BridgeProductWireContract.maximumQueuedStreamFrames,
         maximumQueuedByteCount: BridgeProductWireContract.maximumQueuedStreamBytes,
         maximumEncodedFrameByteCount: maximumProductEncodedFrameByteCount,
@@ -26,17 +31,31 @@ struct BridgeProductProducerQueueLimits: Equatable, Sendable {
         validated: ()
     )
 
+    let maximumContentProducerLifecycleResidueCount: Int
     let maximumQueuedFrameCount: Int
     let maximumQueuedByteCount: Int
     let maximumEncodedFrameByteCount: Int
     let terminalFrameReserve: Int
 
     init(
+        maximumContentProducerLifecycleResidueCount: Int =
+            Self.maximumProductContentProducerLifecycleResidueCount,
         maximumQueuedFrameCount: Int,
         maximumQueuedByteCount: Int,
         maximumEncodedFrameByteCount: Int,
         terminalFrameReserve: Int
     ) throws {
+        guard maximumContentProducerLifecycleResidueCount > 0 else {
+            throw BridgeProductProducerQueueLimitsError
+                .invalidContentProducerResidueLimit
+        }
+        guard
+            maximumContentProducerLifecycleResidueCount
+                <= Self.maximumProductContentProducerLifecycleResidueCount
+        else {
+            throw BridgeProductProducerQueueLimitsError
+                .contentProducerResidueLimitExceedsProductContract
+        }
         guard maximumQueuedFrameCount > 0 else {
             throw BridgeProductProducerQueueLimitsError.invalidMaximumQueuedFrameCount
         }
@@ -63,6 +82,8 @@ struct BridgeProductProducerQueueLimits: Equatable, Sendable {
         else {
             throw BridgeProductProducerQueueLimitsError.invalidTerminalFrameReserve
         }
+        self.maximumContentProducerLifecycleResidueCount =
+            maximumContentProducerLifecycleResidueCount
         self.maximumQueuedFrameCount = maximumQueuedFrameCount
         self.maximumQueuedByteCount = maximumQueuedByteCount
         self.maximumEncodedFrameByteCount = maximumEncodedFrameByteCount
@@ -70,12 +91,15 @@ struct BridgeProductProducerQueueLimits: Equatable, Sendable {
     }
 
     private init(
+        maximumContentProducerLifecycleResidueCount: Int,
         maximumQueuedFrameCount: Int,
         maximumQueuedByteCount: Int,
         maximumEncodedFrameByteCount: Int,
         terminalFrameReserve: Int,
         validated _: Void
     ) {
+        self.maximumContentProducerLifecycleResidueCount =
+            maximumContentProducerLifecycleResidueCount
         self.maximumQueuedFrameCount = maximumQueuedFrameCount
         self.maximumQueuedByteCount = maximumQueuedByteCount
         self.maximumEncodedFrameByteCount = maximumEncodedFrameByteCount

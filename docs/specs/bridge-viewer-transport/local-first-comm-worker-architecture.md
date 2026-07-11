@@ -1,7 +1,7 @@
 # Local-First Comm Worker Architecture
 
 Date: 2026-07-09
-Status: accepted; plan-ready. Implementation and proof are not complete.
+Status: accepted; implementation active but incomplete. S2c remains off-path and unregistered pending capability installation.
 Extends [performance-demand-lanes.md](performance-demand-lanes.md) R32-R40 and
 its Constants Annex. It supersedes only the clauses named under Explicit
 Supersessions below.
@@ -1626,7 +1626,7 @@ Every later sequence is positive and contiguous. `content.data` carries `u32be o
 Every content frame body has the universal hostile-input ceiling of 256 KiB; every content JSON control body has a separate 16 KiB ceiling. Exactly 2 MiB of File content is sixteen full 128 KiB data frames plus accepted/end; a partial final data frame is valid.
 WebKit may split or coalesce bytes arbitrarily. Prefix/stage caps precede allocation/decode, and both decoders use fixed-capacity reference-owned accumulators rather than repeated copy-on-write append.
 Each native producer owns exactly one `URLSchemeTask` response continuation. Cross-stream writes, wrong producer identity, pre-accepted data, gaps, duplicates, offset mismatch, overflow, invalid digest, or post-terminal bytes poison that response, discard staged bytes, and perform no product-state mutation.
-Native queues retain frame/byte caps and terminal reserve. Abort closes only that response; native stops/unregisters its producer before the pane metadata stream emits correlated `content.cancelled`. The worker settles only after local fetch abort plus that lifecycle frame; disposal/replacement awaits the same zero-residue barrier.
+Native queues retain frame/byte caps, terminal reserve, and a safety ceiling of 16 content-producer lifecycle residues per product session, counted as active content producers plus pending content lifecycle acknowledgements. Abort closes only that response; native stops and unregisters its producer before the pane metadata stream emits correlated `content.cancelled`. Cancellation, revoke, disposal, and replacement join one single-flight retirement owner for each lease's exact lifecycle nonce; a failed acknowledgement retains the residue and every retry reuses that exact nonce. The worker settles only after local fetch abort plus the lifecycle frame and successful acknowledgement of the same zero-residue barrier.
 Shared raw TS/Swift vectors cover exact 128 KiB data and +1 rejection, exact 2 MiB segmentation, 1-byte/4 KiB arbitrary fragmentation, cross-stream/terminal hostility, strict JSON/interest semantics, and checksum/cancel/resume/restart. An ingress/relocation/allocation oracle proves bounded linear accumulation. Packaged benchmarks start at 128 KiB emission and must satisfy the existing p99 and synchronous-slice budgets before that producer policy changes.
 
 ### R65. File View byte, encoding, line, and truncation semantics are canonical.

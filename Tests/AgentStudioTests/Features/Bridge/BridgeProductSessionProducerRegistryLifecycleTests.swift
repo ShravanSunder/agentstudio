@@ -31,7 +31,7 @@ struct BridgeProductSessionProducerRegistryLifecycleTests {
             for: contentLease,
             build: { _ in producerRegistryContentOpeningFrame(for: producerRegistryContentRequest) }
         )
-        _ = await registry.dequeueFrame(for: contentLease)
+        _ = await registry.consumeNextFrame(for: contentLease)
 
         // Act
         let stoppedLeases = await registry.stop([contentLease])
@@ -47,7 +47,7 @@ struct BridgeProductSessionProducerRegistryLifecycleTests {
         #expect(oldEpochCleanup.enqueuedFrame?.sequence == 1)
         #expect(stoppedSnapshot.activeProducerTaskCount == 1)
         #expect(stoppedSnapshot.activeProducerCount == 2)
-        #expect(await registry.dequeueFrame(for: contentLease)?.sequence == 1)
+        #expect(await registry.consumeNextFrame(for: contentLease)?.sequence == 1)
         let acknowledgement = try #require(await registry.unregister(contentLease))
         #expect(await registry.acknowledgeLifecycle(acknowledgement))
         try await closeAllProducerRegistryProducers(in: registry)

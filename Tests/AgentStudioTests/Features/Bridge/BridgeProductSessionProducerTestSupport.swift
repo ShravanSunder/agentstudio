@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -62,8 +63,24 @@ actor BridgeProductProducerRegistryTestHarness {
         try registry.enqueueTerminalFrame(for: lease, build: build)
     }
 
-    func dequeueFrame(for lease: BridgeProductProducerLease) -> BridgeProductQueuedProducerFrame? {
-        registry.dequeueFrame(for: lease)
+    func consumeNextFrame(
+        for lease: BridgeProductProducerLease
+    ) -> BridgeProductQueuedProducerFrame? {
+        let waiterToken = UUID()
+        guard
+            case .frame(let delivery) = registry.prepareFramePull(
+                for: lease,
+                waiterToken: waiterToken
+            )
+        else {
+            Issue.record("Expected a queued producer frame")
+            return nil
+        }
+        guard registry.acknowledgeFrameConsumed(delivery.receipt) else {
+            Issue.record("Expected the exact producer frame receipt to be accepted")
+            return nil
+        }
+        return delivery.frame
     }
 
     func openingFrameState(
@@ -362,6 +379,21 @@ func bridgeProductFileContentRequest(
     )
 }
 
+func consumeNextBridgeProductProducerFrame(
+    for lease: BridgeProductProducerLease,
+    from session: BridgeProductSession
+) async -> BridgeProductQueuedProducerFrame? {
+    guard case .frame(let delivery) = await session.pullProducerFrame(for: lease) else {
+        Issue.record("Expected a queued producer frame")
+        return nil
+    }
+    guard await session.acknowledgeProducerFrameConsumed(delivery.receipt) else {
+        Issue.record("Expected the exact producer frame receipt to be accepted")
+        return nil
+    }
+    return delivery.frame
+}
+
 func closeBridgeProductSessionProducer(
     _ lease: BridgeProductProducerLease,
     in session: BridgeProductSession
@@ -413,7 +445,7 @@ private func bridgeProductControlRequest(
 private func bridgeProductExecutionToken(
     _ admission: BridgeProductSessionControlAdmission
 ) throws -> BridgeProductControlAdmissionToken {
-    guard case .execute(let token) = admission else {
+    guard case .execute(let token, _) = admission else {
         throw BridgeProductSessionProducerTestSupportError.expectedExecutionAdmission
     }
     return token

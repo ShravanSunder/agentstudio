@@ -15,7 +15,7 @@ struct BridgeProductStreamWebKitFeasibilityAdmission {
     }
 
     private struct ObservationDetails {
-        let bodySource: BridgeWebKitRequestBodySource
+        let bodySource: BridgeProductRequestBodySource
         let bodyByteCount: Int
         let decodeCallCount: Int
         let providerCallCount: Int
@@ -26,7 +26,7 @@ struct BridgeProductStreamWebKitFeasibilityAdmission {
         let nearCapMeasurementIndex: Int?
 
         init(
-            bodySource: BridgeWebKitRequestBodySource,
+            bodySource: BridgeProductRequestBodySource,
             bodyByteCount: Int,
             decodeCallCount: Int,
             providerCallCount: Int,
@@ -98,13 +98,15 @@ struct BridgeProductStreamWebKitFeasibilityAdmission {
             )
         }
         return admitBody(
-            Self.readBoundedBody(request, maximumBytes: maximumRequestBodyBytes),
+            BridgeProductBoundedRequestBodyReader(
+                maximumBytes: maximumRequestBodyBytes
+            ).read(request),
             context: context
         )
     }
 
     private func admitBody(
-        _ bodyRead: BridgeWebKitBoundedBodyRead,
+        _ bodyRead: BridgeProductBoundedRequestBodyRead,
         context: Context
     ) -> Outcome {
         switch bodyRead {
@@ -154,7 +156,7 @@ struct BridgeProductStreamWebKitFeasibilityAdmission {
 
     private func admitValidatedBody(
         _ data: Data,
-        source: BridgeWebKitRequestBodySource,
+        source: BridgeProductRequestBodySource,
         context: Context
     ) -> Outcome {
         do {
@@ -231,36 +233,6 @@ struct BridgeProductStreamWebKitFeasibilityAdmission {
                 )
             )
         )
-    }
-
-    private static func readBoundedBody(
-        _ request: URLRequest,
-        maximumBytes: Int
-    ) -> BridgeWebKitBoundedBodyRead {
-        if let body = request.httpBody {
-            let observed = Data(body.prefix(maximumBytes + 1))
-            return body.count > maximumBytes
-                ? .oversized(source: .httpBody, observedByteCount: observed.count)
-                : .body(observed, source: .httpBody)
-        }
-        guard let stream = request.httpBodyStream else { return .missing }
-
-        stream.open()
-        defer { stream.close() }
-        var data = Data()
-        var buffer = [UInt8](repeating: 0, count: min(8192, maximumBytes + 1))
-        while data.count <= maximumBytes {
-            let remaining = maximumBytes + 1 - data.count
-            let readCount = stream.read(&buffer, maxLength: min(buffer.count, remaining))
-            if readCount < 0 {
-                return .invalid(source: .httpBodyStream, observedByteCount: data.count)
-            }
-            if readCount == 0 { break }
-            data.append(buffer, count: readCount)
-        }
-        return data.count > maximumBytes
-            ? .oversized(source: .httpBodyStream, observedByteCount: data.count)
-            : .body(data, source: .httpBodyStream)
     }
 
     private static func observation(

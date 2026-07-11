@@ -106,7 +106,7 @@ private struct RequestErrorSessionHarness {
     func beginExecution(_ requestBytes: Data) async throws
         -> BridgeProductControlAdmissionToken
     {
-        guard case .execute(let token) = await begin(requestBytes) else {
+        guard case .execute(let token, _) = await begin(requestBytes) else {
             throw RequestErrorSessionHarnessError.expectedExecution
         }
         return token

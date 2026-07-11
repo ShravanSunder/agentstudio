@@ -61,7 +61,12 @@ struct BridgeProductSessionProducerOwnershipTests {
         #expect(!(await rejectedOperation.wasInvoked))
         #expect(freshOpening.enqueuedFrame?.sequence == 0)
         #expect(freshOpening.enqueuedFrame?.requiredOpening == true)
-        #expect(await freshHarness.session.dequeueProducerFrame(for: freshLease)?.sequence == 0)
+        #expect(
+            await consumeNextBridgeProductProducerFrame(
+                for: freshLease,
+                from: freshHarness.session
+            )?.sequence == 0
+        )
         try await closeProducer(freshLease, in: freshHarness.session)
     }
 
@@ -97,7 +102,12 @@ struct BridgeProductSessionProducerOwnershipTests {
             for: oldContentLease,
             build: { _ in contentAcceptedProducerFrame(request: oldContentRequest) }
         )
-        #expect(await harness.session.dequeueProducerFrame(for: oldContentLease)?.sequence == 0)
+        #expect(
+            await consumeNextBridgeProductProducerFrame(
+                for: oldContentLease,
+                from: harness.session
+            )?.sequence == 0
+        )
 
         // Act
         let currentContentOperation = ProducerOperationGate()
@@ -138,7 +148,12 @@ struct BridgeProductSessionProducerOwnershipTests {
         #expect(!(await staleOperation.wasInvoked))
         #expect(cleanupTerminal.enqueuedFrame?.sequence == 1)
         #expect(cleanupTerminal.enqueuedFrame?.terminal == true)
-        #expect(await harness.session.dequeueProducerFrame(for: oldContentLease)?.sequence == 1)
+        #expect(
+            await consumeNextBridgeProductProducerFrame(
+                for: oldContentLease,
+                from: harness.session
+            )?.sequence == 1
+        )
 
         let scopedSnapshot = await harness.session.producerSnapshot()
         #expect(scopedSnapshot.activeProducerCount == 3)
@@ -401,7 +416,7 @@ private actor ProducerInvocationProbe {
 
 extension BridgeProductSessionControlAdmission {
     fileprivate var executionToken: BridgeProductControlAdmissionToken? {
-        guard case .execute(let token) = self else { return nil }
+        guard case .execute(let token, _) = self else { return nil }
         return token
     }
 }

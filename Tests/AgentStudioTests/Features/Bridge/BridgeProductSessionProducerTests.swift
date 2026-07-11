@@ -97,7 +97,7 @@ struct BridgeProductSessionProducerTests {
                 try producerRegistryMetadataOpeningFrame(for: request, sequence: sequence)
             }
         )
-        let deliveredOpening = await registry.dequeueFrame(for: lease)
+        let deliveredOpening = await registry.consumeNextFrame(for: lease)
 
         // Act
         let reviewFrame = try await registry.enqueueNonterminalFrame(
@@ -125,8 +125,8 @@ struct BridgeProductSessionProducerTests {
         #expect(deliveredOpening?.sequence == 0)
         #expect(reviewFrame.enqueuedFrame?.sequence == 1)
         #expect(fileFrame.enqueuedFrame?.sequence == 2)
-        #expect(await registry.dequeueFrame(for: lease)?.sequence == 1)
-        #expect(await registry.dequeueFrame(for: lease)?.sequence == 2)
+        #expect(await registry.consumeNextFrame(for: lease)?.sequence == 1)
+        #expect(await registry.consumeNextFrame(for: lease)?.sequence == 2)
         #expect(await registry.snapshot().nextMetadataStreamSequence == 3)
         try await closeAllProducerRegistryProducers(in: registry)
     }
@@ -177,7 +177,7 @@ struct BridgeProductSessionProducerTests {
             for: lease,
             build: { _ in openingFrame }
         )
-        #expect(await registry.dequeueFrame(for: lease)?.requiredOpening == true)
+        #expect(await registry.consumeNextFrame(for: lease)?.requiredOpening == true)
         _ = try await registry.enqueueNonterminalFrame(
             for: lease,
             build: { _ in firstFrame },
@@ -200,7 +200,7 @@ struct BridgeProductSessionProducerTests {
             overflowReset: { _ in resetFrame }
         )
         let snapshot = await registry.snapshot()
-        let queuedReset = await registry.dequeueFrame(for: lease)
+        let queuedReset = await registry.consumeNextFrame(for: lease)
 
         // Assert
         #expect(
@@ -271,7 +271,7 @@ struct BridgeProductSessionProducerTests {
             for: lease,
             build: { _ in openingFrame }
         )
-        _ = await registry.dequeueFrame(for: lease)
+        _ = await registry.consumeNextFrame(for: lease)
         _ = try await registry.enqueueNonterminalFrame(
             for: lease,
             build: { _ in pendingFrame },
@@ -297,7 +297,7 @@ struct BridgeProductSessionProducerTests {
                 )
         )
         #expect(afterOverflow == beforeOverflow)
-        #expect(await registry.dequeueFrame(for: lease)?.data == pendingData)
+        #expect(await registry.consumeNextFrame(for: lease)?.data == pendingData)
         try await closeAllProducerRegistryProducers(in: registry)
     }
 
@@ -337,7 +337,7 @@ struct BridgeProductSessionProducerTests {
             for: lease,
             build: { _ in openingFrame }
         )
-        _ = await registry.dequeueFrame(for: lease)
+        _ = await registry.consumeNextFrame(for: lease)
         _ = try await registry.enqueueNonterminalFrame(
             for: lease,
             build: { _ in pendingFrame },
@@ -353,7 +353,7 @@ struct BridgeProductSessionProducerTests {
                 try producerRegistryMetadataTerminalFrame(for: request, sequence: sequence)
             }
         )
-        let queuedTerminal = await registry.dequeueFrame(for: lease)
+        let queuedTerminal = await registry.consumeNextFrame(for: lease)
 
         // Assert
         #expect(
@@ -412,7 +412,7 @@ struct BridgeProductSessionProducerTests {
             build: { _ in terminalFrame }
         )
         let afterSaturatedTerminal = await registry.snapshot()
-        let deliveredOpening = await registry.dequeueFrame(for: lease)
+        let deliveredOpening = await registry.consumeNextFrame(for: lease)
         let admittedTerminal = try await registry.enqueueTerminalFrame(
             for: lease,
             build: { _ in terminalFrame }

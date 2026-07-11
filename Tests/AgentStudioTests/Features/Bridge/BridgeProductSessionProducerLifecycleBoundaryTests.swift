@@ -29,7 +29,12 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
                 )
             }
         )
-        #expect(await harness.session.dequeueProducerFrame(for: lease)?.sequence == 0)
+        #expect(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: harness.session
+            )?.sequence == 0
+        )
         let nonterminalCapacity =
             BridgeProductWireContract.maximumQueuedStreamFrames
             - BridgeProductWireContract.terminalFrameReserve
@@ -73,7 +78,10 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
         )
         let resetReceipt = terminalResetReceipt(overflowResult)
         let resetSnapshot = await harness.session.producerSnapshot()
-        let deliveredReset = await harness.session.dequeueProducerFrame(for: lease)
+        let deliveredReset = await consumeNextBridgeProductProducerFrame(
+            for: lease,
+            from: harness.session
+        )
         try await closeBridgeProductSessionProducer(lease, in: harness.session)
         await operation.waitUntilCancelled()
         let finalSnapshot = await harness.session.producerSnapshot()
