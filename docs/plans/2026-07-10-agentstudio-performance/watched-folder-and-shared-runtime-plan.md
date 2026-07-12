@@ -625,6 +625,10 @@ RED/GREEN: required. If containment still misses SLO because package/React work 
 
 ## 13. Task W11 — Native Projection And Architecture Guardrails
 
+Sequencing note: under the user-approved performance-first amendment, W11 runs
+after W1–W10 product behavior, focused proof, and applicable atomic cuts. It
+must validate settled APIs and must not block initial performance implementation.
+
 Requirements: NR1 plus enforcement contract.
 
 Outside W5b's spec-required watched-root currentness integration, treat `RepoExplorerRowIndex.swift` and `RepoExplorerView.swift` as read-only unless runtime evidence proves another contract violation. Preserve/extend:

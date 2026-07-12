@@ -1,8 +1,13 @@
 # AgentStudio Performance Boundaries Implementation Plan
 
-Status: broader plan accepted; focused S1 strict type-state correction is
-reviewed and ready; S1 remains product-unreachable and implementation resumes
-only after the official orchestrator transition.
+Status: broader plan accepted; S1t strict type-state foundation is committed at
+`d099ce32`; performance-first product execution is current under the sequencing
+amendment below.
+
+Execution order is amended by
+[Performance-First Sequencing Amendment](performance-first-sequencing-amendment.md):
+product performance behavior and focused proof now precede S1h/S1i completion,
+S5, W11, and final lint expansion.
 
 Accepted source commit: `c9f553e1d143e01b748a3e5aa0f8f6bd4fe0f182`
 
@@ -444,10 +449,13 @@ After the child plans and DQ1 pass their local gates:
 
 ## 6. Execution DAG
 
+The performance-first amendment supersedes only the ordering of guardrail
+work. All dependency and atomic-cut requirements below remain normative.
+
 ```text
 G0 baseline/spec/repo identity
   |
-  +-- S1 shared admission primitives --------------------------+
+  +-- S1t strict admission foundation -------------------------+
   |                                                            |
   +-- S2 RuntimeFactBus contracts ------------------------+     |
   |                                                       |     |
@@ -461,8 +469,9 @@ G0 baseline/spec/repo identity
                                                                   |
                    IG1 one atomic global transport hard cut
                                       |
-                      +-- S5 + watched W11 enforcement --+
-                      +-- S6 shared workload/verifier ----+
+                      +-- product-focused runtime proof ---+
+                      +-- S1h/S1i + S5 + W11 cleanup/lint -+
+                      +-- S6 shared workload/verifier -----+
                                       |
                        CG1 valid baseline/control approval
                                       |

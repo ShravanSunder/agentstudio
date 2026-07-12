@@ -1,5 +1,9 @@
 # Ghostty Host Boundary And Terminal Interaction Implementation Plan
 
+Execution sequencing: product behavior and focused proof in T1–T11 precede the
+late cleanup/lint gate defined by
+[Performance-First Sequencing Amendment](performance-first-sequencing-amendment.md).
+
 Parent plan: [AgentStudio Performance Boundaries Implementation Plan](implementation-plan.md)
 
 Source contracts:
