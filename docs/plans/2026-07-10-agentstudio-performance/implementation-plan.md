@@ -1,20 +1,25 @@
 # AgentStudio Performance Boundaries Implementation Plan
 
-Status: broader plan accepted; focused S1 D/R/C correction ready; S1 remains
-product-unreachable and implementation resumes only after the official
-orchestrator transition.
+Status: broader plan accepted; focused S1 strict type-state correction is
+reviewed and ready; S1 remains product-unreachable and implementation resumes
+only after the official orchestrator transition.
 
 Accepted source commit: `c9f553e1d143e01b748a3e5aa0f8f6bd4fe0f182`
+
+Focused type-state spec checkpoint:
+`4d36c91bde0786c79387d9bb7036c3b40f1e9f0d`
 
 Focused S1 accepted hashes:
 
 ```text
-92c4385e8b32718e30f50a9ca6f311171a68b4bd07b6736e4a4ac5a9d32b5017  maintained spec
-edf9061baf0e6b09318c6f3767e95055bad6191599aa9ebadbdb083f8638376f  focused API
+6282630cb420956073e279bb65a35189a54fb9bedddf692d2a22a8bc8adeb93a  maintained spec
+7b312eaef20411b3d982fd99e0d427fbadbf00430e2ea6f7bf9fd99d901cac81  focused API
 ```
 
 Detailed plans:
 
+- [S1 admission correction plan](s1-admission-correction-plan.md)
+- [S1t strict type-state correction plan](s1-type-state-correction-plan.md)
 - [Watched-folder and shared runtime plan](watched-folder-and-shared-runtime-plan.md)
 - [Ghostty terminal interaction plan](ghostty-terminal-interaction-plan.md)
 
@@ -128,7 +133,8 @@ Checkpoint: deterministic state-machine tests prove fixed-generation isolation,
 explicit undeclared-key rejection, one pending wake plus one
 acknowledgement-released follow-up wake, O(1) fixed-shape offers across
 1/100/300 declared keys, pending-plus-leased retained limits globally/per key,
-one-key lease quanta, orthogonal payload/recovery receipts, and exact per-key
+one-key lease quanta, discriminated retained/retained-with-recovery/contracted-
+to-recovery receipts, and exact per-key
 recovery revisions. Cancellation/rebind re-presents identical custody under a
 new binding token; retries rotate behind already-ready unrelated keys while
 remaining ahead of newer same-key work. Tests also prove graceful seal,
@@ -146,8 +152,9 @@ Independent literal state tables—not production helpers—own every oracle.
 
 The focused implementation-review correction is operationalized in
 [S1 Admission Correction Plan](s1-admission-correction-plan.md). It is normative
-for S1a–S1i file edits, controller-serial RED/GREEN order, and the corrected S1
-checkpoint. It hard-cuts exact shared result/cleanup types; implements latest
+for S1a–S1i plus focused S1t file edits, RED/GREEN order, and the corrected S1
+checkpoint. It hard-cuts strict public/private result, nonempty custody,
+recovery, cleanup, replay, drain-age, and snapshot-footprint types; implements latest
 `D/R/C` component pressure, finalization reservation/final-batch wake, per-value
 retry, and wrapper-currentness proof; bounds gather metadata and journal
 snapshot/replay custody; makes journal raw state lexical-private; and replaces
@@ -502,7 +509,7 @@ High-conflict files are single-owner at each gate: `WorkspaceSurfaceCoordinator.
 
 | Claim | Source | Owner | Public seam and independent oracle | Layer and freshness | RED/GREEN / fit |
 | --- | --- | --- | --- | --- | --- |
-| admission is bounded before per-sample task allocation | parent shared interfaces | S1; W1–W2; T3/T6/T7 | typed producer/consumer ports, one-key gather lease, latest `D/R/C` offer/take/cleanup, journal physical snapshots/readers; literal custody/counter/currentness histories | unit/static and in-process integration, then product pressure integration in later lanes; current source manifest/HEAD/run | required; S1 fails component-pressure, final-batch wake, retry/currentness, metadata-root, snapshot-reader, private-owner, and graph-lint REDs before GREEN |
+| admission is bounded before per-sample task allocation | parent shared interfaces | S1; W1–W2; T3/T6/T7 | strict discriminated public/private type states; typed producer/consumer ports, nonempty gather/latest/fact drains, latest `D/R/C` offer/take/cleanup, journal physical snapshots/readers; compiler-negative former-construction fixtures plus literal custody/counter/currentness histories | compile/static, unit, and in-process integration, then product pressure integration in later lanes; current source manifest/HEAD/run | required; S1 fails type-state, component-pressure, final-batch wake, retry/currentness, metadata-root, snapshot-reader, private-owner, and graph-lint REDs before GREEN |
 | one global semantic fact bus filters before queue/replay | parent fact taxonomy; EV1–EV11 | S2/S4/IG1 | `RuntimeFactBus.subscribe/post`; independent topic/replay table and structural source inventory | unit + integration + architecture lint; current source tree | required; IG1 atomic |
 | MainActor attribution and availability are causal and bounded | parent MainActor last mile; TA8 | S3, every applier, DQ1 | `MainActorWorkLedger`; independent heartbeat plus interaction stages | unit + Victoria observability + native E2E; current PID/run/build/root manifest | required; queue/service/liveness/interaction gates all pass |
 | watched loss never authorizes false removal | WF/WS/FI | W1–W5 | callback/source-gate/scheduler/topology applier; literal filesystem manifest | unit + real filesystem/Git integration + workload | required; split callback, scan, apply |

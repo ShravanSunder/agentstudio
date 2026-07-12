@@ -1,7 +1,8 @@
 # S1 Admission Correction Plan
 
-Status: focused latest-overload/physical-custody plan ready; implementation
-resumes only after the orchestrator records the official transition
+Status: focused strict type-state correction reviewed and ready;
+implementation resumes only after the orchestrator records the official
+transition
 
 Source contract:
 
@@ -25,13 +26,13 @@ or second queue path.
 
 ## Source Coverage And Freshness
 
-The parent must re-read the 1,718-line source contract, 673-line focused API
+The parent must re-read the 1,845-line source contract, 770-line focused API
 contract, superseding review synthesis, current Admission source/tests, and
 staged/unstaged diff before editing. Accepted source hashes are:
 
 ```text
-e39e95a469d8334f6bc736f530d1953911cc238d0ea810fe49ab089cdd0b70be  maintained spec
-53afe8859277aa8ead33e9aba3650c46927bfdf8e9432ca6db24d5a929a6ba8e  focused API
+6282630cb420956073e279bb65a35189a54fb9bedddf692d2a22a8bc8adeb93a  maintained spec
+7b312eaef20411b3d982fd99e0d427fbadbf00430e2ea6f7bf9fd99d901cac81  focused API
 ```
 
 Existing green receipts are stale once any correction edit lands. Because HEAD
@@ -66,6 +67,7 @@ terminal, Ghostty, MainActor, Bridge, IPC, persistence, or vendor files.
 | S1-G1 | gather cleanup/metadata is bounded and every recovery-slot advancement has fresh debt identity | S1e behavior plus S1h ownership clause | recovery-only/mixed 1/100/10,000 fleets, near-exhaustion old-ack history, payload-bearing root/tail mutation, independent payload deinit oracle, and structural weak-edge mutations | no production debug hook or counter-only proof; promotion depends on S1-E1 ownership proof |
 | S1-J1 | one lexical private journal owner also owns binding, bounded history, clock sampling, and repair accounting | S1f | compiler/static privacy RED; bind/rebind, ring/indexed history, reentrant clock, gap-widening `repairEscalations`, and authority proof | no raw `State`, lock, token, `inout`, or generic closure escape |
 | S1-J2 | journal snapshot/replay/cleanup custody is bounded and reader-safe | S1g | zero/max snapshot pressure; one-reader contention; queued/in-flight cleanup overlap; completion wake | exact capture stop tail; no partial mutation or lock-held materialization |
+| S1-T1 | public and private Admission behavioral states are strict discriminated unions with no correlated optional, empty, Boolean, or result sentinel | S1t | permanent compiler-negative former-construction fixtures; exhaustive positive cases; family-specific nonempty custody; exact unlock-release/destructor proof; focused family and aggregate GREEN | spec/API hashes above; hard cut has no compatibility wrapper; S1h fixture/mutation baselines captured only afterward |
 | S1-E1 | protected-state and private-metadata ownership lint fails closed across the settled helper graph | S1h | good/bad fixtures and restored-source mutations for rename/alias/unresolved/escape/unbounded traversal plus weak-to-strong shell, extra strong shell edge, and out-of-owner raw-state alias | pre/post mutation hash equality; one mutation active at a time |
 | S1-I1 | cross-family behavior, diagnostics, and product-unreachable boundary remain intact | S1i | focused suites, strict typecheck, architecture scan, aggregate tests, lint, privacy canaries, caller/task/domain inventory | fresh current counts; old 102/21-test receipts cannot be reused |
 
@@ -189,7 +191,7 @@ Implement and validate:
 ```text
 D >= 1
 C >= 1
-cleanup maximumBytes == nil
+cleanup == .entries(maximumEntries: C)
 R >= checked(2 * D)
 checked(K + R)
 
@@ -473,6 +475,17 @@ queue, lock-held materialization, or causes the formatted raw-custody-only owner
 to exceed the shared 1,250-line ceiling. Record the post-S1g formatted count as
 the downward-only ratchet for all later slices.
 
+## S1t — Strict Type-State Hard Cut Before S1h
+
+Normative execution plan: [S1t Strict Type-State Correction Plan](s1-type-state-correction-plan.md).
+
+S1-T1 requires public and private Admission behavioral states to be strict
+discriminated unions, with no correlated optional, empty, Boolean, or result
+sentinel. The standalone plan owns the complete RED, hard-cut, family-lane,
+integration, mutation, stop, and GREEN proof requirements.
+
+Gate: S1t must be GREEN_REVIEWED and committed before S1h begins.
+
 ## S1h — Fail-Closed Protected-State Helper Graph
 
 Finalize the existing `RuntimeSignalPlaneRule` only after S1b–S1g settle. Keep
@@ -600,6 +613,8 @@ S1f RED -> private journal owner/binding/history -> S1f GREEN_PENDING_S1H
   |
 S1g RED -> journal snapshot/replay/cleanup -> S1g GREEN
   |
+S1t RED -> strict public/private type-state hard cut -> S1t GREEN_REVIEWED
+  |
 S1h RED -> graph/ownership lint and mutations -> S1h GREEN
   -> promote S1-G1 and S1-J1 with S1-E1
   |
@@ -608,10 +623,11 @@ S1i: cross-family integration and current proof
 focused implementation-review-swarm
 ```
 
-Read-only oracle/review preparation may run in parallel. The controller applies
+Read-only oracle/review preparation may run in parallel. Outside the explicit
+S1t shared-shell plus disjoint family-lane exception, the controller applies
 test patches, captures RED, edits production, restores mutations, and updates
-proof one slice at a time. Admission production and test writes are not
-parallelized in this dirty worktree. The lint owner may design fixtures early,
+proof one slice at a time; Admission production and test writes are not
+parallelized. The lint owner may design fixtures early,
 but edits/final parity wait for the Admission helper grammar to freeze. S5
 product-signal extensions wait for the completed S1 handoff.
 
@@ -636,6 +652,11 @@ for:
     public diagnostics, lint messages, captured RED/GREEN output, and the final
     correction receipt;
 11. focused source-backed `implementation-review-swarm`.
+12. the permanent strict type-state compiler verifier plus a production and
+    ordinary-Admission-test absence scan for the enumerated forbidden syntactic
+    forms. The intentional compiler fixtures, one-at-a-time mutation artifacts,
+    docs, and receipts are excluded; the verifier, not a vague vocabulary grep,
+    is authoritative for negative fixtures.
 
 No earlier green receipt is accepted after a correction edit. S1 is committable
 only when every matrix row is current, no blocker/important finding survives,
