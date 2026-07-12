@@ -33,6 +33,10 @@ import {
 	type BridgeWorkerReviewContentResourceFetch,
 } from './bridge-comm-worker-review-runtime.js';
 import {
+	enqueueBridgeCommWorkerReviewSourceReset,
+	type EnqueuedBridgeCommWorkerDemandPreparationTicket,
+} from './bridge-comm-worker-review-source-reset.js';
+import {
 	bridgeCommWorkerTelemetryLaneForMessage,
 	bridgeWorkerRuntimeSchemeRpcCommandForMessage,
 } from './bridge-comm-worker-runtime-command-routing.js';
@@ -100,7 +104,6 @@ export interface RegisterBridgeCommWorkerRuntimePortProtocolProps {
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
 }
 
-const bridgeCommWorkerReviewSourceResetChunkItemCount = 64;
 const bridgeCommWorkerSchemeRpcTimeoutMilliseconds = 5000;
 export type BridgeCommWorkerSchemeRpcCommandSender = (
 	command: BridgeRPCCommand,
@@ -281,6 +284,31 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		return enqueued;
 	};
 
+	const scheduleSelectedReviewContentReadyPreparation = (
+		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
+	): void => {
+		const ticket = enqueueSelectedBridgeWorkerReviewContentReadyPreparation({
+			bridgeDemandRank: props.bridgeDemandRank,
+			budget: props.budget,
+			contentRequestDescriptors: reviewRuntimeSource.contentRequestDescriptors,
+			epoch: request.epoch,
+			...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
+			fetchReviewContentResource,
+			itemId: request.itemId,
+			port,
+			pump,
+			renderSemantics: reviewRuntimeSource.renderSemantics,
+			requestPreparationDrain,
+			sequence: createSequence(),
+			store: request.store,
+			...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
+		});
+		if (ticket.enqueued) {
+			preparationCompletions.push(ticket.completion);
+			shouldRequestDrainAfterMessage = true;
+		}
+	};
+
 	const handler = createBridgeCommWorkerCommandHandler({
 		contentItems: props.contentItems,
 		contentRequestDescriptors: props.contentRequestDescriptors,
@@ -288,30 +316,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		rows: props.rows,
 		createSequence,
 		...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
-		scheduleSelectedReviewContentReadyPreparation: (
-			request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
-		): void => {
-			const ticket = enqueueSelectedBridgeWorkerReviewContentReadyPreparation({
-				bridgeDemandRank: props.bridgeDemandRank,
-				budget: props.budget,
-				contentRequestDescriptors: reviewRuntimeSource.contentRequestDescriptors,
-				epoch: request.epoch,
-				...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
-				fetchReviewContentResource,
-				itemId: request.itemId,
-				port,
-				pump,
-				renderSemantics: reviewRuntimeSource.renderSemantics,
-				requestPreparationDrain,
-				sequence: createSequence(),
-				store: request.store,
-				...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
-			});
-			if (ticket.enqueued) {
-				preparationCompletions.push(ticket.completion);
-				shouldRequestDrainAfterMessage = true;
-			}
-		},
+		scheduleSelectedReviewContentReadyPreparation,
 		scheduleReviewSourceUpdate: (
 			request: BridgeCommWorkerReviewSourceUpdateScheduleRequest,
 		): void => {
@@ -334,6 +339,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				request,
 				requestPreparationDrain,
 				scheduleDemandExecution: enqueueVisibleDemandExecutionFromRequest,
+				scheduleSelectedReviewContentReadyPreparation,
 			});
 			if (ticket.enqueued) {
 				shouldRequestDrainAfterMessage = true;
@@ -704,117 +710,6 @@ interface EnqueueVisibleBridgeCommWorkerReviewDemandExecutionProps {
 	readonly store: BridgeCommWorkerStore;
 	readonly visibleDemandGenerationByItemId: ReadonlyMap<string, number>;
 }
-
-interface EnqueuedBridgeCommWorkerDemandPreparationTicket {
-	readonly completion: Promise<void>;
-	readonly enqueued: boolean;
-}
-
-interface EnqueueBridgeCommWorkerReviewSourceResetProps {
-	readonly createSequence: () => number;
-	readonly isCurrentResetEpoch: () => boolean;
-	readonly onResetComplete: () => void;
-	readonly pump: WorkerContentPreparationPump;
-	readonly request: BridgeCommWorkerReviewSourceUpdateScheduleRequest;
-	readonly requestPreparationDrain: () => void;
-	readonly scheduleDemandExecution: (
-		request: BridgeCommWorkerDemandExecutionScheduleRequest,
-	) => boolean;
-}
-
-function enqueueBridgeCommWorkerReviewSourceReset(
-	props: EnqueueBridgeCommWorkerReviewSourceResetProps,
-): EnqueuedBridgeCommWorkerDemandPreparationTicket {
-	let processedItemCount = 0;
-	const completion = createBridgeCommWorkerCompletion();
-	const orderedItemIds = props.request.nextReviewRuntimeSource.rows.map((row) => row.id);
-	const affectedItemIds = new Set(props.request.affectedItemIds);
-	const work = {
-		id: `review-source-reset:${props.request.epoch}`,
-		rank: 'background' as const,
-		telemetry: {
-			payloadClass: 'source_reset',
-			sourceEpoch: props.request.epoch,
-			workKind: 'review_source_reset',
-		},
-		runSlice: (): { readonly complete: boolean; readonly continuation?: 'external' } => {
-			if (!props.isCurrentResetEpoch()) {
-				completion.resolve();
-				return { complete: true };
-			}
-			processedItemCount = Math.min(
-				processedItemCount + bridgeCommWorkerReviewSourceResetChunkItemCount,
-				orderedItemIds.length,
-			);
-			const previousProcessedItemCount = Math.max(
-				0,
-				processedItemCount - bridgeCommWorkerReviewSourceResetChunkItemCount,
-			);
-			const chunkItemIds = new Set(
-				orderedItemIds.slice(previousProcessedItemCount, processedItemCount),
-			);
-			const chunkAffectedItemIds = [...chunkItemIds].filter((itemId) =>
-				affectedItemIds.has(itemId),
-			);
-			const resetComplete = processedItemCount >= orderedItemIds.length;
-			props.request.store.actions.applyReviewSourceUpdateFact({
-				contentItems: props.request.nextReviewRuntimeSource.contentItems.filter((metadata) =>
-					chunkItemIds.has(metadata.itemId),
-				),
-				...(resetComplete ? { completeItemIds: orderedItemIds } : {}),
-				resetComplete: false,
-				rows: props.request.nextReviewRuntimeSource.rows.filter((row) => chunkItemIds.has(row.id)),
-			});
-			if (chunkAffectedItemIds.length > 0) {
-				props.scheduleDemandExecution({
-					affectedItemIds: chunkAffectedItemIds,
-					cause: 'reviewSourceUpdate',
-					epoch: props.request.epoch,
-					forceExecutionItemIds: chunkAffectedItemIds,
-					store: props.request.store,
-				});
-			}
-			if (!resetComplete) {
-				scheduleBridgeCommWorkerTaskBoundary(() => {
-					props.pump.enqueueOrPromote(work);
-					props.requestPreparationDrain();
-				});
-				return { complete: false, continuation: 'external' };
-			}
-			props.onResetComplete();
-			completion.resolve();
-			return { complete: true };
-		},
-	};
-	props.pump.enqueueOrPromote(work);
-	return { completion: completion.promise, enqueued: true };
-}
-
-function scheduleBridgeCommWorkerTaskBoundary(callback: () => void): void {
-	setTimeout(callback, 0);
-}
-
-function createBridgeCommWorkerCompletion(): {
-	readonly promise: Promise<void>;
-	readonly reject: (reason: unknown) => void;
-	readonly resolve: () => void;
-} {
-	let resolveCompletion: () => void = noopBridgeCommWorkerCompletionResolve;
-	let rejectCompletion: (reason: unknown) => void = noopBridgeCommWorkerCompletionReject;
-	const promise = new Promise<void>((resolve, reject) => {
-		resolveCompletion = resolve;
-		rejectCompletion = reject;
-	});
-	return {
-		promise,
-		reject: rejectCompletion,
-		resolve: resolveCompletion,
-	};
-}
-
-function noopBridgeCommWorkerCompletionResolve(): void {}
-
-function noopBridgeCommWorkerCompletionReject(_reason: unknown): void {}
 
 function enqueueVisibleBridgeCommWorkerReviewDemandExecution(
 	props: EnqueueVisibleBridgeCommWorkerReviewDemandExecutionProps,

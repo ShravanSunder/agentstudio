@@ -3,9 +3,20 @@ import { describe, expect, test } from 'vitest';
 import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import {
 	createBridgeCommWorkerCommandHandler,
-	type BridgeCommWorkerDemandExecutionScheduleRequest,
 	type BridgeCommWorkerFileViewRuntimeSource,
 } from './bridge-comm-worker-command-handler.js';
+import {
+	createSequenceFrom,
+	ignoreScheduledSelectedFileViewPreparation,
+	ignoreScheduledSelectedReviewPreparation,
+	makeWorkerFileViewContentMetadata,
+	pushScheduledDemandExecution,
+	pushScheduledSelectedFileViewPreparation,
+	pushScheduledSelectedReviewPreparation,
+	type ScheduledDemandExecution,
+	type ScheduledSelectedFileViewPreparation,
+	type ScheduledSelectedReviewPreparation,
+} from './bridge-comm-worker-command-handler.test-support.js';
 import {
 	encodeBridgeWorkerHoverCommand,
 	encodeBridgeWorkerActiveViewerModeUpdateCommand,
@@ -17,28 +28,7 @@ import {
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
-import type { BridgeCommWorkerStore } from './bridge-comm-worker-store.js';
-import type {
-	BridgeWorkerFileViewContentMetadata,
-	BridgeWorkerReviewContentMetadata,
-} from './bridge-worker-contracts.js';
-
-interface ScheduledSelectedReviewPreparation {
-	readonly epoch: number;
-	readonly itemId: string;
-	readonly store: BridgeCommWorkerStore;
-}
-
-interface ScheduledSelectedFileViewPreparation {
-	readonly epoch: number;
-	readonly itemId: string;
-	readonly store: BridgeCommWorkerStore;
-}
-
-type ScheduledDemandExecution = Pick<
-	BridgeCommWorkerDemandExecutionScheduleRequest,
-	'affectedItemIds' | 'cause' | 'epoch'
->;
+import type { BridgeWorkerReviewContentMetadata } from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker command handler', () => {
 	test('select command publishes loading availability and schedules selected preparation', () => {
@@ -359,6 +349,85 @@ describe('Bridge comm worker command handler', () => {
 		expect(scheduledPreparations.at(-1)?.store.getState().demandByKey.get('item-1')).toBe(
 			'selected:9',
 		);
+	});
+
+	test('review source update repairs non-visible selected demand at the current epoch only', () => {
+		const scheduledPreparations: ScheduledSelectedReviewPreparation[] = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			createSequence: createSequenceFrom([34, 35]),
+			scheduleSelectedReviewContentReadyPreparation:
+				pushScheduledSelectedReviewPreparation(scheduledPreparations),
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
+		});
+		handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-before-review-source',
+				epoch: 7,
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+			}),
+		);
+
+		const repairedMessages = handler.handleMessage(
+			encodeBridgeWorkerReviewSourceUpdateCommand({
+				requestId: 'request-review-source-repair',
+				epoch: 8,
+				contentItems: [makeWorkerReviewContentMetadata('item-1')],
+				contentRequestDescriptors: [],
+				renderSemantics: [],
+				rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			}),
+		);
+		const staleMessages = handler.handleMessage(
+			encodeBridgeWorkerReviewSourceUpdateCommand({
+				requestId: 'request-stale-review-source-repair',
+				epoch: 7,
+				contentItems: [makeWorkerReviewContentMetadata('item-1')],
+				contentRequestDescriptors: [],
+				renderSemantics: [],
+				rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			}),
+		);
+
+		expect(repairedMessages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
+				kind: 'slicePatch',
+				epoch: 8,
+				sequence: 35,
+				patches: [
+					{
+						slice: 'contentAvailability',
+						operation: 'upsert',
+						itemId: 'item-1',
+						payload: { state: 'loading' },
+					},
+				],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
+				kind: 'health',
+				requestId: 'request-review-source-repair',
+				status: 'ready',
+			},
+		]);
+		expect(scheduledPreparations).toHaveLength(1);
+		expect(scheduledPreparations[0]?.itemId).toBe('item-1');
+		expect(scheduledPreparations[0]?.epoch).toBe(8);
+		expect(scheduledPreparations[0]?.store.getState().visibleIds).toEqual([]);
+		expect(scheduledPreparations[0]?.store.getState().demandByKey.get('item-1')).toBe('selected:8');
+		expect(staleMessages).toHaveLength(1);
+		expect(staleMessages[0]).toMatchObject({
+			kind: 'health',
+			requestId: 'request-stale-review-source-repair',
+			status: 'degraded',
+		});
 	});
 
 	test('unsupported commands return degraded health instead of silent success', () => {
@@ -838,56 +907,6 @@ describe('Bridge comm worker command handler', () => {
 	});
 });
 
-function pushScheduledSelectedReviewPreparation(
-	target: ScheduledSelectedReviewPreparation[],
-): (preparation: ScheduledSelectedReviewPreparation) => void {
-	return (preparation: ScheduledSelectedReviewPreparation): void => {
-		target.push(preparation);
-	};
-}
-
-function ignoreScheduledSelectedReviewPreparation(
-	_preparation: ScheduledSelectedReviewPreparation,
-): void {}
-
-function pushScheduledSelectedFileViewPreparation(
-	target: ScheduledSelectedFileViewPreparation[],
-): (preparation: ScheduledSelectedFileViewPreparation) => void {
-	return (preparation: ScheduledSelectedFileViewPreparation): void => {
-		target.push(preparation);
-	};
-}
-
-function ignoreScheduledSelectedFileViewPreparation(
-	_preparation: ScheduledSelectedFileViewPreparation,
-): void {}
-
-function pushScheduledDemandExecution(
-	target: ScheduledDemandExecution[],
-): (request: BridgeCommWorkerDemandExecutionScheduleRequest) => void {
-	return (request: BridgeCommWorkerDemandExecutionScheduleRequest): void => {
-		target.push({
-			...(request.affectedItemIds === undefined
-				? {}
-				: { affectedItemIds: request.affectedItemIds }),
-			cause: request.cause,
-			epoch: request.epoch,
-		});
-	};
-}
-
-function createSequenceFrom(sequences: readonly number[]): () => number {
-	let index = 0;
-	return (): number => {
-		const sequence = sequences[index];
-		if (sequence === undefined) {
-			throw new Error('test sequence exhausted');
-		}
-		index += 1;
-		return sequence;
-	};
-}
-
 function makeWorkerReviewContentMetadata(
 	itemId: string,
 	props: { readonly path?: string } = {},
@@ -904,28 +923,5 @@ function makeWorkerReviewContentMetadata(
 		sizeBytes: item.sizeBytes,
 		availableContentRoles: ['head'],
 		contentLineCountsByRole: item.contentLineCountsByRole ?? {},
-	};
-}
-
-function makeWorkerFileViewContentMetadata(itemId: string): BridgeWorkerFileViewContentMetadata {
-	return {
-		metadataKind: 'fileView',
-		itemId,
-		path: `Sources/App/${itemId}.swift`,
-		language: 'swift',
-		cacheKey: `file-view:sha256:${itemId}`,
-		sizeBytes: 128,
-		descriptorId: `descriptor-${itemId}`,
-		contentHash: `sha256:${itemId}`,
-		encoding: 'utf-8',
-		endsMidLine: false,
-		endsWithNewline: true,
-		virtualizedExtentKind: 'exactLineCount',
-		payloadByteCount: 128,
-		payloadLineCount: 7,
-		totalLineCount: 7,
-		truncationKind: 'none',
-		isBinary: false,
-		canFetchContent: true,
 	};
 }

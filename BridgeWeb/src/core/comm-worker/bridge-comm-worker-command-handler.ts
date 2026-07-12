@@ -1,3 +1,9 @@
+import {
+	assertNeverBridgeWorkerCommand,
+	buildBridgeWorkerDegradedHealthEvent,
+	buildBridgeWorkerUnimplementedHealthEvent,
+	createBridgeWorkerSequenceCounter,
+} from './bridge-comm-worker-command-support.js';
 import type { BridgeCommWorkerFileViewRuntimeMutation } from './bridge-comm-worker-file-metadata-projection.js';
 import {
 	applyFileViewRuntimeMutationToSource,
@@ -301,6 +307,8 @@ function handleBridgeWorkerCommand(
 			return handleBridgeWorkerReviewSourceUpdateCommand({
 				createSequence: props.createSequence,
 				message: props.message,
+				scheduleSelectedReviewContentReadyPreparation:
+					props.scheduleSelectedReviewContentReadyPreparation,
 				...(props.scheduleDemandExecution === undefined
 					? {}
 					: { scheduleDemandExecution: props.scheduleDemandExecution }),
@@ -438,6 +446,9 @@ interface HandleBridgeWorkerReviewSourceUpdateCommandProps {
 	readonly createSequence: () => number;
 	readonly message: BridgeWorkerReviewSourceUpdateCommand;
 	readonly previousReviewRuntimeSource: BridgeCommWorkerReviewRuntimeSource;
+	readonly scheduleSelectedReviewContentReadyPreparation: (
+		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
+	) => void;
 	readonly scheduleDemandExecution?: (
 		request: BridgeCommWorkerDemandExecutionScheduleRequest,
 	) => void;
@@ -498,8 +509,9 @@ function handleBridgeWorkerReviewSourceUpdateCommand(
 			buildBridgeWorkerReadyHealthEvent(props.message.requestId),
 		];
 	}
-	props.store.actions.applyReviewSourceUpdateFact({
+	const sourceUpdateResult = props.store.actions.applyReviewSourceUpdateFact({
 		contentItems: props.message.contentItems,
+		epoch: props.message.epoch,
 		rows: props.message.rows,
 	});
 	props.updateReviewRuntimeSource(nextReviewRuntimeSource);
@@ -520,18 +532,36 @@ function handleBridgeWorkerReviewSourceUpdateCommand(
 		});
 		appliedTerminalAvailability = true;
 	}
+	const selectedId = props.store.getState().selectedId;
+	if (
+		selectedId !== null &&
+		props.store.getState().demandByKey.get(selectedId) === `selected:${props.message.epoch}` &&
+		isBridgeWorkerReviewContentMetadata(
+			props.store.getState().contentMetadataByItemId.get(selectedId) ?? null,
+		)
+	) {
+		props.scheduleSelectedReviewContentReadyPreparation({
+			epoch: props.message.epoch,
+			itemId: selectedId,
+			store: props.store,
+		});
+	}
 	props.scheduleDemandExecution?.({
 		affectedItemIds,
 		cause: 'reviewSourceUpdate',
 		epoch: props.message.epoch,
 		store: props.store,
 	});
-	const slicePatch = appliedTerminalAvailability
-		? props.store.actions.takePendingSlicePatchEvent({
-				epoch: props.message.epoch,
-				sequence: props.createSequence(),
-			})
-		: null;
+	const repairedSelectedAvailability = sourceUpdateResult.touchedKeys.some((touchedKey) =>
+		touchedKey.startsWith('availability:'),
+	);
+	const slicePatch =
+		appliedTerminalAvailability || repairedSelectedAvailability
+			? props.store.actions.takePendingSlicePatchEvent({
+					epoch: props.message.epoch,
+					sequence: props.createSequence(),
+				})
+			: null;
 	return [
 		...(slicePatch === null ? [] : [slicePatch]),
 		buildBridgeWorkerReadyHealthEvent(props.message.requestId),
@@ -557,6 +587,7 @@ function handleBridgeWorkerSelectCommand(
 	props: HandleBridgeWorkerSelectCommandProps,
 ): readonly BridgeWorkerServerToMainMessage[] {
 	applySelectedReviewRuntimeSourceItemIfNeeded({
+		epoch: props.message.epoch,
 		itemId: props.message.selectedItemId,
 		reviewRuntimeSource: props.reviewRuntimeSource,
 		store: props.store,
@@ -585,6 +616,7 @@ function handleBridgeWorkerSelectCommand(
 }
 
 function applySelectedReviewRuntimeSourceItemIfNeeded(props: {
+	readonly epoch: number;
 	readonly itemId: string;
 	readonly reviewRuntimeSource: BridgeCommWorkerReviewRuntimeSource;
 	readonly store: BridgeCommWorkerStore;
@@ -599,6 +631,7 @@ function applySelectedReviewRuntimeSourceItemIfNeeded(props: {
 	}
 	props.store.actions.applyReviewSourceUpdateFact({
 		contentItems: [contentItem],
+		epoch: props.epoch,
 		resetComplete: false,
 		rows: [row],
 	});
@@ -935,41 +968,4 @@ function rejectStaleOrReplayedBridgeWorkerCommand(
 		});
 	}
 	return null;
-}
-
-function buildBridgeWorkerUnimplementedHealthEvent(
-	message: BridgeWorkerMainToServerMessage,
-): BridgeWorkerServerToMainMessage {
-	return buildBridgeWorkerDegradedHealthEvent({
-		message: `Bridge comm worker command ${message.command} is not implemented.`,
-		requestId: message.requestId,
-	});
-}
-
-function buildBridgeWorkerDegradedHealthEvent(props: {
-	readonly requestId: string;
-	readonly message: string;
-}): BridgeWorkerServerToMainMessage {
-	return {
-		wireVersion: 1,
-		direction: 'serverWorkerToMain',
-		transferDescriptors: [],
-		kind: 'health',
-		requestId: props.requestId,
-		status: 'degraded',
-		message: props.message,
-	};
-}
-
-function createBridgeWorkerSequenceCounter(): () => number {
-	let nextSequence = 1;
-	return (): number => {
-		const sequence = nextSequence;
-		nextSequence += 1;
-		return sequence;
-	};
-}
-
-function assertNeverBridgeWorkerCommand(_message: never): never {
-	throw new Error('Unhandled bridge worker command.');
 }

@@ -242,6 +242,221 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		expect(pierreJobs[0]?.contentHash).toContain('generation-7');
 	});
 
+	test('later source reset chunk prepares selected demand that began without metadata', async () => {
+		const clockMs = 0;
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const sourceRows = Array.from({ length: 130 }, (_unused, index) => ({
+			id: `item-${index + 1}`,
+			parentId: null,
+			index,
+		}));
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentItems: [],
+			contentRequestDescriptors: [],
+			createSequence: createBridgeWorkerSequenceCounter(971),
+			fetchContent: async (url: string): Promise<Response> => {
+				const descriptor = descriptorByUrl.get(url);
+				if (descriptor === undefined) {
+					throw new Error(`Unexpected review content URL ${url}.`);
+				}
+				return makeImmediateTextResponse(descriptor.text);
+			},
+			pump: createWorkerContentPreparationPump({
+				maxSliceMs: 8,
+				now: () => clockMs,
+			}),
+			renderSemantics: [],
+			rows: [],
+			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-before-source-reset',
+				epoch: 7,
+				selectedItemId: 'item-130',
+				selectedSource: 'user',
+			}),
+		);
+		dispatch.message(
+			encodeBridgeWorkerReviewSourceUpdateCommand({
+				requestId: 'request-source-reset-after-selection',
+				epoch: 8,
+				contentItems: sourceRows.map((row) => makeWorkerReviewContentMetadata({ itemId: row.id })),
+				contentRequestDescriptors: sourceRows.flatMap((row) => [
+					makeContentRequestDescriptor({
+						generation: 8,
+						itemId: row.id,
+						role: 'base',
+						text: `base ${row.id}\n`,
+					}),
+					makeContentRequestDescriptor({
+						generation: 8,
+						itemId: row.id,
+						role: 'head',
+						text: `head ${row.id}\n`,
+					}),
+				]),
+				renderSemantics: sourceRows.map((row) => makeRenderSemantics({ itemId: row.id })),
+				rows: sourceRows,
+			}),
+		);
+		await drainBridgeWorkerRuntimeUntil({
+			hasExpectedEvent: () =>
+				postedMessages.some(
+					(postedMessage) =>
+						postedMessage.message.kind === 'pierreRenderJob' &&
+						postedMessage.message.job.itemId === 'item-130',
+				),
+			scheduledDrains,
+			startIndex: 0,
+		});
+
+		expect(
+			postedMessages.some(
+				(postedMessage) =>
+					postedMessage.message.kind === 'pierreRenderJob' &&
+					postedMessage.message.job.itemId === 'item-130',
+			),
+		).toBe(true);
+		expect(
+			postedMessages.some(
+				(postedMessage) =>
+					postedMessage.message.kind === 'slicePatch' &&
+					postedMessage.message.patches.some(
+						(patch) =>
+							patch.slice === 'contentAvailability' &&
+							patch.operation === 'upsert' &&
+							patch.itemId === 'item-130' &&
+							patch.payload.state === 'ready',
+					),
+			),
+		).toBe(true);
+	});
+
+	test('source rollover re-demands already-ready selected content outside the viewport', async () => {
+		const clockMs = 0;
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+			contentRequestDescriptors: [
+				makeContentRequestDescriptor({
+					generation: 7,
+					itemId: 'item-1',
+					role: 'base',
+					text: 'generation 7 base\n',
+				}),
+				makeContentRequestDescriptor({
+					generation: 7,
+					itemId: 'item-1',
+					role: 'head',
+					text: 'generation 7 head\n',
+				}),
+			],
+			createSequence: createBridgeWorkerSequenceCounter(976),
+			fetchContent: async (url: string): Promise<Response> => {
+				const descriptor = descriptorByUrl.get(url);
+				if (descriptor === undefined) {
+					throw new Error(`Unexpected review content URL ${url}.`);
+				}
+				return makeImmediateTextResponse(descriptor.text);
+			},
+			pump: createWorkerContentPreparationPump({
+				maxSliceMs: 8,
+				now: () => clockMs,
+			}),
+			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-generation-7',
+				epoch: 7,
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+			}),
+		);
+		await drainBridgeWorkerRuntimeUntil({
+			hasExpectedEvent: () =>
+				postedMessages.filter((message) => message.message.kind === 'pierreRenderJob').length === 1,
+			scheduledDrains,
+			startIndex: 0,
+		});
+		const rolloverDrainStartIndex = scheduledDrains.length;
+
+		dispatch.message(
+			encodeBridgeWorkerReviewSourceUpdateCommand({
+				requestId: 'request-source-rollover-generation-8',
+				epoch: 8,
+				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+				contentRequestDescriptors: [
+					makeContentRequestDescriptor({
+						generation: 8,
+						itemId: 'item-1',
+						role: 'base',
+						text: 'generation 8 base\n',
+					}),
+					makeContentRequestDescriptor({
+						generation: 8,
+						itemId: 'item-1',
+						role: 'head',
+						text: 'generation 8 head\n',
+					}),
+				],
+				renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+				rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			}),
+		);
+		await drainBridgeWorkerRuntimeUntil({
+			hasExpectedEvent: () =>
+				postedMessages.filter((message) => message.message.kind === 'pierreRenderJob').length === 2,
+			scheduledDrains,
+			startIndex: rolloverDrainStartIndex,
+		});
+
+		const pierreJobs = postedMessages.flatMap((postedMessage) =>
+			postedMessage.message.kind === 'pierreRenderJob' ? [postedMessage.message.job] : [],
+		);
+		expect(pierreJobs).toHaveLength(2);
+		expect(pierreJobs[1]?.contentHash).toContain('generation-8');
+		expect(
+			postedMessages.some(
+				(postedMessage) =>
+					postedMessage.message.kind === 'slicePatch' &&
+					postedMessage.message.epoch === 8 &&
+					postedMessage.message.patches.some(
+						(patch) =>
+							patch.slice === 'contentAvailability' &&
+							patch.operation === 'upsert' &&
+							patch.itemId === 'item-1' &&
+							patch.payload.state === 'ready',
+					),
+			),
+		).toBe(true);
+	});
+
 	test('later source reset chunks schedule visible demand for newly eligible visible rows', async () => {
 		const clockMs = 0;
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];

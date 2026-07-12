@@ -333,6 +333,7 @@ describe('Bridge comm worker store', () => {
 				}),
 				makeWorkerReviewContentMetadata('item-visible'),
 			],
+			epoch: 2,
 			rows: [
 				{ id: 'item-selected', parentId: null, index: 0 },
 				{ id: 'item-visible', parentId: null, index: 1 },
@@ -385,12 +386,55 @@ describe('Bridge comm worker store', () => {
 
 		const result = store.actions.applyReviewSourceUpdateFact({
 			contentItems,
+			epoch: 1,
 			rows,
 		});
 
 		expect(result.touchedKeys).toEqual(['sourceRows', 'sourceContentMetadata']);
 		expect(result.touchedKeys).not.toContain('contentMetadata:item-130');
 		expect(store.getState().contentMetadataByItemId.get('item-130')).toEqual(contentItems[129]);
+	});
+
+	test('repairs selected demand only when executable metadata reaches the current epoch', () => {
+		const store = createBridgeCommWorkerStore({
+			contentItems: [],
+			rows: [{ id: 'item-selected', parentId: null, index: 0 }],
+		});
+		store.actions.applySelectedFact({ itemId: 'item-selected', epoch: 7 });
+		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 1 });
+
+		const staleResult = store.actions.applyReviewSourceUpdateFact({
+			contentItems: [makeWorkerReviewContentMetadata('item-selected')],
+			epoch: 6,
+			rows: [{ id: 'item-selected', parentId: null, index: 0 }],
+		});
+		const stalePatch = store.actions.takePendingSlicePatchEvent({ epoch: 6, sequence: 2 });
+		const currentResult = store.actions.applyReviewSourceUpdateFact({
+			contentItems: [makeWorkerReviewContentMetadata('item-selected')],
+			epoch: 8,
+			rows: [{ id: 'item-selected', parentId: null, index: 0 }],
+		});
+		const currentPatch = store.actions.takePendingSlicePatchEvent({ epoch: 8, sequence: 3 });
+
+		expect(staleResult.touchedKeys).toEqual(['sourceRows', 'sourceContentMetadata']);
+		expect(stalePatch).toBeNull();
+		expect(store.getState().visibleIds).toEqual([]);
+		expect(store.getState().availabilityByItemId.get('item-selected')).toBe('loading');
+		expect(store.getState().demandByKey.get('item-selected')).toBe('selected:8');
+		expect(currentResult.touchedKeys).toEqual([
+			'sourceRows',
+			'sourceContentMetadata',
+			'availability:item-selected',
+			'demand:item-selected',
+		]);
+		expect(currentPatch?.patches).toEqual([
+			{
+				slice: 'contentAvailability',
+				operation: 'upsert',
+				itemId: 'item-selected',
+				payload: { state: 'loading' },
+			},
+		]);
 	});
 
 	test('invalidates package and tree-window scopes without requiring fresh metadata', () => {
@@ -406,6 +450,7 @@ describe('Bridge comm worker store', () => {
 		store.actions.takePendingSlicePatchEvent({ epoch: 1, sequence: 1 });
 		store.actions.applyReviewSourceUpdateFact({
 			contentItems: [],
+			epoch: 2,
 			rows: [],
 		});
 
@@ -512,6 +557,7 @@ describe('Bridge comm worker store', () => {
 		store.actions.applyReviewSourceUpdateFact({
 			completeItemIds: ['item-1', 'row-only-item'],
 			contentItems: [makeWorkerReviewContentMetadata('item-1')],
+			epoch: 1,
 			resetComplete: false,
 			rows: [
 				{ id: 'item-1', parentId: null, index: 0 },
