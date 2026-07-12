@@ -22,6 +22,7 @@ actor BridgePaneProductMetadataCoordinator {
     private var activeStream: ActiveStream?
     private var bootstrapTaskBySubscriptionId: [String: Task<Void, Never>] = [:]
     private var interestTasksBySubscriptionId: [String: [UUID: Task<Void, Never>]] = [:]
+    private var streamTransitionGeneration = 0
     private var subscriptionKindById: [String: BridgeProductSubscriptionKind] = [:]
 
     init(
@@ -39,8 +40,11 @@ actor BridgePaneProductMetadataCoordinator {
         lease: BridgeProductProducerLease,
         session: BridgeProductSession
     ) async {
+        streamTransitionGeneration += 1
+        let transitionGeneration = streamTransitionGeneration
         cancelEveryProducerTask()
         await cancelEverySubscription()
+        guard streamTransitionGeneration == transitionGeneration else { return }
         activeStream = ActiveStream(
             correlation: request.correlation,
             lease: lease,
@@ -50,8 +54,13 @@ actor BridgePaneProductMetadataCoordinator {
 
     func uninstall(lease: BridgeProductProducerLease) async {
         guard activeStream?.lease == lease else { return }
+        streamTransitionGeneration += 1
+        let transitionGeneration = streamTransitionGeneration
         cancelEveryProducerTask()
         await cancelEverySubscription()
+        guard streamTransitionGeneration == transitionGeneration,
+            activeStream?.lease == lease
+        else { return }
         activeStream = nil
     }
 
