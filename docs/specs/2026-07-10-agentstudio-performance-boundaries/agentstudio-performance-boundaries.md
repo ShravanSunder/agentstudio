@@ -254,6 +254,13 @@ enum AdmissionDoorbellResult: Sendable, Equatable {
     case finished
 }
 
+enum AdmissionDoorbellStateSnapshot: Sendable, Equatable {
+    case idle
+    case signalPending
+    case consumerWaiting
+    case finished
+}
+
 protocol AdmissionDoorbellSignaler: Sendable {
     func signal()
 }
@@ -344,7 +351,7 @@ struct LatestValueDrain<Key, Value>: Sendable
 where Key: Hashable & Sendable, Value: Sendable {
     let token: AdmissionDrainToken
     let values: NonEmptyAdmissionBatch<LatestValueEntry<Key, Value>>
-    let oldestRetainedAge: AdmissionAgeMeasurement
+    let oldestRetainedAge: ExactAdmissionAge
 }
 
 enum OrderedFactTakeDrainResult<Fact>: Sendable where Fact: Sendable {
@@ -364,7 +371,7 @@ enum OrderedFactDrainPayload<Fact: Sendable>: Sendable {
 struct OrderedFactDrain<Fact: Sendable>: Sendable {
     let token: AdmissionDrainToken
     let payload: OrderedFactDrainPayload<Fact>
-    let oldestRetainedAge: AdmissionAgeMeasurement
+    let oldestRetainedAge: ExactAdmissionAge
 }
 
 enum AdmissionDrainDisposition: Sendable, Equatable {
@@ -418,6 +425,10 @@ protocol AdmissionCleanupConsumer: Sendable {
 enum AdmissionAgeMeasurement: Sendable, Equatable {
     case exact(Duration)
     case pressureConservative(Duration)
+}
+
+struct ExactAdmissionAge: Sendable, Equatable {
+    let duration: Duration
 }
 
 struct AdmissionDiagnostics: Sendable, Equatable {
@@ -565,6 +576,12 @@ an ordered replay capture is either `.immediate(result)` or
 accepted transition or a rejected transition carrying the incoming value that
 must be released after unlocking. Impossible cross-products must not be
 representable even in private owner code.
+
+Doorbell storage uses the same four closed cases as its state snapshot; pending,
+waiting, and finished are not independent Booleans/optionals. Latest active-
+drain storage likewise combines absence and presentation in one union carrying
+the `ActiveDrain` only in presented, awaiting-initial-presentation, or awaiting-
+rebind-presentation cases.
 
 Every producer path that does not retain its incoming generic payload makes
 unlock-time destruction explicit. This includes latest rejection, gather
@@ -1215,7 +1232,8 @@ All three families:
   fleet size; payload release scales only with the explicit cleanup quantum;
 - keep diagnostic oldest-age fields typed as `AdmissionAgeMeasurement?` because
   their custody sets may be empty; latest and journal drains are structurally
-  nonempty, so their `oldestRetainedAge` is non-optional and `.exact`;
+  nonempty, so their `oldestRetainedAge` is a dedicated `ExactAdmissionAge`
+  that cannot represent pressure-conservative precision;
 - keep raw locks, mutable state, cleanup cursors, and authority lexically
   private to one storage owner; cross-file code receives only typed operations,
   immutable captures, or pure post-lock values and never a generic lock/state
