@@ -136,6 +136,16 @@ The following contracts close the architecture boundary. Their internal lock,
 atomic, storage, and wake primitive is implementation detail only when the
 observable state machine below is preserved.
 
+Type safety is a normative architecture requirement, not an implementation
+style preference. Every behavioral alternative is a closed enum case and every
+value required by that alternative is carried by that case. A struct containing
+a discriminator plus optional companion fields, or a result that uses `nil`, an
+empty collection, a Boolean, or another result case as a sentinel, is forbidden
+when those values select different transition meanings. `Optional` remains
+valid only for genuinely independent absence, such as an empty queue link, no
+current snapshot, or no age because the measured custody set is empty. Public
+contracts and private post-lock transition captures obey the same rule.
+
 ```swift
 enum PressureStreamID: UInt8, CaseIterable, Sendable {
     case filesystemObservation
@@ -166,13 +176,12 @@ struct AdmissionGeneration: Hashable, Sendable {
     let value: UInt64
 }
 
-enum AdmissionReceipt: Sendable, Equatable {
-    case admitted
-    case replacedPrevious
+enum LatestValueOfferResult: Sendable, Equatable {
+    case admitted(wake: AdmissionWakeDirective)
+    case replacedPrevious(wake: AdmissionWakeDirective)
     case physicalCapacityExceeded
     case staleGeneration
     case undeclaredKey
-    case invalidFootprint
     case closed
 }
 
@@ -220,19 +229,15 @@ where Key: Hashable & Sendable {
     private let stamp: GatherRecoveryStamp
 }
 
-enum GatherPayloadDisposition: Sendable, Equatable {
-    case retained
-    case contractedToRecovery
-}
-
-struct GatherAdmissionReceipt<Key>: Sendable
+enum GatherAdmissionDisposition<Key>: Sendable
 where Key: Hashable & Sendable {
-    let payload: GatherPayloadDisposition
-    let recoveryRevision: GatherRecoveryRevision<Key>?
+    case retained
+    case retainedWithRecovery(GatherRecoveryRevision<Key>)
+    case contractedToRecovery(GatherRecoveryRevision<Key>)
 }
 
-enum GatherOfferReceipt<Key>: Sendable where Key: Hashable & Sendable {
-    case admitted(GatherAdmissionReceipt<Key>)
+enum GatherOfferResult<Key>: Sendable where Key: Hashable & Sendable {
+    case admitted(GatherAdmissionDisposition<Key>, wake: AdmissionWakeDirective)
     case staleGeneration
     case undeclaredKey
     case invalidFootprint
@@ -263,8 +268,13 @@ protocol AdmissionDoorbellOwner: AdmissionDoorbellSignaler,
     func finish()
 }
 
+struct AdmissionOpaqueIdentity: Hashable, Sendable {
+    private let rawValue: UUID
+}
+
 struct AdmissionConsumerBinding: Hashable, Sendable {
-    private let mailboxIdentity: UInt64
+    private let mailboxIdentity: AdmissionOpaqueIdentity
+    private let bindingEpoch: AdmissionOpaqueIdentity
     private let bindingSequence: UInt64
 }
 
@@ -275,22 +285,33 @@ struct AdmissionConsumerBindResult: Sendable, Equatable {
 
 struct AdmissionDrainToken: Hashable, Sendable {
     let generation: AdmissionGeneration
-    private let mailboxIdentity: UInt64
+    private let mailboxIdentity: AdmissionOpaqueIdentity
+    private let bindingEpoch: AdmissionOpaqueIdentity
     private let bindingSequence: UInt64
+    private let leaseEpoch: AdmissionOpaqueIdentity
     private let leaseSequence: UInt64
 }
 
-struct GatherOfferResult<Key>: Sendable where Key: Hashable & Sendable {
-    let receipt: GatherOfferReceipt<Key>
-    let wake: AdmissionWakeDirective
+struct NonEmptyAdmissionBatch<Element: Sendable>: Sendable {
+    let first: Element
+    let remaining: [Element]
+}
+
+enum GatherDrainPayload<Key, Payload>: Sendable
+where Key: Hashable & Sendable, Payload: Sendable {
+    case contributions(NonEmptyAdmissionBatch<GatherContribution<Key, Payload>>)
+    case contributionsWithRecovery(
+        NonEmptyAdmissionBatch<GatherContribution<Key, Payload>>,
+        GatherRecoveryRevision<Key>
+    )
+    case recovery(GatherRecoveryRevision<Key>)
 }
 
 struct GatherDrainLease<Key, Payload>: Sendable
 where Key: Hashable & Sendable, Payload: Sendable {
     let token: AdmissionDrainToken
     let key: Key
-    let contributions: [GatherContribution<Key, Payload>]
-    let recoveryRevision: GatherRecoveryRevision<Key>?
+    let payload: GatherDrainPayload<Key, Payload>
 }
 
 enum GatherTakeDrainResult<Key, Payload>: Sendable
@@ -313,6 +334,19 @@ where Key: Hashable & Sendable, Value: Sendable {
     case closed
 }
 
+struct LatestValueEntry<Key, Value>: Sendable
+where Key: Hashable & Sendable, Value: Sendable {
+    let key: Key
+    let value: Value
+}
+
+struct LatestValueDrain<Key, Value>: Sendable
+where Key: Hashable & Sendable, Value: Sendable {
+    let token: AdmissionDrainToken
+    let values: NonEmptyAdmissionBatch<LatestValueEntry<Key, Value>>
+    let oldestRetainedAge: AdmissionAgeMeasurement
+}
+
 enum OrderedFactTakeDrainResult<Fact>: Sendable where Fact: Sendable {
     case drain(OrderedFactDrain<Fact>)
     case cleanupRequired
@@ -320,6 +354,17 @@ enum OrderedFactTakeDrainResult<Fact>: Sendable where Fact: Sendable {
     case alreadyDraining
     case staleGeneration
     case closed
+}
+
+enum OrderedFactDrainPayload<Fact: Sendable>: Sendable {
+    case facts(NonEmptyAdmissionBatch<SequencedFact<Fact>>)
+    case gap(FactGap)
+}
+
+struct OrderedFactDrain<Fact: Sendable>: Sendable {
+    let token: AdmissionDrainToken
+    let payload: OrderedFactDrainPayload<Fact>
+    let oldestRetainedAge: AdmissionAgeMeasurement
 }
 
 enum AdmissionDrainDisposition: Sendable, Equatable {
@@ -334,14 +379,25 @@ enum AdmissionDrainAcknowledgement: Sendable, Equatable {
     case closed
 }
 
-struct AdmissionCleanupQuantum: Sendable, Equatable {
-    let maximumEntries: Int
-    let maximumBytes: Int?
+enum AdmissionCleanupQuantum: Sendable, Equatable {
+    case entries(maximumEntries: Int)
+    case entriesAndBytes(maximumEntries: Int, maximumBytes: Int)
+
+    var maximumEntries: Int {
+        switch self {
+        case .entries(let maximumEntries),
+            .entriesAndBytes(let maximumEntries, _): maximumEntries
+        }
+    }
+}
+
+enum AdmissionCleanupRelease: Sendable, Equatable {
+    case entries(count: Int)
+    case entriesAndBytes(count: Int, bytes: Int)
 }
 
 struct AdmissionCleanupTurn: Sendable, Equatable {
-    let releasedEntryCount: Int
-    let releasedByteCount: Int?
+    let release: AdmissionCleanupRelease
     let wake: AdmissionWakeDirective
 }
 
@@ -492,6 +548,31 @@ by the active replay reader returns `.blockedByReplayReader`; `.empty` means no
 cleanup custody exists. Invalidation, rebind, seal, and authority rollover never
 revoke or alias the incumbent cleanup turn.
 
+The private detach capture is also a discriminated union. Successful detachment
+is one `.detached(authority:custody:)` case whose family-specific custody type
+is structurally nonempty. Homogeneous custody carries `first` plus bounded
+`remaining`; journal custody is one of nonempty facts, nonempty snapshots, or
+both. Unavailable outcomes are exhaustive
+cases such as `.staleGeneration`, `.alreadyCleaning`,
+`.blockedByReplayReader`, and `.empty`; no unavailable case carries authority or
+custody, and `.detached` cannot contain empty custody. The unlock-release step
+changes the private execution value from detached custody to released authority
+before protected state is entered again; no optional payload slot or empty
+collection represents that phase change. `.empty` is never reused as a
+successful-detachment sentinel. Likewise,
+an ordered replay capture is either `.immediate(result)` or
+`.registered(readerIdentity:history:)`, and a latest offer capture is either an
+accepted transition or a rejected transition carrying the incoming value that
+must be released after unlocking. Impossible cross-products must not be
+representable even in private owner code.
+
+Every producer path that does not retain its incoming generic payload makes
+unlock-time destruction explicit. This includes latest rejection, gather
+rejection or contraction to recovery, and ordered fact/snapshot rejection.
+Those inputs remain alive through protected-state exit and are released before
+any later protected-state entry; they never become cleanup custody because the
+primitive did not accept them. Destructor-reentrant proof covers each family.
+
 Spec boundary / separability map:
 
 ```text
@@ -532,7 +613,7 @@ struct LatestValueLimits: Sendable, Equatable {
 Let `D` be `maximumValuesPerLease`, `R` be
 `maximumAuxiliaryRetainedValues`, and `C` be
 `cleanupQuantum.maximumEntries`. Configuration requires `D >= 1`, `C >= 1`,
-`cleanupQuantum.maximumBytes == nil`, checked `R >= 2 * D`, and checked
+`cleanupQuantum == .entries(maximumEntries: C)`, checked `R >= 2 * D`, and checked
 `K + R` without overflow. For a cleanup-free full lease, `R >= 2D` guarantees
 one complete refill-and-replace wave before acknowledgement; it does not claim
 rejection-free service for an arbitrary producer burst. A pre-presented lease
@@ -769,8 +850,12 @@ cleanup enum or callable name.
 Cleanup configuration must permit forward progress: its entry quantum is at
 least one. A byte-accounted family supplies a non-optional byte quantum at least
 as large as the maximum byte footprint of one admissible retained entry; the
-entry-only latest-value family uses `nil`. Configuration that cannot release one
-entry is rejected before the primitive becomes usable.
+entry-only latest-value family uses `.entries(maximumEntries:)`.
+Byte-accounted families use
+`.entriesAndBytes(maximumEntries:maximumBytes:)`. Cleanup results mirror that
+choice with `.entries(count:)` or `.entriesAndBytes(count:bytes:)` so a caller
+cannot observe a missing or meaningless byte count. Configuration that cannot
+release one entry is rejected before the primitive becomes usable.
 
 The wake/lease state machine is normative:
 
@@ -816,18 +901,20 @@ by recovery/gap custody; therefore `contracted <= admitted`.
 an exact recovery/gap revision. Actor-owned semantic coalescing input/output is
 a later pipeline stage and never inferred from mailbox depth.
 
-Gather admission makes payload and recovery disposition orthogonal:
+Gather admission preserves the same semantic combinations as distinct union
+cases; it does not expose independently combinable payload and recovery fields:
 
 | Offer condition | Payload disposition | Recovery revision | Counters |
 | --- | --- | --- | --- |
-| ordinary and within capacity | `retained` | none | offered + admitted |
-| explicit recovery signal, payload within capacity | `retained` | advanced | offered + admitted + repair escalation |
-| global/per-key capacity contraction | `contractedToRecovery` | advanced | offered + admitted + contracted + repair escalation |
-| already exhausted recovery authority | `contractedToRecovery` | `authorityExhausted` | offered + admitted + contracted; escalation only on first transition |
+| ordinary and within capacity | `.retained` | structurally absent | offered + admitted |
+| explicit recovery signal, payload within capacity | `.retainedWithRecovery(revision)` | associated with case | offered + admitted + repair escalation |
+| global/per-key capacity contraction | `.contractedToRecovery(revision)` | associated with case | offered + admitted + contracted + repair escalation |
+| already exhausted recovery authority | `.contractedToRecovery(revision)` | revision carries `authorityExhausted` | offered + admitted + contracted; escalation only on first transition |
 | stale/undeclared/invalid/closed | no admission receipt | none | offered + exactly one rejection |
 
-A consumer never infers retained payload from the presence of a recovery
-revision; it uses the explicit payload disposition and the lease contents.
+A consumer switches exhaustively over the disposition or drain-payload case. It
+never infers retained payload from an optional revision or an empty contribution
+array.
 
 `AdmissionDiagnostics` reports current retained-key depth and high-water.
 Gather diagnostics additionally report current pending, leased, and cleanup
@@ -891,6 +978,11 @@ struct OrderedFactSnapshotLimits: Sendable, Equatable {
     let maximumPhysicalSnapshotCount: Int
     let maximumPhysicalSnapshotBytes: Int
 }
+
+struct OrderedFactSnapshotReplacement<Snapshot: Sendable>: Sendable {
+    let snapshot: Snapshot
+    let estimatedBytes: Int
+}
 ```
 
 `maximumSnapshotBytes` is the individual semantic snapshot limit. Physical
@@ -902,6 +994,14 @@ least the checked product `2 * maximumSnapshotBytes`. Larger explicit budgets
 permit a bounded replacement burst. The cleanup quantum bounds reclamation
 work only; it does not enlarge either fact-history or snapshot capacity and its
 byte quantum can release one maximum-size snapshot.
+
+Initial snapshot configuration accepts one
+`OrderedFactSnapshotReplacement<Snapshot>?`, not separate optional snapshot and
+byte-count parameters. `nil` therefore means that no initial snapshot exists;
+when a snapshot exists, its estimated footprint is structurally inseparable
+from it. Atomic replacement and authoritative recovery use the same bundled
+value. A snapshot payload and its size cannot disagree about whether the
+snapshot exists.
 
 Fact-history count/bytes and physical-snapshot count/bytes have independent
 limits; total retained payload memory is bounded by their declared sum plus
@@ -990,14 +1090,7 @@ generation, or invalidated. Persistent product currentness has precedence over
 every cursor validation/result, including a future cursor:
 
 ```swift
-enum OrderedFactReplayResult<Fact: Sendable, Snapshot: Sendable>: Sendable {
-    case facts([SequencedFact<Fact>], nextSequence: UInt64)
-    case snapshot(
-        SequencedSnapshot<Snapshot>,
-        followingFacts: [SequencedFact<Fact>],
-        nextSequence: UInt64
-    )
-    case historyGap(ReplayHistoryGap<Fact>)
+enum OrderedFactImmediateReplayResult: Sendable {
     case factGap(FactGap)
     case invalidCursor(latestSequence: UInt64)
     case replayInProgress
@@ -1005,20 +1098,35 @@ enum OrderedFactReplayResult<Fact: Sendable, Snapshot: Sendable>: Sendable {
     case invalidated
 }
 
-struct OrderedFactReplayCompletion<Fact: Sendable, Snapshot: Sendable>: Sendable {
-    let result: OrderedFactReplayResult<Fact, Snapshot>
-    let wake: AdmissionWakeDirective
+enum OrderedFactRegisteredReplayResult<Fact: Sendable, Snapshot: Sendable>: Sendable {
+    case facts([SequencedFact<Fact>], nextSequence: UInt64)
+    case snapshot(
+        SequencedSnapshot<Snapshot>,
+        followingFacts: [SequencedFact<Fact>],
+        nextSequence: UInt64
+    )
+    case historyGap(ReplayHistoryGap<Fact>)
+}
+
+enum OrderedFactReplayCompletion<Fact: Sendable, Snapshot: Sendable>: Sendable {
+    case immediate(OrderedFactImmediateReplayResult)
+    case registered(
+        OrderedFactRegisteredReplayResult<Fact, Snapshot>,
+        wake: AdmissionWakeDirective
+    )
 }
 ```
 
 `replay(after:generation:recovery:)` returns
-`OrderedFactReplayCompletion`. Its result linearizes at the bounded protected
+`OrderedFactReplayCompletion`. A registered result linearizes at the bounded protected
 capture: facts offered after the captured stop tail are excluded. Exactly one
 replay reader may own capture authority. Immediate stale-generation,
 invalidated, persistent-gap, and invalid-cursor results require no reader and
 retain their stated precedence. A request that would otherwise register a
-history capture while the reader is occupied returns `.replayInProgress` with
-`.noWake` and performs no mutation. It never reports false invalidation, blocks
+history capture while the reader is occupied returns
+`.immediate(.replayInProgress)` and performs no mutation. Immediate cases carry
+no wake field; only `.registered(result, wake:)` can return the cleanup-
+eligibility wake. It never reports false invalidation, blocks
 a caller, queues a replay, or allocates another reader.
 
 Invalidation rejects a replay that has not captured reader authority; a replay
@@ -1105,8 +1213,9 @@ All three families:
 - keep bind/rebind, diagnostics, replay capture/completion, cleanup detachment,
   and invalidation bounded independently of declared-key or retained-history
   fleet size; payload release scales only with the explicit cleanup quantum;
-- keep every public oldest-age field, including drain lease age, typed as
-  `AdmissionAgeMeasurement?`; latest and journal drain ages are `.exact`;
+- keep diagnostic oldest-age fields typed as `AdmissionAgeMeasurement?` because
+  their custody sets may be empty; latest and journal drains are structurally
+  nonempty, so their `oldestRetainedAge` is non-optional and `.exact`;
 - keep raw locks, mutable state, cleanup cursors, and authority lexically
   private to one storage owner; cross-file code receives only typed operations,
   immutable captures, or pure post-lock values and never a generic lock/state
@@ -1556,7 +1665,7 @@ confounded causal claim.
 
 | Requirement family | Contract owner | Required proof |
 | --- | --- | --- |
-| shared source admission custody | parent | literal latest/gather/journal state models; paired bind/doorbell liveness; semantic/queued-cleanup/in-flight-cleanup/physical custody equations; bounded latest `D/R/C` delivery, replacement pressure, cleanup-finalization lease progress, and lossy-or-authoritative-resample wrapper disposition; zero-byte and maximum-size journal snapshot physical limits; deterministic destructor barriers; recovery-only gather metadata cleanup; typed negative-size/capacity rejection; bounded protected-state offer/replay-capture/diagnostics/invalidation proof across 1/100/300 and large fleets; private raw-state capability proof; rename/alias/helper-pass-through structural mutations; no domain closure/task/payload queue; cancellation/rebind, capacity, token-exhaustion, counter-algebra, and payload-free diagnostic proof |
+| shared source admission custody | parent | literal latest/gather/journal state models; compile-time negative fixtures proving forbidden correlated/sentinel constructions do not typecheck; exhaustive public offer/gather/cleanup unions and private offer/replay/cleanup captures; paired bind/doorbell liveness; semantic/queued-cleanup/in-flight-cleanup/physical custody equations; bounded latest `D/R/C` delivery, replacement pressure, cleanup-finalization lease progress, and lossy-or-authoritative-resample wrapper disposition; zero-byte and maximum-size journal snapshot physical limits; deterministic destructor barriers; recovery-only gather metadata cleanup; typed negative-size/capacity rejection; bounded protected-state offer/replay-capture/diagnostics/invalidation proof across 1/100/300 and large fleets; private raw-state capability proof; rename/alias/helper-pass-through structural mutations; no domain closure/task/payload queue; cancellation/rebind, capacity, token-exhaustion, counter-algebra, and payload-free diagnostic proof |
 | FSEvent loss and topology repair | watched-folder child | deterministic loss/repair plus independent final oracle |
 | topology/MainActor/persistence fairness | watched-folder child | work-item spans, responsiveness probe, scaling workload |
 | semantic topic transport | parent + watched-folder child | structural policy, queue admission, lag/recovery proof |
