@@ -50,6 +50,26 @@ Add these dormant types and focused tests before callback integration:
 
 W1a does not invent a temporary repair owner and does not yet switch the Darwin callback.
 
+Execution clarification discovered at the W1a RED seam:
+
+- The normative observation uses closed `FSEventRecordCount`,
+  `FSEventIDWatermark`, and `FSEventCaptureCompleteness` states rather than
+  correlated optional IDs and a truncation Boolean. Its validating constructor
+  owns the copied-count/record-count/byte-count invariants.
+- `FSEventCaptureLimits` has four independent positive hard bounds: inspected
+  native records, copied records, copied UTF-8 bytes, and maximum single-path
+  UTF-8 bytes. No downstream 128/256 envelope constant is reused here.
+- `FSEventFlagDisposition` is a joining typed product so ordinary hints,
+  continuity repair, root revalidation, provenance, and unknown-bit evidence
+  can coexist.
+- W1a's dormant control block owns a closed lifecycle and generation-bound
+  callback leases, but no optional or temporary mailbox. W2a supplies the
+  required synchronous producer/recovery capability; W1b composes it into the
+  live retained callback userdata.
+- W1a tests cover value invariants and lifecycle/lease transitions. Native
+  array inspection and exact flag classification remain W1b callback-adapter
+  proof because W1a does not cut production ingress.
+
 ### W1b — Dormant real callback adapter after W2a
 
 Depends on W2a's real `FilesystemObservationMailbox`, recovery-evidence

@@ -558,7 +558,7 @@ actors, queues, indexes, or persistence shapes.
 #### Source identity, callback lifetime, and observation schema
 
 ```swift
-enum FilesystemSourceKind: Sendable {
+enum FilesystemSourceKind: Hashable, Sendable {
     case watchedParentMembership
     case registeredWorktreeContent
 }
@@ -574,27 +574,69 @@ struct FSEventRegistrationToken: Hashable, Sendable {
     let rootGeneration: UInt64
 }
 
-struct FSEventRecord: Sendable {
+struct FSEventFlags: OptionSet, Hashable, Sendable {
+    let rawValue: UInt32
+}
+
+struct FSEventRecord: Equatable, Sendable {
     let path: String
     let flags: FSEventFlags
     let eventID: UInt64
 }
 
+enum FSEventRecordCount: Equatable, Sendable {
+    case exact(Int)
+    case malformed(FSEventMalformedRecordCount)
+}
+
+enum FSEventIDWatermark: Equatable, Sendable {
+    case noInspectedRecords
+    case inspected(first: UInt64, last: UInt64)
+}
+
+enum FSEventCaptureCompleteness: Equatable, Sendable {
+    case complete
+    case truncated(FSEventCaptureTruncation)
+}
+
 struct FSEventObservation: Sendable {
     let registration: FSEventRegistrationToken
     let capturedAt: ContinuousClock.Instant
-    let totalRecordCount: Int
+    let totalRecordCount: FSEventRecordCount
+    let inspectedNativeRecordCount: Int
     let records: [FSEventRecord]
+    let copiedUTF8ByteCount: Int
     let unionedInspectedFlags: FSEventFlags
-    let firstEventID: UInt64?
-    let lastEventID: UInt64?
-    let captureWasTruncated: Bool
+    let eventIDWatermark: FSEventIDWatermark
+    let completeness: FSEventCaptureCompleteness
 }
 ```
 
+`FSEventMalformedRecordCount` and `FSEventCaptureTruncation` are closed typed
+reason sets. Truncation reasons join because one callback may exceed more than
+one bound or also contain malformed native shape. The observation is created
+through a validating constructor/factory rather than a public memberwise
+initializer. It enforces copied count equals `records.count`, copied UTF-8 byte
+count equals the checked sum of retained paths, copied count does not exceed
+the inspected prefix, `.complete` requires an exact total with every inspected
+record retained, and `.noInspectedRecords` is valid only for a zero-length
+inspected prefix. The source kind is derived from the registration token rather
+than stored as a second authority.
+
+`FSEventFlagDisposition` is a closed product, not a first-match enum. It owns a
+typed path treatment, a joining recovery-requirement set, retained provenance,
+and unsupported raw bits. This lets continuity repair, root revalidation, an
+ordinary path hint, and unsupported-bit evidence coexist for one record.
+
 `FSEventRegistrationControlBlock` is the stable retained callback userdata. It
-owns the token, lexical and resolved root aliases, dispatch queue, open/closing
-state, callback leases, capture item/byte limits, and mailbox reference.
+owns the token, lexical and resolved root aliases, dispatch queue, a closed
+`open`/`closing`/`closed` lifecycle, generation-bound callback leases, and one
+validated `FSEventCaptureLimits` value with separate inspected-native-record,
+copied-record, copied-UTF-8-byte, and maximum-single-path-byte bounds. W1a lands
+this lifecycle and bound custody dormantly. W2a defines the synchronous
+producer/recovery capability, and W1b constructs the live control block with
+that required capability. W1a does not use an optional mailbox reference or a
+temporary repair owner.
 Callback entry acquires a short lease and inspects/copies only through those
 limits. `unionedInspectedFlags` and event-ID watermarks describe only the
 bounded inspected prefix. When the OS count/native-array shape exceeds the
