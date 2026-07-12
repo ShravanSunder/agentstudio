@@ -1,0 +1,420 @@
+import Foundation
+
+enum FilesystemRepairTriggerClass: Equatable, Sendable {
+    case continuityLoss
+    case callbackGateOverflow
+    case captureTruncation
+    case rootIdentityChanged
+    case registrationReplaced
+    case unsupportedFlags
+}
+
+enum FilesystemRepairWatermark: Equatable, Sendable {
+    case eventIDs(FSEventIDWatermark)
+    case recoveryRevision(UInt64)
+    case eventIDsAndRecoveryRevision(FSEventIDWatermark, recoveryRevision: UInt64)
+}
+
+enum FilesystemRepairParticipantKind: Hashable, Sendable {
+    case scanScheduler
+    case canonicalTopologyCommit
+    case cacheAndPaneRemovalReconciliation
+    case filesystemSourceRegistrationSync
+    case currentGitBaseline
+    case registrationOwner
+    case contentRepairProjector
+    case gitWorkingDirectoryProjector
+    case paneFilesystemProjection
+    case contentConsumer
+}
+
+struct FilesystemRepairParticipantToken: Hashable, Sendable {
+    let kind: FilesystemRepairParticipantKind
+    let participantID: UUID
+    let participantGeneration: UInt64
+}
+
+struct RepairGenerationID: Hashable, Sendable {
+    let registration: FSEventRegistrationToken
+    let sequence: UInt64
+}
+
+struct RepairGeneration: Equatable, Sendable {
+    let id: RepairGenerationID
+    let watermark: FilesystemRepairWatermark
+    let trigger: FilesystemRepairTriggerClass
+    let participants: Set<FilesystemRepairParticipantToken>
+}
+
+struct FilesystemRepairAcknowledgementToken: Hashable, Sendable {
+    let repairGenerationID: RepairGenerationID
+    let participant: FilesystemRepairParticipantToken
+}
+
+struct AwaitingFilesystemRepairAcknowledgements: Equatable, Sendable {
+    let generation: RepairGeneration
+    let pendingParticipants: Set<FilesystemRepairParticipantToken>
+}
+
+enum FilesystemReconciliationFailure: Equatable, Sendable {
+    case authoritativeScanFailed
+    case authoritativeResultPartial
+    case authoritativeResultRejected
+}
+
+struct FailedFilesystemRepair: Equatable, Sendable {
+    let failedGeneration: RepairGeneration
+    let retryGeneration: RepairGeneration
+    let failure: FilesystemReconciliationFailure
+}
+
+enum FilesystemRepairAcknowledgementFailure: Equatable, Sendable {
+    case currentnessApplyFailed
+    case staleParticipantState
+    case participantRejected
+}
+
+enum FilesystemSourceGateShutdownDebt: Equatable, Sendable {
+    case noOutstandingRepair
+    case dirty(RepairGeneration)
+    case reconciling(RepairGeneration)
+    case reconcilingAndDirty(active: RepairGeneration, pending: RepairGeneration)
+    case awaitingAcknowledgements(AwaitingFilesystemRepairAcknowledgements)
+    case repairFailed(FailedFilesystemRepair)
+}
+
+struct FilesystemSourceGateShutdown: Equatable, Sendable {
+    let registration: FSEventRegistrationToken
+    let debt: FilesystemSourceGateShutdownDebt
+}
+
+enum FilesystemSourceGateState: Equatable, Sendable {
+    case healthy(FSEventRegistrationToken)
+    case dirty(RepairGeneration)
+    case reconciling(RepairGeneration)
+    case reconcilingAndDirty(active: RepairGeneration, pending: RepairGeneration)
+    case awaitingAcknowledgements(AwaitingFilesystemRepairAcknowledgements)
+    case repairFailed(FailedFilesystemRepair)
+    case shuttingDown(FilesystemSourceGateShutdown)
+}
+
+enum FilesystemRepairAdmissionRejection: Equatable, Sendable {
+    case emptyParticipantSet
+    case participantsNotApplicableToSource(Set<FilesystemRepairParticipantToken>)
+    case missingRequiredParticipantKinds(Set<FilesystemRepairParticipantKind>)
+}
+
+enum FilesystemRepairAdmissionResult: Equatable, Sendable {
+    case admitted(RepairGeneration)
+    case rejected(FilesystemRepairAdmissionRejection)
+    case generationExhausted
+    case shuttingDown
+}
+
+enum FilesystemSourceGateTransitionResult: Equatable, Sendable {
+    case applied
+    case alreadyApplied
+    case staleGeneration
+    case unknownParticipant(FilesystemRepairParticipantToken)
+    case invalidState(FilesystemSourceGateState)
+    case shuttingDown
+}
+
+struct FilesystemSourceGate: Sendable {
+    let registration: FSEventRegistrationToken
+    private(set) var state: FilesystemSourceGateState
+    private var nextRepairSequence: UInt64
+
+    init(registration: FSEventRegistrationToken) {
+        self.registration = registration
+        state = .healthy(registration)
+        nextRepairSequence = 0
+    }
+
+    mutating func recordRepair(
+        trigger: FilesystemRepairTriggerClass,
+        watermark: FilesystemRepairWatermark,
+        participants: Set<FilesystemRepairParticipantToken>
+    ) -> FilesystemRepairAdmissionResult {
+        if case .shuttingDown = state { return .shuttingDown }
+        guard !participants.isEmpty else { return .rejected(.emptyParticipantSet) }
+        let incompatibleParticipants = Set(
+            participants.filter { !$0.kind.isApplicable(to: registration.sourceID.kind) }
+        )
+        if !incompatibleParticipants.isEmpty {
+            return .rejected(.participantsNotApplicableToSource(incompatibleParticipants))
+        }
+        let presentParticipantKinds = Set(participants.map(\.kind))
+        let missingParticipantKinds = FilesystemRepairParticipantKind.requiredKinds(
+            for: registration.sourceID.kind,
+            trigger: trigger
+        ).subtracting(presentParticipantKinds)
+        if !missingParticipantKinds.isEmpty {
+            return .rejected(.missingRequiredParticipantKinds(missingParticipantKinds))
+        }
+        let sequence = nextRepairSequence
+        let (followingSequence, overflow) = sequence.addingReportingOverflow(1)
+        guard !overflow else { return .generationExhausted }
+        let repair = RepairGeneration(
+            id: RepairGenerationID(registration: registration, sequence: sequence),
+            watermark: watermark,
+            trigger: trigger,
+            participants: participants
+        )
+        nextRepairSequence = followingSequence
+        admit(repair)
+        return .admitted(repair)
+    }
+
+    mutating func beginReconciliation(
+        _ generationID: RepairGenerationID
+    ) -> FilesystemSourceGateTransitionResult {
+        switch state {
+        case .dirty(let repair) where repair.id == generationID:
+            state = .reconciling(repair)
+            return .applied
+        case .repairFailed(let failure) where failure.retryGeneration.id == generationID:
+            state = .reconciling(failure.retryGeneration)
+            return .applied
+        case .dirty, .repairFailed:
+            return .staleGeneration
+        case .shuttingDown:
+            return .shuttingDown
+        case .healthy, .reconciling, .reconcilingAndDirty, .awaitingAcknowledgements:
+            return .invalidState(state)
+        }
+    }
+
+    mutating func completeReconciliation(
+        _ generationID: RepairGenerationID
+    ) -> FilesystemSourceGateTransitionResult {
+        switch state {
+        case .reconciling(let repair) where repair.id == generationID:
+            state = .awaitingAcknowledgements(
+                AwaitingFilesystemRepairAcknowledgements(
+                    generation: repair,
+                    pendingParticipants: repair.participants
+                )
+            )
+            return .applied
+        case .reconcilingAndDirty(let active, let pending) where active.id == generationID:
+            state = .dirty(pending)
+            return .applied
+        case .reconciling, .reconcilingAndDirty:
+            return .staleGeneration
+        case .shuttingDown:
+            return .shuttingDown
+        case .healthy, .dirty, .awaitingAcknowledgements, .repairFailed:
+            return .invalidState(state)
+        }
+    }
+
+    mutating func failReconciliation(
+        _ generationID: RepairGenerationID,
+        failure: FilesystemReconciliationFailure
+    ) -> FilesystemSourceGateTransitionResult {
+        switch state {
+        case .reconciling(let repair) where repair.id == generationID:
+            state = .repairFailed(
+                FailedFilesystemRepair(
+                    failedGeneration: repair,
+                    retryGeneration: repair,
+                    failure: failure
+                )
+            )
+            return .applied
+        case .reconcilingAndDirty(let active, let pending) where active.id == generationID:
+            state = .repairFailed(
+                FailedFilesystemRepair(
+                    failedGeneration: active,
+                    retryGeneration: pending,
+                    failure: failure
+                )
+            )
+            return .applied
+        case .reconciling, .reconcilingAndDirty:
+            return .staleGeneration
+        case .shuttingDown:
+            return .shuttingDown
+        case .healthy, .dirty, .awaitingAcknowledgements, .repairFailed:
+            return .invalidState(state)
+        }
+    }
+
+    mutating func acknowledge(
+        _ token: FilesystemRepairAcknowledgementToken
+    ) -> FilesystemSourceGateTransitionResult {
+        switch state {
+        case .awaitingAcknowledgements(let awaiting):
+            guard awaiting.generation.id == token.repairGenerationID else {
+                return .staleGeneration
+            }
+            guard awaiting.generation.participants.contains(token.participant) else {
+                return .unknownParticipant(token.participant)
+            }
+            guard awaiting.pendingParticipants.contains(token.participant) else {
+                return .alreadyApplied
+            }
+            var remaining = awaiting.pendingParticipants
+            remaining.remove(token.participant)
+            if remaining.isEmpty {
+                state = .healthy(registration)
+            } else {
+                state = .awaitingAcknowledgements(
+                    AwaitingFilesystemRepairAcknowledgements(
+                        generation: awaiting.generation,
+                        pendingParticipants: remaining
+                    )
+                )
+            }
+            return .applied
+        case .shuttingDown:
+            return .shuttingDown
+        case .healthy, .dirty, .reconciling, .reconcilingAndDirty, .repairFailed:
+            return .invalidState(state)
+        }
+    }
+
+    mutating func rejectAcknowledgement(
+        _ token: FilesystemRepairAcknowledgementToken,
+        failure _: FilesystemRepairAcknowledgementFailure
+    ) -> FilesystemSourceGateTransitionResult {
+        switch state {
+        case .awaitingAcknowledgements(let awaiting):
+            guard awaiting.generation.id == token.repairGenerationID else {
+                return .staleGeneration
+            }
+            guard awaiting.pendingParticipants.contains(token.participant) else {
+                if awaiting.generation.participants.contains(token.participant) {
+                    return .alreadyApplied
+                }
+                return .unknownParticipant(token.participant)
+            }
+            state = .dirty(awaiting.generation)
+            return .applied
+        case .shuttingDown:
+            return .shuttingDown
+        case .healthy, .dirty, .reconciling, .reconcilingAndDirty, .repairFailed:
+            return .invalidState(state)
+        }
+    }
+
+    mutating func beginShutdown() -> FilesystemSourceGateTransitionResult {
+        switch state {
+        case .shuttingDown:
+            return .alreadyApplied
+        case .healthy:
+            state = .shuttingDown(
+                FilesystemSourceGateShutdown(
+                    registration: registration,
+                    debt: .noOutstandingRepair
+                )
+            )
+        case .dirty(let repair):
+            state = .shuttingDown(
+                FilesystemSourceGateShutdown(registration: registration, debt: .dirty(repair))
+            )
+        case .reconciling(let repair):
+            state = .shuttingDown(
+                FilesystemSourceGateShutdown(
+                    registration: registration,
+                    debt: .reconciling(repair)
+                )
+            )
+        case .reconcilingAndDirty(let active, let pending):
+            state = .shuttingDown(
+                FilesystemSourceGateShutdown(
+                    registration: registration,
+                    debt: .reconcilingAndDirty(active: active, pending: pending)
+                )
+            )
+        case .awaitingAcknowledgements(let awaiting):
+            state = .shuttingDown(
+                FilesystemSourceGateShutdown(
+                    registration: registration,
+                    debt: .awaitingAcknowledgements(awaiting)
+                )
+            )
+        case .repairFailed(let failure):
+            state = .shuttingDown(
+                FilesystemSourceGateShutdown(
+                    registration: registration,
+                    debt: .repairFailed(failure)
+                )
+            )
+        }
+        return .applied
+    }
+
+    private mutating func admit(_ repair: RepairGeneration) {
+        switch state {
+        case .healthy, .dirty, .awaitingAcknowledgements, .repairFailed:
+            state = .dirty(repair)
+        case .reconciling(let active):
+            state = .reconcilingAndDirty(active: active, pending: repair)
+        case .reconcilingAndDirty(let active, _):
+            state = .reconcilingAndDirty(active: active, pending: repair)
+        case .shuttingDown:
+            preconditionFailure("shutdown was checked before repair generation allocation")
+        }
+    }
+}
+
+extension FilesystemRepairParticipantKind {
+    fileprivate static func requiredKinds(
+        for sourceKind: FilesystemSourceKind,
+        trigger: FilesystemRepairTriggerClass
+    ) -> Set<Self> {
+        var requiredKinds: Set<Self>
+        switch sourceKind {
+        case .watchedParentMembership:
+            requiredKinds = [
+                .scanScheduler,
+                .canonicalTopologyCommit,
+                .cacheAndPaneRemovalReconciliation,
+                .filesystemSourceRegistrationSync,
+                .currentGitBaseline,
+            ]
+        case .registeredWorktreeContent:
+            requiredKinds = [
+                .contentRepairProjector,
+                .gitWorkingDirectoryProjector,
+                .paneFilesystemProjection,
+            ]
+        }
+        switch trigger {
+        case .rootIdentityChanged, .registrationReplaced:
+            requiredKinds.insert(.registrationOwner)
+        case .continuityLoss, .callbackGateOverflow, .captureTruncation, .unsupportedFlags:
+            break
+        }
+        return requiredKinds
+    }
+
+    fileprivate func isApplicable(to sourceKind: FilesystemSourceKind) -> Bool {
+        switch (sourceKind, self) {
+        case (.watchedParentMembership, .scanScheduler),
+            (.watchedParentMembership, .canonicalTopologyCommit),
+            (.watchedParentMembership, .cacheAndPaneRemovalReconciliation),
+            (.watchedParentMembership, .filesystemSourceRegistrationSync),
+            (.watchedParentMembership, .currentGitBaseline),
+            (.watchedParentMembership, .registrationOwner),
+            (.registeredWorktreeContent, .registrationOwner),
+            (.registeredWorktreeContent, .contentRepairProjector),
+            (.registeredWorktreeContent, .gitWorkingDirectoryProjector),
+            (.registeredWorktreeContent, .paneFilesystemProjection),
+            (.registeredWorktreeContent, .contentConsumer):
+            true
+        case (.watchedParentMembership, .contentRepairProjector),
+            (.watchedParentMembership, .gitWorkingDirectoryProjector),
+            (.watchedParentMembership, .paneFilesystemProjection),
+            (.watchedParentMembership, .contentConsumer),
+            (.registeredWorktreeContent, .scanScheduler),
+            (.registeredWorktreeContent, .canonicalTopologyCommit),
+            (.registeredWorktreeContent, .cacheAndPaneRemovalReconciliation),
+            (.registeredWorktreeContent, .filesystemSourceRegistrationSync),
+            (.registeredWorktreeContent, .currentGitBaseline):
+            false
+        }
+    }
+}
