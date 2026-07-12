@@ -25,13 +25,13 @@ or second queue path.
 
 ## Source Coverage And Freshness
 
-The parent must re-read the 1,698-line source contract, 656-line focused API
+The parent must re-read the 1,718-line source contract, 673-line focused API
 contract, superseding review synthesis, current Admission source/tests, and
 staged/unstaged diff before editing. Accepted source hashes are:
 
 ```text
-92c4385e8b32718e30f50a9ca6f311171a68b4bd07b6736e4a4ac5a9d32b5017  maintained spec
-edf9061baf0e6b09318c6f3767e95055bad6191599aa9ebadbdb083f8638376f  focused API
+e39e95a469d8334f6bc736f530d1953911cc238d0ea810fe49ab089cdd0b70be  maintained spec
+53afe8859277aa8ead33e9aba3650c46927bfdf8e9432ca6db24d5a929a6ba8e  focused API
 ```
 
 Existing green receipts are stale once any correction edit lands. Because HEAD
@@ -63,10 +63,10 @@ terminal, Ghostty, MainActor, Bridge, IPC, persistence, or vendor files.
 | S1-L1 | latest `D/R/C` configuration, component pressure, physical equations, private protected wrapper, and lock-external clock | S1b | cleanup-free full-wave bound/bound+1, residual headroom, destructor and reentrant-clock proof; literal per-key/version/wake oracle | exact limits and current latest source hash |
 | S1-L2 | cleanup-finalization reservation cannot starve or create a second lease | S1c | saturated-reserve producer/destructor barrier, final-batch wake, incumbent lease, and zero-eligibility histories | no sleeps, `Task.yield`, uncharged reservation, task, actor, or second queue |
 | S1-L3 | latest retry is per value and wrapper overload/currentness is explicit | S1d | unsuperseded/superseded/residual/later-replacement histories; test-owned source/dirty/transferred revision ledger | generic policy contract only; concrete product wrapper remains unreachable |
-| S1-G1 | gather cleanup/metadata is bounded and every recovery-slot advancement has fresh debt identity | S1e | recovery-only/mixed 1/100/10,000 fleets, near-exhaustion old-ack history, counter-neutral fleet-root mutation, independent deinit oracle | no production debug hook or counter-only proof |
+| S1-G1 | gather cleanup/metadata is bounded and every recovery-slot advancement has fresh debt identity | S1e behavior plus S1h ownership clause | recovery-only/mixed 1/100/10,000 fleets, near-exhaustion old-ack history, payload-bearing root/tail mutation, independent payload deinit oracle, and structural weak-edge mutations | no production debug hook or counter-only proof; promotion depends on S1-E1 ownership proof |
 | S1-J1 | one lexical private journal owner also owns binding, bounded history, clock sampling, and repair accounting | S1f | compiler/static privacy RED; bind/rebind, ring/indexed history, reentrant clock, gap-widening `repairEscalations`, and authority proof | no raw `State`, lock, token, `inout`, or generic closure escape |
 | S1-J2 | journal snapshot/replay/cleanup custody is bounded and reader-safe | S1g | zero/max snapshot pressure; one-reader contention; queued/in-flight cleanup overlap; completion wake | exact capture stop tail; no partial mutation or lock-held materialization |
-| S1-E1 | protected-state lint fails closed across the settled helper graph | S1h | good/bad fixtures and restored-source mutations for rename/alias/unresolved/escape/unbounded traversal | pre/post mutation hash equality; one mutation active at a time |
+| S1-E1 | protected-state and private-metadata ownership lint fails closed across the settled helper graph | S1h | good/bad fixtures and restored-source mutations for rename/alias/unresolved/escape/unbounded traversal plus weak-to-strong shell, extra strong shell edge, and out-of-owner raw-state alias | pre/post mutation hash equality; one mutation active at a time |
 | S1-I1 | cross-family behavior, diagnostics, and product-unreachable boundary remain intact | S1i | focused suites, strict typecheck, architecture scan, aggregate tests, lint, privacy canaries, caller/task/domain inventory | fresh current counts; old 102/21-test receipts cannot be reused |
 
 P0 records only the current baseline, accepted hashes, owned-path manifests,
@@ -90,6 +90,19 @@ Controller-owned production writes:
   `LatestValueMailbox.swift`
 - concrete consumer/lifecycle port declarations in all three primitives
 
+Controller-owned S1a tooling/test writes:
+
+- the narrow token-declaration/signature clause in
+  `RuntimeSignalPlaneRule.swift`;
+- `RuntimeSignalPlaneRuleTests.swift` and token-shape good/bad fixtures;
+- permanent separate-file Swift compiler fixtures plus one repo-owned verifier
+  for approved-result, direct-construction, direct-return, storage, and
+  compiler-accepted escaping-capture cases;
+- a production/build-configuration no-experimental-feature guard.
+
+These tooling writes do not discover family wrappers or inspect the protected
+helper graph; those remain S1h-owned after the family grammar settles.
+
 Hard-cut in one compiling checkpoint:
 
 - `LatestValueLimits` with independent `D`, `R`, and `C`;
@@ -100,8 +113,9 @@ Hard-cut in one compiling checkpoint:
   queued/in-flight/physical diagnostics, and outstanding cleanup-turn state;
 - one `AdmissionCleanupConsumer.performCleanup(generation:)` conformance for
   every concrete consumer and lifecycle port;
-- the unforgeable `AdmissionProtectedRegionToken` syntax vocabulary and
-  inaccessible construction contract used by each later family-private wrapper;
+- the stable-language `AdmissionProtectedRegionToken: ~Copyable` vocabulary,
+  a `borrowing` wrapper parameter, and an implicitly `Copyable`/`Escapable`
+  wrapper result so direct token return or storage fails compilation;
 - existing bind/doorbell result and authority contracts without a compatibility
   initializer or second cleanup API.
 
@@ -111,6 +125,39 @@ compile/static RED for missing cases/conformance and the concrete doorbell RED
 immediately before this slice. Restore standalone Admission typecheck, focused
 test compilation, and age/doorbell/coalescence/finish/cancellation tests before
 family behavior begins.
+
+S1a also adds the syntax-stable token-shape clause to
+`RuntimeSignalPlaneRule`: the token must remain `~Copyable`, the wrapper body
+must receive it as `borrowing`, the result must not opt out of implicit
+`Copyable`/`Escapable`, and direct initialization remains inaccessible. A good
+standalone compiler fixture built with the real `AdmissionContracts.swift`
+proves a wrapper may return an unrelated `Int`; separate bad fixtures compiled
+by one repo-owned verifier against that real contract prove direct construction,
+token return, and token storage fail by diagnostic category rather than exact
+prose. The verifier uses fixed repo-owned argv and fixture paths without shell
+interpolation and preserves exit plus diagnostic category in the receipt. A
+compiler-gap fixture intentionally proves
+that moving the borrowed token into an `@escaping` closure still compiles, so
+capture remains an explicit S1h RED. Do not enable experimental `Lifetimes`,
+use `~Escapable`, or add underscored lifetime attributes.
+
+Stable Swift ownership does not by itself reject moving a borrowed noncopyable
+token into an escaping closure. S1a therefore does not claim wrapper discovery,
+capture rejection, or helper-graph closure. S1h structurally discovers each
+owner's unique private wrapper from its token-factory call plus sole raw-lock
+entry, rejects any additional factory call site, and owns the fail-closed rules
+for token storage, escaping capture, indirect/function-value use,
+protocol/dynamic dispatch, and generic/higher-order forwarding. S1a records
+these rows as planned but not yet GREEN rather than weakening them or adopting
+an experimental compiler feature.
+
+The permanent no-experimental guard scans production Admission Swift sources
+and build/package/task/workflow configuration only. It rejects
+`-enable-experimental-feature Lifetimes`,
+`.enableExperimentalFeature("Lifetimes")`, production `~Escapable`, and
+underscored lifetime attributes. It excludes docs, receipts, and intentional
+compiler/lint fixtures; a broader receipt scan is corroboration, not the sole
+gate.
 
 S1a may make only the minimum compile-restoration edits to family owner files
 needed for the atomic type/port cut. S1b's exclusive latest behavior ownership
@@ -273,11 +320,32 @@ No invalidation or final turn may release a fleet array, page root, strong tail,
 or cursor owning more than the configured entry quantum. Immutable declared-key
 configuration/default shells remain outside dynamic cleanup custody.
 
+Correct the four exact-hash review defects before refreshing S1e GREEN:
+
+- add a pure checked gather-configuration validator and reject construction
+  unless cleanup bytes can release the largest single footprint admitted by
+  global, per-key, and lease bounds; remove cleanup bytes as a hidden admission
+  limit from `fitsLeaseQuantum`;
+- resolve a temporary/existing key state and complete recovery rollover
+  preflight before creating or linking a dynamic retained node, so the
+  unlocked epoch-preparation retry cannot publish uncharged empty metadata;
+- enforce normative `takeDrain` precedence: generation, terminal lifecycle,
+  binding, incumbent lease re-presentation/rejection, cleanup, then new
+  lease/empty; invalidated cleanup remains serviceable only through
+  `performCleanup`;
+- build seeded constructor-local dynamic chains before lock publication without
+  calling the protected token factory; the private lock wrapper is the sole
+  token-factory root.
+
 Add `BoundedGatherMailboxMetadataCustodyTests.swift`. Permanent RED/GREEN covers
 recovery-only and mixed fleets at 1/100/10,000 slots plus a counter-neutral
-production mutation that retains the fleet root/tail until the final turn. The
-independent weak/deinit ownership oracle—not cleanup counters—must fail that
-mutation. Each recovery-slot advancement mints a fresh internal debt identity;
+production mutation that retains payload-bearing fleet root/tail custody until
+the final turn. The independent weak/deinit payload oracle—not cleanup
+counters—must fail that mutation and its receipt records mutant hash, failing
+selector, inverse restoration, and restored hash. Private recovery-only
+metadata lifetime is structurally proved by S1h; S1-G1 remains
+`GREEN_PENDING_S1H` until that ownership clause passes. Each recovery-slot
+advancement mints a fresh internal debt identity;
 an exhausted acknowledgement for an older advancement cannot clear newer debt.
 Prove generation and debt identity behavior at `UInt64.max - 1` and
 `UInt64.max`, with typed terminal/rotation results, unchanged accepted custody,
@@ -319,12 +387,55 @@ and incremental pending/high-water state. Every gap widening increments
 `repairEscalations` exactly once.
 
 Capture the current privacy/static RED before moving behavior. Before S1g,
-prove exactly one raw lock/state owner, zero cross-file raw-state/token
-consumers, and an `OrderedFactJournal.swift` owner below 900 lines. Restore all
-existing journal behavior and strict typecheck at this structural checkpoint
-before adding snapshot/replay behavior. Split/replan if lexical privacy requires
-exporting raw state or an unsplittable greater-than-900-line mixed-responsibility
-owner.
+dynamically discover every Swift source under the Admission directory, then use
+a journal-qualified syntax-aware classifier to prove exactly one raw journal
+lock/state owner plus zero cross-file journal raw-state, raw-lock, or direct
+journal-qualified token-bearing consumers. Other mailbox families' legitimate
+private owners are not journal findings. A raw-free typed journal alias is
+recorded for resolution and is not itself a violation; raw state/lock/token use
+through that alias must fail. Do not rely on a fixed filename manifest, generic
+substrings, or filename-prefix exclusions. Keep discovery separate from the
+compiler privacy fixtures: discovery proves every current and future Admission
+source was considered, while the fixtures prove another file cannot name or use
+journal raw state or its lock. Mutations add an arbitrarily named production
+Admission Swift file and separately exercise a direct journal-qualified token
+consumer plus renamed/type-aliased journal raw access. Each mutation must fail
+the actual production classifier or compiler gate, then restore its exact
+existing-file preimage or absent-path/source-set precondition. The classifier
+first builds one immutable directory-wide
+Admission declaration/alias index, resolves journal aliases to a fixed point,
+then emits per-file diagnostics. A two-file fixture places a raw-free journal
+alias and its token/raw consumer in separately named files. The architecture-
+lint command must pass the same parsed workspace index to the rule for production
+scans; a per-file-only alias inventory is not sufficient.
+
+For a newly injected source, record an `ABSENT` path precondition, the mutant
+content hash, and a sorted Admission source-set manifest hash. Exact restoration
+means the injected path is absent again and the source-set manifest hash matches.
+Existing-file mutations retain exact pre/post file-hash equality.
+
+The formatted `OrderedFactJournal.swift` owner may contain only raw-custody
+responsibilities: nested private raw state, the raw lock, the private protected-
+state wrapper, token-bearing protected transitions, and the private helpers they
+directly require. Ports, public result/configuration contracts, pure history
+mechanics, immutable captures, and post-lock materialization remain external and
+raw-free. The owner has a 1,250-line hard ceiling shared by S1f and S1g. Record
+the actual formatted S1f count as a structural baseline, not an immediate
+ratchet, because S1g must add accepted raw snapshot/replay/cleanup transitions.
+After S1g GREEN, record the final formatted count as the downward-only ratchet
+for later slices; neither the ceiling nor the post-S1g ratchet may be raised
+without another focused plan correction. At S1f, a whole-source implementation
+review inventories current owner responsibilities so the ceiling cannot license
+unrelated declarations. S1f does not claim declaration-shape lint can decide
+whether a nested type, owner member, extension method, or raw-free private helper
+is directly required. S1h owns that fail-closed responsibility closure after the
+journal snapshot/replay/cleanup graph settles.
+
+Restore all existing journal behavior and strict typecheck at this structural
+checkpoint before adding snapshot/replay behavior. Split/replan if lexical
+privacy requires exporting raw state, if any non-raw-custody responsibility
+appears in the owner, or if the raw-custody-only owner exceeds 1,250 formatted
+lines.
 
 ## S1g — Journal Physical Snapshot, Replay, And Cleanup
 
@@ -336,7 +447,12 @@ Against the settled private owner, implement:
 - explicit individual plus physical snapshot count/byte limits, including
   zero-byte count and max-to-max replacement overlap;
 - `.snapshotPhysicalCapacityExceeded` before sequence, fact, gap, currentness,
-  snapshot, counter, or wake mutation;
+  snapshot, admitted/contracted/repair-counter, or wake mutation; an offer-side
+  rejection advances only `offered` and `rejectedCapacity`, while authoritative
+  recovery remains counter-neutral;
+- construction rejects physical snapshot limits that cannot guarantee one
+  checked maximum-size replacement overlap: count at least two and bytes at
+  least `2 * maximumSnapshotBytes` without arithmetic overflow;
 - exactly one replay reader and mutation-free `.replayInProgress` contention;
 - global queued fact/snapshot cleanup pinning while the reader is active;
 - incumbent pre-capture in-flight cleanup finalization with
@@ -350,9 +466,12 @@ Add `OrderedFactJournalPhysicalCustodyTests.swift` and update existing journal
 correction/mechanics/authority/support suites. Use literal snapshot/history/
 gap/wake ledgers and destructor/capture gates. Cover zero/max/count/byte bound-
 plus-one offer and recovery, queued/in-flight/reader overlap, second reader,
-completion wake, negative sizes, and no partial mutation. Split/replan if the
+completion wake, cleanup-first `takeDrain`, maximum-size replacement overlap,
+configuration overflow, negative sizes, and no partial mutation. Split/replan if the
 design needs per-entry reader pins, cleanup-queue scans, blocking replay, another
-queue, or lock-held materialization.
+queue, lock-held materialization, or causes the formatted raw-custody-only owner
+to exceed the shared 1,250-line ceiling. Record the post-S1g formatted count as
+the downward-only ratchet for all later slices.
 
 ## S1h — Fail-Closed Protected-State Helper Graph
 
@@ -361,13 +480,36 @@ its existing registry name. Replace the manual declaration-name manifest with a
 SwiftSyntax-resolvable graph that:
 
 - discovers every raw-lock closure;
+- structurally discovers each owner's unique private protected-state wrapper
+  from its token-factory call plus sole raw-lock entry and rejects any additional
+  factory call site, without a wrapper/helper name manifest;
 - follows visible region-token arguments through unique private direct calls;
+- builds a bounded journal owner declaration graph from two independent root
+  classes: custody roots are the structurally discovered raw state, raw lock,
+  and protected-state wrapper; entry roots are journal constructors plus journal
+  members invoked by the concrete typed ports in
+  `OrderedFactJournalPorts.swift`. Port-call discovery is syntax-resolved through
+  the directory-wide index and is not a manual method-name manifest;
+- separately admits raw-free journal-extension accessors whose single expression
+  constructs one discovered concrete typed port with `journal: self`. These
+  accessors are neither custody nor entry roots, may not touch raw state/token/
+  lock, and may perform no additional work;
+- follows forward-reachable unique private callees from those roots. Reverse
+  reachability may prove an independently discovered entry reaches custody, but
+  a token-bearing method or reverse caller does not become a root merely by
+  touching the wrapper. Nested types are admitted only when referenced by raw
+  custody or an admitted helper;
+- rejects disconnected nested declarations, owner members, and journal-
+  extension methods so the 1,250-line ceiling cannot license unrelated work;
 - fails on zero/multiple/overloaded/unresolved targets, indirect references,
-  token storage/return/escape, higher-order forwarding, raw-state escape, and
-  unsupported aliases;
+  token storage/return/escape, escaping capture, higher-order forwarding,
+  raw-state escape, and unsupported raw aliases;
 - rejects unquantified traversal/materialization independent of field spelling
   unless a typed lease/cleanup quantum structurally dominates it;
-- retains coverage when a helper is renamed.
+- retains coverage when a helper is renamed;
+- discovers configuration-lifetime slot-index shells and rejects a strong
+  dynamic-node edge, a second strong shell edge, or a strong raw-state alias
+  outside the declared live head/tail or bounded cleanup owner.
 
 Prepare disjoint good/bad fixtures and mutation designs early, but the
 controller applies and restores one production mutation at a time after source
@@ -376,10 +518,31 @@ previously masked journal traversal/currentness assertions, epoch rotation,
 `UInt64.max` authority rotation/non-aliasing, non-hash gather fleet work, latest
 retention-order scan, helper rename, ambiguous overload, indirect function
 value, generic forwarding, raw-state alias, direct raw lock, and token escape.
+The journal responsibility mutations also cover an unrelated nested declaration
+and an unrelated same-file journal-extension method; both must be disconnected
+from the bounded custody graph and rejected without a helper-name allowlist.
+Add a connected-but-unnecessary extension mutation that calls the protected
+wrapper and a private token helper: it must still fail because no concrete typed
+port establishes it as an entry root. Current replay and private custody helpers
+must remain green after rename.
+Add a good fixture for producer/consumer/lifecycle single-expression port
+factories and a bad fixture where the same accessor shape performs extra work or
+touches raw custody; the latter must fail without promoting the accessor to a
+root.
+The restored-source ownership mutations additionally cover weak-to-strong
+`DeclaredSlotShell.retainedNode`, another strong node property on that shell,
+and a strong dynamic-node alias in raw state outside recognized live/cleanup
+ownership.
 Every receipt records pre-hash, failing command and content-safe diagnostic,
 verified inverse restoration with matching hash, and fresh GREEN. S5 later adds
 product fact/sample clauses to this same rule; it does not preserve a manifest
 or create a third rule.
+
+The S1h fixture set includes a copyable-result approved wrapper plus negative
+factory-call-outside-wrapper, token capture, token return/storage, indirect
+function value, and generic forwarding cases. The rule must reject the capture
+case that stable `~Copyable` ownership alone permits. It must not depend on the
+experimental Swift `Lifetimes` feature or semantic compiler resolution.
 
 ## S1i — Cross-Family Integration And Completion Review
 
@@ -431,13 +594,14 @@ S1c RED -> latest cleanup-finalization progress -> S1c GREEN
   |
 S1d RED -> latest retry/currentness -> S1d GREEN
   |
-S1e RED -> gather metadata/debt custody -> S1e GREEN
+S1e RED -> gather metadata/debt custody -> S1e GREEN_PENDING_S1H
   |
-S1f RED -> private journal owner/binding/history -> S1f GREEN
+S1f RED -> private journal owner/binding/history -> S1f GREEN_PENDING_S1H
   |
 S1g RED -> journal snapshot/replay/cleanup -> S1g GREEN
   |
-S1h RED -> graph lint/mutations -> S1h GREEN
+S1h RED -> graph/ownership lint and mutations -> S1h GREEN
+  -> promote S1-G1 and S1-J1 with S1-E1
   |
 S1i: cross-family integration and current proof
   |
@@ -498,6 +662,10 @@ requires producer-side domain computation, replay cannot
 preserve exact stop-tail semantics without unbounded protected work, the
 architecture rule needs a broad allowlist, or proof cannot distinguish a real
 scan from bounded quantum work.
+
+Also split/replan if token non-escape requires experimental `Lifetimes`,
+`~Escapable`, or underscored lifetime attributes instead of the accepted stable
+ownership plus fail-closed SwiftSyntax split.
 
 Do not solve those failures with an actor mailbox, per-offer task, enlarged
 unbounded capacity, compatibility path, weakened proof, or product wiring.

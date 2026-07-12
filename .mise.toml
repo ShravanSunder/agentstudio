@@ -109,6 +109,8 @@ echo "--- SwiftLint ---"
 swiftlint lint --strict 2>&1 && echo "swiftlint: OK" || { echo "swiftlint: FAIL"; exit 1; }
 echo "--- AgentStudio architecture lint ---"
 swift run --package-path Tools/AgentStudioArchitectureLint agentstudio-architecture-lint Sources Tests 2>&1 && echo "agentstudio architecture lint: OK" || { echo "agentstudio architecture lint: FAIL"; exit 1; }
+echo "--- Admission protected-region compiler contract ---"
+bash scripts/verify-admission-protected-region-compiler.sh
 echo "--- release script checks ---"
 /bin/bash scripts/verify-release-scripts.sh
 """

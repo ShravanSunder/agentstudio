@@ -1,0 +1,3 @@
+func constructAdmissionProtectedRegionTokenDirectly() {
+    _ = AdmissionProtectedRegionToken()
+}

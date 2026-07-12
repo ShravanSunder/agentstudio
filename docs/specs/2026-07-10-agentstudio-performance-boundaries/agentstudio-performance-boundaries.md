@@ -466,8 +466,12 @@ accepted payload plus every nontrivial dynamic metadata owner required to
 release that payload, recovery, lease, replay, or cleanup state. A consumer's
 independently retained copy after acknowledged transfer is outside primitive
 custody. Immutable declared-key configuration and empty default slot shells are
-also outside dynamic cleanup custody; they contain no accepted payload,
-recovery, or reference-bearing dynamic state.
+also outside dynamic cleanup custody. A configuration-lifetime slot-index shell may point
+to its current dynamic custody node only through a `weak` stored edge; it
+contains no accepted payload, recovery, or strong reference-bearing dynamic
+state. A strong shell/index edge or another strong dynamic-node alias outside
+the declared live head/tail or bounded cleanup owner is physical custody and is
+a structural lint failure.
 
 Every accepted retirement path—including latest-value replacement—moves its
 previously accepted value into capacity-charged cleanup custody. No transition
@@ -860,6 +864,11 @@ so one turn and the final cursor destruction retire at most the shared cleanup
 entry quantum. No terminal `[KeyState]` fleet may fall out of scope in one
 invalidation or final cleanup call. Immutable declared-key indexing and empty
 default shells remain fixed configuration outside dynamic cleanup custody.
+Their only dynamic lookup edge is weak. Because that private metadata identity
+is not runtime-observable without exposing raw state, structural lint rejects a
+weak-to-strong replacement, an additional strong shell property, and a strong
+dynamic-node alias stored outside the declared live head/tail or bounded
+cleanup owner.
 
 `OrderedFactJournal<Fact, Snapshot>` synchronously validates generation,
 assigns a monotonic per-stream sequence, and commits either the fact/current
@@ -1138,6 +1147,16 @@ an indirect helper reference, or an unsupported alias/escape is a lint failure,
 not a reason to guess or silently skip coverage. This restricted grammar lets
 the rule build a closed syntactic protected-helper graph without adding compiler
 semantic-resolution dependencies or returning to a manual name manifest.
+
+The same fail-closed ownership grammar covers configuration-lifetime slot-index containers.
+Their class-typed dynamic-custody edges must be `weak`, and raw state may not
+retain another strong alias to those nodes outside its declared live head/tail
+or bounded cleanup owner. Required restored-source mutations replace the weak
+edge with strong storage, add another strong shell property, and add a strong
+raw-state alias; each must fail lint while production passes. Runtime cleanup
+tests continue to prove payload-bearing custody, turn bounds, counters, age,
+and quiescence, but they do not claim to observe a private recovery-only
+metadata identity.
 
 Lease, recovery, gap, generation, and sequence authority tuples never alias
 after counter exhaustion. For gather recovery, incrementing a sequenced stamp
@@ -1595,14 +1614,15 @@ atomic `dirtyRevision == transferredRevision == currentSourceRevision`
 predicate succeeds. Zero-byte/max-size snapshot
 replacement and recovery-only gather invalidation prove entry and byte bounds
 independently.
-Gather proof also observes physical metadata ownership release rather than
-trusting cleanup counters. A preserved production mutation retains a full
-`KeyState` fleet, page root, or strong linked tail until invalidation or the
-final cleanup turn while reported per-turn counts remain bounded; the
-independent ownership/destructor oracle must fail. Restored-source proof covers
-recovery-only and mixed fleets at 1/100/10,000 slots and demonstrates that each
-turn, including terminal root/cursor destruction, severs at most the shared
-entry quantum of nontrivial dynamic metadata owners.
+Gather runtime proof observes payload-bearing physical release through the
+weak/deinit payload oracle and proves recovery-only metadata admission through
+bounded turns, counters, age, and quiescence. A preserved payload-bearing
+fleet-root or strong-tail mutation must fail the weak/deinit payload oracle.
+Private recovery-only metadata lifetime is instead proved by the structural
+weak-edge and no-extra-strong-alias mutations above. Restored-source runtime
+proof covers recovery-only and mixed fleets at 1/100/10,000 slots; structural
+proof establishes that terminal root/cursor destruction cannot retain
+unaccounted metadata outside the shared cleanup quantum.
 
 ## Threat Model
 

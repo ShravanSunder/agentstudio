@@ -357,22 +357,30 @@ struct RuleParityTests {
     }
 
     private func lintFixtureCorpus(_ corpus: String) throws -> [ArchitectureDiagnostic] {
+        let corpusRoot = fixtureRoot().appendingPathComponent(corpus)
         let files = try SourceFileDiscovery(fileManager: .default)
-            .swiftFiles(under: [fixtureRoot().appendingPathComponent(corpus).path])
-        return try lint(files: files)
+            .swiftFiles(under: [corpusRoot.path])
+        return try lint(files: files, workspaceRootPath: corpusRoot.path)
     }
 
-    private func lint(files: [String]) throws -> [ArchitectureDiagnostic] {
-        var diagnostics: [ArchitectureDiagnostic] = []
-        for file in files {
+    private func lint(
+        files: [String],
+        workspaceRootPath: String = FileManager.default.currentDirectoryPath
+    ) throws -> [ArchitectureDiagnostic] {
+        let contexts = try files.map { file in
             let source = try String(contentsOfFile: file, encoding: .utf8)
-            let context = ArchitectureLintContext(
+            return ArchitectureLintContext(
                 path: file,
                 source: source,
-                sourceFile: Parser.parse(source: source)
+                sourceFile: Parser.parse(source: source),
+                workspaceRootPath: workspaceRootPath
             )
-            for rule in ArchitectureRuleRegistry.rules {
-                diagnostics.append(contentsOf: rule.validate(context: context))
+        }
+        var diagnostics: [ArchitectureDiagnostic] = []
+        for rule in ArchitectureRuleRegistry.rules {
+            let preparedRule = rule.prepared(for: contexts)
+            for context in contexts {
+                diagnostics.append(contentsOf: preparedRule.validate(context: context))
             }
         }
         return diagnostics.sorted()
