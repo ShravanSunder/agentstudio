@@ -3,6 +3,23 @@ import Testing
 
 @testable import AgentStudio
 
+private func offerAuthoritativeRecovery(
+    through producer: GatherProducerPort<GatherTestKey, GatherTestPayload>,
+    generation: AdmissionGeneration,
+    label: String
+) -> GatherOfferResult<GatherTestKey> {
+    producer.offer(
+        generation: generation,
+        contribution: contribution(
+            key: .alpha,
+            label: label,
+            items: 1,
+            bytes: 1,
+            recoverySignal: .authoritativeRecoveryRequired
+        )
+    )
+}
+
 extension AdmissionBoundedGatherMailboxTests {
     @Test("rebind re-presents an incumbent lease before queued cleanup")
     func rebindRepresentsIncumbentLeaseBeforeQueuedCleanup() {
@@ -20,7 +37,7 @@ extension AdmissionBoundedGatherMailboxTests {
                 maximumContributionsPerLease: 1,
                 maximumItemsPerLease: 1,
                 maximumBytesPerLease: 1,
-                cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: 1)
+                cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 1)
             )
         )
         let producer = mailbox.producerPort
@@ -50,10 +67,15 @@ extension AdmissionBoundedGatherMailboxTests {
         let diagnostics = mailbox.lifecyclePort.diagnostics
 
         // Assert
-        #expect(incumbentLease?.contributions.map(\.payload.label) == ["incumbent"])
-        #expect(representedLease?.contributions.map(\.payload.label) == ["incumbent"])
-        #expect(representedLease?.contributions.map(\.footprint) == incumbentLease?.contributions.map(\.footprint))
-        #expect(representedLease?.token != incumbentLease?.token)
+        #expect(requireContributions(incumbentLease).testValues.map(\.payload.label) == ["incumbent"])
+        #expect(
+            requireContributions(representedLease).testValues.map(\.payload.label) == ["incumbent"]
+        )
+        #expect(
+            requireContributions(representedLease).testValues.map(\.footprint)
+                == requireContributions(incumbentLease).testValues.map(\.footprint)
+        )
+        #expect(representedLease.token != incumbentLease.token)
         #expect(diagnostics.cleanupContributionCount == 1)
         #expect(diagnostics.leasedContributionCount == 1)
         #expect(diagnostics.recoverySlotCount == 1)
@@ -88,7 +110,7 @@ extension AdmissionBoundedGatherMailboxTests {
         let diagnostics = mailbox.lifecyclePort.diagnostics
 
         // Assert
-        #expect(requireAdmission(offer.receipt)?.payload == .retained)
+        _ = requireRetainedRecoveryRevision(requireAdmission(offer))
         #expect(initialAuthority.recoveryCustodyEpoch != rotatedAuthority.recoveryCustodyEpoch)
         #expect(rotatedAuthority.recoveryCustodySequence == 1)
         #expect(diagnostics.admission.pendingKeyCount == 1)
@@ -139,19 +161,22 @@ extension AdmissionBoundedGatherMailboxTests {
         let replacementMaximumLease = requireLease(
             consumer.takeDrain(binding: replacementBinding, generation: generation)
         )
-        let lateAcknowledgement = maximumLease.map {
-            consumer.acknowledge(token: $0.token, disposition: .transferred)
-        }
-        let replacementAcknowledgement = replacementMaximumLease.map {
-            consumer.acknowledge(token: $0.token, disposition: .transferred)
-        }
+        let lateAcknowledgement = consumer.acknowledge(
+            token: maximumLease.token,
+            disposition: .transferred
+        )
+        let replacementAcknowledgement = consumer.acknowledge(
+            token: replacementMaximumLease.token,
+            disposition: .transferred
+        )
         let exhaustedLease = requireLease(
             consumer.takeDrain(binding: replacementBinding, generation: generation)
         )
         let rotatedLeaseAuthority = mailbox.lifecyclePort.authoritySnapshot
-        let exhaustedAcknowledgement = exhaustedLease.map {
-            consumer.acknowledge(token: $0.token, disposition: .transferred)
-        }
+        let exhaustedAcknowledgement = consumer.acknowledge(
+            token: exhaustedLease.token,
+            disposition: .transferred
+        )
         let laterOrdinary = producer.offer(
             generation: generation,
             contribution: contribution(key: .alpha, label: "still-sealed", items: 1, bytes: 1)
@@ -159,15 +184,15 @@ extension AdmissionBoundedGatherMailboxTests {
         let diagnostics = mailbox.lifecyclePort.diagnostics
 
         // Assert
-        let exhaustedReceipt = requireAdmission(exhaustedOffer.receipt)
-        let laterReceipt = requireAdmission(laterOrdinary.receipt)
-        #expect(exhaustedReceipt?.payload == .contractedToRecovery)
-        #expect(laterReceipt?.payload == .contractedToRecovery)
-        #expect(exhaustedReceipt?.recoveryRevision == laterReceipt?.recoveryRevision)
-        #expect(replacementMaximumLease?.token != maximumLease?.token)
+        let exhaustedReceipt = requireAdmission(exhaustedOffer)
+        let laterReceipt = requireAdmission(laterOrdinary)
+        let exhaustedRevision = requireContractedRecoveryRevision(exhaustedReceipt)
+        let laterRevision = requireContractedRecoveryRevision(laterReceipt)
+        #expect(exhaustedRevision == laterRevision)
+        #expect(replacementMaximumLease.token != maximumLease.token)
         #expect(lateAcknowledgement == .invalidToken)
         #expect(replacementAcknowledgement == .accepted(wake: .scheduleDrain))
-        #expect(exhaustedLease?.recoveryRevision == exhaustedReceipt?.recoveryRevision)
+        #expect(requireRecoveryRevision(exhaustedLease) == exhaustedRevision)
         #expect(exhaustedAcknowledgement == .accepted(wake: .noWake))
         #expect(initialAuthority.bindingEpoch == maximumBindingAuthority.bindingEpoch)
         #expect(rotatedBindingAuthority.bindingEpoch != maximumBindingAuthority.bindingEpoch)
@@ -206,38 +231,30 @@ extension AdmissionBoundedGatherMailboxTests {
         )
 
         // Act
-        let maximumOffer = producer.offer(
+        let maximumOffer = offerAuthoritativeRecovery(
+            through: producer,
             generation: generation,
-            contribution: contribution(
-                key: .alpha,
-                label: "maximum-debt",
-                items: 1,
-                bytes: 1,
-                recoverySignal: .authoritativeRecoveryRequired
-            )
+            label: "maximum-debt"
         )
         let maximumAuthority = mailbox.lifecyclePort.authoritySnapshot
-        let maximumMinusOneAcknowledgement = maximumMinusOneLease.map {
-            consumer.acknowledge(token: $0.token, disposition: .transferred)
-        }
+        let maximumMinusOneAcknowledgement = consumer.acknowledge(
+            token: maximumMinusOneLease.token,
+            disposition: .transferred
+        )
         let afterMaximumMinusOneAcknowledgement = mailbox.lifecyclePort.diagnostics
         let maximumLease = requireLease(
             consumer.takeDrain(binding: binding, generation: generation)
         )
-        let exhaustedOffer = producer.offer(
+        let exhaustedOffer = offerAuthoritativeRecovery(
+            through: producer,
             generation: generation,
-            contribution: contribution(
-                key: .alpha,
-                label: "first-exhausted-debt",
-                items: 1,
-                bytes: 1,
-                recoverySignal: .authoritativeRecoveryRequired
-            )
+            label: "first-exhausted-debt"
         )
         let exhaustedAuthority = mailbox.lifecyclePort.authoritySnapshot
-        let maximumAcknowledgement = maximumLease.map {
-            consumer.acknowledge(token: $0.token, disposition: .transferred)
-        }
+        let maximumAcknowledgement = consumer.acknowledge(
+            token: maximumLease.token,
+            disposition: .transferred
+        )
         let afterMaximumAcknowledgement = mailbox.lifecyclePort.diagnostics
         let exhaustedLease = requireLease(
             consumer.takeDrain(binding: binding, generation: generation)
@@ -252,34 +269,35 @@ extension AdmissionBoundedGatherMailboxTests {
             )
         )
         let newerExhaustedAuthority = mailbox.lifecyclePort.authoritySnapshot
-        let exhaustedAcknowledgement = exhaustedLease.map {
-            consumer.acknowledge(token: $0.token, disposition: .transferred)
-        }
+        let exhaustedAcknowledgement = consumer.acknowledge(
+            token: exhaustedLease.token,
+            disposition: .transferred
+        )
         let afterExhaustedAcknowledgement = mailbox.lifecyclePort.diagnostics
         let newerExhaustedLease = requireLease(
             consumer.takeDrain(binding: binding, generation: generation)
         )
 
         // Assert
-        let maximumReceipt = requireAdmission(maximumOffer.receipt)
-        let exhaustedReceipt = requireAdmission(exhaustedOffer.receipt)
-        let newerExhaustedReceipt = requireAdmission(newerExhaustedOffer.receipt)
-        #expect(maximumReceipt?.payload == .retained)
-        #expect(maximumReceipt?.recoveryRevision != maximumMinusOneLease?.recoveryRevision)
+        let maximumReceipt = requireAdmission(maximumOffer)
+        let exhaustedReceipt = requireAdmission(exhaustedOffer)
+        let newerExhaustedReceipt = requireAdmission(newerExhaustedOffer)
+        let maximumRevision = requireRetainedRecoveryRevision(maximumReceipt)
+        #expect(maximumRevision != requireRecoveryRevision(maximumMinusOneLease))
         #expect(maximumMinusOneAcknowledgement == .accepted(wake: .scheduleDrain))
         #expect(afterMaximumMinusOneAcknowledgement.recoverySlotCount == 1)
-        #expect(maximumLease?.recoveryRevision == maximumReceipt?.recoveryRevision)
-        #expect(exhaustedReceipt?.payload == .contractedToRecovery)
-        #expect(exhaustedReceipt?.recoveryRevision != maximumReceipt?.recoveryRevision)
+        #expect(requireRecoveryRevision(maximumLease) == maximumRevision)
+        let exhaustedRevision = requireContractedRecoveryRevision(exhaustedReceipt)
+        #expect(exhaustedRevision != maximumRevision)
         #expect(maximumAcknowledgement == .accepted(wake: .scheduleDrain))
         #expect(afterMaximumAcknowledgement.recoverySlotCount == 1)
-        #expect(exhaustedLease?.recoveryRevision == exhaustedReceipt?.recoveryRevision)
-        #expect(newerExhaustedReceipt?.payload == .contractedToRecovery)
-        #expect(newerExhaustedReceipt?.recoveryRevision == exhaustedReceipt?.recoveryRevision)
+        #expect(requireRecoveryRevision(exhaustedLease) == exhaustedRevision)
+        let newerExhaustedRevision = requireContractedRecoveryRevision(newerExhaustedReceipt)
+        #expect(newerExhaustedRevision == exhaustedRevision)
         #expect(exhaustedAcknowledgement == .accepted(wake: .scheduleDrain))
         #expect(afterExhaustedAcknowledgement.recoverySlotCount == 1)
-        #expect(newerExhaustedLease?.recoveryRevision == newerExhaustedReceipt?.recoveryRevision)
-        #expect(newerExhaustedLease?.token != exhaustedLease?.token)
+        #expect(requireRecoveryRevision(newerExhaustedLease) == newerExhaustedRevision)
+        #expect(newerExhaustedLease.token != exhaustedLease.token)
         #expect(maximumAuthority.recoveryCustodyEpoch == initialAuthority.recoveryCustodyEpoch)
         #expect(maximumAuthority.recoveryCustodySequence == UInt64.max)
         #expect(exhaustedAuthority.recoveryCustodyEpoch != maximumAuthority.recoveryCustodyEpoch)
@@ -344,9 +362,10 @@ extension AdmissionBoundedGatherMailboxTests {
             consumer.takeDrain(binding: binding, generation: generation)
         )
         let maximumLeaseAuthority = mailbox.lifecyclePort.authoritySnapshot
-        let maximumAcknowledgement = maximumLease.map {
-            consumer.acknowledge(token: $0.token, disposition: .transferred)
-        }
+        let maximumAcknowledgement = consumer.acknowledge(
+            token: maximumLease.token,
+            disposition: .transferred
+        )
         _ = producer.offer(
             generation: generation,
             contribution: contribution(key: .alpha, label: "new-epoch", items: 1, bytes: 1)
@@ -367,7 +386,7 @@ extension AdmissionBoundedGatherMailboxTests {
         #expect(maximumLeaseAuthority.leaseSequence == .max)
         #expect(rotatedLeaseAuthority.leaseEpoch != maximumLeaseAuthority.leaseEpoch)
         #expect(rotatedLeaseAuthority.leaseSequence == 1)
-        #expect(rotatedLease?.token != maximumLease?.token)
+        #expect(rotatedLease.token != maximumLease.token)
     }
 
     @Test("overflow retirement defers increasing-depth payload destruction to consumer work")
@@ -387,7 +406,7 @@ extension AdmissionBoundedGatherMailboxTests {
                 maximumContributionsPerLease: retainedDepth,
                 maximumItemsPerLease: retainedDepth,
                 maximumBytesPerLease: retainedDepth,
-                cleanupQuantum: AdmissionCleanupQuantum(
+                cleanupQuantum: .entriesAndBytes(
                     maximumEntries: max(1, min(retainedDepth, 17)),
                     maximumBytes: max(1, retainedDepth)
                 )
@@ -440,11 +459,12 @@ extension AdmissionBoundedGatherMailboxTests {
                     Issue.record("Expected bounded gather cleanup turn")
                     break
                 }
-                #expect(turn.releasedEntryCount > 0)
-                #expect(turn.releasedEntryCount <= 17)
-                #expect(turn.releasedByteCount == turn.releasedEntryCount)
-                #expect(recorder.identifiers.count - releasedBeforeTurn == turn.releasedEntryCount)
-                releasedContributionCount += turn.releasedEntryCount
+                let release = requireEntryAndByteRelease(turn)
+                #expect(release.entries > 0)
+                #expect(release.entries <= 17)
+                #expect(release.bytes == release.entries)
+                #expect(recorder.identifiers.count - releasedBeforeTurn == release.entries)
+                releasedContributionCount += release.entries
                 if releasedContributionCount < retainedDepth {
                     #expect(turn.wake == .scheduleDrain)
                     observedCleanupFollowUpWake = true
@@ -457,7 +477,7 @@ extension AdmissionBoundedGatherMailboxTests {
             )
 
             // Assert
-            #expect(requireGenericAdmission(overflow.receipt)?.payload == .contractedToRecovery)
+            _ = requireContractedRecoveryRevision(requireGenericAdmission(overflow))
             #expect(releasesAfterOffer.isEmpty)
             guard case .cleanupRequired = cleanupPrecedence else {
                 Issue.record("Expected cleanup-first gather service after overflow retirement")
@@ -467,8 +487,10 @@ extension AdmissionBoundedGatherMailboxTests {
             #expect(consumer.performCleanup(generation: generation) == .empty)
             #expect(recorder.identifiers.count == retainedDepth)
             #expect(Set(recorder.identifiers) == Set((0..<retainedDepth).map(String.init)))
-            #expect(recoveryLease?.contributions.isEmpty == true)
-            #expect(recoveryLease?.recoveryRevision != nil)
+            guard case .recovery = recoveryLease.payload else {
+                Issue.record("Expected recovery-only gather lease")
+                return
+            }
         }
     }
 
@@ -489,7 +511,7 @@ extension AdmissionBoundedGatherMailboxTests {
             maximumContributionsPerLease: 1,
             maximumItemsPerLease: 1,
             maximumBytesPerLease: 1,
-            cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: 1)
+            cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 1)
         )
         let mailbox = BoundedGatherMailbox<GatherTestKey, ReentrantGatherPayload>(
             generation: generation,
@@ -522,21 +544,20 @@ extension AdmissionBoundedGatherMailboxTests {
         }
         let alphaToken = requireReentrantLease(
             consumer.takeDrain(binding: binding, generation: generation)
-        )?.token
-        _ = alphaToken.map {
-            consumer.acknowledge(token: $0, disposition: .retry)
-        }
+        ).token
+        _ = consumer.acknowledge(token: alphaToken, disposition: .retry)
         let activeBetaToken = requireReentrantLease(
             consumer.takeDrain(binding: binding, generation: generation)
-        )?.token
+        ).token
         clock.advance(by: .seconds(5))
 
         // Act
         let invalidation = lifecycle.invalidate(generation: generation)
         let afterInvalidation = lifecycle.diagnostics
-        let lateAcknowledgement = activeBetaToken.map {
-            consumer.acknowledge(token: $0, disposition: .transferred)
-        }
+        let lateAcknowledgement = consumer.acknowledge(
+            token: activeBetaToken,
+            disposition: .transferred
+        )
         let releasesAfterInvalidation = recorder.identifiers
         var cleanupTurns: [AdmissionCleanupTurn] = []
         for _ in 0..<6 {
@@ -564,8 +585,8 @@ extension AdmissionBoundedGatherMailboxTests {
         #expect(afterInvalidation.isQuiescent == false)
         #expect(lateAcknowledgement == .closed)
         #expect(cleanupTurns.count == 6)
-        #expect(cleanupTurns.allSatisfy { $0.releasedEntryCount == 1 })
-        #expect(cleanupTurns.compactMap(\.releasedByteCount).reduce(0, +) == 3)
+        #expect(cleanupTurns.allSatisfy { requireEntryAndByteRelease($0).entries == 1 })
+        #expect(cleanupTurns.map { requireEntryAndByteRelease($0).bytes }.reduce(0, +) == 3)
         #expect(cleanupTurns.dropLast().allSatisfy { $0.wake == .scheduleDrain })
         #expect(cleanupTurns.last?.wake == .noWake)
         #expect(recorder.identifiers.count == 3)
@@ -595,16 +616,17 @@ extension AdmissionBoundedGatherMailboxTests {
             contribution: contribution(key: .alpha, label: "closed", items: 1, bytes: 1)
         )
         let lease = requireLease(consumer.takeDrain(binding: binding, generation: generation))
-        let acknowledgement = lease.map {
-            consumer.acknowledge(token: $0.token, disposition: .transferred)
-        }
+        let acknowledgement = consumer.acknowledge(
+            token: lease.token,
+            disposition: .transferred
+        )
         let closedDrain = consumer.takeDrain(binding: binding, generation: generation)
         let invalidated = mailbox.lifecyclePort.invalidate(generation: generation)
         let diagnostics = mailbox.lifecyclePort.diagnostics
 
         // Assert
         #expect(sealed == .applied)
-        guard case .closed = rejected.receipt else {
+        guard case .closed = rejected else {
             Issue.record("Expected offer after seal to be closed")
             return
         }

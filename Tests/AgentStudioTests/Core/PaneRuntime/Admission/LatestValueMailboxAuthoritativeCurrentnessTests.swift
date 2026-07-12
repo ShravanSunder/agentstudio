@@ -17,12 +17,12 @@ struct AdmissionLatestAuthoritativeCurrentnessTests {
             )
         )
         let lossyResult = lossyWrapper.offer(key: 0, value: 3)
-        #expect(lossyResult.receipt == .physicalCapacityExceeded)
+        #expect(lossyResult == .physicalCapacityExceeded)
 
         let authoritativeWrapper = makeSaturatedAuthoritativeWrapper()
         let revisionOwner = authoritativeWrapper.revisionOwner
         let firstResult = authoritativeWrapper.offerAdvancedSource(key: 0, value: 3)
-        #expect(firstResult.offerResult.receipt == .physicalCapacityExceeded)
+        #expect(firstResult.offerResult == .physicalCapacityExceeded)
         guard let firstSourceRevision = firstResult.sourceRevision else {
             Issue.record("Expected a declared authoritative source revision")
             return
@@ -37,7 +37,7 @@ struct AdmissionLatestAuthoritativeCurrentnessTests {
             value: 3,
             sourceRevision: firstSourceRevision
         )
-        #expect(repeatedResult.receipt == .physicalCapacityExceeded)
+        #expect(repeatedResult == .physicalCapacityExceeded)
         #expect(
             revisionOwner.snapshot(for: 0).dirtyRevision
                 == firstSourceRevision
@@ -52,7 +52,7 @@ struct AdmissionLatestAuthoritativeCurrentnessTests {
 
         let result = wrapper.offerAdvancedSource(key: 1, value: 3)
 
-        #expect(result.offerResult.receipt == .undeclaredKey)
+        #expect(result.offerResult == .undeclaredKey)
         #expect(result.sourceRevision == nil)
         #expect(revisionOwner.snapshotIfDeclared(for: 1) == nil)
         #expect(revisionOwner.dirtyKeyCount == 0)
@@ -87,7 +87,7 @@ struct AdmissionLatestAuthoritativeCurrentnessTests {
             sourceRevision: currentRevision
         )
 
-        #expect(result.receipt == .physicalCapacityExceeded)
+        #expect(result == .physicalCapacityExceeded)
         #expect(revisionOwner.snapshot(for: 0).dirtyRevision == currentRevision)
         #expect(revisionOwner.dirtyKeyCount == 1)
     }
@@ -101,10 +101,7 @@ struct AdmissionLatestAuthoritativeCurrentnessTests {
             limits: LatestValueLimits(
                 maximumValuesPerLease: 1,
                 maximumAuxiliaryRetainedValues: 2,
-                cleanupQuantum: AdmissionCleanupQuantum(
-                    maximumEntries: 1,
-                    maximumBytes: nil
-                )
+                cleanupQuantum: .entries(maximumEntries: 1)
             )
         )
 
@@ -112,11 +109,11 @@ struct AdmissionLatestAuthoritativeCurrentnessTests {
         let secondDeclared = wrapper.offerAdvancedSource(key: 1, value: 1)
         let undeclared = wrapper.offerAdvancedSource(key: 2, value: 1)
 
-        #expect(firstDeclared.offerResult.receipt == .admitted)
+        #expect(firstDeclared.offerResult == .admitted(wake: .scheduleDrain))
         #expect(firstDeclared.sourceRevision != nil)
-        #expect(secondDeclared.offerResult.receipt == .admitted)
+        #expect(secondDeclared.offerResult == .admitted(wake: .noWake))
         #expect(secondDeclared.sourceRevision != nil)
-        #expect(undeclared.offerResult.receipt == .undeclaredKey)
+        #expect(undeclared.offerResult == .undeclaredKey)
         #expect(undeclared.sourceRevision == nil)
         #expect(
             wrapper.revisionOwner.snapshotIfDeclared(for: 0)?.currentSourceRevision.revision == 1
@@ -365,10 +362,7 @@ struct AdmissionLatestAuthoritativeCurrentnessTests {
         LatestValueLimits(
             maximumValuesPerLease: 1,
             maximumAuxiliaryRetainedValues: 2,
-            cleanupQuantum: AdmissionCleanupQuantum(
-                maximumEntries: 1,
-                maximumBytes: nil
-            )
+            cleanupQuantum: .entries(maximumEntries: 1)
         )
     }
 
@@ -377,7 +371,10 @@ struct AdmissionLatestAuthoritativeCurrentnessTests {
         consumer: LatestValueConsumerPort<Int, Int>
     ) {
         let binding = consumer.bindConsumer().binding
-        #expect(producer.offer(generation: generation, key: 0, value: 0).receipt == .admitted)
+        #expect(
+            producer.offer(generation: generation, key: 0, value: 0)
+                == .admitted(wake: .scheduleDrain)
+        )
         guard
             case .drain = consumer.takeDrain(
                 binding: binding,
@@ -387,10 +384,13 @@ struct AdmissionLatestAuthoritativeCurrentnessTests {
             Issue.record("Expected saturation lease")
             return
         }
-        #expect(producer.offer(generation: generation, key: 0, value: 1).receipt == .admitted)
         #expect(
-            producer.offer(generation: generation, key: 0, value: 2).receipt
-                == .replacedPrevious
+            producer.offer(generation: generation, key: 0, value: 1)
+                == .admitted(wake: .noWake)
+        )
+        #expect(
+            producer.offer(generation: generation, key: 0, value: 2)
+                == .replacedPrevious(wake: .noWake)
         )
     }
 }
@@ -478,11 +478,14 @@ private struct LatestValueAuthoritativeTestWrapper<Value: Sendable>: Sendable {
             key: key,
             value: value
         )
-        if result.receipt == .physicalCapacityExceeded {
+        switch result {
+        case .physicalCapacityExceeded:
             revisionOwner.recordCapacityRejection(
                 for: key,
                 attemptedRevision: sourceRevision
             )
+        case .admitted, .replacedPrevious, .staleGeneration, .undeclaredKey, .closed:
+            break
         }
         return result
     }

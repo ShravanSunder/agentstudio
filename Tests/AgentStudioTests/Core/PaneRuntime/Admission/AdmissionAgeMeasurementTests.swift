@@ -15,4 +15,11 @@ struct AdmissionAgeMeasurementTests {
         #expect(exact == .exact(.seconds(3)))
         #expect(conservative == .pressureConservative(.seconds(5)))
     }
+
+    @Test("successful drain age represents exact precision only")
+    func successfulDrainAgeIsExact() {
+        let age = ExactAdmissionAge(duration: .seconds(7))
+
+        #expect(age.duration == .seconds(7))
+    }
 }

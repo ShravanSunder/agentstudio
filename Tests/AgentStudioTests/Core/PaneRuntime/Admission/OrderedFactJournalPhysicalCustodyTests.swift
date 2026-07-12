@@ -3,6 +3,49 @@ import Testing
 
 @testable import AgentStudio
 
+private struct InFlightCleanupOverlapOutcome {
+    let reentrant: AdmissionCleanupTurnResult?
+    let concurrent: AdmissionCleanupTurnResult
+    let delivery: OrderedFactTakeDrainResult<ReentrantJournalFact>
+    let capacityOffer: OrderedFactOfferResult
+    let during: OrderedFactJournalDiagnostics
+    let outer: AdmissionCleanupTurnResult?
+    let afterIncumbent: OrderedFactJournalDiagnostics
+    let blocked: AdmissionCleanupTurnResult
+    let replay: OrderedFactReplayCompletion<ReentrantJournalFact, ReentrantJournalSnapshot>
+}
+
+private func expectInFlightCleanupOverlap(_ outcome: InFlightCleanupOverlapOutcome) {
+    #expect(outcome.reentrant == .alreadyCleaning)
+    #expect(outcome.concurrent == .alreadyCleaning)
+    guard case .cleanupRequired = outcome.delivery else {
+        Issue.record("Expected in-flight cleanup to precede a new journal lease")
+        return
+    }
+    guard case .snapshotPhysicalCapacityExceeded = outcome.capacityOffer else {
+        Issue.record("Expected in-flight snapshot custody to preserve capacity pressure")
+        return
+    }
+    #expect(outcome.during.outstandingCleanupTurnCount == 1)
+    #expect(outcome.during.cleanupSnapshotCount == 2)
+    #expect(outcome.during.physicalRetainedSnapshotCount == 2)
+    guard case .some(.exact) = outcome.during.oldestCleanupAge else {
+        Issue.record("Expected nonempty in-flight snapshot custody to retain its exact age")
+        return
+    }
+    #expect(
+        outcome.outer
+            == .performed(.init(release: .entriesAndBytes(count: 1, bytes: 1), wake: .noWake))
+    )
+    #expect(outcome.afterIncumbent.outstandingCleanupTurnCount == 0)
+    #expect(outcome.afterIncumbent.cleanupSnapshotCount == 1)
+    #expect(outcome.blocked == .blockedByReplayReader)
+    guard case .registered(.facts, wake: .scheduleDrain) = outcome.replay else {
+        Issue.record("Expected captured replay to materialize after incumbent cleanup")
+        return
+    }
+}
+
 @Suite("Admission OrderedFactJournal Physical Custody")
 struct AdmissionOrderedFactJournalPhysicalCustodyTests {
     private enum SnapshotConfigurationOutcome: Equatable {
@@ -47,8 +90,7 @@ struct AdmissionOrderedFactJournalPhysicalCustodyTests {
                 maximumPhysicalSnapshotCount: 2,
                 maximumPhysicalSnapshotBytes: 0
             ),
-            cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: 1),
-            initialSnapshotBytes: 0
+            cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 1)
         )
 
         // Act
@@ -75,7 +117,7 @@ struct AdmissionOrderedFactJournalPhysicalCustodyTests {
         )
         #expect(beforeRejection.admission.admitted == afterRejection.admission.admitted)
         #expect(beforeRejection.cleanupByteCount == afterRejection.cleanupByteCount)
-        #expect(cleanup == .performed(.init(releasedEntryCount: 1, releasedByteCount: 0, wake: .noWake)))
+        #expect(cleanup == .performed(.init(release: .entriesAndBytes(count: 1, bytes: 0), wake: .noWake)))
         #expect(admittedSequence(recovered) == 3)
     }
 
@@ -92,7 +134,7 @@ struct AdmissionOrderedFactJournalPhysicalCustodyTests {
                 maximumPhysicalSnapshotCount: 3,
                 maximumPhysicalSnapshotBytes: 16
             ),
-            cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 4, maximumBytes: 8)
+            cleanupQuantum: .entriesAndBytes(maximumEntries: 4, maximumBytes: 8)
         )
         _ = offerSnapshot("maximum", bytes: 8, to: journal, generation: generation)
         _ = offerSnapshot("second-maximum", bytes: 8, to: journal, generation: generation)
@@ -136,9 +178,8 @@ struct AdmissionOrderedFactJournalPhysicalCustodyTests {
                 maximumPhysicalSnapshotBytes: 16
             ),
             maximumDrainFacts: 4,
-            cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: 8),
-            initialSnapshot: nil,
-            initialSnapshotBytes: 0
+            cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 8),
+            initialSnapshotReplacement: nil
         )
 
         // Act
@@ -200,7 +241,7 @@ struct AdmissionOrderedFactJournalPhysicalCustodyTests {
                 maximumPhysicalSnapshotCount: 2,
                 maximumPhysicalSnapshotBytes: 16
             ),
-            cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: 8)
+            cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 8)
         )
         _ = offerSnapshot("first", bytes: 8, to: journal, generation: generation)
         _ = offerSnapshot("second", bytes: 8, to: journal, generation: generation)
@@ -242,9 +283,11 @@ struct AdmissionOrderedFactJournalPhysicalCustodyTests {
                 maximumPhysicalSnapshotCount: 2,
                 maximumPhysicalSnapshotBytes: 16
             ),
-            cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: 8),
-            initialSnapshot: JournalSnapshot(value: "initial"),
-            initialSnapshotBytes: 8
+            cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 8),
+            initialSnapshotReplacement: OrderedFactSnapshotReplacement(
+                snapshot: JournalSnapshot(value: "initial"),
+                estimatedBytes: 8
+            )
         )
         let gapResult = journal.producer.offer(
             generation: generation,
@@ -283,9 +326,9 @@ struct AdmissionOrderedFactJournalPhysicalCustodyTests {
                 == AdmissionCounterSnapshot(before.admission)
         )
         #expect(afterRejection.latestSequence == before.latestSequence)
-        #expect(afterRejection.productGap == before.productGap)
+        #expect(afterRejection.currentness == before.currentness)
         #expect(afterRejection.cleanupSnapshotCount == before.cleanupSnapshotCount)
-        #expect(cleanup == .performed(.init(releasedEntryCount: 1, releasedByteCount: 8, wake: .noWake)))
+        #expect(cleanup == .performed(.init(release: .entriesAndBytes(count: 1, bytes: 8), wake: .noWake)))
         #expect(recovered == .recovered)
     }
 
@@ -317,12 +360,11 @@ struct AdmissionOrderedFactJournalPhysicalCustodyTests {
         let after = journal.lifecycle.diagnostics
 
         // Assert
-        guard case .replayInProgress = secondCompletion.result else {
+        guard case .immediate(.replayInProgress) = secondCompletion else {
             Issue.record("Expected typed replay-reader contention")
             _ = journal.journal.completeReplay(firstCapture)
             return
         }
-        #expect(secondCompletion.wake == .noWake)
         #expect(after.latestSequence == before.latestSequence)
         #expect(after.retainedFactCount == before.retainedFactCount)
         #expect(after.cleanupFactCount == before.cleanupFactCount)
@@ -336,8 +378,10 @@ struct AdmissionOrderedFactJournalPhysicalCustodyTests {
         let generation = makeGeneration(1)
         let journal = makeJournal(
             generation: generation,
-            initialSnapshot: JournalSnapshot(value: "captured"),
-            initialSnapshotBytes: 1
+            initialSnapshotReplacement: OrderedFactSnapshotReplacement(
+                snapshot: JournalSnapshot(value: "captured"),
+                estimatedBytes: 1
+            )
         )
         _ = journal.producer.offer(
             generation: generation,
@@ -366,8 +410,7 @@ struct AdmissionOrderedFactJournalPhysicalCustodyTests {
         #expect(afterBlocked.cleanupSnapshotCount == before.cleanupSnapshotCount)
         #expect(before.cleanupSnapshotCount == 1)
         #expect(afterBlocked.cleanupByteCount == before.cleanupByteCount)
-        #expect(completion.wake == .scheduleDrain)
-        guard case .facts = completion.result else {
+        guard case .registered(.facts, wake: .scheduleDrain) = completion else {
             Issue.record("Expected captured fixed-tail replay after invalidation")
             return
         }
@@ -406,9 +449,11 @@ struct AdmissionOrderedFactJournalPhysicalCustodyTests {
                         maximumPhysicalSnapshotBytes: 2
                     ),
                     maximumDrainFacts: 1,
-                    cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: 4),
-                    initialSnapshot: ReentrantJournalSnapshot(payload: blockingPayload!),
-                    initialSnapshotBytes: 1
+                    cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 4),
+                    initialSnapshotReplacement: OrderedFactSnapshotReplacement(
+                        snapshot: ReentrantJournalSnapshot(payload: blockingPayload!),
+                        estimatedBytes: 1
+                    )
                 ))
         journalBox.journal = journal.journal
         blockingPayload = nil
@@ -463,25 +508,18 @@ struct AdmissionOrderedFactJournalPhysicalCustodyTests {
         let completion = journal.journal.completeReplay(capture)
 
         // Assert
-        #expect(reentrantResult.value == .alreadyCleaning)
-        #expect(concurrent == .alreadyCleaning)
-        expectCleanupRequired(deliveryDuringCleanup)
-        guard case .snapshotPhysicalCapacityExceeded = capacityRejected else {
-            Issue.record("Expected in-flight snapshot custody to preserve capacity pressure")
-            return
-        }
-        #expect(during.outstandingCleanupTurnCount == 1)
-        #expect(during.cleanupSnapshotCount == 2)
-        #expect(during.physicalRetainedSnapshotCount == 2)
-        #expect(outerResult.value == .performed(.init(releasedEntryCount: 1, releasedByteCount: 1, wake: .noWake)))
-        #expect(afterIncumbent.outstandingCleanupTurnCount == 0)
-        #expect(afterIncumbent.cleanupSnapshotCount == 1)
-        #expect(blocked == .blockedByReplayReader)
-        #expect(completion.wake == .scheduleDrain)
-        guard case .facts = completion.result else {
-            Issue.record("Expected captured replay to materialize after incumbent cleanup")
-            return
-        }
+        expectInFlightCleanupOverlap(
+            InFlightCleanupOverlapOutcome(
+                reentrant: reentrantResult.value,
+                concurrent: concurrent,
+                delivery: deliveryDuringCleanup,
+                capacityOffer: capacityRejected,
+                during: during,
+                outer: outerResult.value,
+                afterIncumbent: afterIncumbent,
+                blocked: blocked,
+                replay: completion
+            ))
     }
 
     private func offerSnapshot(
@@ -526,12 +564,11 @@ struct AdmissionOrderedFactJournalPhysicalCustodyTests {
                     maximumPhysicalSnapshotBytes: maximumPhysicalSnapshotBytes
                 ),
                 maximumDrainFacts: 1,
-                cleanupQuantum: AdmissionCleanupQuantum(
+                cleanupQuantum: .entriesAndBytes(
                     maximumEntries: 1,
                     maximumBytes: maximumSnapshotBytes
                 ),
-                initialSnapshot: nil,
-                initialSnapshotBytes: 0
+                initialSnapshotReplacement: nil
             )
             return .accepted
         } catch let error as OrderedFactJournalConfigurationError {

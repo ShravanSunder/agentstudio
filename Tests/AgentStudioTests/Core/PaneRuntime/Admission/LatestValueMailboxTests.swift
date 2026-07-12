@@ -15,7 +15,7 @@ struct AdmissionLatestValueMailboxTests {
         owner: .terminalViewport,
         value: 7
     )
-    let cleanupQuantum = AdmissionCleanupQuantum(maximumEntries: 17, maximumBytes: nil)
+    let cleanupQuantum: AdmissionCleanupQuantum = .entries(maximumEntries: 17)
 
     @Test("pressure stream identity is a closed manifest with static telemetry names")
     func pressureStreamIdentityIsClosedAndStatic() {
@@ -72,7 +72,7 @@ struct AdmissionLatestValueMailboxTests {
         }
 
         #expect(oldAcknowledgement == .invalidToken)
-        #expect(replacementDrain.valuesByKey == firstDrain.valuesByKey)
+        #expect(latestValuesByKey(replacementDrain) == latestValuesByKey(firstDrain))
         #expect(replacementDrain.token != firstDrain.token)
         #expect(
             consumer.acknowledge(replacementDrain.token, disposition: .transferred)
@@ -115,13 +115,12 @@ struct AdmissionLatestValueMailboxTests {
             return
         }
 
-        #expect(offerDuringLease.receipt == .admitted)
-        #expect(offerDuringLease.wake == .noWake)
+        #expect(offerDuringLease == .admitted(wake: .noWake))
         #expect(diagnosticsDuringLease.offered == 2)
         #expect(diagnosticsDuringLease.admitted == 2)
         #expect(diagnosticsDuringLease.contracted == 0)
         #expect(acknowledgement == .accepted(wake: .scheduleDrain))
-        #expect(pendingDrain.valuesByKey == [.primary: 2])
+        #expect(latestValuesByKey(pendingDrain) == [.primary: 2])
     }
 
     @Test("stale undeclared and closed offers increment mutually exclusive rejection reasons")
@@ -141,9 +140,9 @@ struct AdmissionLatestValueMailboxTests {
         let closedOffer = producer.offer(generation: generation, key: .primary, value: 3)
 
         let diagnostics = lifecycle.diagnostics.admission
-        #expect(staleOffer.receipt == .staleGeneration)
-        #expect(undeclaredOffer.receipt == .undeclaredKey)
-        #expect(closedOffer.receipt == .closed)
+        #expect(staleOffer == .staleGeneration)
+        #expect(undeclaredOffer == .undeclaredKey)
+        #expect(closedOffer == .closed)
         #expect(diagnostics.offered == 3)
         #expect(diagnostics.admitted == 0)
         #expect(diagnostics.rejectedStale == 1)
@@ -165,15 +164,13 @@ struct AdmissionLatestValueMailboxTests {
         performAllLatestCleanup(lifecycle, generation: generation)
         let drainResult = consumer.takeDrain(binding: binding, generation: generation)
 
-        #expect(firstOffer.receipt == .admitted)
-        #expect(firstOffer.wake == .scheduleDrain)
-        #expect(replacementOffer.receipt == .replacedPrevious)
-        #expect(replacementOffer.wake == .noWake)
+        #expect(firstOffer == .admitted(wake: .scheduleDrain))
+        #expect(replacementOffer == .replacedPrevious(wake: .noWake))
         guard case .drain(let drain) = drainResult else {
             Issue.record("Expected the latest retained value to be drainable")
             return
         }
-        #expect(drain.valuesByKey == [.primary: 20])
+        #expect(latestValuesByKey(drain) == [.primary: 20])
 
         let diagnostics = lifecycle.diagnostics.admission
         #expect(diagnostics.offered == 2)
@@ -187,15 +184,21 @@ struct AdmissionLatestValueMailboxTests {
         let mailbox = makeMailbox()
         let producer = mailbox.producerPort
 
-        let wakeDirectives = [
-            producer.offer(generation: generation, key: .primary, value: 1).wake,
-            producer.offer(generation: generation, key: .secondary, value: 2).wake,
-            producer.offer(generation: generation, key: .primary, value: 3).wake,
-            producer.offer(generation: generation, key: .tertiary, value: 4).wake,
+        let offerResults = [
+            producer.offer(generation: generation, key: .primary, value: 1),
+            producer.offer(generation: generation, key: .secondary, value: 2),
+            producer.offer(generation: generation, key: .primary, value: 3),
+            producer.offer(generation: generation, key: .tertiary, value: 4),
         ]
 
-        #expect(wakeDirectives.filter { $0 == .scheduleDrain }.count == 1)
-        #expect(wakeDirectives.filter { $0 == .noWake }.count == 3)
+        #expect(
+            offerResults == [
+                .admitted(wake: .scheduleDrain),
+                .admitted(wake: .noWake),
+                .replacedPrevious(wake: .noWake),
+                .admitted(wake: .noWake),
+            ]
+        )
     }
 
     @Test("offers during a drain are released by one acknowledgement wake")
@@ -220,10 +223,10 @@ struct AdmissionLatestValueMailboxTests {
         let acknowledgement = consumer.acknowledge(firstDrain.token, disposition: .transferred)
         let laterReplacement = producer.offer(generation: generation, key: .secondary, value: 4)
 
-        #expect(replacementDuringDrain.wake == .noWake)
-        #expect(newKeyDuringDrain.wake == .noWake)
+        #expect(replacementDuringDrain == .admitted(wake: .noWake))
+        #expect(newKeyDuringDrain == .admitted(wake: .noWake))
         #expect(acknowledgement == .accepted(wake: .scheduleDrain))
-        #expect(laterReplacement.wake == .noWake)
+        #expect(laterReplacement == .replacedPrevious(wake: .noWake))
         performAllLatestCleanup(mailbox.lifecyclePort, generation: generation)
         guard
             case .drain(let followUpDrain) = consumer.takeDrain(
@@ -234,7 +237,7 @@ struct AdmissionLatestValueMailboxTests {
             Issue.record("Expected acknowledgement to release retained follow-up work")
             return
         }
-        #expect(followUpDrain.valuesByKey == [.primary: 2, .secondary: 4])
+        #expect(latestValuesByKey(followUpDrain) == [.primary: 2, .secondary: 4])
     }
 
     @Test("transfer clears a lease and retry requeues only when no newer value exists")
@@ -266,7 +269,7 @@ struct AdmissionLatestValueMailboxTests {
             Issue.record("Expected retry to retain the leased value")
             return
         }
-        #expect(repeatedDrain.valuesByKey == [.primary: 1])
+        #expect(latestValuesByKey(repeatedDrain) == [.primary: 1])
 
         _ = producer.offer(generation: generation, key: .primary, value: 2)
         let secondRetryAcknowledgement = consumer.acknowledge(
@@ -284,7 +287,7 @@ struct AdmissionLatestValueMailboxTests {
             Issue.record("Expected the newer pending value after retry")
             return
         }
-        #expect(latestDrain.valuesByKey == [.primary: 2])
+        #expect(latestValuesByKey(latestDrain) == [.primary: 2])
 
         let transferAcknowledgement = consumer.acknowledge(
             latestDrain.token,
@@ -393,16 +396,14 @@ struct AdmissionLatestValueMailboxTests {
         let staleInvalidate = lifecycle.invalidate(generation: staleGeneration)
         let currentOffer = producer.offer(generation: generation, key: .primary, value: 2)
 
-        #expect(staleOffer.receipt == .staleGeneration)
-        #expect(staleOffer.wake == .noWake)
+        #expect(staleOffer == .staleGeneration)
         guard case .staleGeneration = staleDrain else {
             Issue.record("Expected a stale-generation drain rejection")
             return
         }
         #expect(staleSeal == .staleGeneration)
         #expect(staleInvalidate == .staleGeneration)
-        #expect(currentOffer.receipt == .admitted)
-        #expect(currentOffer.wake == .scheduleDrain)
+        #expect(currentOffer == .admitted(wake: .scheduleDrain))
         let diagnostics = lifecycle.diagnostics.admission
         #expect(diagnostics.offered == 2)
         #expect(diagnostics.rejectedStale == 1)
@@ -422,16 +423,15 @@ struct AdmissionLatestValueMailboxTests {
         let lifecycle = mailbox.lifecyclePort
         let binding = consumer.bindConsumer().binding
 
-        var undeclaredReceipts: [AdmissionReceipt] = []
+        var undeclaredResults: [LatestValueOfferResult] = []
         for key in 0..<32 {
             let result = producer.offer(generation: generation, key: key, value: key * 10)
             if declaredKeys.contains(key) == false {
-                undeclaredReceipts.append(result.receipt)
-                #expect(result.wake == .noWake)
+                undeclaredResults.append(result)
             }
         }
 
-        #expect(undeclaredReceipts == Array(repeating: .undeclaredKey, count: 28))
+        #expect(undeclaredResults == Array(repeating: .undeclaredKey, count: 28))
         let diagnostics = lifecycle.diagnostics.admission
         #expect(diagnostics.offered == 32)
         #expect(diagnostics.admitted == 4)
@@ -447,7 +447,7 @@ struct AdmissionLatestValueMailboxTests {
             Issue.record("Expected the bounded declared-key values")
             return
         }
-        #expect(drain.valuesByKey == [0: 0, 1: 10, 2: 20, 3: 30])
+        #expect(latestValuesByKey(drain) == [0: 0, 1: 10, 2: 20, 3: 30])
     }
 
     @Test("seal rejects new offers while accepted work drains gracefully")
@@ -462,8 +462,7 @@ struct AdmissionLatestValueMailboxTests {
         #expect(lifecycle.seal(generation: generation) == .applied)
         #expect(lifecycle.seal(generation: generation) == .alreadyClosed)
         let closedOffer = producer.offer(generation: generation, key: .secondary, value: 2)
-        #expect(closedOffer.receipt == .closed)
-        #expect(closedOffer.wake == .noWake)
+        #expect(closedOffer == .closed)
 
         guard
             case .drain(let drain) = consumer.takeDrain(
@@ -474,7 +473,7 @@ struct AdmissionLatestValueMailboxTests {
             Issue.record("Expected sealed accepted work to remain drainable")
             return
         }
-        #expect(drain.valuesByKey == [.primary: 1])
+        #expect(latestValuesByKey(drain) == [.primary: 1])
         #expect(
             consumer.acknowledge(drain.token, disposition: .transferred)
                 == .accepted(wake: .scheduleDrain)
@@ -522,7 +521,7 @@ struct AdmissionLatestValueMailboxTests {
             return
         }
         let closedOffer = producer.offer(generation: generation, key: .secondary, value: 2)
-        #expect(closedOffer.receipt == .closed)
+        #expect(closedOffer == .closed)
         #expect(lifecycle.diagnostics.admission.pendingKeyCount == 0)
     }
 
@@ -578,7 +577,7 @@ struct AdmissionLatestValueMailboxTests {
             Issue.record("Expected retained diagnostic work to drain")
             return
         }
-        #expect(drain.oldestRetainedAge == .exact(.seconds(7)))
+        #expect(drain.oldestRetainedAge.duration == .seconds(7))
         clock.advance(by: .seconds(2))
         #expect(lifecycle.diagnostics.admission.oldestPendingAge == .exact(.seconds(9)))
         #expect(
@@ -602,8 +601,7 @@ struct AdmissionLatestValueMailboxTests {
             lifecycle.performCleanup(generation: generation)
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 2,
-                        releasedByteCount: nil,
+                        release: .entries(count: 2),
                         wake: .noWake
                     )
                 )
@@ -653,8 +651,8 @@ struct AdmissionLatestValueMailboxTests {
             Issue.record("Expected one retained value after concurrent offers")
             return
         }
-        #expect(drain.valuesByKey.count == 1)
-        let retainedValue = drain.valuesByKey[.primary]
+        #expect(latestValuesByKey(drain).count == 1)
+        let retainedValue = latestValuesByKey(drain)[.primary]
         #expect(retainedValue.map { (0..<offerCount).contains($0) } == true)
     }
 
@@ -705,7 +703,7 @@ extension AdmissionLatestValueMailboxTests {
             return
         }
 
-        #expect(offer.receipt == .admitted)
+        #expect(offer == .admitted(wake: .scheduleDrain))
         #expect(
             consumer.acknowledge(drain.token, disposition: .transferred)
                 == .accepted(wake: .scheduleDrain)
@@ -759,8 +757,8 @@ extension AdmissionLatestValueMailboxTests {
         #expect(acknowledgement == .accepted(wake: .scheduleDrain))
         #expect(lifecycle.diagnostics.admission.contracted == 1)
         #expect(lifecycle.diagnostics.admission.oldestPendingAge == .exact(.seconds(3)))
-        #expect(newerDrain.valuesByKey == [.primary: 2])
-        #expect(newerDrain.oldestRetainedAge == .exact(.seconds(3)))
+        #expect(latestValuesByKey(newerDrain) == [.primary: 2])
+        #expect(newerDrain.oldestRetainedAge.duration == .seconds(3))
     }
 
     @Test("binding and lease authority roll over without aliasing or losing custody")
@@ -816,7 +814,7 @@ extension AdmissionLatestValueMailboxTests {
         #expect(maximumLeaseAuthority.leaseEpoch != rotatedLeaseAuthority.leaseEpoch)
         #expect(rotatedLeaseAuthority.leaseEpochRotationCount == 1)
         #expect(oldAcknowledgement == .invalidToken)
-        #expect(replacementDrain.valuesByKey == [.primary: 1])
+        #expect(latestValuesByKey(replacementDrain) == [.primary: 1])
         #expect(
             consumer.acknowledge(replacementDrain.token, disposition: .transferred)
                 == .accepted(wake: .scheduleDrain)
@@ -879,7 +877,7 @@ extension AdmissionLatestValueMailboxTests {
         }
         #expect(authorityAfterEmptyPoll.leaseSequence == .max)
         #expect(lifecycle.authoritySnapshot.leaseSequence == 1)
-        #expect(drain.valuesByKey == [.primary: 7])
+        #expect(latestValuesByKey(drain) == [.primary: 7])
     }
 
 }

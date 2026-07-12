@@ -33,18 +33,25 @@ struct PersistentGapDrainResult {
 struct ExactReplayResult {
     let facts: [SequencedFact<JournalFact>]
     let nextSequence: UInt64
+    let wake: AdmissionWakeDirective
+}
+
+struct RegisteredHistoryGapReplayResult {
+    let gap: ReplayHistoryGap<JournalFact>
+    let wake: AdmissionWakeDirective
 }
 
 struct SnapshotReplayResult {
     let snapshot: SequencedSnapshot<JournalSnapshot>
     let followingFacts: [SequencedFact<JournalFact>]
     let nextSequence: UInt64
+    let wake: AdmissionWakeDirective
 }
 
 struct CurrentStateResult {
     let snapshot: SequencedSnapshot<JournalSnapshot>?
     let latestSequence: UInt64
-    let isSealed: Bool
+    let lifecycle: OrderedFactCurrentLifecycleState
 }
 
 struct SequencedFactOracle: Equatable {
@@ -160,8 +167,7 @@ func makeJournal(
     maximumDrainFacts: Int = 16,
     cleanupQuantum: AdmissionCleanupQuantum? = nil,
     initialSequence: UInt64 = 0,
-    initialSnapshot: JournalSnapshot? = nil,
-    initialSnapshotBytes: Int = 16,
+    initialSnapshotReplacement: OrderedFactSnapshotReplacement<JournalSnapshot>? = nil,
     authoritySeeds: OrderedFactJournalAuthoritySeeds = .initial
 ) -> JournalTestHarness<JournalFact, JournalSnapshot> {
     let effectiveSnapshotLimits =
@@ -179,13 +185,12 @@ func makeJournal(
             snapshotLimits: effectiveSnapshotLimits,
             maximumDrainFacts: maximumDrainFacts,
             cleanupQuantum: cleanupQuantum
-                ?? AdmissionCleanupQuantum(
+                ?? .entriesAndBytes(
                     maximumEntries: 17,
                     maximumBytes: Swift.max(maximumRetainedBytes, maximumSnapshotBytes)
                 ),
             initialSequence: initialSequence,
-            initialSnapshot: initialSnapshot,
-            initialSnapshotBytes: initialSnapshot == nil ? 0 : initialSnapshotBytes,
+            initialSnapshotReplacement: initialSnapshotReplacement,
             authoritySeeds: authoritySeeds
         ))
 }
@@ -198,8 +203,7 @@ func makeJournal<C: Clock>(
     maximumDrainFacts: Int = 16,
     cleanupQuantum: AdmissionCleanupQuantum? = nil,
     initialSequence: UInt64 = 0,
-    initialSnapshot: JournalSnapshot? = nil,
-    initialSnapshotBytes: Int = 16,
+    initialSnapshotReplacement: OrderedFactSnapshotReplacement<JournalSnapshot>? = nil,
     clock: C,
     authoritySeeds: OrderedFactJournalAuthoritySeeds = .initial
 ) -> JournalTestHarness<JournalFact, JournalSnapshot> where C.Duration == Duration, C: Sendable {
@@ -215,13 +219,12 @@ func makeJournal<C: Clock>(
             ),
             maximumDrainFacts: maximumDrainFacts,
             cleanupQuantum: cleanupQuantum
-                ?? AdmissionCleanupQuantum(
+                ?? .entriesAndBytes(
                     maximumEntries: 17,
                     maximumBytes: Swift.max(maximumRetainedBytes, maximumSnapshotBytes)
                 ),
             initialSequence: initialSequence,
-            initialSnapshot: initialSnapshot,
-            initialSnapshotBytes: initialSnapshot == nil ? 0 : initialSnapshotBytes,
+            initialSnapshotReplacement: initialSnapshotReplacement,
             admissionClock: .make(clock: clock),
             authoritySeeds: authoritySeeds
         ))
@@ -244,9 +247,8 @@ func makeReentrantJournal(
                 maximumPhysicalSnapshotBytes: Int.max
             ),
             maximumDrainFacts: maximumDrainFacts,
-            cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 17, maximumBytes: 1024),
-            initialSnapshot: nil,
-            initialSnapshotBytes: 0
+            cleanupQuantum: .entriesAndBytes(maximumEntries: 17, maximumBytes: 1024),
+            initialSnapshotReplacement: nil
         ))
 }
 
@@ -272,9 +274,8 @@ func makeReentrantClockJournal(
                 maximumPhysicalSnapshotBytes: Int.max
             ),
             maximumDrainFacts: 1,
-            cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 17, maximumBytes: 1024),
-            initialSnapshot: nil,
-            initialSnapshotBytes: 0,
+            cleanupQuantum: .entriesAndBytes(maximumEntries: 17, maximumBytes: 1024),
+            initialSnapshotReplacement: nil,
             admissionClock: admissionClock
         ))
     box.journal = harness.journal
@@ -309,8 +310,7 @@ func makeJournalValidatingInitialSnapshot(
     maximumSnapshotBytes: Int,
     maximumDrainFacts: Int = 16,
     initialSequence: UInt64 = 0,
-    initialSnapshot: JournalSnapshot?,
-    initialSnapshotBytes: Int
+    initialSnapshotReplacement: OrderedFactSnapshotReplacement<JournalSnapshot>?
 ) throws -> OrderedFactJournal<JournalFact, JournalSnapshot> {
     try OrderedFactJournal(
         generation: generation,
@@ -322,13 +322,12 @@ func makeJournalValidatingInitialSnapshot(
             maximumPhysicalSnapshotBytes: Int.max
         ),
         maximumDrainFacts: maximumDrainFacts,
-        cleanupQuantum: AdmissionCleanupQuantum(
+        cleanupQuantum: .entriesAndBytes(
             maximumEntries: 17,
             maximumBytes: Swift.max(maximumRetainedBytes, maximumSnapshotBytes)
         ),
         initialSequence: initialSequence,
-        initialSnapshot: initialSnapshot,
-        initialSnapshotBytes: initialSnapshot == nil ? 0 : initialSnapshotBytes
+        initialSnapshotReplacement: initialSnapshotReplacement
     )
 }
 
@@ -340,7 +339,10 @@ func makeGappedJournal(
         maximumRetainedFacts: 2,
         maximumRetainedBytes: 1024,
         maximumDrainFacts: 2,
-        initialSnapshot: JournalSnapshot(value: "idle")
+        initialSnapshotReplacement: OrderedFactSnapshotReplacement(
+            snapshot: JournalSnapshot(value: "idle"),
+            estimatedBytes: 16
+        )
     )
     _ = journal.producer.offer(
         generation: generation,
@@ -462,7 +464,7 @@ func factDrain(
 ) -> FactDrainResult? {
     guard case .drain(let drain) = result else { return nil }
     guard case .facts(let facts) = drain.payload else { return nil }
-    return FactDrainResult(token: drain.token, facts: facts)
+    return FactDrainResult(token: drain.token, facts: [facts.first] + facts.remaining)
 }
 
 func persistentGapDrain(
@@ -488,48 +490,67 @@ func isClosedDrain(_ result: OrderedFactTakeDrainResult<JournalFact>) -> Bool {
     return true
 }
 
-func exactReplay(
+func registeredExactReplay(
     _ completion: OrderedFactReplayCompletion<JournalFact, JournalSnapshot>
 ) -> ExactReplayResult? {
-    guard case .facts(let facts, let nextSequence) = completion.result else { return nil }
-    return ExactReplayResult(facts: facts, nextSequence: nextSequence)
+    guard case .registered(let result, let wake) = completion else { return nil }
+    guard case .facts(let facts, let nextSequence) = registeredReplayResult(result) else { return nil }
+    return ExactReplayResult(facts: facts, nextSequence: nextSequence, wake: wake)
 }
 
-func replayHistoryGap(
+private func registeredReplayResult(
+    _ result: OrderedFactRegisteredReplayResult<JournalFact, JournalSnapshot>
+) -> OrderedFactRegisteredReplayResult<JournalFact, JournalSnapshot> {
+    result
+}
+
+func registeredReplayHistoryGap(
     _ completion: OrderedFactReplayCompletion<JournalFact, JournalSnapshot>
-) -> ReplayHistoryGap<JournalFact>? {
-    guard case .historyGap(let gap) = completion.result else { return nil }
-    return gap
+) -> RegisteredHistoryGapReplayResult? {
+    guard case .registered(.historyGap(let gap), let wake) = completion else { return nil }
+    return RegisteredHistoryGapReplayResult(gap: gap, wake: wake)
 }
 
-func snapshotReplayResult(
+func registeredSnapshotReplayResult(
     _ completion: OrderedFactReplayCompletion<JournalFact, JournalSnapshot>
 ) -> SnapshotReplayResult? {
-    guard case .snapshot(let snapshot, let followingFacts, let nextSequence) = completion.result else {
+    guard
+        case .registered(
+            .snapshot(let snapshot, let followingFacts, let nextSequence), let wake
+        ) = completion
+    else {
         return nil
     }
     return SnapshotReplayResult(
         snapshot: snapshot,
         followingFacts: followingFacts,
-        nextSequence: nextSequence
+        nextSequence: nextSequence,
+        wake: wake
     )
 }
 
 func persistentReplayGap(
     _ completion: OrderedFactReplayCompletion<JournalFact, JournalSnapshot>
 ) -> FactGap? {
-    guard case .factGap(let gap) = completion.result else { return nil }
+    guard case .immediate(let result) = completion else { return nil }
+    guard case .factGap(let gap) = immediateReplayResult(result) else { return nil }
     return gap
+}
+
+private func immediateReplayResult(
+    _ result: OrderedFactImmediateReplayResult
+) -> OrderedFactImmediateReplayResult {
+    result
 }
 
 func currentState(
     _ result: OrderedFactCurrentStateResult<JournalSnapshot>
 ) -> CurrentStateResult? {
-    guard case .current(let snapshot, let latestSequence, let isSealed) = result else { return nil }
+    guard case .current(let snapshot, let latestSequence, let lifecycle) = result else { return nil }
     return CurrentStateResult(
         snapshot: snapshot,
         latestSequence: latestSequence,
-        isSealed: isSealed
+        lifecycle: lifecycle
     )
 }
 
@@ -547,9 +568,9 @@ func isInvalidatedState(
     return true
 }
 
-func isInvalidatedReplay(
+func isImmediateInvalidatedReplay(
     _ completion: OrderedFactReplayCompletion<JournalFact, JournalSnapshot>
 ) -> Bool {
-    guard case .invalidated = completion.result else { return false }
+    guard case .immediate(.invalidated) = completion else { return false }
     return true
 }

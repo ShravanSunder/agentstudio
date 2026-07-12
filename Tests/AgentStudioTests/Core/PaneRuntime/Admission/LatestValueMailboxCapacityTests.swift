@@ -13,7 +13,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
         let validLimits = LatestValueLimits(
             maximumValuesPerLease: 1,
             maximumAuxiliaryRetainedValues: 2,
-            cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: nil)
+            cleanupQuantum: .entries(maximumEntries: 1)
         )
 
         #expect(
@@ -34,10 +34,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
                 limits: LatestValueLimits(
                     maximumValuesPerLease: Int.max,
                     maximumAuxiliaryRetainedValues: Int.max,
-                    cleanupQuantum: AdmissionCleanupQuantum(
-                        maximumEntries: 1,
-                        maximumBytes: nil
-                    )
+                    cleanupQuantum: .entries(maximumEntries: 1)
                 )
             ) == false
         )
@@ -47,10 +44,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
                 limits: LatestValueLimits(
                     maximumValuesPerLease: 1,
                     maximumAuxiliaryRetainedValues: 1,
-                    cleanupQuantum: AdmissionCleanupQuantum(
-                        maximumEntries: 1,
-                        maximumBytes: nil
-                    )
+                    cleanupQuantum: .entries(maximumEntries: 1)
                 )
             ) == false
         )
@@ -60,10 +54,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
                 limits: LatestValueLimits(
                     maximumValuesPerLease: 1,
                     maximumAuxiliaryRetainedValues: 2,
-                    cleanupQuantum: AdmissionCleanupQuantum(
-                        maximumEntries: 0,
-                        maximumBytes: nil
-                    )
+                    cleanupQuantum: .entries(maximumEntries: 0)
                 )
             ) == false
         )
@@ -73,10 +64,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
                 limits: LatestValueLimits(
                     maximumValuesPerLease: 1,
                     maximumAuxiliaryRetainedValues: 2,
-                    cleanupQuantum: AdmissionCleanupQuantum(
-                        maximumEntries: 1,
-                        maximumBytes: 1
-                    )
+                    cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 1)
                 )
             ) == false
         )
@@ -109,7 +97,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
             return
         }
 
-        #expect(drain.valuesByKey.count == 2)
+        #expect(latestValuesByKey(drain).count == 2)
         #expect(lifecycle.diagnostics.pendingValueCount == 1)
         #expect(lifecycle.diagnostics.leasedValueCount == 2)
         #expect(lifecycle.diagnostics.physicalRetainedValueCount == 3)
@@ -188,8 +176,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
             cleanupOnlyLifecycle.performCleanup(generation: generation)
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: nil,
+                        release: .entries(count: 1),
                         wake: .noWake
                     )
                 )
@@ -220,8 +207,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
             resumedLifecycle.performCleanup(generation: generation)
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: nil,
+                        release: .entries(count: 1),
                         wake: .scheduleDrain
                     )
                 )
@@ -236,7 +222,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
             Issue.record("Expected delivery after cleanup reached zero")
             return
         }
-        #expect(resumedDrain.valuesByKey == [0: 1])
+        #expect(latestValuesByKey(resumedDrain) == [0: 1])
     }
 
     @Test("cleanup age includes older custody retired behind a younger batch")
@@ -308,7 +294,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
             Issue.record("Expected the exact-oldest cleanup turn")
             return
         }
-        #expect(firstTurn.releasedEntryCount == 1)
+        #expect(firstTurn.release == .entries(count: 1))
         #expect(
             lifecycle.diagnostics.oldestCleanupAge
                 == .pressureConservative(.seconds(3))
@@ -322,7 +308,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
             Issue.record("Expected the final cleanup turn")
             return
         }
-        #expect(finalTurn.releasedEntryCount == 1)
+        #expect(finalTurn.release == .entries(count: 1))
         #expect(lifecycle.diagnostics.oldestCleanupAge == nil)
     }
 
@@ -337,18 +323,18 @@ struct AdmissionLatestValueMailboxCapacityTests {
         let producer = mailbox.producerPort
 
         #expect(
-            producer.offer(generation: generation, key: 0, value: 0).wake
-                == .scheduleDrain
+            producer.offer(generation: generation, key: 0, value: 0)
+                == .admitted(wake: .scheduleDrain)
         )
         _ = producer.offer(generation: generation, key: 0, value: 1)
         _ = producer.offer(generation: generation, key: 0, value: 2)
         #expect(
-            producer.offer(generation: generation, key: 0, value: 3).receipt
+            producer.offer(generation: generation, key: 0, value: 3)
                 == .physicalCapacityExceeded
         )
         #expect(
-            producer.offer(generation: generation, key: 1, value: 10).wake
-                == .noWake
+            producer.offer(generation: generation, key: 1, value: 10)
+                == .admitted(wake: .noWake)
         )
     }
 
@@ -375,7 +361,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
             Issue.record("Expected sparse custody to drain under maximum valid limits")
             return
         }
-        #expect(drain.valuesByKey == [0: 1])
+        #expect(latestValuesByKey(drain) == [0: 1])
         #expect(
             consumer.acknowledge(drain.token, disposition: .transferred)
                 == .accepted(wake: .scheduleDrain)
@@ -384,8 +370,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
             lifecycle.performCleanup(generation: generation)
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: nil,
+                        release: .entries(count: 1),
                         wake: .noWake
                     )
                 )
@@ -423,12 +408,12 @@ struct AdmissionLatestValueMailboxCapacityTests {
         _ = producer.offer(generation: generation, key: 0, value: 1)
         _ = producer.offer(generation: generation, key: 1, value: 11)
         #expect(
-            producer.offer(generation: generation, key: 0, value: 2).receipt
-                == .replacedPrevious
+            producer.offer(generation: generation, key: 0, value: 2)
+                == .replacedPrevious(wake: .noWake)
         )
         #expect(
-            producer.offer(generation: generation, key: 1, value: 12).receipt
-                == .replacedPrevious
+            producer.offer(generation: generation, key: 1, value: 12)
+                == .replacedPrevious(wake: .noWake)
         )
 
         let authorityBeforeRejection = lifecycle.authoritySnapshot
@@ -436,8 +421,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
         let rejected = producer.offer(generation: generation, key: 0, value: 3)
         let diagnosticsAfterRejection = lifecycle.diagnostics
 
-        #expect(rejected.receipt == .physicalCapacityExceeded)
-        #expect(rejected.wake == .noWake)
+        #expect(rejected == .physicalCapacityExceeded)
         #expect(lifecycle.authoritySnapshot == authorityBeforeRejection)
         #expect(diagnosticsAfterRejection.admission.offered == 7)
         #expect(diagnosticsAfterRejection.admission.admitted == 6)
@@ -477,8 +461,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
                 Issue.record("Expected one C-sized terminal cleanup turn")
                 return
             }
-            #expect(turn.releasedEntryCount == 1)
-            #expect(turn.releasedByteCount == nil)
+            #expect(turn.release == .entries(count: 1))
             #expect(lifecycle.diagnostics.cleanupValueCount == remainingCount)
         }
         #expect(lifecycle.performCleanup(generation: generation) == .empty)
@@ -513,20 +496,20 @@ struct AdmissionLatestValueMailboxCapacityTests {
         _ = producer.offer(generation: generation, key: 0, value: 1)
         _ = producer.offer(generation: generation, key: 1, value: 11)
         #expect(
-            producer.offer(generation: generation, key: 0, value: 2).receipt
-                == .replacedPrevious
+            producer.offer(generation: generation, key: 0, value: 2)
+                == .replacedPrevious(wake: .noWake)
         )
         #expect(
-            producer.offer(generation: generation, key: 1, value: 12).receipt
-                == .replacedPrevious
+            producer.offer(generation: generation, key: 1, value: 12)
+                == .replacedPrevious(wake: .noWake)
         )
         #expect(
-            producer.offer(generation: generation, key: 0, value: 3).receipt
-                == .replacedPrevious
+            producer.offer(generation: generation, key: 0, value: 3)
+                == .replacedPrevious(wake: .noWake)
         )
         let rejected = producer.offer(generation: generation, key: 1, value: 13)
 
-        #expect(rejected.receipt == .physicalCapacityExceeded)
+        #expect(rejected == .physicalCapacityExceeded)
         #expect(lifecycle.diagnostics.pendingValueCount == 2)
         #expect(lifecycle.diagnostics.leasedValueCount == 2)
         #expect(lifecycle.diagnostics.cleanupValueCount == 3)
@@ -542,8 +525,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
             lifecycle.performCleanup(generation: generation)
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 5,
-                        releasedByteCount: nil,
+                        release: .entries(count: 5),
                         wake: .scheduleDrain
                     )
                 )
@@ -557,7 +539,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
             Issue.record("Expected pending custody after residual cleanup")
             return
         }
-        #expect(pendingDrain.valuesByKey == [0: 3, 1: 12])
+        #expect(latestValuesByKey(pendingDrain) == [0: 3, 1: 12])
     }
 
     // One destructor barrier must cover authority, diagnostics, admission, and finalization.
@@ -573,7 +555,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
             limits: LatestValueLimits(
                 maximumValuesPerLease: 1,
                 maximumAuxiliaryRetainedValues: 2,
-                cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: nil)
+                cleanupQuantum: .entries(maximumEntries: 1)
             )
         )
         mailboxReference.mailbox = mailbox
@@ -646,15 +628,15 @@ struct AdmissionLatestValueMailboxCapacityTests {
             )
         }
         #expect(
-            producer.offer(generation: generation, key: 0, value: payload(version: 1)).receipt
-                == .admitted
+            producer.offer(generation: generation, key: 0, value: payload(version: 1))
+                == .admitted(wake: .noWake)
         )
         #expect(
-            producer.offer(generation: generation, key: 0, value: payload(version: 2)).receipt
-                == .replacedPrevious
+            producer.offer(generation: generation, key: 0, value: payload(version: 2))
+                == .replacedPrevious(wake: .noWake)
         )
         #expect(
-            producer.offer(generation: generation, key: 0, value: payload(version: 3)).receipt
+            producer.offer(generation: generation, key: 0, value: payload(version: 3))
                 == .physicalCapacityExceeded
         )
         #expect(lifecycle.diagnostics.cleanupValueCount == 2)
@@ -665,8 +647,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
             outerResult.value
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: nil,
+                        release: .entries(count: 1),
                         wake: .scheduleDrain
                     )
                 )
@@ -680,8 +661,8 @@ struct AdmissionLatestValueMailboxCapacityTests {
         #expect(lifecycle.diagnostics.outstandingCleanupTurnCount == 0)
         #expect(lifecycle.diagnostics.isQuiescent == false)
         #expect(
-            producer.offer(generation: generation, key: 0, value: payload(version: 3)).receipt
-                == .admitted
+            producer.offer(generation: generation, key: 0, value: payload(version: 3))
+                == .admitted(wake: .noWake)
         )
     }
 
@@ -695,7 +676,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
             limits: LatestValueLimits(
                 maximumValuesPerLease: 2,
                 maximumAuxiliaryRetainedValues: 4,
-                cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: nil)
+                cleanupQuantum: .entries(maximumEntries: 1)
             )
         )
         mailboxReference.mailbox = mailbox
@@ -737,21 +718,21 @@ struct AdmissionLatestValueMailboxCapacityTests {
                 generation: generation,
                 key: 0,
                 value: payload(key: 0, version: 2)
-            ).receipt == .replacedPrevious
+            ) == .replacedPrevious(wake: .noWake)
         )
         #expect(
             producer.offer(
                 generation: generation,
                 key: 1,
                 value: payload(key: 1, version: 2)
-            ).receipt == .replacedPrevious
+            ) == .replacedPrevious(wake: .noWake)
         )
         #expect(
             producer.offer(
                 generation: generation,
                 key: 0,
                 value: payload(key: 0, version: 3)
-            ).receipt == .physicalCapacityExceeded
+            ) == .physicalCapacityExceeded
         )
         #expect(recorder.releasedIdentities == [.init(key: 0, version: 3)])
 
@@ -781,7 +762,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
                 Issue.record("Expected one tracked C-sized cleanup turn")
                 return
             }
-            #expect(turn.releasedEntryCount == 1)
+            #expect(turn.release == .entries(count: 1))
             #expect(recorder.releasedIdentities.count == index + 2)
             #expect(recorder.releasedIdentities.last == expectedIdentity)
         }
@@ -798,10 +779,7 @@ struct AdmissionLatestValueMailboxCapacityTests {
         let limits = LatestValueLimits(
             maximumValuesPerLease: deliveryLimit,
             maximumAuxiliaryRetainedValues: auxiliaryLimit,
-            cleanupQuantum: AdmissionCleanupQuantum(
-                maximumEntries: cleanupLimit,
-                maximumBytes: nil
-            )
+            cleanupQuantum: .entries(maximumEntries: cleanupLimit)
         )
         if let clock {
             return LatestValueMailbox(

@@ -26,12 +26,14 @@ struct AdmissionOrderedFactJournalTests {
 
         let state = try #require(currentState(journal.consumer.currentState(generation: generation)))
         #expect(state.latestSequence == 1)
+        #expect(state.lifecycle == .open)
         #expect(state.snapshot?.throughSequence == 1)
         #expect(state.snapshot?.snapshot == JournalSnapshot(value: "running"))
 
         let replay = try #require(
-            exactReplay(journal.consumer.replay(after: 0, generation: generation, recovery: .exactHistory)))
+            registeredExactReplay(journal.consumer.replay(after: 0, generation: generation, recovery: .exactHistory)))
         #expect(replay.nextSequence == 1)
+        #expect(replay.wake == .noWake)
         #expect(sequenceOracle(replay.facts) == [.init(sequence: 1, fact: .started)])
     }
 
@@ -42,7 +44,10 @@ struct AdmissionOrderedFactJournalTests {
         let staleGeneration = makeGeneration(7)
         let journal = makeJournal(
             generation: generation,
-            initialSnapshot: JournalSnapshot(value: "idle")
+            initialSnapshotReplacement: OrderedFactSnapshotReplacement(
+                snapshot: JournalSnapshot(value: "idle"),
+                estimatedBytes: 16
+            )
         )
 
         // Act
@@ -168,7 +173,7 @@ struct AdmissionOrderedFactJournalTests {
         let stateGap = try #require(nonCurrentGap(journal.consumer.currentState(generation: generation)))
         #expect(stateGap == committedGap.gap)
         #expect(journal.lifecycle.diagnostics.latestSequence == 3)
-        #expect(journal.lifecycle.diagnostics.productGap == committedGap.gap)
+        #expect(journal.lifecycle.diagnostics.currentness == .nonCurrent(committedGap.gap))
         #expect(journal.lifecycle.diagnostics.admission.repairEscalations == 1)
     }
 
@@ -201,7 +206,7 @@ struct AdmissionOrderedFactJournalTests {
         #expect(committedGap.gap.missingSequences == 1...2)
         #expect(journal.lifecycle.diagnostics.retainedFactCount == 0)
         #expect(journal.lifecycle.diagnostics.retainedByteCount <= 24)
-        #expect(journal.lifecycle.diagnostics.productGap == committedGap.gap)
+        #expect(journal.lifecycle.diagnostics.currentness == .nonCurrent(committedGap.gap))
     }
 
     @Test("overflow supersedes an overlapping fact lease")
@@ -262,7 +267,7 @@ struct AdmissionOrderedFactJournalTests {
         // Assert
         #expect(acknowledgement == .accepted(wake: .noWake))
         #expect(nonCurrentGap(journal.consumer.currentState(generation: generation)) == gapBeforeDrain)
-        #expect(journal.lifecycle.diagnostics.productGap == gapBeforeDrain)
+        #expect(journal.lifecycle.diagnostics.currentness == .nonCurrent(gapBeforeDrain))
         #expect(isEmptyDrain(journal.consumer.takeDrain(binding: journal.binding, generation: generation)))
     }
 
@@ -367,7 +372,7 @@ struct AdmissionOrderedFactJournalTests {
         #expect(state.latestSequence == 5)
         #expect(state.snapshot?.throughSequence == 4)
         #expect(state.snapshot?.snapshot == JournalSnapshot(value: "recovered"))
-        #expect(journal.lifecycle.diagnostics.productGap == nil)
+        #expect(journal.lifecycle.diagnostics.currentness == .current)
     }
 
     @Test("successful gap recovery preserves unavailable exact history when no fact records remain")
@@ -393,13 +398,14 @@ struct AdmissionOrderedFactJournalTests {
 
         // Assert
         #expect(recovery == .recovered)
-        let historyGap = try #require(replayHistoryGap(exactReplay))
+        let registeredReplay = try #require(registeredReplayHistoryGap(exactReplay))
+        let historyGap = registeredReplay.gap
+        #expect(registeredReplay.wake == .noWake)
         #expect(historyGap.missingSequences == 1...3)
         #expect(historyGap.availableFacts.isEmpty)
         #expect(historyGap.nextSequence == 3)
         #expect(journal.lifecycle.diagnostics.retainedFactCount == 0)
-        #expect(journal.lifecycle.diagnostics.productGap == nil)
-        #expect(journal.lifecycle.diagnostics.isCurrent)
+        #expect(journal.lifecycle.diagnostics.currentness == .current)
     }
 
     @Test("exact replay at the unavailable-history watermark remains explicitly gapped")
@@ -425,7 +431,9 @@ struct AdmissionOrderedFactJournalTests {
         )
 
         // Assert
-        let historyGap = try #require(replayHistoryGap(replay))
+        let registeredReplay = try #require(registeredReplayHistoryGap(replay))
+        let historyGap = registeredReplay.gap
+        #expect(registeredReplay.wake == .noWake)
         #expect(historyGap.missingSequences == watermark...watermark)
         #expect(historyGap.availableFacts.isEmpty)
         #expect(historyGap.nextSequence == watermark)
@@ -443,8 +451,10 @@ struct AdmissionOrderedFactJournalTests {
                 try makeJournalValidatingInitialSnapshot(
                     generation: generation,
                     maximumSnapshotBytes: 8,
-                    initialSnapshot: JournalSnapshot(value: "oversized"),
-                    initialSnapshotBytes: 16
+                    initialSnapshotReplacement: OrderedFactSnapshotReplacement(
+                        snapshot: JournalSnapshot(value: "oversized"),
+                        estimatedBytes: 16
+                    )
                 ))
         } catch {
             result = .failure(error)
@@ -483,9 +493,10 @@ struct AdmissionOrderedFactJournalTests {
         #expect(state.latestSequence == 0)
         #expect(state.snapshot == nil)
         let replay = try #require(
-            exactReplay(journal.consumer.replay(after: 0, generation: generation, recovery: .exactHistory)))
+            registeredExactReplay(journal.consumer.replay(after: 0, generation: generation, recovery: .exactHistory)))
         #expect(replay.facts.isEmpty)
         #expect(replay.nextSequence == 0)
+        #expect(replay.wake == .noWake)
         #expect(journal.lifecycle.diagnostics.admission.offered == 1)
         #expect(journal.lifecycle.diagnostics.admission.admitted == 0)
         #expect(journal.lifecycle.diagnostics.retainedFactCount == 0)
@@ -524,7 +535,10 @@ struct AdmissionOrderedFactJournalTests {
             generation: generation,
             maximumRetainedFacts: 2,
             maximumDrainFacts: 2,
-            initialSnapshot: JournalSnapshot(value: "idle")
+            initialSnapshotReplacement: OrderedFactSnapshotReplacement(
+                snapshot: JournalSnapshot(value: "idle"),
+                estimatedBytes: 16
+            )
         )
         _ = journal.producer.offer(
             generation: generation,
@@ -570,14 +584,16 @@ struct AdmissionOrderedFactJournalTests {
         let replay = journal.consumer.replay(after: 0, generation: generation, recovery: .exactHistory)
 
         // Assert
-        let historyGap = try #require(replayHistoryGap(replay))
+        let registeredReplay = try #require(registeredReplayHistoryGap(replay))
+        let historyGap = registeredReplay.gap
+        #expect(registeredReplay.wake == .noWake)
         #expect(historyGap.missingSequences == 1...3)
         #expect(
             sequenceOracle(historyGap.availableFacts) == [
                 .init(sequence: 4, fact: .closed)
             ])
         #expect(historyGap.nextSequence == 4)
-        #expect(journal.lifecycle.diagnostics.productGap == nil)
+        #expect(journal.lifecycle.diagnostics.currentness == .current)
         #expect(currentState(journal.consumer.currentState(generation: generation)) != nil)
     }
 
@@ -589,7 +605,10 @@ struct AdmissionOrderedFactJournalTests {
             generation: generation,
             maximumRetainedFacts: 2,
             maximumDrainFacts: 2,
-            initialSnapshot: JournalSnapshot(value: "idle")
+            initialSnapshotReplacement: OrderedFactSnapshotReplacement(
+                snapshot: JournalSnapshot(value: "idle"),
+                estimatedBytes: 16
+            )
         )
         admitAndTransferThreeFacts(journal, generation: generation, finalSnapshot: "finished")
         let productGap = try #require(
@@ -611,14 +630,17 @@ struct AdmissionOrderedFactJournalTests {
         let snapshotReplay = journal.consumer.replay(after: 0, generation: generation, recovery: .currentSnapshot)
 
         // Assert
-        let historyGap = try #require(replayHistoryGap(occurrenceReplay))
+        let registeredReplay = try #require(registeredReplayHistoryGap(occurrenceReplay))
+        let historyGap = registeredReplay.gap
+        #expect(registeredReplay.wake == .noWake)
         #expect(historyGap.missingSequences == 1...3)
 
-        let resynchronized = try #require(snapshotReplayResult(snapshotReplay))
+        let resynchronized = try #require(registeredSnapshotReplayResult(snapshotReplay))
         #expect(resynchronized.snapshot.throughSequence == 3)
         #expect(resynchronized.snapshot.snapshot == JournalSnapshot(value: "finished"))
         #expect(resynchronized.followingFacts.isEmpty)
         #expect(resynchronized.nextSequence == 3)
+        #expect(resynchronized.wake == .noWake)
     }
 
     @Test("a persistent product gap dominates snapshot and exact-history replay")
@@ -712,7 +734,7 @@ struct AdmissionOrderedFactJournalTests {
         #expect(acknowledgement == .accepted(wake: .noWake))
         #expect(isClosedDrain(afterDrain))
         let state = try #require(currentState(journal.consumer.currentState(generation: generation)))
-        #expect(state.isSealed)
+        #expect(state.lifecycle == .sealed)
     }
 
     @Test("invalidate revokes an active drain and current snapshot")
@@ -721,7 +743,10 @@ struct AdmissionOrderedFactJournalTests {
         let generation = makeGeneration(1)
         let journal = makeJournal(
             generation: generation,
-            initialSnapshot: JournalSnapshot(value: "idle")
+            initialSnapshotReplacement: OrderedFactSnapshotReplacement(
+                snapshot: JournalSnapshot(value: "idle"),
+                estimatedBytes: 16
+            )
         )
         _ = journal.producer.offer(
             generation: generation,
@@ -742,10 +767,10 @@ struct AdmissionOrderedFactJournalTests {
         #expect(invalidated == .applied)
         #expect(acknowledgement == .closed)
         #expect(isInvalidatedState(journal.consumer.currentState(generation: generation)))
-        #expect(isInvalidatedReplay(replay))
+        #expect(isImmediateInvalidatedReplay(replay))
         #expect(journal.lifecycle.diagnostics.retainedFactCount == 0)
         #expect(journal.lifecycle.diagnostics.retainedByteCount == 0)
-        #expect(journal.lifecycle.diagnostics.isCurrent == false)
+        #expect(journal.lifecycle.diagnostics.currentness == .invalidated)
     }
 
     @Test("diagnostics use the injected clock and retain leased depth until acknowledgement")
@@ -783,18 +808,11 @@ struct AdmissionOrderedFactJournalTests {
         let afterAcknowledgement = journal.lifecycle.diagnostics
 
         // Assert
-        #expect(beforeDrain.admission.offered == 2)
-        #expect(beforeDrain.admission.admitted == 2)
-        #expect(beforeDrain.admission.contracted == 0)
-        #expect(beforeDrain.admission.pendingKeyCount == 2)
-        #expect(beforeDrain.admission.pendingKeyHighWater == 2)
-        #expect(beforeDrain.admission.oldestPendingAge == .exact(.seconds(3)))
-        #expect(beforeDrain.retainedFactCount == 2)
-        #expect(beforeDrain.retainedByteCount == 24)
-        #expect(duringDrain.admission.pendingKeyCount == 2)
-        #expect(duringDrain.outstandingDrainCount == 1)
-        #expect(afterAcknowledgement.admission.pendingKeyCount == 1)
-        #expect(afterAcknowledgement.outstandingDrainCount == 0)
+        expectJournalDiagnostics(
+            beforeDrain: beforeDrain,
+            duringDrain: duringDrain,
+            afterAcknowledgement: afterAcknowledgement
+        )
     }
 
     @Test("invalidation releases retained fact custody outside the journal lock")
@@ -942,4 +960,23 @@ struct AdmissionOrderedFactJournalTests {
         #expect(recorder.identifiers.contains("superseded-snapshot"))
     }
 
+}
+
+private func expectJournalDiagnostics(
+    beforeDrain: OrderedFactJournalDiagnostics,
+    duringDrain: OrderedFactJournalDiagnostics,
+    afterAcknowledgement: OrderedFactJournalDiagnostics
+) {
+    #expect(beforeDrain.admission.offered == 2)
+    #expect(beforeDrain.admission.admitted == 2)
+    #expect(beforeDrain.admission.contracted == 0)
+    #expect(beforeDrain.admission.pendingKeyCount == 2)
+    #expect(beforeDrain.admission.pendingKeyHighWater == 2)
+    #expect(beforeDrain.admission.oldestPendingAge == .exact(.seconds(3)))
+    #expect(beforeDrain.retainedFactCount == 2)
+    #expect(beforeDrain.retainedByteCount == 24)
+    #expect(duringDrain.admission.pendingKeyCount == 2)
+    #expect(duringDrain.outstandingDrainCount == 1)
+    #expect(afterAcknowledgement.admission.pendingKeyCount == 1)
+    #expect(afterAcknowledgement.outstandingDrainCount == 0)
 }

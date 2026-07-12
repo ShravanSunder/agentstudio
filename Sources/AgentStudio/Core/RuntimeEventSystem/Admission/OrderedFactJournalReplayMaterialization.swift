@@ -7,32 +7,18 @@ struct OrderedFactReplayHistoryCapture<Fact: Sendable, Snapshot: Sendable>: Send
     let recovery: OrderedFactReplayRecovery
 }
 
-enum OrderedFactReplayCaptureContent<Fact: Sendable, Snapshot: Sendable>: Sendable {
-    case immediate(OrderedFactReplayResult<Fact, Snapshot>)
-    case history(OrderedFactReplayHistoryCapture<Fact, Snapshot>)
+enum OrderedFactReplayCapture<Fact: Sendable, Snapshot: Sendable>: Sendable {
+    case immediate(OrderedFactImmediateReplayResult)
+    case registered(
+        readerIdentity: AdmissionOpaqueIdentity,
+        history: OrderedFactReplayHistoryCapture<Fact, Snapshot>
+    )
 }
 
-struct OrderedFactReplayCapture<Fact: Sendable, Snapshot: Sendable>: Sendable {
-    let readerIdentity: AdmissionOpaqueIdentity?
-    let content: OrderedFactReplayCaptureContent<Fact, Snapshot>
-}
-
-func materializeOrderedFactReplay<Fact: Sendable, Snapshot: Sendable>(
-    _ capture: OrderedFactReplayCapture<Fact, Snapshot>,
-    generation: AdmissionGeneration
-) -> OrderedFactReplayResult<Fact, Snapshot> {
-    switch capture.content {
-    case .immediate(let immediateResult):
-        immediateResult
-    case .history(let historyCapture):
-        materializeOrderedFactReplayHistory(historyCapture, generation: generation)
-    }
-}
-
-private func materializeOrderedFactReplayHistory<Fact: Sendable, Snapshot: Sendable>(
+func materializeOrderedFactRegisteredReplay<Fact: Sendable, Snapshot: Sendable>(
     _ capture: OrderedFactReplayHistoryCapture<Fact, Snapshot>,
     generation: AdmissionGeneration
-) -> OrderedFactReplayResult<Fact, Snapshot> {
+) -> OrderedFactRegisteredReplayResult<Fact, Snapshot> {
     let followingFacts = materializeOrderedFactReplayFacts(
         bounds: capture.bounds,
         after: capture.afterSequence

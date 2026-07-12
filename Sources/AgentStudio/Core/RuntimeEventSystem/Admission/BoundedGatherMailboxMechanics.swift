@@ -8,10 +8,16 @@ extension BoundedGatherMailbox {
         let normalizedLimits = normalized(limits)
         guard declaredKeyCount >= 0,
             declaredKeyCount <= normalizedLimits.maximumDeclaredKeys,
-            normalizedLimits.cleanupQuantum.isValid,
-            let maximumCleanupBytes = normalizedLimits.cleanupQuantum.maximumBytes
+            normalizedLimits.cleanupQuantum.isValid
         else {
             return false
+        }
+        let maximumCleanupBytes: Int
+        switch normalizedLimits.cleanupQuantum {
+        case .entries:
+            return false
+        case .entriesAndBytes(_, let maximumBytes):
+            maximumCleanupBytes = maximumBytes
         }
         let canRetainContribution =
             normalizedLimits.maximumRetainedContributions > 0

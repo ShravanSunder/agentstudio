@@ -109,7 +109,7 @@ extension AdmissionOrderedFactJournalTests {
         #expect(reboundDrain.token != oldDrain.token)
         #expect(reboundAcknowledgement == .accepted(wake: .noWake))
         #expect(isEmptyDrain(afterTransfer))
-        #expect(journal.lifecycle.diagnostics.productGap == oldDrain.gap)
+        #expect(journal.lifecycle.diagnostics.currentness == .nonCurrent(oldDrain.gap))
     }
 
     @Test("offer take and diagnostics sample a reentrant injected clock outside the journal lock")

@@ -102,8 +102,7 @@ extension AdmissionLatestValueMailboxTests {
             releaseLifecycle.performCleanup(generation: generation)
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 2,
-                        releasedByteCount: nil,
+                        release: .entries(count: 2),
                         wake: .noWake
                     )
                 )
@@ -171,8 +170,7 @@ extension AdmissionLatestValueMailboxTests {
             acknowledgementConsumer.performCleanup(generation: generation)
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: nil,
+                        release: .entries(count: 1),
                         wake: .scheduleDrain
                     )
                 )
@@ -184,8 +182,7 @@ extension AdmissionLatestValueMailboxTests {
             acknowledgementLifecycle.performCleanup(generation: generation)
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: nil,
+                        release: .entries(count: 1),
                         wake: .noWake
                     )
                 )

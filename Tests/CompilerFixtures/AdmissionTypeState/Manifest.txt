@@ -1,23 +1,29 @@
 # id|oracle|legacy|current-negative|current-positive|diagnostic-category|diagnostic-pattern|mutation-id
-latest-rejected-offer-with-wake|fixture|Legacy/LatestRejectedOfferWithWake.swift|CurrentNegative/LatestRejectedOfferWithWake.swift|CurrentPositive/LatestRejectedOfferWithWake.swift|associated-value-arity|argument passed to call that takes no arguments|-
-gather-rejected-offer-with-wake|fixture|Legacy/GatherRejectedOfferWithWake.swift|CurrentNegative/GatherRejectedOfferWithWake.swift|CurrentPositive/GatherRejectedOfferWithWake.swift|associated-value-arity|argument passed to call that takes no arguments|-
-cleanup-quantum-nil-bytes|fixture|Legacy/CleanupQuantumNilBytes.swift|CurrentNegative/CleanupQuantumNilBytes.swift|CurrentPositive/CleanupQuantumNilBytes.swift|nonoptional-byte-budget|optional type|-
-cleanup-release-nil-bytes|fixture|Legacy/CleanupReleaseNilBytes.swift|CurrentNegative/CleanupReleaseNilBytes.swift|CurrentPositive/CleanupReleaseNilBytes.swift|nonoptional-release-bytes|optional type|-
+latest-rejected-offer-with-wake|fixture|Legacy/LatestRejectedOfferWithWake.swift|CurrentNegative/LatestRejectedOfferWithWake.swift|CurrentPositive/LatestRejectedOfferWithWake.swift|associated-value-arity|has no associated values|-
+gather-rejected-offer-with-wake|fixture|Legacy/GatherRejectedOfferWithWake.swift|CurrentNegative/GatherRejectedOfferWithWake.swift|CurrentPositive/GatherRejectedOfferWithWake.swift|associated-value-arity|has no associated values|-
+cleanup-quantum-nil-bytes|fixture|Legacy/CleanupQuantumNilBytes.swift|CurrentNegative/CleanupQuantumNilBytes.swift|CurrentPositive/CleanupQuantumNilBytes.swift|nonoptional-byte-budget|not compatible with expected argument type|-
+cleanup-release-nil-bytes|fixture|Legacy/CleanupReleaseNilBytes.swift|CurrentNegative/CleanupReleaseNilBytes.swift|CurrentPositive/CleanupReleaseNilBytes.swift|nonoptional-release-bytes|not compatible with expected argument type|-
 gather-contracted-without-revision|fixture|Legacy/GatherContractedWithoutRevision.swift|CurrentNegative/GatherContractedWithoutRevision.swift|CurrentPositive/GatherContractedWithoutRevision.swift|missing-associated-revision|expects argument|-
 gather-empty-ordinary-lease|fixture|Legacy/GatherEmptyOrdinaryLease.swift|CurrentNegative/GatherEmptyOrdinaryLease.swift|CurrentPositive/GatherEmptyOrdinaryLease.swift|nonempty-gather-payload|cannot convert value of type|-
 immediate-replay-completion-with-wake|fixture|Legacy/ImmediateReplayCompletionWithWake.swift|CurrentNegative/ImmediateReplayCompletionWithWake.swift|CurrentPositive/ImmediateReplayCompletionWithWake.swift|immediate-replay-has-no-wake|extra argument|-
+immediate-replay-with-registered-result|fixture|Legacy/ImmediateReplayWithRegisteredResult.swift|CurrentNegative/ImmediateReplayWithRegisteredResult.swift|CurrentPositive/ImmediateReplayWithRegisteredResult.swift|immediate-replay-result-family|cannot convert value of type 'OrderedFactRegisteredReplayResult<Int, Int>' to expected argument type 'OrderedFactImmediateReplayResult'|-
+registered-replay-with-immediate-result|fixture|Legacy/RegisteredReplayWithImmediateResult.swift|CurrentNegative/RegisteredReplayWithImmediateResult.swift|CurrentPositive/RegisteredReplayWithImmediateResult.swift|registered-replay-result-family|cannot convert value of type 'OrderedFactImmediateReplayResult' to expected argument type 'OrderedFactRegisteredReplayResult<Int, Int>'|-
 immediate-replay-capture-with-reader|legacy-fixture-current-mutation|Legacy/ImmediateReplayCaptureWithReader.swift|-|-|mutation-owned|-|ordered-replay-immediate-reader-authority
 registered-replay-capture-without-reader|legacy-fixture-current-mutation|Legacy/RegisteredReplayCaptureWithoutReader.swift|-|-|mutation-owned|-|ordered-replay-registered-missing-reader-authority
 latest-empty-drain|fixture|Legacy/LatestEmptyDrain.swift|CurrentNegative/LatestEmptyDrain.swift|CurrentPositive/LatestEmptyDrain.swift|nonempty-latest-values|cannot convert value of type|-
-latest-missing-age-drain|fixture|Legacy/LatestMissingAgeDrain.swift|CurrentNegative/LatestMissingAgeDrain.swift|CurrentPositive/LatestMissingAgeDrain.swift|exact-age-required|optional type|-
+latest-missing-age-drain|fixture|Legacy/LatestMissingAgeDrain.swift|CurrentNegative/LatestMissingAgeDrain.swift|CurrentPositive/LatestMissingAgeDrain.swift|exact-age-required|not compatible with expected argument type|-
 latest-conservative-age-drain|fixture|Legacy/LatestConservativeAgeDrain.swift|CurrentNegative/LatestConservativeAgeDrain.swift|CurrentPositive/LatestConservativeAgeDrain.swift|exact-age-only|has no member 'pressureConservative'|-
 ordered-empty-fact-drain|fixture|Legacy/OrderedEmptyFactDrain.swift|CurrentNegative/OrderedEmptyFactDrain.swift|CurrentPositive/OrderedEmptyFactDrain.swift|nonempty-ordered-facts|cannot convert value of type|-
-ordered-missing-age-drain|fixture|Legacy/OrderedMissingAgeDrain.swift|CurrentNegative/OrderedMissingAgeDrain.swift|CurrentPositive/OrderedMissingAgeDrain.swift|exact-age-required|optional type|-
+ordered-missing-age-drain|fixture|Legacy/OrderedMissingAgeDrain.swift|CurrentNegative/OrderedMissingAgeDrain.swift|CurrentPositive/OrderedMissingAgeDrain.swift|exact-age-required|not compatible with expected argument type|-
 ordered-conservative-age-drain|fixture|Legacy/OrderedConservativeAgeDrain.swift|CurrentNegative/OrderedConservativeAgeDrain.swift|CurrentPositive/OrderedConservativeAgeDrain.swift|exact-age-only|has no member 'pressureConservative'|-
-split-journal-initial-snapshot|fixture|Legacy/SplitJournalInitialSnapshot.swift|CurrentNegative/SplitJournalInitialSnapshot.swift|CurrentPositive/SplitJournalInitialSnapshot.swift|bundled-snapshot-footprint|optional type|-
-doorbell-pending-and-waiting|fixture|Legacy/DoorbellPendingAndWaiting.swift|CurrentNegative/DoorbellPendingAndWaiting.swift|CurrentPositive/DoorbellPendingAndWaiting.swift|closed-doorbell-state|argument passed to call that takes no arguments|-
-doorbell-finished-and-pending|fixture|Legacy/DoorbellFinishedAndPending.swift|CurrentNegative/DoorbellFinishedAndPending.swift|CurrentPositive/DoorbellFinishedAndPending.swift|closed-doorbell-state|argument passed to call that takes no arguments|-
-doorbell-finished-and-waiting|fixture|Legacy/DoorbellFinishedAndWaiting.swift|CurrentNegative/DoorbellFinishedAndWaiting.swift|CurrentPositive/DoorbellFinishedAndWaiting.swift|closed-doorbell-state|argument passed to call that takes no arguments|-
+split-journal-initial-snapshot|fixture|Legacy/SplitJournalInitialSnapshot.swift|CurrentNegative/SplitJournalInitialSnapshot.swift|CurrentPositive/SplitJournalInitialSnapshot.swift|bundled-snapshot-footprint|not compatible with expected argument type|-
+ordered-current-lifecycle-boolean|fixture|Legacy/OrderedCurrentLifecycleBoolean.swift|CurrentNegative/OrderedCurrentLifecycleBoolean.swift|CurrentPositive/OrderedCurrentLifecycleBoolean.swift|closed-current-lifecycle|cannot convert value of type 'Bool' to expected argument type 'OrderedFactCurrentLifecycleState'|-
+diagnostic-current-with-gap|fixture|Legacy/DiagnosticCurrentWithGap.swift|CurrentNegative/DiagnosticCurrentWithGap.swift|CurrentPositive/DiagnosticCurrentWithGap.swift|closed-diagnostic-current|has no associated values|-
+diagnostic-noncurrent-without-gap|fixture|Legacy/DiagnosticNonCurrentWithoutGap.swift|CurrentNegative/DiagnosticNonCurrentWithoutGap.swift|CurrentPositive/DiagnosticNonCurrentWithoutGap.swift|diagnostic-noncurrent-requires-gap|not compatible with expected argument type|-
+diagnostic-invalidated-without-case|fixture|Legacy/DiagnosticInvalidatedWithoutCase.swift|CurrentNegative/DiagnosticInvalidatedWithoutCase.swift|CurrentPositive/DiagnosticInvalidatedWithoutCase.swift|closed-diagnostic-invalidated|has no associated values|-
+doorbell-pending-and-waiting|fixture|Legacy/DoorbellPendingAndWaiting.swift|CurrentNegative/DoorbellPendingAndWaiting.swift|CurrentPositive/DoorbellPendingAndWaiting.swift|closed-doorbell-state|has no associated values|-
+doorbell-finished-and-pending|fixture|Legacy/DoorbellFinishedAndPending.swift|CurrentNegative/DoorbellFinishedAndPending.swift|CurrentPositive/DoorbellFinishedAndPending.swift|closed-doorbell-state|has no associated values|-
+doorbell-finished-and-waiting|fixture|Legacy/DoorbellFinishedAndWaiting.swift|CurrentNegative/DoorbellFinishedAndWaiting.swift|CurrentPositive/DoorbellFinishedAndWaiting.swift|closed-doorbell-state|has no associated values|-
 latest-unavailable-cleanup-with-authority|mutation-owned|-|-|-|mutation-owned|-|latest-cleanup-unavailable-authority
 latest-unavailable-cleanup-with-custody|mutation-owned|-|-|-|mutation-owned|-|latest-cleanup-unavailable-custody
 gather-unavailable-cleanup-with-authority|mutation-owned|-|-|-|mutation-owned|-|gather-cleanup-unavailable-authority
@@ -40,3 +46,10 @@ gather-offer-optional-retry-result|mutation-owned|-|-|-|mutation-owned|-|gather-
 ordered-offer-optional-preflight-result|mutation-owned|-|-|-|mutation-owned|-|ordered-offer-optional-preflight-result
 gather-resolved-admission-correlated-booleans|mutation-owned|-|-|-|mutation-owned|-|gather-resolved-admission-correlated-booleans
 gather-recovery-advance-stamp-escalation-boolean|mutation-owned|-|-|-|mutation-owned|-|gather-recovery-advance-stamp-escalation-boolean
+gather-no-lease-awaiting-presentation|mutation-owned|-|-|-|mutation-owned|-|gather-no-lease-awaiting-presentation
+gather-no-lease-presented|mutation-owned|-|-|-|mutation-owned|-|gather-no-lease-presented
+gather-presentation-without-active-lease|mutation-owned|-|-|-|mutation-owned|-|gather-presentation-without-active-lease
+ordered-product-gap-transfer-state|mutation-owned|-|-|-|mutation-owned|-|ordered-product-gap-transfer-state
+ordered-drain-presentation-state|mutation-owned|-|-|-|mutation-owned|-|ordered-drain-presentation-state
+latest-nonempty-cleanup-age|mutation-owned|-|-|-|mutation-owned|-|latest-nonempty-cleanup-age
+ordered-nonempty-cleanup-age|mutation-owned|-|-|-|mutation-owned|-|ordered-nonempty-cleanup-age

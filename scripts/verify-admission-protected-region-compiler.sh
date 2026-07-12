@@ -121,6 +121,11 @@ do
   fi
 done
 
+if ! scripts/verify-admission-type-state-compiler.sh; then
+  echo "[admission-compiler] FAIL strict type-state verifier"
+  verification_failed=1
+fi
+
 if [[ $verification_failed -ne 0 ]]; then
   exit 1
 fi

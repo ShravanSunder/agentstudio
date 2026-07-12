@@ -25,7 +25,7 @@ struct AdmissionRebindDoorbellCompositionTests {
             generation: generation,
             declaredKeys: [.primary],
             limits: makeLatestValueTestLimits(
-                cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: nil)
+                cleanupQuantum: .entries(maximumEntries: 1)
             )
         )
         let producer = mailbox.producerPort
@@ -39,7 +39,7 @@ struct AdmissionRebindDoorbellCompositionTests {
         )
         let firstBind = bindingCoordinator.bind(consumer)
         let offer = producer.offer(generation: generation, key: .primary, value: 41)
-        doorbellOwner.apply(offer.wake)
+        doorbellOwner.apply(latestOfferWake(offer))
         #expect(
             try await consumePendingSignal(
                 consumer: doorbellConsumer,
@@ -73,11 +73,11 @@ struct AdmissionRebindDoorbellCompositionTests {
 
         // Assert
         #expect(replacementBind.wake == .scheduleDrain)
-        #expect(replacementDrain.valuesByKey == oldDrain.valuesByKey)
+        #expect(latestValuesByKey(replacementDrain) == latestValuesByKey(oldDrain))
         #expect(replacementDrain.token != oldDrain.token)
         #expect(oldAcknowledgement == .invalidToken)
         #expect(replacementAcknowledgement == .accepted(wake: .scheduleDrain))
-        #expect(doorbellLifecycle.stateSnapshot.hasPendingSignal)
+        #expect(doorbellLifecycle.stateSnapshot == .signalPending)
         doorbellLifecycle.finish()
     }
 
@@ -99,7 +99,7 @@ struct AdmissionRebindDoorbellCompositionTests {
                 maximumContributionsPerLease: 1,
                 maximumItemsPerLease: 1,
                 maximumBytesPerLease: 1,
-                cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: 1)
+                cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 1)
             )
         )
         let producer = mailbox.producerPort
@@ -121,7 +121,7 @@ struct AdmissionRebindDoorbellCompositionTests {
                 recoverySignal: .authoritativeRecoveryRequired
             )
         )
-        doorbellOwner.apply(offer.wake)
+        doorbellOwner.apply(gatherOfferWake(offer))
         #expect(
             try await consumePendingSignal(
                 consumer: doorbellConsumer,
@@ -155,14 +155,13 @@ struct AdmissionRebindDoorbellCompositionTests {
 
         // Assert
         #expect(replacementBind.wake == .scheduleDrain)
-        #expect(oldLease.contributions.isEmpty)
-        #expect(oldLease.recoveryRevision != nil)
-        #expect(replacementLease.contributions.isEmpty)
-        #expect(replacementLease.recoveryRevision == oldLease.recoveryRevision)
+        let oldRecoveryRevision = try requireRecoveryOnlyLease(oldLease)
+        let replacementRecoveryRevision = try requireRecoveryOnlyLease(replacementLease)
+        #expect(replacementRecoveryRevision == oldRecoveryRevision)
         #expect(replacementLease.token != oldLease.token)
         #expect(oldAcknowledgement == .invalidToken)
         #expect(replacementAcknowledgement == .accepted(wake: .noWake))
-        #expect(doorbellLifecycle.stateSnapshot.hasPendingSignal == false)
+        #expect(doorbellLifecycle.stateSnapshot == .idle)
         doorbellLifecycle.finish()
     }
 
@@ -180,9 +179,8 @@ struct AdmissionRebindDoorbellCompositionTests {
                 maximumPhysicalSnapshotBytes: Int.max
             ),
             maximumDrainFacts: 1,
-            cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: 8),
-            initialSnapshot: nil,
-            initialSnapshotBytes: 0
+            cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 8),
+            initialSnapshotReplacement: nil
         )
         let producer = journal.producerPort
         let consumer = journal.consumerPort
@@ -239,7 +237,7 @@ struct AdmissionRebindDoorbellCompositionTests {
         #expect(replacementDrain.token != oldDrain.token)
         #expect(oldAcknowledgement == .invalidToken)
         #expect(replacementAcknowledgement == .accepted(wake: .noWake))
-        #expect(doorbellLifecycle.stateSnapshot.hasPendingSignal == false)
+        #expect(doorbellLifecycle.stateSnapshot == .idle)
         doorbellLifecycle.finish()
     }
 
@@ -257,9 +255,8 @@ struct AdmissionRebindDoorbellCompositionTests {
                 maximumPhysicalSnapshotBytes: Int.max
             ),
             maximumDrainFacts: 1,
-            cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: 8),
-            initialSnapshot: nil,
-            initialSnapshotBytes: 0
+            cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 8),
+            initialSnapshotReplacement: nil
         )
         let producer = journal.producerPort
         let consumer = journal.consumerPort
@@ -315,7 +312,7 @@ struct AdmissionRebindDoorbellCompositionTests {
         #expect(replacementDrain.token != oldDrain.token)
         #expect(oldAcknowledgement == .invalidToken)
         #expect(replacementAcknowledgement == .accepted(wake: .noWake))
-        #expect(doorbellLifecycle.stateSnapshot.hasPendingSignal == false)
+        #expect(doorbellLifecycle.stateSnapshot == .idle)
         doorbellLifecycle.finish()
     }
 
@@ -348,7 +345,7 @@ struct AdmissionRebindDoorbellCompositionTests {
             Issue.record("Expected an ordered fact drain, got \(String(reflecting: result))")
             throw AdmissionRebindDoorbellTestError.expectedDrain
         }
-        return (drain.token, facts)
+        return (drain.token, facts.testValues)
     }
 
     private func requireJournalGapDrain(
@@ -369,6 +366,36 @@ struct AdmissionRebindDoorbellCompositionTests {
         return .noWake
     }
 
+    private func latestOfferWake(_ result: LatestValueOfferResult) -> AdmissionWakeDirective {
+        switch result {
+        case .admitted(let wake), .replacedPrevious(let wake):
+            wake
+        case .physicalCapacityExceeded, .staleGeneration, .undeclaredKey, .closed:
+            .noWake
+        }
+    }
+
+    private func gatherOfferWake<Key: Hashable & Sendable>(
+        _ result: GatherOfferResult<Key>
+    ) -> AdmissionWakeDirective {
+        switch result {
+        case .admitted(_, let wake):
+            wake
+        case .staleGeneration, .undeclaredKey, .invalidFootprint, .closed:
+            .noWake
+        }
+    }
+
+    private func requireRecoveryOnlyLease<Key: Hashable & Sendable, Payload: Sendable>(
+        _ lease: GatherDrainLease<Key, Payload>
+    ) throws -> GatherRecoveryRevision<Key> {
+        guard case .recovery(let revision) = lease.payload else {
+            Issue.record("Expected a recovery-only gather lease")
+            throw AdmissionRebindDoorbellTestError.expectedDrain
+        }
+        return revision
+    }
+
     private func acknowledgementWake(
         _ acknowledgement: AdmissionDrainAcknowledgement
     ) -> AdmissionWakeDirective {
@@ -380,7 +407,7 @@ struct AdmissionRebindDoorbellCompositionTests {
         consumer: AdmissionDoorbellConsumerPort,
         lifecycle: AdmissionDoorbellLifecyclePort
     ) async throws -> AdmissionDoorbellResult {
-        guard lifecycle.stateSnapshot.hasPendingSignal else {
+        guard lifecycle.stateSnapshot == .signalPending else {
             Issue.record("Expected a concrete pending doorbell level before waiting")
             throw AdmissionRebindDoorbellTestError.expectedPendingDoorbellLevel
         }

@@ -16,16 +16,9 @@ struct AdmissionDoorbellTests {
         signaler.signal()
         signaler.signal()
 
-        #expect(
-            lifecycle.stateSnapshot
-                == AdmissionDoorbellStateSnapshot(
-                    hasPendingSignal: true,
-                    hasWaitingConsumer: false,
-                    isFinished: false
-                )
-        )
+        #expect(lifecycle.stateSnapshot == .signalPending)
         #expect(await consumer.nextSignal() == .signaled)
-        #expect(lifecycle.stateSnapshot.hasPendingSignal == false)
+        #expect(lifecycle.stateSnapshot == .idle)
         lifecycle.finish()
     }
 
@@ -37,10 +30,11 @@ struct AdmissionDoorbellTests {
         let lifecycle = doorbell.lifecyclePort
 
         async let result = consumer.nextSignal()
+        #expect(await waitForDoorbellState(.consumerWaiting, lifecycle: lifecycle))
         signaler.signal()
 
         #expect(await result == .signaled)
-        #expect(lifecycle.stateSnapshot.hasPendingSignal == false)
+        #expect(lifecycle.stateSnapshot == .idle)
         lifecycle.finish()
     }
 
@@ -52,6 +46,7 @@ struct AdmissionDoorbellTests {
         let lifecycle = doorbell.lifecyclePort
 
         async let waitingResult = consumer.nextSignal()
+        #expect(await waitForDoorbellState(.consumerWaiting, lifecycle: lifecycle))
         lifecycle.finish()
 
         #expect(await waitingResult == .finished)
@@ -59,14 +54,7 @@ struct AdmissionDoorbellTests {
         lifecycle.finish()
         #expect(await consumer.nextSignal() == .finished)
         #expect(await consumer.nextSignal() == .finished)
-        #expect(
-            lifecycle.stateSnapshot
-                == AdmissionDoorbellStateSnapshot(
-                    hasPendingSignal: false,
-                    hasWaitingConsumer: false,
-                    isFinished: true
-                )
-        )
+        #expect(lifecycle.stateSnapshot == .finished)
     }
 
     @Test("finish discards an unconsumed level signal")
@@ -77,11 +65,11 @@ struct AdmissionDoorbellTests {
         let lifecycle = doorbell.lifecyclePort
 
         signaler.signal()
-        #expect(lifecycle.stateSnapshot.hasPendingSignal)
+        #expect(lifecycle.stateSnapshot == .signalPending)
         lifecycle.finish()
 
         #expect(await consumer.nextSignal() == .finished)
-        #expect(lifecycle.stateSnapshot.hasPendingSignal == false)
+        #expect(lifecycle.stateSnapshot == .finished)
     }
 
     @Test("concurrent signals preserve capacity one")
@@ -100,9 +88,9 @@ struct AdmissionDoorbellTests {
             }
         }
 
-        #expect(lifecycle.stateSnapshot.hasPendingSignal)
+        #expect(lifecycle.stateSnapshot == .signalPending)
         #expect(await consumer.nextSignal() == .signaled)
-        #expect(lifecycle.stateSnapshot.hasPendingSignal == false)
+        #expect(lifecycle.stateSnapshot == .idle)
         lifecycle.finish()
     }
 
@@ -116,17 +104,100 @@ struct AdmissionDoorbellTests {
             await consumer.nextSignal()
         }
 
+        #expect(await waitForDoorbellState(.consumerWaiting, lifecycle: lifecycle))
         cancelledWaiter.cancel()
         #expect(await cancelledWaiter.value == .finished)
-        #expect(lifecycle.stateSnapshot.hasWaitingConsumer == false)
+        #expect(lifecycle.stateSnapshot == .idle)
 
         async let replacementResult = consumer.nextSignal()
         signaler.signal()
 
         #expect(await replacementResult == .signaled)
-        #expect(lifecycle.stateSnapshot.hasPendingSignal == false)
-        #expect(lifecycle.stateSnapshot.hasWaitingConsumer == false)
+        #expect(lifecycle.stateSnapshot == .idle)
         lifecycle.finish()
+    }
+
+    @Test("pre-cancelled wait registration preserves an existing pending signal")
+    func preCancelledWaitPreservesPendingSignal() async {
+        let doorbell = AdmissionDoorbell()
+        let signaler = doorbell.signalerPort
+        let consumer = doorbell.consumerPort
+        let lifecycle = doorbell.lifecyclePort
+        let startGate = AsyncStream<Void>.makeStream()
+        let cancelledConsumer = Task {
+            for await _ in startGate.stream {
+                break
+            }
+            return await consumer.nextSignal()
+        }
+
+        signaler.signal()
+        cancelledConsumer.cancel()
+        startGate.continuation.yield()
+        startGate.continuation.finish()
+
+        #expect(await cancelledConsumer.value == .finished)
+        #expect(lifecycle.stateSnapshot == .signalPending)
+        #expect(await consumer.nextSignal() == .signaled)
+        #expect(lifecycle.stateSnapshot == .idle)
+        lifecycle.finish()
+    }
+
+    @Test("signal cancellation and finish races resume the consumer exactly once")
+    func signalCancellationAndFinishRaceResumesExactlyOnce() async {
+        for _ in 0..<64 {
+            let doorbell = AdmissionDoorbell()
+            let signaler = doorbell.signalerPort
+            let consumer = doorbell.consumerPort
+            let lifecycle = doorbell.lifecyclePort
+            let completionLedger = DoorbellCompletionLedger()
+            let waitingConsumer = Task {
+                let result = await consumer.nextSignal()
+                await completionLedger.record(result)
+                return result
+            }
+
+            #expect(await waitForDoorbellState(.consumerWaiting, lifecycle: lifecycle))
+
+            let arrivalGate = AsyncStream<Void>.makeStream()
+            let startGate = AsyncStream<Void>.makeStream()
+            let signalContender = Task {
+                arrivalGate.continuation.yield()
+                for await _ in startGate.stream { break }
+                signaler.signal()
+            }
+            let cancellationContender = Task {
+                arrivalGate.continuation.yield()
+                for await _ in startGate.stream { break }
+                waitingConsumer.cancel()
+            }
+            let finishContender = Task {
+                arrivalGate.continuation.yield()
+                for await _ in startGate.stream { break }
+                lifecycle.finish()
+            }
+
+            var arrivalIterator = arrivalGate.stream.makeAsyncIterator()
+            for _ in 0..<3 {
+                #expect(await arrivalIterator.next() != nil)
+            }
+            arrivalGate.continuation.finish()
+            for _ in 0..<3 {
+                startGate.continuation.yield()
+            }
+            startGate.continuation.finish()
+
+            _ = await signalContender.value
+            _ = await cancellationContender.value
+            _ = await finishContender.value
+            let result = await waitingConsumer.value
+            let recordedResults = await completionLedger.results
+
+            #expect(result == .signaled || result == .finished)
+            #expect(recordedResults == [result])
+            #expect(lifecycle.stateSnapshot == .finished)
+            #expect(await consumer.nextSignal() == .finished)
+        }
     }
 
     @Test("concrete ports expose only their assigned capabilities")
@@ -180,8 +251,26 @@ struct AdmissionDoorbellTests {
         #expect(implementationSource.contains("[AdmissionDoorbellResult]") == false)
         #expect(implementationSource.contains("Array<AdmissionDoorbellResult>") == false)
         #expect(implementationSource.contains("<Payload") == false)
-        #expect(implementationSource.contains("waitingConsumer?.identity == identity"))
+        #expect(implementationSource.contains("case .consumerWaiting(let waitingConsumer) = state"))
         #expect(implementationSource.contains("cancelledConsumer?.continuation.resume"))
+    }
+
+    @Test("doorbell storage and wait registration expose only closed transitions")
+    func doorbellStorageAndWaitRegistrationAreClosed() throws {
+        let source = try admissionDoorbellSource()
+        let implementationSource = try sourceSlice(
+            source,
+            from: "final class AdmissionDoorbell",
+            to: nil
+        )
+
+        #expect(implementationSource.contains("var hasPendingSignal") == false)
+        #expect(implementationSource.contains("var waitingConsumer") == false)
+        #expect(implementationSource.contains("var isFinished") == false)
+        #expect(implementationSource.contains("-> AdmissionDoorbellResult?") == false)
+        #expect(implementationSource.contains("enum WaitRegistrationTransition"))
+        #expect(implementationSource.contains("case suspended"))
+        #expect(implementationSource.contains("case resume(AdmissionDoorbellResult)"))
     }
 
     private func requireSignaler<TSignaler: AdmissionDoorbellSignaler>(_: TSignaler) {}
@@ -213,5 +302,31 @@ struct AdmissionDoorbellTests {
             end = source.endIndex
         }
         return source[start..<end]
+    }
+
+    private func waitForDoorbellState(
+        _ expectedState: AdmissionDoorbellStateSnapshot,
+        lifecycle: AdmissionDoorbellLifecyclePort,
+        maximumTurns: Int = 100
+    ) async -> Bool {
+        for _ in 0..<maximumTurns {
+            if lifecycle.stateSnapshot == expectedState {
+                return true
+            }
+            await Task.yield()
+        }
+        return false
+    }
+}
+
+private actor DoorbellCompletionLedger {
+    private var recordedResults: [AdmissionDoorbellResult] = []
+
+    func record(_ result: AdmissionDoorbellResult) {
+        recordedResults.append(result)
+    }
+
+    var results: [AdmissionDoorbellResult] {
+        recordedResults
     }
 }

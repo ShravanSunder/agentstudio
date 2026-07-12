@@ -90,10 +90,8 @@ struct AdmissionLatestCleanupFinalizationTests {
             key: 1,
             value: LatestFinalizationPayload(identity: 11)
         )
-        #expect(firstOfferWhileInFlight.receipt == .admitted)
-        #expect(firstOfferWhileInFlight.wake == .noWake)
-        #expect(secondOfferWhileInFlight.receipt == .admitted)
-        #expect(secondOfferWhileInFlight.wake == .noWake)
+        #expect(firstOfferWhileInFlight == .admitted(wake: .noWake))
+        #expect(secondOfferWhileInFlight == .admitted(wake: .noWake))
         #expect(lifecycle.diagnostics.pendingValueCount == 4)
         #expect(lifecycle.diagnostics.leasedValueCount == 0)
         #expect(lifecycle.diagnostics.cleanupValueCount == 4)
@@ -108,8 +106,7 @@ struct AdmissionLatestCleanupFinalizationTests {
             resultBox.load()
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: nil,
+                        release: .entries(count: 1),
                         wake: .scheduleDrain
                     )
                 )
@@ -125,8 +122,7 @@ struct AdmissionLatestCleanupFinalizationTests {
             key: 2,
             value: LatestFinalizationPayload(identity: 22)
         )
-        #expect(refillAfterReservation.receipt == .admitted)
-        #expect(refillAfterReservation.wake == .noWake)
+        #expect(refillAfterReservation == .admitted(wake: .noWake))
         #expect(lifecycle.diagnostics.pendingValueCount == 4)
         #expect(lifecycle.diagnostics.leasedValueCount == 1)
         #expect(lifecycle.diagnostics.cleanupValueCount == 3)
@@ -142,7 +138,7 @@ struct AdmissionLatestCleanupFinalizationTests {
             Issue.record("Expected finalization-reserved lease while cleanup remained")
             return
         }
-        #expect(reservedDrain.valuesByKey.mapValues(\.identity) == [2: 21])
+        #expect(latestValuesByKey(reservedDrain).mapValues(\.identity) == [2: 21])
         #expect(lifecycle.authoritySnapshot.leaseSequence == reservedLeaseSequence)
         #expect(lifecycle.diagnostics.pendingValueCount == 4)
         #expect(lifecycle.diagnostics.leasedValueCount == 1)
@@ -177,8 +173,7 @@ struct AdmissionLatestCleanupFinalizationTests {
             consumer.performCleanup(generation: generation)
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: nil,
+                        release: .entries(count: 1),
                         wake: .scheduleDrain
                     )
                 )
@@ -188,7 +183,7 @@ struct AdmissionLatestCleanupFinalizationTests {
         #expect(lifecycle.diagnostics.cleanupValueCount == 0)
         #expect(lifecycle.authoritySnapshot.leaseSequence == leaseSequenceBeforeCleanup + 1)
         #expect(
-            producer.offer(generation: generation, key: 0, value: 2).receipt == .closed
+            producer.offer(generation: generation, key: 0, value: 2) == .closed
         )
 
         let reservedLeaseSequence = lifecycle.authoritySnapshot.leaseSequence
@@ -201,7 +196,7 @@ struct AdmissionLatestCleanupFinalizationTests {
             Issue.record("Expected sealed accepted work reserved by final cleanup")
             return
         }
-        #expect(drain.valuesByKey == [1: 1])
+        #expect(latestValuesByKey(drain) == [1: 1])
         #expect(lifecycle.authoritySnapshot.leaseSequence == reservedLeaseSequence)
     }
 
@@ -214,8 +209,7 @@ struct AdmissionLatestCleanupFinalizationTests {
             before.consumer.performCleanup(generation: generation)
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: nil,
+                        release: .entries(count: 1),
                         wake: .scheduleDrain
                     )
                 )
@@ -242,7 +236,7 @@ struct AdmissionLatestCleanupFinalizationTests {
             Issue.record("Expected reservation to use the binding installed before finalization")
             return
         }
-        #expect(beforeDrain.valuesByKey == [1: 1])
+        #expect(latestValuesByKey(beforeDrain) == [1: 1])
         #expect(
             before.lifecycle.authoritySnapshot.leaseSequence
                 == sequenceBeforeInitialPresentation
@@ -254,8 +248,7 @@ struct AdmissionLatestCleanupFinalizationTests {
             after.consumer.performCleanup(generation: generation)
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: nil,
+                        release: .entries(count: 1),
                         wake: .scheduleDrain
                     )
                 )
@@ -284,7 +277,7 @@ struct AdmissionLatestCleanupFinalizationTests {
             Issue.record("Expected rebind to present the identical reserved custody")
             return
         }
-        #expect(afterDrain.valuesByKey == [1: 1])
+        #expect(latestValuesByKey(afterDrain) == [1: 1])
         #expect(after.lifecycle.authoritySnapshot.leaseSequence == sequenceBeforeRebind + 1)
         #expect(after.lifecycle.diagnostics.outstandingLeaseCount == 1)
     }
@@ -315,8 +308,7 @@ struct AdmissionLatestCleanupFinalizationTests {
             consumer.performCleanup(generation: generation)
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: nil,
+                        release: .entries(count: 1),
                         wake: .noWake
                     )
                 )
@@ -339,8 +331,7 @@ struct AdmissionLatestCleanupFinalizationTests {
             consumer.performCleanup(generation: generation)
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: nil,
+                        release: .entries(count: 1),
                         wake: .scheduleDrain
                     )
                 )
@@ -356,7 +347,7 @@ struct AdmissionLatestCleanupFinalizationTests {
             Issue.record("Expected pending value to reserve after incumbent acknowledgement")
             return
         }
-        #expect(pendingDrain.valuesByKey == [1: 11])
+        #expect(latestValuesByKey(pendingDrain) == [1: 11])
     }
 
     @Test("empty pending and invalidated lifecycle never create a reserved lease")
@@ -379,8 +370,7 @@ struct AdmissionLatestCleanupFinalizationTests {
             cleanupOnlyConsumer.performCleanup(generation: generation)
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: nil,
+                        release: .entries(count: 1),
                         wake: .noWake
                     )
                 )
@@ -400,8 +390,7 @@ struct AdmissionLatestCleanupFinalizationTests {
             invalidatedConsumer.performCleanup(generation: generation)
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: nil,
+                        release: .entries(count: 1),
                         wake: .scheduleDrain
                     )
                 )
@@ -411,8 +400,7 @@ struct AdmissionLatestCleanupFinalizationTests {
             invalidatedConsumer.performCleanup(generation: generation)
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: nil,
+                        release: .entries(count: 1),
                         wake: .noWake
                     )
                 )
@@ -437,7 +425,7 @@ struct AdmissionLatestCleanupFinalizationTests {
             limits: LatestValueLimits(
                 maximumValuesPerLease: 1,
                 maximumAuxiliaryRetainedValues: 2,
-                cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: nil)
+                cleanupQuantum: .entries(maximumEntries: 1)
             )
         )
     }
@@ -453,7 +441,7 @@ struct AdmissionLatestCleanupFinalizationTests {
             limits: LatestValueLimits(
                 maximumValuesPerLease: deliveryLimit,
                 maximumAuxiliaryRetainedValues: auxiliaryLimit,
-                cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: nil)
+                cleanupQuantum: .entries(maximumEntries: 1)
             )
         )
     }
@@ -495,7 +483,7 @@ struct AdmissionLatestCleanupFinalizationTests {
             Issue.record("Expected integer latest-value drain")
             return nil
         }
-        #expect(drain.valuesByKey == expectedValues)
+        #expect(latestValuesByKey(drain) == expectedValues)
         return drain.token
     }
 
@@ -513,7 +501,7 @@ struct AdmissionLatestCleanupFinalizationTests {
             Issue.record("Expected payload latest-value drain")
             return nil
         }
-        #expect(drain.valuesByKey.mapValues(\.identity) == expectedIdentities)
+        #expect(latestValuesByKey(drain).mapValues(\.identity) == expectedIdentities)
         return drain.token
     }
 }

@@ -4,30 +4,15 @@ import os
 // swiftlint:disable file_length
 
 final class OrderedFactJournal<Fact: Sendable, Snapshot: Sendable>: @unchecked Sendable {
-    private enum Lifecycle: Sendable {
-        case open, sealed, invalidated
-    }
-
-    private struct ProductGapState: Sendable {
-        let gap: FactGap
-        let firstRetainedAt: Duration
-        var needsTransfer: Bool
-    }
+    private typealias ProductGapState = OrderedFactProductGapState
+    private typealias LeasePayload = OrderedFactDrainLeasePayload<Fact>
+    private typealias DrainLease = OrderedFactDrainLeaseState<Fact>
+    private typealias OfferContext = OrderedFactOfferContext<Fact, Snapshot>
+    private typealias ExistingGapOfferContext = OrderedFactExistingGapOfferContext
 
     private struct RetainedSnapshot: Sendable {
         let sequencedSnapshot: SequencedSnapshot<Snapshot>
         let estimatedBytes: Int, firstRetainedAt: Duration
-    }
-
-    private enum LeasePayload: Sendable {
-        case facts(OrderedFactHistoryLease<Fact>)
-        case gap(FactGap, firstRetainedAt: Duration)
-    }
-
-    private struct DrainLease: Sendable {
-        var token: AdmissionDrainToken
-        let payload: LeasePayload
-        var needsPresentation: Bool
     }
 
     private final class SnapshotCleanupNode: @unchecked Sendable {
@@ -42,32 +27,37 @@ final class OrderedFactJournal<Fact: Sendable, Snapshot: Sendable>: @unchecked S
         }
     }
 
-    private struct CleanupBatch: Sendable {
-        let factHistory: OrderedFactDetachedHistory<Fact>?
-        let snapshots: [RetainedSnapshot]
-        let release: OrderedFactCleanupRelease
-        let oldestRetainedAt: Duration?
+    private typealias CleanupCustody = OrderedFactCleanupCustody<
+        OrderedFactDetachedHistory<Fact>, RetainedSnapshot
+    >
+
+    private struct CleanupDetachment: Sendable {
+        let custody: CleanupCustody
+        let release: OrderedFactCleanupRelease, oldestRetainedAt: Duration
     }
 
     private struct InFlightCleanup: Sendable {
         let authority: AdmissionOpaqueIdentity
-        let release: OrderedFactCleanupRelease
-        let oldestRetainedAt: Duration?
+        let release: OrderedFactCleanupRelease, oldestRetainedAt: Duration
     }
 
-    private struct CleanupDetachTransition: Sendable {
-        let result: AdmissionCleanupTurnResult
-        let authority: AdmissionOpaqueIdentity?
-        var batch: CleanupBatch?
+    private enum CleanupDetachTransition: Sendable {
+        case unavailable(AdmissionCleanupTurnResult)
+        case detached(authority: AdmissionOpaqueIdentity, detachment: CleanupDetachment)
+    }
+
+    private enum CleanupReleaseTransition: Sendable {
+        case unavailable(AdmissionCleanupTurnResult)
+        case released(authority: AdmissionOpaqueIdentity)
     }
 
     private struct State: Sendable {
-        var lifecycle = Lifecycle.open
+        var lifecycle = OrderedFactJournalLifecycle.open
         var latestSequence, historyUnavailableThrough: UInt64
         var history = OrderedFactHistory<Fact>()
         var retainedSnapshot: RetainedSnapshot?
-        var productGap: ProductGapState?
-        var drainLease: DrainLease?
+        var productGap = ProductGapState.noGap
+        var drainLease = DrainLease.noLease
         var wakePending = false
         var bindingEpoch = AdmissionOpaqueIdentity(), leaseEpoch = AdmissionOpaqueIdentity()
         var bindingSequence: UInt64, nextLeaseSequence: UInt64 = 1
@@ -136,8 +126,7 @@ final class OrderedFactJournal<Fact: Sendable, Snapshot: Sendable>: @unchecked S
     }
 
     private let generation: AdmissionGeneration
-    private let maximumRetainedFacts: Int
-    private let maximumRetainedBytes: Int
+    private let maximumRetainedFacts, maximumRetainedBytes: Int
     private let snapshotLimits: OrderedFactSnapshotLimits
     private let drainQuantum: OrderedFactDrainQuantum
     private let cleanupQuantum: AdmissionCleanupQuantum
@@ -153,8 +142,7 @@ final class OrderedFactJournal<Fact: Sendable, Snapshot: Sendable>: @unchecked S
         maximumDrainFacts: Int,
         cleanupQuantum: AdmissionCleanupQuantum,
         initialSequence: UInt64 = 0,
-        initialSnapshot: Snapshot?,
-        initialSnapshotBytes: Int,
+        initialSnapshotReplacement: OrderedFactSnapshotReplacement<Snapshot>?,
         admissionClock: AdmissionClock = .continuous(),
         authoritySeeds: OrderedFactJournalAuthoritySeeds = .initial
     ) throws {
@@ -168,17 +156,15 @@ final class OrderedFactJournal<Fact: Sendable, Snapshot: Sendable>: @unchecked S
             cleanupQuantum: cleanupQuantum,
             maximumRetainedBytes: self.maximumRetainedBytes,
             snapshotLimits: self.snapshotLimits,
-            initialSnapshot: initialSnapshot,
-            initialSnapshotBytes: initialSnapshotBytes
+            initialSnapshotReplacement: initialSnapshotReplacement
         )
         clock = admissionClock
-        let initialRetainedAt = initialSnapshot == nil ? Duration.zero : clock.now()
+        let initialRetainedAt = initialSnapshotReplacement == nil ? Duration.zero : clock.now()
         lock = OSAllocatedUnfairLock(
             initialState: Self.makeInitialState(
                 generation: generation,
                 initialSequence: initialSequence,
-                initialSnapshot: initialSnapshot,
-                initialSnapshotBytes: initialSnapshotBytes,
+                initialSnapshotReplacement: initialSnapshotReplacement,
                 initialRetainedAt: initialRetainedAt,
                 authoritySeeds: authoritySeeds
             ))
@@ -210,13 +196,16 @@ extension OrderedFactJournal {
                 state.bindingSequence = nextBindingSequence.partialValue
             }
 
-            if var drainLease = state.drainLease {
-                drainLease.token = allocateDrainToken(state: &state, token: token)
-                drainLease.needsPresentation = true
-                state.drainLease = drainLease
+            switch state.drainLease {
+            case .awaitingPresentation(_, let payload), .presented(_, let payload):
+                state.drainLease = .awaitingPresentation(
+                    allocateDrainToken(state: &state, token: token), payload
+                )
                 state.wakePending = true
-            } else if hasTransferWork(state: state, token: token) || state.isCleanupEligible {
-                state.wakePending = true
+            case .noLease:
+                if hasTransferWork(state: state, token: token) || state.isCleanupEligible {
+                    state.wakePending = true
+                }
             }
 
             return AdmissionConsumerBindResult(
@@ -236,157 +225,162 @@ extension OrderedFactJournal {
         estimatedFactBytes: Int,
         snapshotReplacement: OrderedFactSnapshotReplacement<Snapshot>?
     ) -> OrderedFactOfferResult {
-        let now = clock.now()
-        return withAdmissionProtectedState { state, token in
-            let preflight = classifyOrderedFactOffer(
-                lifecycle: (offeredGeneration == generation, state.lifecycle == .open),
-                estimatedFactBytes: estimatedFactBytes,
-                estimatedSnapshotBytes: snapshotReplacement?.estimatedBytes,
-                snapshotLimits: snapshotLimits,
-                snapshotPressure: (
-                    state.physicalRetainedSnapshotCount,
-                    state.physicalRetainedSnapshotByteCount
-                )
+        let context = OfferContext(
+            offeredGeneration: offeredGeneration,
+            fact: fact,
+            estimatedFactBytes: estimatedFactBytes,
+            snapshotReplacement: snapshotReplacement,
+            retainedAt: clock.now()
+        )
+        let transition = withAdmissionProtectedState { state, token in
+            commitOffer(context, state: &state, token: token)
+        }
+        return releaseOrderedFactIncomingOffer(transition)
+    }
+
+    private func commitOffer(
+        _ context: OfferContext,
+        state: inout State,
+        token: borrowing AdmissionProtectedRegionToken
+    ) -> OrderedFactOfferTransition<Fact, Snapshot> {
+        let preflight = classifyOrderedFactOffer(
+            lifecycle: (context.offeredGeneration == generation, state.lifecycle == .open),
+            estimatedFactBytes: context.estimatedFactBytes,
+            estimatedSnapshotBytes: context.snapshotReplacement?.estimatedBytes,
+            snapshotLimits: snapshotLimits,
+            snapshotPressure: (
+                state.physicalRetainedSnapshotCount,
+                state.physicalRetainedSnapshotByteCount
             )
-            if let rejection = applyOfferPreflight(preflight, state: &state, token: token) {
-                return rejection
-            }
+        )
+        switch preflight {
+        case .reject(let rejection):
+            let result = applyOrderedFactOfferRejection(
+                rejection,
+                offered: &state.offered,
+                rejectedStale: &state.rejectedStale,
+                rejectedClosed: &state.rejectedClosed,
+                rejectedInvalid: &state.rejectedInvalid,
+                rejectedCapacity: &state.rejectedCapacity
+            )
+            return .released(result, context.incomingRelease)
+        case .admit:
+            incrementAdmissionCounter(&state.offered)
+        }
 
-            let nextSequence = state.latestSequence.addingReportingOverflow(1)
-            guard nextSequence.overflow == false else {
-                state.lifecycle = .sealed
-                incrementAdmissionCounter(&state.rejectedClosed)
-                return .authorityExhausted
-            }
+        return commitAdmittedOffer(context, state: &state, token: token)
+    }
 
-            let sequence = nextSequence.partialValue
-            if state.productGap != nil {
-                let result = commitOfferIntoExistingGap(
-                    sequence: sequence,
-                    snapshotReplacement: snapshotReplacement,
-                    now: now,
-                    state: &state,
-                    token: token
-                )
-                return result
-            }
+    private func commitAdmittedOffer(
+        _ context: OfferContext,
+        state: inout State,
+        token: borrowing AdmissionProtectedRegionToken
+    ) -> OrderedFactOfferTransition<Fact, Snapshot> {
 
-            evictTransferredHistoryToFit(
-                additionalBytes: estimatedFactBytes,
+        let nextSequence = state.latestSequence.addingReportingOverflow(1)
+        guard nextSequence.overflow == false else {
+            state.lifecycle = .sealed
+            incrementAdmissionCounter(&state.rejectedClosed)
+            return .released(.authorityExhausted, context.incomingRelease)
+        }
+
+        let sequence = nextSequence.partialValue
+        switch state.productGap {
+        case .noGap:
+            break
+        case .pendingTransfer(let gap, let firstRetainedAt),
+            .transferred(let gap, let firstRetainedAt):
+            let result = commitOfferIntoExistingGap(
+                ExistingGapOfferContext(gap: gap, firstRetainedAt: firstRetainedAt),
+                sequence: sequence,
+                offer: context,
                 state: &state,
                 token: token
             )
-            guard canRetainFact(bytes: estimatedFactBytes, state: state, token: token) else {
-                let lowerBound =
-                    state.history.firstPendingSequence
-                    ?? sequence
-                let gap = commitGap(
-                    missing: lowerBound...sequence,
-                    at: now,
-                    state: &state,
-                    token: token
-                )
-                state.latestSequence = sequence
-                applySnapshotReplacement(
-                    snapshotReplacement,
-                    through: sequence,
-                    retainedAt: now,
-                    state: &state,
-                    token: token
-                )
-                incrementAdmissionCounter(&state.admitted)
-                incrementAdmissionCounter(&state.repairEscalations)
-                incrementAdmissionCounter(&state.contracted)
-                state.drainLease = nil
-                let wake = requestWake(state: &state, token: token)
-                updateHighWater(state: &state, token: token)
-                return .gapCommitted(gap, wake: wake)
-            }
+            return .released(result, .fact(context.fact))
+        }
 
-            state.latestSequence = sequence
-            state.history.append(
-                SequencedFact(
-                    generation: generation,
-                    sequence: sequence,
-                    fact: fact
-                ),
-                estimatedBytes: estimatedFactBytes,
-                firstRetainedAt: now
+        evictTransferredHistoryToFit(
+            additionalBytes: context.estimatedFactBytes,
+            state: &state,
+            token: token
+        )
+        guard canRetainFact(bytes: context.estimatedFactBytes, state: state, token: token) else {
+            let lowerBound =
+                state.history.firstPendingSequence
+                ?? sequence
+            let gap = commitGap(
+                missing: lowerBound...sequence,
+                at: context.retainedAt,
+                state: &state,
+                token: token
             )
+            state.latestSequence = sequence
             applySnapshotReplacement(
-                snapshotReplacement,
+                context.snapshotReplacement,
                 through: sequence,
-                retainedAt: now,
+                retainedAt: context.retainedAt,
                 state: &state,
                 token: token
             )
             incrementAdmissionCounter(&state.admitted)
+            incrementAdmissionCounter(&state.repairEscalations)
+            incrementAdmissionCounter(&state.contracted)
+            state.drainLease = .noLease
             let wake = requestWake(state: &state, token: token)
             updateHighWater(state: &state, token: token)
-            return .admitted(sequence: sequence, wake: wake)
+            return .released(.gapCommitted(gap, wake: wake), .fact(context.fact))
         }
-    }
 
-    private func applyOfferPreflight(
-        _ preflight: OrderedFactOfferPreflight,
-        state: inout State,
-        token _: borrowing AdmissionProtectedRegionToken
-    ) -> OrderedFactOfferResult? {
-        switch preflight {
-        case .staleGeneration:
-            incrementAdmissionCounter(&state.offered)
-            incrementAdmissionCounter(&state.rejectedStale)
-            return .staleGeneration
-        case .closed:
-            incrementAdmissionCounter(&state.offered)
-            incrementAdmissionCounter(&state.rejectedClosed)
-            return .closed
-        case .invalidSize:
-            incrementAdmissionCounter(&state.offered)
-            incrementAdmissionCounter(&state.rejectedInvalid)
-            return .invalidSize
-        case .snapshotTooLarge:
-            incrementAdmissionCounter(&state.offered)
-            incrementAdmissionCounter(&state.rejectedInvalid)
-            return .snapshotTooLarge
-        case .snapshotPhysicalCapacityExceeded:
-            incrementAdmissionCounter(&state.offered)
-            incrementAdmissionCounter(&state.rejectedCapacity)
-            return .snapshotPhysicalCapacityExceeded
-        case .admit:
-            incrementAdmissionCounter(&state.offered)
-            return nil
-        }
+        state.latestSequence = sequence
+        state.history.append(
+            SequencedFact(
+                generation: generation,
+                sequence: sequence,
+                fact: context.fact
+            ),
+            estimatedBytes: context.estimatedFactBytes,
+            firstRetainedAt: context.retainedAt
+        )
+        applySnapshotReplacement(
+            context.snapshotReplacement,
+            through: sequence,
+            retainedAt: context.retainedAt,
+            state: &state,
+            token: token
+        )
+        incrementAdmissionCounter(&state.admitted)
+        let wake = requestWake(state: &state, token: token)
+        updateHighWater(state: &state, token: token)
+        return .retained(.admitted(sequence: sequence, wake: wake))
     }
 
     private func commitOfferIntoExistingGap(
+        _ gapContext: ExistingGapOfferContext,
         sequence: UInt64,
-        snapshotReplacement: OrderedFactSnapshotReplacement<Snapshot>?,
-        now: Duration,
+        offer: OfferContext,
         state: inout State,
         token: borrowing AdmissionProtectedRegionToken
     ) -> OrderedFactOfferResult {
-        guard let existingGap = state.productGap else {
-            preconditionFailure("Existing-gap offer transition requires product gap custody")
-        }
         let gap = widenGap(
-            existingGap,
+            gapContext.gap,
+            firstRetainedAt: gapContext.firstRetainedAt,
             through: sequence,
             state: &state,
             token: token
         )
         state.latestSequence = sequence
         applySnapshotReplacement(
-            snapshotReplacement,
+            offer.snapshotReplacement,
             through: sequence,
-            retainedAt: now,
+            retainedAt: offer.retainedAt,
             state: &state,
             token: token
         )
         incrementAdmissionCounter(&state.admitted)
         incrementAdmissionCounter(&state.contracted)
         incrementAdmissionCounter(&state.repairEscalations)
-        state.drainLease = nil
+        state.drainLease = .noLease
         let wake = requestWake(state: &state, token: token)
         updateHighWater(state: &state, token: token)
         return .gapCommitted(gap, wake: wake)
@@ -408,25 +402,24 @@ extension OrderedFactJournal {
                 )
             else { return .alreadyDraining }
 
-            if var drainLease = state.drainLease {
-                guard drainLease.needsPresentation else { return .alreadyDraining }
-                drainLease.needsPresentation = false
-                state.drainLease = drainLease
+            switch state.drainLease {
+            case .awaitingPresentation(let drainToken, let payload):
+                state.drainLease = .presented(drainToken, payload)
                 state.wakePending = false
-                return makeDrain(from: drainLease, now: now, token: token)
+                return makeOrderedFactJournalDrain(token: drainToken, payload: payload, now: now)
+            case .presented:
+                return .alreadyDraining
+            case .noLease:
+                break
             }
             guard state.hasCleanupCustody == false else { return .cleanupRequired }
 
-            if let productGap = state.productGap, productGap.needsTransfer {
+            if case .pendingTransfer(let gap, let firstRetainedAt) = state.productGap {
                 let drainToken = allocateDrainToken(state: &state, token: token)
-                let drainLease = DrainLease(
-                    token: drainToken,
-                    payload: .gap(productGap.gap, firstRetainedAt: productGap.firstRetainedAt),
-                    needsPresentation: false
-                )
-                state.drainLease = drainLease
+                let payload = LeasePayload.gap(gap, firstRetainedAt: firstRetainedAt)
+                state.drainLease = .presented(drainToken, payload)
                 state.wakePending = false
-                return makeDrain(from: drainLease, now: now, token: token)
+                return makeOrderedFactJournalDrain(token: drainToken, payload: payload, now: now)
             }
 
             guard let historyLease = state.history.takeLease(quantum: drainQuantum) else {
@@ -435,14 +428,10 @@ extension OrderedFactJournal {
             }
 
             let drainToken = allocateDrainToken(state: &state, token: token)
-            let drainLease = DrainLease(
-                token: drainToken,
-                payload: .facts(historyLease),
-                needsPresentation: false
-            )
-            state.drainLease = drainLease
+            let payload = LeasePayload.facts(historyLease)
+            state.drainLease = .presented(drainToken, payload)
             state.wakePending = false
-            return makeDrain(from: drainLease, now: now, token: token)
+            return makeOrderedFactJournalDrain(token: drainToken, payload: payload, now: now)
         }
     }
 
@@ -464,24 +453,30 @@ extension OrderedFactJournal {
             else {
                 return .invalidToken
             }
-            guard let lease = state.drainLease, lease.token == drainToken else {
+            guard case .presented(let leaseToken, let payload) = state.drainLease,
+                leaseToken == drainToken
+            else {
                 return .invalidToken
             }
 
-            switch (lease.payload, disposition) {
+            switch (payload, disposition) {
             case (.facts(let historyLease), .transferred):
                 guard state.history.acknowledgeTransferredLease(historyLease) else {
                     return .invalidToken
                 }
             case (.gap(let gap, _), .transferred):
-                if state.productGap?.gap.token == gap.token {
-                    state.productGap?.needsTransfer = false
+                if case .pendingTransfer(let currentGap, let firstRetainedAt) = state.productGap,
+                    currentGap.token == gap.token
+                {
+                    state.productGap = .transferred(
+                        currentGap, firstRetainedAt: firstRetainedAt
+                    )
                 }
             case (_, .retry):
                 break
             }
 
-            state.drainLease = nil
+            state.drainLease = .noLease
             let wake = requestWakeForRemainingWork(state: &state, token: protectedToken)
             updateHighWater(state: &state, token: protectedToken)
             return .accepted(wake: wake)
@@ -514,8 +509,8 @@ extension OrderedFactJournal {
             let invalidatedSnapshot = state.retainedSnapshot
             state.retainedSnapshot = nil
             enqueueCleanupSnapshot(invalidatedSnapshot, state: &state, token: token)
-            state.productGap = nil
-            state.drainLease = nil
+            state.productGap = .noGap
+            state.drainLease = .noLease
             state.wakePending = state.isCleanupEligible
             updateHighWater(state: &state, token: token)
             return .applied
@@ -525,36 +520,39 @@ extension OrderedFactJournal {
     func performCleanup(
         generation requestedGeneration: AdmissionGeneration
     ) -> AdmissionCleanupTurnResult {
-        var transition = withAdmissionProtectedState { state, token in
+        let transition = withAdmissionProtectedState { state, token in
             detachCleanup(
                 requestedGeneration: requestedGeneration,
                 state: &state,
                 token: token
             )
         }
-        guard let authority = transition.authority else { return transition.result }
-        transition.batch = nil
-        return withAdmissionProtectedState { state, token in
-            finalizeCleanup(authority: authority, state: &state, token: token)
+        let releaseTransition = releaseCleanup(consume transition)
+        switch releaseTransition {
+        case .unavailable(let result):
+            return result
+        case .released(let authority):
+            return withAdmissionProtectedState { state, token in
+                finalizeCleanup(authority: authority, state: &state, token: token)
+            }
         }
     }
 
     private static func makeInitialState(
         generation: AdmissionGeneration,
         initialSequence: UInt64,
-        initialSnapshot: Snapshot?,
-        initialSnapshotBytes: Int,
+        initialSnapshotReplacement: OrderedFactSnapshotReplacement<Snapshot>?,
         initialRetainedAt: Duration,
         authoritySeeds: OrderedFactJournalAuthoritySeeds
     ) -> State {
-        let retainedSnapshot = initialSnapshot.map {
+        let retainedSnapshot = initialSnapshotReplacement.map {
             RetainedSnapshot(
                 sequencedSnapshot: SequencedSnapshot(
                     generation: generation,
                     throughSequence: initialSequence,
-                    snapshot: $0
+                    snapshot: $0.snapshot
                 ),
-                estimatedBytes: initialSnapshotBytes,
+                estimatedBytes: $0.estimatedBytes,
                 firstRetainedAt: initialRetainedAt
             )
         }
@@ -630,16 +628,12 @@ extension OrderedFactJournal {
             token: gapToken
         )
         enqueueCleanupHistory(state.history.detachAll(), state: &state, token: token)
-        state.productGap = ProductGapState(
-            gap: gap,
-            firstRetainedAt: now,
-            needsTransfer: true
-        )
+        state.productGap = .pendingTransfer(gap, firstRetainedAt: now)
         return gap
     }
-
     private func widenGap(
-        _ existing: ProductGapState,
+        _ existingGap: FactGap,
+        firstRetainedAt: Duration,
         through sequence: UInt64,
         state: inout State,
         token: borrowing AdmissionProtectedRegionToken
@@ -647,14 +641,10 @@ extension OrderedFactJournal {
         let gapToken = nextGapToken(state: &state, token: token)
         let gap = FactGap(
             generation: generation,
-            missingSequences: existing.gap.missingSequences.lowerBound...sequence,
+            missingSequences: existingGap.missingSequences.lowerBound...sequence,
             token: gapToken
         )
-        state.productGap = ProductGapState(
-            gap: gap,
-            firstRetainedAt: existing.firstRetainedAt,
-            needsTransfer: true
-        )
+        state.productGap = .pendingTransfer(gap, firstRetainedAt: firstRetainedAt)
         return gap
     }
 
@@ -701,11 +691,10 @@ extension OrderedFactJournal {
         state: inout State,
         token _: borrowing AdmissionProtectedRegionToken
     ) -> AdmissionWakeDirective {
-        guard state.drainLease == nil, state.wakePending == false else { return .noWake }
+        guard case .noLease = state.drainLease, state.wakePending == false else { return .noWake }
         state.wakePending = true
         return .scheduleDrain
     }
-
     private func requestWakeForRemainingWork(
         state: inout State,
         token: borrowing AdmissionProtectedRegionToken
@@ -721,9 +710,7 @@ extension OrderedFactJournal {
         state: inout State,
         token _: borrowing AdmissionProtectedRegionToken
     ) {
-        let pendingCount =
-            state.history.pendingFactCount
-            + ((state.productGap?.needsTransfer == true) ? 1 : 0)
+        let pendingCount = state.history.pendingFactCount + pendingProductGapCount(state.productGap)
         state.pendingHighWater = Swift.max(state.pendingHighWater, pendingCount)
         state.retainedFactHighWater = Swift.max(
             state.retainedFactHighWater,
@@ -766,12 +753,14 @@ extension OrderedFactJournal {
             state.physicalRetainedSnapshotByteCount
         )
     }
-
     private func hasTransferWork(
         state: State,
         token _: borrowing AdmissionProtectedRegionToken
     ) -> Bool {
-        state.history.pendingFactCount > 0 || state.productGap?.needsTransfer == true
+        state.history.pendingFactCount > 0 || pendingProductGapCount(state.productGap) > 0
+    }
+    private func pendingProductGapCount(_ productGap: ProductGapState) -> Int {
+        if case .pendingTransfer = productGap { 1 } else { 0 }
     }
 
     private func enqueueCleanupHistory(
@@ -818,52 +807,42 @@ extension OrderedFactJournal {
         token: borrowing AdmissionProtectedRegionToken
     ) -> CleanupDetachTransition {
         guard requestedGeneration == generation else {
-            return emptyCleanupTransition(result: .staleGeneration)
+            return .unavailable(.staleGeneration)
         }
         guard state.inFlightCleanup == nil else {
-            return emptyCleanupTransition(result: .alreadyCleaning)
+            return .unavailable(.alreadyCleaning)
         }
         guard state.activeReplayReaderIdentity == nil else {
-            return emptyCleanupTransition(
-                result: state.hasQueuedCleanupCustody ? .blockedByReplayReader : .empty
-            )
+            return .unavailable(state.hasQueuedCleanupCustody ? .blockedByReplayReader : .empty)
         }
         guard state.hasQueuedCleanupCustody else {
-            return emptyCleanupTransition(result: .empty)
+            return .unavailable(.empty)
         }
-        guard let batch = detachCleanupBatch(state: &state, token: token) else {
-            return emptyCleanupTransition(result: .empty)
-        }
+        let detachment = detachCleanupBatch(state: &state, token: token)
         let authority = AdmissionOpaqueIdentity()
         state.inFlightCleanup = InFlightCleanup(
             authority: authority,
-            release: batch.release,
-            oldestRetainedAt: batch.oldestRetainedAt
+            release: detachment.release,
+            oldestRetainedAt: detachment.oldestRetainedAt
         )
         state.wakePending = false
-        return CleanupDetachTransition(result: .empty, authority: authority, batch: batch)
-    }
-
-    private func emptyCleanupTransition(result: AdmissionCleanupTurnResult)
-        -> CleanupDetachTransition
-    {
-        CleanupDetachTransition(result: result, authority: nil, batch: nil)
+        return .detached(authority: authority, detachment: detachment)
     }
 
     private func detachCleanupBatch(
         state: inout State,
         token _: borrowing AdmissionProtectedRegionToken
-    ) -> CleanupBatch? {
+    ) -> CleanupDetachment {
         var releasedEntryCount = 0
         var releasedByteCount = 0
-        let maximumBytes = cleanupQuantum.maximumBytes!
+        let (maximumEntries, maximumBytes) = orderedFactCleanupLimits(cleanupQuantum)
         var detachedFactHead: OrderedFactHistoryNode<Fact>?
         var detachedFactTail: OrderedFactHistoryNode<Fact>?
         var detachedFactCount = 0
         var detachedFactBytes = 0
         var detachedFactOldestAt: Duration?
 
-        while releasedEntryCount < cleanupQuantum.maximumEntries,
+        while releasedEntryCount < maximumEntries,
             let cleanupHead = state.cleanupFactHead
         {
             let factBytes = cleanupHead.record.estimatedBytes
@@ -885,8 +864,8 @@ extension OrderedFactJournal {
         if state.cleanupFactHead == nil { state.cleanupFactTail = nil }
 
         var detachedSnapshots: [RetainedSnapshot] = []
-        detachedSnapshots.reserveCapacity(cleanupQuantum.maximumEntries - releasedEntryCount)
-        while releasedEntryCount < cleanupQuantum.maximumEntries,
+        detachedSnapshots.reserveCapacity(maximumEntries - releasedEntryCount)
+        while releasedEntryCount < maximumEntries,
             let cleanupHead = state.cleanupSnapshotHead
         {
             let snapshotBytes = cleanupHead.retainedSnapshot.estimatedBytes
@@ -898,7 +877,7 @@ extension OrderedFactJournal {
             releasedByteCount += snapshotBytes
         }
         if state.cleanupSnapshotHead == nil { state.cleanupSnapshotTail = nil }
-        guard releasedEntryCount > 0 else { return nil }
+        precondition(releasedEntryCount > 0, "Ordered fact cleanup quantum made no progress")
 
         let detachedFactHistory: OrderedFactDetachedHistory<Fact>?
         if let detachedFactHead, let detachedFactTail, let detachedFactOldestAt {
@@ -912,9 +891,29 @@ extension OrderedFactJournal {
         } else {
             detachedFactHistory = nil
         }
-        return CleanupBatch(
-            factHistory: detachedFactHistory,
-            snapshots: detachedSnapshots,
+        let snapshotCustody = detachedSnapshots.first.map {
+            NonEmptyAdmissionBatch(first: $0, remaining: Array(detachedSnapshots.dropFirst()))
+        }
+        let custody: CleanupCustody
+        switch (detachedFactHistory, snapshotCustody) {
+        case (.some(let facts), .none):
+            custody = .facts(facts)
+        case (.none, .some(let snapshots)):
+            custody = .snapshots(snapshots)
+        case (.some(let facts), .some(let snapshots)):
+            custody = .factsAndSnapshots(facts, snapshots)
+        case (.none, .none):
+            preconditionFailure("Ordered fact cleanup detached empty custody")
+        }
+        let oldestRetainedAt =
+            switch custody {
+            case .facts(let facts): facts.oldestRetainedAt
+            case .snapshots(let snapshots): snapshots.first.firstRetainedAt
+            case .factsAndSnapshots(let facts, let snapshots):
+                Swift.min(facts.oldestRetainedAt, snapshots.first.firstRetainedAt)
+            }
+        return CleanupDetachment(
+            custody: custody,
             release: OrderedFactCleanupRelease(
                 factCount: detachedFactCount,
                 factBytes: detachedFactBytes,
@@ -923,11 +922,19 @@ extension OrderedFactJournal {
                 entryCount: releasedEntryCount,
                 byteCount: releasedByteCount
             ),
-            oldestRetainedAt: minimumAdmissionTimestamp(
-                detachedFactHistory?.oldestRetainedAt,
-                detachedSnapshots.lazy.map(\.firstRetainedAt).min()
-            )
+            oldestRetainedAt: oldestRetainedAt
         )
+    }
+    private func releaseCleanup(
+        _ transition: consuming CleanupDetachTransition
+    ) -> CleanupReleaseTransition {
+        switch consume transition {
+        case .unavailable(let result):
+            return .unavailable(result)
+        case .detached(let authority, let detachment):
+            releaseOrderedFactCleanupCustody(detachment.custody)
+            return .released(authority: authority)
+        }
     }
 
     private func finalizeCleanup(
@@ -957,30 +964,12 @@ extension OrderedFactJournal {
         updateHighWater(state: &state, token: token)
         return .performed(
             AdmissionCleanupTurn(
-                releasedEntryCount: inFlight.release.entryCount,
-                releasedByteCount: inFlight.release.byteCount,
+                release: .entriesAndBytes(
+                    count: inFlight.release.entryCount,
+                    bytes: inFlight.release.byteCount
+                ),
                 wake: wake
             ))
-    }
-
-    private func makeDrain(
-        from drainLease: DrainLease,
-        now: Duration,
-        token _: borrowing AdmissionProtectedRegionToken
-    ) -> OrderedFactTakeDrainResult<Fact> {
-        let content: (payload: OrderedFactDrainPayload<Fact>, firstRetainedAt: Duration?) =
-            switch drainLease.payload {
-            case .facts(let historyLease):
-                (.facts(historyLease.sequencedFacts), historyLease.firstRetainedAt)
-            case .gap(let gap, let firstRetainedAt):
-                (.gap(gap), firstRetainedAt)
-            }
-        return makeOrderedFactDrainResult(
-            token: drainLease.token,
-            payload: content.payload,
-            firstRetainedAt: content.firstRetainedAt,
-            now: now
-        )
     }
 
 }
@@ -1006,49 +995,36 @@ extension OrderedFactJournal {
     ) -> OrderedFactReplayCapture<Fact, Snapshot> {
         withAdmissionProtectedState { state, _ in
             guard requestedGeneration == generation else {
-                return OrderedFactReplayCapture<Fact, Snapshot>(
-                    readerIdentity: nil,
-                    content: .immediate(.staleGeneration)
-                )
+                return .immediate(.staleGeneration)
             }
             guard state.lifecycle != .invalidated else {
-                return OrderedFactReplayCapture(
-                    readerIdentity: nil,
-                    content: .immediate(.invalidated)
-                )
+                return .immediate(.invalidated)
             }
-            if let productGap = state.productGap {
-                return OrderedFactReplayCapture(
-                    readerIdentity: nil,
-                    content: .immediate(.factGap(productGap.gap))
-                )
+            switch state.productGap {
+            case .noGap:
+                break
+            case .pendingTransfer(let gap, _), .transferred(let gap, _):
+                return .immediate(.factGap(gap))
             }
             guard sequence <= state.latestSequence else {
-                return OrderedFactReplayCapture(
-                    readerIdentity: nil,
-                    content: .immediate(.invalidCursor(latestSequence: state.latestSequence))
-                )
+                return .immediate(.invalidCursor(latestSequence: state.latestSequence))
             }
             guard state.activeReplayReaderIdentity == nil else {
-                return OrderedFactReplayCapture(
-                    readerIdentity: nil,
-                    content: .immediate(.replayInProgress)
-                )
+                return .immediate(.replayInProgress)
             }
 
             let readerIdentity = AdmissionOpaqueIdentity()
             state.activeReplayReaderIdentity = readerIdentity
-            return OrderedFactReplayCapture(
+            return .registered(
                 readerIdentity: readerIdentity,
-                content: .history(
-                    OrderedFactReplayHistoryCapture(
-                        bounds: state.history.replayBounds,
-                        afterSequence: sequence,
-                        latestSequence: state.latestSequence,
-                        historyUnavailableThrough: state.historyUnavailableThrough,
-                        snapshot: state.retainedSnapshot?.sequencedSnapshot,
-                        recovery: recovery
-                    ))
+                history: OrderedFactReplayHistoryCapture(
+                    bounds: state.history.replayBounds,
+                    afterSequence: sequence,
+                    latestSequence: state.latestSequence,
+                    historyUnavailableThrough: state.historyUnavailableThrough,
+                    snapshot: state.retainedSnapshot?.sequencedSnapshot,
+                    recovery: recovery
+                )
             )
         }
     }
@@ -1056,19 +1032,24 @@ extension OrderedFactJournal {
     func completeReplay(
         _ capture: OrderedFactReplayCapture<Fact, Snapshot>
     ) -> OrderedFactReplayCompletion<Fact, Snapshot> {
-        let result = materializeOrderedFactReplay(capture, generation: generation)
-        guard let readerIdentity = capture.readerIdentity else {
-            return OrderedFactReplayCompletion(result: result, wake: .noWake)
-        }
-        let wake = withAdmissionProtectedState { state, token in
-            guard state.activeReplayReaderIdentity == readerIdentity else {
-                return AdmissionWakeDirective.noWake
+        switch capture {
+        case .immediate(let result):
+            return .immediate(result)
+        case .registered(let readerIdentity, let historyCapture):
+            let result = materializeOrderedFactRegisteredReplay(
+                historyCapture,
+                generation: generation
+            )
+            let wake = withAdmissionProtectedState { state, token in
+                guard state.activeReplayReaderIdentity == readerIdentity else {
+                    return AdmissionWakeDirective.noWake
+                }
+                state.activeReplayReaderIdentity = nil
+                guard state.isCleanupEligible else { return .noWake }
+                return requestWake(state: &state, token: token)
             }
-            state.activeReplayReaderIdentity = nil
-            guard state.isCleanupEligible else { return .noWake }
-            return requestWake(state: &state, token: token)
+            return .registered(result, wake: wake)
         }
-        return OrderedFactReplayCompletion(result: result, wake: wake)
     }
 
     func currentState(
@@ -1077,13 +1058,22 @@ extension OrderedFactJournal {
         withAdmissionProtectedState { state, _ in
             guard requestedGeneration == generation else { return .staleGeneration }
             guard state.lifecycle != .invalidated else { return .invalidated }
-            if let productGap = state.productGap {
-                return .nonCurrent(productGap.gap)
+            switch state.productGap {
+            case .noGap:
+                break
+            case .pendingTransfer(let gap, _), .transferred(let gap, _):
+                return .nonCurrent(gap)
             }
+            let currentLifecycle: OrderedFactCurrentLifecycleState =
+                switch state.lifecycle {
+                case .open: .open
+                case .sealed: .sealed
+                case .invalidated: preconditionFailure("Invalidated journal passed current-state guard")
+                }
             return .current(
                 snapshot: state.retainedSnapshot?.sequencedSnapshot,
                 latestSequence: state.latestSequence,
-                isSealed: state.lifecycle == .sealed
+                lifecycle: currentLifecycle
             )
         }
     }
@@ -1100,9 +1090,15 @@ extension OrderedFactJournal {
         return withAdmissionProtectedState { state, token in
             guard requestedGeneration == generation else { return .staleGeneration }
             guard state.lifecycle != .invalidated else { return .closed }
-            guard let productGap = state.productGap else { return .notNonCurrent }
-            guard productGap.gap.token == gapToken else { return .staleGapToken }
-            guard throughSequence == productGap.gap.missingSequences.upperBound,
+            let productGap: FactGap
+            switch state.productGap {
+            case .noGap:
+                return .notNonCurrent
+            case .pendingTransfer(let gap, _), .transferred(let gap, _):
+                productGap = gap
+            }
+            guard productGap.token == gapToken else { return .staleGapToken }
+            guard throughSequence == productGap.missingSequences.upperBound,
                 throughSequence == state.latestSequence
             else { return .incorrectSequence }
             let bytes = estimatedSnapshotBytes
@@ -1132,10 +1128,10 @@ extension OrderedFactJournal {
             )
             state.historyUnavailableThrough = Swift.max(
                 state.historyUnavailableThrough,
-                productGap.gap.missingSequences.upperBound
+                productGap.missingSequences.upperBound
             )
-            state.productGap = nil
-            state.drainLease = nil
+            state.productGap = .noGap
+            state.drainLease = .noLease
             state.wakePending = state.isCleanupEligible
             updateHighWater(state: &state, token: token)
             return .recovered
@@ -1146,13 +1142,13 @@ extension OrderedFactJournal {
         let now = clock.now()
         return withAdmissionProtectedState { state, _ in
             let pendingCount =
-                state.history.pendingFactCount
-                + ((state.productGap?.needsTransfer == true) ? 1 : 0)
+                state.history.pendingFactCount + pendingProductGapCount(state.productGap)
             let oldestRecord = state.history.oldestPendingRetainedAt
-            let oldestGap =
-                state.productGap?.needsTransfer == true
-                ? state.productGap?.firstRetainedAt
-                : nil
+            let oldestGap: Duration? =
+                switch state.productGap {
+                case .pendingTransfer(_, let firstRetainedAt): firstRetainedAt
+                case .noGap, .transferred: nil
+                }
             let oldestCleanupAt = minimumAdmissionTimestamp(
                 minimumAdmissionTimestamp(
                     state.cleanupFactHead?.record.firstRetainedAt,
@@ -1161,11 +1157,16 @@ extension OrderedFactJournal {
                 state.inFlightCleanup?.oldestRetainedAt
             )
             let leasedFactCount: Int
-            if case .facts(let historyLease) = state.drainLease?.payload {
+            switch state.drainLease {
+            case .presented(_, .facts(let historyLease)),
+                .awaitingPresentation(_, .facts(let historyLease)):
                 leasedFactCount = historyLease.factCount
-            } else {
+            case .noLease, .presented(_, .gap), .awaitingPresentation(_, .gap):
                 leasedFactCount = 0
             }
+            let currentness = orderedFactDiagnosticCurrentness(state.lifecycle, state.productGap)
+            let hasNoProductGap: Bool = if case .noGap = state.productGap { true } else { false }
+            let hasNoDrainLease: Bool = if case .noLease = state.drainLease { true } else { false }
             return OrderedFactJournalDiagnostics(
                 admission: AdmissionDiagnostics(
                     offered: state.offered,
@@ -1210,13 +1211,12 @@ extension OrderedFactJournal {
                 oldestCleanupAge: exactAdmissionAge(from: oldestCleanupAt, to: now),
                 activeReplayReaderCount: state.activeReplayReaderIdentity == nil ? 0 : 1,
                 outstandingCleanupTurnCount: state.inFlightCleanup == nil ? 0 : 1,
-                outstandingDrainCount: state.drainLease == nil ? 0 : 1,
-                productGap: state.productGap?.gap,
-                isCurrent: state.lifecycle != .invalidated && state.productGap == nil,
+                outstandingDrainCount: hasNoDrainLease ? 0 : 1,
+                currentness: currentness,
                 isQuiescent: state.history.retainedFactCount == 0
                     && state.retainedSnapshot == nil
-                    && state.productGap == nil
-                    && state.drainLease == nil
+                    && hasNoProductGap
+                    && hasNoDrainLease
                     && state.hasCleanupCustody == false
                     && state.activeReplayReaderIdentity == nil
             )

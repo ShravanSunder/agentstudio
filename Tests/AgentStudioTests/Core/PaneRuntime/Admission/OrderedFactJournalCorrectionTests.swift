@@ -17,8 +17,10 @@ struct AdmissionOrderedFactJournalCorrectionTests {
                 try makeJournalValidatingInitialSnapshot(
                     generation: generation,
                     maximumSnapshotBytes: 16,
-                    initialSnapshot: JournalSnapshot(value: "must-not-become-current"),
-                    initialSnapshotBytes: -1
+                    initialSnapshotReplacement: OrderedFactSnapshotReplacement(
+                        snapshot: JournalSnapshot(value: "must-not-become-current"),
+                        estimatedBytes: -1
+                    )
                 ))
         } catch {
             result = .failure(error)
@@ -70,7 +72,7 @@ struct AdmissionOrderedFactJournalCorrectionTests {
         #expect(diagnosticsAfterRejection.admission.admitted == 0)
         #expect(diagnosticsAfterRejection.admission.rejectedInvalid == 1)
         #expect(diagnosticsAfterRejection.retainedFactCount == 0)
-        #expect(diagnosticsAfterRejection.productGap == nil)
+        #expect(diagnosticsAfterRejection.currentness == .current)
         #expect(admittedSequence(firstAccepted) == 1)
         #expect(admittedWake(firstAccepted) == .scheduleDrain)
     }
@@ -113,7 +115,7 @@ struct AdmissionOrderedFactJournalCorrectionTests {
         #expect(diagnosticsAfterRejection.admission.admitted == 0)
         #expect(diagnosticsAfterRejection.admission.rejectedInvalid == 1)
         #expect(diagnosticsAfterRejection.retainedFactCount == 0)
-        #expect(diagnosticsAfterRejection.productGap == nil)
+        #expect(diagnosticsAfterRejection.currentness == .current)
         #expect(admittedSequence(firstAccepted) == 1)
         #expect(admittedWake(firstAccepted) == .scheduleDrain)
     }
@@ -170,7 +172,7 @@ struct AdmissionOrderedFactJournalCorrectionTests {
         #expect(rejected == .invalidSize)
         #expect(gapAfterRejection == firstGap)
         #expect(diagnosticsAfterRejection.latestSequence == 1)
-        #expect(diagnosticsAfterRejection.productGap == firstGap)
+        #expect(diagnosticsAfterRejection.currentness == .nonCurrent(firstGap))
         #expect(diagnosticsAfterRejection.admission.offered == 1)
         #expect(diagnosticsAfterRejection.admission.admitted == 1)
         #expect(diagnosticsAfterRejection.admission.rejectedInvalid == 0)
@@ -218,7 +220,9 @@ struct AdmissionOrderedFactJournalCorrectionTests {
         let diagnosticsAfterCompletion = journal.lifecycle.diagnostics
 
         // Assert
-        guard case .facts(let facts, let nextSequence) = completion.result else {
+        guard case .registered(let replayResult, let wake) = completion,
+            case .facts(let facts, let nextSequence) = replayResult
+        else {
             Issue.record("Expected the pre-invalidation replay reader to finish exact history")
             return
         }
@@ -232,7 +236,7 @@ struct AdmissionOrderedFactJournalCorrectionTests {
         #expect(diagnosticsAfterCapture.activeReplayReaderCount == 1)
         #expect(diagnosticsAfterInvalidation.activeReplayReaderCount == 1)
         #expect(diagnosticsAfterCompletion.activeReplayReaderCount == 0)
-        #expect(completion.wake == .scheduleDrain)
+        #expect(wake == .scheduleDrain)
     }
 
     @Test("replay capture after invalidation registers no reader authority")
@@ -254,13 +258,12 @@ struct AdmissionOrderedFactJournalCorrectionTests {
         let diagnosticsAfterCompletion = journal.lifecycle.diagnostics
 
         // Assert
-        guard case .invalidated = completion.result else {
+        guard case .immediate(.invalidated) = completion else {
             Issue.record("Expected replay capture after invalidation to be rejected")
             return
         }
         #expect(diagnosticsBeforeCapture.activeReplayReaderCount == 0)
         #expect(diagnosticsAfterCapture.activeReplayReaderCount == 0)
         #expect(diagnosticsAfterCompletion.activeReplayReaderCount == 0)
-        #expect(completion.wake == .noWake)
     }
 }

@@ -1,9 +1,10 @@
 import os
 
-struct AdmissionDoorbellStateSnapshot: Sendable, Equatable {
-    let hasPendingSignal: Bool
-    let hasWaitingConsumer: Bool
-    let isFinished: Bool
+enum AdmissionDoorbellStateSnapshot: Sendable, Equatable {
+    case idle
+    case signalPending
+    case consumerWaiting
+    case finished
 }
 
 struct AdmissionDoorbellSignalerPort: AdmissionDoorbellSignaler {
@@ -52,13 +53,19 @@ final class AdmissionDoorbell: @unchecked Sendable {
         let continuation: CheckedContinuation<AdmissionDoorbellResult, Never>
     }
 
-    private struct State: Sendable {
-        var hasPendingSignal = false
-        var waitingConsumer: WaitingConsumer?
-        var isFinished = false
+    private enum State: Sendable {
+        case idle
+        case signalPending
+        case consumerWaiting(WaitingConsumer)
+        case finished
     }
 
-    private let lock = OSAllocatedUnfairLock(initialState: State())
+    private enum WaitRegistrationTransition: Sendable {
+        case suspended
+        case resume(AdmissionDoorbellResult)
+    }
+
+    private let lock = OSAllocatedUnfairLock(initialState: State.idle)
 
     var signalerPort: AdmissionDoorbellSignalerPort {
         AdmissionDoorbellSignalerPort(doorbell: self)
@@ -78,14 +85,18 @@ final class AdmissionDoorbell: @unchecked Sendable {
 
     fileprivate func signal() {
         let waitingConsumer: WaitingConsumer? = lock.withLock { state in
-            guard state.isFinished == false else { return nil }
-            guard let waitingConsumer = state.waitingConsumer else {
-                state.hasPendingSignal = true
+            switch state {
+            case .idle:
+                state = .signalPending
+                return nil
+            case .signalPending:
+                return nil
+            case .consumerWaiting(let waitingConsumer):
+                state = .idle
+                return waitingConsumer
+            case .finished:
                 return nil
             }
-
-            state.waitingConsumer = nil
-            return waitingConsumer
         }
 
         waitingConsumer?.continuation.resume(returning: .signaled)
@@ -95,27 +106,35 @@ final class AdmissionDoorbell: @unchecked Sendable {
         let waitingConsumerIdentity = AdmissionOpaqueIdentity()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                let immediateResult = lock.withLock { state -> AdmissionDoorbellResult? in
-                    if state.isFinished || Task.isCancelled {
-                        return .finished
+                let transition = lock.withLock { state -> WaitRegistrationTransition in
+                    if Task.isCancelled {
+                        return .resume(.finished)
                     }
-                    if state.hasPendingSignal {
-                        state.hasPendingSignal = false
-                        return .signaled
+                    switch state {
+                    case .idle:
+                        state = .consumerWaiting(
+                            WaitingConsumer(
+                                identity: waitingConsumerIdentity,
+                                continuation: continuation
+                            )
+                        )
+                        return .suspended
+                    case .signalPending:
+                        state = .idle
+                        return .resume(.signaled)
+                    case .consumerWaiting:
+                        preconditionFailure(
+                            "AdmissionDoorbell supports exactly one long-lived consumer"
+                        )
+                    case .finished:
+                        return .resume(.finished)
                     }
-
-                    precondition(
-                        state.waitingConsumer == nil,
-                        "AdmissionDoorbell supports exactly one long-lived consumer"
-                    )
-                    state.waitingConsumer = WaitingConsumer(
-                        identity: waitingConsumerIdentity,
-                        continuation: continuation
-                    )
-                    return nil
                 }
 
-                if let immediateResult {
+                switch transition {
+                case .suspended:
+                    break
+                case .resume(let immediateResult):
                     continuation.resume(returning: immediateResult)
                 }
             }
@@ -126,12 +145,16 @@ final class AdmissionDoorbell: @unchecked Sendable {
 
     fileprivate func finish() {
         let waitingConsumer: WaitingConsumer? = lock.withLock { state in
-            guard state.isFinished == false else { return nil }
-            state.isFinished = true
-            state.hasPendingSignal = false
-            let waitingConsumer = state.waitingConsumer
-            state.waitingConsumer = nil
-            return waitingConsumer
+            switch state {
+            case .idle, .signalPending:
+                state = .finished
+                return nil
+            case .consumerWaiting(let waitingConsumer):
+                state = .finished
+                return waitingConsumer
+            case .finished:
+                return nil
+            }
         }
 
         waitingConsumer?.continuation.resume(returning: .finished)
@@ -139,20 +162,22 @@ final class AdmissionDoorbell: @unchecked Sendable {
 
     fileprivate var stateSnapshot: AdmissionDoorbellStateSnapshot {
         lock.withLock { state in
-            AdmissionDoorbellStateSnapshot(
-                hasPendingSignal: state.hasPendingSignal,
-                hasWaitingConsumer: state.waitingConsumer != nil,
-                isFinished: state.isFinished
-            )
+            switch state {
+            case .idle: .idle
+            case .signalPending: .signalPending
+            case .consumerWaiting: .consumerWaiting
+            case .finished: .finished
+            }
         }
     }
 
     private func cancelWaitingConsumer(identity: AdmissionOpaqueIdentity) {
         let cancelledConsumer: WaitingConsumer? = lock.withLock { state in
-            guard state.waitingConsumer?.identity == identity else { return nil }
-            let cancelledConsumer = state.waitingConsumer
-            state.waitingConsumer = nil
-            return cancelledConsumer
+            guard case .consumerWaiting(let waitingConsumer) = state,
+                waitingConsumer.identity == identity
+            else { return nil }
+            state = .idle
+            return waitingConsumer
         }
 
         cancelledConsumer?.continuation.resume(returning: .finished)

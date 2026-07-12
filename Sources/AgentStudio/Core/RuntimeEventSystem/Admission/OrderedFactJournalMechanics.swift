@@ -1,16 +1,56 @@
 import Foundation
 
+enum OrderedFactCleanupCustody<FactCustody: Sendable, SnapshotCustody: Sendable>: Sendable {
+    case facts(FactCustody)
+    case snapshots(NonEmptyAdmissionBatch<SnapshotCustody>)
+    case factsAndSnapshots(FactCustody, NonEmptyAdmissionBatch<SnapshotCustody>)
+}
+
+func releaseOrderedFactIncomingOffer<Fact: Sendable, Snapshot: Sendable>(
+    _ transition: consuming OrderedFactOfferTransition<Fact, Snapshot>
+) -> OrderedFactOfferResult {
+    switch consume transition {
+    case .retained(let result):
+        return result
+    case .released(let result, let release):
+        switch consume release {
+        case .fact(let fact):
+            withExtendedLifetime(fact) {}
+        case .factAndSnapshot(let fact, let snapshotReplacement):
+            withExtendedLifetime(fact) {}
+            withExtendedLifetime(snapshotReplacement) {}
+        }
+        return result
+    }
+}
+
+func releaseOrderedFactCleanupCustody<FactCustody: Sendable, SnapshotCustody: Sendable>(
+    _ custody: consuming OrderedFactCleanupCustody<FactCustody, SnapshotCustody>
+) {
+    switch consume custody {
+    case .facts(let facts):
+        withExtendedLifetime(facts) {}
+    case .snapshots(let snapshots):
+        snapshots.forEach { withExtendedLifetime($0) {} }
+    case .factsAndSnapshots(let facts, let snapshots):
+        withExtendedLifetime(facts) {}
+        snapshots.forEach { withExtendedLifetime($0) {} }
+    }
+}
+
 func makeOrderedFactDrainResult<Fact: Sendable>(
     token: AdmissionDrainToken,
     payload: OrderedFactDrainPayload<Fact>,
-    firstRetainedAt: Duration?,
+    firstRetainedAt: Duration,
     now: Duration
 ) -> OrderedFactTakeDrainResult<Fact> {
     .drain(
         OrderedFactDrain(
             token: token,
             payload: payload,
-            oldestRetainedAge: exactAdmissionAge(from: firstRetainedAt, to: now)
+            oldestRetainedAge: ExactAdmissionAge(
+                duration: Swift.max(.zero, now - firstRetainedAt)
+            )
         ))
 }
 
@@ -21,11 +61,11 @@ struct OrderedFactHistoryLease<Fact: Sendable>: Sendable {
     let factCount: Int
     let byteCount: Int
 
-    var firstRetainedAt: Duration? {
+    var firstRetainedAt: Duration {
         firstNode.record.firstRetainedAt
     }
 
-    var sequencedFacts: [SequencedFact<Fact>] {
+    var sequencedFacts: NonEmptyAdmissionBatch<SequencedFact<Fact>> {
         var facts: [SequencedFact<Fact>] = []
         facts.reserveCapacity(factCount)
         var currentNode: OrderedFactHistoryNode<Fact>? = firstNode
@@ -34,7 +74,13 @@ struct OrderedFactHistoryLease<Fact: Sendable>: Sendable {
             if node === lastNode { break }
             currentNode = node.next
         }
-        return facts
+        guard let firstFact = facts.first else {
+            preconditionFailure("Ordered fact history lease cannot be empty")
+        }
+        return NonEmptyAdmissionBatch(
+            first: firstFact,
+            remaining: Array(facts.dropFirst())
+        )
     }
 }
 

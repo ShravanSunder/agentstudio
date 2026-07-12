@@ -32,14 +32,22 @@ struct AdmissionBoundedGatherMailboxTests {
         let drain = consumer.takeDrain(binding: binding, generation: generation)
 
         // Assert
-        let receipt = requireAdmission(offer.receipt)
-        #expect(receipt?.payload == .retained)
-        #expect(receipt?.recoveryRevision == nil)
-        #expect(offer.wake == .scheduleDrain)
+        let receipt = requireAdmission(offer)
+        expectRetainedWithoutRecovery(receipt)
+        guard case .admitted(_, wake: .scheduleDrain) = offer else {
+            Issue.record("Expected admitted gather offer to schedule a drain")
+            return
+        }
         let lease = requireLease(drain)
-        #expect(lease?.key == .alpha)
-        #expect(lease?.contributions.map(\.payload) == [GatherTestPayload(label: "opaque-a")])
-        #expect(lease?.recoveryRevision == nil)
+        #expect(lease.key == .alpha)
+        #expect(
+            requireContributions(lease).testValues.map(\.payload)
+                == [GatherTestPayload(label: "opaque-a")]
+        )
+        guard case .contributions = lease.payload else {
+            Issue.record("Expected contribution-only gather lease")
+            return
+        }
     }
 
     @Test("global retained capacity counts pending plus leased custody at bound and bound plus one")
@@ -58,7 +66,7 @@ struct AdmissionBoundedGatherMailboxTests {
                 maximumContributionsPerLease: 1,
                 maximumItemsPerLease: 1,
                 maximumBytesPerLease: 2,
-                cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: 2)
+                cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 2)
             )
         )
         let producer = mailbox.producerPort
@@ -85,15 +93,14 @@ struct AdmissionBoundedGatherMailboxTests {
         let afterOverflow = mailbox.lifecyclePort.diagnostics
 
         // Assert
-        #expect(firstLease?.key == .alpha)
+        #expect(firstLease.key == .alpha)
         #expect(atBound.retainedContributionCount == 2)
         #expect(atBound.retainedItemCount == 2)
         #expect(atBound.retainedByteCount == 4)
         #expect(atBound.pendingContributionCount == 1)
         #expect(atBound.leasedContributionCount == 1)
-        let overflowReceipt = requireAdmission(overflow.receipt)
-        #expect(overflowReceipt?.payload == .contractedToRecovery)
-        #expect(overflowReceipt?.recoveryRevision != nil)
+        let overflowReceipt = requireAdmission(overflow)
+        _ = requireContractedRecoveryRevision(overflowReceipt)
         #expect(afterOverflow.retainedContributionCount == 2)
         #expect(afterOverflow.retainedItemCount == 2)
         #expect(afterOverflow.retainedByteCount == 4)
@@ -116,7 +123,7 @@ struct AdmissionBoundedGatherMailboxTests {
                 maximumContributionsPerLease: 1,
                 maximumItemsPerLease: 1,
                 maximumBytesPerLease: 2,
-                cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: 2)
+                cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 2)
             )
         )
         let producer = mailbox.producerPort
@@ -146,10 +153,9 @@ struct AdmissionBoundedGatherMailboxTests {
         let diagnostics = mailbox.lifecyclePort.diagnostics
 
         // Assert
-        #expect(leasedAlpha?.key == .alpha)
-        let receipt = requireAdmission(overflow.receipt)
-        #expect(receipt?.payload == .contractedToRecovery)
-        #expect(receipt?.recoveryRevision != nil)
+        #expect(leasedAlpha.key == .alpha)
+        let receipt = requireAdmission(overflow)
+        _ = requireContractedRecoveryRevision(receipt)
         #expect(diagnostics.retainedContributionCount == 2)
         #expect(diagnostics.leasedContributionCount == 1)
         #expect(diagnostics.pendingContributionCount == 1)
@@ -172,7 +178,7 @@ struct AdmissionBoundedGatherMailboxTests {
                 maximumContributionsPerLease: 2,
                 maximumItemsPerLease: 3,
                 maximumBytesPerLease: 12,
-                cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 2, maximumBytes: 12)
+                cleanupQuantum: .entriesAndBytes(maximumEntries: 2, maximumBytes: 12)
             )
         )
         let producer = mailbox.producerPort
@@ -196,10 +202,11 @@ struct AdmissionBoundedGatherMailboxTests {
 
         // Assert
         let lease = requireLease(firstDrain)
-        #expect(lease?.key == .alpha)
-        #expect(lease?.contributions.map(\.payload.label) == ["alpha-1", "alpha-2"])
-        #expect(lease?.contributions.reduce(0) { $0 + $1.footprint.itemCount } == 3)
-        #expect(lease?.contributions.reduce(0) { $0 + $1.footprint.byteCount } == 12)
+        let leasedContributions = requireContributions(lease).testValues
+        #expect(lease.key == .alpha)
+        #expect(leasedContributions.map(\.payload.label) == ["alpha-1", "alpha-2"])
+        #expect(leasedContributions.reduce(0) { $0 + $1.footprint.itemCount } == 3)
+        #expect(leasedContributions.reduce(0) { $0 + $1.footprint.byteCount } == 12)
         #expect(mailbox.lifecyclePort.diagnostics.admission.pendingKeyCount == 2)
         #expect(mailbox.lifecyclePort.diagnostics.outstandingLeaseCount == 1)
     }
@@ -220,7 +227,7 @@ struct AdmissionBoundedGatherMailboxTests {
                 maximumContributionsPerLease: 1,
                 maximumItemsPerLease: 1,
                 maximumBytesPerLease: 1,
-                cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: 1)
+                cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 1)
             )
         )
         let producer = mailbox.producerPort
@@ -247,12 +254,9 @@ struct AdmissionBoundedGatherMailboxTests {
         let diagnostics = mailbox.lifecyclePort.diagnostics.admission
 
         // Assert
-        #expect(requireAdmission(ordinary.receipt)?.payload == .retained)
-        #expect(requireAdmission(ordinary.receipt)?.recoveryRevision == nil)
-        #expect(requireAdmission(explicitRecovery.receipt)?.payload == .retained)
-        #expect(requireAdmission(explicitRecovery.receipt)?.recoveryRevision != nil)
-        #expect(requireAdmission(capacityContraction.receipt)?.payload == .contractedToRecovery)
-        #expect(requireAdmission(capacityContraction.receipt)?.recoveryRevision != nil)
+        expectRetainedWithoutRecovery(requireAdmission(ordinary))
+        _ = requireRetainedRecoveryRevision(requireAdmission(explicitRecovery))
+        _ = requireContractedRecoveryRevision(requireAdmission(capacityContraction))
         #expect(diagnostics.offered == 3)
         #expect(diagnostics.admitted == 3)
         #expect(diagnostics.contracted == 1)
@@ -283,18 +287,22 @@ struct AdmissionBoundedGatherMailboxTests {
         let replacementLease = requireLease(
             consumer.takeDrain(binding: replacementBinding, generation: generation)
         )
-        let lateOldAcknowledgement = oldLease.map {
-            consumer.acknowledge(token: $0.token, disposition: .transferred)
-        }
+        let lateOldAcknowledgement = consumer.acknowledge(
+            token: oldLease.token,
+            disposition: .transferred
+        )
         let afterLateOldAcknowledgement = mailbox.lifecyclePort.diagnostics
-        let replacementAcknowledgement = replacementLease.map {
-            consumer.acknowledge(token: $0.token, disposition: .transferred)
-        }
+        let replacementAcknowledgement = consumer.acknowledge(
+            token: replacementLease.token,
+            disposition: .transferred
+        )
 
         // Assert
-        #expect(oldLease?.contributions.map(\.payload.label) == ["retained"])
-        #expect(replacementLease?.contributions.map(\.payload.label) == ["retained"])
-        #expect(replacementLease?.token != oldLease?.token)
+        #expect(requireContributions(oldLease).testValues.map(\.payload.label) == ["retained"])
+        #expect(
+            requireContributions(replacementLease).testValues.map(\.payload.label) == ["retained"]
+        )
+        #expect(replacementLease.token != oldLease.token)
         #expect(lateOldAcknowledgement == .invalidToken)
         #expect(afterLateOldAcknowledgement.retainedContributionCount == 1)
         #expect(afterLateOldAcknowledgement.outstandingLeaseCount == 1)
@@ -344,19 +352,23 @@ struct AdmissionBoundedGatherMailboxTests {
         )
 
         // Act
-        let staleAcknowledgement = staleLease.map {
-            consumer.acknowledge(token: $0.token, disposition: .transferred)
-        }
-        let foreignAcknowledgement = foreignLease.map {
-            consumer.acknowledge(token: $0.token, disposition: .transferred)
-        }
+        let staleAcknowledgement = consumer.acknowledge(
+            token: staleLease.token,
+            disposition: .transferred
+        )
+        let foreignAcknowledgement = consumer.acknowledge(
+            token: foreignLease.token,
+            disposition: .transferred
+        )
         let afterInvalidAcknowledgements = mailbox.lifecyclePort.diagnostics
-        let acceptedAcknowledgement = currentLease.map {
-            consumer.acknowledge(token: $0.token, disposition: .transferred)
-        }
-        let doubleAcknowledgement = currentLease.map {
-            consumer.acknowledge(token: $0.token, disposition: .transferred)
-        }
+        let acceptedAcknowledgement = consumer.acknowledge(
+            token: currentLease.token,
+            disposition: .transferred
+        )
+        let doubleAcknowledgement = consumer.acknowledge(
+            token: currentLease.token,
+            disposition: .transferred
+        )
 
         // Assert
         #expect(staleAcknowledgement == .staleGeneration)
@@ -384,7 +396,7 @@ struct AdmissionBoundedGatherMailboxTests {
                 maximumContributionsPerLease: 1,
                 maximumItemsPerLease: 1,
                 maximumBytesPerLease: 4,
-                cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: 4)
+                cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 4)
             )
         )
         let producer = mailbox.producerPort
@@ -407,35 +419,44 @@ struct AdmissionBoundedGatherMailboxTests {
         )
 
         // Act
-        let retryAcknowledgement = alphaLease.map {
-            consumer.acknowledge(token: $0.token, disposition: .retry)
-        }
+        let retryAcknowledgement = consumer.acknowledge(
+            token: alphaLease.token,
+            disposition: .retry
+        )
         let betaLease = requireLease(
             consumer.takeDrain(binding: binding, generation: generation)
         )
-        let betaAcknowledgement = betaLease.map {
-            consumer.acknowledge(token: $0.token, disposition: .transferred)
-        }
+        let betaAcknowledgement = consumer.acknowledge(
+            token: betaLease.token,
+            disposition: .transferred
+        )
         let retriedAlphaLease = requireLease(
             consumer.takeDrain(binding: binding, generation: generation)
         )
-        let retriedAlphaAcknowledgement = retriedAlphaLease.map {
-            consumer.acknowledge(token: $0.token, disposition: .transferred)
-        }
+        let retriedAlphaAcknowledgement = consumer.acknowledge(
+            token: retriedAlphaLease.token,
+            disposition: .transferred
+        )
         let newerAlphaLease = requireLease(
             consumer.takeDrain(binding: binding, generation: generation)
         )
 
         // Assert
         #expect(retryAcknowledgement == .accepted(wake: .scheduleDrain))
-        #expect(betaLease?.key == .beta)
-        #expect(betaLease?.contributions.map(\.payload.label) == ["beta-ready"])
+        #expect(betaLease.key == .beta)
+        #expect(requireContributions(betaLease).testValues.map(\.payload.label) == ["beta-ready"])
         #expect(betaAcknowledgement == .accepted(wake: .scheduleDrain))
-        #expect(retriedAlphaLease?.key == .alpha)
-        #expect(retriedAlphaLease?.contributions.map(\.payload.label) == ["alpha-retry"])
+        #expect(retriedAlphaLease.key == .alpha)
+        #expect(
+            requireContributions(retriedAlphaLease).testValues.map(\.payload.label)
+                == ["alpha-retry"]
+        )
         #expect(retriedAlphaAcknowledgement == .accepted(wake: .scheduleDrain))
-        #expect(newerAlphaLease?.key == .alpha)
-        #expect(newerAlphaLease?.contributions.map(\.payload.label) == ["alpha-newer"])
+        #expect(newerAlphaLease.key == .alpha)
+        #expect(
+            requireContributions(newerAlphaLease).testValues.map(\.payload.label)
+                == ["alpha-newer"]
+        )
     }
 
     @Test("diagnostics preserve retained equals pending plus leased with mailbox-stamped age")
@@ -500,10 +521,8 @@ struct AdmissionBoundedGatherMailboxTests {
         let diagnostics = mailbox.lifecyclePort.diagnostics
 
         // Assert
-        expectInvalidFootprint(negativeItems.receipt)
-        expectInvalidFootprint(negativeBytes.receipt)
-        #expect(negativeItems.wake == .noWake)
-        #expect(negativeBytes.wake == .noWake)
+        expectInvalidFootprint(negativeItems)
+        expectInvalidFootprint(negativeBytes)
         #expect(diagnostics.admission.offered == 2)
         #expect(diagnostics.admission.admitted == 0)
         #expect(diagnostics.admission.rejectedInvalid == 2)
@@ -525,7 +544,7 @@ struct AdmissionBoundedGatherMailboxTests {
             maximumContributionsPerLease: 2,
             maximumItemsPerLease: .max,
             maximumBytesPerLease: .max,
-            cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 2, maximumBytes: .max)
+            cleanupQuantum: .entriesAndBytes(maximumEntries: 2, maximumBytes: .max)
         )
         let mailbox = makeMailbox(declaredKeys: [.alpha], limits: maximumLimits)
         let producer = mailbox.producerPort
@@ -547,7 +566,7 @@ struct AdmissionBoundedGatherMailboxTests {
         let diagnostics = mailbox.lifecyclePort.diagnostics
 
         // Assert
-        #expect(requireAdmission(overflow.receipt)?.payload == .contractedToRecovery)
+        _ = requireContractedRecoveryRevision(requireAdmission(overflow))
         #expect(diagnostics.retainedContributionCount == 0)
         #expect(diagnostics.pendingContributionCount == 0)
         #expect(diagnostics.recoverySlotCount == 1)
@@ -670,9 +689,10 @@ struct AdmissionBoundedGatherMailboxTests {
         clock.advance(by: .seconds(1))
 
         // Act
-        let acknowledgement = oldestLease.map {
-            consumer.acknowledge(token: $0.token, disposition: .transferred)
-        }
+        let acknowledgement = consumer.acknowledge(
+            token: oldestLease.token,
+            disposition: .transferred
+        )
         let diagnostics = mailbox.lifecyclePort.diagnostics
 
         // Assert
@@ -698,7 +718,7 @@ struct AdmissionBoundedGatherMailboxTests {
                 maximumContributionsPerLease: 1,
                 maximumItemsPerLease: 1,
                 maximumBytesPerLease: 1,
-                cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: 1)
+                cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 1)
             ),
             clock: clock
         )
@@ -731,8 +751,7 @@ struct AdmissionBoundedGatherMailboxTests {
             firstTurn
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: 1,
+                        release: .entriesAndBytes(count: 1, bytes: 1),
                         wake: .scheduleDrain
                     )
                 )
@@ -742,8 +761,7 @@ struct AdmissionBoundedGatherMailboxTests {
             secondTurn
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: 0,
+                        release: .entriesAndBytes(count: 1, bytes: 0),
                         wake: .scheduleDrain
                     )
                 )
@@ -754,8 +772,7 @@ struct AdmissionBoundedGatherMailboxTests {
             thirdTurn
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: 1,
+                        release: .entriesAndBytes(count: 1, bytes: 1),
                         wake: .scheduleDrain
                     )
                 )
@@ -764,8 +781,7 @@ struct AdmissionBoundedGatherMailboxTests {
             fourthTurn
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: 0,
+                        release: .entriesAndBytes(count: 1, bytes: 0),
                         wake: .noWake
                     )
                 )
@@ -807,9 +823,10 @@ struct AdmissionBoundedGatherMailboxTests {
         clock.advance(by: .seconds(1))
 
         // Act
-        let acknowledgement = oldestLease.map {
-            consumer.acknowledge(token: $0.token, disposition: .transferred)
-        }
+        let acknowledgement = consumer.acknowledge(
+            token: oldestLease.token,
+            disposition: .transferred
+        )
         let diagnostics = mailbox.lifecyclePort.diagnostics
 
         // Assert
@@ -837,9 +854,7 @@ struct AdmissionBoundedGatherMailboxTests {
             contribution: contribution(key: .beta, label: "remaining", items: 1, bytes: 1)
         )
         let oldestLease = requireLease(consumer.takeDrain(binding: binding, generation: generation))
-        _ = oldestLease.map {
-            consumer.acknowledge(token: $0.token, disposition: .transferred)
-        }
+        _ = consumer.acknowledge(token: oldestLease.token, disposition: .transferred)
         clock.advance(by: .seconds(1))
 
         // Act
@@ -868,7 +883,7 @@ struct AdmissionBoundedGatherMailboxTests {
             maximumContributionsPerLease: 8,
             maximumItemsPerLease: 32,
             maximumBytesPerLease: 512,
-            cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 8, maximumBytes: 512)
+            cleanupQuantum: .entriesAndBytes(maximumEntries: 8, maximumBytes: 512)
         )
     }
 
@@ -885,18 +900,19 @@ struct AdmissionBoundedGatherMailboxTests {
         )
     }
 
-    func contribution(
-        key: GatherTestKey,
-        label: String,
-        items: Int,
-        bytes: Int,
-        recoverySignal: GatherRecoverySignal = .ordinary
-    ) -> GatherContribution<GatherTestKey, GatherTestPayload> {
-        GatherContribution(
-            key: key,
-            payload: GatherTestPayload(label: label),
-            footprint: GatherFootprint(itemCount: items, byteCount: bytes),
-            recoverySignal: recoverySignal
-        )
-    }
+}
+
+func contribution(
+    key: GatherTestKey,
+    label: String,
+    items: Int,
+    bytes: Int,
+    recoverySignal: GatherRecoverySignal = .ordinary
+) -> GatherContribution<GatherTestKey, GatherTestPayload> {
+    GatherContribution(
+        key: key,
+        payload: GatherTestPayload(label: label),
+        footprint: GatherFootprint(itemCount: items, byteCount: bytes),
+        recoverySignal: recoverySignal
+    )
 }

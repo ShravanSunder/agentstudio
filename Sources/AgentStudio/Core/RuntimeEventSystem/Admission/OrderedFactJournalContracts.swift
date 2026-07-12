@@ -1,5 +1,47 @@
 import Foundation
 
+enum OrderedFactJournalLifecycle: Sendable {
+    case open, sealed, invalidated
+}
+
+enum OrderedFactProductGapState: Sendable {
+    case noGap
+    case pendingTransfer(FactGap, firstRetainedAt: Duration)
+    case transferred(FactGap, firstRetainedAt: Duration)
+}
+
+enum OrderedFactDrainLeasePayload<Fact: Sendable>: Sendable {
+    case facts(OrderedFactHistoryLease<Fact>)
+    case gap(FactGap, firstRetainedAt: Duration)
+}
+
+enum OrderedFactDrainLeaseState<Fact: Sendable>: Sendable {
+    case noLease
+    case awaitingPresentation(AdmissionDrainToken, OrderedFactDrainLeasePayload<Fact>)
+    case presented(AdmissionDrainToken, OrderedFactDrainLeasePayload<Fact>)
+}
+
+struct OrderedFactOfferContext<Fact: Sendable, Snapshot: Sendable>: Sendable {
+    let offeredGeneration: AdmissionGeneration
+    let fact: Fact
+    let estimatedFactBytes: Int
+    let snapshotReplacement: OrderedFactSnapshotReplacement<Snapshot>?
+    let retainedAt: Duration
+
+    var incomingRelease: OrderedFactIncomingOfferRelease<Fact, Snapshot> {
+        if let snapshotReplacement {
+            .factAndSnapshot(fact, snapshotReplacement)
+        } else {
+            .fact(fact)
+        }
+    }
+}
+
+struct OrderedFactExistingGapOfferContext: Sendable {
+    let gap: FactGap
+    let firstRetainedAt: Duration
+}
+
 struct OrderedFactSnapshotLimits: Sendable, Equatable {
     let maximumSnapshotBytes: Int
     let maximumPhysicalSnapshotCount: Int
@@ -102,15 +144,28 @@ enum OrderedFactOfferResult: Sendable {
     case closed
 }
 
+enum OrderedFactIncomingOfferRelease<Fact: Sendable, Snapshot: Sendable>: Sendable {
+    case fact(Fact)
+    case factAndSnapshot(Fact, OrderedFactSnapshotReplacement<Snapshot>)
+}
+
+enum OrderedFactOfferTransition<Fact: Sendable, Snapshot: Sendable>: Sendable {
+    case retained(OrderedFactOfferResult)
+    case released(
+        OrderedFactOfferResult,
+        OrderedFactIncomingOfferRelease<Fact, Snapshot>
+    )
+}
+
 enum OrderedFactDrainPayload<Fact: Sendable>: Sendable {
-    case facts([SequencedFact<Fact>])
+    case facts(NonEmptyAdmissionBatch<SequencedFact<Fact>>)
     case gap(FactGap)
 }
 
 struct OrderedFactDrain<Fact: Sendable>: Sendable {
     let token: AdmissionDrainToken
     let payload: OrderedFactDrainPayload<Fact>
-    let oldestRetainedAge: AdmissionAgeMeasurement?
+    let oldestRetainedAge: ExactAdmissionAge
 }
 
 enum OrderedFactTakeDrainResult<Fact: Sendable>: Sendable {
@@ -127,10 +182,7 @@ enum OrderedFactReplayRecovery: Sendable, Equatable {
     case currentSnapshot
 }
 
-enum OrderedFactReplayResult<Fact: Sendable, Snapshot: Sendable>: Sendable {
-    case facts([SequencedFact<Fact>], nextSequence: UInt64)
-    case snapshot(SequencedSnapshot<Snapshot>, followingFacts: [SequencedFact<Fact>], nextSequence: UInt64)
-    case historyGap(ReplayHistoryGap<Fact>)
+enum OrderedFactImmediateReplayResult: Sendable {
     case factGap(FactGap)
     case invalidCursor(latestSequence: UInt64)
     case replayInProgress
@@ -138,13 +190,31 @@ enum OrderedFactReplayResult<Fact: Sendable, Snapshot: Sendable>: Sendable {
     case invalidated
 }
 
-struct OrderedFactReplayCompletion<Fact: Sendable, Snapshot: Sendable>: Sendable {
-    let result: OrderedFactReplayResult<Fact, Snapshot>
-    let wake: AdmissionWakeDirective
+enum OrderedFactRegisteredReplayResult<Fact: Sendable, Snapshot: Sendable>: Sendable {
+    case facts([SequencedFact<Fact>], nextSequence: UInt64)
+    case snapshot(SequencedSnapshot<Snapshot>, followingFacts: [SequencedFact<Fact>], nextSequence: UInt64)
+    case historyGap(ReplayHistoryGap<Fact>)
+}
+
+enum OrderedFactReplayCompletion<Fact: Sendable, Snapshot: Sendable>: Sendable {
+    case immediate(OrderedFactImmediateReplayResult)
+    case registered(
+        OrderedFactRegisteredReplayResult<Fact, Snapshot>,
+        wake: AdmissionWakeDirective
+    )
+}
+
+enum OrderedFactCurrentLifecycleState: Sendable, Equatable {
+    case open
+    case sealed
 }
 
 enum OrderedFactCurrentStateResult<Snapshot: Sendable>: Sendable {
-    case current(snapshot: SequencedSnapshot<Snapshot>?, latestSequence: UInt64, isSealed: Bool)
+    case current(
+        snapshot: SequencedSnapshot<Snapshot>?,
+        latestSequence: UInt64,
+        lifecycle: OrderedFactCurrentLifecycleState
+    )
     case nonCurrent(FactGap)
     case staleGeneration
     case invalidated
@@ -191,7 +261,12 @@ struct OrderedFactJournalDiagnostics: Sendable {
     let activeReplayReaderCount: Int
     let outstandingCleanupTurnCount: Int
     let outstandingDrainCount: Int
-    let productGap: FactGap?
-    let isCurrent: Bool
+    let currentness: OrderedFactJournalDiagnosticCurrentness
     let isQuiescent: Bool
+}
+
+enum OrderedFactJournalDiagnosticCurrentness: Sendable, Equatable {
+    case current
+    case nonCurrent(FactGap)
+    case invalidated
 }

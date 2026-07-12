@@ -18,10 +18,7 @@ struct AdmissionLatestValueMailboxRetryTests {
             limits: LatestValueLimits(
                 maximumValuesPerLease: 3,
                 maximumAuxiliaryRetainedValues: 6,
-                cleanupQuantum: AdmissionCleanupQuantum(
-                    maximumEntries: 3,
-                    maximumBytes: nil
-                )
+                cleanupQuantum: .entries(maximumEntries: 3)
             ),
             clock: clock
         )
@@ -35,21 +32,21 @@ struct AdmissionLatestValueMailboxRetryTests {
             key: 0,
             version: 0,
             recorder: releaseRecorder,
-            expectedReceipt: .admitted
+            expectedResult: .admitted(wake: .scheduleDrain)
         )
         let originalKeyOne = offer(
             producer: producer,
             key: 1,
             version: 0,
             recorder: releaseRecorder,
-            expectedReceipt: .admitted
+            expectedResult: .admitted(wake: .noWake)
         )
         let originalKeyTwo = offer(
             producer: producer,
             key: 2,
             version: 0,
             recorder: releaseRecorder,
-            expectedReceipt: .admitted
+            expectedResult: .admitted(wake: .noWake)
         )
         guard
             let originalLease = takeProjection(
@@ -75,21 +72,21 @@ struct AdmissionLatestValueMailboxRetryTests {
             key: 0,
             version: 1,
             recorder: releaseRecorder,
-            expectedReceipt: .admitted
+            expectedResult: .admitted(wake: .noWake)
         )
         _ = offer(
             producer: producer,
             key: 0,
             version: 2,
             recorder: releaseRecorder,
-            expectedReceipt: .replacedPrevious
+            expectedResult: .replacedPrevious(wake: .noWake)
         )
         _ = offer(
             producer: producer,
             key: 1,
             version: 1,
             recorder: releaseRecorder,
-            expectedReceipt: .admitted
+            expectedResult: .admitted(wake: .noWake)
         )
 
         #expect(lifecycle.diagnostics.pendingValueCount == 2)
@@ -126,7 +123,7 @@ struct AdmissionLatestValueMailboxRetryTests {
             key: 2,
             version: 1,
             recorder: releaseRecorder,
-            expectedReceipt: .replacedPrevious
+            expectedResult: .replacedPrevious(wake: .noWake)
         )
         #expect(replacementForRetriedKey != originalKeyTwo)
         #expect(lifecycle.diagnostics.pendingValueCount == 3)
@@ -140,8 +137,7 @@ struct AdmissionLatestValueMailboxRetryTests {
             consumer.performCleanup(generation: generation)
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 3,
-                        releasedByteCount: nil,
+                        release: .entries(count: 3),
                         wake: .scheduleDrain
                     )
                 )
@@ -157,8 +153,7 @@ struct AdmissionLatestValueMailboxRetryTests {
             consumer.performCleanup(generation: generation)
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 1,
-                        releasedByteCount: nil,
+                        release: .entries(count: 1),
                         wake: .scheduleDrain
                     )
                 )
@@ -195,7 +190,7 @@ struct AdmissionLatestValueMailboxRetryTests {
         key: Int,
         version: Int,
         recorder: LatestRetryReleaseRecorder,
-        expectedReceipt: AdmissionReceipt
+        expectedResult: LatestValueOfferResult
     ) -> ObjectIdentifier {
         let payload = LatestRetryPayload(
             identity: LatestRetryIdentity(key: key, version: version),
@@ -207,7 +202,7 @@ struct AdmissionLatestValueMailboxRetryTests {
             key: key,
             value: payload
         )
-        #expect(result.receipt == expectedReceipt)
+        #expect(result == expectedResult)
         return objectIdentifier
     }
 
@@ -225,11 +220,11 @@ struct AdmissionLatestValueMailboxRetryTests {
             Issue.record("Expected latest-value retry drain")
             return nil
         }
-        let identitiesByKey = drain.valuesByKey.mapValues(\.identity)
+        let identitiesByKey = latestValuesByKey(drain).mapValues(\.identity)
         #expect(identitiesByKey == expectedIdentities)
         return LatestRetryDrainProjection(
             token: drain.token,
-            objectIdentifiersByKey: drain.valuesByKey.mapValues(ObjectIdentifier.init)
+            objectIdentifiersByKey: latestValuesByKey(drain).mapValues(ObjectIdentifier.init)
         )
     }
 }

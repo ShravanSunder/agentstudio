@@ -12,7 +12,7 @@ func constructCurrentJournalWithUnbundledSnapshotBytes()
         ),
         maximumDrainFacts: 4,
         cleanupQuantum: .entriesAndBytes(maximumEntries: 4, maximumBytes: 1024),
-        initialSnapshot: OrderedFactSnapshotReplacement(
+        initialSnapshotReplacement: OrderedFactSnapshotReplacement(
             snapshot: 1,
             estimatedBytes: nil
         )

@@ -33,7 +33,7 @@ struct AdmissionBoundedGatherMailboxMetadataCustodyTests {
                 maximumContributionsPerLease: 1,
                 maximumItemsPerLease: 1,
                 maximumBytesPerLease: 1,
-                cleanupQuantum: AdmissionCleanupQuantum(
+                cleanupQuantum: .entriesAndBytes(
                     maximumEntries: cleanupEntryQuantum,
                     maximumBytes: cleanupEntryQuantum
                 )
@@ -50,10 +50,7 @@ struct AdmissionBoundedGatherMailboxMetadataCustodyTests {
                     recoverySignal: .ordinary
                 )
             )
-            let admission: GatherAdmissionReceipt<GatherHashProbeKey>? =
-                requireGenericAdmission(result.receipt)
-            #expect(admission?.payload == GatherPayloadDisposition.contractedToRecovery)
-            #expect(admission?.recoveryRevision != nil)
+            _ = requireContractedRecoveryRevision(requireGenericAdmission(result))
         }
         #expect(mailbox.lifecyclePort.diagnostics.retainedContributionCount == 0)
         #expect(mailbox.lifecyclePort.diagnostics.recoverySlotCount == slotCount)
@@ -72,14 +69,15 @@ struct AdmissionBoundedGatherMailboxMetadataCustodyTests {
                 break
             }
             let after = mailbox.lifecyclePort.diagnostics.cleanupMetadataEntryCount
-            #expect(turn.releasedEntryCount > 0)
-            #expect(turn.releasedEntryCount <= cleanupEntryQuantum)
-            #expect(turn.releasedByteCount == 0)
-            #expect(before - after == turn.releasedEntryCount)
+            let release = requireEntryAndByteRelease(turn)
+            #expect(release.entries > 0)
+            #expect(release.entries <= cleanupEntryQuantum)
+            #expect(release.bytes == 0)
+            #expect(before - after == release.entries)
             let expectedWake: AdmissionWakeDirective =
                 after > 0 ? .scheduleDrain : .noWake
             #expect(turn.wake == expectedWake)
-            totalReleasedEntries += turn.releasedEntryCount
+            totalReleasedEntries += release.entries
         }
         let afterCleanup = mailbox.lifecyclePort.diagnostics
 
@@ -141,10 +139,7 @@ struct AdmissionBoundedGatherMailboxMetadataCustodyTests {
                     recoverySignal: .authoritativeRecoveryRequired
                 )
             )
-            let admission: GatherAdmissionReceipt<GatherHashProbeKey>? =
-                requireGenericAdmission(result.receipt)
-            #expect(admission?.payload == .retained)
-            #expect(admission?.recoveryRevision != nil)
+            _ = requireRetainedRecoveryRevision(requireGenericAdmission(result))
             payload = nil
         }
         let beforeInvalidation = mailbox.lifecyclePort.diagnostics
@@ -171,14 +166,15 @@ struct AdmissionBoundedGatherMailboxMetadataCustodyTests {
             let totalAfter = after.cleanupContributionCount + after.cleanupMetadataEntryCount
             let releasedAfter = recorder.identities.count
             let weakNilAfter = weakPayloads.lazy.filter { $0.payload == nil }.count
-            #expect(turn.releasedEntryCount > 0)
-            #expect(turn.releasedEntryCount <= cleanupEntryQuantum)
-            #expect(totalBefore - totalAfter == turn.releasedEntryCount)
-            #expect(releasedAfter - releasedBefore == turn.releasedByteCount)
-            #expect(weakNilAfter - weakNilBefore == turn.releasedByteCount)
-            #expect((turn.releasedByteCount ?? cleanupEntryQuantum + 1) <= cleanupEntryQuantum)
-            totalReleasedEntries += turn.releasedEntryCount
-            totalReleasedBytes += turn.releasedByteCount ?? 0
+            let release = requireEntryAndByteRelease(turn)
+            #expect(release.entries > 0)
+            #expect(release.entries <= cleanupEntryQuantum)
+            #expect(totalBefore - totalAfter == release.entries)
+            #expect(releasedAfter - releasedBefore == release.bytes)
+            #expect(weakNilAfter - weakNilBefore == release.bytes)
+            #expect(release.bytes <= cleanupEntryQuantum)
+            totalReleasedEntries += release.entries
+            totalReleasedBytes += release.bytes
         }
         let afterCleanup = mailbox.lifecyclePort.diagnostics
 
@@ -275,8 +271,7 @@ struct AdmissionBoundedGatherMailboxMetadataCustodyTests {
             resultBox.result
                 == .performed(
                     AdmissionCleanupTurn(
-                        releasedEntryCount: 2,
-                        releasedByteCount: 1,
+                        release: .entriesAndBytes(count: 2, bytes: 1),
                         wake: .noWake
                     )))
         #expect(recorder.identities == [GatherMetadataIdentity(key: 0, version: 1)])
@@ -302,7 +297,7 @@ struct AdmissionBoundedGatherMailboxMetadataCustodyTests {
             maximumContributionsPerLease: 1,
             maximumItemsPerLease: 1,
             maximumBytesPerLease: 1,
-            cleanupQuantum: AdmissionCleanupQuantum(
+            cleanupQuantum: .entriesAndBytes(
                 maximumEntries: cleanupEntryQuantum,
                 maximumBytes: cleanupEntryQuantum
             )

@@ -11,15 +11,24 @@ struct LatestValueLimits: Sendable, Equatable {
     let cleanupQuantum: AdmissionCleanupQuantum
 }
 
-struct LatestValueOfferResult: Sendable, Equatable {
-    let receipt: AdmissionReceipt
-    let wake: AdmissionWakeDirective
+enum LatestValueOfferResult: Sendable, Equatable {
+    case admitted(wake: AdmissionWakeDirective)
+    case replacedPrevious(wake: AdmissionWakeDirective)
+    case physicalCapacityExceeded
+    case staleGeneration
+    case undeclaredKey
+    case closed
+}
+
+struct LatestValueEntry<Key: Hashable & Sendable, Value: Sendable>: Sendable {
+    let key: Key
+    let value: Value
 }
 
 struct LatestValueDrain<Key: Hashable & Sendable, Value: Sendable>: Sendable {
     let token: AdmissionDrainToken
-    let valuesByKey: [Key: Value]
-    let oldestRetainedAge: AdmissionAgeMeasurement?
+    let values: NonEmptyAdmissionBatch<LatestValueEntry<Key, Value>>
+    let oldestRetainedAge: ExactAdmissionAge
 }
 
 enum LatestValueDrainResult<Key: Hashable & Sendable, Value: Sendable>: Sendable {
@@ -140,10 +149,11 @@ final class LatestValueMailbox<Key: Hashable & Sendable, Value: Sendable>: @unch
         let retentionOrderSlots: [Int]
     }
 
-    private enum ActiveDrainPresentationState: Sendable {
-        case presented
-        case awaitingInitialPresentation
-        case awaitingRebindPresentation
+    private enum ActiveDrainState: Sendable {
+        case noActiveDrain
+        case presented(ActiveDrain)
+        case awaitingInitialPresentation(ActiveDrain)
+        case awaitingRebindPresentation(ActiveDrain)
     }
 
     private final class PendingSlotOrder: @unchecked Sendable {
@@ -335,22 +345,29 @@ final class LatestValueMailbox<Key: Hashable & Sendable, Value: Sendable>: @unch
         let precision: CleanupAgePrecision
     }
 
-    private struct OfferTransition: Sendable {
-        let result: LatestValueOfferResult
-        let releasedValue: RetainedValue?
+    private enum OfferTransition: Sendable {
+        case accepted(LatestValueOfferResult)
+        case rejected(result: LatestValueOfferResult, incomingValue: RetainedValue)
     }
 
-    private struct CleanupDetachTransition: Sendable {
-        let result: AdmissionCleanupTurnResult
-        let authority: AdmissionOpaqueIdentity?
-        var detachedValues: [RetainedValue]
-        var retiredBatches: [CleanupBatch]
+    private enum CleanupDetachTransition: Sendable {
+        case unavailable(AdmissionCleanupTurnResult)
+        case detached(
+            authority: AdmissionOpaqueIdentity,
+            custody: NonEmptyAdmissionBatch<RetainedValue>,
+            retiredBatches: [CleanupBatch]
+        )
+    }
+
+    private enum CleanupReleaseTransition: Sendable {
+        case unavailable(AdmissionCleanupTurnResult)
+        case released(authority: AdmissionOpaqueIdentity)
     }
 
     private struct InFlightCleanup: Sendable {
         let authority: AdmissionOpaqueIdentity
         let retainedValueCount: Int
-        let oldestRetainedTimestamp: Duration?
+        let oldestRetainedTimestamp: Duration
     }
 
     private enum LockedTakeDrainResult: Sendable {
@@ -366,11 +383,10 @@ final class LatestValueMailbox<Key: Hashable & Sendable, Value: Sendable>: @unch
         var pendingValuesBySlot: [Int: RetainedValue] = [:]
         var pendingSlotOrder: PendingSlotOrder
         var reusableTerminalSlotOrder: PendingSlotOrder?
-        var activeDrain: ActiveDrain?
+        var activeDrainState = ActiveDrainState.noActiveDrain
         var cleanupHead: CleanupBatch?
         var cleanupTail: CleanupBatch?
         var inFlightCleanup: InFlightCleanup?
-        var activeDrainPresentationState = ActiveDrainPresentationState.presented
         var wakePending = false
         var bindingEpoch = AdmissionOpaqueIdentity()
         var currentBindingSequence: UInt64
@@ -526,7 +542,10 @@ final class LatestValueMailbox<Key: Hashable & Sendable, Value: Sendable>: @unch
             && limits.maximumAuxiliaryRetainedValues >= doubledDeliveryLimit.partialValue
             && physicalCapacity.overflow == false
             && limits.cleanupQuantum.isValid
-            && limits.cleanupQuantum.maximumBytes == nil
+            && {
+                guard case .entries = limits.cleanupQuantum else { return false }
+                return true
+            }()
     }
 
     private func withAdmissionProtectedState<Result: Sendable>(
@@ -555,15 +574,20 @@ final class LatestValueMailbox<Key: Hashable & Sendable, Value: Sendable>: @unch
             }
 
             let wake: AdmissionWakeDirective
-            if state.activeDrain != nil {
-                state.activeDrainPresentationState = .awaitingRebindPresentation
+            switch state.activeDrainState {
+            case .presented(let activeDrain),
+                .awaitingInitialPresentation(let activeDrain),
+                .awaitingRebindPresentation(let activeDrain):
+                state.activeDrainState = .awaitingRebindPresentation(activeDrain)
                 state.wakePending = true
                 wake = .scheduleDrain
-            } else if state.pendingValuesBySlot.isEmpty == false || state.cleanupValueCount > 0 {
-                state.wakePending = true
-                wake = .scheduleDrain
-            } else {
-                wake = .noWake
+            case .noActiveDrain:
+                if state.pendingValuesBySlot.isEmpty == false || state.cleanupValueCount > 0 {
+                    state.wakePending = true
+                    wake = .scheduleDrain
+                } else {
+                    wake = .noWake
+                }
             }
             return AdmissionConsumerBindResult(
                 binding: AdmissionConsumerBinding(
@@ -585,93 +609,114 @@ final class LatestValueMailbox<Key: Hashable & Sendable, Value: Sendable>: @unch
         let declaredSlot = declaredSlotByKey[key]
         let incomingValue = RetainedValue(value: value, firstRetainedAt: now)
         let transition = withAdmissionProtectedState { state, token in
-            incrementAdmissionCounter(&state.offered)
-
-            guard generation == state.generation else {
-                incrementAdmissionCounter(&state.rejectedStale)
-                return OfferTransition(
-                    result: LatestValueOfferResult(receipt: .staleGeneration, wake: .noWake),
-                    releasedValue: incomingValue
-                )
-            }
-            guard state.lifecycle == .open else {
-                incrementAdmissionCounter(&state.rejectedClosed)
-                return OfferTransition(
-                    result: LatestValueOfferResult(receipt: .closed, wake: .noWake),
-                    releasedValue: incomingValue
-                )
-            }
-            guard let declaredSlot else {
-                incrementAdmissionCounter(&state.rejectedUndeclared)
-                return OfferTransition(
-                    result: LatestValueOfferResult(receipt: .undeclaredKey, wake: .noWake),
-                    releasedValue: incomingValue
-                )
-            }
-
-            let receipt: AdmissionReceipt
-            if let retainedValue = state.pendingValuesBySlot[declaredSlot] {
-                let leasedValueCount = state.activeDrain?.retainedValuesBySlot.count ?? 0
-                let auxiliaryCount = leasedValueCount.addingReportingOverflow(
-                    state.cleanupValueCount
-                )
-                guard
-                    auxiliaryCount.overflow == false,
-                    auxiliaryCount.partialValue < limits.maximumAuxiliaryRetainedValues
-                else {
-                    incrementAdmissionCounter(&state.rejectedCapacity)
-                    return OfferTransition(
-                        result: LatestValueOfferResult(
-                            receipt: .physicalCapacityExceeded,
-                            wake: .noWake
-                        ),
-                        releasedValue: incomingValue
-                    )
-                }
-
-                state.pendingValuesBySlot[declaredSlot] = RetainedValue(
-                    value: value,
-                    firstRetainedAt: retainedValue.firstRetainedAt
-                )
-                Self.appendCleanupBatch(
-                    retainedValuesBySlot: [declaredSlot: retainedValue],
-                    retentionOrderSlots: [declaredSlot],
-                    maximumValuesPerLease: limits.maximumValuesPerLease,
-                    state: &state,
-                    token: token
-                )
-                incrementAdmissionCounter(&state.contracted)
-                receipt = .replacedPrevious
-            } else {
-                state.pendingValuesBySlot[declaredSlot] = incomingValue
-                state.pendingSlotOrder.append(declaredSlot, token: token)
-                if state.activeDrain?.retainedValuesBySlot[declaredSlot] == nil {
-                    state.pendingKeyCount += 1
-                    state.pendingKeyHighWater = max(
-                        state.pendingKeyHighWater,
-                        state.pendingKeyCount
-                    )
-                }
-                receipt = .admitted
-            }
-            incrementAdmissionCounter(&state.admitted)
-
-            Self.refreshRetainedHighWaters(state: &state, token: token)
-
-            return OfferTransition(
-                result: LatestValueOfferResult(
-                    receipt: receipt,
-                    wake: Self.scheduleWakeForAcceptedOffer(
-                        state: &state,
-                        token: token
-                    )
-                ),
-                releasedValue: nil
+            Self.transitionForOffer(
+                state: &state,
+                token: token,
+                generation: generation,
+                declaredSlot: declaredSlot,
+                incomingValue: incomingValue,
+                limits: limits
             )
         }
 
-        withExtendedLifetime(transition.releasedValue) {}
-        return transition.result
+        switch transition {
+        case .accepted(let result):
+            return result
+        case .rejected(let result, let rejectedIncomingValue):
+            withExtendedLifetime(rejectedIncomingValue) {}
+            return result
+        }
+    }
+
+    private static func transitionForOffer(
+        state: inout State,
+        token: borrowing AdmissionProtectedRegionToken,
+        generation: AdmissionGeneration,
+        declaredSlot: Int?,
+        incomingValue: RetainedValue,
+        limits: LatestValueLimits
+    ) -> OfferTransition {
+        incrementAdmissionCounter(&state.offered)
+
+        guard generation == state.generation else {
+            incrementAdmissionCounter(&state.rejectedStale)
+            return .rejected(result: .staleGeneration, incomingValue: incomingValue)
+        }
+        guard state.lifecycle == .open else {
+            incrementAdmissionCounter(&state.rejectedClosed)
+            return .rejected(result: .closed, incomingValue: incomingValue)
+        }
+        guard let declaredSlot else {
+            incrementAdmissionCounter(&state.rejectedUndeclared)
+            return .rejected(result: .undeclaredKey, incomingValue: incomingValue)
+        }
+
+        let acceptedResult: LatestValueOfferResult
+        if let retainedValue = state.pendingValuesBySlot[declaredSlot] {
+            let leasedValueCount: Int
+            switch state.activeDrainState {
+            case .noActiveDrain:
+                leasedValueCount = 0
+            case .presented(let activeDrain),
+                .awaitingInitialPresentation(let activeDrain),
+                .awaitingRebindPresentation(let activeDrain):
+                leasedValueCount = activeDrain.retainedValuesBySlot.count
+            }
+            let auxiliaryCount = leasedValueCount.addingReportingOverflow(
+                state.cleanupValueCount
+            )
+            guard
+                auxiliaryCount.overflow == false,
+                auxiliaryCount.partialValue < limits.maximumAuxiliaryRetainedValues
+            else {
+                incrementAdmissionCounter(&state.rejectedCapacity)
+                return .rejected(
+                    result: .physicalCapacityExceeded,
+                    incomingValue: incomingValue
+                )
+            }
+
+            state.pendingValuesBySlot[declaredSlot] = RetainedValue(
+                value: incomingValue.value,
+                firstRetainedAt: retainedValue.firstRetainedAt
+            )
+            appendCleanupBatch(
+                retainedValuesBySlot: [declaredSlot: retainedValue],
+                retentionOrderSlots: [declaredSlot],
+                maximumValuesPerLease: limits.maximumValuesPerLease,
+                state: &state,
+                token: token
+            )
+            incrementAdmissionCounter(&state.contracted)
+            acceptedResult = .replacedPrevious(
+                wake: scheduleWakeForAcceptedOffer(state: &state, token: token)
+            )
+        } else {
+            state.pendingValuesBySlot[declaredSlot] = incomingValue
+            state.pendingSlotOrder.append(declaredSlot, token: token)
+            let slotIsLeased: Bool
+            switch state.activeDrainState {
+            case .noActiveDrain:
+                slotIsLeased = false
+            case .presented(let activeDrain),
+                .awaitingInitialPresentation(let activeDrain),
+                .awaitingRebindPresentation(let activeDrain):
+                slotIsLeased = activeDrain.retainedValuesBySlot[declaredSlot] != nil
+            }
+            if slotIsLeased == false {
+                state.pendingKeyCount += 1
+                state.pendingKeyHighWater = max(
+                    state.pendingKeyHighWater,
+                    state.pendingKeyCount
+                )
+            }
+            acceptedResult = .admitted(
+                wake: scheduleWakeForAcceptedOffer(state: &state, token: token)
+            )
+        }
+        incrementAdmissionCounter(&state.admitted)
+        refreshRetainedHighWaters(state: &state, token: token)
+        return .accepted(acceptedResult)
     }
 
     fileprivate func takeDrain(
@@ -717,11 +762,19 @@ final class LatestValueMailbox<Key: Hashable & Sendable, Value: Sendable>: @unch
             else {
                 return AdmissionDrainAcknowledgement.invalidToken
             }
-            guard let activeDrain = state.activeDrain, activeDrain.token == token else {
+            let activeDrain: ActiveDrain
+            switch state.activeDrainState {
+            case .noActiveDrain:
                 return AdmissionDrainAcknowledgement.invalidToken
+            case .presented(let candidate),
+                .awaitingInitialPresentation(let candidate),
+                .awaitingRebindPresentation(let candidate):
+                guard candidate.token == token else {
+                    return AdmissionDrainAcknowledgement.invalidToken
+                }
+                activeDrain = candidate
             }
-            state.activeDrain = nil
-            state.activeDrainPresentationState = .presented
+            state.activeDrainState = .noActiveDrain
 
             switch disposition {
             case .transferred:
@@ -768,7 +821,6 @@ final class LatestValueMailbox<Key: Hashable & Sendable, Value: Sendable>: @unch
                 )
             }
 
-            state.activeDrainPresentationState = .presented
             Self.refreshRetainedHighWaters(state: &state, token: protectedToken)
             return .accepted(
                 wake: Self.scheduleWakeAfterAcknowledgement(
@@ -810,7 +862,7 @@ final class LatestValueMailbox<Key: Hashable & Sendable, Value: Sendable>: @unch
     fileprivate func performCleanup(
         generation: AdmissionGeneration
     ) -> AdmissionCleanupTurnResult {
-        var transition = withAdmissionProtectedState { state, token in
+        let transition = withAdmissionProtectedState { state, token in
             Self.detachCleanup(
                 state: &state,
                 token: token,
@@ -819,17 +871,20 @@ final class LatestValueMailbox<Key: Hashable & Sendable, Value: Sendable>: @unch
             )
         }
 
-        guard let authority = transition.authority else { return transition.result }
-        transition.detachedValues.removeAll(keepingCapacity: false)
-        transition.retiredBatches.removeAll(keepingCapacity: false)
-        return withAdmissionProtectedState { state, token in
-            Self.finalizeCleanup(
-                state: &state,
-                token: token,
-                authority: authority,
-                maximumValuesPerLease: limits.maximumValuesPerLease,
-                maximumAuxiliaryRetainedValues: limits.maximumAuxiliaryRetainedValues
-            )
+        let releaseTransition = Self.releaseCleanup(consume transition)
+        switch releaseTransition {
+        case .unavailable(let result):
+            return result
+        case .released(let authority):
+            return withAdmissionProtectedState { state, token in
+                Self.finalizeCleanup(
+                    state: &state,
+                    token: token,
+                    authority: authority,
+                    maximumValuesPerLease: limits.maximumValuesPerLease,
+                    maximumAuxiliaryRetainedValues: limits.maximumAuxiliaryRetainedValues
+                )
+            }
         }
     }
 
@@ -837,7 +892,18 @@ final class LatestValueMailbox<Key: Hashable & Sendable, Value: Sendable>: @unch
         let now = clock.now()
         return withAdmissionProtectedState { state, token in
             let pendingValueCount = state.pendingValuesBySlot.count
-            let leasedValueCount = state.activeDrain?.retainedValuesBySlot.count ?? 0
+            let leasedValueCount: Int
+            let outstandingLeaseCount: Int
+            switch state.activeDrainState {
+            case .noActiveDrain:
+                leasedValueCount = 0
+                outstandingLeaseCount = 0
+            case .presented(let activeDrain),
+                .awaitingInitialPresentation(let activeDrain),
+                .awaitingRebindPresentation(let activeDrain):
+                leasedValueCount = activeDrain.retainedValuesBySlot.count
+                outstandingLeaseCount = 1
+            }
             let semanticRetainedValueCount = pendingValueCount + leasedValueCount
             let physicalRetainedValueCount = semanticRetainedValueCount + state.cleanupValueCount
             return LatestValueAdmissionDiagnostics(
@@ -873,9 +939,9 @@ final class LatestValueMailbox<Key: Hashable & Sendable, Value: Sendable>: @unch
                     from: state.oldestCleanupWatermark,
                     to: now
                 ),
-                outstandingLeaseCount: state.activeDrain == nil ? 0 : 1,
+                outstandingLeaseCount: outstandingLeaseCount,
                 outstandingCleanupTurnCount: state.inFlightCleanup == nil ? 0 : 1,
-                isQuiescent: physicalRetainedValueCount == 0 && state.activeDrain == nil
+                isQuiescent: physicalRetainedValueCount == 0 && outstandingLeaseCount == 0
             )
         }
     }
@@ -902,13 +968,17 @@ extension LatestValueMailbox {
         cleanupQuantum: AdmissionCleanupQuantum
     ) -> CleanupDetachTransition {
         guard generation == state.generation else {
-            return emptyCleanupTransition(result: .staleGeneration)
+            return .unavailable(.staleGeneration)
         }
         guard state.inFlightCleanup == nil else {
-            return emptyCleanupTransition(result: .alreadyCleaning)
+            return .unavailable(.alreadyCleaning)
         }
         guard state.cleanupValueCount > 0 else {
-            return emptyCleanupTransition(result: .empty)
+            return .unavailable(.empty)
+        }
+
+        guard case .entries = cleanupQuantum else {
+            preconditionFailure("Latest-value cleanup accepts entry-only quanta")
         }
 
         var detachedValues: [RetainedValue] = []
@@ -919,13 +989,15 @@ extension LatestValueMailbox {
         while detachedValues.count < cleanupQuantum.maximumEntries,
             let cleanupHead = state.cleanupHead
         {
-            while detachedValues.count < cleanupQuantum.maximumEntries,
-                let slot = cleanupHead.slotOrder.removeFirst(token: token)
-            {
-                if let retainedValue = cleanupHead.retainedValuesBySlot.removeValue(forKey: slot) {
-                    detachedValues.append(retainedValue)
-                }
+            guard let slot = cleanupHead.slotOrder.removeFirst(token: token) else {
+                preconditionFailure("Latest cleanup batch became empty before retirement")
             }
+            guard
+                let retainedValue = cleanupHead.retainedValuesBySlot.removeValue(forKey: slot)
+            else {
+                preconditionFailure("Latest cleanup order referenced an empty slot")
+            }
+            detachedValues.append(retainedValue)
 
             guard cleanupHead.slotOrder.isEmpty(token: token) else { continue }
             if let reusableOrder = cleanupHead.slotOrder.takeReusableTerminalOrder(token: token) {
@@ -940,31 +1012,49 @@ extension LatestValueMailbox {
             retiredBatches.append(cleanupHead)
         }
 
-        precondition(detachedValues.isEmpty == false)
+        guard let firstDetachedValue = detachedValues.first else {
+            preconditionFailure("Latest cleanup detached empty custody")
+        }
+        let detachedCustody = NonEmptyAdmissionBatch(
+            first: firstDetachedValue,
+            remaining: Array(detachedValues.dropFirst())
+        )
+        var oldestDetachedTimestamp = detachedCustody.first.firstRetainedAt
+        for retainedValue in detachedCustody.remaining.prefix(
+            cleanupQuantum.maximumEntries
+        ) {
+            oldestDetachedTimestamp = min(
+                oldestDetachedTimestamp,
+                retainedValue.firstRetainedAt
+            )
+        }
         let authority = AdmissionOpaqueIdentity()
         state.inFlightCleanup = InFlightCleanup(
             authority: authority,
-            retainedValueCount: detachedValues.count,
-            oldestRetainedTimestamp: detachedValues.lazy.map(\.firstRetainedAt).min()
+            retainedValueCount: detachedCustody.count,
+            oldestRetainedTimestamp: oldestDetachedTimestamp
         )
         refreshRetainedHighWaters(state: &state, token: token)
-        return CleanupDetachTransition(
-            result: .empty,
+        return .detached(
             authority: authority,
-            detachedValues: detachedValues,
+            custody: detachedCustody,
             retiredBatches: retiredBatches
         )
     }
 
-    private static func emptyCleanupTransition(
-        result: AdmissionCleanupTurnResult
-    ) -> CleanupDetachTransition {
-        CleanupDetachTransition(
-            result: result,
-            authority: nil,
-            detachedValues: [],
-            retiredBatches: []
-        )
+    private static func releaseCleanup(
+        _ transition: consuming CleanupDetachTransition
+    ) -> CleanupReleaseTransition {
+        switch consume transition {
+        case .unavailable(let result):
+            return .unavailable(result)
+        case .detached(let authority, let custody, var retiredBatches):
+            custody.forEach { retainedValue in
+                withExtendedLifetime(retainedValue) {}
+            }
+            retiredBatches.removeAll(keepingCapacity: false)
+            return .released(authority: authority)
+        }
     }
 
     private static func finalizeCleanup(
@@ -994,11 +1084,19 @@ extension LatestValueMailbox {
             maximumValuesPerLease: maximumValuesPerLease,
             maximumAuxiliaryRetainedValues: maximumAuxiliaryRetainedValues
         )
-        let hasUnpresentedActiveDrain =
-            state.activeDrain != nil
-            && state.activeDrainPresentationState != .presented
-        let hasDrainableSemanticWork =
-            state.activeDrain == nil && state.pendingValuesBySlot.isEmpty == false
+        let hasUnpresentedActiveDrain: Bool
+        let hasDrainableSemanticWork: Bool
+        switch state.activeDrainState {
+        case .noActiveDrain:
+            hasUnpresentedActiveDrain = false
+            hasDrainableSemanticWork = state.pendingValuesBySlot.isEmpty == false
+        case .presented:
+            hasUnpresentedActiveDrain = false
+            hasDrainableSemanticWork = false
+        case .awaitingInitialPresentation, .awaitingRebindPresentation:
+            hasUnpresentedActiveDrain = true
+            hasDrainableSemanticWork = false
+        }
         let wake: AdmissionWakeDirective
         if state.cleanupValueCount > 0 || reservedDelivery || hasUnpresentedActiveDrain
             || hasDrainableSemanticWork
@@ -1012,8 +1110,7 @@ extension LatestValueMailbox {
         refreshRetainedHighWaters(state: &state, token: token)
         return .performed(
             AdmissionCleanupTurn(
-                releasedEntryCount: inFlightCleanup.retainedValueCount,
-                releasedByteCount: nil,
+                release: .entries(count: inFlightCleanup.retainedValueCount),
                 wake: wake
             )
         )
@@ -1026,7 +1123,7 @@ extension LatestValueMailbox {
         maximumAuxiliaryRetainedValues: Int
     ) -> Bool {
         guard state.lifecycle == .open || state.lifecycle == .sealed else { return false }
-        guard state.activeDrain == nil else { return false }
+        guard case .noActiveDrain = state.activeDrainState else { return false }
         guard state.pendingValuesBySlot.isEmpty == false else { return false }
 
         let availableAuxiliaryCapacity =
@@ -1044,12 +1141,13 @@ extension LatestValueMailbox {
         )
         guard leaseLimit > 0 else { return false }
 
-        state.activeDrain = formActiveDrain(
-            state: &state,
-            token: token,
-            leaseLimit: leaseLimit
+        state.activeDrainState = .awaitingInitialPresentation(
+            formActiveDrain(
+                state: &state,
+                token: token,
+                leaseLimit: leaseLimit
+            )
         )
-        state.activeDrainPresentationState = .awaitingInitialPresentation
         return true
     }
 
@@ -1057,7 +1155,9 @@ extension LatestValueMailbox {
         state: inout State,
         token _: borrowing AdmissionProtectedRegionToken
     ) -> AdmissionWakeDirective {
-        guard state.activeDrain == nil, state.wakePending == false else { return .noWake }
+        guard case .noActiveDrain = state.activeDrainState,
+            state.wakePending == false
+        else { return .noWake }
         state.wakePending = true
         return .scheduleDrain
     }
@@ -1091,25 +1191,24 @@ extension LatestValueMailbox {
             )
         else { return .result(.alreadyDraining) }
 
-        if let activeDrain = state.activeDrain {
-            switch state.activeDrainPresentationState {
-            case .presented:
-                return .result(.alreadyDraining)
-            case .awaitingInitialPresentation:
-                state.activeDrainPresentationState = .presented
-                state.wakePending = false
-                return .drain(activeDrain)
-            case .awaitingRebindPresentation:
-                let reboundDrain = ActiveDrain(
-                    token: nextDrainToken(state: &state, token: token),
-                    retainedValuesBySlot: activeDrain.retainedValuesBySlot,
-                    retentionOrderSlots: activeDrain.retentionOrderSlots
-                )
-                state.activeDrain = reboundDrain
-                state.activeDrainPresentationState = .presented
-                state.wakePending = false
-                return .drain(reboundDrain)
-            }
+        switch state.activeDrainState {
+        case .presented:
+            return .result(.alreadyDraining)
+        case .awaitingInitialPresentation(let activeDrain):
+            state.activeDrainState = .presented(activeDrain)
+            state.wakePending = false
+            return .drain(activeDrain)
+        case .awaitingRebindPresentation(let activeDrain):
+            let reboundDrain = ActiveDrain(
+                token: nextDrainToken(state: &state, token: token),
+                retainedValuesBySlot: activeDrain.retainedValuesBySlot,
+                retentionOrderSlots: activeDrain.retentionOrderSlots
+            )
+            state.activeDrainState = .presented(reboundDrain)
+            state.wakePending = false
+            return .drain(reboundDrain)
+        case .noActiveDrain:
+            break
         }
 
         guard state.cleanupValueCount == 0 else {
@@ -1125,8 +1224,7 @@ extension LatestValueMailbox {
             token: token,
             leaseLimit: min(maximumValuesPerLease, state.pendingValuesBySlot.count)
         )
-        state.activeDrain = activeDrain
-        state.activeDrainPresentationState = .presented
+        state.activeDrainState = .presented(activeDrain)
         return .drain(activeDrain)
     }
 
@@ -1135,7 +1233,9 @@ extension LatestValueMailbox {
         token: borrowing AdmissionProtectedRegionToken,
         leaseLimit: Int
     ) -> ActiveDrain {
-        precondition(state.activeDrain == nil)
+        guard case .noActiveDrain = state.activeDrainState else {
+            preconditionFailure("Latest active drain already exists")
+        }
         precondition(leaseLimit > 0)
 
         var retainedValuesBySlot: [Int: RetainedValue] = [:]
@@ -1185,21 +1285,38 @@ extension LatestValueMailbox {
         activeDrain: ActiveDrain,
         now: Duration
     ) -> LatestValueDrainResult<Key, Value> {
-        var valuesByKey: [Key: Value] = [:]
-        valuesByKey.reserveCapacity(activeDrain.retainedValuesBySlot.count)
-        for (slot, retainedValue) in activeDrain.retainedValuesBySlot {
-            valuesByKey[declaredKeysBySlot[slot]] = retainedValue.value
+        guard let firstSlot = activeDrain.retentionOrderSlots.first,
+            let firstRetainedValue = activeDrain.retainedValuesBySlot[firstSlot]
+        else {
+            preconditionFailure("Latest active drain must be nonempty")
+        }
+        let firstEntry = LatestValueEntry(
+            key: declaredKeysBySlot[firstSlot],
+            value: firstRetainedValue.value
+        )
+        var remainingEntries: [LatestValueEntry<Key, Value>] = []
+        remainingEntries.reserveCapacity(activeDrain.retentionOrderSlots.count - 1)
+        for slot in activeDrain.retentionOrderSlots.dropFirst() {
+            guard let retainedValue = activeDrain.retainedValuesBySlot[slot] else {
+                preconditionFailure("Latest drain order referenced missing custody")
+            }
+            remainingEntries.append(
+                LatestValueEntry(
+                    key: declaredKeysBySlot[slot],
+                    value: retainedValue.value
+                )
+            )
         }
 
         return .drain(
             LatestValueDrain(
                 token: activeDrain.token,
-                valuesByKey: valuesByKey,
-                oldestRetainedAge: exactAdmissionAge(
-                    from: activeDrain.retentionOrderSlots.first.flatMap {
-                        activeDrain.retainedValuesBySlot[$0]?.firstRetainedAt
-                    },
-                    to: now
+                values: NonEmptyAdmissionBatch(
+                    first: firstEntry,
+                    remaining: remainingEntries
+                ),
+                oldestRetainedAge: ExactAdmissionAge(
+                    duration: max(.zero, now - firstRetainedValue.firstRetainedAt)
                 )
             )
         )
@@ -1210,7 +1327,12 @@ extension LatestValueMailbox {
         token: borrowing AdmissionProtectedRegionToken,
         maximumValuesPerLease: Int
     ) {
-        if let activeDrain = state.activeDrain {
+        switch state.activeDrainState {
+        case .noActiveDrain:
+            break
+        case .presented(let activeDrain),
+            .awaitingInitialPresentation(let activeDrain),
+            .awaitingRebindPresentation(let activeDrain):
             appendCleanupBatch(
                 retainedValuesBySlot: activeDrain.retainedValuesBySlot,
                 retentionOrderSlots: activeDrain.retentionOrderSlots,
@@ -1235,8 +1357,7 @@ extension LatestValueMailbox {
         }
         state.lifecycle = .invalidated
         state.pendingValuesBySlot = [:]
-        state.activeDrain = nil
-        state.activeDrainPresentationState = .presented
+        state.activeDrainState = .noActiveDrain
         state.wakePending = false
         state.pendingKeyCount = 0
         refreshRetainedHighWaters(state: &state, token: token)
@@ -1249,8 +1370,14 @@ extension LatestValueMailbox {
         let pendingOldest = state.pendingSlotOrder.first(token: token).flatMap {
             state.pendingValuesBySlot[$0]?.firstRetainedAt
         }
-        let leasedOldest = state.activeDrain.flatMap { activeDrain in
-            activeDrain.retentionOrderSlots.first.flatMap {
+        let leasedOldest: Duration?
+        switch state.activeDrainState {
+        case .noActiveDrain:
+            leasedOldest = nil
+        case .presented(let activeDrain),
+            .awaitingInitialPresentation(let activeDrain),
+            .awaitingRebindPresentation(let activeDrain):
+            leasedOldest = activeDrain.retentionOrderSlots.first.flatMap {
                 activeDrain.retainedValuesBySlot[$0]?.firstRetainedAt
             }
         }
@@ -1279,7 +1406,7 @@ extension LatestValueMailbox {
     }
 
     private static func cleanupWatermarkAfterRelease(
-        releasedOldestRetainedAt: Duration?,
+        releasedOldestRetainedAt: Duration,
         remainingCount: Int,
         current: CleanupAgeWatermark?
     ) -> CleanupAgeWatermark? {
@@ -1287,10 +1414,7 @@ extension LatestValueMailbox {
         guard let current else {
             preconditionFailure("Latest cleanup custody is missing its age watermark")
         }
-        guard
-            let releasedOldestRetainedAt,
-            releasedOldestRetainedAt <= current.retainedAt
-        else { return current }
+        guard releasedOldestRetainedAt <= current.retainedAt else { return current }
         return CleanupAgeWatermark(
             retainedAt: current.retainedAt,
             precision: .pressureConservative
@@ -1373,9 +1497,16 @@ extension LatestValueMailbox {
         state: inout State,
         token _: borrowing AdmissionProtectedRegionToken
     ) {
-        let semanticRetainedValueCount =
-            state.pendingValuesBySlot.count
-            + (state.activeDrain?.retainedValuesBySlot.count ?? 0)
+        let leasedValueCount: Int
+        switch state.activeDrainState {
+        case .noActiveDrain:
+            leasedValueCount = 0
+        case .presented(let activeDrain),
+            .awaitingInitialPresentation(let activeDrain),
+            .awaitingRebindPresentation(let activeDrain):
+            leasedValueCount = activeDrain.retainedValuesBySlot.count
+        }
+        let semanticRetainedValueCount = state.pendingValuesBySlot.count + leasedValueCount
         let physicalRetainedValueCount = semanticRetainedValueCount + state.cleanupValueCount
         state.semanticRetainedValueHighWater = max(
             state.semanticRetainedValueHighWater,
@@ -1385,5 +1516,15 @@ extension LatestValueMailbox {
             state.physicalRetainedValueHighWater,
             physicalRetainedValueCount
         )
+    }
+}
+
+extension AdmissionCleanupQuantum {
+    fileprivate var maximumEntries: Int {
+        switch self {
+        case .entries(let maximumEntries),
+            .entriesAndBytes(let maximumEntries, _):
+            maximumEntries
+        }
     }
 }

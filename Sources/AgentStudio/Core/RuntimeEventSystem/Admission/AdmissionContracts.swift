@@ -29,16 +29,6 @@ struct AdmissionGeneration: Hashable, Sendable {
     let value: UInt64
 }
 
-enum AdmissionReceipt: Sendable, Equatable {
-    case admitted
-    case replacedPrevious
-    case physicalCapacityExceeded
-    case staleGeneration
-    case undeclaredKey
-    case invalidFootprint
-    case closed
-}
-
 enum AdmissionWakeDirective: Sendable, Equatable {
     case noWake
     case scheduleDrain
@@ -179,21 +169,6 @@ enum AdmissionDrainAcknowledgement: Sendable, Equatable {
     case closed
 }
 
-struct AdmissionCleanupQuantum: Sendable, Equatable {
-    let maximumEntries: Int
-    let maximumBytes: Int?
-
-    var isValid: Bool {
-        maximumEntries > 0 && maximumBytes.map { $0 > 0 } != false
-    }
-}
-
-struct AdmissionCleanupTurn: Sendable, Equatable {
-    let releasedEntryCount: Int
-    let releasedByteCount: Int?
-    let wake: AdmissionWakeDirective
-}
-
 enum AdmissionCleanupTurnResult: Sendable, Equatable {
     case performed(AdmissionCleanupTurn)
     case alreadyCleaning
@@ -299,35 +274,35 @@ struct GatherRecoveryRevision<Key>: Hashable, Sendable where Key: Hashable & Sen
     }
 }
 
-enum GatherPayloadDisposition: Sendable, Equatable {
+enum GatherAdmissionDisposition<Key>: Sendable where Key: Hashable & Sendable {
     case retained
-    case contractedToRecovery
+    case retainedWithRecovery(GatherRecoveryRevision<Key>)
+    case contractedToRecovery(GatherRecoveryRevision<Key>)
 }
 
-struct GatherAdmissionReceipt<Key>: Sendable where Key: Hashable & Sendable {
-    let payload: GatherPayloadDisposition
-    let recoveryRevision: GatherRecoveryRevision<Key>?
-}
-
-enum GatherOfferReceipt<Key>: Sendable where Key: Hashable & Sendable {
-    case admitted(GatherAdmissionReceipt<Key>)
+enum GatherOfferResult<Key>: Sendable where Key: Hashable & Sendable {
+    case admitted(GatherAdmissionDisposition<Key>, wake: AdmissionWakeDirective)
     case staleGeneration
     case undeclaredKey
     case invalidFootprint
     case closed
 }
 
-struct GatherOfferResult<Key>: Sendable where Key: Hashable & Sendable {
-    let receipt: GatherOfferReceipt<Key>
-    let wake: AdmissionWakeDirective
+enum GatherDrainPayload<Key, Payload>: Sendable
+where Key: Hashable & Sendable, Payload: Sendable {
+    case contributions(NonEmptyAdmissionBatch<GatherContribution<Key, Payload>>)
+    case contributionsWithRecovery(
+        NonEmptyAdmissionBatch<GatherContribution<Key, Payload>>,
+        GatherRecoveryRevision<Key>
+    )
+    case recovery(GatherRecoveryRevision<Key>)
 }
 
 struct GatherDrainLease<Key, Payload>: Sendable
 where Key: Hashable & Sendable, Payload: Sendable {
     let token: AdmissionDrainToken
     let key: Key
-    let contributions: [GatherContribution<Key, Payload>]
-    let recoveryRevision: GatherRecoveryRevision<Key>?
+    let payload: GatherDrainPayload<Key, Payload>
 }
 
 enum GatherTakeDrainResult<Key, Payload>: Sendable

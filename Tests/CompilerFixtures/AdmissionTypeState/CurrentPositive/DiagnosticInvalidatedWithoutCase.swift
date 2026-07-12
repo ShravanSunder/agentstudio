@@ -1,0 +1,5 @@
+func constructCurrentDiagnosticInvalidated()
+    -> OrderedFactJournalDiagnosticCurrentness
+{
+    .invalidated
+}

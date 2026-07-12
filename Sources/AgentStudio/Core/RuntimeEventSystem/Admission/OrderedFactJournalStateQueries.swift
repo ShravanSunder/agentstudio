@@ -11,6 +11,37 @@ func minimumAdmissionTimestamp<T: Comparable>(_ first: T?, _ second: T?) -> T? {
     }
 }
 
+func orderedFactDiagnosticCurrentness(
+    _ lifecycle: OrderedFactJournalLifecycle,
+    _ productGap: OrderedFactProductGapState
+) -> OrderedFactJournalDiagnosticCurrentness {
+    switch (lifecycle, productGap) {
+    case (.invalidated, _): .invalidated
+    case (_, .noGap): .current
+    case (_, .pendingTransfer(let gap, _)), (_, .transferred(let gap, _)): .nonCurrent(gap)
+    }
+}
+
+func makeOrderedFactJournalDrain<Fact: Sendable>(
+    token: AdmissionDrainToken,
+    payload: OrderedFactDrainLeasePayload<Fact>,
+    now: Duration
+) -> OrderedFactTakeDrainResult<Fact> {
+    let content: (payload: OrderedFactDrainPayload<Fact>, firstRetainedAt: Duration) =
+        switch payload {
+        case .facts(let historyLease):
+            (.facts(historyLease.sequencedFacts), historyLease.firstRetainedAt)
+        case .gap(let gap, let firstRetainedAt):
+            (.gap(gap), firstRetainedAt)
+        }
+    return makeOrderedFactDrainResult(
+        token: token,
+        payload: content.payload,
+        firstRetainedAt: content.firstRetainedAt,
+        now: now
+    )
+}
+
 struct OrderedFactCleanupRelease: Sendable {
     let factCount: Int
     let factBytes: Int
@@ -20,13 +51,54 @@ struct OrderedFactCleanupRelease: Sendable {
     let byteCount: Int
 }
 
-enum OrderedFactOfferPreflight: Sendable {
-    case admit
+func orderedFactCleanupLimits(
+    _ quantum: AdmissionCleanupQuantum
+) -> (maximumEntries: Int, maximumBytes: Int) {
+    guard case .entriesAndBytes(let maximumEntries, let maximumBytes) = quantum else {
+        preconditionFailure("Ordered fact cleanup requires an entry-and-byte quantum")
+    }
+    return (maximumEntries, maximumBytes)
+}
+
+enum OrderedFactOfferRejection: Sendable {
     case staleGeneration
     case closed
     case invalidSize
     case snapshotTooLarge
     case snapshotPhysicalCapacityExceeded
+}
+
+enum OrderedFactOfferPreflight: Sendable {
+    case admit
+    case reject(OrderedFactOfferRejection)
+}
+
+func applyOrderedFactOfferRejection(
+    _ rejection: OrderedFactOfferRejection,
+    offered: inout UInt64,
+    rejectedStale: inout UInt64,
+    rejectedClosed: inout UInt64,
+    rejectedInvalid: inout UInt64,
+    rejectedCapacity: inout UInt64
+) -> OrderedFactOfferResult {
+    incrementAdmissionCounter(&offered)
+    switch rejection {
+    case .staleGeneration:
+        incrementAdmissionCounter(&rejectedStale)
+        return .staleGeneration
+    case .closed:
+        incrementAdmissionCounter(&rejectedClosed)
+        return .closed
+    case .invalidSize:
+        incrementAdmissionCounter(&rejectedInvalid)
+        return .invalidSize
+    case .snapshotTooLarge:
+        incrementAdmissionCounter(&rejectedInvalid)
+        return .snapshotTooLarge
+    case .snapshotPhysicalCapacityExceeded:
+        incrementAdmissionCounter(&rejectedCapacity)
+        return .snapshotPhysicalCapacityExceeded
+    }
 }
 
 func classifyOrderedFactOffer(
@@ -36,14 +108,14 @@ func classifyOrderedFactOffer(
     snapshotLimits: OrderedFactSnapshotLimits,
     snapshotPressure: (count: Int, bytes: Int)
 ) -> OrderedFactOfferPreflight {
-    guard lifecycle.hasCurrentGeneration else { return .staleGeneration }
-    guard lifecycle.isOpen else { return .closed }
+    guard lifecycle.hasCurrentGeneration else { return .reject(.staleGeneration) }
+    guard lifecycle.isOpen else { return .reject(.closed) }
     guard estimatedFactBytes >= 0, estimatedSnapshotBytes ?? 0 >= 0 else {
-        return .invalidSize
+        return .reject(.invalidSize)
     }
     guard let estimatedSnapshotBytes else { return .admit }
     guard estimatedSnapshotBytes <= snapshotLimits.maximumSnapshotBytes else {
-        return .snapshotTooLarge
+        return .reject(.snapshotTooLarge)
     }
     guard
         orderedFactSnapshotCapacityAllows(
@@ -52,7 +124,7 @@ func classifyOrderedFactOffer(
             currentBytes: snapshotPressure.bytes,
             additionalBytes: estimatedSnapshotBytes
         )
-    else { return .snapshotPhysicalCapacityExceeded }
+    else { return .reject(.snapshotPhysicalCapacityExceeded) }
     return .admit
 }
 
@@ -84,8 +156,7 @@ func validateOrderedFactJournalConfiguration<Snapshot>(
     cleanupQuantum: AdmissionCleanupQuantum,
     maximumRetainedBytes: Int,
     snapshotLimits: OrderedFactSnapshotLimits,
-    initialSnapshot: Snapshot?,
-    initialSnapshotBytes: Int
+    initialSnapshotReplacement: OrderedFactSnapshotReplacement<Snapshot>?
 ) throws {
     let replacementOverlapBytes = snapshotLimits.maximumSnapshotBytes.multipliedReportingOverflow(
         by: 2
@@ -96,19 +167,21 @@ func validateOrderedFactJournalConfiguration<Snapshot>(
     else {
         throw OrderedFactJournalConfigurationError.invalidSnapshotLimits
     }
-    guard cleanupQuantum.isValid,
-        let maximumCleanupBytes = cleanupQuantum.maximumBytes,
+    guard cleanupQuantum.isValid else {
+        throw OrderedFactJournalConfigurationError.invalidCleanupQuantum
+    }
+    guard case .entriesAndBytes(_, let maximumCleanupBytes) = cleanupQuantum,
         maximumCleanupBytes >= Swift.max(maximumRetainedBytes, snapshotLimits.maximumSnapshotBytes)
     else {
         throw OrderedFactJournalConfigurationError.invalidCleanupQuantum
     }
-    if initialSnapshot != nil, initialSnapshotBytes < 0 {
+    if let initialSnapshotReplacement, initialSnapshotReplacement.estimatedBytes < 0 {
         throw OrderedFactJournalConfigurationError.initialSnapshotInvalidSize
     }
-    if initialSnapshot != nil,
-        initialSnapshotBytes > snapshotLimits.maximumSnapshotBytes
+    if let initialSnapshotReplacement,
+        initialSnapshotReplacement.estimatedBytes > snapshotLimits.maximumSnapshotBytes
             || snapshotLimits.maximumPhysicalSnapshotCount < 1
-            || initialSnapshotBytes > snapshotLimits.maximumPhysicalSnapshotBytes
+            || initialSnapshotReplacement.estimatedBytes > snapshotLimits.maximumPhysicalSnapshotBytes
     {
         throw OrderedFactJournalConfigurationError.initialSnapshotTooLarge
     }

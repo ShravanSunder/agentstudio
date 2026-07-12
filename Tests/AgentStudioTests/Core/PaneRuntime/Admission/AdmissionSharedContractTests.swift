@@ -7,9 +7,29 @@ import Testing
 struct AdmissionSharedContractTests {
     @Test("shared result algebra distinguishes pressure and cleanup contention")
     func sharedResultAlgebraDistinguishesPressureAndCleanupContention() {
-        #expect(AdmissionReceipt.physicalCapacityExceeded == .physicalCapacityExceeded)
+        #expect(LatestValueOfferResult.physicalCapacityExceeded == .physicalCapacityExceeded)
         #expect(AdmissionCleanupTurnResult.alreadyCleaning == .alreadyCleaning)
         #expect(AdmissionCleanupTurnResult.blockedByReplayReader == .blockedByReplayReader)
+    }
+
+    @Test("nonempty batches and cleanup modes encode required companion values")
+    func nonemptyBatchesAndCleanupModesEncodeRequiredCompanionValues() {
+        let batch = NonEmptyAdmissionBatch(first: 1, remaining: [2, 3])
+        let entryOnly = AdmissionCleanupQuantum.entries(maximumEntries: 4)
+        let entryAndByte = AdmissionCleanupQuantum.entriesAndBytes(
+            maximumEntries: 4,
+            maximumBytes: 1024
+        )
+        let entryRelease = AdmissionCleanupRelease.entries(count: 2)
+        let entryAndByteRelease = AdmissionCleanupRelease.entriesAndBytes(count: 2, bytes: 512)
+
+        #expect(batch.first == 1)
+        #expect(batch.remaining == [2, 3])
+        #expect(batch.count == 3)
+        #expect(entryOnly.isValid)
+        #expect(entryAndByte.isValid)
+        #expect(entryRelease == .entries(count: 2))
+        #expect(entryAndByteRelease == .entriesAndBytes(count: 2, bytes: 512))
     }
 
     @Test("shared diagnostics account for capacity rejection and cleanup authority")
@@ -50,7 +70,7 @@ struct AdmissionSharedContractTests {
 
     @Test("latest and journal physical limits are explicit value contracts")
     func latestAndJournalPhysicalLimitsAreExplicitValueContracts() {
-        let cleanupQuantum = AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: nil)
+        let cleanupQuantum = AdmissionCleanupQuantum.entries(maximumEntries: 1)
         let latest = LatestValueLimits(
             maximumValuesPerLease: 1,
             maximumAuxiliaryRetainedValues: 2,

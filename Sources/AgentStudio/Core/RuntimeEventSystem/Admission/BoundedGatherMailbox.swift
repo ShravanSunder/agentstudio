@@ -177,10 +177,48 @@ where Key: Hashable & Sendable, Payload: Sendable {
         let firstRetainedAt: Duration
     }
 
+    private struct RecoveryCustodyReference: Sendable {
+        let stamp: GatherRecoveryStamp
+        let identity: RecoveryCustodyIdentity
+    }
+
+    private struct RetainedContributionBatch: Sendable {
+        let first: RetainedContribution
+        var remaining: [RetainedContribution]
+
+        init(_ contributions: [RetainedContribution]) {
+            guard let first = contributions.first else {
+                preconditionFailure("Retained contribution batch cannot be empty")
+            }
+            self.first = first
+            remaining = Array(contributions.dropFirst())
+        }
+
+        var count: Int { 1 + remaining.count }
+        var values: [RetainedContribution] { [first] + remaining }
+        var firstRetainedAt: Duration { first.retainedAt }
+    }
+
+    private enum RetainedLeasePayload: Sendable {
+        case contributions(RetainedContributionBatch)
+        case contributionsWithRecovery(
+            RetainedContributionBatch,
+            RecoveryCustodyReference
+        )
+        case recovery(RecoveryCustodyReference)
+
+        var contributionCount: Int {
+            switch self {
+            case .contributions(let batch), .contributionsWithRecovery(let batch, _):
+                batch.count
+            case .recovery:
+                0
+            }
+        }
+    }
+
     private struct RetryBucket: Sendable {
-        var contributions: [RetainedContribution]
-        let recoveryStamp: GatherRecoveryStamp?
-        let recoveryCustodyIdentity: RecoveryCustodyIdentity?
+        var payload: RetainedLeasePayload
         let itemCount: Int
         let byteCount: Int
     }
@@ -205,12 +243,15 @@ where Key: Hashable & Sendable, Payload: Sendable {
     private struct ActiveLease: Sendable {
         var token: AdmissionDrainToken
         let slot: Int
-        var contributions: [RetainedContribution]
-        let recoveryStamp: GatherRecoveryStamp?
-        let recoveryCustodyIdentity: RecoveryCustodyIdentity?
+        var payload: RetainedLeasePayload
         let itemCount: Int
         let byteCount: Int
-        var needsPresentation: Bool
+    }
+
+    private enum ActiveLeaseState: Sendable {
+        case noActiveLease
+        case awaitingPresentation(ActiveLease)
+        case presented(ActiveLease)
     }
 
     private struct CleanupRelease: Sendable {
@@ -232,7 +273,7 @@ where Key: Hashable & Sendable, Payload: Sendable {
     }
 
     private struct CleanupDetachment: Sendable {
-        var entries: [DetachedCleanupEntry]
+        let entries: NonEmptyAdmissionBatch<DetachedCleanupEntry>
         let accounting: CleanupTurnAccounting
     }
 
@@ -327,7 +368,7 @@ where Key: Hashable & Sendable, Payload: Sendable {
         var readyTail: ReadySlotNode?
         var contributionHead: ContributionSlotNode?
         var contributionTail: ContributionSlotNode?
-        var activeLease: ActiveLease?
+        var activeLease = ActiveLeaseState.noActiveLease
         var wakePending = false
         var cleanupHead: CleanupBatch?
         var cleanupTail: CleanupBatch?
@@ -377,11 +418,11 @@ where Key: Hashable & Sendable, Payload: Sendable {
         var recoverySlotHighWater = 0
     }
 
-    private enum InternalOfferReceipt {
+    private enum InternalOfferResult {
         case admitted(
-            payload: GatherPayloadDisposition,
+            disposition: GatherAdmissionDisposition<Key>,
             slot: Int,
-            recoveryStamp: GatherRecoveryStamp?
+            wake: AdmissionWakeDirective
         )
         case staleGeneration
         case undeclaredKey
@@ -389,9 +430,18 @@ where Key: Hashable & Sendable, Payload: Sendable {
         case closed
     }
 
-    private struct InternalOfferResult {
-        let receipt: InternalOfferReceipt
-        let wake: AdmissionWakeDirective
+    private enum OfferAttemptResult {
+        case completed(InternalOfferResult)
+        case completedDiscarding(
+            InternalOfferResult,
+            incomingContribution: GatherContribution<Key, Payload>
+        )
+        case prepareRecoveryCustodyEpoch
+    }
+
+    private enum RecoveryCustodyEpochPreparation: Sendable {
+        case unprepared
+        case prepared(AdmissionOpaqueIdentity)
     }
 
     private struct OfferContext {
@@ -403,27 +453,36 @@ where Key: Hashable & Sendable, Payload: Sendable {
         let offeredGeneration: AdmissionGeneration
         let contribution: GatherContribution<Key, Payload>
         let context: OfferContext
-        let replacementRecoveryCustodyEpoch: AdmissionOpaqueIdentity?
+        let recoveryCustodyEpochPreparation: RecoveryCustodyEpochPreparation
     }
 
-    private struct ResolvedOfferAttempt {
+    private struct ResolvedOfferContext {
         let contribution: GatherContribution<Key, Payload>
         let now: Duration
         let slot: Int
-        let recoveryWouldExhaust: Bool
-        let mustContract: Bool
-        let replacementRecoveryCustodyEpoch: AdmissionOpaqueIdentity?
+        let recoveryCustodyEpochPreparation: RecoveryCustodyEpochPreparation
+    }
 
-        var mustAdvanceRecovery: Bool {
-            mustContract || contribution.recoverySignal == .authoritativeRecoveryRequired
-        }
+    private enum RecoveryAdvanceMode: Sendable {
+        case sequenced
+        case exhausted
+    }
+
+    private enum RetainedOfferRecoveryMode: Sendable {
+        case withoutRecovery
+        case sequenced
+    }
+
+    private enum ResolvedOfferAttempt {
+        case retain(ResolvedOfferContext)
+        case retainWithRecovery(ResolvedOfferContext)
+        case contract(ResolvedOfferContext, recovery: RecoveryAdvanceMode)
     }
 
     private struct LeaseSnapshot: Sendable {
         let token: AdmissionDrainToken
         let slot: Int
-        let contributions: [RetainedContribution]
-        let recoveryStamp: GatherRecoveryStamp?
+        let payload: RetainedLeasePayload
     }
 
     private enum InternalTakeResult {
@@ -435,19 +494,81 @@ where Key: Hashable & Sendable, Payload: Sendable {
         case closed
     }
 
+    private enum AcknowledgementOutcome: Sendable {
+        case result(AdmissionDrainAcknowledgement)
+        case accepted(AdmissionDrainAcknowledgement, releasedLease: ActiveLease)
+    }
+
     private struct ExtractedLease {
-        let contributions: [RetainedContribution]
-        let recoveryStamp: GatherRecoveryStamp?
-        let recoveryCustodyIdentity: RecoveryCustodyIdentity?
+        let payload: RetainedLeasePayload
         let itemCount: Int
         let byteCount: Int
     }
 
-    private struct CleanupTurnOutcome {
-        let result: AdmissionCleanupTurnResult
-        let authority: AdmissionOpaqueIdentity?
-        var entries: [DetachedCleanupEntry]
-        var retiredBatch: CleanupBatch?
+    private enum RetiredCleanupBatchCustody: @unchecked Sendable {
+        case queuedRemainder
+        case retired(CleanupBatch)
+    }
+
+    private final class CleanupExecution: @unchecked Sendable {
+        private enum CustodyState {
+            case detached(
+                entries: NonEmptyAdmissionBatch<DetachedCleanupEntry>,
+                retiredBatchCustody: RetiredCleanupBatchCustody
+            )
+            case released
+        }
+
+        let authority: AdmissionOpaqueIdentity
+        private var custodyState: CustodyState
+
+        init(
+            authority: AdmissionOpaqueIdentity,
+            entries: NonEmptyAdmissionBatch<DetachedCleanupEntry>,
+            retiredBatchCustody: RetiredCleanupBatchCustody
+        ) {
+            self.authority = authority
+            custodyState = .detached(
+                entries: entries,
+                retiredBatchCustody: retiredBatchCustody
+            )
+        }
+
+        func releaseCustody() -> ReleasedCleanupAuthority {
+            guard case .detached = custodyState else {
+                preconditionFailure("Gather cleanup custody released more than once")
+            }
+            custodyState = .released
+            return ReleasedCleanupAuthority(value: authority)
+        }
+    }
+
+    private enum CleanupTurnOutcome: @unchecked Sendable {
+        case cleanup(CleanupExecution)
+        case alreadyCleaning
+        case empty
+        case staleGeneration
+    }
+
+    private struct ReleasedCleanupAuthority: Sendable {
+        let value: AdmissionOpaqueIdentity
+    }
+
+    private enum RecoveryAdvance: Sendable {
+        case escalated(GatherRecoveryStamp)
+        case preserved(GatherRecoveryStamp)
+
+        var stamp: GatherRecoveryStamp {
+            switch self {
+            case .escalated(let stamp), .preserved(let stamp): stamp
+            }
+        }
+    }
+
+    private enum CleanupContributionRemoval: Sendable {
+        case released(RetainedContribution)
+        case releasedFinal(RetainedContribution)
+        case noContribution
     }
 
     private let generation: AdmissionGeneration
@@ -650,20 +771,25 @@ where Key: Hashable & Sendable, Payload: Sendable {
         contribution: GatherContribution<Key, Payload>
     ) -> GatherOfferResult<Key> {
         let offerContext = makeOfferContext(for: contribution.key)
-        var replacementRecoveryCustodyEpoch: AdmissionOpaqueIdentity?
+        var recoveryCustodyEpochPreparation = RecoveryCustodyEpochPreparation.unprepared
         while true {
             let result = attemptOffer(
                 OfferAttempt(
                     offeredGeneration: offeredGeneration,
                     contribution: contribution,
                     context: offerContext,
-                    replacementRecoveryCustodyEpoch: replacementRecoveryCustodyEpoch
+                    recoveryCustodyEpochPreparation: recoveryCustodyEpochPreparation
                 )
             )
-            if let result {
+            switch result {
+            case .completed(let result):
                 return publicOfferResult(from: result)
+            case .completedDiscarding(let result, let incomingContribution):
+                withExtendedLifetime(incomingContribution) {}
+                return publicOfferResult(from: result)
+            case .prepareRecoveryCustodyEpoch:
+                recoveryCustodyEpochPreparation = .prepared(AdmissionOpaqueIdentity())
             }
-            replacementRecoveryCustodyEpoch = AdmissionOpaqueIdentity()
         }
     }
 
@@ -673,27 +799,36 @@ where Key: Hashable & Sendable, Payload: Sendable {
         OfferContext(now: clock.now(), resolvedSlot: declaredSlotsByKey[key])
     }
 
-    private func attemptOffer(_ attempt: OfferAttempt) -> InternalOfferResult? {
+    private func attemptOffer(_ attempt: OfferAttempt) -> OfferAttemptResult {
         withAdmissionProtectedState { state, token in
             guard attempt.offeredGeneration == generation else {
                 Self.incrementProtectedCounter(&state.offered, token: token)
                 Self.incrementProtectedCounter(&state.rejectedStale, token: token)
-                return InternalOfferResult(receipt: .staleGeneration, wake: .noWake)
+                return .completedDiscarding(
+                    .staleGeneration,
+                    incomingContribution: attempt.contribution
+                )
             }
             guard state.lifecycle == .open else {
                 Self.incrementProtectedCounter(&state.offered, token: token)
                 Self.incrementProtectedCounter(&state.rejectedClosed, token: token)
-                return InternalOfferResult(receipt: .closed, wake: .noWake)
+                return .completedDiscarding(.closed, incomingContribution: attempt.contribution)
             }
             guard let slot = attempt.context.resolvedSlot else {
                 Self.incrementProtectedCounter(&state.offered, token: token)
                 Self.incrementProtectedCounter(&state.rejectedUndeclared, token: token)
-                return InternalOfferResult(receipt: .undeclaredKey, wake: .noWake)
+                return .completedDiscarding(
+                    .undeclaredKey,
+                    incomingContribution: attempt.contribution
+                )
             }
             guard Self.isValid(attempt.contribution.footprint) else {
                 Self.incrementProtectedCounter(&state.offered, token: token)
                 Self.incrementProtectedCounter(&state.rejectedInvalid, token: token)
-                return InternalOfferResult(receipt: .invalidFootprint, wake: .noWake)
+                return .completedDiscarding(
+                    .invalidFootprint,
+                    incomingContribution: attempt.contribution
+                )
             }
 
             let existingKeyState = state.declaredSlotShells[slot].retainedNode?.keyState ?? KeyState()
@@ -703,11 +838,20 @@ where Key: Hashable & Sendable, Payload: Sendable {
                 keyState: existingKeyState,
                 state: state
             )
-            if resolvedAttempt.mustAdvanceRecovery,
-                state.recoveryCustodySequence == .max,
-                resolvedAttempt.replacementRecoveryCustodyEpoch == nil
-            {
-                return nil
+            let recoveryAdvanceRequired: Bool
+            switch resolvedAttempt {
+            case .retain:
+                recoveryAdvanceRequired = false
+            case .retainWithRecovery, .contract:
+                recoveryAdvanceRequired = true
+            }
+            if recoveryAdvanceRequired, state.recoveryCustodySequence == .max {
+                switch attempt.recoveryCustodyEpochPreparation {
+                case .unprepared:
+                    return .prepareRecoveryCustodyEpoch
+                case .prepared:
+                    break
+                }
             }
 
             let retainedNode = Self.ensureRetainedNode(
@@ -718,20 +862,37 @@ where Key: Hashable & Sendable, Payload: Sendable {
             var keyState = retainedNode.keyState
 
             Self.incrementProtectedCounter(&state.offered, token: token)
-            if resolvedAttempt.mustContract {
-                return completeContractedOffer(
-                    resolvedAttempt,
-                    keyState: &keyState,
-                    state: &state,
-                    token: token
+            switch resolvedAttempt {
+            case .contract(let context, let recoveryMode):
+                return .completedDiscarding(
+                    completeContractedOffer(
+                        context,
+                        recoveryMode: recoveryMode,
+                        keyState: &keyState,
+                        state: &state,
+                        token: token
+                    ),
+                    incomingContribution: context.contribution
                 )
+            case .retain(let context):
+                return .completed(
+                    completeRetainedOffer(
+                        context,
+                        recovery: .withoutRecovery,
+                        keyState: &keyState,
+                        state: &state,
+                        token: token
+                    ))
+            case .retainWithRecovery(let context):
+                return .completed(
+                    completeRetainedOffer(
+                        context,
+                        recovery: .sequenced,
+                        keyState: &keyState,
+                        state: &state,
+                        token: token
+                    ))
             }
-            return completeRetainedOffer(
-                resolvedAttempt,
-                keyState: &keyState,
-                state: &state,
-                token: token
-            )
         }
     }
 
@@ -745,10 +906,14 @@ where Key: Hashable & Sendable, Payload: Sendable {
             } else {
                 state.bindingSequence = nextBindingSequence.partialValue
             }
-            if var activeLease = state.activeLease {
+            switch state.activeLease {
+            case .noActiveLease:
+                break
+            case .awaitingPresentation(let lease), .presented(let lease):
+                var activeLease: ActiveLease
+                activeLease = lease
                 activeLease.token = makeToken(state: state)
-                activeLease.needsPresentation = true
-                state.activeLease = activeLease
+                state.activeLease = .awaitingPresentation(activeLease)
             }
             let hasServiceableCustody =
                 state.retainedKeyCount > 0
@@ -784,12 +949,15 @@ where Key: Hashable & Sendable, Payload: Sendable {
                 return .alreadyLeased
             }
 
-            if var activeLease = state.activeLease {
-                guard activeLease.needsPresentation else { return .alreadyLeased }
-                activeLease.needsPresentation = false
-                state.activeLease = activeLease
+            switch state.activeLease {
+            case .awaitingPresentation(let activeLease):
+                state.activeLease = .presented(activeLease)
                 state.wakePending = false
                 return .lease(snapshot(from: activeLease))
+            case .presented:
+                return .alreadyLeased
+            case .noActiveLease:
+                break
             }
 
             if state.cleanupContributionCount > 0 || state.cleanupMetadataEntryCount > 0 {
@@ -812,10 +980,6 @@ where Key: Hashable & Sendable, Payload: Sendable {
                 limits: limits,
                 token: token
             )
-            precondition(
-                extracted.contributions.isEmpty == false || extracted.recoveryStamp != nil,
-                "Gather ready queue contains a key without serviceable custody"
-            )
             allocateLeaseAuthority(
                 replacementEpoch: replacementLeaseEpoch,
                 state: &state,
@@ -824,14 +988,11 @@ where Key: Hashable & Sendable, Payload: Sendable {
             let activeLease = ActiveLease(
                 token: makeToken(state: state),
                 slot: slot,
-                contributions: extracted.contributions,
-                recoveryStamp: extracted.recoveryStamp,
-                recoveryCustodyIdentity: extracted.recoveryCustodyIdentity,
+                payload: extracted.payload,
                 itemCount: extracted.itemCount,
-                byteCount: extracted.byteCount,
-                needsPresentation: false
+                byteCount: extracted.byteCount
             )
-            state.activeLease = activeLease
+            state.activeLease = .presented(activeLease)
             enqueueIfWorkRemains(
                 slot: slot,
                 keyState: &keyState,
@@ -855,21 +1016,24 @@ where Key: Hashable & Sendable, Payload: Sendable {
         token: AdmissionDrainToken,
         disposition: AdmissionDrainDisposition
     ) -> AdmissionDrainAcknowledgement {
-        let outcome: (AdmissionDrainAcknowledgement, ActiveLease?) =
+        let outcome: AcknowledgementOutcome =
             withAdmissionProtectedState { state, protectedToken in
-                guard state.lifecycle != .invalidated else { return (.closed, nil) }
-                guard token.generation == generation else { return (.staleGeneration, nil) }
+                guard state.lifecycle != .invalidated else { return .result(.closed) }
+                guard token.generation == generation else {
+                    return .result(.staleGeneration)
+                }
                 guard
                     token.belongsTo(
                         mailboxIdentity: state.mailboxIdentity,
                         bindingEpoch: state.bindingEpoch,
                         bindingSequence: state.bindingSequence
-                    ), let activeLease = state.activeLease, activeLease.token == token
+                    ), case .presented(let activeLease) = state.activeLease,
+                    activeLease.token == token
                 else {
-                    return (.invalidToken, nil)
+                    return .result(.invalidToken)
                 }
 
-                state.activeLease = nil
+                state.activeLease = .noActiveLease
                 guard let retainedNode = state.declaredSlotShells[activeLease.slot].retainedNode else {
                     preconditionFailure("Gather lease lost retained metadata")
                 }
@@ -878,17 +1042,22 @@ where Key: Hashable & Sendable, Payload: Sendable {
                 switch disposition {
                 case .transferred:
                     subtractRetainedCounts(activeLease, state: &state, token: protectedToken)
-                    if let recoveryCustodyIdentity = activeLease.recoveryCustodyIdentity,
-                        let recoverySlot = keyState.recoverySlot,
-                        recoverySlot.custodyIdentity == recoveryCustodyIdentity
-                    {
-                        keyState.recoverySlot = nil
-                        state.recoverySlotCount -= 1
-                        state.oldestRecoveryWatermark = Self.ageWatermarkAfterPotentialRemoval(
-                            removedOldestRetainedAt: recoverySlot.firstRetainedAt,
-                            remainingCount: state.recoverySlotCount,
-                            current: state.oldestRecoveryWatermark
-                        )
+                    switch activeLease.payload {
+                    case .contributions:
+                        break
+                    case .contributionsWithRecovery(_, let recovery),
+                        .recovery(let recovery):
+                        if let recoverySlot = keyState.recoverySlot,
+                            recoverySlot.custodyIdentity == recovery.identity
+                        {
+                            keyState.recoverySlot = nil
+                            state.recoverySlotCount -= 1
+                            state.oldestRecoveryWatermark = Self.ageWatermarkAfterPotentialRemoval(
+                                removedOldestRetainedAt: recoverySlot.firstRetainedAt,
+                                remainingCount: state.recoverySlotCount,
+                                current: state.oldestRecoveryWatermark
+                            )
+                        }
                     }
                     enqueueIfWorkRemains(
                         slot: activeLease.slot,
@@ -899,9 +1068,7 @@ where Key: Hashable & Sendable, Payload: Sendable {
 
                 case .retry:
                     keyState.retryBucket = RetryBucket(
-                        contributions: activeLease.contributions,
-                        recoveryStamp: activeLease.recoveryStamp,
-                        recoveryCustodyIdentity: activeLease.recoveryCustodyIdentity,
+                        payload: activeLease.payload,
                         itemCount: activeLease.itemCount,
                         byteCount: activeLease.byteCount
                     )
@@ -941,10 +1108,15 @@ where Key: Hashable & Sendable, Payload: Sendable {
                     state: &state,
                     token: protectedToken
                 )
-                return (.accepted(wake: wake), activeLease)
+                return .accepted(.accepted(wake: wake), releasedLease: activeLease)
             }
-        withExtendedLifetime(outcome.1) {}
-        return outcome.0
+        switch outcome {
+        case .result(let result):
+            return result
+        case .accepted(let result, let releasedLease):
+            withExtendedLifetime(releasedLease) {}
+            return result
+        }
     }
 
     fileprivate func seal(generation requestedGeneration: AdmissionGeneration) -> AdmissionControlResult {
@@ -966,7 +1138,7 @@ where Key: Hashable & Sendable, Payload: Sendable {
             state.readyTail = nil
             state.contributionHead = nil
             state.contributionTail = nil
-            state.activeLease = nil
+            state.activeLease = .noActiveLease
             state.wakePending =
                 state.cleanupContributionCount > 0
                 || state.cleanupMetadataEntryCount > 0
@@ -991,28 +1163,42 @@ where Key: Hashable & Sendable, Payload: Sendable {
     fileprivate func performCleanup(
         generation requestedGeneration: AdmissionGeneration
     ) -> AdmissionCleanupTurnResult {
-        var outcome = withAdmissionProtectedState { state, token -> CleanupTurnOutcome in
+        let outcome = withAdmissionProtectedState { state, token -> CleanupTurnOutcome in
             guard requestedGeneration == generation else {
-                return CleanupTurnOutcome(
-                    result: .staleGeneration,
-                    authority: nil,
-                    entries: [],
-                    retiredBatch: nil
-                )
+                return .staleGeneration
             }
             return detachCleanupTurn(state: &state, token: token)
         }
-        guard let authority = outcome.authority else { return outcome.result }
-        outcome.entries.removeAll(keepingCapacity: false)
-        outcome.retiredBatch = nil
+        let releasedAuthority: ReleasedCleanupAuthority
+        switch outcome {
+        case .alreadyCleaning:
+            return .alreadyCleaning
+        case .empty:
+            return .empty
+        case .staleGeneration:
+            return .staleGeneration
+        case .cleanup(let execution):
+            releasedAuthority = execution.releaseCustody()
+        }
         return withAdmissionProtectedState { state, token in
-            finalizeCleanupTurn(authority: authority, state: &state, token: token)
+            finalizeCleanupTurn(
+                authority: releasedAuthority,
+                state: &state,
+                token: token
+            )
         }
     }
 
     fileprivate var diagnostics: GatherAdmissionDiagnostics {
         let now = clock.now()
         return withAdmissionProtectedState { state, _ in
+            let outstandingLeaseCount: Int
+            switch state.activeLease {
+            case .noActiveLease:
+                outstandingLeaseCount = 0
+            case .awaitingPresentation, .presented:
+                outstandingLeaseCount = 1
+            }
             let oldestSemanticRetainedWatermark = Self.mergeAgeWatermarks(
                 state.oldestContributionWatermark,
                 state.oldestRecoveryWatermark
@@ -1074,12 +1260,12 @@ where Key: Hashable & Sendable, Payload: Sendable {
                     from: state.oldestRecoveryWatermark,
                     to: now
                 ),
-                outstandingLeaseCount: state.activeLease == nil ? 0 : 1,
+                outstandingLeaseCount: outstandingLeaseCount,
                 outstandingCleanupTurnCount: state.inFlightCleanup == nil ? 0 : 1,
                 isQuiescent: physicalContributionCount == 0
                     && state.cleanupMetadataEntryCount == 0
                     && state.recoverySlotCount == 0
-                    && state.activeLease == nil
+                    && outstandingLeaseCount == 0
             )
         }
     }
@@ -1116,18 +1302,31 @@ extension BoundedGatherMailbox {
                 keyState: keyState,
                 state: state
             ) && fitsLeaseQuantum(attempt.contribution.footprint)
-        return ResolvedOfferAttempt(
+        let context = ResolvedOfferContext(
             contribution: attempt.contribution,
             now: attempt.context.now,
             slot: slot,
-            recoveryWouldExhaust: recoveryWouldExhaust,
-            mustContract: state.ordinaryAdmissionSealed || recoveryWouldExhaust || !fitsCapacity,
-            replacementRecoveryCustodyEpoch: attempt.replacementRecoveryCustodyEpoch
+            recoveryCustodyEpochPreparation: attempt.recoveryCustodyEpochPreparation
         )
+        if state.ordinaryAdmissionSealed || recoveryWouldExhaust || !fitsCapacity {
+            return .contract(
+                context,
+                recovery: state.ordinaryAdmissionSealed || recoveryWouldExhaust
+                    ? .exhausted
+                    : .sequenced
+            )
+        }
+        switch attempt.contribution.recoverySignal {
+        case .ordinary:
+            return .retain(context)
+        case .authoritativeRecoveryRequired:
+            return .retainWithRecovery(context)
+        }
     }
 
     private func completeContractedOffer(
-        _ attempt: ResolvedOfferAttempt,
+        _ attempt: ResolvedOfferContext,
+        recoveryMode: RecoveryAdvanceMode,
         keyState: inout KeyState,
         state: inout State,
         token: borrowing AdmissionProtectedRegionToken
@@ -1140,13 +1339,13 @@ extension BoundedGatherMailbox {
         )
         let advance = advanceRecovery(
             at: attempt.now,
-            forceExhausted: state.ordinaryAdmissionSealed || attempt.recoveryWouldExhaust,
-            replacementCustodyEpoch: attempt.replacementRecoveryCustodyEpoch,
+            mode: recoveryMode,
+            custodyEpochPreparation: attempt.recoveryCustodyEpochPreparation,
             keyState: &keyState,
             state: &state,
             token: token
         )
-        if advance.didEscalate {
+        if case .escalated = advance {
             Self.incrementProtectedCounter(&state.repairEscalations, token: token)
         }
         enqueueReady(slot: attempt.slot, keyState: &keyState, state: &state, token: token)
@@ -1160,18 +1359,18 @@ extension BoundedGatherMailbox {
         Self.incrementProtectedCounter(&state.admitted, token: token)
         Self.incrementProtectedCounter(&state.contracted, token: token)
         updateHighWater(state: &state, token: token)
-        return InternalOfferResult(
-            receipt: .admitted(
-                payload: .contractedToRecovery,
-                slot: attempt.slot,
-                recoveryStamp: advance.stamp
+        return .admitted(
+            disposition: .contractedToRecovery(
+                recoveryRevision(slot: attempt.slot, stamp: advance.stamp)
             ),
+            slot: attempt.slot,
             wake: requestWake(state: &state, token: token)
         )
     }
 
     private func completeRetainedOffer(
-        _ attempt: ResolvedOfferAttempt,
+        _ attempt: ResolvedOfferContext,
+        recovery: RetainedOfferRecoveryMode,
         keyState: inout KeyState,
         state: inout State,
         token: borrowing AdmissionProtectedRegionToken
@@ -1188,12 +1387,26 @@ extension BoundedGatherMailbox {
             state: &state,
             token: token
         )
-        let recoveryStamp = advanceExplicitRecoveryIfRequired(
-            attempt,
-            keyState: &keyState,
-            state: &state,
-            token: token
-        )
+        let disposition: GatherAdmissionDisposition<Key>
+        switch recovery {
+        case .sequenced:
+            let advance = advanceRecovery(
+                at: attempt.now,
+                mode: .sequenced,
+                custodyEpochPreparation: attempt.recoveryCustodyEpochPreparation,
+                keyState: &keyState,
+                state: &state,
+                token: token
+            )
+            if case .escalated = advance {
+                Self.incrementProtectedCounter(&state.repairEscalations, token: token)
+            }
+            disposition = .retainedWithRecovery(
+                recoveryRevision(slot: attempt.slot, stamp: advance.stamp)
+            )
+        case .withoutRecovery:
+            disposition = .retained
+        }
         enqueueReady(slot: attempt.slot, keyState: &keyState, state: &state, token: token)
         refreshRetainedMembership(
             slot: attempt.slot,
@@ -1204,59 +1417,26 @@ extension BoundedGatherMailbox {
         state.declaredSlotShells[attempt.slot].retainedNode?.keyState = keyState
         Self.incrementProtectedCounter(&state.admitted, token: token)
         updateHighWater(state: &state, token: token)
-        return InternalOfferResult(
-            receipt: .admitted(
-                payload: .retained,
-                slot: attempt.slot,
-                recoveryStamp: recoveryStamp
-            ),
+        return .admitted(
+            disposition: disposition,
+            slot: attempt.slot,
             wake: requestWake(state: &state, token: token)
         )
     }
 
-    private func advanceExplicitRecoveryIfRequired(
-        _ attempt: ResolvedOfferAttempt,
-        keyState: inout KeyState,
-        state: inout State,
-        token: borrowing AdmissionProtectedRegionToken
-    ) -> GatherRecoveryStamp? {
-        guard attempt.contribution.recoverySignal == .authoritativeRecoveryRequired else {
-            return nil
-        }
-        let advance = advanceRecovery(
-            at: attempt.now,
-            forceExhausted: false,
-            replacementCustodyEpoch: attempt.replacementRecoveryCustodyEpoch,
-            keyState: &keyState,
-            state: &state,
-            token: token
-        )
-        if advance.didEscalate {
-            Self.incrementProtectedCounter(&state.repairEscalations, token: token)
-        }
-        return advance.stamp
-    }
-
     private func publicOfferResult(from result: InternalOfferResult) -> GatherOfferResult<Key> {
-        let receipt: GatherOfferReceipt<Key>
-        switch result.receipt {
-        case .admitted(let payload, let slot, let recoveryStamp):
-            let recoveryRevision = recoveryStamp.map {
-                GatherRecoveryRevision(
-                    generation: generation,
-                    key: canonicalKeysBySlot[slot],
-                    stamp: $0
-                )
-            }
-            receipt = .admitted(
-                GatherAdmissionReceipt(payload: payload, recoveryRevision: recoveryRevision)
-            )
-        case .staleGeneration: receipt = .staleGeneration
-        case .undeclaredKey: receipt = .undeclaredKey
-        case .invalidFootprint: receipt = .invalidFootprint
-        case .closed: receipt = .closed
+        switch result {
+        case .admitted(let disposition, _, let wake):
+            return .admitted(disposition, wake: wake)
+        case .staleGeneration:
+            return .staleGeneration
+        case .undeclaredKey:
+            return .undeclaredKey
+        case .invalidFootprint:
+            return .invalidFootprint
+        case .closed:
+            return .closed
         }
-        return GatherOfferResult(receipt: receipt, wake: result.wake)
     }
 
     private func publicTakeResult(
@@ -1265,23 +1445,33 @@ extension BoundedGatherMailbox {
         switch result {
         case .lease(let snapshot):
             let key = canonicalKeysBySlot[snapshot.slot]
-            let contributions = snapshot.contributions.map {
-                GatherContribution(
-                    key: key,
-                    payload: $0.payload,
-                    footprint: $0.footprint,
-                    recoverySignal: $0.recoverySignal
+            let payload: GatherDrainPayload<Key, Payload>
+            switch snapshot.payload {
+            case .contributions(let batch):
+                payload = .contributions(publicContributions(from: batch, key: key))
+            case .contributionsWithRecovery(let batch, let recovery):
+                payload = .contributionsWithRecovery(
+                    publicContributions(from: batch, key: key),
+                    GatherRecoveryRevision(
+                        generation: generation,
+                        key: key,
+                        stamp: recovery.stamp
+                    )
                 )
-            }
-            let recoveryRevision = snapshot.recoveryStamp.map {
-                GatherRecoveryRevision(generation: generation, key: key, stamp: $0)
+            case .recovery(let recovery):
+                payload = .recovery(
+                    GatherRecoveryRevision(
+                        generation: generation,
+                        key: key,
+                        stamp: recovery.stamp
+                    )
+                )
             }
             return .lease(
                 GatherDrainLease(
                     token: snapshot.token,
                     key: key,
-                    contributions: contributions,
-                    recoveryRevision: recoveryRevision
+                    payload: payload
                 )
             )
         case .cleanupRequired: return .cleanupRequired
@@ -1290,6 +1480,37 @@ extension BoundedGatherMailbox {
         case .staleGeneration: return .staleGeneration
         case .closed: return .closed
         }
+    }
+
+    private func publicContributions(
+        from batch: RetainedContributionBatch,
+        key: Key
+    ) -> NonEmptyAdmissionBatch<GatherContribution<Key, Payload>> {
+        func publicContribution(
+            _ retained: RetainedContribution
+        ) -> GatherContribution<Key, Payload> {
+            GatherContribution(
+                key: key,
+                payload: retained.payload,
+                footprint: retained.footprint,
+                recoverySignal: retained.recoverySignal
+            )
+        }
+        return NonEmptyAdmissionBatch(
+            first: publicContribution(batch.first),
+            remaining: batch.remaining.map(publicContribution)
+        )
+    }
+
+    private func recoveryRevision(
+        slot: Int,
+        stamp: GatherRecoveryStamp
+    ) -> GatherRecoveryRevision<Key> {
+        GatherRecoveryRevision(
+            generation: generation,
+            key: canonicalKeysBySlot[slot],
+            stamp: stamp
+        )
     }
 
     private func fitsPhysicalCapacity(
@@ -1489,11 +1710,18 @@ extension BoundedGatherMailbox {
         else {
             preconditionFailure("Retained gather custody is missing its age stamp")
         }
+        let activeLease: ActiveLease?
+        switch state.activeLease {
+        case .awaitingPresentation(let lease), .presented(let lease):
+            activeLease = lease
+        case .noActiveLease:
+            activeLease = nil
+        }
         let batch = CleanupBatch(
             storage: .invalidated(
                 InvalidatedCleanupCursor(
                     retainedHead: retainedHead,
-                    activeLease: state.activeLease
+                    activeLease: activeLease
                 )
             ),
             initialAgeWatermark: oldestWatermark,
@@ -1525,20 +1753,10 @@ extension BoundedGatherMailbox {
         token: borrowing AdmissionProtectedRegionToken
     ) -> CleanupTurnOutcome {
         guard state.inFlightCleanup == nil else {
-            return CleanupTurnOutcome(
-                result: .alreadyCleaning,
-                authority: nil,
-                entries: [],
-                retiredBatch: nil
-            )
+            return .alreadyCleaning
         }
         guard let batch = dequeueCleanupBatch(state: &state, token: token) else {
-            return CleanupTurnOutcome(
-                result: .empty,
-                authority: nil,
-                entries: [],
-                retiredBatch: nil
-            )
+            return .empty
         }
         let detachment = takeCleanupReleases(from: batch, token: token)
         let authority = AdmissionOpaqueIdentity()
@@ -1558,12 +1776,18 @@ extension BoundedGatherMailbox {
             state.cleanupHead = batch
             state.cleanupTail = state.cleanupTail ?? batch
         }
-        return CleanupTurnOutcome(
-            result: .empty,
-            authority: authority,
-            entries: detachment.entries,
-            retiredBatch: batch.remainingContributionCount == 0
-                && batch.remainingMetadataEntryCount == 0 ? batch : nil
+        let retiredBatchCustody: RetiredCleanupBatchCustody
+        if batch.remainingContributionCount == 0 && batch.remainingMetadataEntryCount == 0 {
+            retiredBatchCustody = .retired(batch)
+        } else {
+            retiredBatchCustody = .queuedRemainder
+        }
+        return .cleanup(
+            CleanupExecution(
+                authority: authority,
+                entries: detachment.entries,
+                retiredBatchCustody: retiredBatchCustody
+            )
         )
     }
 
@@ -1571,15 +1795,23 @@ extension BoundedGatherMailbox {
         from batch: CleanupBatch,
         token: borrowing AdmissionProtectedRegionToken
     ) -> CleanupDetachment {
+        let maximumEntries: Int
+        let maximumBytes: Int
+        switch limits.cleanupQuantum {
+        case .entries:
+            preconditionFailure("Gather cleanup requires an entry-and-byte quantum")
+        case .entriesAndBytes(let entries, let bytes):
+            maximumEntries = entries
+            maximumBytes = bytes
+        }
         var entries: [DetachedCleanupEntry] = []
-        entries.reserveCapacity(limits.cleanupQuantum.maximumEntries)
+        entries.reserveCapacity(maximumEntries)
         var releasedContributionCount = 0
         var releasedMetadataEntryCount = 0
         var releasedItemCount = 0
         var releasedBytes = 0
         var trackedSlot: Int?
-        let maximumBytes = limits.cleanupQuantum.maximumBytes!
-        while entries.count < limits.cleanupQuantum.maximumEntries {
+        while entries.count < maximumEntries {
             guard let entry = nextCleanupEntry(from: batch, token: token) else { break }
             switch entry {
             case .contribution(let release):
@@ -1604,7 +1836,10 @@ extension BoundedGatherMailbox {
         }
         precondition(entries.isEmpty == false, "Gather cleanup quantum made no progress")
         return CleanupDetachment(
-            entries: entries,
+            entries: NonEmptyAdmissionBatch(
+                first: entries[0],
+                remaining: Array(entries.dropFirst())
+            ),
             accounting: CleanupTurnAccounting(
                 releasedContributionCount: releasedContributionCount,
                 releasedItemCount: releasedItemCount,
@@ -1651,18 +1886,34 @@ extension BoundedGatherMailbox {
             retainedNode.keyState.pendingTail = nil
         }
         guard let currentNode = cursor.currentNode else { return nil }
-        if cursor.activeLease?.slot == currentNode.slot,
-            let retained = cursor.activeLease?.contributions.popLast()
-        {
-            return .contribution(CleanupRelease(retained: retained, trackedSlot: nil))
+        if cursor.activeLease?.slot == currentNode.slot, var activeLease = cursor.activeLease {
+            switch removeCleanupContribution(from: &activeLease.payload) {
+            case .released(let retained):
+                cursor.activeLease = activeLease
+                return .contribution(CleanupRelease(retained: retained, trackedSlot: nil))
+            case .releasedFinal(let retained):
+                cursor.activeLease = nil
+                return .contribution(CleanupRelease(retained: retained, trackedSlot: nil))
+            case .noContribution:
+                break
+            }
         }
         if let node = cursor.currentHead {
             cursor.currentHead = node.next
             node.next = nil
             return .contribution(CleanupRelease(retained: node.retained, trackedSlot: nil))
         }
-        if let retained = currentNode.keyState.retryBucket?.contributions.popLast() {
-            return .contribution(CleanupRelease(retained: retained, trackedSlot: nil))
+        if var retryBucket = currentNode.keyState.retryBucket {
+            switch removeCleanupContribution(from: &retryBucket.payload) {
+            case .released(let retained):
+                currentNode.keyState.retryBucket = retryBucket
+                return .contribution(CleanupRelease(retained: retained, trackedSlot: nil))
+            case .releasedFinal(let retained):
+                currentNode.keyState.retryBucket = nil
+                return .contribution(CleanupRelease(retained: retained, trackedSlot: nil))
+            case .noContribution:
+                break
+            }
         }
         currentNode.keyState.readyNode?.previous = nil
         currentNode.keyState.readyNode?.next = nil
@@ -1676,15 +1927,37 @@ extension BoundedGatherMailbox {
         return .metadata(currentNode)
     }
 
+    private func removeCleanupContribution(
+        from payload: inout RetainedLeasePayload
+    ) -> CleanupContributionRemoval {
+        switch payload {
+        case .recovery:
+            return .noContribution
+        case .contributions(var batch):
+            if let retained = batch.remaining.popLast() {
+                payload = .contributions(batch)
+                return .released(retained)
+            }
+            return .releasedFinal(batch.first)
+        case .contributionsWithRecovery(var batch, let recovery):
+            if let retained = batch.remaining.popLast() {
+                payload = .contributionsWithRecovery(batch, recovery)
+                return .released(retained)
+            }
+            payload = .recovery(recovery)
+            return .released(batch.first)
+        }
+    }
+
     private func finalizeCleanupTurn(
-        authority: AdmissionOpaqueIdentity,
+        authority: ReleasedCleanupAuthority,
         state: inout State,
         token _: borrowing AdmissionProtectedRegionToken
     ) -> AdmissionCleanupTurnResult {
         guard let inFlight = state.inFlightCleanup else {
             preconditionFailure("Gather cleanup authority disappeared before finalization")
         }
-        guard inFlight.authority == authority else {
+        guard inFlight.authority == authority.value else {
             preconditionFailure("Gather cleanup authority changed before finalization")
         }
         if let trackedSlot = inFlight.trackedSlot {
@@ -1708,8 +1981,10 @@ extension BoundedGatherMailbox {
         state.wakePending = state.retainedKeyCount > 0 || remainingEntryCount > 0
         return .performed(
             AdmissionCleanupTurn(
-                releasedEntryCount: inFlight.contributionCount + inFlight.metadataEntryCount,
-                releasedByteCount: inFlight.byteCount,
+                release: .entriesAndBytes(
+                    count: inFlight.contributionCount + inFlight.metadataEntryCount,
+                    bytes: inFlight.byteCount
+                ),
                 wake: remainingEntryCount > 0 ? .scheduleDrain : .noWake
             )
         )
@@ -1725,7 +2000,7 @@ extension BoundedGatherMailbox {
         if let retryBucket = keyState.retryBucket {
             keyState.retryBucket = nil
             movePendingToLeased(
-                contributions: retryBucket.contributions.count,
+                contributions: retryBucket.payload.contributionCount,
                 items: retryBucket.itemCount,
                 bytes: retryBucket.byteCount,
                 keyState: &keyState,
@@ -1739,9 +2014,7 @@ extension BoundedGatherMailbox {
                 token: token
             )
             return ExtractedLease(
-                contributions: retryBucket.contributions,
-                recoveryStamp: retryBucket.recoveryStamp,
-                recoveryCustodyIdentity: retryBucket.recoveryCustodyIdentity,
+                payload: retryBucket.payload,
                 itemCount: retryBucket.itemCount,
                 byteCount: retryBucket.byteCount
             )
@@ -1782,13 +2055,29 @@ extension BoundedGatherMailbox {
             state: &state,
             token: token
         )
-        return ExtractedLease(
-            contributions: contributions,
-            recoveryStamp: keyState.recoverySlot?.stamp,
-            recoveryCustodyIdentity: keyState.recoverySlot?.custodyIdentity,
-            itemCount: itemCount,
-            byteCount: byteCount
-        )
+        let payload: RetainedLeasePayload
+        switch (contributions.first, keyState.recoverySlot) {
+        case (.some, .none):
+            payload = .contributions(RetainedContributionBatch(contributions))
+        case (.some, .some(let recoverySlot)):
+            payload = .contributionsWithRecovery(
+                RetainedContributionBatch(contributions),
+                RecoveryCustodyReference(
+                    stamp: recoverySlot.stamp,
+                    identity: recoverySlot.custodyIdentity
+                )
+            )
+        case (.none, .some(let recoverySlot)):
+            payload = .recovery(
+                RecoveryCustodyReference(
+                    stamp: recoverySlot.stamp,
+                    identity: recoverySlot.custodyIdentity
+                )
+            )
+        case (.none, .none):
+            preconditionFailure("Gather ready queue contains a key without serviceable custody")
+        }
+        return ExtractedLease(payload: payload, itemCount: itemCount, byteCount: byteCount)
     }
 
     private func movePendingToLeased(
@@ -1812,38 +2101,39 @@ extension BoundedGatherMailbox {
 
     private func advanceRecovery(
         at now: Duration,
-        forceExhausted: Bool,
-        replacementCustodyEpoch: AdmissionOpaqueIdentity?,
+        mode: RecoveryAdvanceMode,
+        custodyEpochPreparation: RecoveryCustodyEpochPreparation,
         keyState: inout KeyState,
         state: inout State,
         token: borrowing AdmissionProtectedRegionToken
-    ) -> (stamp: GatherRecoveryStamp, didEscalate: Bool) {
+    ) -> RecoveryAdvance {
         let previousStamp = keyState.recoverySlot?.stamp
         let firstRetainedAt = keyState.recoverySlot?.firstRetainedAt ?? now
-        let nextStamp: GatherRecoveryStamp
-        let didEscalate: Bool
-        if forceExhausted || state.ordinaryAdmissionSealed {
-            nextStamp = .authorityExhausted
-            didEscalate = !state.ordinaryAdmissionSealed
-            state.ordinaryAdmissionSealed = true
-        } else {
+        let advance: RecoveryAdvance
+        switch mode {
+        case .exhausted:
+            if state.ordinaryAdmissionSealed {
+                advance = .preserved(.authorityExhausted)
+            } else {
+                advance = .escalated(.authorityExhausted)
+                state.ordinaryAdmissionSealed = true
+            }
+        case .sequenced where state.ordinaryAdmissionSealed:
+            advance = .preserved(.authorityExhausted)
+        case .sequenced:
             switch previousStamp {
             case .none:
-                nextStamp = .sequenced(1)
-                didEscalate = true
+                advance = .escalated(.sequenced(1))
             case .sequenced(let sequence):
                 let next = sequence.addingReportingOverflow(1)
                 if next.overflow {
-                    nextStamp = .authorityExhausted
-                    didEscalate = true
+                    advance = .escalated(.authorityExhausted)
                     state.ordinaryAdmissionSealed = true
                 } else {
-                    nextStamp = .sequenced(next.partialValue)
-                    didEscalate = true
+                    advance = .escalated(.sequenced(next.partialValue))
                 }
             case .authorityExhausted:
-                nextStamp = .authorityExhausted
-                didEscalate = false
+                advance = .preserved(.authorityExhausted)
                 state.ordinaryAdmissionSealed = true
             }
         }
@@ -1855,29 +2145,31 @@ extension BoundedGatherMailbox {
             )
         }
         keyState.recoverySlot = RecoverySlot(
-            stamp: nextStamp,
+            stamp: advance.stamp,
             custodyIdentity: allocateRecoveryCustodyIdentity(
-                replacementEpoch: replacementCustodyEpoch,
+                preparation: custodyEpochPreparation,
                 state: &state,
                 token: token
             ),
             firstRetainedAt: firstRetainedAt
         )
-        return (nextStamp, didEscalate)
+        return advance
     }
 
     private func allocateRecoveryCustodyIdentity(
-        replacementEpoch: AdmissionOpaqueIdentity?,
+        preparation: RecoveryCustodyEpochPreparation,
         state: inout State,
         token _: borrowing AdmissionProtectedRegionToken
     ) -> RecoveryCustodyIdentity {
         let next = state.recoveryCustodySequence.addingReportingOverflow(1)
         if next.overflow {
-            guard let replacementEpoch else {
+            switch preparation {
+            case .prepared(let replacementEpoch):
+                state.recoveryCustodyEpoch = replacementEpoch
+                state.recoveryCustodySequence = 1
+            case .unprepared:
                 preconditionFailure("Recovery custody epoch replacement was not prepared")
             }
-            state.recoveryCustodyEpoch = replacementEpoch
-            state.recoveryCustodySequence = 1
         } else {
             state.recoveryCustodySequence = next.partialValue
         }
@@ -1916,8 +2208,7 @@ extension BoundedGatherMailbox {
         LeaseSnapshot(
             token: activeLease.token,
             slot: activeLease.slot,
-            contributions: activeLease.contributions,
-            recoveryStamp: activeLease.recoveryStamp
+            payload: activeLease.payload
         )
     }
 
@@ -2035,10 +2326,17 @@ extension BoundedGatherMailbox {
         state: inout State,
         token _: borrowing AdmissionProtectedRegionToken
     ) {
+        let hasActiveLeaseForSlot: Bool
+        switch state.activeLease {
+        case .noActiveLease:
+            hasActiveLeaseForSlot = false
+        case .awaitingPresentation(let lease), .presented(let lease):
+            hasActiveLeaseForSlot = lease.slot == slot
+        }
         let hasCustody =
             keyState.pendingContributionCount > 0
             || keyState.recoverySlot != nil
-            || state.activeLease?.slot == slot
+            || hasActiveLeaseForSlot
         if hasCustody != keyState.isRetained {
             keyState.isRetained = hasCustody
             state.retainedKeyCount += hasCustody ? 1 : -1
@@ -2062,7 +2360,9 @@ extension BoundedGatherMailbox {
         state: inout State,
         token _: borrowing AdmissionProtectedRegionToken
     ) -> AdmissionWakeDirective {
-        guard state.activeLease == nil, state.wakePending == false else { return .noWake }
+        guard case .noActiveLease = state.activeLease, state.wakePending == false else {
+            return .noWake
+        }
         state.wakePending = true
         return .scheduleDrain
     }
@@ -2083,7 +2383,7 @@ extension BoundedGatherMailbox {
         state: inout State,
         token _: borrowing AdmissionProtectedRegionToken
     ) {
-        state.leasedContributionCount -= lease.contributions.count
+        state.leasedContributionCount -= lease.payload.contributionCount
         state.leasedItemCount -= lease.itemCount
         state.leasedByteCount -= lease.byteCount
     }
@@ -2093,10 +2393,17 @@ extension BoundedGatherMailbox {
         state: inout State,
         token _: borrowing AdmissionProtectedRegionToken
     ) {
-        state.retainedContributionCount -= lease.contributions.count
+        state.retainedContributionCount -= lease.payload.contributionCount
         state.retainedItemCount -= lease.itemCount
         state.retainedByteCount -= lease.byteCount
-        if let removedOldestRetainedAt = lease.contributions.first?.retainedAt {
+        let removedOldestRetainedAt: Duration?
+        switch lease.payload {
+        case .contributions(let batch), .contributionsWithRecovery(let batch, _):
+            removedOldestRetainedAt = batch.firstRetainedAt
+        case .recovery:
+            removedOldestRetainedAt = nil
+        }
+        if let removedOldestRetainedAt {
             state.oldestContributionWatermark = Self.ageWatermarkAfterPotentialRemoval(
                 removedOldestRetainedAt: removedOldestRetainedAt,
                 remainingCount: state.retainedContributionCount,
@@ -2111,24 +2418,39 @@ extension BoundedGatherMailbox {
         state: inout State,
         token _: borrowing AdmissionProtectedRegionToken
     ) {
-        Self.addChecked(lease.contributions.count, to: &keyState.pendingContributionCount)
+        Self.addChecked(lease.payload.contributionCount, to: &keyState.pendingContributionCount)
         Self.addChecked(lease.itemCount, to: &keyState.pendingItemCount)
         Self.addChecked(lease.byteCount, to: &keyState.pendingByteCount)
-        Self.addChecked(lease.contributions.count, to: &state.pendingContributionCount)
+        Self.addChecked(lease.payload.contributionCount, to: &state.pendingContributionCount)
         Self.addChecked(lease.itemCount, to: &state.pendingItemCount)
         Self.addChecked(lease.byteCount, to: &state.pendingByteCount)
     }
 
     private func leasedContributionCount(slot: Int, state: State) -> Int {
-        state.activeLease?.slot == slot ? state.activeLease?.contributions.count ?? 0 : 0
+        switch state.activeLease {
+        case .noActiveLease:
+            return 0
+        case .awaitingPresentation(let lease), .presented(let lease):
+            return lease.slot == slot ? lease.payload.contributionCount : 0
+        }
     }
 
     private func leasedItemCount(slot: Int, state: State) -> Int {
-        state.activeLease?.slot == slot ? state.activeLease?.itemCount ?? 0 : 0
+        switch state.activeLease {
+        case .noActiveLease:
+            return 0
+        case .awaitingPresentation(let lease), .presented(let lease):
+            return lease.slot == slot ? lease.itemCount : 0
+        }
     }
 
     private func leasedByteCount(slot: Int, state: State) -> Int {
-        state.activeLease?.slot == slot ? state.activeLease?.byteCount ?? 0 : 0
+        switch state.activeLease {
+        case .noActiveLease:
+            return 0
+        case .awaitingPresentation(let lease), .presented(let lease):
+            return lease.slot == slot ? lease.byteCount : 0
+        }
     }
 
     private func updateHighWater(

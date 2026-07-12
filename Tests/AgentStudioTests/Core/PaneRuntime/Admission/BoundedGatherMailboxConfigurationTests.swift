@@ -17,7 +17,7 @@ extension AdmissionBoundedGatherMailboxTests {
             maximumContributionsPerLease: 1,
             maximumItemsPerLease: 1,
             maximumBytesPerLease: 8,
-            cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: 8)
+            cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 8)
         )
         let undersizedCleanupLimits = GatherMailboxLimits(
             maximumDeclaredKeys: 1,
@@ -30,7 +30,7 @@ extension AdmissionBoundedGatherMailboxTests {
             maximumContributionsPerLease: 1,
             maximumItemsPerLease: 1,
             maximumBytesPerLease: 8,
-            cleanupQuantum: AdmissionCleanupQuantum(maximumEntries: 1, maximumBytes: 7)
+            cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 7)
         )
 
         // Act
@@ -62,6 +62,6 @@ extension AdmissionBoundedGatherMailboxTests {
         // Assert
         #expect(exactConfigurationIsValid)
         #expect(undersizedConfigurationIsValid == false)
-        #expect(requireAdmission(offer.receipt)?.payload == .retained)
+        expectRetainedWithoutRecovery(requireAdmission(offer))
     }
 }

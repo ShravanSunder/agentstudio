@@ -245,7 +245,7 @@ func hashProbeLimits(
         maximumContributionsPerLease: maximumContributions,
         maximumItemsPerLease: maximumContributions,
         maximumBytesPerLease: maximumContributions,
-        cleanupQuantum: AdmissionCleanupQuantum(
+        cleanupQuantum: .entriesAndBytes(
             maximumEntries: max(1, maximumContributions),
             maximumBytes: max(1, maximumContributions)
         )
@@ -253,13 +253,13 @@ func hashProbeLimits(
 }
 
 func requireAdmission(
-    _ receipt: GatherOfferReceipt<GatherTestKey>,
+    _ result: GatherOfferResult<GatherTestKey>,
     sourceLocation: SourceLocation = #_sourceLocation
-) -> GatherAdmissionReceipt<GatherTestKey>? {
-    guard case .admitted(let admission) = receipt else {
+) -> GatherAdmissionDisposition<GatherTestKey> {
+    guard case .admitted(let admission, _) = result else {
         Issue.record(
-            "Expected admitted gather receipt, got \(String(reflecting: receipt))", sourceLocation: sourceLocation)
-        return nil
+            "Expected admitted gather result, got \(String(reflecting: result))", sourceLocation: sourceLocation)
+        preconditionFailure("Expected admitted gather result")
     }
     return admission
 }
@@ -267,36 +267,36 @@ func requireAdmission(
 func requireLease(
     _ result: GatherTakeDrainResult<GatherTestKey, GatherTestPayload>,
     sourceLocation: SourceLocation = #_sourceLocation
-) -> GatherDrainLease<GatherTestKey, GatherTestPayload>? {
+) -> GatherDrainLease<GatherTestKey, GatherTestPayload> {
     guard case .lease(let lease) = result else {
         Issue.record(
             "Expected single-key gather lease, got \(String(reflecting: result))", sourceLocation: sourceLocation)
-        return nil
+        preconditionFailure("Expected gather lease")
     }
     return lease
 }
 
 func expectInvalidFootprint(
-    _ receipt: GatherOfferReceipt<GatherTestKey>,
+    _ result: GatherOfferResult<GatherTestKey>,
     sourceLocation: SourceLocation = #_sourceLocation
 ) {
-    guard case .invalidFootprint = receipt else {
+    guard case .invalidFootprint = result else {
         Issue.record(
-            "Expected invalid-footprint rejection, got \(String(reflecting: receipt))", sourceLocation: sourceLocation)
+            "Expected invalid-footprint rejection, got \(String(reflecting: result))", sourceLocation: sourceLocation)
         return
     }
 }
 
 func requireGenericAdmission<Key: Hashable & Sendable>(
-    _ receipt: GatherOfferReceipt<Key>,
+    _ result: GatherOfferResult<Key>,
     sourceLocation: SourceLocation = #_sourceLocation
-) -> GatherAdmissionReceipt<Key>? {
-    guard case .admitted(let admission) = receipt else {
+) -> GatherAdmissionDisposition<Key> {
+    guard case .admitted(let admission, _) = result else {
         Issue.record(
-            "Expected admitted gather receipt, got \(String(reflecting: receipt))",
+            "Expected admitted gather result, got \(String(reflecting: result))",
             sourceLocation: sourceLocation
         )
-        return nil
+        preconditionFailure("Expected admitted gather result")
     }
     return admission
 }
@@ -304,13 +304,105 @@ func requireGenericAdmission<Key: Hashable & Sendable>(
 func requireReentrantLease(
     _ result: GatherTakeDrainResult<GatherTestKey, ReentrantGatherPayload>,
     sourceLocation: SourceLocation = #_sourceLocation
-) -> GatherDrainLease<GatherTestKey, ReentrantGatherPayload>? {
+) -> GatherDrainLease<GatherTestKey, ReentrantGatherPayload> {
     guard case .lease(let lease) = result else {
         Issue.record(
             "Expected reentrant gather lease, got \(String(reflecting: result))",
             sourceLocation: sourceLocation
         )
-        return nil
+        preconditionFailure("Expected reentrant gather lease")
     }
     return lease
+}
+
+extension NonEmptyAdmissionBatch {
+    var testValues: [Element] { [first] + remaining }
+}
+
+func requireContributions<Key: Hashable & Sendable, Payload: Sendable>(
+    _ lease: GatherDrainLease<Key, Payload>,
+    sourceLocation: SourceLocation = #_sourceLocation
+) -> NonEmptyAdmissionBatch<GatherContribution<Key, Payload>> {
+    switch lease.payload {
+    case .contributions(let contributions),
+        .contributionsWithRecovery(let contributions, _):
+        return contributions
+    case .recovery:
+        Issue.record("Expected contribution-bearing gather lease", sourceLocation: sourceLocation)
+        preconditionFailure("Expected contribution-bearing gather lease")
+    }
+}
+
+func requireRecoveryRevision<Key: Hashable & Sendable>(
+    _ disposition: GatherAdmissionDisposition<Key>,
+    sourceLocation: SourceLocation = #_sourceLocation
+) -> GatherRecoveryRevision<Key> {
+    switch disposition {
+    case .retained:
+        Issue.record("Expected recovery-bearing admission", sourceLocation: sourceLocation)
+        preconditionFailure("Expected recovery-bearing admission")
+    case .retainedWithRecovery(let revision), .contractedToRecovery(let revision):
+        return revision
+    }
+}
+
+func expectRetainedWithoutRecovery<Key: Hashable & Sendable>(
+    _ disposition: GatherAdmissionDisposition<Key>,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    guard case .retained = disposition else {
+        Issue.record("Expected retained admission without recovery", sourceLocation: sourceLocation)
+        return
+    }
+}
+
+func requireRetainedRecoveryRevision<Key: Hashable & Sendable>(
+    _ disposition: GatherAdmissionDisposition<Key>,
+    sourceLocation: SourceLocation = #_sourceLocation
+) -> GatherRecoveryRevision<Key> {
+    guard case .retainedWithRecovery(let revision) = disposition else {
+        Issue.record("Expected retained admission with recovery", sourceLocation: sourceLocation)
+        preconditionFailure("Expected retained admission with recovery")
+    }
+    return revision
+}
+
+func requireContractedRecoveryRevision<Key: Hashable & Sendable>(
+    _ disposition: GatherAdmissionDisposition<Key>,
+    sourceLocation: SourceLocation = #_sourceLocation
+) -> GatherRecoveryRevision<Key> {
+    guard case .contractedToRecovery(let revision) = disposition else {
+        Issue.record("Expected contracted recovery admission", sourceLocation: sourceLocation)
+        preconditionFailure("Expected contracted recovery admission")
+    }
+    return revision
+}
+
+struct GatherCleanupReleaseCounts {
+    let entries: Int
+    let bytes: Int
+}
+
+func requireEntryAndByteRelease(
+    _ turn: AdmissionCleanupTurn,
+    sourceLocation: SourceLocation = #_sourceLocation
+) -> GatherCleanupReleaseCounts {
+    guard case .entriesAndBytes(let entries, let bytes) = turn.release else {
+        Issue.record("Expected entry-and-byte gather cleanup release", sourceLocation: sourceLocation)
+        preconditionFailure("Expected entry-and-byte gather cleanup release")
+    }
+    return GatherCleanupReleaseCounts(entries: entries, bytes: bytes)
+}
+
+func requireRecoveryRevision<Key: Hashable & Sendable, Payload: Sendable>(
+    _ lease: GatherDrainLease<Key, Payload>,
+    sourceLocation: SourceLocation = #_sourceLocation
+) -> GatherRecoveryRevision<Key> {
+    switch lease.payload {
+    case .contributions:
+        Issue.record("Expected recovery-bearing gather lease", sourceLocation: sourceLocation)
+        preconditionFailure("Expected recovery-bearing gather lease")
+    case .contributionsWithRecovery(_, let revision), .recovery(let revision):
+        return revision
+    }
 }

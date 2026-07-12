@@ -13,7 +13,7 @@ struct AdmissionCleanupCustodyTests {
         let clock = TestPushClock()
         let recorder = CleanupReleaseRecorder()
         let mailboxBox = LatestCleanupMailboxBox()
-        let cleanupQuantum = AdmissionCleanupQuantum(maximumEntries: 17, maximumBytes: nil)
+        let cleanupQuantum = AdmissionCleanupQuantum.entries(maximumEntries: 17)
         let mailbox = LatestValueMailbox<Int, CleanupPayload>(
             generation: generation,
             declaredKeys: Set(0..<retainedDepth),
@@ -57,15 +57,10 @@ struct AdmissionCleanupCustodyTests {
                     leasedEntryCount: retainedDepth,
                     cleanupEntryCount: 0,
                     physicalEntryCount: retainedDepth,
-                    semanticByteCount: nil,
-                    cleanupByteCount: nil,
-                    physicalByteCount: nil,
+                    byteAccounting: .notTracked,
                     semanticEntryHighWater: retainedDepth,
                     cleanupEntryHighWater: 0,
                     physicalEntryHighWater: retainedDepth,
-                    semanticByteHighWater: nil,
-                    cleanupByteHighWater: nil,
-                    physicalByteHighWater: nil,
                     oldestCleanupAge: nil,
                     isQuiescent: false
                 )
@@ -73,13 +68,13 @@ struct AdmissionCleanupCustodyTests {
         expectCleanupOnlySnapshot(
             cleanupBeforeTurns,
             entries: retainedDepth,
-            bytes: nil,
+            expectedRelease: .entries,
             oldestAge: .seconds(5)
         )
         expectDiagnosticsExcludePayloads(lifecycle.diagnostics, marker: "latest-secret-")
         performAllCleanup(
             expectedEntries: retainedDepth,
-            expectedBytes: nil,
+            expectedRelease: .entries,
             quantum: cleanupQuantum,
             recorder: recorder,
             performCleanup: { lifecycle.performCleanup(generation: generation) },
@@ -94,7 +89,10 @@ struct AdmissionCleanupCustodyTests {
         let clock = TestPushClock()
         let recorder = CleanupReleaseRecorder()
         let mailboxBox = GatherCleanupMailboxBox()
-        let cleanupQuantum = AdmissionCleanupQuantum(maximumEntries: 17, maximumBytes: 17)
+        let cleanupQuantum = AdmissionCleanupQuantum.entriesAndBytes(
+            maximumEntries: 17,
+            maximumBytes: 17
+        )
         let limits = GatherMailboxLimits(
             maximumDeclaredKeys: 1,
             maximumRetainedContributions: retainedDepth,
@@ -105,7 +103,7 @@ struct AdmissionCleanupCustodyTests {
             maximumRetainedBytesPerKey: retainedDepth,
             maximumContributionsPerLease: retainedDepth,
             maximumItemsPerLease: retainedDepth,
-            maximumBytesPerLease: min(retainedDepth, cleanupQuantum.maximumBytes!),
+            maximumBytesPerLease: min(retainedDepth, 17),
             cleanupQuantum: cleanupQuantum
         )
         let mailbox = BoundedGatherMailbox<Int, CleanupPayload>(
@@ -155,7 +153,7 @@ struct AdmissionCleanupCustodyTests {
         expectCleanupOnlySnapshot(
             cleanupBeforeTurns,
             entries: retainedDepth,
-            bytes: retainedDepth,
+            expectedRelease: .entriesAndBytes(totalBytes: retainedDepth),
             oldestAge: .seconds(5)
         )
         #expect(lifecycle.diagnostics.cleanupItemCount == retainedDepth)
@@ -167,7 +165,7 @@ struct AdmissionCleanupCustodyTests {
         performAllCleanup(
             expectedEntries: retainedDepth,
             expectedNonPayloadEntries: 1,
-            expectedBytes: retainedDepth,
+            expectedRelease: .entriesAndBytes(totalBytes: retainedDepth),
             quantum: cleanupQuantum,
             recorder: recorder,
             performCleanup: { lifecycle.performCleanup(generation: generation) },
@@ -182,7 +180,7 @@ struct AdmissionCleanupCustodyTests {
         let clock = TestPushClock()
         let recorder = CleanupReleaseRecorder()
         let journalBox = JournalCleanupMailboxBox()
-        let cleanupQuantum = AdmissionCleanupQuantum(
+        let cleanupQuantum = AdmissionCleanupQuantum.entriesAndBytes(
             maximumEntries: 17,
             maximumBytes: retainedDepth
         )
@@ -197,8 +195,7 @@ struct AdmissionCleanupCustodyTests {
             ),
             maximumDrainFacts: retainedDepth,
             cleanupQuantum: cleanupQuantum,
-            initialSnapshot: nil,
-            initialSnapshotBytes: 0,
+            initialSnapshotReplacement: nil,
             admissionClock: .make(clock: clock)
         )
         journalBox.journal = journal
@@ -242,13 +239,13 @@ struct AdmissionCleanupCustodyTests {
         expectCleanupOnlySnapshot(
             cleanupBeforeTurns,
             entries: retainedDepth,
-            bytes: retainedDepth,
+            expectedRelease: .entriesAndBytes(totalBytes: retainedDepth),
             oldestAge: .seconds(5)
         )
         expectDiagnosticsExcludePayloads(lifecycle.diagnostics, marker: "journal-secret-")
         performAllCleanup(
             expectedEntries: retainedDepth,
-            expectedBytes: retainedDepth,
+            expectedRelease: .entriesAndBytes(totalBytes: retainedDepth),
             quantum: cleanupQuantum,
             recorder: recorder,
             performCleanup: { lifecycle.performCleanup(generation: generation) },
@@ -263,17 +260,31 @@ private struct CleanupCustodySnapshot: Equatable {
     let leasedEntryCount: Int
     let cleanupEntryCount: Int
     let physicalEntryCount: Int
-    let semanticByteCount: Int?
-    let cleanupByteCount: Int?
-    let physicalByteCount: Int?
+    let byteAccounting: CleanupByteAccounting
     let semanticEntryHighWater: Int
     let cleanupEntryHighWater: Int
     let physicalEntryHighWater: Int
-    let semanticByteHighWater: Int?
-    let cleanupByteHighWater: Int?
-    let physicalByteHighWater: Int?
     let oldestCleanupAge: AdmissionAgeMeasurement?
     let isQuiescent: Bool
+}
+
+private enum CleanupByteAccounting: Equatable {
+    case notTracked
+    case tracked(CleanupTrackedByteAccounting)
+}
+
+private struct CleanupTrackedByteAccounting: Equatable {
+    let semanticCount: Int
+    let cleanupCount: Int
+    let physicalCount: Int
+    let semanticHighWater: Int
+    let cleanupHighWater: Int
+    let physicalHighWater: Int
+}
+
+private enum CleanupReleaseExpectation: Equatable {
+    case entries
+    case entriesAndBytes(totalBytes: Int)
 }
 
 private final class CleanupPayload: @unchecked Sendable {
@@ -381,15 +392,10 @@ private func latestSnapshot(_ diagnostics: LatestValueAdmissionDiagnostics) -> C
         leasedEntryCount: diagnostics.leasedValueCount,
         cleanupEntryCount: diagnostics.cleanupValueCount,
         physicalEntryCount: diagnostics.physicalRetainedValueCount,
-        semanticByteCount: nil,
-        cleanupByteCount: nil,
-        physicalByteCount: nil,
+        byteAccounting: .notTracked,
         semanticEntryHighWater: diagnostics.semanticRetainedValueHighWater,
         cleanupEntryHighWater: diagnostics.cleanupValueHighWater,
         physicalEntryHighWater: diagnostics.physicalRetainedValueHighWater,
-        semanticByteHighWater: nil,
-        cleanupByteHighWater: nil,
-        physicalByteHighWater: nil,
         oldestCleanupAge: diagnostics.oldestCleanupAge,
         isQuiescent: diagnostics.isQuiescent
     )
@@ -402,15 +408,18 @@ private func gatherSnapshot(_ diagnostics: GatherAdmissionDiagnostics) -> Cleanu
         leasedEntryCount: diagnostics.leasedContributionCount,
         cleanupEntryCount: diagnostics.cleanupContributionCount,
         physicalEntryCount: diagnostics.physicalRetainedContributionCount,
-        semanticByteCount: diagnostics.retainedByteCount,
-        cleanupByteCount: diagnostics.cleanupByteCount,
-        physicalByteCount: diagnostics.physicalRetainedByteCount,
+        byteAccounting: .tracked(
+            CleanupTrackedByteAccounting(
+                semanticCount: diagnostics.retainedByteCount,
+                cleanupCount: diagnostics.cleanupByteCount,
+                physicalCount: diagnostics.physicalRetainedByteCount,
+                semanticHighWater: diagnostics.retainedByteHighWater,
+                cleanupHighWater: diagnostics.cleanupByteHighWater,
+                physicalHighWater: diagnostics.physicalRetainedByteHighWater
+            )),
         semanticEntryHighWater: diagnostics.retainedContributionHighWater,
         cleanupEntryHighWater: diagnostics.cleanupContributionHighWater,
         physicalEntryHighWater: diagnostics.physicalRetainedContributionHighWater,
-        semanticByteHighWater: diagnostics.retainedByteHighWater,
-        cleanupByteHighWater: diagnostics.cleanupByteHighWater,
-        physicalByteHighWater: diagnostics.physicalRetainedByteHighWater,
         oldestCleanupAge: diagnostics.oldestCleanupAge,
         isQuiescent: diagnostics.isQuiescent
     )
@@ -423,15 +432,18 @@ private func journalSnapshot(_ diagnostics: OrderedFactJournalDiagnostics) -> Cl
         leasedEntryCount: diagnostics.leasedFactCount,
         cleanupEntryCount: diagnostics.cleanupFactCount,
         physicalEntryCount: diagnostics.physicalRetainedFactCount,
-        semanticByteCount: diagnostics.retainedByteCount,
-        cleanupByteCount: diagnostics.cleanupByteCount,
-        physicalByteCount: diagnostics.physicalRetainedByteCount,
+        byteAccounting: .tracked(
+            CleanupTrackedByteAccounting(
+                semanticCount: diagnostics.retainedByteCount,
+                cleanupCount: diagnostics.cleanupByteCount,
+                physicalCount: diagnostics.physicalRetainedByteCount,
+                semanticHighWater: diagnostics.retainedByteHighWater,
+                cleanupHighWater: diagnostics.cleanupByteHighWater,
+                physicalHighWater: diagnostics.physicalRetainedByteHighWater
+            )),
         semanticEntryHighWater: diagnostics.retainedFactHighWater,
         cleanupEntryHighWater: diagnostics.cleanupFactHighWater,
         physicalEntryHighWater: diagnostics.physicalRetainedFactHighWater,
-        semanticByteHighWater: diagnostics.retainedByteHighWater,
-        cleanupByteHighWater: diagnostics.cleanupByteHighWater,
-        physicalByteHighWater: diagnostics.physicalRetainedByteHighWater,
         oldestCleanupAge: diagnostics.oldestCleanupAge,
         isQuiescent: diagnostics.isQuiescent
     )
@@ -440,7 +452,7 @@ private func journalSnapshot(_ diagnostics: OrderedFactJournalDiagnostics) -> Cl
 private func expectCleanupOnlySnapshot(
     _ snapshot: CleanupCustodySnapshot,
     entries: Int,
-    bytes: Int?,
+    expectedRelease: CleanupReleaseExpectation,
     oldestAge: Duration
 ) {
     #expect(snapshot.semanticEntryCount == 0)
@@ -450,15 +462,25 @@ private func expectCleanupOnlySnapshot(
     #expect(snapshot.physicalEntryCount == entries)
     #expect(snapshot.semanticEntryCount == snapshot.pendingEntryCount + snapshot.leasedEntryCount)
     #expect(snapshot.physicalEntryCount == snapshot.semanticEntryCount + snapshot.cleanupEntryCount)
-    #expect(snapshot.semanticByteCount == 0 || snapshot.semanticByteCount == nil)
-    #expect(snapshot.cleanupByteCount == bytes)
-    #expect(snapshot.physicalByteCount == bytes)
     #expect(snapshot.semanticEntryHighWater == entries)
     #expect(snapshot.cleanupEntryHighWater == entries)
     #expect(snapshot.physicalEntryHighWater == entries)
-    #expect(snapshot.semanticByteHighWater == bytes)
-    #expect(snapshot.cleanupByteHighWater == bytes)
-    #expect(snapshot.physicalByteHighWater == bytes)
+    switch (snapshot.byteAccounting, expectedRelease) {
+    case (.notTracked, .entries):
+        break
+    case (
+        .tracked(let accounting),
+        .entriesAndBytes(let totalBytes)
+    ):
+        #expect(accounting.semanticCount == 0)
+        #expect(accounting.cleanupCount == totalBytes)
+        #expect(accounting.physicalCount == totalBytes)
+        #expect(accounting.semanticHighWater == totalBytes)
+        #expect(accounting.cleanupHighWater == totalBytes)
+        #expect(accounting.physicalHighWater == totalBytes)
+    default:
+        Issue.record("Cleanup byte accounting did not match its typed release expectation")
+    }
     #expect(snapshot.oldestCleanupAge == .exact(oldestAge))
     #expect(snapshot.isQuiescent == false)
 }
@@ -466,7 +488,7 @@ private func expectCleanupOnlySnapshot(
 private func performAllCleanup(
     expectedEntries: Int,
     expectedNonPayloadEntries: Int = 0,
-    expectedBytes: Int?,
+    expectedRelease: CleanupReleaseExpectation,
     quantum: AdmissionCleanupQuantum,
     recorder: CleanupReleaseRecorder,
     performCleanup: () -> AdmissionCleanupTurnResult,
@@ -481,19 +503,36 @@ private func performAllCleanup(
         let releasedBeforeTurn = recorder.identifiers.count
         switch performCleanup() {
         case .performed(let turn):
-            #expect(turn.releasedEntryCount > 0)
-            #expect(turn.releasedEntryCount <= quantum.maximumEntries)
-            let releasedPayloadEntries = recorder.identifiers.count - releasedBeforeTurn
-            #expect(releasedPayloadEntries <= turn.releasedEntryCount)
-            releasedNonPayloadEntries += turn.releasedEntryCount - releasedPayloadEntries
-            releasedEntries += turn.releasedEntryCount
-            if let maximumBytes = quantum.maximumBytes {
-                #expect(turn.releasedByteCount != nil)
-                #expect(turn.releasedByteCount! <= maximumBytes)
-                releasedBytes += turn.releasedByteCount!
-            } else {
-                #expect(turn.releasedByteCount == nil)
+            let releasedEntryCount: Int
+            let releasedByteCount: Int
+            switch (turn.release, quantum, expectedRelease) {
+            case (
+                .entries(let count),
+                .entries(let maximumEntries),
+                .entries
+            ):
+                releasedEntryCount = count
+                releasedByteCount = 0
+                #expect(count <= maximumEntries)
+            case (
+                .entriesAndBytes(let count, let bytes),
+                .entriesAndBytes(let maximumEntries, let maximumBytes),
+                .entriesAndBytes
+            ):
+                releasedEntryCount = count
+                releasedByteCount = bytes
+                #expect(count <= maximumEntries)
+                #expect(bytes <= maximumBytes)
+            default:
+                Issue.record("Cleanup turn, quantum, and expectation cases did not match")
+                break cleanupLoop
             }
+            #expect(releasedEntryCount > 0)
+            let releasedPayloadEntries = recorder.identifiers.count - releasedBeforeTurn
+            #expect(releasedPayloadEntries <= releasedEntryCount)
+            releasedNonPayloadEntries += releasedEntryCount - releasedPayloadEntries
+            releasedEntries += releasedEntryCount
+            releasedBytes += releasedByteCount
             if releasedEntries < expectedTotalEntries {
                 #expect(turn.wake == .scheduleDrain)
                 observedFollowUpWake = true
@@ -516,9 +555,19 @@ private func performAllCleanup(
 
     #expect(releasedEntries == expectedTotalEntries)
     #expect(releasedNonPayloadEntries == expectedNonPayloadEntries)
-    #expect(expectedBytes == nil || releasedBytes == expectedBytes)
+    switch expectedRelease {
+    case .entries:
+        #expect(releasedBytes == 0)
+    case .entriesAndBytes(let totalBytes):
+        #expect(releasedBytes == totalBytes)
+    }
+    let maximumEntries: Int
+    switch quantum {
+    case .entries(let value), .entriesAndBytes(let value, _):
+        maximumEntries = value
+    }
     let expectsFollowUpWake =
-        expectedTotalEntries > quantum.maximumEntries
+        expectedTotalEntries > maximumEntries
         || expectedNonPayloadEntries > 0
     #expect(observedFollowUpWake == expectsFollowUpWake)
     #expect(performCleanup() == .empty)
