@@ -4,6 +4,26 @@ import Testing
 @testable import AgentStudio
 
 struct BridgeWorktreeFileSourceProviderTests {
+    @Test("tracked paths remain visible through ignored ancestor fallback")
+    func trackedPathsRemainVisibleThroughIgnoredAncestorFallback() throws {
+        // Arrange
+        let rootURL = FileManager.default.temporaryDirectory
+            .appending(path: "bridge-ignore-policy-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try Data("generated/\n".utf8).write(to: rootURL.appending(path: ".gitignore"))
+        let policy = BridgeWorktreeFileIgnorePolicy(
+            filesystemPathFilter: FilesystemPathFilter.load(forRootPath: rootURL),
+            publishableFilePaths: nil,
+            trackedPathsAndAncestors: ["generated", "generated/tracked.swift"]
+        )
+
+        // Act / Assert
+        #expect(!policy.isIgnored(relativePath: "generated"))
+        #expect(!policy.isIgnored(relativePath: "generated/tracked.swift"))
+        #expect(policy.isIgnored(relativePath: "generated/untracked.swift"))
+    }
+
     @Test("source spec decodes browser selector defaults")
     func sourceSpecDecodesBrowserSelectorDefaults() throws {
         let worktree = makeWorktree(rootPath: "/tmp/repo")

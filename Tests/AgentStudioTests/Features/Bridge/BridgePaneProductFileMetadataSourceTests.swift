@@ -5,6 +5,75 @@ import Testing
 
 @Suite("Bridge pane product File metadata source")
 struct BridgePaneProductFileMetadataSourceTests {
+    @Test("source acceptance does not wait for ignore-policy preparation")
+    func sourceAcceptancePrecedesIgnorePolicyPreparation() async throws {
+        // Arrange
+        let fixture = try ProductFileSourceFixture(fileCount: 1)
+        defer { fixture.remove() }
+        let preparationGate = ProductFileMaterializationGate()
+        let source = fixture.makeSource(ignorePolicyLoader: { _ in
+            await preparationGate.markStarted()
+            await preparationGate.waitUntilReleased()
+            return .empty
+        })
+        let collector = ProductFileMetadataEventCollector()
+
+        // Act
+        let openTask = Task {
+            try await source.open(subscription: fixture.openSnapshot()) { event in
+                await collector.append(event)
+            }
+        }
+        await preparationGate.waitUntilStarted()
+        let eventsBeforePreparationFinished = await collector.events
+        await preparationGate.release()
+        try await openTask.value
+
+        // Assert
+        #expect(
+            eventsBeforePreparationFinished.contains {
+                if case .sourceAccepted = $0 { true } else { false }
+            }
+        )
+    }
+
+    @Test("interest committed during preparation is fulfilled after the manifest is ready")
+    func interestCommittedDuringPreparationIsFulfilled() async throws {
+        // Arrange
+        let fixture = try ProductFileSourceFixture(fileCount: 1)
+        defer { fixture.remove() }
+        let preparationGate = ProductFileMaterializationGate()
+        let source = fixture.makeSource(ignorePolicyLoader: { _ in
+            await preparationGate.markStarted()
+            await preparationGate.waitUntilReleased()
+            return .empty
+        })
+        let collector = ProductFileMetadataEventCollector()
+        let openSnapshot = try fixture.openSnapshot()
+        let openTask = Task {
+            try await source.open(subscription: openSnapshot) { event in
+                await collector.append(event)
+            }
+        }
+        await preparationGate.waitUntilStarted()
+
+        // Act
+        try await source.update(
+            subscription: fixture.updatedSnapshot(from: openSnapshot)
+        ) { event in
+            await collector.append(event)
+        }
+        await preparationGate.release()
+        try await openTask.value
+
+        // Assert
+        #expect(
+            (await collector.events).contains {
+                if case .descriptorReady = $0 { true } else { false }
+            }
+        )
+    }
+
     @Test("open streams bounded real tree windows and typed status")
     func openStreamsBoundedRealTreeWindowsAndStatus() async throws {
         // Arrange
@@ -222,11 +291,11 @@ struct BridgePaneProductFileMetadataSourceTests {
         let fixture = try ProductFileSourceFixture(fileCount: 1)
         defer { fixture.remove() }
         let materializationGate = ProductFileMaterializationGate()
-        let source = fixture.makeSource { request in
+        let source = fixture.makeSource(descriptorMaterializer: { request in
             await materializationGate.markStarted()
             await materializationGate.waitUntilReleased()
             return try await BridgePaneProductFileContentSource.materialize(request)
-        }
+        })
         let openSnapshot = try fixture.openSnapshot()
         try await source.open(subscription: openSnapshot) { _ in }
         let staleCollector = ProductFileMetadataEventCollector()
@@ -365,11 +434,11 @@ struct BridgePaneProductFileMetadataSourceTests {
         let fixture = try ProductFileSourceFixture(fileCount: 1)
         defer { fixture.remove() }
         let gate = ProductFileMaterializationGate()
-        let source = fixture.makeSource { request in
+        let source = fixture.makeSource(descriptorMaterializer: { request in
             await gate.markStarted()
             await gate.waitUntilReleased()
             return try await BridgePaneProductFileContentSource.materialize(request)
-        }
+        })
         let openSnapshot = try fixture.openSnapshot()
         try await source.open(subscription: openSnapshot) { _ in }
         let collector = ProductFileMetadataEventCollector()
@@ -564,6 +633,8 @@ private struct ProductFileSourceFixture {
     }
 
     func makeSource(
+        ignorePolicyLoader: @escaping BridgePaneProductFileIgnorePolicyLoader =
+            { rootURL in await BridgeWorktreeFileIgnorePolicy.load(rootURL: rootURL) },
         descriptorMaterializer: @escaping BridgePaneProductFileDescriptorMaterializer =
             BridgePaneProductFileContentSource.materialize
     ) -> BridgePaneProductFileMetadataSource {
@@ -578,6 +649,7 @@ private struct ProductFileSourceFixture {
                 )
             ),
             statusProvider: ProductFileSourceStatusProvider(),
+            ignorePolicyLoader: ignorePolicyLoader,
             descriptorMaterializer: descriptorMaterializer
         )
     }

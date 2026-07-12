@@ -4,7 +4,8 @@ import Foundation
 struct BridgeWorktreeFileIgnorePolicy: Sendable {
     static let empty = Self(
         filesystemPathFilter: FilesystemPathFilter.empty,
-        publishableFilePaths: nil
+        publishableFilePaths: nil,
+        trackedPathsAndAncestors: []
     )
 
     private let filesystemPathFilter: FilesystemPathFilter
@@ -17,18 +18,35 @@ struct BridgeWorktreeFileIgnorePolicy: Sendable {
     /// their boundary. `nil` means the root is not a git worktree and
     /// enumeration falls back to the filesystem walk.
     let publishableFilePaths: Set<String>?
+    private let trackedPathsAndAncestors: Set<String>
 
-    init(filesystemPathFilter: FilesystemPathFilter, publishableFilePaths: Set<String>?) {
+    init(
+        filesystemPathFilter: FilesystemPathFilter,
+        publishableFilePaths: Set<String>?,
+        trackedPathsAndAncestors: Set<String> = []
+    ) {
         self.filesystemPathFilter = filesystemPathFilter
         self.publishableFilePaths = publishableFilePaths
+        self.trackedPathsAndAncestors = trackedPathsAndAncestors
     }
 
-    static func load(rootURL: URL) async -> Self {
+    static func load(
+        rootURL: URL,
+        statusProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider()
+    ) async -> Self {
         async let filesystemPathFilter = FilesystemPathFilter.loadOffExecutor(forRootPath: rootURL)
-        let publishableFilePaths = await publishableFilePaths(rootURL: rootURL)
+        async let trackedFilePathsTask = trackedFilePaths(rootURL: rootURL)
+        async let statusResult = statusProvider.statusResult(for: rootURL)
+        let trackedFilePaths = await trackedFilePathsTask
+        let publishableFilePaths = await publishableFilePaths(
+            rootURL: rootURL,
+            trackedFilePaths: trackedFilePaths,
+            statusResult: statusResult
+        )
         return await Self(
             filesystemPathFilter: filesystemPathFilter,
-            publishableFilePaths: publishableFilePaths
+            publishableFilePaths: publishableFilePaths,
+            trackedPathsAndAncestors: trackedPathsAndAncestors(trackedFilePaths)
         )
     }
 
@@ -43,49 +61,54 @@ struct BridgeWorktreeFileIgnorePolicy: Sendable {
         if let publishableFilePaths, publishableFilePaths.contains(normalizedPath) {
             return false
         }
+        if trackedPathsAndAncestors.contains(normalizedPath) {
+            return false
+        }
         return filesystemPathFilter.isIgnored(relativePath: normalizedPath)
     }
 
-    private static func publishableFilePaths(rootURL: URL) async -> Set<String>? {
+    @concurrent nonisolated private static func trackedFilePaths(rootURL: URL) async -> Set<String> {
         let client = LibGit2AgentStudioGitLocalClient()
         do {
             let trackedSnapshot = try await client.trackedPaths(
                 for: rootURL,
                 options: GitTrackedPathsOptions()
             )
-            let statusSnapshot = try await client.status(
-                for: rootURL,
-                options: GitStatusOptions(includeIgnored: false, includeUntracked: true)
-            )
-            // Submodule gitlinks stay in the manifest: they surface as
-            // non-expanded directory rows (the enumerator never descends
-            // into paths that have no published files beneath them).
-            var publishablePaths = Set(
-                trackedSnapshot.entries
-                    .map { normalized($0.path) }
-                    .filter { !$0.isEmpty }
-            )
-            for entry in statusSnapshot.entries {
-                let path = normalized(entry.path)
-                if let previousPath = entry.previousPath {
-                    publishablePaths.remove(normalized(previousPath))
-                }
-                guard !path.isEmpty, !path.hasSuffix("/") else {
-                    continue
-                }
-                let deletedFromWorktree =
-                    entry.worktreeState == .deleted
-                    || (entry.indexState == .deleted && entry.worktreeState == nil)
-                if deletedFromWorktree {
-                    publishablePaths.remove(path)
-                } else {
-                    publishablePaths.insert(path)
-                }
-            }
-            return publishablePaths
+            return Set(trackedSnapshot.entries.map { normalized($0.path) }.filter { !$0.isEmpty })
         } catch {
-            return nil
+            return []
         }
+    }
+
+    private static func publishableFilePaths(
+        rootURL: URL,
+        trackedFilePaths: Set<String>,
+        statusResult: GitWorkingTreeStatusResult
+    ) -> Set<String>? {
+        guard case .available(let status) = statusResult else { return nil }
+        var publishablePaths = Set(
+            trackedFilePaths.filter { FileManager.default.fileExists(atPath: rootURL.appending(path: $0).path) }
+        )
+        for entry in status.entries {
+            let path = normalized(entry.path)
+            guard !path.isEmpty,
+                FileManager.default.fileExists(atPath: rootURL.appending(path: path).path)
+            else { continue }
+            publishablePaths.insert(path)
+        }
+        return publishablePaths
+    }
+
+    private static func trackedPathsAndAncestors(_ trackedFilePaths: Set<String>) -> Set<String> {
+        var paths = trackedFilePaths
+        for trackedFilePath in trackedFilePaths {
+            var components = trackedFilePath.split(separator: "/").map(String.init)
+            while components.count > 1 {
+                components.removeLast()
+                paths.insert(components.joined(separator: "/"))
+            }
+        }
+        return paths
     }
 
     private static func normalized(_ relativePath: String) -> String {

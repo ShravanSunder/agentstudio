@@ -17,6 +17,9 @@ struct BridgePaneProductFileMetadataEmission: Sendable {
 typealias BridgePaneProductFileMetadataEventSink =
     @Sendable (BridgeProductFileMetadataEvent) async throws -> Void
 
+typealias BridgePaneProductFileIgnorePolicyLoader =
+    @Sendable (URL) async -> BridgeWorktreeFileIgnorePolicy
+
 protocol BridgePaneProductFileMetadataProducing: Sendable {
     func currentSource() async -> BridgeProductFileSourceCurrentResult
     func open(
@@ -64,16 +67,26 @@ actor BridgeUnavailablePaneProductFileMetadataSource: BridgePaneProductFileMetad
 actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducing {
     private struct SubscriptionContext: Sendable {
         let manifestIndex: BridgeWorktreeFileManifestIndex
-        let openedSource: BridgeWorktreeFileOpenedSource
+        var openedSource: BridgeWorktreeFileOpenedSource
         let productSource: BridgeProductFileSourceIdentity
         var bodyByDescriptorId: [String: BridgePaneProductFileContentBody]
         var bodyDescriptorIdsInAdmissionOrder: [String]
         var descriptorByPath: [String: BridgeProductFileDescriptorReadyPayload]
+        var descriptorInterestRevisionByPath: [String: Int]
+        var inFlightDescriptorInterestRevisionByPath: [String: Int]
         var subscription: BridgeProductSubscriptionSnapshot
+    }
+
+    private struct DescriptorReconciliationRequest: Sendable {
+        let emit: BridgePaneProductFileMetadataEventSink
+        let productSource: BridgeProductFileSourceIdentity
+        let rows: [BridgeWorktreeTreeRowMetadata]
+        let subscription: BridgeProductSubscriptionSnapshot
     }
 
     private let authority: BridgePaneProductFileSourceAuthority
     private let descriptorMaterializer: BridgePaneProductFileDescriptorMaterializer
+    private let ignorePolicyLoader: BridgePaneProductFileIgnorePolicyLoader
     private let statusProvider: any GitWorkingTreeStatusProvider
     private let maximumRetainedContentBodyCount = 8
     private var contextBySubscriptionId: [String: SubscriptionContext] = [:]
@@ -82,11 +95,19 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
     init(
         authority: BridgePaneProductFileSourceAuthority,
         statusProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(),
+        ignorePolicyLoader: BridgePaneProductFileIgnorePolicyLoader? = nil,
         descriptorMaterializer: @escaping BridgePaneProductFileDescriptorMaterializer =
             BridgePaneProductFileContentSource.materialize
     ) {
         self.authority = authority
         self.descriptorMaterializer = descriptorMaterializer
+        self.ignorePolicyLoader =
+            ignorePolicyLoader ?? { rootURL in
+                await BridgeWorktreeFileIgnorePolicy.load(
+                    rootURL: rootURL,
+                    statusProvider: statusProvider
+                )
+            }
         self.statusProvider = statusProvider
     }
 
@@ -109,16 +130,24 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         else {
             return
         }
-        let context = try await installContext(
+        let context = try installContext(
             subscription: subscription,
             sourceSpec: sourceSpec,
             pathScope: pathScope
         )
-        let manifestIndex = context.manifestIndex
-        let openedSourceWithIgnorePolicy = context.openedSource
         let productSource = context.productSource
-
         try await emit(.sourceAccepted(.init(source: productSource)))
+
+        let ignorePolicy = await ignorePolicyLoader(authority.worktree.path)
+        try Task.checkCancellation()
+        guard var preparedContext = contextBySubscriptionId[subscription.subscriptionId],
+            preparedContext.productSource == productSource
+        else { return }
+        preparedContext.openedSource = preparedContext.openedSource.withIgnorePolicy(ignorePolicy)
+        contextBySubscriptionId[subscription.subscriptionId] = preparedContext
+
+        let manifestIndex = preparedContext.manifestIndex
+        let openedSourceWithIgnorePolicy = preparedContext.openedSource
         await manifestIndex.beginEnumeration()
         var emittedWindow = false
         for try await batch in BridgeWorktreeFileMaterializer.materializeTreeRowWindows(
@@ -154,6 +183,12 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
                     )
                 )
                 emittedRowCount += rows.count
+            }
+            if let latestContext = contextBySubscriptionId[subscription.subscriptionId],
+                latestContext.productSource == productSource,
+                latestContext.subscription.interestRevision > 0
+            {
+                try await update(subscription: latestContext.subscription, emit: emit)
             }
             emittedWindow = true
         }
@@ -201,7 +236,11 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         contextBySubscriptionId[subscription.subscriptionId] = context
         let productSource = context.productSource
 
-        let demandedPaths = Self.highestPriorityLaneByPath(interestGroups)
+        let demandedPaths = Self.highestPriorityLaneByPath(interestGroups).filter { path, _ in
+            context.descriptorInterestRevisionByPath[path] != subscription.interestRevision
+                && context.inFlightDescriptorInterestRevisionByPath[path] != subscription.interestRevision
+        }
+        guard !demandedPaths.isEmpty else { return }
         let manifestPaths = await context.manifestIndex.memberPaths(of: Set(demandedPaths.keys))
         try Task.checkCancellation()
         guard isCurrent(subscription, source: productSource) else { return }
@@ -232,27 +271,14 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             }
         }
 
-        for row in refreshed.rows where !row.isDirectory && demandedPaths[row.path] != nil {
-            let materialized = try await descriptorMaterializer(
-                .init(
-                    relativePath: row.path,
-                    rootURL: authority.worktree.path,
-                    row: row,
-                    source: productSource
-                )
+        try await reconcileDescriptors(
+            .init(
+                emit: emit,
+                productSource: productSource,
+                rows: refreshed.rows.filter { !$0.isDirectory && demandedPaths[$0.path] != nil },
+                subscription: subscription
             )
-            try Task.checkCancellation()
-            guard var currentContext = contextBySubscriptionId[subscription.subscriptionId],
-                currentContext.productSource == productSource,
-                currentContext.subscription.interestRevision == subscription.interestRevision
-            else { return }
-            currentContext.descriptorByPath[row.path] = materialized.payload
-            if let body = materialized.body {
-                retain(body: body, in: &currentContext)
-            }
-            contextBySubscriptionId[subscription.subscriptionId] = currentContext
-            try await emit(.descriptorReady(.init(payload: materialized.payload)))
-        }
+        )
         for missingPath in refreshed.missingPaths {
             try Task.checkCancellation()
             guard let currentContext = contextBySubscriptionId[subscription.subscriptionId],
@@ -270,6 +296,64 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
                     )
                 )
             )
+        }
+    }
+
+    private func reconcileDescriptors(
+        _ request: DescriptorReconciliationRequest
+    ) async throws {
+        let subscription = request.subscription
+        for row in request.rows {
+            guard var currentContext = contextBySubscriptionId[subscription.subscriptionId],
+                currentContext.productSource == request.productSource,
+                currentContext.subscription.interestRevision == subscription.interestRevision,
+                currentContext.descriptorInterestRevisionByPath[row.path] != subscription.interestRevision,
+                currentContext.inFlightDescriptorInterestRevisionByPath[row.path] != subscription.interestRevision
+            else { return }
+            currentContext.inFlightDescriptorInterestRevisionByPath[row.path] = subscription.interestRevision
+            contextBySubscriptionId[subscription.subscriptionId] = currentContext
+            let materialized: BridgePaneProductFileDescriptorMaterialization
+            do {
+                materialized = try await descriptorMaterializer(
+                    .init(
+                        relativePath: row.path,
+                        rootURL: authority.worktree.path,
+                        row: row,
+                        source: request.productSource
+                    )
+                )
+            } catch {
+                clearInFlightDescriptorInterest(
+                    path: row.path,
+                    revision: subscription.interestRevision,
+                    subscriptionId: subscription.subscriptionId,
+                    source: request.productSource
+                )
+                throw error
+            }
+            guard !Task.isCancelled else {
+                clearInFlightDescriptorInterest(
+                    path: row.path,
+                    revision: subscription.interestRevision,
+                    subscriptionId: subscription.subscriptionId,
+                    source: request.productSource
+                )
+                throw CancellationError()
+            }
+            guard var currentContext = contextBySubscriptionId[subscription.subscriptionId],
+                currentContext.productSource == request.productSource,
+                currentContext.subscription.interestRevision == subscription.interestRevision,
+                currentContext.inFlightDescriptorInterestRevisionByPath[row.path]
+                    == subscription.interestRevision
+            else { return }
+            currentContext.inFlightDescriptorInterestRevisionByPath.removeValue(forKey: row.path)
+            currentContext.descriptorInterestRevisionByPath[row.path] = subscription.interestRevision
+            currentContext.descriptorByPath[row.path] = materialized.payload
+            if let body = materialized.body {
+                retain(body: body, in: &currentContext)
+            }
+            contextBySubscriptionId[subscription.subscriptionId] = currentContext
+            try await request.emit(.descriptorReady(.init(payload: materialized.payload)))
         }
     }
 
@@ -468,7 +552,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         subscription: BridgeProductSubscriptionSnapshot,
         sourceSpec: BridgeProductFileSourceSpec,
         pathScope: [String]
-    ) async throws -> SubscriptionContext {
+    ) throws -> SubscriptionContext {
         nextSourceGeneration += 1
         let sourceGeneration = nextSourceGeneration
         let legacySourceSpec = try makeLegacySourceSpec(
@@ -481,9 +565,6 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             worktree: authority.worktree,
             subscriptionGeneration: sourceGeneration
         )
-        let openedSourceWithIgnorePolicy = openedSource.withIgnorePolicy(
-            await BridgeWorktreeFileIgnorePolicy.load(rootURL: authority.worktree.path)
-        )
         let productSource = try BridgeProductFileSourceIdentity(
             repoId: openedSource.source.repoId,
             rootRevisionToken: openedSource.source.rootRevisionToken,
@@ -494,15 +575,31 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         )
         let context = SubscriptionContext(
             manifestIndex: .init(generation: sourceGeneration),
-            openedSource: openedSourceWithIgnorePolicy,
+            openedSource: openedSource,
             productSource: productSource,
             bodyByDescriptorId: [:],
             bodyDescriptorIdsInAdmissionOrder: [],
             descriptorByPath: [:],
+            descriptorInterestRevisionByPath: [:],
+            inFlightDescriptorInterestRevisionByPath: [:],
             subscription: subscription
         )
         contextBySubscriptionId[subscription.subscriptionId] = context
         return context
+    }
+
+    private func clearInFlightDescriptorInterest(
+        path: String,
+        revision: Int,
+        subscriptionId: String,
+        source: BridgeProductFileSourceIdentity
+    ) {
+        guard var context = contextBySubscriptionId[subscriptionId],
+            context.productSource == source,
+            context.inFlightDescriptorInterestRevisionByPath[path] == revision
+        else { return }
+        context.inFlightDescriptorInterestRevisionByPath.removeValue(forKey: path)
+        contextBySubscriptionId[subscriptionId] = context
     }
 
     private func makeLegacySourceSpec(

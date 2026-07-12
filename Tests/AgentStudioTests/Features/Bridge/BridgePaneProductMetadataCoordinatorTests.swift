@@ -5,6 +5,41 @@ import Testing
 
 @Suite("Bridge product session protocol lifecycle admission")
 struct BridgePaneProductMetadataCoordinatorTests {
+    @Test("committed File interest does not cancel source bootstrap")
+    func committedFileInterestDoesNotCancelSourceBootstrap() async throws {
+        // Arrange
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let lease = try await harness.admitMetadataFrames(through: 0)
+        let source = CoordinatorGatedFileMetadataSource()
+        let coordinator = BridgePaneProductMetadataCoordinator(
+            fileMetadataSource: source,
+            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource()
+        )
+        await coordinator.install(
+            request: try coordinatorMetadataStreamRequest(),
+            lease: lease,
+            session: harness.session
+        )
+        let lifecycle = try coordinatorFileSubscriptionLifecycle()
+        await coordinator.apply(.subscriptionOpened(lifecycle.opened))
+        await source.waitUntilOpenStarted()
+
+        // Act
+        await coordinator.apply(
+            .subscriptionInterestsCommitted(
+                barrier: lifecycle.commitBarrier,
+                subscription: lifecycle.updated
+            )
+        )
+        await source.waitUntilUpdateStarted()
+        await source.releaseOpen()
+        await source.waitUntilOpenFinished()
+
+        // Assert
+        #expect(!(await source.openObservedCancellation))
+        await coordinator.uninstall(lease: lease)
+    }
+
     @Test("unavailable File source resets the accepted subscription and retires delivery")
     func unavailableFileSourceResetsAcceptedSubscription() async throws {
         // Arrange
@@ -195,7 +230,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
             acknowledgeLifecycle: { _ in true }
         )
         let reviewPackage = try coordinatorReviewPackageFixture()
-        let reviewSource = BridgePaneProductReviewMetadataSource { reviewPackage }
+        let reviewSource = BridgePaneProductReviewMetadataSource(initialAvailability: .ready(reviewPackage))
         let coordinator = BridgePaneProductMetadataCoordinator(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
             reviewMetadataSource: reviewSource
@@ -319,58 +354,6 @@ struct BridgePaneProductMetadataCoordinatorTests {
         #expect(event.packageId == "review-package-1")
         #expect(await reviewSource.updatedItemIds == ["review-item-1", "review-item-2"])
         await coordinator.uninstall(lease: lease)
-        #expect(await pump.cancel())
-    }
-
-    @Test("unavailable Review source resets the accepted logical subscription")
-    func unavailableReviewSourceResetsAcceptedSubscription() async throws {
-        // Arrange
-        let harness = try await BridgeProductSessionLifecycleHarness.opened()
-        let lease = try await harness.admitMetadataFrames(through: 0)
-        let pump = BridgeProductSchemeFramePump(
-            session: harness.session,
-            producerLease: lease,
-            acknowledgeLifecycle: { _ in true }
-        )
-        let coordinator = BridgePaneProductMetadataCoordinator(
-            fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
-            reviewMetadataSource: CoordinatorReviewMetadataSource(event: nil)
-        )
-        await coordinator.install(
-            request: try coordinatorMetadataStreamRequest(),
-            lease: lease,
-            session: harness.session
-        )
-        let openRequest = try bridgeProductLifecycleControlRequest(
-            bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 2, epoch: 1)
-        )
-
-        // Act
-        let token = try #require(controlExecutionToken(try await harness.begin(openRequest)))
-        #expect(await harness.session.claimControlProviderDispatch(token: token))
-        let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
-            correlating: openRequest,
-            interestSha256: BridgeProductSubscriptionInterestState.reviewMetadata(interests: []).sha256Hex()
-        )
-        let effect = try await harness.session.completeControl(
-            token: token,
-            exactResponseBytes: try JSONEncoder().encode(response)
-        )
-        let acceptedFrame = try await pullMetadataFrame(from: pump)
-        await coordinator.apply(effect)
-        let resetFrame = try await pullMetadataFrame(from: pump)
-        await harness.session.settleControlProviderDispatch(token: token)
-
-        // Assert
-        guard case .subscriptionAccepted(let accepted) = acceptedFrame,
-            case .subscriptionReset(let reset) = resetFrame
-        else {
-            Issue.record("Expected Review accepted followed by stale-source reset")
-            return
-        }
-        #expect(accepted.frameIdentity.streamSequence == 1)
-        #expect(reset.identity.frameIdentity.streamSequence == 2)
-        #expect(reset.reason == .staleSource)
         #expect(await pump.cancel())
     }
 
@@ -658,6 +641,52 @@ private func controlExecutionToken(
 
 private enum BridgePaneProductMetadataCoordinatorTestError: Error {
     case expectedFrame
+    case invalidFileSubscriptionLifecycle
+}
+
+private func coordinatorFileSubscriptionLifecycle() throws -> (
+    opened: BridgeProductSubscriptionSnapshot,
+    updated: BridgeProductSubscriptionSnapshot,
+    commitBarrier: BridgeProductSubscriptionCommitBarrierIntent
+) {
+    let controlRequest = try bridgeProductLifecycleControlRequest(
+        bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 1)
+    )
+    guard case .subscriptionOpen(let openRequest) = controlRequest else {
+        throw BridgePaneProductMetadataCoordinatorTestError.invalidFileSubscriptionLifecycle
+    }
+    var state = BridgeProductSubscriptionState()
+    _ = try state.open(openRequest)
+    guard let opened = state.snapshot(subscriptionId: openRequest.subscriptionId) else {
+        throw BridgePaneProductMetadataCoordinatorTestError.invalidFileSubscriptionLifecycle
+    }
+    let interestState = BridgeProductSubscriptionInterestState.fileMetadata(
+        interests: [try .init(lane: .foreground, paths: ["Sources/App.swift"])],
+        pathScope: []
+    )
+    let interestSha256 = try interestState.sha256Hex()
+    let updated = BridgeProductSubscriptionSnapshot(
+        subscription: opened.subscription,
+        subscriptionId: opened.subscriptionId,
+        subscriptionKind: opened.subscriptionKind,
+        workerDerivationEpoch: opened.workerDerivationEpoch,
+        interestRevision: 1,
+        interestSha256: interestSha256,
+        interestState: interestState,
+        hasStagedUpdate: false
+    )
+    return (
+        opened: opened,
+        updated: updated,
+        commitBarrier: .init(
+            subscriptionId: opened.subscriptionId,
+            subscriptionKind: opened.subscriptionKind,
+            workerDerivationEpoch: opened.workerDerivationEpoch,
+            interestRevision: 1,
+            interestSha256: interestSha256,
+            updateId: "file-update-1"
+        )
+    )
 }
 
 private enum CoordinatorReviewMetadataSourceError: Error {
@@ -699,6 +728,8 @@ private actor CoordinatorReviewMetadataSource: BridgePaneProductReviewMetadataPr
         updatedItemIds = interests.flatMap(\.itemIds)
         try await emit(event)
     }
+
+    func publish(availability _: BridgePaneProductReviewMetadataAvailability) async throws {}
 
     func cancel(subscriptionId: String) {
         activeSubscriptionIds.remove(subscriptionId)
@@ -782,6 +813,84 @@ private actor CoordinatorCancellationFileMetadataSource: BridgePaneProductFileMe
     func publish(changeset _: FileChangeset) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
 
     func contentBody(for _: BridgeProductFileContentRequest) -> BridgePaneProductFileContentBody? { nil }
+}
+
+private actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing {
+    private var didFinishOpen = false
+    private var didStartOpen = false
+    private var didStartUpdate = false
+    private var finishWaiters: [CheckedContinuation<Void, Never>] = []
+    private var isOpenReleased = false
+    private var openWaiters: [CheckedContinuation<Void, Never>] = []
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var updateWaiters: [CheckedContinuation<Void, Never>] = []
+    private(set) var openObservedCancellation = false
+
+    func currentSource() -> BridgeProductFileSourceCurrentResult {
+        .unavailable(.noFileSourceAuthority)
+    }
+
+    func open(
+        subscription _: BridgeProductSubscriptionSnapshot,
+        emit _: @escaping BridgePaneProductFileMetadataEventSink
+    ) async throws {
+        didStartOpen = true
+        for waiter in startWaiters { waiter.resume() }
+        startWaiters.removeAll(keepingCapacity: false)
+        if !isOpenReleased {
+            await withCheckedContinuation { continuation in
+                openWaiters.append(continuation)
+            }
+        }
+        openObservedCancellation = Task.isCancelled
+        didFinishOpen = true
+        for waiter in finishWaiters { waiter.resume() }
+        finishWaiters.removeAll(keepingCapacity: false)
+    }
+
+    func update(
+        subscription _: BridgeProductSubscriptionSnapshot,
+        emit _: @escaping BridgePaneProductFileMetadataEventSink
+    ) async throws {
+        didStartUpdate = true
+        for waiter in updateWaiters { waiter.resume() }
+        updateWaiters.removeAll(keepingCapacity: false)
+    }
+
+    func cancel(subscriptionId _: String) {}
+
+    func publish(status _: GitWorkingTreeStatus) -> [BridgePaneProductFileMetadataEmission] { [] }
+
+    func publish(changeset _: FileChangeset) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
+
+    func contentBody(for _: BridgeProductFileContentRequest) -> BridgePaneProductFileContentBody? { nil }
+
+    func waitUntilOpenStarted() async {
+        guard !didStartOpen else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func waitUntilUpdateStarted() async {
+        guard !didStartUpdate else { return }
+        await withCheckedContinuation { continuation in
+            updateWaiters.append(continuation)
+        }
+    }
+
+    func releaseOpen() {
+        isOpenReleased = true
+        for waiter in openWaiters { waiter.resume() }
+        openWaiters.removeAll(keepingCapacity: false)
+    }
+
+    func waitUntilOpenFinished() async {
+        guard !didFinishOpen else { return }
+        await withCheckedContinuation { continuation in
+            finishWaiters.append(continuation)
+        }
+    }
 }
 
 private actor CoordinatorFileMetadataSource: BridgePaneProductFileMetadataProducing {

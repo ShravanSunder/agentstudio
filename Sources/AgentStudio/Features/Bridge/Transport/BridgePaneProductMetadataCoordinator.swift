@@ -6,6 +6,11 @@ enum BridgePaneProductMetadataCoordinatorError: Error, Equatable {
 }
 
 actor BridgePaneProductMetadataCoordinator {
+    private enum ProducerTaskKind: Sendable {
+        case bootstrap
+        case interest
+    }
+
     private struct ActiveStream: Sendable {
         let correlation: BridgeProductMetadataStreamCorrelation
         let lease: BridgeProductProducerLease
@@ -15,7 +20,8 @@ actor BridgePaneProductMetadataCoordinator {
     private let fileMetadataSource: any BridgePaneProductFileMetadataProducing
     private let reviewMetadataSource: any BridgePaneProductReviewMetadataProducing
     private var activeStream: ActiveStream?
-    private var producerTasksBySubscriptionId: [String: [UUID: Task<Void, Never>]] = [:]
+    private var bootstrapTaskBySubscriptionId: [String: Task<Void, Never>] = [:]
+    private var interestTasksBySubscriptionId: [String: [UUID: Task<Void, Never>]] = [:]
     private var subscriptionKindById: [String: BridgeProductSubscriptionKind] = [:]
 
     init(
@@ -55,6 +61,7 @@ actor BridgePaneProductMetadataCoordinator {
         case .subscriptionOpened(let subscription):
             subscriptionKindById[subscription.subscriptionId] = subscription.subscriptionKind
             startProducerTask(
+                kind: .bootstrap,
                 subscriptionId: subscription.subscriptionId,
                 session: activeStream.session
             ) {
@@ -79,8 +86,9 @@ actor BridgePaneProductMetadataCoordinator {
             }
         case .subscriptionInterestsCommitted(_, let subscription):
             subscriptionKindById[subscription.subscriptionId] = subscription.subscriptionKind
-            cancelProducerTasks(subscriptionId: subscription.subscriptionId)
+            cancelInterestTasks(subscriptionId: subscription.subscriptionId)
             startProducerTask(
+                kind: .interest,
                 subscriptionId: subscription.subscriptionId,
                 session: activeStream.session
             ) {
@@ -162,6 +170,26 @@ actor BridgePaneProductMetadataCoordinator {
         }
     }
 
+    func publish(availability: BridgePaneProductReviewMetadataAvailability) async {
+        let publishingStream = activeStream
+        do {
+            try await reviewMetadataSource.publish(availability: availability)
+        } catch {
+            guard let publishingStream,
+                activeStream?.lease == publishingStream.lease
+            else { return }
+            let reviewSubscriptionIds = subscriptionKindById.compactMap { subscriptionId, kind in
+                kind == .reviewMetadata ? subscriptionId : nil
+            }
+            for subscriptionId in reviewSubscriptionIds {
+                _ = try? await publishingStream.session.enqueueSubscriptionReset(
+                    subscriptionId: subscriptionId,
+                    reason: .staleSource
+                )
+            }
+        }
+    }
+
     func contentBody(
         for request: BridgeProductFileContentRequest
     ) async -> BridgePaneProductFileContentBody? {
@@ -169,6 +197,7 @@ actor BridgePaneProductMetadataCoordinator {
     }
 
     private func startProducerTask(
+        kind: ProducerTaskKind,
         subscriptionId: String,
         session: BridgeProductSession,
         operation: @escaping @Sendable () async throws -> Void
@@ -188,29 +217,53 @@ actor BridgePaneProductMetadataCoordinator {
                 }
             }
             await self?.producerTaskFinished(
+                kind: kind,
                 subscriptionId: subscriptionId,
                 taskId: taskId
             )
         }
-        producerTasksBySubscriptionId[subscriptionId, default: [:]][taskId] = task
+        switch kind {
+        case .bootstrap:
+            bootstrapTaskBySubscriptionId[subscriptionId]?.cancel()
+            bootstrapTaskBySubscriptionId[subscriptionId] = task
+        case .interest:
+            interestTasksBySubscriptionId[subscriptionId, default: [:]][taskId] = task
+        }
     }
 
-    private func producerTaskFinished(subscriptionId: String, taskId: UUID) {
-        producerTasksBySubscriptionId[subscriptionId]?.removeValue(forKey: taskId)
-        if producerTasksBySubscriptionId[subscriptionId]?.isEmpty == true {
-            producerTasksBySubscriptionId.removeValue(forKey: subscriptionId)
+    private func producerTaskFinished(
+        kind: ProducerTaskKind,
+        subscriptionId: String,
+        taskId: UUID
+    ) {
+        switch kind {
+        case .bootstrap:
+            bootstrapTaskBySubscriptionId.removeValue(forKey: subscriptionId)
+        case .interest:
+            interestTasksBySubscriptionId[subscriptionId]?.removeValue(forKey: taskId)
+            if interestTasksBySubscriptionId[subscriptionId]?.isEmpty == true {
+                interestTasksBySubscriptionId.removeValue(forKey: subscriptionId)
+            }
         }
     }
 
     private func cancelProducerTasks(subscriptionId: String) {
-        let tasks = producerTasksBySubscriptionId.removeValue(forKey: subscriptionId) ?? [:]
+        bootstrapTaskBySubscriptionId.removeValue(forKey: subscriptionId)?.cancel()
+        cancelInterestTasks(subscriptionId: subscriptionId)
+    }
+
+    private func cancelInterestTasks(subscriptionId: String) {
+        let tasks = interestTasksBySubscriptionId.removeValue(forKey: subscriptionId) ?? [:]
         for task in tasks.values { task.cancel() }
     }
 
     private func cancelEveryProducerTask() {
-        let tasks = producerTasksBySubscriptionId.values.flatMap(\.values)
-        producerTasksBySubscriptionId.removeAll(keepingCapacity: false)
-        for task in tasks { task.cancel() }
+        let bootstrapTasks = bootstrapTaskBySubscriptionId.values
+        let interestTasks = interestTasksBySubscriptionId.values.flatMap(\.values)
+        bootstrapTaskBySubscriptionId.removeAll(keepingCapacity: false)
+        interestTasksBySubscriptionId.removeAll(keepingCapacity: false)
+        for task in bootstrapTasks { task.cancel() }
+        for task in interestTasks { task.cancel() }
     }
 
     private func cancelEverySubscription() async {
