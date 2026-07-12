@@ -1,7 +1,7 @@
 # S1t Strict Type-State Correction Plan
 
-Status: focused review READY; execution remains gated pending the official
-transition
+Status: focused reconvergence review READY; compiler RED verified; shared
+contract hard cut is next
 
 Source contract:
 
@@ -55,13 +55,15 @@ forms still compile:
 - journal initialization with independently supplied snapshot absence and byte
   count.
 
-Maintain one checked fixture-manifest row per forbidden construction. Every row
-has two independent controls: a legacy fixture that compiles against the S1g
-preimage and is absent after the hard cut, plus either a current-API negative
-fixture or one-at-a-time production mutation proving the equivalent illegal
-state cannot be expressed with the new types. Each current negative has a
-nearby positive current-API control and an expected diagnostic category; API
-deletion alone cannot satisfy the row. Enumerate independently:
+Maintain one checked fixture-manifest row per forbidden construction. Every
+publicly constructible row has two independent controls: a legacy fixture that
+compiles against the S1g preimage and is absent after the hard cut, plus a
+current-API negative fixture proving the equivalent illegal state cannot be
+expressed with the new types. Each current negative has a nearby positive
+current-API control and an expected diagnostic category; API deletion alone
+cannot satisfy the row. Private-state rows instead use one-at-a-time production
+mutations plus positive runtime controls, with pre-hash, failing diagnostic,
+verified inverse, and exact restoration. Enumerate independently:
 
 - latest rejected offer with wake and gather rejected offer with wake;
 - cleanup quantum with nil bytes and cleanup release with nil bytes;
@@ -81,11 +83,22 @@ deletion alone cannot satisfy the row. Enumerate independently:
 - doorbell pending-plus-waiting and finished-plus-pending/waiting products;
 - latest no-drain plus awaiting-initial/awaiting-rebind presentation and any
   presentation state without its associated active drain.
+- doorbell post-lock wait registration encoded as optional immediate result;
+- gather acknowledgement accepted/rejected paired with optional released lease,
+  and gather offer completion/retry encoded as optional internal result;
+- ordered fact offer preflight admission/rejection encoded as optional result;
+- gather resolved-admission retain/recovery/contract behavior split across
+  correlated Booleans, and recovery advance result split across stamp plus
+  escalation Boolean.
 
 Capture the verifier's exact unexpected-success inventory and exit code. Add
-positive compile/runtime tests for every new case. The old forbidden
-construction compiling is the RED oracle; the paired current negative proves
-the new algebra, not mere symbol deletion.
+positive compile/runtime tests for every new case. For public fixture rows, the
+old forbidden construction compiling is the RED oracle and the paired current
+negative proves the new algebra, not mere symbol deletion. For private
+mutation-only rows, the committed preimage compiles; the one introduced illegal
+construction must fail strict typecheck; its inverse and exact source hash must
+be restored; and the nearby runtime positive must pass. Hybrid rows satisfy
+both applicable halves.
 
 ### S1t shared contract cut
 
@@ -112,9 +125,18 @@ projection properties, or dual result paths:
 - opaque mailbox, binding, and lease epoch identity remains intact;
 - doorbell storage and its public state snapshot become one closed state enum:
   idle, signal-pending, consumer-waiting, or finished;
+- doorbell wait registration becomes a closed resume-or-suspended transition.
+  Signal, finish, and cancellation may continue to carry an optional waiter
+  after unlock because that Optional is the complete ownership value: the
+  operation's result is fixed and nil means no continuation exists to resume;
 - latest active-drain absence and presentation become one closed state enum:
   no active drain, presented drain, awaiting-initial-presentation drain, or
   awaiting-rebind-presentation drain.
+- gather acknowledgement becomes rejected-or-accepted-with-released-lease;
+  gather offer resolution becomes completed-or-retry-with-fresh-recovery-epoch;
+  ordered fact offer preflight becomes admit-or-reject; and gather internal
+  resolved admission/recovery advance use closed cases rather than correlated
+  Booleans.
 
 All call sites switch exhaustively over the new cases. Tests do not add helper
 properties that recreate the removed correlated optionals.
@@ -124,7 +146,12 @@ snapshots/states against the S1g preimage. Current negative controls attempt to
 attach waiter/pending data to the wrong single enum case and must fail by
 associated-value diagnostic; positive runtime ledgers cover idle → pending →
 idle, idle → waiting → idle by signal/cancellation, and idle/pending/waiting →
-finished. Latest active-drain correlation is private, so controller-owned
+finished. A controller-owned one-at-a-time doorbell mutation restores the
+optional wait-registration result and must fail the scoped forbidden-form or
+strict type-state check; runtime ledgers cover coalesced signal, waiter
+signal, finish from every state, pre-cancelled wait registration, matching-only
+cancellation, replacement signal survival, and exactly-once resume under
+signal/cancel/finish races. Latest active-drain correlation is private, so controller-owned
 one-at-a-time source mutations attempt no-drain+awaiting-initial,
 no-drain+awaiting-rebind, and a presentation state without associated drain.
 Bind/rebind, cleanup-finalization reservation, acknowledgement, and invalidation
@@ -235,6 +262,15 @@ transition or stored state that combines an enum/Boolean discriminator with an
 optional/empty companion. Any additional correlated behavioral state triggers
 the existing S1t split/reconvergence rule; it is not silently exempted.
 
+The preflight also closes the discovered private decision products: gather
+acknowledgement result plus optional released lease, optional gather internal
+offer result used as the retry selector, optional ordered offer preflight result
+used as the admit selector, gather retain/recovery/contract Booleans, and
+recovery stamp plus escalation Boolean. Positive controls prove the existing
+accepted/rejected, retry/completion, admit/reject, recovery-exhaustion, and
+unlock-time generic-release behavior without changing capacity or wake
+semantics.
+
 ### S1t integration and mutation proof
 
 The controller integrates family lanes and updates every ordinary assertion to
@@ -244,6 +280,7 @@ forbidden syntactic forms and excludes intentional
 receipts. Apply one source mutation at a time to attempt empty
 detached custody in latest, gather, and journal, plus immediate replay with a
 wake and the three latest active-drain/presentation illegal products above.
+Apply the named private decision mutations above one at a time as well.
 Strict typecheck must fail for the named construction; restore exact preimage
 hashes before the next mutation. Doorbell forbidden-form scans include the old
 three-field Boolean/optional storage and snapshot products; latest scans include
@@ -253,8 +290,10 @@ cleanup must not raise it.
 
 Required GREEN:
 
-1. permanent type-state compiler verifier, every manifest row satisfied by its
-   paired legacy/current oracle and positive control;
+1. permanent type-state compiler verifier: every public fixture row satisfies
+   its legacy/current-negative/positive controls; every private mutation row
+   satisfies compiling preimage, failing mutation diagnostic, inverse/hash
+   restoration, and positive runtime control; hybrid rows satisfy both;
 2. `mise run test -- --filter AdmissionTypeStateContractTests`;
 3. `mise run test -- --filter AdmissionLatest`;
 4. `mise run test -- --filter AdmissionBoundedGatherMailbox`;

@@ -1,0 +1,3 @@
+func constructCurrentLatestRejection() -> LatestValueOfferResult {
+    .physicalCapacityExceeded
+}
