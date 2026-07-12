@@ -1,10 +1,13 @@
 import { describe, expect, test } from 'vitest';
 
 import { createBridgeCommWorkerStore } from './bridge-comm-worker-store.js';
-import type { BridgeWorkerFileViewContentMetadata } from './bridge-worker-contracts.js';
+import {
+	bridgeWorkerServerToMainMessageSchema,
+	type BridgeWorkerFileViewContentMetadata,
+} from './bridge-worker-contracts.js';
 import type { BridgeWorkerFetchedFileViewContentResource } from './bridge-worker-file-view-content-fetch.js';
 import {
-	commitBridgeWorkerFileViewContentReadySlicePatch,
+	commitBridgeWorkerFileViewContentReadyRenderPatch,
 	prepareBridgeWorkerFileViewContentRenderJobEvent,
 } from './bridge-worker-file-view-content-ready.js';
 
@@ -23,15 +26,20 @@ describe('Bridge worker File View content ready', () => {
 				maxWindowLines: 50,
 			},
 			metadata: makeWorkerFileViewContentMetadata(),
+			publicationSequence: 23,
 			resource: makeFetchedFileViewContentResource({
 				text: 'export const fileView = true;\n',
 			}),
+			workerDerivationEpoch: 17,
 		});
 
 		expect(result?.message).toMatchObject({
 			wireVersion: 1,
 			direction: 'serverWorkerToMain',
-			kind: 'pierreRenderJob',
+			kind: 'filePierreRenderJob',
+			publicationSequence: 23,
+			surface: 'file',
+			workerDerivationEpoch: 17,
 			job: {
 				itemId: 'file-1',
 				renderKind: 'fileText',
@@ -54,7 +62,7 @@ describe('Bridge worker File View content ready', () => {
 							contentRoles: ['file'],
 							contentState: 'hydrated',
 							cacheKey: 'file-view:metadata-cache:file-1',
-							lineCount: 2,
+							lineCount: 1,
 						},
 					},
 				},
@@ -62,13 +70,28 @@ describe('Bridge worker File View content ready', () => {
 		});
 		expect(result?.message.transferDescriptors).toEqual([
 			{
-				messageKind: 'pierreRenderJob',
+				messageKind: 'filePierreRenderJob',
 				fieldPath: ['job', 'payload'],
 				byteLength: result?.message.job.payloadByteLength,
 				mode: 'clone',
 			},
 		]);
 		expect(result?.transferList).toEqual([]);
+		if (result === null) {
+			throw new Error('Expected a File Pierre publication.');
+		}
+		expect(bridgeWorkerServerToMainMessageSchema.parse(result.message)).toEqual(result.message);
+		for (const invalidPublication of [
+			{ ...result.message, workerDerivationEpoch: undefined },
+			{ ...result.message, publicationSequence: undefined },
+			{ ...result.message, surface: 'fileView' },
+			{ ...result.message, sourceId: 'must-not-repeat-source-identity' },
+			{ ...result.message, job: { ...result.message.job, renderKind: 'reviewDiff' } },
+		]) {
+			expect(bridgeWorkerServerToMainMessageSchema.safeParse(invalidPublication).success).toBe(
+				false,
+			);
+		}
 		expect(store.getState().paintReadyByItemId.has('file-1')).toBe(false);
 		expect(store.actions.takePendingSlicePatchEvent({ epoch: 17, sequence: 24 })).toBeNull();
 	});
@@ -86,19 +109,21 @@ describe('Bridge worker File View content ready', () => {
 				maxWindowLines: 50,
 			},
 			metadata: makeWorkerFileViewContentMetadata(),
+			publicationSequence: 23,
 			resource: makeFetchedFileViewContentResource({
 				text: 'export const fileView = true;\n',
 			}),
+			workerDerivationEpoch: 17,
 		});
 		if (preparedJobEvent === null) {
 			throw new Error('Expected File View render job event.');
 		}
 
-		const result = commitBridgeWorkerFileViewContentReadySlicePatch({
-			epoch: 17,
+		const result = commitBridgeWorkerFileViewContentReadyRenderPatch({
 			preparedJobEvent,
-			sequence: 23,
+			publicationSequence: 23,
 			store,
+			workerDerivationEpoch: 17,
 		});
 
 		expect(result.touchedKeys).toEqual([
@@ -109,10 +134,11 @@ describe('Bridge worker File View content ready', () => {
 		expect(result.preparedMessage.message).toMatchObject({
 			wireVersion: 1,
 			direction: 'serverWorkerToMain',
-			kind: 'slicePatch',
-			epoch: 17,
-			sequence: 23,
+			kind: 'fileRenderPatch',
+			publicationSequence: 23,
+			surface: 'file',
 			transferDescriptors: [],
+			workerDerivationEpoch: 17,
 			patches: [
 				{
 					slice: 'rowPaint',
@@ -131,6 +157,22 @@ describe('Bridge worker File View content ready', () => {
 			],
 		});
 		expect(result.preparedMessage.transferList).toEqual([]);
+		expect(bridgeWorkerServerToMainMessageSchema.parse(result.preparedMessage.message)).toEqual(
+			result.preparedMessage.message,
+		);
+		for (const invalidPublication of [
+			{ ...result.preparedMessage.message, workerDerivationEpoch: undefined },
+			{ ...result.preparedMessage.message, publicationSequence: undefined },
+			{ ...result.preparedMessage.message, surface: 'review' },
+			{
+				...result.preparedMessage.message,
+				patches: [{ operation: 'reset', slice: 'selection' }],
+			},
+		]) {
+			expect(bridgeWorkerServerToMainMessageSchema.safeParse(invalidPublication).success).toBe(
+				false,
+			);
+		}
 		expect(store.getState().paintReadyByItemId.get('file-1')).toBe(
 			'file-view:metadata-cache:file-1',
 		);
@@ -144,10 +186,15 @@ describe('Bridge worker File View content ready', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 2,
 			},
-			metadata: makeWorkerFileViewContentMetadata({ lineCount: 4 }),
+			metadata: makeWorkerFileViewContentMetadata({
+				payloadByteCount: 19,
+				payloadLineCount: 4,
+			}),
+			publicationSequence: 23,
 			resource: makeFetchedFileViewContentResource({
 				text: 'one\ntwo\nthree\nfour\n',
 			}),
+			workerDerivationEpoch: 17,
 		});
 
 		expect(result?.message.job.window).toEqual({
@@ -159,7 +206,7 @@ describe('Bridge worker File View content ready', () => {
 			kind: 'codeViewFileItem',
 			item: {
 				file: {
-					contents: 'one\ntwo\n\n ',
+					contents: 'one\ntwo\n',
 				},
 				bridgeMetadata: {
 					contentState: 'windowed',
@@ -169,7 +216,7 @@ describe('Bridge worker File View content ready', () => {
 		});
 	});
 
-	test('reserves File View windowed render height without including text beyond the window', () => {
+	test('publishes only truthful File View prefix bytes without synthetic height padding', () => {
 		const result = prepareBridgeWorkerFileViewContentRenderJobEvent({
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: {
@@ -177,10 +224,15 @@ describe('Bridge worker File View content ready', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 2,
 			},
-			metadata: makeWorkerFileViewContentMetadata({ lineCount: 5 }),
+			metadata: makeWorkerFileViewContentMetadata({
+				payloadByteCount: 24,
+				payloadLineCount: 5,
+			}),
+			publicationSequence: 23,
 			resource: makeFetchedFileViewContentResource({
 				text: 'one\ntwo\nthree\nfour\nfive\n',
 			}),
+			workerDerivationEpoch: 17,
 		});
 
 		expect(result?.message.job.payload.kind).toBe('codeViewFileItem');
@@ -190,7 +242,8 @@ describe('Bridge worker File View content ready', () => {
 		const contents = result.message.job.payload.item.file.contents;
 		expect(contents).toContain('one\ntwo\n');
 		expect(contents).not.toContain('three');
-		expect(renderedLineCountForText(contents)).toBe(5);
+		expect(contents).toBe('one\ntwo\n');
+		expect(renderedLineCountForText(contents)).toBe(2);
 		expect(result.message.job.payload.item.bridgeMetadata).toMatchObject({
 			contentState: 'windowed',
 			lineCount: 5,
@@ -205,17 +258,22 @@ describe('Bridge worker File View content ready', () => {
 				maxBytes: 64,
 				maxWindowLines: 2,
 			},
-			metadata: makeWorkerFileViewContentMetadata({ lineCount: 100_000 }),
+			metadata: makeWorkerFileViewContentMetadata({
+				payloadByteCount: 24,
+				payloadLineCount: 10_000,
+			}),
+			publicationSequence: 23,
 			resource: makeFetchedFileViewContentResource({
 				text: 'one\ntwo\nthree\nfour\nfive\n',
 			}),
+			workerDerivationEpoch: 17,
 		});
 
 		expect(result).not.toBeNull();
 		expect(result?.message.job.window).toEqual({
 			startLine: 1,
 			endLine: 2,
-			totalLineCount: 100_000,
+			totalLineCount: 10_000,
 		});
 		expect(result?.message.job.payload.kind).toBe('codeViewFileItem');
 		if (result?.message.job.payload.kind !== 'codeViewFileItem') {
@@ -227,7 +285,41 @@ describe('Bridge worker File View content ready', () => {
 		expect(contents).not.toContain('three');
 		expect(result.message.job.payload.item.bridgeMetadata).toMatchObject({
 			contentState: 'windowed',
-			lineCount: 100_000,
+			lineCount: 10_000,
+		});
+	});
+
+	test('keeps a complete line-limited File prefix windowed instead of hydrated', () => {
+		const text = `${Array.from({ length: 10_000 }, () => 'x').join('\n')}\n`;
+		const payloadByteCount = new TextEncoder().encode(text).byteLength;
+		const sourceByteCount = payloadByteCount + 100;
+		const result = prepareBridgeWorkerFileViewContentRenderJobEvent({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 10_000,
+			},
+			metadata: makeWorkerFileViewContentMetadata({
+				payloadByteCount,
+				payloadLineCount: 10_000,
+				sizeBytes: sourceByteCount,
+				totalLineCount: 12_000,
+				truncationKind: 'lineLimit',
+			}),
+			publicationSequence: 23,
+			resource: makeFetchedFileViewContentResource({ sizeBytes: sourceByteCount, text }),
+			workerDerivationEpoch: 17,
+		});
+
+		expect(result?.message.job.window).toEqual({
+			startLine: 1,
+			endLine: 10_000,
+			totalLineCount: 10_000,
+		});
+		expect(result?.message.job.payload).toMatchObject({
+			kind: 'codeViewFileItem',
+			item: { bridgeMetadata: { contentState: 'windowed', lineCount: 10_000 } },
 		});
 	});
 
@@ -245,10 +337,12 @@ describe('Bridge worker File View content ready', () => {
 				maxWindowLines: 50,
 			},
 			metadata: makeWorkerFileViewContentMetadata({ omitContentHash: true }),
+			publicationSequence: 23,
 			resource: makeFetchedFileViewContentResource({
 				omitContentHash: true,
 				text: 'hashless content must not fake identity\n',
 			}),
+			workerDerivationEpoch: 17,
 		});
 
 		expect(result).toBeNull();
@@ -289,9 +383,11 @@ function expectNoPreparedJobForMetadata(metadata: BridgeWorkerFileViewContentMet
 			maxWindowLines: 50,
 		},
 		metadata,
+		publicationSequence: 23,
 		resource: makeFetchedFileViewContentResource({
 			text: 'blocked metadata must not become text payload\n',
 		}),
+		workerDerivationEpoch: 17,
 	});
 
 	expect(result).toBeNull();
@@ -304,12 +400,19 @@ function makeWorkerFileViewContentMetadata(
 		readonly canFetchContent?: boolean;
 		readonly contentHash?: string | undefined;
 		readonly isBinary?: boolean;
-		readonly lineCount?: number;
 		readonly omitContentHash?: boolean;
+		readonly payloadByteCount?: number;
+		readonly payloadLineCount?: number;
+		readonly sizeBytes?: number;
+		readonly totalLineCount?: number | null;
+		readonly truncationKind?: 'none' | 'byteLimit' | 'lineLimit' | 'both';
 	} = {},
 ): BridgeWorkerFileViewContentMetadata {
 	const contentHash = props.contentHash ?? 'sha256:file-1';
+	const payloadByteCount = props.payloadByteCount ?? 30;
+	const payloadLineCount = props.payloadLineCount ?? 1;
 	return {
+		metadataKind: 'fileView',
 		itemId: 'file-1',
 		path: 'Sources/App/FileView.swift',
 		language: 'swift',
@@ -317,12 +420,17 @@ function makeWorkerFileViewContentMetadata(
 			props.omitContentHash === true
 				? 'file-view:metadata-cache:unknown-file-1'
 				: 'file-view:metadata-cache:file-1',
-		sizeBytes: 128,
-		contentHandle: 'handle-file-1',
+		sizeBytes: props.sizeBytes ?? payloadByteCount,
 		descriptorId: 'descriptor-file-1',
 		...(props.omitContentHash === true ? {} : { contentHash }),
+		encoding: props.isBinary === true ? null : 'utf-8',
+		endsMidLine: false,
+		endsWithNewline: true,
 		virtualizedExtentKind: 'exactLineCount',
-		lineCount: props.lineCount ?? 2,
+		payloadByteCount,
+		payloadLineCount,
+		totalLineCount: props.totalLineCount === undefined ? payloadLineCount : props.totalLineCount,
+		truncationKind: props.truncationKind ?? 'none',
 		isBinary: props.isBinary ?? false,
 		canFetchContent: props.canFetchContent ?? true,
 	};
@@ -332,20 +440,20 @@ function makeFetchedFileViewContentResource(props: {
 	readonly contentHash?: string | undefined;
 	readonly contentHashAlgorithm?: string | undefined;
 	readonly omitContentHash?: boolean;
+	readonly sizeBytes?: number;
 	readonly text: string;
 }): BridgeWorkerFetchedFileViewContentResource {
 	const contentHash = props.contentHash ?? 'sha256:file-1';
-	const contentHashAlgorithm = props.contentHashAlgorithm ?? 'sha256';
 	const textBytes = new TextEncoder().encode(props.text).buffer;
 	return {
 		itemId: 'file-1',
 		path: 'Sources/App/FileView.swift',
-		handleId: 'handle-file-1',
 		descriptorId: 'descriptor-file-1',
-		resourceKind: 'worktree.fileContent',
-		...(props.omitContentHash === true ? {} : { contentHash, contentHashAlgorithm }),
+		resourceKind: 'file.content',
+		contentHash,
+		contentHashAlgorithm: 'sha256',
 		language: 'swift',
-		sizeBytes: 128,
+		sizeBytes: props.sizeBytes ?? textBytes.byteLength,
 		maxBytes: 4096,
 		byteLength: textBytes.byteLength,
 		text: props.text,
@@ -357,5 +465,5 @@ function renderedLineCountForText(text: string): number {
 	if (text.length === 0) {
 		return 0;
 	}
-	return (text.match(/\n/gu)?.length ?? 0) + 1;
+	return (text.match(/\n/gu)?.length ?? 0) + (text.endsWith('\n') ? 0 : 1);
 }

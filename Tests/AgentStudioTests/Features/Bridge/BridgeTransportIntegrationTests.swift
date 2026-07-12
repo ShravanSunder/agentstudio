@@ -202,43 +202,20 @@ extension WebKitSerializedTests {
                 let result: EchoMethod.ResultPayload
             }
 
-            actor ResponseCaptureBox {
-                private var payload: String?
-
-                func set(_ value: String) {
-                    payload = value
-                }
-
-                func get() -> String? {
-                    payload
-                }
-            }
-
             let paneId = UUIDv7.generate()
             let state = BridgePaneState(panelKind: .diffViewer, source: nil)
             let controller = BridgePaneController(paneId: paneId, state: state)
-            let capturedResponse = ResponseCaptureBox()
 
             controller.schemeCommandDispatcher.register(method: EchoMethod.self) { params in
                 .init(echoed: params.text)
             }
-            controller.schemeCommandDispatcher.onResponse = { responseJSON in
-                await capturedResponse.set(responseJSON)
-            }
+            #expect(controller.handleBridgeReady())
 
-            await controller.dispatchIncomingSchemeCommand(
-                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+            let responseJSON = try #require(
+                await controller.dispatchIncomingSchemeCommand(
+                    #"{"jsonrpc":"2.0","id":42,"method":"agent.responseEcho","params":{"text":"hello"}}"#
+                )
             )
-            await controller.dispatchIncomingSchemeCommand(
-                #"{"jsonrpc":"2.0","id":42,"method":"agent.responseEcho","params":{"text":"hello"}}"#
-            )
-
-            let didCaptureResponse = await waitUntil {
-                await capturedResponse.get() != nil
-            }
-            #expect(didCaptureResponse, "Expected response envelope after request dispatch")
-
-            let responseJSON = try #require(await capturedResponse.get())
             let responseData = try #require(responseJSON.data(using: .utf8))
             let response = try JSONDecoder().decode(RPCSuccessEnvelope.self, from: responseData)
 

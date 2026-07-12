@@ -4,13 +4,6 @@ import Testing
 @testable import AgentStudio
 
 struct BridgeProductContentFrameCodecTests {
-    @Test("every Swift response logical frame is bounded at 256 KiB")
-    func everySwiftResponseFrameUsesSharedCeiling() {
-        #expect(BridgeProductWireContract.maximumMetadataFrameBytes == 256 * 1024)
-        #expect(BridgeProductWireContract.maximumContentFrameBytes == 256 * 1024)
-        #expect(BridgeProductWireContract.maximumContentDataPayloadBytes == 128 * 1024)
-    }
-
     @Test("content wire repeats full binding identity only in accepted")
     func contentWireUsesMinimalTagSpecificBodies() throws {
         let acceptedObject = try fixtureHeaderObject(kind: "content.accepted")
@@ -42,6 +35,11 @@ struct BridgeProductContentFrameCodecTests {
         #expect(readUInt32BigEndian(accepted, offset: 5) == 0)
         #expect(readUInt32BigEndian(data, offset: 5) == 1)
         #expect(readUInt32BigEndian(data, offset: 9) == 0)
+        guard case .end(let decodedEnd) = try decodeHeader(endObject) else {
+            Issue.record("Expected content.end header")
+            return
+        }
+        #expect(decodedEnd.endOfSource)
 
         let identityMarker = Data("file-descriptor-1".utf8)
         #expect(byteSubsequenceCount(identityMarker, in: accepted) == 1)
@@ -624,6 +622,7 @@ struct BridgeProductContentFrameCodecTests {
                         bytes: Data("abc".utf8),
                         contentKind: .fileContent,
                         descriptorId: "file-descriptor-1",
+                        endOfSource: true,
                         observedSha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
                     )
                 )
@@ -867,4 +866,13 @@ struct BridgeProductContentFrameCodecTests {
         return (try? JSONDecoder().decode(type, from: data)) == nil
     }
 
+}
+
+extension BridgeProductContentFrameCodecTests {
+    @Test("metadata is bounded at 128 KiB and content frames at 256 KiB")
+    func everySwiftResponseFrameUsesSharedCeiling() {
+        #expect(BridgeProductWireContract.maximumMetadataFrameBytes == 128 * 1024)
+        #expect(BridgeProductWireContract.maximumContentFrameBytes == 256 * 1024)
+        #expect(BridgeProductWireContract.maximumContentDataPayloadBytes == 128 * 1024)
+    }
 }

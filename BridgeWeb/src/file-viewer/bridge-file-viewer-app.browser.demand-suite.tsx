@@ -12,9 +12,12 @@ import {
 	requireBridgeViewerHTMLElement,
 	waitForBridgeViewerTreeItemButton,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
-import { makeWorktreeFileSurfaceRuntimeFetchedResource } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import { BridgeFileViewerBrowserHarnessApp as BridgeFileViewerApp } from './bridge-file-viewer-browser-test-app.js';
-import { makeFileDescriptor, makeFrames } from './bridge-file-viewer-browser-test-fixtures.js';
+import { makeFileContent } from './bridge-file-viewer-browser-test-fixtures.js';
+import {
+	makeFileDescriptor,
+	makeFileMetadataEvents,
+} from './bridge-file-viewer-browser-test-fixtures.js';
 import {
 	actFrame,
 	actUpdate,
@@ -36,16 +39,16 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			fileId: 'file-second-visible',
 			path: 'src/second-visible.ts',
 		});
-		const fetchedResourceUrls: string[] = [];
+		const openedDescriptorIds: string[] = [];
 
 		render(
 			<BridgeFileViewerApp
-				initialFrames={makeFrames(firstDescriptor, secondDescriptor)}
-				worktreeFileSurfaceTransport={{
-					fetchResource: async (props) => {
-						fetchedResourceUrls.push(props.resourceUrl);
-						return makeWorktreeFileSurfaceRuntimeFetchedResource(
-							props.resourceUrl.includes('second-visible-content')
+				initialMetadataEvents={makeFileMetadataEvents(firstDescriptor, secondDescriptor)}
+				fileProductSession={{
+					readContent: async (props) => {
+						openedDescriptorIds.push(props.descriptor.descriptorId);
+						return makeFileContent(
+							props.descriptor.descriptorId.includes('second-visible-content')
 								? 'export const secondVisible = true;\n'
 								: 'export const firstVisible = true;\n',
 						);
@@ -62,11 +65,11 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const shell = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
 		);
-		expect(shell.getAttribute('data-last-demand-dispatch-status')).toBe('idle');
+		expect(shell.getAttribute('data-last-demand-dispatch-status')).toBeNull();
 		expect(shell.getAttribute('data-last-demand-dispatch-first-lane')).toBeNull();
 		expect(openFileState()).toBeNull();
 		expect(openFilePath()).toBeNull();
-		expect(fetchedResourceUrls).toEqual([]);
+		expect(openedDescriptorIds).toEqual([]);
 	});
 
 	test('publishes visible viewport facts to the comm worker on File tree scroll', async () => {
@@ -84,13 +87,12 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		render(
 			<BridgeFileViewerApp
-				fileViewCommWorkerTransportFactory={() => ({
-					dispatch: (message): void => {
+				fileProductSession={{
+					onWorkerCommand: (message): void => {
 						dispatchedMessages.push(message);
 					},
-					dispose: (): void => {},
-				})}
-				initialFrames={makeFrames(firstDescriptor, secondDescriptor)}
+				}}
+				initialMetadataEvents={makeFileMetadataEvents(firstDescriptor, secondDescriptor)}
 			/>,
 		);
 
@@ -107,7 +109,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 		await actFrame();
 
-		expect(dispatchedMessages.map((message) => message.command)).toContain('fileViewSourceUpdate');
+		expect(dispatchedMessages.map((message) => message.command)).not.toContain(
+			'fileViewSourceUpdate',
+		);
 		const viewportMessage = dispatchedMessages.find(
 			(message): boolean => message.command === 'viewport',
 		);
@@ -133,13 +137,12 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		render(
 			<BridgeFileViewerApp
-				fileViewCommWorkerTransportFactory={() => ({
-					dispatch: (message): void => {
+				fileProductSession={{
+					onWorkerCommand: (message): void => {
 						dispatchedMessages.push(message);
 					},
-					dispose: (): void => {},
-				})}
-				initialFrames={makeFrames(...descriptors)}
+				}}
+				initialMetadataEvents={makeFileMetadataEvents(...descriptors)}
 			/>,
 		);
 
@@ -176,12 +179,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		render(
 			<BridgeFileViewerApp
-				initialFrames={makeFrames(descriptor)}
-				worktreeFileSurfaceTransport={{
-					fetchResource: async () =>
-						makeWorktreeFileSurfaceRuntimeFetchedResource(
-							'export const globalFetchIsolation = true;\n',
-						),
+				initialMetadataEvents={makeFileMetadataEvents(descriptor)}
+				fileProductSession={{
+					readContent: async () => makeFileContent('export const globalFetchIsolation = true;\n'),
 				}}
 			/>,
 		);
@@ -208,17 +208,19 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			path: 'generated/huge.log',
 			virtualizedExtentKind: 'unavailable',
 		});
-		const fetchedResourceUrls: string[] = [];
+		const openedDescriptorIds: string[] = [];
 
 		render(
 			<BridgeFileViewerApp
-				initialFrames={makeFrames(textDescriptor, binaryDescriptor, unavailableDescriptor)}
-				worktreeFileSurfaceTransport={{
-					fetchResource: async (props) => {
-						fetchedResourceUrls.push(props.resourceUrl);
-						return makeWorktreeFileSurfaceRuntimeFetchedResource(
-							'export const textVisible = true;\n',
-						);
+				initialMetadataEvents={makeFileMetadataEvents(
+					textDescriptor,
+					binaryDescriptor,
+					unavailableDescriptor,
+				)}
+				fileProductSession={{
+					readContent: async (props) => {
+						openedDescriptorIds.push(props.descriptor.descriptorId);
+						return makeFileContent('export const textVisible = true;\n');
 					},
 				}}
 			/>,
@@ -232,9 +234,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const shell = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
 		);
-		expect(shell.getAttribute('data-last-demand-dispatch-status')).toBe('idle');
+		expect(shell.getAttribute('data-last-demand-dispatch-status')).toBeNull();
 		expect(shell.getAttribute('data-last-demand-dispatch-first-lane')).toBeNull();
-		expect(fetchedResourceUrls).toEqual([]);
+		expect(openedDescriptorIds).toEqual([]);
 	});
 
 	test('does not start visible demand fetch work before Files becomes inactive', async () => {
@@ -243,18 +245,16 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			fileId: 'file-inactive-visible',
 			path: 'src/inactive-visible.ts',
 		});
-		const fetchedResourceUrls: string[] = [];
+		const openedDescriptorIds: string[] = [];
 
 		render(
 			<BridgeFileViewerApp
-				initialFrames={makeFrames(visibleDescriptor)}
+				initialMetadataEvents={makeFileMetadataEvents(visibleDescriptor)}
 				isActive={false}
-				worktreeFileSurfaceTransport={{
-					fetchResource: async (props) => {
-						fetchedResourceUrls.push(props.resourceUrl);
-						return makeWorktreeFileSurfaceRuntimeFetchedResource(
-							'export const inactiveVisible = true;\n',
-						);
+				fileProductSession={{
+					readContent: async (props) => {
+						openedDescriptorIds.push(props.descriptor.descriptorId);
+						return makeFileContent('export const inactiveVisible = true;\n');
 					},
 				}}
 			/>,
@@ -268,9 +268,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
 		);
 		expect(shell.getAttribute('data-file-viewer-active')).toBe('false');
-		expect(shell.getAttribute('data-last-demand-dispatch-status')).toBe('idle');
+		expect(shell.getAttribute('data-last-demand-dispatch-status')).toBeNull();
 		expect(shell.getAttribute('data-last-demand-dispatch-first-lane')).toBeNull();
-		expect(fetchedResourceUrls).toEqual([]);
+		expect(openedDescriptorIds).toEqual([]);
 	});
 });
 

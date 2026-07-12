@@ -397,28 +397,6 @@ import Foundation
               const codeViewPanel = document.querySelector('[data-testid="bridge-file-viewer-code-view"]');
               const bootstrapProtocol =
                 document.documentElement.getAttribute('data-bridge-app-protocol') || 'missing';
-              const bootstrapSourceSpecJSON =
-                document.documentElement.getAttribute('data-bridge-worktree-file-source-spec');
-              let bootstrapSourceSpecState = 'missing';
-              let bootstrapSourceSpecLength = 0;
-              if (bootstrapSourceSpecJSON !== null) {
-                bootstrapSourceSpecLength = new TextEncoder().encode(bootstrapSourceSpecJSON).byteLength;
-                try {
-                  const parsedSourceSpec = JSON.parse(bootstrapSourceSpecJSON);
-                  bootstrapSourceSpecState =
-                    parsedSourceSpec &&
-                    typeof parsedSourceSpec === 'object' &&
-                    typeof parsedSourceSpec.clientRequestId === 'string' &&
-                    typeof parsedSourceSpec.repoId === 'string' &&
-                    typeof parsedSourceSpec.worktreeId === 'string' &&
-                    typeof parsedSourceSpec.rootPathToken === 'string' &&
-                    parsedSourceSpec.freshness === 'live'
-                      ? 'parseable'
-                      : 'invalid_shape';
-                } catch {
-                  bootstrapSourceSpecState = 'malformed_json';
-                }
-              }
               const filterCountText =
                 document.querySelector('[data-testid="worktree-file-filter-count"]')?.textContent || '0/0';
               const descriptorCount = Number(filterCountText.split('/')[0] || '0');
@@ -792,12 +770,6 @@ import Foundation
               const intakeReadyCommandProbe = Array.isArray(window.__bridgeIntakeReadyCommandProbe)
                 ? window.__bridgeIntakeReadyCommandProbe
                 : [];
-              const worktreeOpenSourceCommandProbe = Array.isArray(window.__bridgeWorktreeOpenSourceCommandProbe)
-                ? window.__bridgeWorktreeOpenSourceCommandProbe
-                : [];
-              const worktreeDescriptorRequestCommandProbe = Array.isArray(window.__bridgeWorktreeDescriptorRequestCommandProbe)
-                ? window.__bridgeWorktreeDescriptorRequestCommandProbe
-                : [];
               const responseProbe = Array.isArray(window.__bridgeResponseProbe)
                 ? window.__bridgeResponseProbe
                 : [];
@@ -912,22 +884,16 @@ import Foundation
               const pageIssueDisallowedCount = pageIssueClasses.filter((pageIssueClass) => {
                 return pageIssueClass !== 'context_switch_fetch_aborted';
               }).length;
-              const worktreeOpenSourceCommandCount = worktreeOpenSourceCommandProbe.filter((entry) => {
-                return entry?.method === 'worktreeFileSurface.openSourceStream';
-              }).length;
+              const worktreeOpenSourceCommandCount = 0;
               const intakeReadyCommandCount = intakeReadyCommandProbe.filter((entry) => {
                 return entry?.method === 'bridge.intakeReady';
               }).length;
-              const worktreeDescriptorRequestCommandCount = worktreeDescriptorRequestCommandProbe.filter((entry) => {
-                return entry?.method === 'worktreeFileSurface.requestFileDescriptor';
-              }).length;
+              const worktreeDescriptorRequestCommandCount = 0;
               return {
                 hasFileShell: shell !== null,
                 hasTree: tree !== null,
                 hasCodeViewPanel: codeViewPanel !== null,
                 bootstrapProtocol,
-                bootstrapSourceSpecState,
-                bootstrapSourceSpecLength,
                 descriptorCount,
                 totalDescriptorCount,
                 selectedDisplayPath,

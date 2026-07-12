@@ -11,9 +11,12 @@ import {
 	bridgeProductContentResetBodySchema,
 	type BridgeProductContentFrame,
 	type BridgeProductContentHeader,
+	type BridgeProductContentKind,
 	type BridgeProductContentRequest,
+	type BridgeProductContentRequestFor,
 	type BridgeProductContentTerminal,
 	type BridgeProductFileContentIdentity,
+	type BridgeProductReviewContentIdentity,
 } from './bridge-product-content-contracts.js';
 import {
 	BRIDGE_PRODUCT_MAXIMUM_CONTENT_DATA_PAYLOAD_BYTES,
@@ -170,6 +173,7 @@ function encodeBridgeProductContentTagBody(header: BridgeProductContentHeader): 
 				});
 			case 'content.end':
 				return bridgeProductContentEndBodySchema.parse({
+					endOfSource: header.endOfSource,
 					observedByteLength: header.observedByteLength,
 					observedSha256: header.observedSha256,
 				});
@@ -194,7 +198,9 @@ function encodeBridgeProductContentTagBody(header: BridgeProductContentHeader): 
 	return bodyBytes;
 }
 
-export class BridgeProductContentStreamValidator {
+export class BridgeProductContentStreamValidator<
+	TContentKind extends BridgeProductContentKind = BridgeProductContentKind,
+> {
 	readonly #expectedRequest: BridgeProductContentRequest;
 	#acceptedHeader: ReturnType<typeof bridgeProductContentAcceptedHeaderSchema.parse> | null = null;
 	#chunks: Uint8Array[] = [];
@@ -202,13 +208,13 @@ export class BridgeProductContentStreamValidator {
 	#observedByteLength = 0;
 	#state: 'open' | 'poisoned' | 'terminal' = 'open';
 
-	constructor(expectedRequest: BridgeProductContentRequest) {
+	constructor(expectedRequest: BridgeProductContentRequestFor<TContentKind>) {
 		this.#expectedRequest = bridgeProductContentRequestSchema.parse(expectedRequest);
 	}
 
 	async accept(
 		frame: BridgeProductContentFrame,
-	): Promise<BridgeProductContentTerminal<'file.content'> | null> {
+	): Promise<BridgeProductContentTerminal<TContentKind> | null> {
 		if (this.#state === 'terminal') {
 			throw new Error('Bridge product content stream received a post-terminal frame.');
 		}
@@ -236,7 +242,7 @@ export class BridgeProductContentStreamValidator {
 
 	async #acceptFrame(
 		frame: BridgeProductContentFrame,
-	): Promise<BridgeProductContentTerminal<'file.content'> | null> {
+	): Promise<BridgeProductContentTerminal<TContentKind> | null> {
 		const header = bridgeProductContentHeaderSchema.parse(frame.header);
 		validateBridgeProductContentFramePayload(header, frame.payload);
 		const payload = Uint8Array.from(frame.payload);
@@ -321,7 +327,7 @@ export class BridgeProductContentStreamValidator {
 
 	async #acceptEndFrame(
 		header: ReturnType<typeof bridgeProductContentEndHeaderSchema.parse>,
-	): Promise<BridgeProductContentTerminal<'file.content'>> {
+	): Promise<BridgeProductContentTerminal<TContentKind>> {
 		const acceptedHeader = this.#acceptedHeader;
 		if (acceptedHeader === null) {
 			throw new Error('Bridge product content end arrived before acceptance.');
@@ -354,6 +360,7 @@ export class BridgeProductContentStreamValidator {
 			bytes: bytes.buffer,
 			contentKind: acceptedHeader.identity.contentKind,
 			descriptorId: acceptedHeader.identity.descriptorId,
+			endOfSource: header.endOfSource,
 			kind: 'complete',
 			observedSha256,
 		};
@@ -392,7 +399,7 @@ function validateBridgeProductAcceptedHeaderAgainstRequest(
 		header.maximumBytes !== expectedRequest.descriptor.maximumBytes ||
 		header.declaredByteLength !== expectedRequest.descriptor.declaredByteLength ||
 		header.expectedSha256 !== expectedRequest.descriptor.expectedSha256 ||
-		!bridgeProductFileContentIdentitiesEqual(header.identity, expectedIdentity)
+		!bridgeProductContentIdentitiesEqual(header.identity, expectedIdentity)
 	) {
 		throw new Error('Bridge product content acceptance does not match its issued request.');
 	}
@@ -417,25 +424,49 @@ function concatenateBridgeProductContentBytes(
 	return bytes;
 }
 
-function bridgeProductFileContentIdentitiesEqual(
-	left: BridgeProductFileContentIdentity,
-	right: BridgeProductFileContentIdentity,
+function bridgeProductContentIdentitiesEqual(
+	left: BridgeProductFileContentIdentity | BridgeProductReviewContentIdentity,
+	right: BridgeProductFileContentIdentity | BridgeProductReviewContentIdentity,
 ): boolean {
-	return (
-		left.contentKind === right.contentKind &&
-		left.descriptorId === right.descriptorId &&
-		left.fileId === right.fileId &&
-		left.source.repoId === right.source.repoId &&
-		left.source.rootRevisionToken === right.source.rootRevisionToken &&
-		left.source.sourceCursor === right.source.sourceCursor &&
-		left.source.sourceId === right.source.sourceId &&
-		left.source.subscriptionGeneration === right.source.subscriptionGeneration &&
-		left.source.worktreeId === right.source.worktreeId &&
-		left.window.kind === right.window.kind &&
-		left.window.maximumBytes === right.window.maximumBytes &&
-		left.window.maximumLines === right.window.maximumLines &&
-		left.window.startByte === right.window.startByte
-	);
+	if (left.contentKind !== right.contentKind) return false;
+	switch (left.contentKind) {
+		case 'file.content':
+			if (right.contentKind !== 'file.content') return false;
+			return (
+				left.descriptorId === right.descriptorId &&
+				left.fileId === right.fileId &&
+				left.source.repoId === right.source.repoId &&
+				left.source.rootRevisionToken === right.source.rootRevisionToken &&
+				left.source.sourceCursor === right.source.sourceCursor &&
+				left.source.sourceId === right.source.sourceId &&
+				left.source.subscriptionGeneration === right.source.subscriptionGeneration &&
+				left.source.worktreeId === right.source.worktreeId &&
+				left.window.kind === right.window.kind &&
+				left.window.maximumBytes === right.window.maximumBytes &&
+				left.window.maximumLines === right.window.maximumLines &&
+				left.window.startByte === right.window.startByte
+			);
+		case 'review.content':
+			if (right.contentKind !== 'review.content') return false;
+			return (
+				left.contentDigest.authority === right.contentDigest.authority &&
+				left.contentDigest.algorithm === right.contentDigest.algorithm &&
+				left.contentDigest.value === right.contentDigest.value &&
+				left.descriptorId === right.descriptorId &&
+				left.endpointId === right.endpointId &&
+				left.handleId === right.handleId &&
+				left.itemId === right.itemId &&
+				left.packageId === right.packageId &&
+				left.reviewGeneration === right.reviewGeneration &&
+				left.role === right.role &&
+				left.sourceIdentity === right.sourceIdentity &&
+				left.wholeByteLength === right.wholeByteLength &&
+				left.window.kind === right.window.kind &&
+				left.window.maximumBytes === right.window.maximumBytes &&
+				left.window.startByte === right.window.startByte
+			);
+	}
+	throw new Error('Unsupported Bridge product content identity.');
 }
 
 async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {

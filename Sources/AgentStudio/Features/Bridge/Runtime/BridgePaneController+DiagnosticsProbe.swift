@@ -25,8 +25,6 @@ import WebKit
               window.__bridgePushProbe = [];
               window.__bridgeCommandProbe = [];
               window.__bridgeIntakeReadyCommandProbe = [];
-              window.__bridgeWorktreeOpenSourceCommandProbe = [];
-              window.__bridgeWorktreeDescriptorRequestCommandProbe = [];
               window.__bridgeResponseProbe = [];
               window.__bridgeIntakeProbe = [];
               const requestLabel = (input) => {
@@ -54,12 +52,6 @@ import WebKit
                 pushBounded(window.__bridgeCommandProbe, commandEntry);
                 if (commandEntry.method === 'bridge.intakeReady') {
                   pushBounded(window.__bridgeIntakeReadyCommandProbe, commandEntry);
-                }
-                if (commandEntry.method === 'worktreeFileSurface.openSourceStream') {
-                  pushBounded(window.__bridgeWorktreeOpenSourceCommandProbe, commandEntry);
-                }
-                if (commandEntry.method === 'worktreeFileSurface.requestFileDescriptor') {
-                  pushBounded(window.__bridgeWorktreeDescriptorRequestCommandProbe, commandEntry);
                 }
                 return commandEntry;
               };

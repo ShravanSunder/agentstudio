@@ -169,21 +169,25 @@ struct BridgeProductFileSourceIdentity: Codable, Equatable, Sendable {
         self.subscriptionGeneration = try container.decode(Int.self, forKey: .subscriptionGeneration)
         self.worktreeId = try container.decode(String.self, forKey: .worktreeId)
 
-        try BridgeProductContractDecoding.validateUUID(repoId, codingPath: decoder.codingPath)
+        try validate(codingPath: decoder.codingPath)
+    }
+
+    private func validate(codingPath: [any CodingKey]) throws {
+        try BridgeProductContractDecoding.validateUUID(repoId, codingPath: codingPath)
         if let rootRevisionToken {
             try BridgeProductContractDecoding.validateOpaqueReference(
                 rootRevisionToken,
-                codingPath: decoder.codingPath
+                codingPath: codingPath
             )
         }
-        try BridgeProductContractDecoding.validateOpaqueReference(sourceCursor, codingPath: decoder.codingPath)
-        try BridgeProductContractDecoding.validateIdentifier(sourceId, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateOpaqueReference(sourceCursor, codingPath: codingPath)
+        try BridgeProductContractDecoding.validateIdentifier(sourceId, codingPath: codingPath)
         try BridgeProductContractDecoding.validateNonnegative(
             subscriptionGeneration,
             name: "subscriptionGeneration",
-            codingPath: decoder.codingPath
+            codingPath: codingPath
         )
-        try BridgeProductContractDecoding.validateUUID(worktreeId, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateUUID(worktreeId, codingPath: codingPath)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -194,92 +198,6 @@ struct BridgeProductFileSourceIdentity: Codable, Equatable, Sendable {
         try container.encode(sourceId, forKey: .sourceId)
         try container.encode(subscriptionGeneration, forKey: .subscriptionGeneration)
         try container.encode(worktreeId, forKey: .worktreeId)
-    }
-}
-
-struct BridgeProductReviewMetadataEvent: Codable, Equatable, Sendable {
-    private enum CodingKeys: String, CodingKey, CaseIterable {
-        case eventKind
-        case generation
-        case packageId
-        case revision
-        case sourceIdentity
-    }
-
-    let generation: Int
-    let packageId: String
-    let revision: Int
-    let sourceIdentity: String
-
-    init(from decoder: Decoder) throws {
-        try BridgeProductContractDecoding.rejectUnknownKeys(
-            from: decoder,
-            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
-            contract: "review metadata event"
-        )
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        guard try container.decode(String.self, forKey: .eventKind) == "review.sourceAccepted" else {
-            throw BridgeProductContractDecoding.invalidValue(
-                "Invalid review metadata event kind",
-                codingPath: decoder.codingPath
-            )
-        }
-        self.generation = try container.decode(Int.self, forKey: .generation)
-        self.packageId = try container.decode(String.self, forKey: .packageId)
-        self.revision = try container.decode(Int.self, forKey: .revision)
-        self.sourceIdentity = try container.decode(String.self, forKey: .sourceIdentity)
-        try BridgeProductContractDecoding.validateNonnegative(
-            generation,
-            name: "generation",
-            codingPath: decoder.codingPath
-        )
-        try BridgeProductContractDecoding.validateIdentifier(packageId, codingPath: decoder.codingPath)
-        try BridgeProductContractDecoding.validateNonnegative(
-            revision,
-            name: "revision",
-            codingPath: decoder.codingPath
-        )
-        try BridgeProductContractDecoding.validateIdentifier(sourceIdentity, codingPath: decoder.codingPath)
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode("review.sourceAccepted", forKey: .eventKind)
-        try container.encode(generation, forKey: .generation)
-        try container.encode(packageId, forKey: .packageId)
-        try container.encode(revision, forKey: .revision)
-        try container.encode(sourceIdentity, forKey: .sourceIdentity)
-    }
-}
-
-struct BridgeProductFileMetadataEvent: Codable, Equatable, Sendable {
-    private enum CodingKeys: String, CodingKey, CaseIterable {
-        case eventKind
-        case source
-    }
-
-    let source: BridgeProductFileSourceIdentity
-
-    init(from decoder: Decoder) throws {
-        try BridgeProductContractDecoding.rejectUnknownKeys(
-            from: decoder,
-            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
-            contract: "file metadata event"
-        )
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        guard try container.decode(String.self, forKey: .eventKind) == "file.sourceAccepted" else {
-            throw BridgeProductContractDecoding.invalidValue(
-                "Invalid file metadata event kind",
-                codingPath: decoder.codingPath
-            )
-        }
-        self.source = try container.decode(BridgeProductFileSourceIdentity.self, forKey: .source)
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode("file.sourceAccepted", forKey: .eventKind)
-        try container.encode(source, forKey: .source)
     }
 }
 
@@ -300,6 +218,13 @@ enum BridgeProductSubscriptionData: Codable, Equatable, Sendable {
     }
 
     var surface: BridgeProductSurface { subscriptionKind.surface }
+
+    var sourceGeneration: Int {
+        switch self {
+        case .fileMetadata(let event): event.sourceGeneration
+        case .reviewMetadata(let event): event.generation
+        }
+    }
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(

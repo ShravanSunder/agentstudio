@@ -133,7 +133,7 @@ extension WorkspaceSurfaceCoordinator {
                 to: paneEventBus
             )
         }
-        await publishWorktreeFileSurfaceEnvelopeIfNeeded(envelope)
+        await publishProductFileEnvelopeIfNeeded(envelope)
         return true
     }
 
@@ -159,7 +159,7 @@ extension WorkspaceSurfaceCoordinator {
         }
     }
 
-    private func publishWorktreeFileSurfaceEnvelopeIfNeeded(_ envelope: RuntimeEnvelope) async {
+    private func publishProductFileEnvelopeIfNeeded(_ envelope: RuntimeEnvelope) async {
         guard case .worktree(let worktreeEnvelope) = envelope else { return }
         guard let worktreeId = worktreeEnvelope.worktreeId else { return }
 
@@ -171,28 +171,22 @@ extension WorkspaceSurfaceCoordinator {
                 continue
             }
 
-            do {
-                switch worktreeEnvelope.event {
-                case .filesystem(.filesChanged(let changeset)):
-                    try await controller.publishWorktreeFileSurfaceChangeset(changeset)
-                case .gitWorkingDirectory(.snapshotChanged(let snapshot)):
-                    guard snapshot.worktreeId == worktreeId, snapshot.repoId == worktreeEnvelope.repoId else {
-                        continue
-                    }
-                    try await controller.publishWorktreeFileSurfaceStatus(
-                        GitWorkingTreeStatus(
-                            summary: snapshot.summary,
-                            branch: snapshot.branch,
-                            origin: nil
-                        )
-                    )
-                case .filesystem, .gitWorkingDirectory, .forge, .security:
+            switch worktreeEnvelope.event {
+            case .filesystem(.filesChanged(let changeset)):
+                await controller.productSchemeProvider?.publishFileChangeset(changeset)
+            case .gitWorkingDirectory(.snapshotChanged(let snapshot)):
+                guard snapshot.worktreeId == worktreeId, snapshot.repoId == worktreeEnvelope.repoId else {
                     continue
                 }
-            } catch {
-                Self.logger.warning(
-                    "Worktree/File Bridge publish failed for pane \(controller.paneId.uuidString, privacy: .public): \(error.localizedDescription, privacy: .private)"
+                await controller.productSchemeProvider?.publishFileStatus(
+                    GitWorkingTreeStatus(
+                        summary: snapshot.summary,
+                        branch: snapshot.branch,
+                        origin: nil
+                    )
                 )
+            case .filesystem, .gitWorkingDirectory, .forge, .security:
+                continue
             }
         }
     }

@@ -88,7 +88,7 @@ interface ParsedStreamFrame {
 interface StreamFrameCursor {
 	readonly decoder: BridgeProductContentFrameDecoder;
 	readonly reader: ReadableStreamDefaultReader<Uint8Array>;
-	readonly validator: BridgeProductContentStreamValidator;
+	readonly validator: BridgeProductContentStreamValidator<'file.content'>;
 }
 
 const feasibilityContentPayloadSHA256 =
@@ -432,7 +432,7 @@ function streamFrameCursor(response: Response): StreamFrameCursor {
 	return {
 		decoder: new BridgeProductContentFrameDecoder(),
 		reader: response.body.getReader(),
-		validator: new BridgeProductContentStreamValidator(feasibilityContentRequest),
+		validator: new BridgeProductContentStreamValidator<'file.content'>(feasibilityContentRequest),
 	};
 }
 

@@ -1,7 +1,8 @@
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeWorkerActiveViewerModeUpdateCommandSchema,
-	bridgeWorkerFileViewSourceUpdateCommandSchema,
+	bridgeWorkerFileDisplayResyncCommandSchema,
+	bridgeWorkerFileQueryUpdateCommandSchema,
 	bridgeWorkerHoverCommandSchema,
 	bridgeWorkerMarkFileViewedCommandSchema,
 	bridgeWorkerMetadataInterestUpdateCommandSchema,
@@ -11,12 +12,10 @@ import {
 	bridgeWorkerReviewSourceUpdateCommandSchema,
 	bridgeWorkerSelectCommandSchema,
 	bridgeWorkerViewportCommandSchema,
-	bridgeWorkerWorktreeFileIntakeReadyCommandSchema,
-	bridgeWorkerWorktreeFileOpenSourceStreamCommandSchema,
-	bridgeWorkerWorktreeFileRequestDescriptorCommandSchema,
 	type BridgeWorkerHealthEvent,
 	type BridgeWorkerActiveViewerModeUpdateCommand,
-	type BridgeWorkerFileViewSourceUpdateCommand,
+	type BridgeWorkerFileDisplayResyncCommand,
+	type BridgeWorkerFileQueryUpdateCommand,
 	type BridgeWorkerHoverCommand,
 	type BridgeWorkerMainToServerCommand,
 	type BridgeWorkerMarkFileViewedCommand,
@@ -28,9 +27,6 @@ import {
 	type BridgeWorkerReviewSourceUpdateCommand,
 	type BridgeWorkerSelectCommand,
 	type BridgeWorkerViewportCommand,
-	type BridgeWorkerWorktreeFileIntakeReadyCommand,
-	type BridgeWorkerWorktreeFileOpenSourceStreamCommand,
-	type BridgeWorkerWorktreeFileRequestDescriptorCommand,
 } from './bridge-worker-contracts.js';
 
 export type BridgeWorkerCommandName = BridgeWorkerMainToServerCommand['command'];
@@ -70,25 +66,20 @@ export interface EncodeBridgeWorkerReviewIntakeReadyCommandProps extends EncodeB
 	readonly streamId: BridgeWorkerReviewIntakeReadyCommand['streamId'];
 }
 
-export interface EncodeBridgeWorkerWorktreeFileIntakeReadyCommandProps extends EncodeBridgeWorkerCommandBaseProps {
-	readonly generation: BridgeWorkerWorktreeFileIntakeReadyCommand['generation'];
-	readonly streamId: BridgeWorkerWorktreeFileIntakeReadyCommand['streamId'];
-}
-
-export interface EncodeBridgeWorkerWorktreeFileOpenSourceStreamCommandProps extends EncodeBridgeWorkerCommandBaseProps {
-	readonly sourceSpec: BridgeWorkerWorktreeFileOpenSourceStreamCommand['sourceSpec'];
-}
-
-export interface EncodeBridgeWorkerWorktreeFileRequestDescriptorCommandProps extends EncodeBridgeWorkerCommandBaseProps {
-	readonly descriptorRequest: BridgeWorkerWorktreeFileRequestDescriptorCommand['descriptorRequest'];
-}
-
 export interface EncodeBridgeWorkerActiveViewerModeUpdateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
 	readonly update: BridgeWorkerActiveViewerModeUpdateCommand['update'];
 }
 
 export interface EncodeBridgeWorkerModeCommandProps extends EncodeBridgeWorkerCommandBaseProps {
 	readonly mode: BridgeWorkerModeCommand['mode'];
+}
+
+export type EncodeBridgeWorkerFileQueryUpdateCommandProps = EncodeBridgeWorkerCommandBaseProps &
+	BridgeWorkerFileQueryUpdateCommand['query'];
+
+export interface EncodeBridgeWorkerFileDisplayResyncCommandProps extends EncodeBridgeWorkerCommandBaseProps {
+	readonly reason: BridgeWorkerFileDisplayResyncCommand['reason'];
+	readonly transactionId: string | null;
 }
 
 export interface EncodeBridgeWorkerReviewInvalidateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
@@ -103,12 +94,6 @@ export interface EncodeBridgeWorkerReviewSourceUpdateCommandProps extends Encode
 	readonly contentRequestDescriptors: BridgeWorkerReviewSourceUpdateCommand['contentRequestDescriptors'];
 	readonly renderSemantics: BridgeWorkerReviewSourceUpdateCommand['renderSemantics'];
 	readonly rows: BridgeWorkerReviewSourceUpdateCommand['rows'];
-}
-
-export interface EncodeBridgeWorkerFileViewSourceUpdateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
-	readonly contentItems: BridgeWorkerFileViewSourceUpdateCommand['contentItems'];
-	readonly contentRequestDescriptors: BridgeWorkerFileViewSourceUpdateCommand['contentRequestDescriptors'];
-	readonly rows: BridgeWorkerFileViewSourceUpdateCommand['rows'];
 }
 
 export function encodeBridgeWorkerSelectCommand(
@@ -171,35 +156,6 @@ export function encodeBridgeWorkerReviewIntakeReadyCommand(
 	});
 }
 
-export function encodeBridgeWorkerWorktreeFileIntakeReadyCommand(
-	props: EncodeBridgeWorkerWorktreeFileIntakeReadyCommandProps,
-): BridgeWorkerWorktreeFileIntakeReadyCommand {
-	return bridgeWorkerWorktreeFileIntakeReadyCommandSchema.parse({
-		...bridgeWorkerCommandEnvelope(props, 'worktreeFileIntakeReady'),
-		generation: props.generation,
-		protocolId: 'worktree-file',
-		streamId: props.streamId,
-	});
-}
-
-export function encodeBridgeWorkerWorktreeFileOpenSourceStreamCommand(
-	props: EncodeBridgeWorkerWorktreeFileOpenSourceStreamCommandProps,
-): BridgeWorkerWorktreeFileOpenSourceStreamCommand {
-	return bridgeWorkerWorktreeFileOpenSourceStreamCommandSchema.parse({
-		...bridgeWorkerCommandEnvelope(props, 'worktreeFileOpenSourceStream'),
-		sourceSpec: props.sourceSpec,
-	});
-}
-
-export function encodeBridgeWorkerWorktreeFileRequestDescriptorCommand(
-	props: EncodeBridgeWorkerWorktreeFileRequestDescriptorCommandProps,
-): BridgeWorkerWorktreeFileRequestDescriptorCommand {
-	return bridgeWorkerWorktreeFileRequestDescriptorCommandSchema.parse({
-		...bridgeWorkerCommandEnvelope(props, 'worktreeFileRequestDescriptor'),
-		descriptorRequest: props.descriptorRequest,
-	});
-}
-
 export function encodeBridgeWorkerActiveViewerModeUpdateCommand(
 	props: EncodeBridgeWorkerActiveViewerModeUpdateCommandProps,
 ): BridgeWorkerActiveViewerModeUpdateCommand {
@@ -215,6 +171,29 @@ export function encodeBridgeWorkerModeCommand(
 	return bridgeWorkerModeCommandSchema.parse({
 		...bridgeWorkerCommandEnvelope(props, 'mode'),
 		mode: props.mode,
+	});
+}
+
+export function encodeBridgeWorkerFileQueryUpdateCommand(
+	props: EncodeBridgeWorkerFileQueryUpdateCommandProps,
+): BridgeWorkerFileQueryUpdateCommand {
+	return bridgeWorkerFileQueryUpdateCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'fileQueryUpdate'),
+		query: {
+			filterMode: props.filterMode,
+			searchMode: props.searchMode,
+			searchText: props.searchText,
+		},
+	});
+}
+
+export function encodeBridgeWorkerFileDisplayResyncCommand(
+	props: EncodeBridgeWorkerFileDisplayResyncCommandProps,
+): BridgeWorkerFileDisplayResyncCommand {
+	return bridgeWorkerFileDisplayResyncCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'fileDisplayResync'),
+		reason: props.reason,
+		transactionId: props.transactionId,
 	});
 }
 
@@ -238,17 +217,6 @@ export function encodeBridgeWorkerReviewSourceUpdateCommand(
 		contentItems: props.contentItems,
 		contentRequestDescriptors: props.contentRequestDescriptors,
 		renderSemantics: props.renderSemantics,
-		rows: props.rows,
-	});
-}
-
-export function encodeBridgeWorkerFileViewSourceUpdateCommand(
-	props: EncodeBridgeWorkerFileViewSourceUpdateCommandProps,
-): BridgeWorkerFileViewSourceUpdateCommand {
-	return bridgeWorkerFileViewSourceUpdateCommandSchema.parse({
-		...bridgeWorkerCommandEnvelope(props, 'fileViewSourceUpdate'),
-		contentItems: props.contentItems,
-		contentRequestDescriptors: props.contentRequestDescriptors,
 		rows: props.rows,
 	});
 }

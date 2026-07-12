@@ -39,7 +39,7 @@ describe('Bridge comm worker store', () => {
 		expect(state.rowById.get('item-2')).toEqual({ id: 'item-2', parentId: 'root', index: 2 });
 		expect(state.orderedIds).toEqual(['root', 'item-1', 'item-2']);
 		expect(state.indexById.get('item-2')).toBe(2);
-		expect(state.childrenByParentId.get('root')).toEqual(['item-1', 'item-2']);
+		expect(state.childrenByParentId.get('root')).toEqual(new Set(['item-1', 'item-2']));
 		expect(state.contentMetadataByItemId.get('item-2')).toEqual(contentItem);
 		expect(Object.fromEntries(state.demandByKey)).toEqual({
 			'item-1': 'visible',
@@ -831,16 +831,22 @@ function makeWorkerFileViewContentMetadata(
 	} = {},
 ): BridgeWorkerFileViewContentMetadata {
 	return {
+		metadataKind: 'fileView',
 		itemId,
 		path: props.path ?? `Sources/App/${itemId}.swift`,
 		language: 'swift',
 		cacheKey: `file-view:sha256:${itemId}`,
 		sizeBytes: 128,
-		contentHandle: `handle-${itemId}`,
 		descriptorId: `descriptor-${itemId}`,
 		contentHash: `sha256:${itemId}`,
+		encoding: props.isBinary === true || props.canFetchContent === false ? null : 'utf-8',
+		endsMidLine: false,
+		endsWithNewline: props.isBinary !== true && props.canFetchContent !== false,
 		virtualizedExtentKind: 'exactLineCount',
-		lineCount: 7,
+		payloadByteCount: props.isBinary === true || props.canFetchContent === false ? 0 : 128,
+		payloadLineCount: props.isBinary === true || props.canFetchContent === false ? 0 : 7,
+		totalLineCount: props.isBinary === true || props.canFetchContent === false ? null : 7,
+		truncationKind: 'none',
 		isBinary: props.isBinary ?? false,
 		canFetchContent: props.canFetchContent ?? true,
 	};

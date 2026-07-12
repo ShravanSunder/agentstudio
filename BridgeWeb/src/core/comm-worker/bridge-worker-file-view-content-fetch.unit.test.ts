@@ -1,127 +1,165 @@
 import { describe, expect, test } from 'vitest';
 
-import type { BridgeWorkerFileViewContentRequestDescriptor } from './bridge-worker-contracts.js';
-import { fetchBridgeWorkerFileViewContentResource } from './bridge-worker-file-view-content-fetch.js';
+import type { BridgeCommWorkerFileViewContentRequest } from './bridge-comm-worker-file-metadata-projection.js';
+import {
+	fetchBridgeWorkerFileViewContentResource,
+	type BridgeWorkerFileViewContentOpen,
+} from './bridge-worker-file-view-content-fetch.js';
 
 describe('Bridge worker File View content fetch', () => {
-	test('fetches typed File View content descriptors through injected worker fetch', async () => {
-		const calls: string[] = [];
+	test('opens typed File content through the shared product transport', async () => {
+		// Arrange
+		const openedDescriptorIds: string[] = [];
+		const request = makeContentRequest();
+
+		// Act
 		const result = await fetchBridgeWorkerFileViewContentResource({
-			descriptor: makeContentRequestDescriptor(),
-			fetchContent: async (url: string): Promise<Response> => {
-				calls.push(url);
-				return new Response('hello file worker');
-			},
+			contentRequest: request,
+			openContent: completedContentOpen('hello file worker', openedDescriptorIds),
 		});
 
-		expect(calls).toEqual([
-			'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?cursor=cursor-1&generation=4',
-		]);
+		// Assert
+		expect(openedDescriptorIds).toEqual(['descriptor-file-1']);
 		expect(result).toMatchObject({
-			itemId: 'file-1',
-			path: 'Sources/App/FileView.swift',
-			descriptorId: 'descriptor-file-1',
-			resourceKind: 'worktree.fileContent',
-			contentHash: 'sha256:file-1',
-			contentHashAlgorithm: 'sha256',
-			language: 'swift',
 			byteLength: 17,
+			contentHash: 'b'.repeat(64),
+			contentHashAlgorithm: 'sha256',
+			descriptorId: 'descriptor-file-1',
+			itemId: 'file-1',
+			language: 'swift',
+			path: 'Sources/App/FileView.swift',
+			resourceKind: 'file.content',
 		});
-		expect(result.textBytes.byteLength).toBe(17);
 		expect(new TextDecoder().decode(result.textBytes)).toBe('hello file worker');
 	});
 
-	test('returns the original fetched bytes without re-encoding decoded text', async () => {
+	test('returns the product-owned bytes without re-encoding decoded text', async () => {
+		// Arrange
 		const originalBytes = new Uint8Array([0xef, 0xbb, 0xbf, 0x61]);
 
+		// Act
 		const result = await fetchBridgeWorkerFileViewContentResource({
-			descriptor: makeContentRequestDescriptor(),
-			fetchContent: async (): Promise<Response> => new Response(originalBytes),
+			contentRequest: makeContentRequest(),
+			openContent: completedByteContentOpen(originalBytes),
 		});
 
+		// Assert
 		expect(result.byteLength).toBe(4);
 		expect([...new Uint8Array(result.textBytes)]).toEqual([...originalBytes]);
 		expect(result.text).toBe('a');
 	});
 
-	test('rejects File View descriptor resource urls that are missing cursor or mismatch descriptorId before fetch', async () => {
-		const fetchCalls: string[] = [];
+	test('rejects binary or unavailable content before opening a product stream', async () => {
+		// Arrange
+		let openCount = 0;
+		const openContent: BridgeWorkerFileViewContentOpen = () => {
+			openCount += 1;
+			throw new Error('must not open');
+		};
 
+		// Act / Assert
 		await expect(
 			fetchBridgeWorkerFileViewContentResource({
-				descriptor: {
-					...makeContentRequestDescriptor(),
-					resourceUrl:
-						'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?generation=4',
+				contentRequest: {
+					...makeContentRequest(),
+					contentDescriptor: {
+						...makeContentRequest().contentDescriptor,
+						encoding: 'utf-8',
+					},
 				},
-				fetchContent: async (url: string): Promise<Response> => {
-					fetchCalls.push(url);
-					return new Response('must not fetch');
-				},
-			}),
-		).rejects.toThrow(/resource url/i);
-		await expect(
-			fetchBridgeWorkerFileViewContentResource({
-				descriptor: {
-					...makeContentRequestDescriptor(),
-					resourceUrl:
-						'agentstudio://resource/worktree-file/worktree.fileContent/other-descriptor?cursor=cursor-1&generation=4',
-				},
-				fetchContent: async (url: string): Promise<Response> => {
-					fetchCalls.push(url);
-					return new Response('must not fetch');
-				},
-			}),
-		).rejects.toThrow(/resource url/i);
-		expect(fetchCalls).toEqual([]);
-	});
-
-	test('rejects binary File View descriptors before text fetch', async () => {
-		const fetchCalls: string[] = [];
-
-		await expect(
-			fetchBridgeWorkerFileViewContentResource({
-				descriptor: {
-					...makeContentRequestDescriptor(),
-					isBinary: true,
-				},
-				fetchContent: async (url: string): Promise<Response> => {
-					fetchCalls.push(url);
-					return new Response('must not fetch');
-				},
+				isBinary: true,
+				openContent,
 			}),
 		).rejects.toThrow(/binary/i);
-		expect(fetchCalls).toEqual([]);
+		expect(openCount).toBe(0);
 	});
 
-	test('uses File View descriptor maxBytes as the stream limit', async () => {
+	test('surfaces typed product errors and reset terminals', async () => {
+		// Arrange
+		const request = makeContentRequest();
+
+		// Act / Assert
 		await expect(
 			fetchBridgeWorkerFileViewContentResource({
-				descriptor: {
-					...makeContentRequestDescriptor(),
-					maxBytes: 5,
-					sizeBytes: 10_000,
-				},
-				fetchContent: async (): Promise<Response> => new Response('exceeds max bytes'),
+				contentRequest: request,
+				openContent: () => ({
+					contentKind: 'file.content',
+					contentRequestId: 'content-request-1',
+					frames: emptyFrames(),
+					terminal: Promise.resolve({
+						code: 'stale_worker',
+						contentKind: 'file.content',
+						descriptorId: request.contentDescriptor.descriptorId,
+						kind: 'error',
+						retryable: true,
+						safeMessage: 'File source changed.',
+					}),
+				}),
 			}),
-		).rejects.toThrow(/max bytes|byte/i);
+		).rejects.toThrow('File source changed.');
 	});
 });
 
-function makeContentRequestDescriptor(): BridgeWorkerFileViewContentRequestDescriptor {
+function makeContentRequest(): BridgeCommWorkerFileViewContentRequest {
 	return {
+		contentDescriptor: {
+			contentKind: 'file.content',
+			declaredByteLength: 17,
+			descriptorId: 'descriptor-file-1',
+			encoding: 'utf-8',
+			expectedSha256: 'a'.repeat(64),
+			fileId: 'file-1',
+			maximumBytes: 2 * 1024 * 1024,
+			source: {
+				repoId: '00000000-0000-4000-8000-000000000001',
+				rootRevisionToken: 'root-revision-1',
+				sourceCursor: 'source-cursor-1',
+				sourceId: 'file-source-1',
+				subscriptionGeneration: 3,
+				worktreeId: '00000000-0000-4000-8000-000000000002',
+			},
+			window: {
+				kind: 'prefix',
+				maximumBytes: 2 * 1024 * 1024,
+				maximumLines: 10_000,
+				startByte: 0,
+			},
+		},
 		itemId: 'file-1',
-		path: 'Sources/App/FileView.swift',
-		handleId: 'handle-file-1',
-		descriptorId: 'descriptor-file-1',
-		resourceKind: 'worktree.fileContent',
-		resourceUrl:
-			'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?cursor=cursor-1&generation=4',
-		contentHash: 'sha256:file-1',
-		contentHashAlgorithm: 'sha256',
 		language: 'swift',
-		sizeBytes: 10_000,
-		maxBytes: 1024,
-		isBinary: false,
+		path: 'Sources/App/FileView.swift',
+		sizeBytes: 17,
 	};
 }
+
+function completedContentOpen(
+	text: string,
+	openedDescriptorIds: string[] = [],
+): BridgeWorkerFileViewContentOpen {
+	return completedByteContentOpen(new TextEncoder().encode(text), openedDescriptorIds);
+}
+
+function completedByteContentOpen(
+	bytes: Uint8Array,
+	openedDescriptorIds: string[] = [],
+): BridgeWorkerFileViewContentOpen {
+	return (descriptor) => {
+		openedDescriptorIds.push(descriptor.descriptorId);
+		const ownedBytes = bytes.slice().buffer;
+		return {
+			contentKind: 'file.content',
+			contentRequestId: 'content-request-1',
+			frames: emptyFrames(),
+			terminal: Promise.resolve({
+				bytes: ownedBytes,
+				contentKind: 'file.content',
+				descriptorId: descriptor.descriptorId,
+				endOfSource: true,
+				kind: 'complete',
+				observedSha256: 'b'.repeat(64),
+			}),
+		};
+	};
+}
+
+async function* emptyFrames(): AsyncIterable<never> {}

@@ -5,62 +5,64 @@ import { cleanup, render } from 'vitest-browser-react';
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../app/bridge-app.css';
 import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
-import type { WorktreeFileDescriptorRequest } from '../features/worktree-file/models/worktree-file-protocol-models.js';
-import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
 import {
 	requireBridgeViewerHTMLElement,
+	waitForBridgeViewerAnimationFrame,
 	waitForBridgeViewerTreeItemButton,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { terminateBridgePierreWorkerPoolSingletonForTest } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
-import { makeWorktreeFileSurfaceRuntimeFetchedResource } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import { BridgeFileViewerBrowserHarnessApp as BridgeFileViewerApp } from './bridge-file-viewer-browser-test-app.js';
+import type { FileMetadataInterestUpdate } from './bridge-file-viewer-browser-test-fixtures.js';
+import { makeFileContent } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
 	fileNavigationCommandForPath,
 	makeFileDescriptor,
-	makeFileDescriptorFrame,
-	makeFrames,
-	makeSourceIdentity,
-	makeTreeRowsOnlyFrames,
-	makeTreeWindowFrame,
-	type PublishWorktreeFileFrames,
+	makeDescriptorReadyMetadataEvents,
+	makeFileMetadataEvents,
+	makeTreeRowsOnlyMetadataEvents,
+	makeTreeWindowMetadataEvent,
+	type PublishFileMetadataEvents,
 } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
 	actClick,
 	actFrame,
 	actUpdate,
-	createBridgeFileViewerBrowserTestCommWorkerTransportFactory,
 	fileCanvasRenderedTextOffset,
 	makeDeferredContent,
 	makeGeneratedFileBody,
-	makeTestTelemetryRecorder,
+	metadataInterestPathsForLane,
 	openFileBodyPreview,
 	openFilePath,
 	renderedFilePath,
-	requireFramePublisher,
+	requireMetadataPublisher,
 	requireOpenSlowFile,
+	settleBridgeFileViewerBrowserInteraction,
+	settleBridgeFileViewerBrowserUpdates,
 	selectedDisplayPath,
 	visibleCodeText,
-	waitForDescriptorRequestCount,
+	waitForMetadataInterestUpdateCount,
 	waitForFileCodeViewScrollable,
 	waitForFileCodeViewScrollOwner,
 	waitForFileCodeViewViewport,
 	waitForOpenFileBodyPreview,
 	waitForOpenFileState,
-	waitForRecordedFetchCount,
+	waitForOpenedContentCount,
 	waitForSelectedDisplayPath,
-	waitForTelemetrySample,
 	waitForVisibleCodeText,
 } from './bridge-file-viewer-browser-test-harness.js';
 
 describe('BridgeFileViewerApp Browser Mode', () => {
 	afterEach(async () => {
-		cleanup();
+		await actUpdate((): void => {
+			cleanup();
+		});
+		await settleBridgeFileViewerBrowserUpdates();
 		await actFrame();
 		document.body.replaceChildren();
 		terminateBridgePierreWorkerPoolSingletonForTest();
 	});
 
-	test('does not advance selected display path until a metadata-only descriptor converges', async () => {
+	test('advances selected path immediately while metadata-only content converges', async () => {
 		const initiallyOpenDescriptor = makeFileDescriptor({
 			contentHandle: 'initial-content',
 			fileId: 'file-000',
@@ -71,31 +73,31 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			fileId: 'file-001',
 			path: 'File-001.swift',
 		});
-		const descriptorRequests: WorktreeFileDescriptorRequest[] = [];
-		const fetchedResourceUrls: string[] = [];
-		let publishFrames: PublishWorktreeFileFrames | null = null;
+		const metadataInterestUpdates: FileMetadataInterestUpdate[] = [];
+		const openedDescriptorIds: string[] = [];
+		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
 		render(
 			<BridgeFileViewerApp
 				autoOpenInitialFile
 				codeViewWorkerPoolEnabled={false}
-				initialFrames={makeFrames(initiallyOpenDescriptor)}
-				worktreeFileSurfaceTransport={{
-					fetchResource: async (props) => {
-						fetchedResourceUrls.push(props.resourceUrl);
-						return makeWorktreeFileSurfaceRuntimeFetchedResource(
-							props.resourceUrl.includes('clicked-content')
+				initialMetadataEvents={makeFileMetadataEvents(initiallyOpenDescriptor)}
+				fileProductSession={{
+					readContent: async (props) => {
+						openedDescriptorIds.push(props.descriptor.descriptorId);
+						return makeFileContent(
+							props.descriptor.descriptorId.includes('clicked-content')
 								? 'export const clickedSelection = true;\n'
 								: 'export const initiallyOpen = true;\n',
 						);
 					},
-					requestFileDescriptor: (request) => {
-						descriptorRequests.push(request);
+					onMetadataInterestUpdate: (request) => {
+						metadataInterestUpdates.push(request);
 					},
-					subscribeFrames: (handler): (() => void) => {
-						publishFrames = handler;
+					onMetadataSubscription: (handler): (() => void) => {
+						publishMetadataEvents = handler;
 						return (): void => {
-							publishFrames = null;
+							publishMetadataEvents = null;
 						};
 					},
 				}}
@@ -105,77 +107,74 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('initiallyOpen');
 
-		const publishRequiredFrames = requireFramePublisher(publishFrames);
+		const publishRequiredMetadataEvents = requireMetadataPublisher(publishMetadataEvents);
 		await actUpdate((): void => {
-			publishRequiredFrames([
-				makeTreeWindowFrame({ rowCount: 1, sequence: 2, startIndex: 1, totalPathCount: 3 }),
+			publishRequiredMetadataEvents([
+				makeTreeWindowMetadataEvent({ rowCount: 1, sequence: 2, startIndex: 1, totalPathCount: 3 }),
 			]);
 		});
 		const clickedButton = await waitForBridgeViewerTreeItemButton('File-001.swift');
 		await actClick(clickedButton);
-		await waitForDescriptorRequestCount({
+		await waitForMetadataInterestUpdateCount({
 			expectedCount: 1,
-			recordedRequests: descriptorRequests,
+			metadataInterestUpdates: metadataInterestUpdates,
 		});
 
 		await actUpdate((): void => {
-			publishRequiredFrames([
-				makeTreeWindowFrame({ rowCount: 1, sequence: 3, startIndex: 2, totalPathCount: 3 }),
+			publishRequiredMetadataEvents([
+				makeTreeWindowMetadataEvent({ rowCount: 1, sequence: 3, startIndex: 2, totalPathCount: 3 }),
 			]);
 		});
 		await actFrame();
 		await actFrame();
-		expect(selectedDisplayPath()).toBe('File-000.swift');
-		expect(openFilePath()).toBe('File-000.swift');
-		expect(renderedFilePath()).toBe('File-000.swift');
-		expect(openFileBodyPreview()).toContain('initiallyOpen');
-		expect(visibleCodeText()).toContain('export const initiallyOpen = true;');
+		expect(selectedDisplayPath()).toBe('File-001.swift');
+		expect(openFilePath()).toBe('File-001.swift');
+		expect(renderedFilePath()).toBeNull();
+		expect(openFileBodyPreview()).toBeNull();
+		expect(visibleCodeText()).not.toContain('export const initiallyOpen = true;');
 
 		await actUpdate((): void => {
-			publishRequiredFrames(makeFileDescriptorFrame(clickedDescriptor, { sequence: 4 }));
+			publishRequiredMetadataEvents(
+				makeDescriptorReadyMetadataEvents(clickedDescriptor, { sequence: 4 }),
+			);
 		});
 		await waitForOpenFileState('ready');
 		await waitForSelectedDisplayPath('File-001.swift');
 		await waitForVisibleCodeText('clickedSelection');
 
-		expect(descriptorRequests).toEqual([
-			{
-				fileId: 'file-001',
-				path: 'File-001.swift',
-				rowId: 'row:File-001.swift',
-				sourceIdentity: makeSourceIdentity(),
-				lane: 'foreground',
-			},
+		const finalInterestUpdate = metadataInterestUpdates.at(-1);
+		if (finalInterestUpdate === undefined)
+			throw new Error('Expected final File metadata interest.');
+		expect(metadataInterestPathsForLane(finalInterestUpdate, 'foreground')).toEqual([
+			'File-001.swift',
 		]);
-		expect(fetchedResourceUrls).toContain(
-			'agentstudio://resource/worktree-file/worktree.fileContent/clicked-content?cursor=cursor-1&generation=1',
-		);
+		expect(finalInterestUpdate?.pathScope).toEqual([]);
+		expect(openedDescriptorIds).toContain('clicked-content');
 	});
 
-	test('retries a metadata-only descriptor request when the clicked file has not converged', async () => {
+	test('keeps one foreground interest for a selected metadata-only descriptor until it converges', async () => {
 		const initiallyOpenDescriptor = makeFileDescriptor({
 			contentHandle: 'initial-content',
 			fileId: 'file-000',
 			path: 'File-000.swift',
 		});
-		const descriptorRequests: WorktreeFileDescriptorRequest[] = [];
-		let publishFrames: PublishWorktreeFileFrames | null = null;
+		const metadataInterestUpdates: FileMetadataInterestUpdate[] = [];
+		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
 		render(
 			<BridgeFileViewerApp
 				autoOpenInitialFile
 				codeViewWorkerPoolEnabled={false}
-				initialFrames={makeFrames(initiallyOpenDescriptor)}
-				worktreeFileSurfaceTransport={{
-					fetchResource: async () =>
-						makeWorktreeFileSurfaceRuntimeFetchedResource('export const initiallyOpen = true;\n'),
-					requestFileDescriptor: (request) => {
-						descriptorRequests.push(request);
+				initialMetadataEvents={makeFileMetadataEvents(initiallyOpenDescriptor)}
+				fileProductSession={{
+					readContent: async () => makeFileContent('export const initiallyOpen = true;\n'),
+					onMetadataInterestUpdate: (request) => {
+						metadataInterestUpdates.push(request);
 					},
-					subscribeFrames: (handler): (() => void) => {
-						publishFrames = handler;
+					onMetadataSubscription: (handler): (() => void) => {
+						publishMetadataEvents = handler;
 						return (): void => {
-							publishFrames = null;
+							publishMetadataEvents = null;
 						};
 					},
 				}}
@@ -185,40 +184,33 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('initiallyOpen');
 		await actUpdate((): void => {
-			requireFramePublisher(publishFrames)([
-				makeTreeWindowFrame({ rowCount: 1, sequence: 2, startIndex: 1, totalPathCount: 2 }),
+			requireMetadataPublisher(publishMetadataEvents)([
+				makeTreeWindowMetadataEvent({ rowCount: 1, sequence: 2, startIndex: 1, totalPathCount: 2 }),
 			]);
 		});
 
 		const clickedButton = await waitForBridgeViewerTreeItemButton('File-001.swift');
+		const updateCountBeforeClick = metadataInterestUpdates.length;
 		await actClick(clickedButton);
-		await waitForDescriptorRequestCount({
-			expectedCount: 1,
-			recordedRequests: descriptorRequests,
+		await waitForMetadataInterestUpdateCount({
+			expectedCount: updateCountBeforeClick + 1,
+			metadataInterestUpdates: metadataInterestUpdates,
 		});
-		await waitForSelectedDisplayPath('File-000.swift');
+		await waitForSelectedDisplayPath('File-001.swift');
+		await settleBridgeFileViewerBrowserInteraction();
+		const settledUpdateCountAfterFirstSelection = metadataInterestUpdates.length;
 		await actClick(clickedButton);
-		await waitForDescriptorRequestCount({
-			expectedCount: 2,
-			recordedRequests: descriptorRequests,
-		});
+		await settleBridgeFileViewerBrowserInteraction();
 
-		expect(descriptorRequests).toEqual([
-			{
-				fileId: 'file-001',
-				path: 'File-001.swift',
-				rowId: 'row:File-001.swift',
-				sourceIdentity: makeSourceIdentity(),
-				lane: 'foreground',
-			},
-			{
-				fileId: 'file-001',
-				path: 'File-001.swift',
-				rowId: 'row:File-001.swift',
-				sourceIdentity: makeSourceIdentity(),
-				lane: 'foreground',
-			},
+		expect(metadataInterestUpdates).toHaveLength(settledUpdateCountAfterFirstSelection);
+		const selectedInterestUpdate = metadataInterestUpdates.at(-1);
+		if (selectedInterestUpdate === undefined) {
+			throw new Error('Expected selected File metadata interest.');
+		}
+		expect(metadataInterestPathsForLane(selectedInterestUpdate, 'foreground')).toEqual([
+			'File-001.swift',
 		]);
+		expect(selectedInterestUpdate?.pathScope).toEqual([]);
 	});
 
 	test('auto-opens the first metadata-only file row by requesting its descriptor', async () => {
@@ -227,56 +219,49 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			fileId: 'file-app-delegate',
 			path: 'Sources/AgentStudio/App/AppDelegate.swift',
 		});
-		const descriptorRequests: WorktreeFileDescriptorRequest[] = [];
-		const fetchedResourceUrls: string[] = [];
-		let publishFrames: PublishWorktreeFileFrames | null = null;
+		const metadataInterestUpdates: FileMetadataInterestUpdate[] = [];
+		const openedDescriptorIds: string[] = [];
+		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
 		render(
 			<BridgeFileViewerApp
 				autoOpenInitialFile
 				codeViewWorkerPoolEnabled={false}
-				initialFrames={makeTreeRowsOnlyFrames()}
-				worktreeFileSurfaceTransport={{
-					fetchResource: async (props) => {
-						fetchedResourceUrls.push(props.resourceUrl);
-						return makeWorktreeFileSurfaceRuntimeFetchedResource(
-							'export const autoOpenedMetadataRow = true;\n',
+				initialMetadataEvents={makeTreeRowsOnlyMetadataEvents()}
+				fileProductSession={{
+					readContent: async (props) => {
+						openedDescriptorIds.push(props.descriptor.descriptorId);
+						return makeFileContent('export const autoOpenedMetadataRow = true;\n');
+					},
+					onMetadataInterestUpdate: (request) => {
+						metadataInterestUpdates.push(request);
+						const publishRequiredMetadataEvents = requireMetadataPublisher(publishMetadataEvents);
+						publishRequiredMetadataEvents(
+							makeDescriptorReadyMetadataEvents(descriptor, { sequence: 1 }),
 						);
 					},
-					requestFileDescriptor: (request) => {
-						descriptorRequests.push(request);
-						const publishRequiredFrames = requireFramePublisher(publishFrames);
-						publishRequiredFrames(makeFileDescriptorFrame(descriptor, { sequence: 1 }));
-					},
-					subscribeFrames: (handler): (() => void) => {
-						publishFrames = handler;
+					onMetadataSubscription: (handler): (() => void) => {
+						publishMetadataEvents = handler;
 						return (): void => {
-							publishFrames = null;
+							publishMetadataEvents = null;
 						};
 					},
 				}}
 			/>,
 		);
 
-		await waitForDescriptorRequestCount({
+		await waitForMetadataInterestUpdateCount({
 			expectedCount: 1,
-			recordedRequests: descriptorRequests,
+			metadataInterestUpdates: metadataInterestUpdates,
 		});
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('autoOpenedMetadataRow');
 
-		expect(descriptorRequests).toEqual([
-			{
-				fileId: 'file-app-delegate',
-				path: 'Sources/AgentStudio/App/AppDelegate.swift',
-				rowId: 'row:Sources/AgentStudio/App/AppDelegate.swift',
-				sourceIdentity: makeSourceIdentity(),
-				lane: 'foreground',
-			},
-		]);
-		expect(fetchedResourceUrls).toEqual([
-			'agentstudio://resource/worktree-file/worktree.fileContent/app-delegate-content?cursor=cursor-1&generation=1',
-		]);
+		expect(metadataInterestUpdates.at(-1)).toEqual({
+			interests: [{ lane: 'foreground', paths: ['Sources/AgentStudio/App/AppDelegate.swift'] }],
+			pathScope: [],
+		});
+		expect(openedDescriptorIds).toEqual(['app-delegate-content']);
 	});
 
 	test('opens a file navigation target in the browser without auto-opening the first descriptor', async () => {
@@ -290,28 +275,21 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			fileId: 'file-target',
 			path: 'docs/target.ts',
 		});
-		const fetchedResourceUrls: string[] = [];
-		const telemetrySamples: BridgeTelemetrySample[] = [];
+		const openedDescriptorIds: string[] = [];
 
 		render(
 			<BridgeFileViewerApp
 				autoOpenInitialFile={true}
-				initialFrames={makeFrames(firstDescriptor, targetDescriptor)}
+				initialMetadataEvents={makeFileMetadataEvents(firstDescriptor, targetDescriptor)}
 				navigationCommand={fileNavigationCommandForPath('docs/target.ts')}
-				telemetryRecorder={makeTestTelemetryRecorder(telemetrySamples)}
-				worktreeFileSurfaceTransport={{
-					fetchResource: async (props) => {
-						fetchedResourceUrls.push(props.resourceUrl);
-						return makeWorktreeFileSurfaceRuntimeFetchedResource({
-							text: props.resourceUrl.includes('target-content')
+				fileProductSession={{
+					readContent: async (props) => {
+						openedDescriptorIds.push(props.descriptor.descriptorId);
+						return makeFileContent(
+							props.descriptor.descriptorId.includes('target-content')
 								? 'export const target = true;\n'
 								: 'export const first = true;\n',
-							timing: {
-								firstChunkWaitMilliseconds: 5,
-								responseWaitMilliseconds: 3,
-								streamReadMilliseconds: 7,
-							},
-						});
+						);
 					},
 				}}
 			/>,
@@ -325,24 +303,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
 		);
 		expect(shell.getAttribute('data-last-open-load-disposition')).toBeNull();
-		const fileOpenReadySample = await waitForTelemetrySample({
-			name: 'performance.bridge.web.file_open_ready',
-			samples: telemetrySamples,
-		});
-		expect(fileOpenReadySample.stringAttributes).toMatchObject({
-			'agentstudio.bridge.demand.disposition': 'worker-selected',
-			'agentstudio.bridge.demand.lane': 'foreground',
-			'agentstudio.bridge.phase': 'file_open_ready',
-			'agentstudio.bridge.result': 'success',
-			'agentstudio.bridge.viewer': 'file',
-		});
-		expect(
-			fileOpenReadySample.numericAttributes['agentstudio.bridge.demand.request.sequence'],
-		).toBeGreaterThan(0);
-		expect(fileOpenReadySample.numericAttributes['agentstudio.bridge.source.generation']).toBe(1);
-		expect(fetchedResourceUrls).toEqual([
-			'agentstudio://resource/worktree-file/worktree.fileContent/target-content?cursor=cursor-1&generation=1',
-		]);
+		expect(openedDescriptorIds).toEqual(['target-content']);
 	});
 
 	test('requests a metadata-only navigation target descriptor on the foreground lane', async () => {
@@ -351,60 +312,51 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			fileId: 'file-app-delegate',
 			path: 'Sources/AgentStudio/App/AppDelegate.swift',
 		});
-		const descriptorRequests: WorktreeFileDescriptorRequest[] = [];
-		const fetchedResourceUrls: string[] = [];
-		let publishFrames: PublishWorktreeFileFrames | null = null;
+		const metadataInterestUpdates: FileMetadataInterestUpdate[] = [];
+		const openedDescriptorIds: string[] = [];
+		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
 		render(
 			<BridgeFileViewerApp
 				autoOpenInitialFile={true}
 				codeViewWorkerPoolEnabled={false}
-				initialFrames={makeTreeRowsOnlyFrames()}
+				initialMetadataEvents={makeTreeRowsOnlyMetadataEvents()}
 				navigationCommand={fileNavigationCommandForPath(
 					'Sources/AgentStudio/App/AppDelegate.swift',
 				)}
-				worktreeFileSurfaceTransport={{
-					fetchResource: async (props) => {
-						fetchedResourceUrls.push(props.resourceUrl);
-						return makeWorktreeFileSurfaceRuntimeFetchedResource(
-							'export const navigationTargetFromMetadata = true;\n',
+				fileProductSession={{
+					readContent: async (props) => {
+						openedDescriptorIds.push(props.descriptor.descriptorId);
+						return makeFileContent('export const navigationTargetFromMetadata = true;\n');
+					},
+					onMetadataInterestUpdate: (request) => {
+						metadataInterestUpdates.push(request);
+						requireMetadataPublisher(publishMetadataEvents)(
+							makeDescriptorReadyMetadataEvents(descriptor, { sequence: 1 }),
 						);
 					},
-					requestFileDescriptor: (request) => {
-						descriptorRequests.push(request);
-						requireFramePublisher(publishFrames)(
-							makeFileDescriptorFrame(descriptor, { sequence: 1 }),
-						);
-					},
-					subscribeFrames: (handler): (() => void) => {
-						publishFrames = handler;
+					onMetadataSubscription: (handler): (() => void) => {
+						publishMetadataEvents = handler;
 						return (): void => {
-							publishFrames = null;
+							publishMetadataEvents = null;
 						};
 					},
 				}}
 			/>,
 		);
 
-		await waitForDescriptorRequestCount({
+		await waitForMetadataInterestUpdateCount({
 			expectedCount: 1,
-			recordedRequests: descriptorRequests,
+			metadataInterestUpdates: metadataInterestUpdates,
 		});
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('navigationTargetFromMetadata');
 
-		expect(descriptorRequests).toEqual([
-			{
-				fileId: 'file-app-delegate',
-				path: 'Sources/AgentStudio/App/AppDelegate.swift',
-				rowId: 'row:Sources/AgentStudio/App/AppDelegate.swift',
-				sourceIdentity: makeSourceIdentity(),
-				lane: 'foreground',
-			},
-		]);
-		expect(fetchedResourceUrls).toEqual([
-			'agentstudio://resource/worktree-file/worktree.fileContent/app-delegate-navigation-content?cursor=cursor-1&generation=1',
-		]);
+		expect(metadataInterestUpdates.at(-1)).toEqual({
+			interests: [{ lane: 'foreground', paths: ['Sources/AgentStudio/App/AppDelegate.swift'] }],
+			pathScope: [],
+		});
+		expect(openedDescriptorIds).toEqual(['app-delegate-navigation-content']);
 		expect(openFilePath()).toBe('Sources/AgentStudio/App/AppDelegate.swift');
 	});
 
@@ -414,28 +366,28 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			fileId: 'file-streamed',
 			path: 'src/streamed.ts',
 		});
-		const frames = makeFrames(descriptor);
-		const snapshotFrame = frames[0];
-		const descriptorFrame = frames[1];
-		if (snapshotFrame === undefined || descriptorFrame === undefined) {
-			throw new Error('Expected snapshot and descriptor frames.');
+		const metadataEvents = makeFileMetadataEvents(descriptor);
+		const sourceAcceptedEvent = metadataEvents[0];
+		const remainingMetadataEvents = metadataEvents.slice(1);
+		if (sourceAcceptedEvent === undefined || remainingMetadataEvents.length === 0) {
+			throw new Error('Expected source acceptance and subsequent File metadata events.');
 		}
-		let publishFrames: PublishWorktreeFileFrames | null = null;
-		const fetchedResourceUrls: string[] = [];
+		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
+		const openedDescriptorIds: string[] = [];
 
 		render(
 			<BridgeFileViewerApp
 				autoOpenInitialFile={true}
-				initialFrames={[snapshotFrame]}
-				worktreeFileSurfaceTransport={{
-					fetchResource: async (props) => {
-						fetchedResourceUrls.push(props.resourceUrl);
-						return makeWorktreeFileSurfaceRuntimeFetchedResource('export const streamed = true;\n');
+				initialMetadataEvents={[sourceAcceptedEvent]}
+				fileProductSession={{
+					readContent: async (props) => {
+						openedDescriptorIds.push(props.descriptor.descriptorId);
+						return makeFileContent('export const streamed = true;\n');
 					},
-					subscribeFrames: (handler): (() => void) => {
-						publishFrames = handler;
+					onMetadataSubscription: (handler): (() => void) => {
+						publishMetadataEvents = handler;
 						return (): void => {
-							publishFrames = null;
+							publishMetadataEvents = null;
 						};
 					},
 				}}
@@ -444,15 +396,13 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		await actFrame();
 		await actUpdate((): void => {
-			requireFramePublisher(publishFrames)([descriptorFrame]);
+			requireMetadataPublisher(publishMetadataEvents)(remainingMetadataEvents);
 		});
 
 		await waitForOpenFileState('ready');
 
 		expect(openFilePath()).toBe('src/streamed.ts');
-		expect(fetchedResourceUrls).toEqual([
-			'agentstudio://resource/worktree-file/worktree.fileContent/streamed-content?cursor=cursor-1&generation=1',
-		]);
+		expect(openedDescriptorIds).toEqual(['streamed-content']);
 	});
 
 	test('renders file body without Pierre file header chrome inside the File canvas', async () => {
@@ -465,17 +415,10 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
-				fileViewCommWorkerTransportFactory={createBridgeFileViewerBrowserTestCommWorkerTransportFactory(
-					{
-						fetchResource: async () =>
-							makeWorktreeFileSurfaceRuntimeFetchedResource('export const plain = true;\n'),
-					},
-				)}
-				initialFrames={makeFrames(targetDescriptor)}
+				initialMetadataEvents={makeFileMetadataEvents(targetDescriptor)}
 				navigationCommand={fileNavigationCommandForPath('src/plain.ts')}
-				worktreeFileSurfaceTransport={{
-					fetchResource: async () =>
-						makeWorktreeFileSurfaceRuntimeFetchedResource('export const plain = true;\n'),
+				fileProductSession={{
+					readContent: async () => makeFileContent('export const plain = true;\n'),
 				}}
 			/>,
 		);
@@ -487,15 +430,34 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(fileCanvasRenderedTextOffset('export const plain')).toBeLessThanOrEqual(4);
 	});
 
-	test('keeps the File CodeView viewport mounted while selected file content loads', async () => {
+	test('keeps the File CodeView viewport mounted after a warmed shell while selected file content loads', async () => {
+		const warmDescriptor = makeFileDescriptor({
+			contentHandle: 'warm-content',
+			fileId: 'file-warm',
+			path: 'src/warm.ts',
+		});
+		render(
+			<BridgeFileViewerApp
+				initialMetadataEvents={makeFileMetadataEvents(warmDescriptor)}
+				fileProductSession={{
+					readContent: async () => makeFileContent('export const warm = true;\n'),
+				}}
+			/>,
+		);
+		await waitForFileCodeViewViewport();
+		await actUpdate((): void => {
+			cleanup();
+		});
+		await actFrame();
+
 		const targetDescriptor = makeFileDescriptor({
 			contentHandle: 'slow-content',
 			fileId: 'file-slow',
 			path: 'src/slow.ts',
 		});
 		const deferredContent = makeDeferredContent();
-		const fetchedResourceUrls: string[] = [];
-		const telemetrySamples: BridgeTelemetrySample[] = [];
+		const openedDescriptorIds: string[] = [];
+		let currentSourceSettled = false;
 		let openSlowFile: (() => void) | null = null;
 
 		function ControlledFileViewer(): ReactElement {
@@ -508,12 +470,26 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			return (
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
-					initialFrames={makeFrames(targetDescriptor)}
+					initialMetadataEvents={makeFileMetadataEvents(targetDescriptor)}
 					{...(navigationCommand === undefined ? {} : { navigationCommand })}
-					telemetryRecorder={makeTestTelemetryRecorder(telemetrySamples)}
-					worktreeFileSurfaceTransport={{
-						fetchResource: (props) => {
-							fetchedResourceUrls.push(props.resourceUrl);
+					fileProductSession={{
+						currentSource: async () => {
+							await waitForBridgeViewerAnimationFrame();
+							currentSourceSettled = true;
+							return {
+								status: 'available',
+								source: {
+									cwdScope: null,
+									freshness: 'live',
+									includeStatuses: true,
+									repoId: '00000000-0000-4000-8000-000000000001',
+									rootPathToken: 'browser-test-root',
+									worktreeId: '00000000-0000-4000-8000-000000000002',
+								},
+							};
+						},
+						readContent: (props) => {
+							openedDescriptorIds.push(props.descriptor.descriptorId);
 							return deferredContent.promise;
 						},
 					}}
@@ -524,51 +500,29 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		render(<ControlledFileViewer />);
 
 		const idleViewport = await waitForFileCodeViewViewport();
+		expect(currentSourceSettled).toBe(true);
 		const openRequiredSlowFile = requireOpenSlowFile(openSlowFile);
 		await actUpdate(openRequiredSlowFile);
 		await waitForOpenFileState('loading');
-		await waitForRecordedFetchCount({
+		await waitForOpenedContentCount({
 			expectedCount: 1,
-			recordedFetches: fetchedResourceUrls,
+			openedDescriptorIds: openedDescriptorIds,
 		});
 		expect(document.querySelector('[data-testid="bridge-file-viewer-code-view"]')).toBe(
 			idleViewport,
 		);
-		expect(fetchedResourceUrls).toContain(
-			'agentstudio://resource/worktree-file/worktree.fileContent/slow-content?cursor=cursor-1&generation=1',
-		);
+		expect(openedDescriptorIds).toContain('slow-content');
 		expect(document.querySelector('[data-testid="bridge-file-viewer-content-state"]')).toBeNull();
 		expect(document.body.textContent ?? '').not.toContain('Loading file');
 
 		await actUpdate((): void => {
-			deferredContent.resolve(
-				makeWorktreeFileSurfaceRuntimeFetchedResource('export const slow = true;\n'),
-			);
+			deferredContent.resolve(makeFileContent('export const slow = true;\n'));
 		});
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('export const slow = true;');
-		const fileOpenReadySample = await waitForTelemetrySample({
-			name: 'performance.bridge.web.file_open_ready',
-			samples: telemetrySamples,
-		});
-
 		expect(document.querySelector('[data-testid="bridge-file-viewer-code-view"]')).toBe(
 			idleViewport,
 		);
-		expect(
-			telemetrySamples.filter((sample) => sample.name === 'performance.bridge.web.content_fetch'),
-		).toEqual([]);
-		expect(fileOpenReadySample.stringAttributes).toMatchObject({
-			'agentstudio.bridge.content.role': 'file',
-			'agentstudio.bridge.demand.disposition': 'worker-selected',
-			'agentstudio.bridge.demand.lane': 'foreground',
-			'agentstudio.bridge.phase': 'file_open_ready',
-			'agentstudio.bridge.result': 'success',
-			'agentstudio.bridge.viewer': 'file',
-		});
-		expect(
-			fileOpenReadySample.numericAttributes['agentstudio.bridge.demand.request.sequence'],
-		).toBeGreaterThan(0);
 	});
 
 	test('reserves selected file scroll extent from line-count metadata while content loads', async () => {
@@ -584,10 +538,10 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			<div style={{ display: 'grid', height: '360px', overflow: 'hidden', width: '960px' }}>
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
-					initialFrames={makeFrames(targetDescriptor)}
+					initialMetadataEvents={makeFileMetadataEvents(targetDescriptor)}
 					navigationCommand={fileNavigationCommandForPath('src/large-loading.ts')}
-					worktreeFileSurfaceTransport={{
-						fetchResource: () => deferredContent.promise,
+					fileProductSession={{
+						readContent: () => deferredContent.promise,
 					}}
 				/>
 			</div>,
@@ -600,9 +554,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(scrollOwner.scrollHeight).toBeGreaterThan(scrollOwner.clientHeight + 32);
 
 		await actUpdate((): void => {
-			deferredContent.resolve(
-				makeWorktreeFileSurfaceRuntimeFetchedResource('export const largeLoading = true;\n'),
-			);
+			deferredContent.resolve(makeFileContent('export const largeLoading = true;\n'));
 		});
 	});
 
@@ -630,17 +582,13 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			return (
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
-					initialFrames={makeFrames(firstDescriptor, secondDescriptor)}
+					initialMetadataEvents={makeFileMetadataEvents(firstDescriptor, secondDescriptor)}
 					navigationCommand={navigationCommand}
-					worktreeFileSurfaceTransport={{
-						fetchResource: (props) =>
-							props.resourceUrl.includes('second-slow-content')
+					fileProductSession={{
+						readContent: (props) =>
+							props.descriptor.descriptorId.includes('second-slow-content')
 								? deferredSecondContent.promise
-								: Promise.resolve(
-										makeWorktreeFileSurfaceRuntimeFetchedResource(
-											'export const firstRetained = true;\n',
-										),
-									),
+								: Promise.resolve(makeFileContent('export const firstRetained = true;\n')),
 					}}
 				/>
 			);
@@ -667,9 +615,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(openFileBodyPreview()).toBeNull();
 
 		await actUpdate((): void => {
-			deferredSecondContent.resolve(
-				makeWorktreeFileSurfaceRuntimeFetchedResource('export const secondSlow = true;\n'),
-			);
+			deferredSecondContent.resolve(makeFileContent('export const secondSlow = true;\n'));
 		});
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('export const secondSlow = true;');
@@ -706,17 +652,13 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			return (
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
-					initialFrames={makeFrames(firstDescriptor, secondDescriptor)}
+					initialMetadataEvents={makeFileMetadataEvents(firstDescriptor, secondDescriptor)}
 					navigationCommand={navigationCommand}
-					worktreeFileSurfaceTransport={{
-						fetchResource: (props) =>
-							props.resourceUrl.includes('second-large-retained-target-content')
+					fileProductSession={{
+						readContent: (props) =>
+							props.descriptor.descriptorId.includes('second-large-retained-target-content')
 								? deferredSecondContent.promise
-								: Promise.resolve(
-										makeWorktreeFileSurfaceRuntimeFetchedResource(
-											makeGeneratedFileBody('firstRetainedScroll', 8),
-										),
-									),
+								: Promise.resolve(makeFileContent(makeGeneratedFileBody('firstRetainedScroll', 8))),
 					}}
 				/>
 			);
@@ -746,9 +688,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		await actUpdate((): void => {
 			deferredSecondContent.resolve(
-				makeWorktreeFileSurfaceRuntimeFetchedResource(
-					makeGeneratedFileBody('secondLargeRetainedTarget', 575),
-				),
+				makeFileContent(makeGeneratedFileBody('secondLargeRetainedTarget', 575)),
 			);
 		});
 		await waitForOpenFileState('ready');
@@ -783,17 +723,13 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			return (
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
-					initialFrames={makeFrames(firstDescriptor, secondDescriptor)}
+					initialMetadataEvents={makeFileMetadataEvents(firstDescriptor, secondDescriptor)}
 					navigationCommand={navigationCommand}
-					worktreeFileSurfaceTransport={{
-						fetchResource: (props) =>
-							props.resourceUrl.includes('second-scroll-target-content')
+					fileProductSession={{
+						readContent: (props) =>
+							props.descriptor.descriptorId.includes('second-scroll-target-content')
 								? deferredSecondContent.promise
-								: Promise.resolve(
-										makeWorktreeFileSurfaceRuntimeFetchedResource(
-											makeGeneratedFileBody('firstScrolled', 120),
-										),
-									),
+								: Promise.resolve(makeFileContent(makeGeneratedFileBody('firstScrolled', 120))),
 					}}
 				/>
 			);
@@ -824,9 +760,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(openFileBodyPreview()).toBeNull();
 
 		await actUpdate((): void => {
-			deferredSecondContent.resolve(
-				makeWorktreeFileSurfaceRuntimeFetchedResource('export const secondScrollTarget = true;\n'),
-			);
+			deferredSecondContent.resolve(makeFileContent('export const secondScrollTarget = true;\n'));
 		});
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('export const secondScrollTarget = true;');

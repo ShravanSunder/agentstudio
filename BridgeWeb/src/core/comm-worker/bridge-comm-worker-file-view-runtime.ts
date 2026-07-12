@@ -2,39 +2,43 @@ import {
 	type BridgeCommWorkerPort,
 	postPreparedBridgeCommWorkerMessage,
 } from './bridge-comm-worker-entry.js';
+import type { BridgeCommWorkerFileViewContentRequest } from './bridge-comm-worker-file-metadata-projection.js';
 import type { BridgeCommWorkerStore } from './bridge-comm-worker-store.js';
-import type {
-	BridgeWorkerContentAvailabilityPatchPayload,
-	BridgeWorkerContentMetadata,
-	BridgeWorkerFileViewContentMetadata,
-	BridgeWorkerFileViewContentRequestDescriptor,
-	BridgeWorkerServerToMainMessage,
+import {
+	isBridgeWorkerFileViewContentMetadata,
+	type BridgeWorkerContentAvailabilityPatchPayload,
+	type BridgeWorkerFileViewContentMetadata,
 } from './bridge-worker-contracts.js';
 import {
 	type BridgeWorkerFetchedFileViewContentResource,
 	fetchBridgeWorkerFileViewContentResource,
+	type BridgeWorkerFileViewContentOpen,
 } from './bridge-worker-file-view-content-fetch.js';
 import {
-	commitBridgeWorkerFileViewContentReadySlicePatch,
+	bridgeWorkerFileRenderPatchesFromSlicePatchEvent,
+	commitBridgeWorkerFileViewContentReadyRenderPatch,
+	prepareBridgeWorkerFileRenderPatchEvent,
 	prepareBridgeWorkerFileViewContentRenderJobEvent,
 } from './bridge-worker-file-view-content-ready.js';
 import type {
 	BridgeWorkerDemandRank,
 	BridgeWorkerPierreRenderBudget,
 } from './bridge-worker-pierre-render-job.js';
-import type { BridgeWorkerContentFetch } from './bridge-worker-review-content-fetch.js';
-import { prepareBridgeWorkerStructuredMessage } from './bridge-worker-transfer-list.js';
 
 export interface DispatchSelectedBridgeWorkerFileViewContentReadyProps {
 	readonly bridgeDemandRank: BridgeWorkerDemandRank;
 	readonly budget: BridgeWorkerPierreRenderBudget;
-	readonly contentRequestDescriptors: readonly BridgeWorkerFileViewContentRequestDescriptor[];
+	readonly contentRequests?: readonly BridgeCommWorkerFileViewContentRequest[];
+	readonly contentRequestsByItemId?: ReadonlyMap<string, BridgeCommWorkerFileViewContentRequest>;
 	readonly epoch: number;
-	readonly fetchContent?: BridgeWorkerContentFetch;
 	readonly itemId: string;
+	readonly isPreparationCurrent?: () => boolean;
+	readonly openContent: BridgeWorkerFileViewContentOpen;
 	readonly port: BridgeCommWorkerPort;
 	readonly sequence: number;
+	readonly signal?: AbortSignal;
 	readonly store: BridgeCommWorkerStore;
+	readonly workerDerivationEpoch: number;
 }
 
 export type BridgeWorkerFileViewContentReadyFetchResult =
@@ -77,16 +81,19 @@ export async function fetchSelectedBridgeWorkerFileViewContentReadyResource(
 	if (metadata === null) {
 		return { reason: 'content_unavailable', status: 'terminal', state: 'unavailable' };
 	}
-	const descriptor =
-		props.contentRequestDescriptors.find((candidate) => candidate.itemId === props.itemId) ?? null;
-	if (descriptor === null) {
+	const contentRequest =
+		props.contentRequestsByItemId?.get(props.itemId) ??
+		props.contentRequests?.find((candidate) => candidate.itemId === props.itemId) ??
+		null;
+	if (contentRequest === null) {
 		return { reason: 'descriptor_missing', status: 'terminal', state: 'unavailable' };
 	}
 	let resource: BridgeWorkerFetchedFileViewContentResource;
 	try {
 		resource = await fetchBridgeWorkerFileViewContentResource({
-			descriptor,
-			...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
+			contentRequest,
+			openContent: props.openContent,
+			...(props.signal === undefined ? {} : { signal: props.signal }),
 		});
 	} catch {
 		return { reason: 'load_failed', status: 'terminal', state: 'failed' };
@@ -120,7 +127,9 @@ export function publishSelectedBridgeWorkerFileViewContentReadyFetchResult(
 		bridgeDemandRank: props.bridgeDemandRank,
 		budget: props.budget,
 		metadata: props.fetchResult.metadata,
+		publicationSequence: props.sequence,
 		resource: props.fetchResult.resource,
+		workerDerivationEpoch: props.workerDerivationEpoch,
 	});
 	if (preparedJobEvent === null) {
 		postSelectedFileViewContentTerminalAvailability({
@@ -132,22 +141,26 @@ export function publishSelectedBridgeWorkerFileViewContentReadyFetchResult(
 	}
 
 	postPreparedBridgeCommWorkerMessage(props.port, preparedJobEvent);
-	const contentReadyCommit = commitBridgeWorkerFileViewContentReadySlicePatch({
-		epoch: props.epoch,
+	const contentReadyCommit = commitBridgeWorkerFileViewContentReadyRenderPatch({
 		preparedJobEvent,
-		sequence: props.sequence,
+		publicationSequence: props.sequence,
 		store: props.store,
+		workerDerivationEpoch: props.workerDerivationEpoch,
 	});
 	postPreparedBridgeCommWorkerMessage(props.port, contentReadyCommit.preparedMessage);
 }
 
 export function isSelectedFileViewContentReadyPreparationCurrent(
-	props: Pick<DispatchSelectedBridgeWorkerFileViewContentReadyProps, 'epoch' | 'itemId' | 'store'>,
+	props: Pick<
+		DispatchSelectedBridgeWorkerFileViewContentReadyProps,
+		'epoch' | 'isPreparationCurrent' | 'itemId' | 'store'
+	>,
 ): boolean {
 	const state = props.store.getState();
 	return (
 		state.selectedId === props.itemId &&
-		state.demandByKey.get(props.itemId) === `selected:${props.epoch}`
+		state.demandByKey.get(props.itemId) === `selected:${props.epoch}` &&
+		(props.isPreparationCurrent?.() ?? true)
 	);
 }
 
@@ -167,14 +180,15 @@ function postSelectedFileViewContentTerminalAvailability(
 		state: props.state,
 	});
 	const slicePatchEvent = props.store.actions.takePendingSlicePatchEvent({
-		epoch: props.epoch,
+		epoch: props.workerDerivationEpoch,
 		sequence: props.sequence,
 	});
 	postPreparedBridgeCommWorkerMessage(
 		props.port,
-		prepareBridgeWorkerStructuredMessage({
-			message: assertBridgeWorkerSlicePatchEvent(slicePatchEvent),
-			declaredFields: [],
+		prepareBridgeWorkerFileRenderPatchEvent({
+			patches: bridgeWorkerFileRenderPatchesFromSlicePatchEvent(slicePatchEvent),
+			publicationSequence: props.sequence,
+			workerDerivationEpoch: props.workerDerivationEpoch,
 		}),
 	);
 }
@@ -184,19 +198,4 @@ function selectedFileViewContentMetadata(
 ): BridgeWorkerFileViewContentMetadata | null {
 	const metadata = props.store.getState().contentMetadataByItemId.get(props.itemId) ?? null;
 	return isBridgeWorkerFileViewContentMetadata(metadata) ? metadata : null;
-}
-
-function isBridgeWorkerFileViewContentMetadata(
-	metadata: BridgeWorkerContentMetadata | null,
-): metadata is BridgeWorkerFileViewContentMetadata {
-	return metadata !== null && 'contentHandle' in metadata;
-}
-
-function assertBridgeWorkerSlicePatchEvent(
-	event: BridgeWorkerServerToMainMessage | null,
-): BridgeWorkerServerToMainMessage {
-	if (event === null) {
-		throw new Error('Bridge worker File View terminal availability produced no slice patch event.');
-	}
-	return event;
 }

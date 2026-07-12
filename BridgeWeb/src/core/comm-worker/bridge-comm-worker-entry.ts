@@ -1,18 +1,24 @@
 // oxlint-disable unicorn/require-post-message-target-origin -- WorkerGlobalScope.postMessage does not accept a targetOrigin argument.
-import { createBridgeTelemetryEventSink } from '../../bridge/bridge-telemetry-event-sink.js';
-import type { BridgeTelemetryBootstrapConfig } from '../../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
 import { buildBridgeWorkerReadyHealthEvent } from './bridge-comm-worker-protocol.js';
 import {
 	registerBridgeCommWorkerRuntimePortProtocol,
 	type RegisterBridgeCommWorkerRuntimePortProtocolProps,
 } from './bridge-comm-worker-runtime-protocol.js';
-import { createBridgeCommWorkerTelemetryClient } from './bridge-comm-worker-telemetry.js';
+import {
+	BridgeProductControlMux,
+	BridgeProductSessionAuthorityStore,
+	type BridgeProductSessionAuthorityInstallInput,
+} from './bridge-product-session-authority.js';
+import { bridgePaneCommWorkerInstallSchema } from './bridge-product-session-contracts.js';
+import {
+	createBridgeProductTransport,
+	type BridgeProductTransportSession,
+} from './bridge-product-transport.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeCommWorkerBootstrapRequestSchema,
 	bridgeWorkerMainToServerMessageSchema,
 	type BridgeCommWorkerBootstrapRequest,
-	type BridgeCommWorkerTelemetryBootstrapConfig,
 	type BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
 import type { PreparedBridgeWorkerStructuredMessage } from './bridge-worker-transfer-list.js';
@@ -36,6 +42,17 @@ export interface BridgeCommWorkerGlobalScope {
 		listener: (event: MessageEvent<unknown>) => void,
 	) => void;
 	readonly dispatchEvent?: (event: Event) => boolean;
+}
+
+export interface BridgeCommWorkerEntryDependencies {
+	readonly installProductSession: (
+		input: BridgeProductSessionAuthorityInstallInput,
+	) => BridgeCommWorkerInstalledProductSession;
+}
+
+export interface BridgeCommWorkerInstalledProductSession {
+	readonly open: Promise<void>;
+	readonly productTransport: BridgeProductTransportSession;
 }
 
 export function postPreparedBridgeCommWorkerMessage(
@@ -93,15 +110,75 @@ export function bootstrapInertBridgeCommWorkerEntry(scope: BridgeCommWorkerGloba
 	registerInertBridgeCommWorkerPortProtocol(createBridgeCommWorkerScopePortAdapter(scope));
 }
 
-export function bootstrapBridgeCommWorkerEntry(port: BridgeCommWorkerPort): void {
+export function bootstrapBridgeCommWorkerEntry(
+	port: BridgeCommWorkerPort,
+	dependencies: BridgeCommWorkerEntryDependencies = defaultBridgeCommWorkerEntryDependencies(),
+): void {
+	let installedProductPort: MessagePort | null = null;
+
+	port.addEventListener('message', (event: MessageEvent<unknown>): void => {
+		const parsedInstall = bridgePaneCommWorkerInstallSchema.safeParse(event.data);
+		if (parsedInstall.success) {
+			event.stopImmediatePropagation();
+			if (installedProductPort !== null) {
+				parsedInstall.data.productPort.close();
+				port.postMessage(
+					buildBridgeWorkerEntryDegradedHealthEvent({
+						message: 'Bridge pane comm worker was already installed.',
+					}),
+				);
+				return;
+			}
+			const productSession = dependencies.installProductSession({
+				bootstrap: parsedInstall.data.bootstrap,
+				productCapability: parsedInstall.data.productCapability,
+			});
+			installedProductPort = parsedInstall.data.productPort;
+			bootstrapBridgeCommWorkerRuntimeEntry(installedProductPort, productSession);
+			return;
+		}
+
+		const parsedCommand = bridgeWorkerMainToServerMessageSchema.safeParse(event.data);
+		port.postMessage(
+			buildBridgeWorkerEntryDegradedHealthEvent({
+				...(parsedCommand.success ? { requestId: parsedCommand.data.requestId } : {}),
+				message:
+					installedProductPort === null
+						? 'Bridge pane comm worker requires a typed install message.'
+						: 'Bridge pane comm worker accepts ordinary commands only on the installed port.',
+			}),
+		);
+	});
+	port.start?.();
+}
+
+function defaultBridgeCommWorkerEntryDependencies(): BridgeCommWorkerEntryDependencies {
+	const productSessionAuthority = new BridgeProductSessionAuthorityStore();
+	return {
+		installProductSession: (input): BridgeCommWorkerInstalledProductSession => {
+			const authority = productSessionAuthority.install(input);
+			const controlMux = new BridgeProductControlMux({ authority });
+			return {
+				open: authority.open,
+				productTransport: createBridgeProductTransport({ authority, controlMux }),
+			};
+		},
+	};
+}
+
+function bootstrapBridgeCommWorkerRuntimeEntry(
+	port: BridgeCommWorkerPort,
+	productSession: BridgeCommWorkerInstalledProductSession,
+): void {
 	let didBootstrapRuntime = false;
+	let didReceiveBootstrap = false;
 	const pendingMessagesBeforeBootstrap: unknown[] = [];
 
 	port.addEventListener('message', (event: MessageEvent<unknown>): void => {
 		const parsedBootstrap = bridgeCommWorkerBootstrapRequestSchema.safeParse(event.data);
 		if (parsedBootstrap.success) {
 			event.stopImmediatePropagation();
-			if (didBootstrapRuntime) {
+			if (didReceiveBootstrap) {
 				port.postMessage(
 					buildBridgeWorkerEntryDegradedHealthEvent({
 						requestId: parsedBootstrap.data.requestId,
@@ -110,18 +187,31 @@ export function bootstrapBridgeCommWorkerEntry(port: BridgeCommWorkerPort): void
 				);
 				return;
 			}
-			didBootstrapRuntime = true;
-			registerBridgeCommWorkerRuntimePortProtocol(
-				port,
-				runtimePropsFromBootstrapRequest(parsedBootstrap.data),
-			);
-			port.postMessage(buildBridgeWorkerReadyHealthEvent(parsedBootstrap.data.requestId));
-			for (const pendingMessage of pendingMessagesBeforeBootstrap.splice(
-				0,
-				pendingMessagesBeforeBootstrap.length,
-			)) {
-				dispatchPendingMessageToRuntime(port, pendingMessage);
-			}
+			didReceiveBootstrap = true;
+			void productSession.open
+				.then((): void => {
+					didBootstrapRuntime = true;
+					registerBridgeCommWorkerRuntimePortProtocol(
+						port,
+						runtimePropsFromBootstrapRequest(parsedBootstrap.data, productSession.productTransport),
+					);
+					port.postMessage(buildBridgeWorkerReadyHealthEvent(parsedBootstrap.data.requestId));
+					for (const pendingMessage of pendingMessagesBeforeBootstrap.splice(
+						0,
+						pendingMessagesBeforeBootstrap.length,
+					)) {
+						dispatchPendingMessageToRuntime(port, pendingMessage);
+					}
+				})
+				.catch((): void => {
+					pendingMessagesBeforeBootstrap.splice(0, pendingMessagesBeforeBootstrap.length);
+					port.postMessage(
+						buildBridgeWorkerEntryDegradedHealthEvent({
+							requestId: parsedBootstrap.data.requestId,
+							message: 'Bridge product session open was rejected.',
+						}),
+					);
+				});
 			return;
 		}
 
@@ -152,41 +242,27 @@ export function bootstrapBridgeCommWorkerEntry(port: BridgeCommWorkerPort): void
 
 function runtimePropsFromBootstrapRequest(
 	request: BridgeCommWorkerBootstrapRequest,
+	productTransport: BridgeProductTransportSession,
 ): RegisterBridgeCommWorkerRuntimePortProtocolProps {
-	const telemetryClient =
-		request.runtime.telemetryConfig === undefined
-			? null
-			: createBridgeCommWorkerTelemetryClient({
-					config: bridgeTelemetryBootstrapConfigFromWorkerConfig(request.runtime.telemetryConfig),
-					streamId: 'comm-worker',
-					sink: createBridgeTelemetryEventSink({
-						endpointUrl: request.runtime.telemetryConfig.endpointUrl,
-					}),
-				});
+	const reviewPolicy = request.runtime.surfacePolicies?.review;
+	const fileViewPolicy = request.runtime.surfacePolicies?.fileView;
 	return {
-		bridgeDemandRank: request.runtime.bridgeDemandRank,
-		budget: request.runtime.budget,
+		bridgeDemandRank: reviewPolicy?.bridgeDemandRank ?? request.runtime.bridgeDemandRank,
+		budget: reviewPolicy?.budget ?? request.runtime.budget,
 		contentItems: request.runtime.contentItems,
 		contentRequestDescriptors: request.runtime.contentRequestDescriptors,
+		...(fileViewPolicy === undefined
+			? {}
+			: {
+					fileViewBridgeDemandRank: fileViewPolicy.bridgeDemandRank,
+					fileViewBudget: fileViewPolicy.budget,
+				}),
 		...(request.runtime.maxPreparationSliceMs === undefined
 			? {}
 			: { maxPreparationSliceMs: request.runtime.maxPreparationSliceMs }),
 		renderSemantics: request.runtime.renderSemantics,
 		rows: request.runtime.rows,
-		...(telemetryClient === null ? {} : { telemetryClient }),
-	};
-}
-
-function bridgeTelemetryBootstrapConfigFromWorkerConfig(
-	config: BridgeCommWorkerTelemetryBootstrapConfig,
-): BridgeTelemetryBootstrapConfig {
-	return {
-		enabledScopes: new Set(config.enabledScopes),
-		endpointUrl: config.endpointUrl,
-		maxEncodedBatchBytes: config.maxEncodedBatchBytes,
-		maxSamplesPerBatch: config.maxSamplesPerBatch,
-		minimumFlushIntervalMilliseconds: config.minimumFlushIntervalMilliseconds,
-		scenario: config.scenario,
+		productTransport,
 	};
 }
 

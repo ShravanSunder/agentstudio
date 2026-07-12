@@ -82,8 +82,10 @@ struct ObservabilityLaunchScriptsTests {
         #expect(!testHelperScript.contains("echo \"$output\" | grep -Eq \"unexpected signal code [0-9]+\""))
         #expect(
             testHelperScript.contains(
-                "WebKitSerializedTests/BridgeTransportIntegrationTests/test_pushPackageMetadata_rendersReviewViewerShell"
+                "WebKitSerializedTests/BridgeTransportIntegrationTests/test_intakeSnapshotFrame_rendersReviewViewerShell"
             ))
+        #expect(!testHelperScript.contains("WebKitSerializedTests/WorkspaceSurfaceBridgeFilesystemRefreshTests"))
+        #expect(testHelperScript.contains("WorkspaceSurfaceCoordinatorFilesystemSourceTests"))
         #expect(testHelperScript.contains("WebKitSerializedTests/BridgePaneControllerIPCProjectionTests"))
         #expect(testHelperScript.contains("WebKitSerializedTests/BridgePaneControllerContentAuthorityTests"))
         #expect(!testHelperScript.contains("\nWebKitSerializedTests/BridgeTransportIntegrationTests\n"))

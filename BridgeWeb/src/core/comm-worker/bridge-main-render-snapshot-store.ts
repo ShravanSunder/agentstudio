@@ -1,9 +1,23 @@
+import {
+	BridgeMainFileDisplayPatchApplier,
+	type BridgeMainFileDisplayPatchApplierProps,
+	type BridgeMainFileDisplayState,
+	type BridgeMainFileTreePatchStream,
+} from './bridge-main-file-display-patch-applier.js';
 import type {
 	BridgeWorkerContentAvailabilityPatchPayload,
+	BridgeWorkerFileDisplayPatchEvent,
 	BridgeWorkerPanelChromePatchPayload,
 	BridgeWorkerRowPaintPatchPayload,
 	BridgeWorkerSlicePatch,
 } from './bridge-worker-contracts.js';
+export type {
+	BridgeMainFileItemDisplayPayload,
+	BridgeMainFileQueryDisplayPayload,
+	BridgeMainFileStatusDisplayPayload,
+	BridgeMainFileTreeDisplaySlice,
+} from './bridge-main-file-display-patch-applier.js';
+export type { BridgeMainFileTreeDisplayRow } from './bridge-main-file-tree-display-index.js';
 import type {
 	BridgeWorkerCodeViewDiffItem,
 	BridgeWorkerCodeViewFileItem,
@@ -43,7 +57,7 @@ export interface BridgeMainRenderSnapshotUpdate {
 	readonly workerPatches?: readonly BridgeWorkerSlicePatch[];
 }
 
-export interface BridgeMainRenderSnapshot {
+export interface BridgeMainRenderSnapshot extends BridgeMainFileDisplayState {
 	readonly selectionSlice: BridgeMainSelectionSlice;
 	readonly viewportSlice: BridgeMainViewportSlice;
 	readonly rowPaintById: Readonly<Record<string, BridgeWorkerRowPaintPatchPayload>>;
@@ -77,9 +91,14 @@ export interface BridgeMainRenderSnapshotStore {
 	}) => void;
 	readonly applyWorkerPatch: (patch: BridgeWorkerSlicePatch) => void;
 	readonly applySnapshotUpdate: (update: BridgeMainRenderSnapshotUpdate) => void;
+	readonly applyFileDisplayPatchEvent: (event: BridgeWorkerFileDisplayPatchEvent) => void;
+	readonly completeFileQueryTransaction: (transactionId: string) => boolean;
+	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
 }
 
+const emptyFileDisplayState = new BridgeMainFileDisplayPatchApplier().state;
 const EMPTY_BRIDGE_MAIN_RENDER_SNAPSHOT: BridgeMainRenderSnapshot = {
+	...emptyFileDisplayState,
 	selectionSlice: {
 		selectedItemId: null,
 		source: null,
@@ -95,8 +114,11 @@ const EMPTY_BRIDGE_MAIN_RENDER_SNAPSHOT: BridgeMainRenderSnapshot = {
 	panelChromeSlice: {},
 };
 
-export function createBridgeMainRenderSnapshotStore(): BridgeMainRenderSnapshotStore {
+export function createBridgeMainRenderSnapshotStore(
+	fileDisplayApplierProps: BridgeMainFileDisplayPatchApplierProps = {},
+): BridgeMainRenderSnapshotStore {
 	let snapshot = EMPTY_BRIDGE_MAIN_RENDER_SNAPSHOT;
+	const fileDisplayPatchApplier = new BridgeMainFileDisplayPatchApplier(fileDisplayApplierProps);
 	const listeners = new Set<() => void>();
 
 	const publish = (nextSnapshot: BridgeMainRenderSnapshot): void => {
@@ -152,6 +174,17 @@ export function createBridgeMainRenderSnapshotStore(): BridgeMainRenderSnapshotS
 		applySnapshotUpdate: (update: BridgeMainRenderSnapshotUpdate): void => {
 			publish(buildSnapshotFromUpdate(snapshot, update));
 		},
+		applyFileDisplayPatchEvent: (event: BridgeWorkerFileDisplayPatchEvent): void => {
+			const fileDisplayState = fileDisplayPatchApplier.applyEvent(event);
+			if (fileDisplayState !== null) publish({ ...snapshot, ...fileDisplayState });
+		},
+		completeFileQueryTransaction: (transactionId: string): boolean => {
+			const fileDisplayState = fileDisplayPatchApplier.completeQueryTransaction(transactionId);
+			if (fileDisplayState === null) return false;
+			publish({ ...snapshot, ...fileDisplayState });
+			return true;
+		},
+		fileTreePatchStream: fileDisplayPatchApplier.fileTreePatchStream,
 	};
 }
 

@@ -189,8 +189,9 @@ struct BridgeProductSessionLifecycleTests {
         let beforeCompletion = await harness.session.snapshot
         let mismatchedResponse = try BridgeProductControlResponse.resyncAccepted(
             correlating: resyncRequest,
+            metadataStreamSequenceBarrier: 5,
             nextExpectedRequestSequence: 5,
-            resumeFromStreamSequence: 5
+            reconciliation: []
         )
 
         #expect(beforeCompletion.workerDerivationEpochBySurface[.review] == 7)
@@ -208,10 +209,9 @@ struct BridgeProductSessionLifecycleTests {
             ) != nil
         )
 
-        let acceptedResponse = try BridgeProductControlResponse.resyncAccepted(
-            correlating: resyncRequest,
-            nextExpectedRequestSequence: 5,
-            resumeFromStreamSequence: 6
+        let acceptedResponse = try await harness.authoritativeResyncResponse(
+            request: resyncRequest,
+            token: resyncToken
         )
         _ = try await harness.session.completeControl(
             token: resyncToken,
@@ -283,16 +283,18 @@ struct BridgeProductSessionLifecycleTests {
         let laggingToken = try #require(
             try await harness.begin(laggingRequest).executionToken
         )
-        let laggingResponse = try BridgeProductControlResponse.resyncAccepted(
-            correlating: laggingRequest,
-            nextExpectedRequestSequence: 3,
-            resumeFromStreamSequence: 5
+        let laggingResponse = try await harness.authoritativeResyncResponse(
+            request: laggingRequest,
+            token: laggingToken
         )
         let effects = try await harness.session.completeControl(
             token: laggingToken,
             exactResponseBytes: try JSONEncoder().encode(laggingResponse)
         )
-        #expect(effects.resync != nil)
+        guard case .resynced = effects else {
+            Issue.record("Expected a committed session-resync effect")
+            return
+        }
         #expect((await harness.session.producerSnapshot()).nextMetadataStreamSequence == 7)
         try await harness.closeProducer(metadataLease)
     }

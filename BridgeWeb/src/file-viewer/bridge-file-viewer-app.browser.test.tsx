@@ -14,3 +14,16 @@ import './bridge-file-viewer-app.browser.demand-suite.js';
 import './bridge-file-viewer-app.browser.reactivation-demand-suite.js';
 // oxlint-disable-next-line import/no-unassigned-import -- Aggregates Browser Mode suites.
 import './bridge-file-viewer-app.browser.refresh-demand-suite.js';
+import { afterAll, beforeEach } from 'vitest';
+
+import { installBridgeFileViewerNoopResizeObserver } from './bridge-file-viewer-browser-test-harness.js';
+
+const originalBridgeFileViewerResizeObserver = globalThis.ResizeObserver;
+
+beforeEach(() => {
+	installBridgeFileViewerNoopResizeObserver();
+});
+
+afterAll(() => {
+	Object.assign(globalThis, { ResizeObserver: originalBridgeFileViewerResizeObserver });
+});

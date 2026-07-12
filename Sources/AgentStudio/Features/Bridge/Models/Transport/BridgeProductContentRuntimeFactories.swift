@@ -44,6 +44,7 @@ extension BridgeProductContentDataHeader {
 extension BridgeProductContentEndHeader {
     init(
         contentSequence: Int,
+        endOfSource: Bool,
         observedByteLength: Int,
         observedSha256: String
     ) throws {
@@ -61,6 +62,7 @@ extension BridgeProductContentEndHeader {
         )
         try BridgeProductContractDecoding.validateSHA256(observedSha256, codingPath: [])
         self.contentSequence = contentSequence
+        self.endOfSource = endOfSource
         self.observedByteLength = observedByteLength
         self.observedSha256 = observedSha256
     }
@@ -108,12 +110,14 @@ extension BridgeProductContentHeader {
 
     static func end(
         contentSequence: Int,
+        endOfSource: Bool,
         observedByteLength: Int,
         observedSha256: String
     ) throws -> Self {
         .end(
             try .init(
                 contentSequence: contentSequence,
+                endOfSource: endOfSource,
                 observedByteLength: observedByteLength,
                 observedSha256: observedSha256
             )

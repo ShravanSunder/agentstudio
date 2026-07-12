@@ -16,9 +16,10 @@ actor BridgeProductSession {
     var producerRetirementStateByLease: [BridgeProductProducerLease: BridgeProductSessionProducerRetirementState] = [:]
     private var controlReplay: BridgeProductControlReplayCache
     private var lifecycle: BridgeProductSessionLifecycle = .awaitingOpen
-    private var pendingControl: BridgeProductSessionPendingControl?
-    private var subscriptionState = BridgeProductSubscriptionState()
-    private var workerDerivationEpochBySurface: [BridgeProductSurface: Int] = [
+    var pendingControl: BridgeProductSessionPendingControl?
+    var protocolSubscriptionDeliveryById: [String: BridgeProductProtocolSubscriptionDelivery] = [:]
+    var subscriptionState = BridgeProductSubscriptionState()
+    var workerDerivationEpochBySurface: [BridgeProductSurface: Int] = [
         .review: 0,
         .file: 0,
     ]
@@ -214,6 +215,16 @@ actor BridgeProductSession {
         else {
             return .rejected(.init(reason: .staleWorker, request: request))
         }
+        if pendingControl != nil {
+            return .rejected(
+                .init(
+                    reason: .requestInFlight(
+                        nextExpectedRequestSequence: controlReplay.snapshot.nextExpectedRequestSequence
+                    ),
+                    request: request
+                )
+            )
+        }
 
         switch controlReplay.begin(
             requestSequence: request.requestSequence,
@@ -267,7 +278,7 @@ actor BridgeProductSession {
     func completeControl(
         token: BridgeProductControlAdmissionToken,
         exactResponseBytes: Data
-    ) async throws -> BridgeProductSessionCompletionEffects {
+    ) async throws -> BridgeProductSessionCompletionEffect {
         guard let pendingControl, pendingControl.token == token else {
             throw BridgeProductSessionError.invalidAdmissionToken
         }
@@ -290,7 +301,7 @@ actor BridgeProductSession {
         if lifecycle == .revoked || pendingControlIsStale(pendingControl) {
             try controlReplay.complete(token: token, exactResponseBytes: exactResponseBytes)
             await settlePendingControl(pendingControl)
-            return .noEffects
+            return .noEffect
         }
 
         let transition: BridgeProductSessionControlTransition
@@ -306,7 +317,7 @@ actor BridgeProductSession {
             throw BridgeProductSessionError.subscriptionStateRejected(stateError)
         }
 
-        if transition.effects.resync != nil {
+        if case .resynced = transition.effect {
             for (surface, epoch) in pendingControl.deferredResyncEpochs {
                 advanceSurfaceFloorIfNeeded(
                     surface: surface,
@@ -314,14 +325,39 @@ actor BridgeProductSession {
                 )
             }
         }
+        if pendingControl.providerDispatchCompletion != nil {
+            try admitRequiredProtocolLifecycleFrame(for: transition.effect)
+        }
         try controlReplay.complete(token: token, exactResponseBytes: exactResponseBytes)
         subscriptionState = transition.subscriptionState
+        if case .resynced(let resyncResult) = transition.effect {
+            reconcileProtocolSubscriptionDeliveries(resyncResult)
+        }
         applyCompletedLifecycle(
             request: pendingControl.request,
             response: response
         )
+        if transition.effect == .noEffect
+            || pendingControl.providerDispatchCompletion == nil
+        {
+            await settlePendingControl(pendingControl)
+        }
+        return transition.effect
+    }
+
+    func settleControlProviderDispatch(
+        token: BridgeProductControlAdmissionToken
+    ) async {
+        guard let pendingControl, pendingControl.token == token else { return }
+        if controlReplay.snapshot.inFlightRequestSequence == token.requestSequence {
+            try? controlReplay.abandon(token: token)
+            if lifecycle != .revoked,
+                case .workerSessionOpen = pendingControl.request
+            {
+                lifecycle = .awaitingOpen
+            }
+        }
         await settlePendingControl(pendingControl)
-        return transition.effects
     }
 
     func abandonControl(token: BridgeProductControlAdmissionToken) throws {
@@ -359,6 +395,7 @@ actor BridgeProductSession {
             }
         }
         subscriptionState.revokeWorker()
+        protocolSubscriptionDeliveryById.removeAll(keepingCapacity: false)
         let producerResidueLeases = producerRegistry.lifecycleResidueLeases()
         let stopRequests = producerRegistry.requestStopEveryProducer(revoking: true)
         let stopRequestByLease = Dictionary(
@@ -447,19 +484,6 @@ actor BridgeProductSession {
         resumeProducerFrameWaiterIfPossible(for: lease)
     }
 
-    private func streamProgressRejection(
-        for request: BridgeProductControlRequest
-    ) -> BridgeProductSessionControlRejection? {
-        guard case .workerSessionResync(let resyncRequest) = request else { return nil }
-        let nextMetadataStreamSequence = producerRegistry.snapshot().nextMetadataStreamSequence
-        guard resyncRequest.lastAcceptedStreamSequence < nextMetadataStreamSequence else {
-            return .streamSequenceConflict(
-                nextMetadataStreamSequence: nextMetadataStreamSequence
-            )
-        }
-        return nil
-    }
-
     private func advanceSurfaceFloorIfNeeded(
         surface: BridgeProductSurface,
         workerDerivationEpoch: Int
@@ -522,28 +546,6 @@ actor BridgeProductSession {
     ) async {
         self.pendingControl = nil
         await pendingControl.providerDispatchCompletion?.complete()
-    }
-
-    private func preflightResyncEpochs(
-        _ activeSubscriptions: [BridgeProductActiveSubscription]
-    ) -> [BridgeProductSurface: Int]? {
-        var candidateEpochs: [BridgeProductSurface: Int] = [:]
-        for subscription in activeSubscriptions {
-            let surface = subscription.surface
-            if let candidateEpoch = candidateEpochs[surface],
-                candidateEpoch != subscription.workerDerivationEpoch
-            {
-                return nil
-            }
-            guard
-                subscription.workerDerivationEpoch
-                    >= workerDerivationEpochBySurface[surface, default: 0]
-            else {
-                return nil
-            }
-            candidateEpochs[surface] = subscription.workerDerivationEpoch
-        }
-        return candidateEpochs
     }
 
     private func applyCompletedLifecycle(

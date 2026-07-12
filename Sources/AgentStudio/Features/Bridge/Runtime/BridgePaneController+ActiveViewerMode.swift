@@ -2,67 +2,58 @@ import Foundation
 
 @MainActor
 extension BridgePaneController {
-    func handleBridgeActiveViewerModeUpdate(_ params: BridgeActiveViewerModeUpdateMethod.Params) async {
-        if activeViewerModeSignalState.sessionId != params.sessionId {
+    func handleCommittedProductActiveViewerModeUpdate(
+        sessionId: String,
+        sequence: Int,
+        mode: BridgeActiveViewerMode,
+        activeSource: BridgeActiveViewerSource?
+    ) async {
+        if activeViewerModeSignalState.sessionId != sessionId {
             if activeViewerModeSignalState.sessionId != nil {
                 await recordActiveViewerModeSignalRejected(
                     reason: .sessionReset,
-                    mode: params.mode,
-                    activeSource: params.activeSource
+                    mode: mode,
+                    activeSource: activeSource
                 )
             }
             activeViewerModeSignalState = BridgeActiveViewerModeSignalState(
-                sessionId: params.sessionId,
+                sessionId: sessionId,
                 lastSequence: nil,
                 acceptedSignal: nil
             )
         }
         if let lastSequence = activeViewerModeSignalState.lastSequence,
-            params.sequence <= lastSequence
+            sequence <= lastSequence
         {
             await recordActiveViewerModeSignalRejected(
                 reason: .staleSequence,
-                mode: params.mode,
-                activeSource: params.activeSource
+                mode: mode,
+                activeSource: activeSource
             )
             return
         }
 
-        activeViewerModeSignalState.lastSequence = params.sequence
-        guard let activeSource = params.activeSource else {
+        activeViewerModeSignalState.lastSequence = sequence
+        guard let activeSource else {
             activeViewerModeSignalState.acceptedSignal = nil
             return
         }
-        guard isActiveViewerSourceCurrent(activeSource) else {
+        guard isCommittedProductActiveViewerSourceAccepted(mode: mode, source: activeSource) else {
             activeViewerModeSignalState.acceptedSignal = nil
             await recordActiveViewerModeSignalRejected(
                 reason: .staleGeneration,
-                mode: params.mode,
+                mode: mode,
                 activeSource: activeSource
             )
             return
         }
         activeViewerModeSignalState.acceptedSignal = BridgeActiveViewerModeAcceptedSignal(
-            mode: params.mode,
+            mode: mode,
             activeSource: activeSource,
-            sequenceFloor: params.sequence
+            sequenceFloor: sequence
         )
         await runActiveViewerModeSuppressionCatchUpIfNeeded(
             for: activeViewerModeSignalState.acceptedSignal
-        )
-    }
-
-    func setActiveViewerModeAcceptedSignalForExplicitFileSurfaceRequest(
-        streamId: String,
-        generation: Int
-    ) async {
-        await setActiveViewerModeAcceptedSignalForExplicitRequest(
-            mode: .file,
-            activeSource: BridgeActiveViewerSource(
-                protocolId: .worktreeFile,
-                streamId: streamId,
-                generation: generation
-            )
         )
     }
 
@@ -107,17 +98,7 @@ extension BridgePaneController {
         else {
             return false
         }
-        return isActiveViewerSourceCurrent(acceptedSignal.activeSource)
-    }
-
-    func shouldSuppressWorktreeFileProduction(generation _: Int) -> Bool {
-        guard let acceptedSignal = activeViewerModeSignalState.acceptedSignal,
-            acceptedSignal.mode == .review,
-            acceptedSignal.activeSource.protocolId == .review
-        else {
-            return false
-        }
-        return isActiveViewerSourceCurrent(acceptedSignal.activeSource)
+        return true
     }
 
     func recordActiveViewerModeSuppression(
@@ -158,56 +139,32 @@ extension BridgePaneController {
     }
 
     private func markDroppedWhileSuppressed(protocolId: String) {
-        switch protocolId {
-        case "review":
-            guard let generation = paneState.diff.packageMetadata?.reviewGeneration.rawValue else { return }
-            reviewProtocolSuppressedDrop = BridgeSuppressedProtocolDrop(
-                generation: generation,
-                nextSequenceAtDrop: nextReviewProtocolSequence
-            )
-        case "worktree-file":
-            guard let activeSource = activeWorktreeFileSurfaceSource else { return }
-            worktreeFileSuppressedDrop = BridgeSuppressedProtocolDrop(
-                generation: activeSource.source.subscriptionGeneration,
-                nextSequenceAtDrop: activeSource.nextSequence
-            )
-        default:
-            return
-        }
+        guard protocolId == "review",
+            let generation = paneState.diff.packageMetadata?.reviewGeneration.rawValue
+        else { return }
+        reviewProtocolSuppressedDrop = BridgeSuppressedProtocolDrop(
+            generation: generation,
+            nextSequenceAtDrop: nextReviewProtocolSequence
+        )
     }
 
     private func runActiveViewerModeSuppressionCatchUpIfNeeded(
         for acceptedSignal: BridgeActiveViewerModeAcceptedSignal?
     ) async {
         guard let acceptedSignal else { return }
-        switch (acceptedSignal.mode, acceptedSignal.activeSource.protocolId) {
-        case (.review, .review):
-            guard let suppressedDrop = reviewProtocolSuppressedDrop,
-                suppressedDrop.generation == acceptedSignal.activeSource.generation,
-                suppressedDrop.nextSequenceAtDrop == nextReviewProtocolSequence
-            else { return }
-            reviewProtocolSuppressedDrop = nil
-            await recordActiveViewerModeSuppressionCatchUp(
-                protocolId: "review",
-                mode: acceptedSignal.mode,
-                activeSource: acceptedSignal.activeSource
-            )
-            await redeliverCurrentReviewPackageForSuppressionCatchUp()
-        case (.file, .worktreeFile):
-            guard let suppressedDrop = worktreeFileSuppressedDrop,
-                suppressedDrop.generation == acceptedSignal.activeSource.generation,
-                suppressedDrop.nextSequenceAtDrop == activeWorktreeFileSurfaceSource?.nextSequence
-            else { return }
-            worktreeFileSuppressedDrop = nil
-            await recordActiveViewerModeSuppressionCatchUp(
-                protocolId: "worktree-file",
-                mode: acceptedSignal.mode,
-                activeSource: acceptedSignal.activeSource
-            )
-            scheduleWorktreeFileSurfaceSuppressionCatchUp()
-        default:
-            return
-        }
+        guard acceptedSignal.mode == .review,
+            acceptedSignal.activeSource.protocolId == .review,
+            let suppressedDrop = reviewProtocolSuppressedDrop,
+            suppressedDrop.generation == acceptedSignal.activeSource.generation,
+            suppressedDrop.nextSequenceAtDrop == nextReviewProtocolSequence
+        else { return }
+        reviewProtocolSuppressedDrop = nil
+        await recordActiveViewerModeSuppressionCatchUp(
+            protocolId: "review",
+            mode: acceptedSignal.mode,
+            activeSource: acceptedSignal.activeSource
+        )
+        await redeliverCurrentReviewPackageForSuppressionCatchUp()
     }
 
     private func redeliverCurrentReviewPackageForSuppressionCatchUp() async {
@@ -290,30 +247,24 @@ extension BridgePaneController {
         )
     }
 
-    private func isActiveViewerSourceCurrent(_ source: BridgeActiveViewerSource) -> Bool {
-        switch source.protocolId {
-        case .review:
-            guard let package = paneState.diff.packageMetadata else {
-                return false
-            }
-            return source.streamId == reviewProtocolStreamId()
-                && source.generation == package.reviewGeneration.rawValue
-        case .worktreeFile:
-            guard let activeSource = activeWorktreeFileSurfaceSource else {
-                return false
-            }
-            return source.streamId == activeSource.streamId
-                && source.generation == activeSource.source.subscriptionGeneration
-                && source.generation == nextWorktreeFileSurfaceGeneration
+    private func isCommittedProductActiveViewerSourceAccepted(
+        mode: BridgeActiveViewerMode,
+        source: BridgeActiveViewerSource
+    ) -> Bool {
+        if mode == .file {
+            return source.protocolId == .worktreeFile
         }
+        guard source.protocolId == .review,
+            let package = paneState.diff.packageMetadata
+        else { return false }
+        return source.streamId == reviewProtocolStreamId()
+            && source.generation == package.reviewGeneration.rawValue
     }
 
     private func telemetrySliceForSuppressedProtocol(_ protocolId: String) -> BridgeTelemetrySlice {
         switch protocolId {
         case "review":
             return .reviewMetadata
-        case "worktree-file":
-            return .treePrepareInput
         default:
             return .unknown
         }

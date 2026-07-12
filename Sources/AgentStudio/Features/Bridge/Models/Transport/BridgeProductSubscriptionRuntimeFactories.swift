@@ -37,27 +37,21 @@ extension BridgeProductReviewMetadataEvent {
         revision: Int,
         sourceIdentity: String
     ) throws {
-        try BridgeProductContractDecoding.validateNonnegative(
-            generation,
-            name: "generation",
-            codingPath: []
+        self = .sourceAccepted(
+            BridgeProductReviewSourceAcceptedEvent(
+                identity: try BridgeProductReviewMetadataIdentity(
+                    generation: generation,
+                    packageId: packageId,
+                    revision: revision,
+                    sourceIdentity: sourceIdentity
+                )
+            )
         )
-        try BridgeProductContractDecoding.validateIdentifier(packageId, codingPath: [])
-        try BridgeProductContractDecoding.validateNonnegative(
-            revision,
-            name: "revision",
-            codingPath: []
-        )
-        try BridgeProductContractDecoding.validateIdentifier(sourceIdentity, codingPath: [])
-        self.generation = generation
-        self.packageId = packageId
-        self.revision = revision
-        self.sourceIdentity = sourceIdentity
     }
 }
 
 extension BridgeProductFileMetadataEvent {
     init(source: BridgeProductFileSourceIdentity) {
-        self.source = source
+        self = .sourceAccepted(.init(source: source))
     }
 }

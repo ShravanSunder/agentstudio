@@ -200,12 +200,20 @@ describe('Bridge product metadata frame decoder', () => {
 		const encodedFrames = frames.map((frame) =>
 			encodeBridgeProductMetadataFrame(bridgeProductMetadataFrameSchema.parse(frame)),
 		);
+		const mismatchedFileGenerationFrame = { ...frames[4], sourceGeneration: 12 };
+		const mismatchedReviewGenerationFrame = { ...frames[5], sourceGeneration: 8 };
 		const decoder = new BridgeProductMetadataFrameDecoder();
 
 		const decodedFrames = decoder.push(concatenateBytes(...encodedFrames));
 		decoder.finish();
 
 		expect(decodedFrames).toEqual(frames);
+		expect(bridgeProductMetadataFrameSchema.safeParse(mismatchedFileGenerationFrame).success).toBe(
+			false,
+		);
+		expect(
+			bridgeProductMetadataFrameSchema.safeParse(mismatchedReviewGenerationFrame).success,
+		).toBe(false);
 		expect(decodedFrames.map((frame) => frame.streamSequence)).toEqual([0, 1, 2, 3, 4, 5, 6]);
 		expect(
 			decodedFrames

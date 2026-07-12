@@ -420,6 +420,12 @@ struct BridgeProductSubscriptionDataFrame: Codable, Equatable, Sendable {
                 codingPath: decoder.codingPath
             )
         }
+        guard subscriptionIdentity.sourceGeneration == data.sourceGeneration else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Bridge product metadata frame generation does not match its event",
+                codingPath: decoder.codingPath
+            )
+        }
     }
 
     func encode(to encoder: Encoder) throws {

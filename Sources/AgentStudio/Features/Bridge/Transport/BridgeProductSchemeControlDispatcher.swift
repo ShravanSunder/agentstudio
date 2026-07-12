@@ -41,13 +41,25 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
             // Provider dispatch is the replay boundary. Once it starts, this unstructured
             // task must finish and cache one exact response even if the URL task closes.
             let completion = Task { [provider, session] in
-                let providerResponse = await provider.response(for: request)
-                return try await Self.completeControl(
-                    providerResponse: providerResponse,
-                    request: request,
-                    token: token,
-                    session: session
-                )
+                do {
+                    let providerResponse = await provider.response(for: request)
+                    let authoritativeResponse = try await session.authoritativeControlResponse(
+                        token: token,
+                        providerResponse: providerResponse
+                    )
+                    let response = try await Self.completeControl(
+                        providerResponse: authoritativeResponse,
+                        request: request,
+                        token: token,
+                        session: session,
+                        provider: provider
+                    )
+                    await session.settleControlProviderDispatch(token: token)
+                    return response
+                } catch {
+                    await session.settleControlProviderDispatch(token: token)
+                    throw error
+                }
             }
             let exactResponseBytes = try await completion.value
             return .response(exactResponseBytes)
@@ -58,31 +70,51 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
         providerResponse: BridgeProductControlResponse,
         request: BridgeProductControlRequest,
         token: BridgeProductControlAdmissionToken,
-        session: BridgeProductSession
+        session: BridgeProductSession,
+        provider: any BridgeProductSchemeProvider
     ) async throws -> Data {
         let providerResponseBytes = try encode(providerResponse)
         do {
-            _ = try await session.completeControl(
+            let completionEffect = try await session.completeControl(
                 token: token,
                 exactResponseBytes: providerResponseBytes
+            )
+            await applyCommittedEffect(
+                completionEffect,
+                request: request,
+                provider: provider
             )
             return providerResponseBytes
         } catch {
             let internalError = try BridgeProductControlResponse.requestError(
                 correlating: request,
                 code: .internal,
-                nextExpectedRequestSequence: nil,
+                nextExpectedRequestSequence: request.requestSequence + 1,
                 retryAfterMilliseconds: nil,
                 retryable: false,
                 safeMessage: nil
             )
             let internalErrorBytes = try encode(internalError)
-            _ = try await session.completeControl(
+            let completionEffect = try await session.completeControl(
                 token: token,
                 exactResponseBytes: internalErrorBytes
             )
+            await applyCommittedEffect(
+                completionEffect,
+                request: request,
+                provider: provider
+            )
             return internalErrorBytes
         }
+    }
+
+    private static func applyCommittedEffect(
+        _ effect: BridgeProductSessionCompletionEffect,
+        request: BridgeProductControlRequest,
+        provider: any BridgeProductSchemeProvider
+    ) async {
+        guard effect != .noEffect else { return }
+        await provider.applyCommittedControlEffect(effect, for: request)
     }
 
     private static func encode(_ response: BridgeProductControlResponse) throws -> Data {

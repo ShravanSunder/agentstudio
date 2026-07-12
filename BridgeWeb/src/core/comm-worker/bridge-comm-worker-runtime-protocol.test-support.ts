@@ -4,7 +4,6 @@ import type { BridgeCommWorkerPort } from './bridge-comm-worker-entry.js';
 import type { BridgeCommWorkerPreparationDrain } from './bridge-comm-worker-runtime-protocol.js';
 import type {
 	BridgeWorkerFileViewContentMetadata,
-	BridgeWorkerFileViewContentRequestDescriptor,
 	BridgeWorkerReviewContentMetadata,
 	BridgeWorkerReviewContentRequestDescriptor,
 	BridgeWorkerReviewRenderSemantics,
@@ -134,16 +133,22 @@ export function makeWorkerReviewContentMetadata(
 
 export function makeWorkerFileViewContentMetadata(): BridgeWorkerFileViewContentMetadata {
 	return {
+		metadataKind: 'fileView',
 		itemId: 'file-1',
 		path: 'Sources/App/file-1.swift',
 		language: 'swift',
 		cacheKey: 'file-view:metadata-cache:file-1',
 		sizeBytes: 128,
-		contentHandle: 'handle-file-1',
 		descriptorId: 'descriptor-file-1',
 		contentHash: 'sha256:file-1',
+		encoding: 'utf-8',
+		endsMidLine: false,
+		endsWithNewline: true,
 		virtualizedExtentKind: 'exactLineCount',
-		lineCount: 1,
+		payloadByteCount: 128,
+		payloadLineCount: 1,
+		totalLineCount: 1,
+		truncationKind: 'none',
 		isBinary: false,
 		canFetchContent: true,
 	};
@@ -163,29 +168,6 @@ export function makeRenderSemantics(
 		language: 'swift',
 		contentLineCountsByRole: { base: 100, head: 80 },
 	};
-}
-
-export function makeFileViewContentRequestDescriptor(
-	props: string | { readonly generation: number; readonly text: string },
-): BridgeWorkerFileViewContentRequestDescriptor {
-	const text = typeof props === 'string' ? props : props.text;
-	const generation = typeof props === 'string' ? 6 : props.generation;
-	const descriptor: BridgeWorkerFileViewContentRequestDescriptor = {
-		itemId: 'file-1',
-		path: 'Sources/App/file-1.swift',
-		handleId: 'handle-file-1',
-		descriptorId: 'descriptor-file-1',
-		resourceKind: 'worktree.fileContent',
-		resourceUrl: `agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?cursor=cursor-file-1&generation=${generation}`,
-		contentHash: 'sha256:file-1',
-		contentHashAlgorithm: 'sha256',
-		language: 'swift',
-		sizeBytes: 128,
-		maxBytes: 4096,
-		isBinary: false,
-	};
-	descriptorByUrl.set(descriptor.resourceUrl, { itemId: descriptor.itemId, text });
-	return descriptor;
 }
 
 export function makeContentRequestDescriptor(props: {

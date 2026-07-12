@@ -361,39 +361,6 @@ struct BridgeMetadataLaneSchedulerTests {
         #expect(samples.allSatisfy { $0.executionMilliseconds >= 0 })
     }
 
-    @Test("performance telemetry samples carry lane and protocol attribution")
-    func performanceTelemetrySamplesCarryLaneAndProtocolAttribution() async throws {
-        let recorder = SchedulerPerformanceTelemetryRecorder()
-        let adapter = BridgePaneMetadataSchedulerTelemetryAdapter(recorder: recorder)
-
-        await adapter.recordQueueWait(
-            lane: .foreground,
-            protocolId: "review",
-            waitMilliseconds: 12.5,
-            queueDepth: 3
-        )
-        await adapter.recordJobExecution(
-            lane: .visible,
-            protocolId: "worktree-file",
-            executionMilliseconds: 41.25,
-            delivered: true
-        )
-
-        let samples = await recorder.recordedSamples
-        #expect(samples.count == 2)
-        let queueWaitSample = try #require(
-            samples.first { $0.name == "performance.bridge.swift.metadata_scheduler_queue_wait" }
-        )
-        #expect(queueWaitSample.stringAttributes["agentstudio.bridge.demand.lane"] == "foreground")
-        #expect(queueWaitSample.stringAttributes["agentstudio.bridge.protocol"] == "review")
-
-        let executionSample = try #require(
-            samples.first { $0.name == "performance.bridge.swift.metadata_scheduler_job_execution" }
-        )
-        #expect(executionSample.stringAttributes["agentstudio.bridge.demand.lane"] == "visible")
-        #expect(executionSample.stringAttributes["agentstudio.bridge.protocol"] == "worktree-file")
-    }
-
     @Test("a closed protocol gate holds its jobs without blocking other protocols")
     func closedGateHoldsJobsWithoutBlockingOtherProtocols() async throws {
         let recorder = await MainActor.run { SchedulerExecutionOrderRecorder() }

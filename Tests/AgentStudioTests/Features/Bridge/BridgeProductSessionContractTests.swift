@@ -13,7 +13,7 @@ struct BridgeProductSessionContractTests {
         #expect(
             BridgeProductWireContract.capabilityHeaderName
                 == "X-AgentStudio-Bridge-Product-Capability")
-        #expect(BridgeProductWireContract.maximumRequestBodyBytes == 256 * 1024)
+        #expect(BridgeProductWireContract.maximumRequestBodyBytes == 128 * 1024)
         #expect(BridgeProductWireContract.maximumContentFrameBytes == 256 * 1024)
         #expect(BridgeProductWireContract.maximumContentDataPayloadBytes == 128 * 1024)
     }
@@ -168,6 +168,76 @@ struct BridgeProductSessionContractTests {
         verifySurfaceScopedEpochContract(BridgeProductContentRequest.self, object: contentRequest)
     }
 
+    @Test("active viewer calls derive surface and reject repeated surface fields")
+    func activeViewerCallsDeriveSurfaceAndRejectRepeatedFields() throws {
+        let reviewObject: [String: Any] = [
+            "call": [
+                "method": "review.activeViewerMode.update",
+                "request": [
+                    "activeSource": ["generation": 3, "streamId": "review-stream-1"],
+                    "sequence": 7,
+                    "sessionId": "viewer-session-1",
+                ],
+            ],
+            "kind": "product.call",
+            "paneSessionId": "pane-session-1",
+            "requestId": "active-mode-call-1",
+            "requestSequence": 2,
+            "wireVersion": 2,
+            "workerDerivationEpoch": 4,
+            "workerInstanceId": "worker-instance-1",
+        ]
+        let fileObject: [String: Any] = [
+            "call": [
+                "method": "file.activeViewerMode.update",
+                "request": [
+                    "activeSource": ["generation": 5, "streamId": "file-stream-1"],
+                    "sequence": 8,
+                    "sessionId": "viewer-session-1",
+                ],
+            ],
+            "kind": "product.call",
+            "paneSessionId": "pane-session-1",
+            "requestId": "active-mode-call-2",
+            "requestSequence": 3,
+            "wireVersion": 2,
+            "workerDerivationEpoch": 4,
+            "workerInstanceId": "worker-instance-1",
+        ]
+
+        let reviewData = try JSONSerialization.data(withJSONObject: reviewObject, options: [.sortedKeys])
+        let decodedReview = try BridgeProductStrictJSON.decode(
+            BridgeProductControlRequest.self,
+            from: reviewData
+        )
+        guard case .productCall(let reviewCall) = decodedReview,
+            case .reviewActiveViewerModeUpdate = reviewCall.call
+        else {
+            Issue.record("Expected a Review-derived active viewer call")
+            return
+        }
+        let fileData = try JSONSerialization.data(withJSONObject: fileObject, options: [.sortedKeys])
+        let decodedFile = try BridgeProductStrictJSON.decode(
+            BridgeProductControlRequest.self,
+            from: fileData
+        )
+        guard case .productCall(let fileCall) = decodedFile,
+            case .fileActiveViewerModeUpdate = fileCall.call
+        else {
+            Issue.record("Expected a File-derived active viewer call")
+            return
+        }
+        for repeatedField in ["mode", "protocol", "surface"] {
+            var invalidObject = reviewObject
+            var call = try #require(invalidObject["call"] as? [String: Any])
+            var request = try #require(call["request"] as? [String: Any])
+            request[repeatedField] = "review"
+            call["request"] = request
+            invalidObject["call"] = call
+            #expect(decodedValue(BridgeProductControlRequest.self, object: invalidObject) == nil)
+        }
+    }
+
     @Test("resync carries independent surface epochs and rejects same-surface disagreement")
     func resyncCarriesIndependentSurfaceEpochs() throws {
         let corpus = try fixtureJSONObject(
@@ -251,9 +321,9 @@ struct BridgeProductSessionContractTests {
         var resyncAccepted = try #require(
             controlResponses.first { $0["kind"] as? String == "resync.accepted" }
         )
-        resyncAccepted["resumeFromStreamSequence"] = resumableStreamSequence
+        resyncAccepted["metadataStreamSequenceBarrier"] = resumableStreamSequence
         #expect(!decodingFails(BridgeProductControlResponse.self, object: resyncAccepted))
-        resyncAccepted["resumeFromStreamSequence"] = firstNonresumableStreamSequence
+        resyncAccepted["metadataStreamSequenceBarrier"] = firstNonresumableStreamSequence
         #expect(decodingFails(BridgeProductControlResponse.self, object: resyncAccepted))
 
         var metadataStreamRequest = try #require(metadataStreamRequests.first)
@@ -361,18 +431,21 @@ struct BridgeProductSessionContractTests {
         )
     }
 
-    @Test("canonical interest state accepts exactly 256 KiB and rejects the next byte")
-    func canonicalInterestStateHasExactAggregateByteCeiling() throws {
-        let maximumState = try decodeBoundaryFileInterestState(finalPathByteLength: 49)
+}
 
-        #expect(BridgeProductWireContract.maximumSubscriptionInterestStateBytes == 256 * 1024)
+extension BridgeProductSessionContractTests {
+    @Test("canonical interest state accepts exactly 128 KiB and rejects the next byte")
+    func canonicalInterestStateHasExactAggregateByteCeiling() throws {
+        let maximumState = try decodeBoundaryFileInterestState(finalPathByteLength: 17)
+
+        #expect(BridgeProductWireContract.maximumSubscriptionInterestStateBytes == 128 * 1024)
         #expect(
             maximumState.canonicalEncodingPreflight()
-                == .accepted(canonicalByteCount: 256 * 1024, visitedTextValueCount: 65)
+                == .accepted(canonicalByteCount: 128 * 1024, visitedTextValueCount: 33)
         )
-        #expect(try maximumState.encodedData().count == 256 * 1024)
+        #expect(try maximumState.encodedData().count == 128 * 1024)
         #expect(throws: (any Error).self) {
-            _ = try decodeBoundaryFileInterestState(finalPathByteLength: 50)
+            _ = try decodeBoundaryFileInterestState(finalPathByteLength: 18)
         }
     }
 
@@ -396,9 +469,9 @@ struct BridgeProductSessionContractTests {
         #expect(
             state.canonicalEncodingPreflight()
                 == .exceedsMaximum(
-                    canonicalByteCountLowerBound: 262_474,
-                    maximumCanonicalByteCount: 256 * 1024,
-                    visitedTextValueCount: 64
+                    canonicalByteCountLowerBound: 131_242,
+                    maximumCanonicalByteCount: 128 * 1024,
+                    visitedTextValueCount: 32
                 )
         )
         #expect(throws: (any Error).self) {
@@ -629,8 +702,9 @@ struct BridgeProductSessionContractTests {
 
         let resyncResponse = try BridgeProductControlResponse.resyncAccepted(
             correlating: resync,
+            metadataStreamSequenceBarrier: 6,
             nextExpectedRequestSequence: 8,
-            resumeFromStreamSequence: 6
+            reconciliation: []
         )
         #expect(resyncResponse.correlation == resync.correlation)
 
@@ -807,8 +881,8 @@ struct BridgeProductSessionContractTests {
         finalPathByteLength: Int
     ) throws -> BridgeProductSubscriptionInterestState {
         let paths =
-            (0..<64).map { makeFixedLengthASCIIPath(index: $0, byteLength: 4090) }
-            + [makeFixedLengthASCIIPath(index: 64, byteLength: finalPathByteLength)]
+            (0..<32).map { makeFixedLengthASCIIPath(index: $0, byteLength: 4090) }
+            + [makeFixedLengthASCIIPath(index: 32, byteLength: finalPathByteLength)]
         let object: [String: Any] = [
             "interests": [["lane": "foreground", "paths": paths]],
             "pathScope": [],

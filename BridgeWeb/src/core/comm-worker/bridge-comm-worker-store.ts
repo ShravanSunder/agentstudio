@@ -1,6 +1,10 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
-import { applyBridgeCommWorkerFileViewSourceUpdateFact } from './bridge-comm-worker-file-view-source-update.js';
+import type { BridgeCommWorkerFileViewRuntimeMutation } from './bridge-comm-worker-file-metadata-projection.js';
+import {
+	applyBridgeCommWorkerFileViewSourceMutationFact,
+	applyBridgeCommWorkerFileViewSourceUpdateFact,
+} from './bridge-comm-worker-file-view-source-update.js';
 import {
 	isBridgeCommWorkerDemandEligibleContentMetadata,
 	reconcileBridgeCommWorkerDemandMembership,
@@ -34,22 +38,19 @@ export interface BridgeCommWorkerViewportRange {
 }
 
 export interface BridgeCommWorkerStoreState {
-	readonly rowById: ReadonlyMap<string, BridgeCommWorkerRow>;
-	readonly orderedIds: readonly string[];
-	readonly indexById: ReadonlyMap<string, number>;
-	readonly childrenByParentId: ReadonlyMap<string, readonly string[]>;
+	readonly rowById: Map<string, BridgeCommWorkerRow>;
+	readonly orderedIds: Array<string | undefined>;
+	readonly indexById: Map<string, number>;
+	readonly childrenByParentId: Map<string, Set<string>>;
 	readonly selectedId: string | null;
 	readonly selectedDemandEnabled: boolean;
 	readonly viewportRange: BridgeCommWorkerViewportRange | null;
 	readonly visibleIds: readonly string[];
-	readonly demandByKey: ReadonlyMap<string, string>;
-	readonly byteCache: ReadonlyMap<string, string>;
-	readonly paintReadyByItemId: ReadonlyMap<string, string>;
-	readonly availabilityByItemId: ReadonlyMap<
-		string,
-		BridgeWorkerContentAvailabilityPatchPayload['state']
-	>;
-	readonly contentMetadataByItemId: ReadonlyMap<string, BridgeWorkerContentMetadata>;
+	readonly demandByKey: Map<string, string>;
+	readonly byteCache: Map<string, string>;
+	readonly paintReadyByItemId: Map<string, string>;
+	readonly availabilityByItemId: Map<string, BridgeWorkerContentAvailabilityPatchPayload['state']>;
+	readonly contentMetadataByItemId: Map<string, BridgeWorkerContentMetadata>;
 }
 
 export interface CreateBridgeCommWorkerStoreProps {
@@ -118,6 +119,11 @@ export interface ApplyBridgeCommWorkerFileViewSourceUpdateFactProps {
 	readonly rows: readonly BridgeCommWorkerRow[];
 }
 
+export interface ApplyBridgeCommWorkerFileViewSourceMutationFactProps {
+	readonly epoch: number;
+	readonly mutation: BridgeCommWorkerFileViewRuntimeMutation;
+}
+
 export interface TakePendingBridgeCommWorkerSlicePatchEventProps {
 	readonly epoch: number;
 	readonly sequence: number;
@@ -147,6 +153,9 @@ export interface BridgeCommWorkerStore {
 		) => BridgeCommWorkerTouchedResult;
 		readonly applyFileViewSourceUpdateFact: (
 			props: ApplyBridgeCommWorkerFileViewSourceUpdateFactProps,
+		) => BridgeCommWorkerTouchedResult;
+		readonly applyFileViewSourceMutationFact: (
+			props: ApplyBridgeCommWorkerFileViewSourceMutationFactProps,
 		) => BridgeCommWorkerTouchedResult;
 		readonly takePendingSlicePatchEvent: (
 			props: TakePendingBridgeCommWorkerSlicePatchEventProps,
@@ -448,6 +457,16 @@ export function createBridgeCommWorkerStore(
 					store,
 				});
 			},
+			applyFileViewSourceMutationFact: (
+				fact: ApplyBridgeCommWorkerFileViewSourceMutationFactProps,
+			): BridgeCommWorkerTouchedResult => {
+				return applyBridgeCommWorkerFileViewSourceMutationFact({
+					epoch: fact.epoch,
+					mutation: fact.mutation,
+					pendingSlicePatches,
+					store,
+				});
+			},
 			takePendingSlicePatchEvent: (
 				eventProps: TakePendingBridgeCommWorkerSlicePatchEventProps,
 			): BridgeWorkerSlicePatchEvent | null => {
@@ -588,16 +607,15 @@ function buildBridgeCommWorkerSourceIndexes(props: {
 > {
 	const rowById = new Map<string, BridgeCommWorkerRow>();
 	const indexById = new Map<string, number>();
-	const childrenByParentId = new Map<string, readonly string[]>();
+	const childrenByParentId = new Map<string, Set<string>>();
 	const contentMetadataByItemId = new Map<string, BridgeWorkerContentMetadata>();
 	for (const row of props.rows) {
 		rowById.set(row.id, row);
 		indexById.set(row.id, row.index);
 		if (row.parentId !== null) {
-			childrenByParentId.set(row.parentId, [
-				...(childrenByParentId.get(row.parentId) ?? []),
-				row.id,
-			]);
+			const childIds = childrenByParentId.get(row.parentId) ?? new Set<string>();
+			childIds.add(row.id);
+			childrenByParentId.set(row.parentId, childIds);
 		}
 	}
 	for (const contentItem of props.contentItems) {
@@ -647,7 +665,7 @@ function buildDemandByKey(props: {
 	readonly selectedId: string | null;
 	readonly selectedDemandEpoch: number | null;
 	readonly visibleIds: readonly string[];
-}): ReadonlyMap<string, string> {
+}): Map<string, string> {
 	return serializeBridgeCommWorkerDemandMembership(
 		reconcileBridgeCommWorkerDemandMembership(props),
 	);
@@ -677,12 +695,27 @@ function writeBridgeWorkerMap(
 	entryKey: string,
 	value: string,
 ): BridgeCommWorkerStoreState {
-	const target = state[key];
-	if (!(target instanceof Map)) {
-		throw new Error(`Bridge comm worker state ${key} is not a map.`);
+	if (key === 'availabilityByItemId') {
+		if (!isBridgeWorkerContentAvailabilityState(value)) {
+			throw new Error(`Bridge comm worker rejected availability state ${value}.`);
+		}
+		state.availabilityByItemId.set(entryKey, value);
+		return state;
 	}
-	target.set(entryKey, value);
+	state[key].set(entryKey, value);
 	return state;
+}
+
+function isBridgeWorkerContentAvailabilityState(
+	value: string,
+): value is BridgeWorkerContentAvailabilityPatchPayload['state'] {
+	return (
+		value === 'failed' ||
+		value === 'loading' ||
+		value === 'ready' ||
+		value === 'stale' ||
+		value === 'unavailable'
+	);
 }
 
 function findChangedIds(
@@ -762,6 +795,13 @@ function instrumentBridgeCommWorkerStoreActions(
 				action: 'applyFileViewSourceUpdateFact',
 				lane: 'file_view',
 				operation: () => props.actions.applyFileViewSourceUpdateFact(fact),
+				...telemetryProps,
+			}),
+		applyFileViewSourceMutationFact: (fact): BridgeCommWorkerTouchedResult =>
+			recordBridgeCommWorkerStoreActionTelemetry({
+				action: 'applyFileViewSourceMutationFact',
+				lane: 'file_view',
+				operation: () => props.actions.applyFileViewSourceMutationFact(fact),
 				...telemetryProps,
 			}),
 		takePendingSlicePatchEvent: props.actions.takePendingSlicePatchEvent,

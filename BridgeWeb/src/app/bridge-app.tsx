@@ -12,6 +12,10 @@ import {
 import { createBridgeTelemetryEventSink } from '../bridge/bridge-telemetry-event-sink.js';
 import { encodeBridgeWorkerActiveViewerModeUpdateCommand } from '../core/comm-worker/bridge-comm-worker-protocol.js';
 import { createBridgeCommWorkerTelemetryClient } from '../core/comm-worker/bridge-comm-worker-telemetry.js';
+import {
+	disposeBridgePaneCommWorkerSession,
+	getBridgePaneCommWorkerSession,
+} from '../core/comm-worker/bridge-pane-comm-worker-session.js';
 import type {
 	BridgeWorkerHealthEvent,
 	BridgeWorkerServerToMainMessage,
@@ -30,11 +34,10 @@ import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/worker
 import type { BridgeAppControlProbe } from './bridge-app-control.js';
 import { BridgeFileViewerMode } from './bridge-app-file-viewer-mode.js';
 import {
-	createBridgeReviewRuntimeProtocolDispatcher,
+	createBridgePaneRuntimeProtocolDispatcher,
 	type CreateBridgeReviewRuntimeProtocolDispatcherProps,
 } from './bridge-app-review-render-snapshot-controller.js';
 import { BridgeReviewViewerMode } from './bridge-app-review-viewer-mode.js';
-export { bridgeReviewNavigationCommandForWorktreeDescriptor } from './bridge-review-navigation.js';
 export {
 	reviewItemDemandCancellationTargetForSelectionChange,
 	reviewSnapshotDescriptorRefsByHandleIdForPackage,
@@ -197,6 +200,10 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		};
 	}, []);
 	useEffect((): (() => void) => {
+		const paneCommWorkerSession = getBridgePaneCommWorkerSession();
+		paneCommWorkerSession.setNativeBootstrapRequester((): void => {
+			handshakeSessionRef.current?.requestProductSessionReplacement();
+		});
 		const configureTelemetryRecorder = (
 			nextTelemetryConfig = handshakeSessionRef.current?.getTelemetryConfig() ?? null,
 		): void => {
@@ -222,6 +229,9 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			});
 		};
 		handshakeSessionRef.current = installBridgePageHandshakeSession(target, {
+			onProductSessionBootstrap: (productSessionBootstrap): void => {
+				paneCommWorkerSession.installNativeBootstrap(productSessionBootstrap);
+			},
 			onReady: (): void => {
 				isBridgeReadyRef.current = true;
 				isBridgeReadyGateOpenRef.current = true;
@@ -248,6 +258,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			isBridgeReadyGateOpenRef.current = false;
 			setTelemetryConfig(null);
 			telemetryRecorderRef.current = createBridgeTelemetryRecorder(null);
+			disposeBridgePaneCommWorkerSession();
 		};
 	}, [target]);
 	const publishActiveViewerModeWorkerMessages = useCallback(
@@ -261,7 +272,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	);
 	const activeViewerModeRuntimeDispatcher = useMemo(
 		() =>
-			createBridgeReviewRuntimeProtocolDispatcher({
+			createBridgePaneRuntimeProtocolDispatcher({
 				bootstrapRequestId: 'active-viewer-mode-worker-bootstrap',
 				contentItems: [],
 				contentRequestDescriptors: [],
@@ -463,23 +474,6 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			viewerMode,
 		});
 	}, []);
-	const activateNavigationCommand = useCallback(
-		(navigationCommand: BridgeViewerNavigationCommand) => {
-			const viewerMode = viewerModeForBridgeNavigationCommand(navigationCommand);
-			rememberedNavigationCommandsRef.current[viewerMode] = navigationCommand;
-			setMountedViewerModes((currentMountedViewerModes): ReadonlySet<BridgeViewerMode> => {
-				if (currentMountedViewerModes.has(viewerMode)) {
-					return currentMountedViewerModes;
-				}
-				return new Set<BridgeViewerMode>([...currentMountedViewerModes, viewerMode]);
-			});
-			setActiveViewerState({
-				navigationCommand,
-				viewerMode,
-			});
-		},
-		[],
-	);
 	const rememberedFileNavigationCommand = rememberedNavigationCommandsRef.current.file;
 	const rememberedReviewNavigationCommand = rememberedNavigationCommandsRef.current.review;
 
@@ -499,8 +493,6 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						{...props}
 						isActive={activeViewerState.viewerMode === 'file'}
 						onActiveSourceChange={reportFileActiveSource}
-						onActivateNavigationCommand={activateNavigationCommand}
-						registerBridgeReadyCallback={registerBridgeReadyCallback}
 						telemetryRecorder={telemetryRecorder}
 						viewerHeaderControls={
 							<BridgeViewerContextSwitcher

@@ -25,6 +25,7 @@ import {
 	reviewPackageForBridgeAppDevFixtureScenario,
 	type BridgeAppDevFixtureScenario,
 } from './bridge-app-dev-fixture.js';
+import { installBridgeAppDevProductSessionHost } from './bridge-app-dev-product-session-host.js';
 import {
 	createBridgeAppDevTelemetryBootstrapConfig,
 	installBridgeAppDevTelemetryHost,
@@ -33,9 +34,7 @@ import {
 	installBridgeAppDevWorktreeReviewBackend,
 	type BridgeAppDevWorktreeReviewBackend,
 } from './bridge-app-dev-worktree-review.js';
-import { installBridgeAppDevWorktreeBackend } from './bridge-app-dev-worktree.js';
 import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
-import { createBridgeFileViewerWorktreeFileSurfaceTransport } from './bridge-file-viewer-worktree-file-surface-transport-adapter.js';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Dev server must load the same app CSS as packaged BridgeWeb.
 import './bridge-app.css';
@@ -54,6 +53,7 @@ if (rootElement !== null) {
 		respondToHandshakeRequests: false,
 		scenario: telemetryScenario,
 	});
+	const productSessionHost = installBridgeAppDevProductSessionHost();
 	const fixtureClass = fixtureClassForMockedBackend(options.fixtureClass);
 	const workerFactory = options.workersEnabled
 		? createBridgePierrePortableBlobWorkerFactory()
@@ -76,8 +76,6 @@ if (rootElement !== null) {
 					latencyProfile: latencyProfileForMockedBackend(options.latencyProfile),
 					telemetryConfig,
 				});
-	const worktreeBackend =
-		options.fixtureClass === 'worktree' ? installBridgeAppDevWorktreeBackend() : null;
 	const worktreeReviewBackend =
 		options.fixtureClass === 'worktree'
 			? installBridgeAppDevWorktreeReviewBackend({ telemetryConfig })
@@ -87,6 +85,7 @@ if (rootElement !== null) {
 		'beforeunload',
 		(): void => {
 			backend?.dispose();
+			productSessionHost.dispose();
 			telemetryHost.dispose();
 			workerFactory?.revoke();
 		},
@@ -107,15 +106,7 @@ if (rootElement !== null) {
 							comparisonId: bridgeAppDevWorktreeReviewComparisonId,
 						},
 					})}
-			{...(worktreeBackend === null
-				? {}
-				: {
-						fileViewerProps: {
-							autoOpenInitialFile: true,
-							worktreeFileSurfaceTransport:
-								createBridgeFileViewerWorktreeFileSurfaceTransport(worktreeBackend),
-						},
-					})}
+			fileViewerProps={{ autoOpenInitialFile: true }}
 			{...(workerFactory === null ? {} : { codeViewWorkerFactory: workerFactory.workerFactory })}
 			{...(backend === null
 				? worktreeReviewBackend !== null

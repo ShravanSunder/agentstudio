@@ -3,8 +3,6 @@ struct BridgeFileViewObservabilitySmokeRenderSnapshot: Decodable, Equatable {
     let hasTree: Bool
     let hasCodeViewPanel: Bool
     let bootstrapProtocol: String
-    let bootstrapSourceSpecState: String
-    let bootstrapSourceSpecLength: Int
     let descriptorCount: Int
     let totalDescriptorCount: Int
     let selectedDisplayPath: String
@@ -82,8 +80,6 @@ struct BridgeFileViewObservabilitySmokeRenderProof: Equatable {
     let hasTree: Bool
     let hasCodeViewPanel: Bool
     let bootstrapProtocol: String
-    let bootstrapSourceSpecState: String
-    let bootstrapSourceSpecLength: Int
     let descriptorCount: Int
     let totalDescriptorCount: Int
     let selectedDisplayPath: String
@@ -162,8 +158,6 @@ struct BridgeFileViewObservabilitySmokeRenderProof: Equatable {
         hasTree = snapshot.hasTree
         hasCodeViewPanel = snapshot.hasCodeViewPanel
         bootstrapProtocol = snapshot.bootstrapProtocol
-        bootstrapSourceSpecState = snapshot.bootstrapSourceSpecState
-        bootstrapSourceSpecLength = snapshot.bootstrapSourceSpecLength
         descriptorCount = snapshot.descriptorCount
         totalDescriptorCount = snapshot.totalDescriptorCount
         selectedDisplayPath = snapshot.selectedDisplayPath
@@ -241,8 +235,6 @@ struct BridgeFileViewObservabilitySmokeRenderProof: Equatable {
             && hasTree
             && hasCodeViewPanel
             && bootstrapProtocol == expectedBootstrapProtocol
-            && bootstrapSourceSpecState == "parseable"
-            && bootstrapSourceSpecLength > 0
             && descriptorCount > 0
             && totalDescriptorCount >= descriptorCount
             && metadataTreeRowCount > 0
@@ -367,10 +359,6 @@ struct BridgeFileViewObservabilitySmokeRenderProof: Equatable {
             "agentstudio.startup_diagnostic.bridge.file_view.tree.visible": .bool(hasTree),
             "agentstudio.startup_diagnostic.bridge.file_view.code_view.visible": .bool(hasCodeViewPanel),
             "agentstudio.startup_diagnostic.bridge.file_view.bootstrap.protocol": .string(bootstrapProtocol),
-            "agentstudio.startup_diagnostic.bridge.file_view.bootstrap.source_spec.state": .string(
-                bootstrapSourceSpecState),
-            "agentstudio.startup_diagnostic.bridge.file_view.bootstrap.source_spec.length": .int(
-                bootstrapSourceSpecLength),
             "agentstudio.startup_diagnostic.bridge.file_view.descriptor.count": .int(descriptorCount),
             "agentstudio.startup_diagnostic.bridge.file_view.total_descriptor.count": .int(totalDescriptorCount),
             "agentstudio.startup_diagnostic.bridge.file_view.selected_path": .string(selectedDisplayPath),
@@ -492,8 +480,6 @@ extension BridgeFileViewObservabilitySmokeRenderProof {
                 hasTree: false,
                 hasCodeViewPanel: false,
                 bootstrapProtocol: "unavailable",
-                bootstrapSourceSpecState: "unavailable",
-                bootstrapSourceSpecLength: 0,
                 descriptorCount: 0,
                 totalDescriptorCount: 0,
                 selectedDisplayPath: "",

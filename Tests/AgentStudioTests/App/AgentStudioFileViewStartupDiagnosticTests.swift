@@ -15,9 +15,8 @@ struct AgentStudioFileViewStartupDiagnosticTests {
         #expect(
             proof.attributes["agentstudio.startup_diagnostic.bridge.file_view.bootstrap.protocol"]
                 == .string("worktree-file"))
-        #expect(
-            proof.attributes["agentstudio.startup_diagnostic.bridge.file_view.bootstrap.source_spec.state"]
-                == .string("parseable"))
+        #expect(proof.attributes["agentstudio.startup_diagnostic.bridge.file_view.bootstrap.source_spec.state"] == nil)
+        #expect(proof.attributes["agentstudio.startup_diagnostic.bridge.file_view.bootstrap.source_spec.length"] == nil)
         #expect(proof.attributes["agentstudio.startup_diagnostic.bridge.file_view.descriptor.count"] == .int(24))
         #expect(
             proof.attributes["agentstudio.startup_diagnostic.bridge.file_view.metadata_tree_row.count"] == .int(260))
@@ -595,17 +594,19 @@ struct AgentStudioFileViewStartupDiagnosticTests {
                 == .bool(false))
     }
 
-    @Test("Bridge FileView smoke diagnostic reads worker error count from the shared diagnostic key")
+    @Test("Bridge FileView smoke diagnostic uses shared worker and product-session probes")
     func smokeDiagnosticJavaScriptReadsWorkerErrorCountFromSharedDiagnosticKey() {
         let script = AppDelegate.bridgeFileViewObservabilitySmokeRenderStateJavaScript
 
         #expect(script.contains("data-bridge-pierre-worker-diagnostic-error-count"))
         #expect(!script.contains("data-bridge-pierre-worker-diagnostic-failure-count"))
+        #expect(script.contains("__bridgeCommandProbe"))
         #expect(script.contains("__bridgeIntakeReadyCommandProbe"))
-        #expect(script.contains("__bridgeWorktreeOpenSourceCommandProbe"))
-        #expect(script.contains("__bridgeWorktreeDescriptorRequestCommandProbe"))
-        #expect(script.contains("worktreeOpenSourceCommandProbe.filter"))
-        #expect(script.contains("worktreeDescriptorRequestCommandProbe.filter"))
+        #expect(script.contains("__bridgeResponseProbe"))
+        #expect(!script.contains("__bridgeWorktreeOpenSourceCommandProbe"))
+        #expect(!script.contains("__bridgeWorktreeDescriptorRequestCommandProbe"))
+        #expect(!script.contains("worktreeOpenSourceCommandProbe.filter"))
+        #expect(!script.contains("worktreeDescriptorRequestCommandProbe.filter"))
         #expect(script.contains("nativeWorktreeProbeReceiverGeneration"))
         #expect(script.contains("nativeWorktreeProbeFinalGenerationFrameEvidenceCount"))
         #expect(script.contains("nativeWorktreeProbeBenignReceiverGenerationBucketDropCount"))
@@ -677,8 +678,6 @@ struct AgentStudioFileViewStartupDiagnosticTests {
             hasTree: true,
             hasCodeViewPanel: true,
             bootstrapProtocol: bootstrapProtocol,
-            bootstrapSourceSpecState: "parseable",
-            bootstrapSourceSpecLength: 512,
             descriptorCount: descriptorCount,
             totalDescriptorCount: totalDescriptorCount,
             selectedDisplayPath: "Sources/App/View.swift",

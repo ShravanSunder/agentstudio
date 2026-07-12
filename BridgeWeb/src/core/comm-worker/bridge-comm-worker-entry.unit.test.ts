@@ -1,21 +1,39 @@
+// oxlint-disable unicorn/require-post-message-target-origin -- MessagePort postMessage does not accept a target origin.
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
-	bridgeTelemetryBatchSchema,
-	type BridgeTelemetryBatch,
-} from '../../foundation/telemetry/bridge-telemetry-event.js';
-import {
 	type BridgeCommWorkerPort,
 	bootstrapBridgeCommWorkerEntry,
+	type BridgeCommWorkerInstalledProductSession,
 	createBridgeCommWorkerScopePortAdapter,
 	postPreparedBridgeCommWorkerMessage,
 	registerInertBridgeCommWorkerPortProtocol,
 } from './bridge-comm-worker-entry.js';
-import { encodeBridgeWorkerSelectCommand } from './bridge-comm-worker-protocol.js';
-import type {
-	BridgeCommWorkerBootstrapRequest,
-	BridgeWorkerReviewRenderSemantics,
-	BridgeWorkerServerToMainMessage,
+import {
+	encodeBridgeWorkerMarkFileViewedCommand,
+	encodeBridgeWorkerSelectCommand,
+} from './bridge-comm-worker-protocol.js';
+import {
+	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
+	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
+	BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
+	BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
+	BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
+	BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
+	BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
+	BRIDGE_PRODUCT_WIRE_VERSION,
+} from './bridge-product-contract-primitives.js';
+import {
+	bridgePaneCommWorkerInstallSchema,
+	bridgeProductControlRequestSchema,
+	type BridgePaneCommWorkerInstall,
+} from './bridge-product-session-contracts.js';
+import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import {
+	bridgeWorkerServerToMainMessageSchema,
+	type BridgeCommWorkerBootstrapRequest,
+	type BridgeWorkerReviewRenderSemantics,
+	type BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
 import type { BridgeWorkerFetchedReviewContentResource } from './bridge-worker-review-content-fetch.js';
 import { prepareBridgeWorkerReviewContentRenderJobEvent } from './bridge-worker-review-content-ready.js';
@@ -24,6 +42,15 @@ interface PostedBridgeWorkerMessage {
 	readonly message: BridgeWorkerServerToMainMessage;
 	readonly transferList: readonly Transferable[] | undefined;
 }
+
+interface InstalledBridgeCommWorkerEntryHarness {
+	readonly close: () => void;
+	readonly globalPostedMessages: readonly PostedBridgeWorkerMessage[];
+	readonly globalStarted: () => boolean;
+	readonly productPort: BridgeWorkerMessagePortRecorder;
+}
+
+const activeInstalledEntryHarnesses = new Set<InstalledBridgeCommWorkerEntryHarness>();
 
 function assertPreparedEntryPostRejectsSyntheticMessages(port: BridgeCommWorkerPort): void {
 	const syntheticPreparedMessage = {
@@ -43,6 +70,9 @@ function assertBrowserMessagePortMatchesEntryPort(port: MessagePort): BridgeComm
 
 describe('Bridge comm worker entry', () => {
 	afterEach(() => {
+		for (const harness of activeInstalledEntryHarnesses) {
+			harness.close();
+		}
 		vi.restoreAllMocks();
 		vi.useRealTimers();
 	});
@@ -215,11 +245,10 @@ describe('Bridge comm worker entry', () => {
 		]);
 	});
 
-	test('degrades commands received before runtime bootstrap', () => {
-		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
-		bootstrapBridgeCommWorkerEntry(dispatch.port);
+	test('degrades commands received before runtime bootstrap', async () => {
+		const harness = createInstalledBridgeCommWorkerEntryHarness();
 
-		dispatch.message(
+		harness.productPort.postMessage(
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-before-bootstrap',
 				epoch: 1,
@@ -227,10 +256,12 @@ describe('Bridge comm worker entry', () => {
 				selectedSource: 'user',
 			}),
 		);
+		const postedMessages = await harness.productPort.waitForCount(1);
 
-		expect(postedMessages).toEqual([
-			{
-				message: {
+		try {
+			expect(harness.globalPostedMessages).toEqual([]);
+			expect(postedMessages).toEqual([
+				{
 					wireVersion: 1,
 					direction: 'serverWorkerToMain',
 					kind: 'health',
@@ -239,17 +270,18 @@ describe('Bridge comm worker entry', () => {
 					message: 'Bridge comm worker command received before bootstrap.',
 					transferDescriptors: [],
 				},
-				transferList: undefined,
-			},
-		]);
+			]);
+		} finally {
+			harness.close();
+		}
 	});
 
-	test('bootstraps the runtime protocol before accepting commands', () => {
-		const { dispatch, postedMessages, started } = createRecordingBridgeCommWorkerPort();
-		bootstrapBridgeCommWorkerEntry(dispatch.port);
+	test('bootstraps the runtime protocol before accepting commands', async () => {
+		const harness = createInstalledBridgeCommWorkerEntryHarness();
 
-		dispatch.message(makeBootstrapRequest('bootstrap-request-1'));
-		dispatch.message(
+		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-1'));
+		await harness.productPort.waitForCount(1);
+		harness.productPort.postMessage(
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-after-bootstrap',
 				epoch: 2,
@@ -257,71 +289,68 @@ describe('Bridge comm worker entry', () => {
 				selectedSource: 'user',
 			}),
 		);
+		const postedMessages = await harness.productPort.waitForCount(3);
 
-		expect(started()).toBe(true);
-		expect(postedMessages.map((posted) => posted.message)).toEqual([
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				kind: 'health',
-				requestId: 'bootstrap-request-1',
-				status: 'ready',
-				transferDescriptors: [],
-			},
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				kind: 'slicePatch',
-				epoch: 2,
-				sequence: 1,
-				transferDescriptors: [],
-				patches: [
-					{
-						slice: 'selection',
-						operation: 'upsert',
-						payload: {
-							selectedItemId: 'item-1',
+		try {
+			expect(harness.globalStarted()).toBe(true);
+			expect(harness.globalPostedMessages).toEqual([]);
+			expect(postedMessages).toEqual([
+				{
+					wireVersion: 1,
+					direction: 'serverWorkerToMain',
+					kind: 'health',
+					requestId: 'bootstrap-request-1',
+					status: 'ready',
+					transferDescriptors: [],
+				},
+				{
+					wireVersion: 1,
+					direction: 'serverWorkerToMain',
+					kind: 'slicePatch',
+					epoch: 2,
+					sequence: 1,
+					transferDescriptors: [],
+					patches: [
+						{
+							slice: 'selection',
+							operation: 'upsert',
+							payload: {
+								selectedItemId: 'item-1',
+							},
 						},
-					},
-					{
-						slice: 'contentAvailability',
-						operation: 'upsert',
-						itemId: 'item-1',
-						payload: {
-							state: 'loading',
+						{
+							slice: 'contentAvailability',
+							operation: 'upsert',
+							itemId: 'item-1',
+							payload: {
+								state: 'loading',
+							},
 						},
-					},
-				],
-			},
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				kind: 'health',
-				requestId: 'request-after-bootstrap',
-				status: 'ready',
-				transferDescriptors: [],
-			},
-		]);
+					],
+				},
+				{
+					wireVersion: 1,
+					direction: 'serverWorkerToMain',
+					kind: 'health',
+					requestId: 'request-after-bootstrap',
+					status: 'ready',
+					transferDescriptors: [],
+				},
+			]);
+		} finally {
+			harness.close();
+		}
 	});
 
-	test('bootstraps worker telemetry and flushes worker task samples through the scheme endpoint', () => {
-		vi.useFakeTimers();
-		const flushedBatches: BridgeTelemetryBatch[] = [];
-		const fetchSpy = vi
-			.spyOn(globalThis, 'fetch')
-			.mockImplementation((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-				expect(input).toBe('agentstudio://telemetry/batch');
-				if (typeof init?.body !== 'string') {
-					throw new Error('Expected telemetry batch body to be serialized JSON.');
-				}
-				flushedBatches.push(bridgeTelemetryBatchSchema.parse(JSON.parse(init.body)));
-				return Promise.resolve(new Response(null, { status: 204 }));
-			});
-		const { dispatch } = createRecordingBridgeCommWorkerPort();
-		bootstrapBridgeCommWorkerEntry(dispatch.port);
+	test('does not construct a comm-worker telemetry network fallback', async () => {
+		const fetchSpy = vi.spyOn(globalThis, 'fetch');
+		const harness = createInstalledBridgeCommWorkerEntryHarness();
 
-		dispatch.message(makeBootstrapRequestWithTelemetry('bootstrap-request-telemetry'));
-		dispatch.message(
+		harness.productPort.postMessage(
+			makeBootstrapRequestWithTelemetry('bootstrap-request-telemetry'),
+		);
+		await harness.productPort.waitForCount(1);
+		harness.productPort.postMessage(
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-after-telemetry-bootstrap',
 				epoch: 2,
@@ -330,25 +359,118 @@ describe('Bridge comm worker entry', () => {
 				selectedSource: 'user',
 			}),
 		);
-		vi.runOnlyPendingTimers();
+		await harness.productPort.waitForCount(3);
 
-		expect(fetchSpy).toHaveBeenCalledTimes(1);
-		expect(flushedBatches[0]?.samples).toContainEqual(
-			expect.objectContaining({
-				name: 'performance.bridge.worker.task',
-				stringAttributes: expect.objectContaining({
-					'agentstudio.bridge.worker.command': 'select',
-					'agentstudio.bridge.worker.task_kind': 'message_handler',
-				}),
-			}),
-		);
+		try {
+			expect(harness.globalPostedMessages).toEqual([]);
+			expect(fetchSpy).not.toHaveBeenCalled();
+		} finally {
+			harness.close();
+		}
 	});
 
-	test('replays commands that arrived before runtime bootstrap', () => {
-		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
-		bootstrapBridgeCommWorkerEntry(dispatch.port);
+	test('carries mark-viewed through the installed capability-bound product session', async () => {
+		// Arrange
+		const observedBodies: unknown[] = [];
+		const fetchSpy = vi
+			.spyOn(globalThis, 'fetch')
+			.mockImplementation(
+				async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+					if (!(init?.body instanceof Uint8Array)) {
+						throw new Error('Expected encoded Bridge product request bytes.');
+					}
+					const request = bridgeProductControlRequestSchema.parse(
+						JSON.parse(new TextDecoder().decode(init.body)),
+					);
+					observedBodies.push(request);
+					return new Response(
+						JSON.stringify(
+							request.kind === 'workerSession.open'
+								? {
+										paneSessionId: request.paneSessionId,
+										workerInstanceId: request.workerInstanceId,
+										wireVersion: request.wireVersion,
+										requestId: request.requestId,
+										requestSequence: request.requestSequence,
+										kind: 'workerSession.accepted',
+										result: null,
+									}
+								: request.kind === 'product.call' && request.call.method === 'file.source.current'
+									? {
+											paneSessionId: request.paneSessionId,
+											workerInstanceId: request.workerInstanceId,
+											wireVersion: request.wireVersion,
+											requestId: request.requestId,
+											requestSequence: request.requestSequence,
+											kind: 'call.completed',
+											call: {
+												method: 'file.source.current',
+												result: {
+													reason: 'no-file-source-authority',
+													status: 'unavailable',
+												},
+											},
+										}
+									: {
+											paneSessionId: request.paneSessionId,
+											workerInstanceId: request.workerInstanceId,
+											wireVersion: request.wireVersion,
+											requestId: request.requestId,
+											requestSequence: request.requestSequence,
+											kind: 'call.completed',
+											call: { method: 'review.markFileViewed', result: null },
+										},
+						),
+					);
+				},
+			);
+		const globalPort = createRecordingBridgeCommWorkerPort();
+		const productChannel = new MessageChannel();
+		const productPort = new BridgeWorkerMessagePortRecorder(productChannel.port2);
+		bootstrapBridgeCommWorkerEntry(globalPort.dispatch.port);
+		globalPort.dispatch.message(makePaneWorkerInstall(productChannel.port1));
 
-		dispatch.message(
+		// Act
+		productChannel.port2.postMessage(makeBootstrapRequest('product-chain-bootstrap'));
+		await productPort.waitForCount(1);
+		productChannel.port2.postMessage(
+			encodeBridgeWorkerMarkFileViewedCommand({
+				epoch: 4,
+				fileId: 'item-1',
+				requestId: 'mark-viewed-product-chain',
+			}),
+		);
+		const messages = await productPort.waitForCount(2);
+
+		// Assert
+		expect(messages.at(-1)).toMatchObject({
+			kind: 'health',
+			requestId: 'mark-viewed-product-chain',
+			status: 'ready',
+		});
+		expect(fetchSpy).toHaveBeenCalledTimes(3);
+		expect(observedBodies).toEqual([
+			expect.objectContaining({ kind: 'workerSession.open', requestSequence: 1 }),
+			expect.objectContaining({
+				call: { method: 'file.source.current', request: {} },
+				kind: 'product.call',
+				requestSequence: 2,
+			}),
+			expect.objectContaining({
+				call: { method: 'review.markFileViewed', request: { itemId: 'item-1' } },
+				kind: 'product.call',
+				requestSequence: 3,
+			}),
+		]);
+
+		productPort.close();
+		productChannel.port1.close();
+	});
+
+	test('replays commands that arrived before runtime bootstrap', async () => {
+		const harness = createInstalledBridgeCommWorkerEntryHarness();
+
+		harness.productPort.postMessage(
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-before-bootstrap',
 				epoch: 3,
@@ -356,90 +478,209 @@ describe('Bridge comm worker entry', () => {
 				selectedSource: 'user',
 			}),
 		);
-		dispatch.message(makeBootstrapRequest('bootstrap-request-1'));
+		await harness.productPort.waitForCount(1);
+		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-1'));
+		const postedMessages = await harness.productPort.waitForCount(4);
 
-		expect(postedMessages.map((posted) => posted.message)).toEqual([
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				kind: 'health',
-				requestId: 'request-before-bootstrap',
-				status: 'degraded',
-				message: 'Bridge comm worker command received before bootstrap.',
-				transferDescriptors: [],
-			},
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				kind: 'health',
-				requestId: 'bootstrap-request-1',
-				status: 'ready',
-				transferDescriptors: [],
-			},
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				kind: 'slicePatch',
-				epoch: 3,
-				sequence: 1,
-				transferDescriptors: [],
-				patches: [
-					{
-						slice: 'selection',
-						operation: 'upsert',
-						payload: {
-							selectedItemId: 'item-1',
+		try {
+			expect(harness.globalPostedMessages).toEqual([]);
+			expect(postedMessages).toEqual([
+				{
+					wireVersion: 1,
+					direction: 'serverWorkerToMain',
+					kind: 'health',
+					requestId: 'request-before-bootstrap',
+					status: 'degraded',
+					message: 'Bridge comm worker command received before bootstrap.',
+					transferDescriptors: [],
+				},
+				{
+					wireVersion: 1,
+					direction: 'serverWorkerToMain',
+					kind: 'health',
+					requestId: 'bootstrap-request-1',
+					status: 'ready',
+					transferDescriptors: [],
+				},
+				{
+					wireVersion: 1,
+					direction: 'serverWorkerToMain',
+					kind: 'slicePatch',
+					epoch: 3,
+					sequence: 1,
+					transferDescriptors: [],
+					patches: [
+						{
+							slice: 'selection',
+							operation: 'upsert',
+							payload: {
+								selectedItemId: 'item-1',
+							},
 						},
-					},
-					{
-						slice: 'contentAvailability',
-						operation: 'upsert',
-						itemId: 'item-1',
-						payload: {
-							state: 'loading',
+						{
+							slice: 'contentAvailability',
+							operation: 'upsert',
+							itemId: 'item-1',
+							payload: {
+								state: 'loading',
+							},
 						},
-					},
-				],
-			},
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				kind: 'health',
-				requestId: 'request-before-bootstrap',
-				status: 'ready',
-				transferDescriptors: [],
-			},
-		]);
+					],
+				},
+				{
+					wireVersion: 1,
+					direction: 'serverWorkerToMain',
+					kind: 'health',
+					requestId: 'request-before-bootstrap',
+					status: 'ready',
+					transferDescriptors: [],
+				},
+			]);
+		} finally {
+			harness.close();
+		}
 	});
 
-	test('rejects duplicate bootstrap requests after runtime ownership is installed', () => {
-		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
-		bootstrapBridgeCommWorkerEntry(dispatch.port);
+	test('rejects duplicate bootstrap requests after runtime ownership is installed', async () => {
+		const harness = createInstalledBridgeCommWorkerEntryHarness();
 
-		dispatch.message(makeBootstrapRequest('bootstrap-request-1'));
-		dispatch.message(makeBootstrapRequest('bootstrap-request-2'));
+		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-1'));
+		await harness.productPort.waitForCount(1);
+		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-2'));
+		const postedMessages = await harness.productPort.waitForCount(2);
 
-		expect(postedMessages.map((posted) => posted.message)).toEqual([
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				kind: 'health',
-				requestId: 'bootstrap-request-1',
-				status: 'ready',
-				transferDescriptors: [],
-			},
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				kind: 'health',
-				requestId: 'bootstrap-request-2',
-				status: 'degraded',
-				message: 'Bridge comm worker runtime was already bootstrapped.',
-				transferDescriptors: [],
-			},
-		]);
+		try {
+			expect(harness.globalPostedMessages).toEqual([]);
+			expect(postedMessages).toEqual([
+				{
+					wireVersion: 1,
+					direction: 'serverWorkerToMain',
+					kind: 'health',
+					requestId: 'bootstrap-request-1',
+					status: 'ready',
+					transferDescriptors: [],
+				},
+				{
+					wireVersion: 1,
+					direction: 'serverWorkerToMain',
+					kind: 'health',
+					requestId: 'bootstrap-request-2',
+					status: 'degraded',
+					message: 'Bridge comm worker runtime was already bootstrapped.',
+					transferDescriptors: [],
+				},
+			]);
+		} finally {
+			harness.close();
+		}
 	});
 });
+
+function createInstalledBridgeCommWorkerEntryHarness(): InstalledBridgeCommWorkerEntryHarness {
+	const globalPort = createRecordingBridgeCommWorkerPort();
+	const productChannel = new MessageChannel();
+	const productPort = new BridgeWorkerMessagePortRecorder(productChannel.port2);
+	let didClose = false;
+	bootstrapBridgeCommWorkerEntry(globalPort.dispatch.port, {
+		installProductSession: (input): BridgeCommWorkerInstalledProductSession => {
+			const open = Promise.resolve();
+			void input;
+			return {
+				open,
+				productTransport: makeUnavailableFileProductTransport(),
+			};
+		},
+	});
+	globalPort.dispatch.message(makePaneWorkerInstall(productChannel.port1));
+	const harness: InstalledBridgeCommWorkerEntryHarness = {
+		close: (): void => {
+			if (didClose) {
+				return;
+			}
+			didClose = true;
+			productPort.close();
+			productChannel.port1.close();
+			activeInstalledEntryHarnesses.delete(harness);
+		},
+		globalPostedMessages: globalPort.postedMessages,
+		globalStarted: globalPort.started,
+		productPort,
+	};
+	activeInstalledEntryHarnesses.add(harness);
+	return harness;
+}
+
+function makeUnavailableFileProductTransport(): BridgeProductTransportSession {
+	const workerDerivationEpochs = { file: 0, review: 0 };
+	return {
+		bumpWorkerDerivationEpoch: (surface): number => {
+			workerDerivationEpochs[surface] += 1;
+			return workerDerivationEpochs[surface];
+		},
+		call: async (...arguments_): Promise<never> => {
+			const [method] = arguments_;
+			if (method !== 'file.source.current') {
+				throw new Error(`Unexpected product call in entry harness: ${method}.`);
+			}
+			return {
+				reason: 'no-file-source-authority',
+				status: 'unavailable',
+			} as never;
+		},
+		openContent: (): never => {
+			throw new Error('Entry harness cannot open content without a File source.');
+		},
+		subscribe: (): never => {
+			throw new Error('Entry harness cannot subscribe without a File source.');
+		},
+		workerDerivationEpoch: (surface): number => workerDerivationEpochs[surface],
+	};
+}
+
+class BridgeWorkerMessagePortRecorder {
+	readonly #messages: BridgeWorkerServerToMainMessage[] = [];
+	readonly #port: MessagePort;
+	readonly #waiters: Array<{
+		readonly count: number;
+		readonly resolve: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
+	}> = [];
+
+	constructor(port: MessagePort) {
+		this.#port = port;
+		this.#port.addEventListener('message', (event: MessageEvent<unknown>): void => {
+			this.#messages.push(bridgeWorkerServerToMainMessageSchema.parse(event.data));
+			this.#resolveWaiters();
+		});
+		this.#port.start();
+	}
+
+	postMessage(message: unknown): void {
+		this.#port.postMessage(message);
+	}
+
+	waitForCount(count: number): Promise<readonly BridgeWorkerServerToMainMessage[]> {
+		if (this.#messages.length >= count) {
+			return Promise.resolve([...this.#messages]);
+		}
+		return new Promise((resolve): void => {
+			this.#waiters.push({ count, resolve });
+		});
+	}
+
+	close(): void {
+		this.#port.close();
+	}
+
+	#resolveWaiters(): void {
+		for (let index = this.#waiters.length - 1; index >= 0; index -= 1) {
+			const waiter = this.#waiters[index];
+			if (waiter !== undefined && this.#messages.length >= waiter.count) {
+				this.#waiters.splice(index, 1);
+				waiter.resolve([...this.#messages]);
+			}
+		}
+	}
+}
 
 function createRecordingBridgeCommWorkerPort(): {
 	readonly dispatch: {
@@ -484,6 +725,28 @@ function createRecordingBridgeCommWorkerPort(): {
 		postedMessages,
 		started: (): boolean => didStart,
 	};
+}
+
+function makePaneWorkerInstall(productPort: MessagePort): BridgePaneCommWorkerInstall {
+	return bridgePaneCommWorkerInstallSchema.parse({
+		bootstrap: {
+			kind: 'productSession.bootstrap',
+			paneSessionId: 'pane-session-1',
+			policy: {
+				maximumContentBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
+				maximumRequestBodyBytes: BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
+				maximumMetadataFrameBytes: BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
+				maximumQueuedStreamBytes: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
+				maximumQueuedStreamFrames: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
+				terminalFrameReserve: BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
+			},
+			wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
+			workerInstanceId: 'worker-instance-1',
+		},
+		kind: 'bridgePaneCommWorker.install',
+		productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
+		productPort,
+	});
 }
 
 function makeRenderSemantics(

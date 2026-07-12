@@ -377,7 +377,7 @@ struct ObservabilityDebugVerifierBridgeDiagnosticTests {
         #expect(queries.contains(diagnosticAction))
         #expect(queries.contains("agentstudio.startup_diagnostic.bridge.file_view.tree.visible"))
         #expect(queries.contains("agentstudio.startup_diagnostic.bridge.file_view.expected_bootstrap.protocol"))
-        #expect(queries.contains("agentstudio.startup_diagnostic.bridge.file_view.bootstrap.source_spec.state"))
+        #expect(!queries.contains("agentstudio.startup_diagnostic.bridge.file_view.bootstrap.source_spec"))
         #expect(queries.contains("agentstudio.startup_diagnostic.bridge.file_view.open_file.state"))
         #expect(queries.contains("agentstudio.startup_diagnostic.bridge.worker_diagnostic.file_success_count"))
     }

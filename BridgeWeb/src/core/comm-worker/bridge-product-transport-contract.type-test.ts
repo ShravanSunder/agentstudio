@@ -147,6 +147,9 @@ void syntheticCrossWiredIdentity;
 void syntheticCrossWiredTerminal;
 
 const surfaceByCallKind = {
+	'file.activeViewerMode.update': 'file',
+	'file.source.current': 'file',
+	'review.activeViewerMode.update': 'review',
 	'review.markFileViewed': 'review',
 } as const satisfies {
 	readonly [TCallKind in BridgeProductCallKind]: BridgeProductCallRegistry[TCallKind]['surface'];
@@ -159,24 +162,37 @@ const surfaceBySubscriptionKind = {
 };
 const surfaceByContentKind = {
 	'file.content': 'file',
+	'review.content': 'review',
 } as const satisfies {
 	readonly [TContentKind in BridgeProductContentKind]: BridgeProductContentRegistry[TContentKind]['surface'];
 };
 
 const reviewCallSurface: 'review' = bridgeProductSurfaceForCallKind('review.markFileViewed');
+const reviewActiveModeCallSurface: 'review' = bridgeProductSurfaceForCallKind(
+	'review.activeViewerMode.update',
+);
+const fileActiveModeCallSurface: 'file' = bridgeProductSurfaceForCallKind(
+	'file.activeViewerMode.update',
+);
+const fileSourceCurrentCallSurface: 'file' = bridgeProductSurfaceForCallKind('file.source.current');
 const reviewSubscriptionSurface: 'review' =
 	bridgeProductSurfaceForSubscriptionKind('review.metadata');
 const fileSubscriptionSurface: 'file' = bridgeProductSurfaceForSubscriptionKind('file.metadata');
 const fileContentSurface: 'file' = bridgeProductSurfaceForContentKind('file.content');
+const reviewContentSurface: 'review' = bridgeProductSurfaceForContentKind('review.content');
 const allMappedSurfaces: readonly BridgeProductSurface[] = [
 	...Object.values(surfaceByCallKind),
 	...Object.values(surfaceBySubscriptionKind),
 	...Object.values(surfaceByContentKind),
 ];
 void reviewCallSurface;
+void reviewActiveModeCallSurface;
+void fileActiveModeCallSurface;
+void fileSourceCurrentCallSurface;
 void reviewSubscriptionSurface;
 void fileSubscriptionSurface;
 void fileContentSurface;
+void reviewContentSurface;
 void allMappedSurfaces;
 
 // @ts-expect-error A closed call mapper cannot infer a surface from a string prefix.
@@ -197,6 +213,26 @@ void markViewedResult;
 
 const emptyMarkViewedResult: BridgeProductCallResult<'review.markFileViewed'> = null;
 void emptyMarkViewedResult;
+
+const currentFileSourceResult = productTransport.call('file.source.current', {});
+const availableCurrentFileSourceResult: BridgeProductCallResult<'file.source.current'> = {
+	source: {
+		cwdScope: null,
+		freshness: 'live',
+		includeStatuses: true,
+		repoId: '00000000-0000-4000-8000-000000000001',
+		rootPathToken: 'root-token-1',
+		worktreeId: '00000000-0000-4000-8000-000000000002',
+	},
+	status: 'available',
+};
+const unavailableCurrentFileSourceResult: BridgeProductCallResult<'file.source.current'> = {
+	reason: 'no-file-source-authority',
+	status: 'unavailable',
+};
+void currentFileSourceResult;
+void availableCurrentFileSourceResult;
+void unavailableCurrentFileSourceResult;
 
 const reviewSubscription: BridgeProductSubscription<'review.metadata'> = productTransport.subscribe(
 	'review.metadata',
@@ -279,13 +315,46 @@ const invalidReviewMetadataEvent: BridgeProductSubscriptionEvent<'review.metadat
 	fileMetadataEvent;
 void invalidReviewMetadataEvent;
 
+switch (fileMetadataEvent.eventKind) {
+	case 'file.sourceAccepted':
+		void fileMetadataEvent.source.sourceId;
+		break;
+	case 'file.treeWindow':
+		void fileMetadataEvent.rows;
+		break;
+	case 'file.treeDelta':
+		void fileMetadataEvent.operations;
+		break;
+	case 'file.statusPatch':
+		void fileMetadataEvent.patch.patchKind;
+		break;
+	case 'file.descriptorReady':
+		void fileMetadataEvent.availability.availabilityKind;
+		const descriptorEncoding: 'utf-8' | null = fileMetadataEvent.encoding;
+		const descriptorPayloadByteCount: number = fileMetadataEvent.payloadByteCount;
+		const descriptorPayloadLineCount: number = fileMetadataEvent.payloadLineCount;
+		const descriptorTotalLineCount: number | null = fileMetadataEvent.totalLineCount;
+		void descriptorEncoding;
+		void descriptorPayloadByteCount;
+		void descriptorPayloadLineCount;
+		void descriptorTotalLineCount;
+		// @ts-expect-error Descriptor-ready events cannot expose legacy resource carriers.
+		void fileMetadataEvent.resourceUrl;
+		// @ts-expect-error Descriptor-ready events no longer expose ambiguous line counts.
+		void fileMetadataEvent.lineCount;
+		break;
+	case 'file.invalidated':
+		void fileMetadataEvent.replacementDescriptor;
+		break;
+}
+
 const fileContent: BridgeProductContentStream<'file.content'> = productTransport.openContent(
 	{
 		contentKind: 'file.content',
 		declaredByteLength: 12,
 		descriptorId: 'file-descriptor-1',
 		encoding: 'utf-8',
-		expectedSha256: null,
+		expectedSha256: 'a'.repeat(64),
 		fileId: 'file-1',
 		maximumBytes: 2 * 1024 * 1024,
 		source: {
@@ -307,11 +376,51 @@ const fileContent: BridgeProductContentStream<'file.content'> = productTransport
 );
 void fileContent;
 
+const reviewContent: BridgeProductContentStream<'review.content'> = productTransport.openContent(
+	{
+		contentDigest: {
+			algorithm: 'git-oid',
+			authority: 'provisional',
+			value: '0123456789abcdef0123456789abcdef01234567',
+		},
+		contentKind: 'review.content',
+		declaredByteLength: null,
+		descriptorId: 'review-descriptor-1',
+		encoding: 'utf-8',
+		endpointId: 'review-endpoint-1',
+		expectedSha256: null,
+		handleId: 'review-handle-1',
+		isBinary: false,
+		itemId: 'review-item-1',
+		language: 'typescript',
+		maximumBytes: 512 * 1024,
+		mimeType: 'text/plain',
+		packageId: 'review-package-1',
+		reviewGeneration: 7,
+		role: 'head',
+		sourceIdentity: 'review-query-1',
+		wholeByteLength: 2_400_000,
+		window: {
+			kind: 'byteRange',
+			maximumBytes: 512 * 1024,
+			startByte: 0,
+		},
+	},
+	abortSignal,
+);
+void reviewContent;
+// @ts-expect-error Review content streams cannot cross-wire into File content results.
+const invalidFileContent: BridgeProductContentStream<'file.content'> = reviewContent;
+void invalidFileContent;
+
 // @ts-expect-error Unknown calls cannot enter the closed registry.
 void productTransport.call('review.arbitrary', null);
 
 // @ts-expect-error The mark-viewed call requires its exact request.
 void productTransport.call('review.markFileViewed', null);
+
+// @ts-expect-error File source discovery accepts only its strict empty request.
+void productTransport.call('file.source.current', { retry: true });
 
 // @ts-expect-error Empty results use null, never an empty object.
 const invalidMarkViewedResult: BridgeProductCallResult<'review.markFileViewed'> = {};
@@ -327,16 +436,16 @@ void productTransport.subscribe('review.metadata', {
 	],
 });
 
-// @ts-expect-error Review content remains absent until S6b freezes its coordinates.
+// @ts-expect-error Review content opens require the complete strict source and range descriptor.
 void productTransport.openContent({ contentKind: 'review.content' }, abortSignal);
 
 // @ts-expect-error Content opens always require a caller-owned AbortSignal.
 void productTransport.openContent({
 	contentKind: 'file.content',
-	declaredByteLength: null,
+	declaredByteLength: 12,
 	descriptorId: 'file-descriptor-1',
 	encoding: 'utf-8',
-	expectedSha256: null,
+	expectedSha256: 'a'.repeat(64),
 	fileId: 'file-1',
 	maximumBytes: 2 * 1024 * 1024,
 	source: {

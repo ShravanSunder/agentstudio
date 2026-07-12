@@ -7,6 +7,16 @@ import {
 	buildReviewMetadataSnapshotFrame,
 	buildReviewMetadataWindowFrame,
 } from '../features/review/protocol/review-metadata-frame-builder.js';
+import type { BridgeFileViewerBrowserTestProductSession } from '../file-viewer/bridge-file-viewer-browser-test-app.js';
+import {
+	makeFileContent,
+	makeFileDescriptor,
+	makeFileMetadataEvents,
+	makeTreeWindowMetadataEvent,
+	type PublishFileMetadataEvents,
+} from '../file-viewer/bridge-file-viewer-browser-test-fixtures.js';
+import { createBridgeFileViewerBrowserTestCommWorkerTransportFactory } from '../file-viewer/bridge-file-viewer-browser-test-harness.js';
+import { BridgeFileViewerRuntimeTransportFactoryProvider } from '../file-viewer/bridge-file-viewer-render-snapshot-controller.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryBatch } from '../foundation/telemetry/bridge-telemetry-event.js';
@@ -17,10 +27,6 @@ import {
 	waitForBridgeViewerTreeItemButton,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { terminateBridgePierreWorkerPoolSingletonForTest } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
-import type {
-	WorktreeFileFrameSubscriber,
-	WorktreeFileInitialSurface,
-} from '../worktree-file-surface/worktree-file-app.js';
 import {
 	actClick,
 	actWait,
@@ -29,8 +35,6 @@ import {
 	dispatchHostAdmittedReviewIntakeFrame,
 	installBridgeReadyHandshake,
 	makeWindowedReviewPackage,
-	makeWorktreeFileDescriptorForFrameTest,
-	makeWorktreeFileFramesForFrameTest,
 	pollWithinAct,
 	pollWithinActUntilEqual,
 	pollWithinActUntilTruthy,
@@ -51,10 +55,14 @@ describe('BridgeApp native review intake Browser Mode', () => {
 	test('keeps FileView mounted across Review mode metadata loading', async () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const streamId = 'review:bridge-app-test-pane';
-		const fileDescriptor = makeWorktreeFileDescriptorForFrameTest();
-		const loadEvents: string[] = [];
-		const fetchedFileResourceUrls: string[] = [];
-		let publishWorktreeFileFrames: WorktreeFileFrameSubscriber | null = null;
+		const fileDescriptor = makeFileDescriptor({
+			contentHandle: 'stable-across-modes-content',
+			fileId: 'file-stable-across-modes',
+			path: 'Sources/App/StableAcrossModes.ts',
+		});
+		const sourceDiscoveryEvents: string[] = [];
+		const openedFileDescriptorIds: string[] = [];
+		let publishFileMetadataEvents: PublishFileMetadataEvents | null = null;
 		const snapshotFrame = buildReviewMetadataSnapshotFrame({
 			package: reviewPackage,
 			paneId: 'bridge-app-test-pane',
@@ -65,13 +73,23 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			visibleItemIds: reviewPackage.orderedItemIds.slice(0, 80),
 		});
 		const handshake = installBridgeReadyHandshake();
-		const loadInitialSurface = async (): Promise<WorktreeFileInitialSurface> => {
-			loadEvents.push('worktree-file.load');
-			return {
-				frames: makeWorktreeFileFramesForFrameTest(fileDescriptor),
-				source: fileDescriptor.sourceIdentity,
-			};
+		const productSession: BridgeFileViewerBrowserTestProductSession = {
+			currentSource: () => {
+				sourceDiscoveryEvents.push('file.source.current');
+				return availableFileSource();
+			},
+			initialMetadataEvents: makeFileMetadataEvents(fileDescriptor),
+			onMetadataSubscription: (publisher): void => {
+				publishFileMetadataEvents = publisher;
+			},
+			readContent: ({ descriptor }): string => {
+				openedFileDescriptorIds.push(descriptor.descriptorId);
+				return makeFileContent('export const stableAcrossModes = true;\n');
+			},
 		};
+		const transportFactory = createBridgeFileViewerBrowserTestCommWorkerTransportFactory({
+			productSessionRef: { current: productSession },
+		});
 		vi.spyOn(globalThis, 'fetch').mockImplementation(async (resource, init): Promise<Response> => {
 			const rpcResponse = recordBridgeSchemeRPCFetch(resource, init, []);
 			if (rpcResponse !== null) {
@@ -86,10 +104,6 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			if (resourceUrl.startsWith('agentstudio://resource/review/content/')) {
 				return chunkedTextResponse(['struct ReviewFixture {}\n']);
 			}
-			if (resourceUrl.startsWith('agentstudio://resource/worktree-file/worktree.fileContent/')) {
-				fetchedFileResourceUrls.push(resourceUrl);
-				return chunkedTextResponse(['export const stableAcrossModes = true;\n']);
-			}
 			return new Response('unexpected request', { status: 404 });
 		});
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
@@ -97,21 +111,9 @@ describe('BridgeApp native review intake Browser Mode', () => {
 
 		try {
 			render(
-				<BridgeApp
-					fileViewerProps={{
-						autoOpenInitialFile: true,
-						worktreeFileSurfaceTransport: {
-							loadInitialSurface,
-							subscribeFrames: (subscriber): (() => void) => {
-								publishWorktreeFileFrames = subscriber;
-								return (): void => {
-									publishWorktreeFileFrames = null;
-								};
-							},
-						},
-					}}
-					viewerMode="file"
-				/>,
+				<BridgeFileViewerRuntimeTransportFactoryProvider transportFactory={transportFactory}>
+					<BridgeApp fileViewerProps={{ autoOpenInitialFile: true }} viewerMode="file" />
+				</BridgeFileViewerRuntimeTransportFactoryProvider>,
 			);
 			await pollWithinAct({
 				getValue: () =>
@@ -136,8 +138,8 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			const fileCodeCanvas = requireBridgeViewerHTMLElement(
 				document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]'),
 			);
-			expect(loadEvents).toEqual(['worktree-file.load']);
-			expect(fetchedFileResourceUrls).toEqual([]);
+			expect(sourceDiscoveryEvents).toEqual(['file.source.current']);
+			expect(openedFileDescriptorIds).toEqual(['stable-across-modes-content']);
 			await actClick(
 				requireBridgeViewerHTMLElement(
 					document.querySelector('[data-testid="worktree-file-search-toggle"]'),
@@ -205,44 +207,13 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			expect(document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]')).toBe(
 				fileCodeCanvas,
 			);
-			await requireWorktreeFileFramePublisher(publishWorktreeFileFrames)([
-				{
-					kind: 'delta',
-					streamId: 'worktree-file:bridge-worktree-dev-pane',
-					generation: 1,
-					sequence: 2,
-					frameKind: 'worktree.treeWindow',
-					projectionIdentity: {
-						source: fileDescriptor.sourceIdentity,
-						pathScope: [],
-						sortKey: 'path',
-						groupKey: 'none',
-						filterKey: 'all',
-						treeWindowKey: 'hidden-review-mode-window',
-					},
-					metadataLineage: {
-						loadedBy: 'idle',
-						lane: 'idle',
-					},
-					rows: [
-						{
-							rowId: 'row-hidden-mode-update',
-							path: 'Sources/App/HiddenReviewModeUpdate.swift',
-							name: 'HiddenReviewModeUpdate.swift',
-							parentPath: 'Sources/App',
-							depth: 2,
-							isDirectory: false,
-							fileId: 'file-hidden-mode-update',
-						},
-					],
-					treeSizeFacts: {
-						extentKind: 'exactPathCount',
-						pathCount: 2,
-						windowStartIndex: 1,
-						windowRowCount: 1,
-						rowHeightPixels: 24,
-					},
-				},
+			await publishTypedFileMetadataEvents(publishFileMetadataEvents, [
+				makeTreeWindowMetadataEvent({
+					rowCount: 1,
+					sourceIdentity: fileDescriptor.source,
+					startIndex: 1,
+					totalPathCount: 2,
+				}),
 			]);
 			await pollWithinAct({
 				getValue: () =>
@@ -251,8 +222,8 @@ describe('BridgeApp native review intake Browser Mode', () => {
 						?.getAttribute('data-worktree-metadata-tree-row-count'),
 				isSatisfied: (value): boolean => value === '2',
 			});
-			expect(loadEvents).toEqual(['worktree-file.load']);
-			expect(fetchedFileResourceUrls).toHaveLength(0);
+			expect(sourceDiscoveryEvents).toEqual(['file.source.current']);
+			expect(openedFileDescriptorIds).toEqual(['stable-across-modes-content']);
 
 			await dispatchHostAdmittedReviewIntakeFrame({
 				kind: 'snapshot',
@@ -269,8 +240,8 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			expect(document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]')).toBe(
 				fileCodeCanvas,
 			);
-			expect(loadEvents).toEqual(['worktree-file.load']);
-			expect(fetchedFileResourceUrls).toHaveLength(0);
+			expect(sourceDiscoveryEvents).toEqual(['file.source.current']);
+			expect(openedFileDescriptorIds).toEqual(['stable-across-modes-content']);
 
 			await actClick(
 				requireBridgeViewerHTMLElement(
@@ -301,8 +272,8 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			expect(
 				document.querySelector('[data-testid="worktree-file-filter-menu-active-indicator"]'),
 			).not.toBeNull();
-			expect(loadEvents).toEqual(['worktree-file.load']);
-			expect(fetchedFileResourceUrls).toHaveLength(0);
+			expect(sourceDiscoveryEvents).toEqual(['file.source.current']);
+			expect(openedFileDescriptorIds).toEqual(['stable-across-modes-content']);
 		} finally {
 			handshake.dispose();
 		}
@@ -968,16 +939,31 @@ async function setReactInputValue(input: HTMLInputElement, value: string): Promi
 	});
 }
 
-function requireWorktreeFileFramePublisher(
-	publisher: WorktreeFileFrameSubscriber | null,
-): (frames: Parameters<WorktreeFileFrameSubscriber>[0]) => Promise<void> {
+async function publishTypedFileMetadataEvents(
+	publisher: PublishFileMetadataEvents | null,
+	events: Parameters<PublishFileMetadataEvents>[0],
+): Promise<void> {
 	if (publisher === null) {
-		throw new Error('Expected Worktree/File frame publisher.');
+		throw new Error('Expected typed File metadata publisher.');
 	}
-	return async (frames): Promise<void> => {
-		await act(async (): Promise<void> => {
-			publisher(frames);
-			await Promise.resolve();
-		});
+	await act(async (): Promise<void> => {
+		publisher(events);
+		await Promise.resolve();
+	});
+}
+
+function availableFileSource(): ReturnType<
+	NonNullable<BridgeFileViewerBrowserTestProductSession['currentSource']>
+> {
+	return {
+		status: 'available',
+		source: {
+			cwdScope: null,
+			freshness: 'live',
+			includeStatuses: true,
+			repoId: '00000000-0000-4000-8000-000000000001',
+			rootPathToken: 'browser-test-root',
+			worktreeId: '00000000-0000-4000-8000-000000000002',
+		},
 	};
 }

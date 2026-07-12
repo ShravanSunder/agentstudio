@@ -4,7 +4,7 @@ import Testing
 @testable import AgentStudio
 
 extension WebKitSerializedTests.BridgeWebKitSpikeTests {
-    @Test("packaged worker proves product 256 KiB POST timing and abort-causal teardown")
+    @Test("packaged worker proves product 128 KiB POST timing and abort-causal teardown")
     func packagedWorkerProvesPositiveProductStreamCarrier() async throws {
         // Arrange
         let workerAsset = try await BridgeAppAssetStore().load(
@@ -31,7 +31,7 @@ extension WebKitSerializedTests.BridgeWebKitSpikeTests {
         #expect(proof.missingContentLengthAccepted)
         #expect(proof.exactRequestBodyBytesSucceeded)
         #expect(proof.nearCapRequestBodySucceeded)
-        #expect(proof.nearCapBodyByteCount == 256 * 1024)
+        #expect(proof.nearCapBodyByteCount == 128 * 1024)
         #expect(proof.nearCapWarmupRequestCount == 1)
         #expect(proof.nearCapMeasuredRequestCount == 100)
         #expect(proof.bodyReadCount == 112)
@@ -99,12 +99,12 @@ extension WebKitSerializedTests.BridgeWebKitSpikeTests {
         #expect(nearCapBodySources.isSubset(of: [.httpBody, .httpBodyStream]))
         let oversizedObservation = try #require(
             proof.requestAPIObservations.first { $0.route == "/oversized-body" })
-        #expect(oversizedObservation.bodyByteCount == 256 * 1024 + 1)
+        #expect(oversizedObservation.bodyByteCount == 128 * 1024 + 1)
         #expect(oversizedObservation.decodeCallCount == 0)
         #expect(oversizedObservation.providerCallCount == 0)
         #expect(oversizedObservation.admissionOutcome == .rejected(.oversizedBody))
         print(
-            "S2a product 256 KiB body_source=\(nearCapBodySources) timings (microseconds): "
+            "S2a product 128 KiB body_source=\(nearCapBodySources) timings (microseconds): "
                 + "worker_encode_p50=\(workerEncodeTiming.p50Microseconds) "
                 + "worker_encode_p95=\(workerEncodeTiming.p95Microseconds) "
                 + "worker_encode_p99=\(workerEncodeTiming.p99Microseconds) "

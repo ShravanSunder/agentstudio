@@ -1,38 +1,46 @@
+import type { BridgeCommWorkerFileViewRuntimeMutation } from './bridge-comm-worker-file-metadata-projection.js';
+import {
+	applyFileViewRuntimeMutationToSource,
+	areFileViewContentRequestsEquivalent,
+	findFileViewContentRequest,
+	normalizeBridgeCommWorkerFileViewRuntimeSource,
+	type BridgeCommWorkerFileViewRuntimeSource,
+} from './bridge-comm-worker-file-view-runtime-source.js';
+import type { BridgeCommWorkerFileMetadataDemand } from './bridge-comm-worker-product-controller.js';
 import { buildBridgeWorkerReadyHealthEvent } from './bridge-comm-worker-protocol.js';
-import { canRenderBridgeWorkerReviewContentForSemantics } from './bridge-comm-worker-review-runtime.js';
+import {
+	findChangedReviewRuntimeSourceItemIds,
+	isReviewRuntimeSourceExecutableForItem,
+	type BridgeCommWorkerReviewRuntimeSource,
+} from './bridge-comm-worker-review-source-diff.js';
 import {
 	createBridgeCommWorkerStore,
 	type BridgeCommWorkerRow,
 	type BridgeCommWorkerStore,
+	type BridgeCommWorkerViewportRange,
 } from './bridge-comm-worker-store.js';
 import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
-import type {
-	BridgeWorkerFileViewContentMetadata,
-	BridgeWorkerFileViewContentRequestDescriptor,
-	BridgeWorkerFileViewSourceUpdateCommand,
-	BridgeWorkerMainToServerMessage,
-	BridgeWorkerReviewContentMetadata,
-	BridgeWorkerReviewContentRequestDescriptor,
-	BridgeWorkerReviewInvalidateCommand,
-	BridgeWorkerReviewRenderSemantics,
-	BridgeWorkerReviewSourceUpdateCommand,
-	BridgeWorkerSelectCommand,
-	BridgeWorkerServerToMainMessage,
-	BridgeWorkerViewportCommand,
+import {
+	isBridgeWorkerFileViewContentMetadata,
+	type BridgeWorkerFileViewContentMetadata,
+	type BridgeWorkerFileDisplayResyncCommand,
+	type BridgeWorkerFileQueryUpdateCommand,
+	type BridgeWorkerMainToServerMessage,
+	type BridgeWorkerReviewContentMetadata,
+	type BridgeWorkerReviewContentRequestDescriptor,
+	type BridgeWorkerReviewInvalidateCommand,
+	type BridgeWorkerReviewRenderSemantics,
+	type BridgeWorkerReviewSourceUpdateCommand,
+	type BridgeWorkerSelectCommand,
+	type BridgeWorkerServerToMainMessage,
+	type BridgeWorkerViewportCommand,
 } from './bridge-worker-contracts.js';
 
-export interface BridgeCommWorkerReviewRuntimeSource {
-	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
-	readonly contentRequestDescriptors: readonly BridgeWorkerReviewContentRequestDescriptor[];
-	readonly renderSemantics: readonly BridgeWorkerReviewRenderSemantics[];
-	readonly rows: readonly BridgeCommWorkerRow[];
-}
+export type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 
-export interface BridgeCommWorkerFileViewRuntimeSource {
-	readonly contentItems: readonly BridgeWorkerFileViewContentMetadata[];
-	readonly contentRequestDescriptors: readonly BridgeWorkerFileViewContentRequestDescriptor[];
-	readonly rows: readonly BridgeCommWorkerRow[];
-}
+export type { BridgeCommWorkerFileViewRuntimeSource } from './bridge-comm-worker-file-view-runtime-source.js';
+
+export type { BridgeCommWorkerFileMetadataDemand } from './bridge-comm-worker-product-controller.js';
 
 export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
@@ -56,6 +64,13 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
 	readonly updateReviewRuntimeSource?: (source: BridgeCommWorkerReviewRuntimeSource) => void;
 	readonly updateFileViewRuntimeSource?: (source: BridgeCommWorkerFileViewRuntimeSource) => void;
+	readonly updateFileMetadataDemand?: (demand: BridgeCommWorkerFileMetadataDemand) => void;
+	readonly updateFileDisplayQuery?: (
+		command: BridgeWorkerFileQueryUpdateCommand,
+	) => readonly BridgeWorkerServerToMainMessage[];
+	readonly requestFileDisplayResync?: (
+		command: BridgeWorkerFileDisplayResyncCommand,
+	) => readonly BridgeWorkerServerToMainMessage[];
 }
 
 export interface BridgeCommWorkerDemandExecutionScheduleRequest {
@@ -87,6 +102,14 @@ export interface BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest 
 }
 
 export interface BridgeCommWorkerCommandHandler {
+	readonly applyFileViewRuntimeSource: (props: {
+		readonly epoch: number;
+		readonly source: BridgeCommWorkerFileViewRuntimeSource;
+	}) => readonly BridgeWorkerServerToMainMessage[];
+	readonly applyFileViewRuntimeMutation: (props: {
+		readonly epoch: number;
+		readonly mutation: BridgeCommWorkerFileViewRuntimeMutation;
+	}) => readonly BridgeWorkerServerToMainMessage[];
 	readonly handleMessage: (
 		message: BridgeWorkerMainToServerMessage,
 	) => readonly BridgeWorkerServerToMainMessage[];
@@ -105,7 +128,7 @@ export function createBridgeCommWorkerCommandHandler(
 	const seenRequestIds = new Set<string>();
 	let fileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource = {
 		contentItems: [],
-		contentRequestDescriptors: [],
+		contentRequests: [],
 		rows: [],
 	};
 	let reviewRuntimeSource: BridgeCommWorkerReviewRuntimeSource = {
@@ -117,6 +140,42 @@ export function createBridgeCommWorkerCommandHandler(
 	let currentEpoch = 0;
 
 	return {
+		applyFileViewRuntimeSource: ({ epoch, source }) =>
+			applyBridgeCommWorkerFileViewRuntimeSource({
+				createSequence,
+				demandEpoch: currentEpoch,
+				epoch,
+				nextFileViewRuntimeSource: source,
+				previousFileViewRuntimeSource: fileViewRuntimeSource,
+				scheduleSelectedFileViewContentReadyPreparation:
+					props.scheduleSelectedFileViewContentReadyPreparation,
+				store,
+				...(props.updateFileMetadataDemand === undefined
+					? {}
+					: { updateFileMetadataDemand: props.updateFileMetadataDemand }),
+				updateFileViewRuntimeSource: (nextSource): void => {
+					fileViewRuntimeSource = normalizeBridgeCommWorkerFileViewRuntimeSource(nextSource);
+					props.updateFileViewRuntimeSource?.(fileViewRuntimeSource);
+				},
+			}),
+		applyFileViewRuntimeMutation: ({ epoch, mutation }) =>
+			applyBridgeCommWorkerFileViewRuntimeMutation({
+				createSequence,
+				demandEpoch: currentEpoch,
+				epoch,
+				mutation,
+				scheduleSelectedFileViewContentReadyPreparation:
+					props.scheduleSelectedFileViewContentReadyPreparation,
+				source: fileViewRuntimeSource,
+				store,
+				...(props.updateFileMetadataDemand === undefined
+					? {}
+					: { updateFileMetadataDemand: props.updateFileMetadataDemand }),
+				updateFileViewRuntimeSource: (nextSource): void => {
+					fileViewRuntimeSource = nextSource;
+					props.updateFileViewRuntimeSource?.(nextSource);
+				},
+			}),
 		handleMessage: (message: BridgeWorkerMainToServerMessage) => {
 			const rejection = rejectStaleOrReplayedBridgeWorkerCommand({
 				currentEpoch,
@@ -135,6 +194,7 @@ export function createBridgeCommWorkerCommandHandler(
 					props.scheduleSelectedReviewContentReadyPreparation,
 				scheduleSelectedFileViewContentReadyPreparation:
 					props.scheduleSelectedFileViewContentReadyPreparation,
+				fileViewRuntimeSource,
 				...(props.scheduleDemandExecution === undefined
 					? {}
 					: { scheduleDemandExecution: props.scheduleDemandExecution }),
@@ -143,7 +203,6 @@ export function createBridgeCommWorkerCommandHandler(
 					: { scheduleReviewSourceUpdate: props.scheduleReviewSourceUpdate }),
 				store,
 				reviewRuntimeSource,
-				fileViewRuntimeSource,
 				updateReviewRuntimeSource: (source: BridgeCommWorkerReviewRuntimeSource): void => {
 					reviewRuntimeSource = source;
 					props.updateReviewRuntimeSource?.(source);
@@ -152,6 +211,15 @@ export function createBridgeCommWorkerCommandHandler(
 					fileViewRuntimeSource = source;
 					props.updateFileViewRuntimeSource?.(source);
 				},
+				...(props.updateFileMetadataDemand === undefined
+					? {}
+					: { updateFileMetadataDemand: props.updateFileMetadataDemand }),
+				...(props.updateFileDisplayQuery === undefined
+					? {}
+					: { updateFileDisplayQuery: props.updateFileDisplayQuery }),
+				...(props.requestFileDisplayResync === undefined
+					? {}
+					: { requestFileDisplayResync: props.requestFileDisplayResync }),
 			});
 		},
 	};
@@ -177,6 +245,13 @@ interface HandleBridgeWorkerCommandProps {
 	readonly fileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource;
 	readonly updateReviewRuntimeSource: (source: BridgeCommWorkerReviewRuntimeSource) => void;
 	readonly updateFileViewRuntimeSource: (source: BridgeCommWorkerFileViewRuntimeSource) => void;
+	readonly updateFileMetadataDemand?: (demand: BridgeCommWorkerFileMetadataDemand) => void;
+	readonly updateFileDisplayQuery?: (
+		command: BridgeWorkerFileQueryUpdateCommand,
+	) => readonly BridgeWorkerServerToMainMessage[];
+	readonly requestFileDisplayResync?: (
+		command: BridgeWorkerFileDisplayResyncCommand,
+	) => readonly BridgeWorkerServerToMainMessage[];
 }
 
 function handleBridgeWorkerCommand(
@@ -188,20 +263,28 @@ function handleBridgeWorkerCommand(
 				createSequence: props.createSequence,
 				message: props.message,
 				reviewRuntimeSource: props.reviewRuntimeSource,
+				fileViewRuntimeSource: props.fileViewRuntimeSource,
 				scheduleSelectedReviewContentReadyPreparation:
 					props.scheduleSelectedReviewContentReadyPreparation,
 				scheduleSelectedFileViewContentReadyPreparation:
 					props.scheduleSelectedFileViewContentReadyPreparation,
 				store: props.store,
+				...(props.updateFileMetadataDemand === undefined
+					? {}
+					: { updateFileMetadataDemand: props.updateFileMetadataDemand }),
 			});
 		case 'viewport':
 			return handleBridgeWorkerViewportCommand({
 				createSequence: props.createSequence,
 				message: props.message,
+				fileViewRuntimeSource: props.fileViewRuntimeSource,
 				...(props.scheduleDemandExecution === undefined
 					? {}
 					: { scheduleDemandExecution: props.scheduleDemandExecution }),
 				store: props.store,
+				...(props.updateFileMetadataDemand === undefined
+					? {}
+					: { updateFileMetadataDemand: props.updateFileMetadataDemand }),
 			});
 		case 'reviewInvalidate':
 			return handleBridgeWorkerReviewInvalidateCommand({
@@ -228,22 +311,21 @@ function handleBridgeWorkerCommand(
 				previousReviewRuntimeSource: props.reviewRuntimeSource,
 				updateReviewRuntimeSource: props.updateReviewRuntimeSource,
 			});
-		case 'fileViewSourceUpdate':
-			return handleBridgeWorkerFileViewSourceUpdateCommand({
-				createSequence: props.createSequence,
-				message: props.message,
-				scheduleSelectedFileViewContentReadyPreparation:
-					props.scheduleSelectedFileViewContentReadyPreparation,
-				store: props.store,
-				fileViewRuntimeSource: props.fileViewRuntimeSource,
-				updateFileViewRuntimeSource: props.updateFileViewRuntimeSource,
-			});
+		case 'fileQueryUpdate':
+			return (
+				props.updateFileDisplayQuery?.(props.message) ?? [
+					buildBridgeWorkerUnimplementedHealthEvent(props.message),
+				]
+			);
+		case 'fileDisplayResync':
+			return (
+				props.requestFileDisplayResync?.(props.message) ?? [
+					buildBridgeWorkerUnimplementedHealthEvent(props.message),
+				]
+			);
 		case 'markFileViewed':
 		case 'metadataInterestUpdate':
 		case 'reviewIntakeReady':
-		case 'worktreeFileIntakeReady':
-		case 'worktreeFileOpenSourceStream':
-		case 'worktreeFileRequestDescriptor':
 		case 'activeViewerModeUpdate':
 			return [buildBridgeWorkerReadyHealthEvent(props.message.requestId)];
 		case 'hover':
@@ -254,53 +336,102 @@ function handleBridgeWorkerCommand(
 	}
 }
 
-interface HandleBridgeWorkerFileViewSourceUpdateCommandProps {
+function applyBridgeCommWorkerFileViewRuntimeSource(props: {
 	readonly createSequence: () => number;
-	readonly message: BridgeWorkerFileViewSourceUpdateCommand;
+	readonly demandEpoch: number;
+	readonly epoch: number;
+	readonly nextFileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource;
+	readonly previousFileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource;
 	readonly scheduleSelectedFileViewContentReadyPreparation: (
 		request: BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest,
 	) => void;
 	readonly store: BridgeCommWorkerStore;
-	readonly fileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource;
 	readonly updateFileViewRuntimeSource: (source: BridgeCommWorkerFileViewRuntimeSource) => void;
-}
-
-function handleBridgeWorkerFileViewSourceUpdateCommand(
-	props: HandleBridgeWorkerFileViewSourceUpdateCommandProps,
-): readonly BridgeWorkerServerToMainMessage[] {
-	const previousFileViewRuntimeSource = props.fileViewRuntimeSource;
-	const nextFileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource = {
-		contentItems: props.message.contentItems,
-		contentRequestDescriptors: props.message.contentRequestDescriptors,
-		rows: props.message.rows,
-	};
+	readonly updateFileMetadataDemand?: (demand: BridgeCommWorkerFileMetadataDemand) => void;
+}): readonly BridgeWorkerServerToMainMessage[] {
 	const sourceUpdateResult = props.store.actions.applyFileViewSourceUpdateFact({
-		contentItems: props.message.contentItems,
-		epoch: props.message.epoch,
-		rows: props.message.rows,
+		contentItems: props.nextFileViewRuntimeSource.contentItems,
+		epoch: props.epoch,
+		rows: props.nextFileViewRuntimeSource.rows,
 	});
-	props.updateFileViewRuntimeSource(nextFileViewRuntimeSource);
+	props.updateFileViewRuntimeSource(props.nextFileViewRuntimeSource);
+	publishBridgeCommWorkerFileMetadataDemand({
+		epoch: props.demandEpoch,
+		fileViewRuntimeSource: props.nextFileViewRuntimeSource,
+		store: props.store,
+		...(props.updateFileMetadataDemand === undefined
+			? {}
+			: { updateFileMetadataDemand: props.updateFileMetadataDemand }),
+	});
 	const slicePatch = props.store.actions.takePendingSlicePatchEvent({
-		epoch: props.message.epoch,
+		epoch: props.epoch,
 		sequence: props.createSequence(),
 	});
 	scheduleSelectedFileViewContentReadyPreparationForCurrentDemand({
-		epoch: props.message.epoch,
+		epoch: props.epoch,
 		scheduleSelectedFileViewContentReadyPreparation:
 			props.scheduleSelectedFileViewContentReadyPreparation,
 		selectedContentMetadataChanged:
 			sourceUpdateResult.selectedFileViewContentMetadataChanged === true,
-		selectedContentRequestDescriptorChanged: didSelectedFileViewContentRequestDescriptorChange({
-			nextFileViewRuntimeSource,
-			previousFileViewRuntimeSource,
+		selectedContentRequestChanged: didSelectedFileViewContentRequestChange({
+			nextFileViewRuntimeSource: props.nextFileViewRuntimeSource,
+			previousFileViewRuntimeSource: props.previousFileViewRuntimeSource,
 			selectedId: props.store.getState().selectedId,
 		}),
 		store: props.store,
 	});
-	return [
-		...(slicePatch === null ? [] : [slicePatch]),
-		buildBridgeWorkerReadyHealthEvent(props.message.requestId),
-	];
+	return slicePatch === null ? [] : [slicePatch];
+}
+
+function applyBridgeCommWorkerFileViewRuntimeMutation(props: {
+	readonly createSequence: () => number;
+	readonly demandEpoch: number;
+	readonly epoch: number;
+	readonly mutation: BridgeCommWorkerFileViewRuntimeMutation;
+	readonly scheduleSelectedFileViewContentReadyPreparation: (
+		request: BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest,
+	) => void;
+	readonly source: BridgeCommWorkerFileViewRuntimeSource;
+	readonly store: BridgeCommWorkerStore;
+	readonly updateFileViewRuntimeSource: (source: BridgeCommWorkerFileViewRuntimeSource) => void;
+	readonly updateFileMetadataDemand?: (demand: BridgeCommWorkerFileMetadataDemand) => void;
+}): readonly BridgeWorkerServerToMainMessage[] {
+	const selectedId = props.store.getState().selectedId;
+	const previousSelectedRequest =
+		selectedId === null ? null : findFileViewContentRequest(props.source, selectedId);
+	const sourceUpdateResult = props.store.actions.applyFileViewSourceMutationFact({
+		epoch: props.epoch,
+		mutation: props.mutation,
+	});
+	const nextSource = applyFileViewRuntimeMutationToSource(props.source, props.mutation);
+	props.updateFileViewRuntimeSource(nextSource);
+	publishBridgeCommWorkerFileMetadataDemand({
+		epoch: props.demandEpoch,
+		fileViewRuntimeSource: nextSource,
+		store: props.store,
+		...(props.updateFileMetadataDemand === undefined
+			? {}
+			: { updateFileMetadataDemand: props.updateFileMetadataDemand }),
+	});
+	const slicePatch = props.store.actions.takePendingSlicePatchEvent({
+		epoch: props.epoch,
+		sequence: props.createSequence(),
+	});
+	const nextSelectedRequest =
+		selectedId === null ? null : findFileViewContentRequest(nextSource, selectedId);
+	scheduleSelectedFileViewContentReadyPreparationForCurrentDemand({
+		epoch: props.epoch,
+		scheduleSelectedFileViewContentReadyPreparation:
+			props.scheduleSelectedFileViewContentReadyPreparation,
+		selectedContentMetadataChanged:
+			sourceUpdateResult.selectedFileViewContentMetadataChanged === true,
+		selectedContentRequestChanged: !areFileViewContentRequestsEquivalent(
+			previousSelectedRequest,
+			nextSelectedRequest,
+		),
+		store: props.store,
+	});
+	return slicePatch === null ? [] : [slicePatch];
 }
 
 interface HandleBridgeWorkerReviewSourceUpdateCommandProps {
@@ -410,6 +541,7 @@ function handleBridgeWorkerReviewSourceUpdateCommand(
 interface HandleBridgeWorkerSelectCommandProps {
 	readonly createSequence: () => number;
 	readonly message: BridgeWorkerSelectCommand;
+	readonly fileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource;
 	readonly reviewRuntimeSource: BridgeCommWorkerReviewRuntimeSource;
 	readonly scheduleSelectedReviewContentReadyPreparation: (
 		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
@@ -418,6 +550,7 @@ interface HandleBridgeWorkerSelectCommandProps {
 		request: BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest,
 	) => void;
 	readonly store: BridgeCommWorkerStore;
+	readonly updateFileMetadataDemand?: (demand: BridgeCommWorkerFileMetadataDemand) => void;
 }
 
 function handleBridgeWorkerSelectCommand(
@@ -431,6 +564,14 @@ function handleBridgeWorkerSelectCommand(
 	props.store.actions.applySelectedFact({
 		epoch: props.message.epoch,
 		itemId: props.message.selectedItemId,
+	});
+	publishBridgeCommWorkerFileMetadataDemand({
+		epoch: props.message.epoch,
+		fileViewRuntimeSource: props.fileViewRuntimeSource,
+		store: props.store,
+		...(props.updateFileMetadataDemand === undefined
+			? {}
+			: { updateFileMetadataDemand: props.updateFileMetadataDemand }),
 	});
 	const slicePatch = props.store.actions.takePendingSlicePatchEvent({
 		epoch: props.message.epoch,
@@ -506,7 +647,7 @@ function scheduleSelectedFileViewContentReadyPreparationForCurrentDemand(props: 
 		request: BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest,
 	) => void;
 	readonly selectedContentMetadataChanged: boolean;
-	readonly selectedContentRequestDescriptorChanged: boolean;
+	readonly selectedContentRequestChanged: boolean;
 	readonly store: BridgeCommWorkerStore;
 }): void {
 	const selectedId = props.store.getState().selectedId;
@@ -528,7 +669,7 @@ function scheduleSelectedFileViewContentReadyPreparationForCurrentDemand(props: 
 	if (
 		availability === 'ready' &&
 		!props.selectedContentMetadataChanged &&
-		!props.selectedContentRequestDescriptorChanged
+		!props.selectedContentRequestChanged
 	) {
 		return;
 	}
@@ -542,7 +683,7 @@ function scheduleSelectedFileViewContentReadyPreparationForCurrentDemand(props: 
 	});
 }
 
-function didSelectedFileViewContentRequestDescriptorChange(props: {
+function didSelectedFileViewContentRequestChange(props: {
 	readonly nextFileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource;
 	readonly previousFileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource;
 	readonly selectedId: string | null;
@@ -550,41 +691,9 @@ function didSelectedFileViewContentRequestDescriptorChange(props: {
 	if (props.selectedId === null) {
 		return false;
 	}
-	return !areFileViewContentRequestDescriptorsEquivalent(
-		findFileViewContentRequestDescriptor(props.previousFileViewRuntimeSource, props.selectedId),
-		findFileViewContentRequestDescriptor(props.nextFileViewRuntimeSource, props.selectedId),
-	);
-}
-
-function findFileViewContentRequestDescriptor(
-	source: BridgeCommWorkerFileViewRuntimeSource,
-	itemId: string,
-): BridgeWorkerFileViewContentRequestDescriptor | null {
-	return (
-		source.contentRequestDescriptors.find((descriptor) => descriptor.itemId === itemId) ?? null
-	);
-}
-
-function areFileViewContentRequestDescriptorsEquivalent(
-	left: BridgeWorkerFileViewContentRequestDescriptor | null,
-	right: BridgeWorkerFileViewContentRequestDescriptor | null,
-): boolean {
-	if (left === null || right === null) {
-		return left === right;
-	}
-	return (
-		left.itemId === right.itemId &&
-		left.path === right.path &&
-		left.handleId === right.handleId &&
-		left.descriptorId === right.descriptorId &&
-		left.resourceKind === right.resourceKind &&
-		left.resourceUrl === right.resourceUrl &&
-		(left.contentHash ?? null) === (right.contentHash ?? null) &&
-		(left.contentHashAlgorithm ?? null) === (right.contentHashAlgorithm ?? null) &&
-		left.language === right.language &&
-		left.sizeBytes === right.sizeBytes &&
-		left.maxBytes === right.maxBytes &&
-		left.isBinary === right.isBinary
+	return !areFileViewContentRequestsEquivalent(
+		findFileViewContentRequest(props.previousFileViewRuntimeSource, props.selectedId),
+		findFileViewContentRequest(props.nextFileViewRuntimeSource, props.selectedId),
 	);
 }
 
@@ -656,12 +765,6 @@ function handleBridgeWorkerReviewInvalidateCommand(
 	];
 }
 
-function isBridgeWorkerFileViewContentMetadata(
-	metadata: BridgeWorkerReviewContentMetadata | BridgeWorkerFileViewContentMetadata | null,
-): metadata is BridgeWorkerFileViewContentMetadata {
-	return metadata !== null && 'contentHandle' in metadata;
-}
-
 function isBridgeWorkerReviewContentMetadata(
 	metadata: BridgeWorkerReviewContentMetadata | BridgeWorkerFileViewContentMetadata | null,
 ): metadata is BridgeWorkerReviewContentMetadata {
@@ -670,11 +773,13 @@ function isBridgeWorkerReviewContentMetadata(
 
 interface HandleBridgeWorkerViewportCommandProps {
 	readonly createSequence: () => number;
+	readonly fileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource;
 	readonly message: BridgeWorkerViewportCommand;
 	readonly scheduleDemandExecution?: (
 		request: BridgeCommWorkerDemandExecutionScheduleRequest,
 	) => void;
 	readonly store: BridgeCommWorkerStore;
+	readonly updateFileMetadataDemand?: (demand: BridgeCommWorkerFileMetadataDemand) => void;
 }
 
 function handleBridgeWorkerViewportCommand(
@@ -684,6 +789,14 @@ function handleBridgeWorkerViewportCommand(
 		firstVisibleIndex: props.message.firstVisibleIndex,
 		lastVisibleIndex: props.message.lastVisibleIndex,
 		visibleItemIds: props.message.visibleItemIds,
+	});
+	publishBridgeCommWorkerFileMetadataDemand({
+		epoch: props.message.epoch,
+		fileViewRuntimeSource: props.fileViewRuntimeSource,
+		store: props.store,
+		...(props.updateFileMetadataDemand === undefined
+			? {}
+			: { updateFileMetadataDemand: props.updateFileMetadataDemand }),
 	});
 	const slicePatch = props.store.actions.takePendingSlicePatchEvent({
 		epoch: props.message.epoch,
@@ -700,153 +813,71 @@ function handleBridgeWorkerViewportCommand(
 	];
 }
 
-function findChangedReviewRuntimeSourceItemIds(props: {
-	readonly nextSource: BridgeCommWorkerReviewRuntimeSource;
-	readonly previousSource: BridgeCommWorkerReviewRuntimeSource;
+function publishBridgeCommWorkerFileMetadataDemand(props: {
+	readonly epoch: number;
+	readonly fileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource;
+	readonly store: BridgeCommWorkerStore;
+	readonly updateFileMetadataDemand?: (demand: BridgeCommWorkerFileMetadataDemand) => void;
+}): void {
+	if (props.updateFileMetadataDemand === undefined) return;
+	const state = props.store.getState();
+	if (state.selectedId === null && state.viewportRange === null) return;
+	const filePathsByItemId = props.fileViewRuntimeSource.filePathsByItemId ?? new Map();
+	const selectedPath =
+		state.selectedId === null ? null : (filePathsByItemId.get(state.selectedId) ?? null);
+	const visiblePaths = state.visibleIds.flatMap((itemId): readonly string[] => {
+		const path = filePathsByItemId.get(itemId);
+		return path === undefined ? [] : [path];
+	});
+	const nearbyPaths = bridgeCommWorkerNearbyFilePaths({
+		filePathsByItemId,
+		rows: props.fileViewRuntimeSource.rows,
+		...(props.fileViewRuntimeSource.rowsByIndex === undefined
+			? {}
+			: { rowsByIndex: props.fileViewRuntimeSource.rowsByIndex }),
+		viewportRange: state.viewportRange,
+	});
+	props.updateFileMetadataDemand({
+		epoch: props.epoch,
+		nearbyPaths,
+		selectedPath,
+		visiblePaths,
+	});
+}
+
+function bridgeCommWorkerNearbyFilePaths(props: {
+	readonly filePathsByItemId: ReadonlyMap<string, string>;
+	readonly rows: readonly BridgeCommWorkerRow[];
+	readonly rowsByIndex?: ReadonlyMap<number, BridgeCommWorkerRow>;
+	readonly viewportRange: BridgeCommWorkerViewportRange | null;
 }): readonly string[] {
-	const candidateItemIds = new Set<string>();
-	for (const source of [props.previousSource, props.nextSource]) {
-		for (const metadata of source.contentItems) {
-			candidateItemIds.add(metadata.itemId);
+	const viewportRange = props.viewportRange;
+	if (viewportRange === null) return [];
+	const nearbyLowerIndex = Math.max(0, viewportRange.firstVisibleIndex - 1);
+	const nearbyUpperIndex = viewportRange.lastVisibleIndex + 1;
+	if (props.rowsByIndex !== undefined) {
+		const paths: string[] = [];
+		for (let index = nearbyLowerIndex; index <= nearbyUpperIndex; index += 1) {
+			if (index >= viewportRange.firstVisibleIndex && index <= viewportRange.lastVisibleIndex) {
+				continue;
+			}
+			const row = props.rowsByIndex.get(index);
+			const path = row === undefined ? undefined : props.filePathsByItemId.get(row.id);
+			if (path !== undefined) paths.push(path);
 		}
-		for (const descriptor of source.contentRequestDescriptors) {
-			candidateItemIds.add(descriptor.itemId);
+		return paths;
+	}
+	return props.rows.flatMap((row): readonly string[] => {
+		if (
+			row.index < nearbyLowerIndex ||
+			row.index > nearbyUpperIndex ||
+			(row.index >= viewportRange.firstVisibleIndex && row.index <= viewportRange.lastVisibleIndex)
+		) {
+			return [];
 		}
-		for (const semantics of source.renderSemantics) {
-			candidateItemIds.add(semantics.itemId);
-		}
-	}
-	return Array.from(candidateItemIds).filter(
-		(itemId) =>
-			!areReviewContentMetadataEquivalent(
-				findReviewContentMetadata(props.previousSource, itemId),
-				findReviewContentMetadata(props.nextSource, itemId),
-			) ||
-			!areReviewContentRequestDescriptorsEquivalent(
-				findReviewContentRequestDescriptors(props.previousSource, itemId),
-				findReviewContentRequestDescriptors(props.nextSource, itemId),
-			) ||
-			!areReviewRenderSemanticsEquivalent(
-				findReviewRenderSemantics(props.previousSource, itemId),
-				findReviewRenderSemantics(props.nextSource, itemId),
-			),
-	);
-}
-
-function findReviewContentMetadata(
-	source: BridgeCommWorkerReviewRuntimeSource,
-	itemId: string,
-): BridgeWorkerReviewContentMetadata | null {
-	return source.contentItems.find((metadata) => metadata.itemId === itemId) ?? null;
-}
-
-function findReviewContentRequestDescriptors(
-	source: BridgeCommWorkerReviewRuntimeSource,
-	itemId: string,
-): readonly BridgeWorkerReviewContentRequestDescriptor[] {
-	return source.contentRequestDescriptors.filter((descriptor) => descriptor.itemId === itemId);
-}
-
-function findReviewRenderSemantics(
-	source: BridgeCommWorkerReviewRuntimeSource,
-	itemId: string,
-): BridgeWorkerReviewRenderSemantics | null {
-	return source.renderSemantics.find((semantics) => semantics.itemId === itemId) ?? null;
-}
-
-function isReviewRuntimeSourceExecutableForItem(
-	source: BridgeCommWorkerReviewRuntimeSource,
-	itemId: string,
-): boolean {
-	const metadata = findReviewContentMetadata(source, itemId);
-	const semantics = findReviewRenderSemantics(source, itemId);
-	return (
-		metadata !== null &&
-		metadata.availableContentRoles.length > 0 &&
-		semantics !== null &&
-		canRenderBridgeWorkerReviewContentForSemantics({
-			descriptors: source.contentRequestDescriptors,
-			semantics,
-		})
-	);
-}
-
-function areReviewContentMetadataEquivalent(
-	left: BridgeWorkerReviewContentMetadata | null,
-	right: BridgeWorkerReviewContentMetadata | null,
-): boolean {
-	if (left === null || right === null) {
-		return left === right;
-	}
-	return (
-		left.itemId === right.itemId &&
-		left.path === right.path &&
-		left.language === right.language &&
-		left.cacheKey === right.cacheKey &&
-		left.sizeBytes === right.sizeBytes &&
-		areStringArraysEquivalent(left.availableContentRoles, right.availableContentRoles) &&
-		left.contentLineCountsByRole.base === right.contentLineCountsByRole.base &&
-		left.contentLineCountsByRole.head === right.contentLineCountsByRole.head &&
-		left.contentLineCountsByRole.diff === right.contentLineCountsByRole.diff
-	);
-}
-
-function areReviewContentRequestDescriptorsEquivalent(
-	left: readonly BridgeWorkerReviewContentRequestDescriptor[],
-	right: readonly BridgeWorkerReviewContentRequestDescriptor[],
-): boolean {
-	if (left.length !== right.length) {
-		return false;
-	}
-	return left.every((leftDescriptor, index) =>
-		areReviewContentRequestDescriptorEquivalent(leftDescriptor, right[index] ?? null),
-	);
-}
-
-function areReviewContentRequestDescriptorEquivalent(
-	left: BridgeWorkerReviewContentRequestDescriptor,
-	right: BridgeWorkerReviewContentRequestDescriptor | null,
-): boolean {
-	return (
-		right !== null &&
-		left.itemId === right.itemId &&
-		left.role === right.role &&
-		left.handleId === right.handleId &&
-		left.reviewGeneration === right.reviewGeneration &&
-		left.resourceUrl === right.resourceUrl &&
-		left.contentHash === right.contentHash &&
-		left.contentHashAlgorithm === right.contentHashAlgorithm &&
-		left.language === right.language &&
-		left.sizeBytes === right.sizeBytes &&
-		(left.expectedBytes ?? null) === (right.expectedBytes ?? null) &&
-		left.maxBytes === right.maxBytes &&
-		left.isBinary === right.isBinary
-	);
-}
-
-function areReviewRenderSemanticsEquivalent(
-	left: BridgeWorkerReviewRenderSemantics | null,
-	right: BridgeWorkerReviewRenderSemantics | null,
-): boolean {
-	if (left === null || right === null) {
-		return left === right;
-	}
-	return (
-		left.itemId === right.itemId &&
-		left.itemKind === right.itemKind &&
-		left.changeKind === right.changeKind &&
-		left.displayPath === right.displayPath &&
-		left.basePath === right.basePath &&
-		left.headPath === right.headPath &&
-		left.language === right.language &&
-		left.contentLineCountsByRole.base === right.contentLineCountsByRole.base &&
-		left.contentLineCountsByRole.head === right.contentLineCountsByRole.head &&
-		left.contentLineCountsByRole.diff === right.contentLineCountsByRole.diff
-	);
-}
-
-function areStringArraysEquivalent(left: readonly string[], right: readonly string[]): boolean {
-	return left.length === right.length && left.every((value, index) => value === right[index]);
+		const path = props.filePathsByItemId.get(row.id);
+		return path === undefined ? [] : [path];
+	});
 }
 
 function resolveReviewInvalidationAffectedItemIds(props: {

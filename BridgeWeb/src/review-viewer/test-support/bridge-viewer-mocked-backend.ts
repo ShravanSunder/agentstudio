@@ -164,8 +164,6 @@ const bridgeViewerAllowedSchemeRPCMethods = new Set([
 	'bridge.intakeReady',
 	'bridge.metadata_interest.update',
 	'review.markFileViewed',
-	'worktreeFileSurface.openSourceStream',
-	'worktreeFileSurface.requestFileDescriptor',
 ]);
 
 export function makeBridgeViewerBrowserFixture(

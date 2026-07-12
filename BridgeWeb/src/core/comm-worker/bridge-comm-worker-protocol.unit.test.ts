@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'vitest';
 
 import {
-	encodeBridgeWorkerFileViewSourceUpdateCommand,
 	encodeBridgeWorkerActiveViewerModeUpdateCommand,
+	encodeBridgeWorkerFileDisplayResyncCommand,
 	encodeBridgeWorkerHoverCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerMetadataInterestUpdateCommand,
@@ -10,9 +10,6 @@ import {
 	encodeBridgeWorkerReviewIntakeReadyCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
-	encodeBridgeWorkerWorktreeFileIntakeReadyCommand,
-	encodeBridgeWorkerWorktreeFileOpenSourceStreamCommand,
-	encodeBridgeWorkerWorktreeFileRequestDescriptorCommand,
 } from './bridge-comm-worker-protocol.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
@@ -65,22 +62,6 @@ describe('Bridge comm worker protocol', () => {
 				streamId: 'review:pane-1',
 				reason: 'bridge-ready',
 			}),
-			encodeBridgeWorkerWorktreeFileIntakeReadyCommand({
-				requestId: 'request-worktree-file-intake-ready',
-				epoch: 1,
-				generation: 3,
-				streamId: 'worktree-file:pane-1',
-			}),
-			encodeBridgeWorkerWorktreeFileOpenSourceStreamCommand({
-				requestId: 'request-worktree-file-open-source',
-				epoch: 1,
-				sourceSpec: makeWorktreeFileSourceSpec(),
-			}),
-			encodeBridgeWorkerWorktreeFileRequestDescriptorCommand({
-				requestId: 'request-worktree-file-descriptor',
-				epoch: 1,
-				descriptorRequest: makeWorktreeFileDescriptorRequest(),
-			}),
 			encodeBridgeWorkerModeCommand({
 				requestId: 'request-mode',
 				epoch: 1,
@@ -109,9 +90,6 @@ describe('Bridge comm worker protocol', () => {
 			'markFileViewed',
 			'metadataInterestUpdate',
 			'reviewIntakeReady',
-			'worktreeFileIntakeReady',
-			'worktreeFileOpenSourceStream',
-			'worktreeFileRequestDescriptor',
 			'mode',
 			'activeViewerModeUpdate',
 		]);
@@ -140,31 +118,7 @@ describe('Bridge comm worker protocol', () => {
 			streamId: 'review:pane-1',
 			reason: 'bridge-ready',
 		});
-		expect(commands[6]).toMatchObject({
-			command: 'worktreeFileIntakeReady',
-			protocolId: 'worktree-file',
-			streamId: 'worktree-file:pane-1',
-			generation: 3,
-		});
 		expect(commands[7]).toMatchObject({
-			command: 'worktreeFileOpenSourceStream',
-			sourceSpec: {
-				clientRequestId: 'client-open-1',
-				repoId: 'repo-1',
-				worktreeId: 'worktree-1',
-				freshness: 'live',
-			},
-		});
-		expect(commands[8]).toMatchObject({
-			command: 'worktreeFileRequestDescriptor',
-			descriptorRequest: {
-				rowId: 'row-1',
-				path: 'Sources/App/File.swift',
-				fileId: 'file-1',
-				lane: 'foreground',
-			},
-		});
-		expect(commands[10]).toMatchObject({
 			command: 'activeViewerModeUpdate',
 			update: {
 				sessionId: 'active-viewer-session',
@@ -192,80 +146,20 @@ describe('Bridge comm worker protocol', () => {
 		expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
 	});
 
-	test('encodes File View source updates through BridgeWorkerContracts', () => {
-		const command = encodeBridgeWorkerFileViewSourceUpdateCommand({
-			requestId: 'request-file-view-source',
-			epoch: 4,
-			contentItems: [
-				{
-					itemId: 'file-1',
-					path: 'Sources/App/FileView.swift',
-					language: 'swift',
-					cacheKey: 'file-view:sha256:file-1',
-					sizeBytes: 128,
-					contentHandle: 'handle-file-1',
-					descriptorId: 'descriptor-file-1',
-					contentHash: 'sha256:file-1',
-					virtualizedExtentKind: 'exactLineCount',
-					lineCount: 7,
-					isBinary: false,
-					canFetchContent: true,
-				},
-			],
-			contentRequestDescriptors: [
-				{
-					itemId: 'file-1',
-					path: 'Sources/App/FileView.swift',
-					handleId: 'handle-file-1',
-					descriptorId: 'descriptor-file-1',
-					resourceKind: 'worktree.fileContent',
-					resourceUrl:
-						'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?cursor=cursor-1&generation=3',
-					contentHash: 'sha256:file-1',
-					contentHashAlgorithm: 'sha256',
-					language: 'swift',
-					sizeBytes: 128,
-					maxBytes: 4096,
-					isBinary: false,
-				},
-			],
-			rows: [{ id: 'file-1', parentId: null, index: 0 }],
+	test('encodes a strict File display resync command with failure context', () => {
+		const command = encodeBridgeWorkerFileDisplayResyncCommand({
+			epoch: 8,
+			reason: 'bufferOverflow',
+			requestId: 'request-file-display-resync',
+			transactionId: 'file-query-4',
 		});
 
-		expect(command.command).toBe('fileViewSourceUpdate');
-		expect(command.wireVersion).toBe(BRIDGE_WORKER_WIRE_VERSION);
-		expect(command.direction).toBe('mainToServerWorker');
-		expect(command.transferDescriptors).toEqual([]);
+		expect(command).toMatchObject({
+			command: 'fileDisplayResync',
+			epoch: 8,
+			reason: 'bufferOverflow',
+			transactionId: 'file-query-4',
+		});
 		expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
-		expect(JSON.stringify(command.contentItems)).not.toMatch(/resourceUrl|contents|body/i);
 	});
 });
-
-function makeWorktreeFileSourceSpec() {
-	return {
-		clientRequestId: 'client-open-1',
-		repoId: 'repo-1',
-		worktreeId: 'worktree-1',
-		rootPathToken: 'root-token-1',
-		includeStatuses: true,
-		includeComments: false,
-		includeAgentComms: false,
-		freshness: 'live',
-	} as const;
-}
-
-function makeWorktreeFileDescriptorRequest() {
-	return {
-		sourceIdentity: {
-			sourceId: 'source-1',
-			repoId: 'repo-1',
-			worktreeId: 'worktree-1',
-			subscriptionGeneration: 4,
-			sourceCursor: 'cursor-1',
-		},
-		rowId: 'row-1',
-		path: 'Sources/App/File.swift',
-		fileId: 'file-1',
-		lane: 'foreground',
-	} as const;
-}

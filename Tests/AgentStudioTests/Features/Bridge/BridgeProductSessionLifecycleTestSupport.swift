@@ -64,6 +64,25 @@ struct BridgeProductSessionLifecycleHarness {
         )
     }
 
+    func authoritativeResyncResponse(
+        request: BridgeProductControlRequest,
+        token: BridgeProductControlAdmissionToken
+    ) async throws -> BridgeProductControlResponse {
+        guard case .workerSessionResync(let resyncRequest) = request else {
+            throw BridgeProductSessionError.mismatchedControlResponse
+        }
+        let providerResponse = try BridgeProductControlResponse.resyncAccepted(
+            correlating: request,
+            metadataStreamSequenceBarrier: resyncRequest.lastAcceptedStreamSequence,
+            nextExpectedRequestSequence: request.requestSequence + 1,
+            reconciliation: []
+        )
+        return try await session.authoritativeControlResponse(
+            token: token,
+            providerResponse: providerResponse
+        )
+    }
+
     func admitMetadataFrames(through lastSequence: Int) async throws -> BridgeProductProducerLease {
         let operation = SessionMetadataProducerGate()
         let request = try metadataStreamRequest()

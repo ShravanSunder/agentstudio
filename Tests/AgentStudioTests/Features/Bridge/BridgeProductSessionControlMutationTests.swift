@@ -10,7 +10,13 @@ struct BridgeProductSessionControlMutationTests {
         // Arrange
         let interestFixture = try ReviewInterestFixture.make()
         let harness = try await RawControlSessionHarness.opened()
-        try await openReviewSubscription(harness, interestFixture: interestFixture)
+        let openEffects = try await openReviewSubscription(
+            harness,
+            interestFixture: interestFixture
+        )
+        let openedSnapshot = try #require(
+            await harness.session.subscriptionSnapshot(subscriptionId: reviewSubscriptionId)
+        )
         let firstBatchRequestBytes = try jsonData(
             reviewUpdateBatchObject(
                 requestSequence: 3,
@@ -37,7 +43,12 @@ struct BridgeProductSessionControlMutationTests {
         )
 
         // Assert
-        #expect(firstBatchEffects == .noEffects)
+        guard case .subscriptionOpened(let committedOpenedSnapshot) = openEffects else {
+            Issue.record("Expected a committed subscription-open effect")
+            return
+        }
+        #expect(committedOpenedSnapshot == openedSnapshot)
+        #expect(firstBatchEffects == .noEffect)
         #expect(stagedSnapshot.hasStagedUpdate)
         #expect(stagedSnapshot.interestRevision == 0)
         #expect(stagedSnapshot.interestSha256 == interestFixture.emptySHA256)
@@ -72,8 +83,17 @@ struct BridgeProductSessionControlMutationTests {
             subscriptionId: reviewSubscriptionId
         )
 
+        guard
+            case .subscriptionInterestsCommitted(
+                let committedBarrier,
+                let committedEffectSnapshot
+            ) = finalBatchEffects
+        else {
+            Issue.record("Expected a committed subscription-interest effect")
+            return
+        }
         #expect(
-            finalBatchEffects.commitBarrierIntent
+            committedBarrier
                 == BridgeProductSubscriptionCommitBarrierIntent(
                     subscriptionId: reviewSubscriptionId,
                     subscriptionKind: .reviewMetadata,
@@ -83,6 +103,7 @@ struct BridgeProductSessionControlMutationTests {
                     updateId: reviewUpdateId
                 )
         )
+        #expect(committedEffectSnapshot == committedSnapshot)
         #expect(committedSnapshot.interestRevision == 1)
         #expect(committedSnapshot.interestSha256 == interestFixture.targetSHA256)
         #expect(committedSnapshot.interestState == interestFixture.targetState)
@@ -97,7 +118,7 @@ struct BridgeProductSessionControlMutationTests {
         // Arrange
         let interestFixture = try ReviewInterestFixture.make()
         let harness = try await RawControlSessionHarness.opened()
-        try await openReviewSubscription(harness, interestFixture: interestFixture)
+        _ = try await openReviewSubscription(harness, interestFixture: interestFixture)
         try await stageFirstReviewBatch(harness, interestFixture: interestFixture)
         let finalRequestBytes = try jsonData(
             reviewUpdateBatchObject(
@@ -149,7 +170,11 @@ struct BridgeProductSessionControlMutationTests {
             exactResponseBytes: correctResponseBytes
         )
 
-        #expect(completionEffects.commitBarrierIntent?.updateId == reviewUpdateId)
+        guard case .subscriptionInterestsCommitted(let barrier, _) = completionEffects else {
+            Issue.record("Expected a committed subscription-interest effect")
+            return
+        }
+        #expect(barrier.updateId == reviewUpdateId)
         #expect((await harness.session.snapshot).controlReplay.nextExpectedRequestSequence == 5)
     }
 
@@ -177,7 +202,7 @@ struct BridgeProductSessionControlMutationTests {
         let retryAdmission = await harness.begin(requestBytes)
 
         // Assert
-        #expect(effects == .noEffects)
+        #expect(effects == .noEffect)
         #expect(subscriptionAfterError == nil)
         #expect(completedSnapshot.pendingRequestKind == nil)
         #expect(completedSnapshot.controlReplay.nextExpectedRequestSequence == 3)
@@ -344,7 +369,7 @@ private struct RawControlSessionHarness {
     func execute(
         requestBytes: Data,
         responseBytes: Data
-    ) async throws -> BridgeProductSessionCompletionEffects {
+    ) async throws -> BridgeProductSessionCompletionEffect {
         let token = try await beginExecution(requestBytes)
         return try await session.completeControl(
             token: token,
@@ -365,8 +390,8 @@ private struct ResponseMismatchFixture: Sendable {
 private func openReviewSubscription(
     _ harness: RawControlSessionHarness,
     interestFixture: ReviewInterestFixture
-) async throws {
-    _ = try await harness.execute(
+) async throws -> BridgeProductSessionCompletionEffect {
+    try await harness.execute(
         requestBytes: jsonData(reviewSubscriptionOpenObject(requestSequence: 2)),
         responseBytes: jsonData(
             reviewSubscriptionOpenAcceptedObject(

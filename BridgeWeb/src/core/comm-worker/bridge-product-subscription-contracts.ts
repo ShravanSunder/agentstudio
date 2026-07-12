@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import type { BridgeDemandLane } from '../models/bridge-demand-models.js';
+import { bridgeProductFileContentDescriptorSchema } from './bridge-product-content-contracts.js';
 import {
 	type BridgeProductAssert,
 	bridgeProductDemandLaneSchema,
@@ -9,10 +10,29 @@ import {
 	bridgeProductNonnegativeSequenceSchema,
 	bridgeProductOpaqueReferenceSchema,
 	type BridgeProductRegistryValue,
+	bridgeProductSafeMessageSchema,
 	bridgeProductUnicodeScalarUtf8ByteLength,
 	BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_STATE_BYTES,
 	type BridgeProductTypeSetsEqual,
 } from './bridge-product-contract-primitives.js';
+import { bridgeProductExactUtf8IdentitySet } from './bridge-product-exact-utf8-identity.js';
+import {
+	bridgeProductFileSourceIdentitySchema,
+	type BridgeProductFileSourceIdentity,
+} from './bridge-product-file-contracts.js';
+import { bridgeProductReviewMetadataEventSchema } from './bridge-product-review-metadata-contracts.js';
+import { preflightBridgeProductSubscriptionInterestStateCanonicalEncoding } from './bridge-product-subscription-interest-preflight.js';
+
+export { bridgeProductSubscriptionInterestDeltaItemCount } from './bridge-product-subscription-accounting.js';
+export {
+	preflightBridgeProductSubscriptionInterestStateCanonicalEncoding,
+	type BridgeProductSubscriptionInterestStateCanonicalEncodingPreflight,
+} from './bridge-product-subscription-interest-preflight.js';
+
+export {
+	bridgeProductFileSourceIdentitySchema,
+	type BridgeProductFileSourceIdentity,
+} from './bridge-product-file-contracts.js';
 
 export type BridgeProductDemandLaneParity = BridgeProductAssert<
 	BridgeProductTypeSetsEqual<z.infer<typeof bridgeProductDemandLaneSchema>, BridgeDemandLane>
@@ -20,9 +40,11 @@ export type BridgeProductDemandLaneParity = BridgeProductAssert<
 
 const bridgeProductMaximumInterestGroupCount = 64;
 const bridgeProductMaximumReviewInterestIdentityBytes = 128;
-const bridgeProductExactUtf8IdentityEncoder = new TextEncoder();
 export const BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT = 10_000;
 export const BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT = 40_000;
+export const BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_TREE_WINDOW_ROW_COUNT = 256;
+export const BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_OPERATION_COUNT = 256;
+export const BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_DELTA_MEMBER_COUNT = 256;
 
 const bridgeProductReviewInterestIdentitySchema = z
 	.string()
@@ -203,33 +225,529 @@ export const bridgeProductSubscriptionInterestStateSchema =
 		}
 	});
 
-export const bridgeProductFileSourceIdentitySchema = z
+export const bridgeProductFileChangeStatusSchema = z.enum([
+	'added',
+	'deleted',
+	'modified',
+	'renamed',
+	'copied',
+	'typeChanged',
+	'unmerged',
+	'untracked',
+]);
+
+export const bridgeProductFileMetadataLoadedBySchema = z.enum([
+	'startup_window',
+	'foreground',
+	'visible',
+	'nearby',
+	'speculative',
+	'idle',
+	'delta',
+	'reset',
+	'replacement',
+]);
+
+export const bridgeProductFileMetadataLineageSchema = z
 	.object({
-		repoId: z.uuid(),
-		rootRevisionToken: bridgeProductOpaqueReferenceSchema.nullable(),
-		sourceCursor: bridgeProductOpaqueReferenceSchema,
-		sourceId: bridgeProductIdentifierSchema,
-		subscriptionGeneration: bridgeProductNonnegativeSequenceSchema,
-		worktreeId: z.uuid(),
+		lane: bridgeProductDemandLaneSchema,
+		loadedBy: bridgeProductFileMetadataLoadedBySchema,
 	})
 	.strict();
 
-export const bridgeProductReviewMetadataEventSchema = z
+export const bridgeProductFileTreeRowSchema = z
 	.object({
-		eventKind: z.literal('review.sourceAccepted'),
-		generation: bridgeProductNonnegativeSequenceSchema,
-		packageId: bridgeProductIdentifierSchema,
-		revision: bridgeProductNonnegativeSequenceSchema,
-		sourceIdentity: bridgeProductIdentifierSchema,
+		changeStatus: bridgeProductFileChangeStatusSchema.nullable(),
+		depth: bridgeProductNonnegativeSequenceSchema,
+		fileId: bridgeProductIdentifierSchema.nullable(),
+		isDirectory: z.boolean(),
+		lineCount: bridgeProductNonnegativeSequenceSchema.nullable(),
+		name: bridgeProductDisplayPathSchema,
+		parentPath: bridgeProductDisplayPathSchema.nullable(),
+		path: bridgeProductDisplayPathSchema,
+		rowId: bridgeProductIdentifierSchema,
+		sizeBytes: bridgeProductNonnegativeSequenceSchema.nullable(),
 	})
 	.strict();
 
-export const bridgeProductFileMetadataEventSchema = z
+const bridgeProductFileTreeOperationSchema = z.discriminatedUnion('op', [
+	z
+		.object({
+			op: z.literal('upsertRows'),
+			rows: z
+				.array(bridgeProductFileTreeRowSchema)
+				.max(BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_DELTA_MEMBER_COUNT)
+				.readonly(),
+		})
+		.strict(),
+	z
+		.object({
+			op: z.literal('removeRows'),
+			paths: z
+				.array(bridgeProductDisplayPathSchema)
+				.max(BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_DELTA_MEMBER_COUNT)
+				.readonly(),
+			rowIds: z
+				.array(bridgeProductIdentifierSchema)
+				.max(BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_DELTA_MEMBER_COUNT)
+				.readonly(),
+		})
+		.strict()
+		.superRefine((operation, context): void => {
+			if (operation.rowIds.length === 0 && operation.paths.length === 0) {
+				context.addIssue({
+					code: 'custom',
+					message: 'File metadata row removal requires a row or path identity.',
+				});
+			}
+		}),
+]);
+
+const bridgeProductFileStatusPatchSchema = z.discriminatedUnion('patchKind', [
+	z
+		.object({
+			ahead: bridgeProductNonnegativeSequenceSchema.nullable(),
+			behind: bridgeProductNonnegativeSequenceSchema.nullable(),
+			branchName: bridgeProductSafeMessageSchema.nullable(),
+			patchKind: z.literal('summary'),
+			staged: bridgeProductNonnegativeSequenceSchema.nullable(),
+			unstaged: bridgeProductNonnegativeSequenceSchema.nullable(),
+			untracked: bridgeProductNonnegativeSequenceSchema.nullable(),
+		})
+		.strict(),
+	z
+		.object({
+			patchKind: z.literal('invalidated'),
+			reason: z.literal('git_status_changed'),
+		})
+		.strict(),
+	z
+		.object({
+			patchKind: z.literal('path'),
+			path: bridgeProductDisplayPathSchema,
+			status: bridgeProductFileChangeStatusSchema.nullable(),
+		})
+		.strict(),
+]);
+
+export const bridgeProductFileVirtualizedExtentKindSchema = z.enum([
+	'exactLineCount',
+	'estimatedHeight',
+	'previewBounded',
+	'unavailable',
+]);
+
+export const bridgeProductFileTruncationKindSchema = z.enum([
+	'none',
+	'byteLimit',
+	'lineLimit',
+	'both',
+]);
+
+const bridgeProductFileDescriptorAvailabilitySchema = z.discriminatedUnion('availabilityKind', [
+	z
+		.object({
+			availabilityKind: z.literal('available'),
+			contentDescriptor: bridgeProductFileContentDescriptorSchema,
+		})
+		.strict(),
+	z.object({ availabilityKind: z.literal('binary') }).strict(),
+	z
+		.object({
+			availabilityKind: z.literal('unavailable'),
+			reason: z.enum(['unreadable', 'unsupported_encoding', 'outside_scope']),
+		})
+		.strict(),
+]);
+
+const bridgeProductFileDescriptorReadyPayloadShape = {
+	availability: bridgeProductFileDescriptorAvailabilitySchema,
+	encoding: z.literal('utf-8').nullable(),
+	endsMidLine: z.boolean(),
+	endsWithNewline: z.boolean(),
+	estimatedContentHeightPixels: z.number().finite().nonnegative().nullable(),
+	fileExtension: bridgeProductSafeMessageSchema.nullable(),
+	fileId: bridgeProductIdentifierSchema,
+	language: bridgeProductSafeMessageSchema.nullable(),
+	modifiedAtUnixMilliseconds: bridgeProductNonnegativeSequenceSchema.nullable(),
+	path: bridgeProductDisplayPathSchema,
+	payloadByteCount: bridgeProductNonnegativeSequenceSchema,
+	payloadLineCount: bridgeProductNonnegativeSequenceSchema,
+	rowId: bridgeProductIdentifierSchema,
+	sizeBytes: bridgeProductNonnegativeSequenceSchema,
+	source: bridgeProductFileSourceIdentitySchema,
+	totalLineCount: bridgeProductNonnegativeSequenceSchema.nullable(),
+	truncationKind: bridgeProductFileTruncationKindSchema,
+	virtualizedExtentKind: bridgeProductFileVirtualizedExtentKindSchema,
+} as const;
+
+export const bridgeProductFileDescriptorReadyPayloadSchema = z
+	.object(bridgeProductFileDescriptorReadyPayloadShape)
+	.strict()
+	.superRefine((descriptor, context): void => {
+		if (
+			descriptor.virtualizedExtentKind === 'exactLineCount' &&
+			descriptor.totalLineCount === null
+		) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Exact File metadata extents require a total line count.',
+				path: ['totalLineCount'],
+			});
+		}
+		if (
+			descriptor.availability.availabilityKind === 'available' &&
+			(descriptor.availability.contentDescriptor.fileId !== descriptor.fileId ||
+				!bridgeProductFileSourceIdentitiesEqual(
+					descriptor.availability.contentDescriptor.source,
+					descriptor.source,
+				))
+		) {
+			context.addIssue({
+				code: 'custom',
+				message: 'File metadata and content descriptor identities must match.',
+				path: ['availability', 'contentDescriptor', 'fileId'],
+			});
+		}
+		validateBridgeProductFileExtentFacts(descriptor, context);
+		validateBridgeProductFilePrefixFacts(descriptor, context);
+	});
+
+function validateBridgeProductFileExtentFacts(
+	descriptor: z.infer<z.ZodObject<typeof bridgeProductFileDescriptorReadyPayloadShape>>,
+	context: z.RefinementCtx,
+): void {
+	if (
+		descriptor.virtualizedExtentKind === 'estimatedHeight' ||
+		descriptor.estimatedContentHeightPixels !== null
+	) {
+		addBridgeProductFilePrefixIssue(
+			context,
+			'File metadata cannot fabricate an estimated display height.',
+			['virtualizedExtentKind'],
+		);
+	}
+	if (descriptor.availability.availabilityKind !== 'available') {
+		if (descriptor.virtualizedExtentKind !== 'unavailable') {
+			addBridgeProductFilePrefixIssue(
+				context,
+				'Binary and unavailable File descriptors require an unavailable extent.',
+				['virtualizedExtentKind'],
+			);
+		}
+		return;
+	}
+	const expectedExtentKind =
+		descriptor.truncationKind === 'none' ? 'exactLineCount' : 'previewBounded';
+	if (descriptor.virtualizedExtentKind !== expectedExtentKind) {
+		addBridgeProductFilePrefixIssue(
+			context,
+			'Available File descriptor extent must match complete or truncated prefix facts.',
+			['virtualizedExtentKind'],
+		);
+	}
+}
+
+function validateBridgeProductFilePrefixFacts(
+	descriptor: z.infer<z.ZodObject<typeof bridgeProductFileDescriptorReadyPayloadShape>>,
+	context: z.RefinementCtx,
+): void {
+	if (descriptor.payloadByteCount > descriptor.sizeBytes) {
+		addBridgeProductFilePrefixIssue(
+			context,
+			'File payload bytes cannot exceed the authoritative source byte count.',
+			['payloadByteCount'],
+		);
+	}
+	if (
+		descriptor.totalLineCount !== null &&
+		descriptor.payloadLineCount > descriptor.totalLineCount
+	) {
+		addBridgeProductFilePrefixIssue(
+			context,
+			'File payload lines cannot exceed the authoritative total line count.',
+			['payloadLineCount'],
+		);
+	}
+	if (descriptor.endsMidLine && descriptor.endsWithNewline) {
+		addBridgeProductFilePrefixIssue(
+			context,
+			'A File payload cannot end both mid-line and with a newline.',
+			['endsMidLine'],
+		);
+	}
+	if (
+		(descriptor.payloadByteCount === 0 && descriptor.payloadLineCount !== 0) ||
+		(descriptor.payloadByteCount > 0 && descriptor.payloadLineCount === 0)
+	) {
+		addBridgeProductFilePrefixIssue(
+			context,
+			'File payload byte and line emptiness facts must agree.',
+			['payloadLineCount'],
+		);
+	}
+	if (descriptor.payloadByteCount === 0 && (descriptor.endsMidLine || descriptor.endsWithNewline)) {
+		addBridgeProductFilePrefixIssue(
+			context,
+			'An empty File payload cannot carry a terminal line-boundary fact.',
+			['endsWithNewline'],
+		);
+	}
+
+	if (descriptor.availability.availabilityKind !== 'available') {
+		validateBridgeProductUnavailableFilePrefixFacts(descriptor, context);
+		return;
+	}
+	validateBridgeProductAvailableFilePrefixFacts(descriptor, context);
+}
+
+function validateBridgeProductUnavailableFilePrefixFacts(
+	descriptor: z.infer<z.ZodObject<typeof bridgeProductFileDescriptorReadyPayloadShape>>,
+	context: z.RefinementCtx,
+): void {
+	if (
+		descriptor.encoding !== null ||
+		descriptor.payloadByteCount !== 0 ||
+		descriptor.payloadLineCount !== 0 ||
+		descriptor.totalLineCount !== null ||
+		descriptor.truncationKind !== 'none' ||
+		descriptor.endsMidLine ||
+		descriptor.endsWithNewline
+	) {
+		addBridgeProductFilePrefixIssue(
+			context,
+			'Binary and unavailable File descriptors must carry explicit empty prefix facts.',
+			['availability'],
+		);
+	}
+}
+
+function validateBridgeProductAvailableFilePrefixFacts(
+	descriptor: z.infer<z.ZodObject<typeof bridgeProductFileDescriptorReadyPayloadShape>>,
+	context: z.RefinementCtx,
+): void {
+	if (descriptor.availability.availabilityKind !== 'available') {
+		return;
+	}
+	const contentDescriptor = descriptor.availability.contentDescriptor;
+	if (descriptor.encoding !== 'utf-8') {
+		addBridgeProductFilePrefixIssue(
+			context,
+			'Available File descriptors require literal UTF-8 encoding.',
+			['encoding'],
+		);
+	}
+	if (contentDescriptor.declaredByteLength !== descriptor.payloadByteCount) {
+		addBridgeProductFilePrefixIssue(
+			context,
+			'File content declared bytes must equal the descriptor payload byte count.',
+			['availability', 'contentDescriptor', 'declaredByteLength'],
+		);
+	}
+	if (descriptor.payloadByteCount > contentDescriptor.window.maximumBytes) {
+		addBridgeProductFilePrefixIssue(
+			context,
+			'File payload bytes exceed the declared prefix window.',
+			['payloadByteCount'],
+		);
+	}
+	if (descriptor.payloadLineCount > contentDescriptor.window.maximumLines) {
+		addBridgeProductFilePrefixIssue(
+			context,
+			'File payload lines exceed the declared prefix window.',
+			['payloadLineCount'],
+		);
+	}
+
+	const isTruncated = descriptor.truncationKind !== 'none';
+	if (isTruncated === (descriptor.payloadByteCount === descriptor.sizeBytes)) {
+		addBridgeProductFilePrefixIssue(
+			context,
+			'File truncation must agree with payload and source byte counts.',
+			['truncationKind'],
+		);
+	}
+	if (descriptor.truncationKind === 'none') {
+		if (descriptor.endsMidLine) {
+			addBridgeProductFilePrefixIssue(context, 'An untruncated File payload cannot end mid-line.', [
+				'endsMidLine',
+			]);
+		}
+		if (
+			descriptor.totalLineCount !== null &&
+			descriptor.totalLineCount !== descriptor.payloadLineCount
+		) {
+			addBridgeProductFilePrefixIssue(
+				context,
+				'An untruncated File payload must equal the authoritative total line count.',
+				['totalLineCount'],
+			);
+		}
+		return;
+	}
+	if (descriptor.endsMidLine && descriptor.truncationKind === 'lineLimit') {
+		addBridgeProductFilePrefixIssue(
+			context,
+			'A line-limited File payload must stop at a complete line terminator.',
+			['endsMidLine'],
+		);
+	}
+	if (
+		(descriptor.truncationKind === 'lineLimit' || descriptor.truncationKind === 'both') &&
+		descriptor.payloadLineCount !== contentDescriptor.window.maximumLines
+	) {
+		addBridgeProductFilePrefixIssue(
+			context,
+			'Line-limited File payloads must fill the declared line window.',
+			['payloadLineCount'],
+		);
+	}
+	if (
+		descriptor.truncationKind === 'lineLimit' &&
+		(!descriptor.endsWithNewline || descriptor.endsMidLine)
+	) {
+		addBridgeProductFilePrefixIssue(
+			context,
+			'A line-limited File payload must end with a newline.',
+			['endsWithNewline'],
+		);
+	}
+	if (
+		(descriptor.truncationKind === 'byteLimit' || descriptor.truncationKind === 'both') &&
+		descriptor.sizeBytes <= contentDescriptor.window.maximumBytes
+	) {
+		addBridgeProductFilePrefixIssue(
+			context,
+			'Byte-limited File payloads require a source larger than the byte window.',
+			['sizeBytes'],
+		);
+	}
+	if (
+		descriptor.truncationKind === 'byteLimit' &&
+		descriptor.payloadLineCount >= contentDescriptor.window.maximumLines
+	) {
+		addBridgeProductFilePrefixIssue(
+			context,
+			'A byte-only File truncation cannot also fill the line window.',
+			['payloadLineCount'],
+		);
+	}
+}
+
+function addBridgeProductFilePrefixIssue(
+	context: z.RefinementCtx,
+	message: string,
+	path: readonly PropertyKey[],
+): void {
+	context.addIssue({ code: 'custom', message, path: [...path] });
+}
+
+const bridgeProductFileSourceAcceptedEventSchema = z
 	.object({
 		eventKind: z.literal('file.sourceAccepted'),
 		source: bridgeProductFileSourceIdentitySchema,
 	})
 	.strict();
+
+const bridgeProductFileTreeWindowEventSchema = z
+	.object({
+		eventKind: z.literal('file.treeWindow'),
+		finalWindow: z.boolean(),
+		lineage: bridgeProductFileMetadataLineageSchema,
+		pathScope: z
+			.array(bridgeProductDisplayPathSchema)
+			.max(BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_TREE_WINDOW_ROW_COUNT)
+			.readonly(),
+		rows: z
+			.array(bridgeProductFileTreeRowSchema)
+			.max(BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_TREE_WINDOW_ROW_COUNT)
+			.readonly(),
+		source: bridgeProductFileSourceIdentitySchema,
+		startIndex: bridgeProductNonnegativeSequenceSchema,
+		totalRowCount: bridgeProductNonnegativeSequenceSchema.nullable(),
+	})
+	.strict();
+
+const bridgeProductFileTreeDeltaEventSchema = z
+	.object({
+		eventKind: z.literal('file.treeDelta'),
+		operations: z
+			.array(bridgeProductFileTreeOperationSchema)
+			.max(BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_OPERATION_COUNT)
+			.readonly(),
+		source: bridgeProductFileSourceIdentitySchema,
+	})
+	.strict()
+	.superRefine((event, context): void => {
+		const memberCount = event.operations.reduce(
+			(count, operation) =>
+				count +
+				(operation.op === 'upsertRows'
+					? operation.rows.length
+					: Math.max(operation.rowIds.length, operation.paths.length)),
+			0,
+		);
+		if (memberCount > BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_DELTA_MEMBER_COUNT) {
+			context.addIssue({
+				code: 'custom',
+				message: 'File metadata tree delta exceeds its aggregate member ceiling.',
+				path: ['operations'],
+			});
+		}
+	});
+
+const bridgeProductFileStatusPatchEventSchema = z
+	.object({
+		eventKind: z.literal('file.statusPatch'),
+		patch: bridgeProductFileStatusPatchSchema,
+		source: bridgeProductFileSourceIdentitySchema,
+	})
+	.strict();
+
+const bridgeProductFileDescriptorReadyEventSchema =
+	bridgeProductFileDescriptorReadyPayloadSchema.safeExtend({
+		eventKind: z.literal('file.descriptorReady'),
+	});
+
+const bridgeProductFileInvalidatedEventSchema = z
+	.object({
+		eventKind: z.literal('file.invalidated'),
+		fileId: bridgeProductIdentifierSchema.nullable(),
+		path: bridgeProductDisplayPathSchema,
+		reason: z.enum([
+			'filesystemEvent',
+			'gitStatusChanged',
+			'contentChanged',
+			'sourceReset',
+			'unknown',
+		]),
+		replacementDescriptor: bridgeProductFileDescriptorReadyPayloadSchema.nullable(),
+		source: bridgeProductFileSourceIdentitySchema,
+	})
+	.strict();
+
+export const bridgeProductFileMetadataEventSchema = z.discriminatedUnion('eventKind', [
+	bridgeProductFileSourceAcceptedEventSchema,
+	bridgeProductFileTreeWindowEventSchema,
+	bridgeProductFileTreeDeltaEventSchema,
+	bridgeProductFileStatusPatchEventSchema,
+	bridgeProductFileDescriptorReadyEventSchema,
+	bridgeProductFileInvalidatedEventSchema,
+]);
+
+function bridgeProductFileSourceIdentitiesEqual(
+	left: BridgeProductFileSourceIdentity,
+	right: BridgeProductFileSourceIdentity,
+): boolean {
+	return (
+		left.repoId === right.repoId &&
+		left.rootRevisionToken === right.rootRevisionToken &&
+		left.sourceCursor === right.sourceCursor &&
+		left.sourceId === right.sourceId &&
+		left.subscriptionGeneration === right.subscriptionGeneration &&
+		left.worktreeId === right.worktreeId
+	);
+}
 
 export type BridgeProductSubscriptionRegistry = {
 	readonly 'file.metadata': {
@@ -285,19 +803,6 @@ export type BridgeProductSubscriptionInterestState = z.infer<
 	typeof bridgeProductSubscriptionInterestStateSchema
 >;
 
-export type BridgeProductSubscriptionInterestStateCanonicalEncodingPreflight =
-	| {
-			readonly canonicalByteLength: number;
-			readonly status: 'accepted';
-			readonly visitedTextValueCount: number;
-	  }
-	| {
-			readonly canonicalByteLengthLowerBound: number;
-			readonly maximumCanonicalByteLength: number;
-			readonly status: 'exceedsMaximum';
-			readonly visitedTextValueCount: number;
-	  };
-
 export function validateBridgeProductSubscriptionInterestState(
 	state: BridgeProductSubscriptionInterestState,
 ): BridgeProductSubscriptionInterestState {
@@ -308,59 +813,6 @@ export function validateBridgeProductSubscriptionInterestState(
 		);
 	}
 	return bridgeProductSubscriptionInterestStateStructuralSchema.parse(state);
-}
-
-export function preflightBridgeProductSubscriptionInterestStateCanonicalEncoding(
-	state: BridgeProductSubscriptionInterestState,
-): BridgeProductSubscriptionInterestStateCanonicalEncodingPreflight {
-	let canonicalByteLength = state.subscriptionKind === 'file.metadata' ? 10 : 6;
-	let visitedTextValueCount = 0;
-	const addTextValue = (
-		value: string,
-		perValueOverheadBytes: number,
-	): BridgeProductSubscriptionInterestStateCanonicalEncodingPreflight | null => {
-		const valueByteLength = bridgeProductUnicodeScalarUtf8ByteLength(value);
-		if (valueByteLength === null) {
-			throw new Error('Bridge product canonical interest-state preflight requires scalar text.');
-		}
-		canonicalByteLength += perValueOverheadBytes + valueByteLength;
-		visitedTextValueCount += 1;
-		if (canonicalByteLength <= BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_STATE_BYTES) {
-			return null;
-		}
-		return {
-			canonicalByteLengthLowerBound: canonicalByteLength,
-			maximumCanonicalByteLength: BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_STATE_BYTES,
-			status: 'exceedsMaximum',
-			visitedTextValueCount,
-		};
-	};
-
-	if (state.subscriptionKind === 'file.metadata') {
-		for (const interest of state.interests) {
-			for (const path of interest.paths) {
-				const exceeded = addTextValue(path, 5);
-				if (exceeded !== null) return exceeded;
-			}
-		}
-		for (const path of state.pathScope) {
-			const exceeded = addTextValue(path, 4);
-			if (exceeded !== null) return exceeded;
-		}
-	} else {
-		for (const interest of state.interests) {
-			for (const itemId of interest.itemIds) {
-				const exceeded = addTextValue(itemId, 5);
-				if (exceeded !== null) return exceeded;
-			}
-		}
-	}
-
-	return {
-		canonicalByteLength,
-		status: 'accepted',
-		visitedTextValueCount,
-	};
 }
 
 export const bridgeProductSubscriptionOpenSchema = z.discriminatedUnion('subscriptionKind', [
@@ -478,7 +930,6 @@ export const bridgeProductSubscriptionDataSchema = z.discriminatedUnion('subscri
 	bridgeProductReviewMetadataSubscriptionDataSchema,
 ]);
 
-export type BridgeProductFileSourceIdentity = z.infer<typeof bridgeProductFileSourceIdentitySchema>;
 export type BridgeProductSubscriptionOpenWire = z.infer<typeof bridgeProductSubscriptionOpenSchema>;
 export type BridgeProductSubscriptionInterestDeltaWire = z.infer<
 	typeof bridgeProductSubscriptionInterestDeltaSchema
@@ -502,23 +953,6 @@ export type BridgeProductSubscriptionDataRegistryParity = BridgeProductAssert<
 		BridgeProductSubscriptionKind
 	>
 >;
-
-export function bridgeProductSubscriptionInterestDeltaItemCount(
-	delta: BridgeProductSubscriptionInterestDeltaWire,
-): number {
-	switch (delta.subscriptionKind) {
-		case 'file.metadata':
-			return (
-				delta.add.length +
-				delta.removePaths.length +
-				delta.addPathScope.length +
-				delta.removePathScope.length
-			);
-		case 'review.metadata':
-			return delta.add.length + delta.removeItemIds.length;
-	}
-	throw new Error('Unsupported Bridge product subscription interest delta.');
-}
 
 function validateDeltaCollection(props: {
 	readonly addedValues: readonly string[];
@@ -560,17 +994,4 @@ function validateDeltaCollection(props: {
 			path: [...props.path],
 		});
 	}
-}
-
-function bridgeProductExactUtf8IdentitySet(values: readonly string[]): Set<string> {
-	return new Set(values.map((value) => bridgeProductExactUtf8IdentityKey(value)));
-}
-
-function bridgeProductExactUtf8IdentityKey(value: string): string {
-	const identityBytes = bridgeProductExactUtf8IdentityEncoder.encode(value);
-	const hexadecimalOctets: string[] = [];
-	for (const identityByte of identityBytes) {
-		hexadecimalOctets.push(identityByte.toString(16).padStart(2, '0'));
-	}
-	return hexadecimalOctets.join('');
 }

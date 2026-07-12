@@ -1,35 +1,63 @@
 import { act } from 'react';
 
-import type { BridgeCommWorkerPort } from '../core/comm-worker/bridge-comm-worker-entry.js';
-import { registerBridgeCommWorkerRuntimePortProtocol } from '../core/comm-worker/bridge-comm-worker-runtime-protocol.js';
-import {
-	bridgeWorkerServerToMainMessageSchema,
-	type BridgeWorkerServerToMainMessage,
-} from '../core/comm-worker/bridge-worker-contracts.js';
-import type { BridgeResourceDescriptor } from '../core/models/bridge-resource-descriptor.js';
-import type { WorktreeFileDescriptorRequest } from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import type { BridgeProductCallResult } from '../core/comm-worker/bridge-product-call-contracts.js';
+import type { BridgeProductSubscriptionUpdateOptions } from '../core/comm-worker/bridge-product-subscription-contracts.js';
 import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import {
 	findBridgeViewerTreeScrollOwner,
 	waitForBridgeViewerAnimationFrame,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
-import type { WorktreeFileInitialSurface } from '../worktree-file-surface/worktree-file-app.js';
-import type { WorktreeFileSurfaceRuntimeFetchResourceProps } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import {
-	makeWorktreeFileSurfaceRuntimeFetchedResource,
-	type WorktreeFileSurfaceRuntimeFetchedResource,
-} from '../worktree-file-surface/worktree-file-surface-runtime.js';
-import type { PublishWorktreeFileFrames } from './bridge-file-viewer-browser-test-fixtures.js';
-import type { BridgeFileViewerRuntimeTransportFactory } from './bridge-file-viewer-render-snapshot-controller.js';
+	createBridgeFileViewerBrowserTestCommWorkerTransportFactory,
+	waitForBridgeFileViewerWorkerMessageDrain,
+} from './bridge-file-viewer-browser-test-comm-worker.js';
+import type { PublishFileMetadataEvents } from './bridge-file-viewer-browser-test-fixtures.js';
 
-export function requireFramePublisher(
-	publisher: PublishWorktreeFileFrames | null,
-): PublishWorktreeFileFrames {
+export {
+	createBridgeFileViewerBrowserTestCommWorkerTransportFactory,
+	waitForBridgeFileViewerWorkerMessageDrain,
+};
+
+export async function settleBridgeFileViewerBrowserUpdates(): Promise<void> {
+	await waitForBridgeFileViewerWorkerMessageDrain();
+	await actFrame();
+	await actFrame();
+	await actFrame();
+	await actFrame();
+	await waitForBridgeFileViewerWorkerMessageDrain();
+}
+
+export async function settleBridgeFileViewerBrowserInteraction(): Promise<void> {
+	await waitForBridgeFileViewerWorkerMessageDrain();
+	await actFrame();
+	await waitForBridgeFileViewerWorkerMessageDrain();
+}
+
+export function installBridgeFileViewerNoopResizeObserver(): void {
+	Object.assign(globalThis, { ResizeObserver: BridgeFileViewerNoopResizeObserver });
+}
+
+export function requireMetadataPublisher(
+	publisher: PublishFileMetadataEvents | null,
+): PublishFileMetadataEvents {
 	if (publisher === null) {
-		throw new Error('Frame subscription was not initialized.');
+		throw new Error('File metadata subscription was not initialized.');
 	}
 	return publisher;
+}
+
+export async function waitForMetadataPublisher(
+	getPublisher: () => PublishFileMetadataEvents | null,
+): Promise<PublishFileMetadataEvents> {
+	return waitForMetadataPublisherAttempt({ attempt: 0, getPublisher });
+}
+
+export function metadataInterestPathsForLane(
+	update: BridgeProductSubscriptionUpdateOptions<'file.metadata'>,
+	lane: BridgeProductSubscriptionUpdateOptions<'file.metadata'>['interests'][number]['lane'],
+): readonly string[] {
+	return update.interests.find((interest) => interest.lane === lane)?.paths ?? [];
 }
 
 export function requireDeactivateFiles(deactivateFiles: (() => void) | null): () => void {
@@ -53,122 +81,12 @@ export function requireOpenSlowFile(openSlowFile: (() => void) | null): () => vo
 	return openSlowFile;
 }
 
-export function createBridgeFileViewerBrowserTestCommWorkerTransportFactory(props: {
-	readonly fetchResource?: (
-		props: WorktreeFileSurfaceRuntimeFetchResourceProps,
-	) => Promise<WorktreeFileSurfaceRuntimeFetchedResource>;
-	readonly fetchResourceRef?: {
-		readonly current:
-			| ((
-					props: WorktreeFileSurfaceRuntimeFetchResourceProps,
-			  ) => Promise<WorktreeFileSurfaceRuntimeFetchedResource>)
-			| undefined;
-	};
-}): BridgeFileViewerRuntimeTransportFactory {
-	let workerMessageActQueue: Promise<void> = Promise.resolve();
-	const publishWorkerMessagesInAct = (publishProps: {
-		readonly messages: readonly BridgeWorkerServerToMainMessage[];
-		readonly publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
-	}): void => {
-		const publishCompletion = workerMessageActQueue.then(async (): Promise<void> => {
-			await act(async (): Promise<void> => {
-				publishProps.publishWorkerMessages(publishProps.messages);
-				await Promise.resolve();
-			});
-		});
-		workerMessageActQueue = publishCompletion.catch((error: unknown) => {
-			queueMicrotask((): void => {
-				throw error;
-			});
-		});
-	};
-	return (transportProps) => {
-		const channel = new MessageChannel();
-		channel.port1.addEventListener('message', (event: MessageEvent<unknown>): void => {
-			const message = bridgeWorkerServerToMainMessageSchema.parse(event.data);
-			publishWorkerMessagesInAct({
-				messages: [message],
-				publishWorkerMessages: transportProps.publishWorkerMessages,
-			});
-		});
-		registerBridgeCommWorkerRuntimePortProtocol(channel.port2 as BridgeCommWorkerPort, {
-			bridgeDemandRank: transportProps.bootstrapRequest.runtime.bridgeDemandRank,
-			budget: transportProps.bootstrapRequest.runtime.budget,
-			contentItems: transportProps.bootstrapRequest.runtime.contentItems,
-			contentRequestDescriptors: transportProps.bootstrapRequest.runtime.contentRequestDescriptors,
-			fetchContent: async (url: string, init?: RequestInit): Promise<Response> => {
-				const fetchedResource = await (
-					props.fetchResourceRef?.current ??
-					props.fetchResource ??
-					defaultBrowserTestFetchResource
-				)({
-					descriptor: bridgeFileViewerBrowserTestResourceDescriptorFromUrl(url),
-					resourceUrl: url,
-					signal: init?.signal ?? new AbortController().signal,
-				});
-				return new Response(fetchedResource.readText(), {
-					headers: { 'content-type': 'text/plain; charset=utf-8' },
-					status: 200,
-				});
-			},
-			...(transportProps.bootstrapRequest.runtime.maxPreparationSliceMs === undefined
-				? {}
-				: { maxPreparationSliceMs: transportProps.bootstrapRequest.runtime.maxPreparationSliceMs }),
-			renderSemantics: transportProps.bootstrapRequest.runtime.renderSemantics,
-			rows: transportProps.bootstrapRequest.runtime.rows,
-		});
-		channel.port1.start();
-		channel.port2.start();
-		return {
-			dispatch: (message): void => {
-				channel.port1.postMessage(message);
-			},
-			dispose: (): void => {
-				channel.port1.close();
-				channel.port2.close();
-			},
-		};
-	};
-}
+class BridgeFileViewerNoopResizeObserver implements ResizeObserver {
+	disconnect(): void {}
 
-async function defaultBrowserTestFetchResource(
-	props: WorktreeFileSurfaceRuntimeFetchResourceProps,
-): Promise<WorktreeFileSurfaceRuntimeFetchedResource> {
-	const response = await fetch(props.resourceUrl, { signal: props.signal });
-	if (!response.ok) {
-		throw new Error(`Browser test File View worker fetch failed: ${response.status}.`);
-	}
-	return makeWorktreeFileSurfaceRuntimeFetchedResource(await response.text());
-}
+	observe(_target: Element): void {}
 
-function bridgeFileViewerBrowserTestResourceDescriptorFromUrl(
-	resourceUrl: string,
-): BridgeResourceDescriptor {
-	const parsedUrl = new URL(resourceUrl);
-	const pathSegments = parsedUrl.pathname.split('/').filter((segment) => segment.length > 0);
-	const descriptorId = decodeURIComponent(pathSegments.at(-1) ?? 'unknown-file-content');
-	const generation = Number.parseInt(parsedUrl.searchParams.get('generation') ?? '0', 10);
-	return {
-		descriptorId,
-		protocol: 'worktree-file',
-		resourceKind: 'worktree.fileContent',
-		resourceUrl,
-		identity: {
-			paneId: 'browser-test-pane',
-			protocol: 'worktree-file',
-			sourceId: 'browser-test-source',
-			generation: Number.isSafeInteger(generation) ? generation : 0,
-			streamId: 'worktree-file:browser-test-pane',
-			...(parsedUrl.searchParams.has('cursor')
-				? { cursor: parsedUrl.searchParams.get('cursor') ?? undefined }
-				: {}),
-		},
-		content: {
-			mediaType: 'text/plain',
-			encoding: 'utf-8',
-			maxBytes: 16 * 1024 * 1024,
-		},
-	};
+	unobserve(_target: Element): void {}
 }
 
 /**
@@ -202,9 +120,9 @@ export async function actClick(element: { readonly click: () => void }): Promise
  * microtask drain in act(). Use this for a single discrete action, not a
  * multi-frame poll — see the `actFrame` note above for why those differ.
  */
-export async function actUpdate(update: () => void): Promise<void> {
+export async function actUpdate(update: () => void | Promise<void>): Promise<void> {
 	await act(async (): Promise<void> => {
-		update();
+		await update();
 		await Promise.resolve();
 	});
 }
@@ -233,25 +151,25 @@ export async function waitForDemandDispatchFirstLane(expectedFirstLane: string):
 	await waitForDemandDispatchFirstLaneAttempt({ attempt: 0, expectedFirstLane });
 }
 
-export async function waitForRecordedFetchCount(props: {
+export async function waitForOpenedContentCount(props: {
 	readonly expectedCount: number;
-	readonly recordedFetches: readonly string[];
+	readonly openedDescriptorIds: readonly string[];
 }): Promise<void> {
-	await waitForRecordedFetchCountAttempt({
+	await waitForOpenedContentCountAttempt({
 		attempt: 0,
 		expectedCount: props.expectedCount,
-		recordedFetches: props.recordedFetches,
+		openedDescriptorIds: props.openedDescriptorIds,
 	});
 }
 
-export async function waitForDescriptorRequestCount(props: {
+export async function waitForMetadataInterestUpdateCount(props: {
 	readonly expectedCount: number;
-	readonly recordedRequests: readonly WorktreeFileDescriptorRequest[];
+	readonly metadataInterestUpdates: readonly BridgeProductSubscriptionUpdateOptions<'file.metadata'>[];
 }): Promise<void> {
-	await waitForDescriptorRequestCountAttempt({
+	await waitForMetadataInterestUpdateCountAttempt({
 		attempt: 0,
 		expectedCount: props.expectedCount,
-		recordedRequests: props.recordedRequests,
+		metadataInterestUpdates: props.metadataInterestUpdates,
 	});
 }
 
@@ -263,18 +181,11 @@ export async function waitForSelectedDisplayPath(expectedPath: string): Promise<
 	await waitForSelectedDisplayPathAttempt({ attempt: 0, expectedPath });
 }
 
-export async function waitForInitialSurfaceState(
-	expectedState: string,
-	attemptBudget = 60,
-): Promise<void> {
-	await waitForInitialSurfaceStateAttempt({ attempt: 0, attemptBudget, expectedState });
-}
-
-export async function waitForInitialSurfaceLoadCount(props: {
+export async function waitForMetadataSubscriptionOpenCount(props: {
 	readonly expectedCount: number;
 	readonly getLoadCount: () => number;
 }): Promise<void> {
-	await waitForInitialSurfaceLoadCountAttempt({
+	await waitForMetadataSubscriptionOpenCountAttempt({
 		attempt: 0,
 		expectedCount: props.expectedCount,
 		getLoadCount: props.getLoadCount,
@@ -333,6 +244,7 @@ export async function waitForTelemetrySampleCount(props: {
 }
 
 export async function waitForFileCodeViewViewport(): Promise<HTMLElement> {
+	await waitForBridgeFileViewerWorkerMessageDrain();
 	return waitForFileCodeViewViewportAttempt({ attempt: 0 });
 }
 
@@ -363,6 +275,22 @@ export async function waitForOpenFileStateAttempt(props: {
 	});
 }
 
+async function waitForMetadataPublisherAttempt(props: {
+	readonly attempt: number;
+	readonly getPublisher: () => PublishFileMetadataEvents | null;
+}): Promise<PublishFileMetadataEvents> {
+	const publisher = props.getPublisher();
+	if (publisher !== null) return publisher;
+	if (props.attempt >= 60) {
+		throw new Error('File metadata subscription was not initialized.');
+	}
+	await actFrame();
+	return waitForMetadataPublisherAttempt({
+		attempt: props.attempt + 1,
+		getPublisher: props.getPublisher,
+	});
+}
+
 export async function waitForRefreshButtonEnabledAttempt(props: {
 	readonly attempt: number;
 }): Promise<void> {
@@ -381,12 +309,20 @@ export async function waitForFileCodeViewViewportAttempt(props: {
 }): Promise<HTMLElement> {
 	const viewport = document.querySelector('[data-testid="bridge-file-viewer-code-view"]');
 	if (viewport instanceof HTMLElement) {
-		return viewport;
+		await actFrame();
+		const confirmedViewport = document.querySelector(
+			'[data-testid="bridge-file-viewer-code-view"]',
+		);
+		if (viewport.isConnected && confirmedViewport === viewport) {
+			return viewport;
+		}
 	}
 	if (props.attempt >= 60) {
-		throw new Error('Expected File CodeView viewport to be mounted.');
+		throw new Error('Expected one connected File CodeView viewport across a stable frame.');
 	}
-	await actFrame();
+	if (!(viewport instanceof HTMLElement)) {
+		await actFrame();
+	}
 	return waitForFileCodeViewViewportAttempt({ attempt: props.attempt + 1 });
 }
 
@@ -745,45 +681,45 @@ export async function waitForDemandDispatchFirstFreshnessKeyContainingAttempt(pr
 	});
 }
 
-export async function waitForRecordedFetchCountAttempt(props: {
+export async function waitForOpenedContentCountAttempt(props: {
 	readonly attempt: number;
 	readonly expectedCount: number;
-	readonly recordedFetches: readonly string[];
+	readonly openedDescriptorIds: readonly string[];
 }): Promise<void> {
-	if (props.recordedFetches.length === props.expectedCount) {
+	if (props.openedDescriptorIds.length === props.expectedCount) {
 		return;
 	}
 	if (props.attempt >= 60) {
 		throw new Error(
-			`Expected ${props.expectedCount} fetches; actual=${props.recordedFetches.length}`,
+			`Expected ${props.expectedCount} fetches; actual=${props.openedDescriptorIds.length}`,
 		);
 	}
 	await actFrame();
-	await waitForRecordedFetchCountAttempt({
+	await waitForOpenedContentCountAttempt({
 		attempt: props.attempt + 1,
 		expectedCount: props.expectedCount,
-		recordedFetches: props.recordedFetches,
+		openedDescriptorIds: props.openedDescriptorIds,
 	});
 }
 
-export async function waitForDescriptorRequestCountAttempt(props: {
+export async function waitForMetadataInterestUpdateCountAttempt(props: {
 	readonly attempt: number;
 	readonly expectedCount: number;
-	readonly recordedRequests: readonly WorktreeFileDescriptorRequest[];
+	readonly metadataInterestUpdates: readonly BridgeProductSubscriptionUpdateOptions<'file.metadata'>[];
 }): Promise<void> {
-	if (props.recordedRequests.length === props.expectedCount) {
+	if (props.metadataInterestUpdates.length >= props.expectedCount) {
 		return;
 	}
 	if (props.attempt >= 60) {
 		throw new Error(
-			`Expected ${props.expectedCount} descriptor requests; actual=${props.recordedRequests.length}`,
+			`Expected at least ${props.expectedCount} metadata interest updates; actual=${props.metadataInterestUpdates.length}`,
 		);
 	}
 	await actFrame();
-	await waitForDescriptorRequestCountAttempt({
+	await waitForMetadataInterestUpdateCountAttempt({
 		attempt: props.attempt + 1,
 		expectedCount: props.expectedCount,
-		recordedRequests: props.recordedRequests,
+		metadataInterestUpdates: props.metadataInterestUpdates,
 	});
 }
 
@@ -829,30 +765,6 @@ export async function waitForSelectedDisplayPathAttempt(props: {
 	});
 }
 
-export async function waitForInitialSurfaceStateAttempt(props: {
-	readonly attempt: number;
-	readonly attemptBudget?: number;
-	readonly expectedState: string;
-}): Promise<void> {
-	const attemptBudget = props.attemptBudget ?? 60;
-	const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
-	const actualState = shell?.getAttribute('data-worktree-initial-surface-state') ?? null;
-	if (actualState === props.expectedState) {
-		return;
-	}
-	if (props.attempt >= attemptBudget) {
-		throw new Error(
-			`Expected initial surface state ${props.expectedState}; actual=${actualState ?? 'missing'}`,
-		);
-	}
-	await actFrame();
-	await waitForInitialSurfaceStateAttempt({
-		attempt: props.attempt + 1,
-		attemptBudget,
-		expectedState: props.expectedState,
-	});
-}
-
 export async function waitForTreeScrollHeightAtLeast(
 	minimumScrollHeight: number,
 	attempt = 0,
@@ -871,7 +783,7 @@ export async function waitForTreeScrollHeightAtLeast(
 	await waitForTreeScrollHeightAtLeast(minimumScrollHeight, attempt + 1);
 }
 
-export async function waitForInitialSurfaceLoadCountAttempt(props: {
+export async function waitForMetadataSubscriptionOpenCountAttempt(props: {
 	readonly attempt: number;
 	readonly expectedCount: number;
 	readonly getLoadCount: () => number;
@@ -886,7 +798,7 @@ export async function waitForInitialSurfaceLoadCountAttempt(props: {
 		);
 	}
 	await actFrame();
-	await waitForInitialSurfaceLoadCountAttempt({
+	await waitForMetadataSubscriptionOpenCountAttempt({
 		attempt: props.attempt + 1,
 		expectedCount: props.expectedCount,
 		getLoadCount: props.getLoadCount,
@@ -894,19 +806,13 @@ export async function waitForInitialSurfaceLoadCountAttempt(props: {
 }
 
 export function makeDeferredContent(): {
-	readonly promise: Promise<ReturnType<typeof makeWorktreeFileSurfaceRuntimeFetchedResource>>;
-	readonly resolve: (
-		value: ReturnType<typeof makeWorktreeFileSurfaceRuntimeFetchedResource>,
-	) => void;
+	readonly promise: Promise<string>;
+	readonly resolve: (value: string) => void;
 } {
-	let resolveContent:
-		| ((value: ReturnType<typeof makeWorktreeFileSurfaceRuntimeFetchedResource>) => void)
-		| null = null;
-	const promise = new Promise<ReturnType<typeof makeWorktreeFileSurfaceRuntimeFetchedResource>>(
-		(resolve): void => {
-			resolveContent = resolve;
-		},
-	);
+	let resolveContent: ((value: string) => void) | null = null;
+	const promise = new Promise<string>((resolve): void => {
+		resolveContent = resolve;
+	});
 	return {
 		promise,
 		resolve: (value): void => {
@@ -918,21 +824,23 @@ export function makeDeferredContent(): {
 	};
 }
 
-export function makeDeferredInitialSurface(): {
-	readonly promise: Promise<WorktreeFileInitialSurface>;
-	readonly resolve: (value: WorktreeFileInitialSurface) => void;
+export function makeDeferredCurrentSource(): {
+	readonly promise: Promise<BridgeProductCallResult<'file.source.current'>>;
+	readonly resolve: (value: BridgeProductCallResult<'file.source.current'>) => void;
 } {
-	let resolveInitialSurface: ((value: WorktreeFileInitialSurface) => void) | null = null;
-	const promise = new Promise<WorktreeFileInitialSurface>((resolve): void => {
-		resolveInitialSurface = resolve;
+	let resolveCurrentSource:
+		| ((value: BridgeProductCallResult<'file.source.current'>) => void)
+		| null = null;
+	const promise = new Promise<BridgeProductCallResult<'file.source.current'>>((resolve): void => {
+		resolveCurrentSource = resolve;
 	});
 	return {
 		promise,
 		resolve: (value): void => {
-			if (resolveInitialSurface === null) {
-				throw new Error('Deferred initial surface resolver was not initialized.');
+			if (resolveCurrentSource === null) {
+				throw new Error('Deferred File source resolver was not initialized.');
 			}
-			resolveInitialSurface(value);
+			resolveCurrentSource(value);
 		},
 	};
 }

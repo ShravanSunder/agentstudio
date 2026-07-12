@@ -674,6 +674,17 @@ describe('Bridge app review render snapshot controller', () => {
 				wireVersion: 1,
 				direction: 'serverWorkerToMain',
 				transferDescriptors: [],
+				kind: 'fileDisplayPatch',
+				surface: 'fileView',
+				epoch: 4,
+				sequence: 6,
+				projectionRevision: 2,
+				patches: [{ slice: 'fileStatus', operation: 'upsert', payload: { state: 'stale' } }],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
 				kind: 'slicePatch',
 				epoch: 4,
 				sequence: 7,
@@ -700,6 +711,7 @@ describe('Bridge app review render snapshot controller', () => {
 			selectedItemId: 'item-2',
 			source: 'user',
 		});
+		expect(renderSnapshotStore.getSnapshot().fileDisplayFreshness).toBeNull();
 		expect(enqueuedJobs).toEqual([]);
 	});
 

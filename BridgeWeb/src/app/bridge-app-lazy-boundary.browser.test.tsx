@@ -1,32 +1,27 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 
 import type { BridgeRPCCommand } from '../bridge/bridge-rpc-client.js';
 import type { BridgeIntakeFrame } from '../core/models/bridge-intake-frame.js';
 import { buildReviewMetadataSnapshotFrame } from '../features/review/protocol/review-metadata-frame-builder.js';
-import type {
-	WorktreeFileProtocolFrame,
-	WorktreeFileSurfaceSourceIdentity,
-	WorktreeTreeRowMetadata,
-} from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import type { BridgeFileViewerBrowserTestProductSession } from '../file-viewer/bridge-file-viewer-browser-test-app.js';
+import { makeTreeRowsOnlyMetadataEvents } from '../file-viewer/bridge-file-viewer-browser-test-fixtures.js';
+import { createBridgeFileViewerBrowserTestCommWorkerTransportFactory } from '../file-viewer/bridge-file-viewer-browser-test-harness.js';
+import { BridgeFileViewerRuntimeTransportFactoryProvider } from '../file-viewer/bridge-file-viewer-render-snapshot-controller.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewProjectionRequestIdentity } from '../review-viewer/models/review-projection-models.js';
 import type { UseBridgeReviewProjectionCoordinatorProps } from '../review-viewer/projections/use-review-projection-coordinator.js';
 import { waitForBridgeViewerAnimationFrame } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
-import type {
-	WorktreeFileFrameSubscriber,
-	WorktreeFileInitialSurface,
-} from '../worktree-file-surface/worktree-file-app.js';
 import {
 	actClick,
 	actUpdate,
 	actWait,
+	createInProcessBridgeReviewWorkerTransportFactory,
 	installBridgeReadyHandshake,
 	pollWithinAct,
 	pollWithinActUntilEqual,
 	pollWithinActUntilTruthy,
-	recordBridgeSchemeRPCFetch,
 } from './bridge-app-native-review-error.browser.test-support.js';
 
 const bridgeAppLazyBoundaryMock = vi.hoisted(() => ({
@@ -167,33 +162,18 @@ describe('BridgeApp lazy mode boundaries', () => {
 	// again, so this Suspense-fallback assertion needs to run first.
 	test('keeps mode hosts mounted while the FileViewer visual shell is suspended', async () => {
 		bridgeAppLazyBoundaryMock.fileViewerShellModuleMode = 'deferred';
-		const bufferedFrame: WorktreeFileProtocolFrame = {
-			kind: 'reset',
-			streamId: 'worktree-file:test',
-			generation: 1,
-			sequence: 0,
-			frameKind: 'worktree.reset',
-			reason: 'subscriptionReset',
-		};
-		let loadInitialSurfaceCount = 0;
+		let sourceDiscoveryCount = 0;
 		bridgeReadyDisposers = [
 			...bridgeReadyDisposers,
 			installBridgeReadyHandshake({ pushNonce: 'push-nonce' }).dispose,
 		];
 		const { BridgeApp } = await import('./bridge-app.js');
 
-		render(
-			<BridgeApp
-				fileViewerProps={{
-					worktreeFileSurfaceTransport: {
-						loadInitialSurface: async () => {
-							loadInitialSurfaceCount += 1;
-							return { frames: [bufferedFrame] };
-						},
-					},
-				}}
-				viewerMode="review"
-			/>,
+		renderFileProductApp(
+			<BridgeApp viewerMode="review" />,
+			fileProductSessionWithSourceDiscoveryCounter((): void => {
+				sourceDiscoveryCount += 1;
+			}),
 		);
 		await actUpdate((): void => {
 			document.dispatchEvent(
@@ -238,12 +218,12 @@ describe('BridgeApp lazy mode boundaries', () => {
 		expect(
 			await pollWithinActUntilEqual(() => bridgeAppLazyBoundaryMock.fileViewerShellImportCount, 1),
 		).toBe(1);
-		expect(await pollWithinActUntilEqual(() => loadInitialSurfaceCount, 1)).toBe(1);
+		expect(await pollWithinActUntilEqual(() => sourceDiscoveryCount, 1)).toBe(1);
 
 		await actWait(async (): Promise<void> => {
 			bridgeAppLazyBoundaryMock.resolveFileViewerShellModule?.();
-			await Promise.resolve();
-			await Promise.resolve();
+			await waitForBridgeViewerAnimationFrame();
+			await waitForBridgeViewerAnimationFrame();
 		});
 
 		expect(
@@ -257,40 +237,25 @@ describe('BridgeApp lazy mode boundaries', () => {
 	});
 
 	test('defers FileView frame loading on a Review-first route until Files activates', async () => {
-		const bufferedFrame: WorktreeFileProtocolFrame = {
-			kind: 'reset',
-			streamId: 'worktree-file:test',
-			generation: 1,
-			sequence: 0,
-			frameKind: 'worktree.reset',
-			reason: 'subscriptionReset',
-		};
-		let loadInitialSurfaceCount = 0;
+		let sourceDiscoveryCount = 0;
 		bridgeReadyDisposers = [
 			...bridgeReadyDisposers,
 			installBridgeReadyHandshake({ pushNonce: 'push-nonce' }).dispose,
 		];
 		const { BridgeApp } = await import('./bridge-app.js');
 
-		render(
-			<BridgeApp
-				fileViewerProps={{
-					worktreeFileSurfaceTransport: {
-						loadInitialSurface: async (): Promise<WorktreeFileInitialSurface> => {
-							loadInitialSurfaceCount += 1;
-							return { frames: [bufferedFrame] };
-						},
-					},
-				}}
-				viewerMode="review"
-			/>,
+		renderFileProductApp(
+			<BridgeApp viewerMode="review" />,
+			fileProductSessionWithSourceDiscoveryCounter((): void => {
+				sourceDiscoveryCount += 1;
+			}),
 		);
 		await actUpdate((): void => {
 			document.dispatchEvent(
 				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
 			);
 		});
-		expect(loadInitialSurfaceCount).toBe(0);
+		expect(sourceDiscoveryCount).toBe(0);
 		expect(bridgeAppLazyBoundaryMock.fileViewerShellImportCount).toBe(0);
 		expect(document.querySelector('[data-testid="bridge-file-viewer-shell-lazy-mock"]')).toBeNull();
 
@@ -303,145 +268,7 @@ describe('BridgeApp lazy mode boundaries', () => {
 			await waitForBridgeViewerAnimationFrame();
 		});
 
-		expect(await pollWithinActUntilEqual(() => loadInitialSurfaceCount, 1)).toBe(1);
-	});
-
-	test('does not restart FileView initial loading for fresh wrapper props with the same source', async () => {
-		const bufferedFrame: WorktreeFileProtocolFrame = {
-			kind: 'reset',
-			streamId: 'worktree-file:test',
-			generation: 1,
-			sequence: 0,
-			frameKind: 'worktree.reset',
-			reason: 'subscriptionReset',
-		};
-		let loadInitialSurfaceCount = 0;
-		const loadInitialSurface = async (): Promise<WorktreeFileInitialSurface> => {
-			loadInitialSurfaceCount += 1;
-			return { frames: [bufferedFrame] };
-		};
-		bridgeReadyDisposers = [
-			...bridgeReadyDisposers,
-			installBridgeReadyHandshake({ pushNonce: 'push-nonce' }).dispose,
-		];
-		const { BridgeApp } = await import('./bridge-app.js');
-		const { rerender } = render(
-			<BridgeApp
-				fileViewerProps={{ worktreeFileSurfaceTransport: { loadInitialSurface } }}
-				viewerMode="file"
-			/>,
-		);
-
-		await actUpdate((): void => {
-			document.dispatchEvent(
-				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
-			);
-		});
-		expect(await pollWithinActUntilEqual(() => loadInitialSurfaceCount, 1)).toBe(1);
-
-		await actUpdate((): void => {
-			rerender(
-				<BridgeApp
-					fileViewerProps={{ worktreeFileSurfaceTransport: { loadInitialSurface } }}
-					viewerMode="file"
-				/>,
-			);
-		});
-		await actWait(waitForBridgeViewerAnimationFrame);
-		await actWait(waitForBridgeViewerAnimationFrame);
-
-		expect(loadInitialSurfaceCount).toBe(1);
-	});
-
-	test('merges subscribed FileView frames that arrive before the initial surface resolves', async () => {
-		let publishFrame: WorktreeFileFrameSubscriber | null = null;
-		let resolveInitialSurface: ((frames: readonly WorktreeFileProtocolFrame[]) => void) | null =
-			null;
-		let subscriberFrameCount = 0;
-		const initialSurfacePromise = new Promise<readonly WorktreeFileProtocolFrame[]>((resolve) => {
-			resolveInitialSurface = resolve;
-		});
-		const baselineFrame = makeWorktreeSnapshotFrame({
-			sequence: 1,
-			path: 'src/baseline.ts',
-		});
-		const preLoadFrame = makeWorktreeTreeWindowFrame({
-			sequence: 2,
-			path: 'src/pre-load-delta.ts',
-		});
-		const waitForBridgeReady = (callback: () => void): (() => void) => {
-			callback();
-			return (): void => {};
-		};
-		const fileViewerProps = {
-			worktreeFileSurfaceTransport: {
-				loadInitialSurface: async () => ({
-					frames: await initialSurfacePromise,
-				}),
-				subscribeFrames: (subscriber: WorktreeFileFrameSubscriber): (() => void) => {
-					publishFrame = subscriber;
-					return (): void => {
-						publishFrame = null;
-					};
-				},
-			},
-		};
-		const ObservedFileViewerController = (): ReactElement => {
-			const didStartObservationRef = useRef(false);
-			const controlledProps = useBridgeFileViewerFrameControllerProps({
-				enabled: true,
-				fileViewerProps,
-				waitForBridgeReady,
-			});
-			const [loadedFrameKinds, setLoadedFrameKinds] = useState('');
-			useEffect((): (() => void) | void => {
-				if (didStartObservationRef.current) {
-					return;
-				}
-				didStartObservationRef.current = true;
-				void controlledProps?.worktreeFileSurfaceTransport
-					?.loadInitialSurface?.()
-					.then((surface): void => {
-						setLoadedFrameKinds(surface.frames.map((frame) => frame.frameKind).join(','));
-					});
-				return controlledProps?.worktreeFileSurfaceTransport?.subscribeFrames?.((): void => {
-					subscriberFrameCount += 1;
-				});
-			}, [controlledProps]);
-			return <output data-testid="merged-frame-kinds">{loadedFrameKinds}</output>;
-		};
-		const { useBridgeFileViewerFrameControllerProps } =
-			await import('./bridge-file-viewer-frame-controller.js');
-
-		render(<ObservedFileViewerController />);
-		expect(await pollWithinActUntilTruthy(() => publishFrame)).not.toBeNull();
-		const publishReadyFrame = publishFrame as WorktreeFileFrameSubscriber | null;
-		if (publishReadyFrame === null) {
-			throw new Error('Expected FileView frame publisher to be registered.');
-		}
-		await actUpdate((): void => {
-			publishReadyFrame([preLoadFrame]);
-		});
-		await actWait(waitForBridgeViewerAnimationFrame);
-		expect(subscriberFrameCount).toBe(0);
-
-		const resolveReadyInitialSurface = resolveInitialSurface as
-			| ((frames: readonly WorktreeFileProtocolFrame[]) => void)
-			| null;
-		if (resolveReadyInitialSurface === null) {
-			throw new Error('Expected FileView initial surface resolver to be registered.');
-		}
-		await actUpdate((): void => {
-			resolveReadyInitialSurface([baselineFrame]);
-		});
-
-		expect(
-			await pollWithinActUntilEqual(
-				() => document.querySelector('[data-testid="merged-frame-kinds"]')?.textContent,
-				'worktree.snapshot,worktree.treeWindow',
-			),
-		).toBe('worktree.snapshot,worktree.treeWindow');
-		expect(subscriberFrameCount).toBe(0);
+		expect(await pollWithinActUntilEqual(() => sourceDiscoveryCount, 1)).toBe(1);
 	});
 
 	test('sends Review metadata interest from the mode controller after native intake', async () => {
@@ -459,15 +286,15 @@ describe('BridgeApp lazy mode boundaries', () => {
 		});
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
-		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init): Promise<Response> => {
-			return (
-				recordBridgeSchemeRPCFetch(input, init, commandDetails) ??
-				new Response('unexpected request', { status: 404 })
-			);
+		const transportFactory = createInProcessBridgeReviewWorkerTransportFactory({
+			sendSchemeRpcCommand: async (command): Promise<unknown> => {
+				commandDetails.push(command);
+				return {};
+			},
 		});
 		const { BridgeApp } = await import('./bridge-app.js');
 
-		render(<BridgeApp viewerMode="review" />);
+		render(<BridgeApp reviewWorkerTransportFactory={transportFactory} viewerMode="review" />);
 
 		await dispatchHostAdmittedReviewIntakeFrame({
 			kind: 'reset',
@@ -663,15 +490,7 @@ describe('BridgeApp lazy mode boundaries', () => {
 			selectedItemId: reviewPackage.orderedItemIds[0] ?? null,
 			visibleItemIds: reviewPackage.orderedItemIds,
 		});
-		const bufferedFrame: WorktreeFileProtocolFrame = {
-			kind: 'reset',
-			streamId: 'worktree-file:test',
-			generation: 1,
-			sequence: 0,
-			frameKind: 'worktree.reset',
-			reason: 'subscriptionReset',
-		};
-		let loadInitialSurfaceCount = 0;
+		let sourceDiscoveryCount = 0;
 		bridgeReadyDisposers = [
 			...bridgeReadyDisposers,
 			installBridgeReadyHandshake({ pushNonce: 'push-nonce' }).dispose,
@@ -679,21 +498,18 @@ describe('BridgeApp lazy mode boundaries', () => {
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
 		const { BridgeApp } = await import('./bridge-app.js');
-		// A stable fileViewerProps reference keeps the File frame controller from reloading across
-		// mode switches. Mode switches are driven by the viewerMode prop because the mocked Review
-		// shell does not render the context switcher once the Review projection is active.
-		const fileViewerProps = {
-			worktreeFileSurfaceTransport: {
-				loadInitialSurface: async (): Promise<WorktreeFileInitialSurface> => {
-					loadInitialSurfaceCount += 1;
-					return { frames: [bufferedFrame] };
-				},
-			},
-		};
-
-		const { rerender } = render(
-			<BridgeApp fileViewerProps={fileViewerProps} viewerMode="review" />,
+		const productSession = fileProductSessionWithSourceDiscoveryCounter((): void => {
+			sourceDiscoveryCount += 1;
+		});
+		const transportFactory = createBridgeFileViewerBrowserTestCommWorkerTransportFactory({
+			productSessionRef: { current: productSession },
+		});
+		const wrapApp = (viewerMode: 'file' | 'review'): ReactElement => (
+			<BridgeFileViewerRuntimeTransportFactoryProvider transportFactory={transportFactory}>
+				<BridgeApp viewerMode={viewerMode} />
+			</BridgeFileViewerRuntimeTransportFactoryProvider>
 		);
+		const { rerender } = render(wrapApp('review'));
 
 		// Establish the Review projection from native intake.
 		await dispatchHostAdmittedReviewIntakeFrame({
@@ -727,9 +543,9 @@ describe('BridgeApp lazy mode boundaries', () => {
 		);
 		const projectionApplyCountBeforeRoundTrip = bridgeAppLazyBoundaryMock.projectionApplyCount;
 
-		// Switch to Files: the File surface loads its initial surface exactly once.
+		// Switch to Files: the pane worker discovers and opens the typed File source exactly once.
 		await actUpdate((): void => {
-			rerender(<BridgeApp fileViewerProps={fileViewerProps} viewerMode="file" />);
+			rerender(wrapApp('file'));
 		});
 		expect(
 			await pollWithinAct({
@@ -738,7 +554,7 @@ describe('BridgeApp lazy mode boundaries', () => {
 				isSatisfied: (value): boolean => value,
 			}),
 		).toBe(true);
-		expect(await pollWithinActUntilEqual(() => loadInitialSurfaceCount, 1)).toBe(1);
+		expect(await pollWithinActUntilEqual(() => sourceDiscoveryCount, 1)).toBe(1);
 		const fileModeHost = requireHTMLElement(
 			document.querySelector('[data-testid="bridge-viewer-mode-host-file"]'),
 		);
@@ -747,7 +563,7 @@ describe('BridgeApp lazy mode boundaries', () => {
 
 		// Switch back to Review.
 		await actUpdate((): void => {
-			rerender(<BridgeApp fileViewerProps={fileViewerProps} viewerMode="review" />);
+			rerender(wrapApp('review'));
 		});
 		expect(
 			await pollWithinAct({
@@ -771,7 +587,7 @@ describe('BridgeApp lazy mode boundaries', () => {
 		expect(
 			fileModeHost.querySelector('[data-testid="bridge-file-viewer-shell-lazy-mock"]'),
 		).not.toBeNull();
-		expect(loadInitialSurfaceCount).toBe(1);
+		expect(sourceDiscoveryCount).toBe(1);
 		// The Review projection was not re-applied across the round trip (no re-apply storm).
 		expect(bridgeAppLazyBoundaryMock.projectionApplyCount).toBe(
 			projectionApplyCountBeforeRoundTrip,
@@ -796,71 +612,39 @@ async function dispatchHostAdmittedReviewIntakeFrame(frame: BridgeIntakeFrame): 
 	await actWait(waitForBridgeViewerAnimationFrame);
 }
 
-function makeWorktreeSnapshotFrame(props: {
-	readonly path: string;
-	readonly sequence: number;
-}): WorktreeFileProtocolFrame {
-	return {
-		kind: 'snapshot',
-		streamId: 'worktree-file:test',
-		generation: 1,
-		sequence: props.sequence,
-		frameKind: 'worktree.snapshot',
-		source: makeWorktreeSourceIdentity(),
-		metadataLineage: {
-			loadedBy: 'startup_window',
-			lane: 'foreground',
-		},
-		treeRows: [makeWorktreeTreeRow(props.path)],
-	};
+function renderFileProductApp(
+	app: ReactElement,
+	productSession: BridgeFileViewerBrowserTestProductSession,
+): ReturnType<typeof render> {
+	const transportFactory = createBridgeFileViewerBrowserTestCommWorkerTransportFactory({
+		productSessionRef: { current: productSession },
+	});
+	return render(
+		<BridgeFileViewerRuntimeTransportFactoryProvider transportFactory={transportFactory}>
+			{app}
+		</BridgeFileViewerRuntimeTransportFactoryProvider>,
+	);
 }
 
-function makeWorktreeTreeWindowFrame(props: {
-	readonly path: string;
-	readonly sequence: number;
-}): WorktreeFileProtocolFrame {
+function fileProductSessionWithSourceDiscoveryCounter(
+	onSourceDiscovery: () => void,
+): BridgeFileViewerBrowserTestProductSession {
 	return {
-		kind: 'delta',
-		streamId: 'worktree-file:test',
-		generation: 1,
-		sequence: props.sequence,
-		frameKind: 'worktree.treeWindow',
-		projectionIdentity: {
-			source: makeWorktreeSourceIdentity(),
-			pathScope: [],
-			sortKey: 'path',
-			groupKey: 'none',
-			filterKey: 'all',
-			treeWindowKey: 'pre-load-window',
+		currentSource: () => {
+			onSourceDiscovery();
+			return {
+				status: 'available',
+				source: {
+					cwdScope: null,
+					freshness: 'live',
+					includeStatuses: true,
+					repoId: '00000000-0000-4000-8000-000000000001',
+					rootPathToken: 'browser-test-root',
+					worktreeId: '00000000-0000-4000-8000-000000000002',
+				},
+			};
 		},
-		metadataLineage: {
-			loadedBy: 'idle',
-			lane: 'idle',
-		},
-		rows: [makeWorktreeTreeRow(props.path)],
-	};
-}
-
-function makeWorktreeSourceIdentity(): WorktreeFileSurfaceSourceIdentity {
-	return {
-		sourceId: 'source-lazy-boundary-test',
-		repoId: 'repo-lazy-boundary-test',
-		worktreeId: 'worktree-lazy-boundary-test',
-		subscriptionGeneration: 1,
-		sourceCursor: 'cursor-lazy-boundary-test',
-	};
-}
-
-function makeWorktreeTreeRow(path: string): WorktreeTreeRowMetadata {
-	const pathParts = path.split('/');
-	return {
-		rowId: `row:${path}`,
-		path,
-		name: pathParts.at(-1) ?? path,
-		parentPath: pathParts.length > 1 ? pathParts.slice(0, -1).join('/') : null,
-		depth: Math.max(pathParts.length - 1, 0),
-		isDirectory: false,
-		fileId: `file:${path}`,
+		initialMetadataEvents: makeTreeRowsOnlyMetadataEvents(),
 	};
 }
 

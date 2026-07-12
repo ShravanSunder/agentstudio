@@ -69,7 +69,13 @@ async function readWorkerSelfContainmentChecks(
 		assetManifest.workers.map(
 			async (worker): Promise<readonly [string, WorkerSourceSelfContainmentCheck]> => {
 				const workerSource = await readFile(join(appDirectoryPath, worker.path), 'utf8');
-				return [worker.path, validateWorkerSourceSelfContained(workerSource)];
+				return [
+					worker.path,
+					validateWorkerSourceSelfContained({
+						workerAssetKind: worker.kind,
+						workerSource,
+					}),
+				];
 			},
 		),
 	);

@@ -234,17 +234,17 @@ final class BridgeSchemeHandlerTests {
     }
 
     @Test
-    func test_pathType_worktreeFileProtocolScopedResourceKind() throws {
+    func test_pathType_worktreeFileProtocolScopedResourceKindIsRejected() {
         let resourceURL =
             "agentstudio://resource/worktree-file/worktree.fileContent/file-abc?generation=42&cursor=cursor-42"
-        let expected = try #require(
-            BridgeTransportResourceURL.parse(
-                resourceURL,
-                allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
-            ))
+        let parsed = BridgeTransportResourceURL.parse(
+            resourceURL,
+            allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
+        )
         let result = BridgeSchemeHandler.classifyPath(resourceURL)
 
-        #expect(result == .leasedContent(expected))
+        #expect(parsed == nil)
+        #expect(result == .invalid)
     }
 
     @Test

@@ -25,8 +25,8 @@ import {
 } from './bridge-product-contract-primitives.js';
 
 describe('Bridge product content frame decoder', () => {
-	test('bounds every Swift response logical frame at 256 KiB', () => {
-		expect(BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES).toBe(256 * 1024);
+	test('bounds metadata at 128 KiB and content frames at 256 KiB', () => {
+		expect(BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES).toBe(128 * 1024);
 		expect(BRIDGE_PRODUCT_MAXIMUM_CONTENT_FRAME_BYTES).toBe(256 * 1024);
 		expect(BRIDGE_PRODUCT_MAXIMUM_CONTENT_DATA_PAYLOAD_BYTES).toBe(128 * 1024);
 		expect(
@@ -246,7 +246,7 @@ describe('Bridge product content frame decoder', () => {
 	test('accepts exactly 128 KiB of raw data and rejects one byte more', () => {
 		const maximumPayload = new Uint8Array(128 * 1024).fill(0x61);
 		const oversizedPayload = new Uint8Array(maximumPayload.byteLength + 1).fill(0x62);
-		const accepted = contentAcceptedFrameForByteCount(null, 2 * 1024 * 1024);
+		const accepted = contentAcceptedFrameForByteCount(maximumPayload.byteLength, 2 * 1024 * 1024);
 		const maximumFrame = contentDataFrameForPayload(1, 0, maximumPayload);
 		const oversizedFrame = contentDataFrameForPayload(1, 0, oversizedPayload);
 

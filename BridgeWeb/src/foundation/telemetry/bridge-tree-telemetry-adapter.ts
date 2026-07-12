@@ -67,6 +67,7 @@ export interface BridgeTreeScrollToPathTelemetrySampleProps extends BridgeTreeTe
 	readonly focus: boolean;
 	readonly offset: BridgeTreeScrollOffset;
 	readonly reason: BridgeTreeScrollReason;
+	readonly result?: 'dropped' | 'success';
 	readonly viewer: BridgeTreeTelemetryViewer;
 }
 
@@ -202,7 +203,7 @@ export function recordBridgeTreeScrollToPathTelemetrySample(
 		phase: 'scroll_to_path',
 		viewer: props.viewer,
 		stringAttributes: {
-			'agentstudio.bridge.result': 'success',
+			'agentstudio.bridge.result': props.result ?? 'success',
 			'agentstudio.bridge.scroll.offset': props.offset,
 			'agentstudio.bridge.scroll.reason': props.reason,
 		},

@@ -30,6 +30,7 @@ enum BridgeProductStreamWebKitFeasibilityContentFrames {
             .init(
                 header: try .end(
                     contentSequence: 2,
+                    endOfSource: true,
                     observedByteLength: payload.count,
                     observedSha256: payloadSHA256
                 ),

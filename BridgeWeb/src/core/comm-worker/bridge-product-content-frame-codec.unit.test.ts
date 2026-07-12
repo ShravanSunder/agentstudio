@@ -47,6 +47,7 @@ describe('Bridge product content frame encoder and validator', () => {
 		expect(end[4]).toBe(0x03);
 		expect(readUint32BigEndian(end, 5)).toBe(2);
 		expect(parseMinimalControlBody(end)).toEqual(contentEndControlBody());
+		expect(contentEndFrame().header.endOfSource).toBe(true);
 
 		const identityMarker = new TextEncoder().encode('file-descriptor-1');
 		expect(countByteSubsequence(accepted, identityMarker)).toBe(1);
@@ -176,10 +177,24 @@ describe('Bridge product content frame encoder and validator', () => {
 			bytes: Uint8Array.from([97, 98, 99]).buffer,
 			contentKind: 'file.content',
 			descriptorId: 'file-descriptor-1',
+			endOfSource: true,
 			kind: 'complete',
 			observedSha256: abcSha256,
 		});
 		await expect(validator.accept(contentDataFrame())).rejects.toThrow(/terminal/iu);
+	});
+
+	test('preserves explicit non-final source state for an exact-sized range', async () => {
+		const validator = new BridgeProductContentStreamValidator(contentRequest());
+		await validator.accept(contentAcceptedFrame());
+		await validator.accept(contentDataFrame());
+
+		const completion = await validator.accept({
+			...contentEndFrame(),
+			header: { ...contentEndFrame().header, endOfSource: false },
+		});
+
+		expect(completion).toMatchObject({ endOfSource: false, kind: 'complete' });
 	});
 
 	test('rejects gaps, wrong offsets, declared-length overruns, and digest conflicts', async () => {

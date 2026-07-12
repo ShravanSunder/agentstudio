@@ -22,48 +22,6 @@ export function bridgeWorkerRuntimeSchemeRpcCommandForMessage(
 				},
 				requestId: message.requestId,
 			};
-		case 'reviewIntakeReady':
-			return {
-				command: {
-					method: 'bridge.intakeReady',
-					params: {
-						protocolId: message.protocolId,
-						streamId: message.streamId ?? null,
-						reason: message.reason ?? null,
-					},
-				},
-				requestId: message.requestId,
-			};
-		case 'worktreeFileIntakeReady':
-			return {
-				command: {
-					method: 'bridge.intakeReady',
-					params: {
-						protocolId: message.protocolId,
-						streamId: message.streamId,
-						generation: message.generation,
-					},
-				},
-				requestId: message.requestId,
-			};
-		case 'worktreeFileOpenSourceStream':
-			return {
-				command: {
-					id: message.requestId,
-					method: 'worktreeFileSurface.openSourceStream',
-					params: message.sourceSpec,
-				},
-				requestId: message.requestId,
-			};
-		case 'worktreeFileRequestDescriptor':
-			return {
-				command: {
-					id: message.requestId,
-					method: 'worktreeFileSurface.requestFileDescriptor',
-					params: message.descriptorRequest,
-				},
-				requestId: message.requestId,
-			};
 		case 'activeViewerModeUpdate':
 			return {
 				command: {
@@ -72,9 +30,11 @@ export function bridgeWorkerRuntimeSchemeRpcCommandForMessage(
 				},
 				requestId: message.requestId,
 			};
-		case 'fileViewSourceUpdate':
 		case 'hover':
+		case 'fileQueryUpdate':
+		case 'fileDisplayResync':
 		case 'mode':
+		case 'reviewIntakeReady':
 		case 'reviewInvalidate':
 		case 'reviewSourceUpdate':
 		case 'select':
@@ -92,11 +52,11 @@ export function bridgeCommWorkerTelemetryLaneForMessage(
 		case 'select':
 			return 'selected';
 		case 'viewport':
+		case 'fileQueryUpdate':
+		case 'fileDisplayResync':
 		case 'hover':
 		case 'reviewInvalidate':
 			return 'visible';
-		case 'fileViewSourceUpdate':
-			return 'file_view';
 		case 'metadataInterestUpdate':
 			return message.request.lane === 'foreground' ? 'selected' : 'visible';
 		case 'activeViewerModeUpdate':
@@ -104,9 +64,6 @@ export function bridgeCommWorkerTelemetryLaneForMessage(
 		case 'markFileViewed':
 		case 'mode':
 		case 'reviewIntakeReady':
-		case 'worktreeFileIntakeReady':
-		case 'worktreeFileOpenSourceStream':
-		case 'worktreeFileRequestDescriptor':
 		case 'reviewSourceUpdate':
 			return 'background';
 		default:

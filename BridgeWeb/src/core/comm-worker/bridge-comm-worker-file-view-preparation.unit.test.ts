@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import type { BridgeCommWorkerPort } from './bridge-comm-worker-entry.js';
+import type { BridgeCommWorkerFileViewContentRequest } from './bridge-comm-worker-file-metadata-projection.js';
 import { enqueueSelectedBridgeWorkerFileViewContentReadyPreparation } from './bridge-comm-worker-file-view-preparation.js';
 import {
 	createBridgeCommWorkerStore,
@@ -9,9 +10,9 @@ import {
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 import type {
 	BridgeWorkerFileViewContentMetadata,
-	BridgeWorkerFileViewContentRequestDescriptor,
 	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
+import type { BridgeWorkerFileViewContentOpen } from './bridge-worker-file-view-content-fetch.js';
 
 interface PostedBridgeWorkerPreparationMessage {
 	readonly message: BridgeWorkerServerToMainMessage;
@@ -42,14 +43,10 @@ describe('Bridge comm worker File View preparation', () => {
 
 		const preparation = enqueueSelectedBridgeWorkerFileViewContentReadyPreparation({
 			...makePreparationProps({
-				contentRequestDescriptors: [makeContentRequestDescriptor('file body\n')],
-				fetchContent: async (url: string): Promise<Response> => {
-					executionOrder.push('selected-fetch');
-					const descriptor = descriptorByUrl.get(url);
-					if (descriptor === undefined) {
-						throw new Error(`Unexpected File View content URL ${url}.`);
-					}
-					return new Response(descriptor.text);
+				contentRequests: [makeContentRequest('file body\n')],
+				openContent: (descriptor) => {
+					executionOrder.push('selected-open');
+					return completedContentStream(descriptor, contentTextForDescriptor(descriptor));
 				},
 				postedMessages,
 				pump,
@@ -66,10 +63,10 @@ describe('Bridge comm worker File View preparation', () => {
 		expect(firstRun.completedIds).toEqual([]);
 		expect(firstRun.yielded).toBe(true);
 		expect(secondRun.completedIds).toEqual([preparation.workId]);
-		expect(executionOrder).toEqual(['selected-fetch', 'background', 'background']);
+		expect(executionOrder).toEqual(['selected-open', 'background', 'background']);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
-			'pierreRenderJob',
-			'slicePatch',
+			'filePierreRenderJob',
+			'fileRenderPatch',
 		]);
 	});
 
@@ -79,7 +76,7 @@ describe('Bridge comm worker File View preparation', () => {
 			maxSliceMs: 5,
 			now: () => 0,
 		});
-		const fetchResponse = createDeferredResponse('file body\n');
+		const deferredContent = createDeferredContentOpen('file body\n');
 		let drainRequestCount = 0;
 		const store = createBridgeCommWorkerStore({
 			contentItems: [
@@ -96,8 +93,8 @@ describe('Bridge comm worker File View preparation', () => {
 
 		const preparation = enqueueSelectedBridgeWorkerFileViewContentReadyPreparation({
 			...makePreparationProps({
-				contentRequestDescriptors: [makeContentRequestDescriptor('file body\n')],
-				fetchContent: async (): Promise<Response> => fetchResponse.promise,
+				contentRequests: [makeContentRequest('file body\n')],
+				openContent: deferredContent.openContent,
 				postedMessages,
 				pump,
 				requestPreparationDrain: () => {
@@ -109,7 +106,7 @@ describe('Bridge comm worker File View preparation', () => {
 
 		const firstRun = pump.runUntilBudget();
 		store.actions.applySelectedFact({ epoch: 8, itemId: 'file-2' });
-		fetchResponse.resolve();
+		deferredContent.resolve();
 		await flushBridgeWorkerPreparationContinuations();
 
 		expect(firstRun.completedIds).toEqual([]);
@@ -123,9 +120,9 @@ describe('Bridge comm worker File View preparation', () => {
 		expect(postedMessages).toEqual([]);
 	});
 
-	test('passes File View descriptors and fetch props through to publish a prepared job and ready patch', async () => {
+	test('passes File View product requests and open-content props through to publish a prepared job and ready patch', async () => {
 		const postedMessages: PostedBridgeWorkerPreparationMessage[] = [];
-		const fetchCalls: string[] = [];
+		const openedDescriptorIds: string[] = [];
 		const pump = createWorkerContentPreparationPump({
 			maxSliceMs: 5,
 			now: () => 0,
@@ -142,14 +139,10 @@ describe('Bridge comm worker File View preparation', () => {
 					maxBytes: 512 * 1024,
 					maxWindowLines: 1,
 				},
-				contentRequestDescriptors: [makeContentRequestDescriptor('file body\nsecond line\n')],
-				fetchContent: async (url: string): Promise<Response> => {
-					fetchCalls.push(url);
-					const descriptor = descriptorByUrl.get(url);
-					if (descriptor === undefined) {
-						throw new Error(`Unexpected File View content URL ${url}.`);
-					}
-					return new Response(descriptor.text);
+				contentRequests: [makeContentRequest('file body\nsecond line\n')],
+				openContent: (descriptor) => {
+					openedDescriptorIds.push(descriptor.descriptorId);
+					return completedContentStream(descriptor, contentTextForDescriptor(descriptor));
 				},
 				postedMessages,
 				pump,
@@ -162,13 +155,14 @@ describe('Bridge comm worker File View preparation', () => {
 		pump.runUntilBudget();
 		await preparation.completion;
 
-		expect(fetchCalls).toEqual([
-			'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?cursor=cursor-file-1&generation=7',
-		]);
+		expect(openedDescriptorIds).toEqual(['descriptor-file-1']);
 		expect(postedMessages[0]?.message).toMatchObject({
 			wireVersion: 1,
 			direction: 'serverWorkerToMain',
-			kind: 'pierreRenderJob',
+			kind: 'filePierreRenderJob',
+			publicationSequence: 12,
+			surface: 'file',
+			workerDerivationEpoch: 17,
 			job: {
 				itemId: 'file-1',
 				renderKind: 'fileText',
@@ -201,10 +195,11 @@ describe('Bridge comm worker File View preparation', () => {
 			message: {
 				wireVersion: 1,
 				direction: 'serverWorkerToMain',
-				kind: 'slicePatch',
-				epoch: 7,
-				sequence: 12,
+				kind: 'fileRenderPatch',
+				publicationSequence: 12,
+				surface: 'file',
 				transferDescriptors: [],
+				workerDerivationEpoch: 17,
 				patches: [
 					{
 						slice: 'rowPaint',
@@ -224,7 +219,7 @@ describe('Bridge comm worker File View preparation', () => {
 		});
 	});
 
-	test('publishes failed availability when selected File View fetch fails', async () => {
+	test('publishes failed availability when selected File View content open fails', async () => {
 		const postedMessages: PostedBridgeWorkerPreparationMessage[] = [];
 		const pump = createWorkerContentPreparationPump({
 			maxSliceMs: 5,
@@ -236,8 +231,8 @@ describe('Bridge comm worker File View preparation', () => {
 
 		const preparation = enqueueSelectedBridgeWorkerFileViewContentReadyPreparation({
 			...makePreparationProps({
-				contentRequestDescriptors: [makeContentRequestDescriptor('file body\n')],
-				fetchContent: async (): Promise<Response> => {
+				contentRequests: [makeContentRequest('file body\n')],
+				openContent: () => {
 					throw new Error('network unavailable');
 				},
 				postedMessages,
@@ -257,10 +252,11 @@ describe('Bridge comm worker File View preparation', () => {
 				message: {
 					wireVersion: 1,
 					direction: 'serverWorkerToMain',
-					kind: 'slicePatch',
-					epoch: 7,
-					sequence: 12,
+					kind: 'fileRenderPatch',
+					publicationSequence: 12,
+					surface: 'file',
 					transferDescriptors: [],
+					workerDerivationEpoch: 17,
 					patches: [
 						{
 							slice: 'contentAvailability',
@@ -276,7 +272,7 @@ describe('Bridge comm worker File View preparation', () => {
 		expect(store.getState().availabilityByItemId.get('file-1')).toBe('failed');
 	});
 
-	test('clears stale ready paint when selected File View refresh fetch fails', async () => {
+	test('clears stale ready paint when selected File View refresh content open fails', async () => {
 		const postedMessages: PostedBridgeWorkerPreparationMessage[] = [];
 		const pump = createWorkerContentPreparationPump({
 			maxSliceMs: 5,
@@ -292,8 +288,8 @@ describe('Bridge comm worker File View preparation', () => {
 
 		const preparation = enqueueSelectedBridgeWorkerFileViewContentReadyPreparation({
 			...makePreparationProps({
-				contentRequestDescriptors: [makeContentRequestDescriptor('file body\n')],
-				fetchContent: async (): Promise<Response> => {
+				contentRequests: [makeContentRequest('file body\n')],
+				openContent: () => {
 					throw new Error('network unavailable');
 				},
 				postedMessages,
@@ -312,10 +308,11 @@ describe('Bridge comm worker File View preparation', () => {
 				message: {
 					wireVersion: 1,
 					direction: 'serverWorkerToMain',
-					kind: 'slicePatch',
-					epoch: 7,
-					sequence: 12,
+					kind: 'fileRenderPatch',
+					publicationSequence: 12,
+					surface: 'file',
 					transferDescriptors: [],
+					workerDerivationEpoch: 17,
 					patches: [
 						{
 							slice: 'rowPaint',
@@ -352,7 +349,7 @@ describe('Bridge comm worker File View preparation', () => {
 
 		const preparation = enqueueSelectedBridgeWorkerFileViewContentReadyPreparation({
 			...makePreparationProps({
-				contentRequestDescriptors: [],
+				contentRequests: [],
 				itemId: 'file-without-metadata',
 				postedMessages: [],
 				pump,
@@ -367,10 +364,10 @@ describe('Bridge comm worker File View preparation', () => {
 	});
 });
 
-const descriptorByUrl = new Map<string, { readonly text: string }>();
+const contentTextByDescriptorId = new Map<string, string>();
 
-interface DeferredResponse {
-	readonly promise: Promise<Response>;
+interface DeferredContentOpen {
+	readonly openContent: BridgeWorkerFileViewContentOpen;
 	readonly resolve: () => void;
 }
 
@@ -381,9 +378,9 @@ interface MakePreparationPropsOptions {
 		readonly maxBytes: number;
 		readonly maxWindowLines: number;
 	};
-	readonly contentRequestDescriptors: readonly BridgeWorkerFileViewContentRequestDescriptor[];
-	readonly fetchContent?: (url: string, init?: RequestInit) => Promise<Response>;
+	readonly contentRequests: readonly BridgeCommWorkerFileViewContentRequest[];
 	readonly itemId?: string;
+	readonly openContent?: BridgeWorkerFileViewContentOpen;
 	readonly postedMessages: PostedBridgeWorkerPreparationMessage[];
 	readonly pump: ReturnType<typeof createWorkerContentPreparationPump>;
 	readonly requestPreparationDrain?: () => void;
@@ -397,15 +394,16 @@ function makePreparationProps(options: MakePreparationPropsOptions): {
 		readonly maxBytes: number;
 		readonly maxWindowLines: number;
 	};
-	readonly contentRequestDescriptors: readonly BridgeWorkerFileViewContentRequestDescriptor[];
+	readonly contentRequests: readonly BridgeCommWorkerFileViewContentRequest[];
 	readonly epoch: number;
-	readonly fetchContent?: (url: string, init?: RequestInit) => Promise<Response>;
 	readonly itemId: string;
+	readonly openContent: BridgeWorkerFileViewContentOpen;
 	readonly port: BridgeCommWorkerPort;
 	readonly pump: ReturnType<typeof createWorkerContentPreparationPump>;
 	readonly requestPreparationDrain?: () => void;
 	readonly sequence: number;
 	readonly store: BridgeCommWorkerStore;
+	readonly workerDerivationEpoch: number;
 } {
 	return {
 		bridgeDemandRank: options.bridgeDemandRank ?? { lane: 'selected', priority: 0 },
@@ -414,10 +412,10 @@ function makePreparationProps(options: MakePreparationPropsOptions): {
 			maxBytes: 512 * 1024,
 			maxWindowLines: 50,
 		},
-		contentRequestDescriptors: options.contentRequestDescriptors,
+		contentRequests: options.contentRequests,
 		epoch: 7,
-		...(options.fetchContent === undefined ? {} : { fetchContent: options.fetchContent }),
 		itemId: options.itemId ?? 'file-1',
+		openContent: options.openContent ?? unexpectedContentOpen,
 		port: makePostedMessagePort(options.postedMessages),
 		pump: options.pump,
 		...(options.requestPreparationDrain === undefined
@@ -425,19 +423,43 @@ function makePreparationProps(options: MakePreparationPropsOptions): {
 			: { requestPreparationDrain: options.requestPreparationDrain }),
 		sequence: 12,
 		store: options.store,
+		workerDerivationEpoch: 17,
 	};
 }
 
-function createDeferredResponse(text: string): DeferredResponse {
-	let resolveResponse: (response: Response) => void = noopResolveDeferredResponse;
-	const promise = new Promise<Response>((resolve) => {
-		resolveResponse = resolve;
+function createDeferredContentOpen(text: string): DeferredContentOpen {
+	let resolveTerminal: () => void = noopResolveDeferredContent;
+	let descriptorId = 'descriptor-file-1';
+	const terminal = new Promise<{
+		readonly bytes: ArrayBuffer;
+		readonly contentKind: 'file.content';
+		readonly descriptorId: string;
+		readonly endOfSource: boolean;
+		readonly kind: 'complete';
+		readonly observedSha256: string;
+	}>((resolve) => {
+		resolveTerminal = (): void => {
+			resolve({
+				bytes: new TextEncoder().encode(text).buffer,
+				contentKind: 'file.content',
+				descriptorId,
+				endOfSource: true,
+				kind: 'complete',
+				observedSha256: 'a'.repeat(64),
+			});
+		};
 	});
 	return {
-		promise,
-		resolve: (): void => {
-			resolveResponse(new Response(text));
+		openContent: (descriptor) => {
+			descriptorId = descriptor.descriptorId;
+			return {
+				contentKind: 'file.content',
+				contentRequestId: 'content-request-deferred',
+				frames: emptyContentFrames(),
+				terminal,
+			};
 		},
+		resolve: resolveTerminal,
 	};
 }
 
@@ -450,41 +472,96 @@ function createSelectedFileViewPreparationStore(): BridgeCommWorkerStore {
 
 function makeWorkerFileViewContentMetadata(itemId: string): BridgeWorkerFileViewContentMetadata {
 	return {
+		metadataKind: 'fileView',
 		itemId,
 		path: 'Sources/App/FileView.swift',
 		language: 'swift',
 		cacheKey: `file-view:metadata-cache:${itemId}`,
 		sizeBytes: 128,
-		contentHandle: `handle-${itemId}`,
 		descriptorId: `descriptor-${itemId}`,
-		contentHash: `sha256:${itemId}`,
+		contentHash: 'a'.repeat(64),
+		encoding: 'utf-8',
+		endsMidLine: false,
+		endsWithNewline: true,
 		virtualizedExtentKind: 'exactLineCount',
-		lineCount: 1,
+		payloadByteCount: 128,
+		payloadLineCount: 1,
+		totalLineCount: 1,
+		truncationKind: 'none',
 		isBinary: false,
 		canFetchContent: true,
 	};
 }
 
-function makeContentRequestDescriptor(
+function makeContentRequest(
 	text: string,
 	itemId = 'file-1',
-): BridgeWorkerFileViewContentRequestDescriptor {
-	const descriptor: BridgeWorkerFileViewContentRequestDescriptor = {
+): BridgeCommWorkerFileViewContentRequest {
+	const descriptorId = `descriptor-${itemId}`;
+	const encodedBytes = new TextEncoder().encode(text);
+	const request: BridgeCommWorkerFileViewContentRequest = {
+		contentDescriptor: {
+			contentKind: 'file.content',
+			declaredByteLength: encodedBytes.byteLength,
+			descriptorId,
+			encoding: 'utf-8',
+			expectedSha256: 'a'.repeat(64),
+			fileId: itemId,
+			maximumBytes: 4096,
+			source: {
+				repoId: '00000000-0000-4000-8000-000000000001',
+				rootRevisionToken: `root-revision-${itemId}`,
+				sourceCursor: `cursor-${itemId}`,
+				sourceId: `source-${itemId}`,
+				subscriptionGeneration: 7,
+				worktreeId: '00000000-0000-4000-8000-000000000002',
+			},
+			window: {
+				kind: 'prefix',
+				maximumBytes: 4096,
+				maximumLines: 10_000,
+				startByte: 0,
+			},
+		},
 		itemId,
 		path: 'Sources/App/FileView.swift',
-		handleId: `handle-${itemId}`,
-		descriptorId: `descriptor-${itemId}`,
-		resourceKind: 'worktree.fileContent',
-		resourceUrl: `agentstudio://resource/worktree-file/worktree.fileContent/descriptor-${itemId}?cursor=cursor-${itemId}&generation=7`,
-		contentHash: `sha256:${itemId}`,
-		contentHashAlgorithm: 'sha256',
 		language: 'swift',
 		sizeBytes: 128,
-		maxBytes: 4096,
-		isBinary: false,
 	};
-	descriptorByUrl.set(descriptor.resourceUrl, { text });
-	return descriptor;
+	contentTextByDescriptorId.set(descriptorId, text);
+	return request;
+}
+
+function contentTextForDescriptor(descriptor: { readonly descriptorId: string }): string {
+	const text = contentTextByDescriptorId.get(descriptor.descriptorId);
+	if (text === undefined)
+		throw new Error(`Unexpected File View descriptor ${descriptor.descriptorId}.`);
+	return text;
+}
+
+function completedContentStream(
+	descriptor: { readonly descriptorId: string },
+	text: string,
+): ReturnType<BridgeWorkerFileViewContentOpen> {
+	return {
+		contentKind: 'file.content',
+		contentRequestId: `content-request-${descriptor.descriptorId}`,
+		frames: emptyContentFrames(),
+		terminal: Promise.resolve({
+			bytes: new TextEncoder().encode(text).buffer,
+			contentKind: 'file.content',
+			descriptorId: descriptor.descriptorId,
+			endOfSource: true,
+			kind: 'complete',
+			observedSha256: 'a'.repeat(64),
+		}),
+	};
+}
+
+async function* emptyContentFrames(): AsyncIterable<never> {}
+
+function unexpectedContentOpen(): never {
+	throw new Error('File View content must not open for this test.');
 }
 
 async function flushBridgeWorkerPreparationContinuations(): Promise<void> {
@@ -508,4 +585,4 @@ function makePostedMessagePort(
 	};
 }
 
-function noopResolveDeferredResponse(_response: Response): void {}
+function noopResolveDeferredContent(): void {}

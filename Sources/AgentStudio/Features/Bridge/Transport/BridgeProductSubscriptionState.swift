@@ -62,15 +62,13 @@ struct BridgeProductSubscriptionResetIntent: Equatable, Sendable {
 }
 
 struct BridgeProductSubscriptionResyncResult: Equatable, Sendable {
-    let retainedSubscriptionIds: [String]
-    let cancelledSubscriptionIds: [String]
-    let reopenRequiredSubscriptions: [BridgeProductActiveSubscription]
+    let reconciliation: [BridgeProductResyncReconciliationOutcome]
+    let revokedNativeOnlySubscriptionIds: [String]
     let resetIntents: [BridgeProductSubscriptionResetIntent]
 
     static let empty = Self(
-        retainedSubscriptionIds: [],
-        cancelledSubscriptionIds: [],
-        reopenRequiredSubscriptions: [],
+        reconciliation: [],
+        revokedNativeOnlySubscriptionIds: [],
         resetIntents: []
     )
 }
@@ -122,6 +120,12 @@ struct BridgeProductSubscriptionState: Sendable {
         var interestState: BridgeProductSubscriptionInterestState
         var stagedUpdate: StagedUpdate?
         var committedUpdateIds: Set<ExactUTF8Identity>
+    }
+
+    private struct ActiveSubscriptionReconciliation {
+        let candidateRecord: SubscriptionRecord?
+        let outcome: BridgeProductResyncReconciliationOutcome
+        let resetIntent: BridgeProductSubscriptionResetIntent?
     }
 
     private static let defaultMaximumCommittedUpdateIdCount = 1024
@@ -351,68 +355,28 @@ struct BridgeProductSubscriptionState: Sendable {
             }
         )
         var candidateRecords = recordsBySubscriptionId
-        var retainedSubscriptionIds: [String] = []
-        var cancelledSubscriptionIds: [String] = []
-        var reopenRequiredSubscriptions: [BridgeProductActiveSubscription] = []
+        let revokedNativeOnlySubscriptionIds = recordsBySubscriptionId.values.compactMap { record in
+            activeByIdentity[ExactUTF8Identity(record.subscriptionId)] == nil
+                ? record.subscriptionId
+                : nil
+        }
+        for subscriptionId in revokedNativeOnlySubscriptionIds {
+            candidateRecords.removeValue(forKey: ExactUTF8Identity(subscriptionId))
+        }
+        var reconciliation: [BridgeProductResyncReconciliationOutcome] = []
         var resetIntents: [BridgeProductSubscriptionResetIntent] = []
 
-        for (identity, record) in recordsBySubscriptionId {
-            guard let activeSubscription = activeByIdentity[identity] else {
-                candidateRecords.removeValue(forKey: identity)
-                cancelledSubscriptionIds.append(record.subscriptionId)
-                continue
-            }
-            guard record.subscriptionKind == activeSubscription.subscriptionKind,
-                record.workerDerivationEpoch == activeSubscription.workerDerivationEpoch
-            else {
-                candidateRecords.removeValue(forKey: identity)
-                cancelledSubscriptionIds.append(record.subscriptionId)
-                reopenRequiredSubscriptions.append(activeSubscription)
-                continue
-            }
-
-            var candidateRecord = record
-            candidateRecord.stagedUpdate = nil
-            if record.interestRevision == activeSubscription.interestRevision,
-                record.interestSha256 == activeSubscription.interestSha256
-            {
-                candidateRecords[identity] = candidateRecord
-                retainedSubscriptionIds.append(record.subscriptionId)
-                continue
-            }
-
-            let greatestInterestRevision = max(
-                record.interestRevision,
-                activeSubscription.interestRevision
+        for activeSubscription in activeSubscriptions {
+            let identity = ExactUTF8Identity(activeSubscription.subscriptionId)
+            let step = try Self.reconcile(
+                activeSubscription: activeSubscription,
+                record: recordsBySubscriptionId[identity]
             )
-            guard greatestInterestRevision < BridgeProductWireContract.maximumSafeInteger else {
-                throw BridgeProductSubscriptionStateError.interestRevisionExhausted
+            candidateRecords[identity] = step.candidateRecord
+            reconciliation.append(step.outcome)
+            if let resetIntent = step.resetIntent {
+                resetIntents.append(resetIntent)
             }
-            let emptyInterestState = Self.emptyInterestState(for: record.subscriptionKind)
-            let emptyInterestSHA256 = try emptyInterestState.sha256Hex()
-            candidateRecord.interestRevision = greatestInterestRevision + 1
-            candidateRecord.interestSha256 = emptyInterestSHA256
-            candidateRecord.interestState = emptyInterestState
-            candidateRecord.committedUpdateIds.removeAll(keepingCapacity: false)
-            candidateRecords[identity] = candidateRecord
-            resetIntents.append(
-                BridgeProductSubscriptionResetIntent(
-                    subscription: record.subscription,
-                    subscriptionId: record.subscriptionId,
-                    subscriptionKind: record.subscriptionKind,
-                    workerDerivationEpoch: record.workerDerivationEpoch,
-                    interestRevision: candidateRecord.interestRevision,
-                    interestSha256: emptyInterestSHA256
-                ))
-        }
-
-        for (identity, activeSubscription) in activeByIdentity
-        where candidateRecords[identity] == nil
-            && !reopenRequiredSubscriptions.contains(where: {
-                ExactUTF8Identity($0.subscriptionId) == identity
-            })
-        {
-            reopenRequiredSubscriptions.append(activeSubscription)
         }
 
         let retainedIdentities = Set(candidateRecords.keys)
@@ -424,18 +388,104 @@ struct BridgeProductSubscriptionState: Sendable {
         }
         recordsBySubscriptionId = candidateRecords
         return BridgeProductSubscriptionResyncResult(
-            retainedSubscriptionIds: Self.sortedByExactUTF8(retainedSubscriptionIds),
-            cancelledSubscriptionIds: Self.sortedByExactUTF8(cancelledSubscriptionIds),
-            reopenRequiredSubscriptions: reopenRequiredSubscriptions.sorted {
-                Data($0.subscriptionId.utf8).lexicographicallyPrecedes(
-                    Data($1.subscriptionId.utf8)
-                )
-            },
+            reconciliation: reconciliation,
+            revokedNativeOnlySubscriptionIds: Self.sortedByExactUTF8(
+                revokedNativeOnlySubscriptionIds
+            ),
             resetIntents: resetIntents.sorted {
                 Data($0.subscriptionId.utf8).lexicographicallyPrecedes(
                     Data($1.subscriptionId.utf8)
                 )
             }
+        )
+    }
+
+    private static func reconcile(
+        activeSubscription: BridgeProductActiveSubscription,
+        record: SubscriptionRecord?
+    ) throws -> ActiveSubscriptionReconciliation {
+        guard let record else {
+            return ActiveSubscriptionReconciliation(
+                candidateRecord: nil,
+                outcome: .reopenRequired(
+                    try .init(
+                        subscriptionId: activeSubscription.subscriptionId,
+                        subscriptionKind: activeSubscription.subscriptionKind,
+                        requiredWorkerDerivationEpoch: activeSubscription.workerDerivationEpoch,
+                        reason: .nativeMissing
+                    )),
+                resetIntent: nil
+            )
+        }
+        guard record.subscriptionKind == activeSubscription.subscriptionKind,
+            record.workerDerivationEpoch == activeSubscription.workerDerivationEpoch
+        else {
+            return ActiveSubscriptionReconciliation(
+                candidateRecord: nil,
+                outcome: .reopenRequired(
+                    try .init(
+                        subscriptionId: activeSubscription.subscriptionId,
+                        subscriptionKind: activeSubscription.subscriptionKind,
+                        requiredWorkerDerivationEpoch: activeSubscription.workerDerivationEpoch,
+                        reason: record.subscriptionKind == activeSubscription.subscriptionKind
+                            ? .epochAdvanced
+                            : .identityMismatch
+                    )),
+                resetIntent: nil
+            )
+        }
+
+        var candidateRecord = record
+        candidateRecord.stagedUpdate = nil
+        if record.interestRevision == activeSubscription.interestRevision,
+            record.interestSha256 == activeSubscription.interestSha256
+        {
+            return ActiveSubscriptionReconciliation(
+                candidateRecord: candidateRecord,
+                outcome: .retained(
+                    try .init(
+                        subscriptionId: record.subscriptionId,
+                        subscriptionKind: record.subscriptionKind,
+                        workerDerivationEpoch: record.workerDerivationEpoch,
+                        interestRevision: record.interestRevision,
+                        interestSha256: record.interestSha256
+                    )),
+                resetIntent: nil
+            )
+        }
+
+        let greatestInterestRevision = max(
+            record.interestRevision,
+            activeSubscription.interestRevision
+        )
+        guard greatestInterestRevision < BridgeProductWireContract.maximumSafeInteger else {
+            throw BridgeProductSubscriptionStateError.interestRevisionExhausted
+        }
+        let emptyInterestState = Self.emptyInterestState(for: record.subscriptionKind)
+        let emptyInterestSHA256 = try emptyInterestState.sha256Hex()
+        candidateRecord.interestRevision = greatestInterestRevision + 1
+        candidateRecord.interestSha256 = emptyInterestSHA256
+        candidateRecord.interestState = emptyInterestState
+        candidateRecord.committedUpdateIds.removeAll(keepingCapacity: false)
+        return ActiveSubscriptionReconciliation(
+            candidateRecord: candidateRecord,
+            outcome: .reset(
+                try .init(
+                    subscriptionId: record.subscriptionId,
+                    subscriptionKind: record.subscriptionKind,
+                    workerDerivationEpoch: record.workerDerivationEpoch,
+                    interestRevision: candidateRecord.interestRevision,
+                    interestSha256: emptyInterestSHA256,
+                    reason: .interestMismatch
+                )),
+            resetIntent: BridgeProductSubscriptionResetIntent(
+                subscription: record.subscription,
+                subscriptionId: record.subscriptionId,
+                subscriptionKind: record.subscriptionKind,
+                workerDerivationEpoch: record.workerDerivationEpoch,
+                interestRevision: candidateRecord.interestRevision,
+                interestSha256: emptyInterestSHA256
+            )
         )
     }
 
@@ -459,7 +509,7 @@ struct BridgeProductSubscriptionState: Sendable {
         barrierIntents.removeAll(keepingCapacity: false)
     }
 
-    private static func emptyInterestState(
+    static func emptyInterestState(
         for subscriptionKind: BridgeProductSubscriptionKind
     ) -> BridgeProductSubscriptionInterestState {
         switch subscriptionKind {

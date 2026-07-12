@@ -241,6 +241,71 @@ describe('app asset contract', () => {
 		}
 	});
 
+	test('requires all production product routes and rejects Vite carrier routes in packaged comm workers', async () => {
+		const tempDirectory = await mkdtemp(join(tmpdir(), 'bridge-app-assets-'));
+		const commWorkerPath = join(tempDirectory, 'assets/bridge-comm-worker.js');
+		const manifest = {
+			schemaVersion: 1,
+			entrypoints: {
+				mainScript: {
+					path: 'assets/bridge-app.js',
+					bytes: 1,
+					sha256: 'a'.repeat(64),
+				},
+				auxiliaryScripts: [],
+				styles: [],
+			},
+			workers: [
+				{
+					kind: 'bridge-comm-worker',
+					path: 'assets/bridge-comm-worker.js',
+					bytes: 1,
+					sha256: 'b'.repeat(64),
+					source: 'packagedAppAsset',
+					agentStudioAppUrl: 'agentstudio://app/assets/bridge-comm-worker.js',
+					workerKind: 'moduleWorker',
+				},
+			],
+		} as const;
+
+		try {
+			await mkdir(join(tempDirectory, 'assets'), { recursive: true });
+			await writeFile(join(tempDirectory, 'assets/bridge-app.js'), 'console.log("app");\n');
+			await writeFile(
+				commWorkerPath,
+				['agentstudio://rpc/command', 'agentstudio://rpc/stream', 'agentstudio://rpc/content'].join(
+					'\n',
+				),
+			);
+			await expect(
+				validatePackagedAppAssetContents({ appDirectoryPath: tempDirectory, manifest }),
+			).resolves.toBeUndefined();
+
+			await writeFile(
+				commWorkerPath,
+				['agentstudio://rpc/command', 'agentstudio://rpc/stream'].join('\n'),
+			);
+			await expect(
+				validatePackagedAppAssetContents({ appDirectoryPath: tempDirectory, manifest }),
+			).rejects.toThrow(/missing product route.*content/u);
+
+			await writeFile(
+				commWorkerPath,
+				[
+					'agentstudio://rpc/command',
+					'agentstudio://rpc/stream',
+					'agentstudio://rpc/content',
+					'/__bridge-product/content',
+				].join('\n'),
+			);
+			await expect(
+				validatePackagedAppAssetContents({ appDirectoryPath: tempDirectory, manifest }),
+			).rejects.toThrow(/dev-only BridgeWeb reference/u);
+		} finally {
+			await rm(tempDirectory, { force: true, recursive: true });
+		}
+	});
+
 	test('rejects dev-only references inside packaged worker asset contents', async () => {
 		const tempDirectory = await mkdtemp(join(tmpdir(), 'bridge-app-assets-'));
 
@@ -358,9 +423,10 @@ describe('app asset contract', () => {
 
 	test('validates packaged worker sources stay self contained for blob-backed WebKit workers', () => {
 		expect(
-			validateWorkerSourceSelfContained(
-				'const wasmBytes = new Uint8Array([]); WebAssembly.instantiate(wasmBytes);',
-			),
+			validateWorkerSourceSelfContained({
+				workerAssetKind: 'pierre-diffs-shiki',
+				workerSource: 'const wasmBytes = new Uint8Array([]); WebAssembly.instantiate(wasmBytes);',
+			}),
 		).toEqual(
 			expect.objectContaining({
 				isSelfContained: true,
@@ -375,7 +441,164 @@ describe('app asset contract', () => {
 			'new URL("./sidecar.wasm", import.meta.url);',
 			'new XMLHttpRequest();',
 		]) {
-			expect(() => validateWorkerSourceSelfContained(source)).toThrow(/self-contained/);
+			expect(() =>
+				validateWorkerSourceSelfContained({
+					workerAssetKind: 'pierre-diffs-shiki',
+					workerSource: source,
+				}),
+			).toThrow(/self-contained/);
+		}
+	});
+
+	test('allows only exact capability-bound comm-worker product POST routes', () => {
+		for (const fetchExpression of ['fetch', 'globalThis.fetch', "self['fetch']"]) {
+			for (const route of [
+				'agentstudio://rpc/command',
+				'agentstudio://rpc/stream',
+				'agentstudio://rpc/content',
+			]) {
+				expect(() =>
+					validateWorkerSourceSelfContained({
+						workerAssetKind: 'bridge-comm-worker',
+						workerSource: `
+						${fetchExpression}(\`${route}\`, {
+							method: \`POST\`,
+							headers: {
+								'Content-Type': 'application/json',
+								'X-AgentStudio-Bridge-Product-Capability': capabilityHeader,
+							},
+							body: requestBody,
+							signal: abortSignal,
+						});
+					`,
+					}),
+				).not.toThrow();
+			}
+		}
+	});
+
+	test('rejects every alternate or under-specified comm-worker fetch carrier', () => {
+		const hostileSources = [
+			"fetch('agentstudio://rpc/command', { method: 'POST', headers: { 'Content-Type': 'text/plain', 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader } });",
+			"fetch('agentstudio://rpc/command', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader, 'X-Product-Identity': paneSessionId } });",
+			"fetch(productRoute, { method: 'POST', headers: { 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader } });",
+			"fetch('agentstudio://rpc/command');",
+			"fetch('agentstudio://rpc/command', requestInit);",
+			"fetch(new Request('agentstudio://rpc/command', { method: 'POST' }));",
+			"fetch('agentstudio://rpc/command', { method: requestMethod, headers: { 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader } });",
+			"fetch('agentstudio://rpc/command', { method: 'GET', headers: { 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader } });",
+			"fetch('agentstudio://rpc/command', { method: 'POST', headers: {} });",
+			"fetch('agentstudio://rpc/command', { method: 'POST', headers: capabilityHeaders });",
+			"fetch('agentstudio://rpc/command', { ...requestInit, method: 'POST', headers: { 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader } });",
+			"fetch('agentstudio://rpc/command', { method: 'POST', headers: { ...capabilityHeaders, 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader } });",
+			"fetch('agentstudio://rpc/command', { method: 'POST', [requestProperty]: override, headers: { 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader } });",
+			"fetch('agentstudio://rpc/command', { method: 'POST', headers: { 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader, [headerName]: override } });",
+			"fetch('agentstudio://rpc/command?pane=1', { method: 'POST', headers: { 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader } });",
+			"fetch('agentstudio://rpc/content#fragment', { method: 'POST', headers: { 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader } });",
+			"fetch('agentstudio://resource/review/content/handle', { method: 'POST', headers: { 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader } });",
+			"fetch('agentstudio://telemetry/batch', { method: 'POST', headers: { 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader } });",
+			"fetch('http://127.0.0.1:8080/rpc/command', { method: 'POST', headers: { 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader } });",
+			"fetch('https://example.invalid/rpc/command', { method: 'POST', headers: { 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader } });",
+			"fetch('data:application/octet-stream;base64,AA==', { method: 'POST', headers: { 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader } });",
+			"fetch('blob:worker-resource', { method: 'POST', headers: { 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader } });",
+			"fetch('file:///tmp/product', { method: 'POST', headers: { 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader } });",
+		];
+
+		for (const workerSource of hostileSources) {
+			expect(() =>
+				validateWorkerSourceSelfContained({
+					workerAssetKind: 'bridge-comm-worker',
+					workerSource,
+				}),
+			).toThrow(/self-contained/);
+		}
+
+		expect(() =>
+			validateWorkerSourceSelfContained({
+				workerAssetKind: 'bridge-markdown-render',
+				workerSource:
+					"fetch('agentstudio://rpc/command', { method: 'POST', headers: { 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader } });",
+			}),
+		).toThrow(/self-contained/);
+	});
+
+	test('rejects indirect and global-object fetch carriers in packaged workers', () => {
+		const validRequestArguments = `
+			'agentstudio://rpc/command',
+			{
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'X-AgentStudio-Bridge-Product-Capability': capabilityHeader,
+				},
+				body: requestBody,
+			}
+		`;
+		const hostileSources = [
+			`globalThis.fetch(${validRequestArguments});`,
+			`self.fetch(${validRequestArguments});`,
+			`globalThis['fetch'](${validRequestArguments});`,
+			`self[\`fetch\`](${validRequestArguments});`,
+			`const productFetch = fetch; productFetch(${validRequestArguments});`,
+			`const productFetch = globalThis.fetch; productFetch(${validRequestArguments});`,
+			`const { fetch: productFetch } = globalThis; productFetch(${validRequestArguments});`,
+			`const { fetch } = self; fetch(${validRequestArguments});`,
+			`const workerGlobal = globalThis; workerGlobal.fetch(${validRequestArguments});`,
+			`fetch.call(globalThis, ${validRequestArguments});`,
+			`fetch.apply(globalThis, [${validRequestArguments}]);`,
+			`const productFetch = fetch.bind(globalThis); productFetch(${validRequestArguments});`,
+		];
+
+		for (const workerSource of hostileSources) {
+			expect(() =>
+				validateWorkerSourceSelfContained({
+					workerAssetKind: 'pierre-diffs-shiki',
+					workerSource,
+				}),
+			).toThrow(/self-contained/);
+		}
+
+		expect(() =>
+			validateWorkerSourceSelfContained({
+				workerAssetKind: 'bridge-comm-worker',
+				workerSource: `
+					const productFetch = globalThis[fetchPropertyName];
+					productFetch(${validRequestArguments});
+				`,
+			}),
+		).toThrow(/self-contained/);
+
+		expect(() =>
+			validateWorkerSourceSelfContained({
+				workerAssetKind: 'bridge-comm-worker',
+				workerSource: `
+					function invokeInjectedFetch(fetch) {
+						return fetch(${validRequestArguments});
+					}
+				`,
+			}),
+		).toThrow(/self-contained/);
+	});
+
+	test('allows a demonstrably local function that shadows the global fetch identifier', () => {
+		for (const workerSource of [
+			`
+					function fetch(message) {
+						return message;
+					}
+					fetch('local-only');
+				`,
+			`
+					const fetch = (message) => message;
+					fetch('local-only');
+				`,
+		]) {
+			expect(() =>
+				validateWorkerSourceSelfContained({
+					workerAssetKind: 'pierre-diffs-shiki',
+					workerSource,
+				}),
+			).not.toThrow();
 		}
 	});
 
@@ -400,7 +623,12 @@ describe('app asset contract', () => {
 
 		expect(normalizedSource).not.toContain('import("./wasm-qE0LgnY3.js")');
 		expect(normalizedSource).toContain('BridgeWeb packages only the shiki-js worker highlighter');
-		expect(() => validateWorkerSourceSelfContained(normalizedSource)).not.toThrow();
+		expect(() =>
+			validateWorkerSourceSelfContained({
+				workerAssetKind: 'pierre-diffs-shiki',
+				workerSource: normalizedSource,
+			}),
+		).not.toThrow();
 	});
 
 	test('reads installed dependency version and license metadata', async () => {

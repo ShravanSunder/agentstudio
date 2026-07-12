@@ -32,8 +32,11 @@ export async function fetchBridgeWorkerReviewContentResource(
 		throw new Error('Bridge worker review content fetch cannot load binary descriptors.');
 	}
 	assertDescriptorResourceUrl(descriptor);
+	if (props.fetchContent === undefined) {
+		throw new Error('Bridge worker Review content requires the shared product transport.');
+	}
 	const requestInit = props.signal === undefined ? undefined : { signal: props.signal };
-	const response = await (props.fetchContent ?? fetch)(descriptor.resourceUrl, requestInit);
+	const response = await props.fetchContent(descriptor.resourceUrl, requestInit);
 	if (!response.ok) {
 		throw new Error(`Bridge worker review content request failed: ${response.status}.`);
 	}

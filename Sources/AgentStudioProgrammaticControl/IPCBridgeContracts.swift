@@ -153,7 +153,6 @@ public struct IPCBridgeRenderSummary: Codable, Equatable, Sendable {
     public let hasFileTree: Bool?
     public let hasFileCodeView: Bool?
     public let bridgeProtocol: String?
-    public let worktreeSourceSpecState: String?
     public let worktreeSourceState: String?
     public let worktreeOpenFileState: String?
     public let worktreeOpenFilePath: String?
@@ -179,7 +178,6 @@ public struct IPCBridgeRenderSummary: Codable, Equatable, Sendable {
         hasFileTree: Bool? = nil,
         hasFileCodeView: Bool? = nil,
         bridgeProtocol: String? = nil,
-        worktreeSourceSpecState: String? = nil,
         worktreeSourceState: String? = nil,
         worktreeOpenFileState: String? = nil,
         worktreeOpenFilePath: String? = nil,
@@ -204,7 +202,6 @@ public struct IPCBridgeRenderSummary: Codable, Equatable, Sendable {
         self.hasFileTree = hasFileTree
         self.hasFileCodeView = hasFileCodeView
         self.bridgeProtocol = bridgeProtocol
-        self.worktreeSourceSpecState = worktreeSourceSpecState
         self.worktreeSourceState = worktreeSourceState
         self.worktreeOpenFileState = worktreeOpenFileState
         self.worktreeOpenFilePath = worktreeOpenFilePath
@@ -366,7 +363,6 @@ public struct IPCBridgeContentHandleSummary: Codable, Equatable, Sendable {
     public let itemId: String
     public let role: String
     public let reviewGeneration: Int
-    public let resourceUrl: String
     public let mimeType: String
     public let language: String?
     public let sizeBytes: Int
@@ -381,7 +377,6 @@ public struct IPCBridgeContentHandleSummary: Codable, Equatable, Sendable {
         itemId = identity.itemId
         role = identity.role
         reviewGeneration = identity.reviewGeneration
-        resourceUrl = presentation.resourceUrl
         mimeType = presentation.mimeType
         language = presentation.language
         sizeBytes = size.sizeBytes
@@ -404,12 +399,10 @@ public struct IPCBridgeContentHandleIdentity: Codable, Equatable, Sendable {
 }
 
 public struct IPCBridgeContentHandlePresentation: Codable, Equatable, Sendable {
-    public let resourceUrl: String
     public let mimeType: String
     public let language: String?
 
-    public init(resourceUrl: String, mimeType: String, language: String?) {
-        self.resourceUrl = resourceUrl
+    public init(mimeType: String, language: String?) {
         self.mimeType = mimeType
         self.language = language
     }

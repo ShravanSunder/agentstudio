@@ -11,50 +11,37 @@ import {
 	type ReactNode,
 } from 'react';
 
-import { parseBridgeResourceUrl } from '../bridge/bridge-resource-url.js';
 import {
-	encodeBridgeWorkerFileViewSourceUpdateCommand,
 	encodeBridgeWorkerSelectCommand,
+	encodeBridgeWorkerFileDisplayResyncCommand,
+	encodeBridgeWorkerFileQueryUpdateCommand,
 	encodeBridgeWorkerViewportCommand,
 } from '../core/comm-worker/bridge-comm-worker-protocol.js';
-import type { BridgeCommWorkerRow } from '../core/comm-worker/bridge-comm-worker-store.js';
+import type { BridgeMainFileTreePatchStream } from '../core/comm-worker/bridge-main-file-display-patch-applier.js';
 import {
 	createBridgeMainRenderSnapshotStore,
 	type BridgeMainRenderSnapshot,
 	type BridgeMainRenderSnapshotStore,
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
-import type {
-	BridgeCommWorkerBootstrapRequest,
-	BridgeWorkerContentAvailabilityPatchPayload,
-	BridgeWorkerFileViewContentMetadata,
-	BridgeWorkerFileViewContentRequestDescriptor,
-	BridgeWorkerMainToServerMessage,
-	BridgeWorkerServerToMainMessage,
-} from '../core/comm-worker/bridge-worker-contracts.js';
+import {
+	createBridgePaneCommWorkerDispatcher,
+	type BridgePaneCommWorkerDispatcher,
+} from '../core/comm-worker/bridge-pane-comm-worker-session.js';
 import {
 	bridgeCommWorkerBootstrapRequestSchema,
-	bridgeWorkerFileViewContentMetadataSchema,
-	bridgeWorkerFileViewContentRequestDescriptorSchema,
+	type BridgeCommWorkerBootstrapRequest,
+	type BridgeWorkerContentAvailabilityPatchPayload,
+	type BridgeWorkerMainToServerMessage,
+	type BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
+import type { BridgeWorkerFileQuery } from '../core/comm-worker/bridge-worker-file-query-contracts.js';
 import type {
 	BridgeWorkerDemandRank,
 	BridgeWorkerPierreRenderBudget,
 } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import { bridgeWorkerPierreRenderPolicy } from '../core/demand/bridge-content-demand-policy.js';
-import {
-	canFetchWorktreeFileDescriptorContent,
-	type WorktreeFileDescriptor,
-	type WorktreeTreeRowMetadata,
-} from '../features/worktree-file/models/worktree-file-protocol-models.js';
-import {
-	createBridgeReviewCommWorkerTransportDispatcher,
-	type BridgeReviewCommWorkerTransportDispatcher,
-} from '../review-viewer/workers/shared-rpc/bridge-comm-worker-transport.js';
-import { type BridgeFileViewerSelectedCodeViewItem } from './bridge-file-viewer-code-view-items.js';
-import type {
-	BridgeFileViewerOpenState,
-	BridgeFileViewerRenderState,
-} from './bridge-file-viewer-state.js';
+import type { BridgeFileViewerSelectedCodeViewItem } from './bridge-file-viewer-code-view-items.js';
+import type { BridgeFileViewerSelection } from './bridge-file-viewer-display-model.js';
 
 const bridgeFileViewerRuntimeTransportFactoryContext =
 	createContext<BridgeFileViewerRuntimeTransportFactory | null>(null);
@@ -71,68 +58,62 @@ export function BridgeFileViewerRuntimeTransportFactoryProvider(props: {
 }
 
 export interface BridgeFileViewerRenderSnapshotController {
-	readonly dispatchVisibleFileViewViewportFact: (
-		props: DispatchVisibleFileViewViewportFactProps,
-	) => void;
-	readonly dispatchSelectedFileViewContentRequest: (
-		props: DispatchSelectedFileViewContentRequestProps,
-	) => void;
-	readonly publishOpenFileLoadingState: (descriptor: WorktreeFileDescriptor) => void;
-	readonly publishOpenFileRefreshingState: (descriptor: WorktreeFileDescriptor) => void;
-	readonly publishOpenFileTerminalState: (props: {
-		readonly descriptor: WorktreeFileDescriptor;
-		readonly state: 'failed' | 'stale' | 'unavailable';
+	readonly completeFileQueryTransaction: (transactionId: string) => boolean;
+	readonly dispatchFileViewQueryFact: (query: BridgeWorkerFileQuery) => void;
+	readonly dispatchSelectedFileViewContentRequest: (props: {
+		readonly fileId: string;
+		readonly selectedSource: 'keyboard' | 'programmatic' | 'user';
 	}) => void;
+	readonly dispatchVisibleFileViewViewportFact: (props: {
+		readonly firstVisibleIndex: number;
+		readonly lastVisibleIndex: number;
+		readonly visibleItemIds: readonly string[];
+	}) => void;
+	readonly fileDisplaySnapshot: Pick<
+		BridgeMainRenderSnapshot,
+		'fileDisplayFreshness' | 'fileItemById' | 'fileQuerySlice' | 'fileStatusSlice' | 'fileTreeSlice'
+	>;
 	readonly selectedContentAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
 	readonly selectedCodeViewItem: BridgeFileViewerSelectedCodeViewItem | null;
-	readonly selectedReadyCodeViewItem: BridgeFileViewerSelectedCodeViewItem | null;
-	readonly synchronizeFileViewSource: (renderState: BridgeFileViewerRenderState) => void;
+	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
 }
 
 export function useBridgeFileViewerRenderSnapshotController(props: {
-	readonly isActiveRef: { readonly current: boolean };
-	readonly openFileState: BridgeFileViewerOpenState;
-	readonly renderState: BridgeFileViewerRenderState;
+	readonly selection: BridgeFileViewerSelection | null;
 }): BridgeFileViewerRenderSnapshotController {
 	const runtimeTransportFactory = useContext(bridgeFileViewerRuntimeTransportFactoryContext);
-	const renderSnapshotStore = useMemo(() => createBridgeMainRenderSnapshotStore(), []);
+	const requestSequenceRef = useRef(0);
+	const workerEpochRef = useRef(0);
+	const runtimeDispatcherRef = useRef<BridgeFileViewerRuntimeProtocolDispatcher | null>(null);
+	const renderSnapshotStore = useMemo(
+		() =>
+			createBridgeMainRenderSnapshotStore({
+				requestResync: (request): void => {
+					runtimeDispatcherRef.current?.dispatch(
+						encodeBridgeWorkerFileDisplayResyncCommand({
+							epoch: nextBridgeFileViewerWorkerEpoch(workerEpochRef),
+							reason: request.reason,
+							requestId: nextBridgeFileViewerWorkerRequestId(requestSequenceRef),
+							transactionId: request.transactionId,
+						}),
+					);
+				},
+			}),
+		[],
+	);
 	const renderSnapshot = useSyncExternalStore(
 		renderSnapshotStore.subscribe,
 		renderSnapshotStore.getSnapshot,
 		renderSnapshotStore.getServerSnapshot,
 	);
-	const selectedCodeViewItem = selectedBridgeFileViewerCodeViewItemForSnapshot({
-		openFileState: props.openFileState,
-		renderSnapshot,
-	});
-	const selectedReadyCodeViewItem = selectedBridgeFileViewerReadyCodeViewItemForSnapshot({
-		openFileState: props.openFileState,
-		renderSnapshot,
-	});
-	const selectedContentAvailability =
-		props.openFileState.status === 'idle' ||
-		renderSnapshot.selectionSlice.selectedItemId !== props.openFileState.descriptor.fileId
-			? null
-			: (renderSnapshot.contentAvailabilityById[props.openFileState.descriptor.fileId] ?? null);
-	const minimumSelectedSlicePatchEpochRef = useRef(0);
-	const requestSequenceRef = useRef(0);
-	const workerEpochRef = useRef(0);
-	const synchronizedFileViewSourceRef = useRef<{
-		readonly dispatcher: BridgeFileViewerRuntimeProtocolDispatcher;
-		readonly renderState: BridgeFileViewerRenderState;
-	} | null>(null);
 	const publishWorkerMessages = useCallback(
 		(messages: readonly BridgeWorkerServerToMainMessage[]): void => {
-			if (!props.isActiveRef.current) {
-				return;
-			}
 			applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
-				minimumAcceptedSlicePatchEpoch: minimumSelectedSlicePatchEpochRef.current,
 				messages,
 				renderSnapshotStore,
 			});
 		},
-		[props.isActiveRef, renderSnapshotStore],
+		[renderSnapshotStore],
 	);
 	const runtimeDispatcher = useMemo(
 		(): BridgeFileViewerRuntimeProtocolDispatcher =>
@@ -142,74 +123,58 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 			}),
 		[publishWorkerMessages, runtimeTransportFactory],
 	);
-	useEffect(
-		(): (() => void) => (): void => {
-			runtimeDispatcher.dispose();
-		},
-		[runtimeDispatcher],
-	);
-	const synchronizeFileViewSource = useCallback(
-		(renderState: BridgeFileViewerRenderState): number | null => {
-			const synchronizedSource = synchronizedFileViewSourceRef.current;
-			if (
-				synchronizedSource?.dispatcher === runtimeDispatcher &&
-				synchronizedSource.renderState.descriptors === renderState.descriptors &&
-				synchronizedSource.renderState.treeRows === renderState.treeRows
-			) {
-				return null;
+	useEffect((): (() => void) => {
+		runtimeDispatcherRef.current = runtimeDispatcher;
+		return (): void => {
+			if (runtimeDispatcherRef.current === runtimeDispatcher) {
+				runtimeDispatcherRef.current = null;
 			}
-			const sourceUpdateEpoch = nextBridgeFileViewerWorkerEpoch(workerEpochRef);
-			runtimeDispatcher.dispatch(
-				encodeBridgeWorkerFileViewSourceUpdateCommand({
-					requestId: nextBridgeFileViewerWorkerRequestId(requestSequenceRef),
-					epoch: sourceUpdateEpoch,
-					contentItems: bridgeCommWorkerContentItemsFromFileViewRenderState(renderState),
-					contentRequestDescriptors:
-						bridgeCommWorkerContentRequestDescriptorsFromFileViewRenderState(renderState),
-					rows: bridgeCommWorkerRowsFromFileViewRenderState(renderState),
-				}),
-			);
-			synchronizedFileViewSourceRef.current = {
-				dispatcher: runtimeDispatcher,
-				renderState,
-			};
-			return sourceUpdateEpoch;
-		},
-		[runtimeDispatcher],
-	);
-	useEffect((): void => {
-		synchronizeFileViewSource(props.renderState);
-	}, [props.renderState, synchronizeFileViewSource]);
+			runtimeDispatcher.dispose();
+		};
+	}, [runtimeDispatcher]);
+
 	const dispatchSelectedFileViewContentRequest = useCallback(
-		(dispatchProps: DispatchSelectedFileViewContentRequestProps): void => {
-			const synchronizedSourceUpdateEpoch = synchronizeFileViewSource(dispatchProps.renderState);
+		(dispatchProps: {
+			readonly fileId: string;
+			readonly selectedSource: 'keyboard' | 'programmatic' | 'user';
+		}): void => {
 			renderSnapshotStore.setLocalSelection({
-				selectedItemId: dispatchProps.descriptor.fileId,
+				selectedItemId: dispatchProps.fileId,
 				source: dispatchProps.selectedSource,
-			});
-			const selectedEpoch = nextBridgeFileViewerWorkerEpoch(workerEpochRef);
-			minimumSelectedSlicePatchEpochRef.current = bridgeFileViewerMinimumSelectedSlicePatchEpoch({
-				selectedEpoch,
-				synchronizedSourceUpdateEpoch,
 			});
 			runtimeDispatcher.dispatch(
 				encodeBridgeWorkerSelectCommand({
+					epoch: nextBridgeFileViewerWorkerEpoch(workerEpochRef),
 					requestId: nextBridgeFileViewerWorkerRequestId(requestSequenceRef),
-					epoch: selectedEpoch,
-					selectedItemId: dispatchProps.descriptor.fileId,
+					selectedItemId: dispatchProps.fileId,
 					selectedSource: dispatchProps.selectedSource,
 				}),
 			);
 		},
-		[renderSnapshotStore, runtimeDispatcher, synchronizeFileViewSource],
+		[renderSnapshotStore, runtimeDispatcher],
+	);
+	const dispatchFileViewQueryFact = useCallback(
+		(query: BridgeWorkerFileQuery): void => {
+			runtimeDispatcher.dispatch(
+				encodeBridgeWorkerFileQueryUpdateCommand({
+					...query,
+					epoch: nextBridgeFileViewerWorkerEpoch(workerEpochRef),
+					requestId: nextBridgeFileViewerWorkerRequestId(requestSequenceRef),
+				}),
+			);
+		},
+		[runtimeDispatcher],
 	);
 	const dispatchVisibleFileViewViewportFact = useCallback(
-		(dispatchProps: DispatchVisibleFileViewViewportFactProps): void => {
-			synchronizeFileViewSource(dispatchProps.renderState);
+		(dispatchProps: {
+			readonly firstVisibleIndex: number;
+			readonly lastVisibleIndex: number;
+			readonly visibleItemIds: readonly string[];
+		}): void => {
 			runtimeDispatcher.dispatch(
 				encodeBridgeWorkerViewportCommand({
-					requestId: nextBridgeFileViewerWorkerRequestId(requestSequenceRef),
 					epoch: nextBridgeFileViewerWorkerEpoch(workerEpochRef),
+					requestId: nextBridgeFileViewerWorkerRequestId(requestSequenceRef),
 					firstVisibleIndex: dispatchProps.firstVisibleIndex,
 					lastVisibleIndex: dispatchProps.lastVisibleIndex,
 					phase: 'settled',
@@ -217,93 +182,54 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 				}),
 			);
 		},
-		[runtimeDispatcher, synchronizeFileViewSource],
+		[runtimeDispatcher],
 	);
-	const publishOpenFileLoadingState = useCallback(
-		(descriptor: WorktreeFileDescriptor): void => {
-			publishBridgeFileViewerLoadingStateToSnapshotStore({
-				descriptor,
-				renderSnapshotStore,
-			});
-		},
-		[renderSnapshotStore],
-	);
-	const publishOpenFileRefreshingState = useCallback(
-		(descriptor: WorktreeFileDescriptor): void => {
-			publishBridgeFileViewerRefreshingStateToSnapshotStore({
-				descriptor,
-				renderSnapshotStore,
-			});
-		},
-		[renderSnapshotStore],
-	);
-	const publishOpenFileTerminalState = useCallback(
-		(terminalState: {
-			readonly descriptor: WorktreeFileDescriptor;
-			readonly state: 'failed' | 'stale' | 'unavailable';
-		}): void => {
-			renderSnapshotStore.applySnapshotUpdate({
-				localSelection: {
-					selectedItemId: terminalState.descriptor.fileId,
-					source: 'programmatic',
-				},
-			});
-		},
-		[renderSnapshotStore],
-	);
+	const selectedCodeViewItem = selectedBridgeFileViewerCodeViewItemForSnapshot({
+		renderSnapshot,
+		selection: props.selection,
+	});
+	const selectedContentAvailability =
+		props.selection === null
+			? null
+			: (renderSnapshot.contentAvailabilityById[props.selection.fileId] ?? null);
 
 	return useMemo(
 		(): BridgeFileViewerRenderSnapshotController => ({
-			dispatchVisibleFileViewViewportFact,
+			completeFileQueryTransaction: renderSnapshotStore.completeFileQueryTransaction,
+			dispatchFileViewQueryFact,
 			dispatchSelectedFileViewContentRequest,
-			publishOpenFileLoadingState,
-			publishOpenFileRefreshingState,
-			publishOpenFileTerminalState,
+			dispatchVisibleFileViewViewportFact,
+			fileDisplaySnapshot: {
+				fileDisplayFreshness: renderSnapshot.fileDisplayFreshness,
+				fileItemById: renderSnapshot.fileItemById,
+				fileQuerySlice: renderSnapshot.fileQuerySlice,
+				fileStatusSlice: renderSnapshot.fileStatusSlice,
+				fileTreeSlice: renderSnapshot.fileTreeSlice,
+			},
 			selectedContentAvailability,
 			selectedCodeViewItem,
-			selectedReadyCodeViewItem,
-			synchronizeFileViewSource,
+			fileTreePatchStream: renderSnapshotStore.fileTreePatchStream,
 		}),
 		[
-			dispatchVisibleFileViewViewportFact,
 			dispatchSelectedFileViewContentRequest,
-			publishOpenFileLoadingState,
-			publishOpenFileRefreshingState,
-			publishOpenFileTerminalState,
-			selectedContentAvailability,
+			dispatchFileViewQueryFact,
+			dispatchVisibleFileViewViewportFact,
+			renderSnapshotStore.completeFileQueryTransaction,
+			renderSnapshotStore.fileTreePatchStream,
+			renderSnapshot.fileDisplayFreshness,
+			renderSnapshot.fileItemById,
+			renderSnapshot.fileQuerySlice,
+			renderSnapshot.fileStatusSlice,
+			renderSnapshot.fileTreeSlice,
 			selectedCodeViewItem,
-			selectedReadyCodeViewItem,
-			synchronizeFileViewSource,
+			selectedContentAvailability,
 		],
 	);
 }
 
-export interface DispatchSelectedFileViewContentRequestProps {
-	readonly descriptor: WorktreeFileDescriptor;
-	readonly renderState: BridgeFileViewerRenderState;
-	readonly selectedSource: 'keyboard' | 'programmatic' | 'user';
-}
-
-export interface DispatchVisibleFileViewViewportFactProps {
-	readonly firstVisibleIndex: number;
-	readonly lastVisibleIndex: number;
-	readonly renderState: BridgeFileViewerRenderState;
-	readonly visibleItemIds: readonly string[];
-}
-
 export interface BridgeFileViewerRuntimeProtocolDispatcher {
 	readonly dispatch: (message: BridgeWorkerMainToServerMessage) => void;
-	readonly dispatchSelectedFileViewContentRequest: (
-		props: DispatchSelectedFileViewContentRequestCommandProps,
-	) => void;
 	readonly dispose: () => void;
-}
-
-export interface DispatchSelectedFileViewContentRequestCommandProps {
-	readonly epoch: number;
-	readonly requestId: string;
-	readonly selectedItemId: string;
-	readonly selectedSource: 'keyboard' | 'programmatic' | 'user';
 }
 
 export interface CreateBridgeFileViewerRuntimeProtocolDispatcherProps {
@@ -318,12 +244,12 @@ export interface CreateBridgeFileViewerRuntimeProtocolDispatcherProps {
 export type BridgeFileViewerRuntimeTransportFactory = (props: {
 	readonly bootstrapRequest: BridgeCommWorkerBootstrapRequest;
 	readonly publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
-}) => BridgeReviewCommWorkerTransportDispatcher;
+}) => BridgePaneCommWorkerDispatcher;
 
 export function createBridgeFileViewerRuntimeProtocolDispatcher(
 	props: CreateBridgeFileViewerRuntimeProtocolDispatcherProps,
 ): BridgeFileViewerRuntimeProtocolDispatcher {
-	const transport = (props.transportFactory ?? createBridgeReviewCommWorkerTransportDispatcher)({
+	const transport = (props.transportFactory ?? createBridgePaneCommWorkerDispatcher)({
 		bootstrapRequest: bridgeCommWorkerBootstrapRequestSchema.parse({
 			schemaVersion: 1,
 			method: 'bridgeCommWorker.bootstrap',
@@ -342,22 +268,7 @@ export function createBridgeFileViewerRuntimeProtocolDispatcher(
 		}),
 		publishWorkerMessages: props.publishWorkerMessages,
 	});
-	return {
-		dispatch: transport.dispatch,
-		dispatchSelectedFileViewContentRequest: (
-			dispatchProps: DispatchSelectedFileViewContentRequestCommandProps,
-		): void => {
-			transport.dispatch(
-				encodeBridgeWorkerSelectCommand({
-					epoch: dispatchProps.epoch,
-					requestId: dispatchProps.requestId,
-					selectedItemId: dispatchProps.selectedItemId,
-					selectedSource: dispatchProps.selectedSource,
-				}),
-			);
-		},
-		dispose: transport.dispose,
-	};
+	return transport;
 }
 
 const bridgeFileViewerRuntimeInteractiveDemandRank: BridgeWorkerDemandRank = {
@@ -369,71 +280,70 @@ const bridgeFileViewerRuntimeInteractiveBudget: BridgeWorkerPierreRenderBudget =
 	...bridgeWorkerPierreRenderPolicy.fileViewSelectedRenderBudget,
 };
 
-export function bridgeCommWorkerContentItemsFromFileViewRenderState(
-	renderState: BridgeFileViewerRenderState,
-): readonly BridgeWorkerFileViewContentMetadata[] {
-	return renderState.descriptors.map((descriptor) =>
-		bridgeWorkerFileViewContentMetadataFromDescriptor(descriptor),
-	);
-}
-
-export function bridgeCommWorkerContentRequestDescriptorsFromFileViewRenderState(
-	renderState: BridgeFileViewerRenderState,
-): readonly BridgeWorkerFileViewContentRequestDescriptor[] {
-	return renderState.descriptors.flatMap(
-		(descriptor): BridgeWorkerFileViewContentRequestDescriptor[] => {
-			if (!canFetchWorktreeFileDescriptorContent(descriptor)) {
-				return [];
-			}
-			if (descriptor.contentDescriptor.ref.expectedResourceKind !== 'worktree.fileContent') {
-				return [];
-			}
-			return [bridgeWorkerFileViewContentRequestDescriptorFromDescriptor(descriptor)];
-		},
-	);
-}
-
-export function bridgeCommWorkerRowsFromFileViewRenderState(
-	renderState: BridgeFileViewerRenderState,
-): readonly BridgeCommWorkerRow[] {
-	return renderState.treeRows.map((row, index) => ({
-		id: bridgeCommWorkerRowIdFromWorktreeRow(row),
-		parentId: null,
-		index,
-	}));
-}
-
 export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: {
-	readonly minimumAcceptedSlicePatchEpoch?: number;
 	readonly messages: readonly BridgeWorkerServerToMainMessage[];
 	readonly renderSnapshotStore: BridgeMainRenderSnapshotStore;
 }): void {
 	for (const message of props.messages) {
 		switch (message.kind) {
-			case 'slicePatch':
+			case 'fileDisplayPatch': {
+				const currentFreshness = props.renderSnapshotStore.getSnapshot().fileDisplayFreshness;
 				if (
-					props.minimumAcceptedSlicePatchEpoch !== undefined &&
-					message.epoch < props.minimumAcceptedSlicePatchEpoch
+					bridgeFileDisplayEventIsAccepted(currentFreshness, message) &&
+					(message.epoch > (currentFreshness?.epoch ?? message.epoch) ||
+						message.patches.some(
+							(patch): boolean => patch.slice === 'fileTree' && patch.operation === 'reset',
+						))
 				) {
-					break;
+					props.renderSnapshotStore.applySnapshotUpdate({
+						codeViewItemPatches: [{ operation: 'reset' }],
+						workerPatches: [
+							{ operation: 'reset', slice: 'contentAvailability' },
+							{ operation: 'reset', slice: 'rowPaint' },
+						],
+					});
 				}
-				props.renderSnapshotStore.applySnapshotUpdate({
-					workerPatches: message.patches,
-				});
+				props.renderSnapshotStore.applyFileDisplayPatchEvent(message);
+				break;
+			}
+			case 'slicePatch': {
+				break;
+			}
+			case 'fileRenderPatch':
+				if (bridgeFilePublicationMatchesDisplayEpoch(props.renderSnapshotStore, message)) {
+					props.renderSnapshotStore.applySnapshotUpdate({ workerPatches: message.patches });
+				}
+				break;
+			case 'filePierreRenderJob':
+				if (
+					bridgeFilePublicationMatchesDisplayEpoch(props.renderSnapshotStore, message) &&
+					message.job.payload.item.type === 'file' &&
+					bridgeFileViewerItemIdBelongsToSnapshot(props.renderSnapshotStore, message.job.itemId)
+				) {
+					props.renderSnapshotStore.setWorkerCodeViewItem({
+						item: message.job.payload.item,
+						itemId: message.job.itemId,
+					});
+				}
 				break;
 			case 'health':
 				if (message.status === 'degraded') {
-					failSelectedFileViewContentRequestFromWorkerHealth(props.renderSnapshotStore);
+					const snapshot = props.renderSnapshotStore.getSnapshot();
+					const selectedItemId = snapshot.selectionSlice.selectedItemId;
+					const selectedAvailability =
+						selectedItemId === null ? undefined : snapshot.contentAvailabilityById[selectedItemId];
+					if (selectedItemId !== null && selectedAvailability?.state !== 'ready') {
+						props.renderSnapshotStore.applyWorkerPatch({
+							itemId: selectedItemId,
+							operation: 'upsert',
+							payload: { reason: 'load_failed', state: 'failed' },
+							slice: 'contentAvailability',
+						});
+					}
 				}
 				break;
-			case 'subscription':
-			case 'worktreeFileOpenSourceStreamResult':
-				break;
 			case 'pierreRenderJob':
-				props.renderSnapshotStore.setWorkerCodeViewItem({
-					itemId: message.job.itemId,
-					item: message.job.payload.item,
-				});
+			case 'subscription':
 				break;
 			default:
 				assertNeverBridgeFileViewerWorkerServerMessage(message);
@@ -441,117 +351,39 @@ export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: 
 	}
 }
 
-function failSelectedFileViewContentRequestFromWorkerHealth(
-	renderSnapshotStore: BridgeMainRenderSnapshotStore,
-): void {
-	const selectedItemId = renderSnapshotStore.getSnapshot().selectionSlice.selectedItemId;
-	if (selectedItemId === null) {
-		return;
+function bridgeFileDisplayEventIsAccepted(
+	current: BridgeMainRenderSnapshot['fileDisplayFreshness'],
+	event: Extract<BridgeWorkerServerToMainMessage, { readonly kind: 'fileDisplayPatch' }>,
+): boolean {
+	if (current === null || event.epoch > current.epoch) {
+		return true;
 	}
-	renderSnapshotStore.applySnapshotUpdate({
-		workerPatches: [
-			{
-				slice: 'rowPaint',
-				operation: 'delete',
-				itemId: selectedItemId,
-			},
-			{
-				slice: 'contentAvailability',
-				operation: 'upsert',
-				itemId: selectedItemId,
-				payload: { state: 'failed' },
-			},
-		],
-	});
-}
-
-function bridgeWorkerFileViewContentMetadataFromDescriptor(
-	descriptor: WorktreeFileDescriptor,
-): BridgeWorkerFileViewContentMetadata {
-	return bridgeWorkerFileViewContentMetadataSchema.parse({
-		itemId: descriptor.fileId,
-		path: descriptor.path,
-		language: descriptor.language ?? null,
-		cacheKey: bridgeFileViewerContentCacheKeyForDescriptor(descriptor),
-		sizeBytes: descriptor.sizeBytes,
-		contentHandle: descriptor.contentHandle,
-		descriptorId: descriptor.contentDescriptor.ref.descriptorId,
-		...(descriptor.contentHash === undefined ? {} : { contentHash: descriptor.contentHash }),
-		virtualizedExtentKind: descriptor.virtualizedExtentKind,
-		...(descriptor.lineCount === undefined ? {} : { lineCount: descriptor.lineCount }),
-		isBinary: descriptor.isBinary,
-		canFetchContent: canFetchWorktreeFileDescriptorContent(descriptor),
-	});
-}
-
-function bridgeWorkerFileViewContentRequestDescriptorFromDescriptor(
-	descriptor: WorktreeFileDescriptor,
-): BridgeWorkerFileViewContentRequestDescriptor {
-	return bridgeWorkerFileViewContentRequestDescriptorSchema.parse({
-		itemId: descriptor.fileId,
-		path: descriptor.path,
-		handleId: descriptor.contentHandle,
-		descriptorId: descriptor.contentDescriptor.ref.descriptorId,
-		resourceKind: 'worktree.fileContent',
-		resourceUrl: bridgeFileViewerCanonicalContentResourceUrlForDescriptor(descriptor),
-		...(descriptor.contentHash === undefined
-			? {}
-			: {
-					contentHash: descriptor.contentHash,
-					contentHashAlgorithm: bridgeFileViewerContentHashAlgorithmForDescriptor(descriptor),
-				}),
-		language: descriptor.language ?? null,
-		sizeBytes: descriptor.sizeBytes,
-		maxBytes: descriptor.contentDescriptor.descriptor.content.maxBytes,
-		isBinary: descriptor.isBinary,
-	});
-}
-
-function bridgeCommWorkerRowIdFromWorktreeRow(row: WorktreeTreeRowMetadata): string {
-	return row.fileId ?? row.rowId ?? row.path;
-}
-
-function bridgeFileViewerContentCacheKeyForDescriptor(descriptor: WorktreeFileDescriptor): string {
-	return descriptor.contentHash === undefined
-		? `${descriptor.contentHandle}:unknown`
-		: `${descriptor.contentHandle}:${descriptor.contentHash}`;
-}
-
-function bridgeFileViewerContentHashAlgorithmForDescriptor(
-	descriptor: WorktreeFileDescriptor,
-): string {
-	const integrity = descriptor.contentDescriptor.descriptor.content.integrity;
-	return integrity?.kind === 'wholeHash' ? integrity.algorithm : 'sha256';
-}
-
-function bridgeFileViewerCanonicalContentResourceUrlForDescriptor(
-	descriptor: WorktreeFileDescriptor,
-): string {
-	const parsedResourceUrl = parseBridgeResourceUrl(
-		descriptor.contentDescriptor.descriptor.resourceUrl,
+	return (
+		event.epoch === current.epoch &&
+		event.sequence > current.sequence &&
+		event.projectionRevision > current.projectionRevision
 	);
-	if (
-		parsedResourceUrl?.kind === 'worktreeResource' &&
-		parsedResourceUrl.resourceKind === 'worktree.fileContent' &&
-		parsedResourceUrl.resourceId === descriptor.contentDescriptor.ref.descriptorId
-	) {
-		return parsedResourceUrl.canonicalUrl;
-	}
-	return [
-		'agentstudio://resource/worktree-file/worktree.fileContent/',
-		encodeURIComponent(descriptor.contentDescriptor.ref.descriptorId),
-		'?cursor=',
-		encodeURIComponent(descriptor.sourceIdentity.sourceCursor),
-		'&generation=',
-		encodeURIComponent(String(descriptor.sourceIdentity.subscriptionGeneration)),
-	].join('');
 }
 
-export function bridgeFileViewerMinimumSelectedSlicePatchEpoch(props: {
-	readonly selectedEpoch: number;
-	readonly synchronizedSourceUpdateEpoch: number | null;
-}): number {
-	return props.synchronizedSourceUpdateEpoch ?? props.selectedEpoch;
+function bridgeFilePublicationMatchesDisplayEpoch(
+	store: BridgeMainRenderSnapshotStore,
+	publication: Extract<
+		BridgeWorkerServerToMainMessage,
+		{ readonly kind: 'filePierreRenderJob' | 'fileRenderPatch' }
+	>,
+): boolean {
+	return store.getSnapshot().fileDisplayFreshness?.epoch === publication.workerDerivationEpoch;
+}
+
+function bridgeFileViewerItemIdBelongsToSnapshot(
+	store: BridgeMainRenderSnapshotStore,
+	itemId: string,
+): boolean {
+	const snapshot = store.getSnapshot();
+	return (
+		snapshot.fileItemById.get(itemId) !== undefined ||
+		snapshot.selectionSlice.selectedItemId === itemId
+	);
 }
 
 function nextBridgeFileViewerWorkerRequestId(requestSequenceRef: { current: number }): string {
@@ -568,148 +400,25 @@ function assertNeverBridgeFileViewerWorkerServerMessage(_message: never): never 
 	throw new Error('Unhandled File View bridge worker server message.');
 }
 
-export function publishBridgeFileViewerRefreshingStateToSnapshotStore(props: {
-	readonly descriptor: WorktreeFileDescriptor;
-	readonly renderSnapshotStore: BridgeMainRenderSnapshotStore;
-}): void {
-	props.renderSnapshotStore.applySnapshotUpdate({
-		localSelection: {
-			selectedItemId: props.descriptor.fileId,
-			source: 'programmatic',
-		},
-		workerPatches: [
-			{
-				slice: 'contentAvailability',
-				operation: 'upsert',
-				itemId: props.descriptor.fileId,
-				payload: { state: 'loading' },
-			},
-		],
-	});
-}
-
-export function publishBridgeFileViewerLoadingStateToSnapshotStore(props: {
-	readonly descriptor: WorktreeFileDescriptor;
-	readonly renderSnapshotStore: BridgeMainRenderSnapshotStore;
-}): void {
-	props.renderSnapshotStore.applySnapshotUpdate({
-		localSelection: {
-			selectedItemId: props.descriptor.fileId,
-			source: 'programmatic',
-		},
-		codeViewItemPatches: [
-			{
-				operation: 'delete',
-				itemId: props.descriptor.fileId,
-			},
-		],
-		workerPatches: [
-			{
-				slice: 'contentAvailability',
-				operation: 'upsert',
-				itemId: props.descriptor.fileId,
-				payload: { state: 'loading' },
-			},
-		],
-	});
-}
-
-export function publishBridgeFileViewerSelectedCodeViewItemToSnapshotStore(props: {
-	readonly item: BridgeFileViewerSelectedCodeViewItem;
-	readonly renderSnapshotStore: BridgeMainRenderSnapshotStore;
-	readonly source: 'keyboard' | 'programmatic' | 'user';
-}): void {
-	props.renderSnapshotStore.applySnapshotUpdate({
-		localSelection: {
-			selectedItemId: props.item.bridgeMetadata.itemId,
-			source: props.source,
-		},
-		codeViewItemPatches: [
-			{
-				operation: 'upsert',
-				itemId: props.item.bridgeMetadata.itemId,
-				item: props.item,
-			},
-		],
-	});
-}
-
 export function selectedBridgeFileViewerCodeViewItemForSnapshot(props: {
-	readonly openFileState: BridgeFileViewerOpenState;
 	readonly renderSnapshot: BridgeMainRenderSnapshot;
+	readonly selection: BridgeFileViewerSelection | null;
 }): BridgeFileViewerSelectedCodeViewItem | null {
-	if (
-		props.openFileState.status === 'idle' ||
-		props.openFileState.status === 'failed' ||
-		props.openFileState.status === 'unavailable'
-	) {
+	if (props.selection === null) {
 		return null;
 	}
-	const descriptor = props.openFileState.descriptor;
-	if (props.renderSnapshot.selectionSlice.selectedItemId !== descriptor.fileId) {
-		return null;
-	}
-	const item = props.renderSnapshot.codeViewItemsById[descriptor.fileId];
+	const item = props.renderSnapshot.codeViewItemsById[props.selection.fileId];
+	const displayItem = props.renderSnapshot.fileItemById.get(props.selection.fileId);
 	if (
+		displayItem === undefined ||
+		displayItem.displayPath !== props.selection.path ||
 		item === undefined ||
 		item.type !== 'file' ||
-		item.bridgeMetadata.itemId !== descriptor.fileId ||
-		item.bridgeMetadata.displayPath !== descriptor.path ||
+		item.bridgeMetadata.itemId !== props.selection.fileId ||
+		item.bridgeMetadata.displayPath !== props.selection.path ||
 		!item.bridgeMetadata.contentRoles.includes('file')
 	) {
 		return null;
 	}
-	if (bridgeFileViewerCodeViewItemMatchesDescriptor({ descriptor, item })) {
-		return item;
-	}
-	return props.openFileState.status === 'refreshing' || props.openFileState.status === 'stale'
-		? item
-		: null;
-}
-
-export function selectedBridgeFileViewerReadyCodeViewItemForSnapshot(props: {
-	readonly openFileState: BridgeFileViewerOpenState;
-	readonly renderSnapshot: BridgeMainRenderSnapshot;
-}): BridgeFileViewerSelectedCodeViewItem | null {
-	if (
-		props.openFileState.status === 'idle' ||
-		props.openFileState.status === 'failed' ||
-		props.openFileState.status === 'unavailable'
-	) {
-		return null;
-	}
-	const descriptor = props.openFileState.descriptor;
-	if (props.renderSnapshot.selectionSlice.selectedItemId !== descriptor.fileId) {
-		return null;
-	}
-	const item = props.renderSnapshot.codeViewItemsById[descriptor.fileId];
-	if (
-		item === undefined ||
-		item.type !== 'file' ||
-		item.bridgeMetadata.itemId !== descriptor.fileId ||
-		item.bridgeMetadata.displayPath !== descriptor.path ||
-		!item.bridgeMetadata.contentRoles.includes('file') ||
-		!bridgeFileViewerCodeViewItemMatchesDescriptor({ descriptor, item })
-	) {
-		return null;
-	}
 	return item;
-}
-
-export function bridgeFileViewerCodeViewItemMatchesDescriptor(props: {
-	readonly descriptor: WorktreeFileDescriptor;
-	readonly item: BridgeFileViewerSelectedCodeViewItem;
-}): boolean {
-	const expectedCacheKeyPrefix =
-		props.descriptor.contentHash === undefined
-			? `${props.descriptor.contentHandle}:`
-			: `${props.descriptor.contentHandle}:${props.descriptor.contentHash}`;
-	return (
-		props.item.bridgeMetadata.cacheKey === expectedCacheKeyPrefix ||
-		props.item.bridgeMetadata.cacheKey.startsWith(
-			props.descriptor.contentHash === undefined
-				? expectedCacheKeyPrefix
-				: `${expectedCacheKeyPrefix}:`,
-		)
-	);
 }

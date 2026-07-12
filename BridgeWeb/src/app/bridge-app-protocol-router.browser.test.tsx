@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 
@@ -10,8 +11,15 @@ import {
 } from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeIntakeFrame } from '../core/models/bridge-intake-frame.js';
 import { buildReviewMetadataSnapshotFrame } from '../features/review/protocol/review-metadata-frame-builder.js';
+import type { BridgeFileViewerBrowserTestProductSession } from '../file-viewer/bridge-file-viewer-browser-test-app.js';
+import {
+	makeSourceAcceptedMetadataEvent,
+	makeSourceIdentity,
+	type PublishFileMetadataEvents,
+} from '../file-viewer/bridge-file-viewer-browser-test-fixtures.js';
+import { createBridgeFileViewerBrowserTestCommWorkerTransportFactory } from '../file-viewer/bridge-file-viewer-browser-test-harness.js';
+import { BridgeFileViewerRuntimeTransportFactoryProvider } from '../file-viewer/bridge-file-viewer-render-snapshot-controller.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
-import type { WorktreeFileInitialSurface } from '../worktree-file-surface/worktree-file-app.js';
 import {
 	actClick,
 	actUpdate,
@@ -24,7 +32,6 @@ import {
 	pollWithinActUntilTruthy,
 	recordBridgeSchemeRPCFetch,
 } from './bridge-app-native-review-error.browser.test-support.js';
-import { makeSnapshotFrame } from './bridge-app-native-worktree-file.browser.test-support.js';
 import {
 	BridgeAppProtocolRouter,
 	resolveBridgeAppProtocolFromElement,
@@ -157,58 +164,19 @@ describe('BridgeAppProtocolRouter', () => {
 		expect(document.querySelector('[data-testid="bridge-file-viewer-shell"]')).toBeNull();
 	});
 
-	test('starts Worktree/File native loading after the page bridge-ready event is emitted', async () => {
-		const eventNames: string[] = [];
-		const loadInitialSurface = async (): Promise<WorktreeFileInitialSurface> => {
-			eventNames.push('worktree-file.load');
-			return { frames: [] };
-		};
-		document.addEventListener(
-			'__bridge_ready',
-			(event): void => {
-				eventNames.push('__bridge_ready');
-				const detail = event instanceof CustomEvent ? event.detail : null;
-				const requestId =
-					typeof detail === 'object' &&
-					detail !== null &&
-					'requestId' in detail &&
-					typeof detail.requestId === 'string'
-						? detail.requestId
-						: null;
-				if (requestId !== null) {
-					document.dispatchEvent(
-						new CustomEvent('__bridge_ready_ack', {
-							detail: { jsonrpc: '2.0', id: requestId, result: null },
-						}),
-					);
-				}
-			},
-			{ once: true },
-		);
-		document.addEventListener(
-			'__bridge_handshake_request',
-			(): void => {
-				eventNames.push('__bridge_handshake_request');
-				document.dispatchEvent(
-					new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
-				);
-			},
-			{ once: true },
-		);
+	test('starts typed File source discovery when the File route mounts', async () => {
+		let sourceDiscoveryCount = 0;
+		registerDisposer(installBridgeReadyHandshake({ pushNonce: 'push-1' }).dispose);
 
-		render(
-			<BridgeAppProtocolRouter
-				fileViewerProps={{ worktreeFileSurfaceTransport: { loadInitialSurface } }}
-				protocol="worktree-file"
-			/>,
-		);
+		renderFileProductApp(<BridgeAppProtocolRouter protocol="worktree-file" />, {
+			...activeFileProductSession(),
+			currentSource: () => {
+				sourceDiscoveryCount += 1;
+				return availableFileSource();
+			},
+		});
 
-		await pollWithinActUntilTruthy(() => eventNames.includes('worktree-file.load'));
-		expect(eventNames).toEqual([
-			'__bridge_handshake_request',
-			'__bridge_ready',
-			'worktree-file.load',
-		]);
+		expect(await pollWithinActUntilEqual(() => sourceDiscoveryCount, 1)).toBe(1);
 	});
 
 	test('emits active viewer mode notifications with monotonic sequence across mode switches', async () => {
@@ -221,16 +189,12 @@ describe('BridgeAppProtocolRouter', () => {
 			);
 		});
 
-		render(
+		renderFileProductApp(
 			<BridgeAppProtocolRouter
-				fileViewerProps={{
-					worktreeFileSurfaceTransport: {
-						loadInitialSurface: loadActiveViewerModeTestSurface,
-					},
-				}}
 				protocol="worktree-file"
-				reviewWorkerTransportFactory={createInProcessBridgeReviewWorkerTransportFactory()}
+				reviewWorkerTransportFactory={createRecordingBridgeWorkerTransportFactory(commandDetails)}
 			/>,
+			activeFileProductSession(),
 		);
 
 		expect(
@@ -264,31 +228,27 @@ describe('BridgeAppProtocolRouter', () => {
 	test('does not retry active viewer mode notification after ambiguous scheme RPC failure', async () => {
 		const commandDetails: BridgeRPCCommand[] = [];
 		let failedActiveSourceAttemptCount = 0;
+		const transportFactory = createRecordingBridgeWorkerTransportFactory(
+			commandDetails,
+			(command): void => {
+				if (
+					isActiveViewerModeUpdate(command) &&
+					hasWorktreeFileActiveSource(command) &&
+					failedActiveSourceAttemptCount === 0
+				) {
+					failedActiveSourceAttemptCount += 1;
+					throw new Error('temporary active viewer failure');
+				}
+			},
+		);
 		registerDisposer(installBridgeReadyHandshake({ pushNonce: 'push-1' }).dispose);
-		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init): Promise<Response> => {
-			const response = recordBridgeSchemeRPCFetch(input, init, commandDetails);
-			const detail = commandDetails.at(-1);
-			if (
-				isActiveViewerModeUpdate(detail) &&
-				hasWorktreeFileActiveSource(detail) &&
-				failedActiveSourceAttemptCount === 0
-			) {
-				failedActiveSourceAttemptCount += 1;
-				return new Response('temporary active viewer failure', { status: 503 });
-			}
-			return response ?? new Response('unexpected request', { status: 404 });
-		});
 
-		render(
+		renderFileProductApp(
 			<BridgeAppProtocolRouter
-				fileViewerProps={{
-					worktreeFileSurfaceTransport: {
-						loadInitialSurface: loadActiveViewerModeTestSurface,
-					},
-				}}
 				protocol="worktree-file"
-				reviewWorkerTransportFactory={createInProcessBridgeReviewWorkerTransportFactory()}
+				reviewWorkerTransportFactory={transportFactory}
 			/>,
+			activeFileProductSession(),
 		);
 
 		expect(
@@ -307,7 +267,7 @@ describe('BridgeAppProtocolRouter', () => {
 	test('retries active viewer mode notification after worker transport failure', async () => {
 		const commandDetails: BridgeRPCCommand[] = [];
 		let failedTransportAttemptCount = 0;
-		const delegateTransportFactory = createInProcessBridgeReviewWorkerTransportFactory();
+		const delegateTransportFactory = createRecordingBridgeWorkerTransportFactory(commandDetails);
 		const transportFactory: InProcessBridgeReviewWorkerTransportFactory = (props) => {
 			const delegateTransport = delegateTransportFactory(props);
 			return {
@@ -343,16 +303,12 @@ describe('BridgeAppProtocolRouter', () => {
 			);
 		});
 
-		render(
+		renderFileProductApp(
 			<BridgeAppProtocolRouter
-				fileViewerProps={{
-					worktreeFileSurfaceTransport: {
-						loadInitialSurface: loadActiveViewerModeTestSurface,
-					},
-				}}
 				protocol="worktree-file"
 				reviewWorkerTransportFactory={transportFactory}
 			/>,
+			activeFileProductSession(),
 		);
 
 		expect(
@@ -368,7 +324,7 @@ describe('BridgeAppProtocolRouter', () => {
 	test('retries active viewer mode notification after queued bootstrap degradation', async () => {
 		const commandDetails: BridgeRPCCommand[] = [];
 		let degradedBootstrapAttemptCount = 0;
-		const delegateTransportFactory = createInProcessBridgeReviewWorkerTransportFactory();
+		const delegateTransportFactory = createRecordingBridgeWorkerTransportFactory(commandDetails);
 		const transportFactory: InProcessBridgeReviewWorkerTransportFactory = (props) => {
 			const delegateTransport = delegateTransportFactory(props);
 			return {
@@ -416,16 +372,12 @@ describe('BridgeAppProtocolRouter', () => {
 			);
 		});
 
-		render(
+		renderFileProductApp(
 			<BridgeAppProtocolRouter
-				fileViewerProps={{
-					worktreeFileSurfaceTransport: {
-						loadInitialSurface: loadActiveViewerModeTestSurface,
-					},
-				}}
 				protocol="worktree-file"
 				reviewWorkerTransportFactory={transportFactory}
 			/>,
+			activeFileProductSession(),
 		);
 
 		expect(
@@ -441,7 +393,7 @@ describe('BridgeAppProtocolRouter', () => {
 	test('does not retry active viewer mode notification after ambiguous in-flight worker failure', async () => {
 		const commandDetails: BridgeRPCCommand[] = [];
 		let ambiguousFailureCount = 0;
-		const delegateTransportFactory = createInProcessBridgeReviewWorkerTransportFactory();
+		const delegateTransportFactory = createRecordingBridgeWorkerTransportFactory(commandDetails);
 		const transportFactory: InProcessBridgeReviewWorkerTransportFactory = (props) => {
 			const delegateTransport = delegateTransportFactory(props);
 			return {
@@ -477,16 +429,12 @@ describe('BridgeAppProtocolRouter', () => {
 			);
 		});
 
-		render(
+		renderFileProductApp(
 			<BridgeAppProtocolRouter
-				fileViewerProps={{
-					worktreeFileSurfaceTransport: {
-						loadInitialSurface: loadActiveViewerModeTestSurface,
-					},
-				}}
 				protocol="worktree-file"
 				reviewWorkerTransportFactory={transportFactory}
 			/>,
+			activeFileProductSession(),
 		);
 
 		expect(
@@ -526,16 +474,12 @@ describe('BridgeAppProtocolRouter', () => {
 			return response ?? new Response('unexpected request', { status: 404 });
 		});
 
-		render(
+		renderFileProductApp(
 			<BridgeAppProtocolRouter
-				fileViewerProps={{
-					worktreeFileSurfaceTransport: {
-						loadInitialSurface: loadActiveViewerModeTestSurface,
-					},
-				}}
 				protocol="worktree-file"
-				reviewWorkerTransportFactory={createInProcessBridgeReviewWorkerTransportFactory()}
+				reviewWorkerTransportFactory={createRecordingBridgeWorkerTransportFactory(commandDetails)}
 			/>,
+			activeFileProductSession(),
 		);
 
 		expect(
@@ -588,16 +532,12 @@ describe('BridgeAppProtocolRouter', () => {
 			);
 		});
 
-		render(
+		renderFileProductApp(
 			<BridgeAppProtocolRouter
-				fileViewerProps={{
-					worktreeFileSurfaceTransport: {
-						loadInitialSurface: loadActiveViewerModeTestSurface,
-					},
-				}}
 				protocol="worktree-file"
-				reviewWorkerTransportFactory={createInProcessBridgeReviewWorkerTransportFactory()}
+				reviewWorkerTransportFactory={createRecordingBridgeWorkerTransportFactory(commandDetails)}
 			/>,
+			activeFileProductSession(),
 		);
 
 		const activeViewerUpdateCount = await pollWithinAct({
@@ -628,21 +568,19 @@ describe('BridgeAppProtocolRouter', () => {
 			return response;
 		});
 
-		render(
+		renderFileProductApp(
 			<BridgeAppProtocolRouter
-				fileViewerProps={{
-					worktreeFileSurfaceTransport: {
-						loadInitialSurface: loadActiveViewerModeTestSurface,
-					},
-				}}
 				protocol="review"
-				reviewWorkerTransportFactory={createInProcessBridgeReviewWorkerTransportFactory()}
+				reviewWorkerTransportFactory={createRecordingBridgeWorkerTransportFactory(commandDetails)}
 			/>,
+			activeFileProductSession(),
 		);
 		expect(await pollWithinActUntilEqual(activeViewerMode, 'review')).toBe('review');
 
 		await actClick(requireActiveContextButton('file'));
+		await actWait(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
 		await actClick(requireActiveContextButton('review'));
+		await actWait(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
 		await actClick(requireActiveContextButton('file'));
 		expect(await pollWithinActUntilEqual(activeViewerMode, 'file')).toBe('file');
 		await actWait(() => new Promise<void>((resolve) => window.setTimeout(resolve, 0)));
@@ -677,7 +615,7 @@ describe('BridgeAppProtocolRouter', () => {
 			<BridgeAppProtocolRouter
 				projectionWorkerClient={null}
 				protocol="review"
-				reviewWorkerTransportFactory={createInProcessBridgeReviewWorkerTransportFactory()}
+				reviewWorkerTransportFactory={createRecordingBridgeWorkerTransportFactory(commandDetails)}
 			/>,
 		);
 		expect(await pollWithinActUntilEqual(activeViewerMode, 'review')).toBe('review');
@@ -711,10 +649,14 @@ describe('BridgeAppProtocolRouter', () => {
 		expect(activeViewerModeUpdates(commandDetails).filter(hasReviewActiveSource)).toHaveLength(1);
 	});
 
-	test('dedupes file active source when a same-identity file surface open resolves', async () => {
+	test('dedupes file active source when the same typed source is published again', async () => {
 		const commandDetails: BridgeRPCCommand[] = [];
-		let loadCount = 0;
-		const reviewWorkerTransportFactory = createInProcessBridgeReviewWorkerTransportFactory();
+		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
+		const reviewWorkerTransportFactory =
+			createRecordingBridgeWorkerTransportFactory(commandDetails);
+		const sourceAcceptedEvent = makeSourceAcceptedMetadataEvent(
+			makeSourceIdentity({ subscriptionGeneration: 7 }),
+		);
 		registerDisposer(installBridgeReadyHandshake({ pushNonce: 'push-1' }).dispose);
 		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init): Promise<Response> => {
 			return (
@@ -722,17 +664,16 @@ describe('BridgeAppProtocolRouter', () => {
 				new Response('unexpected request', { status: 404 })
 			);
 		});
-		const loadInitialSurface = async (): Promise<WorktreeFileInitialSurface> => {
-			loadCount += 1;
-			return await loadActiveViewerModeTestSurface();
+		const productSession: BridgeFileViewerBrowserTestProductSession = {
+			initialMetadataEvents: [sourceAcceptedEvent],
+			onMetadataSubscription: (publisher): void => {
+				publishMetadataEvents = publisher;
+			},
 		};
 
-		const rendered = render(
-			<BridgeApp
-				fileViewerProps={{ worktreeFileSurfaceTransport: { loadInitialSurface } }}
-				reviewWorkerTransportFactory={reviewWorkerTransportFactory}
-				viewerMode="file"
-			/>,
+		renderFileProductApp(
+			<BridgeApp reviewWorkerTransportFactory={reviewWorkerTransportFactory} viewerMode="file" />,
+			productSession,
 		);
 		expect(
 			await pollWithinActUntilEqual(
@@ -741,21 +682,9 @@ describe('BridgeAppProtocolRouter', () => {
 			),
 		).toBe(1);
 
-		const reloadSameSource = async (): Promise<WorktreeFileInitialSurface> => {
-			loadCount += 1;
-			return await loadActiveViewerModeTestSurface();
-		};
-		rendered.rerender(
-			<BridgeApp
-				fileViewerProps={{
-					worktreeFileSurfaceTransport: { loadInitialSurface: reloadSameSource },
-				}}
-				reviewWorkerTransportFactory={reviewWorkerTransportFactory}
-				viewerMode="file"
-			/>,
-		);
-
-		expect(await pollWithinActUntilEqual(() => loadCount, 2)).toBe(2);
+		await actUpdate((): void => {
+			requireMetadataPublisher(publishMetadataEvents)([sourceAcceptedEvent]);
+		});
 		expect(
 			await pollWithinActUntilEqual(
 				() => activeViewerModeUpdates(commandDetails).filter(hasWorktreeFileActiveSource).length,
@@ -818,10 +747,64 @@ function requireActiveContextButton(mode: 'file' | 'review'): HTMLElement {
 	);
 }
 
-async function loadActiveViewerModeTestSurface(): Promise<WorktreeFileInitialSurface> {
+function renderFileProductApp(
+	app: ReactElement,
+	productSession: BridgeFileViewerBrowserTestProductSession,
+): ReturnType<typeof render> {
+	const transportFactory = createBridgeFileViewerBrowserTestCommWorkerTransportFactory({
+		productSessionRef: { current: productSession },
+	});
+	return render(
+		<BridgeFileViewerRuntimeTransportFactoryProvider transportFactory={transportFactory}>
+			{app}
+		</BridgeFileViewerRuntimeTransportFactoryProvider>,
+	);
+}
+
+function activeFileProductSession(): BridgeFileViewerBrowserTestProductSession {
 	return {
-		frames: [makeSnapshotFrame({ generation: 7 })],
+		initialMetadataEvents: [
+			makeSourceAcceptedMetadataEvent(makeSourceIdentity({ subscriptionGeneration: 7 })),
+		],
 	};
+}
+
+function createRecordingBridgeWorkerTransportFactory(
+	commandDetails: BridgeRPCCommand[],
+	onCommand?: (command: BridgeRPCCommand) => void | Promise<void>,
+): InProcessBridgeReviewWorkerTransportFactory {
+	return createInProcessBridgeReviewWorkerTransportFactory({
+		sendSchemeRpcCommand: async (command): Promise<unknown> => {
+			commandDetails.push(command);
+			await onCommand?.(command);
+			return {};
+		},
+	});
+}
+
+function availableFileSource(): ReturnType<
+	NonNullable<BridgeFileViewerBrowserTestProductSession['currentSource']>
+> {
+	return {
+		status: 'available',
+		source: {
+			cwdScope: null,
+			freshness: 'live',
+			includeStatuses: true,
+			repoId: '00000000-0000-4000-8000-000000000001',
+			rootPathToken: 'browser-test-root',
+			worktreeId: '00000000-0000-4000-8000-000000000002',
+		},
+	};
+}
+
+function requireMetadataPublisher(
+	publisher: PublishFileMetadataEvents | null,
+): PublishFileMetadataEvents {
+	if (publisher === null) {
+		throw new Error('Expected typed File metadata subscription publisher.');
+	}
+	return publisher;
 }
 
 function activeViewerModeUpdates(
@@ -846,7 +829,7 @@ function hasWorktreeFileActiveSource(detail: ActiveViewerModeUpdateDetail): bool
 		detail.params.mode === 'file' &&
 		isRecord(detail.params.activeSource) &&
 		detail.params.activeSource['protocol'] === 'worktree-file' &&
-		detail.params.activeSource['streamId'] === 'worktree-file:pane-1' &&
+		detail.params.activeSource['streamId'] === 'dev-worktree-source' &&
 		detail.params.activeSource['generation'] === 7
 	);
 }
@@ -857,7 +840,7 @@ function isWorktreeFileActiveViewerModeCommand(message: BridgeWorkerMainToServer
 		message.update.mode === 'file' &&
 		isRecord(message.update.activeSource) &&
 		message.update.activeSource['protocol'] === 'worktree-file' &&
-		message.update.activeSource['streamId'] === 'worktree-file:pane-1' &&
+		message.update.activeSource['streamId'] === 'dev-worktree-source' &&
 		message.update.activeSource['generation'] === 7
 	);
 }

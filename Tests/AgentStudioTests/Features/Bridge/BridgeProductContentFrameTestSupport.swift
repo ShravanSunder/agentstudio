@@ -91,6 +91,7 @@ extension BridgeProductContentFrameCodecTests {
 
     func endControlBody(from headerObject: [String: Any]) -> [String: Any] {
         [
+            "endOfSource": headerObject["endOfSource"] as Any,
             "observedByteLength": headerObject["observedByteLength"] as Any,
             "observedSha256": headerObject["observedSha256"] as Any,
         ]

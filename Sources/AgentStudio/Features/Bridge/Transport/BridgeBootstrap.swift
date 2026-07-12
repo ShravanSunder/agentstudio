@@ -24,13 +24,11 @@ enum BridgeBootstrap {
         appProtocol: String? = nil,
         reviewPaneId: String? = nil,
         reviewStreamId: String? = nil,
-        worktreeFileSourceSpec: BridgeWorktreeFileSurfaceSourceSpec? = nil,
         telemetryConfig: BridgeTelemetryBootstrapConfig? = nil
     ) -> String {
         let appProtocolJSON = encodedOptionalJSONString(appProtocol)
         let reviewPaneIdJSON = encodedOptionalJSONString(reviewPaneId)
         let reviewStreamIdJSON = encodedOptionalJSONString(reviewStreamId)
-        let worktreeFileSourceSpecJSON = encodedWorktreeFileSourceSpecJSON(worktreeFileSourceSpec)
         let telemetryConfigJSON = encodedTelemetryConfigJSON(telemetryConfig)
         return """
             // Bridge Bootstrap — injected at document start in bridge content world.
@@ -42,12 +40,10 @@ enum BridgeBootstrap {
                 const APP_PROTOCOL = \(appProtocolJSON);
                 const REVIEW_PANE_ID = \(reviewPaneIdJSON);
                 const REVIEW_STREAM_ID = \(reviewStreamIdJSON);
-                const WORKTREE_FILE_SOURCE_SPEC = \(worktreeFileSourceSpecJSON);
                 const TELEMETRY_CONFIG = \(telemetryConfigJSON);
                 const PENDING_INTAKE_FRAME_JSON = [];
                 const HOST_PUSH_PORTS = new Set();
                 const HOST_INTAKE_PORTS = new Set();
-
                 function publishHostPushPort() {
                     const channel = new MessageChannel();
                     HOST_PUSH_PORTS.add(channel.port1);
@@ -199,6 +195,26 @@ enum BridgeBootstrap {
                         detail: { pushNonce: PUSH_NONCE, telemetryConfig: TELEMETRY_CONFIG }
                     }));
                 });
+                document.addEventListener('__bridge_product_session_bootstrap_request', function(event) {
+                    const detail = event && event.detail;
+                    const requestId = detail && typeof detail.requestId === 'string'
+                        ? detail.requestId
+                        : null;
+                    const reason = detail && (detail.reason === 'initial'
+                        || detail.reason === 'workerReplacement')
+                        ? detail.reason
+                        : null;
+                    if (requestId === null || requestId.length === 0 || reason === null) {
+                        console.warn('[BridgeBootstrap] Rejected product bootstrap request');
+                        return;
+                    }
+                    window.webkit.messageHandlers.rpc.postMessage(JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: requestId,
+                        method: 'bridge.productSession.bootstrap',
+                        params: { reason: reason }
+                    }));
+                });
                 document.addEventListener('__bridge_host_push_port_request', function() {
                     publishHostPushPort();
                 });
@@ -220,12 +236,6 @@ enum BridgeBootstrap {
                 }
                 if (typeof APP_PROTOCOL === 'string') {
                     document.documentElement.setAttribute('data-bridge-app-protocol', APP_PROTOCOL);
-                }
-                if (WORKTREE_FILE_SOURCE_SPEC !== null) {
-                    document.documentElement.setAttribute(
-                        'data-bridge-worktree-file-source-spec',
-                        JSON.stringify(WORKTREE_FILE_SOURCE_SPEC)
-                    );
                 }
             })();
             """
@@ -262,21 +272,5 @@ enum BridgeBootstrap {
         return json
     }
 
-    private static func encodedWorktreeFileSourceSpecJSON(
-        _ sourceSpec: BridgeWorktreeFileSurfaceSourceSpec?
-    ) -> String {
-        guard let sourceSpec else {
-            return "null"
-        }
-
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(sourceSpec),
-            let json = String(data: data, encoding: .utf8)
-        else {
-            return "null"
-        }
-        return json
-    }
     // swiftlint:enable function_body_length
 }

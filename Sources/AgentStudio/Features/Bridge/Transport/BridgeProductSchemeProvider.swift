@@ -18,4 +18,18 @@ protocol BridgeProductSchemeProvider: Sendable {
     func acknowledgeLifecycle(
         _ acknowledgement: BridgeProductProducerLifecycleAcknowledgement
     ) async -> Bool
+
+    func applyCommittedControlEffect(
+        _ effect: BridgeProductSessionCompletionEffect,
+        for request: BridgeProductControlRequest
+    ) async
+}
+
+extension BridgeProductSchemeProvider {
+    func applyCommittedControlEffect(
+        _ effect: BridgeProductSessionCompletionEffect,
+        for request: BridgeProductControlRequest
+    ) async {
+        _ = (effect, request)
+    }
 }

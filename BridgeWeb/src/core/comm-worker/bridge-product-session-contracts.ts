@@ -7,6 +7,7 @@ import {
 import { bridgeProductContentIdentitySchema } from './bridge-product-content-contracts.js';
 import {
 	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
+	BRIDGE_PRODUCT_MAXIMUM_ACTIVE_SUBSCRIPTION_COUNT,
 	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
 	BRIDGE_PRODUCT_MAXIMUM_CONTROL_REQUEST_SEQUENCE,
 	BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
@@ -66,6 +67,54 @@ const bridgeProductActiveSubscriptionSchema = z
 		workerDerivationEpoch: bridgeProductNonnegativeSequenceSchema,
 	})
 	.strict();
+
+const bridgeProductResyncReconciliationCommonShape = {
+	subscriptionId: bridgeProductIdentifierSchema,
+	subscriptionKind: bridgeProductSubscriptionKindSchema,
+} as const;
+
+export const bridgeProductResyncReconciliationOutcomeSchema = z.discriminatedUnion('disposition', [
+	z
+		.object({
+			...bridgeProductResyncReconciliationCommonShape,
+			disposition: z.literal('retained'),
+			interestRevision: bridgeProductNonnegativeSequenceSchema,
+			interestSha256: bridgeProductSha256Schema,
+			workerDerivationEpoch: bridgeProductNonnegativeSequenceSchema,
+		})
+		.strict(),
+	z
+		.object({
+			...bridgeProductResyncReconciliationCommonShape,
+			disposition: z.literal('cancelled'),
+			priorWorkerDerivationEpoch: bridgeProductNonnegativeSequenceSchema,
+			reason: z.enum(['native_revoked', 'source_unavailable']),
+		})
+		.strict(),
+	z
+		.object({
+			...bridgeProductResyncReconciliationCommonShape,
+			disposition: z.literal('reset'),
+			interestRevision: bridgeProductPositiveSequenceSchema,
+			interestSha256: bridgeProductSha256Schema,
+			reason: bridgeProductResetReasonSchema,
+			workerDerivationEpoch: bridgeProductNonnegativeSequenceSchema,
+		})
+		.strict(),
+	z
+		.object({
+			...bridgeProductResyncReconciliationCommonShape,
+			disposition: z.literal('reopenRequired'),
+			reason: z.enum([
+				'epoch_advanced',
+				'identity_mismatch',
+				'native_missing',
+				'snapshot_required',
+			]),
+			requiredWorkerDerivationEpoch: bridgeProductNonnegativeSequenceSchema,
+		})
+		.strict(),
+]);
 
 const bridgeProductSubscriptionUpdateBatchBaseShape = {
 	...bridgeProductSurfaceRequestIdentityShape,
@@ -142,7 +191,7 @@ export const bridgeProductControlRequestSchema = z.discriminatedUnion('kind', [
 			...bridgeProductControlIdentityShape,
 			activeSubscriptions: z
 				.array(bridgeProductActiveSubscriptionSchema)
-				.max(64)
+				.max(BRIDGE_PRODUCT_MAXIMUM_ACTIVE_SUBSCRIPTION_COUNT)
 				.refine(
 					(subscriptions) =>
 						new Set(subscriptions.map((subscription) => subscription.subscriptionId)).size ===
@@ -211,10 +260,14 @@ export const bridgeProductControlResponseSchema = z.discriminatedUnion('kind', [
 		.object({
 			...bridgeProductControlIdentityShape,
 			kind: z.literal('resync.accepted'),
-			nextExpectedRequestSequence: bridgeProductPositiveSequenceSchema,
-			resumeFromStreamSequence: bridgeProductNonnegativeSequenceSchema.max(
+			metadataStreamSequenceBarrier: bridgeProductNonnegativeSequenceSchema.max(
 				BRIDGE_PRODUCT_MAXIMUM_RESUMABLE_STREAM_SEQUENCE,
 			),
+			nextExpectedRequestSequence: bridgeProductPositiveSequenceSchema,
+			reconciliation: z
+				.array(bridgeProductResyncReconciliationOutcomeSchema)
+				.max(BRIDGE_PRODUCT_MAXIMUM_ACTIVE_SUBSCRIPTION_COUNT)
+				.readonly(),
 		})
 		.strict(),
 	z
@@ -287,7 +340,7 @@ const bridgeProductSubscriptionDataFrameSchema = z.discriminatedUnion('subscript
 		.strict(),
 ]);
 
-export const bridgeProductMetadataFrameSchema = z.discriminatedUnion('kind', [
+const bridgeProductMetadataFrameStructuralSchema = z.discriminatedUnion('kind', [
 	z
 		.object({
 			...bridgeProductMetadataFrameIdentityShape,
@@ -369,6 +422,43 @@ export const bridgeProductMetadataFrameSchema = z.discriminatedUnion('kind', [
 		.strict(),
 ]);
 
+const bridgeProductMetadataFrameEncoder = new TextEncoder();
+
+export const bridgeProductMetadataFrameSchema =
+	bridgeProductMetadataFrameStructuralSchema.superRefine((frame, context): void => {
+		if (
+			frame.kind === 'subscription.data' &&
+			frame.subscriptionKind === 'review.metadata' &&
+			frame.sourceGeneration !== frame.data.event.generation
+		) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Review metadata frame generation does not match its event.',
+				path: ['sourceGeneration'],
+			});
+		}
+		if (
+			frame.kind === 'subscription.data' &&
+			frame.subscriptionKind === 'file.metadata' &&
+			frame.sourceGeneration !== frame.data.event.source.subscriptionGeneration
+		) {
+			context.addIssue({
+				code: 'custom',
+				message: 'File metadata frame generation does not match its event.',
+				path: ['sourceGeneration'],
+			});
+		}
+		if (
+			bridgeProductMetadataFrameEncoder.encode(JSON.stringify(frame)).byteLength >
+			BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES
+		) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Bridge product metadata frame exceeds its body ceiling.',
+			});
+		}
+	});
+
 const bridgeProductCapabilityBytesSchema = z
 	.array(z.number().int().min(0).max(255))
 	.length(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH)
@@ -420,10 +510,14 @@ const bridgeProductMessagePortSchema = z.custom<MessagePort>(
 	(value) =>
 		typeof value === 'object' &&
 		value !== null &&
+		'addEventListener' in value &&
+		typeof value.addEventListener === 'function' &&
 		'postMessage' in value &&
 		typeof value.postMessage === 'function' &&
 		'close' in value &&
-		typeof value.close === 'function',
+		typeof value.close === 'function' &&
+		'start' in value &&
+		typeof value.start === 'function',
 	'Bridge pane comm-worker install requires a transferable MessagePort.',
 );
 
@@ -438,6 +532,61 @@ export const bridgePaneCommWorkerInstallSchema = z
 
 export type BridgeProductControlRequest = z.infer<typeof bridgeProductControlRequestSchema>;
 export type BridgeProductControlResponse = z.infer<typeof bridgeProductControlResponseSchema>;
+export type BridgeProductResyncReconciliationOutcome = z.infer<
+	typeof bridgeProductResyncReconciliationOutcomeSchema
+>;
+
+export function assertBridgeProductResyncReconciliationMatchesRequest(props: {
+	readonly request: BridgeProductControlRequest;
+	readonly response: BridgeProductControlResponse;
+}): void {
+	if (props.request.kind !== 'workerSession.resync' || props.response.kind !== 'resync.accepted') {
+		throw new Error('Bridge product reconciliation requires a resync request and response.');
+	}
+	if (props.request.activeSubscriptions.length !== props.response.reconciliation.length) {
+		throw new Error('Bridge product reconciliation count does not match its request.');
+	}
+	for (const [index, activeSubscription] of props.request.activeSubscriptions.entries()) {
+		const outcome = props.response.reconciliation[index];
+		if (
+			outcome === undefined ||
+			outcome.subscriptionId !== activeSubscription.subscriptionId ||
+			outcome.subscriptionKind !== activeSubscription.subscriptionKind
+		) {
+			throw new Error(
+				'Bridge product reconciliation order or identity does not match its request.',
+			);
+		}
+		switch (outcome.disposition) {
+			case 'retained':
+				if (
+					outcome.workerDerivationEpoch !== activeSubscription.workerDerivationEpoch ||
+					outcome.interestRevision !== activeSubscription.interestRevision ||
+					outcome.interestSha256 !== activeSubscription.interestSha256
+				) {
+					throw new Error('Bridge product retained reconciliation does not echo its request.');
+				}
+				break;
+			case 'cancelled':
+				if (outcome.priorWorkerDerivationEpoch !== activeSubscription.workerDerivationEpoch) {
+					throw new Error(
+						'Bridge product cancelled reconciliation epoch does not match its request.',
+					);
+				}
+				break;
+			case 'reset':
+				if (outcome.workerDerivationEpoch !== activeSubscription.workerDerivationEpoch) {
+					throw new Error('Bridge product reset reconciliation epoch does not match its request.');
+				}
+				break;
+			case 'reopenRequired':
+				if (outcome.requiredWorkerDerivationEpoch !== activeSubscription.workerDerivationEpoch) {
+					throw new Error('Bridge product reopen reconciliation epoch does not match its request.');
+				}
+				break;
+		}
+	}
+}
 export type BridgeProductMetadataStreamRequest = z.infer<
 	typeof bridgeProductMetadataStreamRequestSchema
 >;

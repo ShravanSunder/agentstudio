@@ -81,9 +81,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		const sameRenderedFile =
 			currentRenderedPath !== null && currentRenderedPath === previousRenderedPath;
 		const sameFileLoadFinished =
-			sameOpenFileReady &&
-			sameRenderedFile &&
-			(previousOpenState.status === 'loading' || previousOpenState.status === 'refreshing');
+			sameOpenFileReady && sameRenderedFile && previousOpenState.status === 'loading';
 		const sameReadyFileContentChanged =
 			sameOpenFileReady &&
 			sameRenderedFile &&

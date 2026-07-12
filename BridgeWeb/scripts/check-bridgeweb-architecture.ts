@@ -19,6 +19,7 @@ type RuleId =
 	| 'worker-boundary'
 	| 'no-raw-file-bodies-in-state'
 	| 'core-imports-app-protocol'
+	| 'dev-product-route-boundary'
 	| 'worktree-dev-review-package-scaffolding';
 
 export interface ArchitectureViolation {
@@ -66,8 +67,10 @@ const allowedPostMessagePaths = new Set([
 	'src/app/diagnostics/bridge-worker-fetch-probe-worker-entry.ts',
 	'src/core/comm-worker/bridge-comm-worker-client.ts',
 	'src/core/comm-worker/bridge-comm-worker-entry.ts',
+	'src/core/comm-worker/bridge-pane-comm-worker-session.ts',
 	'src/core/comm-worker/bridge-comm-worker-runtime-protocol.ts',
 	'src/core/comm-worker/bridge-product-session-contracts.ts',
+	'src/file-viewer/bridge-file-viewer-browser-test-comm-worker.ts',
 ]);
 const publicPierreExports = new Set([
 	'@pierre/diffs',
@@ -236,6 +239,20 @@ function checkImportSource(context: SourceContext, node: ts.Node): void {
 
 	const importSource = normalizeImportSpecifier(rawImportSource);
 	checkPierreImportSource(context, node, rawImportSource, importSource);
+	if (
+		!isTestPath(context.relativePath) &&
+		context.relativePath !== 'vite.config.ts' &&
+		(resolveImportTargetPath(context.relativePath, importSource) ?? importSource).includes(
+			'bridge-product-dev-routes',
+		)
+	) {
+		addViolation(context, {
+			ruleId: 'dev-product-route-boundary',
+			node,
+			message:
+				'production modules must not import the Vite-only Bridge product route module; Vite selects it at build time',
+		});
+	}
 
 	if (isTestPath(context.relativePath)) {
 		return;
@@ -537,6 +554,7 @@ function isAllowedTreesImportPath(relativePath: string): boolean {
 
 function isAllowedCodeViewImportPath(relativePath: string): boolean {
 	return (
+		relativePath === 'src/core/comm-worker/bridge-worker-review-pierre-job-planner.ts' ||
 		isPathInside(relativePath, 'src/file-viewer/') ||
 		isPathInside(relativePath, 'src/review-viewer/code-view/') ||
 		isPathInside(relativePath, 'src/review-viewer/workers/pierre/')
@@ -549,6 +567,8 @@ function isAllowedPierreWorkerImportPath(relativePath: string): boolean {
 
 function isAllowedWorkerConstructionPath(relativePath: string): boolean {
 	return (
+		relativePath === 'src/core/comm-worker/bridge-pane-comm-worker-session.ts' ||
+		isPathInside(relativePath, 'src/core/telemetry-worker/') ||
 		isPathInside(relativePath, 'src/review-viewer/workers/projection/') ||
 		isPathInside(relativePath, 'src/review-viewer/workers/pierre/') ||
 		isPathInside(relativePath, 'src/review-viewer/workers/markdown/') ||
@@ -573,6 +593,7 @@ function isMarkdownRenderImport(importSource: string): boolean {
 
 function isAllowedMarkdownRenderImportPath(relativePath: string): boolean {
 	return (
+		relativePath === 'src/review-viewer/workers/pierre/bridge-pierre-language-normalization.ts' ||
 		relativePath === 'src/review-viewer/workers/markdown/bridge-markdown-render-worker-renderer.ts'
 	);
 }
@@ -618,7 +639,6 @@ function isCorePath(relativePath: string): boolean {
 function isWorktreeDevPath(relativePath: string): boolean {
 	return (
 		relativePath === 'src/app/bridge-app-dev-bootstrap.tsx' ||
-		relativePath === 'src/app/bridge-app-dev-worktree.ts' ||
 		relativePath === 'scripts/dev-server/bridge-worktree-dev-provider.ts' ||
 		relativePath === 'vite.config.ts'
 	);

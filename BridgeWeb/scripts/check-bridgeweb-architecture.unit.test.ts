@@ -80,6 +80,35 @@ describe('BridgeWeb architecture checker', () => {
 		);
 	});
 
+	test('rejects production imports of the Vite-only Bridge product route module', async () => {
+		await withFixtureTree(
+			{
+				'src/core/comm-worker/bad-product-transport.ts': `
+					import { BRIDGE_PRODUCT_COMMAND_ROUTE } from './bridge-product-dev-routes.js';
+					export const route = BRIDGE_PRODUCT_COMMAND_ROUTE;
+				`,
+				'src/core/comm-worker/product-route-guard.unit.test.ts': `
+					import { BRIDGE_PRODUCT_COMMAND_ROUTE } from './bridge-product-dev-routes.js';
+					export const route = BRIDGE_PRODUCT_COMMAND_ROUTE;
+				`,
+				'vite.config.ts': `
+					import { BRIDGE_PRODUCT_COMMAND_ROUTE } from './src/core/comm-worker/bridge-product-dev-routes.js';
+					export const route = BRIDGE_PRODUCT_COMMAND_ROUTE;
+				`,
+			},
+			async (packageRootPath: string): Promise<void> => {
+				const report = await checkBridgeWebArchitecture({ packageRootPath });
+
+				expect(report.violations).toEqual([
+					expect.objectContaining({
+						ruleId: 'dev-product-route-boundary',
+						relativePath: 'src/core/comm-worker/bad-product-transport.ts',
+					}),
+				]);
+			},
+		);
+	});
+
 	test('ignores Pierre strings in assertions while still reporting real imports', async () => {
 		await withFixtureTree(
 			{
@@ -307,16 +336,6 @@ describe('BridgeWeb architecture checker', () => {
 	test('reports Worktree dev Review-package scaffolding', async () => {
 		await withFixtureTree(
 			{
-				'src/app/bridge-app-dev-worktree.ts': `
-					import { dispatchBridgeDevHostAdmittedEnvelope } from '../bridge/bridge-dev-host-push-carrier.js';
-					import { buildReviewSnapshotFrame } from '../features/review/protocol/review-snapshot-frame-builder.js';
-					import { bridgeReviewPackageSchema } from '../foundation/review-package/bridge-review-package-schema.js';
-					const worktreePackageEndpoint = '/__bridge-worktree/package';
-					export const pushPackage = (): void => {
-						dispatchBridgeDevHostAdmittedEnvelope(buildReviewSnapshotFrame(bridgeReviewPackageSchema));
-					};
-					export const endpoint = worktreePackageEndpoint;
-				`,
 				'scripts/dev-server/bridge-worktree-dev-provider.ts': `
 					import type { BridgeReviewPackage } from '../../src/foundation/review-package/bridge-review-package.js';
 					export interface BridgeWorktreeDevProvider {
@@ -342,10 +361,6 @@ describe('BridgeWeb architecture checker', () => {
 					expect.objectContaining({
 						ruleId: 'worktree-dev-review-package-scaffolding',
 						relativePath: 'src/app/bridge-app-dev-bootstrap.tsx',
-					}),
-					expect.objectContaining({
-						ruleId: 'worktree-dev-review-package-scaffolding',
-						relativePath: 'src/app/bridge-app-dev-worktree.ts',
 					}),
 				]);
 			},

@@ -21,10 +21,13 @@ enum BridgeProductWireContract {
     static let maximumSubscriptionInterestCount = 64
     static let maximumSubscriptionInterestItemCount = 10_000
     static let maximumSubscriptionDeltaItemCount = 40_000
-    static let maximumSubscriptionInterestStateBytes = 256 * 1024
+    static let maximumSubscriptionInterestStateBytes = 128 * 1024
+    static let maximumFileMetadataTreeWindowRowCount = 256
+    static let maximumFileMetadataOperationCount = 256
+    static let maximumFileMetadataDeltaMemberCount = 256
 
-    static let maximumRequestBodyBytes = 256 * 1024
-    static let maximumMetadataFrameBytes = 256 * 1024
+    static let maximumRequestBodyBytes = 128 * 1024
+    static let maximumMetadataFrameBytes = 128 * 1024
     static let maximumContentControlBodyBytes = 16 * 1024
     static let maximumContentFrameBytes = 256 * 1024
     static let maximumContentDataPayloadBytes = 128 * 1024

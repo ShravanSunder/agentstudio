@@ -4,6 +4,11 @@ import GhosttyKit
 
 @MainActor
 extension WorkspaceSurfaceCoordinator {
+    enum ViewTeardownReplayEvictionPolicy {
+        case schedule
+        case callerManaged
+    }
+
     private struct RestoreAllViewsProgress {
         var restored = 0
         var drawerRestored = 0
@@ -77,6 +82,12 @@ extension WorkspaceSurfaceCoordinator {
     ) -> NSView? {
         viewRegistry.ensureSlot(for: pane.id)
         registerPaneFilesystemContextIfNeeded(for: pane)
+        if case .bridgePanel = pane.content,
+            bridgePaneRetirementTasksByPaneId[pane.id] != nil
+        {
+            bridgePaneRetirementsRequiringRestore.insert(pane.id)
+            return viewRegistry.view(for: pane.id)?.mountedContent(as: BridgePaneMountView.self)
+        }
 
         switch pane.content {
         case .terminal:
@@ -455,6 +466,13 @@ extension WorkspaceSurfaceCoordinator {
     /// Teardown a view — detach terminal surface, teardown bridge controller, unregister view/runtime state.
     func teardownView(for paneId: UUID, shouldUnregisterRuntime: Bool = true) {
         removePaneFilesystemProjectionContext(paneId: paneId)
+        if bridgePaneRetirementTasksByPaneId[paneId] != nil {
+            recordBridgePaneRetirementDisposition(
+                paneId: paneId,
+                shouldUnregisterRuntime: shouldUnregisterRuntime
+            )
+            return
+        }
         if let terminal = viewRegistry.terminalView(for: paneId),
             let surfaceId = terminal.surfaceId
         {
@@ -462,16 +480,43 @@ extension WorkspaceSurfaceCoordinator {
         }
 
         if let bridgeView = viewRegistry.view(for: paneId)?.mountedContent(as: BridgePaneMountView.self) {
-            bridgeView.controller.teardown()
+            startTrackedBridgePaneRetirement(
+                paneId: paneId,
+                controller: bridgeView.controller,
+                shouldUnregisterRuntime: shouldUnregisterRuntime
+            )
+            return
         }
 
-        viewRegistry.unregister(paneId)
+        finishViewTeardown(paneId: paneId, shouldUnregisterRuntime: shouldUnregisterRuntime)
+    }
+
+    func finishViewTeardown(
+        paneId: UUID,
+        shouldUnregisterRuntime: Bool,
+        retiringBridgeController: BridgePaneController? = nil,
+        replayEvictionPolicy: ViewTeardownReplayEvictionPolicy = .schedule
+    ) {
+        if let retiringBridgeController,
+            let currentController = viewRegistry.view(for: paneId)?.mountedContent(as: BridgePaneMountView.self)?
+                .controller,
+            currentController !== retiringBridgeController
+        {
+            Self.logger.error(
+                "Preserving replacement bridge view while retiring prior controller for pane \(paneId)"
+            )
+        } else {
+            viewRegistry.unregister(paneId)
+        }
+
         if shouldUnregisterRuntime {
             if UUIDv7.isV7(paneId) {
                 let runtimePaneId = PaneId(uuid: paneId)
                 _ = unregisterRuntime(runtimePaneId)
-                Task { [paneEventBus] in
-                    await paneEventBus.evictReplay(sourceKey: EventSource.pane(runtimePaneId).description)
+                if case .schedule = replayEvictionPolicy {
+                    Task { [paneEventBus] in
+                        await paneEventBus.evictReplay(sourceKey: EventSource.pane(runtimePaneId).description)
+                    }
                 }
             } else {
                 Self.logger.warning(

@@ -57,7 +57,7 @@ export function reconcileBridgeCommWorkerDemandMembership(
 
 export function serializeBridgeCommWorkerDemandMembership(
 	membership: BridgeCommWorkerDemandMembership,
-): ReadonlyMap<string, string> {
+): Map<string, string> {
 	const demandByKey = new Map<string, string>();
 	for (const member of membership.membersByItemId.values()) {
 		demandByKey.set(

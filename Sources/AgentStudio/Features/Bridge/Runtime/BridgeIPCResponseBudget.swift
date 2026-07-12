@@ -54,7 +54,6 @@ struct BridgeIPCResponseBudget: Sendable {
             + estimatedJSONStringBytes(handle.itemId)
             + estimatedJSONStringBytes(handle.role)
             + estimatedJSONIntegerBytes(handle.reviewGeneration)
-            + estimatedJSONStringBytes(handle.resourceUrl)
             + estimatedJSONStringBytes(handle.mimeType)
             + estimatedOptionalJSONStringBytes(handle.language)
             + estimatedJSONIntegerBytes(handle.sizeBytes)

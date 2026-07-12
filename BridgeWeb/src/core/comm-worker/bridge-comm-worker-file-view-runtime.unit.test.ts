@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import { bridgeWorkerPierreRenderPolicy } from '../demand/bridge-content-demand-policy.js';
 import type { BridgeCommWorkerPort } from './bridge-comm-worker-entry.js';
+import type { BridgeCommWorkerFileViewContentRequest } from './bridge-comm-worker-file-metadata-projection.js';
 import { dispatchSelectedBridgeWorkerFileViewContentReady } from './bridge-comm-worker-file-view-runtime.js';
 import {
 	createBridgeCommWorkerStore,
@@ -9,10 +10,10 @@ import {
 } from './bridge-comm-worker-store.js';
 import type {
 	BridgeWorkerFileViewContentMetadata,
-	BridgeWorkerFileViewContentRequestDescriptor,
 	BridgeWorkerReviewContentMetadata,
 	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
+import type { BridgeWorkerFileViewContentOpen } from './bridge-worker-file-view-content-fetch.js';
 
 interface PostedBridgeWorkerRuntimeMessage {
 	readonly message: BridgeWorkerServerToMainMessage;
@@ -20,9 +21,9 @@ interface PostedBridgeWorkerRuntimeMessage {
 }
 
 describe('Bridge comm worker File View runtime', () => {
-	test('selected File View dispatch posts prepared Pierre job before content-ready slice patch', async () => {
+	test('selected File View dispatch posts lineage-bound Pierre and render publications', async () => {
 		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
-		const fetchCalls: string[] = [];
+		const openedDescriptorIds: string[] = [];
 		const store = createSelectedFileViewRuntimeStore();
 		store.actions.applySelectedFact({ epoch: 7, itemId: 'file-1' });
 		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
@@ -34,33 +35,28 @@ describe('Bridge comm worker File View runtime', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			contentRequestDescriptors: [makeContentRequestDescriptor('file body\n')],
+			contentRequests: [makeContentRequest('file body\n')],
 			epoch: 7,
-			fetchContent: async (url: string): Promise<Response> => {
-				fetchCalls.push(url);
-				const descriptor = descriptorByUrl.get(url);
-				if (descriptor === undefined) {
-					throw new Error(`Unexpected File View content URL ${url}.`);
-				}
-				return new Response(descriptor.text);
-			},
 			itemId: 'file-1',
+			openContent: registeredContentOpen(openedDescriptorIds),
 			port: makePostedMessagePort(postedMessages),
 			sequence: 12,
 			store,
+			workerDerivationEpoch: 17,
 		});
 
-		expect(fetchCalls).toEqual([
-			'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?cursor=cursor-file-1&generation=7',
-		]);
+		expect(openedDescriptorIds).toEqual(['descriptor-file-1']);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
-			'pierreRenderJob',
-			'slicePatch',
+			'filePierreRenderJob',
+			'fileRenderPatch',
 		]);
 		expect(postedMessages[0]?.message).toMatchObject({
 			wireVersion: 1,
 			direction: 'serverWorkerToMain',
-			kind: 'pierreRenderJob',
+			kind: 'filePierreRenderJob',
+			publicationSequence: 12,
+			surface: 'file',
+			workerDerivationEpoch: 17,
 			job: {
 				itemId: 'file-1',
 				renderKind: 'fileText',
@@ -87,12 +83,12 @@ describe('Bridge comm worker File View runtime', () => {
 			},
 		});
 		const pierreJobMessage = postedMessages[0]?.message;
-		if (pierreJobMessage?.kind !== 'pierreRenderJob') {
+		if (pierreJobMessage?.kind !== 'filePierreRenderJob') {
 			throw new Error('Expected File View Pierre render job message first.');
 		}
 		expect(pierreJobMessage.transferDescriptors).toEqual([
 			{
-				messageKind: 'pierreRenderJob',
+				messageKind: 'filePierreRenderJob',
 				fieldPath: ['job', 'payload'],
 				byteLength: pierreJobMessage.job.payloadByteLength,
 				mode: 'clone',
@@ -103,10 +99,11 @@ describe('Bridge comm worker File View runtime', () => {
 			message: {
 				wireVersion: 1,
 				direction: 'serverWorkerToMain',
-				kind: 'slicePatch',
-				epoch: 7,
-				sequence: 12,
+				kind: 'fileRenderPatch',
+				publicationSequence: 12,
+				surface: 'file',
 				transferDescriptors: [],
+				workerDerivationEpoch: 17,
 				patches: [
 					{
 						slice: 'rowPaint',
@@ -130,7 +127,7 @@ describe('Bridge comm worker File View runtime', () => {
 		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
 		const longFileText = makeNumberedFileText(450);
 		const store = createBridgeCommWorkerStore({
-			contentItems: [makeWorkerFileViewContentMetadata('file-1', { lineCount: 450 })],
+			contentItems: [makeWorkerFileViewContentMetadata('file-1', { payloadLineCount: 450 })],
 			rows: [{ id: 'file-1', parentId: null, index: 0 }],
 		});
 		store.actions.applySelectedFact({ epoch: 7, itemId: 'file-1' });
@@ -139,29 +136,24 @@ describe('Bridge comm worker File View runtime', () => {
 		await dispatchSelectedBridgeWorkerFileViewContentReady({
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: bridgeWorkerPierreRenderPolicy.fileViewSelectedRenderBudget,
-			contentRequestDescriptors: [makeContentRequestDescriptor(longFileText)],
+			contentRequests: [makeContentRequest(longFileText)],
 			epoch: 7,
-			fetchContent: async (url: string): Promise<Response> => {
-				const descriptor = descriptorByUrl.get(url);
-				if (descriptor === undefined) {
-					throw new Error(`Unexpected File View content URL ${url}.`);
-				}
-				return new Response(descriptor.text);
-			},
 			itemId: 'file-1',
+			openContent: registeredContentOpen(),
 			port: makePostedMessagePort(postedMessages),
 			sequence: 12,
 			store,
+			workerDerivationEpoch: 17,
 		});
 
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind).slice(0, 2)).toEqual([
-			'pierreRenderJob',
-			'slicePatch',
+			'filePierreRenderJob',
+			'fileRenderPatch',
 		]);
 		const pierreJobMessage = postedMessages.find(
-			(postedMessage) => postedMessage.message.kind === 'pierreRenderJob',
+			(postedMessage) => postedMessage.message.kind === 'filePierreRenderJob',
 		)?.message;
-		if (pierreJobMessage?.kind !== 'pierreRenderJob') {
+		if (pierreJobMessage?.kind !== 'filePierreRenderJob') {
 			throw new Error('Expected selected long File View content to publish a Pierre job.');
 		}
 		expect(pierreJobMessage.job.window).toEqual({
@@ -195,7 +187,7 @@ describe('Bridge comm worker File View runtime', () => {
 		const store = createBridgeCommWorkerStore({
 			contentItems: [
 				makeWorkerFileViewContentMetadata('file-1', {
-					lineCount: 6_000,
+					payloadLineCount: 6_000,
 					sizeBytes: denseFileByteLength,
 				}),
 			],
@@ -207,30 +199,25 @@ describe('Bridge comm worker File View runtime', () => {
 		await dispatchSelectedBridgeWorkerFileViewContentReady({
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: bridgeWorkerPierreRenderPolicy.fileViewSelectedRenderBudget,
-			contentRequestDescriptors: [
-				makeContentRequestDescriptor(denseFileText, {
+			contentRequests: [
+				makeContentRequest(denseFileText, {
 					maxBytes: bridgeWorkerPierreRenderPolicy.fileViewSelectedRenderBudget.maxBytes,
 					sizeBytes: denseFileByteLength,
 				}),
 			],
 			epoch: 7,
-			fetchContent: async (url: string): Promise<Response> => {
-				const descriptor = descriptorByUrl.get(url);
-				if (descriptor === undefined) {
-					throw new Error(`Unexpected File View content URL ${url}.`);
-				}
-				return new Response(descriptor.text);
-			},
 			itemId: 'file-1',
+			openContent: registeredContentOpen(),
 			port: makePostedMessagePort(postedMessages),
 			sequence: 12,
 			store,
+			workerDerivationEpoch: 17,
 		});
 
 		const pierreJobMessage = postedMessages.find(
-			(postedMessage) => postedMessage.message.kind === 'pierreRenderJob',
+			(postedMessage) => postedMessage.message.kind === 'filePierreRenderJob',
 		)?.message;
-		if (pierreJobMessage?.kind !== 'pierreRenderJob') {
+		if (pierreJobMessage?.kind !== 'filePierreRenderJob') {
 			throw new Error('Expected selected dense File View content to publish a Pierre job.');
 		}
 		expect(pierreJobMessage.job.window).toEqual({
@@ -253,34 +240,35 @@ describe('Bridge comm worker File View runtime', () => {
 
 	test('publishes unavailable instead of leaving selected File View content loading when descriptor is absent', async () => {
 		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
-		const fetchCalls: string[] = [];
+		let openCount = 0;
 		const store = createSelectedFileViewRuntimeStore();
 		store.actions.applySelectedFact({ epoch: 7, itemId: 'file-1' });
 		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
 
 		await dispatchSelectedBridgeWorkerFileViewContentReady({
 			...makeDispatchProps({
-				contentRequestDescriptors: [],
-				fetchContent: async (url: string): Promise<Response> => {
-					fetchCalls.push(url);
-					return new Response('must not fetch');
+				contentRequests: [],
+				openContent: () => {
+					openCount += 1;
+					throw new Error('must not open');
 				},
 				postedMessages,
 				store,
 			}),
 		});
 
-		expect(fetchCalls).toEqual([]);
+		expect(openCount).toBe(0);
 		expect(store.getState().availabilityByItemId.get('file-1')).toBe('unavailable');
 		expect(postedMessages).toEqual([
 			{
 				message: {
 					wireVersion: 1,
 					direction: 'serverWorkerToMain',
-					kind: 'slicePatch',
-					epoch: 7,
-					sequence: 12,
+					kind: 'fileRenderPatch',
+					publicationSequence: 12,
+					surface: 'file',
 					transferDescriptors: [],
+					workerDerivationEpoch: 17,
 					patches: [
 						{
 							slice: 'contentAvailability',
@@ -295,9 +283,9 @@ describe('Bridge comm worker File View runtime', () => {
 		]);
 	});
 
-	test('publishes unavailable instead of fetching when selected metadata is not File View content', async () => {
+	test('publishes unavailable instead of opening content when selected metadata is not File View content', async () => {
 		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
-		const fetchCalls: string[] = [];
+		let openCount = 0;
 		const store = createBridgeCommWorkerStore({
 			contentItems: [makeWorkerReviewContentMetadata('file-1')],
 			rows: [{ id: 'file-1', parentId: null, index: 0 }],
@@ -307,27 +295,28 @@ describe('Bridge comm worker File View runtime', () => {
 
 		await dispatchSelectedBridgeWorkerFileViewContentReady({
 			...makeDispatchProps({
-				contentRequestDescriptors: [makeContentRequestDescriptor('file body\n')],
-				fetchContent: async (url: string): Promise<Response> => {
-					fetchCalls.push(url);
-					return new Response('must not fetch');
+				contentRequests: [makeContentRequest('file body\n')],
+				openContent: () => {
+					openCount += 1;
+					throw new Error('must not open');
 				},
 				postedMessages,
 				store,
 			}),
 		});
 
-		expect(fetchCalls).toEqual([]);
+		expect(openCount).toBe(0);
 		expect(store.getState().availabilityByItemId.get('file-1')).toBe('unavailable');
 		expect(postedMessages).toEqual([
 			{
 				message: {
 					wireVersion: 1,
 					direction: 'serverWorkerToMain',
-					kind: 'slicePatch',
-					epoch: 7,
-					sequence: 12,
+					kind: 'fileRenderPatch',
+					publicationSequence: 12,
+					surface: 'file',
 					transferDescriptors: [],
+					workerDerivationEpoch: 17,
 					patches: [
 						{
 							slice: 'contentAvailability',
@@ -342,7 +331,7 @@ describe('Bridge comm worker File View runtime', () => {
 		]);
 	});
 
-	test('publishes failed instead of leaving selected File View content loading when fetch rejects', async () => {
+	test('publishes failed instead of leaving selected File View content loading when content open rejects', async () => {
 		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
 		const store = createSelectedFileViewRuntimeStore();
 		store.actions.applySelectedFact({ epoch: 7, itemId: 'file-1' });
@@ -350,9 +339,9 @@ describe('Bridge comm worker File View runtime', () => {
 
 		await dispatchSelectedBridgeWorkerFileViewContentReady({
 			...makeDispatchProps({
-				contentRequestDescriptors: [makeContentRequestDescriptor('file body\n')],
-				fetchContent: async (): Promise<Response> => {
-					throw new Error('simulated File View worker fetch failure');
+				contentRequests: [makeContentRequest('file body\n')],
+				openContent: () => {
+					throw new Error('simulated File View product content failure');
 				},
 				postedMessages,
 				store,
@@ -363,7 +352,7 @@ describe('Bridge comm worker File View runtime', () => {
 		expect(postedMessages).toHaveLength(1);
 		expect(postedMessages[0]).toMatchObject({
 			message: {
-				kind: 'slicePatch',
+				kind: 'fileRenderPatch',
 				patches: [
 					{
 						slice: 'contentAvailability',
@@ -394,10 +383,10 @@ describe('Bridge comm worker File View runtime', () => {
 
 		await dispatchSelectedBridgeWorkerFileViewContentReady({
 			...makeDispatchProps({
-				contentRequestDescriptors: [makeContentRequestDescriptor('file body\n')],
-				fetchContent: async (): Promise<Response> => {
+				contentRequests: [makeContentRequest('file body\n')],
+				openContent: () => {
 					store.actions.applySelectedFact({ epoch: 8, itemId: 'file-2' });
-					throw new Error('simulated stale File View worker fetch failure');
+					throw new Error('simulated stale File View product content failure');
 				},
 				postedMessages,
 				store,
@@ -407,6 +396,33 @@ describe('Bridge comm worker File View runtime', () => {
 		expect(postedMessages).toEqual([]);
 		expect(store.getState().availabilityByItemId.get('file-1')).toBe('loading');
 		expect(store.getState().availabilityByItemId.get('file-2')).toBe('loading');
+	});
+
+	test('drops a superseded descriptor attempt while selection and source epoch stay current', async () => {
+		// Arrange
+		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
+		const store = createSelectedFileViewRuntimeStore();
+		store.actions.applySelectedFact({ epoch: 7, itemId: 'file-1' });
+		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
+		let preparationCurrent = true;
+
+		// Act
+		await dispatchSelectedBridgeWorkerFileViewContentReady({
+			...makeDispatchProps({
+				contentRequests: [makeContentRequest('stale descriptor body\n')],
+				openContent: (descriptor) => {
+					preparationCurrent = false;
+					return completedContentStream(descriptor, contentTextForDescriptor(descriptor));
+				},
+				postedMessages,
+				store,
+			}),
+			isPreparationCurrent: () => preparationCurrent,
+		});
+
+		// Assert
+		expect(postedMessages).toEqual([]);
+		expect(store.getState().availabilityByItemId.get('file-1')).toBe('loading');
 	});
 
 	test('publishes unavailable when fetched File View content cannot plan a render job', async () => {
@@ -420,18 +436,12 @@ describe('Bridge comm worker File View runtime', () => {
 
 		await dispatchSelectedBridgeWorkerFileViewContentReady({
 			...makeDispatchProps({
-				contentRequestDescriptors: [
-					makeContentRequestDescriptor('hashless content cannot become ready\n', {
+				contentRequests: [
+					makeContentRequest('hashless content cannot become ready\n', {
 						omitContentHash: true,
 					}),
 				],
-				fetchContent: async (url: string): Promise<Response> => {
-					const descriptor = descriptorByUrl.get(url);
-					if (descriptor === undefined) {
-						throw new Error(`Unexpected File View content URL ${url}.`);
-					}
-					return new Response(descriptor.text);
-				},
+				openContent: registeredContentOpen(),
 				postedMessages,
 				store,
 			}),
@@ -441,7 +451,7 @@ describe('Bridge comm worker File View runtime', () => {
 		expect(postedMessages).toHaveLength(1);
 		expect(postedMessages[0]).toMatchObject({
 			message: {
-				kind: 'slicePatch',
+				kind: 'fileRenderPatch',
 				patches: [
 					{
 						slice: 'contentAvailability',
@@ -472,14 +482,10 @@ describe('Bridge comm worker File View runtime', () => {
 
 		await dispatchSelectedBridgeWorkerFileViewContentReady({
 			...makeDispatchProps({
-				contentRequestDescriptors: [makeContentRequestDescriptor('file body\n')],
-				fetchContent: async (url: string): Promise<Response> => {
+				contentRequests: [makeContentRequest('file body\n')],
+				openContent: (descriptor) => {
 					store.actions.applySelectedFact({ epoch: 8, itemId: 'file-2' });
-					const descriptor = descriptorByUrl.get(url);
-					if (descriptor === undefined) {
-						throw new Error(`Unexpected File View content URL ${url}.`);
-					}
-					return new Response(descriptor.text);
+					return completedContentStream(descriptor, contentTextForDescriptor(descriptor));
 				},
 				postedMessages,
 				store,
@@ -490,15 +496,15 @@ describe('Bridge comm worker File View runtime', () => {
 	});
 });
 
-const descriptorByUrl = new Map<string, { readonly text: string }>();
+const contentTextByDescriptorId = new Map<string, string>();
 
 type DispatchSelectedFileViewRuntimeProps = Parameters<
 	typeof dispatchSelectedBridgeWorkerFileViewContentReady
 >[0];
 
 interface MakeDispatchPropsOptions {
-	readonly contentRequestDescriptors: readonly BridgeWorkerFileViewContentRequestDescriptor[];
-	readonly fetchContent?: (url: string) => Promise<Response>;
+	readonly contentRequests: readonly BridgeCommWorkerFileViewContentRequest[];
+	readonly openContent: BridgeWorkerFileViewContentOpen;
 	readonly postedMessages: PostedBridgeWorkerRuntimeMessage[];
 	readonly store: BridgeCommWorkerStore;
 }
@@ -513,13 +519,14 @@ function makeDispatchProps(
 			maxBytes: 512 * 1024,
 			maxWindowLines: 50,
 		},
-		contentRequestDescriptors: options.contentRequestDescriptors,
+		contentRequests: options.contentRequests,
 		epoch: 7,
-		...(options.fetchContent === undefined ? {} : { fetchContent: options.fetchContent }),
 		itemId: 'file-1',
+		openContent: options.openContent,
 		port: makePostedMessagePort(options.postedMessages),
 		sequence: 12,
 		store: options.store,
+		workerDerivationEpoch: 17,
 	};
 }
 
@@ -547,22 +554,28 @@ function createSelectedFileViewRuntimeStore(): BridgeCommWorkerStore {
 function makeWorkerFileViewContentMetadata(
 	itemId: string,
 	props: {
-		readonly lineCount?: number;
 		readonly omitContentHash?: boolean;
+		readonly payloadLineCount?: number;
 		readonly sizeBytes?: number;
 	} = {},
 ): BridgeWorkerFileViewContentMetadata {
 	return {
+		metadataKind: 'fileView',
 		itemId,
 		path: 'Sources/App/FileView.swift',
 		language: 'swift',
 		cacheKey: `file-view:metadata-cache:${itemId}`,
 		sizeBytes: props.sizeBytes ?? 128,
-		contentHandle: `handle-${itemId}`,
 		descriptorId: `descriptor-${itemId}`,
-		...(props.omitContentHash === true ? {} : { contentHash: `sha256:${itemId}` }),
+		...(props.omitContentHash === true ? {} : { contentHash: 'a'.repeat(64) }),
+		encoding: 'utf-8',
+		endsMidLine: false,
+		endsWithNewline: true,
 		virtualizedExtentKind: 'exactLineCount',
-		lineCount: props.lineCount ?? 1,
+		payloadByteCount: props.sizeBytes ?? 128,
+		payloadLineCount: props.payloadLineCount ?? 1,
+		totalLineCount: props.payloadLineCount ?? 1,
+		truncationKind: 'none',
 		isBinary: false,
 		canFetchContent: true,
 	};
@@ -584,33 +597,85 @@ function makeWorkerReviewContentMetadata(itemId: string): BridgeWorkerReviewCont
 	};
 }
 
-function makeContentRequestDescriptor(
+function makeContentRequest(
 	text: string,
 	props: {
 		readonly maxBytes?: number;
 		readonly omitContentHash?: boolean;
 		readonly sizeBytes?: number;
 	} = {},
-): BridgeWorkerFileViewContentRequestDescriptor {
-	const descriptor: BridgeWorkerFileViewContentRequestDescriptor = {
+): BridgeCommWorkerFileViewContentRequest {
+	const encodedBytes = new TextEncoder().encode(text);
+	const maximumBytes = props.maxBytes ?? 4096;
+	const request: BridgeCommWorkerFileViewContentRequest = {
+		contentDescriptor: {
+			contentKind: 'file.content',
+			declaredByteLength: encodedBytes.byteLength,
+			descriptorId: 'descriptor-file-1',
+			encoding: 'utf-8',
+			expectedSha256: 'a'.repeat(64),
+			fileId: 'file-1',
+			maximumBytes,
+			source: {
+				repoId: '00000000-0000-4000-8000-000000000001',
+				rootRevisionToken: 'root-revision-file-1',
+				sourceCursor: 'cursor-file-1',
+				sourceId: 'source-file-1',
+				subscriptionGeneration: 7,
+				worktreeId: '00000000-0000-4000-8000-000000000002',
+			},
+			window: {
+				kind: 'prefix',
+				maximumBytes,
+				maximumLines: 10_000,
+				startByte: 0,
+			},
+		},
 		itemId: 'file-1',
 		path: 'Sources/App/FileView.swift',
-		handleId: 'handle-file-1',
-		descriptorId: 'descriptor-file-1',
-		resourceKind: 'worktree.fileContent',
-		resourceUrl:
-			'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?cursor=cursor-file-1&generation=7',
-		...(props.omitContentHash === true
-			? {}
-			: { contentHash: 'sha256:file-1', contentHashAlgorithm: 'sha256' }),
 		language: 'swift',
 		sizeBytes: props.sizeBytes ?? 128,
-		maxBytes: props.maxBytes ?? 4096,
-		isBinary: false,
 	};
-	descriptorByUrl.set(descriptor.resourceUrl, { text });
-	return descriptor;
+	contentTextByDescriptorId.set(request.contentDescriptor.descriptorId, text);
+	return request;
 }
+
+function registeredContentOpen(
+	openedDescriptorIds: string[] = [],
+): BridgeWorkerFileViewContentOpen {
+	return (descriptor) => {
+		openedDescriptorIds.push(descriptor.descriptorId);
+		return completedContentStream(descriptor, contentTextForDescriptor(descriptor));
+	};
+}
+
+function contentTextForDescriptor(descriptor: { readonly descriptorId: string }): string {
+	const text = contentTextByDescriptorId.get(descriptor.descriptorId);
+	if (text === undefined)
+		throw new Error(`Unexpected File View descriptor ${descriptor.descriptorId}.`);
+	return text;
+}
+
+function completedContentStream(
+	descriptor: { readonly descriptorId: string },
+	text: string,
+): ReturnType<BridgeWorkerFileViewContentOpen> {
+	return {
+		contentKind: 'file.content',
+		contentRequestId: `content-request-${descriptor.descriptorId}`,
+		frames: emptyContentFrames(),
+		terminal: Promise.resolve({
+			bytes: new TextEncoder().encode(text).buffer,
+			contentKind: 'file.content',
+			descriptorId: descriptor.descriptorId,
+			endOfSource: true,
+			kind: 'complete',
+			observedSha256: 'a'.repeat(64),
+		}),
+	};
+}
+
+async function* emptyContentFrames(): AsyncIterable<never> {}
 
 function makeNumberedFileText(lineCount: number): string {
 	return Array.from(

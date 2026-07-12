@@ -12,7 +12,10 @@ import {
 	type BridgeCommWorkerPreparationDrain,
 	type BridgeCommWorkerSchemeRpcCommandSender,
 } from '../core/comm-worker/bridge-comm-worker-runtime-protocol.js';
-import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
+import type {
+	BridgeWorkerMainToServerMessage,
+	BridgeWorkerServerToMainMessage,
+} from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeWorkerContentFetch } from '../core/comm-worker/bridge-worker-review-content-fetch.js';
 import type { BridgeIntakeFrame } from '../core/models/bridge-intake-frame.js';
 import type {
@@ -390,6 +393,7 @@ export function chunkedTextResponse(chunks: readonly string[]): Response {
 
 export interface InProcessBridgeReviewWorkerTransportFactoryOptions {
 	readonly fetchContent?: BridgeWorkerContentFetch;
+	readonly onWorkerCommand?: (message: BridgeWorkerMainToServerMessage) => void;
 	readonly sendSchemeRpcCommand?: BridgeCommWorkerSchemeRpcCommandSender;
 	readonly schemeRpcTimeoutMilliseconds?: number;
 }
@@ -481,6 +485,7 @@ export function createInProcessBridgeReviewWorkerTransportFactory(
 				if (message.command === 'reviewSourceUpdate') {
 					fixtureContentFetch.rememberContentDescriptors(message.contentRequestDescriptors);
 				}
+				options.onWorkerCommand?.(message);
 				if (listener === null) {
 					publishDegradedHealth('In-process bridge comm worker dispatch before listener.');
 					return;

@@ -24,9 +24,7 @@ extension WebKitSerializedTests {
             defer { controller.teardown() }
             var iterator = controller.runtime.subscribe().makeAsyncIterator()
 
-            await controller.dispatchIncomingSchemeCommand(
-                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
-            )
+            #expect(controller.handleBridgeReady())
 
             let payload = try loadFixture("valid/rpc-command-inbox-post.json")
             await controller.dispatchIncomingSchemeCommand(payload)
@@ -52,9 +50,7 @@ extension WebKitSerializedTests {
             defer { controller.teardown() }
             var iterator = controller.runtime.subscribe().makeAsyncIterator()
 
-            await controller.dispatchIncomingSchemeCommand(
-                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
-            )
+            #expect(controller.handleBridgeReady())
 
             let payload =
                 #"{"jsonrpc":"2.0","method":"inbox.post","params":{"title":"Fake","body":"Fake","paneId":"019DB51A-E1C5-75D1-9539-8F80D7F615F8"}}"#
@@ -74,9 +70,7 @@ extension WebKitSerializedTests {
             defer { controller.teardown() }
             var iterator = controller.runtime.subscribe().makeAsyncIterator()
 
-            await controller.dispatchIncomingSchemeCommand(
-                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
-            )
+            #expect(controller.handleBridgeReady())
 
             let longTitle = String(repeating: "T", count: AppPolicies.InboxNotification.maxTitleCharacters + 10)
             let longBody = String(repeating: "B", count: AppPolicies.InboxNotification.maxBodyCharacters + 10)
@@ -113,9 +107,7 @@ extension WebKitSerializedTests {
             var errorCode: Int?
             controller.schemeCommandDispatcher.onError = { code, _, _ in errorCode = code }
 
-            await controller.dispatchIncomingSchemeCommand(
-                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
-            )
+            #expect(controller.handleBridgeReady())
 
             await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"inbox.post","params":{"title":"   ","body":"ignored"},"id":1}"#
@@ -131,9 +123,7 @@ extension WebKitSerializedTests {
             var errorCode: Int?
             controller.schemeCommandDispatcher.onError = { code, _, _ in errorCode = code }
 
-            await controller.dispatchIncomingSchemeCommand(
-                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
-            )
+            #expect(controller.handleBridgeReady())
 
             for index in 0..<AppPolicies.InboxNotification.maxRPCPostsPerWindow {
                 await controller.dispatchIncomingSchemeCommand(

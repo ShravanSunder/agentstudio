@@ -5,34 +5,63 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 
 describe('Bridge file viewer source structure', () => {
-	test('keeps content body loading in the content controller hook', () => {
+	test('compile-deletes the legacy File product carrier and React lifecycle owners', () => {
+		const appDirectory = fileURLToPath(new URL('../app/', import.meta.url));
+		const fileViewerDirectory = fileURLToPath(new URL('./', import.meta.url));
+		const productionSources = [
+			...readSourceFilesInDirectory({
+				absoluteDirectory: appDirectory,
+				includeTestFiles: false,
+				relativeDirectory: 'app',
+			}),
+			...readSourceFilesInDirectory({
+				absoluteDirectory: fileViewerDirectory,
+				includeTestFiles: false,
+				relativeDirectory: 'file-viewer',
+			}),
+		];
+		const forbiddenOwners = [
+			'bridge-file-viewer-frame-controller',
+			'bridge-file-viewer-worktree-file-surface-transport',
+			'createBridgeAppNativeWorktreeFileBackend',
+			'useBridgeFileViewerContentController',
+			'useBridgeFileViewerDescriptorRequestController',
+			'useBridgeFileViewerFrameIntakeController',
+			'useBridgeFileViewerInitialSurfaceLoader',
+			'useBridgeFileViewerRecentlyUpdatedDemand',
+			'useBridgeFileViewerSelectionEffects',
+			'worktreeFileSurfaceTransport',
+		].flatMap((token): readonly string[] =>
+			productionSources
+				.filter((entry): boolean => entry.source.includes(token))
+				.map((entry): string => `${token}: ${entry.relativePath}`),
+		);
+
+		expect(forbiddenOwners).toEqual([]);
+	});
+
+	test('hard-cuts mounted File View from legacy frame and descriptor-request authority', () => {
 		const appSource = readFileSync(
 			fileURLToPath(new URL('./bridge-file-viewer-app.tsx', import.meta.url)),
 			'utf8',
 		);
-		const appPropsSource = readFileSync(
-			fileURLToPath(new URL('./bridge-file-viewer-app-props.ts', import.meta.url)),
-			'utf8',
-		);
-		const contentControllerSource = readFileSync(
-			fileURLToPath(new URL('./use-bridge-file-viewer-content-controller.ts', import.meta.url)),
-			'utf8',
-		);
+		const forbiddenMountedAuthority = [
+			'createBridgeFileViewerFrameApplier',
+			'useBridgeFileViewerContentController',
+			'useBridgeFileViewerDescriptorRequestController',
+			'useBridgeFileViewerFrameIntakeController',
+			'useBridgeFileViewerRecentlyUpdatedDemand',
+			'useBridgeFileViewerSelectionEffects',
+			'WorktreeFileProtocolFrame',
+			'WorktreeFileRuntimeFrameApplier',
+			'worktreeFileSurfaceTransport?.',
+			'requestFileDescriptor',
+			'runtime.openFile',
+			'result.content.readText',
+		].filter((token): boolean => appSource.includes(token));
 
-		expect(appSource).toContain('useBridgeFileViewerContentController');
-		expect(appSource).not.toContain('runtime.openFile');
-		expect(appSource).not.toContain('runtime.refreshOpenFile');
-		expect(appSource).not.toContain('useBridgeFileViewerBodyState');
-		expect(appSource).not.toContain('openFileBodyRef');
-		expect(appSource).not.toContain('clearOpenFileBody');
-		expect(appSource).not.toContain('clearProvisionalOpenFileBody');
-		expect(appSource).not.toContain('recordBridgeViewerFileOpenReadyTelemetrySample');
-		expect(appPropsSource).not.toContain('fileViewCommWorkerTransportFactory');
-		expect(contentControllerSource).not.toContain('runtime.openFile');
-		expect(contentControllerSource).not.toContain('result.content.readText');
-		expect(contentControllerSource).not.toContain('openFileBodyRef');
-		expect(contentControllerSource).not.toContain('clearOpenFileBody');
-		expect(contentControllerSource).not.toContain('clearProvisionalOpenFileBody');
+		expect(forbiddenMountedAuthority).toEqual([]);
+		expect(appSource).toContain('renderSnapshotController.fileDisplaySnapshot');
 	});
 
 	test('keeps visible viewport demand dispatch in a controller hook', () => {
@@ -46,6 +75,10 @@ describe('Bridge file viewer source structure', () => {
 			),
 			'utf8',
 		);
+		const renderSnapshotControllerSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-render-snapshot-controller.ts', import.meta.url)),
+			'utf8',
+		);
 
 		expect(appSource).toContain('useBridgeFileViewerVisibleDemandController');
 		expect(appSource).not.toContain('visibleItemIds');
@@ -57,52 +90,7 @@ describe('Bridge file viewer source structure', () => {
 		expect(visibleDemandControllerSource).not.toContain('runtime.dispatchDemandStimuli');
 		expect(visibleDemandControllerSource).not.toContain('WorktreeFileDemandStimulus');
 		expect(visibleDemandControllerSource).not.toContain('WorktreeFileSurfaceRuntime');
-	});
-
-	test('keeps recently-updated demand dispatch in its controller hook', () => {
-		const appSource = readFileSync(
-			fileURLToPath(new URL('./bridge-file-viewer-app.tsx', import.meta.url)),
-			'utf8',
-		);
-		const recentlyUpdatedDemandSource = readFileSync(
-			fileURLToPath(
-				new URL('./use-bridge-file-viewer-recently-updated-demand.ts', import.meta.url),
-			),
-			'utf8',
-		);
-
-		expect(appSource).toContain('useBridgeFileViewerRecentlyUpdatedDemand');
-		expect(appSource).not.toContain('WorktreeFileDemandStimulus');
-		expect(appSource).not.toContain('recentlyUpdatedFile');
-		expect(appSource).not.toContain('dispatchRecentlyUpdatedDescriptorDemand');
-		expect(appSource).not.toContain('dispatchPendingRecentlyUpdatedDescriptorDemand');
-		expect(recentlyUpdatedDemandSource).toContain('bridgeFileViewerRecentlyUpdatedEventName');
-		expect(recentlyUpdatedDemandSource).not.toContain('runtime.dispatchDemandStimuli');
-		expect(recentlyUpdatedDemandSource).not.toContain('WorktreeFileDemandStimulus');
-		expect(recentlyUpdatedDemandSource).not.toContain('WorktreeFileSurfaceRuntime');
-	});
-
-	test('keeps descriptor request replay logic in a controller hook', () => {
-		const appSource = readFileSync(
-			fileURLToPath(new URL('./bridge-file-viewer-app.tsx', import.meta.url)),
-			'utf8',
-		);
-		const descriptorRequestControllerSource = readFileSync(
-			fileURLToPath(
-				new URL('./use-bridge-file-viewer-descriptor-request-controller.ts', import.meta.url),
-			),
-			'utf8',
-		);
-
-		expect(appSource).toContain('useBridgeFileViewerDescriptorRequestController');
-		expect(appSource).not.toContain('canFetchWorktreeFileDescriptorContent');
-		expect(appSource).not.toContain('const openPendingSelectedDescriptor = useCallback');
-		expect(appSource).not.toContain('const requestFileDescriptor = useCallback');
-		expect(appSource).not.toContain('const requestFileDescriptorForDemand = useCallback');
-		expect(descriptorRequestControllerSource).toContain('canFetchWorktreeFileDescriptorContent');
-		expect(descriptorRequestControllerSource).toContain('openPendingSelectedDescriptor');
-		expect(descriptorRequestControllerSource).toContain('requestFileDescriptor');
-		expect(descriptorRequestControllerSource).toContain('requestFileDescriptorForDemand');
+		expect(renderSnapshotControllerSource).not.toContain('renderSnapshotStore.setLocalViewport');
 	});
 
 	test('keeps the browser worker transport seam instance scoped', () => {
@@ -136,24 +124,18 @@ describe('Bridge file viewer source structure', () => {
 			'utf8',
 		);
 
-		expect(appSource).toContain('useBridgeFileViewerFrameIntakeController');
+		expect(appSource).not.toContain('useBridgeFileViewerFrameIntakeController');
 		expect(appSource).not.toContain('applyFramesToRuntime');
 		expect(appSource).not.toContain('reconcileOpenFileStateWithFrames');
 	});
 
-	test('keeps File View frame intake free of the legacy fetch-capable runtime', () => {
+	test('keeps File View free of the legacy fetch-capable runtime', () => {
 		const appSource = readFileSync(
 			fileURLToPath(new URL('./bridge-file-viewer-app.tsx', import.meta.url)),
 			'utf8',
 		);
 		const stateSource = readFileSync(
 			fileURLToPath(new URL('./bridge-file-viewer-state.ts', import.meta.url)),
-			'utf8',
-		);
-		const frameIntakeSource = readFileSync(
-			fileURLToPath(
-				new URL('./use-bridge-file-viewer-frame-intake-controller.ts', import.meta.url),
-			),
 			'utf8',
 		);
 		const legacyRuntimePath = fileURLToPath(
@@ -163,45 +145,12 @@ describe('Bridge file viewer source structure', () => {
 		expect(existsSync(legacyRuntimePath)).toBe(false);
 		expect(appSource).not.toContain('createBridgeFileViewerRuntime');
 		expect(appSource).not.toContain('WorktreeFileSurfaceRuntime');
-		expect(frameIntakeSource).not.toContain('WorktreeFileSurfaceRuntime');
 		expect(stateSource).not.toContain('defaultFetchWorktreeFileResource');
 		expect(stateSource).not.toContain('loadBridgeTextResourceWithTiming');
 	});
 
-	test('keeps File View stale refresh retry ownership out of React', () => {
-		const appSource = readFileSync(
-			fileURLToPath(new URL('./bridge-file-viewer-app.tsx', import.meta.url)),
-			'utf8',
-		);
-		const contentControllerSource = readFileSync(
-			fileURLToPath(new URL('./use-bridge-file-viewer-content-controller.ts', import.meta.url)),
-			'utf8',
-		);
-		const stateSource = readFileSync(
-			fileURLToPath(new URL('./bridge-file-viewer-state.ts', import.meta.url)),
-			'utf8',
-		);
-		const worktreeSurfaceSource = readFileSync(
-			fileURLToPath(new URL('../worktree-file-surface/worktree-file-app.tsx', import.meta.url)),
-			'utf8',
-		);
-
-		expect(appSource).not.toContain('staleAutoRefreshGuardRef');
-		expect(appSource).not.toContain('staleAutoRefreshTimeoutRef');
-		expect(appSource).not.toContain('pendingRefreshFailureHandlerRef');
-		expect(contentControllerSource).not.toContain('setPendingRefreshFailureHandler');
-		expect(contentControllerSource).not.toContain('onRefreshFailure');
-		expect(stateSource).not.toContain('duplicate_stale_auto_refresh_failure');
-		expect(worktreeSurfaceSource).not.toContain('setTimeout');
-		expect(worktreeSurfaceSource).not.toContain('shouldAutoRefreshStaleOpenFile');
-	});
-
 	test('keeps Pierre runtime imports out of file viewer controller hooks', () => {
 		const controllerHookUrls = [
-			'./use-bridge-file-viewer-content-controller.ts',
-			'./use-bridge-file-viewer-descriptor-request-controller.ts',
-			'./use-bridge-file-viewer-frame-intake-controller.ts',
-			'./use-bridge-file-viewer-recently-updated-demand.ts',
 			'./use-bridge-file-viewer-visible-demand-controller.ts',
 			'./use-bridge-file-viewer-shell-model.ts',
 			'./use-bridge-file-viewer-store-bindings.ts',
@@ -220,10 +169,6 @@ describe('Bridge file viewer source structure', () => {
 
 	test('keeps file viewer controller hooks independent from visual adapter modules', () => {
 		const controllerHookUrls = [
-			'./use-bridge-file-viewer-content-controller.ts',
-			'./use-bridge-file-viewer-descriptor-request-controller.ts',
-			'./use-bridge-file-viewer-frame-intake-controller.ts',
-			'./use-bridge-file-viewer-recently-updated-demand.ts',
 			'./use-bridge-file-viewer-visible-demand-controller.ts',
 			'./use-bridge-file-viewer-shell-model.ts',
 			'./use-bridge-file-viewer-store-bindings.ts',
@@ -350,17 +295,17 @@ describe('Bridge file viewer source structure', () => {
 		expect(treePanelSource).not.toContain('border-l border-[var(--bridge-border-subtle)]');
 	});
 
-	test('keeps Pierre visible-demand publishing on ref-backed descriptor lookup', () => {
+	test('keeps Pierre visible-demand publishing on ref-backed worker display rows', () => {
 		const treeRuntimeSource = readFileSync(
 			fileURLToPath(new URL('./bridge-file-viewer-pierre-tree-runtime.ts', import.meta.url)),
 			'utf8',
 		);
 
-		expect(treeRuntimeSource).toContain('fileDescriptorByPathRef.current');
-		expect(treeRuntimeSource).not.toContain(
-			'const fileDescriptorByPath = props.fileDescriptorByPath;',
-		);
-		expect(treeRuntimeSource).not.toContain('fileDescriptorByPath,\\n\\t\\tmodel,');
+		expect(treeRuntimeSource).toContain('treeRowByPathRef.current.get');
+		expect(treeRuntimeSource).not.toContain('new Map(props.treeRows.map');
+		expect(treeRuntimeSource).not.toContain('.find(');
+		expect(treeRuntimeSource).not.toContain('fileDescriptorByPath');
+		expect(treeRuntimeSource).not.toContain('descriptorRefs');
 	});
 
 	test('keeps File View free of app-side Pierre scroll anchor workarounds', () => {
@@ -380,6 +325,28 @@ describe('Bridge file viewer source structure', () => {
 		expect(treeRuntimeSource).not.toContain('captureFirstVisiblePierreTreeRowAnchor');
 		expect(treeRuntimeSource).not.toContain('restorePierreTreeRowAnchor');
 		expect(treeRuntimeSource).not.toContain('anchor_workaround');
+	});
+
+	test('keeps mounted File query projection in the comm worker', () => {
+		const appSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-app.tsx', import.meta.url)),
+			'utf8',
+		);
+		const displayModelSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-display-model.ts', import.meta.url)),
+			'utf8',
+		);
+
+		expect(appSource).toContain('dispatchFileViewQueryFact');
+		expect(appSource).not.toContain('descriptorProjection');
+		expect(appSource).not.toMatch(/bridgeFileViewerDisplayModelForSnapshot\([^)]*,/u);
+		expect(displayModelSource).not.toContain('readonly paths: readonly string[]');
+		expect(displayModelSource).not.toContain('readonly treeRows:');
+		expect(displayModelSource).not.toContain('RegExp');
+		expect(displayModelSource).not.toContain('.toSorted(');
+		expect(displayModelSource).not.toContain('.filter(');
+		expect(displayModelSource).not.toContain('searchMode');
+		expect(displayModelSource).not.toContain('filterMode');
 	});
 
 	test('keeps Pierre tree runtime effects owned by the tree runtime hook', () => {
@@ -445,7 +412,7 @@ describe('Bridge file viewer source structure', () => {
 		expect(shellModelSource).not.toContain('selectedCodeViewItem');
 		expect(shellSource).toContain('selectedCodeViewItem');
 		expect(codePanelSource).toContain('selectedCodeViewItem');
-		expect(codeViewItemsSource).toContain('bridgeFileViewerSelectedCodeViewItemForPanelState');
+		expect(codeViewItemsSource).toContain('bridgeFileViewerCodeViewItemsForPanelState');
 		expect(appSource).toContain(
 			'selectedCodeViewItem={renderSnapshotController.selectedCodeViewItem}',
 		);
@@ -487,7 +454,7 @@ describe('Bridge file viewer source structure', () => {
 			'utf8',
 		);
 
-		expect(renderSnapshotControllerSource).toContain('publishOpenFileTerminalState');
+		expect(renderSnapshotControllerSource).not.toContain('publishOpenFileTerminalState');
 		expect(renderSnapshotControllerSource).not.toContain('payload: { state: terminalState.state }');
 	});
 
@@ -580,19 +547,16 @@ const excludedSourceDirectoryNames = new Set([
 ]);
 
 const treeRuntimeOwnershipNeedles = [
-	'prepareFileTreeInput',
 	'useFileTree({',
 	'bridgeViewerTreeUnsafeCSS',
 	'bridge-file-viewer-pierre-visible-demand',
 	'recordBridgeTreeScrollVisibleDemandTelemetrySample',
-	'model.resetPaths',
-	'model.batch',
 	'model.subscribe',
 	'model.scrollToPath',
 ] as const;
 
 const fileCodeViewItemOwnershipNeedles = [
-	'codeViewPlaceholderItemsForOpenFileState',
+	'bridgeFileViewerPlaceholderItemsForOpenState',
 	'contentBodyReservedForSelectedFileExtent',
 	'textPaddedToMinimumRenderedLineCount',
 	'renderedLineCountForPierreFileContent',

@@ -152,10 +152,15 @@ struct BridgeProductSessionReentrancyTests {
         let resyncToken = try #require(
             try await harness.begin(resyncRequest).executionToken
         )
-        let resyncResponse = try BridgeProductControlResponse.resyncAccepted(
+        let providerResyncResponse = try BridgeProductControlResponse.resyncAccepted(
             correlating: resyncRequest,
+            metadataStreamSequenceBarrier: 0,
             nextExpectedRequestSequence: 4,
-            resumeFromStreamSequence: 0
+            reconciliation: []
+        )
+        let resyncResponse = try await harness.session.authoritativeControlResponse(
+            token: resyncToken,
+            providerResponse: providerResyncResponse
         )
 
         // Act
@@ -175,7 +180,10 @@ struct BridgeProductSessionReentrancyTests {
         ) { _ in }
 
         // Assert
-        #expect(completionEffects.resync != nil)
+        guard case .resynced = completionEffects else {
+            Issue.record("Expected a committed session-resync effect")
+            return
+        }
         #expect((await harness.session.snapshot).workerDerivationEpochBySurface[.file] == 4)
         #expect(
             await harness.session.subscriptionSnapshot(
@@ -493,7 +501,7 @@ private func fileContentRequest(
             "declaredByteLength": 3,
             "descriptorId": "file-descriptor-\(identitySuffix)",
             "encoding": "utf-8",
-            "expectedSha256": null,
+            "expectedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
             "fileId": "file-\(identitySuffix)",
             "maximumBytes": 2097152,
             "source": {

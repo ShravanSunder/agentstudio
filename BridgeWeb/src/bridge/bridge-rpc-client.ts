@@ -1,10 +1,6 @@
 import { z } from 'zod';
 
 import { bridgeDemandLaneSchema } from '../core/models/bridge-demand-models.js';
-import {
-	worktreeFileDescriptorRequestSchema,
-	worktreeFileSurfaceSourceSpecSchema,
-} from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import {
 	bridgeTraceContextSchema,
@@ -86,29 +82,11 @@ const bridgeIntakeReadyCommandSchema = z
 	})
 	.strict();
 
-const worktreeFileOpenSourceStreamCommandSchema = z
-	.object({
-		id: bridgeRPCIdSchema,
-		method: z.literal('worktreeFileSurface.openSourceStream'),
-		params: worktreeFileSurfaceSourceSpecSchema,
-	})
-	.strict();
-
-const worktreeFileRequestFileDescriptorCommandSchema = z
-	.object({
-		id: bridgeRPCIdSchema,
-		method: z.literal('worktreeFileSurface.requestFileDescriptor'),
-		params: worktreeFileDescriptorRequestSchema,
-	})
-	.strict();
-
 export const bridgeRPCCommandSchema = z.discriminatedUnion('method', [
 	bridgeReviewMarkFileViewedCommandSchema,
 	bridgeMetadataInterestUpdateCommandSchema,
 	bridgeActiveViewerModeUpdateCommandSchema,
 	bridgeIntakeReadyCommandSchema,
-	worktreeFileOpenSourceStreamCommandSchema,
-	worktreeFileRequestFileDescriptorCommandSchema,
 ]);
 
 export type BridgeRPCCommand = z.infer<typeof bridgeRPCCommandSchema>;
@@ -130,8 +108,6 @@ export const bridgeRPCRequestEnvelopeSchema = z.discriminatedUnion('method', [
 	bridgeRPCRequestEnvelopeSchemaForCommand(bridgeMetadataInterestUpdateCommandSchema),
 	bridgeRPCRequestEnvelopeSchemaForCommand(bridgeActiveViewerModeUpdateCommandSchema),
 	bridgeRPCRequestEnvelopeSchemaForCommand(bridgeIntakeReadyCommandSchema),
-	bridgeRPCRequestEnvelopeSchemaForCommand(worktreeFileOpenSourceStreamCommandSchema),
-	bridgeRPCRequestEnvelopeSchemaForCommand(worktreeFileRequestFileDescriptorCommandSchema),
 ]);
 
 export type BridgeRPCRequestEnvelope = z.infer<typeof bridgeRPCRequestEnvelopeSchema>;

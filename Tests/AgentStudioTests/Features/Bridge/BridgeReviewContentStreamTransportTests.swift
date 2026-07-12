@@ -288,14 +288,18 @@ extension WebKitSerializedTests {
 
         private static func reviewMetadataSnapshotEnvelope(
             _ frameJSON: String
-        ) throws -> WorktreeFileIntakeEnvelope<ReviewMetadataSnapshotTestPayload> {
+        ) throws -> ReviewIntakeEnvelope<ReviewMetadataSnapshotTestPayload> {
             let frameData = try #require(frameJSON.data(using: .utf8))
             return try JSONDecoder().decode(
-                WorktreeFileIntakeEnvelope<ReviewMetadataSnapshotTestPayload>.self,
+                ReviewIntakeEnvelope<ReviewMetadataSnapshotTestPayload>.self,
                 from: frameData
             )
         }
     }
+}
+
+private struct ReviewIntakeEnvelope<Payload: Decodable>: Decodable {
+    let payload: Payload
 }
 
 private struct ReviewMetadataSnapshotTestPayload: Decodable {

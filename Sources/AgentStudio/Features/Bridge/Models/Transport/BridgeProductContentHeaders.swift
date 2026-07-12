@@ -238,12 +238,14 @@ struct BridgeProductContentDataHeader: Codable, Equatable, Sendable {
 struct BridgeProductContentEndHeader: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case contentSequence
+        case endOfSource
         case kind
         case observedByteLength
         case observedSha256
     }
 
     let contentSequence: Int
+    let endOfSource: Bool
     let observedByteLength: Int
     let observedSha256: String
 
@@ -261,6 +263,7 @@ struct BridgeProductContentEndHeader: Codable, Equatable, Sendable {
                 codingPath: decoder.codingPath
             )
         }
+        self.endOfSource = try container.decode(Bool.self, forKey: .endOfSource)
         self.observedByteLength = try container.decode(Int.self, forKey: .observedByteLength)
         self.observedSha256 = try container.decode(String.self, forKey: .observedSha256)
         try validateContentProgressSequence(contentSequence, codingPath: decoder.codingPath)
@@ -284,6 +287,7 @@ struct BridgeProductContentEndHeader: Codable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(contentSequence, forKey: .contentSequence)
+        try container.encode(endOfSource, forKey: .endOfSource)
         try container.encode("content.end", forKey: .kind)
         try container.encode(observedByteLength, forKey: .observedByteLength)
         try container.encode(observedSha256, forKey: .observedSha256)
@@ -454,6 +458,7 @@ struct BridgeProductContentCompleteTerminal: Equatable, Sendable {
     let bytes: Data
     let contentKind: BridgeProductContentKind
     let descriptorId: String
+    let endOfSource: Bool
     let observedSha256: String
 }
 

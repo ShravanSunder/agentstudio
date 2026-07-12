@@ -1,27 +1,33 @@
-import { parseBridgeResourceUrl } from '../../bridge/bridge-resource-url.js';
-import { readBridgeTextResourceStream } from '../resources/bridge-resource-stream.js';
-import type { BridgeWorkerFileViewContentRequestDescriptor } from './bridge-worker-contracts.js';
-import { bridgeWorkerFileViewContentRequestDescriptorSchema } from './bridge-worker-contracts.js';
-import type { BridgeWorkerContentFetch } from './bridge-worker-review-content-fetch.js';
+import type { BridgeCommWorkerFileViewContentRequest } from './bridge-comm-worker-file-metadata-projection.js';
+import {
+	bridgeProductFileContentDescriptorSchema,
+	type BridgeProductFileContentDescriptor,
+} from './bridge-product-content-contracts.js';
+import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
+
+export type BridgeWorkerFileViewContentOpen = (
+	descriptor: BridgeProductFileContentDescriptor,
+	abortSignal: AbortSignal,
+) => BridgeProductContentStream<'file.content'>;
 
 export interface FetchBridgeWorkerFileViewContentResourceProps {
-	readonly descriptor: BridgeWorkerFileViewContentRequestDescriptor;
-	readonly fetchContent?: BridgeWorkerContentFetch;
+	readonly contentRequest: BridgeCommWorkerFileViewContentRequest;
+	readonly isBinary?: boolean;
+	readonly openContent: BridgeWorkerFileViewContentOpen;
 	readonly signal?: AbortSignal;
 }
 
 export interface BridgeWorkerFetchedFileViewContentResource {
-	readonly itemId: string;
-	readonly path: string;
-	readonly handleId: string;
-	readonly descriptorId: string;
-	readonly resourceKind: 'worktree.fileContent';
-	readonly contentHash?: string | undefined;
-	readonly contentHashAlgorithm?: string | undefined;
-	readonly language: string | null;
-	readonly sizeBytes: number;
-	readonly maxBytes: number;
 	readonly byteLength: number;
+	readonly contentHash: string;
+	readonly contentHashAlgorithm: 'sha256';
+	readonly descriptorId: string;
+	readonly itemId: string;
+	readonly language: string | null;
+	readonly maxBytes: number;
+	readonly path: string;
+	readonly resourceKind: 'file.content';
+	readonly sizeBytes: number;
 	readonly text: string;
 	readonly textBytes: ArrayBuffer;
 }
@@ -29,52 +35,51 @@ export interface BridgeWorkerFetchedFileViewContentResource {
 export async function fetchBridgeWorkerFileViewContentResource(
 	props: FetchBridgeWorkerFileViewContentResourceProps,
 ): Promise<BridgeWorkerFetchedFileViewContentResource> {
-	const descriptor = bridgeWorkerFileViewContentRequestDescriptorSchema.parse(props.descriptor);
-	if (descriptor.isBinary) {
+	if (props.isBinary === true) {
 		throw new Error('Bridge worker File View content fetch cannot load binary descriptors.');
 	}
-	assertDescriptorResourceUrl(descriptor);
-	const requestInit = props.signal === undefined ? undefined : { signal: props.signal };
-	const response = await (props.fetchContent ?? fetch)(descriptor.resourceUrl, requestInit);
-	if (!response.ok) {
-		throw new Error(`Bridge worker File View content request failed: ${response.status}.`);
+	const descriptor = bridgeProductFileContentDescriptorSchema.parse(
+		props.contentRequest.contentDescriptor,
+	);
+	const abortSignal = props.signal ?? new AbortController().signal;
+	const contentStream = props.openContent(descriptor, abortSignal);
+	const [, terminal] = await Promise.all([
+		drainBridgeProductContentFrames(contentStream),
+		contentStream.terminal,
+	]);
+	if (terminal.kind === 'error') {
+		throw new Error(
+			terminal.safeMessage ?? `Bridge worker File View content failed: ${terminal.code}.`,
+		);
 	}
-	const streamedText = await readBridgeTextResourceStream(response, {
-		maxBytes: descriptor.maxBytes,
-		...(props.signal === undefined ? {} : { signal: props.signal }),
-	});
-	const text = streamedText.readText();
-	const textBytes = streamedText.copyBytes();
+	if (terminal.kind === 'reset') {
+		throw new Error(`Bridge worker File View content reset: ${terminal.reason}.`);
+	}
+	if (terminal.descriptorId !== descriptor.descriptorId) {
+		throw new Error('Bridge worker File View content terminal descriptor does not match demand.');
+	}
+	const text = new TextDecoder('utf-8', { fatal: true }).decode(terminal.bytes);
 	return {
-		itemId: descriptor.itemId,
-		path: descriptor.path,
-		handleId: descriptor.handleId,
+		byteLength: terminal.bytes.byteLength,
+		contentHash: terminal.observedSha256,
+		contentHashAlgorithm: 'sha256',
 		descriptorId: descriptor.descriptorId,
-		resourceKind: 'worktree.fileContent',
-		...(descriptor.contentHash === undefined ? {} : { contentHash: descriptor.contentHash }),
-		...(descriptor.contentHashAlgorithm === undefined
-			? {}
-			: { contentHashAlgorithm: descriptor.contentHashAlgorithm }),
-		language: descriptor.language,
-		sizeBytes: descriptor.sizeBytes,
-		maxBytes: descriptor.maxBytes,
-		byteLength: streamedText.byteLength,
+		itemId: props.contentRequest.itemId,
+		language: props.contentRequest.language,
+		maxBytes: descriptor.maximumBytes,
+		path: props.contentRequest.path,
+		resourceKind: 'file.content',
+		sizeBytes: props.contentRequest.sizeBytes,
 		text,
-		textBytes,
+		textBytes: terminal.bytes,
 	};
 }
 
-function assertDescriptorResourceUrl(
-	descriptor: BridgeWorkerFileViewContentRequestDescriptor,
-): void {
-	const parsedResourceUrl = parseBridgeResourceUrl(descriptor.resourceUrl);
-	if (
-		parsedResourceUrl?.kind !== 'worktreeResource' ||
-		parsedResourceUrl.resourceKind !== 'worktree.fileContent' ||
-		descriptor.resourceKind !== 'worktree.fileContent' ||
-		parsedResourceUrl.resourceId !== descriptor.descriptorId ||
-		parsedResourceUrl.canonicalUrl !== descriptor.resourceUrl
-	) {
-		throw new Error('Bridge worker File View content descriptor resource URL is invalid.');
+async function drainBridgeProductContentFrames(
+	contentStream: BridgeProductContentStream<'file.content'>,
+): Promise<void> {
+	for await (const frame of contentStream.frames) {
+		// The shared transport validates and assembles ordered content into its terminal result.
+		void frame;
 	}
 }

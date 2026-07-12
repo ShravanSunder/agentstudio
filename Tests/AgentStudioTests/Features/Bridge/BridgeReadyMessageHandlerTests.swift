@@ -36,11 +36,11 @@ final class BridgeReadyMessageHandlerTests {
     @Test
     func decodesMalformedReadyBootstrapAsInvalidRequest() {
         #expect(
-            BridgeReadyMessageHandler.decodeReadyBootstrapMessage(
+            BridgeReadyMessageHandler.decodeBootstrapMessage(
                 from: #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#)
                 == .invalid(id: nil, message: "Invalid request"))
         #expect(
-            BridgeReadyMessageHandler.decodeReadyBootstrapMessage(
+            BridgeReadyMessageHandler.decodeBootstrapMessage(
                 from: #"{"jsonrpc":"2.0","id":true,"method":"bridge.ready","params":{}}"#)
                 == .invalid(id: nil, message: "Invalid request: invalid id"))
     }
@@ -48,13 +48,45 @@ final class BridgeReadyMessageHandlerTests {
     @Test
     func rejectsReadyBootstrapWithExtraFieldsOrParams() {
         #expect(
-            BridgeReadyMessageHandler.decodeReadyBootstrapMessage(
+            BridgeReadyMessageHandler.decodeBootstrapMessage(
                 from: #"{"jsonrpc":"2.0","id":"ready-1","method":"bridge.ready","params":{"unexpected":true}}"#)
                 == .invalid(id: "ready-1", message: "Invalid request"))
         #expect(
-            BridgeReadyMessageHandler.decodeReadyBootstrapMessage(
+            BridgeReadyMessageHandler.decodeBootstrapMessage(
                 from:
                     #"{"jsonrpc":"2.0","id":"ready-1","method":"bridge.ready","params":{},"extra":true}"#
             ) == .invalid(id: "ready-1", message: "Invalid request"))
+    }
+
+    @Test
+    func acceptsClosedProductSessionBootstrapRequests() {
+        #expect(
+            BridgeReadyMessageHandler.decodeBootstrapMessage(
+                from:
+                    #"{"jsonrpc":"2.0","id":"bootstrap-1","method":"bridge.productSession.bootstrap","params":{"reason":"initial"}}"#
+            ) == .productSessionBootstrap(requestId: "bootstrap-1", reason: .initial)
+        )
+        #expect(
+            BridgeReadyMessageHandler.decodeBootstrapMessage(
+                from:
+                    #"{"jsonrpc":"2.0","id":"bootstrap-2","method":"bridge.productSession.bootstrap","params":{"reason":"workerReplacement"}}"#
+            ) == .productSessionBootstrap(requestId: "bootstrap-2", reason: .workerReplacement)
+        )
+    }
+
+    @Test
+    func rejectsOpenEndedProductSessionBootstrapRequests() {
+        #expect(
+            BridgeReadyMessageHandler.decodeBootstrapMessage(
+                from:
+                    #"{"jsonrpc":"2.0","id":"bootstrap-1","method":"bridge.productSession.bootstrap","params":{"reason":"pageReload"}}"#
+            ) == .invalid(id: "bootstrap-1", message: "Invalid request")
+        )
+        #expect(
+            BridgeReadyMessageHandler.decodeBootstrapMessage(
+                from:
+                    #"{"jsonrpc":"2.0","id":"bootstrap-1","method":"bridge.productSession.bootstrap","params":{"reason":"initial","extra":true}}"#
+            ) == .invalid(id: "bootstrap-1", message: "Invalid request")
+        )
     }
 }

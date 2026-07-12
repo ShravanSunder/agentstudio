@@ -349,6 +349,7 @@ final class BridgeProductContentStreamValidator {
                 bytes: completedData,
                 contentKind: acceptedHeader.identity.contentKind,
                 descriptorId: acceptedHeader.identity.descriptorId,
+                endOfSource: header.endOfSource,
                 observedSha256: observedSha256
             )
         )

@@ -2,10 +2,12 @@ import Foundation
 
 enum BridgeProductContentKind: String, Codable, Equatable, Sendable {
     case fileContent = "file.content"
+    case reviewContent = "review.content"
 
     var surface: BridgeProductSurface {
         switch self {
         case .fileContent: .file
+        case .reviewContent: .review
         }
     }
 }
@@ -20,6 +22,12 @@ struct BridgeProductFileContentWindow: Codable, Equatable, Sendable {
 
     let maximumBytes: Int
     let maximumLines: Int
+
+    init(maximumBytes: Int, maximumLines: Int) throws {
+        self.maximumBytes = maximumBytes
+        self.maximumLines = maximumLines
+        try validate(codingPath: [])
+    }
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
@@ -42,27 +50,31 @@ struct BridgeProductFileContentWindow: Codable, Equatable, Sendable {
                 codingPath: decoder.codingPath
             )
         }
+        try validate(codingPath: decoder.codingPath)
+    }
+
+    private func validate(codingPath: [any CodingKey]) throws {
         try BridgeProductContractDecoding.validatePositive(
             maximumBytes,
             name: "maximumBytes",
-            codingPath: decoder.codingPath
+            codingPath: codingPath
         )
         try BridgeProductContractDecoding.validateMaximum(
             maximumBytes,
             maximum: BridgeProductWireContract.maximumContentBytes,
             name: "maximumBytes",
-            codingPath: decoder.codingPath
+            codingPath: codingPath
         )
         try BridgeProductContractDecoding.validatePositive(
             maximumLines,
             name: "maximumLines",
-            codingPath: decoder.codingPath
+            codingPath: codingPath
         )
         try BridgeProductContractDecoding.validateMaximum(
             maximumLines,
             maximum: BridgeProductWireContract.maximumContentLines,
             name: "maximumLines",
-            codingPath: decoder.codingPath
+            codingPath: codingPath
         )
     }
 
@@ -88,13 +100,32 @@ struct BridgeProductFileContentDescriptor: Codable, Equatable, Sendable {
         case window
     }
 
-    let declaredByteLength: Int?
+    let declaredByteLength: Int
     let descriptorId: String
-    let expectedSha256: String?
+    let expectedSha256: String
     let fileId: String
     let maximumBytes: Int
     let source: BridgeProductFileSourceIdentity
     let window: BridgeProductFileContentWindow
+
+    init(
+        declaredByteLength: Int,
+        descriptorId: String,
+        expectedSha256: String,
+        fileId: String,
+        maximumBytes: Int,
+        source: BridgeProductFileSourceIdentity,
+        window: BridgeProductFileContentWindow
+    ) throws {
+        self.declaredByteLength = declaredByteLength
+        self.descriptorId = descriptorId
+        self.expectedSha256 = expectedSha256
+        self.fileId = fileId
+        self.maximumBytes = maximumBytes
+        self.source = source
+        self.window = window
+        try validate(codingPath: [])
+    }
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
@@ -109,12 +140,7 @@ struct BridgeProductFileContentDescriptor: Codable, Equatable, Sendable {
                 codingPath: decoder.codingPath
             )
         }
-        self.declaredByteLength = try BridgeProductContractDecoding.decodeRequiredNullable(
-            Int.self,
-            forKey: .declaredByteLength,
-            from: container,
-            codingPath: decoder.codingPath
-        )
+        self.declaredByteLength = try container.decode(Int.self, forKey: .declaredByteLength)
         self.descriptorId = try container.decode(String.self, forKey: .descriptorId)
         guard try container.decode(String.self, forKey: .encoding) == "utf-8" else {
             throw BridgeProductContractDecoding.invalidValue(
@@ -122,56 +148,51 @@ struct BridgeProductFileContentDescriptor: Codable, Equatable, Sendable {
                 codingPath: decoder.codingPath
             )
         }
-        self.expectedSha256 = try BridgeProductContractDecoding.decodeRequiredNullable(
-            String.self,
-            forKey: .expectedSha256,
-            from: container,
-            codingPath: decoder.codingPath
-        )
+        self.expectedSha256 = try container.decode(String.self, forKey: .expectedSha256)
         self.fileId = try container.decode(String.self, forKey: .fileId)
         self.maximumBytes = try container.decode(Int.self, forKey: .maximumBytes)
         self.source = try container.decode(BridgeProductFileSourceIdentity.self, forKey: .source)
         self.window = try container.decode(BridgeProductFileContentWindow.self, forKey: .window)
 
-        if let declaredByteLength {
-            try BridgeProductContractDecoding.validateNonnegative(
-                declaredByteLength,
-                name: "declaredByteLength",
-                codingPath: decoder.codingPath
-            )
-            try BridgeProductContractDecoding.validateMaximum(
-                declaredByteLength,
-                maximum: BridgeProductWireContract.maximumContentBytes,
-                name: "declaredByteLength",
-                codingPath: decoder.codingPath
-            )
-        }
-        try BridgeProductContractDecoding.validateIdentifier(descriptorId, codingPath: decoder.codingPath)
-        if let expectedSha256 {
-            try BridgeProductContractDecoding.validateSHA256(expectedSha256, codingPath: decoder.codingPath)
-        }
-        try BridgeProductContractDecoding.validateIdentifier(fileId, codingPath: decoder.codingPath)
+        try validate(codingPath: decoder.codingPath)
+    }
+
+    private func validate(codingPath: [any CodingKey]) throws {
+        try BridgeProductContractDecoding.validateNonnegative(
+            declaredByteLength,
+            name: "declaredByteLength",
+            codingPath: codingPath
+        )
+        try BridgeProductContractDecoding.validateMaximum(
+            declaredByteLength,
+            maximum: BridgeProductWireContract.maximumContentBytes,
+            name: "declaredByteLength",
+            codingPath: codingPath
+        )
+        try BridgeProductContractDecoding.validateIdentifier(descriptorId, codingPath: codingPath)
+        try BridgeProductContractDecoding.validateSHA256(expectedSha256, codingPath: codingPath)
+        try BridgeProductContractDecoding.validateIdentifier(fileId, codingPath: codingPath)
         try BridgeProductContractDecoding.validatePositive(
             maximumBytes,
             name: "maximumBytes",
-            codingPath: decoder.codingPath
+            codingPath: codingPath
         )
         try BridgeProductContractDecoding.validateMaximum(
             maximumBytes,
             maximum: BridgeProductWireContract.maximumContentBytes,
             name: "maximumBytes",
-            codingPath: decoder.codingPath
+            codingPath: codingPath
         )
-        guard declaredByteLength.map({ $0 <= maximumBytes }) ?? true else {
+        guard declaredByteLength <= maximumBytes else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Bridge product declared content length exceeds its maximum",
-                codingPath: decoder.codingPath
+                codingPath: codingPath
             )
         }
         guard window.maximumBytes == maximumBytes else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Bridge product content window must equal its request maximum",
-                codingPath: decoder.codingPath
+                codingPath: codingPath
             )
         }
     }
@@ -244,6 +265,7 @@ struct BridgeProductFileContentIdentity: Codable, Equatable, Sendable {
 
 enum BridgeProductContentIdentity: Codable, Equatable, Sendable {
     case fileContent(BridgeProductFileContentIdentity)
+    case reviewContent(BridgeProductReviewContentIdentity)
 
     private enum CodingKeys: String, CodingKey {
         case contentKind
@@ -252,6 +274,7 @@ enum BridgeProductContentIdentity: Codable, Equatable, Sendable {
     var contentKind: BridgeProductContentKind {
         switch self {
         case .fileContent: .fileContent
+        case .reviewContent: .reviewContent
         }
     }
 
@@ -260,6 +283,14 @@ enum BridgeProductContentIdentity: Codable, Equatable, Sendable {
     var descriptorId: String {
         switch self {
         case .fileContent(let identity): identity.descriptorId
+        case .reviewContent(let identity): identity.descriptorId
+        }
+    }
+
+    var maximumBytes: Int {
+        switch self {
+        case .fileContent(let identity): identity.window.maximumBytes
+        case .reviewContent(let identity): identity.window.maximumBytes
         }
     }
 
@@ -268,12 +299,16 @@ enum BridgeProductContentIdentity: Codable, Equatable, Sendable {
         switch try container.decode(BridgeProductContentKind.self, forKey: .contentKind) {
         case .fileContent:
             self = .fileContent(try BridgeProductFileContentIdentity(from: decoder))
+        case .reviewContent:
+            self = .reviewContent(try BridgeProductReviewContentIdentity(from: decoder))
         }
     }
 
     func encode(to encoder: Encoder) throws {
         switch self {
         case .fileContent(let identity):
+            try identity.encode(to: encoder)
+        case .reviewContent(let identity):
             try identity.encode(to: encoder)
         }
     }
@@ -291,32 +326,6 @@ struct BridgeProductContentAdmission: Equatable, Sendable {
     let wireVersion: Int
     let workerDerivationEpoch: Int
     let workerInstanceId: String
-
-    fileprivate init(
-        contentKind: BridgeProductContentKind,
-        contentRequestId: String,
-        declaredByteLength: Int?,
-        expectedSha256: String?,
-        identity: BridgeProductContentIdentity,
-        leaseId: String,
-        maximumBytes: Int,
-        paneSessionId: String,
-        wireVersion: Int,
-        workerDerivationEpoch: Int,
-        workerInstanceId: String
-    ) {
-        self.contentKind = contentKind
-        self.contentRequestId = contentRequestId
-        self.declaredByteLength = declaredByteLength
-        self.expectedSha256 = expectedSha256
-        self.identity = identity
-        self.leaseId = leaseId
-        self.maximumBytes = maximumBytes
-        self.paneSessionId = paneSessionId
-        self.wireVersion = wireVersion
-        self.workerDerivationEpoch = workerDerivationEpoch
-        self.workerInstanceId = workerInstanceId
-    }
 }
 
 struct BridgeProductFileContentRequest: Codable, Equatable, Sendable {
@@ -413,6 +422,7 @@ struct BridgeProductFileContentRequest: Codable, Equatable, Sendable {
 
 enum BridgeProductContentRequest: Codable, Equatable, Sendable {
     case fileContent(BridgeProductFileContentRequest)
+    case reviewContent(BridgeProductReviewContentRequest)
 
     private enum CodingKeys: String, CodingKey {
         case contentKind
@@ -423,12 +433,14 @@ enum BridgeProductContentRequest: Codable, Equatable, Sendable {
     var surface: BridgeProductSurface {
         switch self {
         case .fileContent: .file
+        case .reviewContent: .review
         }
     }
 
     var admission: BridgeProductContentAdmission {
         switch self {
         case .fileContent(let request): request.admission
+        case .reviewContent(let request): request.admission
         }
     }
 
@@ -437,12 +449,16 @@ enum BridgeProductContentRequest: Codable, Equatable, Sendable {
         switch try container.decode(BridgeProductContentKind.self, forKey: .contentKind) {
         case .fileContent:
             self = .fileContent(try BridgeProductFileContentRequest(from: decoder))
+        case .reviewContent:
+            self = .reviewContent(try BridgeProductReviewContentRequest(from: decoder))
         }
     }
 
     func encode(to encoder: Encoder) throws {
         switch self {
         case .fileContent(let request):
+            try request.encode(to: encoder)
+        case .reviewContent(let request):
             try request.encode(to: encoder)
         }
     }

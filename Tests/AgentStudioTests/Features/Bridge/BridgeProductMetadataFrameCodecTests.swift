@@ -542,6 +542,15 @@ struct BridgeProductMetadataFrameCodecTests {
         event: BridgeProductSubscriptionData,
         contentRequests: [[String: Any]]
     ) throws {
+        let mismatchedGenerationSubscription = try BridgeProductSubscriptionFrameCorrelation(
+            cursor: subscription.cursor,
+            interestRevision: subscription.interestRevision,
+            interestSha256: subscription.interestSha256,
+            sourceGeneration: event.sourceGeneration + 1,
+            subscriptionId: subscription.subscriptionId,
+            subscriptionKind: subscription.subscriptionKind,
+            workerDerivationEpoch: subscription.workerDerivationEpoch
+        )
         let fileSubscription = try BridgeProductSubscriptionFrameCorrelation(
             cursor: nil,
             interestRevision: 0,
@@ -556,6 +565,15 @@ struct BridgeProductMetadataFrameCodecTests {
                 stream: stream,
                 streamSequence: 8,
                 subscription: fileSubscription,
+                subscriptionSequence: 1,
+                data: event
+            )
+        }
+        #expect(throws: BridgeProductMetadataFrameFactoryError.subscriptionDataSourceGenerationMismatch) {
+            _ = try BridgeProductMetadataFrame.subscriptionData(
+                stream: stream,
+                streamSequence: 8,
+                subscription: mismatchedGenerationSubscription,
                 subscriptionSequence: 1,
                 data: event
             )

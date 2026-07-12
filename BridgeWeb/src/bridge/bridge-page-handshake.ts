@@ -1,5 +1,10 @@
 import { z } from 'zod';
 
+import { BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH } from '../core/comm-worker/bridge-product-contract-primitives.js';
+import {
+	bridgeProductSessionBootstrapSchema,
+	type BridgeProductSessionBootstrap,
+} from '../core/comm-worker/bridge-product-session-contracts.js';
 import {
 	decodeBridgeTelemetryBootstrapConfig,
 	type BridgeTelemetryBootstrapConfig,
@@ -14,6 +19,7 @@ type BridgeHandshakeTarget = Pick<
 export interface BridgePageHandshakeSession {
 	readonly getPushNonce: () => string | null;
 	readonly getTelemetryConfig: () => BridgeTelemetryBootstrapConfig | null;
+	readonly requestProductSessionReplacement: () => void;
 	readonly uninstall: () => void;
 }
 
@@ -24,6 +30,10 @@ export interface BridgePageReadyError {
 }
 
 export interface InstallBridgePageHandshakeSessionProps {
+	readonly onProductSessionBootstrap?: (bootstrap: {
+		readonly bootstrap: BridgeProductSessionBootstrap;
+		readonly productCapability: ArrayBuffer;
+	}) => void;
 	readonly onReadyError?: (error: BridgePageReadyError) => void;
 	readonly onTelemetryConfig?: (telemetryConfig: BridgeTelemetryBootstrapConfig) => void;
 	readonly onReady?: () => void;
@@ -61,6 +71,8 @@ export function installBridgePageHandshakeSession(
 	let isInstalled = true;
 	let pushNonce: string | null = null;
 	let telemetryConfig: BridgeTelemetryBootstrapConfig | null = null;
+	const deliveredProductWorkerInstanceIds = new Set<string>();
+	const pendingProductBootstrapRequestIds = new Set<string>();
 	let readyRequestId: string | null = null;
 	let didResolveReadyRequest = false;
 	let readyAcknowledgementTimeout: ReturnType<typeof globalThis.setTimeout> | null = null;
@@ -144,28 +156,90 @@ export function installBridgePageHandshakeSession(
 			);
 		});
 	};
+	const handleProductSessionBootstrap = (event: Event): void => {
+		if (!('detail' in event)) {
+			return;
+		}
+		const detail = event.detail;
+		if (
+			typeof detail !== 'object' ||
+			detail === null ||
+			!('requestId' in detail) ||
+			!('bootstrap' in detail) ||
+			!('productCapability' in detail)
+		) {
+			return;
+		}
+		const parsedBootstrap = bridgeProductSessionBootstrapSchema.safeParse(detail.bootstrap);
+		if (
+			typeof detail.requestId !== 'string' ||
+			!pendingProductBootstrapRequestIds.delete(detail.requestId) ||
+			!parsedBootstrap.success ||
+			!(detail.productCapability instanceof ArrayBuffer) ||
+			detail.productCapability.byteLength !== BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH
+		) {
+			return;
+		}
+		if (deliveredProductWorkerInstanceIds.has(parsedBootstrap.data.workerInstanceId)) {
+			return;
+		}
+		deliveredProductWorkerInstanceIds.add(parsedBootstrap.data.workerInstanceId);
+		props.onProductSessionBootstrap?.({
+			bootstrap: parsedBootstrap.data,
+			productCapability: detail.productCapability,
+		});
+	};
+	const requestProductSessionBootstrap = (reason: 'initial' | 'workerReplacement'): void => {
+		if (!isInstalled) {
+			return;
+		}
+		const requestId = createProductSessionBootstrapRequestId();
+		pendingProductBootstrapRequestIds.add(requestId);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_product_session_bootstrap_request', {
+				detail: { reason, requestId },
+			}),
+		);
+	};
 
 	target.addEventListener('__bridge_ready_ack', handleReadyAcknowledgement);
 	target.addEventListener('__bridge_handshake', handleHandshake);
+	target.addEventListener('__bridge_product_session_bootstrap', handleProductSessionBootstrap);
+	requestProductSessionBootstrap('initial');
 	target.dispatchEvent(new CustomEvent('__bridge_handshake_request'));
 
 	return {
 		getPushNonce: (): string | null => pushNonce,
 		getTelemetryConfig: (): BridgeTelemetryBootstrapConfig | null => telemetryConfig,
+		requestProductSessionReplacement: (): void => {
+			requestProductSessionBootstrap('workerReplacement');
+		},
 		uninstall: (): void => {
 			isInstalled = false;
+			pendingProductBootstrapRequestIds.clear();
 			clearReadyAcknowledgementTimeout();
 			target.removeEventListener('__bridge_ready_ack', handleReadyAcknowledgement);
 			target.removeEventListener('__bridge_handshake', handleHandshake);
+			target.removeEventListener(
+				'__bridge_product_session_bootstrap',
+				handleProductSessionBootstrap,
+			);
 		},
 	};
 }
 
 let bridgeReadyRequestSequence = 0;
+let productSessionBootstrapRequestSequence = 0;
 
 function createBridgeReadyRequestId(): string {
 	bridgeReadyRequestSequence = (bridgeReadyRequestSequence + 1) % Number.MAX_SAFE_INTEGER;
 	return `bridge-ready-${Date.now().toString(36)}-${bridgeReadyRequestSequence.toString(36)}`;
+}
+
+function createProductSessionBootstrapRequestId(): string {
+	productSessionBootstrapRequestSequence =
+		(productSessionBootstrapRequestSequence + 1) % Number.MAX_SAFE_INTEGER;
+	return `bridge-product-bootstrap-${Date.now().toString(36)}-${productSessionBootstrapRequestSequence.toString(36)}`;
 }
 
 function extractPushNonce(event: Event): string | null {

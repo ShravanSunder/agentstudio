@@ -123,7 +123,7 @@ struct AgentStudioIPCBridgeServiceTests {
         let content = try decodeResponseResult(IPCBridgeContentGetResult.self, from: contentResponse)
         #expect(content.paneId == paneId)
         #expect(content.handle.handleId == "handle-head")
-        #expect(content.handle.resourceUrl == "agentstudio://resource/review/content/handle-head?generation=1")
+        #expect(content.handle.mimeType == "text/x-swift")
         #expect(content.byteCount == 14)
     }
 

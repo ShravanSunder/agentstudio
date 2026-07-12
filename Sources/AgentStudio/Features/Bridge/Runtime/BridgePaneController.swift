@@ -36,7 +36,6 @@ final class BridgePaneController {
     /// No state pushes or commands are allowed before this becomes `true`.
     /// Gated and idempotent — once set, subsequent `bridge.ready` messages are ignored.
     private(set) var isBridgeReady = false
-    let schemeRPCDispatcher = BridgeSchemeRPCDispatcher()
 
     // MARK: - Runtime Hooks
 
@@ -48,16 +47,13 @@ final class BridgePaneController {
     let revisionClock = RevisionClock()
     let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
     let reviewContentStore: BridgeContentStore
-    let worktreeFileResourceStore = BridgeWorktreeFileResourceStore()
+    let productSessionOwner: BridgePaneProductSessionOwner
+    let productSchemeProvider: BridgePaneProductSchemeProvider?
     let reviewPipeline: BridgeReviewPipeline
     let reviewChangeIndex = BridgeChangeIndex()
     let bridgePaneState: BridgePaneState
     var nextReviewGeneration: BridgeReviewGeneration = 0
-    var nextWorktreeFileSurfaceGeneration = 0
-    var activeWorktreeFileSurfaceSource: BridgeWorktreeFileSurfaceActiveSourceState?
-    var activeWorktreeFileManifestIndex: BridgeWorktreeFileManifestIndex?
     let worktreeFileMetadataScheduler = BridgeMetadataLaneScheduler()
-    var activeWorktreeFileTreeWindowTask: Task<Void, Never>?
     var selectedReviewItemId: String?
     var activeReviewRefreshTask: Task<Void, Never>?
     var hasPendingReviewRefresh = false
@@ -66,7 +62,6 @@ final class BridgePaneController {
     var nextReviewProtocolSequence = 0
     var activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
     var reviewProtocolSuppressedDrop: BridgeSuppressedProtocolDrop?
-    var worktreeFileSuppressedDrop: BridgeSuppressedProtocolDrop?
 
     // MARK: - Push Plans
 
@@ -78,8 +73,9 @@ final class BridgePaneController {
     // MARK: - Private State
 
     let schemeCommandDispatcher: BridgeSchemeCommandDispatcher
-    private let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
+    let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
     let pushNonce: String
+    let productSessionBootstrapSink: BridgeProductSessionBootstrapSink
     let pushEnvelopeSink: @MainActor (WebPage, String, String) async throws -> Void
     let intakeFrameSink: @MainActor (WebPage, PreEncodedIntakeFrame) async throws -> Void
     private let userContentController: WKUserContentController
@@ -87,6 +83,11 @@ final class BridgePaneController {
     private var managementScript: WKUserScript
     private(set) var isContentInteractionEnabled: Bool
     private var interactionApplyTask: Task<Void, Never>?
+    private var isTeardownStarted = false
+    private var lifecycleRetirementTask: Task<Bool, Never>?
+    var productSessionBootstrapTransitionTail: Task<Void, Never>?
+    var hasPublishedProductSessionBootstrap = false
+    private var teardownCleanupTask: Task<Void, Never>?
     var bridgeDeliveryTail: Task<Void, Never>?
     private var inboxPostTimestamps: [Date] = []
     let telemetryScopeGate: BridgeTelemetryScopeGate
@@ -120,6 +121,9 @@ final class BridgePaneController {
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
         telemetryIngestor: (any BridgeTelemetryBatchIngesting)? = nil,
         traceContextFactory: BridgeTraceContextFactory = .live,
+        productSessionDependencies: BridgePaneProductSessionDependencies? = nil,
+        productSessionBootstrapSink: @escaping BridgeProductSessionBootstrapSink =
+            BridgePaneController.dispatchProductSessionBootstrap,
         pushEnvelopeSink: @escaping @MainActor (WebPage, String, String) async throws -> Void =
             BridgePaneController.dispatchPushEnvelope,
         preEncodedIntakeFrameSink: @escaping @MainActor (WebPage, PreEncodedIntakeFrame) async throws -> Void =
@@ -135,14 +139,12 @@ final class BridgePaneController {
             telemetryRecorder: telemetryRecorder,
             telemetryIngestor: telemetryIngestor
         )
-        let resolvedTelemetryScopeGate = telemetryDependencies.scopeGate
-        let resolvedTelemetryRecorder = telemetryDependencies.recorder
-        let resolvedTelemetryIngestor = telemetryDependencies.ingestor
-        self.telemetryScopeGate = resolvedTelemetryScopeGate
-        self.telemetryRecorder = resolvedTelemetryRecorder
+        self.telemetryScopeGate = telemetryDependencies.scopeGate
+        self.telemetryRecorder = telemetryDependencies.recorder
         self.traceContextFactory = traceContextFactory
         let resolvedReviewSourceProvider = reviewSourceProvider ?? BridgeUnavailableReviewSourceProvider()
-        self.reviewContentStore = BridgeContentStore(provider: resolvedReviewSourceProvider)
+        let resolvedReviewContentStore = BridgeContentStore(provider: resolvedReviewSourceProvider)
+        self.reviewContentStore = resolvedReviewContentStore
         self.reviewPipeline = BridgeReviewPipeline(provider: resolvedReviewSourceProvider)
         let runtimePaneId = PaneId(uuid: paneId)
         let defaultMetadata = Self.makeDefaultRuntimeMetadata(paneId: runtimePaneId, state: state)
@@ -150,10 +152,21 @@ final class BridgePaneController {
             paneId: runtimePaneId,
             contentType: Self.contentType(for: state)
         )
-        self.runtime = BridgeRuntime(
+        let resolvedRuntime = BridgeRuntime(
             paneId: runtimePaneId,
             metadata: resolvedMetadata
         )
+        self.runtime = resolvedRuntime
+        let resolvedProductSessionDependencies =
+            productSessionDependencies
+            ?? Self.makeProductSessionDependencies(
+                paneSessionId: paneId.uuidString,
+                runtime: resolvedRuntime,
+                state: state,
+                reviewContentStore: resolvedReviewContentStore
+            )
+        self.productSessionOwner = resolvedProductSessionDependencies.owner
+        self.productSchemeProvider = resolvedProductSessionDependencies.productProvider
         let blockInteraction = atom(\.managementLayer).isActive
         let initialManagementScript = WebInteractionManagementScript.makeUserScript(
             blockInteraction: blockInteraction
@@ -179,12 +192,12 @@ final class BridgePaneController {
 
         let bootstrapArtifacts = Self.makeBootstrapArtifacts(
             paneId: paneId,
-            metadata: resolvedMetadata,
             state: bridgePaneState,
-            telemetryScopeGate: resolvedTelemetryScopeGate,
+            telemetryScopeGate: telemetryDependencies.scopeGate,
             bridgeWorld: bridgeWorld
         )
         self.pushNonce = bootstrapArtifacts.pushNonce
+        self.productSessionBootstrapSink = productSessionBootstrapSink
         self.pushEnvelopeSink = pushEnvelopeSink
         if let rawIntakeFrameSink {
             self.intakeFrameSink = { page, frame in
@@ -205,10 +218,10 @@ final class BridgePaneController {
             input: BridgeSchemeHandlerRegistrationInput(
                 paneId: paneId,
                 reviewContentStore: reviewContentStore,
-                worktreeFileResourceStore: worktreeFileResourceStore,
                 resourceLeaseRegistry: resourceLeaseRegistry,
-                telemetryRecorder: resolvedTelemetryRecorder,
-                rpcDispatcher: schemeRPCDispatcher
+                telemetryRecorder: telemetryDependencies.recorder,
+                productSessionOwner: resolvedProductSessionDependencies.owner,
+                productSessionRouter: resolvedProductSessionDependencies.owner.schemeRouter
             )
         )
 
@@ -223,22 +236,12 @@ final class BridgePaneController {
         configureSchemeCommandDispatcher(
             schemeCommandDispatcher,
             readyMessageHandler: readyMessageHandler,
-            telemetryRecorder: resolvedTelemetryRecorder,
-            telemetryIngestor: resolvedTelemetryIngestor
+            telemetryRecorder: telemetryDependencies.recorder,
+            telemetryIngestor: telemetryDependencies.ingestor
         )
-        schemeRPCDispatcher.handler = { [weak self] json in
-            await self?.dispatchIncomingSchemeCommand(json)
-        }
-
-        onRuntimeEvent = { [weak self] event, commandId, correlationId in
-            self?.runtime.ingestBridgeEvent(event, commandId: commandId, correlationId: correlationId)
-        }
-        onRuntimeCommandAck = { [weak self] ack in
-            self?.runtime.recordCommandAck(ack)
-        }
-        runtime.commandHandler = self
-
+        configureRuntimeCallbacks()
         registerNamespaceHandlers()
+        resolvedProductSessionDependencies.committedCallTarget?.controller = self
     }
 
     private func configureSchemeCommandDispatcher(
@@ -266,9 +269,9 @@ final class BridgePaneController {
         }
 
         // Wire the one-shot ready handler directly. All other browser/native RPC uses scheme fetch.
-        readyMessageHandler.onReadyRequest = { [weak self] readyMessage in
+        readyMessageHandler.onBootstrapRequest = { [weak self] bootstrapMessage in
             guard let self else { return }
-            switch readyMessage {
+            switch bootstrapMessage {
             case .ready(let requestId):
                 if handleBridgeReady() {
                     await emitBridgeReadyAcknowledgement(id: requestId, result: nil, error: nil)
@@ -279,6 +282,11 @@ final class BridgePaneController {
                         error: (code: -32_000, message: "bridge.ready failed")
                     )
                 }
+            case .productSessionBootstrap(let requestId, let reason):
+                await enqueueProductSessionBootstrapRequest(
+                    requestId: requestId,
+                    reason: reason
+                )
             case .invalid(let id, let message):
                 await emitBridgeReadyAcknowledgement(
                     id: id,
@@ -304,10 +312,6 @@ final class BridgePaneController {
             case .rejected(let reason):
                 throw RPCMethodDispatchError.invalidParams(reason)
             }
-        }
-        dispatcher.register(method: BridgeActiveViewerModeUpdateMethod.self) { [weak self] params in
-            await self?.handleBridgeActiveViewerModeUpdate(params)
-            return nil
         }
     }
 
@@ -385,17 +389,6 @@ final class BridgePaneController {
             try await self?.handleLoadDiffRPC(params)
             return nil
         }
-        typealias OpenWorktreeFileSurface = WorktreeFileSurfaceMethods.OpenSourceStreamMethod
-        schemeCommandDispatcher.register(method: OpenWorktreeFileSurface.self) { @MainActor [weak self] params in
-            guard let self else { return nil }
-            return try await self.handleWorktreeFileSurfaceOpenSourceStream(params)
-        }
-        typealias RequestWorktreeFileDescriptor = WorktreeFileSurfaceMethods.RequestFileDescriptorMethod
-        schemeCommandDispatcher.register(method: RequestWorktreeFileDescriptor.self) { @MainActor [weak self] params in
-            guard let self else { return nil }
-            return try await self.handleWorktreeFileDescriptorRequest(params)
-        }
-
         // review namespace
         registerStub(ReviewMethods.AddCommentMethod.self)
         registerStub(ReviewMethods.ResolveThreadMethod.self)
@@ -414,10 +407,6 @@ final class BridgePaneController {
         typealias MetadataInterestUpdate = ReviewMethods.MetadataInterestUpdateMethod
         schemeCommandDispatcher.register(method: MetadataInterestUpdate.self) { @MainActor [weak self] params in
             guard let self else { return nil }
-            if params.protocolId == "worktree-file" {
-                try await self.handleWorktreeFileMetadataInterestUpdate(params)
-                return nil
-            }
             try await self.handleReviewMetadataInterestUpdate(params)
             return nil
         }
@@ -532,56 +521,67 @@ final class BridgePaneController {
     /// Tear down all active push plans and reset bridge state.
     ///
     /// Called when the pane is being removed or the controller is being deallocated.
-    func teardown() {
-        page.stopLoading()
-        diffPushPlan?.stop()
-        reviewPushPlan?.stop()
-        connectionPushPlan?.stop()
-        agentPushPlan?.stop()
-        activeReviewRefreshTask?.cancel()
-        activeWorktreeFileTreeWindowTask?.cancel()
-        diffPushPlan = nil
-        reviewPushPlan = nil
-        connectionPushPlan = nil
-        agentPushPlan = nil
-        activeReviewRefreshTask = nil
-        activeWorktreeFileTreeWindowTask = nil
-        hasPendingReviewRefresh = false
-        activeWorktreeFileSurfaceSource = nil
-        revokeReviewContentAuthoritySynchronously()
-        resourceLeaseRegistry.revokeSynchronously(paneId: paneId, protocolId: "worktree-file")
-        let reviewContentStore = reviewContentStore
-        let worktreeFileResourceStore = worktreeFileResourceStore
-        let resourceLeaseRegistry = resourceLeaseRegistry
-        let paneId = paneId
-        let worktreeFileMetadataScheduler = worktreeFileMetadataScheduler
-        Task {
-            await worktreeFileMetadataScheduler.closeGate(protocolId: "worktree-file")
-            await worktreeFileMetadataScheduler.closeGate(protocolId: "review")
-            await reviewContentStore.deactivate()
-            await worktreeFileResourceStore.reset(protocolId: "worktree-file")
-            await resourceLeaseRegistry.reset(
-                paneId: paneId,
-                protocolId: "review",
-                resourceKind: "content",
-                revokeAuthority: false
-            )
-            await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "worktree-file")
+    @discardableResult
+    func teardown() -> Task<Bool, Never> {
+        if let lifecycleRetirementTask {
+            return lifecycleRetirementTask
         }
-        runtime.resetForControllerTeardown()
-        bridgeDeliveryTail = nil
-        lastPushed.removeAll()
-        isBridgeReady = false
-        nextReviewProtocolSequence = 0
-        activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
-        reviewProtocolSuppressedDrop = nil
-        worktreeFileSuppressedDrop = nil
-        pendingReviewPackageBuildReasons.removeAll()
-        // Fence in-flight review jobs synchronously: their body guard reads
-        // nextReviewGeneration, so bumping it here prevents a dispatchable
-        // job from delivering between this sync phase and the async gate
-        // close below.
-        nextReviewGeneration = nextReviewGeneration.next()
+        if !isTeardownStarted {
+            isTeardownStarted = true
+            page.stopLoading()
+            diffPushPlan?.stop()
+            reviewPushPlan?.stop()
+            connectionPushPlan?.stop()
+            agentPushPlan?.stop()
+            activeReviewRefreshTask?.cancel()
+            diffPushPlan = nil
+            reviewPushPlan = nil
+            connectionPushPlan = nil
+            agentPushPlan = nil
+            activeReviewRefreshTask = nil
+            hasPendingReviewRefresh = false
+            revokeReviewContentAuthoritySynchronously()
+            let reviewContentStore = reviewContentStore
+            let resourceLeaseRegistry = resourceLeaseRegistry
+            let paneId = paneId
+            let worktreeFileMetadataScheduler = worktreeFileMetadataScheduler
+            teardownCleanupTask = Task {
+                await worktreeFileMetadataScheduler.closeGate(protocolId: "review")
+                await reviewContentStore.deactivate()
+                await resourceLeaseRegistry.reset(
+                    paneId: paneId,
+                    protocolId: "review",
+                    resourceKind: "content",
+                    revokeAuthority: false
+                )
+            }
+            runtime.resetForControllerTeardown()
+            bridgeDeliveryTail = nil
+            lastPushed.removeAll()
+            isBridgeReady = false
+            nextReviewProtocolSequence = 0
+            activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
+            reviewProtocolSuppressedDrop = nil
+            pendingReviewPackageBuildReasons.removeAll()
+            // Fence in-flight review jobs synchronously before the asynchronous gate close.
+            nextReviewGeneration = nextReviewGeneration.next()
+        }
+
+        guard let teardownCleanupTask else {
+            preconditionFailure("Bridge teardown cleanup task was not installed")
+        }
+        let productSessionOwner = productSessionOwner
+        let lifecycleRetirementTask = Task { @MainActor [weak self] in
+            let productSessionRetired =
+                await productSessionOwner.retire(reason: .paneDisposal) == .retired
+            await teardownCleanupTask.value
+            if !productSessionRetired {
+                self?.lifecycleRetirementTask = nil
+            }
+            return productSessionRetired
+        }
+        self.lifecycleRetirementTask = lifecycleRetirementTask
+        return lifecycleRetirementTask
     }
 
     // MARK: - Bridge Handshake
@@ -635,8 +635,6 @@ final class BridgePaneController {
         switch params.protocolId {
         case "review":
             return await handleReviewIntakeReady(params)
-        case "worktree-file":
-            return await handleWorktreeFileIntakeReady(params)
         default:
             await recordReviewIntakeReadyTelemetry(phase: "dropped")
             return .rejected("bridge.intake_ready.unsupported_protocol")
@@ -680,38 +678,6 @@ final class BridgePaneController {
         return .accepted
     }
 
-    private func handleWorktreeFileIntakeReady(_ params: BridgeIntakeReadyMethod.Params) async
-        -> BridgeIntakeReadyResult
-    {
-        guard let activeSource = activeWorktreeFileSurfaceSource else {
-            bridgeControllerLogger.warning(
-                "[Bridge] Worktree/File intake ready ignored without active source pane=\(self.paneId.uuidString, privacy: .public)"
-            )
-            return .rejected("worktree_file.intake_ready.no_active_source")
-        }
-        guard params.streamId == nil || params.streamId == activeSource.streamId else {
-            bridgeControllerLogger.warning(
-                """
-                Bridge Worktree/File intake ready ignored for pane \(self.paneId.uuidString, privacy: .public): \
-                stream \(String(describing: params.streamId), privacy: .public) does not match \(activeSource.streamId, privacy: .public)
-                """
-            )
-            return .rejected("worktree_file.intake_ready.stale_stream")
-        }
-        guard params.generation == nil || params.generation == activeSource.source.subscriptionGeneration else {
-            bridgeControllerLogger.warning(
-                """
-                Bridge Worktree/File intake ready ignored for pane \(self.paneId.uuidString, privacy: .public): \
-                generation \(String(describing: params.generation), privacy: .public) does not match \
-                \(activeSource.source.subscriptionGeneration, privacy: .public)
-                """
-            )
-            return .rejected("worktree_file.intake_ready.stale_generation")
-        }
-        await worktreeFileMetadataScheduler.openGate(protocolId: "worktree-file")
-        return .accepted
-    }
-
     // MARK: - Test/entrypoint utility
 
     /// Entry point for valid command payloads.
@@ -726,81 +692,6 @@ final class BridgePaneController {
             return rejection.responseJSON
         }
         return await schemeCommandDispatcher.dispatchSchemeCommand(json: json, isBridgeReady: isBridgeReady)
-    }
-
-    private struct SchemeRPCBootstrapOnlyRejection: Sendable {
-        let responseJSON: String?
-    }
-
-    private nonisolated static func schemeRPCBootstrapOnlyRejection(for json: String)
-        -> SchemeRPCBootstrapOnlyRejection?
-    {
-        guard let data = json.data(using: .utf8),
-            let object = try? JSONSerialization.jsonObject(with: data),
-            let dictionary = object as? [String: Any],
-            dictionary["method"] as? String == BridgeReadyMethod.method
-        else {
-            return nil
-        }
-
-        guard dictionary.keys.contains("id") else {
-            return SchemeRPCBootstrapOnlyRejection(
-                responseJSON: makeSchemeRPCErrorResponse(
-                    id: NSNull(),
-                    code: -32_600,
-                    message: "Invalid request"
-                )
-            )
-        }
-        guard let responseID = schemeRPCResponseIDValue(from: dictionary["id"]) else {
-            return SchemeRPCBootstrapOnlyRejection(
-                responseJSON: makeSchemeRPCErrorResponse(
-                    id: NSNull(),
-                    code: -32_600,
-                    message: "Invalid request: invalid id"
-                )
-            )
-        }
-        return SchemeRPCBootstrapOnlyRejection(
-            responseJSON: makeSchemeRPCErrorResponse(
-                id: responseID,
-                code: -32_601,
-                message: "bridge.ready is bootstrap-only"
-            )
-        )
-    }
-
-    private nonisolated static func makeSchemeRPCErrorResponse(id: Any, code: Int, message: String) -> String? {
-        let envelope: [String: Any] = [
-            "jsonrpc": "2.0",
-            "id": id,
-            "error": [
-                "code": code,
-                "message": message,
-            ],
-        ]
-        guard JSONSerialization.isValidJSONObject(envelope),
-            let data = try? JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys])
-        else {
-            return nil
-        }
-        return String(data: data, encoding: .utf8)
-    }
-
-    private nonisolated static func schemeRPCResponseIDValue(from id: Any?) -> Any? {
-        guard let id else {
-            return nil
-        }
-        if let string = id as? String {
-            return string
-        }
-        if let number = id as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() {
-            return number
-        }
-        if id is NSNull {
-            return NSNull()
-        }
-        return nil
     }
 
     private func handleRPCSuccessResponseDelivered(method: String) async {

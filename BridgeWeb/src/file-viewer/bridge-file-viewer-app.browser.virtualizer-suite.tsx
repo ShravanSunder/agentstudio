@@ -3,8 +3,6 @@ import { cleanup, render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../app/bridge-app.css';
-import { worktreeFileProtocolFrameSchema } from '../features/worktree-file/models/worktree-file-protocol-models.js';
-import type { WorktreeFileProtocolFrame } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
 import {
 	bridgeViewerVisibleTreeItemPaths,
@@ -16,48 +14,56 @@ import { BridgeFileViewerBrowserHarnessApp as BridgeFileViewerApp } from './brid
 import {
 	makeFlatFileTreeRows,
 	makeSourceIdentity,
+	makeSourceAcceptedMetadataEvent,
 	makeTreeRow,
-	makeTreeWindowedSnapshotFrame,
-	type PublishWorktreeFileFrames,
+	makeTreeWindowedMetadataEvents,
+	parseFileMetadataEvent,
+	type FileMetadataEvent,
+	type PublishFileMetadataEvents,
 } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
 	actFrame,
 	actUpdate,
-	requireFramePublisher,
+	requireMetadataPublisher,
 	makeTestTelemetryRecorder,
+	settleBridgeFileViewerBrowserUpdates,
 	waitForMetadataTreeRowCount,
 	waitForTreeScrollHeightAtLeast,
 } from './bridge-file-viewer-browser-test-harness.js';
 
 describe('BridgeFileViewerApp virtualizer anchoring', () => {
 	afterEach(async () => {
+		await settleBridgeFileViewerBrowserUpdates();
 		cleanup();
 		await waitForBridgeViewerAnimationFrame();
 		document.body.replaceChildren();
 	});
 
 	test('does not app-side anchor restore when a reset prepends rows above the viewport', async () => {
-		let publishFrames: PublishWorktreeFileFrames | null = null;
+		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 		const telemetrySamples: BridgeTelemetrySample[] = [];
 
 		render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
-				initialFrames={[makeTreeWindowedSnapshotFrame({ rowCount: 300, totalPathCount: 300 })]}
+				initialMetadataEvents={makeTreeWindowedMetadataEvents({
+					rowCount: 240,
+					totalPathCount: 240,
+				})}
 				telemetryRecorder={makeTestTelemetryRecorder(telemetrySamples)}
-				worktreeFileSurfaceTransport={{
-					subscribeFrames: (handler): (() => void) => {
-						publishFrames = handler;
+				fileProductSession={{
+					onMetadataSubscription: (handler): (() => void) => {
+						publishMetadataEvents = handler;
 						return (): void => {
-							publishFrames = null;
+							publishMetadataEvents = null;
 						};
 					},
 				}}
 			/>,
 		);
 
-		await waitForMetadataTreeRowCount(300);
-		await waitForTreeScrollHeightAtLeast(300 * 24);
+		await waitForMetadataTreeRowCount(240);
+		await waitForTreeScrollHeightAtLeast(240 * 24);
 		const scrollOwner = requireTreeScrollOwner();
 		await actUpdate((): void => {
 			scrollOwner.scrollTo({ top: 150 * 24 });
@@ -67,25 +73,24 @@ describe('BridgeFileViewerApp virtualizer anchoring', () => {
 		await actFrame();
 		await waitForBridgeViewerTreeItemButton('File-150.swift');
 		const anchorPath = requireFirstVisibleTreePath(scrollOwner);
-		const anchorOffsetBefore = requireTreeItemOffsetFromScrollOwner({
-			path: anchorPath,
-			scrollOwner,
-		});
 		const scrollTopBefore = scrollOwner.scrollTop;
 
 		await actUpdate((): void => {
-			requireFramePublisher(publishFrames)(makeResetWithPrependedRows());
+			requireMetadataPublisher(publishMetadataEvents)(makeResetWithPrependedRows());
 		});
+		expect(scrollOwner.scrollTop).toBe(scrollTopBefore);
 
-		await waitForMetadataTreeRowCount(310);
-		await waitForTreeScrollHeightAtLeast(310 * 24);
-		await waitForBridgeViewerTreeItemButton(anchorPath);
-		const anchorOffsetAfter = requireTreeItemOffsetFromScrollOwner({
-			path: anchorPath,
-			scrollOwner,
-		});
+		await waitForMetadataTreeRowCount(250);
+		expect(scrollOwner.scrollTop).toBe(scrollTopBefore);
+		await waitForTreeScrollHeightAtLeast(250 * 24);
+		expect(scrollOwner.scrollTop).toBe(scrollTopBefore);
+		await actFrame();
+		await actFrame();
+		const firstVisiblePathAfter = requireFirstVisibleTreePath(scrollOwner);
 
-		expect(anchorOffsetAfter - anchorOffsetBefore).toBeGreaterThanOrEqual(10 * 24 - 1);
+		expect(requireTreeScrollOwner()).toBe(scrollOwner);
+		expect(scrollOwner.isConnected).toBe(true);
+		expect(firstVisiblePathAfter).not.toBe(anchorPath);
 		expect(scrollOwner.scrollTop).toBe(scrollTopBefore);
 		expect(
 			telemetrySamples.filter(
@@ -95,7 +100,7 @@ describe('BridgeFileViewerApp virtualizer anchoring', () => {
 	});
 });
 
-function makeResetWithPrependedRows(): readonly WorktreeFileProtocolFrame[] {
+function makeResetWithPrependedRows(): readonly FileMetadataEvent[] {
 	const source = makeSourceIdentity({
 		sourceCursor: 'cursor-reset-anchor',
 		subscriptionGeneration: 2,
@@ -111,36 +116,21 @@ function makeResetWithPrependedRows(): readonly WorktreeFileProtocolFrame[] {
 			sizeBytes: 24,
 		}),
 	);
-	const rows = [...prependedRows, ...makeFlatFileTreeRows({ count: 300, startIndex: 0 })];
+	const rows = [...prependedRows, ...makeFlatFileTreeRows({ count: 240, startIndex: 0 })];
 	return [
-		worktreeFileProtocolFrameSchema.parse({
-			kind: 'reset',
-			streamId: 'worktree-file:pane-1',
-			generation: 2,
-			sequence: 0,
-			frameKind: 'worktree.reset',
-			source,
-			reason: 'sourceChanged',
-		}),
-		worktreeFileProtocolFrameSchema.parse({
-			kind: 'snapshot',
-			streamId: 'worktree-file:pane-1',
-			generation: 2,
-			sequence: 1,
-			frameKind: 'worktree.snapshot',
-			source,
-			metadataLineage: {
-				loadedBy: 'reset',
+		makeSourceAcceptedMetadataEvent(source),
+		parseFileMetadataEvent({
+			eventKind: 'file.treeWindow',
+			finalWindow: true,
+			lineage: {
+				loadedBy: 'replacement',
 				lane: 'foreground',
 			},
-			treeRows: rows,
-			treeSizeFacts: {
-				extentKind: 'exactPathCount',
-				pathCount: rows.length,
-				windowStartIndex: 0,
-				windowRowCount: rows.length,
-				rowHeightPixels: 24,
-			},
+			pathScope: [],
+			rows,
+			source,
+			startIndex: 0,
+			totalRowCount: rows.length,
 		}),
 	];
 }
@@ -160,18 +150,4 @@ function requireFirstVisibleTreePath(scrollOwner: HTMLElement): string {
 		throw new Error('Expected at least one visible FileView tree path.');
 	}
 	return firstVisiblePath;
-}
-
-function requireTreeItemOffsetFromScrollOwner(props: {
-	readonly path: string;
-	readonly scrollOwner: HTMLElement;
-}): number {
-	const fileTreeContainer = document.querySelector('file-tree-container');
-	const button = fileTreeContainer?.shadowRoot?.querySelector(
-		`button[data-item-type="file"][data-item-path="${CSS.escape(props.path)}"]`,
-	);
-	if (!(button instanceof HTMLElement)) {
-		throw new Error(`Expected FileView tree item ${props.path}.`);
-	}
-	return button.getBoundingClientRect().top - props.scrollOwner.getBoundingClientRect().top;
 }

@@ -42,15 +42,15 @@ describe('Bridge product subscription interest-state codec', () => {
 		);
 	});
 
-	test('accepts exactly 256 KiB of canonical interest state and rejects the next byte', () => {
-		const maximumState = makeBoundaryFileInterestState(49);
-		const oversizedState = makeBoundaryFileInterestState(50);
+	test('accepts exactly 128 KiB of canonical interest state and rejects the next byte', () => {
+		const maximumState = makeBoundaryFileInterestState(17);
+		const oversizedState = makeBoundaryFileInterestState(18);
 
-		expect(BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_STATE_BYTES).toBe(256 * 1024);
+		expect(BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_STATE_BYTES).toBe(128 * 1024);
 		expect(preflightBridgeProductSubscriptionInterestStateCanonicalEncoding(maximumState)).toEqual({
 			canonicalByteLength: BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_STATE_BYTES,
 			status: 'accepted',
-			visitedTextValueCount: 65,
+			visitedTextValueCount: 33,
 		});
 		expect(encodeBridgeProductSubscriptionInterestState(maximumState).byteLength).toBe(
 			BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_STATE_BYTES,
@@ -61,10 +61,10 @@ describe('Bridge product subscription interest-state codec', () => {
 			canonicalByteLengthLowerBound: BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_STATE_BYTES + 1,
 			maximumCanonicalByteLength: BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_STATE_BYTES,
 			status: 'exceedsMaximum',
-			visitedTextValueCount: 65,
+			visitedTextValueCount: 33,
 		});
 		expect(() => encodeBridgeProductSubscriptionInterestState(oversizedState)).toThrow(
-			/256 KiB|262144|canonical interest state/iu,
+			/128 KiB|131072|canonical interest state/iu,
 		);
 	});
 
@@ -83,10 +83,10 @@ describe('Bridge product subscription interest-state codec', () => {
 		expect(
 			preflightBridgeProductSubscriptionInterestStateCanonicalEncoding(worstCaseState),
 		).toEqual({
-			canonicalByteLengthLowerBound: 262_474,
+			canonicalByteLengthLowerBound: 131_242,
 			maximumCanonicalByteLength: BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_STATE_BYTES,
 			status: 'exceedsMaximum',
-			visitedTextValueCount: 64,
+			visitedTextValueCount: 32,
 		});
 		expect(() => validateBridgeProductSubscriptionInterestState(worstCaseState)).toThrow(
 			/canonical interest state/iu,
@@ -192,10 +192,10 @@ function makeBoundaryFileInterestState(
 			{
 				lane: 'foreground' as const,
 				paths: [
-					...Array.from({ length: 64 }, (_, pathIndex) =>
+					...Array.from({ length: 32 }, (_, pathIndex) =>
 						makeFixedLengthAsciiPath(pathIndex, 4090),
 					),
-					makeFixedLengthAsciiPath(64, finalPathByteLength),
+					makeFixedLengthAsciiPath(32, finalPathByteLength),
 				],
 			},
 		],

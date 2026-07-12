@@ -1,6 +1,16 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import {
+	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
+	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
+	BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
+	BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
+	BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
+	BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
+	BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
+	BRIDGE_PRODUCT_WIRE_VERSION,
+} from '../core/comm-worker/bridge-product-contract-primitives.js';
+import {
 	installBridgePageHandshake,
 	installBridgePageHandshakeSession,
 } from './bridge-page-handshake.js';
@@ -344,6 +354,35 @@ describe('bridge page handshake', () => {
 
 		expect(events).toEqual(['ready-callback']);
 	});
+
+	test('correlates initial and replacement product bootstraps while ignoring duplicates', () => {
+		const target = new EventTarget();
+		const deliveredWorkerInstanceIds: string[] = [];
+		const bootstrapRequests: Array<{ readonly reason: string; readonly requestId: string }> = [];
+		target.addEventListener('__bridge_product_session_bootstrap_request', (event): void => {
+			const request = extractProductBootstrapRequest(event);
+			bootstrapRequests.push(request);
+			const workerInstanceId = `worker-${bootstrapRequests.length.toString()}`;
+			const detail = makeProductBootstrapDetail(request.requestId, workerInstanceId);
+			target.dispatchEvent(new CustomEvent('__bridge_product_session_bootstrap', { detail }));
+			target.dispatchEvent(new CustomEvent('__bridge_product_session_bootstrap', { detail }));
+		});
+		const session = installBridgePageHandshakeSession(target, {
+			onProductSessionBootstrap: ({ bootstrap }): void => {
+				deliveredWorkerInstanceIds.push(bootstrap.workerInstanceId);
+			},
+		});
+
+		session.requestProductSessionReplacement();
+		session.uninstall();
+
+		expect(bootstrapRequests).toEqual([
+			expect.objectContaining({ reason: 'initial' }),
+			expect.objectContaining({ reason: 'workerReplacement' }),
+		]);
+		expect(bootstrapRequests[0]?.requestId).not.toBe(bootstrapRequests[1]?.requestId);
+		expect(deliveredWorkerInstanceIds).toEqual(['worker-1', 'worker-2']);
+	});
 });
 
 function extractReadyRequestId(event: Event): string {
@@ -358,4 +397,46 @@ function extractReadyRequestId(event: Event): string {
 		throw new Error('expected string ready request id');
 	}
 	return detail.requestId;
+}
+
+function extractProductBootstrapRequest(event: Event): {
+	readonly reason: string;
+	readonly requestId: string;
+} {
+	if (!('detail' in event)) {
+		throw new Error('expected product bootstrap request detail');
+	}
+	const detail = event.detail;
+	if (
+		typeof detail !== 'object' ||
+		detail === null ||
+		!('reason' in detail) ||
+		!('requestId' in detail) ||
+		typeof detail.reason !== 'string' ||
+		typeof detail.requestId !== 'string'
+	) {
+		throw new Error('expected typed product bootstrap request');
+	}
+	return { reason: detail.reason, requestId: detail.requestId };
+}
+
+function makeProductBootstrapDetail(requestId: string, workerInstanceId: string): object {
+	return {
+		requestId,
+		bootstrap: {
+			kind: 'productSession.bootstrap',
+			paneSessionId: 'pane-session-1',
+			policy: {
+				maximumContentBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
+				maximumRequestBodyBytes: BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
+				maximumMetadataFrameBytes: BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
+				maximumQueuedStreamBytes: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
+				maximumQueuedStreamFrames: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
+				terminalFrameReserve: BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
+			},
+			wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
+			workerInstanceId,
+		},
+		productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
+	};
 }

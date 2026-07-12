@@ -1,74 +1,46 @@
-import { RefreshCwIcon } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 
-import { BridgeViewerButton, BridgeViewerIcon } from '../app/bridge-viewer-button.js';
 import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
 import { BridgeViewerResizableRailLayout } from '../app/bridge-viewer-resizable-rail-layout.js';
-import type {
-	WorktreeFileDescriptor,
-	WorktreeFileSurfaceSourceIdentity,
-} from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import type { BridgeMainFileTreePatchStream } from '../core/comm-worker/bridge-main-file-display-patch-applier.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
-import type { WorktreeFileSurfaceLoadTelemetry } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import {
 	BridgeFileViewerCodePanel,
 	type BridgeFileViewerSelectedCodeViewItem,
 } from './bridge-file-viewer-code-panel.js';
 import type {
-	BridgeFileViewerDescriptorProjection,
 	BridgeFileViewerFilterMode,
 	BridgeFileViewerSearchMode,
 	BridgeFileViewerVisibleFileDemandChange,
 } from './bridge-file-viewer-contracts.js';
-import {
-	bridgeFileViewerHasActiveCommentDraft,
-	shouldSuppressStaleOpenFileNotice,
-} from './bridge-file-viewer-stale-refresh-policy.js';
-import {
-	firstSuccessfulDemandLoadResult,
-	worktreeFileDemandFailedCountByLane,
-	worktreeFileDemandFailedCountByReason,
-	type BridgeFileViewerDemandDispatchDebugState,
-	type BridgeFileViewerInitialSurfaceLoadState,
-	type BridgeFileViewerOpenState,
-	type BridgeFileViewerRefreshDebugState,
-	type BridgeFileViewerRenderState,
-} from './bridge-file-viewer-state.js';
+import type {
+	BridgeFileViewerDisplayModel,
+	BridgeFileViewerOpenState,
+	BridgeFileViewerSelection,
+} from './bridge-file-viewer-display-model.js';
 import { BridgeFileViewerTreePanel } from './bridge-file-viewer-tree-panel.js';
 
-interface BridgeFileViewerShellProps {
-	readonly canRefreshOpenFile: boolean;
+export interface BridgeFileViewerShellProps {
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly codeViewWorkerPoolEnabled?: boolean;
+	readonly completeFileQueryTransaction: (transactionId: string) => boolean;
 	readonly contentHeaderTitle: string;
-	readonly descriptorProjection: BridgeFileViewerDescriptorProjection;
 	readonly dispatchVisibleFileDemand: (change: BridgeFileViewerVisibleFileDemandChange) => void;
-	readonly fileDescriptorByPath: ReadonlyMap<string, WorktreeFileDescriptor>;
+	readonly displayModel: BridgeFileViewerDisplayModel;
 	readonly filterMode: BridgeFileViewerFilterMode;
-	readonly initialSurfaceLoadState: BridgeFileViewerInitialSurfaceLoadState;
+	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
 	readonly isActive: boolean;
-	readonly lastDemandDispatchDebugState: BridgeFileViewerDemandDispatchDebugState;
-	readonly lastOpenLoadTelemetry: WorktreeFileSurfaceLoadTelemetry | null;
-	readonly metadataFileTreeRowCount: number;
 	readonly onFilterModeChange: (mode: BridgeFileViewerFilterMode) => void;
-	readonly onOpenFile: (descriptor: WorktreeFileDescriptor) => Promise<void>;
-	readonly onOpenReviewComparison?: (descriptor: WorktreeFileDescriptor) => void;
-	readonly onRequestFileDescriptor: Parameters<
-		typeof BridgeFileViewerTreePanel
-	>[0]['onRequestFileDescriptor'];
 	readonly onSearchModeChange: (mode: BridgeFileViewerSearchMode) => void;
 	readonly onSearchTextChange: (text: string) => void;
+	readonly onSelectFile: (selection: BridgeFileViewerSelection) => void;
 	readonly openFileState: BridgeFileViewerOpenState;
 	readonly openFileTotalHeightPixels: number | null;
-	readonly refreshDebugState: BridgeFileViewerRefreshDebugState | null;
-	readonly refreshOpenFile: (state: BridgeFileViewerOpenState) => Promise<void>;
-	readonly renderState: BridgeFileViewerRenderState;
 	readonly searchMode: BridgeFileViewerSearchMode;
 	readonly searchText: string;
 	readonly selectedCodeViewItem: BridgeFileViewerSelectedCodeViewItem | null;
 	readonly selectedPath: string | null;
-	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity | null;
 	readonly telemetryRecorder: BridgeTelemetryRecorder | undefined;
 	readonly telemetryTraceContext: BridgeTraceContext | null;
 	readonly totalTreeHeight: {
@@ -79,235 +51,65 @@ interface BridgeFileViewerShellProps {
 	readonly viewerHeaderControls?: ReactNode;
 }
 
-export function BridgeFileViewerShell({
-	canRefreshOpenFile,
-	codeViewWorkerFactory,
-	codeViewWorkerPoolEnabled,
-	contentHeaderTitle,
-	descriptorProjection,
-	dispatchVisibleFileDemand,
-	fileDescriptorByPath,
-	filterMode,
-	initialSurfaceLoadState,
-	isActive,
-	lastDemandDispatchDebugState,
-	lastOpenLoadTelemetry,
-	metadataFileTreeRowCount,
-	onFilterModeChange: setFilterMode,
-	onOpenFile: openFile,
-	onOpenReviewComparison,
-	onRequestFileDescriptor: requestFileDescriptor,
-	onSearchModeChange: setSearchMode,
-	onSearchTextChange: setSearchText,
-	openFileState,
-	openFileTotalHeightPixels,
-	refreshDebugState,
-	refreshOpenFile,
-	renderState,
-	searchMode,
-	searchText,
-	selectedCodeViewItem,
-	selectedPath,
-	telemetryRecorder,
-	telemetryTraceContext,
-	totalTreeHeight,
-	totalTreeRowCount,
-	viewerHeaderControls,
-}: BridgeFileViewerShellProps): ReactElement {
-	const lastDemandDispatchResult =
-		lastDemandDispatchDebugState.status === 'settled' ? lastDemandDispatchDebugState.result : null;
-	const firstDemandLoadResult =
-		lastDemandDispatchResult === null
-			? null
-			: firstSuccessfulDemandLoadResult(lastDemandDispatchResult);
-	const firstDemandLoadTelemetry = firstDemandLoadResult?.loadTelemetry ?? null;
-
+export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactElement {
+	const selectedDisplayItem =
+		props.openFileState.status === 'idle' ? null : props.openFileState.displayItem;
+	const status = props.displayModel.status;
 	return (
 		<main
 			className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bridge-app-bg)]"
-			data-file-viewer-active={isActive}
+			data-file-display-branch={
+				status?.state === 'ready' ? (status.branchName ?? undefined) : undefined
+			}
+			data-file-display-generation={props.displayModel.source?.generation}
+			data-file-display-item-count={props.displayModel.fileItemById.size}
+			data-file-display-source-id={props.displayModel.source?.sourceId}
+			data-file-display-status={status?.state ?? 'pending'}
+			data-file-display-tree-row-count={props.displayModel.projectedRowCount}
+			data-file-viewer-active={props.isActive}
 			data-file-viewer-owner="BridgeViewerApp.FileViewer"
-			data-last-refresh-commit-state={refreshDebugState?.commitState}
-			data-last-refresh-current-request-id={refreshDebugState?.currentRequestId}
-			data-last-refresh-descriptor-id={refreshDebugState?.descriptorId}
-			data-last-refresh-request-id={refreshDebugState?.requestId}
-			data-last-refresh-result={refreshDebugState?.result}
-			data-last-demand-dispatch-error={
-				lastDemandDispatchDebugState.status === 'failed'
-					? lastDemandDispatchDebugState.reason
-					: undefined
-			}
-			data-last-demand-dispatch-executor-in-flight-after={
-				lastDemandDispatchResult?.executorInFlightCountAfter
-			}
-			data-last-demand-dispatch-executor-in-flight-bytes-after={
-				lastDemandDispatchResult?.executorInFlightBytesAfter
-			}
-			data-last-demand-dispatch-executor-queued-after={
-				lastDemandDispatchResult?.executorQueuedLoadCountAfter
-			}
-			data-last-demand-dispatch-executor-queued-bytes-after={
-				lastDemandDispatchResult?.executorQueuedBytesAfter
-			}
-			data-last-demand-dispatch-failed-count={lastDemandDispatchResult?.failedCount}
-			data-last-demand-dispatch-failed-count-by-lane={
-				lastDemandDispatchResult === null
-					? undefined
-					: JSON.stringify(worktreeFileDemandFailedCountByLane(lastDemandDispatchResult))
-			}
-			data-last-demand-dispatch-failed-count-by-reason={
-				lastDemandDispatchResult === null
-					? undefined
-					: JSON.stringify(worktreeFileDemandFailedCountByReason(lastDemandDispatchResult))
-			}
-			data-last-demand-dispatch-first-disposition={firstDemandLoadTelemetry?.disposition}
-			data-last-demand-dispatch-first-dedupe-key={firstDemandLoadResult?.dedupeKey}
-			data-last-demand-dispatch-first-freshness-key={firstDemandLoadResult?.freshnessKey}
-			data-last-demand-dispatch-first-executor-in-flight-ms={
-				firstDemandLoadTelemetry?.executorInFlightMilliseconds ?? undefined
-			}
-			data-last-demand-dispatch-first-executor-pending-wait-ms={
-				firstDemandLoadTelemetry?.executorPendingWaitMilliseconds ?? undefined
-			}
-			data-last-demand-dispatch-first-lane={firstDemandLoadTelemetry?.lane}
-			data-last-demand-dispatch-first-demand-queue-wait-ms={
-				firstDemandLoadTelemetry?.demandQueueWaitMilliseconds ?? undefined
-			}
-			data-last-demand-dispatch-origin={
-				lastDemandDispatchDebugState.status === 'settled'
-					? lastDemandDispatchDebugState.origin.kind
-					: undefined
-			}
-			data-last-demand-dispatch-expected-visible-file-count={
-				lastDemandDispatchDebugState.status === 'settled' &&
-				lastDemandDispatchDebugState.origin.kind === 'visibleViewport'
-					? lastDemandDispatchDebugState.origin.expectedVisibleFileCount
-					: undefined
-			}
-			data-last-demand-dispatch-open-file-path-before={
-				lastDemandDispatchDebugState.status === 'settled' &&
-				lastDemandDispatchDebugState.origin.kind === 'recentlyUpdatedFile'
-					? (lastDemandDispatchDebugState.origin.openFilePathBefore ?? undefined)
-					: undefined
-			}
-			data-last-demand-dispatch-open-file-path-after={
-				lastDemandDispatchDebugState.status === 'settled' &&
-				lastDemandDispatchDebugState.origin.kind === 'recentlyUpdatedFile'
-					? (lastDemandDispatchDebugState.origin.openFilePathAfter ?? undefined)
-					: undefined
-			}
-			data-last-demand-dispatch-intent-count={lastDemandDispatchResult?.intentCount}
-			data-last-demand-dispatch-loaded-count={lastDemandDispatchResult?.loadedCount}
-			data-last-demand-dispatch-status={lastDemandDispatchDebugState.status}
-			data-last-demand-dispatch-stimulus-count={lastDemandDispatchResult?.stimulusCount}
-			data-worktree-initial-surface-error={
-				initialSurfaceLoadState.status === 'failed' ? initialSurfaceLoadState.reason : undefined
-			}
-			data-worktree-initial-surface-state={initialSurfaceLoadState.status}
-			data-last-open-load-disposition={lastOpenLoadTelemetry?.disposition}
-			data-last-open-load-duration-ms={lastOpenLoadTelemetry?.durationMilliseconds}
-			data-last-open-load-estimated-bytes={lastOpenLoadTelemetry?.estimatedBytes ?? undefined}
-			data-last-open-load-executor-in-flight-after={
-				lastOpenLoadTelemetry?.executorInFlightCountAfter
-			}
-			data-last-open-load-executor-in-flight-bytes-after={
-				lastOpenLoadTelemetry?.executorInFlightBytesAfter
-			}
-			data-last-open-load-executor-in-flight-bytes-before={
-				lastOpenLoadTelemetry?.executorInFlightBytesBefore
-			}
-			data-last-open-load-executor-in-flight-before={
-				lastOpenLoadTelemetry?.executorInFlightCountBefore
-			}
-			data-last-open-load-executor-in-flight-ms={
-				lastOpenLoadTelemetry?.executorInFlightMilliseconds ?? undefined
-			}
-			data-last-open-load-executor-pending-wait-ms={
-				lastOpenLoadTelemetry?.executorPendingWaitMilliseconds ?? undefined
-			}
-			data-last-open-load-executor-queued-after={
-				lastOpenLoadTelemetry?.executorQueuedLoadCountAfter
-			}
-			data-last-open-load-executor-queued-bytes-after={
-				lastOpenLoadTelemetry?.executorQueuedBytesAfter
-			}
-			data-last-open-load-executor-queued-bytes-before={
-				lastOpenLoadTelemetry?.executorQueuedBytesBefore
-			}
-			data-last-open-load-executor-queued-before={
-				lastOpenLoadTelemetry?.executorQueuedLoadCountBefore
-			}
-			data-last-open-load-lane={lastOpenLoadTelemetry?.lane}
-			data-last-open-load-resource-body-registry-commit-ms={
-				lastOpenLoadTelemetry?.resourceBodyRegistryCommitMilliseconds ?? undefined
-			}
-			data-last-open-load-resource-fetch-response-wait-ms={
-				lastOpenLoadTelemetry?.resourceFetchResponseWaitMilliseconds ?? undefined
-			}
-			data-last-open-load-resource-first-chunk-wait-ms={
-				lastOpenLoadTelemetry?.resourceFirstChunkWaitMilliseconds ?? undefined
-			}
-			data-last-open-load-resource-stream-read-ms={
-				lastOpenLoadTelemetry?.resourceStreamReadMilliseconds ?? undefined
-			}
-			data-last-open-load-demand-queue-wait-ms={
-				lastOpenLoadTelemetry?.demandQueueWaitMilliseconds ?? undefined
-			}
-			data-worktree-metadata-file-row-count={metadataFileTreeRowCount}
-			data-worktree-metadata-tree-row-count={renderState.treeRows.length}
-			data-worktree-tree-extent-kind={renderState.treeSizeFacts?.extentKind ?? undefined}
-			data-worktree-tree-path-count={renderState.treeSizeFacts?.pathCount ?? undefined}
-			data-selected-display-path={selectedPath ?? undefined}
+			data-selected-display-path={props.selectedPath ?? undefined}
 			data-sidebar-position="right"
 			data-testid="bridge-file-viewer-shell"
-			{...(renderState.sourceIdentity === null
+			data-worktree-metadata-file-row-count={props.displayModel.fileItemById.size}
+			data-worktree-metadata-tree-row-count={props.displayModel.projectedRowCount}
+			{...(props.openFileState.status === 'idle'
 				? {}
 				: {
-						'data-worktree-source-cursor': renderState.sourceIdentity.sourceCursor,
-						'data-worktree-source-id': renderState.sourceIdentity.sourceId,
-						'data-worktree-source-state': 'live',
+						'data-worktree-open-file-path': props.openFileState.path,
+						'data-worktree-open-file-state': props.openFileState.status,
 					})}
-			{...(renderState.provenance === null
+			{...(selectedDisplayItem === null
 				? {}
 				: {
-						'data-worktree-base-ref': renderState.provenance.baseRef,
-						'data-worktree-root-token': renderState.provenance.worktreeRootToken,
-						'data-worktree-scenario': renderState.provenance.scenarioName,
+						'data-file-display-ends-mid-line': selectedDisplayItem.endsMidLine,
+						'data-file-display-ends-with-newline': selectedDisplayItem.endsWithNewline,
+						'data-file-display-payload-byte-count': selectedDisplayItem.payloadByteCount,
+						'data-file-display-payload-line-count': selectedDisplayItem.payloadLineCount,
+						'data-file-display-total-line-count': selectedDisplayItem.totalLineCount ?? undefined,
+						'data-file-display-truncation-kind': selectedDisplayItem.truncationKind,
 					})}
 		>
 			<BridgeViewerResizableRailLayout
 				autosaveId="bridge-viewer-right-rail"
-				// The loaded file shell keeps its resizable frame mounted across activation so the
-				// open file's CodeView and tree are never remounted when Files goes hidden (the
-				// data plane stays alive and DOM identity is stable). Rail-frame gating is for the
-				// lightweight fallback/loading shells, which carry no real content to preserve.
 				isActive={true}
 				content={
 					<section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]">
 						<BridgeViewerContentHeader
-							controls={viewerHeaderControls}
+							controls={props.viewerHeaderControls}
 							eyebrow="Files"
-							title={contentHeaderTitle}
+							title={props.contentHeaderTitle}
 						/>
 						<BridgeFileViewerCodePanel
-							openFileState={openFileState}
-							selectedCodeViewItem={selectedCodeViewItem}
-							staleNotice={
-								openFileState.status === 'stale' &&
-								!shouldSuppressStaleOpenFileNotice({
-									hasActiveCommentDraft: bridgeFileViewerHasActiveCommentDraft,
-								}) ? (
-									<BridgeFileViewerStaleNotice
-										canRefresh={canRefreshOpenFile}
-										onRefresh={() => {
-											void refreshOpenFile(openFileState);
-										}}
-									/>
-								) : null
-							}
-							totalHeightPixels={openFileTotalHeightPixels}
-							{...(codeViewWorkerFactory === undefined ? {} : { codeViewWorkerFactory })}
-							{...(codeViewWorkerPoolEnabled === undefined ? {} : { codeViewWorkerPoolEnabled })}
+							openFileState={props.openFileState}
+							selectedCodeViewItem={props.selectedCodeViewItem}
+							totalHeightPixels={props.openFileTotalHeightPixels}
+							{...(props.codeViewWorkerFactory === undefined
+								? {}
+								: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
+							{...(props.codeViewWorkerPoolEnabled === undefined
+								? {}
+								: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
 						/>
 					</section>
 				}
@@ -315,59 +117,32 @@ export function BridgeFileViewerShell({
 				handleTestId="bridge-file-viewer-rail-resize-handle"
 				rail={
 					<BridgeFileViewerTreePanel
-						descriptorProjection={descriptorProjection}
-						fileDescriptorByPath={fileDescriptorByPath}
-						filterMode={filterMode}
-						onFilterModeChange={setFilterMode}
-						onOpenFile={openFile}
-						{...(onOpenReviewComparison === undefined ? {} : { onOpenReviewComparison })}
-						{...(requestFileDescriptor === undefined
+						completeFileQueryTransaction={props.completeFileQueryTransaction}
+						filterMode={props.filterMode}
+						fileTreePatchStream={props.fileTreePatchStream}
+						onFilterModeChange={props.onFilterModeChange}
+						onSearchModeChange={props.onSearchModeChange}
+						onSearchTextChange={props.onSearchTextChange}
+						onSelectFile={props.onSelectFile}
+						onVisibleFileDemandChange={props.dispatchVisibleFileDemand}
+						searchMode={props.searchMode}
+						searchError={props.displayModel.searchError}
+						searchText={props.searchText}
+						selectedPath={props.selectedPath}
+						source={props.displayModel.source}
+						{...(props.telemetryRecorder === undefined
 							? {}
-							: { onRequestFileDescriptor: requestFileDescriptor })}
-						onSearchModeChange={setSearchMode}
-						onSearchTextChange={setSearchText}
-						onVisibleFileDemandChange={dispatchVisibleFileDemand}
-						searchMode={searchMode}
-						searchText={searchText}
-						selectedPath={selectedPath}
-						sourceIdentity={renderState.sourceIdentity}
-						{...(telemetryRecorder === undefined ? {} : { telemetryRecorder })}
-						telemetryTraceContext={telemetryTraceContext}
-						totalTreeRowCount={totalTreeRowCount}
-						totalTreeHeightPixels={totalTreeHeight.heightPixels}
-						totalTreeHeightSource={totalTreeHeight.source}
+							: { telemetryRecorder: props.telemetryRecorder })}
+						telemetryTraceContext={props.telemetryTraceContext}
+						totalTreeHeightPixels={props.totalTreeHeight.heightPixels}
+						totalTreeHeightSource={props.totalTreeHeight.source}
+						totalTreeRowCount={props.totalTreeRowCount}
+						projectedTreeRowCount={props.displayModel.projectedRowCount}
+						treeRowByPath={props.displayModel.treeRowByPath}
 					/>
 				}
 				railTestId="bridge-file-viewer-resizable-rail"
 			/>
 		</main>
-	);
-}
-
-function BridgeFileViewerStaleNotice({
-	canRefresh,
-	onRefresh,
-}: {
-	readonly canRefresh: boolean;
-	readonly onRefresh: () => void;
-}): ReactElement {
-	return (
-		<div
-			className="absolute right-3 top-3 z-10 flex items-center gap-2 rounded-md border border-[var(--bridge-border-opaque)] bg-[var(--bridge-menu-bg)] px-3 py-2 text-xs shadow-[var(--bridge-floating-panel-shadow)]"
-			data-testid="worktree-file-content-stale"
-		>
-			<span>Content changed</span>
-			<BridgeViewerButton
-				className="border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] px-2"
-				data-testid="worktree-file-refresh"
-				disabled={!canRefresh}
-				onClick={onRefresh}
-			>
-				<BridgeViewerIcon>
-					<RefreshCwIcon aria-hidden="true" className="size-3" />
-				</BridgeViewerIcon>
-				Refresh
-			</BridgeViewerButton>
-		</div>
 	);
 }

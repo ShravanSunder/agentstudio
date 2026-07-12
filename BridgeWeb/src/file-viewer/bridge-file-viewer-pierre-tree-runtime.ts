@@ -1,21 +1,19 @@
-import { prepareFileTreeInput, type FileTreeBatchOperation } from '@pierre/trees';
 import { useFileTree } from '@pierre/trees/react';
-import { useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react';
+import {
+	useCallback,
+	useEffect,
+	useRef,
+	useSyncExternalStore,
+	type MouseEvent as ReactMouseEvent,
+} from 'react';
 
 import {
-	appendedOnlyPierreTreePaths,
-	expandAncestorDirectoriesForPierreTreePaths,
 	pierreFilePathFromTreeEvent,
 	type BridgePierreTreeModelForExpansion,
 	type BridgePierreTreeScrollOwner,
 } from '../app/bridge-pierre-tree-adapter.js';
 import { bridgeViewerTreeUnsafeCSS } from '../app/bridge-viewer-tree-theme.js';
-import type {
-	WorktreeFileDescriptor,
-	WorktreeFileDescriptorRequest,
-	WorktreeFileSurfaceSourceIdentity,
-	WorktreeTreeRowMetadata,
-} from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import type { BridgeMainFileTreePatchStream } from '../core/comm-worker/bridge-main-file-display-patch-applier.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 import { recordBridgeViewerFirstInteractionReady } from '../foundation/telemetry/bridge-viewer-first-interaction.js';
@@ -23,28 +21,31 @@ import {
 	recordBridgeTreeScrollToPathTelemetrySample,
 	recordBridgeTreeScrollVisibleDemandTelemetrySample,
 } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
+import type { BridgeFileViewerVisibleFileDemandChange } from './bridge-file-viewer-contracts.js';
 import type {
-	BridgeFileViewerDescriptorProjection,
-	BridgeFileViewerVisibleFileDemandChange,
-} from './bridge-file-viewer-contracts.js';
+	BridgeFileViewerDisplayTreeRow,
+	BridgeFileViewerSelection,
+} from './bridge-file-viewer-display-model.js';
 import {
 	pierreFileTreeScrollElementForDemand,
 	visibleFileDemandChangeForPierreDemand,
-	visibleDescriptorRefsForPierreDemand,
 } from './bridge-file-viewer-pierre-visible-demand.js';
+import {
+	createBridgeFileViewerTreePatchCoordinator,
+	type BridgeFileViewerTreePatchCoordinator,
+} from './bridge-file-viewer-tree-patch-coordinator.js';
 
 export interface UseBridgeFileViewerPierreTreeRuntimeProps {
-	readonly descriptorProjection: BridgeFileViewerDescriptorProjection;
-	readonly fileDescriptorByPath: ReadonlyMap<string, WorktreeFileDescriptor>;
-	readonly onOpenFile: (descriptor: WorktreeFileDescriptor) => Promise<void>;
-	readonly onRequestFileDescriptor?: (
-		request: WorktreeFileDescriptorRequest,
-	) => Promise<void> | void;
+	readonly completeFileQueryTransaction: (transactionId: string) => boolean;
+	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
+	readonly onSelectFile: (selection: BridgeFileViewerSelection) => void;
 	readonly onVisibleFileDemandChange?: (change: BridgeFileViewerVisibleFileDemandChange) => void;
 	readonly selectedPath: string | null;
-	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity | null;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
 	readonly telemetryTraceContext?: BridgeTraceContext | null | undefined;
+	readonly treeRowByPath: {
+		readonly get: (path: string) => BridgeFileViewerDisplayTreeRow | undefined;
+	};
 }
 
 export interface BridgeFileViewerPierreTreeRuntime {
@@ -53,97 +54,60 @@ export interface BridgeFileViewerPierreTreeRuntime {
 }
 
 const bridgeFileViewerTreeRowHeightPixels = 24;
-const bridgeFileViewerTreeOptions = {
-	flattenEmptyDirectories: true,
-	sort: 'default',
-} as const;
-
 export function useBridgeFileViewerPierreTreeRuntime(
 	props: UseBridgeFileViewerPierreTreeRuntimeProps,
 ): BridgeFileViewerPierreTreeRuntime {
-	const fileDescriptorByPathRef = useRef(props.fileDescriptorByPath);
-	const onOpenFileRef = useRef(props.onOpenFile);
-	const onRequestFileDescriptorRef = useRef(props.onRequestFileDescriptor);
-	const sourceIdentityRef = useRef(props.sourceIdentity);
-	const treeRowsRef = useRef(props.descriptorProjection.treeRows);
+	const onSelectFileRef = useRef(props.onSelectFile);
+	const treeRowByPathRef = useRef(props.treeRowByPath);
+	const completeFileQueryTransactionRef = useRef(props.completeFileQueryTransaction);
 	const isSyncingSelectedPathRef = useRef(false);
 	const firstInteractionMountStartedAtRef = useRef(performance.now());
 	const hasRecordedFirstInteractionRef = useRef(false);
-	const paths = props.descriptorProjection.paths;
-	const appliedTreePathsRef = useRef(paths);
-	const initialPreparedInputRef = useRef<ReturnType<typeof prepareFileTreeInput> | null>(null);
-	const initialPreparedInput =
-		initialPreparedInputRef.current ?? prepareFileTreeInput(paths, bridgeFileViewerTreeOptions);
-	initialPreparedInputRef.current = initialPreparedInput;
-	fileDescriptorByPathRef.current = props.fileDescriptorByPath;
-	onOpenFileRef.current = props.onOpenFile;
-	onRequestFileDescriptorRef.current = props.onRequestFileDescriptor;
-	sourceIdentityRef.current = props.sourceIdentity;
-	treeRowsRef.current = props.descriptorProjection.treeRows;
+	onSelectFileRef.current = props.onSelectFile;
+	treeRowByPathRef.current = props.treeRowByPath;
+	completeFileQueryTransactionRef.current = props.completeFileQueryTransaction;
 
-	const openOrRequestPath = useCallback((selectedPath: string): void => {
-		const descriptor = fileDescriptorByPathRef.current.get(selectedPath);
-		if (descriptor !== undefined) {
-			void onOpenFileRef.current(descriptor);
+	const selectPath = useCallback((selectedPath: string): void => {
+		const normalizedPath = selectedPath.endsWith('/') ? selectedPath.slice(0, -1) : selectedPath;
+		const row = treeRowByPathRef.current.get(normalizedPath);
+		if (row?.fileId === null || row?.fileId === undefined || row.isDirectory) {
 			return;
 		}
-		const request = descriptorRequestForSelectedPath({
-			path: selectedPath,
-			sourceIdentity: sourceIdentityRef.current,
-			treeRows: treeRowsRef.current,
-		});
-		if (request !== null) {
-			void onRequestFileDescriptorRef.current?.(request);
-		}
+		onSelectFileRef.current({ fileId: row.fileId, path: row.path });
 	}, []);
 	const selectionCoordinatorRef = useRef<BridgeFileViewerTreeSelectionCoordinator | null>(null);
 	selectionCoordinatorRef.current ??= createBridgeFileViewerTreeSelectionCoordinator({
-		openOrRequestPath,
+		selectPath,
 	});
 
+	const handleSelectionChange = (selectedPaths: readonly string[]): void => {
+		if (isSyncingSelectedPathRef.current) return;
+		const selectedPath = selectedPaths[0];
+		if (selectedPath !== undefined) {
+			selectionCoordinatorRef.current?.recordPierreSelectionPath(selectedPath);
+		}
+	};
 	const { model } = useFileTree({
-		preparedInput: initialPreparedInput,
+		paths: [],
 		flattenEmptyDirectories: true,
 		initialExpansion: 'open',
 		initialSelectedPaths: props.selectedPath === null ? [] : [props.selectedPath],
 		itemHeight: bridgeFileViewerTreeRowHeightPixels,
-		onSelectionChange: (selectedPaths): void => {
-			if (isSyncingSelectedPathRef.current) {
-				return;
-			}
-			const selectedPath = selectedPaths[0];
-			if (selectedPath === undefined) {
-				return;
-			}
-			selectionCoordinatorRef.current?.recordPierreSelectionPath(selectedPath);
-		},
+		onSelectionChange: handleSelectionChange,
 		search: false,
 		sort: 'default',
 		unsafeCSS: bridgeViewerTreeUnsafeCSS,
 	});
-
-	useEffect((): void => {
-		const previousPaths = appliedTreePathsRef.current;
-		if (previousPaths === paths) {
-			return;
-		}
-		const appendedPaths = appendedOnlyPierreTreePaths({
-			nextPaths: paths,
-			previousPaths,
-		});
-		if (appendedPaths === null) {
-			model.resetPaths(paths, {
-				preparedInput: prepareFileTreeInput(paths, bridgeFileViewerTreeOptions),
-			});
-		} else if (appendedPaths.length > 0) {
-			model.batch(appendedPaths.map(fileTreeAddOperation));
-			expandAncestorDirectoriesForPierreTreePaths({
-				model,
-				paths: appendedPaths,
-			});
-		}
-		appliedTreePathsRef.current = paths;
-	}, [model, paths]);
+	const patchCoordinatorRef = useRef<BridgeFileViewerTreePatchCoordinator | null>(null);
+	patchCoordinatorRef.current ??= createBridgeFileViewerTreePatchCoordinator({
+		model,
+		onQueryTransactionReady: (transactionId): boolean =>
+			completeFileQueryTransactionRef.current(transactionId),
+	});
+	useBridgeFileTreePatchStream({
+		coordinator: patchCoordinatorRef.current,
+		stream: props.fileTreePatchStream,
+	});
 
 	const onVisibleFileDemandChange = props.onVisibleFileDemandChange;
 	const telemetryRecorder = props.telemetryRecorder;
@@ -154,11 +118,10 @@ export function useBridgeFileViewerPierreTreeRuntime(
 		}
 		const publishStartedAt = performance.now();
 		const demandChange = visibleFileDemandChangeForPierreDemand({
-			fileDescriptorByPath: fileDescriptorByPathRef.current,
 			model,
 			telemetryRecorder,
 			telemetryTraceContext,
-			treeRows: treeRowsRef.current,
+			treeRowByPath: treeRowByPathRef.current,
 		});
 		if (demandChange === null) {
 			return;
@@ -173,13 +136,7 @@ export function useBridgeFileViewerPierreTreeRuntime(
 				visibleItemCount: demandChange.visibleFileCount,
 			});
 		}
-	}, [
-		fileDescriptorByPathRef,
-		model,
-		onVisibleFileDemandChange,
-		telemetryRecorder,
-		telemetryTraceContext,
-	]);
+	}, [model, onVisibleFileDemandChange, telemetryRecorder, telemetryTraceContext]);
 
 	useEffect((): (() => void) => {
 		let scrollElement: BridgePierreTreeScrollOwner | null = null;
@@ -197,23 +154,20 @@ export function useBridgeFileViewerPierreTreeRuntime(
 			scrollElement = pierreFileTreeScrollElementForDemand(model);
 			scrollElement?.addEventListener('scroll', scheduleVisibleFileDemand, { passive: true });
 			publishVisibleFileDemand();
-			// Only anchor time-to-first-interaction once the tree actually has rows painted.
-			// On a large streaming worktree the tree shell mounts before metadata arrives, so
-			// an ungated RAF would fire against an empty tree and understate the metric.
-			if (!hasRecordedFirstInteractionRef.current && paths.length > 0) {
+			if (!hasRecordedFirstInteractionRef.current && props.fileTreePatchStream.getCursor() > 0) {
 				hasRecordedFirstInteractionRef.current = true;
 				recordBridgeViewerFirstInteractionReady({
-					viewer: 'file',
-					telemetryRecorder,
-					mountStartedAtPerfNow: firstInteractionMountStartedAtRef.current,
-					visibleItemCount: visibleDescriptorRefsForPierreDemand({
-						fileDescriptorByPath: fileDescriptorByPathRef.current,
-						model,
-						telemetryRecorder,
-						telemetryTraceContext,
-						treeRows: treeRowsRef.current,
-					}).length,
 					fallbackTraceContext: telemetryTraceContext,
+					mountStartedAtPerfNow: firstInteractionMountStartedAtRef.current,
+					telemetryRecorder,
+					viewer: 'file',
+					visibleItemCount:
+						visibleFileDemandChangeForPierreDemand({
+							model,
+							telemetryRecorder,
+							telemetryTraceContext,
+							treeRowByPath: treeRowByPathRef.current,
+						})?.visibleItemIds.length ?? 0,
 				});
 			}
 		});
@@ -226,7 +180,13 @@ export function useBridgeFileViewerPierreTreeRuntime(
 			scrollElement?.removeEventListener('scroll', scheduleVisibleFileDemand);
 			unsubscribeModel();
 		};
-	}, [model, paths, publishVisibleFileDemand, telemetryRecorder, telemetryTraceContext]);
+	}, [
+		model,
+		props.fileTreePatchStream,
+		publishVisibleFileDemand,
+		telemetryRecorder,
+		telemetryTraceContext,
+	]);
 
 	useEffect((): void => {
 		if (props.selectedPath === null) {
@@ -251,17 +211,68 @@ export function useBridgeFileViewerPierreTreeRuntime(
 			telemetryRecorder,
 			traceContext: telemetryTraceContext,
 		});
-	}, [model, props.selectedPath, paths, telemetryRecorder, telemetryTraceContext]);
+	}, [model, props.selectedPath, telemetryRecorder, telemetryTraceContext]);
 
 	const handleTreeClick = useCallback((event: ReactMouseEvent<HTMLElement>): void => {
 		const selectedPath = pierreFilePathFromTreeEvent(event.nativeEvent);
-		if (selectedPath === null) {
-			return;
+		if (selectedPath !== null) {
+			selectionCoordinatorRef.current?.handleClickedPath(selectedPath);
 		}
-		selectionCoordinatorRef.current?.handleClickedPath(selectedPath);
 	}, []);
 
 	return { handleTreeClick, model };
+}
+
+function useBridgeFileTreePatchStream(props: {
+	readonly coordinator: BridgeFileViewerTreePatchCoordinator;
+	readonly stream: BridgeMainFileTreePatchStream;
+}): void {
+	const streamCursor = useSyncExternalStore(
+		props.stream.subscribe,
+		props.stream.getCursor,
+		props.stream.getServerCursor,
+	);
+	const appliedCursorRef = useRef(0);
+	const queuedCursorRef = useRef(0);
+	const queuedEntriesRef = useRef<ReturnType<BridgeMainFileTreePatchStream['readAfter']>[number][]>(
+		[],
+	);
+	const animationFrameIdRef = useRef<number | null>(null);
+	const coordinatorRef = useRef(props.coordinator);
+	coordinatorRef.current = props.coordinator;
+
+	useEffect((): void => {
+		const newEntries = props.stream.readAfter(queuedCursorRef.current);
+		if (newEntries.length > 0) {
+			queuedEntriesRef.current.push(...newEntries);
+			queuedCursorRef.current = newEntries.at(-1)?.cursor ?? queuedCursorRef.current;
+		}
+		const drainNextEntry = (): void => {
+			const entry = queuedEntriesRef.current.shift();
+			if (entry === undefined) {
+				animationFrameIdRef.current = null;
+				return;
+			}
+			coordinatorRef.current.applyEntry(entry);
+			appliedCursorRef.current = entry.cursor;
+			animationFrameIdRef.current = requestAnimationFrame(drainNextEntry);
+		};
+		if (animationFrameIdRef.current === null && queuedEntriesRef.current.length > 0) {
+			animationFrameIdRef.current = requestAnimationFrame(drainNextEntry);
+		}
+	}, [props.stream, streamCursor]);
+
+	useEffect(
+		(): (() => void) => (): void => {
+			if (animationFrameIdRef.current !== null) {
+				cancelAnimationFrame(animationFrameIdRef.current);
+				animationFrameIdRef.current = null;
+			}
+			queuedEntriesRef.current = [];
+			queuedCursorRef.current = appliedCursorRef.current;
+		},
+		[],
+	);
 }
 
 export interface BridgeFileViewerTreeSelectionCoordinator {
@@ -270,47 +281,28 @@ export interface BridgeFileViewerTreeSelectionCoordinator {
 }
 
 export function createBridgeFileViewerTreeSelectionCoordinator(props: {
-	readonly openOrRequestPath: (path: string) => void;
+	readonly selectPath: (path: string) => void;
 }): BridgeFileViewerTreeSelectionCoordinator {
-	let lastSelectionChangePath: string | null = null;
+	let pendingCounterpart: { readonly path: string; readonly source: 'click' | 'selection' } | null =
+		null;
 	return {
 		handleClickedPath(path: string): void {
-			if (lastSelectionChangePath === path) {
-				lastSelectionChangePath = null;
+			if (pendingCounterpart?.path === path && pendingCounterpart.source === 'selection') {
+				pendingCounterpart = null;
 				return;
 			}
-			props.openOrRequestPath(path);
+			pendingCounterpart = { path, source: 'click' };
+			props.selectPath(path);
 		},
 		recordPierreSelectionPath(path: string): void {
-			lastSelectionChangePath = path;
-			props.openOrRequestPath(path);
+			if (pendingCounterpart?.path === path && pendingCounterpart.source === 'click') {
+				pendingCounterpart = null;
+				return;
+			}
+			pendingCounterpart = { path, source: 'selection' };
+			props.selectPath(path);
 		},
 	};
-}
-
-function descriptorRequestForSelectedPath(props: {
-	readonly path: string;
-	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity | null;
-	readonly treeRows: readonly WorktreeTreeRowMetadata[];
-}): WorktreeFileDescriptorRequest | null {
-	if (props.sourceIdentity === null) {
-		return null;
-	}
-	const row = props.treeRows.find((candidate): boolean => candidate.path === props.path);
-	if (row === undefined || row.isDirectory || row.fileId === undefined) {
-		return null;
-	}
-	return {
-		sourceIdentity: props.sourceIdentity,
-		rowId: row.rowId,
-		path: row.path,
-		fileId: row.fileId,
-		lane: 'foreground',
-	};
-}
-
-function fileTreeAddOperation(path: string): FileTreeBatchOperation {
-	return { type: 'add', path };
 }
 
 function recordFileTreeScrollToPath(props: {
@@ -324,18 +316,17 @@ function recordFileTreeScrollToPath(props: {
 }): void {
 	const startedAt = performance.now();
 	props.model.scrollToPath(props.path, { focus: props.focus, offset: props.offset });
-	if (props.telemetryRecorder === undefined) {
-		return;
+	if (props.telemetryRecorder !== undefined) {
+		recordBridgeTreeScrollToPathTelemetrySample({
+			durationMilliseconds: performance.now() - startedAt,
+			focus: props.focus,
+			offset: props.offset,
+			reason: props.reason,
+			telemetryRecorder: props.telemetryRecorder,
+			traceContext: props.traceContext,
+			viewer: 'file',
+		});
 	}
-	recordBridgeTreeScrollToPathTelemetrySample({
-		durationMilliseconds: performance.now() - startedAt,
-		focus: props.focus,
-		offset: props.offset,
-		reason: props.reason,
-		telemetryRecorder: props.telemetryRecorder,
-		traceContext: props.traceContext,
-		viewer: 'file',
-	});
 }
 
 export type BridgeFileViewerTreeModelForAppend = BridgePierreTreeModelForExpansion;

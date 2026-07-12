@@ -47,7 +47,7 @@ describe('Bridge product session contracts', () => {
 	test('keeps the Swift and TypeScript corpora byte-identical at frozen hashes', () => {
 		const fixturePairs = [
 			{
-				expectedHash: '57ad606fe03071a6fc0a96bd76a3d7f10687d937cbed9ee61c5d3d811e0cc726',
+				expectedHash: '55bb51274fd977c76ce4e26133ca5cb2e9d1371dcda1ea713f2ff47e2c766dea',
 				kind: 'valid',
 			},
 			{
@@ -82,7 +82,7 @@ describe('Bridge product session contracts', () => {
 		expect(validProductSessionCorpus.bootstrap).not.toHaveProperty('initialSurface');
 		expect(validProductSessionCorpus.bootstrap).not.toHaveProperty('productCapabilityBytes');
 		expect(validProductSessionCorpus.bootstrap).not.toHaveProperty('routes');
-		expect(BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES).toBe(256 * 1024);
+		expect(BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES).toBe(128 * 1024);
 		expect(validProductSessionCorpus.bootstrap.policy.maximumRequestBodyBytes).toBe(
 			BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
 		);
@@ -285,6 +285,60 @@ describe('Bridge product session contracts', () => {
 		}
 	});
 
+	test('derives active viewer call surface from the closed method without repeated surface fields', () => {
+		const identity = {
+			kind: 'product.call',
+			paneSessionId: 'pane-session-1',
+			requestId: 'active-mode-call-1',
+			requestSequence: 2,
+			wireVersion: 2,
+			workerDerivationEpoch: 4,
+			workerInstanceId: 'worker-instance-1',
+		};
+		const reviewCall = {
+			...identity,
+			call: {
+				method: 'review.activeViewerMode.update',
+				request: {
+					activeSource: { generation: 3, streamId: 'review-stream-1' },
+					sequence: 7,
+					sessionId: 'viewer-session-1',
+				},
+			},
+		};
+		const fileCall = {
+			...identity,
+			call: {
+				method: 'file.activeViewerMode.update',
+				request: {
+					activeSource: { generation: 5, streamId: 'file-stream-1' },
+					sequence: 8,
+					sessionId: 'viewer-session-1',
+				},
+			},
+			requestId: 'active-mode-call-2',
+			requestSequence: 3,
+		};
+
+		expect(bridgeProductControlRequestSchema.parse(reviewCall)).toEqual(reviewCall);
+		expect(bridgeProductControlRequestSchema.parse(fileCall)).toEqual(fileCall);
+		for (const repeatedField of [
+			{ mode: 'review' },
+			{ protocol: 'review' },
+			{ surface: 'review' },
+		]) {
+			expect(
+				bridgeProductControlRequestSchema.safeParse({
+					...reviewCall,
+					call: {
+						...reviewCall.call,
+						request: { ...reviewCall.call.request, ...repeatedField },
+					},
+				}).success,
+			).toBe(false);
+		}
+	});
+
 	test('resync carries independent epochs per active surface and rejects split same-surface epochs', () => {
 		const resync = bridgeProductControlRequestSchema.parse(
 			validProductSessionCorpus.controlRequests.find(
@@ -392,13 +446,13 @@ describe('Bridge product session contracts', () => {
 		expect(
 			bridgeProductControlResponseSchema.safeParse({
 				...resyncAccepted,
-				resumeFromStreamSequence: BRIDGE_PRODUCT_MAXIMUM_RESUMABLE_STREAM_SEQUENCE,
+				metadataStreamSequenceBarrier: BRIDGE_PRODUCT_MAXIMUM_RESUMABLE_STREAM_SEQUENCE,
 			}).success,
 		).toBe(true);
 		expect(
 			bridgeProductControlResponseSchema.safeParse({
 				...resyncAccepted,
-				resumeFromStreamSequence: firstNonresumableSequence,
+				metadataStreamSequenceBarrier: firstNonresumableSequence,
 			}).success,
 		).toBe(false);
 

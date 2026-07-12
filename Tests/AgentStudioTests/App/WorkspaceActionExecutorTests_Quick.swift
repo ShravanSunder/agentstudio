@@ -306,8 +306,8 @@ struct WorkspaceActionExecutorTestsQuick {
         )
     }
 
-    @Test("openBridgeFileView installs Worktree/File bootstrap source spec on mounted controller")
-    func openBridgeFileView_installsWorktreeFileBootstrapSourceSpec() throws {
+    @Test("openBridgeFileView keeps source identity out of the page bootstrap")
+    func openBridgeFileView_keepsSourceIdentityOutOfPageBootstrap() throws {
         let harness = makeHarness()
         let store = harness.store
         let viewRegistry = harness.viewRegistry
@@ -330,11 +330,10 @@ struct WorkspaceActionExecutorTestsQuick {
 
         #expect(script.contains("const APP_PROTOCOL = \"worktree-file\""))
         #expect(script.contains("data-bridge-app-protocol"))
-        #expect(script.contains("data-bridge-worktree-file-source-spec"))
-        #expect(script.contains(repo.id.uuidString))
-        #expect(script.contains(worktree.id.uuidString))
-        #expect(script.contains(StableKey.fromPath(worktree.path)))
-        #expect(!script.contains("const WORKTREE_FILE_SOURCE_SPEC = null;"))
+        #expect(!script.contains("data-bridge-worktree-file-source-spec"))
+        #expect(!script.contains(repo.id.uuidString))
+        #expect(!script.contains(worktree.id.uuidString))
+        #expect(!script.contains(StableKey.fromPath(worktree.path)))
     }
 
     @Test("openContextualWebviewInPane creates a split browser pane with inherited workspace association")
@@ -523,10 +522,9 @@ struct WorkspaceActionExecutorTestsQuick {
         }
         #expect(script.contains("const APP_PROTOCOL = \"worktree-file\""))
         #expect(script.contains("data-bridge-app-protocol"))
-        #expect(script.contains("data-bridge-worktree-file-source-spec"))
-        #expect(script.contains(repo.id.uuidString))
-        #expect(script.contains(worktree.id.uuidString))
-        #expect(script.contains(StableKey.fromPath(worktree.path)))
-        #expect(!script.contains("const WORKTREE_FILE_SOURCE_SPEC = null;"))
+        #expect(!script.contains("data-bridge-worktree-file-source-spec"))
+        #expect(!script.contains(repo.id.uuidString))
+        #expect(!script.contains(worktree.id.uuidString))
+        #expect(!script.contains(StableKey.fromPath(worktree.path)))
     }
 }

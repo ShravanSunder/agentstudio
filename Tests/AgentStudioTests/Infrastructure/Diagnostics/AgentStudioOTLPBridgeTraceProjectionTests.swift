@@ -579,14 +579,6 @@ struct AgentStudioOTLPBridgeTraceProjectionTests {
             attributes["agentstudio.startup_diagnostic.bridge.file_view.expected_bootstrap.protocol"]
                 == .string("worktree-file")
         )
-        #expect(
-            attributes["agentstudio.startup_diagnostic.bridge.file_view.bootstrap.source_spec.state"]
-                == .string("parseable")
-        )
-        #expect(
-            attributes["agentstudio.startup_diagnostic.bridge.file_view.bootstrap.source_spec.length"]
-                == .int(512)
-        )
         #expect(attributes["agentstudio.startup_diagnostic.bridge.file_view.open_file.state"] == .string("ready"))
         #expect(attributes["agentstudio.startup_diagnostic.bridge.file_view.descriptor.count"] == .int(4))
     }
@@ -752,8 +744,6 @@ struct AgentStudioOTLPBridgeTraceProjectionTests {
                 "agentstudio.startup_diagnostic.bridge.file_view.expected_bootstrap.protocol": .string(
                     "worktree-file"),
                 "agentstudio.startup_diagnostic.bridge.file_view.bootstrap.protocol": .string("worktree-file"),
-                "agentstudio.startup_diagnostic.bridge.file_view.bootstrap.source_spec.length": .int(512),
-                "agentstudio.startup_diagnostic.bridge.file_view.bootstrap.source_spec.state": .string("parseable"),
                 "agentstudio.startup_diagnostic.bridge.file_view.body_preview.length": .int(120),
                 "agentstudio.startup_diagnostic.bridge.file_view.code_text.length": .int(240),
                 "agentstudio.startup_diagnostic.bridge.file_view.code_view.height_px": .int(720),

@@ -55,12 +55,11 @@ describe('Bridge file viewer store source structure', () => {
 		expect(violations).toEqual([]);
 	});
 
-	test('keeps native File View transport behind one typed boundary prop', () => {
+	test('keeps File View product transport out of React surface props', () => {
 		const appPropsSource = readSourceFile('file-viewer/bridge-file-viewer-app-props.ts');
 		const bootstrapSource = readSourceFile('app/bridge-app-bootstrap.tsx');
 		const devBootstrapSource = readSourceFile('app/bridge-app-dev-bootstrap.tsx');
 		const modeSource = readSourceFile('app/bridge-app-file-viewer-mode.tsx');
-		const frameControllerSource = readSourceFile('app/bridge-file-viewer-frame-controller.ts');
 		const appSource = readSourceFile('file-viewer/bridge-file-viewer-app.tsx');
 
 		const propLevelTransportTokens = [
@@ -84,12 +83,10 @@ describe('Bridge file viewer store source structure', () => {
 			(token): boolean => bootstrapSource.includes(token) || devBootstrapSource.includes(token),
 		);
 		const fileViewModeTokens = [
-			'props.fileViewerProps?.registerSurfaceStreamResetRequiredCallback',
+			'worktreeFileSurfaceTransport',
+			'useBridgeFileViewerFrameControllerProps',
+			'registerSurfaceStreamResetRequiredCallback',
 		].filter((token): boolean => modeSource.includes(token));
-		const frameControllerTokens = [
-			'fileViewerProps?.loadInitialSurface',
-			'fileViewerProps?.subscribeFrames',
-		].filter((token): boolean => frameControllerSource.includes(token));
 		const migratedAppTransportMembers = [
 			'fetchResource',
 			'loadInitialSurface',
@@ -110,16 +107,15 @@ describe('Bridge file viewer store source structure', () => {
 			appTransportTokens,
 			explodedBootstrapTokens,
 			fileViewModeTokens,
-			frameControllerTokens,
 			propLevelTransportTokens,
 		}).toEqual({
 			appTransportTokens: [],
 			explodedBootstrapTokens: [],
 			fileViewModeTokens: [],
-			frameControllerTokens: [],
 			propLevelTransportTokens: [],
 		});
-		expect(appPropsSource).toContain('readonly worktreeFileSurfaceTransport?:');
+		expect(appPropsSource).not.toContain('worktreeFileSurfaceTransport');
+		expect(bootstrapSource).not.toContain('createBridgeAppNativeWorktreeFileBackend');
 	});
 
 	test('keeps File View production content fetching behind the comm worker', () => {

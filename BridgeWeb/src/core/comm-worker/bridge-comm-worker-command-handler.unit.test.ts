@@ -4,9 +4,9 @@ import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-rev
 import {
 	createBridgeCommWorkerCommandHandler,
 	type BridgeCommWorkerDemandExecutionScheduleRequest,
+	type BridgeCommWorkerFileViewRuntimeSource,
 } from './bridge-comm-worker-command-handler.js';
 import {
-	encodeBridgeWorkerFileViewSourceUpdateCommand,
 	encodeBridgeWorkerHoverCommand,
 	encodeBridgeWorkerActiveViewerModeUpdateCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
@@ -621,10 +621,7 @@ describe('Bridge comm worker command handler', () => {
 	});
 
 	test('file view source update command installs worker-local metadata without raw content', () => {
-		const receivedSources: {
-			readonly contentItems: readonly BridgeWorkerFileViewContentMetadata[];
-			readonly contentRequestDescriptors: readonly { readonly resourceUrl: string }[];
-		}[] = [];
+		const receivedSources: BridgeCommWorkerFileViewRuntimeSource[] = [];
 		const handler = createBridgeCommWorkerCommandHandler({
 			contentItems: [],
 			rows: [],
@@ -636,48 +633,19 @@ describe('Bridge comm worker command handler', () => {
 			},
 		});
 
-		const messages = handler.handleMessage(
-			encodeBridgeWorkerFileViewSourceUpdateCommand({
-				requestId: 'request-file-source',
-				epoch: 6,
+		const messages = handler.applyFileViewRuntimeSource({
+			epoch: 6,
+			source: {
 				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
-				contentRequestDescriptors: [
-					{
-						itemId: 'file-1',
-						path: 'Sources/App/file-1.swift',
-						handleId: 'handle-file-1',
-						descriptorId: 'descriptor-file-1',
-						resourceKind: 'worktree.fileContent',
-						resourceUrl:
-							'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?cursor=cursor-file-1&generation=6',
-						contentHash: 'sha256:file-1',
-						contentHashAlgorithm: 'sha256',
-						language: 'swift',
-						sizeBytes: 128,
-						maxBytes: 4096,
-						isBinary: false,
-					},
-				],
+				contentRequests: [],
 				rows: [{ id: 'file-1', parentId: null, index: 0 }],
-			}),
-		);
-
-		expect(messages).toEqual([
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				transferDescriptors: [],
-				kind: 'health',
-				requestId: 'request-file-source',
-				status: 'ready',
 			},
-		]);
+		});
+
+		expect(messages).toEqual([]);
 		expect(receivedSources[0]?.contentItems).toEqual([makeWorkerFileViewContentMetadata('file-1')]);
-		expect(receivedSources[0]?.contentRequestDescriptors[0]?.resourceUrl).toMatch(
-			/^agentstudio:\/\//,
-		);
 		expect(JSON.stringify(receivedSources[0]?.contentItems)).not.toMatch(
-			/resourceUrl|contents|body/i,
+			/resourceUrl|contentHandle|contents|body/i,
 		);
 		expect(JSON.stringify(receivedSources)).not.toMatch(/contents|body/i);
 	});
@@ -692,15 +660,14 @@ describe('Bridge comm worker command handler', () => {
 			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
 		});
 
-		handler.handleMessage(
-			encodeBridgeWorkerFileViewSourceUpdateCommand({
-				requestId: 'request-file-source-no-visible-demand',
-				epoch: 6,
+		handler.applyFileViewRuntimeSource({
+			epoch: 6,
+			source: {
 				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
-				contentRequestDescriptors: [makeWorkerFileViewContentRequestDescriptor('file-1', 6)],
+				contentRequests: [],
 				rows: [{ id: 'file-1', parentId: null, index: 0 }],
-			}),
-		);
+			},
+		});
 
 		expect(scheduledVisibleDemand).toEqual([]);
 	});
@@ -722,15 +689,14 @@ describe('Bridge comm worker command handler', () => {
 			}),
 		);
 
-		const messages = handler.handleMessage(
-			encodeBridgeWorkerFileViewSourceUpdateCommand({
-				requestId: 'request-file-source',
-				epoch: 2,
+		const messages = handler.applyFileViewRuntimeSource({
+			epoch: 2,
+			source: {
 				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
-				contentRequestDescriptors: [makeWorkerFileViewContentRequestDescriptor('file-1', 2)],
+				contentRequests: [],
 				rows: [{ id: 'file-1', parentId: null, index: 0 }],
-			}),
-		);
+			},
+		});
 
 		expect(messages).toEqual([
 			{
@@ -749,14 +715,6 @@ describe('Bridge comm worker command handler', () => {
 					},
 				],
 			},
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				transferDescriptors: [],
-				kind: 'health',
-				requestId: 'request-file-source',
-				status: 'ready',
-			},
 		]);
 	});
 
@@ -774,15 +732,14 @@ describe('Bridge comm worker command handler', () => {
 				scheduledFileViewPreparations,
 			),
 		});
-		handler.handleMessage(
-			encodeBridgeWorkerFileViewSourceUpdateCommand({
-				requestId: 'request-file-source-before-select',
-				epoch: 6,
+		handler.applyFileViewRuntimeSource({
+			epoch: 6,
+			source: {
 				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
-				contentRequestDescriptors: [makeWorkerFileViewContentRequestDescriptor('file-1', 6)],
+				contentRequests: [],
 				rows: [{ id: 'file-1', parentId: null, index: 0 }],
-			}),
-		);
+			},
+		});
 
 		const messages = handler.handleMessage(
 			encodeBridgeWorkerSelectCommand({
@@ -844,15 +801,14 @@ describe('Bridge comm worker command handler', () => {
 			}),
 		);
 
-		const messages = handler.handleMessage(
-			encodeBridgeWorkerFileViewSourceUpdateCommand({
-				requestId: 'request-file-source-repair',
-				epoch: 2,
+		const messages = handler.applyFileViewRuntimeSource({
+			epoch: 2,
+			source: {
 				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
-				contentRequestDescriptors: [makeWorkerFileViewContentRequestDescriptor('file-1', 2)],
+				contentRequests: [],
 				rows: [{ id: 'file-1', parentId: null, index: 0 }],
-			}),
-		);
+			},
+		});
 
 		expect(messages).toEqual([
 			{
@@ -871,14 +827,6 @@ describe('Bridge comm worker command handler', () => {
 					},
 				],
 			},
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				transferDescriptors: [],
-				kind: 'health',
-				requestId: 'request-file-source-repair',
-				status: 'ready',
-			},
 		]);
 		expect(scheduledReviewPreparations).toEqual([]);
 		expect(scheduledFileViewPreparations).toHaveLength(1);
@@ -887,157 +835,6 @@ describe('Bridge comm worker command handler', () => {
 		expect(scheduledFileViewPreparations[0]?.store.getState().demandByKey.get('file-1')).toBe(
 			'selected:2',
 		);
-	});
-
-	test('file view source update labels source-reset terminal availability before health ack', () => {
-		const scheduledFileViewPreparations: ScheduledSelectedFileViewPreparation[] = [];
-		const handler = createBridgeCommWorkerCommandHandler({
-			contentItems: [],
-			rows: [],
-			createSequence: createSequenceFrom([71, 72, 73, 74]),
-			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
-			scheduleSelectedFileViewContentReadyPreparation: pushScheduledSelectedFileViewPreparation(
-				scheduledFileViewPreparations,
-			),
-		});
-		handler.handleMessage(
-			encodeBridgeWorkerFileViewSourceUpdateCommand({
-				requestId: 'request-file-source-before-terminal-reset',
-				epoch: 6,
-				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
-				contentRequestDescriptors: [makeWorkerFileViewContentRequestDescriptor('file-1', 6)],
-				rows: [{ id: 'file-1', parentId: null, index: 0 }],
-			}),
-		);
-		handler.handleMessage(
-			encodeBridgeWorkerSelectCommand({
-				requestId: 'request-select-file-before-terminal-reset',
-				epoch: 7,
-				selectedItemId: 'file-1',
-				selectedSource: 'user',
-			}),
-		);
-		const selectedStore = scheduledFileViewPreparations[0]?.store;
-		if (selectedStore === undefined) {
-			throw new Error('Expected selected File View preparation store.');
-		}
-		selectedStore.actions.applyContentReady({
-			itemId: 'file-1',
-			contentCacheKey: 'file-view:sha256:file-1',
-		});
-		selectedStore.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 81 });
-
-		const messages = handler.handleMessage(
-			encodeBridgeWorkerFileViewSourceUpdateCommand({
-				requestId: 'request-file-source-terminal-reset',
-				epoch: 8,
-				contentItems: [
-					{
-						...makeWorkerFileViewContentMetadata('file-1'),
-						canFetchContent: false,
-						isBinary: true,
-					},
-				],
-				contentRequestDescriptors: [],
-				rows: [{ id: 'file-1', parentId: null, index: 0 }],
-			}),
-		);
-
-		expect(messages).toEqual([
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				transferDescriptors: [],
-				kind: 'slicePatch',
-				epoch: 8,
-				sequence: 73,
-				patches: [
-					{ slice: 'rowPaint', operation: 'delete', itemId: 'file-1' },
-					{
-						slice: 'contentAvailability',
-						operation: 'upsert',
-						itemId: 'file-1',
-						payload: { reason: 'source_reset', state: 'unavailable' },
-					},
-				],
-			},
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				transferDescriptors: [],
-				kind: 'health',
-				requestId: 'request-file-source-terminal-reset',
-				status: 'ready',
-			},
-		]);
-		expect(scheduledFileViewPreparations).toHaveLength(1);
-	});
-
-	test('file view source update does not schedule selected preparation when ready paint remains current', () => {
-		const scheduledReviewPreparations: ScheduledSelectedReviewPreparation[] = [];
-		const scheduledFileViewPreparations: ScheduledSelectedFileViewPreparation[] = [];
-		const handler = createBridgeCommWorkerCommandHandler({
-			contentItems: [],
-			rows: [],
-			createSequence: createSequenceFrom([81, 82, 83]),
-			scheduleSelectedReviewContentReadyPreparation: pushScheduledSelectedReviewPreparation(
-				scheduledReviewPreparations,
-			),
-			scheduleSelectedFileViewContentReadyPreparation: pushScheduledSelectedFileViewPreparation(
-				scheduledFileViewPreparations,
-			),
-		});
-		handler.handleMessage(
-			encodeBridgeWorkerFileViewSourceUpdateCommand({
-				requestId: 'request-file-source-before-ready',
-				epoch: 6,
-				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
-				contentRequestDescriptors: [makeWorkerFileViewContentRequestDescriptor('file-1', 6)],
-				rows: [{ id: 'file-1', parentId: null, index: 0 }],
-			}),
-		);
-		handler.handleMessage(
-			encodeBridgeWorkerSelectCommand({
-				requestId: 'request-select-file-before-ready',
-				epoch: 7,
-				selectedItemId: 'file-1',
-				selectedSource: 'user',
-			}),
-		);
-		const selectedStore = scheduledFileViewPreparations[0]?.store;
-		if (selectedStore === undefined) {
-			throw new Error('Expected selected File View preparation store.');
-		}
-		selectedStore.actions.applyContentReady({
-			itemId: 'file-1',
-			contentCacheKey: 'file-view:sha256:file-1',
-		});
-		selectedStore.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 81 });
-		scheduledFileViewPreparations.splice(0, scheduledFileViewPreparations.length);
-
-		const messages = handler.handleMessage(
-			encodeBridgeWorkerFileViewSourceUpdateCommand({
-				requestId: 'request-file-source-same-ready',
-				epoch: 7,
-				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
-				contentRequestDescriptors: [makeWorkerFileViewContentRequestDescriptor('file-1', 6)],
-				rows: [{ id: 'file-1', parentId: null, index: 0 }],
-			}),
-		);
-
-		expect(messages).toEqual([
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				transferDescriptors: [],
-				kind: 'health',
-				requestId: 'request-file-source-same-ready',
-				status: 'ready',
-			},
-		]);
-		expect(scheduledReviewPreparations).toEqual([]);
-		expect(scheduledFileViewPreparations).toEqual([]);
-		expect(selectedStore.getState().availabilityByItemId.get('file-1')).toBe('ready');
 	});
 });
 
@@ -1112,50 +909,23 @@ function makeWorkerReviewContentMetadata(
 
 function makeWorkerFileViewContentMetadata(itemId: string): BridgeWorkerFileViewContentMetadata {
 	return {
+		metadataKind: 'fileView',
 		itemId,
 		path: `Sources/App/${itemId}.swift`,
 		language: 'swift',
 		cacheKey: `file-view:sha256:${itemId}`,
 		sizeBytes: 128,
-		contentHandle: `handle-${itemId}`,
 		descriptorId: `descriptor-${itemId}`,
 		contentHash: `sha256:${itemId}`,
+		encoding: 'utf-8',
+		endsMidLine: false,
+		endsWithNewline: true,
 		virtualizedExtentKind: 'exactLineCount',
-		lineCount: 7,
+		payloadByteCount: 128,
+		payloadLineCount: 7,
+		totalLineCount: 7,
+		truncationKind: 'none',
 		isBinary: false,
 		canFetchContent: true,
-	};
-}
-
-function makeWorkerFileViewContentRequestDescriptor(
-	itemId: string,
-	generation: number,
-): {
-	readonly itemId: string;
-	readonly path: string;
-	readonly handleId: string;
-	readonly descriptorId: string;
-	readonly resourceKind: 'worktree.fileContent';
-	readonly resourceUrl: string;
-	readonly contentHash: string;
-	readonly contentHashAlgorithm: string;
-	readonly language: string;
-	readonly sizeBytes: number;
-	readonly maxBytes: number;
-	readonly isBinary: boolean;
-} {
-	return {
-		itemId,
-		path: `Sources/App/${itemId}.swift`,
-		handleId: `handle-${itemId}`,
-		descriptorId: `descriptor-${itemId}`,
-		resourceKind: 'worktree.fileContent',
-		resourceUrl: `agentstudio://resource/worktree-file/worktree.fileContent/descriptor-${itemId}?cursor=cursor-${itemId}&generation=${generation}`,
-		contentHash: `sha256:${itemId}`,
-		contentHashAlgorithm: 'sha256',
-		language: 'swift',
-		sizeBytes: 128,
-		maxBytes: 4096,
-		isBinary: false,
 	};
 }

@@ -1245,9 +1245,13 @@ Required trust rules:
   payload/envelope/identity/cursor/descriptor/length is in headers or URL.
   Native authenticates before body access, decode, lease, or provider work;
 - every product request is one complete typed POST body. Worker rejects encoded bodies over
-  256 KiB before `fetch`; native counts actual `httpBody`, or at most cap + 1
+  128 KiB before `fetch`; native counts actual `httpBody`, or at most cap + 1
   `httpBodyStream` bytes, before decode/mutation and never trusts/requires
   synthesized `Content-Length`;
+- every correlated command response package and logical metadata JSON frame is
+  likewise capped by the same 128 KiB control-package constant before decode.
+  Binary content is a distinct streamed payload with the separate frame and
+  data limits in R64;
 - WebKit may materialize that small body before the scheme handler sees it, so
   native admission starts at body access. Large worker -> Swift uploads are out
   of scope;
@@ -1581,9 +1585,14 @@ The comm worker alone uses three fixed product routes:
 | `POST agentstudio://rpc/stream` | one pane metadata-stream open/resume body | one continuous length-prefixed typed metadata response |
 | `POST agentstudio://rpc/content` | one demanded descriptor/window/role body | one independently cancellable typed binary content response |
 
-Every route follows R59's actual-body 256 KiB admission. The authenticated pane session is `wireVersion: 2` plus `paneSessionId`, a freshly native-minted
+Every route follows R59's actual-body 128 KiB admission. Correlated command
+response packages and logical metadata JSON frames have the same 128 KiB
+pre-decode ceiling. Binary content response frames use their distinct bounds
+below. The authenticated pane session is `wireVersion: 2` plus `paneSessionId`, a freshly native-minted
 `workerInstanceId`, and its 256-bit opaque capability. Bootstrap transfers the capability's 32 bytes into the worker and detaches main; only the capability is a privileged header. Replacement revokes old subscriptions/content/leases.
 No product identity/length appears in URL or headers, and the capability never appears in body/response/DOM/log/telemetry/error. Static assets and `OPTIONS` remain capability-free. This not-yet-installed wire has no v1 decoder, fallback, compatibility branch, global `workerEpoch`, or dual path.
+No loopback HTTP product carrier exists; product transport stays on these
+capability-bound custom-scheme routes.
 
 The command union is `workerSession.open`, `product.call`, `subscription.open`, `subscription.updateBatch`, `subscription.cancel`, or
 `workerSession.resync`. `workerSession.open` carries literal `request: null` and establishes only the authenticated pane/worker lifetime. Each typed
@@ -1594,7 +1603,7 @@ including lane changes; removes delete membership.
 
 Interest hashes use one canonical binary form: `u8 version=1 | u8 kind (review=1, file=2) | u32be interestCount`, then exact-UTF-8-byte-sorted records of
 `u32be keyByteLength | key bytes | u8 lane` (`foreground=1`, `active=2`, `visible=3`, `nearby=4`, `speculative=5`, `idle=6`). File state appends
-`u32be pathScopeCount` and exact-UTF-8-byte-sorted `u32be pathByteLength | path bytes` records. Fixed source configuration is excluded; no Unicode normalization occurs. SHA-256 covers exactly those bytes, whose canonical encoding is separately capped at 256 KiB. Shared empty, multi-lane, and composed/decomposed vectors bind TypeScript and Swift.
+`u32be pathScopeCount` and exact-UTF-8-byte-sorted `u32be pathByteLength | path bytes` records. Fixed source configuration is excluded; no Unicode normalization occurs. SHA-256 covers exactly those bytes, whose canonical encoding is separately capped at 128 KiB; the complete encoded control package's 128 KiB limit remains authoritative. Shared empty, multi-lane, and composed/decomposed vectors bind TypeScript and Swift.
 
 `workerDerivationEpoch` exists only on a surface-scoped request or push frame. Closed call/subscription/content kinds map exhaustively to Review or File; ordinary variants MUST NOT repeat `surface`.
 It is required on `product.call`, each subscription open/update/cancel, each active `workerSession.resync` subscription entry, and each content open. Pane/session open, metadata-stream open, and the top-level resync envelope carry none. Swift checks independent Review/File floors only for NEW admission. Active resync entries deriving to one surface MUST share one epoch; Review and File may differ, but a same-surface conflict atomically rejects the whole resync before floor or subscription mutation.
@@ -1605,7 +1614,34 @@ preserve delta uniqueness/count ceilings. Exact batch retry reuses id/sequence/b
 update id through a new request is fatal. Native commits only when all batches are present, the base revision/hash still match, the resultant state is valid,
 and its recomputed hash equals the target. `BridgeProductControlMux` permits one unacknowledged admission.
 
-One `metadataStream.open` establishes the pane stream. Each logical metadata frame is `u32be frameBodyLength | strict typed UTF-8 JSON body`; `frameBodyLength` counts only the body and has a hard 256 KiB ceiling. WebKit delivery chunks are non-semantic.
+`resync.accepted` is the sole reconciliation authority. Its `reconciliation`
+array has exactly one closed outcome for every worker-reported
+`activeSubscriptions` entry, preserves request order, and is capped by the same
+64-active-subscription ceiling. Each outcome echoes the claimed subscription
+kind/id/epoch so the worker must reject positional or identity mismatch.
+`retained` echoes the authoritative revision/hash; `reset` supplies the newly
+committed empty-state revision/hash; `cancelled` kills the claimed id without
+reopening; and `reopenRequired` kills the claimed id and requires a fresh
+`subscription.open` with a new id. Native-only subscriptions absent from the
+worker claim set are revoked before commit, leave zero producer residue, and
+are omitted from the response. Reconciliation emits no duplicate
+`subscription.accepted`, `subscription.reset`, or `subscription.cancelled`
+frames. `resumeFromStreamSequence` is the physical metadata barrier captured
+after native-only pruning and claimed-subscription reconciliation; subsequent
+metadata begins after that barrier. Exact retry replays identical response bytes
+without reapplying any mutation.
+
+`BridgeProductSession` owns protocol lifecycle sequencing as part of control
+commit. For ordinary subscription open, the final committed update batch, and
+cancel, admission of the required `subscription.accepted`,
+`subscription.interestsCommitted`, or `subscription.cancelled` frame MUST
+succeed before subscription state and exact accepted response bytes commit to
+replay. Admission failure commits and caches no success, leaves no half-applied
+provider mutation, and forces a typed error/resync path. The pane product
+provider owns File/Review metadata and content production, not protocol commit
+effects.
+
+One `metadataStream.open` establishes the pane stream. Each logical metadata frame is `u32be frameBodyLength | strict typed UTF-8 JSON body`; `frameBodyLength` counts only the body and has a hard 128 KiB ceiling. WebKit delivery chunks are non-semantic.
 Fresh `metadataStream.accepted` consumes pane-wide `streamSequence` zero; resume from N consumes N+1 for `resumed`/`snapshot_required`, then continues contiguously. Frame kinds remain `metadataStream.accepted`, `subscription.accepted`, `subscription.interestsCommitted`, `subscription.data`, `subscription.reset`, `subscription.end`, `subscription.cancelled`, `content.cancelled`, and `metadataStream.error`.
 All carry wire/pane/worker/stream plus that sequence. Pane-plane accepted/error frames carry no derivation epoch. Every subscription frame carries kind/id, source, its admitted `workerDerivationEpoch`, cursor, interest revision/hash, and subscription sequence; kind derives surface. Mixed Review/File frames interleave on one contiguous pane-wide `streamSequence`. `interestsCommitted` is the ordered barrier resolving `update()`: no new-revision data precedes it and no old-revision data follows it.
 Cancel, reset, resync, and replacement discard staged updates. Reset advances revision with canonical empty interests for add-all replay; mismatch uses `interest_mismatch`, not session-fatal failure. `content.cancelled` carries content/request/lease/descriptor/window/role identity plus `stopped | already_terminal` only after zero producer residue; subscription cancel stops only that producer, and reconnect resumes a contiguous suffix or snapshot.
@@ -1627,7 +1663,18 @@ Every content frame body has the universal hostile-input ceiling of 256 KiB; eve
 WebKit may split or coalesce bytes arbitrarily. Prefix/stage caps precede allocation/decode, and both decoders use fixed-capacity reference-owned accumulators rather than repeated copy-on-write append.
 Each native producer owns exactly one `URLSchemeTask` response continuation. Cross-stream writes, wrong producer identity, pre-accepted data, gaps, duplicates, offset mismatch, overflow, invalid digest, or post-terminal bytes poison that response, discard staged bytes, and perform no product-state mutation.
 Native queues retain frame/byte caps, terminal reserve, and a safety ceiling of 16 content-producer lifecycle residues per product session, counted as active content producers plus pending content lifecycle acknowledgements. Abort closes only that response; native stops and unregisters its producer before the pane metadata stream emits correlated `content.cancelled`. Cancellation, revoke, disposal, and replacement join one single-flight retirement owner for each lease's exact lifecycle nonce; a failed acknowledgement retains the residue and every retry reuses that exact nonce. The worker settles only after local fetch abort plus the lifecycle frame and successful acknowledgement of the same zero-residue barrier.
-Shared raw TS/Swift vectors cover exact 128 KiB data and +1 rejection, exact 2 MiB segmentation, 1-byte/4 KiB arbitrary fragmentation, cross-stream/terminal hostility, strict JSON/interest semantics, and checksum/cancel/resume/restart. An ingress/relocation/allocation oracle proves bounded linear accumulation. Packaged benchmarks start at 128 KiB emission and must satisfy the existing p99 and synchronous-slice budgets before that producer policy changes.
+Shared raw TS/Swift vectors cover exact 128 KiB control request, correlated
+command response, and metadata JSON bodies with +1 rejection; exact 128 KiB
+content data and +1 rejection; exact 2 MiB segmentation; 1-byte/4 KiB arbitrary
+fragmentation; cross-stream/terminal hostility; strict JSON/interest semantics;
+and checksum/cancel/resume/restart. The reconciliation corpus proves positional
+count/order pairing and identity mismatch rejection, exact retry bytes with no
+reapply, mixed Review/File epochs, `snapshot_required -> resync ->
+reopenRequired`, native-only residue zero, and forced lifecycle-frame admission
+failure with no cached success. An ingress/relocation/allocation oracle proves
+bounded linear accumulation. Packaged benchmarks start at 128 KiB emission and
+must satisfy the existing p99 and synchronous-slice budgets before that producer
+policy changes.
 
 ### R65. File View byte, encoding, line, and truncation semantics are canonical.
 

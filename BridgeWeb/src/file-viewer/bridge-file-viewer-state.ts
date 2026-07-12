@@ -282,7 +282,13 @@ export function projectBridgeFileViewerDescriptors(props: {
 					searchText: trimmedSearchText,
 				});
 	if (searchPattern?.ok === false) {
-		return { descriptors: [], paths: [], searchError: searchPattern.message, treeRows: [] };
+		return {
+			descriptors: [],
+			displayItems: [],
+			paths: [],
+			searchError: searchPattern.message,
+			treeRows: [],
+		};
 	}
 	const descriptorByPath = new Map(
 		props.descriptors.map((descriptor) => [descriptor.path, descriptor]),
@@ -306,9 +312,32 @@ export function projectBridgeFileViewerDescriptors(props: {
 	);
 	return {
 		descriptors,
+		displayItems: [],
 		paths: treeRows.map(pierreFileTreePathForRow),
 		searchError: null,
-		treeRows,
+		treeRows: treeRows.map((row, projectionIndex) => ({
+			changeStatus:
+				row.changeStatus === 'added' ||
+				row.changeStatus === 'copied' ||
+				row.changeStatus === 'deleted' ||
+				row.changeStatus === 'modified' ||
+				row.changeStatus === 'renamed' ||
+				row.changeStatus === 'typeChanged' ||
+				row.changeStatus === 'unmerged' ||
+				row.changeStatus === 'untracked'
+					? row.changeStatus
+					: null,
+			depth: row.depth,
+			fileId: row.fileId ?? null,
+			isDirectory: row.isDirectory,
+			lineCount: row.lineCount ?? null,
+			name: row.name,
+			parentPath: row.parentPath,
+			path: row.path,
+			projectionIndex,
+			rowId: row.rowId,
+			sizeBytes: row.sizeBytes ?? null,
+		})),
 	};
 }
 

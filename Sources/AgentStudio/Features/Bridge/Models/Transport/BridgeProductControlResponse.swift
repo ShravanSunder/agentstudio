@@ -168,8 +168,9 @@ extension BridgeProductControlResponse {
 
     static func resyncAccepted(
         correlating request: BridgeProductControlRequest,
+        metadataStreamSequenceBarrier: Int,
         nextExpectedRequestSequence: Int,
-        resumeFromStreamSequence: Int
+        reconciliation: [BridgeProductResyncReconciliationOutcome]
     ) throws -> Self {
         guard case .workerSessionResync = request else {
             throw BridgeProductControlResponseFactoryError.mismatchedRequestKind
@@ -177,8 +178,9 @@ extension BridgeProductControlResponse {
         return .resyncAccepted(
             try .init(
                 correlation: request.correlation,
+                metadataStreamSequenceBarrier: metadataStreamSequenceBarrier,
                 nextExpectedRequestSequence: nextExpectedRequestSequence,
-                resumeFromStreamSequence: resumeFromStreamSequence
+                reconciliation: reconciliation
             )
         )
     }
@@ -295,20 +297,23 @@ struct BridgeProductCallCompletedResponse: Codable, Equatable, Sendable {
 struct BridgeProductResyncAcceptedResponse: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case kind
+        case metadataStreamSequenceBarrier
         case nextExpectedRequestSequence
-        case resumeFromStreamSequence
+        case reconciliation
     }
 
     private let identity: BridgeProductControlResponseIdentity
+    let metadataStreamSequenceBarrier: Int
     let nextExpectedRequestSequence: Int
-    let resumeFromStreamSequence: Int
+    let reconciliation: [BridgeProductResyncReconciliationOutcome]
 
     var correlation: BridgeProductControlCorrelation { identity }
 
     init(
         correlation: BridgeProductControlCorrelation,
+        metadataStreamSequenceBarrier: Int,
         nextExpectedRequestSequence: Int,
-        resumeFromStreamSequence: Int
+        reconciliation: [BridgeProductResyncReconciliationOutcome]
     ) throws {
         try BridgeProductContractDecoding.validatePositive(
             nextExpectedRequestSequence,
@@ -316,19 +321,26 @@ struct BridgeProductResyncAcceptedResponse: Codable, Equatable, Sendable {
             codingPath: []
         )
         try BridgeProductContractDecoding.validateNonnegative(
-            resumeFromStreamSequence,
-            name: "resumeFromStreamSequence",
+            metadataStreamSequenceBarrier,
+            name: "metadataStreamSequenceBarrier",
             codingPath: []
         )
         try BridgeProductContractDecoding.validateMaximum(
-            resumeFromStreamSequence,
+            metadataStreamSequenceBarrier,
             maximum: BridgeProductWireContract.maximumResumableStreamSequence,
-            name: "resumeFromStreamSequence",
+            name: "metadataStreamSequenceBarrier",
+            codingPath: []
+        )
+        try BridgeProductContractDecoding.validateCollectionCount(
+            reconciliation.count,
+            maximum: BridgeProductWireContract.maximumActiveSubscriptionCount,
+            name: "resync reconciliation outcomes",
             codingPath: []
         )
         self.identity = correlation
+        self.metadataStreamSequenceBarrier = metadataStreamSequenceBarrier
         self.nextExpectedRequestSequence = nextExpectedRequestSequence
-        self.resumeFromStreamSequence = resumeFromStreamSequence
+        self.reconciliation = reconciliation
     }
 
     init(from decoder: Decoder) throws {
@@ -346,8 +358,15 @@ struct BridgeProductResyncAcceptedResponse: Codable, Equatable, Sendable {
                 codingPath: decoder.codingPath
             )
         }
+        self.metadataStreamSequenceBarrier = try container.decode(
+            Int.self,
+            forKey: .metadataStreamSequenceBarrier
+        )
         self.nextExpectedRequestSequence = try container.decode(Int.self, forKey: .nextExpectedRequestSequence)
-        self.resumeFromStreamSequence = try container.decode(Int.self, forKey: .resumeFromStreamSequence)
+        self.reconciliation = try container.decode(
+            [BridgeProductResyncReconciliationOutcome].self,
+            forKey: .reconciliation
+        )
         self.identity = try BridgeProductControlResponseIdentity(from: decoder)
         try BridgeProductContractDecoding.validatePositive(
             nextExpectedRequestSequence,
@@ -355,14 +374,20 @@ struct BridgeProductResyncAcceptedResponse: Codable, Equatable, Sendable {
             codingPath: decoder.codingPath
         )
         try BridgeProductContractDecoding.validateNonnegative(
-            resumeFromStreamSequence,
-            name: "resumeFromStreamSequence",
+            metadataStreamSequenceBarrier,
+            name: "metadataStreamSequenceBarrier",
             codingPath: decoder.codingPath
         )
         try BridgeProductContractDecoding.validateMaximum(
-            resumeFromStreamSequence,
+            metadataStreamSequenceBarrier,
             maximum: BridgeProductWireContract.maximumResumableStreamSequence,
-            name: "resumeFromStreamSequence",
+            name: "metadataStreamSequenceBarrier",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validateCollectionCount(
+            reconciliation.count,
+            maximum: BridgeProductWireContract.maximumActiveSubscriptionCount,
+            name: "resync reconciliation outcomes",
             codingPath: decoder.codingPath
         )
     }
@@ -371,8 +396,9 @@ struct BridgeProductResyncAcceptedResponse: Codable, Equatable, Sendable {
         try identity.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode("resync.accepted", forKey: .kind)
+        try container.encode(metadataStreamSequenceBarrier, forKey: .metadataStreamSequenceBarrier)
         try container.encode(nextExpectedRequestSequence, forKey: .nextExpectedRequestSequence)
-        try container.encode(resumeFromStreamSequence, forKey: .resumeFromStreamSequence)
+        try container.encode(reconciliation, forKey: .reconciliation)
     }
 }
 

@@ -1,10 +1,15 @@
 import type { BridgeCommWorkerStore } from './bridge-comm-worker-store.js';
 import type {
+	BridgeWorkerFilePierreRenderJobEvent,
+	BridgeWorkerFileRenderPatch,
+	BridgeWorkerFileRenderPatchEvent,
 	BridgeWorkerFileViewContentMetadata,
-	BridgeWorkerPierreRenderJobEvent,
 	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
-import { BRIDGE_WORKER_WIRE_VERSION } from './bridge-worker-contracts.js';
+import {
+	BRIDGE_WORKER_WIRE_VERSION,
+	bridgeWorkerFileRenderPatchEventSchema,
+} from './bridge-worker-contracts.js';
 import type { BridgeWorkerFetchedFileViewContentResource } from './bridge-worker-file-view-content-fetch.js';
 import {
 	buildBridgeWorkerPierreRenderJob,
@@ -23,29 +28,28 @@ export interface PrepareBridgeWorkerFileViewContentReadyEventsProps {
 	readonly bridgeDemandRank: BridgeWorkerDemandRank;
 	readonly budget: BridgeWorkerPierreRenderBudget;
 	readonly metadata: BridgeWorkerFileViewContentMetadata;
+	readonly publicationSequence: number;
 	readonly resource: BridgeWorkerFetchedFileViewContentResource;
+	readonly workerDerivationEpoch: number;
 }
 
-export interface CommitBridgeWorkerFileViewContentReadySlicePatchProps {
-	readonly epoch: number;
-	readonly preparedJobEvent: PreparedBridgeWorkerStructuredMessage<BridgeWorkerPierreRenderJobEvent>;
-	readonly sequence: number;
+export interface CommitBridgeWorkerFileViewContentReadyRenderPatchProps {
+	readonly preparedJobEvent: PreparedBridgeWorkerStructuredMessage<BridgeWorkerFilePierreRenderJobEvent>;
+	readonly publicationSequence: number;
 	readonly store: BridgeCommWorkerStore;
+	readonly workerDerivationEpoch: number;
 }
 
-export interface BridgeWorkerFileViewContentReadySlicePatchCommit {
+export interface BridgeWorkerFileViewContentReadyRenderPatchCommit {
 	readonly touchedKeys: readonly string[];
-	readonly preparedMessage: BridgeWorkerPreparedServerToMainMessage;
+	readonly preparedMessage: PreparedBridgeWorkerStructuredMessage<BridgeWorkerFileRenderPatchEvent>;
 }
-
-export type BridgeWorkerPreparedServerToMainMessage =
-	PreparedBridgeWorkerStructuredMessage<BridgeWorkerServerToMainMessage>;
 
 const bridgeWorkerPlainTextLanguage = 'text';
 
 export function prepareBridgeWorkerFileViewContentRenderJobEvent(
 	props: PrepareBridgeWorkerFileViewContentReadyEventsProps,
-): PreparedBridgeWorkerStructuredMessage<BridgeWorkerPierreRenderJobEvent> | null {
+): PreparedBridgeWorkerStructuredMessage<BridgeWorkerFilePierreRenderJobEvent> | null {
 	const job = planBridgeWorkerFileViewPierreRenderJob(props);
 	if (job === null) {
 		return null;
@@ -55,32 +59,57 @@ export function prepareBridgeWorkerFileViewContentRenderJobEvent(
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 			direction: 'serverWorkerToMain',
 			transferDescriptors: [],
-			kind: 'pierreRenderJob',
+			kind: 'filePierreRenderJob',
 			job,
+			publicationSequence: props.publicationSequence,
+			surface: 'file',
+			workerDerivationEpoch: props.workerDerivationEpoch,
 		},
 		declaredFields: transferFieldsForBridgeWorkerPierreRenderPayload(job.payloadByteLength),
 	});
 }
 
-export function commitBridgeWorkerFileViewContentReadySlicePatch(
-	props: CommitBridgeWorkerFileViewContentReadySlicePatchProps,
-): BridgeWorkerFileViewContentReadySlicePatchCommit {
+export function commitBridgeWorkerFileViewContentReadyRenderPatch(
+	props: CommitBridgeWorkerFileViewContentReadyRenderPatchProps,
+): BridgeWorkerFileViewContentReadyRenderPatchCommit {
 	const contentReadyResult = props.store.actions.applyContentReady({
 		itemId: props.preparedJobEvent.message.job.itemId,
 		contentCacheKey: props.preparedJobEvent.message.job.contentCacheKey,
 	});
 	const slicePatchEvent = props.store.actions.takePendingSlicePatchEvent({
-		epoch: props.epoch,
-		sequence: props.sequence,
+		epoch: props.workerDerivationEpoch,
+		sequence: props.publicationSequence,
 	});
+	const fileRenderPatches = bridgeWorkerFileRenderPatchesFromSlicePatchEvent(slicePatchEvent);
 
 	return {
 		touchedKeys: contentReadyResult.touchedKeys,
-		preparedMessage: prepareBridgeWorkerStructuredMessage({
-			message: assertBridgeWorkerSlicePatchEvent(slicePatchEvent),
-			declaredFields: [],
+		preparedMessage: prepareBridgeWorkerFileRenderPatchEvent({
+			patches: fileRenderPatches,
+			publicationSequence: props.publicationSequence,
+			workerDerivationEpoch: props.workerDerivationEpoch,
 		}),
 	};
+}
+
+export function prepareBridgeWorkerFileRenderPatchEvent(props: {
+	readonly patches: readonly BridgeWorkerFileRenderPatch[];
+	readonly publicationSequence: number;
+	readonly workerDerivationEpoch: number;
+}): PreparedBridgeWorkerStructuredMessage<BridgeWorkerFileRenderPatchEvent> {
+	return prepareBridgeWorkerStructuredMessage({
+		message: bridgeWorkerFileRenderPatchEventSchema.parse({
+			direction: 'serverWorkerToMain',
+			kind: 'fileRenderPatch',
+			patches: props.patches,
+			publicationSequence: props.publicationSequence,
+			surface: 'file',
+			transferDescriptors: [],
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			workerDerivationEpoch: props.workerDerivationEpoch,
+		}),
+		declaredFields: [],
+	});
 }
 
 function planBridgeWorkerFileViewPierreRenderJob(
@@ -102,12 +131,7 @@ function planBridgeWorkerFileViewPierreRenderJob(
 		maxLines: window.endLine,
 		text: props.resource.text,
 	});
-	const reservedWindowedText = textPaddedToMinimumRenderedLineCountWithinByteBudget({
-		maxBytes: props.budget.maxBytes,
-		minimumLineCount: window.totalLineCount,
-		text: windowedText,
-	});
-	if (bridgeWorkerStringByteLength(reservedWindowedText) > props.budget.maxBytes) {
+	if (bridgeWorkerStringByteLength(windowedText) > props.budget.maxBytes) {
 		return null;
 	}
 	const language = languageForFileViewRenderJob({
@@ -131,7 +155,7 @@ function planBridgeWorkerFileViewPierreRenderJob(
 				type: 'file',
 				file: {
 					name: props.metadata.path,
-					contents: reservedWindowedText,
+					contents: windowedText,
 					cacheKey: contentCacheKey,
 					...(optionalPierreHighlightLanguage(language) === undefined
 						? {}
@@ -140,10 +164,13 @@ function planBridgeWorkerFileViewPierreRenderJob(
 				bridgeMetadata: {
 					itemId: props.metadata.itemId,
 					displayPath: props.metadata.path,
-					contentState: window.endLine < window.totalLineCount ? 'windowed' : 'hydrated',
+					contentState:
+						props.metadata.truncationKind !== 'none' || window.endLine < window.totalLineCount
+							? 'windowed'
+							: 'hydrated',
 					contentRoles: ['file'],
 					cacheKey: contentCacheKey,
-					lineCount: props.metadata.lineCount ?? null,
+					lineCount: props.metadata.payloadLineCount,
 				},
 			},
 		},
@@ -159,7 +186,6 @@ function fileViewResourceMatchesMetadata(
 		!props.metadata.isBinary &&
 		props.resource.itemId === props.metadata.itemId &&
 		props.resource.path === props.metadata.path &&
-		props.resource.handleId === props.metadata.contentHandle &&
 		props.resource.descriptorId === props.metadata.descriptorId &&
 		props.resource.contentHash === props.metadata.contentHash &&
 		props.resource.language === props.metadata.language &&
@@ -172,8 +198,7 @@ function renderWindowForFileViewResource(props: {
 	readonly metadata: BridgeWorkerFileViewContentMetadata;
 	readonly resource: BridgeWorkerFetchedFileViewContentResource;
 }): BridgeWorkerPierreRenderWindow {
-	const totalLineCount =
-		props.metadata.lineCount ?? renderedLineCountForPierreFileContent(props.resource.text);
+	const totalLineCount = props.metadata.payloadLineCount;
 	return {
 		startLine: 1,
 		endLine: Math.min(totalLineCount, props.budget.maxWindowLines),
@@ -220,35 +245,6 @@ function windowTextForBridgeWorkerCodeView(props: {
 	return props.text.slice(0, currentIndex);
 }
 
-function renderedLineCountForPierreFileContent(text: string): number {
-	if (text.length === 0) {
-		return 0;
-	}
-	return (text.match(/\n/gu)?.length ?? 0) + 1;
-}
-
-function textPaddedToMinimumRenderedLineCountWithinByteBudget(props: {
-	readonly maxBytes: number;
-	readonly minimumLineCount: number;
-	readonly text: string;
-}): string {
-	if (props.minimumLineCount <= 0) {
-		return props.text;
-	}
-	const currentLineCount = renderedLineCountForPierreFileContent(props.text);
-	const missingLineCount = Math.max(props.minimumLineCount - currentLineCount, 0);
-	if (missingLineCount === 0) {
-		return props.text;
-	}
-	const currentByteLength = bridgeWorkerStringByteLength(props.text);
-	const availablePaddingBytes = Math.max(props.maxBytes - currentByteLength, 0);
-	if (availablePaddingBytes <= 1) {
-		return props.text;
-	}
-	const boundedMissingLineCount = Math.min(missingLineCount, availablePaddingBytes - 1);
-	return `${props.text}${'\n'.repeat(boundedMissingLineCount)} `;
-}
-
 function normalizedLanguageOrNull(language: string | null | undefined): string | null {
 	const normalizedLanguage = language?.trim() ?? '';
 	return normalizedLanguage.length === 0 ? null : normalizedLanguage;
@@ -263,11 +259,21 @@ function bridgeWorkerStringByteLength(value: string): number {
 	return new TextEncoder().encode(value).byteLength;
 }
 
-function assertBridgeWorkerSlicePatchEvent(
+export function bridgeWorkerFileRenderPatchesFromSlicePatchEvent(
 	event: BridgeWorkerServerToMainMessage | null,
-): BridgeWorkerServerToMainMessage {
+): readonly BridgeWorkerFileRenderPatch[] {
 	if (event === null) {
-		throw new Error('Bridge worker File View content-ready commit produced no slice patch event.');
+		throw new Error('Bridge worker File View content-ready commit produced no render patch event.');
 	}
-	return event;
+	if (event.kind !== 'slicePatch') {
+		throw new Error(
+			'Bridge worker File View content-ready commit produced an invalid patch event.',
+		);
+	}
+	return event.patches.map((patch): BridgeWorkerFileRenderPatch => {
+		if (patch.slice !== 'rowPaint' && patch.slice !== 'contentAvailability') {
+			throw new Error('Bridge worker File View content-ready commit produced a non-render patch.');
+		}
+		return patch;
+	});
 }

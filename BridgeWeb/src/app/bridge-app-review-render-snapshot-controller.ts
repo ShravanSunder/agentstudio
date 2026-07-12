@@ -16,6 +16,10 @@ import {
 	type BridgeMainCodeViewItem,
 	type BridgeMainRenderSnapshotStore,
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
+import {
+	createBridgePaneCommWorkerDispatcher,
+	type BridgePaneCommWorkerDispatcher,
+} from '../core/comm-worker/bridge-pane-comm-worker-session.js';
 import type {
 	BridgeCommWorkerBootstrapRequest,
 	BridgeCommWorkerTelemetryBootstrapConfig,
@@ -59,10 +63,6 @@ import type {
 	BridgeReviewViewportSlice,
 } from '../review-viewer/state/review-viewer-store.js';
 import { bridgeReviewViewerRootSnapshotFromSlices } from '../review-viewer/state/review-viewer-store.js';
-import {
-	createBridgeReviewCommWorkerTransportDispatcher,
-	type BridgeReviewCommWorkerTransportDispatcher,
-} from '../review-viewer/workers/shared-rpc/bridge-comm-worker-transport.js';
 import type { ReviewMetadataInterestRequest } from './bridge-app-review-metadata-interest-controller.js';
 import {
 	resolveBridgeWorkerMarkFileViewedFailureCallbacks,
@@ -638,7 +638,7 @@ export interface CreateBridgeReviewRuntimeProtocolDispatcherProps {
 	readonly transportFactory?: (props: {
 		readonly bootstrapRequest: BridgeCommWorkerBootstrapRequest;
 		readonly publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
-	}) => BridgeReviewCommWorkerTransportDispatcher;
+	}) => BridgePaneCommWorkerDispatcher;
 }
 
 export function createBridgeReviewRuntimeProtocolDispatcher(
@@ -648,11 +648,14 @@ export function createBridgeReviewRuntimeProtocolDispatcher(
 		...props,
 		requestId: props.bootstrapRequestId ?? 'review-worker-bootstrap',
 	});
-	return (props.transportFactory ?? createBridgeReviewCommWorkerTransportDispatcher)({
+	return (props.transportFactory ?? createBridgePaneCommWorkerDispatcher)({
 		bootstrapRequest,
 		publishWorkerMessages: props.publishWorkerMessages,
 	});
 }
+
+export const createBridgePaneRuntimeProtocolDispatcher =
+	createBridgeReviewRuntimeProtocolDispatcher;
 
 export function bridgeCommWorkerBootstrapRequestFromReviewRuntimeProps(
 	props: CreateBridgeReviewRuntimeProtocolDispatcherProps & {
@@ -777,6 +780,10 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 }): void {
 	for (const message of props.messages) {
 		switch (message.kind) {
+			case 'fileDisplayPatch':
+			case 'filePierreRenderJob':
+			case 'fileRenderPatch':
+				break;
 			case 'slicePatch':
 				props.renderSnapshotStore.applySnapshotUpdate({
 					workerPatches: message.patches,
@@ -784,7 +791,6 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 				break;
 			case 'health':
 			case 'subscription':
-			case 'worktreeFileOpenSourceStreamResult':
 				break;
 			case 'pierreRenderJob':
 				if (

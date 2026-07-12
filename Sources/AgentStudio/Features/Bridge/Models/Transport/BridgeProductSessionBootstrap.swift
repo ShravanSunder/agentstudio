@@ -17,6 +17,31 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
     let maximumQueuedStreamFrames: Int
     let terminalFrameReserve: Int
 
+    static let productContract = Self(
+        maximumContentBytes: BridgeProductWireContract.maximumContentBytes,
+        maximumRequestBodyBytes: BridgeProductWireContract.maximumRequestBodyBytes,
+        maximumMetadataFrameBytes: BridgeProductWireContract.maximumMetadataFrameBytes,
+        maximumQueuedStreamBytes: BridgeProductWireContract.maximumQueuedStreamBytes,
+        maximumQueuedStreamFrames: BridgeProductWireContract.maximumQueuedStreamFrames,
+        terminalFrameReserve: BridgeProductWireContract.terminalFrameReserve
+    )
+
+    init(
+        maximumContentBytes: Int,
+        maximumRequestBodyBytes: Int,
+        maximumMetadataFrameBytes: Int,
+        maximumQueuedStreamBytes: Int,
+        maximumQueuedStreamFrames: Int,
+        terminalFrameReserve: Int
+    ) {
+        self.maximumContentBytes = maximumContentBytes
+        self.maximumRequestBodyBytes = maximumRequestBodyBytes
+        self.maximumMetadataFrameBytes = maximumMetadataFrameBytes
+        self.maximumQueuedStreamBytes = maximumQueuedStreamBytes
+        self.maximumQueuedStreamFrames = maximumQueuedStreamFrames
+        self.terminalFrameReserve = terminalFrameReserve
+    }
+
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
             from: decoder,
@@ -98,6 +123,17 @@ struct BridgeProductSessionBootstrap: Codable, Equatable, Sendable {
     let policy: BridgeProductBootstrapPolicy
     let wireVersion: Int
     let workerInstanceId: String
+
+    init(
+        paneSessionId: String,
+        policy: BridgeProductBootstrapPolicy = .productContract,
+        workerInstanceId: String
+    ) {
+        self.paneSessionId = paneSessionId
+        self.policy = policy
+        self.wireVersion = BridgeProductWireContract.version
+        self.workerInstanceId = workerInstanceId
+    }
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(

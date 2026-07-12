@@ -3,6 +3,7 @@ import Foundation
 enum BridgeProductMetadataFrameFactoryError: Error, Equatable {
     case contentSessionMismatch
     case subscriptionDataMismatch
+    case subscriptionDataSourceGenerationMismatch
 }
 
 struct BridgeProductMetadataStreamCorrelation: Equatable, Sendable {
@@ -72,6 +73,20 @@ struct BridgeProductSubscriptionFrameCorrelation: Equatable, Sendable {
         self.subscriptionId = subscriptionId
         self.subscriptionKind = subscriptionKind
         self.workerDerivationEpoch = workerDerivationEpoch
+    }
+
+    func replacingSourceGeneration(
+        with sourceGeneration: Int
+    ) throws -> Self {
+        try .init(
+            cursor: cursor,
+            interestRevision: interestRevision,
+            interestSha256: interestSha256,
+            sourceGeneration: sourceGeneration,
+            subscriptionId: subscriptionId,
+            subscriptionKind: subscriptionKind,
+            workerDerivationEpoch: workerDerivationEpoch
+        )
     }
 }
 
@@ -190,6 +205,9 @@ extension BridgeProductSubscriptionDataFrame {
     ) throws {
         guard subscription.subscriptionKind == data.subscriptionKind else {
             throw BridgeProductMetadataFrameFactoryError.subscriptionDataMismatch
+        }
+        guard subscription.sourceGeneration == data.sourceGeneration else {
+            throw BridgeProductMetadataFrameFactoryError.subscriptionDataSourceGenerationMismatch
         }
         try BridgeProductContractDecoding.validatePositive(
             streamSequence,

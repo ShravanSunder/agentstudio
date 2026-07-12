@@ -115,21 +115,22 @@ enum BridgeProductSessionError: Error, Equatable {
     case invalidRequestOrResponseByteLimit
     case invalidControlResponse
     case invalidAdmissionToken
+    case lifecycleFrameAdmissionFailed
     case mismatchedControlResponse
     case providerDispatchAlreadyClaimed
     case subscriptionStateRejected(BridgeProductSubscriptionStateError)
 }
 
-struct BridgeProductSessionCompletionEffects: Equatable, Sendable {
-    let commitBarrierIntent: BridgeProductSubscriptionCommitBarrierIntent?
-    let cancelledSubscription: BridgeProductSubscriptionSnapshot?
-    let resync: BridgeProductSubscriptionResyncResult?
-
-    static let noEffects = Self(
-        commitBarrierIntent: nil,
-        cancelledSubscription: nil,
-        resync: nil
+enum BridgeProductSessionCompletionEffect: Equatable, Sendable {
+    case noEffect
+    case productCall(BridgeProductCallRequest)
+    case subscriptionOpened(BridgeProductSubscriptionSnapshot)
+    case subscriptionInterestsCommitted(
+        barrier: BridgeProductSubscriptionCommitBarrierIntent,
+        subscription: BridgeProductSubscriptionSnapshot
     )
+    case subscriptionCancelled(BridgeProductSubscriptionSnapshot)
+    case resynced(BridgeProductSubscriptionResyncResult)
 }
 
 struct BridgeProductSessionSnapshot: Equatable, Sendable {

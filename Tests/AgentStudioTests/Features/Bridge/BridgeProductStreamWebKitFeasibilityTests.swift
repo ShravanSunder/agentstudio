@@ -11,13 +11,13 @@ struct BridgeProductStreamWebKitFeasibilityTests {
         #expect(
             BridgeProductStreamWebKitFeasibilityPolicy.maxRequestBodyBytes
                 == BridgeProductWireContract.maximumRequestBodyBytes)
-        #expect(BridgeProductWireContract.maximumRequestBodyBytes == 256 * 1024)
+        #expect(BridgeProductWireContract.maximumRequestBodyBytes == 128 * 1024)
         #expect(
             BridgeProductStreamWebKitFeasibilityConfiguration.measuredProductContract.maximumRequestBodyBytes
-                == 256 * 1024)
+                == 128 * 1024)
         #expect(
             BridgeProductStreamWebKitFeasibilityConfiguration.productContract.maximumRequestBodyBytes
-                == 256 * 1024)
+                == 128 * 1024)
     }
 
     @Test("timing summary reports nearest-rank p50 p95 p99 and maximum")
@@ -295,7 +295,7 @@ struct BridgeProductStreamWebKitFeasibilityTests {
         #expect(observation.admissionOutcome == .accepted)
     }
 
-    @Test("product 256 KiB exact valid body decodes and calls provider once for both body APIs")
+    @Test("product 128 KiB exact valid body decodes and calls provider once for both body APIs")
     func productExactBodyAcceptsBothFoundationBodySources() async throws {
         let capability = "test-only-product-capability"
         let configuration = BridgeProductStreamWebKitFeasibilityConfiguration.measuredProductContract
@@ -326,7 +326,7 @@ struct BridgeProductStreamWebKitFeasibilityTests {
             #expect(status == 204)
             let observation = try #require(snapshot.requestAPIObservations.only)
             #expect(observation.declaredLengthHeaderState == .missing)
-            #expect(observation.bodyByteCount == 256 * 1024)
+            #expect(observation.bodyByteCount == 128 * 1024)
             #expect(observation.decodeCallCount == 1)
             #expect(observation.providerCallCount == 1)
             #expect(observation.bodyBytesExact)
@@ -334,7 +334,7 @@ struct BridgeProductStreamWebKitFeasibilityTests {
         }
     }
 
-    @Test("product 256 KiB plus one valid body rejects before decode and provider for both body APIs")
+    @Test("product 128 KiB plus one valid body rejects before decode and provider for both body APIs")
     func oversizedActualBodyRejectsBeforeDecodeOrProviderWork() async throws {
         let capability = "test-only-product-capability"
         let configuration = BridgeProductStreamWebKitFeasibilityConfiguration.measuredProductContract
@@ -364,7 +364,7 @@ struct BridgeProductStreamWebKitFeasibilityTests {
             // Assert
             #expect(status == 413)
             let observation = try #require(snapshot.requestAPIObservations.only)
-            #expect(observation.bodyByteCount == 256 * 1024 + 1)
+            #expect(observation.bodyByteCount == 128 * 1024 + 1)
             #expect(observation.decodeCallCount == 0)
             #expect(observation.providerCallCount == 0)
             #expect(observation.admissionOutcome == .rejected(.oversizedBody))

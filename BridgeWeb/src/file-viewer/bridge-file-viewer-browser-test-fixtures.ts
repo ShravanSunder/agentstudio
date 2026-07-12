@@ -1,98 +1,79 @@
 import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
-import type {
-	BridgeAttachedResourceDescriptor,
-	BridgeResourceDescriptor,
-} from '../core/models/bridge-resource-descriptor.js';
-import { bridgeAttachedResourceDescriptorSchema } from '../core/models/bridge-resource-descriptor.js';
-import type {
-	WorktreeFileDescriptor,
-	WorktreeFileMetadataLineage,
-	WorktreeFileProtocolFrame,
-	WorktreeFileSurfaceSourceIdentity,
-	WorktreeTreeRowMetadata,
-} from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import type { BridgeProductFileSourceIdentity } from '../core/comm-worker/bridge-product-file-contracts.js';
 import {
-	worktreeFileDescriptorSchema,
-	worktreeFileProtocolFrameSchema,
-} from '../features/worktree-file/models/worktree-file-protocol-models.js';
+	bridgeProductFileMetadataEventSchema,
+	type BridgeProductSubscriptionEvent,
+	type BridgeProductSubscriptionUpdateOptions,
+} from '../core/comm-worker/bridge-product-subscription-contracts.js';
 
-export type PublishWorktreeFileFrames = (frames: readonly WorktreeFileProtocolFrame[]) => void;
+export type FileMetadataEvent = BridgeProductSubscriptionEvent<'file.metadata'>;
+export type PublishFileMetadataEvents = (events: readonly FileMetadataEvent[]) => void;
+export type FileMetadataInterestUpdate = BridgeProductSubscriptionUpdateOptions<'file.metadata'>;
+export type FileDescriptorReadyEvent = Extract<
+	FileMetadataEvent,
+	{ readonly eventKind: 'file.descriptorReady' }
+>;
+export type FileTreeRow = Extract<
+	FileMetadataEvent,
+	{ readonly eventKind: 'file.treeWindow' }
+>['rows'][number];
 
 const startupWindowMetadataLineage = {
 	loadedBy: 'startup_window',
 	lane: 'foreground',
-} satisfies WorktreeFileMetadataLineage;
+} as const;
 
 const idleMetadataLineage = {
 	loadedBy: 'idle',
 	lane: 'idle',
-} satisfies WorktreeFileMetadataLineage;
+} as const;
 
-export function makeFrames(
-	...descriptors: readonly WorktreeFileDescriptor[]
-): readonly WorktreeFileProtocolFrame[] {
+export function makeFileMetadataEvents(
+	...descriptors: readonly FileDescriptorReadyEvent[]
+): readonly FileMetadataEvent[] {
+	const source = descriptors[0]?.source ?? makeSourceIdentity();
 	return [
-		parseWorktreeFileProtocolFrame({
-			kind: 'snapshot',
-			streamId: 'worktree-file:pane-1',
-			generation: 1,
-			sequence: 0,
-			frameKind: 'worktree.snapshot',
-			source: makeSourceIdentity(),
-			metadataLineage: startupWindowMetadataLineage,
-			treeRows: descriptors.map(makeTreeRowFromDescriptor),
-			treeSizeFacts: {
-				extentKind: 'exactPathCount',
-				pathCount: descriptors.length,
-				windowStartIndex: 0,
-				windowRowCount: descriptors.length,
-				rowHeightPixels: 24,
-			},
+		makeSourceAcceptedMetadataEvent(source),
+		parseFileMetadataEvent({
+			eventKind: 'file.treeWindow',
+			finalWindow: true,
+			lineage: startupWindowMetadataLineage,
+			pathScope: [],
+			rows: descriptors.map(makeTreeRowFromDescriptor),
+			source,
+			startIndex: 0,
+			totalRowCount: descriptors.length,
 		}),
-		...descriptors.map(
-			(descriptor, descriptorIndex): WorktreeFileProtocolFrame =>
-				parseWorktreeFileProtocolFrame({
-					kind: 'delta',
-					streamId: 'worktree-file:pane-1',
-					generation: 1,
-					sequence: descriptorIndex + 1,
-					frameKind: 'worktree.fileDescriptor',
-					descriptor,
-				}),
-		),
+		...descriptors.map((descriptor): FileMetadataEvent => descriptor),
 	];
 }
 
-export function makeTreeRowFromDescriptor(
-	descriptor: WorktreeFileDescriptor,
-): WorktreeTreeRowMetadata {
+export function makeTreeRowFromDescriptor(descriptor: FileDescriptorReadyEvent): FileTreeRow {
 	const pathParts = descriptor.path.split('/');
 	const name = pathParts.at(-1) ?? descriptor.path;
-	const parentPath =
-		pathParts.length > 1 ? pathParts.slice(0, pathParts.length - 1).join('/') : null;
 	return makeTreeRow({
+		changeStatus: null,
 		depth: Math.max(pathParts.length - 1, 0),
 		fileId: descriptor.fileId,
 		isDirectory: false,
+		lineCount: descriptor.totalLineCount,
 		name,
-		parentPath,
+		parentPath: pathParts.length > 1 ? pathParts.slice(0, -1).join('/') : null,
 		path: descriptor.path,
 		sizeBytes: descriptor.sizeBytes,
-		...(descriptor.lineCount === undefined ? {} : { lineCount: descriptor.lineCount }),
 	});
 }
 
-export function makeTreeRowsOnlyFrames(): readonly WorktreeFileProtocolFrame[] {
+export function makeTreeRowsOnlyMetadataEvents(): readonly FileMetadataEvent[] {
+	const source = makeSourceIdentity();
 	return [
-		parseWorktreeFileProtocolFrame({
-			kind: 'snapshot',
-			streamId: 'worktree-file:pane-1',
-			generation: 1,
-			sequence: 0,
-			frameKind: 'worktree.snapshot',
-			source: makeSourceIdentity(),
-			metadataLineage: startupWindowMetadataLineage,
-			treeRows: [
+		makeSourceAcceptedMetadataEvent(source),
+		parseFileMetadataEvent({
+			eventKind: 'file.treeWindow',
+			finalWindow: true,
+			lineage: startupWindowMetadataLineage,
+			pathScope: [],
+			rows: [
 				makeTreeRow({
 					depth: 0,
 					isDirectory: true,
@@ -138,80 +119,52 @@ export function makeTreeRowsOnlyFrames(): readonly WorktreeFileProtocolFrame[] {
 					path: 'Sources/AgentStudio/Features/Bridge',
 				}),
 			],
-			treeSizeFacts: {
-				extentKind: 'exactPathCount',
-				pathCount: 6,
-				windowStartIndex: 0,
-				windowRowCount: 6,
-				rowHeightPixels: 24,
-			},
+			source,
+			startIndex: 0,
+			totalRowCount: 6,
 		}),
 	];
 }
 
-export function makeTreeWindowedSnapshotFrame(props: {
+export function makeTreeWindowedMetadataEvents(props: {
 	readonly rowCount: number;
 	readonly totalPathCount: number;
-}): WorktreeFileProtocolFrame {
-	return parseWorktreeFileProtocolFrame({
-		kind: 'snapshot',
-		streamId: 'worktree-file:pane-1',
-		generation: 1,
-		sequence: 0,
-		frameKind: 'worktree.snapshot',
-		source: makeSourceIdentity(),
-		metadataLineage: startupWindowMetadataLineage,
-		treeRows: makeFlatFileTreeRows({ count: props.rowCount, startIndex: 0 }),
-		treeSizeFacts: {
-			extentKind: 'exactPathCount',
-			pathCount: props.totalPathCount,
-			windowStartIndex: 0,
-			windowRowCount: props.rowCount,
-			rowHeightPixels: 24,
-		},
-	});
+}): readonly FileMetadataEvent[] {
+	const source = makeSourceIdentity();
+	return [
+		makeSourceAcceptedMetadataEvent(source),
+		makeTreeWindowMetadataEvent({
+			rowCount: props.rowCount,
+			startIndex: 0,
+			totalPathCount: props.totalPathCount,
+		}),
+	];
 }
 
-export function makeTreeWindowFrame(props: {
+export function makeTreeWindowMetadataEvent(props: {
 	readonly rowCount: number;
-	readonly sequence: number;
+	readonly sequence?: number;
 	readonly startIndex: number;
 	readonly totalPathCount: number;
-}): WorktreeFileProtocolFrame {
-	return parseWorktreeFileProtocolFrame({
-		kind: 'delta',
-		streamId: 'worktree-file:pane-1',
-		generation: 1,
-		sequence: props.sequence,
-		frameKind: 'worktree.treeWindow',
-		projectionIdentity: {
-			source: makeSourceIdentity(),
-			pathScope: [],
-			sortKey: 'path',
-			groupKey: 'none',
-			filterKey: 'all',
-			treeWindowKey: `tree-window-${props.startIndex}`,
-		},
-		metadataLineage: idleMetadataLineage,
-		rows: makeFlatFileTreeRows({
-			count: props.rowCount,
-			startIndex: props.startIndex,
-		}),
-		treeSizeFacts: {
-			extentKind: 'exactPathCount',
-			pathCount: props.totalPathCount,
-			windowStartIndex: props.startIndex,
-			windowRowCount: props.rowCount,
-			rowHeightPixels: 24,
-		},
+	readonly sourceIdentity?: BridgeProductFileSourceIdentity;
+}): FileMetadataEvent {
+	return parseFileMetadataEvent({
+		eventKind: 'file.treeWindow',
+		finalWindow: props.startIndex + props.rowCount >= props.totalPathCount,
+		lineage: props.startIndex === 0 ? startupWindowMetadataLineage : idleMetadataLineage,
+		pathScope: [],
+		rows: makeFlatFileTreeRows({ count: props.rowCount, startIndex: props.startIndex }),
+		source: props.sourceIdentity ?? makeSourceIdentity(),
+		startIndex: props.startIndex,
+		totalRowCount: props.totalPathCount,
 	});
 }
 
 export function makeFlatFileTreeRows(props: {
 	readonly count: number;
 	readonly startIndex: number;
-}): readonly WorktreeTreeRowMetadata[] {
-	return Array.from({ length: props.count }, (_value, index): WorktreeTreeRowMetadata => {
+}): readonly FileTreeRow[] {
+	return Array.from({ length: props.count }, (_value, index): FileTreeRow => {
 		const fileIndex = props.startIndex + index;
 		const fileName = `File-${fileIndex.toString().padStart(3, '0')}.swift`;
 		return makeTreeRow({
@@ -226,209 +179,199 @@ export function makeFlatFileTreeRows(props: {
 	});
 }
 
-export function makeFileDescriptorFrame(
-	descriptor: WorktreeFileDescriptor,
-	props: { readonly generation?: number; readonly sequence: number },
-): readonly WorktreeFileProtocolFrame[] {
+export function makeDescriptorReadyMetadataEvents(
+	descriptor: FileDescriptorReadyEvent,
+	_props?: { readonly generation?: number; readonly sequence?: number },
+): readonly FileMetadataEvent[] {
+	return [descriptor];
+}
+
+export function makeSourceAcceptedMetadataEvent(
+	sourceIdentity: BridgeProductFileSourceIdentity,
+): FileMetadataEvent {
+	return parseFileMetadataEvent({ eventKind: 'file.sourceAccepted', source: sourceIdentity });
+}
+
+export function makeSourceSnapshotMetadataEvents(props: {
+	readonly sequence?: number;
+	readonly sourceIdentity: BridgeProductFileSourceIdentity;
+}): readonly FileMetadataEvent[] {
 	return [
-		parseWorktreeFileProtocolFrame({
-			kind: 'delta',
-			streamId: 'worktree-file:pane-1',
-			generation: props.generation ?? 1,
-			sequence: props.sequence,
-			frameKind: 'worktree.fileDescriptor',
-			descriptor,
+		makeSourceAcceptedMetadataEvent(props.sourceIdentity),
+		parseFileMetadataEvent({
+			eventKind: 'file.treeWindow',
+			finalWindow: true,
+			lineage: { lane: 'foreground', loadedBy: 'replacement' },
+			pathScope: [],
+			rows: [
+				makeTreeRow({
+					depth: 0,
+					fileId: 'file-source-less-reset-target',
+					isDirectory: false,
+					name: 'source-less-reset-target.ts',
+					parentPath: 'src',
+					path: 'src/source-less-reset-target.ts',
+					sizeBytes: 64,
+				}),
+			],
+			source: props.sourceIdentity,
+			startIndex: 0,
+			totalRowCount: 1,
 		}),
 	];
 }
 
-export function makeSnapshotFrame(props: {
-	readonly sequence: number;
-	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity;
-}): WorktreeFileProtocolFrame {
-	return parseWorktreeFileProtocolFrame({
-		kind: 'snapshot',
-		streamId: 'worktree-file:pane-1',
-		generation: props.sourceIdentity.subscriptionGeneration,
-		sequence: props.sequence,
-		frameKind: 'worktree.snapshot',
-		source: props.sourceIdentity,
-		metadataLineage: startupWindowMetadataLineage,
-		treeRows: [
-			makeTreeRow({
-				depth: 0,
-				fileId: 'file-source-less-reset-target',
-				isDirectory: false,
-				name: 'source-less-reset-target.ts',
-				parentPath: null,
-				path: 'src/source-less-reset-target.ts',
-				sizeBytes: 64,
-			}),
-		],
-		treeSizeFacts: {
-			extentKind: 'exactPathCount',
-			pathCount: 1,
-			windowStartIndex: 0,
-			windowRowCount: 1,
-			rowHeightPixels: 24,
-		},
+export function makeSourceResetMetadataEvents(): readonly FileMetadataEvent[] {
+	return makeFileInvalidatedMetadataEvents({
+		fileId: 'file-source-less-reset-target',
+		path: 'src/source-less-reset-target.ts',
 	});
 }
 
-export function makeSourceLessResetFrames(): readonly WorktreeFileProtocolFrame[] {
+export function makeSourceReplacementMetadataEvents(
+	...replacementDescriptors: readonly FileDescriptorReadyEvent[]
+): readonly FileMetadataEvent[] {
+	const source =
+		replacementDescriptors[0]?.source ??
+		makeSourceIdentity({
+			sourceCursor: 'cursor-2',
+			subscriptionGeneration: 2,
+		});
 	return [
-		parseWorktreeFileProtocolFrame({
-			kind: 'reset',
-			streamId: 'worktree-file:pane-1',
-			generation: 2,
-			sequence: 0,
-			frameKind: 'worktree.reset',
-			reason: 'sourceChanged',
+		makeSourceAcceptedMetadataEvent(source),
+		parseFileMetadataEvent({
+			eventKind: 'file.treeWindow',
+			finalWindow: true,
+			lineage: { lane: 'foreground', loadedBy: 'replacement' },
+			pathScope: [],
+			rows: replacementDescriptors.map(makeTreeRowFromDescriptor),
+			source,
+			startIndex: 0,
+			totalRowCount: replacementDescriptors.length,
 		}),
+		...replacementDescriptors,
 	];
 }
 
-export function makeFileInvalidatedFrames(props: {
+export function makeFileInvalidatedMetadataEvents(props: {
 	readonly fileId: string;
 	readonly path: string;
-	readonly sequence: number;
-}): readonly WorktreeFileProtocolFrame[] {
+	readonly sequence?: number;
+	readonly sourceIdentity?: BridgeProductFileSourceIdentity;
+}): readonly FileMetadataEvent[] {
 	return [
-		parseWorktreeFileProtocolFrame({
-			kind: 'delta',
-			streamId: 'worktree-file:pane-1',
-			generation: 1,
-			sequence: props.sequence,
-			frameKind: 'worktree.fileInvalidated',
-			invalidation: {
-				path: props.path,
-				fileId: props.fileId,
-				reason: 'contentChanged',
-			},
+		parseFileMetadataEvent({
+			eventKind: 'file.invalidated',
+			fileId: props.fileId,
+			path: props.path,
+			reason: 'contentChanged',
+			replacementDescriptor: null,
+			source: props.sourceIdentity ?? makeSourceIdentity(),
 		}),
 	];
 }
 
 export function makeTreeRow(props: {
-	readonly changeStatus?: string;
+	readonly changeStatus?: FileTreeRow['changeStatus'];
 	readonly depth: number;
 	readonly fileId?: string;
 	readonly isDirectory: boolean;
-	readonly lineCount?: number;
+	readonly lineCount?: number | null;
 	readonly name: string;
 	readonly parentPath: string | null;
 	readonly path: string;
-	readonly sizeBytes?: number;
-}): WorktreeTreeRowMetadata {
+	readonly sizeBytes?: number | null;
+}): FileTreeRow {
 	return {
-		rowId: `row:${props.path}`,
-		path: props.path,
+		changeStatus: props.changeStatus ?? null,
+		depth: props.depth,
+		fileId: props.fileId ?? null,
+		isDirectory: props.isDirectory,
+		lineCount: props.lineCount ?? null,
 		name: props.name,
 		parentPath: props.parentPath,
-		depth: props.depth,
-		isDirectory: props.isDirectory,
-		...(props.fileId === undefined ? {} : { fileId: props.fileId }),
-		...(props.sizeBytes === undefined ? {} : { sizeBytes: props.sizeBytes }),
-		...(props.lineCount === undefined ? {} : { lineCount: props.lineCount }),
-		...(props.changeStatus === undefined ? {} : { changeStatus: props.changeStatus }),
+		path: props.path,
+		rowId: fileTreeRowId(props.path),
+		sizeBytes: props.sizeBytes ?? null,
 	};
-}
-
-export function makeResetFrames(
-	...replacementDescriptors: readonly WorktreeFileDescriptor[]
-): readonly WorktreeFileProtocolFrame[] {
-	const resetSourceIdentity = makeSourceIdentity({
-		subscriptionGeneration: 2,
-		sourceCursor: 'cursor-2',
-	});
-	return [
-		parseWorktreeFileProtocolFrame({
-			kind: 'reset',
-			streamId: 'worktree-file:pane-1',
-			generation: 2,
-			sequence: 0,
-			frameKind: 'worktree.reset',
-			source: resetSourceIdentity,
-			reason: 'sourceChanged',
-		}),
-		parseWorktreeFileProtocolFrame({
-			kind: 'snapshot',
-			streamId: 'worktree-file:pane-1',
-			generation: 2,
-			sequence: 1,
-			frameKind: 'worktree.snapshot',
-			source: resetSourceIdentity,
-			metadataLineage: {
-				loadedBy: 'reset',
-				lane: 'foreground',
-			},
-			treeRows: replacementDescriptors.map(makeTreeRowFromDescriptor),
-			treeSizeFacts: {
-				extentKind: 'exactPathCount',
-				pathCount: replacementDescriptors.length,
-				windowStartIndex: 0,
-				windowRowCount: replacementDescriptors.length,
-				rowHeightPixels: 24,
-			},
-		}),
-		...replacementDescriptors.map(
-			(descriptor, descriptorIndex): WorktreeFileProtocolFrame =>
-				parseWorktreeFileProtocolFrame({
-					kind: 'delta',
-					streamId: 'worktree-file:pane-1',
-					generation: 2,
-					sequence: descriptorIndex + 2,
-					frameKind: 'worktree.fileDescriptor',
-					descriptor,
-				}),
-		),
-	];
 }
 
 export interface MakeFileDescriptorProps {
 	readonly contentExpectedBytes?: number;
 	readonly contentHandle?: string;
-	readonly contentHash?: string | null;
 	readonly contentMaxBytes?: number;
 	readonly fileId?: string;
 	readonly generation?: number;
 	readonly isBinary?: boolean;
 	readonly lineCount?: number;
 	readonly path: string;
-	readonly sourceIdentity?: WorktreeFileSurfaceSourceIdentity;
-	readonly virtualizedExtentKind?: WorktreeFileDescriptor['virtualizedExtentKind'];
+	readonly sourceIdentity?: BridgeProductFileSourceIdentity;
+	readonly virtualizedExtentKind?: FileDescriptorReadyEvent['virtualizedExtentKind'];
 }
 
-export function makeFileDescriptor(props: MakeFileDescriptorProps): WorktreeFileDescriptor {
-	const contentHandle = props.contentHandle ?? 'file-content-1';
-	const generation = props.generation ?? 1;
-	const sourceIdentity = props.sourceIdentity ?? makeSourceIdentity();
-	const virtualizedExtentKind = props.virtualizedExtentKind ?? 'exactLineCount';
-	const contentHash =
-		props.contentHash === undefined ? `sha256:${contentHandle}` : props.contentHash;
-	return worktreeFileDescriptorSchema.parse({
-		path: props.path,
-		fileId: props.fileId ?? 'file-1',
-		contentHandle,
-		contentDescriptor: makeAttachedDescriptor({
-			descriptorId: contentHandle,
-			generation,
-			resourceKind: 'worktree.fileContent',
-			sourceIdentity,
-			...(props.contentExpectedBytes === undefined
-				? {}
-				: { expectedBytes: props.contentExpectedBytes }),
-			...(props.contentMaxBytes === undefined ? {} : { maxBytes: props.contentMaxBytes }),
-		}),
-		...(contentHash === null ? {} : { contentHash }),
-		sourceIdentity,
-		sizeBytes: 64,
-		virtualizedExtentKind,
-		...(virtualizedExtentKind === 'exactLineCount' ? { lineCount: props.lineCount ?? 2 } : {}),
-		isBinary: props.isBinary ?? false,
-		language: 'typescript',
+export function makeFileDescriptor(props: MakeFileDescriptorProps): FileDescriptorReadyEvent {
+	const descriptorId = props.contentHandle ?? 'file-content-1';
+	const source =
+		props.sourceIdentity ??
+		makeSourceIdentity(
+			props.generation === undefined ? {} : { subscriptionGeneration: props.generation },
+		);
+	const fileId = props.fileId ?? 'file-1';
+	const maximumBytes = props.contentMaxBytes ?? DEFAULT_FILE_TEST_CONTENT_MAX_BYTES;
+	const payloadLineCount = props.lineCount ?? 2;
+	const isUnavailable = props.isBinary === true || props.virtualizedExtentKind === 'unavailable';
+	const virtualizedExtentKind = isUnavailable
+		? 'unavailable'
+		: (props.virtualizedExtentKind ?? 'exactLineCount');
+	const payloadByteCount = isUnavailable
+		? 0
+		: Math.min(props.contentExpectedBytes ?? 64, maximumBytes);
+	const emittedPayloadLineCount = isUnavailable ? 0 : payloadLineCount;
+	const contentDescriptor = {
+		contentKind: 'file.content',
+		declaredByteLength: props.contentExpectedBytes ?? 64,
+		descriptorId,
+		encoding: 'utf-8',
+		expectedSha256: testSha256ForDescriptor(descriptorId),
+		fileId,
+		maximumBytes,
+		source,
+		window: {
+			kind: 'prefix',
+			maximumBytes,
+			maximumLines: 10_000,
+			startByte: 0,
+		},
+	} as const;
+	const parsedDescriptor = parseFileMetadataEvent({
+		availability: props.isBinary
+			? { availabilityKind: 'binary' }
+			: virtualizedExtentKind === 'unavailable'
+				? { availabilityKind: 'unavailable', reason: 'outside_scope' }
+				: { availabilityKind: 'available', contentDescriptor },
+		encoding: isUnavailable ? null : 'utf-8',
+		endsMidLine: false,
+		endsWithNewline: !isUnavailable,
+		estimatedContentHeightPixels: null,
+		eventKind: 'file.descriptorReady',
 		fileExtension: 'ts',
+		fileId,
+		language: 'typescript',
+		modifiedAtUnixMilliseconds: null,
+		path: props.path,
+		payloadByteCount,
+		payloadLineCount: emittedPayloadLineCount,
+		rowId: fileTreeRowId(props.path),
+		sizeBytes: Math.max(props.contentExpectedBytes ?? 64, 64),
+		source,
+		totalLineCount: virtualizedExtentKind === 'exactLineCount' ? payloadLineCount : null,
+		truncationKind: 'none',
+		virtualizedExtentKind,
 	});
+	if (parsedDescriptor.eventKind !== 'file.descriptorReady') {
+		throw new Error('Browser File descriptor fixture parsed to the wrong event kind.');
+	}
+	return parsedDescriptor;
 }
 
 export function makeSourceIdentity(
@@ -436,61 +379,27 @@ export function makeSourceIdentity(
 		readonly sourceCursor?: string;
 		readonly subscriptionGeneration?: number;
 	} = {},
-): WorktreeFileSurfaceSourceIdentity {
+): BridgeProductFileSourceIdentity {
 	return {
-		sourceId: 'dev-worktree-source',
-		repoId: 'repo-1',
-		worktreeId: 'worktree-1',
-		subscriptionGeneration: props.subscriptionGeneration ?? 1,
+		repoId: '00000000-0000-4000-8000-000000000001',
+		rootRevisionToken: 'root-revision-1',
 		sourceCursor: props.sourceCursor ?? 'cursor-1',
-	};
-}
-
-export function makeAttachedDescriptor(props: {
-	readonly descriptorId: string;
-	readonly expectedBytes?: number;
-	readonly generation?: number;
-	readonly maxBytes?: number;
-	readonly resourceKind: 'worktree.fileContent' | 'worktree.fileRange';
-	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity;
-}): BridgeAttachedResourceDescriptor {
-	const generation = props.generation ?? 1;
-	const identity = {
-		paneId: 'pane-1',
-		protocol: 'worktree-file',
 		sourceId: 'dev-worktree-source',
-		generation,
-		streamId: 'worktree-file:pane-1',
-		cursor: props.sourceIdentity.sourceCursor,
+		subscriptionGeneration: props.subscriptionGeneration ?? 1,
+		worktreeId: '00000000-0000-4000-8000-000000000002',
 	};
-	const descriptor = {
-		descriptorId: props.descriptorId,
-		protocol: 'worktree-file',
-		resourceKind: props.resourceKind,
-		resourceUrl: `agentstudio://resource/worktree-file/${props.resourceKind}/${props.descriptorId}?cursor=${props.sourceIdentity.sourceCursor}&generation=${generation}`,
-		identity,
-		content: {
-			mediaType: 'text/plain',
-			encoding: 'utf-8',
-			expectedBytes: props.expectedBytes ?? 64,
-			maxBytes: props.maxBytes ?? DEFAULT_WORKTREE_FILE_TEST_CONTENT_MAX_BYTES,
-		},
-	} satisfies BridgeResourceDescriptor;
-	return bridgeAttachedResourceDescriptorSchema.parse({
-		ref: {
-			descriptorId: descriptor.descriptorId,
-			expectedProtocol: descriptor.protocol,
-			expectedResourceKind: descriptor.resourceKind,
-			expectedIdentity: descriptor.identity,
-		},
-		descriptor,
-	});
 }
 
-const DEFAULT_WORKTREE_FILE_TEST_CONTENT_MAX_BYTES = 512 * 1024;
+export function parseFileMetadataEvent(event: unknown): FileMetadataEvent {
+	return bridgeProductFileMetadataEventSchema.parse(event);
+}
 
-export function parseWorktreeFileProtocolFrame(frame: unknown): WorktreeFileProtocolFrame {
-	return worktreeFileProtocolFrameSchema.parse(frame);
+export function makeFileContent(content: string): string {
+	return content;
+}
+
+export function fileTreeRowId(path: string): string {
+	return `row:${path.replaceAll('/', ':').replaceAll(' ', '_')}`;
 }
 
 export function fileNavigationCommandForPath(path: string): BridgeViewerNavigationCommand {
@@ -499,17 +408,20 @@ export function fileNavigationCommandForPath(path: string): BridgeViewerNavigati
 		commandKind: 'initialize',
 		context: 'files',
 		restoreMemory: true,
-		source: {
-			sourceKind: 'worktree',
-			sourceId: 'source-1',
-		},
+		source: { sourceKind: 'worktree', sourceId: 'source-1' },
 		target: {
 			targetKind: 'file',
-			fileRef: {
-				sourceId: 'source-1',
-				path,
-			},
+			fileRef: { sourceId: 'source-1', path },
 			version: 'current',
 		},
 	};
 }
+
+function testSha256ForDescriptor(descriptorId: string): string {
+	return Array.from(new TextEncoder().encode(descriptorId)).reduce((hash, byte, index): string => {
+		const offset = (index * 2) % 64;
+		return `${hash.slice(0, offset)}${byte.toString(16).padStart(2, '0')}${hash.slice(offset + 2)}`;
+	}, '0'.repeat(64));
+}
+
+const DEFAULT_FILE_TEST_CONTENT_MAX_BYTES = 2 * 1024 * 1024;

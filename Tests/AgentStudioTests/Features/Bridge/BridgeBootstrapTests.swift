@@ -166,58 +166,17 @@ final class BridgeBootstrapTests {
     }
 
     @Test
-    func test_script_publishes_worktree_file_source_spec_attribute_when_available() throws {
-        let sourceSpec = BridgeWorktreeFileSurfaceSourceSpec(
-            clientRequestId: "bootstrap-request",
-            repoId: try #require(UUID(uuidString: "11111111-1111-4111-8111-111111111111")),
-            worktreeId: try #require(UUID(uuidString: "22222222-2222-4222-8222-222222222222")),
-            rootPathToken: "root-token",
-            cwdScope: nil,
-            pathScope: [],
-            includeStatuses: true,
-            includeComments: false,
-            includeAgentComms: false,
-            freshness: .live
-        )
-
+    func test_script_selects_worktree_file_protocol_without_source_identity_relay() {
         let script = BridgeBootstrap.generateScript(
             bridgeNonce: "test-nonce",
             pushNonce: "push-nonce",
-            appProtocol: "worktree-file",
-            worktreeFileSourceSpec: sourceSpec
-        )
-
-        #expect(script.contains("const WORKTREE_FILE_SOURCE_SPEC ="))
-        #expect(script.contains("data-bridge-worktree-file-source-spec"))
-        #expect(script.contains("11111111-1111-4111-8111-111111111111"))
-        #expect(script.contains("22222222-2222-4222-8222-222222222222"))
-        #expect(script.contains("root-token"))
-    }
-
-    @Test
-    func test_script_selects_worktree_file_protocol_when_source_spec_is_available() throws {
-        let sourceSpec = BridgeWorktreeFileSurfaceSourceSpec(
-            clientRequestId: "bootstrap-request",
-            repoId: try #require(UUID(uuidString: "11111111-1111-4111-8111-111111111111")),
-            worktreeId: try #require(UUID(uuidString: "22222222-2222-4222-8222-222222222222")),
-            rootPathToken: "root-token",
-            cwdScope: nil,
-            pathScope: [],
-            includeStatuses: true,
-            includeComments: false,
-            includeAgentComms: false,
-            freshness: .live
-        )
-
-        let script = BridgeBootstrap.generateScript(
-            bridgeNonce: "test-nonce",
-            pushNonce: "push-nonce",
-            appProtocol: "worktree-file",
-            worktreeFileSourceSpec: sourceSpec
+            appProtocol: "worktree-file"
         )
 
         #expect(script.contains("data-bridge-app-protocol"))
         #expect(script.contains("const APP_PROTOCOL = \"worktree-file\""))
+        #expect(!script.contains("WORKTREE_FILE_SOURCE_SPEC"))
+        #expect(!script.contains("data-bridge-worktree-file-source-spec"))
     }
 
     @Test
@@ -236,6 +195,20 @@ final class BridgeBootstrapTests {
         #expect(script.contains("slice: slice"))
         #expect(script.contains("merge: function(store, data, revision, epoch, slice, traceContext)"))
         #expect(script.contains("replace: function(store, data, revision, epoch, slice, traceContext)"))
+    }
+
+    @Test
+    func productSessionBootstrapIsRequestedDynamicallyWithoutEmbeddedAuthority() {
+        let script = BridgeBootstrap.generateScript(
+            bridgeNonce: "test-nonce",
+            pushNonce: "push-nonce"
+        )
+
+        #expect(script.contains("bridge.productSession.bootstrap"))
+        #expect(script.contains("detail.reason === 'workerReplacement'"))
+        #expect(!script.contains("PRODUCT_SESSION_BOOTSTRAP"))
+        #expect(!script.contains("PRODUCT_CAPABILITY_BYTES"))
+        #expect(!script.contains("productCapability:"))
     }
 
     @Test

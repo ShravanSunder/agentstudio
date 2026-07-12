@@ -124,8 +124,7 @@ struct BridgeProductContentAcceptedControlBody: Codable {
             codingPath: codingPath
         )
         guard declaredByteLength.map({ $0 <= maximumBytes }) ?? true,
-            case .fileContent(let fileIdentity) = identity,
-            fileIdentity.window.maximumBytes == maximumBytes
+            identity.maximumBytes == maximumBytes
         else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Bridge product accepted content bounds are inconsistent",
@@ -137,14 +136,17 @@ struct BridgeProductContentAcceptedControlBody: Codable {
 
 struct BridgeProductContentEndControlBody: Codable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
+        case endOfSource
         case observedByteLength
         case observedSha256
     }
 
+    let endOfSource: Bool
     let observedByteLength: Int
     let observedSha256: String
 
     init(header: BridgeProductContentEndHeader) {
+        self.endOfSource = header.endOfSource
         self.observedByteLength = header.observedByteLength
         self.observedSha256 = header.observedSha256
     }
@@ -156,6 +158,7 @@ struct BridgeProductContentEndControlBody: Codable {
             contract: "content.end control body"
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.endOfSource = try container.decode(Bool.self, forKey: .endOfSource)
         self.observedByteLength = try container.decode(Int.self, forKey: .observedByteLength)
         self.observedSha256 = try container.decode(String.self, forKey: .observedSha256)
         try BridgeProductContractDecoding.validateNonnegative(
@@ -177,6 +180,7 @@ struct BridgeProductContentEndControlBody: Codable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(endOfSource, forKey: .endOfSource)
         try container.encode(observedByteLength, forKey: .observedByteLength)
         try container.encode(observedSha256, forKey: .observedSha256)
     }
@@ -285,6 +289,7 @@ extension BridgeProductContentEndHeader {
         wireBody: BridgeProductContentEndControlBody
     ) {
         self.contentSequence = contentSequence
+        self.endOfSource = wireBody.endOfSource
         self.observedByteLength = wireBody.observedByteLength
         self.observedSha256 = wireBody.observedSha256
     }

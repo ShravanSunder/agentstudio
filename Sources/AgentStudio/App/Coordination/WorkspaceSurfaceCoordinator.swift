@@ -62,6 +62,9 @@ final class WorkspaceSurfaceCoordinator {
     private var runtimeEventBridgeTasks: [PaneId: Task<Void, Never>] = [:]
     private var criticalRuntimeEventsTask: Task<Void, Never>?
     private var batchedRuntimeEventsTask: Task<Void, Never>?
+    var bridgePaneRetirementTasksByPaneId: [UUID: Task<Void, Never>] = [:]
+    var bridgePaneRetirementsRequiringRuntimeUnregister: Set<UUID> = []
+    var bridgePaneRetirementsRequiringRestore: Set<UUID> = []
     var filesystemSyncTask: Task<Void, Never>?
     var filesystemSyncRequested = false
     var pendingFocusPaneIds: Set<UUID> = []
@@ -180,6 +183,9 @@ final class WorkspaceSurfaceCoordinator {
     }
 
     func shutdown() async {
+        for paneId in viewRegistry.allBridgeViews.keys {
+            teardownView(for: paneId)
+        }
         let activeCWDTask = cwdChangesTask
         let activePaneEventIngressTask = paneEventIngressTask
         let activeCriticalRuntimeEventsTask = criticalRuntimeEventsTask
@@ -223,6 +229,7 @@ final class WorkspaceSurfaceCoordinator {
             await task.value
         }
 
+        await drainBridgePaneRetirements()
         await filesystemSource.shutdown()
     }
 

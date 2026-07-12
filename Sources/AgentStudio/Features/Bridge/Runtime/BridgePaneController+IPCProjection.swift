@@ -11,7 +11,6 @@ private struct BridgePageRenderSnapshot: Decodable {
     let hasFileTree: Bool?
     let hasFileCodeView: Bool?
     let bridgeProtocol: String?
-    let worktreeSourceSpecState: String?
     let worktreeSourceState: String?
     let worktreeOpenFileState: String?
     let worktreeOpenFilePath: String?
@@ -121,7 +120,6 @@ extension BridgePaneController {
                     hasFileTree: snapshot.hasFileTree,
                     hasFileCodeView: snapshot.hasFileCodeView,
                     bridgeProtocol: snapshot.bridgeProtocol,
-                    worktreeSourceSpecState: snapshot.worktreeSourceSpecState,
                     worktreeSourceState: snapshot.worktreeSourceState,
                     worktreeOpenFileState: snapshot.worktreeOpenFileState,
                     worktreeOpenFilePath: snapshot.worktreeOpenFilePath,
@@ -385,26 +383,6 @@ extension BridgePaneController {
                 },
                 lastLongTaskAtMs: finiteNumberOrNull(rawFrameJankProbe.last_long_task_at_ms)
               };
-          const rawWorktreeSourceSpec =
-            document.documentElement.getAttribute('data-bridge-worktree-file-source-spec');
-          let worktreeSourceSpecState = 'missing';
-          if (rawWorktreeSourceSpec !== null) {
-            try {
-              const parsedSourceSpec = JSON.parse(rawWorktreeSourceSpec);
-              worktreeSourceSpecState =
-                parsedSourceSpec &&
-                typeof parsedSourceSpec === 'object' &&
-                typeof parsedSourceSpec.clientRequestId === 'string' &&
-                typeof parsedSourceSpec.repoId === 'string' &&
-                typeof parsedSourceSpec.worktreeId === 'string' &&
-                typeof parsedSourceSpec.rootPathToken === 'string' &&
-                parsedSourceSpec.freshness === 'live'
-                  ? 'parseable'
-                  : 'invalid_shape';
-            } catch {
-              worktreeSourceSpecState = 'malformed_json';
-            }
-          }
           const diffContainers = [...document.querySelectorAll('diffs-container')];
           const codeViewShadowText = diffContainers
             .map((element) => element.shadowRoot?.textContent || '')
@@ -429,7 +407,6 @@ extension BridgePaneController {
             hasFileTree: fileTree !== null,
             hasFileCodeView: fileCodeView !== null,
             bridgeProtocol: document.documentElement.getAttribute('data-bridge-app-protocol') || null,
-            worktreeSourceSpecState,
             worktreeSourceState: fileShell?.getAttribute('data-worktree-source-state') || null,
             worktreeOpenFileState: fileCodeCanvas?.getAttribute('data-worktree-open-file-state') || null,
             worktreeOpenFilePath: fileCodeCanvas?.getAttribute('data-worktree-open-file-path') || null,
@@ -439,9 +416,7 @@ extension BridgePaneController {
             worktreeTotalDescriptorCount,
             worktreeIntakeFrameCount: intakeProbe.length,
             worktreeCommandCount: commandProbe.length,
-            worktreeOpenSourceCommandCount: commandProbe.filter((entry) => {
-              return entry?.method === 'worktreeFileSurface.openSourceStream';
-            }).length,
+            worktreeOpenSourceCommandCount: 0,
             worktreeCodeTextLength: fileCodeText.length,
             pageErrorCount: errorProbe.length,
             pageErrorKinds,
@@ -495,7 +470,6 @@ extension BridgePaneController {
                 reviewGeneration: handle.reviewGeneration.rawValue
             ),
             presentation: IPCBridgeContentHandlePresentation(
-                resourceUrl: handle.resourceUrl,
                 mimeType: handle.mimeType,
                 language: handle.language
             ),

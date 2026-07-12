@@ -10,40 +10,9 @@ struct WorkspaceSurfaceCoordinatorViewFactoryTests {
         installTestAtomRegistryIfNeeded()
     }
 
-    private struct WorkspaceSurfaceCoordinatorHarness {
-        let store: WorkspaceStore
-        let viewRegistry: ViewRegistry
-        let runtime: SessionRuntime
-        let coordinator: WorkspaceSurfaceCoordinator
-        let tempDir: URL
-    }
-
-    private func makeHarness() -> WorkspaceSurfaceCoordinatorHarness {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-coordinator-tests-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(persistor: persistor)
-        store.restore()
-        let viewRegistry = ViewRegistry()
-        let runtime = SessionRuntime(store: store)
-        let coordinator = WorkspaceSurfaceCoordinator(
-            store: store,
-            viewRegistry: viewRegistry,
-            runtime: runtime,
-            windowLifecycleStore: WindowLifecycleAtom()
-        )
-        return WorkspaceSurfaceCoordinatorHarness(
-            store: store,
-            viewRegistry: viewRegistry,
-            runtime: runtime,
-            coordinator: coordinator,
-            tempDir: tempDir
-        )
-    }
-
     @Test("createViewForContent registers a host whose mounted content is a webview mount")
     func createViewForContent_registersHostedWebviewView() {
-        let harness = makeHarness()
+        let harness = makeWorkspaceSurfaceCoordinatorViewFactoryHarness()
         let viewRegistry = harness.viewRegistry
         let coordinator = harness.coordinator
         let tempDir = harness.tempDir
@@ -68,7 +37,7 @@ struct WorkspaceSurfaceCoordinatorViewFactoryTests {
 
     @Test("createViewForContent registers a host whose mounted content is a code viewer mount")
     func createViewForContent_registersHostedCodeViewerView() {
-        let harness = makeHarness()
+        let harness = makeWorkspaceSurfaceCoordinatorViewFactoryHarness()
         let viewRegistry = harness.viewRegistry
         let coordinator = harness.coordinator
         let tempDir = harness.tempDir
@@ -93,8 +62,8 @@ struct WorkspaceSurfaceCoordinatorViewFactoryTests {
     }
 
     @Test("createViewForContent builds bridge mounted content under a host and teardown clears bridge readiness")
-    func createViewForContent_bridgeView_tearsDownCleanly() {
-        let harness = makeHarness()
+    func createViewForContent_bridgeView_tearsDownCleanly() async {
+        let harness = makeWorkspaceSurfaceCoordinatorViewFactoryHarness()
         let viewRegistry = harness.viewRegistry
         let coordinator = harness.coordinator
         let tempDir = harness.tempDir
@@ -123,13 +92,261 @@ struct WorkspaceSurfaceCoordinatorViewFactoryTests {
         coordinator.teardownView(for: pane.id)
 
         #expect(bridgeController.isBridgeReady == false)
+        #expect(coordinator.pendingBridgePaneRetirementCount == 1)
+        #expect(viewRegistry.view(for: pane.id) != nil)
+
+        await coordinator.drainBridgePaneRetirements()
+
+        #expect(coordinator.pendingBridgePaneRetirementCount == 0)
         #expect(viewRegistry.view(for: pane.id) == nil)
         #expect(viewRegistry.registeredPaneIds == Set<UUID>())
     }
 
+    @Test("terminal teardown remains synchronous and never enters Bridge retirement tracking")
+    func terminalViewTeardownRemainsSynchronous() {
+        let harness = makeWorkspaceSurfaceCoordinatorViewFactoryHarness()
+        let paneId = UUIDv7.generate()
+        let terminalView = TerminalPaneMountView(paneId: paneId, title: "Terminal")
+        let tempDir = harness.tempDir
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        harness.coordinator.registerHostedView(mountedView: terminalView, for: paneId)
+
+        harness.coordinator.teardownView(for: paneId)
+
+        #expect(harness.coordinator.pendingBridgePaneRetirementCount == 0)
+        #expect(harness.viewRegistry.view(for: paneId) == nil)
+    }
+
+    @Test("quick Bridge restore evicts old replay before creating a fresh controller")
+    func quickBridgeRestoreWaitsForRetirementBeforeRecreation() async throws {
+        // Arrange
+        let paneEventBus = EventBus<RuntimeEnvelope>(
+            name: #function,
+            replayConfiguration: .init(
+                capacityPerSource: 4,
+                sourceKey: { $0.source.description }
+            )
+        )
+        let harness = makeWorkspaceSurfaceCoordinatorViewFactoryHarness(paneEventBus: paneEventBus)
+        let tempDir = harness.tempDir
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let pane = harness.store.createPane(
+            content: .bridgePanel(
+                BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "quick-restore"))
+            ),
+            metadata: PaneMetadata(title: "Bridge Review")
+        )
+        harness.store.appendTab(Tab(paneId: pane.id))
+        let provider = BridgePaneProductSessionProviderGate()
+        let installation = BridgePaneController.makeInitialProductSessionInstallation(
+            paneSessionId: pane.id.uuidString,
+            provider: provider
+        )
+        let owner = BridgePaneController.makeProductSessionOwner(
+            paneSessionId: pane.id.uuidString,
+            provider: provider,
+            activeInstallation: installation
+        )
+        let controller = BridgePaneController(
+            paneId: pane.id,
+            state: BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "quick-restore")),
+            metadata: pane.metadata,
+            productSessionDependencies: BridgePaneProductSessionDependencies(
+                installation: installation,
+                owner: owner
+            )
+        )
+        let mountedView = BridgePaneMountView(paneId: pane.id, controller: controller)
+        harness.coordinator.registerHostedView(mountedView: mountedView, for: pane.id)
+        harness.coordinator.registerRuntime(controller.runtime)
+        let runtimePaneId = PaneId(uuid: pane.id)
+        _ = await paneEventBus.post(makeBridgeReplayEnvelope(paneId: runtimePaneId, sequence: 1))
+        try await openBridgePaneProductSession(installation)
+        let metadataReply = try await startBridgePaneProductMetadataReply(
+            installation: installation,
+            provider: provider
+        )
+        await provider.failNextLifecycleAcknowledgementThenHoldRetries()
+
+        // Act
+        harness.coordinator.teardownView(for: pane.id)
+        _ = await provider.waitForLifecycleAcknowledgement(count: 2)
+        let restoredWhileRetiring = harness.coordinator.createViewForContent(pane: pane)
+
+        // Assert
+        #expect(restoredWhileRetiring === mountedView)
+        #expect(harness.coordinator.pendingBridgePaneRetirementCount == 1)
+        #expect(await owner.activeInstallation == nil)
+        let lifecycleAcknowledgements = await provider.lifecycleAcknowledgements
+        #expect(lifecycleAcknowledgements.count == 2)
+        #expect(lifecycleAcknowledgements[0] == lifecycleAcknowledgements[1])
+        await #expect(throws: BridgePaneProductSessionOwnerError.ownerDisposed) {
+            _ = try await owner.prepareCandidate()
+        }
+
+        await provider.releaseLifecycleAcknowledgements(result: true)
+        await harness.coordinator.drainBridgePaneRetirements()
+        _ = try? await metadataReply.value
+
+        let replacementView = try #require(
+            harness.viewRegistry.view(for: pane.id)?.mountedContent(as: BridgePaneMountView.self)
+        )
+        #expect(replacementView !== mountedView)
+        #expect(replacementView.controller !== controller)
+        #expect(replacementView.controller.runtime !== controller.runtime)
+        #expect(harness.coordinator.pendingBridgePaneRetirementCount == 0)
+        #expect((await owner.snapshot()).hasZeroResidue)
+
+        let replayProbe = await paneEventBus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "quickBridgeRestoreReplayProbe"
+        )
+        _ = await paneEventBus.post(makeBridgeReplayEnvelope(paneId: runtimePaneId, sequence: 2))
+        var replayIterator = replayProbe.makeAsyncIterator()
+        #expect((await replayIterator.next())?.seq == 2)
+
+        harness.coordinator.teardownView(for: pane.id)
+        await harness.coordinator.drainBridgePaneRetirements()
+    }
+
+    @Test("coordinator shutdown retires Bridge panes without restoring them")
+    func shutdownDoesNotRestoreRetiredBridgePane() async throws {
+        // Arrange
+        let harness = makeWorkspaceSurfaceCoordinatorViewFactoryHarness()
+        let tempDir = harness.tempDir
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let pane = harness.store.createPane(
+            content: .bridgePanel(
+                BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "shutdown"))
+            ),
+            metadata: PaneMetadata(title: "Bridge Review")
+        )
+        harness.store.appendTab(Tab(paneId: pane.id))
+        _ = try #require(harness.coordinator.createViewForContent(pane: pane))
+        #expect(harness.coordinator.runtimeForPane(PaneId(uuid: pane.id)) is BridgeRuntime)
+
+        // Act
+        await harness.coordinator.shutdown()
+
+        // Assert
+        #expect(harness.viewRegistry.view(for: pane.id) == nil)
+        #expect(harness.coordinator.runtimeForPane(PaneId(uuid: pane.id)) == nil)
+        #expect(harness.coordinator.pendingBridgePaneRetirementCount == 0)
+    }
+
+    @Test("a close strengthens an in-flight Bridge repair retirement")
+    func closeStrengthensInFlightBridgeRepairRetirement() async throws {
+        // Arrange
+        let harness = makeWorkspaceSurfaceCoordinatorViewFactoryHarness()
+        let tempDir = harness.tempDir
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let pane = harness.store.createPane(
+            content: .bridgePanel(
+                BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "repair-close"))
+            ),
+            metadata: PaneMetadata(title: "Bridge Review")
+        )
+        harness.store.appendTab(Tab(paneId: pane.id))
+        _ = try #require(harness.coordinator.createViewForContent(pane: pane))
+        #expect(harness.coordinator.runtimeForPane(PaneId(uuid: pane.id)) is BridgeRuntime)
+
+        // Act
+        harness.coordinator.teardownView(for: pane.id, shouldUnregisterRuntime: false)
+        harness.coordinator.teardownView(for: pane.id, shouldUnregisterRuntime: true)
+        await harness.coordinator.drainBridgePaneRetirements()
+
+        // Assert
+        #expect(harness.viewRegistry.view(for: pane.id) == nil)
+        #expect(harness.coordinator.runtimeForPane(PaneId(uuid: pane.id)) == nil)
+        #expect(harness.coordinator.pendingBridgePaneRetirementCount == 0)
+    }
+
+    @Test("product bootstrap rotates native authority before publishing a replacement")
+    func productBootstrapRotatesAuthorityBeforeReplacementPublication() async throws {
+        // Arrange
+        let paneId = UUIDv7.generate()
+        let provider = BridgePaneProductSessionProviderGate()
+        let initialInstallation = BridgePaneController.makeInitialProductSessionInstallation(
+            paneSessionId: paneId.uuidString,
+            provider: provider
+        )
+        let owner = BridgePaneController.makeProductSessionOwner(
+            paneSessionId: paneId.uuidString,
+            provider: provider,
+            activeInstallation: initialInstallation
+        )
+        var deliveredRequestIds: [String] = []
+        var deliveredInstallations: [BridgeProductSessionInstallation] = []
+        let controller = BridgePaneController(
+            paneId: paneId,
+            state: BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "rotation")),
+            productSessionDependencies: BridgePaneProductSessionDependencies(
+                installation: initialInstallation,
+                owner: owner
+            ),
+            productSessionBootstrapSink: { _, requestId, installation, _ in
+                deliveredRequestIds.append(requestId)
+                deliveredInstallations.append(installation)
+            }
+        )
+        await controller.enqueueProductSessionBootstrapRequest(
+            requestId: "bootstrap-initial",
+            reason: .initial
+        )
+        try await openBridgePaneProductSession(initialInstallation)
+        let metadataReply = try await startBridgePaneProductMetadataReply(
+            installation: initialInstallation,
+            provider: provider
+        )
+        await provider.holdLifecycleAcknowledgements()
+
+        // Act
+        let replacementTask = Task { @MainActor in
+            await controller.enqueueProductSessionBootstrapRequest(
+                requestId: "bootstrap-replacement",
+                reason: .workerReplacement
+            )
+        }
+        _ = await provider.waitForLifecycleAcknowledgement(count: 1)
+
+        // Assert
+        #expect(deliveredRequestIds == ["bootstrap-initial"])
+        #expect(await owner.activeInstallation == nil)
+        #expect(await owner.schemeRouter.activeInstallation == nil)
+
+        await provider.releaseLifecycleAcknowledgements(result: true)
+        await replacementTask.value
+        _ = try? await metadataReply.value
+
+        let replacementInstallation = try #require(deliveredInstallations.last)
+        #expect(deliveredRequestIds == ["bootstrap-initial", "bootstrap-replacement"])
+        #expect(
+            replacementInstallation.bootstrap.workerInstanceId
+                != initialInstallation.bootstrap.workerInstanceId
+        )
+        #expect(replacementInstallation.capabilityBytes != initialInstallation.capabilityBytes)
+        #expect((await initialInstallation.session.producerSnapshot()).hasZeroResidue)
+
+        let staleCapability = try BridgeProductCapabilityHeaderEncoding.encode(
+            initialInstallation.capabilityBytes
+        )
+        let staleReply = try await collectBridgeProductSchemeReply(
+            adapter: initialInstallation.productAdapter,
+            request: bridgeProductSchemeRequest(
+                route: BridgeProductWireContract.commandRoute,
+                capability: staleCapability,
+                body: Data("{}".utf8)
+            )
+        )
+        #expect(staleReply.response?.statusCode == 403)
+        try await openBridgePaneProductSession(replacementInstallation)
+
+        #expect(await controller.teardown().value)
+    }
+
     @Test("createViewForContent derives Bridge workspace identity from source root before bootstrap")
     func createViewForContent_bridgeWorkspaceSourceDerivesMissingWorktreeFacets() {
-        let harness = makeHarness()
+        let harness = makeWorkspaceSurfaceCoordinatorViewFactoryHarness()
         let store = harness.store
         let coordinator = harness.coordinator
         let tempDir = harness.tempDir
@@ -171,7 +388,7 @@ struct WorkspaceSurfaceCoordinatorViewFactoryTests {
 
     @Test("createViewForContent repairs restored FileView identity from pane working directory")
     func createViewForContent_restoredFileViewerDerivesWorktreeFacetsFromCWD() {
-        let harness = makeHarness()
+        let harness = makeWorkspaceSurfaceCoordinatorViewFactoryHarness()
         let store = harness.store
         let coordinator = harness.coordinator
         let tempDir = harness.tempDir
@@ -210,32 +427,17 @@ struct WorkspaceSurfaceCoordinatorViewFactoryTests {
         #expect(bridgeView.controller.runtime.metadata.cwd == worktree.path)
         #expect(script.contains("const APP_PROTOCOL = \"worktree-file\""))
         #expect(script.contains("data-bridge-app-protocol"))
-        #expect(script.contains(repo.id.uuidString))
-        #expect(script.contains(worktree.id.uuidString))
-        #expect(!script.contains("const WORKTREE_FILE_SOURCE_SPEC = null;"))
+        #expect(!script.contains("data-bridge-worktree-file-source-spec"))
+        #expect(!script.contains(repo.id.uuidString))
+        #expect(!script.contains(worktree.id.uuidString))
     }
 
-    @Test("review bootstrap keeps Review route while exposing Worktree/File source spec")
-    func reviewBootstrapWithWorktreeMetadataKeepsReviewRouteAndExposesFileSourceSpec() {
-        let repoId = UUID()
-        let worktreeId = UUID()
+    @Test("review bootstrap keeps Review route without exposing File source identity")
+    func reviewBootstrapKeepsReviewRouteWithoutFileSourceIdentity() {
         let rootPath = URL(fileURLWithPath: "/tmp/agentstudio-review-root")
-        let metadata = PaneMetadata(
-            contentType: .diff,
-            launchDirectory: rootPath,
-            title: "Bridge Review",
-            facets: PaneContextFacets(
-                repoId: repoId,
-                repoName: "repo",
-                worktreeId: worktreeId,
-                worktreeName: "repo",
-                cwd: rootPath
-            )
-        )
 
         let artifacts = BridgePaneController.makeBootstrapArtifacts(
             paneId: UUIDv7.generate(),
-            metadata: metadata,
             state: BridgePaneState(
                 panelKind: .diffViewer,
                 source: .workspace(rootPath: rootPath.path, baseline: .localDefaultBranch(branchName: "main"))
@@ -246,67 +448,34 @@ struct WorkspaceSurfaceCoordinatorViewFactoryTests {
 
         #expect(artifacts.script.source.contains("const APP_PROTOCOL = \"review\""))
         #expect(artifacts.script.source.contains("data-bridge-app-protocol"))
-        #expect(artifacts.script.source.contains("data-bridge-worktree-file-source-spec"))
-        #expect(artifacts.script.source.contains(repoId.uuidString))
-        #expect(artifacts.script.source.contains(worktreeId.uuidString))
-        #expect(!artifacts.script.source.contains("const WORKTREE_FILE_SOURCE_SPEC = null;"))
+        #expect(!artifacts.script.source.contains("data-bridge-worktree-file-source-spec"))
     }
 
-    @Test("file viewer bootstrap selects Worktree/File route from workspace metadata")
-    func fileViewerBootstrapWithWorktreeMetadataSelectsWorktreeFileRoute() throws {
-        let repoId = UUID()
-        let worktreeId = UUID()
+    @Test("file viewer bootstrap selects Worktree/File route without source identity")
+    func fileViewerBootstrapSelectsWorktreeFileRouteWithoutSourceIdentity() {
         let paneId = UUIDv7.generate()
         let rootPath = URL(fileURLWithPath: "/tmp/agentstudio-file-view-root")
-        let metadata = PaneMetadata(
-            contentType: .diff,
-            launchDirectory: rootPath,
-            title: "Files",
-            facets: PaneContextFacets(
-                repoId: repoId,
-                repoName: "repo",
-                worktreeId: worktreeId,
-                worktreeName: "repo",
-                cwd: rootPath
-            )
-        )
         let state = BridgePaneState(
             panelKind: .fileViewer,
             source: .workspace(rootPath: rootPath.path, baseline: .localDefaultBranch(branchName: "main"))
         )
 
-        let sourceSpec = try #require(
-            BridgePaneController.makeWorktreeFileBootstrapSourceSpec(
-                paneId: paneId,
-                metadata: metadata,
-                source: state.source
-            )
-        )
         let artifacts = BridgePaneController.makeBootstrapArtifacts(
             paneId: paneId,
-            metadata: metadata,
             state: state,
             telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
             bridgeWorld: .page
         )
 
-        #expect(sourceSpec.clientRequestId == "bootstrap:\(paneId.uuidString)")
-        #expect(sourceSpec.repoId == repoId)
-        #expect(sourceSpec.worktreeId == worktreeId)
-        #expect(sourceSpec.rootPathToken == StableKey.fromPath(rootPath))
-        #expect(sourceSpec.includeStatuses)
-        #expect(sourceSpec.freshness == .live)
         #expect(artifacts.script.source.contains("const APP_PROTOCOL = \"worktree-file\""))
         #expect(artifacts.script.source.contains("data-bridge-app-protocol"))
-        #expect(artifacts.script.source.contains("data-bridge-worktree-file-source-spec"))
-        #expect(artifacts.script.source.contains(repoId.uuidString))
-        #expect(artifacts.script.source.contains(worktreeId.uuidString))
-        #expect(!artifacts.script.source.contains("const WORKTREE_FILE_SOURCE_SPEC = null;"))
+        #expect(!artifacts.script.source.contains("data-bridge-worktree-file-source-spec"))
+        #expect(!artifacts.script.source.contains(StableKey.fromPath(rootPath)))
     }
 
     @Test("createViewForContent registers runtime for bridge, webview, and code viewer panes")
     func createViewForContent_registersNonTerminalRuntimes() {
-        let harness = makeHarness()
+        let harness = makeWorkspaceSurfaceCoordinatorViewFactoryHarness()
         let coordinator = harness.coordinator
         let tempDir = harness.tempDir
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -346,7 +515,7 @@ struct WorkspaceSurfaceCoordinatorViewFactoryTests {
 
     @Test("createViewForContent returns nil for unsupported pane content")
     func createViewForContent_unsupportedContentReturnsNil() {
-        let harness = makeHarness()
+        let harness = makeWorkspaceSurfaceCoordinatorViewFactoryHarness()
         let viewRegistry = harness.viewRegistry
         let coordinator = harness.coordinator
         let tempDir = harness.tempDir

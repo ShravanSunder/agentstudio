@@ -37,7 +37,7 @@ func producerRegistryContentRequest(workerDerivationEpoch: Int) throws -> Bridge
             "declaredByteLength": 3,
             "descriptorId": "file-descriptor-1",
             "encoding": "utf-8",
-            "expectedSha256": null,
+            "expectedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
             "fileId": "file-1",
             "maximumBytes": 2097152,
             "source": {

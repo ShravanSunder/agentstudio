@@ -359,11 +359,12 @@ export class BridgeTreesController {
 			return;
 		}
 		if (shouldDropScrollToPath) {
-			recordBridgeTreeDroppedScrollToPathTelemetrySample({
+			recordBridgeTreeScrollToPathTelemetrySample({
 				durationMilliseconds: performance.now() - startedAt,
 				focus: props.focus,
 				offset: 'none',
 				reason: props.reason,
+				result: 'dropped',
 				telemetryRecorder: this.#telemetryRecorder,
 				traceContext: this.#telemetryTraceContext,
 				viewer: 'review',
@@ -380,41 +381,6 @@ export class BridgeTreesController {
 			viewer: 'review',
 		});
 	}
-}
-
-function recordBridgeTreeDroppedScrollToPathTelemetrySample(props: {
-	readonly durationMilliseconds: number;
-	readonly focus: boolean;
-	readonly offset: 'nearest' | 'none' | 'top' | 'unknown';
-	readonly reason: 'append_reveal' | 'search_match' | 'selected_path_effect' | 'selection_sync';
-	readonly telemetryRecorder: BridgeTelemetryRecorder;
-	readonly traceContext: BridgeTraceContext | null;
-	readonly viewer: 'file' | 'review';
-}): void {
-	if (!props.telemetryRecorder.isEnabled('web')) {
-		return;
-	}
-	props.telemetryRecorder.record({
-		scope: 'web',
-		name: 'performance.bridge.trees.scroll_to_path',
-		durationMilliseconds: Math.max(0, props.durationMilliseconds),
-		traceContext: props.traceContext,
-		stringAttributes: {
-			'agentstudio.bridge.phase': 'scroll_to_path',
-			'agentstudio.bridge.plane': 'data',
-			'agentstudio.bridge.priority': 'hot',
-			'agentstudio.bridge.result': 'dropped',
-			'agentstudio.bridge.scroll.offset': props.offset,
-			'agentstudio.bridge.scroll.reason': props.reason,
-			'agentstudio.bridge.slice': 'tree_prepare_input',
-			'agentstudio.bridge.transport': 'worker',
-			'agentstudio.bridge.viewer': props.viewer,
-		},
-		numericAttributes: {},
-		booleanAttributes: {
-			'agentstudio.bridge.focus': props.focus,
-		},
-	});
 }
 
 function firstBridgeTreeSearchMatchPath(props: {

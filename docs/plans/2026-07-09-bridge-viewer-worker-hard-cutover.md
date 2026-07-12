@@ -247,8 +247,9 @@ Behavior:
 - Add capability-bound POST routes for `/rpc/command`, one long-lived pane
   `/rpc/stream`, and independently cancellable `/rpc/content` requests. Product
   payload/identity lives only in bodies and in-band response frames; the sole
-  privileged header is the opaque capability.
-- Enforce the shared 256 KiB encoded-request cap sender-side before fetch. Native
+  privileged header is the opaque capability. Add no loopback HTTP carrier,
+  fallback, compatibility route, or dual product path.
+- Enforce the shared 128 KiB encoded-request cap sender-side before fetch. Native
   authenticates first, then counts actual `httpBody` or bounded
   `httpBodyStream` bytes before strict decode/provider work. Never require
   `Content-Length`; WebKit pre-handler materialization of this bounded body is
@@ -259,13 +260,15 @@ Behavior:
   before document `JSON.parse`, preserves decoded key spelling, then lets the
   selected strict union close its vocabulary. Swift exact-byte-allowlists decoded
   member names before `JSONDecoder`. Paths/interests use exact UTF-8 byte identity
-  without normalization; canonical interest encoding has its own 256 KiB ceiling.
+  without normalization; canonical interest encoding has its own 128 KiB ceiling.
 - Keep metadata frames as `u32be bodyLength | strict typed JSON`, with a hard
-  256 KiB body cap. Content frames are `u32be bodyLength | u8 tag | u32be
+  128 KiB body cap. Correlated command response bodies have the same 128 KiB
+  pre-decode cap. Content frames are `u32be bodyLength | u8 tag | u32be
   sequence | tag-specific body`: accepted sequence zero binds full identity;
   data is `u32be offset | raw bytes` with a 128 KiB raw ceiling; terminal JSON
   contains terminal fields only. Content bodies remain universally capped at
-  256 KiB and JSON control bodies at 16 KiB. Exact 2 MiB File content is sixteen
+  256 KiB as a distinct binary-frame hostile-input bound, and content JSON
+  control bodies remain capped at 16 KiB. Exact 2 MiB File content is sixteen
   full data frames plus accepted/end; a partial final frame is valid.
 - Treat every WebKit chunk boundary as non-semantic. Stage caps precede
   allocation/decode; reference-owned fixed-capacity accumulators avoid COW
@@ -290,6 +293,19 @@ Behavior:
   stale nonterminal frames preserve transport continuity with zero product
   mutation, while cleanup-only frames settle correlation/zero residue. Mixed
   Review/File metadata frames share one contiguous pane-wide `streamSequence`.
+- Make `resync.accepted` the sole atomic reconciliation authority: return exactly
+  one positionally paired `retained | cancelled | reset | reopenRequired`
+  outcome for each worker-reported active subscription, capped at 64. Revoke
+  native-only subscriptions before commit and omit them; require a new id after
+  `reopenRequired`; capture the post-pruning metadata sequence barrier; emit no
+  duplicate reconciliation lifecycle frames; and replay exact cached response
+  bytes without reapplying mutation.
+- Keep protocol lifecycle sequencing in the product-session actor. Ordinary
+  subscription open, final update, and cancel commit state and cache accepted
+  response bytes only after their required accepted/interests-committed/cancelled
+  frame is admitted. Forced admission failure caches no success and enters a
+  typed error/resync path. Product providers own metadata/content production,
+  not protocol commit effects.
 - Mint a transferable 32-byte worker-lifetime capability only through typed
   bootstrap. Replacement atomically revokes the old worker's streams and
   leases.
@@ -307,7 +323,8 @@ Likely write surface:
 RED proof:
 
 - Exact POST body bytes through `httpBody`/`httpBodyStream`; no synthesized
-  `Content-Length`; capability-before-body-access; 256 KiB + 1 rejected before
+  `Content-Length`; capability-before-body-access; exact 128 KiB control request,
+  command response, and metadata JSON bodies accepted and +1 rejected before
   decode/provider; unknown/extra/cross-wired unions, duplicate raw keys, Kelvin-
   sign key lookalikes, non-scalar strings, and composed/decomposed byte identity;
   no global epoch or redundant surface; exhaustive kind-to-surface mapping;
@@ -323,6 +340,12 @@ RED proof:
   cancellation/revoke single-flight retirement; exact-nonce retry after failed
   acknowledgement; overflow reserve; resume/snapshot; replacement/reset/restart;
   and zero-residual teardown.
+- Resync RED/GREEN corpus: strict Swift/TypeScript closed-union parity; exact
+  response count and request-order/identity pairing; mixed Review/File epochs;
+  `snapshot_required -> resync -> reopenRequired` with a fresh subscription id;
+  native-only subscription residue zero; exact retry bytes with zero mutation
+  reapply; no duplicate reconciliation lifecycle frame; and forced ordinary
+  lifecycle-frame admission failure with no cached accepted response.
 - Epoch-floor RED/GREEN pair: RED fails if stale nonterminal subscription or
   content-accepted/data mutates current truth, or if cleanup is rejected/leaks;
   GREEN consumes stream continuity with zero interests/cache/publication/reset
@@ -334,14 +357,18 @@ RED proof:
 
 Ordered S2 gates:
 
-S2a is GREEN from fresh packaged WKWebView plus marker-scoped runtime proof. The
-packaged lane accepted exactly 262,144 bytes, collected one warmup plus 100
-samples per lane, measured fetch p99 4 ms, Swift admission p99 3.415 ms, and
-decode p99 1.737 ms, and proved `stopped -> unregistered -> acknowledged`
-cancellation. Marker `debug-observability-oq4s-1783704068-24703` verified the
+S2a carrier feasibility is GREEN from fresh packaged WKWebView plus
+marker-scoped runtime proof. The prior packaged lane accepted 262,144 bytes,
+collected one warmup plus 100 samples per lane, measured fetch p99 4 ms, Swift
+admission p99 3.415 ms, and decode p99 1.737 ms, and proved `stopped ->
+unregistered -> acknowledged` cancellation. Marker
+`debug-observability-oq4s-1783704068-24703` verified the
 `bounded_post_stream_abort` path, rejected 262,145 bytes before decode/provider,
-recorded four receipts, and left zero producer/task residue. Focused contract/
-unit proof or a zero-sample marker alone still cannot close this gate.
+recorded four receipts, and left zero producer/task residue. That proves carrier
+feasibility above the current bound but does not close the revised exact-cap
+contract: packaged proof MUST accept exactly 131,072 bytes and reject 131,073
+before decode/provider. Focused contract/unit proof or a zero-sample marker
+alone still cannot close this gate.
 
 1. **S2a feasibility:** packaged WKWebView proves exact bounded POST request
    bytes, capability-first handler admission, actual-body cap before decode/
@@ -677,7 +704,7 @@ or above 50 ms are all zero.
 | R47 scalable File projection/apply | S5/S8 | bottom-up prune regression remains linear; frame intake/projection/apply slices <=8 ms | large current File fixture; no duplicate prune task |
 | R48, R62 correlated proof | S0/S8 | exactly 84 cells, 252 launches, >=25,200 measured attempts; every launch/pooled cohort passes; failures retained | immutable manifest, HEAD/bundle/PID/fixture/machine identity |
 | R58 normalized O(delta) worker state | S3/S5/S6a/S7 | click invalidation O(selected + visible delta), selected preemption, no starvation | subscriber/key counters from current large fixture |
-| R59, R64 trust/capability/typed call-subscribe-content/cancel | G0/S2/S3 | epoch-free pane plane; kind-derived surface; same-surface resync epoch agreement; stale nonterminal zero mutation; old cleanup zero residue; contiguous mixed-surface stream; bounded strict POST/frame/data proof | packaged WKWebView plus shared hostile raw-byte corpus |
+| R59, R64 trust/capability/typed call-subscribe-content/cancel | G0/S2/S3 | epoch-free pane plane; kind-derived surface; 128 KiB control request/response/metadata caps; positionally paired atomic resync union; same-surface resync epoch agreement; stale nonterminal zero mutation; forced lifecycle admission failure caches no success; old cleanup zero residue; contiguous mixed-surface stream; bounded strict POST/frame/data proof | packaged WKWebView plus shared hostile raw-byte corpus |
 | R63 semantic fulfillment/reset/restart | S3/S5/S7 | monotonic attempts/dispositions, fresh-display `selectionAccepted`, no stale/blank/disappeared/wedged result | same semantic/window/attempt chain; repeated live clicks |
 | R65 canonical File bytes/encoding/lines | S5 | shared Swift/TS literal byte/checksum/truncation oracle | identical corpus/version in both runtimes |
 | retained File/Review journeys and 16 IPC methods | S4/S5/S6/S7/S8 | all actions, full 3,420-file/100,000-line Review, mode switch, two-pane, restart, teardown; dev p95 <50/p99 <100, native p95 <100/p99 <200 | current run, early/middle/final checksums and routing ledger |
@@ -693,7 +720,7 @@ edits; execution records failing command/output and later GREEN exit code.
 | --- | --- | --- | --- |
 | S0 | proof contract/reducer; every attempt and fixed cell is represented | schema rejects omissions; literal 84/252/25,200 manifest oracle | `pnpm -C BridgeWeb exec vitest run scripts/bridge-local-first-proof-contract.unit.test.ts`; GREEN same plus `--validate-only`; runtime matrix deferred S8 |
 | S1 | released Pierre `CodeViewHandle` window API and worker transport | validators reject hostile manifests; literal conformance/checksum/anchor oracle | `AGENT=1 moonx diffs:test -- CodeView.windowConformance.test.ts`; GREEN full S1 Moon/Bun gates; registry install deferred authorized release |
-| S2 | product-session actor + call/metadata/content POST routes | paired identity/epoch vectors prove cross-surface-different acceptance, same-surface-conflict atomic rejection, stale nonterminal zero mutation, old cleanup zero residue, and mixed stream order; exact cap/segmentation oracle | `mise run test-fast -- --filter BridgeProductSession`; GREEN focused Bridge + `test-webkit` + packaged 128 KiB incremental/fragmented/abort benchmark |
+| S2 | product-session actor + call/metadata/content POST routes | paired identity/epoch vectors prove cross-surface-different acceptance, same-surface-conflict atomic rejection, positionally paired resync outcomes, exact retry/no reapply, native-only residue zero, forced lifecycle-admission failure with no cached success, stale nonterminal zero mutation, old cleanup zero residue, and mixed stream order; exact 128 KiB control cap/content segmentation oracle | `mise run test-fast -- --filter BridgeProductSession`; GREEN focused Bridge + `test-webkit` + packaged 128 KiB incremental/fragmented/abort benchmark |
 | S3 | worker-only generic transport facade, mux, identity, fulfillment reducer | closed registries/discriminated transitions reject conflicts; shared TS/Swift fixtures, dedicated `tsc` negative fixture, and semantic traces | `pnpm -C BridgeWeb exec tsc --noEmit -p tsconfig.product-contract.json` plus `pnpm -C BridgeWeb exec vitest run src/core/comm-worker/bridge-pane-comm-worker-session.unit.test.ts`; GREEN core unit + real Worker browser; surface/native deferred S5/S7 |
 | S4 | telemetry worker ports + native telemetry session | credit/capability/sequence guards; exact sample/loss/high-watermark oracle | `pnpm -C BridgeWeb exec vitest run src/core/telemetry-worker/bridge-telemetry-worker-runtime.unit.test.ts` + `mise run test-fast -- --filter BridgeTelemetrySession`; GREEN hostile browser/native + Victoria drain; full parity S8 |
 | S5 | File worker surface + installed Pierre window + native stream | R65 schemas; literal bytes/hash/line/truncation and DOM text | File RED files `bridge-file-prefix-corpus.unit.test.ts` and `bridge-file-viewer-local-first-cutover.browser.test.tsx` + Swift `--filter BridgeFilePrefix`; GREEN packaged File journey + compile-dead scan; full p99 S8 |

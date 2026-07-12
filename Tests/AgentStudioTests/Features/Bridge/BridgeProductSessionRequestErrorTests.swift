@@ -47,7 +47,7 @@ struct BridgeProductSessionRequestErrorTests {
         let completedSnapshot = await harness.session.snapshot
         let retryAdmission = await harness.begin(requestBytes)
 
-        #expect(completionEffects == .noEffects)
+        #expect(completionEffects == .noEffect)
         #expect(completedSnapshot.lifecycle == .active)
         #expect(completedSnapshot.pendingRequestKind == nil)
         #expect(completedSnapshot.controlReplay.inFlightRequestSequence == nil)

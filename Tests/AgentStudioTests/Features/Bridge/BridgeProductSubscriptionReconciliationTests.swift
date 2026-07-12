@@ -61,9 +61,12 @@ struct BridgeProductSubscriptionReconciliationTests {
         )
         #expect(!fileSnapshot.hasStagedUpdate)
         #expect(state.snapshot(subscriptionId: "review-subscription-1") == nil)
-        #expect(result.retainedSubscriptionIds.isEmpty)
-        #expect(result.cancelledSubscriptionIds == ["review-subscription-1"])
-        #expect(result.reopenRequiredSubscriptions == [missingReview])
+        #expect(result.reconciliation.map(\.dispositionName) == ["reopenRequired", "reset"])
+        #expect(
+            result.reconciliation.map(\.subscriptionId) == [
+                "review-subscription-missing", "file-subscription-1",
+            ])
+        #expect(result.revokedNativeOnlySubscriptionIds == ["review-subscription-1"])
         #expect(result.resetIntents.count == 1)
         #expect(result.resetIntents[0].subscription == fileOpenRequest.subscription)
         #expect(result.resetIntents[0].interestRevision == 6)

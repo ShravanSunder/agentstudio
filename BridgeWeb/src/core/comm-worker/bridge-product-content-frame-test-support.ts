@@ -1,6 +1,7 @@
 import type {
 	BridgeProductContentFrame,
-	BridgeProductContentRequest,
+	BridgeProductContentRequestFor,
+	BridgeProductFileContentIdentity,
 } from './bridge-product-content-contracts.js';
 
 export const abcSha256 = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
@@ -12,6 +13,14 @@ export type BridgeProductContentFrameOfKind<
 		BridgeProductContentFrame['header'],
 		{ readonly kind: TContentFrameKind }
 	>;
+	readonly payload: Uint8Array;
+};
+
+type BridgeProductFileContentAcceptedFrame = {
+	readonly header: Extract<
+		BridgeProductContentFrame['header'],
+		{ readonly kind: 'content.accepted' }
+	> & { readonly identity: BridgeProductFileContentIdentity };
 	readonly payload: Uint8Array;
 };
 
@@ -30,7 +39,7 @@ const fileContentIdentity = {
 	window: { kind: 'prefix', maximumBytes: 1024, maximumLines: 10_000, startByte: 0 },
 } as const;
 
-export function contentRequest(): BridgeProductContentRequest {
+export function contentRequest(): BridgeProductContentRequestFor<'file.content'> {
 	return {
 		contentKind: 'file.content',
 		contentRequestId: 'content-request-1',
@@ -39,7 +48,7 @@ export function contentRequest(): BridgeProductContentRequest {
 			declaredByteLength: 3,
 			descriptorId: fileContentIdentity.descriptorId,
 			encoding: 'utf-8',
-			expectedSha256: null,
+			expectedSha256: abcSha256,
 			fileId: fileContentIdentity.fileId,
 			maximumBytes: fileContentIdentity.window.maximumBytes,
 			source: fileContentIdentity.source,
@@ -55,9 +64,15 @@ export function contentRequest(): BridgeProductContentRequest {
 }
 
 export function contentRequestForAccepted(
-	acceptedFrame: BridgeProductContentFrameOfKind<'content.accepted'>,
-): BridgeProductContentRequest {
+	acceptedFrame: BridgeProductFileContentAcceptedFrame,
+): BridgeProductContentRequestFor<'file.content'> {
 	const request = contentRequest();
+	if (
+		acceptedFrame.header.declaredByteLength === null ||
+		acceptedFrame.header.expectedSha256 === null
+	) {
+		throw new Error('File content acceptance requires exact length and SHA-256.');
+	}
 	return {
 		...request,
 		contentKind: acceptedFrame.header.identity.contentKind,
@@ -81,12 +96,12 @@ export function contentRequestForAccepted(
 	};
 }
 
-export function contentAcceptedFrame(): BridgeProductContentFrameOfKind<'content.accepted'> {
+export function contentAcceptedFrame(): BridgeProductFileContentAcceptedFrame {
 	return {
 		header: {
 			contentSequence: 0,
 			declaredByteLength: 3,
-			expectedSha256: null,
+			expectedSha256: abcSha256,
 			identity: fileContentIdentity,
 			kind: 'content.accepted',
 			leaseId: 'lease-1',
@@ -102,14 +117,16 @@ export function contentAcceptedFrame(): BridgeProductContentFrameOfKind<'content
 }
 
 export function contentAcceptedFrameForByteCount(
-	declaredByteLength: number | null,
+	declaredByteLength: number,
 	maximumBytes: number,
-): BridgeProductContentFrameOfKind<'content.accepted'> {
+	expectedSha256 = abcSha256,
+): BridgeProductFileContentAcceptedFrame {
 	const acceptedFrame = contentAcceptedFrame();
 	return {
 		header: {
 			...acceptedFrame.header,
 			declaredByteLength,
+			expectedSha256,
 			identity: {
 				...acceptedFrame.header.identity,
 				window: { ...acceptedFrame.header.identity.window, maximumBytes },
@@ -151,6 +168,7 @@ export function contentEndFrame(): BridgeProductContentFrameOfKind<'content.end'
 	return {
 		header: {
 			contentSequence: 2,
+			endOfSource: true,
 			kind: 'content.end',
 			observedByteLength: 3,
 			observedSha256: abcSha256,
@@ -209,8 +227,9 @@ export function contentAcceptedControlBody(
 
 export function contentEndControlBody(
 	frame: BridgeProductContentFrameOfKind<'content.end'> = contentEndFrame(),
-): Readonly<{ observedByteLength: number; observedSha256: string }> {
+): Readonly<{ endOfSource: boolean; observedByteLength: number; observedSha256: string }> {
 	return {
+		endOfSource: frame.header.endOfSource,
 		observedByteLength: frame.header.observedByteLength,
 		observedSha256: frame.header.observedSha256,
 	};

@@ -237,10 +237,7 @@ extension WebKitSerializedTests {
                 return nil
             }
 
-            await controller.dispatchIncomingSchemeCommand(
-                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
-            )
-            #expect(controller.isBridgeReady == true)
+            #expect(controller.handleBridgeReady())
             controller.paneState.connection.setHealth(.connected)
 
             // Act
@@ -398,10 +395,7 @@ extension WebKitSerializedTests {
             var errorCode: Int?
             controller.schemeCommandDispatcher.onError = { code, _, _ in errorCode = code }
 
-            await controller.dispatchIncomingSchemeCommand(
-                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
-            )
-            #expect(controller.isBridgeReady == true)
+            #expect(controller.handleBridgeReady())
 
             // Act
             await controller.dispatchIncomingSchemeCommand(
@@ -420,10 +414,7 @@ extension WebKitSerializedTests {
             var errorCode: Int?
             controller.schemeCommandDispatcher.onError = { code, _, _ in errorCode = code }
 
-            await controller.dispatchIncomingSchemeCommand(
-                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
-            )
-            #expect(controller.isBridgeReady == true)
+            #expect(controller.handleBridgeReady())
 
             // Act
             await controller.dispatchIncomingSchemeCommand(
@@ -443,9 +434,7 @@ extension WebKitSerializedTests {
             controller.schemeCommandDispatcher.onCommandAck = { observedAck = $0 }
 
             // Act
-            await controller.dispatchIncomingSchemeCommand(
-                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{},"id":1}"#
-            )
+            #expect(controller.handleBridgeReady())
             await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"review.markFileViewed","params":{"fileId":"abc"},"__commandId":"cmd-001"}"#
             )
@@ -461,9 +450,7 @@ extension WebKitSerializedTests {
             let controller = makeController()
             defer { controller.teardown() }
 
-            await controller.dispatchIncomingSchemeCommand(
-                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
-            )
+            #expect(controller.handleBridgeReady())
 
             await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"review.markFileViewed","params":{"fileId":"abc"},"__commandId":"cmd-unique-001"}"#
@@ -495,9 +482,7 @@ extension WebKitSerializedTests {
                 return nil
             }
 
-            await controller.dispatchIncomingSchemeCommand(
-                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
-            )
+            #expect(controller.handleBridgeReady())
 
             let duplicatePayload =
                 #"{"jsonrpc":"2.0","method":"agent.dedupProbe","params":{"token":"abc"},"__commandId":"cmd-dedup-001"}"#
@@ -523,9 +508,7 @@ extension WebKitSerializedTests {
                 )
             }
 
-            await controller.dispatchIncomingSchemeCommand(
-                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
-            )
+            #expect(controller.handleBridgeReady())
             await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"agent.failureProbe","params":{},"__commandId":"cmd-failure-001"}"#
             )
@@ -541,9 +524,7 @@ extension WebKitSerializedTests {
             let controller = makeController()
             defer { controller.teardown() }
 
-            await controller.dispatchIncomingSchemeCommand(
-                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
-            )
+            #expect(controller.handleBridgeReady())
             await controller.dispatchIncomingSchemeCommand(
                 #"{"jsonrpc":"2.0","method":"review.markFileViewed","params":{"fileId":"abc"},"__commandId":"cmd-clear-001"}"#
             )
@@ -618,15 +599,15 @@ extension WebKitSerializedTests {
             #expect(controller.paneState.connection.health == .error)
         }
 
-        @Test("invalid router response payload marks connection health as error")
-        func invalid_router_response_payload_marks_connection_error() async {
+        @Test("legacy scheme response callback cannot mutate connection health")
+        func legacy_scheme_response_callback_is_inert() async {
             let controller = makeController()
             defer { controller.teardown() }
             controller.paneState.connection.setHealth(.connected)
 
             await controller.schemeCommandDispatcher.onResponse("not-json")
 
-            #expect(controller.paneState.connection.health == .error)
+            #expect(controller.paneState.connection.health == .connected)
         }
 
         @Test("loadDiff publishes package metadata and registers content handles")

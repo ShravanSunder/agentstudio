@@ -6,16 +6,71 @@ import {
 	type BridgeProductRegistryValue,
 	type BridgeProductTypeSetsEqual,
 } from './bridge-product-contract-primitives.js';
+import { bridgeProductFileSourceConfigurationSchema } from './bridge-product-subscription-contracts.js';
+
+export const bridgeProductFileSourceCurrentRequestSchema = z.object({}).strict();
+export const bridgeProductFileSourceCurrentResultSchema = z.discriminatedUnion('status', [
+	z
+		.object({
+			source: bridgeProductFileSourceConfigurationSchema,
+			status: z.literal('available'),
+		})
+		.strict(),
+	z
+		.object({
+			reason: z.literal('no-file-source-authority'),
+			status: z.literal('unavailable'),
+		})
+		.strict(),
+]);
 
 export const bridgeProductReviewMarkFileViewedRequestSchema = z
 	.object({ itemId: bridgeProductIdentifierSchema })
 	.strict();
 export const bridgeProductReviewMarkFileViewedResultSchema = z.null();
 
+const bridgeProductActiveViewerSourceBaseSchema = z
+	.object({
+		generation: z.number().int().nonnegative(),
+		streamId: bridgeProductIdentifierSchema,
+	})
+	.strict();
+
+export const bridgeProductReviewActiveViewerModeUpdateRequestSchema = z
+	.object({
+		activeSource: bridgeProductActiveViewerSourceBaseSchema.nullable(),
+		sequence: z.number().int().positive(),
+		sessionId: bridgeProductIdentifierSchema,
+	})
+	.strict();
+export const bridgeProductFileActiveViewerModeUpdateRequestSchema = z
+	.object({
+		activeSource: bridgeProductActiveViewerSourceBaseSchema.nullable(),
+		sequence: z.number().int().positive(),
+		sessionId: bridgeProductIdentifierSchema,
+	})
+	.strict();
+export const bridgeProductActiveViewerModeUpdateResultSchema = z.null();
+
 export type BridgeProductCallRegistry = {
+	readonly 'file.source.current': {
+		readonly request: z.infer<typeof bridgeProductFileSourceCurrentRequestSchema>;
+		readonly result: z.infer<typeof bridgeProductFileSourceCurrentResultSchema>;
+		readonly surface: 'file';
+	};
+	readonly 'file.activeViewerMode.update': {
+		readonly request: z.infer<typeof bridgeProductFileActiveViewerModeUpdateRequestSchema>;
+		readonly result: z.infer<typeof bridgeProductActiveViewerModeUpdateResultSchema>;
+		readonly surface: 'file';
+	};
 	readonly 'review.markFileViewed': {
 		readonly request: z.infer<typeof bridgeProductReviewMarkFileViewedRequestSchema>;
 		readonly result: z.infer<typeof bridgeProductReviewMarkFileViewedResultSchema>;
+		readonly surface: 'review';
+	};
+	readonly 'review.activeViewerMode.update': {
+		readonly request: z.infer<typeof bridgeProductReviewActiveViewerModeUpdateRequestSchema>;
+		readonly result: z.infer<typeof bridgeProductActiveViewerModeUpdateResultSchema>;
 		readonly surface: 'review';
 	};
 };
@@ -27,6 +82,9 @@ export type BridgeProductCallResult<TCallKind extends BridgeProductCallKind> =
 	BridgeProductRegistryValue<BridgeProductCallRegistry, TCallKind, 'result'>;
 
 const bridgeProductSurfaceByCallKind = {
+	'file.activeViewerMode.update': 'file',
+	'file.source.current': 'file',
+	'review.activeViewerMode.update': 'review',
 	'review.markFileViewed': 'review',
 } as const satisfies {
 	readonly [TCallKind in BridgeProductCallKind]: BridgeProductCallRegistry[TCallKind]['surface'];
@@ -41,6 +99,24 @@ export function bridgeProductSurfaceForCallKind<TCallKind extends BridgeProductC
 export const bridgeProductCallRequestSchema = z.discriminatedUnion('method', [
 	z
 		.object({
+			method: z.literal('file.source.current'),
+			request: bridgeProductFileSourceCurrentRequestSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('file.activeViewerMode.update'),
+			request: bridgeProductFileActiveViewerModeUpdateRequestSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('review.activeViewerMode.update'),
+			request: bridgeProductReviewActiveViewerModeUpdateRequestSchema,
+		})
+		.strict(),
+	z
+		.object({
 			method: z.literal('review.markFileViewed'),
 			request: bridgeProductReviewMarkFileViewedRequestSchema,
 		})
@@ -48,6 +124,24 @@ export const bridgeProductCallRequestSchema = z.discriminatedUnion('method', [
 ]);
 
 export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
+	z
+		.object({
+			method: z.literal('file.source.current'),
+			result: bridgeProductFileSourceCurrentResultSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('file.activeViewerMode.update'),
+			result: bridgeProductActiveViewerModeUpdateResultSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('review.activeViewerMode.update'),
+			result: bridgeProductActiveViewerModeUpdateResultSchema,
+		})
+		.strict(),
 	z
 		.object({
 			method: z.literal('review.markFileViewed'),
