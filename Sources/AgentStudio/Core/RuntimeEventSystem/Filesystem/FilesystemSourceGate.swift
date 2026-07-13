@@ -111,6 +111,35 @@ enum FilesystemRepairAdmissionResult: Equatable, Sendable {
     case shuttingDown
 }
 
+/// Proof that one exact mailbox recovery snapshot entered this source gate.
+///
+/// Only `FilesystemSourceGate` can construct this value. The mailbox accepts it
+/// only when it matches the recovery snapshot held by the active drain lease.
+struct FilesystemSourceGateRecoveryAcceptance: Equatable, Sendable {
+    let repairGeneration: RepairGeneration
+    let acceptedEvidence: FilesystemRecoveryEvidenceSnapshot
+
+    fileprivate init(
+        acceptedEvidence: FilesystemRecoveryEvidenceSnapshot,
+        repairGeneration: RepairGeneration
+    ) {
+        self.acceptedEvidence = acceptedEvidence
+        self.repairGeneration = repairGeneration
+    }
+
+    func matches(_ evidence: FilesystemRecoveryEvidenceSnapshot) -> Bool {
+        acceptedEvidence == evidence
+    }
+}
+
+enum FilesystemSourceGateRecoveryAdmissionResult: Equatable, Sendable {
+    case admitted(FilesystemSourceGateRecoveryAcceptance)
+    case registrationMismatch
+    case rejected(FilesystemRepairAdmissionRejection)
+    case generationExhausted
+    case shuttingDown
+}
+
 enum FilesystemSourceGateTransitionResult: Equatable, Sendable {
     case applied
     case alreadyApplied
@@ -129,6 +158,36 @@ struct FilesystemSourceGate: Sendable {
         self.registration = registration
         state = .healthy(registration)
         nextRepairSequence = 0
+    }
+
+    mutating func acceptMailboxRecovery(
+        _ evidence: FilesystemRecoveryEvidenceSnapshot,
+        trigger: FilesystemRepairTriggerClass,
+        watermark: FilesystemRepairWatermark,
+        participants: Set<FilesystemRepairParticipantToken>
+    ) -> FilesystemSourceGateRecoveryAdmissionResult {
+        guard evidence.revision.registration == registration else {
+            return .registrationMismatch
+        }
+        switch recordRepair(
+            trigger: trigger,
+            watermark: watermark,
+            participants: participants
+        ) {
+        case .admitted(let repairGeneration):
+            return .admitted(
+                FilesystemSourceGateRecoveryAcceptance(
+                    acceptedEvidence: evidence,
+                    repairGeneration: repairGeneration
+                )
+            )
+        case .rejected(let rejection):
+            return .rejected(rejection)
+        case .generationExhausted:
+            return .generationExhausted
+        case .shuttingDown:
+            return .shuttingDown
+        }
     }
 
     mutating func recordRepair(

@@ -5,6 +5,67 @@ import Testing
 
 @Suite("Filesystem source gate")
 struct FilesystemSourceGateTests {
+    @Test("mailbox recovery acceptance binds the exact evidence snapshot to repair debt")
+    func mailboxRecoveryAcceptanceBindsExactEvidence() throws {
+        // Arrange
+        let registration = makeRegistration()
+        let evidence = try makeRecoveryEvidenceSnapshot(
+            registration: registration,
+            evidence: .continuityLoss.unioning(.callbackAdmissionOverflow)
+        )
+        var gate = FilesystemSourceGate(registration: registration)
+        let participants = makeRequiredParticipants(for: registration.sourceID.kind)
+
+        // Act
+        let result = gate.acceptMailboxRecovery(
+            evidence,
+            trigger: .continuityLoss,
+            watermark: .eventIDsAndRecoveryRevision(
+                .inspected(first: 1, last: 1),
+                recoveryRevision: 1
+            ),
+            participants: participants
+        )
+
+        // Assert
+        let acceptance = requireRecoveryAcceptance(result)
+        #expect(acceptance.matches(evidence))
+        #expect(acceptance.repairGeneration.id.registration == registration)
+        #expect(acceptance.repairGeneration.trigger == .continuityLoss)
+        #expect(gate.state == .dirty(acceptance.repairGeneration))
+    }
+
+    @Test("mailbox recovery acceptance rejects evidence from another registration")
+    func mailboxRecoveryAcceptanceRejectsForeignRegistration() throws {
+        // Arrange
+        let registration = makeRegistration()
+        let foreignRegistration = FSEventRegistrationToken(
+            sourceID: FilesystemSourceID(
+                kind: .registeredWorktreeContent,
+                rootID: UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-000000000099")!
+            ),
+            registrationGeneration: registration.registrationGeneration + 1,
+            rootGeneration: registration.rootGeneration
+        )
+        let foreignEvidence = try makeRecoveryEvidenceSnapshot(
+            registration: foreignRegistration,
+            evidence: .continuityLoss
+        )
+        var gate = FilesystemSourceGate(registration: registration)
+
+        // Act
+        let result = gate.acceptMailboxRecovery(
+            foreignEvidence,
+            trigger: .continuityLoss,
+            watermark: .recoveryRevision(1),
+            participants: makeRequiredParticipants(for: registration.sourceID.kind)
+        )
+
+        // Assert
+        #expect(result == .registrationMismatch)
+        #expect(gate.state == .healthy(registration))
+    }
+
     @Test("reconciliation completion waits for every captured acknowledgement")
     func reconciliationCompletionDoesNotClearRepairDebt() throws {
         var gate = FilesystemSourceGate(registration: makeRegistration())
@@ -317,6 +378,32 @@ struct FilesystemSourceGateTests {
         throw TestFailure.repairNotAdmitted
     }
 
+    private func makeRecoveryEvidenceSnapshot(
+        registration: FSEventRegistrationToken,
+        evidence: FilesystemRecoveryEvidence
+    ) throws -> FilesystemRecoveryEvidenceSnapshot {
+        let register = try FilesystemRecoveryEvidenceRegister(
+            maximumDeclaredRegistrations: 1,
+            declaredRegistrations: [registration]
+        )
+        guard case .recorded(let snapshot) = register.record(evidence, for: registration) else {
+            Issue.record("declared registration did not retain recovery evidence")
+            throw TestFailure.recoveryEvidenceNotRecorded
+        }
+        return snapshot
+    }
+
+    private func requireRecoveryAcceptance(
+        _ result: FilesystemSourceGateRecoveryAdmissionResult,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) -> FilesystemSourceGateRecoveryAcceptance {
+        guard case .admitted(let acceptance) = result else {
+            Issue.record("mailbox recovery was not accepted: \(result)", sourceLocation: sourceLocation)
+            preconditionFailure("Expected accepted mailbox recovery")
+        }
+        return acceptance
+    }
+
     private func makeRequiredParticipants(
         for sourceKind: FilesystemSourceKind,
         preservingKindsFrom existingParticipants: Set<FilesystemRepairParticipantToken> = []
@@ -382,5 +469,6 @@ struct FilesystemSourceGateTests {
 
     private enum TestFailure: Error {
         case repairNotAdmitted
+        case recoveryEvidenceNotRecorded
     }
 }
