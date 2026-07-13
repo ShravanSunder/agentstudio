@@ -11,7 +11,7 @@ Accepted sources:
 - `watched-folder-admission-mainactor-fairness.md`, 1,785 lines,
   SHA-256 `10e93247c58fd03b9adaef007f8cdc0106ac3887aeeb71379c4873b24ec89050`
 - `filesystem-observation-admission-lifecycle.md`, 712 lines,
-  SHA-256 `c9fe44161cf942f2b20b7dd1c07bd91b165cd33e25779d572cf5dd43144f30cd`
+  SHA-256 `59d922820d9d50831aec16a782da3de35239b5dcb044b9e765bc13dc61bd11a7`
 - live planning anchor: `03e667c5a048767629238e5483a0bbbe43b596a8`
 
 ## 1. Outcome

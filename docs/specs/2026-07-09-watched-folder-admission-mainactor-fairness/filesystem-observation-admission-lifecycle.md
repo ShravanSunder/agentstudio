@@ -225,7 +225,6 @@ FilesystemObservationSlotReservationResult
   | deferredBehindSlotCapacity
   | activeSourceCapacityExhausted
   | sourceAlreadyHasCurrentAndRetiring
-  | slotIdentityExhausted
   | fleetAdmissionExhausted
   | shuttingDown
 
