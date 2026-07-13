@@ -72,8 +72,14 @@ Execution clarification discovered at the W1a RED seam:
 
 ### W1b — Dormant real callback adapter after W2a
 
-Depends on W2a's real `FilesystemObservationMailbox`, recovery-evidence
-register, `FilesystemSourceGate`, and exact per-registration recovery custody.
+The normative task decomposition, file edits, proof matrix, checkpoint gates,
+and W2b deferral live in
+[W1b/W2 Fixed-Slot Filesystem Lifecycle Plan](w1b-fixed-slot-lifecycle-plan.md).
+This section is only the parent slice summary.
+
+Depends on W2a's fixed fleet `FilesystemObservationMailbox`, binding-aware
+recovery shells, `FilesystemSourceGate`, slot registry, and exact per-binding
+recovery custody.
 W1b is a dormant isolated assembly, not the production protocol cut. The live
 `FSEventStreamClient -> FSEventBatch -> FilesystemActor` contract and current
 `DarwinFSEventStreamClient` remain unchanged until W2b because they are the one
@@ -83,22 +89,26 @@ complete legacy production path. Add:
   - Own the future native callback capture and stream lifecycle behind a
     retained `FSEventRegistrationControlBlock` without conforming to or
     publishing through the legacy `FSEventStreamClient` protocol.
-  - Carry the registration token and mailbox callback producer/signaler ports
-    in the retained control-block assembly; `FSEventObservation` derives source
-    kind from the token and carries monotonic capture time, unioned flags,
-    first/last event-ID watermarks, copied-record count/bytes, total event count,
-    and truncation.
+  - Carry one mailbox-created, binding-specific paired callback admission port
+    in the retained control-block assembly. No raw producer or independently
+    pairable signaler escapes. `FSEventObservation` derives source kind from the
+    token and carries monotonic capture time, unioned flags, first/last event-ID
+    watermarks, copied-record count/bytes, total event count, and truncation.
   - Enforce distinct inspected-native-record, copied-record, copied-byte, and
     maximum-single-path-byte limits before materializing any complete Swift path array.
-  - Acquire a callback lease before touching registration state.
-  - Join bounded flag/truncation evidence into the W2a recovery-evidence
-    register before the observation can be contracted; capacity overflow adds
-    callback-admission-overflow evidence before signaling the doorbell.
-  - Teardown sequence: mark closing, seal the old mailbox generation,
-    stop/invalidate stream, execute callback-queue barrier, drain callback
-    leases, return the sealed generation to the isolated drain owner, transfer/
-    disposition exact recovery evidence into `FilesystemSourceGate`, invalidate
-    the old mailbox generation, finish its doorbell, then release context.
+  - Acquire the exact callback lease before native pointer inspection. Its
+    one-shot admission authority remains held through mailbox offer and paired
+    wake application.
+  - Join bounded flag/truncation evidence into the exact binding-aware recovery
+    shell before the observation can be contracted. Capacity pressure and
+    retirement-fence contraction have distinct typed evidence.
+  - Teardown sequence: close new lease acquisition, stop/invalidate the stream,
+    execute the callback-queue barrier, drain leases, mint the exact drain
+    receipt, append or retain the binding-specific FIFO retirement fence,
+    transfer observation/recovery custody into actor/SourceGate ownership, wait
+    for cleanup, mint the final receipt, release callback context once, apply
+    the context-release acknowledgement, and only then recycle the slot. One
+    source never seals or finishes the fleet mailbox/doorbell.
 
 W2b owns the atomic production cut: replace `FSEventBatch` and the legacy
 `FSEventStreamClient` methods with generation-bearing observation registration,
@@ -123,10 +133,10 @@ Create/modify:
 Boundary/seam: C callback capture and registration close.
 
 Invariants: bounded capture; all discontinuity flags survive; N never becomes
-N+1; closing rejects callbacks without a valid lease; a leased callback either
-enters the sealed old generation or installs conservative old-generation debt;
-userdata and the declared key remain alive until callback lease drain and
-repair-authority transfer.
+N+1; closing rejects callbacks without a valid held/unused lease; a leased
+callback admits at most one exact binding contribution and paired wake; userdata
+and binding authority remain alive through barrier, lease drain, semantic/
+recovery transfer, final receipt, release-once, and context acknowledgement.
 
 Illegal-state/guards: exhaustive flag disposition, explicit open/closing/closed state, item/byte cap before allocation, generation match on lease.
 
@@ -134,17 +144,15 @@ Valid/invalid IO: ordinary create/rename/delete, must-scan, user/kernel drop, wr
 
 Independent oracle: literal flag/observation table and control-block counters, not production classification.
 
-RED/GREEN: required. RED must demonstrate lost flag/ID/truncation or unbounded
-copied records in the isolated native seam. GREEN includes a real temporary
-Darwin stream lifecycle integration in which an oversized/discontinuous
-callback installs exact recovery evidence in the old W2a mailbox generation
-before returning; the isolated drain owner then transfers that exact evidence
-into the actual W2a source gate before teardown can invalidate the mailbox or
-release callback context. A deterministic replacement race acquires an old
-callback lease, seals/replaces the registration, installs loss, crosses the
-callback barrier, and proves debt survives transfer without becoming N+1. A
-structural pre-W2b test proves production callback/source composition is still
-wholly legacy; the legacy fake is not changed until W2b.
+RED/GREEN: required. RED covers raw producer/signaler escape, loose or reusable
+lease admission, lost flag/ID/truncation, unbounded copied records, early fence/
+receipt/context release, and stale binding effects. GREEN includes the atomic
+lease + paired-port + dormant-adapter interface cut, deterministic held-lease/
+wake ordering, and a real temporary Darwin lifecycle through fixed slot,
+isolated actor/SourceGate transfer, fence, cleanup, final receipt, release-once,
+and context acknowledgement. A structural pre-W2b test proves production
+callback/source composition is still wholly legacy; the legacy fake is not
+changed until W2b.
 
 Split/replan trigger: queue barrier plus leases cannot establish teardown quiescence on the supported Darwin callback model.
 
@@ -158,24 +166,35 @@ Add:
 
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemObservationMailbox.swift`
   - Domain wrapper over value-only `BoundedGatherMailbox` with a short wrapper
-    lock coupling generic custody to a fixed-size monotonic
-    `FilesystemRecoveryEvidenceRegister`.
-  - Key by source/registration generation.
-  - Retain opaque bounded `FSEventObservation` values and checked footprints;
+    lock coupling generic custody to fixed binding-aware
+    `FilesystemRecoveryEvidenceRegister` shells.
+  - Use predeclared `FilesystemObservationPhysicalSlotID` generic keys. Complete
+    epoch-bearing bindings live inside domain contributions and authority.
+  - Retain opaque bounded observation/fence contributions and checked footprints;
     perform no path/flag merge, dedupe, normalization, routing, or repair join
     under generic mailbox state.
   - Enforce calibrated retained pending-plus-leased contribution/item/byte
-    limits globally and per source, plus distinct one-key lease quanta.
+    limits globally and per physical binding, the static two-binding logical-
+    source maximum, and distinct one-key lease quanta.
   - Register exact monotonic continuity/root-identity/truncation/overflow/
-    unsupported-flag evidence before a recovery revision becomes visible.
-  - Expose capability-separated callback producer/signaler and actor consumer/
-    waiter ports; only lifecycle composition can finish the doorbell.
+    unsupported/fence-contraction evidence before a recovery revision becomes
+    visible. Generic stamps are not cross-binding authority.
+  - Expose one callback-lease-credentialed paired admission/doorbell port plus
+    actor consumer/waiter ports. No raw producer or separate signaler escapes;
+    only whole-fleet lifecycle composition can finish the doorbell.
   - Lease one source key at a time. Cancellation/rebind re-presents identical
     custody with a new binding token; retry stays ahead of newer same-key work
     but rotates behind already-ready unrelated keys.
   - Reject unknown keys without trapping. Lease, rather than destructively
     remove, captured recovery state until `FilesystemActor` transfers it into
     `FilesystemSourceGate`; newer evidence/revision survives an older ack.
+- `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemObservationSlotRegistry.swift`
+  - Own the fixed slot pool, epoch bindings, desired FIFO/reservation/withdrawal,
+    safe-old versus unsafe-old currentness, predecessor ordering, pending fence,
+    final receipt, release acknowledgement, and bounded tombstone.
+- `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemObservationFleetLifecycle.swift`
+  - Own typed completed/incomplete in-memory shutdown debt and deterministic
+    cancellation-safe resume. Global seal remains shutdown-only.
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemSourceGate.swift`
   - Exact states: `healthy`, `dirty`, `reconciling`, `reconcilingAndDirty`, `awaitingAcknowledgements`, `repairFailed`, `shuttingDown`.
   - Own `RepairGeneration`, current registration, scan state, and acknowledgement set.
@@ -186,13 +205,15 @@ Add:
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemContentRepairProjector.swift`
   - Convert coarse registered-worktree repair into bounded consumer-specific rebuild requests; never fabricate a full file inventory.
 
-Prepare `FilesystemActor.startIngressTaskIfNeeded` and `ingestRawPaths` as the
-sole mailbox drain loop in the isolated W1b/W2a assembly. The actor owns equality
+Prepare the actor-owned isolated fixed-slot drain as the sole mailbox consumer
+in the W1b/W2a assembly. The actor owns fixed per-slot semantic replay shells,
+exact contribution identity acceptance, equality
 dedupe, flag/reason reduction, routing, latest/OR/count aggregation, subtree/root
 collapse, debounce, and the post-transfer semantic fair-root queue. The generic
 mailbox alone owns the mechanical unique ready-key queue used for one-key lease
 selection and retry rotation. W2b installs that drain in production. At most one
-wake is pending and one lease is outstanding. The configured
+wake and one active generic lease are present; retry buckets/replay shells may
+exist for multiple slots within the static P × lease-quantum bound. The configured
 `maximumAttendedPriorityBurst = P` and actor-owned round-robin semantic
 ready-root queue must satisfy the spec's `(R + 1) * (P + 1)` root-turn bound.
 `FilesystemSourceGate` owns semantic repair/currentness only; it does not wait on
@@ -224,24 +245,25 @@ Add:
 
 Extend `FilesystemActorTests.swift`.
 
-Invariants: ordinary pressure contracts only the affected source after exact
-recovery custody exists; native joined evidence survives payload contraction;
+Invariants: ordinary pressure contracts only after exact binding recovery
+custody exists; native joined evidence survives payload contraction;
 starting/completing scan does not clear repair; every captured current
 participant acknowledges the same generation; disappearing UI state cannot
 acknowledge; replacement transfers or explicitly withdraws retained authority.
-N→N+1→N+2 retains at most one transferring mailbox, one sealed/current-slot
-mailbox, and one newest not-yet-authoritative desired identity. Configuration
-receipts give every requested source an exhaustive installed/unchanged/removed/
-deferred/capacity/create/start disposition and explicit current/non-current
-retry state.
+N→N+1→N+2 retains at most two started physical bindings, one predecessor-free
+pending fence intent, and one newest not-yet-authoritative desired identity.
+Configuration receipts use strict deferred/failed retaining-current versus non-
+current cases; retry membership is derived and cannot contradict the cases.
 
 Oracle: independent participant/repair ledger and final source-state model.
 
-RED/GREEN: required for overflow without recovery, mixed loss/root evidence
-under contraction, pending-plus-leased bound-plus-one, one noisy/299 quiet root
-fairness, cancellation/rebind/late-old-ack, N→N+1→N+2 replacement, partial
-configuration/start failure, Git-only acknowledgement, unregister/replacement,
-and late/stale acknowledgement.
+RED/GREEN: required for typed generic exhaustion, overflow without recovery,
+mixed loss/root/fence evidence under contraction, pending-plus-leased bound-plus-
+one, multi-slot partial replay, one noisy/299 quiet root fairness, cancellation/
+rebind/late-old-ack, N→N+1→N+2 replacement, withdrawal at pop/reserve/create/
+start, safe/unsafe prior authority, cleanup-gated retirement, release-once/
+tombstone replay, exact shutdown debt, Git-only acknowledgement, unregister/
+replacement, and late/stale acknowledgement.
 
 W2a completion proves mechanics only. W2b is the production repair/admission gate and tests visible, background, closed, replaced, failed, and not-applicable Bridge states against an independent captured-participant ledger. Its integration proof injects oversized/drop input through the real production callback composition, captures the exact live participant generations, and reaches `healthy` only after every matching receipt.
 

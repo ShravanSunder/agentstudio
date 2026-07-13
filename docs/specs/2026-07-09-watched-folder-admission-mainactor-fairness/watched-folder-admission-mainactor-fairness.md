@@ -1,8 +1,8 @@
 # Watched-Folder Admission and MainActor Fairness Spec
 
 Date: 2026-07-09
-Revised: 2026-07-10 after adversarial spec review
-Status: accepted technical contract after adversarial review
+Revised: 2026-07-12 after focused callback-lifecycle reconvergence
+Status: accepted focused callback/slot contract
 Scope: pre-plan architecture contract
 Runtime dominance: unresolved; static mechanisms are source-proven
 
@@ -192,11 +192,12 @@ for a fixed observation shape regardless of whether 1, 100, or 300 source keys
 are registered. It may gather bounded path observations by source/root
 generation, but it performs no path dedupe, normalization, routing, subtree
 collapse, domain merge, repair join, fleet scan/copy, actor call, or per-callback
-task creation. It must not silently discard a correctness obligation.
+task creation. It uses one fixed predeclared opaque slot and cannot allocate or
+rebuild fleet keys. It must not silently discard a correctness obligation.
 
 WF3. `MustScanSubDirs`, kernel/user drops, wrapped event IDs, root replacement,
-callback-capture truncation, callback-gate overflow, registration replacement,
-and any internal lossy
+callback-capture truncation, observation-lane admission contraction,
+registration replacement, and any internal lossy
 admission must receive an exhaustive disposition and create durable repair debt
 when continuity or root identity is no longer authoritative.
 
@@ -210,8 +211,10 @@ WF5. `FilesystemSourceGate` uses the exact state vocabulary `healthy`, `dirty`,
 `repairFailed`, and `shuttingDown`. These are product/runtime state, not log-only
 labels.
 
-WF6. Removing or replacing a watched root invalidates queued observations,
-running scans, and repair completions from the old generation.
+WF6. Removing or replacing a watched root closes old callback authority and
+generation-fences queued observations, running scans, and repair completions.
+One source change retires only its exact slot binding; it never seals/rebuilds
+the fleet mailbox or relabels old custody after physical-slot reuse.
 
 WF7. Source admission exposes offered, admitted, contracted, rejection-reason,
 overflow/recovery-escalation, pending-plus-leased custody, high-water, and
@@ -510,9 +513,9 @@ DarwinFSEventStreamClient
                           |
                           v
 FilesystemObservationMailbox + AdmissionDoorbell
-  owns: declared-key admission, bounded custody, per-key recovery revision,
+  owns: fixed-slot admission, epoch bindings, bounded custody, per-slot recovery,
         logical leases, one payload-free level-triggered wake
-  exposes: bounded contribution leases + opaque recovery revisions
+  exposes: bounded contribution/fence leases + opaque recovery revisions
   does not own: path semantics, repair policy, actor work, EventBus
 
                           |
@@ -628,44 +631,22 @@ typed path treatment, a joining recovery-requirement set, retained provenance,
 and unsupported raw bits. This lets continuity repair, root revalidation, an
 ordinary path hint, and unsupported-bit evidence coexist for one record.
 
-`FSEventRegistrationControlBlock` is the stable retained callback userdata. It
-owns the token, lexical and resolved root aliases, dispatch queue, a closed
-`open`/`closing`/`closed` lifecycle, generation-bound callback leases, and one
-validated `FSEventCaptureLimits` value with separate inspected-native-record,
-copied-record, copied-UTF-8-byte, and maximum-single-path-byte bounds. W1a lands
-this lifecycle and bound custody dormantly. W2a defines the synchronous
-producer/recovery capability, and W1b constructs the live control block with
-that required capability. W1a does not use an optional mailbox reference or a
-temporary repair owner.
-Callback entry acquires a short lease and inspects/copies only through those
-limits. `unionedInspectedFlags` and event-ID watermarks describe only the
-bounded inspected prefix. When the OS count/native-array shape exceeds the
-inspection bound, copied count/bytes exceed their bounds, checked arithmetic
-fails, or one record is oversized, callback capture records the available total
-and prefix watermark without dereferencing/copying the tail, sets
-`captureWasTruncated`, and synchronously advances the mailbox's conservative
-recovery-required revision before returning. Any loss flag hidden in an
-uninspected suffix is therefore subsumed by truncation recovery. It then offers
-the bounded observation synchronously, signals the payload-free doorbell only
-when requested after mailbox state is unlocked, and releases the callback
-lease. It does not reconstruct an unretained client, allocate an unbounded
-record array, call an actor, or create a task per callback.
+`FSEventRegistrationControlBlock` is stable retained callback userdata and one
+source registration generation's native lifetime owner. A callback lease is
+also one-shot admission authority. The mailbox-created paired admission port
+binds the exact control-block identity, registration, physical slot binding,
+and fleet doorbell; it exposes no raw producer or separately pairable signaler.
+The lease remains held through bounded mailbox admission and requested wake
+application. Callback work is bounded and never calls an actor/MainActor or
+performs semantic path reduction.
 
-Registration lifecycle is:
-
-```text
-open(token)
-  -> closing(token): close admission before replacement/unregister
-  -> streamInvalidated(token): stop + invalidate selected FSEvent stream
-  -> callbackQueueDrained(token): dispatch-queue barrier completed
-  -> leasesDrained(token)
-  -> released(token)
-```
-
-Replacement closes the old generation before publishing the new one. Callback
-context storage remains retained through stream invalidation, queue barrier, and
-lease drain. No callback from N can be relabeled as N+1 merely because the same
-worktree/root ID is registered again.
+One fleet `FilesystemObservationMailbox` uses fixed opaque physical-slot keys,
+not registration tokens, so one source replacement never rolls or seals the
+fleet. Registration generations bind to epoch-bearing slots and retire through
+FIFO fence contributions. Global mailbox seal is whole-fleet shutdown only.
+The normative callback API, slot lifecycle, fence retry, capacity reserve,
+idempotent receipt/context-release protocol, and deterministic proof live in
+[Filesystem Observation Admission Lifecycle](filesystem-observation-admission-lifecycle.md).
 
 Flag disposition is exhaustive:
 
@@ -691,15 +672,27 @@ contiguous sequence; loss comes from source-defined flags or gate overflow.
 #### Filesystem observation mailbox
 
 `FilesystemObservationMailbox` is a domain wrapper over the parent's
-`BoundedGatherMailbox<FSEventRegistrationToken, FSEventObservation>`. It is a
-synchronous lock-backed custodian, not an actor, accumulator, path set, or
-repair owner. It accepts no merge/repair/footprint closures and never uses a
-payload-bearing or default-unbounded `AsyncStream`.
+`BoundedGatherMailbox<FilesystemObservationPhysicalSlotID,
+FilesystemObservationMailboxContribution>`. Physical slots are a fixed
+predeclared pool; exact epoch-bearing slot bindings carry registration/control-
+block authority. It is a synchronous lock-backed custodian, not an actor,
+accumulator, path set, or repair owner. It accepts no merge/repair/footprint
+closures and never uses a payload-bearing or default-unbounded `AsyncStream`.
 
-The callback control block receives only a generation-scoped producer port and
-doorbell signaler. `FilesystemActor` is the sole owner of the consumer port,
-doorbell wait, lease retry/acknowledgement, seal, and post-transfer
-invalidation. Lifecycle composition alone may finish the doorbell.
+The callback assembly receives only one control-block-bound paired callback
+admission port. The port is unusable without the exact matching held lease and
+owns application of its exact mailbox doorbell; no raw producer or separately
+pairable signaler escapes the mailbox wrapper.
+
+The generic gather contract exposes one minimal typed contraction cause on its
+existing admitted result: capacity pressure, the exact recovery-authority-
+exhaustion transition, or already-sealed ordinary admission. This atomically
+reveals the generic mailbox's existing fleet-wide exhaustion state without
+adding dynamic keys, per-key seal/retirement, payload inspection, or mirrored
+authority counters.
+`FilesystemActor` is the sole owner of the consumer port, doorbell wait, lease
+retry/acknowledgement, seal, and post-transfer invalidation. Lifecycle
+composition alone may finish the doorbell.
 `FilesystemSourceGate` does not drain the generic mailbox; it synchronously
 accepts recovery revisions from the actor and owns their semantic repair state.
 A separate capacity-one doorbell carries no payload, key, or authority; it wakes
@@ -710,15 +703,23 @@ accepted contributions or recovery custody.
 
 `FilesystemObservationMailbox` also owns a domain-specific, fixed-size
 `FilesystemRecoveryEvidenceRegister` beside—not inside—the generic gather
-primitive. It monotonically joins the exhaustive bounded reason bitset for each
-source generation: continuity loss, root-identity revalidation, callback
-capture truncation, callback admission overflow, and unsupported native flags.
+primitive. It has one epoch-bound shell per physical slot and monotonically
+joins the exhaustive bounded reason bitset for the current binding: continuity
+loss, root-identity revalidation, callback capture truncation, observation-lane
+admission contraction, retirement-fence admission contraction, and unsupported
+native flags. Generic recovery stamps are custody-local and may repeat after
+slot reuse; only exact slot binding plus domain recovery-custody identity
+authorizes acknowledgement.
 The wrapper's short coordination lock serializes evidence registration with
 generic offer/take visibility; the generic mailbox never invokes domain code or
 inspects this evidence. Native recovery evidence is registered before its
 observation can be contracted. If generic admission contracts the payload, the
-wrapper registers callback-admission overflow and couples the returned gather
-revision to the evidence revision before signaling the doorbell. A consumer
+wrapper registers observation-lane admission contraction and couples the
+returned gather revision to the evidence revision before signaling the
+doorbell. A contracted retirement fence conservatively records its distinct
+contraction reason because the unchanged generic mailbox may also retire queued
+same-slot observations; retained pending fence intent never clears repair debt.
+A consumer
 therefore never observes a recovery revision without the monotonic evidence
 needed to choose the strongest applicable source repair.
 
@@ -735,7 +736,9 @@ Capacity dimensions are distinct and exhaustive:
 - inspected native records, copied records, copied UTF-8 bytes, and maximum
   bytes for one copied path;
 - pending plus leased callback contributions/items/bytes globally;
-- pending plus leased contributions/items/bytes per registration key;
+- pending plus leased contributions/items/bytes per physical slot/binding;
+- the static logical-source maximum of two physical-slot ordinary bounds plus
+  one predecessor-free pending retirement-fence intent and one desired identity;
 - maximum contribution/item/byte lease quantum processed in one actor turn;
 - actor-owned transformed unique-path/subtree custody;
 - downstream envelope count/bytes, including the independent current
@@ -746,13 +749,15 @@ exhaustive typed outcome. Global registration-capacity rejection is explicit in
 the configuration receipt; partial registration cannot be reported healthy.
 Ordinary global pressure never evicts another source's retained work. The
 affected incoming registration contracts its replaceable pending detail and
-advances its own exact `GatherRecoveryRevision`. Per-source limits prevent one
-noisy root from consuming global ordinary capacity. Recovery slots remain
+advances its own exact `GatherRecoveryRevision`. Per-binding generic limits plus
+the closed two-started-binding lifecycle derive the logical-source limit without
+mirrored wrapper counters; together they prevent one noisy root from consuming
+unbounded global ordinary capacity. Recovery slots remain
 outside ordinary capacity and are bounded by declared registrations. Production
 values are supplied by calibrated `AppPolicies`; the legacy 128 envelope queue
 and downstream 256-path chunk are not source-capacity defaults.
 
-`takeDrain` leases one source key and a bounded immutable
+`takeDrain` leases one physical slot/binding and a bounded immutable
 contribution/item/byte quantum plus its captured recovery revision without
 holding a lock during filesystem work. `FilesystemActor`
 owns equality dedupe, flag/reason joins, deepest-root routing, normalization,
@@ -770,29 +775,26 @@ exit path retries or leaves the outstanding lease discoverable by the
 replacement owner, and consumer rebind reconstructs a wake without another
 source event. Timeout-based expiry is never correctness.
 
-Every callback that acquired a valid registration lease remains declared in its
-sealed mailbox generation through stream stop/invalidation, callback-queue
-barrier, lease drain, and atomic recovery transfer/disposition into
-`FilesystemSourceGate`. Only then may that old key/mailbox generation be
-invalidated. A late callback without a valid lease is rejected by the control
-block; a leased callback that detects loss enters the old mailbox or
-synchronously advances conservative old-generation recovery custody.
+Per-source replacement never seals the fleet mailbox. After callback barrier and
+lease drain, the wrapper fences the exact old slot binding and appends a final
+FIFO retirement-fence contribution. If pressure contracts that fence, one
+bounded pending intent survives and receives priority retry after an
+acknowledgement/cleanup frees capacity. `FilesystemActor` transfers preceding
+ordinary/recovery custody before completing the fence. The final retirement
+receipt is idempotently replayed until native context release is acknowledged;
+only then may slot epoch advance and reuse occur.
 
-Topology replacement creates a fresh mailbox generation and seals the old one.
-For one source, at most one current and one transferring sealed generation may
-coexist. If N is transferring and N+1 is replaced by N+2, N+1 callback admission
-closes immediately and its existing mailbox occupies the single current slot in
-`sealedAwaitingTransfer`; N+2 is retained only as one bounded newest desired
-registration identity and no N+2 stream starts yet. Valid N+1 callback leases
-drain through the normal barrier/evidence path. After N transfers, N+1 becomes
-the sole transferring generation; its accepted evidence/debt transfers without
-being relabeled, and only then may the newest desired identity create/start a
-fresh current generation. Additional desired replacements overwrite only that
-bounded not-yet-authoritative desired identity. Create/start failure leaves no
-new callback authority and keeps the source non-current with exact retry.
-`FilesystemActor` serializes drains behind one filesystem-owner doorbell. The
-source gate accepts old debt before actor acknowledgement/invalidation and never
-relabels old evidence as new-generation evidence.
+One source retains at most retiring N, current/closing N+1, one predecessor-free
+pending fence, and one non-started newest desired identity. Deferred desired
+state uses one FIFO node whose position survives in-place desired replacement;
+withdrawal prevents ghost starts and vacancy-selection counts, not time, bound
+fairness. Same-root still-authoritative N may remain until N+1 starts; removed,
+changed-root, unauthorized, discontinuous, or otherwise unsafe N closes before
+retry and remains visibly non-current. Fleet mailbox seal occurs only after
+every binding and queued/in-flight cleanup retires during whole shutdown. Full
+states, capacity equations, cross-slot predecessor ordering, receipt shapes,
+typed shutdown debt, and deterministic proof are owned by
+[Filesystem Observation Admission Lifecycle](filesystem-observation-admission-lifecycle.md).
 
 #### Source configuration boundary
 
@@ -812,17 +814,50 @@ struct FilesystemSourceConfigurationBatch: Sendable {
 struct FilesystemSourceConfigurationReceipt: Sendable {
     let acceptedTopologyRevision: UInt64
     let dispositions: [FilesystemSourceID: FilesystemSourceConfigurationDisposition]
-    let currentness: FilesystemSourceConfigurationCurrentness
 }
 
 enum FilesystemSourceConfigurationDisposition: Sendable {
     case installed(FSEventRegistrationToken)
     case unchanged(FSEventRegistrationToken)
     case removalComplete
-    case deferredBehindTransfer(desiredRootGeneration: UInt64)
-    case rejectedCapacity
-    case failedCreate
-    case failedStart
+    case deferred(FilesystemSourceConfigurationDeferredDisposition)
+    case failed(FilesystemSourceConfigurationFailureDisposition)
+}
+
+enum FilesystemSourceConfigurationDeferredDisposition: Sendable {
+    case retainingCurrent(
+        existingRegistration: FSEventRegistrationToken,
+        desiredRootGeneration: UInt64,
+        reason: FilesystemSourceConfigurationDeferralReason
+    )
+    case nonCurrent(
+        desiredRootGeneration: UInt64,
+        reason: FilesystemSourceConfigurationDeferralReason
+    )
+}
+
+enum FilesystemSourceConfigurationFailureDisposition: Sendable {
+    case retainingCurrent(
+        existingRegistration: FSEventRegistrationToken,
+        desiredRootGeneration: UInt64,
+        stage: FilesystemSourceConfigurationFailureStage
+    )
+    case nonCurrent(
+        desiredRootGeneration: UInt64,
+        stage: FilesystemSourceConfigurationFailureStage
+    )
+}
+
+enum FilesystemSourceConfigurationDeferralReason: Sendable {
+    case predecessorRetirement
+    case replacementSlotCapacity
+}
+
+enum FilesystemSourceConfigurationFailureStage: Sendable {
+    case activeSourceCapacity
+    case reserve
+    case create
+    case start
 }
 
 enum FilesystemSourceConfigurationCurrentness: Sendable {
@@ -842,12 +877,18 @@ full immutable bootstrap snapshot; steady state uses changed-key batches from
 the accepted topology transaction. `FilesystemActor.applyConfiguration` owns
 registration/filter-load concurrency, token generation, and stale rejection.
 Every requested source receives exactly one disposition; an omitted dictionary
-entry is invalid. Mixed application is permitted only with explicit
-`nonCurrent` retry sources, so accepted topology revision never implies watcher
-authority that was not installed. Deferred, capacity-rejected, or create/start-
-failed sources retain old safe authority when available and otherwise remain
-visibly non-current with exact retry. MainActor applies only the returned compact
-receipt/current-state mutation.
+entry is invalid. `FilesystemSourceConfigurationCurrentness` is a total derived
+projection: its retry set contains exactly the source IDs whose disposition is
+`.deferred(.nonCurrent)` or `.failed(.nonCurrent)`. No initializer accepts an
+independent currentness value, so retained-current-plus-retry and closed-non-
+current-without-retry receipts are unrepresentable.
+
+Deferred or failed sources retain old authority only when accepted topology
+still requests identical canonical root, source kind, authorization scope, and
+event coverage and the old generation is not discontinuous. Removal, changed
+root, authorization/source-kind change, or invalidated authority closes before
+retry and cannot resurrect after failure. MainActor applies only the returned
+compact receipt and its derived current-state mutation.
 
 #### Persistent root ownership index
 
@@ -1334,11 +1375,14 @@ globally.
 | Owner | Owns | Explicitly does not own |
 | --- | --- | --- |
 | `DarwinFSEventStreamClient` | OS stream lifecycle and complete callback capture | scan policy, topology, MainActor state |
+| `DarwinFSEventRegistrationGeneration` | one binding's control block/adapter, stream invalidation/barrier, callback lease-drain receipt, callback-context retention/release | fleet slot allocation, mailbox drain, SourceGate acknowledgement |
+| `FilesystemObservationSlotRegistry` | fixed slot pool, binding epochs, replacement reserve/deferred fairness, fence lifecycle, retained retirement receipt and context-release acknowledgement | native callback capture, generic gather internals, semantic repair |
+| `FilesystemObservationFleetLifecycle` | whole-fleet shutdown identity, typed completed/incomplete result, non-evictable in-memory shutdown-debt snapshot, deterministic resume coordination | duplicate payload custody, persistence, ordinary per-source replacement |
 | `FilesystemSourceGate` | semantic repair debt, currentness, and participant acknowledgements | generic mailbox drain or UI state |
 | `WatchedFolderScanScheduler` | single-flight, dirty collapse, fairness, generations | scan implementation or canonical atoms |
 | `RepoScanner` | bounded traversal and repository validation result | scheduling, deletion policy, state apply |
 | `FilesystemRootIndexSnapshot` | topology-updated canonical ownership lookup | global fanout or pane projection |
-| `FilesystemActor` | sole mailbox drain lifecycle, filesystem-domain reduction/orchestration, and fact production | MainActor mutation |
+| `FilesystemActor` | sole fleet mailbox drain, bounded semantic transfer, fence completion, SourceGate acceptance, filesystem-domain reduction/orchestration, and fact production | native stream/control-block lifecycle, MainActor mutation |
 | `FilesystemProjectionIndex` | pane/worktree projection and stale rejection | source admission or UI ownership |
 | content-repair projector | generation-bearing coarse invalidation, captured consumer set, acknowledgement/retry transfer | full-tree path enumeration, Git snapshots, visual rendering |
 | `WorktreeContentRepairConsumerRegistry` | generation-bearing consumer registration, repair snapshot, acknowledgement and retry transfer | live UI discovery, content rebuilding |
@@ -1517,9 +1561,28 @@ Deterministic proof must cover:
 - level-triggered doorbell and lease custody across cancellation before take,
   after take, during processing, before acknowledgement, and consumer rebind,
   without another source event or timeout expiry;
-- one current plus one transferring sealed generation under repeated
-  replacement, including stream create/start failure, delayed callback, queue
-  barrier, callback lease drain, debt transfer, and shutdown;
+- paired callback admission/doorbell ordering: mailbox locks release before a
+  requested signal, the lease remains held through exactly one signal
+  application, and release/retirement cannot pass that signal;
+- exactly two started-generation slots plus one non-started newest desired
+  identity under repeated replacement, including stream create/start failure,
+  delayed credentialed callback admission, queue barrier, callback lease drain,
+  stable-identity whole-lease retry after partial semantic acceptance, FIFO
+  retirement fence, cleanup-before-fence completion, oldest-first debt transfer,
+  deterministic deferred FIFO/withdrawal, safe-old-authority classification,
+  reserve exhaustion, and shutdown-only fleet seal;
+- compile-time configuration receipt proof makes retained-current-plus-retry and
+  closed-non-current-without-retry combinations unrepresentable; mixed-source
+  retry membership is derived exactly from exhaustive per-source dispositions;
+- idempotent per-binding retirement receipt replay through native context-release
+  acknowledgement minted only after release-once, bounded per-slot completion
+  tombstone, plus stale slot/epoch/receipt rejection after reuse;
+- equal generic recovery stamps across slot reuse rejected by exact binding/domain
+  custody identity, plus the exact generic offer that returns the fleet-terminal
+  recovery-authority-exhaustion cause and all later already-sealed offers;
+- typed incomplete fleet shutdown debt retained across cancellation and resumed
+  without another source event until cleanup/retry/recovery/receipt/context
+  custody reaches one completed shutdown receipt;
 - one oversized callback is bounded before record-array construction and
   atomically creates repair debt;
 - bounded native prefix inspection across count/array mismatch, uninspected
@@ -1674,7 +1737,7 @@ These are separable ownership contracts, not implementation phases:
 
 | Slice | Maintained contract |
 | --- | --- |
-| source admission | FSEvent observation, capacity, flags, repair debt |
+| [source admission](filesystem-observation-admission-lifecycle.md) | FSEvent observation, fixed slot pool, callback authority, retirement fence, capacity, flags, repair debt |
 | scan scheduling | single-flight, dirty collapse, completeness, generations |
 | root ownership | topology-updated canonical index and path containment |
 | content repair | coarse root invalidation, captured consumer acknowledgement, exact retry transfer |
@@ -1716,7 +1779,7 @@ This revision selects generation-safe FSEvent registrations, the bounded source
 mailbox, persistent component trie, fair scan actor, exhaustive scan results,
 off-main topology projector, typed MainActor applier, exact repair
 acknowledgement, accumulated FS-to-Git invalidation, revisioned persistence,
-currentness states, Bridge containment, and enumerable scenario controls. It
-passed fresh adversarial spec review and is ready for implementation planning.
-Runtime dominance and final human-approved ceilings remain proof obligations,
-not planner assumptions.
+currentness states, Bridge containment, and enumerable scenario controls. The
+focused callback/slot lifecycle child is accepted for plan translation. Runtime
+dominance and final human-approved ceilings remain proof obligations, not
+planner assumptions.

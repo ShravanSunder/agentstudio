@@ -21,11 +21,19 @@ Focused S1 accepted hashes:
 7b312eaef20411b3d982fd99e0d427fbadbf00430e2ea6f7bf9fd99d901cac81  focused API
 ```
 
+Focused W1b/W2 accepted hashes:
+
+```text
+77e7c671513ee0aa8ccdf039379fe2eef734a639a9652df40b740c478dcc3f88  watched parent
+f546f63a6a7608950f8f2ebf4f780d98e3fef7b5282e36393aa089f7ebf19f23  source-admission child
+```
+
 Detailed plans:
 
 - [S1 admission correction plan](s1-admission-correction-plan.md)
 - [S1t strict type-state correction plan](s1-type-state-correction-plan.md)
 - [Watched-folder and shared runtime plan](watched-folder-and-shared-runtime-plan.md)
+- [W1b/W2 fixed-slot filesystem lifecycle plan](w1b-fixed-slot-lifecycle-plan.md)
 - [Ghostty terminal interaction plan](ghostty-terminal-interaction-plan.md)
 
 ## 1. Goal
@@ -47,7 +55,8 @@ The planning run read the complete accepted artifacts:
 | Source | Lines | Contract used by this plan |
 | --- | ---: | --- |
 | `docs/specs/2026-07-10-agentstudio-performance-boundaries/agentstudio-performance-boundaries.md` | 1,698 | shared primitives, focused D/R/C physical-custody amendment, fact transport, MainActor ledger, harness, scope |
-| `docs/specs/2026-07-09-watched-folder-admission-mainactor-fairness/watched-folder-admission-mainactor-fairness.md` | 1,500 | WF/WS/FI/TA/EV/BR requirements and proof |
+| `docs/specs/2026-07-09-watched-folder-admission-mainactor-fairness/watched-folder-admission-mainactor-fairness.md` | 1,785 | WF/WS/FI/TA/EV/BR requirements, accepted fixed-slot summary, and proof |
+| `docs/specs/2026-07-09-watched-folder-admission-mainactor-fairness/filesystem-observation-admission-lifecycle.md` | 713 | fixed fleet slots, callback authority, replacement, FIFO retirement, replay, native release, and shutdown debt |
 | `docs/specs/2026-07-09-ghostty-terminal-interaction-fairness/ghostty-terminal-interaction-fairness.md` | 1,784 | CB/GT/GA/TS/AI/SC/SF/GV requirements and proof |
 | `docs/specs/2026-07-09-ghostty-terminal-interaction-fairness/ghostty-action-admission-manifest.md` | 186 | exhaustive action disposition and mechanical coverage |
 
@@ -223,6 +232,11 @@ exact-latency series or exact-valued log field.
 After S1 interfaces stabilize, execute the watched and terminal plans in parallel using disjoint files. After S2 stabilizes, domain lanes may build and test cutover-ready `RuntimeFactBus` endpoints in isolated assemblies, but production global wiring stays entirely legacy until IG1. S3 must exist before acceptance-grade measurements.
 
 - Watched pre-IG1 preparation/cuts: W1a, W2a, dormant W1b, W3–W10, atomic W2b, and atomic W7d. W1b's native observation adapter remains isolated from the complete legacy `FSEventStreamClient -> FSEventBatch -> FilesystemActor` production path; W2b replaces that protocol/composition and deletes the legacy batch path atomically. W11/W12 are post-IG1.
+- The focused W1b/W2 child plan supersedes the older registration-keyed/raw-
+  port/per-generation-seal task vocabulary. W1b dormant readiness includes the
+  isolated actor/SourceGate transfer and real native lifetime proof; W2a
+  mechanics completion includes fixed-slot replacement/currentness and repair-
+  participant protocol mechanics. W2b remains the sole production cut.
 - Terminal pre-IG1 preparation/cuts: T1–T11. T12 is post-IG1 and post-CG1.
 
 ### Shared lane S4 — Nonterminal And App Event Migration
