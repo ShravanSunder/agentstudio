@@ -513,7 +513,7 @@ DarwinFSEventStreamClient
                           |
                           v
 FilesystemObservationMailbox + AdmissionDoorbell
-  owns: fixed-slot admission, epoch bindings, bounded custody, per-slot recovery,
+  owns: fixed-slot admission, exact UUIDv7 bindings, bounded custody, per-slot recovery,
         logical leases, one payload-free level-triggered wake
   exposes: bounded contribution/fence leases + opaque recovery revisions
   does not own: path semantics, repair policy, actor work, EventBus
@@ -642,7 +642,7 @@ performs semantic path reduction.
 
 One fleet `FilesystemObservationMailbox` uses fixed opaque physical-slot keys,
 not registration tokens, so one source replacement never rolls or seals the
-fleet. Registration generations bind to epoch-bearing slots and retire through
+fleet. Registration generations bind through exact UUIDv7 identities and retire through
 FIFO fence contributions. Global mailbox seal is whole-fleet shutdown only.
 The normative callback API, slot lifecycle, fence retry, capacity reserve,
 idempotent receipt/context-release protocol, and deterministic proof live in
@@ -674,8 +674,8 @@ contiguous sequence; loss comes from source-defined flags or gate overflow.
 `FilesystemObservationMailbox` is a domain wrapper over the parent's
 `BoundedGatherMailbox<FilesystemObservationPhysicalSlotID,
 FilesystemObservationMailboxContribution>`. Physical slots are a fixed
-predeclared pool; exact epoch-bearing slot bindings carry registration/control-
-block authority. It is a synchronous lock-backed custodian, not an actor,
+predeclared pool; exact UUIDv7 slot bindings carry registration/control-block
+authority. It is a synchronous lock-backed custodian, not an actor,
 accumulator, path set, or repair owner. It accepts no merge/repair/footprint
 closures and never uses a payload-bearing or default-unbounded `AsyncStream`.
 
@@ -703,7 +703,7 @@ accepted contributions or recovery custody.
 
 `FilesystemObservationMailbox` also owns a domain-specific, fixed-size
 `FilesystemRecoveryEvidenceRegister` beside—not inside—the generic gather
-primitive. It has one epoch-bound shell per physical slot and monotonically
+primitive. It has one binding-aware shell per physical slot and monotonically
 joins the exhaustive bounded reason bitset for the current binding: continuity
 loss, root-identity revalidation, callback capture truncation, observation-lane
 admission contraction, retirement-fence admission contraction, and unsupported
@@ -782,7 +782,7 @@ bounded pending intent survives and receives priority retry after an
 acknowledgement/cleanup frees capacity. `FilesystemActor` transfers preceding
 ordinary/recovery custody before completing the fence. The final retirement
 receipt is idempotently replayed until native context release is acknowledged;
-only then may slot epoch advance and reuse occur.
+only then may a new UUIDv7 binding identity be installed and reuse occur.
 
 One source retains at most retiring N, current/closing N+1, one predecessor-free
 pending fence, and one non-started newest desired identity. Deferred desired
@@ -1376,7 +1376,7 @@ globally.
 | --- | --- | --- |
 | `DarwinFSEventStreamClient` | OS stream lifecycle and complete callback capture | scan policy, topology, MainActor state |
 | `DarwinFSEventRegistrationGeneration` | one binding's control block/adapter, stream invalidation/barrier, callback lease-drain receipt, callback-context retention/release | fleet slot allocation, mailbox drain, SourceGate acknowledgement |
-| `FilesystemObservationSlotRegistry` | fixed slot pool, binding epochs, replacement reserve/deferred fairness, fence lifecycle, retained retirement receipt and context-release acknowledgement | native callback capture, generic gather internals, semantic repair |
+| `FilesystemObservationSlotRegistry` | fixed slot pool, exact UUIDv7 binding currentness, replacement reserve/deferred fairness, fence lifecycle, retained retirement receipt and context-release acknowledgement | native callback capture, generic gather internals, semantic repair |
 | `FilesystemObservationFleetLifecycle` | whole-fleet shutdown identity, typed completed/incomplete result, non-evictable in-memory shutdown-debt snapshot, deterministic resume coordination | duplicate payload custody, persistence, ordinary per-source replacement |
 | `FilesystemSourceGate` | semantic repair debt, currentness, and participant acknowledgements | generic mailbox drain or UI state |
 | `WatchedFolderScanScheduler` | single-flight, dirty collapse, fairness, generations | scan implementation or canonical atoms |
@@ -1555,7 +1555,7 @@ Deterministic proof must cover:
 - callback admission touching only one source slot and maintained counters at
   1/100/300 registrations, with no payload/domain closure, fleet scan/copy,
   actor call, or per-callback task;
-- exact-bound/bound-plus-one, integer-near-maximum, oversized-single-path,
+- exact-bound/bound-plus-one, oversized-single-path,
   duplicate-heavy, pending-plus-leased, per-source noisy/global quiet, and
   recovery-slot-outside-ordinary-capacity cases for every declared limit;
 - level-triggered doorbell and lease custody across cancellation before take,
@@ -1576,7 +1576,7 @@ Deterministic proof must cover:
   retry membership is derived exactly from exhaustive per-source dispositions;
 - idempotent per-binding retirement receipt replay through native context-release
   acknowledgement minted only after release-once, bounded per-slot completion
-  tombstone, plus stale slot/epoch/receipt rejection after reuse;
+  tombstone, plus stale binding/receipt rejection after reuse;
 - equal generic recovery stamps across slot reuse rejected by exact binding/domain
   custody identity, plus the exact generic offer that returns the fleet-terminal
   recovery-authority-exhaustion cause and all later already-sealed offers;

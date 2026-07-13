@@ -322,6 +322,21 @@ Add:
 
 Flood 100,000 scrollbar/search/mouse/cell samples interleaved with close, command-finished, renderer health, secure-input, and notification facts. Expected: bounded latest state; zero global posts/replay for samples; exact fact order or explicit non-current gap; no sample eviction of facts.
 
+The flood classification is exact:
+
+- search remains important pane-local state: active query, match total, and
+  selected match are retained with latest-value deduplication;
+- scrollbar remains latest pane-local presentation state, while row growth and
+  pinned/observed evidence feed T7's bounded activity mailbox;
+- terminal cursor position is not captured as a sample or fact; T10/T12 measure
+  cursor and caret responsiveness end to end;
+- filesystem changed paths are not terminal samples and do not use latest-value
+  semantics: the filesystem owner unions/deduplicates exact paths and contracts
+  overload to dirty subtree/root state while preserving FSEvent continuity.
+
+All four distinctions are structural: zero raw sample posts, zero raw sample
+replay, and no sample may share a dropping queue with semantic facts.
+
 Oracle: independent latest-value map, literal ordered facts, global post counter, and snapshot model.
 
 RED/GREEN: current tests requiring raw terminal posts/replay form RED; replace them with zero-post and snapshot/journal proof. No dual terminal pipeline is accepted.

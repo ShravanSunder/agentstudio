@@ -401,6 +401,20 @@ samples do not occupy semantic replay or evict fact history.
 TS5. Search, scrollbar, mouse, cell-size, key-table, progress presentation, and
 similar state update their pane-local current state without raw global fanout.
 
+The classification is semantic, not a claim that every value is continuously
+high-rate:
+
+- terminal search remains important pane-local state: active query, match total,
+  and selected match are retained and deduplicated, but not globally replayed;
+- scrollbar state remains the latest pane-local rendering value; row-growth and
+  pinned/observed evidence feed the contracted activity projector, never raw
+  EventBus fanout;
+- terminal cursor position is not captured as a runtime sample or fact; cursor
+  and caret responsiveness are measured end to end instead;
+- filesystem changed paths are not `TerminalUISample`. Their owner unions and
+  deduplicates exact paths, contracts overload to dirty subtree/root state, and
+  preserves FSEvent continuity/watermark evidence.
+
 TS6. Any product meaning currently derived from those samples moves behind the
 pane-local activity projector before global publication.
 

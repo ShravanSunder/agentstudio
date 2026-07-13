@@ -9,9 +9,9 @@ Parent plan:
 Accepted sources:
 
 - `watched-folder-admission-mainactor-fairness.md`, 1,785 lines,
-  SHA-256 `77e7c671513ee0aa8ccdf039379fe2eef734a639a9652df40b740c478dcc3f88`
-- `filesystem-observation-admission-lifecycle.md`, 713 lines,
-  SHA-256 `f546f63a6a7608950f8f2ebf4f780d98e3fef7b5282e36393aa089f7ebf19f23`
+  SHA-256 `10e93247c58fd03b9adaef007f8cdc0106ac3887aeeb71379c4873b24ec89050`
+- `filesystem-observation-admission-lifecycle.md`, 712 lines,
+  SHA-256 `c9fe44161cf942f2b20b7dd1c07bd91b165cd33e25779d572cf5dd43144f30cd`
 - live planning anchor: `03e667c5a048767629238e5483a0bbbe43b596a8`
 
 ## 1. Outcome
@@ -46,8 +46,8 @@ Those require W2b and the later workload gates.
 In scope:
 
 - the minimal generic `GatherContractionCause` result;
-- fixed physical-slot, epoch-bearing binding, contribution, fence, receipt, and
-  release authority types;
+- fixed physical-slot and UUIDv7 lifecycle identities minted only by the owner
+  that performs the causal transition they identify;
 - fixed recovery and semantic-replay shells;
 - deterministic desired FIFO, reservation, withdrawal, prior-authority, and
   derived-currentness state;
@@ -85,7 +85,7 @@ The implementation must hard-cut those dormant interfaces to:
 
 ```text
 fixed FilesystemObservationPhysicalSlotID keys
-complete epoch-bearing FilesystemObservationSlotBinding
+complete UUIDv7-identified FilesystemObservationSlotBinding
 one-shot held lease + mailbox-created paired port
 per-binding FIFO retirement fence
 fixed binding-aware recovery/replay shells
@@ -93,7 +93,8 @@ two started bindings + one newest desired identity
 shutdown-only fleet seal
 ```
 
-The hard-cut structural negative criteria are exact: generic custody is keyed
+At the atomic E/F1/G1 checkpoint and every later checkpoint, the hard-cut
+structural negative criteria are exact: generic custody is keyed
 only by fixed physical slot and carries stable contribution identities; no
 registration-keyed declared/recovery map remains; no raw producer or separately
 pairable signaler escapes; no per-binding lifecycle operation can seal,
@@ -141,59 +142,63 @@ migration, focused generic suite, scoped lint.
 Split/replan: any implementation requires exposing private stamps or changing
 generic retirement/key semantics.
 
-### B — Fixed authority value contracts
+### B — Owner-scoped identity placement rule
 
-Add a focused file such as:
+There is no standalone authority framework, no constructible `*Authority`
+helper per binding, and no Task-B compiler suite for surrogate issuers. Identity
+construction lands with the state transition that owns it:
 
-- `FilesystemObservationSlotContracts.swift`
+| Identity or proof | Sole causal owner |
+| --- | --- |
+| fleet, physical-slot declaration, binding, control block | D1/D2 slot registry |
+| desired intent | D1/D2 slot registry |
+| contribution | atomic F1 mailbox coordination owner |
+| recovery custody | C fixed recovery register |
+| retirement fence and receipt | F2/H2 retirement and transfer owner |
+| context-release acknowledgement | D3 native generation |
+| fleet shutdown completion | F3 fleet lifecycle owner |
 
-Keep observation/flag values in `FilesystemSourceTypes.swift`.
+The repo-owned RFC 9562 UUIDv7 generator supplies opaque lifecycle identity.
+Exact stored equality supplies currentness; mailbox/list order supplies FIFO;
+FSEvent event IDs supply source continuity. UUID sorting is never an ordering or
+authorization rule, and raw observations do not allocate UUIDs.
 
-Define closed value contracts for physical slot, slot epoch, complete binding,
-contribution identity, observation/fence contribution, desired intent,
-retirement fence, retirement receipt, context-release acknowledgement, and
-fleet admission/shutdown disposition. Opaque authority initializers remain
-lexically private to their owners.
+Each owner uses closed discriminated results for real alternatives and keeps
+its minting operation non-public. Physical-slot equality, registration equality,
+and caller-selected dispositions cannot produce a binding, custody identity,
+receipt, acknowledgement, or shutdown completion. These properties are proven
+in the owning task's unit/integration tests and with focused compiler proof only
+where Swift access control is actually the boundary. Integer exhaustion is not
+a product workload or acceptance gate.
 
-Tests/compiler fixtures prove:
+Integrate A before filesystem call sites compile against the new two-argument
+contracted case. D1 is the first lifecycle task because it owns the complete
+binding consumed by C and later gates.
 
-- physical-slot or registration equality alone cannot authorize;
-- stale epoch/binding/receipt/acknowledgement construction is impossible;
-- checked identity exhaustion never aliases or wraps;
-- no Optional or Boolean behavior selectors encode lifecycle alternatives.
+### C — Isolated binding-aware fixed recovery shells
 
-Add the focused compiler harness:
+Add:
 
-- `scripts/verify-filesystem-observation-type-state-compiler.sh`
-- `Tests/CompilerFixtures/FilesystemObservationTypeState/manifest.txt`
-- manifest-owned positive controls and one exact negative fixture per forbidden
-  authority/currentness construction
+- `FixedFilesystemRecoveryEvidenceRegister.swift`
+- `FixedFilesystemRecoveryEvidenceRegisterTests.swift`
 
-The verifier requires every manifest entry, matches an exact diagnostic class,
-rejects unlisted fixtures, and runs through:
+After D1 freezes the binding contract, add an independently testable register
+with exactly P physical-slot shells. Bound states carry the complete slot
+binding, retained evidence, one owner-minted UUIDv7 recovery-custody identity,
+and the current generic recovery stamp as non-authorizing metadata. Old binding
+or custody acknowledgement is a typed no-op.
 
-```bash
-bash scripts/verify-filesystem-observation-type-state-compiler.sh
-```
+This component remains deliberately uncomposed until the atomic E/F1/G1 gate.
+It exposes no registration-shaped initializer, overload, adapter, callback
+route, or legacy compatibility surface. The existing registration-keyed
+`FilesystemRecoveryEvidenceRegister` remains solely for the pre-gate dormant
+mailbox and receives no new behavior.
 
-A and B may run in parallel because their write scopes are disjoint. Integrate
-A before filesystem call sites compile against the new two-argument contracted
-case.
-
-### C — Binding-aware fixed recovery shells
-
-Modify:
-
-- `FilesystemRecoveryEvidenceRegister.swift`
-- `FilesystemRecoveryEvidenceRegisterTests.swift`
-
-Replace the registration dictionary with exactly P fixed physical-slot shells
-whose bound states carry the complete slot binding and domain recovery-custody
-identity. Generic recovery stamps remain current-custody metadata and may repeat
-after transfer. Old binding/epoch/custody acknowledgement is a typed no-op.
-
-RED/GREEN covers bind, record, join, snapshot, exact acknowledge, retire, equal
-generic stamps across reuse, near-maximum domain authority, and stale operations.
+RED/GREEN covers initial bind, record, join, snapshot, exact acknowledge,
+retire, foreign fleet, undeclared slot, wrong current binding, equal generic
+stamps on distinct bindings, and stale operations. Same-physical-slot reuse and
+old-binding acknowledgement after reuse are deferred to D3, the first owner
+that can legally recycle a slot.
 
 ### D1 — Desired FIFO, reservation, and configuration currentness
 
@@ -205,8 +210,9 @@ Add/modify:
 - `FilesystemSourceConfigurationReceiptTests.swift`
 - focused compiler fixtures/verifier for impossible receipt combinations
 
-Implement the fixed P=S+R pool, unique desired-source FIFO, selected/starting
-intent authority, in-place desired overwrite, reservation release, create/start
+Implement the fixed P=S+R pool and its host-minted UUIDv7 fleet/binding/control-
+block identities, unique desired-source FIFO, selected/starting intent identity,
+in-place desired overwrite, reservation release, create/start
 failure rotation, and withdrawal revalidation at pop/reserve/create/start.
 
 Strict results distinguish:
@@ -238,10 +244,11 @@ GREEN receipt for:
 - `retirementFenceTransferredAwaitingCleanup` remaining retiring,
   slot-occupying, predecessor-ordering, and non-reusable.
 
-C and D1 may proceed in parallel after B because their production files are
-disjoint. D2 production registry edits follow D1 under the same registry owner;
-D2 test/oracle preparation may remain read-only or in separate test files. The
-integration gate re-reads one exhaustive D1+D2 registry transition table.
+D1 owns the complete binding contract. C may begin after that contract freezes;
+D2 production registry edits follow D1 under the same registry owner. C remains
+uncomposed and production-file-disjoint until the atomic gate. The integration
+gate re-reads one exhaustive D1+D2 registry transition table and C's fixed-shell
+contract without composing either into the mailbox.
 
 `FilesystemObservationSlotRegistry` is a non-locking mutable state owner accessed
 only while `FilesystemObservationMailbox` holds the wrapper coordination lock.
@@ -260,6 +267,11 @@ Modify together:
 - `DarwinFSEventRegistrationGeneration.swift` (new dormant native owner)
 - `FilesystemObservationMailboxContracts.swift`
 - `FilesystemObservationMailbox.swift`
+- `FilesystemObservationSlotRegistry.swift` for serial mailbox integration
+- `FilesystemRecoveryEvidenceRegister.swift` to delete the legacy
+  registration-keyed implementation
+- `FixedFilesystemRecoveryEvidenceRegister.swift` to promote the fixed
+  implementation as the sole canonical register
 - `DarwinFSEventObservationAdapter.swift`
 - their focused tests and compiler fixtures
 
@@ -282,6 +294,10 @@ achieve the split.
 
 The gate:
 
+0. composes the completed D1/D2 slot registry and C fixed recovery register
+   under the mailbox coordination lock, cuts generic custody from registration
+   keys to physical-slot keys, deletes the legacy registration-keyed register,
+   and migrates every dormant caller without an overload or adapter;
 1. makes a callback lease one-shot: admission available, admission consumed, or
    released;
 2. adds the private nonescaping lease operation that verifies exact control
@@ -323,12 +339,11 @@ not conform to `FSEventStreamClient`, publish `FSEventBatch`, or modify the
 production Darwin client. W2b later makes `DarwinFSEventStreamClient` compose
 this proven owner while deleting legacy `CallbackContext`.
 
-F1 also owns the checked binding-local contribution sequence. Under the wrapper
-lock it mints exactly one opaque contribution identity for each observation or
-fence before the generic offer. Exhaustion cannot wrap: it closes/fences the
-binding, records exact recovery, returns `contributionIdentityExhausted`, and
-drives D1's non-current retry result before later admission. A new epoch starts
-a disjoint sequence.
+F1 mints exactly one UUIDv7 contribution identity under the wrapper lock for
+each accepted observation or fence immediately before the generic offer. FIFO
+comes from the mailbox contribution order. A later binding is disjoint by exact
+binding identity. No contribution-exhaustion state, issuer hierarchy, or raw-
+event UUID allocation is introduced.
 
 Separately, F1 consumes A's generic fleet-terminal
 `recoveryAuthorityExhaustedTransition`. The exact flipping offer atomically
@@ -358,9 +373,6 @@ GREEN:
 - generic fleet exhaustion proves exactly one transition/wake, zero callback
   fleet scan, zero later custody/wake, D1 non-current expansion for every bound
   source in bounded actor turns, and exact F3 incomplete/completed debt;
-- contribution-identity exhaustion produces no contribution payload, records
-  the exact binding recovery and non-current transition, and applies exactly one
-  recovery wake before later admission is rejected;
 - deterministic pauses after authority consumption and after offer prove
   release/drain/fence/recycle cannot pass the paired signal;
 - raw producer/signaler and opaque authority construction fail compiler proof;
@@ -374,14 +386,14 @@ GREEN:
   remain zero;
 - receipt proof rejects missing phase, duplicate, foreign binding, and early
   minting; the paired-signal pause prevents zero-lease receipt;
-- contribution proof covers concurrent uniqueness/order, observation/fence
-  sequence, near-maximum exhaustion, exactly one exhaustion recovery wake, zero
-  later custody/wake, exact recovery/non-current transition, and disjoint new-
-  epoch sequence;
+- contribution proof covers concurrent uniqueness, observation/fence mailbox
+  order, exact binding association, and disjoint later-binding identity;
 - generic custody is exactly
   `BoundedGatherMailbox<FilesystemObservationPhysicalSlotID,
-  FilesystemObservationMailboxContribution>`; no registration-keyed declared or
-  recovery map remains;
+  FilesystemObservationMailboxContribution>`; the fixed recovery register is
+  the sole recovery-register implementation; no registration-keyed declared or
+  recovery type, map, initializer, overload, adapter, diagnostic store, or
+  legacy test helper remains;
 - callback contributions carry complete binding and contribution identity, and
   no per-binding teardown can seal/invalidate/finish the fleet mailbox/doorbell;
 - production remains structurally wholly legacy.
@@ -455,19 +467,25 @@ Bridge, MainActor, or filesystem I/O while holding a generic lease.
 Only exact whole-lease transfer + semantic acceptance + SourceGate acceptance +
 zero binding retry/cleanup debt can mint the final retirement receipt.
 
-### D3 — Release-once, acknowledgement, tombstone, epoch reuse
+### D3 — Release-once, acknowledgement, tombstone, binding reuse
 
 Extend the native generation/control block and slot registry after H2 freezes the
 receipt authority.
 
 The native owner consumes the exact final receipt, releases retained callback
-context once, then mints and retains the release acknowledgement. No other owner
-can construct it. The registry applies it once, installs one fixed completion
-tombstone, returns `alreadyApplied` for lost/repeated response while vacant, and
-returns typed stale after reuse.
+context once, then mints and retains the exact UUIDv7 release acknowledgement.
+No other owner can construct it. The registry applies it once, installs one
+fixed completion tombstone, returns `alreadyApplied` for lost/repeated response
+while vacant, and returns typed stale after reuse. D3 is the first owner allowed
+to recycle a physical slot. Only the acknowledged vacant state can issue a new
+UUIDv7 binding and rebind the corresponding fixed recovery shell.
 
-RED/GREEN uses explicit release counters and identity/state assertions; deinit is
-not the oracle.
+RED/GREEN proves receipt alone cannot recycle; acknowledgement cannot mint before
+native release-once; matching acknowledgement applies once; foreign binding,
+fence, or release identity does nothing; no rebind occurs before acknowledgement;
+rebind installs a new exact binding; old binding/custody/receipt/acknowledgement
+is stale; and native context release remains exactly once. Deinit is not the
+oracle.
 
 ### F3 — Fleet shutdown debt and deterministic resume
 
@@ -576,16 +594,19 @@ gate 0: verify HEAD, accepted hashes, dirty adapter/test, first RED inventory
   |
   +-- A generic contraction cause ------------------+
   |                                                 |
-  +-- B fixed authority values ---------------------+
+  +-- B owner-placement rule (no implementation) ---+
                                                     |
-integration gate 1: A then B compile/focused GREEN -+
+integration gate 1: A GREEN + owner map audit ------+
   |
-  +-- C recovery shells ----------------------------+
-  +-- D1 desired/currentness -> D2 lifecycle -------+
+  +-- D1 binding/desired/currentness ----------------+
+              |
+              +-- C isolated fixed recovery shells -+
+              +-- D2 lifecycle ---------------------+
   |
-integration gate 2: shared types/authority audit
+integration gate 2: shared contract freeze; no composition
   |
-atomic interface gate: E + F1 + G1
+atomic interface gate: integrate C + D1/D2 + E + F1 + G1;
+                       delete legacy recovery register
   |
   +-- H1 semantic replay --------+
   +-- F2 retirement fence -------+
@@ -607,8 +628,9 @@ atomic interface gate: E + F1 + G1
 
 Safe parallelism:
 
-- A || B;
-- C || D1 after B; D2 follows D1 under one registry integration owner;
+- A may proceed independently of the owner-placement documentation correction;
+- after D1 freezes binding types, isolated C may proceed beside D2 test/oracle
+  preparation, but D2 production edits remain with the registry owner;
 - H1 || F2 after the atomic interface gate;
 - F3 || G2 after D3;
 - participant-registry files may run beside actor work only after the exact
@@ -618,6 +640,8 @@ Serial choke points:
 
 - generic contracted-case compile fanout;
 - the E/F1/G1 authority interface cut;
+- promotion of C, deletion of the legacy recovery register, and registry/mailbox
+  lock-linearized composition inside that same atomic gate;
 - registry/mailbox lock-linearized integration;
 - the single actor consumer/drain integration;
 - W2b production cut.
@@ -631,7 +655,7 @@ or `FilesystemActor.swift` through the same integration gate.
 | Claim | Source | Owner | RED/GREEN proof | Layer / freshness |
 | --- | --- | --- | --- | --- |
 | typed fleet exhaustion reaches exact fleet debt | child 102-151 | A + atomic F1 + D1 + F3 | A returns exact transition/already-sealed cause; F1 records one transition/wake and closes callback authority; D1 derives every source non-current; F3 retains exact exhaustion debt | unit/compiler/integration; current HEAD/hash |
-| fixed binding rejects ABA | child 70-151 | B/C | equal stamp, old epoch/custody, near-max table | unit/compiler |
+| fixed binding rejects ABA | child 70-151 | D1 + C + D3 | D1 exact UUIDv7 binding/currentness; C binding-aware custody; D3 acknowledged same-slot reuse and old binding/custody/receipt/ack rejection | unit/compiler/integration |
 | callback admission is O(1) and credentialed | child 344-404 | atomic E/F1/G1 | held/released/foreign/consumed race; 1/100/300 operation count | unit/compiler/microbenchmark |
 | desired replacement is fair and currentness strict | child 153-279; parent configuration | D1 | reserve 0/1/R/S, q+1 selections, withdrawal at four pauses, safe/unsafe matrix | unit/native integration |
 | binding lifecycle is bounded and ordered | child 281-342 | D2/F2 | two started + desired, predecessor/pending fence, transferred-cleanup category | unit/integration |
@@ -662,17 +686,19 @@ self-test substitutes one deliberately nonexistent selector and must fail.
 The pre-W2b manifest includes
 `FilesystemObservationIngressOwnershipArchitectureTests`, which proves live
 production composition is legacy-only and the dormant harness owns exactly one
-fixed consumer/waiter. The filesystem type-state compiler manifest also owns a
-negative dual-route fixture. At W2b, the ownership suite and positive/negative
-fixtures cut to production fixed-only and prove no instance can construct both
-routes.
+fixed consumer/waiter. The atomic-gate structural suite fails if the legacy
+registration-keyed recovery type, initializer, diagnostic map, or test helper
+remains, or if any callback or consumer can select between legacy and fixed
+recovery implementations. At W2b, the ownership suite cuts to production fixed-
+only and proves no instance can construct both routes.
 
 ## 10. Validation Gates
 
 Per task:
 
 1. exact focused unit/state/compiler RED then GREEN;
-2. focused filesystem compiler verifier when authority/currentness types change;
+2. focused compiler/access-control proof only when an owning lifecycle API uses
+   Swift access control as its construction boundary;
 3. scoped lint using Swift files only;
 4. exact touched-suite integration;
 5. checkpoint commit only after compile-complete local proof.
@@ -690,7 +716,6 @@ mise run test -- --filter 'FilesystemObservationFleetExhaustionIntegrationTests'
 mise run test -- --filter 'WorktreeContentRepairConsumerRegistryTests'
 mise run test -- --filter 'FilesystemContentRepairProjectorTests'
 mise run test -- --filter 'RegisteredWorktreeRepairIntegrationTests'
-bash scripts/verify-filesystem-observation-type-state-compiler.sh
 mise run test-large -- --filter 'DarwinFSEventObservationLifecycleIntegrationTests'
 bash scripts/verify-filesystem-observation-proof-suites.sh --gate pre-w2b
 mise run lint
@@ -740,7 +765,7 @@ Stop and return to planning/spec if:
 Allowed verified implementation checkpoints:
 
 ```text
-A/B/C/D1/D2  compile-complete pure-owner commits
+A/D1/C/D2    compile-complete owner-local commits
 E/F1/G1      one atomic authority-interface commit
 H1/F2/H2     proof-local commits with one integration owner
 D3           release/tombstone commit
@@ -751,9 +776,10 @@ WF-D         later atomic W2b production checkpoint
 ```
 
 Do not commit red-only trees. Preserve RED evidence in the task receipt. Run an
-implementation review after the authority interface gate, after W2a mechanics,
-and after W2b. Lint codification remains last except compiler/access-control
-proof required to make authority construction impossible.
+implementation review after the lifecycle interface gate, after W2a mechanics,
+and after W2b. Broad lint codification remains last; small compiler/access-
+control proof belongs only to a real owner boundary and never substitutes for
+the owner's transition tests.
 
 ## 13. Completion Boundary
 

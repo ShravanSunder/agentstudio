@@ -28,7 +28,7 @@ Darwin callback generation
                                   |
                                   v
 FilesystemObservationSlotRegistry + FilesystemObservationMailbox
-  owns: fixed slot pool, binding epochs, callback port factory,
+  owns: fixed slot pool, exact UUIDv7 binding currentness, callback port factory,
         per-slot lifecycle, pending retirement-fence intents,
         fixed recovery slot shells, bounded semantic-transfer identities,
         exact recovery evidence, one fleet gather mailbox + doorbell
@@ -40,7 +40,8 @@ BoundedGatherMailbox<FilesystemObservationPhysicalSlotID,
                      FilesystemObservationMailboxContribution>
   owns: fixed keys, per-key FIFO, bounded global/per-key custody,
         whole-lease retry/ack, fair ready-key rotation
-  does not own: registrations, slot epochs, callback authority, retirement
+  does not own: registrations, UUIDv7 binding identity, callback authority,
+                retirement
 
                                   |
                                   v
@@ -74,18 +75,17 @@ opaque physical slot declared when the fleet mailbox is constructed:
 
 ```text
 FilesystemObservationPhysicalSlotID
-  opaque identity from the fixed pool
+  fixed pool-local slot identity
 
-FilesystemObservationSlotEpoch
-  checked monotonic value; never wraps or resets
+FilesystemObservationFleetMailboxIdentity
+  host-minted UUIDv7
 
 FilesystemObservationSlotBinding
   fleetMailboxIdentity
   physicalSlotID
-  slotEpoch
-  opaqueBindingIdentity
+  bindingIdentity: host-minted UUIDv7
   exact FSEventRegistrationToken
-  opaqueControlBlockIdentity
+  controlBlockIdentity: host-minted UUIDv7
 ```
 
 Physical-slot equality never authorizes an operation. Every callback port,
@@ -94,10 +94,12 @@ snapshot/revision, SourceGate acceptance, retirement request/receipt, and
 context-release acknowledgement carries or opaquely binds the complete slot
 binding.
 
-Slot IDs and binding identities are host-minted. Callback paths and untrusted
-filesystem input cannot select them. Slot-epoch or opaque-binding-identity
-exhaustion is a typed non-reusable-slot failure; no binding authority wraps or
-silently resets.
+Fleet, binding, and control-block identities use the repo-owned RFC 9562 UUIDv7
+generator. Callback paths and untrusted filesystem input cannot select them.
+UUIDv7 provides opaque, time-sortable lifecycle identity; it is not FIFO or
+currentness authority. The fixed-slot owner stores the exact current binding and
+validates equality. Mailbox order and FSEvent watermarks remain the ordering
+sources. Raw observations do not allocate UUIDs.
 
 A generic recovery stamp is opaque only within its current generic custody. It
 may repeat after transferred acknowledgement clears that custody and a later
@@ -109,11 +111,10 @@ The domain register has one fixed shell per physical slot:
 
 ```text
 FilesystemRecoverySlotState
-  = vacant(nextSlotEpoch)
-  | boundClear(binding, nextDomainRecoveryStamp)
+  = vacant
+  | boundClear(binding)
   | boundRetained(binding, evidence, domainRecoveryCustodyIdentity,
-                  nextDomainRecoveryStamp)
-  | exhausted(reason)
+                  genericRecoveryStamp)
 
 bind(binding)
 record(binding, evidence)
@@ -122,15 +123,16 @@ acknowledge(exactSnapshot)
 retire(binding)
 ```
 
-Old-binding operations return typed mismatch without mutation. Domain recovery
-stamps are checked and monotonic for one binding. Generic recovery-authority
-exhaustion is different: the unchanged generic mailbox seals ordinary
-admission for the whole fleet. It therefore causes a typed fleet-terminal
-degradation, closes new callback authority, marks every source non-current,
-and routes exact retained custody through fleet shutdown/reconstruction debt.
-The callback records only one fixed fleet-terminal transition and wake; the
-actor expands non-current source results in bounded turns. The callback never
-scans the fleet. Exhaustion is never reported as one reusable-slot failure.
+Old-binding operations return typed mismatch without mutation. The domain
+recovery register mints one UUIDv7 custody identity when it creates new retained
+custody. Generic recovery stamps are current-custody metadata and never
+authorize across bindings.
+
+Integer exhaustion is not a product workload, performance target, or acceptance
+gate. Existing checked integer arithmetic remains defensive implementation
+hygiene where a generic primitive requires it, but the filesystem lifecycle does
+not add surrogate authority objects, shutdown states, benchmarks, or compiler
+fixtures for astronomically unreachable counter exhaustion.
 
 The generic mailbox adds only the minimal public contraction-cause result needed
 to expose its existing state transition atomically:
@@ -281,7 +283,7 @@ no failure may resurrect it. Removal closes N without creating desired state.
 ## Closed Slot Lifecycle
 
 ```text
-vacant(nextEpoch, lastCompletedRelease)
+vacant(lastCompletedRelease)
   -> reserved(binding)
   -> accepting(binding, callbackAdmissionPort)
   -> closingAwaitingCallbackLeaseDrain(binding)
@@ -290,10 +292,7 @@ vacant(nextEpoch, lastCompletedRelease)
   -> retirementFenceInstalled(binding, fenceIdentity)
   -> retirementFenceTransferredAwaitingCleanup(binding, finalTransfer)
   -> retiredAwaitingContextRelease(binding, retainedFinalReceipt)
-  -> vacant(nextEpoch)
-
-slot epoch or opaque binding-identity exhaustion
-  -> exhausted(nonReusableReason)
+  -> vacant
 
 generic recovery-authority exhaustion
   -> fleetAdmissionExhausted(exact retained fleet debt)
@@ -323,8 +322,9 @@ desired  = one newest non-started registration identity
 There are at most two started generations per source plus one desired identity.
 Retirement is oldest-first. N+1 may close and drain callback leases while N is
 retiring, but N+1's fence remains predecessor-gated until N's context-release
-acknowledgement frees the retiring slot. Generic ready-key fairness does not
-provide this cross-slot generation order; the wrapper does.
+acknowledgement frees the retiring slot. A new UUIDv7 binding identity makes
+every old request stale. Generic ready-key fairness does not provide this
+cross-slot generation order; the wrapper does.
 
 Only the predecessor-free oldest retiring binding may own a pending fence
 intent. N+1 remains `closingAwaitingPredecessor` and cannot mint its fence
@@ -339,8 +339,8 @@ completed(oldBinding, fenceIdentity, retirementAuthority, releaseAuthority)
 ```
 
 It supports idempotent replay while the slot is vacant. Rebinding may replace
-the tombstone only after the new epoch makes every old request typed stale. No
-unbounded completed-retirement ledger is permitted.
+the tombstone only after the new UUIDv7 binding identity makes every old request
+typed stale. No unbounded completed-retirement ledger is permitted.
 
 ## One-Shot Callback Authority
 
@@ -367,7 +367,7 @@ FilesystemObservationCallbackAdmissionResult
       slotBindingMismatch | alreadyConsumed)
   | mailboxRejected(
       undeclaredSlot | invalidFootprint | fenced |
-      contributionIdentityExhausted | fleetOrdinaryAdmissionSealed | closed)
+      fleetOrdinaryAdmissionSealed | closed)
 
 wakeApplication = notRequested | applied
 ```
@@ -384,10 +384,10 @@ The doorbell never calls into mailbox, lease, or control-block code.
 No raw producer or separately pairable signaler escapes. Structural/compiler
 proof, not a runtime unauthenticated call, proves this negative space.
 
-Contribution-identity exhaustion closes that binding's callback authority and
-makes the source non-current with exact recovery before the sequence can wrap.
-A later epoch-bearing binding may begin a new sequence because the full binding
-identity keeps its contributions disjoint.
+Each accepted observation or retirement fence receives a UUIDv7 contribution
+identity from the mailbox owner under its coordination lock. FIFO comes from the
+mailbox contribution order, not from UUID sorting. A later binding has a
+different binding identity, so its contributions remain disjoint.
 
 The permanent non-authorizing synchronization seam has exactly two value-free
 methods:
@@ -408,8 +408,7 @@ production cost remains part of callback benchmarks.
 ```text
 FilesystemObservationContributionIdentity
   exact slot binding
-  checked binding-local contribution sequence
-  opaque contribution authority
+  host-minted UUIDv7 identity
 
 FilesystemObservationMailboxContribution
   = observation(contributionIdentity, FSEventObservation)
@@ -558,8 +557,8 @@ FilesystemObservationSlotRetirementReceipt
 
 The slot moves to `retiredAwaitingContextRelease` and retains the receipt.
 Repeated matching retirement requests return the same receipt. Caller
-cancellation or a lost response cannot discard it. Foreign, partial, old-epoch,
-or conflicting requests return typed rejection without changing state.
+cancellation or a lost response cannot discard it. Foreign, partial, stale-
+binding, or conflicting requests return typed rejection without changing state.
 
 The native generation owns one closed release operation. It consumes a matching
 final receipt, performs nonthrowing release-once of its retained callback
@@ -574,9 +573,10 @@ FilesystemObservationContextReleaseAcknowledgement
 ```
 
 Matching acknowledgement is idempotent: first application advances the slot;
-repeated application returns `alreadyApplied`. Foreign/old-epoch/partial
-acknowledgements do nothing. Only accepted acknowledgement increments the slot
-epoch and returns it to `vacant`; exhaustion moves it to `exhausted`.
+repeated application returns `alreadyApplied`. Foreign/stale-binding/partial
+acknowledgements do nothing. Only accepted acknowledgement returns the slot to
+`vacant`. A later reservation installs a new UUIDv7 binding identity, so every
+request carrying the prior exact binding remains stale.
 
 No public initializer or other owner can mint release authority. Repeating the
 native release operation replays the same post-release acknowledgement without
@@ -588,7 +588,7 @@ requestRetirementFence
 
 applyContextReleaseAcknowledgement
   = applied | alreadyApplied | bindingMismatch | fenceMismatch
-  | retirementAuthorityMismatch | releaseAuthorityMismatch | staleEpoch
+  | retirementAuthorityMismatch | releaseAuthorityMismatch | staleBinding
 ```
 
 ## Fleet Shutdown
@@ -661,11 +661,11 @@ wall-clock sleeps:
 8. N+1 fence cannot install/complete before predecessor N context-release
    acknowledgement across different slots.
 9. Old callback port, lease, drain token, recovery acceptance, fence, retirement
-   receipt, and release acknowledgement fail after slot reuse.
+   receipt, and release acknowledgement fail after slot reuse by exact UUIDv7
+   binding mismatch.
 10. Equal generic recovery stamps across slot reuse cannot authorize domain
     acknowledgement; exact binding plus domain custody identity prevents ABA.
-    Slot epoch/binding exhaustion is slot-local, while generic recovery-
-    authority exhaustion produces the declared fleet-terminal disposition.
+    Integer exhaustion is not part of this product proof.
 11. Lost retirement response, repeated request, context release, lost release
     acknowledgement, and repeated acknowledgement replay one receipt and recycle
     exactly once.
