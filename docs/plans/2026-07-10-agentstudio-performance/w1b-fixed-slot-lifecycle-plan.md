@@ -191,8 +191,8 @@ After D2a and D2b freeze the binding-commitment transition, add an independently
 testable register
 with exactly P physical-slot shells. Bound states carry the complete slot
 binding, retained evidence, one owner-minted UUIDv7 recovery-custody identity,
-and the current generic recovery stamp as non-authorizing metadata. Old binding
-or custody acknowledgement is a typed no-op.
+and the complete opaque generic recovery revision as non-authorizing metadata.
+Old binding or custody acknowledgement is a typed no-op.
 
 This component remains deliberately uncomposed until the atomic E/F1/G1 gate.
 It exposes no registration-shaped initializer, overload, adapter, callback
@@ -356,6 +356,9 @@ Modify together:
 - `FilesystemObservationSlotRegistry.swift` for serial mailbox integration
 - `FilesystemObservationSlotRegistryContracts.swift` as the read-only contract
   consumed by mailbox/native integration
+- `FilesystemSourceGate.swift` only for the minimal fixed-binding recovery
+  value-signature migration required to keep this hard cut compile-complete;
+  H2 retains sole ownership of transfer and retirement semantics
 - `FilesystemRecoveryEvidenceRegister.swift` to delete the legacy
   registration-keyed implementation
 - `FixedFilesystemRecoveryEvidenceRegister.swift` to promote the fixed
@@ -396,7 +399,10 @@ The gate:
 5. keeps the lease held through offer and requested wake application, while
    releasing mailbox locks before signaling;
 6. migrates the dormant adapter and all focused tests to the paired port;
-7. begins D2c only where this gate now supplies real authority: successful
+7. migrates dormant SourceGate recovery value signatures from legacy
+   registration-keyed snapshots to exact binding-bearing fixed snapshots without
+   adding transfer, fence, retirement, or actor behavior;
+8. begins D2c only where this gate now supplies real authority: successful
    native start publishes `accepting`, and close enters callback-lease-drain
    waiting through the exact native generation. It does not fabricate
    predecessor, fence, SourceGate, transfer, or final-receipt authority that
@@ -479,8 +485,9 @@ GREEN:
   remain zero;
 - receipt proof rejects missing phase, duplicate, foreign binding, and early
   minting; the paired-signal pause prevents zero-lease receipt;
-- contribution proof covers concurrent uniqueness, observation/fence mailbox
-  order, exact binding association, and disjoint later-binding identity;
+- contribution proof covers concurrent uniqueness, observation FIFO, exact
+  binding association, and disjoint later-binding identity; F2 owns fence
+  admission authority and the observation/fence ordering proof;
 - generic custody is exactly
   `BoundedGatherMailbox<FilesystemObservationPhysicalSlotID,
   FilesystemObservationMailboxContribution>`; the fixed recovery register is
@@ -554,9 +561,12 @@ actor-isolated long-lived drain to the existing actor, making that production
 actor the sole consumer atomically while deleting legacy ingress. No instance
 can own both routes.
 
-H2 is the sole owner of exact binding-bearing `FilesystemSourceGate` adaptation.
-WF-C consumes the frozen API and does not edit `FilesystemSourceGate.swift`; any
-newly discovered SourceGate change returns through the H2 integration owner.
+The atomic E/F1/G1 gate owns only the minimal exact-binding recovery value
+signature migration required to delete the legacy registration-keyed recovery
+types atomically. H2 remains the sole owner of `FilesystemSourceGate` semantic
+transfer, repair admission, retirement, and receipt behavior. WF-C consumes the
+frozen API and does not edit `FilesystemSourceGate.swift`; any newly discovered
+semantic SourceGate change returns through the H2 integration owner.
 
 H2 also supplies the exact transfer/acceptance authority consumed by D2c's
 `retirementFenceTransferredAwaitingCleanup` and

@@ -101,11 +101,11 @@ currentness authority. The fixed-slot owner stores the exact current binding and
 validates equality. Mailbox order and FSEvent watermarks remain the ordering
 sources. Raw observations do not allocate UUIDs.
 
-A generic recovery stamp is opaque only within its current generic custody. It
-may repeat after transferred acknowledgement clears that custody and a later
-binding reuses the same physical key. It never authorizes a domain operation
-across bindings. Cross-reuse ABA authority is the complete slot binding plus a
-domain recovery-custody identity.
+A generic recovery revision remains opaque generic-custody metadata. The domain
+register retains the complete `GatherRecoveryRevision` for equality without
+extracting or interpreting its private stamp. Generic revision equality never
+authorizes a domain operation across bindings. Cross-reuse ABA authority is the
+complete slot binding plus a domain recovery-custody identity.
 
 The domain register has one fixed shell per physical slot:
 
@@ -114,7 +114,7 @@ FilesystemRecoverySlotState
   = vacant
   | boundClear(binding)
   | boundRetained(binding, evidence, domainRecoveryCustodyIdentity,
-                  genericRecoveryStamp)
+                  genericRecoveryRevision)
 
 bind(binding)
 record(binding, evidence)
@@ -125,8 +125,8 @@ retire(binding)
 
 Old-binding operations return typed mismatch without mutation. The domain
 recovery register mints one UUIDv7 custody identity when it creates new retained
-custody. Generic recovery stamps are current-custody metadata and never
-authorize across bindings.
+custody. Opaque generic recovery revisions are current-custody metadata and
+never authorize across bindings.
 
 Integer exhaustion is not a product workload, performance target, or acceptance
 gate. Existing checked integer arithmetic remains defensive implementation
@@ -719,8 +719,8 @@ wall-clock sleeps:
 9. Old callback port, lease, drain token, recovery acceptance, fence, retirement
    receipt, and release acknowledgement fail after slot reuse by exact UUIDv7
    binding mismatch.
-10. Equal generic recovery stamps across slot reuse cannot authorize domain
-    acknowledgement; exact binding plus domain custody identity prevents ABA.
+10. Equal opaque generic recovery revisions across slot reuse cannot authorize
+    domain acknowledgement; exact binding plus domain custody identity prevents ABA.
     Integer exhaustion is not part of this product proof.
 11. Lost retirement response, repeated request, context release, lost release
     acknowledgement, and repeated acknowledgement replay one receipt and recycle

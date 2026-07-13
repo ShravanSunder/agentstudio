@@ -1580,7 +1580,7 @@ Deterministic proof must cover:
 - idempotent per-binding retirement receipt replay through native context-release
   acknowledgement minted only after release-once, bounded per-slot completion
   tombstone, plus stale binding/receipt rejection after reuse;
-- equal generic recovery stamps across slot reuse rejected by exact binding/domain
+- equal opaque generic recovery revisions across slot reuse rejected by exact binding/domain
   custody identity, plus the exact generic offer that returns the fleet-terminal
   recovery-authority-exhaustion cause and all later already-sealed offers;
 - typed incomplete fleet shutdown debt retained across cancellation and resumed
