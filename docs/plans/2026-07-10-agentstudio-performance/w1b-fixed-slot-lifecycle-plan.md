@@ -93,6 +93,13 @@ two started bindings + one newest desired identity
 shutdown-only fleet seal
 ```
 
+The hard-cut structural negative criteria are exact: generic custody is keyed
+only by fixed physical slot and carries stable contribution identities; no
+registration-keyed declared/recovery map remains; no raw producer or separately
+pairable signaler escapes; no per-binding lifecycle operation can seal,
+invalidate, or finish the fleet mailbox/doorbell; and every callback
+contribution carries the complete binding plus contribution identity.
+
 The untracked dormant adapter and its tests are adopted input, not disposable
 scratch. Rewrite them through the planned interface cut; do not recreate or
 silently overwrite their bounded native-capture work.
@@ -256,6 +263,23 @@ Modify together:
 - `DarwinFSEventObservationAdapter.swift`
 - their focused tests and compiler fixtures
 
+File ownership remains split without weakening authority closure:
+
+- `FilesystemObservationMailbox.swift` remains the single lexical owner of the
+  coordination lock and generic/domain custody transaction;
+- value contracts remain in `FilesystemObservationMailboxContracts.swift`;
+- slot registry, semantic replay, and fleet lifecycle remain separate owners;
+- a paired-port factory may move to a separate file only if its construction
+  authority remains private and no raw producer/signaler surface becomes
+  accessible;
+- production `FilesystemActor.swift` remains untouched before W2b, and W2b adds
+  the drain in `FilesystemActor+ObservationIngress.swift`.
+
+If the mailbox coordination core remains over 600 lines after the atomic gate,
+or the production actor main file exceeds 900 lines at W2b, split by the owners
+above before checkpointing. Do not relax access control or duplicate custody to
+achieve the split.
+
 The gate:
 
 1. makes a callback lease one-shot: admission available, admission consumed, or
@@ -268,6 +292,12 @@ The gate:
 5. keeps the lease held through offer and requested wake application, while
    releasing mailbox locks before signaling;
 6. migrates the dormant adapter and all focused tests to the paired port.
+
+The callback entry validates exact control-block, registration, complete slot
+binding, and held/unused one-shot lease authority before it invokes a
+nonescaping bounded-native-capture closure. Rejected authority must not inspect
+the CFArray, path pointers, flags, event IDs, or any other native callback
+memory.
 
 The same native generation/control-block assembly owns the unforgeable
 `FSEventRegistrationLeaseDrainReceipt`. Its close state performs:
@@ -300,6 +330,17 @@ binding, records exact recovery, returns `contributionIdentityExhausted`, and
 drives D1's non-current retry result before later admission. A new epoch starts
 a disjoint sequence.
 
+Separately, F1 consumes A's generic fleet-terminal
+`recoveryAuthorityExhaustedTransition`. The exact flipping offer atomically
+closes ordinary callback admission for the whole fleet in O(1), records one
+fleet transition and one recovery wake, and admits no contribution payload.
+Concurrent or later `ordinaryAdmissionAlreadySealed` offers create no new
+custody or wake. D1 expands that fleet state into exact per-source non-current
+results in bounded actor turns rather than in the callback; F3 retains the same
+typed fleet-exhaustion debt through cancellation and deterministic resume.
+`FilesystemObservationFleetExhaustionIntegrationTests` owns the cross-slice
+oracle.
+
 Required lock order is lease → wrapper → domain recovery/generic. Doorbell
 application occurs after mailbox locks and cannot call back into lease, wrapper,
 or control-block code.
@@ -310,7 +351,13 @@ raw and paired authority or leave the dormant adapter unable to compile.
 GREEN:
 
 - released/foreign/consumed/mismatched/fenced/closed cases produce no payload,
-  evidence, or wake;
+  evidence, wake, or native-reader inspection;
+- an injected native-inspection ledger proves every rejected authority case
+  performs zero CFArray/path/flag/event-ID reads, while accepted authority reads
+  only the configured bounded prefix;
+- generic fleet exhaustion proves exactly one transition/wake, zero callback
+  fleet scan, zero later custody/wake, D1 non-current expansion for every bound
+  source in bounded actor turns, and exact F3 incomplete/completed debt;
 - contribution-identity exhaustion produces no contribution payload, records
   the exact binding recovery and non-current transition, and applies exactly one
   recovery wake before later admission is rejected;
@@ -318,9 +365,13 @@ GREEN:
   release/drain/fence/recycle cannot pass the paired signal;
 - raw producer/signaler and opaque authority construction fail compiler proof;
 - bounded capture behavior from the existing adapter remains green;
-- `FilesystemObservationCallbackScaleTests` proves paired-port admission,
-  immediate synchronization, and doorbell application have the same maintained
-  operation shape at 1/100/300 slots;
+- `FilesystemObservationCallbackScaleTests` proves the exact independent
+  counter vector is identical at 1/100/300 slots and at the configured bound
+  plus one: one bound-slot lookup/offer, the fixed recovery/generic operations,
+  one immediate synchronization pass, at most one doorbell application, zero
+  slot allocation, zero unrelated-slot reads/copies, and zero actor/task/domain
+  calls. Elapsed time is diagnostic only; sentinel counters on unrelated slots
+  remain zero;
 - receipt proof rejects missing phase, duplicate, foreign binding, and early
   minting; the paired-signal pause prevents zero-lease receipt;
 - contribution proof covers concurrent uniqueness/order, observation/fence
@@ -447,14 +498,19 @@ callback queue barrier, zero lease receipt, fence, SourceGate acceptance,
 cleanup, final receipt, release-once acknowledgement, and context release.
 
 The test uses no `Task.sleep`. If deterministic FSEvents delivery cannot pass in
-the focused runner, move this unchanged obligation to the existing large native
-integration lane; do not substitute simulated or sleep-based proof.
+the focused runner, the authoritative required native lane is:
 
-W1b dormant ready requires A, B, C, D2, atomic E/F1/G1, H1, F2, H2, D3, and
-G2, plus structural proof that production remains wholly legacy. Adapter unit
-tests alone are insufficient. D1 may already be green but is a W2a replacement/
-configuration prerequisite rather than part of the single-registration W1b
-lifetime receipt. F3 fleet shutdown is also W2a mechanics, not W1b readiness.
+```bash
+mise run test-large -- --filter 'DarwinFSEventObservationLifecycleIntegrationTests'
+```
+
+W1b dormant readiness is blocked until that real Darwin proof passes. Do not
+substitute simulation, a sleep-based test, or a discretionary skip.
+
+W1b dormant ready requires A, B, C, D1, D2, atomic E/F1/G1, H1, F2, H2, D3,
+and G2, plus structural proof that production remains wholly legacy. Adapter
+unit tests alone are insufficient. F3 fleet shutdown is W2a mechanics, not W1b
+readiness.
 
 ## 6. Vertical Slice WF-C — W2a Replacement And Repair Mechanics
 
@@ -475,9 +531,9 @@ transfer, rejection, and stale completion are exhaustive. UI disappearance is
 never an acknowledgement; Git-only repair never returns a registered worktree
 to healthy.
 
-W2a mechanics complete requires WF-A/WF-B plus participant mechanics, replay,
-replacement/currentness D1, cancellation/rebind, fleet shutdown F3, and repair-
-participant proof. Production still uses only the legacy callback protocol.
+W2a mechanics complete requires the exact W1b dormant-ready gate plus F3 fleet
+shutdown and WF-C participant registry/projector integration. Production still
+uses only the legacy callback protocol.
 
 Planned exact suites:
 
@@ -586,11 +642,30 @@ or `FilesystemActor.swift` through the same integration gate.
 | real Darwin lifetime matches receipts | child callback/fence contract | G2 | temporary root and explicit teardown ledger | real-boundary integration |
 | repair health requires exact participants | parent repair matrix | WF-C | participant applicability/withdrawal/transfer table | unit/integration |
 | production has exactly one ingress | hard-cut rule | WF-D | pre-cut legacy-only RED; post-cut fixed-only GREEN | structural/integration/smoke |
+| ingress owner graph is exclusive | child callback/consumer contract | H2/WF-D | pre-W2b production actor has legacy ingress only and dormant harness has exactly one fixed consumer/waiter; post-W2b production actor has fixed ingress only; no instance can own both routes | compiler/structural/integration |
 
 Every behavior/type/lint change requires named RED and identical-command GREEN.
 Each receipt records HEAD, current accepted hashes, exact test names/counts,
 command/exit code, independent oracle, and higher layer deferred/not applicable.
 Broad substring filters that discover zero tests are failure.
+
+Add a manifest-driven proof runner:
+
+- `scripts/verify-filesystem-observation-proof-suites.sh`
+- `Tests/ProofManifests/FilesystemObservationSuites/manifest.txt`
+
+The runner accepts `--gate pre-w2b` or `--gate w2b`, executes every manifest
+task/selector including the real-Darwin `test-large` selector, parses the test
+summary, and fails when a selector discovers or executes zero tests. Its
+self-test substitutes one deliberately nonexistent selector and must fail.
+
+The pre-W2b manifest includes
+`FilesystemObservationIngressOwnershipArchitectureTests`, which proves live
+production composition is legacy-only and the dormant harness owns exactly one
+fixed consumer/waiter. The filesystem type-state compiler manifest also owns a
+negative dual-route fixture. At W2b, the ownership suite and positive/negative
+fixtures cut to production fixed-only and prove no instance can construct both
+routes.
 
 ## 10. Validation Gates
 
@@ -611,10 +686,13 @@ mise run test -- --filter 'FilesystemSourceGate'
 mise run test -- --filter 'FSEventRegistrationControlBlock'
 mise run test -- --filter 'DarwinFSEventObservation'
 mise run test -- --filter 'FilesystemObservationCallbackScaleTests'
+mise run test -- --filter 'FilesystemObservationFleetExhaustionIntegrationTests'
 mise run test -- --filter 'WorktreeContentRepairConsumerRegistryTests'
 mise run test -- --filter 'FilesystemContentRepairProjectorTests'
 mise run test -- --filter 'RegisteredWorktreeRepairIntegrationTests'
 bash scripts/verify-filesystem-observation-type-state-compiler.sh
+mise run test-large -- --filter 'DarwinFSEventObservationLifecycleIntegrationTests'
+bash scripts/verify-filesystem-observation-proof-suites.sh --gate pre-w2b
 mise run lint
 mise run test-fast
 ```

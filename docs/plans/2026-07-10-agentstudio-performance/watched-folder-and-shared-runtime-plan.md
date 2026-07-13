@@ -63,23 +63,25 @@ Execution clarification discovered at the W1a RED seam:
   continuity repair, root revalidation, provenance, and unknown-bit evidence
   can coexist.
 - W1a's dormant control block owns a closed lifecycle and generation-bound
-  callback leases, but no optional or temporary mailbox. W2a supplies the
-  required synchronous producer/recovery capability; W1b composes it into the
-  live retained callback userdata.
+  callback leases, but no optional or temporary mailbox. The W2a substrate
+  supplies the fixed fleet mailbox, binding-aware recovery shells, and paired-
+  port factory. W1b composes those substrate slices into the dormant retained
+  callback userdata before the W2a mechanics-complete receipt.
 - W1a tests cover value invariants and lifecycle/lease transitions. Native
   array inspection and exact flag classification remain W1b callback-adapter
   proof because W1a does not cut production ingress.
 
-### W1b — Dormant real callback adapter after W2a
+### W1b — Dormant real callback adapter over the W2a substrate
 
 The normative task decomposition, file edits, proof matrix, checkpoint gates,
 and W2b deferral live in
 [W1b/W2 Fixed-Slot Filesystem Lifecycle Plan](w1b-fixed-slot-lifecycle-plan.md).
 This section is only the parent slice summary.
 
-Depends on W2a's fixed fleet `FilesystemObservationMailbox`, binding-aware
-recovery shells, `FilesystemSourceGate`, slot registry, and exact per-binding
-recovery custody.
+Runs over the W2a substrate slices for the fixed fleet
+`FilesystemObservationMailbox`, binding-aware recovery shells,
+`FilesystemSourceGate`, slot registry, and exact per-binding recovery custody.
+W1b precedes, and is required by, the W2a mechanics-complete receipt.
 W1b is a dormant isolated assembly, not the production protocol cut. The live
 `FSEventStreamClient -> FSEventBatch -> FilesystemActor` contract and current
 `DarwinFSEventStreamClient` remain unchanged until W2b because they are the one
@@ -767,8 +769,9 @@ AGENTSTUDIO_PERF_REAL_ROOT_PROJECT_DEV=/Users/shravansunder/Documents/dev/projec
 ```text
 shared S1 admission
   -> W1a callback/observation types
-  -> W2a source gate/mailbox/repair registry mechanics
-  -> W1b dormant real callback adapter + isolated lifecycle proof
+  -> W2a fixed-slot substrate slices
+  -> G2 + legacy structural proof -> W1b dormant-ready
+  -> F3 + WF-C participant registry/projector -> W2a mechanics-complete
   -> W3 scan scheduler/result
   -> W4 root index/config
   -> W4.5 sole revision owner + fixed-revision pager
