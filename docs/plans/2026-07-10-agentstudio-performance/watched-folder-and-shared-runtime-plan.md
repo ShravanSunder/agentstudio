@@ -171,7 +171,7 @@ Add:
     lock coupling generic custody to fixed binding-aware
     `FilesystemRecoveryEvidenceRegister` shells.
   - Use predeclared `FilesystemObservationPhysicalSlotID` generic keys. Complete
-    epoch-bearing bindings live inside domain contributions and authority.
+    exact UUIDv7 bindings live inside domain contributions and authority.
   - Retain opaque bounded observation/fence contributions and checked footprints;
     perform no path/flag merge, dedupe, normalization, routing, or repair join
     under generic mailbox state.
@@ -191,9 +191,12 @@ Add:
     remove, captured recovery state until `FilesystemActor` transfers it into
     `FilesystemSourceGate`; newer evidence/revision survives an older ack.
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemObservationSlotRegistry.swift`
-  - Own the fixed slot pool, epoch bindings, desired FIFO/reservation/withdrawal,
-    safe-old versus unsafe-old currentness, predecessor ordering, pending fence,
-    final receipt, release acknowledgement, and bounded tombstone.
+  - Own the fixed slot pool, exact UUIDv7 bindings, desired FIFO/reservation/
+    withdrawal, safe-old versus unsafe-old currentness, predecessor ordering,
+    pending fence, final receipt, release acknowledgement, and bounded tombstone.
+    Selected reservation owns no binding; one lock-linearized native-lifetime
+    commitment consumes the reservation and mints the binding plus committed
+    unpublished-native-generation custody before any native create call.
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemObservationFleetLifecycle.swift`
   - Own typed completed/incomplete in-memory shutdown debt and deterministic
     cancellation-safe resume. Global seal remains shutdown-only.
@@ -262,8 +265,9 @@ Oracle: independent participant/repair ledger and final source-state model.
 RED/GREEN: required for typed generic exhaustion, overflow without recovery,
 mixed loss/root/fence evidence under contraction, pending-plus-leased bound-plus-
 one, multi-slot partial replay, one noisy/299 quiet root fairness, cancellation/
-rebind/late-old-ack, N→N+1→N+2 replacement, withdrawal at pop/reserve/create/
-start, safe/unsafe prior authority, cleanup-gated retirement, release-once/
+rebind/late-old-ack, N→N+1→N+2 replacement, reservation-only withdrawal at
+pop/reserve, atomic native-lifetime commitment, post-commit withdrawal at
+create/start, safe/unsafe prior authority, cleanup-gated retirement, release-once/
 tombstone replay, exact shutdown debt, Git-only acknowledgement, unregister/
 replacement, and late/stale acknowledgement.
 

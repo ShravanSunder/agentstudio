@@ -216,12 +216,18 @@ FilesystemObservationDesiredSlotState
   = none
   | deferred(desiredIdentity, intentAuthority,
              uniqueQueueNode, firstDeferredOrder)
-  | selected(desiredIdentity, intentAuthority, slotReservationAuthority)
+  | selected(desiredIdentity, intentAuthority, slotReservation)
   | starting(desiredIdentity, intentAuthority,
              reservedBinding, unpublishedNativeGeneration)
 
+FilesystemObservationSlotReservation
+  = exact fleet mailbox identity
+  + exact physical slot identity
+  + exact desired identity
+  + opaque slot-reservation authority
+
 FilesystemObservationSlotReservationResult
-  = reserved(binding)
+  = reserved(slotReservation)
   | deferredBehindSlotCapacity
   | activeSourceCapacityExhausted
   | sourceAlreadyHasCurrentAndRetiring
@@ -241,20 +247,30 @@ FilesystemObservationDesiredWithdrawalResult
   before returning. A pop validates the exact current desired identity; stale
   nodes cannot accumulate.
 - A source at zero-based rank `q` is selected within `q + 1` successful vacant-
-  slot selections, conditional on slots actually becoming reusable. Create or
-  start failure releases the reservation and rotates an otherwise eligible
-  source to the FIFO tail; one failed source cannot monopolize a vacancy. Each
-  actor turn performs at most one selection. Fairness is counted in selections,
-  never elapsed time.
+  slot selections, conditional on slots actually becoming reusable. A selected
+  source owns one reservation but no slot binding or native lifetime. Withdrawal
+  or failure before native-lifetime commitment releases that reservation and
+  rotates an otherwise eligible source to the FIFO tail; one failed source
+  cannot monopolize a vacancy. Once native-lifetime commitment begins, create or
+  start failure rotates the desired source but the physical slot remains
+  unavailable until the unpublished native generation retires and D3 applies
+  its exact context-release acknowledgement. Each actor turn performs at most
+  one selection. Fairness is counted in selections, never elapsed time.
 - FIFO pop transitions `deferred -> selected` under the registry lock and keeps
   one exact intent authority through reserve/create/start. Withdrawal under that
   same lock invalidates the authority. Every asynchronous create/start
   completion revalidates it under the registry lock before publishing callback
-  authority. A stale completion cannot publish: selected reservation custody is
-  released, while an already-created or started but unpublished native
-  generation follows stop/invalidate/barrier/lease-drain/context-release
-  retirement. Failure requeues only if the same desired authority remains
-  valid; withdrawn work never rotates back into the FIFO.
+  authority. The registry consumes the exact selected reservation and, in one
+  lock-linearized transition before any native create call, mints the complete
+  binding/control-block identities and commits exact unpublished-native-
+  generation custody. The native wrapper is materialized only from that
+  non-forgeable committed custody and every create/start outcome must return the
+  same custody. A stale completion cannot publish: selected reservation custody
+  is released if commitment never began, while every committed but unpublished
+  native generation follows stop/invalidate/barrier/lease-drain/context-release
+  retirement even when `FSEventStreamCreate` returns no stream. Failure requeues
+  only if the same desired authority remains valid; withdrawn work never rotates
+  back into the FIFO.
 - Global contribution/item/byte capacity remains independent from slot
   cardinality and is enforced by the one generic mailbox.
 
@@ -283,7 +299,8 @@ no failure may resurrect it. Removal closes N without creating desired state.
 
 ```text
 vacant(lastCompletedRelease)
-  -> reserved(binding)
+  -> selected(slotReservation)
+  -> starting(binding, unpublishedNativeGeneration)
   -> accepting(binding, callbackAdmissionPort)
   -> closingAwaitingCallbackLeaseDrain(binding)
   -> closingAwaitingPredecessor(binding, leaseDrainReceipt)
@@ -297,10 +314,12 @@ generic recovery-authority exhaustion
   -> fleetAdmissionExhausted(exact retained fleet debt)
 ```
 
-There is no direct `accepting -> vacant`, timeout expiry, or reuse before native
-context-release acknowledgement. Bind/recycle transitions occur under the
-wrapper lock. Old and new generations for one source use distinct physical
-slots while both exist.
+A selected reservation may return directly to `vacant` because no binding or
+native lifetime exists yet. There is no direct `starting -> vacant`,
+`accepting -> vacant`, timeout expiry, or binding reuse before native
+context-release acknowledgement. Reservation and native-lifetime-commitment
+transitions occur under the wrapper lock. Old and new generations for one source
+use distinct physical slots while both exist.
 
 The source-level started-generation bound is:
 
@@ -574,8 +593,8 @@ FilesystemObservationContextReleaseAcknowledgement
 Matching acknowledgement is idempotent: first application advances the slot;
 repeated application returns `alreadyApplied`. Foreign/stale-binding/partial
 acknowledgements do nothing. Only accepted acknowledgement returns the slot to
-`vacant`. A later reservation installs a new UUIDv7 binding identity, so every
-request carrying the prior exact binding remains stale.
+`vacant`. A later native-lifetime commitment installs a new UUIDv7 binding
+identity, so every request carrying the prior exact binding remains stale.
 
 No public initializer or other owner can mint release authority. Repeating the
 native release operation replays the same post-release acknowledgement without
@@ -672,11 +691,14 @@ wall-clock sleeps:
     started/deferred dispositions, one desired identity and FIFO node per
     source, withdrawal without ghost start, in-place desired overwrite, and
     rank-`q` selection within `q + 1` successful vacancy selections. Injected
-    create/start failure rotates without wall-clock policy. Same-root safe N is
+    pre-commit failure releases only the exact reservation; injected
+    post-commit create/start failure rotates without wall-clock policy while its
+    exact unpublished native generation retires through D3. Same-root safe N is
     retained; changed/removed/unauthorized N closes and never resurrects.
-    Deterministic withdrawal after FIFO pop, reservation, native create, and
-    native start invalidates exact intent authority, releases or retires every
-    unpublished resource, and publishes no callback authority.
+    Deterministic withdrawal after FIFO pop, reservation, native-lifetime
+    commitment, native create, and native start invalidates exact intent
+    authority, releases or retires every unpublished resource, and publishes no
+    callback authority.
 13. N retiring + N+1 current/closing + N+2/N+3 desired while unrelated slots
     churn proves two started generations per source, one eligible pending fence,
     one desired identity, oldest-first retirement, fleet fairness, the static

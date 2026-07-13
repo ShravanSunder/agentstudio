@@ -150,8 +150,9 @@ construction lands with the state transition that owns it:
 
 | Identity or proof | Sole causal owner |
 | --- | --- |
-| fleet, physical-slot declaration, binding, control block | D1/D2 slot registry |
-| desired intent | D1/D2 slot registry |
+| fleet and physical-slot declaration | D1 slot registry |
+| desired intent and slot reservation | D1 slot registry |
+| binding, control block, and native-lifetime commitment | D2 slot registry plus native-generation owner |
 | contribution | atomic F1 mailbox coordination owner |
 | recovery custody | C fixed recovery register |
 | retirement fence and receipt | F2/H2 retirement and transfer owner |
@@ -172,8 +173,9 @@ where Swift access control is actually the boundary. Integer exhaustion is not
 a product workload or acceptance gate.
 
 Integrate A before filesystem call sites compile against the new two-argument
-contracted case. D1 is the first lifecycle task because it owns the complete
-binding consumed by C and later gates.
+contracted case. D1 freezes the complete binding value contract and owns desired
+reservation, but D2 is the first causal binding issuer. C and later gates
+consume only bindings minted by D2's atomic native-lifetime commitment.
 
 ### C — Isolated binding-aware fixed recovery shells
 
@@ -182,7 +184,8 @@ Add:
 - `FixedFilesystemRecoveryEvidenceRegister.swift`
 - `FixedFilesystemRecoveryEvidenceRegisterTests.swift`
 
-After D1 freezes the binding contract, add an independently testable register
+After D2 freezes the binding-commitment transition, add an independently
+testable register
 with exactly P physical-slot shells. Bound states carry the complete slot
 binding, retained evidence, one owner-minted UUIDv7 recovery-custody identity,
 and the current generic recovery stamp as non-authorizing metadata. Old binding
@@ -196,9 +199,10 @@ mailbox and receives no new behavior.
 
 RED/GREEN covers initial bind, record, join, snapshot, exact acknowledge,
 retire, foreign fleet, undeclared slot, wrong current binding, equal generic
-stamps on distinct bindings, and stale operations. Same-physical-slot reuse and
-old-binding acknowledgement after reuse are deferred to D3, the first owner
-that can legally recycle a slot.
+stamps on distinct bindings, and stale operations. Same-physical-slot binding
+reuse and old-binding acknowledgement after reuse are deferred to D3. Releasing
+a selected reservation is not binding reuse because a selected reservation has
+no binding or native lifetime.
 
 ### D1 — Desired FIFO, reservation, and configuration currentness
 
@@ -210,10 +214,11 @@ Add/modify:
 - `FilesystemSourceConfigurationReceiptTests.swift`
 - focused compiler fixtures/verifier for impossible receipt combinations
 
-Implement the fixed P=S+R pool and its host-minted UUIDv7 fleet/binding/control-
-block identities, unique desired-source FIFO, selected/starting intent identity,
-in-place desired overwrite, reservation release, create/start
-failure rotation, and withdrawal revalidation at pop/reserve/create/start.
+Implement the fixed P=S+R pool and its host-minted UUIDv7 fleet plus physical-
+slot identities, unique desired-source FIFO, selected reservation identity,
+in-place desired overwrite, pre-native reservation release/failure rotation,
+and withdrawal revalidation at pop/reserve. Selection reserves one exact
+physical slot but does not mint a binding or control-block identity.
 
 Strict results distinguish:
 
@@ -229,26 +234,34 @@ identical canonical root, source kind, authorization scope, event coverage, and
 no discontinuity. Unsafe N closes before retry and never resurrects.
 
 Proof uses successful vacancy-selection counts, never time. Run reserve 0/1/R/S,
-N+3/N+4 overwrite, failure rotation, every withdrawal pause point, and the full
-safe/unsafe × reserve/create/start matrix.
+N+3/N+4 overwrite, pre-commit failure rotation, withdrawal at pop/reserve, and
+the safe/unsafe reservation matrix. D2 owns the atomic native-lifetime
+commitment and D2/D3 integration owns create/start withdrawal and failure proof.
 
 ### D2 — Binding lifecycle and predecessor ordering
 
 Extend the same registry under one integration owner, but keep a separate RED/
 GREEN receipt for:
 
-- vacant/reserved/accepting/closing states;
+- vacant/selected/starting/accepting/closing states;
+- one lock-linearized `selected(reservation) -> starting(binding,
+  unpublishedNativeGeneration)` transition that consumes exact reservation
+  authority, mints the complete binding/control-block identities, and commits
+  native-generation custody before any native create call;
+- stale or withdrawn reservation rejection before commitment and total
+  post-commit create/start failure routing into native retirement;
 - two-started-plus-one-desired bound;
 - predecessor-gated oldest-first retirement;
 - exactly one predecessor-free pending fence intent per logical source;
 - `retirementFenceTransferredAwaitingCleanup` remaining retiring,
   slot-occupying, predecessor-ordering, and non-reusable.
 
-D1 owns the complete binding contract. C may begin after that contract freezes;
-D2 production registry edits follow D1 under the same registry owner. C remains
-uncomposed and production-file-disjoint until the atomic gate. The integration
-gate re-reads one exhaustive D1+D2 registry transition table and C's fixed-shell
-contract without composing either into the mailbox.
+D1 owns the complete binding value contract but cannot mint a binding. D2
+production registry edits follow D1 under the same registry owner. C begins only
+after D2 freezes the sole binding-commitment transition, then remains uncomposed
+and production-file-disjoint until the atomic gate. The integration gate re-reads
+one exhaustive D1+D2 registry transition table and C's fixed-shell contract
+without composing either into the mailbox.
 
 `FilesystemObservationSlotRegistry` is a non-locking mutable state owner accessed
 only while `FilesystemObservationMailbox` holds the wrapper coordination lock.
@@ -476,9 +489,12 @@ The native owner consumes the exact final receipt, releases retained callback
 context once, then mints and retains the exact UUIDv7 release acknowledgement.
 No other owner can construct it. The registry applies it once, installs one
 fixed completion tombstone, returns `alreadyApplied` for lost/repeated response
-while vacant, and returns typed stale after reuse. D3 is the first owner allowed
-to recycle a physical slot. Only the acknowledged vacant state can issue a new
-UUIDv7 binding and rebind the corresponding fixed recovery shell.
+while vacant, and returns typed stale after reuse. D3 is the only owner allowed
+to recycle a physical slot after a binding/native lifetime exists. A selected
+reservation can release directly because no binding exists. Only the
+acknowledged vacant state can later participate in another native-lifetime
+commitment, issue a new UUIDv7 binding, and rebind the corresponding fixed
+recovery shell.
 
 RED/GREEN proves receipt alone cannot recycle; acknowledgement cannot mint before
 native release-once; matching acknowledgement applies once; foreign binding,
@@ -598,10 +614,11 @@ gate 0: verify HEAD, accepted hashes, dirty adapter/test, first RED inventory
                                                     |
 integration gate 1: A GREEN + owner map audit ------+
   |
-  +-- D1 binding/desired/currentness ----------------+
+  +-- D1 reservation/desired/currentness ------------+
               |
-              +-- C isolated fixed recovery shells -+
-              +-- D2 lifecycle ---------------------+
+              +-- D2 binding lifecycle --------------+
+                          |
+                          +-- C isolated fixed recovery shells
   |
 integration gate 2: shared contract freeze; no composition
   |
@@ -629,8 +646,9 @@ atomic interface gate: integrate C + D1/D2 + E + F1 + G1;
 Safe parallelism:
 
 - A may proceed independently of the owner-placement documentation correction;
-- after D1 freezes binding types, isolated C may proceed beside D2 test/oracle
-  preparation, but D2 production edits remain with the registry owner;
+- after D1 freezes binding types, C test/oracle preparation may proceed beside
+  D2, but binding-dependent C implementation and executable proof wait for D2's
+  sole binding-commitment transition; no surrogate binding factory is allowed;
 - H1 || F2 after the atomic interface gate;
 - F3 || G2 after D3;
 - participant-registry files may run beside actor work only after the exact
@@ -655,9 +673,9 @@ or `FilesystemActor.swift` through the same integration gate.
 | Claim | Source | Owner | RED/GREEN proof | Layer / freshness |
 | --- | --- | --- | --- | --- |
 | typed fleet exhaustion reaches exact fleet debt | child 102-151 | A + atomic F1 + D1 + F3 | A returns exact transition/already-sealed cause; F1 records one transition/wake and closes callback authority; D1 derives every source non-current; F3 retains exact exhaustion debt | unit/compiler/integration; current HEAD/hash |
-| fixed binding rejects ABA | child 70-151 | D1 + C + D3 | D1 exact UUIDv7 binding/currentness; C binding-aware custody; D3 acknowledged same-slot reuse and old binding/custody/receipt/ack rejection | unit/compiler/integration |
+| fixed binding rejects ABA | child 70-151 | D2 + C + D3 | D2 exact UUIDv7 binding/stored-equality currentness; C binding-aware custody; D3 acknowledged same-slot reuse and old binding/custody/receipt/ack rejection | unit/compiler/integration |
 | callback admission is O(1) and credentialed | child 344-404 | atomic E/F1/G1 | held/released/foreign/consumed race; 1/100/300 operation count | unit/compiler/microbenchmark |
-| desired replacement is fair and currentness strict | child 153-279; parent configuration | D1 | reserve 0/1/R/S, q+1 selections, withdrawal at four pauses, safe/unsafe matrix | unit/native integration |
+| desired replacement is fair and currentness strict | child 153-279; parent configuration | D1 + D2/D3 integration | reserve 0/1/R/S, q+1 selections, reservation-only withdrawal, atomic native-lifetime commitment, withdrawal at create/start, safe/unsafe matrix | unit/native integration |
 | binding lifecycle is bounded and ordered | child 281-342 | D2/F2 | two started + desired, predecessor/pending fence, transferred-cleanup category | unit/integration |
 | whole-lease retry is idempotent for many slots | child 498-524 | H1 | strict-prefix failure, rotation/rebind, P×lease bound | integration |
 | contracted fence preserves intent and repair | child 450-560 | F2/H2 | capacity contraction, cleanup, SourceGate, final receipt | integration |

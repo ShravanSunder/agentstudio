@@ -1565,8 +1565,11 @@ Deterministic proof must cover:
   requested signal, the lease remains held through exactly one signal
   application, and release/retirement cannot pass that signal;
 - exactly two started-generation slots plus one non-started newest desired
-  identity under repeated replacement, including stream create/start failure,
-  delayed credentialed callback admission, queue barrier, callback lease drain,
+  identity under repeated replacement; selected reservation owns no binding,
+  and one atomic native-lifetime commitment mints the complete binding plus
+  committed unpublished-native-generation custody before any native create
+  call; proof includes stream create/start failure, delayed credentialed
+  callback admission, queue barrier, callback lease drain,
   stable-identity whole-lease retry after partial semantic acceptance, FIFO
   retirement fence, cleanup-before-fence completion, oldest-first debt transfer,
   deterministic deferred FIFO/withdrawal, safe-old-authority classification,
