@@ -74,14 +74,20 @@ Execution clarification discovered at the W1a RED seam:
 
 Depends on W2a's real `FilesystemObservationMailbox`, recovery-evidence
 register, `FilesystemSourceGate`, and exact per-registration recovery custody.
-Modify:
+W1b is a dormant isolated assembly, not the production protocol cut. The live
+`FSEventStreamClient -> FSEventBatch -> FilesystemActor` contract and current
+`DarwinFSEventStreamClient` remain unchanged until W2b because they are the one
+complete legacy production path. Add:
 
-- `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FSEventStreamClient.swift`
-  - Replace `FSEventBatch` as the callback contract with `FSEventObservation`.
-  - Carry `registrationID`, `AdmissionGeneration`, monotonic capture time, unioned flags, first/last event-ID watermarks, copied-record count/bytes, total event count, truncation, and source kind.
-  - Keep `FSEventStreamClient` protocol methods generation-bearing.
-- `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/DarwinFSEventStreamClient.swift`
-  - Replace `CallbackContext`/unretained teardown with a retained `FSEventRegistrationControlBlock`.
+- `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/DarwinFSEventObservationAdapter.swift`
+  - Own the future native callback capture and stream lifecycle behind a
+    retained `FSEventRegistrationControlBlock` without conforming to or
+    publishing through the legacy `FSEventStreamClient` protocol.
+  - Carry the registration token and mailbox callback producer/signaler ports
+    in the retained control-block assembly; `FSEventObservation` derives source
+    kind from the token and carries monotonic capture time, unioned flags,
+    first/last event-ID watermarks, copied-record count/bytes, total event count,
+    and truncation.
   - Enforce distinct inspected-native-record, copied-record, copied-byte, and
     maximum-single-path-byte limits before materializing any complete Swift path array.
   - Acquire a callback lease before touching registration state.
@@ -90,8 +96,15 @@ Modify:
     callback-admission-overflow evidence before signaling the doorbell.
   - Teardown sequence: mark closing, seal the old mailbox generation,
     stop/invalidate stream, execute callback-queue barrier, drain callback
-    leases, transfer/disposition exact recovery evidence into `FilesystemSourceGate`,
-    invalidate the old mailbox generation, then release context.
+    leases, return the sealed generation to the isolated drain owner, transfer/
+    disposition exact recovery evidence into `FilesystemSourceGate`, invalidate
+    the old mailbox generation, finish its doorbell, then release context.
+
+W2b owns the atomic production cut: replace `FSEventBatch` and the legacy
+`FSEventStreamClient` methods with generation-bearing observation registration,
+install this adapter inside the production Darwin client/source composition,
+switch `FilesystemActor` to the mailbox consumer, update the controllable fake,
+and delete `CallbackContext` plus the legacy batch stream in the same commit.
 
 Do not call an actor, schedule one task per path, access MainActor state, scan, canonicalize every path, or clear repair state in the callback.
 
@@ -101,10 +114,11 @@ W1b prepares the production callback adapter and proves the real Darwin lifecycl
 
 Create/modify:
 
+- new `Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinFSEventObservationAdapterTests.swift`
+- `Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinFSEventObservationAdmissionTests.swift`
+- `Tests/AgentStudioTests/Core/PaneRuntime/Sources/FSEventRegistrationControlBlockTests.swift`
 - `Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinFSEventStreamClientTests.swift`
-- `Tests/AgentStudioTests/Helpers/ControllableFSEventStreamClient.swift`
-- new `Tests/AgentStudioTests/Core/PaneRuntime/Sources/DarwinFSEventObservationAdmissionTests.swift`
-- new `Tests/AgentStudioTests/Core/PaneRuntime/Sources/FSEventRegistrationControlBlockTests.swift`
+  only for the structural pre-W2b proof that production remains wholly legacy.
 
 Boundary/seam: C callback capture and registration close.
 
@@ -121,13 +135,16 @@ Valid/invalid IO: ordinary create/rename/delete, must-scan, user/kernel drop, wr
 Independent oracle: literal flag/observation table and control-block counters, not production classification.
 
 RED/GREEN: required. RED must demonstrate lost flag/ID/truncation or unbounded
-copied records in the current seam. GREEN includes a real temporary Darwin
-stream lifecycle integration in which an oversized/discontinuous callback
-installs debt in the actual W2a source gate before returning; a deterministic
-replacement race acquires an old callback lease, seals/replaces the registration,
-installs loss, crosses the callback barrier, and proves debt survives transfer
-without becoming N+1. The fake client remains unit proof. A structural pre-W2b
-test proves production callback/source composition is still wholly legacy.
+copied records in the isolated native seam. GREEN includes a real temporary
+Darwin stream lifecycle integration in which an oversized/discontinuous
+callback installs exact recovery evidence in the old W2a mailbox generation
+before returning; the isolated drain owner then transfers that exact evidence
+into the actual W2a source gate before teardown can invalidate the mailbox or
+release callback context. A deterministic replacement race acquires an old
+callback lease, seals/replaces the registration, installs loss, crosses the
+callback barrier, and proves debt survives transfer without becoming N+1. A
+structural pre-W2b test proves production callback/source composition is still
+wholly legacy; the legacy fake is not changed until W2b.
 
 Split/replan trigger: queue barrier plus leases cannot establish teardown quiescence on the supported Darwin callback model.
 

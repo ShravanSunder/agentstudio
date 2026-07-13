@@ -222,7 +222,7 @@ exact-latency series or exact-valued log field.
 
 After S1 interfaces stabilize, execute the watched and terminal plans in parallel using disjoint files. After S2 stabilizes, domain lanes may build and test cutover-ready `RuntimeFactBus` endpoints in isolated assemblies, but production global wiring stays entirely legacy until IG1. S3 must exist before acceptance-grade measurements.
 
-- Watched pre-IG1 preparation/cuts: W1a, W2a, dormant W1b, W3–W10, atomic W2b, and atomic W7d. W11/W12 are post-IG1.
+- Watched pre-IG1 preparation/cuts: W1a, W2a, dormant W1b, W3–W10, atomic W2b, and atomic W7d. W1b's native observation adapter remains isolated from the complete legacy `FSEventStreamClient -> FSEventBatch -> FilesystemActor` production path; W2b replaces that protocol/composition and deletes the legacy batch path atomically. W11/W12 are post-IG1.
 - Terminal pre-IG1 preparation/cuts: T1–T11. T12 is post-IG1 and post-CG1.
 
 ### Shared lane S4 — Nonterminal And App Event Migration
