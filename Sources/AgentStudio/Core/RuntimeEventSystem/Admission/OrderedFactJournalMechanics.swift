@@ -31,10 +31,16 @@ func releaseOrderedFactCleanupCustody<FactCustody: Sendable, SnapshotCustody: Se
     case .facts(let facts):
         withExtendedLifetime(facts) {}
     case .snapshots(let snapshots):
-        snapshots.forEach { withExtendedLifetime($0) {} }
+        withExtendedLifetime(snapshots.first) {}
+        for snapshot in snapshots.remaining {
+            withExtendedLifetime(snapshot) {}
+        }
     case .factsAndSnapshots(let facts, let snapshots):
         withExtendedLifetime(facts) {}
-        snapshots.forEach { withExtendedLifetime($0) {} }
+        withExtendedLifetime(snapshots.first) {}
+        for snapshot in snapshots.remaining {
+            withExtendedLifetime(snapshot) {}
+        }
     }
 }
 

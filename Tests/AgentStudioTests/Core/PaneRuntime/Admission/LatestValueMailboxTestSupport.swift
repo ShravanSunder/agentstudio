@@ -14,8 +14,8 @@ func makeLatestValueTestLimits(
 func latestValuesByKey<Key, Value>(
     _ drain: LatestValueDrain<Key, Value>
 ) -> [Key: Value] where Key: Hashable & Sendable, Value: Sendable {
-    var valuesByKey: [Key: Value] = [:]
-    drain.values.forEach { entry in
+    var valuesByKey: [Key: Value] = [drain.values.first.key: drain.values.first.value]
+    for entry in drain.values.remaining {
         valuesByKey[entry.key] = entry.value
     }
     return valuesByKey

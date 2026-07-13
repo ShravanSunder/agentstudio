@@ -1049,7 +1049,8 @@ extension LatestValueMailbox {
         case .unavailable(let result):
             return .unavailable(result)
         case .detached(let authority, let custody, var retiredBatches):
-            custody.forEach { retainedValue in
+            withExtendedLifetime(custody.first) {}
+            for retainedValue in custody.remaining {
                 withExtendedLifetime(retainedValue) {}
             }
             retiredBatches.removeAll(keepingCapacity: false)

@@ -25,9 +25,11 @@ struct AdmissionTypeStateContractTests {
     @Test("nonempty batches always own a first element")
     func nonemptyBatchesOwnFirstElement() {
         let batch = NonEmptyAdmissionBatch(first: "first", remaining: ["second"])
-        var visited: [String] = []
+        var visited = [batch.first]
 
-        batch.forEach { visited.append($0) }
+        for element in batch.remaining {
+            visited.append(element)
+        }
 
         #expect(batch.count == 2)
         #expect(visited == ["first", "second"])

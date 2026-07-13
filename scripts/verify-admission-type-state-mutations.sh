@@ -494,6 +494,7 @@ for positive_selector in "${positive_selector_order[@]}"; do
   fi
   set +e
   SWIFT_TEST_SKIP_PREBUILD="$runtime_skip_prebuild" \
+    SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS="${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-180}" \
     mise run test -- --filter "$positive_selector" \
     >"$runtime_output" 2>&1
   runtime_exit_code=$?
