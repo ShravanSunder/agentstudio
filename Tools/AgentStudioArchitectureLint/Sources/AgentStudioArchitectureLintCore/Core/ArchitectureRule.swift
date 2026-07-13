@@ -52,5 +52,6 @@ enum ArchitectureRuleRegistry {
         TooltipSourceRule(),
         EventBusSubscriberPolicyRule(),
         RuntimeSignalPlaneRule(),
+        FilesystemObservationSlotRegistryOwnershipRule(),
     ]
 }

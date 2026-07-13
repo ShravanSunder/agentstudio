@@ -10,8 +10,8 @@ Accepted sources:
 
 - `watched-folder-admission-mainactor-fairness.md`, 1,785 lines,
   SHA-256 `10e93247c58fd03b9adaef007f8cdc0106ac3887aeeb71379c4873b24ec89050`
-- `filesystem-observation-admission-lifecycle.md`, 712 lines,
-  SHA-256 `59d922820d9d50831aec16a782da3de35239b5dcb044b9e765bc13dc61bd11a7`
+- `filesystem-observation-admission-lifecycle.md`, 777 lines,
+  SHA-256 `5855fb64a4179149c5ad32d576bf0e0f59e98a216b0eb43f39c0c0a39e94f951`
 - live planning anchor: `03e667c5a048767629238e5483a0bbbe43b596a8`
 
 ## 1. Outcome
@@ -51,6 +51,9 @@ In scope:
 - fixed recovery and semantic-replay shells;
 - deterministic desired FIFO, reservation, withdrawal, prior-authority, and
   derived-currentness state;
+- a decomposed slot-registry owner whose immutable contracts/projections cannot
+  hold mutation capability and whose sole binding construction transition is
+  protected by focused SwiftSyntax ownership proof;
 - one-shot callback lease authority and one mailbox-created paired port;
 - per-binding FIFO retirement fence, pending retry, cleanup gate, predecessor
   ordering, SourceGate acceptance, receipt, release-once, tombstone, and fleet
@@ -152,7 +155,7 @@ construction lands with the state transition that owns it:
 | --- | --- |
 | fleet and physical-slot declaration | D1 slot registry |
 | desired intent and slot reservation | D1 slot registry |
-| binding, control block, and native-lifetime commitment | D2 slot registry plus native-generation owner |
+| binding, control block, and native-lifetime commitment | D2a slot registry plus native-generation owner |
 | contribution | atomic F1 mailbox coordination owner |
 | recovery custody | C fixed recovery register |
 | retirement fence and receipt | F2/H2 retirement and transfer owner |
@@ -174,8 +177,8 @@ a product workload or acceptance gate.
 
 Integrate A before filesystem call sites compile against the new two-argument
 contracted case. D1 freezes the complete binding value contract and owns desired
-reservation, but D2 is the first causal binding issuer. C and later gates
-consume only bindings minted by D2's atomic native-lifetime commitment.
+reservation, but D2a is the first causal binding issuer. C and later gates
+consume only bindings minted by D2a's atomic native-lifetime commitment.
 
 ### C — Isolated binding-aware fixed recovery shells
 
@@ -184,7 +187,7 @@ Add:
 - `FixedFilesystemRecoveryEvidenceRegister.swift`
 - `FixedFilesystemRecoveryEvidenceRegisterTests.swift`
 
-After D2 freezes the binding-commitment transition, add an independently
+After D2a and D2b freeze the binding-commitment transition, add an independently
 testable register
 with exactly P physical-slot shells. Bound states carry the complete slot
 binding, retained evidence, one owner-minted UUIDv7 recovery-custody identity,
@@ -204,12 +207,13 @@ reuse and old-binding acknowledgement after reuse are deferred to D3. Releasing
 a selected reservation is not binding reuse because a selected reservation has
 no binding or native lifetime.
 
-### D1 — Desired FIFO, reservation, and configuration currentness
+### D1 — Desired FIFO, reservation, and configuration contracts
 
 Add/modify:
 
 - `FilesystemObservationSlotRegistry.swift`
-- a focused source-configuration contracts file if placement requires it
+- `FilesystemObservationSlotRegistryContracts.swift` for immutable identities,
+  registrations, closed results, and read-only projections
 - `FilesystemObservationSlotRegistryTests.swift`
 - `FilesystemSourceConfigurationReceiptTests.swift`
 - focused compiler fixtures/verifier for impossible receipt combinations
@@ -229,39 +233,61 @@ failedRetainingCurrent
 failedNonCurrent
 ```
 
-Aggregate currentness derives only from those cases. Safe N is retained only for
-identical canonical root, source kind, authorization scope, event coverage, and
-no discontinuity. Unsafe N closes before retry and never resurrects.
+Aggregate currentness derives only from those cases. D1 defines and proves the
+typed configuration identities, closed disposition shapes, receipt validation,
+and derived currentness/retry projection. It does not classify or retain a live
+prior authority because the dormant registry has no `accepting` state yet.
 
-Proof uses successful vacancy-selection counts, never time. Run reserve 0/1/R/S,
-N+3/N+4 overwrite, pre-commit failure rotation, withdrawal at pop/reserve, and
-the safe/unsafe reservation matrix. D2 owns the atomic native-lifetime
-commitment and D2/D3 integration owns create/start withdrawal and failure proof.
+D1 also enforces active-source capacity independently from physical-slot
+capacity. Active-source cardinality counts each logical source owning selected,
+starting, accepting, or retiring state exactly once. A deferred desired identity
+does not own active-source or physical-slot capacity; it remains one bounded FIFO
+node per source until reservation is eligible. The deferred-to-selected
+reservation transition returns the closed `activeSourceCapacityExhausted` result
+when a previously inactive source would exceed S. An already-active source may
+reserve replacement overlap from only the R reserve admitted by the fixed P=S+R
+pool.
 
-### D2 — Binding lifecycle and predecessor ordering
+Before D1 can checkpoint, aggregate receipt validation and currentness projection
+are GREEN for the full closed-disposition matrix. Retry membership and the
+public currentness projection must be derived from the same disposition rather
+than stored as independently mutable facts. D2c owns the prior-authority
+classifier and full safe/unsafe runtime matrix once its atomic gate supplies an
+actual published `accepting` authority; unpublished `starting` custody must not
+substitute for current product authority.
+
+Proof uses successful vacancy-selection counts, never time. Run active-source
+capacity S/S+1 independently from reserve 0/1/R/S, N+3/N+4 overwrite,
+pre-commit failure rotation, withdrawal at pop/reserve, and the configuration-
+receipt/currentness matrix. D2a owns the atomic native-lifetime commitment;
+D2c owns safe/unsafe prior-authority classification and retain/close behavior;
+D2a/D2c/D3 integration owns create/start withdrawal and failure proof.
+
+### D2a — Sole binding commitment and unpublished native lifetime
 
 Extend the same registry under one integration owner, but keep a separate RED/
 GREEN receipt for:
 
-- vacant/selected/starting/accepting/closing states;
+- vacant, selected, starting, and retiring-unpublished states only;
 - one lock-linearized `selected(reservation) -> starting(binding,
   unpublishedNativeGeneration)` transition that consumes exact reservation
   authority, mints the complete binding/control-block identities, and commits
   native-generation custody before any native create call;
 - stale or withdrawn reservation rejection before commitment and total
   post-commit create/start failure routing into native retirement;
-- two-started-plus-one-desired bound;
-- predecessor-gated oldest-first retirement;
-- exactly one predecessor-free pending fence intent per logical source;
-- `retirementFenceTransferredAwaitingCleanup` remaining retiring,
-  slot-occupying, predecessor-ordering, and non-reusable.
+- the committed-unpublished portion of the two-started-plus-one-desired bound,
+  including rejection of any third started lifetime for one source.
 
-D1 owns the complete binding value contract but cannot mint a binding. D2
-production registry edits follow D1 under the same registry owner. C begins only
-after D2 freezes the sole binding-commitment transition, then remains uncomposed
-and production-file-disjoint until the atomic gate. The integration gate re-reads
-one exhaustive D1+D2 registry transition table and C's fixed-shell contract
-without composing either into the mailbox.
+D1 owns the complete binding value contract but cannot mint a binding. D2a
+production registry edits follow D1 under the same registry owner and are the
+first causal binding issuer. Accepting, lease-drain closing, predecessor,
+retirement-fence, transfer, and final-receipt states are deliberately not D2a:
+they require the later native/mailbox/SourceGate authorities and land through
+D2c. C begins only after D2a and D2b freeze the sole binding-commitment
+transition, then remains uncomposed and production-file-disjoint until the
+atomic gate. The integration gate re-reads one exhaustive D1+D2a registry
+transition table and C's fixed-shell contract without composing either into the
+mailbox.
 
 `FilesystemObservationSlotRegistry` is a non-locking mutable state owner accessed
 only while `FilesystemObservationMailbox` holds the wrapper coordination lock.
@@ -269,6 +295,53 @@ It never owns a second lock. Native create/start/stop/invalidate/barrier and
 context release always execute with wrapper, recovery, and generic locks
 released; only opaque reservations, drain receipts, retirement receipts, and
 release acknowledgements cross that boundary.
+
+### D2b — Registry decomposition and lexical ownership closure
+
+This is a required structural checkpoint after D2a behavior is GREEN and before
+C consumes the frozen binding contract or the atomic interface gate integrates
+the registry.
+
+Modify/add exactly:
+
+- `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemObservationSlotRegistry.swift`
+- `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemObservationSlotRegistryContracts.swift`
+- `Tests/AgentStudioTests/Core/PaneRuntime/Sources/FilesystemObservationSlotRegistryTests.swift`
+- `Tools/AgentStudioArchitectureLint/Sources/AgentStudioArchitectureLintCore/Rules/FilesystemObservationSlotRegistryOwnershipRule.swift`
+- `Tools/AgentStudioArchitectureLint/Tests/AgentStudioArchitectureLintTests/FilesystemObservationSlotRegistryOwnershipRuleTests.swift`
+- the rule registration/inventory files required by the existing architecture-
+  lint framework; no app-package SwiftSyntax dependency
+
+Execute in this order:
+
+1. Preserve the identical D1/D2a behavior suite as the GREEN baseline.
+2. Move immutable identities, registrations, closed result types, and read-only
+   projections into `FilesystemObservationSlotRegistryContracts.swift`.
+   `FilesystemObservationSlotRegistry.swift` retains the one primary mutable
+   owner declaration, slot/FIFO/lifecycle storage, and transitions. It has no
+   production extension.
+3. Remove every reusable construction/issuance key, issuer, or factory. Keep
+   opaque mutation capability lexical to the narrow primary declaration. The
+   concrete binding, control-block identity, and native-generation identity
+   constructors each have exactly one production call site inside the
+   lock-linearized `selected -> starting` transition.
+4. Add the focused SwiftSyntax ownership rule. It rejects mutation-owner
+   extensions and construction outside the approved transition, including a
+   plain same-file helper and a same-file extension. It accepts the primary
+   owner with the sole approved transition and read-only contracts/projections.
+5. Re-run the unchanged D1/D2a behavior suite, focused architecture-lint rule
+   tests, scoped lint, and the full architecture lint before integration.
+
+The SwiftSyntax tests include explicit source probes for: approved
+`selected -> starting` construction, a plain helper bypass, a same-file
+extension bypass, a second issuer/factory, and a contracts/projection mutation
+attempt. Each forbidden probe must produce the expected diagnostic. This rule
+is compile-time/source enforcement only; D2b adds no lock, actor, runtime key,
+event path, currentness owner, or second authority.
+
+Split/replan if construction cannot be reduced to one call site without moving
+state mutation outside the registry's lock-linearized transition. Do not retain
+a reusable key as a workaround.
 
 ### Atomic interface gate E/F1/G1 — Lease + paired port + dormant adapter
 
@@ -281,6 +354,8 @@ Modify together:
 - `FilesystemObservationMailboxContracts.swift`
 - `FilesystemObservationMailbox.swift`
 - `FilesystemObservationSlotRegistry.swift` for serial mailbox integration
+- `FilesystemObservationSlotRegistryContracts.swift` as the read-only contract
+  consumed by mailbox/native integration
 - `FilesystemRecoveryEvidenceRegister.swift` to delete the legacy
   registration-keyed implementation
 - `FixedFilesystemRecoveryEvidenceRegister.swift` to promote the fixed
@@ -307,7 +382,7 @@ achieve the split.
 
 The gate:
 
-0. composes the completed D1/D2 slot registry and C fixed recovery register
+0. composes the completed D1/D2a/D2b slot registry and C fixed recovery register
    under the mailbox coordination lock, cuts generic custody from registration
    keys to physical-slot keys, deletes the legacy registration-keyed register,
    and migrates every dormant caller without an overload or adapter;
@@ -320,7 +395,12 @@ The gate:
 4. removes the raw producer and independently pairable signaler surface;
 5. keeps the lease held through offer and requested wake application, while
    releasing mailbox locks before signaling;
-6. migrates the dormant adapter and all focused tests to the paired port.
+6. migrates the dormant adapter and all focused tests to the paired port;
+7. begins D2c only where this gate now supplies real authority: successful
+   native start publishes `accepting`, and close enters callback-lease-drain
+   waiting through the exact native generation. It does not fabricate
+   predecessor, fence, SourceGate, transfer, or final-receipt authority that
+   belongs to F2/H2.
 
 The callback entry validates exact control-block, registration, complete slot
 binding, and held/unused one-shot lease authority before it invokes a
@@ -442,7 +522,11 @@ Serial integration owner modifies the registry/mailbox/lifecycle files and adds:
 Implement observation/fence FIFO, final-fence validation, distinct
 `retirementFenceAdmissionContraction` evidence, one retained pending intent,
 one eligible retry per acknowledgement/cleanup turn, and cleanup-before-semantic
-lease/receipt. Pending intent never stands in for discarded observation repair.
+lease/receipt. Integrate the corresponding D2c registry transitions for
+`closingAwaitingPredecessor`, `retirementFencePending`, and
+`retirementFenceInstalled`; only F2 may supply the exact predecessor/fence
+authority consumed by those transitions. Pending intent never stands in for
+discarded observation repair.
 
 RED/GREEN proves A→B→fence across lease quanta, contracted fence under queued
 detail, cleanup custody, wake-after-unlock, and N/N+1 predecessor ordering.
@@ -474,16 +558,57 @@ H2 is the sole owner of exact binding-bearing `FilesystemSourceGate` adaptation.
 WF-C consumes the frozen API and does not edit `FilesystemSourceGate.swift`; any
 newly discovered SourceGate change returns through the H2 integration owner.
 
+H2 also supplies the exact transfer/acceptance authority consumed by D2c's
+`retirementFenceTransferredAwaitingCleanup` and
+`retiredAwaitingContextRelease` transitions. The registry records those closed
+states but cannot mint SourceGate acceptance, final transfer, or retirement
+receipt authority.
+
 Neither the harness actor nor the eventual production actor awaits scans, Git,
 Bridge, MainActor, or filesystem I/O while holding a generic lease.
 
 Only exact whole-lease transfer + semantic acceptance + SourceGate acceptance +
 zero binding retry/cleanup debt can mint the final retirement receipt.
 
+### D2c — Authority-backed accepting, closing, predecessor, and fence integration
+
+D2c is a serial registry-integration slice distributed across the owners that
+make its transitions legitimate; it is not a pre-interface registry task and
+is not a prerequisite for C or D2b.
+
+- Atomic E/F1/G1 supplies the real native generation, paired callback port,
+  start publication, callback-close, and exact lease-drain receipt required for
+  `starting -> accepting -> closingAwaitingCallbackLeaseDrain`.
+- F2 supplies the predecessor decision, one predecessor-free pending fence
+  identity, contraction evidence, installation, and cleanup custody required
+  for `closingAwaitingCallbackLeaseDrain -> closingAwaitingPredecessor ->
+  retirementFencePending -> retirementFenceInstalled`.
+- H2 supplies exact semantic/SourceGate acceptance, whole-lease transfer, final
+  cleanup predicate, and retirement receipt required for
+  `retirementFenceInstalled -> retirementFenceTransferredAwaitingCleanup ->
+  retiredAwaitingContextRelease`.
+
+The registry remains the sole mutable slot-state owner and lock-linearization
+point, but consumes those opaque authorities instead of minting or simulating
+them. Once `accepting` exists, the registry classifies prior authority internally:
+only an exact binding with identical canonical resolved root, source kind,
+authorization scope, event coverage, and no exact-binding discontinuity may
+retain N until N+1 starts. Removed, absent, withdrawn, discontinuous, or
+configuration-incompatible N closes before retry and cannot resurrect. The GREEN
+matrix covers every individual mismatch plus stale/foreign discontinuity
+evidence and derives retaining/non-current results from that one classification.
+
+D2c completes only after H2. Its GREEN receipt re-runs one exhaustive
+D1/D2a/D2c lifecycle table proving the two-started-plus-one-desired bound,
+oldest-first retirement, exactly one predecessor-free pending fence per source,
+and that transferred-awaiting-cleanup remains retiring, slot-occupying,
+predecessor-ordering, and non-reusable. No placeholder port, receipt, fence,
+SourceGate acceptance, or surrogate issuer is permitted to make D2c earlier.
+
 ### D3 — Release-once, acknowledgement, tombstone, binding reuse
 
 Extend the native generation/control block and slot registry after H2 freezes the
-receipt authority.
+receipt authority and D2c completes the authority-backed lifecycle table.
 
 The native owner consumes the exact final receipt, releases retained callback
 context once, then mints and retains the exact UUIDv7 release acknowledgement.
@@ -541,17 +666,17 @@ mise run test-large -- --filter 'DarwinFSEventObservationLifecycleIntegrationTes
 W1b dormant readiness is blocked until that real Darwin proof passes. Do not
 substitute simulation, a sleep-based test, or a discretionary skip.
 
-W1b dormant ready requires A, B, C, D1, D2, atomic E/F1/G1, H1, F2, H2, D3,
-and G2, plus structural proof that production remains wholly legacy. Adapter
-unit tests alone are insufficient. F3 fleet shutdown is W2a mechanics, not W1b
-readiness.
+W1b dormant ready requires A, B, C, D1, D2a, D2b, atomic E/F1/G1, H1, F2,
+H2, D2c, D3, and G2, plus structural proof that production remains wholly
+legacy. Adapter unit tests alone are insufficient. F3 fleet shutdown is W2a
+mechanics, not W1b readiness.
 
 ## 6. Vertical Slice WF-C — W2a Replacement And Repair Mechanics
 
 Complete the isolated W2a system after WF-B:
 
-- finish D1/D2 configuration/replacement integration against the real recycle
-  receipts;
+- finish D1/D2a/D2c/D3 configuration/replacement integration against the real
+  recycle receipts;
 - add `WorktreeContentRepairConsumerRegistry.swift` and
   `FilesystemContentRepairProjector.swift`;
 - consume the frozen exact binding-bearing `FilesystemSourceGate` acceptance
@@ -605,6 +730,12 @@ performance attribution remains a later W12/DQ1/IG2 gate.
 
 ## 8. Execution DAG And Write Ownership
 
+The executor owns this plan's task decomposition and dependency order. The
+executor may split, rename, or reorder tasks without reconvergence when the
+accepted spec outcome, authority boundaries, hard-cut scope, safety invariants,
+and proof gates remain unchanged. A change to any of those spec-level contracts
+still requires reconvergence; plan maintenance by itself does not.
+
 ```text
 gate 0: verify HEAD, accepted hashes, dirty adapter/test, first RED inventory
   |
@@ -616,19 +747,28 @@ integration gate 1: A GREEN + owner map audit ------+
   |
   +-- D1 reservation/desired/currentness ------------+
               |
-              +-- D2 binding lifecycle --------------+
+              +-- D2a selected->starting commitment -+
                           |
+                          +-- D2a behavior GREEN
+                                  |
+                          D2b decompose/remove key
+                                  |
+                          D2b ownership lint GREEN
+                                  |
                           +-- C isolated fixed recovery shells
   |
 integration gate 2: shared contract freeze; no composition
   |
-atomic interface gate: integrate C + D1/D2 + E + F1 + G1;
+atomic interface gate: integrate C + D1/D2a/D2b + E + F1 + G1;
+                       begin D2c accepting/lease-drain closing;
                        delete legacy recovery register
   |
   +-- H1 semantic replay --------+
-  +-- F2 retirement fence -------+
+  +-- F2 retirement fence + D2c predecessor/fence
                                  |
-                         H2 SourceGate/receipt
+                         H2 SourceGate/receipt + D2c transfer/final receipt
+                                 |
+                         D2c lifecycle table GREEN
                                  |
                          D3 release/tombstone
                                  |
@@ -647,8 +787,9 @@ Safe parallelism:
 
 - A may proceed independently of the owner-placement documentation correction;
 - after D1 freezes binding types, C test/oracle preparation may proceed beside
-  D2, but binding-dependent C implementation and executable proof wait for D2's
-  sole binding-commitment transition; no surrogate binding factory is allowed;
+  D2a, but binding-dependent C implementation and executable proof wait for
+  D2a's sole binding-commitment transition and D2b's lexical-ownership closure;
+  no surrogate binding factory is allowed;
 - H1 || F2 after the atomic interface gate;
 - F3 || G2 after D3;
 - participant-registry files may run beside actor work only after the exact
@@ -660,7 +801,8 @@ Serial choke points:
 - the E/F1/G1 authority interface cut;
 - promotion of C, deletion of the legacy recovery register, and registry/mailbox
   lock-linearized composition inside that same atomic gate;
-- registry/mailbox lock-linearized integration;
+- D2c registry/mailbox/native/SourceGate lock-linearized integration through
+  atomic E/F1/G1, F2, and H2;
 - the single actor consumer/drain integration;
 - W2b production cut.
 
@@ -673,10 +815,11 @@ or `FilesystemActor.swift` through the same integration gate.
 | Claim | Source | Owner | RED/GREEN proof | Layer / freshness |
 | --- | --- | --- | --- | --- |
 | typed fleet exhaustion reaches exact fleet debt | child 102-151 | A + atomic F1 + D1 + F3 | A returns exact transition/already-sealed cause; F1 records one transition/wake and closes callback authority; D1 derives every source non-current; F3 retains exact exhaustion debt | unit/compiler/integration; current HEAD/hash |
-| fixed binding rejects ABA | child 70-151 | D2 + C + D3 | D2 exact UUIDv7 binding/stored-equality currentness; C binding-aware custody; D3 acknowledged same-slot reuse and old binding/custody/receipt/ack rejection | unit/compiler/integration |
+| fixed binding rejects ABA | child 70-151 | D2a + C + D3 | D2a exact UUIDv7 binding/stored-equality currentness; C binding-aware custody; D3 acknowledged same-slot reuse and old binding/custody/receipt/ack rejection | unit/compiler/integration |
 | callback admission is O(1) and credentialed | child 344-404 | atomic E/F1/G1 | held/released/foreign/consumed race; 1/100/300 operation count | unit/compiler/microbenchmark |
-| desired replacement is fair and currentness strict | child 153-279; parent configuration | D1 + D2/D3 integration | reserve 0/1/R/S, q+1 selections, reservation-only withdrawal, atomic native-lifetime commitment, withdrawal at create/start, safe/unsafe matrix | unit/native integration |
-| binding lifecycle is bounded and ordered | child 281-342 | D2/F2 | two started + desired, predecessor/pending fence, transferred-cleanup category | unit/integration |
+| desired replacement is fair and currentness strict | child 153-279; parent configuration | D1 + D2a/D2c/D3 integration | active-source S/S+1 independent from reserve 0/1/R/S, q+1 selections, reservation-only withdrawal, atomic native-lifetime commitment, withdrawal at create/start, safe/unsafe currentness matrix | unit/native integration |
+| slot mutation and binding construction have one lexical owner | child slot-registry ownership contract | D2b | unchanged D1/D2a behavior GREEN; contracts/projections separated; reusable key absent; approved-transition probe passes; plain-helper, same-file-extension, second-issuer, and projection-mutation probes fail | unit/SwiftSyntax architecture lint; before integration |
+| binding lifecycle is bounded and ordered | child 281-342 | D2c + atomic E/F1/G1 + F2/H2 | two started + desired, predecessor/pending fence, transferred-cleanup category, no authority before its owning gate | unit/integration |
 | whole-lease retry is idempotent for many slots | child 498-524 | H1 | strict-prefix failure, rotation/rebind, P×lease bound | integration |
 | contracted fence preserves intent and repair | child 450-560 | F2/H2 | capacity contraction, cleanup, SourceGate, final receipt | integration |
 | native context release is causal and idempotent | child 334-342, 561-592 | D3 | release count one, receipt/ack replay, stale after reuse | unit/native integration |
@@ -717,9 +860,12 @@ Per task:
 1. exact focused unit/state/compiler RED then GREEN;
 2. focused compiler/access-control proof only when an owning lifecycle API uses
    Swift access control as its construction boundary;
-3. scoped lint using Swift files only;
-4. exact touched-suite integration;
-5. checkpoint commit only after compile-complete local proof.
+3. for D2a, preserve behavior GREEN before D2b decomposition; then remove the
+   reusable key, pass the focused ownership-rule probes, and only then begin C
+   or registry integration;
+4. scoped lint using Swift files only;
+5. exact touched-suite integration;
+6. checkpoint commit only after compile-complete local proof.
 
 Combined pre-W2b gate:
 
@@ -783,9 +929,12 @@ Stop and return to planning/spec if:
 Allowed verified implementation checkpoints:
 
 ```text
-A/D1/C/D2    compile-complete owner-local commits
-E/F1/G1      one atomic authority-interface commit
-H1/F2/H2     proof-local commits with one integration owner
+A/D1/D2a     compile-complete owner-local behavior commits
+D2b          registry decomposition + focused ownership-lint commit
+C            fixed recovery-shell commit after D2b contract freeze
+E/F1/G1      one atomic authority-interface commit; begin D2c accepting/closing
+H1/F2/H2     proof-local commits with one D2c integration owner
+D2c          exhaustive authority-backed lifecycle-table checkpoint after H2
 D3           release/tombstone commit
 F3/G2        shutdown and real-Darwin proof commits
 W1b          dormant integration receipt checkpoint

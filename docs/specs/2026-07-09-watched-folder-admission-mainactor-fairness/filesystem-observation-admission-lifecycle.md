@@ -321,6 +321,44 @@ context-release acknowledgement. Reservation and native-lifetime-commitment
 transitions occur under the wrapper lock. Old and new generations for one source
 use distinct physical slots while both exist.
 
+### Slot-registry ownership and construction closure
+
+The slot registry is decomposed by authority rather than by lifecycle phase:
+
+```text
+FilesystemObservationSlotRegistryContracts.swift
+  owns: immutable identities, registrations, closed result types,
+        and read-only state projections
+  cannot own: mutable slot/FIFO state, mutation capability, or identity minting
+
+FilesystemObservationSlotRegistry.swift
+  owns: mutable slot/FIFO/lifecycle state and every state transition
+  exposes: closed transition methods and read-only projections only
+```
+
+The mutable owner is one narrow primary declaration in one file. Production
+extensions of that owner are forbidden. Opaque mutation capability remains
+lexically private to that declaration; it is not returned, injected, stored in
+a reusable issuer, or shared with the contracts/projection file. A reusable
+construction or issuance key is permitted only as temporary implementation
+scaffolding and must be removed before registry integration. It is not part of
+the accepted architecture.
+
+The lock-linearized `selected -> starting` transition is the only operation
+that may construct a slot binding, control-block identity, or native-generation
+identity. Their concrete construction therefore has exactly one production
+call site inside that transition. Reservation, retry, projection, tests, and
+same-file helpers cannot mint them. This decomposition adds no actor, lock,
+runtime authority, lookup, event path, or second currentness owner.
+
+Swift access control alone cannot prevent a deliberately added same-file
+extension from reaching a `private` member of the owner. Architecture lint
+therefore enforces the lexical boundary: the owner has no production extension;
+binding/control/native construction occurs only in the approved
+`selected -> starting` transition; and plain-helper plus same-file-extension
+mutation probes fail. The approved transition probe passes. This lint is a
+source-regression guard over the structural design, not a runtime authority.
+
 The source-level started-generation bound is:
 
 ```text
@@ -719,6 +757,11 @@ wall-clock sleeps:
 17. Lost retirement and context-release responses replay from one bounded
     per-slot tombstone before reuse and return typed stale results after reuse;
     native context release occurs exactly once before acknowledgement minting.
+18. Registry behavior remains identical after contracts/projections move out of
+    the mutable owner and the reusable construction key is removed. Focused
+    SwiftSyntax probes accept the sole `selected -> starting` construction site
+    and reject a plain helper, same-file owner extension, second issuer/factory,
+    and contracts/projection mutation attempt.
 
 ## Non-Goals
 
