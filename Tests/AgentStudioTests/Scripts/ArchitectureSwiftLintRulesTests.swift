@@ -6,17 +6,23 @@ struct ArchitectureSwiftLintRulesTests {
     @Test("architecture lint wiring uses stock SwiftLint and local SwiftPM tool")
     func architectureLintWiringUsesStockSwiftLintAndLocalTool() throws {
         let miseConfig = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
+        let lintScript = try String(contentsOfFile: "scripts/lint-swift.sh", encoding: .utf8)
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
         let swiftLintConfig = try String(contentsOfFile: ".swiftlint.yml", encoding: .utf8)
 
-        #expect(miseConfig.contains("swiftlint lint --strict"))
+        #expect(miseConfig.contains("run = \"/bin/bash scripts/lint-swift.sh\""))
+        #expect(lintScript.contains("swiftlint lint --strict"))
         #expect(
-            miseConfig.contains(
-                "swift run --package-path Tools/AgentStudioArchitectureLint agentstudio-architecture-lint Sources Tests"
+            lintScript.contains(
+                "swift run --package-path Tools/AgentStudioArchitectureLint"
             ))
+        #expect(lintScript.contains("agentstudio-architecture-lint Sources Tests"))
         #expect(!miseConfig.contains(legacyRunnerScriptPath))
         #expect(!miseConfig.contains("scripts/check-core-boundary-imports.sh"))
         #expect(!miseConfig.contains("scripts/check-atomlib-boundaries.sh"))
+        #expect(lintScript.contains("if [[ $# -eq 0 ]]"))
+        #expect(lintScript.contains("run_admission_contract=0"))
+        #expect(lintScript.contains("run_release_contract=0"))
 
         #expect(ciWorkflow.contains("brew install swift-format swiftlint"))
         #expect(ciWorkflow.contains("swift test --package-path Tools/AgentStudioArchitectureLint"))
