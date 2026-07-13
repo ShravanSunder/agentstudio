@@ -21,6 +21,54 @@ private func offerAuthoritativeRecovery(
 }
 
 extension AdmissionBoundedGatherMailboxTests {
+    @Test("capacity contraction reports the exact recovery authority exhaustion transition")
+    func capacityContractionReportsExactRecoveryAuthorityExhaustionTransition() {
+        // Arrange
+        let mailbox: BoundedGatherMailbox<GatherTestKey, GatherTestPayload> =
+            BoundedGatherMailbox(
+                generation: generation,
+                declaredKeys: [.alpha],
+                limits: hashProbeLimits(maximumDeclaredKeys: 1, maximumContributions: 1),
+                clock: TestPushClock(),
+                authoritySeed: GatherMailboxAuthoritySeed(
+                    recoveryStampsByKey: [.alpha: .sequenced(.max)]
+                )
+            )
+        let producer = mailbox.producerPort
+
+        // Act
+        let retainedOffer = producer.offer(
+            generation: generation,
+            contribution: contribution(key: .alpha, label: "retained", items: 1, bytes: 1)
+        )
+        let flippingOffer = producer.offer(
+            generation: generation,
+            contribution: contribution(key: .alpha, label: "flipping", items: 1, bytes: 1)
+        )
+        let laterOffer = producer.offer(
+            generation: generation,
+            contribution: contribution(key: .alpha, label: "later", items: 1, bytes: 1)
+        )
+        let diagnostics = mailbox.lifecyclePort.diagnostics
+
+        // Assert
+        guard case .admitted(.retained, wake: .scheduleDrain) = retainedOffer else {
+            Issue.record("Expected the retained offer to request the one recovery wake")
+            return
+        }
+        let flippingReceipt = requireAdmission(flippingOffer)
+        let laterReceipt = requireAdmission(laterOffer)
+        #expect(
+            requireContractionCause(flippingReceipt)
+                == .recoveryAuthorityExhaustedTransition
+        )
+        #expect(requireContractionCause(laterReceipt) == .ordinaryAdmissionAlreadySealed)
+        #expect(diagnostics.admission.offered == 3)
+        #expect(diagnostics.admission.admitted == 3)
+        #expect(diagnostics.admission.contracted == 2)
+        #expect(diagnostics.admission.repairEscalations == 1)
+    }
+
     @Test("rebind re-presents an incumbent lease before queued cleanup")
     func rebindRepresentsIncumbentLeaseBeforeQueuedCleanup() {
         // Arrange
@@ -189,6 +237,11 @@ extension AdmissionBoundedGatherMailboxTests {
         let exhaustedRevision = requireContractedRecoveryRevision(exhaustedReceipt)
         let laterRevision = requireContractedRecoveryRevision(laterReceipt)
         #expect(exhaustedRevision == laterRevision)
+        #expect(
+            requireContractionCause(exhaustedReceipt)
+                == .recoveryAuthorityExhaustedTransition
+        )
+        #expect(requireContractionCause(laterReceipt) == .ordinaryAdmissionAlreadySealed)
         #expect(replacementMaximumLease.token != maximumLease.token)
         #expect(lateAcknowledgement == .invalidToken)
         #expect(replacementAcknowledgement == .accepted(wake: .scheduleDrain))
@@ -289,11 +342,19 @@ extension AdmissionBoundedGatherMailboxTests {
         #expect(requireRecoveryRevision(maximumLease) == maximumRevision)
         let exhaustedRevision = requireContractedRecoveryRevision(exhaustedReceipt)
         #expect(exhaustedRevision != maximumRevision)
+        #expect(
+            requireContractionCause(exhaustedReceipt)
+                == .recoveryAuthorityExhaustedTransition
+        )
         #expect(maximumAcknowledgement == .accepted(wake: .scheduleDrain))
         #expect(afterMaximumAcknowledgement.recoverySlotCount == 1)
         #expect(requireRecoveryRevision(exhaustedLease) == exhaustedRevision)
         let newerExhaustedRevision = requireContractedRecoveryRevision(newerExhaustedReceipt)
         #expect(newerExhaustedRevision == exhaustedRevision)
+        #expect(
+            requireContractionCause(newerExhaustedReceipt)
+                == .ordinaryAdmissionAlreadySealed
+        )
         #expect(exhaustedAcknowledgement == .accepted(wake: .scheduleDrain))
         #expect(afterExhaustedAcknowledgement.recoverySlotCount == 1)
         #expect(requireRecoveryRevision(newerExhaustedLease) == newerExhaustedRevision)

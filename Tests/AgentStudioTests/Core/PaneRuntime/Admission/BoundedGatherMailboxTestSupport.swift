@@ -341,7 +341,7 @@ func requireRecoveryRevision<Key: Hashable & Sendable>(
     case .retained:
         Issue.record("Expected recovery-bearing admission", sourceLocation: sourceLocation)
         preconditionFailure("Expected recovery-bearing admission")
-    case .retainedWithRecovery(let revision), .contractedToRecovery(let revision):
+    case .retainedWithRecovery(let revision), .contractedToRecovery(let revision, _):
         return revision
     }
 }
@@ -371,11 +371,22 @@ func requireContractedRecoveryRevision<Key: Hashable & Sendable>(
     _ disposition: GatherAdmissionDisposition<Key>,
     sourceLocation: SourceLocation = #_sourceLocation
 ) -> GatherRecoveryRevision<Key> {
-    guard case .contractedToRecovery(let revision) = disposition else {
+    guard case .contractedToRecovery(let revision, _) = disposition else {
         Issue.record("Expected contracted recovery admission", sourceLocation: sourceLocation)
         preconditionFailure("Expected contracted recovery admission")
     }
     return revision
+}
+
+func requireContractionCause<Key: Hashable & Sendable>(
+    _ disposition: GatherAdmissionDisposition<Key>,
+    sourceLocation: SourceLocation = #_sourceLocation
+) -> GatherContractionCause {
+    guard case .contractedToRecovery(_, let cause) = disposition else {
+        Issue.record("Expected contracted recovery admission", sourceLocation: sourceLocation)
+        preconditionFailure("Expected contracted recovery admission")
+    }
+    return cause
 }
 
 struct GatherCleanupReleaseCounts {

@@ -274,10 +274,16 @@ struct GatherRecoveryRevision<Key>: Hashable, Sendable where Key: Hashable & Sen
     }
 }
 
+enum GatherContractionCause: Sendable, Equatable {
+    case capacityPressure
+    case recoveryAuthorityExhaustedTransition
+    case ordinaryAdmissionAlreadySealed
+}
+
 enum GatherAdmissionDisposition<Key>: Sendable where Key: Hashable & Sendable {
     case retained
     case retainedWithRecovery(GatherRecoveryRevision<Key>)
-    case contractedToRecovery(GatherRecoveryRevision<Key>)
+    case contractedToRecovery(GatherRecoveryRevision<Key>, GatherContractionCause)
 }
 
 enum GatherOfferResult<Key>: Sendable where Key: Hashable & Sendable {

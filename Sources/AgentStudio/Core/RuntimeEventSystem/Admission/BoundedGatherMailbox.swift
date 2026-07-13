@@ -468,6 +468,19 @@ where Key: Hashable & Sendable, Payload: Sendable {
         case exhausted
     }
 
+    private enum ContractionTrigger: Sendable {
+        case capacityPressure
+        case recoveryAuthorityExhaustion
+        case ordinaryAdmissionAlreadySealed
+
+        var recoveryAdvanceMode: RecoveryAdvanceMode {
+            switch self {
+            case .capacityPressure: .sequenced
+            case .recoveryAuthorityExhaustion, .ordinaryAdmissionAlreadySealed: .exhausted
+            }
+        }
+    }
+
     private enum RetainedOfferRecoveryMode: Sendable {
         case withoutRecovery
         case sequenced
@@ -476,7 +489,10 @@ where Key: Hashable & Sendable, Payload: Sendable {
     private enum ResolvedOfferAttempt {
         case retain(ResolvedOfferContext)
         case retainWithRecovery(ResolvedOfferContext)
-        case contract(ResolvedOfferContext, recovery: RecoveryAdvanceMode)
+        case contract(
+            ResolvedOfferContext,
+            trigger: ContractionTrigger
+        )
     }
 
     private struct LeaseSnapshot: Sendable {
@@ -863,11 +879,11 @@ where Key: Hashable & Sendable, Payload: Sendable {
 
             Self.incrementProtectedCounter(&state.offered, token: token)
             switch resolvedAttempt {
-            case .contract(let context, let recoveryMode):
+            case .contract(let context, let trigger):
                 return .completedDiscarding(
                     completeContractedOffer(
                         context,
-                        recoveryMode: recoveryMode,
+                        trigger: trigger,
                         keyState: &keyState,
                         state: &state,
                         token: token
@@ -1308,12 +1324,22 @@ extension BoundedGatherMailbox {
             slot: slot,
             recoveryCustodyEpochPreparation: attempt.recoveryCustodyEpochPreparation
         )
-        if state.ordinaryAdmissionSealed || recoveryWouldExhaust || !fitsCapacity {
+        if state.ordinaryAdmissionSealed {
             return .contract(
                 context,
-                recovery: state.ordinaryAdmissionSealed || recoveryWouldExhaust
-                    ? .exhausted
-                    : .sequenced
+                trigger: .ordinaryAdmissionAlreadySealed
+            )
+        }
+        if recoveryWouldExhaust {
+            return .contract(
+                context,
+                trigger: .recoveryAuthorityExhaustion
+            )
+        }
+        if !fitsCapacity {
+            return .contract(
+                context,
+                trigger: .capacityPressure
             )
         }
         switch attempt.contribution.recoverySignal {
@@ -1326,7 +1352,7 @@ extension BoundedGatherMailbox {
 
     private func completeContractedOffer(
         _ attempt: ResolvedOfferContext,
-        recoveryMode: RecoveryAdvanceMode,
+        trigger: ContractionTrigger,
         keyState: inout KeyState,
         state: inout State,
         token: borrowing AdmissionProtectedRegionToken
@@ -1339,12 +1365,13 @@ extension BoundedGatherMailbox {
         )
         let advance = advanceRecovery(
             at: attempt.now,
-            mode: recoveryMode,
+            mode: trigger.recoveryAdvanceMode,
             custodyEpochPreparation: attempt.recoveryCustodyEpochPreparation,
             keyState: &keyState,
             state: &state,
             token: token
         )
+        let cause = Self.contractionCause(trigger: trigger, recoveryAdvance: advance)
         if case .escalated = advance {
             Self.incrementProtectedCounter(&state.repairEscalations, token: token)
         }
@@ -1361,11 +1388,31 @@ extension BoundedGatherMailbox {
         updateHighWater(state: &state, token: token)
         return .admitted(
             disposition: .contractedToRecovery(
-                recoveryRevision(slot: attempt.slot, stamp: advance.stamp)
+                recoveryRevision(slot: attempt.slot, stamp: advance.stamp),
+                cause
             ),
             slot: attempt.slot,
             wake: requestWake(state: &state, token: token)
         )
+    }
+
+    private static func contractionCause(
+        trigger: ContractionTrigger,
+        recoveryAdvance: RecoveryAdvance
+    ) -> GatherContractionCause {
+        switch trigger {
+        case .ordinaryAdmissionAlreadySealed:
+            .ordinaryAdmissionAlreadySealed
+        case .recoveryAuthorityExhaustion:
+            .recoveryAuthorityExhaustedTransition
+        case .capacityPressure:
+            switch recoveryAdvance {
+            case .escalated(.authorityExhausted):
+                .recoveryAuthorityExhaustedTransition
+            case .escalated(.sequenced), .preserved:
+                .capacityPressure
+            }
+        }
     }
 
     private func completeRetainedOffer(

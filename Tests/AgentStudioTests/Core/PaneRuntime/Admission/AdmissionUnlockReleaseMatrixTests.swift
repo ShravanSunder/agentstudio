@@ -160,7 +160,12 @@ struct AdmissionUnlockReleaseMatrixTests {
         #expect(whileBlocked.admission.pendingKeyCount == 1)
         gate.releaseDestructor()
         guard gate.waitForOperationCompletion("gather contracted contribution") else { return }
-        guard case .admitted(.contractedToRecovery, wake: .scheduleDrain) = operationResult.load() else {
+        guard
+            case .admitted(
+                .contractedToRecovery(_, .capacityPressure),
+                wake: .scheduleDrain
+            ) = operationResult.load()
+        else {
             Issue.record("Expected contracted recovery admission with one wake")
             return
         }

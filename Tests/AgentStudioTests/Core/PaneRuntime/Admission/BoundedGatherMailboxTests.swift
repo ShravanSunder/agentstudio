@@ -256,7 +256,9 @@ struct AdmissionBoundedGatherMailboxTests {
         // Assert
         expectRetainedWithoutRecovery(requireAdmission(ordinary))
         _ = requireRetainedRecoveryRevision(requireAdmission(explicitRecovery))
-        _ = requireContractedRecoveryRevision(requireAdmission(capacityContraction))
+        let capacityContractionReceipt = requireAdmission(capacityContraction)
+        _ = requireContractedRecoveryRevision(capacityContractionReceipt)
+        #expect(requireContractionCause(capacityContractionReceipt) == .capacityPressure)
         #expect(diagnostics.offered == 3)
         #expect(diagnostics.admitted == 3)
         #expect(diagnostics.contracted == 1)

@@ -318,7 +318,9 @@ final class FilesystemObservationMailbox: @unchecked Sendable {
                     wake: wake
                 )
             )
-        case .admitted(.contractedToRecovery, let wake):
+        case .admitted(.contractedToRecovery(_, .capacityPressure), let wake),
+            .admitted(.contractedToRecovery(_, .recoveryAuthorityExhaustedTransition), let wake),
+            .admitted(.contractedToRecovery(_, .ordinaryAdmissionAlreadySealed), let wake):
             _ = recoveryRegister.record(
                 .callbackAdmissionOverflow,
                 for: registration
