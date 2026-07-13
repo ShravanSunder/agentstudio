@@ -904,6 +904,64 @@ struct AdmissionBoundedGatherMailboxTests {
 
 }
 
+extension AdmissionBoundedGatherMailboxTests {
+    @Test("selected-key offer never touches unrelated declared-key sentinels")
+    func selectedKeyOfferHasFixedPerKeyOperationVectorAcrossDeclaredScale() throws {
+        // Arrange / Act
+        let outcomes = try [1, 100, 300, 301].map { declaredKeyCount in
+            let probes = (0..<declaredKeyCount).map { _ in GatherHashProbe() }
+            let keys = (0..<declaredKeyCount).map {
+                GatherHashProbeKey(identifier: $0, probe: probes[$0])
+            }
+            let mailbox = BoundedGatherMailbox<GatherHashProbeKey, Int>(
+                generation: generation,
+                declaredKeys: Set(keys),
+                limits: hashProbeLimits(
+                    maximumDeclaredKeys: declaredKeyCount,
+                    maximumContributions: 1
+                )
+            )
+            for probe in probes {
+                probe.reset()
+            }
+            let selectedKey = try #require(keys.last)
+
+            let result = mailbox.producerPort.offer(
+                generation: generation,
+                contribution: GatherContribution(
+                    key: selectedKey,
+                    payload: 1,
+                    footprint: GatherFootprint(itemCount: 1, byteCount: 1),
+                    recoverySignal: .ordinary
+                )
+            )
+
+            expectRetainedWithoutRecovery(requireGenericAdmission(result))
+            return GatherSelectedKeyScaleOutcome(
+                declaredKeyCount: declaredKeyCount,
+                selectedKeyOperationVector: probes[declaredKeyCount - 1].operationVector,
+                unrelatedKeyOperationVectors: probes.dropLast().map(\.operationVector)
+            )
+        }
+
+        // Assert
+        #expect(outcomes.map(\.declaredKeyCount) == [1, 100, 300, 301])
+        #expect(Set(outcomes.map(\.selectedKeyOperationVector)).count == 1)
+        #expect(outcomes.allSatisfy { $0.selectedKeyOperationVector != .untouched })
+        #expect(
+            outcomes.allSatisfy {
+                $0.unrelatedKeyOperationVectors.allSatisfy { $0.hashCount == 0 }
+            }
+        )
+    }
+}
+
+private struct GatherSelectedKeyScaleOutcome {
+    let declaredKeyCount: Int
+    let selectedKeyOperationVector: GatherKeyOperationVector
+    let unrelatedKeyOperationVectors: [GatherKeyOperationVector]
+}
+
 func contribution(
     key: GatherTestKey,
     label: String,

@@ -381,13 +381,86 @@ struct FilesystemSourceGateTests {
     private func makeRecoveryEvidenceSnapshot(
         registration: FSEventRegistrationToken,
         evidence: FilesystemRecoveryEvidence
-    ) throws -> FilesystemRecoveryEvidenceSnapshot {
-        let register = try FilesystemRecoveryEvidenceRegister(
-            maximumDeclaredRegistrations: 1,
-            declaredRegistrations: [registration]
+    ) throws -> FixedFilesystemRecoveryEvidenceSnapshot {
+        let mailbox = try FilesystemObservationMailbox(
+            generation: AdmissionGeneration(owner: .filesystemObservation, value: 1),
+            maximumSimultaneousSourceCount: 1,
+            replacementReserveSlotCount: 0,
+            limits: GatherMailboxLimits(
+                maximumDeclaredKeys: 1,
+                maximumRetainedContributions: 1,
+                maximumRetainedItems: 1,
+                maximumRetainedBytes: 256,
+                maximumRetainedContributionsPerKey: 1,
+                maximumRetainedItemsPerKey: 1,
+                maximumRetainedBytesPerKey: 256,
+                maximumContributionsPerLease: 1,
+                maximumItemsPerLease: 1,
+                maximumBytesPerLease: 256,
+                cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 256)
+            )
         )
-        guard case .recorded(let snapshot) = register.record(evidence, for: registration) else {
-            Issue.record("declared registration did not retain recovery evidence")
+        _ = mailbox.recordDesiredRegistration(registration)
+        guard case .selected(let selection) = mailbox.selectNextDesiredSource() else {
+            Issue.record("desired registration did not receive a physical slot")
+            throw TestFailure.recoveryEvidenceNotRecorded
+        }
+        guard
+            case .committed(let startingNativeLifetime) = mailbox.beginNativeLifetime(
+                selection.reservation
+            )
+        else {
+            Issue.record("selected registration did not commit a fixed binding")
+            throw TestFailure.recoveryEvidenceNotRecorded
+        }
+        let observation = try FSEventObservation(
+            registration: registration,
+            capturedAt: ContinuousClock.now,
+            totalRecordCount: .exact(1),
+            inspectedNativeRecordCount: 1,
+            records: [
+                FSEventRecord(
+                    path: "/source-gate-recovery",
+                    flags: [.itemModified],
+                    eventID: 1
+                )
+            ],
+            unionedInspectedFlags: [.itemModified],
+            eventIDWatermark: .inspected(first: 1, last: 1),
+            completeness: .complete
+        )
+        let captureLimits = try FSEventCaptureLimits(
+            maximumInspectedNativeRecords: 1,
+            maximumCopiedRecords: 1,
+            maximumCopiedUTF8Bytes: 256,
+            maximumSinglePathUTF8Bytes: 256
+        )
+        guard
+            case .created(let nativeGenerationPorts) = mailbox.nativeGenerationPorts(
+                for: startingNativeLifetime
+            ),
+            case .acquired(let callbackLease) = try makeControlBlock(
+                startingNativeLifetime: startingNativeLifetime,
+                captureLimits: captureLimits,
+                callbackQueueLabel: "test.filesystem-source-gate-recovery"
+            ).acquireCallbackLease()
+        else {
+            Issue.record("fixed mailbox did not vend paired callback authority")
+            throw TestFailure.recoveryEvidenceNotRecorded
+        }
+        defer { _ = callbackLease.release() }
+        let callbackResult = nativeGenerationPorts.callbackAdmissionPort.admit(
+            using: callbackLease,
+            preflight: FilesystemObservationCallbackPreflight(captureLimits: captureLimits)
+        ) {
+            .offer(.requiresRecovery(observation, evidence: evidence))
+        }
+        guard
+            case .admitted(_, let admissionResult) = callbackResult,
+            case .admitted(let disposition, _) = admissionResult,
+            case .retainedWithRecovery(let snapshot) = disposition
+        else {
+            Issue.record("fixed mailbox did not retain recovery evidence: \(callbackResult)")
             throw TestFailure.recoveryEvidenceNotRecorded
         }
         return snapshot

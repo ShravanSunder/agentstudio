@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 import Testing
 
@@ -11,80 +12,195 @@ struct FilesystemObservationMailboxTests {
     func contractionInstallsRecoveryBeforeWakeBecomesVisible() throws {
         // Arrange
         let registration = makeRegistration(index: 1)
-        let mailbox = try makeMailbox(
+        let fixture = try makeMailboxFixture(
             registrations: [registration],
             limits: limits(global: 0, perRegistration: 1, perLease: 1)
         )
-        let producer: FilesystemObservationCallbackProducerPort = mailbox.callbackProducerPort
-        let signaler: FilesystemObservationCallbackSignalerPort = mailbox.callbackSignalerPort
-        let _: FilesystemObservationActorConsumerPort = mailbox.actorConsumerPort
-        let _: FilesystemObservationActorWaiterPort = mailbox.actorWaiterPort
-        let lifecycle: FilesystemObservationLifecyclePort = mailbox.lifecyclePort
+        let mailbox = fixture.mailbox
+        let preWakeProbe = CallbackPreWakeProbe(mailbox: mailbox)
 
         // Act
-        let result = producer.offer(
+        let result = try fixture.admitCallback(
             .authoritative(
                 try makeObservation(registration: registration, path: "/root/overflow", eventID: 1)
-            )
+            ),
+            for: registration,
+            synchronization: preWakeProbe
         )
 
         // Assert
         let recovery = requireContractedRecovery(result)
-        let receipt = requireOfferReceipt(result)
         #expect(recovery.evidence.contains(.callbackAdmissionOverflow))
-        #expect(lifecycle.diagnostics.recoveryEvidence(for: registration) == .evidence(recovery))
-        #expect(lifecycle.diagnostics.doorbellState == .idle)
-        #expect(receipt.wake == .scheduleDrain)
-        signaler.apply(receipt.wake)
-        #expect(lifecycle.diagnostics.doorbellState == .signalPending)
+        #expect(mailbox.recoveryEvidence(for: fixture.binding(for: registration)) == .retained(recovery))
+        #expect(preWakeProbe.observedDoorbellState == .idle)
+        #expect(requireCallbackWake(result) == .applied)
+        #expect(mailbox.lifecyclePort.diagnostics.doorbellState == .signalPending)
     }
 
     @Test("native recovery evidence is joined before retained work is signaled")
     func explicitRecoveryIsRetainedBeforeWakeBecomesVisible() throws {
         // Arrange
         let registration = makeRegistration(index: 2)
-        let mailbox = try makeMailbox(registrations: [registration])
+        let fixture = try makeMailboxFixture(registrations: [registration])
+        let mailbox = fixture.mailbox
+        let preWakeProbe = CallbackPreWakeProbe(mailbox: mailbox)
         let evidence = FilesystemRecoveryEvidence.continuityLoss
             .unioning(.rootIdentityRevalidation)
 
         // Act
-        let result = mailbox.callbackProducerPort.offer(
+        let result = try fixture.admitCallback(
             .requiresRecovery(
                 try makeObservation(registration: registration, path: "/root/loss", eventID: 10),
                 evidence: evidence
-            )
+            ),
+            for: registration,
+            synchronization: preWakeProbe
         )
 
         // Assert
         let recovery = requireRetainedRecovery(result)
-        let receipt = requireOfferReceipt(result)
         #expect(recovery.evidence.contains(.continuityLoss))
         #expect(recovery.evidence.contains(.rootIdentityRevalidation))
-        #expect(mailbox.lifecyclePort.diagnostics.recoveryEvidence(for: registration) == .evidence(recovery))
-        #expect(mailbox.lifecyclePort.diagnostics.doorbellState == .idle)
-        mailbox.callbackSignalerPort.apply(receipt.wake)
+        #expect(mailbox.recoveryEvidence(for: fixture.binding(for: registration)) == .retained(recovery))
+        #expect(preWakeProbe.observedDoorbellState == .idle)
+        #expect(requireCallbackWake(result) == .applied)
         #expect(mailbox.lifecyclePort.diagnostics.doorbellState == .signalPending)
     }
 
-    @Test("unknown registrations retain no payload evidence or wake")
-    func unknownRegistrationHasNoSideEffects() throws {
-        // Arrange
-        let declared = makeRegistration(index: 3)
-        let unknown = makeRegistration(index: 4)
-        let mailbox = try makeMailbox(registrations: [declared])
+    @Test("invalid callback footprint rejects before native capture")
+    func invalidCallbackFootprintSkipsNativeCapture() throws {
+        let registration = makeRegistration(index: 30)
+        let fixture = try makeMailboxFixture(registrations: [registration])
+        let (callbackAdmissionPort, controlBlock) = try makeCallbackHarness(
+            fixture: fixture,
+            registration: registration
+        )
+        let lease = try #require(acquiredLease(from: controlBlock))
+        defer { _ = lease.release() }
+        let inspectionLedger = NativeInspectionLedger()
+        let preflight = FilesystemObservationCallbackPreflight(
+            captureLimits: fixture.captureLimits,
+            maximumFootprint: GatherFootprint(itemCount: -1, byteCount: 0)
+        )
 
-        // Act
-        let result = mailbox.callbackProducerPort.offer(
-            .requiresRecovery(
-                try makeObservation(registration: unknown, path: "/unknown/file", eventID: 20),
-                evidence: .continuityLoss
+        let result = callbackAdmissionPort.admit(
+            using: lease,
+            preflight: preflight
+        ) {
+            inspectionLedger.recordInspection()
+            return .ignoredEmptyCallback
+        }
+
+        expectRejection(result, expected: .mailbox(.invalidFootprint))
+        #expect(inspectionLedger.inspectionCount == 0)
+        #expect(fixture.mailbox.lifecyclePort.diagnostics.gather.admission.offered == 0)
+    }
+
+    @Test("callback footprint configuration mismatch rejects before native capture")
+    func callbackFootprintConfigurationMismatchSkipsNativeCapture() throws {
+        let registration = makeRegistration(index: 31)
+        let fixture = try makeMailboxFixture(registrations: [registration])
+        let (callbackAdmissionPort, controlBlock) = try makeCallbackHarness(
+            fixture: fixture,
+            registration: registration
+        )
+        let lease = try #require(acquiredLease(from: controlBlock))
+        defer { _ = lease.release() }
+        let inspectionLedger = NativeInspectionLedger()
+        let preflight = FilesystemObservationCallbackPreflight(
+            captureLimits: fixture.captureLimits,
+            maximumFootprint: GatherFootprint(
+                itemCount: fixture.captureLimits.maximumCopiedRecords - 1,
+                byteCount: fixture.captureLimits.maximumCopiedUTF8Bytes
             )
         )
 
+        let result = callbackAdmissionPort.admit(
+            using: lease,
+            preflight: preflight
+        ) {
+            inspectionLedger.recordInspection()
+            return .ignoredEmptyCallback
+        }
+
+        expectRejection(result, expected: .mailbox(.captureConfigurationMismatch))
+        #expect(inspectionLedger.inspectionCount == 0)
+        #expect(fixture.mailbox.lifecyclePort.diagnostics.gather.admission.offered == 0)
+    }
+
+    @Test("fleet-sealed callback rejects before native capture or generic offer")
+    func fleetSealedCallbackSkipsNativeCapture() throws {
+        let registration = makeRegistration(index: 32)
+        let fixture = try makeMailboxFixture(
+            registrations: [registration],
+            limits: limits(global: 0, perRegistration: 1, perLease: 1),
+            recoveryAuthoritySeed: .preseeded(.sequenced(.max))
+        )
+        _ = requireContractedRecovery(
+            try fixture.admitCallback(
+                .authoritative(
+                    try makeObservation(
+                        registration: registration,
+                        path: "/root/exhaust",
+                        eventID: 32
+                    )
+                ),
+                for: registration
+            )
+        )
+        let diagnosticsBeforeRejection = fixture.mailbox.lifecyclePort.diagnostics.gather
+        let (callbackAdmissionPort, controlBlock) = try makeCallbackHarness(
+            fixture: fixture,
+            registration: registration
+        )
+        let lease = try #require(acquiredLease(from: controlBlock))
+        defer { _ = lease.release() }
+        let inspectionLedger = NativeInspectionLedger()
+
+        let result = callbackAdmissionPort.admit(
+            using: lease,
+            preflight: FilesystemObservationCallbackPreflight(
+                captureLimits: fixture.captureLimits
+            )
+        ) {
+            inspectionLedger.recordInspection()
+            return .ignoredEmptyCallback
+        }
+
+        expectRejection(result, expected: .mailbox(.fleetOrdinaryAdmissionSealed))
+        #expect(inspectionLedger.inspectionCount == 0)
+        #expect(
+            fixture.mailbox.lifecyclePort.diagnostics.gather.admission.offered
+                == diagnosticsBeforeRejection.admission.offered
+        )
+    }
+
+    @Test("mismatched registrations retain no payload evidence or wake")
+    func mismatchedRegistrationHasNoSideEffects() throws {
+        // Arrange
+        let declared = makeRegistration(index: 3)
+        let unknown = makeRegistration(index: 4)
+        let fixture = try makeMailboxFixture(registrations: [declared])
+        let mailbox = fixture.mailbox
+        let binding = fixture.binding(for: declared)
+        let undeclaredPhysicalSlotID = FilesystemObservationPhysicalSlotID(value: UUIDv7.generate())
+
+        // Act
+        let result = try fixture.admitCallback(
+            .requiresRecovery(
+                try makeObservation(registration: unknown, path: "/unknown/file", eventID: 20),
+                evidence: .continuityLoss
+            ),
+            for: declared
+        )
+
         // Assert
-        #expect(result == .undeclaredRegistration)
-        #expect(mailbox.lifecyclePort.diagnostics.recoveryEvidence(for: unknown) == .unknownRegistration)
-        #expect(mailbox.lifecyclePort.diagnostics.recoveryEvidence(for: declared) == .noEvidence(.sequenced(0)))
+        expectRejection(result, expected: .mailbox(.fenced))
+        #expect(
+            mailbox.lifecyclePort.diagnostics.recoveryEvidence(for: undeclaredPhysicalSlotID)
+                == .undeclaredPhysicalSlot
+        )
+        #expect(mailbox.recoveryEvidence(for: binding) == .clear(binding))
         #expect(mailbox.lifecyclePort.diagnostics.doorbellState == .idle)
         #expect(mailbox.lifecyclePort.diagnostics.gather.retainedContributionCount == 0)
     }
@@ -93,26 +209,30 @@ struct FilesystemObservationMailboxTests {
     func olderRecoveryAcknowledgementRetainsNewerEvidence() throws {
         // Arrange
         let registration = makeRegistration(index: 5)
-        let mailbox = try makeMailbox(registrations: [registration])
+        let fixture = try makeMailboxFixture(registrations: [registration])
+        let mailbox = fixture.mailbox
+        let slotBinding = fixture.binding(for: registration)
         let consumer = mailbox.actorConsumerPort
-        let binding = consumer.bindConsumer().binding
+        let consumerBinding = consumer.bindConsumer().binding
         let oldRecovery = requireRetainedRecovery(
-            mailbox.callbackProducerPort.offer(
+            try fixture.admitCallback(
                 .requiresRecovery(
                     try makeObservation(registration: registration, path: "/root/a", eventID: 30),
                     evidence: .continuityLoss
-                )
+                ),
+                for: registration
             )
         )
-        let oldLease = requireLease(consumer.takeDrain(binding: binding))
+        let oldLease = requireLease(consumer.takeDrain(binding: consumerBinding))
         #expect(requireRecovery(oldLease) == oldRecovery)
         let oldRecoveryAcceptance = try acceptRecovery(oldRecovery)
         let newestRecovery = requireRetainedRecovery(
-            mailbox.callbackProducerPort.offer(
+            try fixture.admitCallback(
                 .requiresRecovery(
                     try makeObservation(registration: registration, path: "/root/b", eventID: 31),
                     evidence: .unsupportedNativeFlags
-                )
+                ),
+                for: registration
             )
         )
 
@@ -131,8 +251,7 @@ struct FilesystemObservationMailboxTests {
                 )
         )
         #expect(
-            mailbox.lifecyclePort.diagnostics.recoveryEvidence(for: registration)
-                == .evidence(newestRecovery)
+            mailbox.recoveryEvidence(for: slotBinding) == .retained(newestRecovery)
         )
         #expect(newestRecovery.evidence.contains(.continuityLoss))
         #expect(newestRecovery.evidence.contains(.unsupportedNativeFlags))
@@ -144,39 +263,41 @@ struct FilesystemObservationMailboxTests {
         let alpha = makeRegistration(index: 6)
         let beta = makeRegistration(index: 7)
         let gamma = makeRegistration(index: 8)
-        let mailbox = try makeMailbox(
+        let fixture = try makeMailboxFixture(
             registrations: [alpha, beta, gamma],
             limits: limits(global: 2, perRegistration: 2, perLease: 1)
         )
-        let producer = mailbox.callbackProducerPort
+        let mailbox = fixture.mailbox
         let consumer = mailbox.actorConsumerPort
-        let binding = consumer.bindConsumer().binding
-        let alphaOffer = producer.offer(
+        let consumerBinding = consumer.bindConsumer().binding
+        _ = try fixture.admitCallback(
             .authoritative(
                 try makeObservation(registration: alpha, path: "/alpha/leased", eventID: 40)
-            )
+            ),
+            for: alpha
         )
-        mailbox.callbackSignalerPort.apply(requireOfferReceipt(alphaOffer).wake)
         #expect(await mailbox.actorWaiterPort.nextSignal() == .signaled)
         let alphaLease = requireLease(
-            consumer.takeDrain(binding: binding)
+            consumer.takeDrain(binding: consumerBinding)
         )
-        _ = producer.offer(
+        _ = try fixture.admitCallback(
             .authoritative(
                 try makeObservation(registration: beta, path: "/beta/pending", eventID: 41)
-            )
+            ),
+            for: beta
         )
 
         // Act
-        let overflow = producer.offer(
+        let overflow = try fixture.admitCallback(
             .authoritative(
                 try makeObservation(registration: gamma, path: "/gamma/overflow", eventID: 42)
-            )
+            ),
+            for: gamma
         )
         let diagnostics = mailbox.lifecyclePort.diagnostics.gather
 
         // Assert
-        #expect(alphaLease.registration == alpha)
+        #expect(alphaLease.binding == fixture.binding(for: alpha))
         #expect(diagnostics.retainedContributionCount == 2)
         #expect(diagnostics.pendingContributionCount == 1)
         #expect(diagnostics.leasedContributionCount == 1)
@@ -188,46 +309,49 @@ struct FilesystemObservationMailboxTests {
         // Arrange
         let noisy = makeRegistration(index: 9)
         let quiet = makeRegistration(index: 10)
-        let mailbox = try makeMailbox(
+        let fixture = try makeMailboxFixture(
             registrations: [noisy, quiet],
             limits: limits(global: 4, perRegistration: 2, perLease: 1)
         )
-        let producer = mailbox.callbackProducerPort
+        let mailbox = fixture.mailbox
         let consumer = mailbox.actorConsumerPort
-        let binding = consumer.bindConsumer().binding
-        let firstOffer = producer.offer(
+        let consumerBinding = consumer.bindConsumer().binding
+        _ = try fixture.admitCallback(
             .authoritative(
                 try makeObservation(registration: noisy, path: "/noisy/leased", eventID: 50)
-            )
+            ),
+            for: noisy
         )
-        mailbox.callbackSignalerPort.apply(requireOfferReceipt(firstOffer).wake)
         #expect(await mailbox.actorWaiterPort.nextSignal() == .signaled)
-        _ = requireLease(consumer.takeDrain(binding: binding))
-        _ = producer.offer(
+        _ = requireLease(consumer.takeDrain(binding: consumerBinding))
+        _ = try fixture.admitCallback(
             .authoritative(
                 try makeObservation(registration: noisy, path: "/noisy/pending", eventID: 51)
-            )
+            ),
+            for: noisy
         )
 
         // Act
-        let noisyOverflow = producer.offer(
+        let noisyOverflow = try fixture.admitCallback(
             .authoritative(
                 try makeObservation(registration: noisy, path: "/noisy/overflow", eventID: 52)
-            )
+            ),
+            for: noisy
         )
-        let quietOffer = producer.offer(
+        let quietOffer = try fixture.admitCallback(
             .authoritative(
                 try makeObservation(registration: quiet, path: "/quiet/current", eventID: 53)
-            )
+            ),
+            for: quiet
         )
 
         // Assert
         let noisyRecovery = requireContractedRecovery(noisyOverflow)
         #expect(noisyRecovery.evidence.contains(.callbackAdmissionOverflow))
-        expectRetained(quietOffer)
+        expectRetainedCallback(quietOffer)
         #expect(
-            mailbox.lifecyclePort.diagnostics.recoveryEvidence(for: quiet)
-                == .noEvidence(.sequenced(0))
+            mailbox.recoveryEvidence(for: fixture.binding(for: quiet))
+                == .clear(fixture.binding(for: quiet))
         )
         #expect(mailbox.lifecyclePort.diagnostics.gather.retainedContributionCount == 2)
         #expect(mailbox.lifecyclePort.diagnostics.gather.admission.contracted == 1)
@@ -238,13 +362,13 @@ struct FilesystemObservationMailboxTests {
         // Arrange
         let alpha = makeRegistration(index: 11)
         let beta = makeRegistration(index: 12)
-        let mailbox = try makeMailbox(
+        let fixture = try makeMailboxFixture(
             registrations: [alpha, beta],
             limits: limits(global: 4, perRegistration: 3, perLease: 2)
         )
-        let producer = mailbox.callbackProducerPort
+        let mailbox = fixture.mailbox
         let consumer = mailbox.actorConsumerPort
-        let binding = consumer.bindConsumer().binding
+        let consumerBinding = consumer.bindConsumer().binding
         let first = try makeObservation(
             registration: alpha,
             path: "/alpha/duplicate",
@@ -262,30 +386,26 @@ struct FilesystemObservationMailboxTests {
             path: "/beta/file",
             eventID: 62
         )
-        let firstOffer = producer.offer(.authoritative(first))
-        let secondOffer = producer.offer(.authoritative(second))
-        let betaOffer = producer.offer(.authoritative(betaObservation))
-        let signaler = mailbox.callbackSignalerPort
-        signaler.apply(requireOfferReceipt(firstOffer).wake)
-        signaler.apply(requireOfferReceipt(secondOffer).wake)
-        signaler.apply(requireOfferReceipt(betaOffer).wake)
+        _ = try fixture.admitCallback(.authoritative(first), for: alpha)
+        _ = try fixture.admitCallback(.authoritative(second), for: alpha)
+        _ = try fixture.admitCallback(.authoritative(betaObservation), for: beta)
 
         // Act
         #expect(mailbox.lifecyclePort.diagnostics.doorbellState == .signalPending)
         #expect(await mailbox.actorWaiterPort.nextSignal() == .signaled)
         #expect(mailbox.lifecyclePort.diagnostics.doorbellState == .idle)
         let lease = requireLease(
-            consumer.takeDrain(binding: binding)
+            consumer.takeDrain(binding: consumerBinding)
         )
         let observations = requireObservations(lease)
 
         // Assert
-        #expect(lease.registration == alpha)
+        #expect(lease.binding == fixture.binding(for: alpha))
         #expect(observations.count == 2)
         #expect(observations.map { $0.records } == [first.records, second.records])
         #expect(observations.map { $0.eventIDWatermark } == [first.eventIDWatermark, second.eventIDWatermark])
         expectAlreadyLeased(
-            consumer.takeDrain(binding: binding)
+            consumer.takeDrain(binding: consumerBinding)
         )
     }
 
@@ -294,34 +414,37 @@ struct FilesystemObservationMailboxTests {
         // Arrange
         let alpha = makeRegistration(index: 13)
         let beta = makeRegistration(index: 14)
-        let mailbox = try makeMailbox(
+        let fixture = try makeMailboxFixture(
             registrations: [alpha, beta],
             limits: limits(global: 4, perRegistration: 3, perLease: 1)
         )
-        let producer = mailbox.callbackProducerPort
+        let mailbox = fixture.mailbox
         let consumer = mailbox.actorConsumerPort
         let oldBinding = consumer.bindConsumer().binding
         let alphaRecovery = requireRetainedRecovery(
-            producer.offer(
+            try fixture.admitCallback(
                 .requiresRecovery(
                     try makeObservation(registration: alpha, path: "/alpha/retry", eventID: 70),
                     evidence: .continuityLoss
-                )
+                ),
+                for: alpha
             )
         )
         let oldLease = requireLease(
             consumer.takeDrain(binding: oldBinding)
         )
         let alphaRecoveryAcceptance = try acceptRecovery(alphaRecovery)
-        _ = producer.offer(
+        _ = try fixture.admitCallback(
             .authoritative(
                 try makeObservation(registration: beta, path: "/beta/ready", eventID: 71)
-            )
+            ),
+            for: beta
         )
-        _ = producer.offer(
+        _ = try fixture.admitCallback(
             .authoritative(
                 try makeObservation(registration: alpha, path: "/alpha/newer", eventID: 72)
-            )
+            ),
+            for: alpha
         )
 
         // Act
@@ -356,22 +479,55 @@ struct FilesystemObservationMailboxTests {
         #expect(requireRecovery(replacementLease) == alphaRecovery)
         #expect(lateOldAcknowledgement == .invalidToken)
         #expect(retryAcknowledgement == .retried(wake: .scheduleDrain))
-        #expect(betaLease.registration == beta)
-        #expect(retriedAlphaLease.registration == alpha)
+        #expect(betaLease.binding == fixture.binding(for: beta))
+        #expect(retriedAlphaLease.binding == fixture.binding(for: alpha))
         #expect(
             requireObservations(retriedAlphaLease).map { $0.records }
                 == requireObservations(oldLease).map { $0.records })
         #expect(requireRecovery(retriedAlphaLease) == alphaRecovery)
     }
 
-    private func makeMailbox(
+    private func makeMailboxFixture(
         registrations: [FSEventRegistrationToken],
-        limits: GatherMailboxLimits? = nil
-    ) throws -> FilesystemObservationMailbox {
-        try FilesystemObservationMailbox(
+        limits: GatherMailboxLimits? = nil,
+        recoveryAuthoritySeed: FilesystemObservationRecoveryAuthoritySeed = .initial
+    ) throws -> FixedSlotFilesystemObservationMailboxFixture {
+        try makeFixedSlotMailboxFixture(
             generation: generation,
-            declaredRegistrations: registrations,
-            limits: limits ?? self.limits(global: 8, perRegistration: 4, perLease: 2)
+            registrations: registrations,
+            limits: limits ?? self.limits(global: 8, perRegistration: 4, perLease: 2),
+            captureLimits: FSEventCaptureLimits(
+                maximumInspectedNativeRecords: 32,
+                maximumCopiedRecords: 16,
+                maximumCopiedUTF8Bytes: 4096,
+                maximumSinglePathUTF8Bytes: 1024
+            ),
+            callbackQueueLabel: "test.filesystem-observation-mailbox",
+            recoveryAuthoritySeed: recoveryAuthoritySeed
+        )
+    }
+
+    private func makeCallbackHarness(
+        fixture: FixedSlotFilesystemObservationMailboxFixture,
+        registration: FSEventRegistrationToken
+    ) throws -> (FilesystemObservationCallbackAdmissionPort, FSEventRegistrationControlBlock) {
+        let startingNativeLifetime = try #require(
+            fixture.startingNativeLifetimesByRegistration[registration]
+        )
+        let callbackAdmissionPort: FilesystemObservationCallbackAdmissionPort
+        switch fixture.mailbox.nativeGenerationPorts(for: startingNativeLifetime) {
+        case .created(let ports):
+            callbackAdmissionPort = ports.callbackAdmissionPort
+        case .foreignFleet, .undeclaredPhysicalSlot, .bindingNotCurrent:
+            throw FixedSlotFilesystemObservationTestFailure.callbackPortUnavailable
+        }
+        return (
+            callbackAdmissionPort,
+            try makeControlBlock(
+                startingNativeLifetime: startingNativeLifetime,
+                captureLimits: fixture.captureLimits,
+                callbackQueueLabel: fixture.callbackQueueLabel
+            )
         )
     }
 
@@ -410,28 +566,10 @@ struct FilesystemObservationMailboxTests {
         )
     }
 
-    private func makeObservation(
-        registration: FSEventRegistrationToken,
-        path: String,
-        flags: FSEventFlags = [.itemModified],
-        eventID: UInt64
-    ) throws -> FSEventObservation {
-        try FSEventObservation(
-            registration: registration,
-            capturedAt: ContinuousClock.now,
-            totalRecordCount: .exact(1),
-            inspectedNativeRecordCount: 1,
-            records: [FSEventRecord(path: path, flags: flags, eventID: eventID)],
-            unionedInspectedFlags: flags,
-            eventIDWatermark: .inspected(first: eventID, last: eventID),
-            completeness: .complete
-        )
-    }
-
     private func requireRetainedRecovery(
         _ result: FilesystemObservationOfferResult,
         sourceLocation: SourceLocation = #_sourceLocation
-    ) -> FilesystemRecoveryEvidenceSnapshot {
+    ) -> FixedFilesystemRecoveryEvidenceSnapshot {
         let receipt = requireOfferReceipt(result, sourceLocation: sourceLocation)
         guard case .retainedWithRecovery(let recovery) = receipt.disposition else {
             Issue.record("Expected retained recovery, got \(result)", sourceLocation: sourceLocation)
@@ -443,7 +581,7 @@ struct FilesystemObservationMailboxTests {
     private func requireContractedRecovery(
         _ result: FilesystemObservationOfferResult,
         sourceLocation: SourceLocation = #_sourceLocation
-    ) -> FilesystemRecoveryEvidenceSnapshot {
+    ) -> FixedFilesystemRecoveryEvidenceSnapshot {
         let receipt = requireOfferReceipt(result, sourceLocation: sourceLocation)
         guard case .contractedToRecovery(let recovery) = receipt.disposition else {
             Issue.record("Expected contracted recovery, got \(result)", sourceLocation: sourceLocation)
@@ -461,6 +599,62 @@ struct FilesystemObservationMailboxTests {
             preconditionFailure("Expected admitted filesystem observation")
         }
         return receipt
+    }
+
+    private func requireRetainedRecovery(
+        _ result: DarwinFSEventObservationCaptureResult,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) -> FixedFilesystemRecoveryEvidenceSnapshot {
+        let disposition = requireCallbackDisposition(result, sourceLocation: sourceLocation)
+        guard case .retainedWithRecovery(let recovery) = disposition else {
+            Issue.record(
+                "Expected retained callback recovery, got \(result)",
+                sourceLocation: sourceLocation
+            )
+            preconditionFailure("Expected retained callback recovery")
+        }
+        return recovery
+    }
+
+    private func requireContractedRecovery(
+        _ result: DarwinFSEventObservationCaptureResult,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) -> FixedFilesystemRecoveryEvidenceSnapshot {
+        let disposition = requireCallbackDisposition(result, sourceLocation: sourceLocation)
+        guard case .contractedToRecovery(let recovery) = disposition else {
+            Issue.record(
+                "Expected contracted callback recovery, got \(result)",
+                sourceLocation: sourceLocation
+            )
+            preconditionFailure("Expected contracted callback recovery")
+        }
+        return recovery
+    }
+
+    private func requireCallbackDisposition(
+        _ result: DarwinFSEventObservationCaptureResult,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) -> FilesystemObservationOfferDisposition {
+        guard case .admitted(_, let admission) = result,
+            case .admitted(let disposition, _) = admission
+        else {
+            Issue.record("Expected admitted callback, got \(result)", sourceLocation: sourceLocation)
+            preconditionFailure("Expected admitted callback")
+        }
+        return disposition
+    }
+
+    private func requireCallbackWake(
+        _ result: DarwinFSEventObservationCaptureResult,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) -> FilesystemObservationCallbackWakeApplication {
+        guard case .admitted(_, let admission) = result,
+            case .admitted(_, let wake) = admission
+        else {
+            Issue.record("Expected admitted callback, got \(result)", sourceLocation: sourceLocation)
+            preconditionFailure("Expected admitted callback")
+        }
+        return wake
     }
 
     private func expectRetained(
@@ -490,8 +684,14 @@ struct FilesystemObservationMailboxTests {
         sourceLocation: SourceLocation = #_sourceLocation
     ) -> [FSEventObservation] {
         switch lease.payload {
-        case .observations(let observations), .observationsWithRecovery(let observations, _):
-            return [observations.first] + observations.remaining
+        case .contributions(let contributions),
+            .contributionsWithRecovery(let contributions, _):
+            let retainedContributions = [contributions.first] + contributions.remaining
+            for contribution in retainedContributions {
+                #expect(contribution.identity.binding == lease.binding)
+                #expect(contribution.identity.isUUIDv7)
+            }
+            return retainedContributions.map(\.observation)
         case .recovery:
             Issue.record("Expected observation-bearing lease", sourceLocation: sourceLocation)
             preconditionFailure("Expected observation-bearing lease")
@@ -501,60 +701,14 @@ struct FilesystemObservationMailboxTests {
     private func requireRecovery(
         _ lease: FilesystemObservationDrainLease,
         sourceLocation: SourceLocation = #_sourceLocation
-    ) -> FilesystemRecoveryEvidenceSnapshot {
+    ) -> FixedFilesystemRecoveryEvidenceSnapshot {
         switch lease.payload {
-        case .observationsWithRecovery(_, let recovery), .recovery(let recovery):
+        case .contributionsWithRecovery(_, let recovery), .recovery(let recovery):
             return recovery
-        case .observations:
+        case .contributions:
             Issue.record("Expected recovery-bearing lease", sourceLocation: sourceLocation)
             preconditionFailure("Expected recovery-bearing lease")
         }
-    }
-
-    private func acceptRecovery(
-        _ evidence: FilesystemRecoveryEvidenceSnapshot,
-        sourceLocation: SourceLocation = #_sourceLocation
-    ) throws -> FilesystemSourceGateRecoveryAcceptance {
-        var sourceGate = FilesystemSourceGate(registration: evidence.revision.registration)
-        let participants = Set(
-            [
-                FilesystemRepairParticipantKind.contentRepairProjector,
-                .gitWorkingDirectoryProjector,
-                .paneFilesystemProjection,
-            ].map {
-                FilesystemRepairParticipantToken(
-                    kind: $0,
-                    participantID: UUID(),
-                    participantGeneration: 1
-                )
-            }
-        )
-        guard
-            case .admitted(let acceptance) = sourceGate.acceptMailboxRecovery(
-                evidence,
-                trigger: .continuityLoss,
-                watermark: .recoveryRevision(1),
-                participants: participants
-            )
-        else {
-            Issue.record("source gate rejected recovery evidence", sourceLocation: sourceLocation)
-            throw TestFailure.recoveryNotAccepted
-        }
-        return acceptance
-    }
-
-    private func expectAlreadyLeased(
-        _ result: FilesystemObservationTakeDrainResult,
-        sourceLocation: SourceLocation = #_sourceLocation
-    ) {
-        guard case .alreadyLeased = result else {
-            Issue.record("Expected outstanding-lease rejection", sourceLocation: sourceLocation)
-            return
-        }
-    }
-
-    private enum TestFailure: Error {
-        case recoveryNotAccepted
     }
 
 }

@@ -7,14 +7,16 @@ enum FSEventRegistrationClosingPhase: Equatable, Sendable {
     case streamInvalidated
     case callbackQueueDrained
     case leasesDrained
-    case recoveryTransferred
-    case mailboxGenerationInvalidated
 }
 
 enum FSEventRegistrationLifecycleSnapshot: Equatable, Sendable {
     case open(activeLeaseCount: Int)
     case closing(FSEventRegistrationClosingPhase, activeLeaseCount: Int)
-    case closed
+}
+
+enum FSEventCallbackLeaseDrainCompletionSnapshot: Equatable, Sendable {
+    case pending(waiterCount: Int)
+    case completed(resumedWaiterCount: Int)
 }
 
 enum FSEventRegistrationControlTransitionResult: Equatable, Sendable {
@@ -37,19 +39,42 @@ enum FSEventCallbackLeaseReleaseResult: Equatable, Sendable {
 
 enum FSEventCallbackLeaseAcquisition: Equatable, Sendable {
     case acquired(FSEventCallbackLease)
-    case staleRegistration
     case leaseIdentityExhausted
     case closing
-    case closed
+}
+
+enum FSEventCallbackLeaseAuthorityRejection: Equatable, Sendable {
+    case released
+    case foreignControlBlock
+    case registrationMismatch
+    case slotBindingMismatch
+    case captureConfigurationMismatch
+    case alreadyConsumed
+}
+
+enum FSEventCallbackLeaseAdmissionResult<TResult: Sendable>: Sendable {
+    case admitted(TResult)
+    case authorityRejected(FSEventCallbackLeaseAuthorityRejection)
 }
 
 final class FSEventCallbackLease: @unchecked Sendable, Equatable {
+    private enum Admission: Sendable {
+        case available
+        case consumed
+    }
+
+    private struct HeldState: Sendable {
+        let controlBlock: FSEventRegistrationControlBlock
+        let controlBlockIdentity: FilesystemObservationControlBlockIdentity
+        let leaseID: UInt64
+        let registration: FSEventRegistrationToken
+        let binding: FilesystemObservationSlotBinding
+        let captureLimits: FSEventCaptureLimits
+        var admission: Admission
+    }
+
     private enum State: Sendable {
-        case held(
-            controlBlock: FSEventRegistrationControlBlock,
-            leaseID: UInt64,
-            registration: FSEventRegistrationToken
-        )
+        case held(HeldState)
         case released(registration: FSEventRegistrationToken)
     }
 
@@ -57,14 +82,19 @@ final class FSEventCallbackLease: @unchecked Sendable, Equatable {
 
     fileprivate init(
         controlBlock: FSEventRegistrationControlBlock,
-        leaseID: UInt64,
-        registration: FSEventRegistrationToken
+        leaseID: UInt64
     ) {
         lock = OSAllocatedUnfairLock(
             initialState: .held(
-                controlBlock: controlBlock,
-                leaseID: leaseID,
-                registration: registration
+                HeldState(
+                    controlBlock: controlBlock,
+                    controlBlockIdentity: controlBlock.controlBlockIdentity,
+                    leaseID: leaseID,
+                    registration: controlBlock.registration,
+                    binding: controlBlock.binding,
+                    captureLimits: controlBlock.captureLimits,
+                    admission: .available
+                )
             )
         )
     }
@@ -76,35 +106,63 @@ final class FSEventCallbackLease: @unchecked Sendable, Equatable {
     var registration: FSEventRegistrationToken {
         lock.withLock { state in
             switch state {
-            case .held(
-                controlBlock: _,
-                leaseID: _, let registration
-            ), .released(let registration):
-                registration
+            case .held(let heldState): heldState.registration
+            case .released(let registration): registration
+            }
+        }
+    }
+
+    /// Executes one bounded callback admission while the lease remains held.
+    ///
+    /// The callback port supplies its bound admission authority. Rejection occurs before
+    /// `body` runs, and the one-shot authority is consumed atomically with entry.
+    func withOneShotCallbackAdmission<TResult: Sendable>(
+        authority: FilesystemObservationMailboxCore.CallbackLeaseAdmissionAuthority,
+        expectedCaptureLimits: FSEventCaptureLimits,
+        _ body: () -> TResult
+    ) -> FSEventCallbackLeaseAdmissionResult<TResult> {
+        // The admission body executes synchronously while the lock is held and cannot escape.
+        // It may close over callback-duration native pointers, so it must not be `Sendable`.
+        lock.withLockUnchecked { state in
+            switch state {
+            case .released:
+                return .authorityRejected(.released)
+            case .held(var heldState):
+                guard authority.controlBlockIdentity == heldState.controlBlockIdentity else {
+                    return .authorityRejected(.foreignControlBlock)
+                }
+                guard authority.registration == heldState.registration else {
+                    return .authorityRejected(.registrationMismatch)
+                }
+                guard authority.binding == heldState.binding else {
+                    return .authorityRejected(.slotBindingMismatch)
+                }
+                guard expectedCaptureLimits == heldState.captureLimits else {
+                    return .authorityRejected(.captureConfigurationMismatch)
+                }
+                guard heldState.admission == .available else {
+                    return .authorityRejected(.alreadyConsumed)
+                }
+                heldState.admission = .consumed
+                state = .held(heldState)
+                return .admitted(body())
             }
         }
     }
 
     func release() -> FSEventCallbackLeaseReleaseResult {
-        let heldState:
-            (
-                controlBlock: FSEventRegistrationControlBlock,
-                leaseID: UInt64,
-                registration: FSEventRegistrationToken
-            )? = lock.withLock { state in
+        let heldOwner: (controlBlock: FSEventRegistrationControlBlock, leaseID: UInt64)? =
+            lock.withLock { state in
                 switch state {
-                case .held(let controlBlock, let leaseID, let registration):
-                    state = .released(registration: registration)
-                    return (controlBlock, leaseID, registration)
+                case .held(let heldState):
+                    state = .released(registration: heldState.registration)
+                    return (heldState.controlBlock, heldState.leaseID)
                 case .released:
                     return nil
                 }
             }
-        guard let heldState else { return .alreadyReleased }
-        return heldState.controlBlock.releaseCallbackLease(
-            leaseID: heldState.leaseID,
-            registration: heldState.registration
-        )
+        guard let heldOwner else { return .alreadyReleased }
+        return heldOwner.controlBlock.releaseCallbackLease(leaseID: heldOwner.leaseID)
     }
 
     deinit {
@@ -121,34 +179,40 @@ final class FSEventRegistrationControlBlock: @unchecked Sendable {
     private struct ClosingState: Sendable {
         var phase: FSEventRegistrationClosingPhase
         var activeLeaseIDs: Set<UInt64>
-        var leaseDrainWaiters: [CheckedContinuation<Void, Never>]
     }
 
     private enum State: Sendable {
         case open(OpenState)
         case closing(ClosingState)
-        case closed
     }
 
+    let startingNativeLifetime: FilesystemObservationStartingNativeLifetime
+    let binding: FilesystemObservationSlotBinding
+    let controlBlockIdentity: FilesystemObservationControlBlockIdentity
     let registration: FSEventRegistrationToken
     let watchRoot: WatchRoot
     let captureLimits: FSEventCaptureLimits
     let callbackQueue: DispatchQueue
 
+    private let leaseDrainCompletion = FSEventCallbackLeaseDrainCompletion()
     private let lock = OSAllocatedUnfairLock(
         initialState: State.open(OpenState(activeLeaseIDs: [], nextLeaseID: 0))
     )
 
     init(
-        registration: FSEventRegistrationToken,
+        startingNativeLifetime: FilesystemObservationStartingNativeLifetime,
         watchRoot: WatchRoot,
         captureLimits: FSEventCaptureLimits,
         callbackQueue: DispatchQueue
     ) throws {
-        guard registration.sourceID == watchRoot.sourceID else {
+        let binding = startingNativeLifetime.binding
+        guard binding.registration.sourceID == watchRoot.sourceID else {
             throw FSEventRegistrationControlBlockError.watchRootSourceMismatch
         }
-        self.registration = registration
+        self.startingNativeLifetime = startingNativeLifetime
+        self.binding = binding
+        controlBlockIdentity = binding.controlBlockIdentity
+        registration = binding.registration
         self.watchRoot = watchRoot
         self.captureLimits = captureLimits
         self.callbackQueue = callbackQueue
@@ -158,15 +222,15 @@ final class FSEventRegistrationControlBlock: @unchecked Sendable {
         lock.withLock { Self.snapshot(for: $0) }
     }
 
-    func acquireCallbackLease(
-        for expectedRegistration: FSEventRegistrationToken
-    ) -> FSEventCallbackLeaseAcquisition {
-        guard expectedRegistration == registration else { return .staleRegistration }
+    var leaseDrainCompletionSnapshot: FSEventCallbackLeaseDrainCompletionSnapshot {
+        leaseDrainCompletion.snapshot
+    }
+
+    func acquireCallbackLease() -> FSEventCallbackLeaseAcquisition {
         enum AcquisitionTransition {
             case acquired(UInt64)
             case identityExhausted
             case closing
-            case closed
         }
         let transition = lock.withLock { state -> AcquisitionTransition in
             switch state {
@@ -180,25 +244,15 @@ final class FSEventRegistrationControlBlock: @unchecked Sendable {
                 return .acquired(leaseID)
             case .closing:
                 return .closing
-            case .closed:
-                return .closed
             }
         }
         switch transition {
         case .acquired(let leaseID):
-            return .acquired(
-                FSEventCallbackLease(
-                    controlBlock: self,
-                    leaseID: leaseID,
-                    registration: registration
-                )
-            )
+            return .acquired(FSEventCallbackLease(controlBlock: self, leaseID: leaseID))
         case .identityExhausted:
             return .leaseIdentityExhausted
         case .closing:
             return .closing
-        case .closed:
-            return .closed
         }
     }
 
@@ -209,15 +263,12 @@ final class FSEventRegistrationControlBlock: @unchecked Sendable {
                 state = .closing(
                     ClosingState(
                         phase: .admissionClosed,
-                        activeLeaseIDs: openState.activeLeaseIDs,
-                        leaseDrainWaiters: []
+                        activeLeaseIDs: openState.activeLeaseIDs
                     )
                 )
                 return .applied
             case .closing:
                 return .alreadyApplied
-            case .closed:
-                return .invalidTransition(.closed)
             }
         }
     }
@@ -227,103 +278,64 @@ final class FSEventRegistrationControlBlock: @unchecked Sendable {
     }
 
     func markCallbackQueueDrained() -> FSEventCallbackQueueDrainResult {
-        let waiters: [CheckedContinuation<Void, Never>]
+        let didDrainLeases: Bool
         let result: FSEventCallbackQueueDrainResult
-        (result, waiters) = lock.withLock { state in
+        (result, didDrainLeases) = lock.withLock { state in
             guard case .closing(var closingState) = state,
                 closingState.phase == .streamInvalidated
             else {
-                return (.invalidTransition(Self.snapshot(for: state)), [])
+                return (.invalidTransition(Self.snapshot(for: state)), false)
             }
             if closingState.activeLeaseIDs.isEmpty {
                 closingState.phase = .leasesDrained
-                let waiters = closingState.leaseDrainWaiters
-                closingState.leaseDrainWaiters.removeAll(keepingCapacity: false)
                 state = .closing(closingState)
-                return (.leasesDrained, waiters)
+                return (.leasesDrained, true)
             }
             closingState.phase = .callbackQueueDrained
             state = .closing(closingState)
             return (
                 .waitingForLeases(activeLeaseCount: closingState.activeLeaseIDs.count),
-                []
+                false
             )
         }
-        for waiter in waiters { waiter.resume() }
+        if didDrainLeases { leaseDrainCompletion.complete() }
         return result
     }
 
     func waitUntilLeasesDrained() async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let resumeImmediately = lock.withLock { state -> Bool in
-                switch state {
-                case .closing(var closingState):
-                    if Self.isAtOrAfterLeasesDrained(closingState.phase) {
-                        return true
-                    }
-                    closingState.leaseDrainWaiters.append(continuation)
-                    state = .closing(closingState)
-                    return false
-                case .closed:
-                    return true
-                case .open:
-                    preconditionFailure("lease drain wait requires closing registration")
-                }
-            }
-            if resumeImmediately { continuation.resume() }
+        guard case .closing = lifecycleSnapshot else {
+            preconditionFailure("lease drain wait requires closing registration")
         }
-    }
-
-    func markRecoveryTransferred() -> FSEventRegistrationControlTransitionResult {
-        advance(from: .leasesDrained, to: .recoveryTransferred)
-    }
-
-    func markMailboxGenerationInvalidated() -> FSEventRegistrationControlTransitionResult {
-        advance(from: .recoveryTransferred, to: .mailboxGenerationInvalidated)
-    }
-
-    func finishClosing() -> FSEventRegistrationControlTransitionResult {
-        lock.withLock { state in
-            guard case .closing(let closingState) = state,
-                closingState.phase == .mailboxGenerationInvalidated
-            else {
-                return .invalidTransition(Self.snapshot(for: state))
-            }
-            state = .closed
-            return .applied
-        }
+        await leaseDrainCompletion.wait()
     }
 
     fileprivate func releaseCallbackLease(
-        leaseID: UInt64,
-        registration: FSEventRegistrationToken
+        leaseID: UInt64
     ) -> FSEventCallbackLeaseReleaseResult {
-        guard registration == self.registration else { return .unknownLease }
-        let waiters: [CheckedContinuation<Void, Never>]?
-        waiters = lock.withLock { state in
+        let transition: (released: Bool, didDrainLeases: Bool) = lock.withLock { state in
             switch state {
             case .open(var openState):
-                guard openState.activeLeaseIDs.remove(leaseID) != nil else { return nil }
+                guard openState.activeLeaseIDs.remove(leaseID) != nil else {
+                    return (false, false)
+                }
                 state = .open(openState)
-                return []
+                return (true, false)
             case .closing(var closingState):
-                guard closingState.activeLeaseIDs.remove(leaseID) != nil else { return nil }
-                var waiters: [CheckedContinuation<Void, Never>] = []
-                if closingState.phase == .callbackQueueDrained,
-                    closingState.activeLeaseIDs.isEmpty
-                {
+                guard closingState.activeLeaseIDs.remove(leaseID) != nil else {
+                    return (false, false)
+                }
+                let didDrainLeases =
+                    closingState.phase == .callbackQueueDrained
+                    && closingState.activeLeaseIDs.isEmpty
+                if didDrainLeases {
                     closingState.phase = .leasesDrained
-                    waiters = closingState.leaseDrainWaiters
-                    closingState.leaseDrainWaiters.removeAll(keepingCapacity: false)
                 }
                 state = .closing(closingState)
-                return waiters
-            case .closed:
-                return nil
+                return (true, didDrainLeases)
             }
         }
-        guard let waiters else { return .unknownLease }
-        for waiter in waiters { waiter.resume() }
+        guard transition.released else { return .unknownLease }
+        if transition.didDrainLeases { leaseDrainCompletion.complete() }
         return .released
     }
 
@@ -349,19 +361,60 @@ final class FSEventRegistrationControlBlock: @unchecked Sendable {
             .open(activeLeaseCount: openState.activeLeaseIDs.count)
         case .closing(let closingState):
             .closing(closingState.phase, activeLeaseCount: closingState.activeLeaseIDs.count)
-        case .closed:
-            .closed
+        }
+    }
+}
+
+/// Lazily retains only callers that actually wait for the bounded drain event.
+private final class FSEventCallbackLeaseDrainCompletion: @unchecked Sendable {
+    private enum State: Sendable {
+        case pending([CheckedContinuation<Void, Never>])
+        case completed(resumedWaiterCount: Int)
+    }
+
+    private let lock = OSAllocatedUnfairLock(initialState: State.pending([]))
+
+    var snapshot: FSEventCallbackLeaseDrainCompletionSnapshot {
+        lock.withLock { state in
+            switch state {
+            case .pending(let waiters):
+                .pending(waiterCount: waiters.count)
+            case .completed(let resumedWaiterCount):
+                .completed(resumedWaiterCount: resumedWaiterCount)
+            }
         }
     }
 
-    private static func isAtOrAfterLeasesDrained(
-        _ phase: FSEventRegistrationClosingPhase
-    ) -> Bool {
-        switch phase {
-        case .admissionClosed, .streamInvalidated, .callbackQueueDrained:
-            false
-        case .leasesDrained, .recoveryTransferred, .mailboxGenerationInvalidated:
-            true
+    func complete() {
+        let waiters = lock.withLock { state -> [CheckedContinuation<Void, Never>] in
+            switch state {
+            case .pending(let waiters):
+                state = .completed(resumedWaiterCount: waiters.count)
+                return waiters
+            case .completed:
+                return []
+            }
+        }
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let shouldResumeImmediately = lock.withLock { state in
+                switch state {
+                case .pending(var waiters):
+                    waiters.append(continuation)
+                    state = .pending(waiters)
+                    return false
+                case .completed:
+                    return true
+                }
+            }
+            if shouldResumeImmediately {
+                continuation.resume()
+            }
         }
     }
 }

@@ -308,42 +308,146 @@ struct DarwinFSEventObservationAdapterTests: Sendable {
         #expect(fixture.mailbox.lifecyclePort.diagnostics.gather.retainedContributionCount == 0)
     }
 
-    @Test("stale registration rejects before native pointer inspection")
-    func staleRegistrationRejectsBeforePointerInspection() throws {
+    @Test("exact binding mismatch rejects before native pointer inspection")
+    func exactBindingMismatchRejectsBeforePointerInspection() throws {
         let fixture = try makeFixture()
-        let stale = makeRegistration(registrationGeneration: 999)
+        let mismatchedBinding = FilesystemObservationSlotBinding(
+            fleetMailboxIdentity: fixture.startingNativeLifetime.binding.fleetMailboxIdentity,
+            physicalSlotID: fixture.startingNativeLifetime.binding.physicalSlotID,
+            identity: FilesystemObservationSlotBindingIdentity(value: UUIDv7.generate()),
+            registration: fixture.registration,
+            controlBlockIdentity: fixture.startingNativeLifetime.binding.controlBlockIdentity
+        )
+        let mismatchedStartingNativeLifetime = FilesystemObservationStartingNativeLifetime(
+            desiredRegistration: fixture.startingNativeLifetime.desiredRegistration,
+            consumedReservation: fixture.startingNativeLifetime.consumedReservation,
+            binding: mismatchedBinding,
+            nativeGenerationIdentity: fixture.startingNativeLifetime.nativeGenerationIdentity
+        )
+        let mismatchedControlBlock = try FSEventRegistrationControlBlock(
+            startingNativeLifetime: mismatchedStartingNativeLifetime,
+            watchRoot: fixture.controlBlock.watchRoot,
+            captureLimits: fixture.controlBlock.captureLimits,
+            callbackQueue: fixture.controlBlock.callbackQueue
+        )
+        let adapter = DarwinFSEventObservationAdapter(
+            controlBlock: mismatchedControlBlock,
+            callbackAdmissionPort: fixture.callbackAdmissionPort
+        )
         let result = capture(
-            adapter: fixture.adapter,
-            expectedRegistration: stale,
+            adapter: adapter,
             reportedEventCount: 1,
             eventPaths: UnsafeMutableRawPointer(bitPattern: 1)!,
             flags: [],
             eventIDs: []
         )
 
-        expectRejection(result, expected: .staleRegistration)
-        expectNoActiveLease(fixture.controlBlock)
+        expectRejection(result, expected: .callbackAuthority(.slotBindingMismatch))
+        expectNoActiveLease(mismatchedControlBlock)
+        #expect(fixture.mailbox.lifecyclePort.diagnostics.gather.retainedContributionCount == 0)
+    }
+
+    @Test("foreign control block rejects before native pointer inspection")
+    func foreignControlBlockRejectsBeforePointerInspection() throws {
+        let fixture = try makeFixture()
+        let foreignBinding = FilesystemObservationSlotBinding(
+            fleetMailboxIdentity: fixture.startingNativeLifetime.binding.fleetMailboxIdentity,
+            physicalSlotID: fixture.startingNativeLifetime.binding.physicalSlotID,
+            identity: fixture.startingNativeLifetime.binding.identity,
+            registration: fixture.registration,
+            controlBlockIdentity: FilesystemObservationControlBlockIdentity(value: UUIDv7.generate())
+        )
+        let foreignStartingNativeLifetime = FilesystemObservationStartingNativeLifetime(
+            desiredRegistration: fixture.startingNativeLifetime.desiredRegistration,
+            consumedReservation: fixture.startingNativeLifetime.consumedReservation,
+            binding: foreignBinding,
+            nativeGenerationIdentity: fixture.startingNativeLifetime.nativeGenerationIdentity
+        )
+        let foreignControlBlock = try FSEventRegistrationControlBlock(
+            startingNativeLifetime: foreignStartingNativeLifetime,
+            watchRoot: fixture.controlBlock.watchRoot,
+            captureLimits: fixture.controlBlock.captureLimits,
+            callbackQueue: fixture.controlBlock.callbackQueue
+        )
+        let adapter = DarwinFSEventObservationAdapter(
+            controlBlock: foreignControlBlock,
+            callbackAdmissionPort: fixture.callbackAdmissionPort
+        )
+
+        let result = capture(
+            adapter: adapter,
+            reportedEventCount: 1,
+            eventPaths: UnsafeMutableRawPointer(bitPattern: 1)!,
+            flags: [],
+            eventIDs: []
+        )
+
+        expectRejection(result, expected: .callbackAuthority(.foreignControlBlock))
+        expectNoActiveLease(foreignControlBlock)
+        #expect(fixture.mailbox.lifecyclePort.diagnostics.gather.retainedContributionCount == 0)
+    }
+
+    @Test("registration mismatch rejects before native pointer inspection")
+    func registrationMismatchRejectsBeforePointerInspection() throws {
+        let fixture = try makeFixture()
+        let mismatchedRegistration = makeRegistration(registrationGeneration: 20)
+        let mismatchedBinding = FilesystemObservationSlotBinding(
+            fleetMailboxIdentity: fixture.startingNativeLifetime.binding.fleetMailboxIdentity,
+            physicalSlotID: fixture.startingNativeLifetime.binding.physicalSlotID,
+            identity: fixture.startingNativeLifetime.binding.identity,
+            registration: mismatchedRegistration,
+            controlBlockIdentity: fixture.startingNativeLifetime.binding.controlBlockIdentity
+        )
+        let mismatchedStartingNativeLifetime = FilesystemObservationStartingNativeLifetime(
+            desiredRegistration: FilesystemObservationDesiredRegistration(
+                identity: fixture.startingNativeLifetime.desiredRegistration.identity,
+                registration: mismatchedRegistration
+            ),
+            consumedReservation: fixture.startingNativeLifetime.consumedReservation,
+            binding: mismatchedBinding,
+            nativeGenerationIdentity: fixture.startingNativeLifetime.nativeGenerationIdentity
+        )
+        let mismatchedControlBlock = try FSEventRegistrationControlBlock(
+            startingNativeLifetime: mismatchedStartingNativeLifetime,
+            watchRoot: WatchRoot(
+                sourceID: mismatchedRegistration.sourceID,
+                declaredPath: fixture.controlBlock.watchRoot.declaredPath,
+                resolvedPath: fixture.controlBlock.watchRoot.resolvedPath
+            ),
+            captureLimits: fixture.controlBlock.captureLimits,
+            callbackQueue: fixture.controlBlock.callbackQueue
+        )
+        let adapter = DarwinFSEventObservationAdapter(
+            controlBlock: mismatchedControlBlock,
+            callbackAdmissionPort: fixture.callbackAdmissionPort
+        )
+
+        let result = capture(
+            adapter: adapter,
+            reportedEventCount: 1,
+            eventPaths: UnsafeMutableRawPointer(bitPattern: 1)!,
+            flags: [],
+            eventIDs: []
+        )
+
+        expectRejection(result, expected: .callbackAuthority(.registrationMismatch))
+        expectNoActiveLease(mismatchedControlBlock)
         #expect(fixture.mailbox.lifecyclePort.diagnostics.gather.retainedContributionCount == 0)
     }
 
     @Test("callback lease remains held through synchronous mailbox admission")
     func callbackLeaseIsHeldThroughAdmission() throws {
-        let fixture = try makeFixture()
         let recorder = LeaseCountRecorder()
-        let underlyingProducer = fixture.mailbox.callbackProducerPort
+        let fixture = try makeFixture(synchronization: recorder)
+        recorder.attach(to: fixture.controlBlock)
         let adapter = DarwinFSEventObservationAdapter(
             controlBlock: fixture.controlBlock,
-            producer: FilesystemObservationCallbackProducerPort { offer in
-                recorder.record(fixture.controlBlock.lifecycleSnapshot)
-                return underlyingProducer.offer(offer)
-            },
-            signaler: fixture.mailbox.callbackSignalerPort
+            callbackAdmissionPort: fixture.callbackAdmissionPort
         )
 
         _ = requireAuthoritative(
             capture(
                 adapter: adapter,
-                expectedRegistration: fixture.registration,
                 paths: ["/held"] as CFArray,
                 flags: ordinaryFlags(count: 1),
                 eventIDs: [90]
@@ -355,23 +459,16 @@ struct DarwinFSEventObservationAdapterTests: Sendable {
 
     @Test("closing during admission waits for the held callback lease")
     func closingAndAdmissionLeaseDrainRaceIsDeterministic() throws {
-        let fixture = try makeFixture()
-        let gate = CaptureAdmissionGate()
-        let underlyingProducer = fixture.mailbox.callbackProducerPort
+        let gate = CaptureAdmissionGate(pause: .afterAuthorityConsumption)
+        let fixture = try makeFixture(synchronization: gate)
         let adapter = DarwinFSEventObservationAdapter(
             controlBlock: fixture.controlBlock,
-            producer: FilesystemObservationCallbackProducerPort { offer in
-                gate.admissionEntered.signal()
-                gate.waitForAdmissionRelease()
-                return underlyingProducer.offer(offer)
-            },
-            signaler: fixture.mailbox.callbackSignalerPort
+            callbackAdmissionPort: fixture.callbackAdmissionPort
         )
 
         DispatchQueue(label: "test.fsevent.capture-race").async {
             let result = capture(
                 adapter: adapter,
-                expectedRegistration: fixture.registration,
                 paths: ["/racing"] as CFArray,
                 flags: ordinaryFlags(count: 1),
                 eventIDs: [100]
@@ -395,274 +492,104 @@ struct DarwinFSEventObservationAdapterTests: Sendable {
         )
     }
 
-    private func capture(
-        fixture: AdapterFixture,
-        reportedEventCount: Int? = nil,
-        paths: CFArray,
-        flags: [FSEventStreamEventFlags],
-        eventIDs: [FSEventStreamEventId]
-    ) -> DarwinFSEventObservationCaptureResult {
-        capture(
-            adapter: fixture.adapter,
-            expectedRegistration: fixture.registration,
-            reportedEventCount: reportedEventCount ?? flags.count,
-            eventPaths: Unmanaged.passUnretained(paths).toOpaque(),
-            flags: flags,
-            eventIDs: eventIDs
-        )
-    }
+    @Test("callback lease remains held after offer until its wake is applied")
+    func callbackLeaseIsHeldBetweenOfferAndWake() throws {
+        let gate = CaptureAdmissionGate(pause: .afterMailboxOffer)
+        let fixture = try makeFixture(synchronization: gate)
 
-    private func capture(
-        adapter: DarwinFSEventObservationAdapter,
-        expectedRegistration: FSEventRegistrationToken,
-        paths: CFArray,
-        flags: [FSEventStreamEventFlags],
-        eventIDs: [FSEventStreamEventId]
-    ) -> DarwinFSEventObservationCaptureResult {
-        capture(
-            adapter: adapter,
-            expectedRegistration: expectedRegistration,
-            reportedEventCount: flags.count,
-            eventPaths: Unmanaged.passUnretained(paths).toOpaque(),
-            flags: flags,
-            eventIDs: eventIDs
-        )
-    }
-
-    private func capture(
-        adapter: DarwinFSEventObservationAdapter,
-        expectedRegistration: FSEventRegistrationToken,
-        reportedEventCount: Int,
-        eventPaths: UnsafeMutableRawPointer,
-        flags: [FSEventStreamEventFlags],
-        eventIDs: [FSEventStreamEventId]
-    ) -> DarwinFSEventObservationCaptureResult {
-        flags.withUnsafeBufferPointer { flagBuffer in
-            eventIDs.withUnsafeBufferPointer { eventIDBuffer in
-                adapter.capture(
-                    expectedRegistration: expectedRegistration,
-                    input: DarwinFSEventNativeCallbackInput(
-                        capturedAt: ContinuousClock.now,
-                        reportedEventCount: reportedEventCount,
-                        eventPaths: eventPaths,
-                        eventFlags: flagBuffer,
-                        eventIDs: eventIDBuffer
-                    )
-                )
-            }
-        }
-    }
-
-    private func makeFixture(
-        registrationGeneration: UInt64 = 19,
-        captureLimits: FSEventCaptureLimits? = nil
-    ) throws -> AdapterFixture {
-        let registration = makeRegistration(registrationGeneration: registrationGeneration)
-        let mailbox = try FilesystemObservationMailbox(
-            generation: AdmissionGeneration(owner: .filesystemObservation, value: registrationGeneration),
-            declaredRegistrations: [registration],
-            limits: mailboxLimits()
-        )
-        let controlBlock = try FSEventRegistrationControlBlock(
-            registration: registration,
-            watchRoot: WatchRoot(
-                sourceID: registration.sourceID,
-                declaredPath: "/workspace/repo",
-                resolvedPath: "/private/workspace/repo"
-            ),
-            captureLimits: captureLimits ?? makeCaptureLimits(),
-            callbackQueue: DispatchQueue(label: "test.fsevent.observation.capture")
-        )
-        return AdapterFixture(
-            registration: registration,
-            mailbox: mailbox,
-            controlBlock: controlBlock,
-            adapter: DarwinFSEventObservationAdapter(
-                controlBlock: controlBlock,
-                producer: mailbox.callbackProducerPort,
-                signaler: mailbox.callbackSignalerPort
+        DispatchQueue(label: "test.fsevent.capture-before-wake").async {
+            let result = capture(
+                adapter: fixture.adapter,
+                paths: ["/offered"] as CFArray,
+                flags: ordinaryFlags(count: 1),
+                eventIDs: [101]
             )
-        )
-    }
-
-    private func makeRegistration(registrationGeneration: UInt64) -> FSEventRegistrationToken {
-        FSEventRegistrationToken(
-            sourceID: FilesystemSourceID(
-                kind: .registeredWorktreeContent,
-                rootID: UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!
-            ),
-            registrationGeneration: registrationGeneration,
-            rootGeneration: 5
-        )
-    }
-
-    private func makeCaptureLimits(
-        maximumInspected: Int = 8,
-        maximumCopied: Int = 8,
-        maximumBytes: Int = 4096,
-        maximumSinglePathBytes: Int = 1024
-    ) throws -> FSEventCaptureLimits {
-        try FSEventCaptureLimits(
-            maximumInspectedNativeRecords: maximumInspected,
-            maximumCopiedRecords: maximumCopied,
-            maximumCopiedUTF8Bytes: maximumBytes,
-            maximumSinglePathUTF8Bytes: maximumSinglePathBytes
-        )
-    }
-
-    private func mailboxLimits() -> GatherMailboxLimits {
-        GatherMailboxLimits(
-            maximumDeclaredKeys: 1,
-            maximumRetainedContributions: 8,
-            maximumRetainedItems: 64,
-            maximumRetainedBytes: 65_536,
-            maximumRetainedContributionsPerKey: 8,
-            maximumRetainedItemsPerKey: 64,
-            maximumRetainedBytesPerKey: 65_536,
-            maximumContributionsPerLease: 8,
-            maximumItemsPerLease: 64,
-            maximumBytesPerLease: 65_536,
-            cleanupQuantum: .entriesAndBytes(maximumEntries: 8, maximumBytes: 65_536)
-        )
-    }
-
-    private func ordinaryFlags(count: Int) -> [FSEventStreamEventFlags] {
-        Array(
-            repeating: FSEventStreamEventFlags(kFSEventStreamEventFlagItemModified),
-            count: count
-        )
-    }
-}
-
-private struct AdapterFixture: Sendable {
-    let registration: FSEventRegistrationToken
-    let mailbox: FilesystemObservationMailbox
-    let controlBlock: FSEventRegistrationControlBlock
-    let adapter: DarwinFSEventObservationAdapter
-}
-
-private final class LeaseCountRecorder: @unchecked Sendable {
-    private let lock = OSAllocatedUnfairLock(initialState: 0)
-
-    func record(_ snapshot: FSEventRegistrationLifecycleSnapshot) {
-        guard case .open(let activeLeaseCount) = snapshot else { return }
-        lock.withLock { $0 = activeLeaseCount }
-    }
-
-    var observedActiveLeaseCount: Int { lock.withLock { $0 } }
-}
-
-private final class CaptureAdmissionGate: @unchecked Sendable {
-    private enum State: Sendable {
-        case pending
-        case completed(DarwinFSEventObservationCaptureResult)
-    }
-
-    let admissionEntered = DispatchSemaphore(value: 0)
-    let releaseAdmission = DispatchSemaphore(value: 0)
-    private let completed = DispatchSemaphore(value: 0)
-    private let state = OSAllocatedUnfairLock(initialState: State.pending)
-
-    func waitForAdmissionRelease() {
-        if releaseAdmission.wait(timeout: .now() + 5) != .success {
-            Issue.record("timed out waiting to release gated callback admission")
+            gate.finish(with: result)
         }
+
+        #expect(gate.waitForAdmissionEntry())
+        #expect(fixture.mailbox.lifecyclePort.diagnostics.gather.retainedContributionCount == 1)
+        #expect(fixture.mailbox.lifecyclePort.diagnostics.doorbellState == .idle)
+        #expect(fixture.controlBlock.beginClosing() == .applied)
+        #expect(fixture.controlBlock.markStreamInvalidated() == .applied)
+        #expect(
+            fixture.controlBlock.markCallbackQueueDrained()
+                == .waitingForLeases(activeLeaseCount: 1)
+        )
+
+        gate.releaseAdmission.signal()
+        _ = requireAuthoritative(try #require(gate.waitForCompletion()))
+        #expect(fixture.mailbox.lifecyclePort.diagnostics.doorbellState == .signalPending)
+        #expect(
+            fixture.controlBlock.lifecycleSnapshot
+                == .closing(.leasesDrained, activeLeaseCount: 0)
+        )
     }
 
-    func finish(with result: DarwinFSEventObservationCaptureResult) {
-        state.withLock { $0 = .completed(result) }
-        completed.signal()
-    }
+    @Test("callback admission authority is one shot")
+    func callbackAdmissionAuthorityIsOneShot() throws {
+        let fixture = try makeFixture()
+        let lease = try #require(acquiredLease(from: fixture.controlBlock))
+        defer { _ = lease.release() }
+        let inspectionLedger = NativeInspectionLedger()
 
-    func waitForAdmissionEntry() -> Bool {
-        admissionEntered.wait(timeout: .now() + 5) == .success
-    }
-
-    func waitForCompletion() -> DarwinFSEventObservationCaptureResult? {
-        guard completed.wait(timeout: .now() + 5) == .success else {
-            Issue.record("timed out waiting for gated callback completion")
-            return nil
+        let preflight = FilesystemObservationCallbackPreflight(
+            captureLimits: fixture.controlBlock.captureLimits
+        )
+        let first = fixture.callbackAdmissionPort.admit(
+            using: lease,
+            preflight: preflight
+        ) {
+            inspectionLedger.recordInspection()
+            return .ignoredEmptyCallback
         }
-        return state.withLock { state in
-            guard case .completed(let result) = state else { return nil }
-            return result
+        let second = fixture.callbackAdmissionPort.admit(
+            using: lease,
+            preflight: preflight
+        ) {
+            inspectionLedger.recordInspection()
+            return .ignoredEmptyCallback
         }
-    }
-}
 
-private func requireAuthoritative(
-    _ result: DarwinFSEventObservationCaptureResult,
-    sourceLocation: SourceLocation = #_sourceLocation
-) -> FSEventObservation {
-    guard
-        case .admitted(offer: .authoritative(let observation), receipt: let receipt) = result,
-        case .retained = receipt.disposition
-    else {
-        Issue.record("expected retained authoritative admission", sourceLocation: sourceLocation)
-        preconditionFailure("expected authoritative callback admission")
+        guard case .ignoredEmptyCallback = first else {
+            Issue.record("first callback admission must consume the available authority")
+            return
+        }
+        expectRejection(second, expected: .callbackAuthority(.alreadyConsumed))
+        #expect(inspectionLedger.inspectionCount == 1)
+        #expect(lease.release() == .released)
+        expectNoActiveLease(fixture.controlBlock)
     }
-    return observation
-}
 
-private func requireRecovery(
-    _ result: DarwinFSEventObservationCaptureResult,
-    sourceLocation: SourceLocation = #_sourceLocation
-) -> (FSEventObservation, FilesystemRecoveryEvidence) {
-    guard
-        case .admitted(
-            offer: .requiresRecovery(let observation, let evidence),
-            receipt: let receipt
-        ) = result,
-        case .retainedWithRecovery = receipt.disposition
-    else {
-        Issue.record("expected retained recovery admission", sourceLocation: sourceLocation)
-        preconditionFailure("expected recovery callback admission")
+    @Test("capture configuration mismatch rejects before native inspection")
+    func captureConfigurationMismatchSkipsNativeInspection() throws {
+        let fixture = try makeFixture()
+        let lease = try #require(acquiredLease(from: fixture.controlBlock))
+        defer { _ = lease.release() }
+        let inspectionLedger = NativeInspectionLedger()
+        let mismatchedCaptureLimits = try FSEventCaptureLimits(
+            maximumInspectedNativeRecords: 8,
+            maximumCopiedRecords: 7,
+            maximumCopiedUTF8Bytes: 4096,
+            maximumSinglePathUTF8Bytes: 1024
+        )
+
+        let result = fixture.callbackAdmissionPort.admit(
+            using: lease,
+            preflight: FilesystemObservationCallbackPreflight(
+                captureLimits: mismatchedCaptureLimits
+            )
+        ) {
+            inspectionLedger.recordInspection()
+            return .ignoredEmptyCallback
+        }
+
+        expectRejection(
+            result,
+            expected: .callbackAuthority(.captureConfigurationMismatch)
+        )
+        #expect(inspectionLedger.inspectionCount == 0)
+        #expect(fixture.mailbox.lifecyclePort.diagnostics.gather.admission.offered == 0)
     }
-    return (observation, evidence)
-}
 
-private func expectRejection(
-    _ result: DarwinFSEventObservationCaptureResult,
-    expected: DarwinFSEventObservationCaptureRejection,
-    sourceLocation: SourceLocation = #_sourceLocation
-) {
-    guard case .rejected(let actual) = result else {
-        Issue.record("expected callback rejection", sourceLocation: sourceLocation)
-        return
-    }
-    #expect(actual == expected, sourceLocation: sourceLocation)
-}
-
-private func expectNoActiveLease(
-    _ controlBlock: FSEventRegistrationControlBlock,
-    sourceLocation: SourceLocation = #_sourceLocation
-) {
-    switch controlBlock.lifecycleSnapshot {
-    case .open(let activeLeaseCount), .closing(_, let activeLeaseCount):
-        #expect(activeLeaseCount == 0, sourceLocation: sourceLocation)
-    case .closed:
-        break
-    }
-}
-
-private func expectMalformedPrefix(
-    _ observation: FSEventObservation,
-    reportedCount: Int = 2,
-    availableCount: Int,
-    retainedPath: String,
-    sourceLocation: SourceLocation = #_sourceLocation
-) {
-    #expect(
-        observation.totalRecordCount
-            == .malformed(
-                .nativeArrayCountMismatch(
-                    reportedRecordCount: reportedCount,
-                    availableRecordCount: availableCount
-                )
-            ),
-        sourceLocation: sourceLocation
-    )
-    #expect(observation.inspectedNativeRecordCount == availableCount, sourceLocation: sourceLocation)
-    #expect(observation.records.map(\.path) == [retainedPath], sourceLocation: sourceLocation)
-    #expect(observation.completeness == .truncated([.malformedNativeShape]), sourceLocation: sourceLocation)
 }

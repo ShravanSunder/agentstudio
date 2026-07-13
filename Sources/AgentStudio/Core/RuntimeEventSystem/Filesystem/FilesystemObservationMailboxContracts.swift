@@ -4,6 +4,11 @@ enum FilesystemObservationMailboxConfigurationError: Error, Equatable {
     case invalidGatherLimits
 }
 
+enum FilesystemObservationRecoveryAuthoritySeed: Equatable, Sendable {
+    case initial
+    case preseeded(GatherRecoveryStamp)
+}
+
 enum FilesystemObservationOffer: Sendable {
     case authoritative(FSEventObservation)
     case requiresRecovery(
@@ -42,10 +47,105 @@ enum FilesystemObservationExplicitRecoveryEvidence: Sendable {
     case required(FilesystemRecoveryEvidence)
 }
 
+enum FilesystemObservationMailboxContribution: Sendable {
+    case observation(
+        identity: FilesystemObservationContributionIdentity,
+        observation: FSEventObservation
+    )
+
+    var identity: FilesystemObservationContributionIdentity {
+        switch self {
+        case .observation(let identity, _): identity
+        }
+    }
+
+    var observation: FSEventObservation {
+        switch self {
+        case .observation(_, let observation): observation
+        }
+    }
+}
+
+enum FilesystemObservationCallbackAuthorityRejection: Equatable, Sendable {
+    case released
+    case foreignControlBlock
+    case registrationMismatch
+    case slotBindingMismatch
+    case captureConfigurationMismatch
+    case alreadyConsumed
+}
+
+enum FilesystemObservationCallbackMailboxRejection: Equatable, Sendable {
+    case undeclaredSlot
+    case invalidFootprint
+    case captureConfigurationMismatch
+    case fenced
+    case fleetOrdinaryAdmissionSealed
+    case closed
+}
+
+struct FilesystemObservationCallbackPreflight: Equatable, Sendable {
+    let captureLimits: FSEventCaptureLimits
+    let maximumFootprint: GatherFootprint
+
+    init(
+        captureLimits: FSEventCaptureLimits,
+        maximumFootprint: GatherFootprint
+    ) {
+        self.captureLimits = captureLimits
+        self.maximumFootprint = maximumFootprint
+    }
+
+    init(captureLimits: FSEventCaptureLimits) {
+        self.init(
+            captureLimits: captureLimits,
+            maximumFootprint: GatherFootprint(
+                itemCount: captureLimits.maximumCopiedRecords,
+                byteCount: captureLimits.maximumCopiedUTF8Bytes
+            )
+        )
+    }
+
+    var matchesCaptureConfiguration: Bool {
+        maximumFootprint
+            == GatherFootprint(
+                itemCount: captureLimits.maximumCopiedRecords,
+                byteCount: captureLimits.maximumCopiedUTF8Bytes
+            )
+    }
+}
+
+enum FilesystemObservationCallbackWakeApplication: Equatable, Sendable {
+    case notRequested
+    case applied
+}
+
+enum FilesystemObservationCallbackAdmissionResult: Equatable, Sendable {
+    case admitted(
+        FilesystemObservationOfferDisposition,
+        FilesystemObservationCallbackWakeApplication
+    )
+    case authorityRejected(FilesystemObservationCallbackAuthorityRejection)
+    case mailboxRejected(FilesystemObservationCallbackMailboxRejection)
+}
+
+protocol FilesystemObservationCallbackSynchronization: Sendable {
+    func afterAuthorityConsumedBeforeMailboxOffer()
+    func afterMailboxOfferBeforeWakeApplication()
+}
+
+// swiftlint:disable:next type_name
+struct ImmediateFilesystemObservationCallbackSynchronization:
+    FilesystemObservationCallbackSynchronization
+{
+    func afterAuthorityConsumedBeforeMailboxOffer() {}
+    func afterMailboxOfferBeforeWakeApplication() {}
+}
+
 enum FilesystemObservationOfferDisposition: Equatable, Sendable {
     case retained
-    case retainedWithRecovery(FilesystemRecoveryEvidenceSnapshot)
-    case contractedToRecovery(FilesystemRecoveryEvidenceSnapshot)
+    case retainedWithRecovery(FixedFilesystemRecoveryEvidenceSnapshot)
+    case contractedToRecovery(FixedFilesystemRecoveryEvidenceSnapshot)
 }
 
 struct FilesystemObservationOfferReceipt: Equatable, Sendable {
@@ -55,23 +155,25 @@ struct FilesystemObservationOfferReceipt: Equatable, Sendable {
 
 enum FilesystemObservationOfferResult: Equatable, Sendable {
     case admitted(FilesystemObservationOfferReceipt)
-    case undeclaredRegistration
+    case undeclaredSlot
+    case bindingMismatch
     case invalidFootprint
+    case fleetOrdinaryAdmissionSealed
     case closed
 }
 
 enum FilesystemObservationDrainPayload: Sendable {
-    case observations(NonEmptyAdmissionBatch<FSEventObservation>)
-    case observationsWithRecovery(
-        NonEmptyAdmissionBatch<FSEventObservation>,
-        FilesystemRecoveryEvidenceSnapshot
+    case contributions(NonEmptyAdmissionBatch<FilesystemObservationMailboxContribution>)
+    case contributionsWithRecovery(
+        NonEmptyAdmissionBatch<FilesystemObservationMailboxContribution>,
+        FixedFilesystemRecoveryEvidenceSnapshot
     )
-    case recovery(FilesystemRecoveryEvidenceSnapshot)
+    case recovery(FixedFilesystemRecoveryEvidenceSnapshot)
 }
 
 struct FilesystemObservationDrainLease: Sendable {
     let token: AdmissionDrainToken
-    let registration: FSEventRegistrationToken
+    let binding: FilesystemObservationSlotBinding
     let payload: FilesystemObservationDrainPayload
 }
 
@@ -115,7 +217,7 @@ enum FilesystemObservationDrainAcknowledgement: Equatable, Sendable {
     case retried(wake: AdmissionWakeDirective)
     case transferredAuthoritative(wake: AdmissionWakeDirective)
     case transferredRecovery(
-        evidence: FilesystemRecoveryEvidenceAcknowledgementResult,
+        evidence: FixedFilesystemRecoveryAcknowledgeResult,
         wake: AdmissionWakeDirective
     )
     case dispositionMismatch
@@ -138,51 +240,26 @@ struct FilesystemObservationMailboxDiagnostics: Sendable {
     let gather: GatherAdmissionDiagnostics
     let doorbellState: AdmissionDoorbellStateSnapshot
     let lifecycleState: FilesystemObservationLifecycleStateSnapshot
-    private let recoveryEvidenceByRegistration: [FSEventRegistrationToken: FilesystemRecoveryEvidenceSnapshotResult]
+    private let recoveryEvidenceByPhysicalSlotID:
+        [FilesystemObservationPhysicalSlotID: FixedFilesystemRecoveryEvidenceSnapshotResult]
 
     init(
         gather: GatherAdmissionDiagnostics,
         doorbellState: AdmissionDoorbellStateSnapshot,
         lifecycleState: FilesystemObservationLifecycleStateSnapshot,
-        recoveryEvidenceByRegistration:
-            [FSEventRegistrationToken: FilesystemRecoveryEvidenceSnapshotResult]
+        recoveryEvidenceByPhysicalSlotID:
+            [FilesystemObservationPhysicalSlotID: FixedFilesystemRecoveryEvidenceSnapshotResult]
     ) {
         self.gather = gather
         self.doorbellState = doorbellState
         self.lifecycleState = lifecycleState
-        self.recoveryEvidenceByRegistration = recoveryEvidenceByRegistration
+        self.recoveryEvidenceByPhysicalSlotID = recoveryEvidenceByPhysicalSlotID
     }
 
     func recoveryEvidence(
-        for registration: FSEventRegistrationToken
-    ) -> FilesystemRecoveryEvidenceSnapshotResult {
-        recoveryEvidenceByRegistration[registration] ?? .unknownRegistration
-    }
-}
-
-struct FilesystemObservationCallbackProducerPort: Sendable {
-    private let offerImplementation: @Sendable (FilesystemObservationOffer) -> FilesystemObservationOfferResult
-
-    init(
-        offer: @escaping @Sendable (FilesystemObservationOffer) -> FilesystemObservationOfferResult
-    ) {
-        offerImplementation = offer
-    }
-
-    func offer(_ offer: FilesystemObservationOffer) -> FilesystemObservationOfferResult {
-        offerImplementation(offer)
-    }
-}
-
-struct FilesystemObservationCallbackSignalerPort: Sendable {
-    private let applyImplementation: @Sendable (AdmissionWakeDirective) -> Void
-
-    init(apply: @escaping @Sendable (AdmissionWakeDirective) -> Void) {
-        applyImplementation = apply
-    }
-
-    func apply(_ wake: AdmissionWakeDirective) {
-        applyImplementation(wake)
+        for physicalSlotID: FilesystemObservationPhysicalSlotID
+    ) -> FixedFilesystemRecoveryEvidenceSnapshotResult {
+        recoveryEvidenceByPhysicalSlotID[physicalSlotID] ?? .undeclaredPhysicalSlot
     }
 }
 

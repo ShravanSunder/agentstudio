@@ -10,8 +10,8 @@ Accepted sources:
 
 - `watched-folder-admission-mainactor-fairness.md`, 1,785 lines,
   SHA-256 `10e93247c58fd03b9adaef007f8cdc0106ac3887aeeb71379c4873b24ec89050`
-- `filesystem-observation-admission-lifecycle.md`, 777 lines,
-  SHA-256 `5855fb64a4179149c5ad32d576bf0e0f59e98a216b0eb43f39c0c0a39e94f951`
+- `filesystem-observation-admission-lifecycle.md`, 813 lines,
+  SHA-256 `2eb62ae2c5797c4577d98710d3481ebf8d414360d3675fb6815f78b70aa2f535`
 - live planning anchor: `03e667c5a048767629238e5483a0bbbe43b596a8`
 
 ## 1. Outcome
@@ -290,7 +290,7 @@ transition table and C's fixed-shell contract without composing either into the
 mailbox.
 
 `FilesystemObservationSlotRegistry` is a non-locking mutable state owner accessed
-only while `FilesystemObservationMailbox` holds the wrapper coordination lock.
+only while `FilesystemObservationMailboxCore` holds the mailbox coordination lock.
 It never owns a second lock. Native create/start/stop/invalidate/barrier and
 context release always execute with wrapper, recovery, and generic locks
 released; only opaque reservations, drain receipts, retirement receipts, and
@@ -353,6 +353,7 @@ Modify together:
 - `DarwinFSEventRegistrationGeneration.swift` (new dormant native owner)
 - `FilesystemObservationMailboxContracts.swift`
 - `FilesystemObservationMailbox.swift`
+- `FilesystemObservationMailboxCore.swift` (new lexical mutable storage owner)
 - `FilesystemObservationSlotRegistry.swift` for serial mailbox integration
 - `FilesystemObservationSlotRegistryContracts.swift` as the read-only contract
   consumed by mailbox/native integration
@@ -368,20 +369,28 @@ Modify together:
 
 File ownership remains split without weakening authority closure:
 
-- `FilesystemObservationMailbox.swift` remains the single lexical owner of the
-  coordination lock and generic/domain custody transaction;
+- `FilesystemObservationMailbox.swift` remains the domain facade and paired
+  callback/native port request surface; it owns no raw mutable
+  coordination storage;
+- `FilesystemObservationMailboxCore.swift` is the single lexical owner of the
+  one coordination lock, `State`, slot registry, generic gather mailbox, fixed
+  recovery register, fleet doorbell, lock-linearized paired-port construction,
+  authority minting, and every mutation or dependency-calling coordination
+  operation over those values;
 - value contracts remain in `FilesystemObservationMailboxContracts.swift`;
+- pure value-in/value-out transition planners may move to sidecar files, but
+  they cannot retain mutable state, call core dependencies, mint authority,
+  decide currentness, or become another coordination owner;
 - slot registry, semantic replay, and fleet lifecycle remain separate owners;
-- a paired-port factory may move to a separate file only if its construction
-  authority remains private and no raw producer/signaler surface becomes
-  accessible;
 - production `FilesystemActor.swift` remains untouched before W2b, and W2b adds
   the drain in `FilesystemActor+ObservationIngress.swift`.
 
-If the mailbox coordination core remains over 600 lines after the atomic gate,
-or the production actor main file exceeds 900 lines at W2b, split by the owners
-above before checkpointing. Do not relax access control or duplicate custody to
-achieve the split.
+Keep the facade below 600 lines. Extract immutable contracts, projections, and
+pure planners from the core where that preserves the lexical storage boundary;
+do not split the one mutable coordination owner, widen access control, or
+duplicate custody merely to satisfy a line-count target. If the production actor
+main file exceeds 900 lines at W2b, split it by the owners above before
+checkpointing.
 
 The gate:
 
@@ -438,11 +447,11 @@ not conform to `FSEventStreamClient`, publish `FSEventBatch`, or modify the
 production Darwin client. W2b later makes `DarwinFSEventStreamClient` compose
 this proven owner while deleting legacy `CallbackContext`.
 
-F1 mints exactly one UUIDv7 contribution identity under the wrapper lock for
-each accepted observation or fence immediately before the generic offer. FIFO
-comes from the mailbox contribution order. A later binding is disjoint by exact
-binding identity. No contribution-exhaustion state, issuer hierarchy, or raw-
-event UUID allocation is introduced.
+F1 mints exactly one UUIDv7 contribution identity under the core-owned mailbox
+coordination lock for each accepted observation or fence immediately before the
+generic offer. FIFO comes from the mailbox contribution order. A later binding
+is disjoint by exact binding identity. No contribution-exhaustion state, issuer
+hierarchy, or raw-event UUID allocation is introduced.
 
 Separately, F1 consumes A's generic fleet-terminal
 `recoveryAuthorityExhaustedTransition`. The exact flipping offer atomically
@@ -475,6 +484,11 @@ GREEN:
 - deterministic pauses after authority consumption and after offer prove
   release/drain/fence/recycle cannot pass the paired signal;
 - raw producer/signaler and opaque authority construction fail compiler proof;
+- structural proof shows `FilesystemObservationMailboxCore` is the sole lexical
+  owner of the coordination lock, `State`, slot registry, generic gather
+  mailbox, fixed recovery register, fleet doorbell, and their
+  mutations/dependency calls; the facade exposes only the paired-port request
+  surface, and pure sidecars cannot acquire raw custody;
 - bounded capture behavior from the existing adapter remains green;
 - `FilesystemObservationCallbackScaleTests` proves the exact independent
   counter vector is identical at 1/100/300 slots and at the configured bound
@@ -817,23 +831,25 @@ Serial choke points:
 - W2b production cut.
 
 No parallel lane edits `FilesystemObservationMailbox.swift`,
-`FilesystemObservationSlotRegistry.swift`, `FSEventRegistrationControlBlock.swift`,
-or `FilesystemActor.swift` through the same integration gate.
+`FilesystemObservationMailboxCore.swift`, `FilesystemObservationSlotRegistry.swift`,
+`FSEventRegistrationControlBlock.swift`, or `FilesystemActor.swift` through the
+same integration gate.
 
 ## 9. Requirements / Proof Matrix
 
 | Claim | Source | Owner | RED/GREEN proof | Layer / freshness |
 | --- | --- | --- | --- | --- |
-| typed fleet exhaustion reaches exact fleet debt | child 102-151 | A + atomic F1 + D1 + F3 | A returns exact transition/already-sealed cause; F1 records one transition/wake and closes callback authority; D1 derives every source non-current; F3 retains exact exhaustion debt | unit/compiler/integration; current HEAD/hash |
-| fixed binding rejects ABA | child 70-151 | D2a + C + D3 | D2a exact UUIDv7 binding/stored-equality currentness; C binding-aware custody; D3 acknowledged same-slot reuse and old binding/custody/receipt/ack rejection | unit/compiler/integration |
-| callback admission is O(1) and credentialed | child 344-404 | atomic E/F1/G1 | held/released/foreign/consumed race; 1/100/300 operation count | unit/compiler/microbenchmark |
-| desired replacement is fair and currentness strict | child 153-279; parent configuration | D1 + D2a/D2c/D3 integration | active-source S/S+1 independent from reserve 0/1/R/S, q+1 selections, reservation-only withdrawal, atomic native-lifetime commitment, withdrawal at create/start, safe/unsafe currentness matrix | unit/native integration |
+| typed fleet exhaustion reaches exact fleet debt | child Fixed Slot Identity | A + atomic F1 + D1 + F3 | A returns exact transition/already-sealed cause; F1 records one transition/wake and closes callback authority; D1 derives every source non-current; F3 retains exact exhaustion debt | unit/compiler/integration; current HEAD/hash |
+| fixed binding rejects ABA | child Fixed Slot Identity | D2a + C + D3 | D2a exact UUIDv7 binding/stored-equality currentness; C binding-aware custody; D3 acknowledged same-slot reuse and old binding/custody/receipt/ack rejection | unit/compiler/integration |
+| callback admission is O(1) and credentialed | child One-Shot Callback Authority | atomic E/F1/G1 | held/released/foreign/consumed race; 1/100/300 operation count | unit/compiler/microbenchmark |
+| mailbox coordination has one lexical storage owner | child mailbox facade/core contract | atomic E/F1/G1 | behavior and callback counts unchanged; facade owns only the paired-port request surface; core alone owns one lock, state, dependencies, authority minting, construction, and mutations; sidecars are pure | unit/compiler/structural |
+| desired replacement is fair and currentness strict | child Capacity Contract; parent configuration | D1 + D2a/D2c/D3 integration | active-source S/S+1 independent from reserve 0/1/R/S, q+1 selections, reservation-only withdrawal, atomic native-lifetime commitment, withdrawal at create/start, safe/unsafe currentness matrix | unit/native integration |
 | slot mutation and binding construction have one lexical owner | child slot-registry ownership contract | D2b | unchanged D1/D2a behavior GREEN; contracts/projections separated; reusable key absent; approved-transition probe passes; plain-helper, same-file-extension, second-issuer, and projection-mutation probes fail | unit/SwiftSyntax architecture lint; before integration |
-| binding lifecycle is bounded and ordered | child 281-342 | D2c + atomic E/F1/G1 + F2/H2 | two started + desired, predecessor/pending fence, transferred-cleanup category, no authority before its owning gate | unit/integration |
-| whole-lease retry is idempotent for many slots | child 498-524 | H1 | strict-prefix failure, rotation/rebind, P×lease bound | integration |
-| contracted fence preserves intent and repair | child 450-560 | F2/H2 | capacity contraction, cleanup, SourceGate, final receipt | integration |
-| native context release is causal and idempotent | child 334-342, 561-592 | D3 | release count one, receipt/ack replay, stale after reuse | unit/native integration |
-| shutdown never loses debt | child 593-634 | F3 | every debt class, cancellation, resume without event/timer | integration |
+| binding lifecycle is bounded and ordered | child Closed Slot Lifecycle | D2c + atomic E/F1/G1 + F2/H2 | two started + desired, predecessor/pending fence, transferred-cleanup category, no authority before its owning gate | unit/integration |
+| whole-lease retry is idempotent for many slots | child Contribution And FIFO Contract | H1 | strict-prefix failure, rotation/rebind, P×lease bound | integration |
+| contracted fence preserves intent and repair | child Native Fence And Pending Intent | F2/H2 | capacity contraction, cleanup, SourceGate, final receipt | integration |
+| native context release is causal and idempotent | child Closed Slot Lifecycle and Actor Transfer And Retirement Receipt | D3 | release count one, receipt/ack replay, stale after reuse | unit/native integration |
+| shutdown never loses debt | child Fleet Shutdown | F3 | every debt class, cancellation, resume without event/timer | integration |
 | real Darwin lifetime matches receipts | child callback/fence contract | G2 | temporary root and explicit teardown ledger | real-boundary integration |
 | repair health requires exact participants | parent repair matrix | WF-C | participant applicability/withdrawal/transfer table | unit/integration |
 | production has exactly one ingress | hard-cut rule | WF-D | pre-cut legacy-only RED; post-cut fixed-only GREEN | structural/integration/smoke |

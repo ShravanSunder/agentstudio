@@ -39,25 +39,31 @@ struct FixedFilesystemRecoveryEvidenceRegisterTests {
 
     @Test("record mints UUIDv7 custody and duplicate input preserves exact snapshot")
     func firstAndDuplicateRecordPreserveCustody() throws {
+        // Arrange
         let fixture = try makeBoundFixture()
+        let recoveryRevision = makeRecoveryRevision(
+            for: fixture.binding.physicalSlotID
+        )
 
+        // Act
         let first = try requireRecorded(
             fixture.register.record(
                 .continuityLoss,
-                genericRecoveryStamp: .sequenced(7),
+                genericRecoveryRevision: recoveryRevision,
                 for: fixture.binding
             )
         )
         let duplicate = try requireRecorded(
             fixture.register.record(
                 .continuityLoss,
-                genericRecoveryStamp: .sequenced(7),
+                genericRecoveryRevision: recoveryRevision,
                 for: fixture.binding
             )
         )
 
+        // Assert
         #expect(first.revision.binding == fixture.binding)
-        #expect(first.revision.genericRecoveryStamp == .sequenced(7))
+        #expect(first.revision.genericRecoveryRevision == recoveryRevision)
         #expect(first.revision.recoveryCustodyIdentity.isUUIDv7)
         #expect(first.evidence == .continuityLoss)
         #expect(duplicate == first)
@@ -65,29 +71,38 @@ struct FixedFilesystemRecoveryEvidenceRegisterTests {
 
     @Test("joined evidence retains custody while updating evidence and generic metadata")
     func joinedEvidenceRetainsCustody() throws {
+        // Arrange
         let fixture = try makeBoundFixture()
+        let recoveryRevisionSource = makeRecoveryRevisionSource(
+            for: fixture.binding.physicalSlotID
+        )
+        let firstRecoveryRevision = recoveryRevisionSource.nextRevision()
         let first = try requireRecorded(
             fixture.register.record(
                 .continuityLoss,
-                genericRecoveryStamp: .sequenced(1),
+                genericRecoveryRevision: firstRecoveryRevision,
                 for: fixture.binding
             )
         )
+        let joinedRecoveryRevision = recoveryRevisionSource.nextRevision()
 
+        // Act
         let joined = try requireRecorded(
             fixture.register.record(
                 .callbackCaptureTruncation,
-                genericRecoveryStamp: .sequenced(2),
+                genericRecoveryRevision: joinedRecoveryRevision,
                 for: fixture.binding
             )
         )
 
+        // Assert
         #expect(joined.revision.binding == first.revision.binding)
         #expect(
             joined.revision.recoveryCustodyIdentity
                 == first.revision.recoveryCustodyIdentity
         )
-        #expect(joined.revision.genericRecoveryStamp == .sequenced(2))
+        #expect(joined.revision.genericRecoveryRevision == joinedRecoveryRevision)
+        #expect(joined.revision.genericRecoveryRevision != firstRecoveryRevision)
         #expect(joined.evidence.contains(.continuityLoss))
         #expect(joined.evidence.contains(.callbackCaptureTruncation))
         #expect(fixture.register.snapshot(for: fixture.binding) == .retained(joined))
@@ -95,38 +110,50 @@ struct FixedFilesystemRecoveryEvidenceRegisterTests {
 
     @Test("only the exact newest snapshot can clear retained evidence")
     func acknowledgementRequiresExactSnapshot() throws {
+        // Arrange
         let fixture = try makeBoundFixture()
+        let recoveryRevisionSource = makeRecoveryRevisionSource(
+            for: fixture.binding.physicalSlotID
+        )
         let older = try requireRecorded(
             fixture.register.record(
                 .continuityLoss,
-                genericRecoveryStamp: .sequenced(1),
+                genericRecoveryRevision: recoveryRevisionSource.nextRevision(),
                 for: fixture.binding
             )
         )
         let newer = try requireRecorded(
             fixture.register.record(
                 .rootIdentityRevalidation,
-                genericRecoveryStamp: .sequenced(2),
+                genericRecoveryRevision: recoveryRevisionSource.nextRevision(),
                 for: fixture.binding
             )
         )
 
+        // Act
+        let staleAcknowledgement = fixture.register.acknowledge(older)
+        let currentAcknowledgement = fixture.register.acknowledge(newer)
+
+        // Assert
         #expect(
-            fixture.register.acknowledge(older)
-                == .newerEvidenceRetained(newer)
+            staleAcknowledgement == .newerEvidenceRetained(newer)
         )
-        #expect(fixture.register.acknowledge(newer) == .cleared(newer.revision))
+        #expect(currentAcknowledgement == .cleared(newer.revision))
         #expect(fixture.register.snapshot(for: fixture.binding) == .clear(fixture.binding))
         #expect(fixture.register.acknowledge(newer) == .alreadyClear(fixture.binding))
     }
 
-    @Test("reincarnated identical evidence and stamp receive distinct custody")
+    @Test("reincarnated identical evidence and revision receive distinct custody")
     func reincarnatedEvidenceRejectsOldAcknowledgement() throws {
+        // Arrange
         let fixture = try makeBoundFixture()
+        let recoveryRevision = makeRecoveryRevision(
+            for: fixture.binding.physicalSlotID
+        )
         let oldSnapshot = try requireRecorded(
             fixture.register.record(
                 .continuityLoss,
-                genericRecoveryStamp: .authorityExhausted,
+                genericRecoveryRevision: recoveryRevision,
                 for: fixture.binding
             )
         )
@@ -135,18 +162,20 @@ struct FixedFilesystemRecoveryEvidenceRegisterTests {
                 == .cleared(oldSnapshot.revision)
         )
 
+        // Act
         let reincarnatedSnapshot = try requireRecorded(
             fixture.register.record(
                 .continuityLoss,
-                genericRecoveryStamp: .authorityExhausted,
+                genericRecoveryRevision: recoveryRevision,
                 for: fixture.binding
             )
         )
 
+        // Assert
         #expect(reincarnatedSnapshot.revision.binding == oldSnapshot.revision.binding)
         #expect(
-            reincarnatedSnapshot.revision.genericRecoveryStamp
-                == oldSnapshot.revision.genericRecoveryStamp
+            reincarnatedSnapshot.revision.genericRecoveryRevision
+                == oldSnapshot.revision.genericRecoveryRevision
         )
         #expect(
             reincarnatedSnapshot.revision.recoveryCustodyIdentity
@@ -160,28 +189,37 @@ struct FixedFilesystemRecoveryEvidenceRegisterTests {
 
     @Test("retirement requires exact clear binding and never drops recovery debt")
     func retirementRequiresClearExactBinding() throws {
+        // Arrange
         let fixture = try makeBoundFixture()
         let retained = try requireRecorded(
             fixture.register.record(
                 .unsupportedNativeFlags,
-                genericRecoveryStamp: .sequenced(1),
+                genericRecoveryRevision: makeRecoveryRevision(
+                    for: fixture.binding.physicalSlotID
+                ),
                 for: fixture.binding
             )
         )
 
-        #expect(
-            fixture.register.retire(fixture.binding)
-                == .recoveryEvidenceRetained(retained)
-        )
-        #expect(fixture.register.acknowledge(retained) == .cleared(retained.revision))
-        #expect(fixture.register.retire(fixture.binding) == .retired(fixture.binding))
-        #expect(fixture.register.snapshot(for: fixture.binding) == .unboundPhysicalSlot)
-        #expect(fixture.register.retire(fixture.binding) == .alreadyVacant)
+        // Act
+        let retainedRetirement = fixture.register.retire(fixture.binding)
+        let acknowledgement = fixture.register.acknowledge(retained)
+        let clearedRetirement = fixture.register.retire(fixture.binding)
+        let retiredSnapshot = fixture.register.snapshot(for: fixture.binding)
+        let repeatedRetirement = fixture.register.retire(fixture.binding)
+
+        // Assert
+        #expect(retainedRetirement == .recoveryEvidenceRetained(retained))
+        #expect(acknowledgement == .cleared(retained.revision))
+        #expect(clearedRetirement == .retired(fixture.binding))
+        #expect(retiredSnapshot == .unboundPhysicalSlot)
+        #expect(repeatedRetirement == .alreadyVacant)
         #expect(fixture.register.physicalSlotCount == fixture.registry.physicalSlotCount)
     }
 
     @Test("foreign undeclared unbound and current-binding mismatches are typed no-ops")
     func invalidBindingOperationsAreTypedNoOps() throws {
+        // Arrange
         let fixture = try makeBoundFixture()
         let foreignFixture = try makeFixture()
         let undeclaredBinding = makeSyntheticBinding(
@@ -199,70 +237,103 @@ struct FixedFilesystemRecoveryEvidenceRegisterTests {
             sourceOrdinal: 2,
             generation: 2
         )
+        let foreignRecoveryRevision = makeRecoveryRevision(
+            for: foreignFixture.binding.physicalSlotID
+        )
+        let conflictingRecoveryRevision = makeRecoveryRevision(
+            for: conflictingBinding.physicalSlotID
+        )
 
-        #expect(fixture.register.bind(foreignFixture.binding) == .foreignFleet)
-        #expect(
-            fixture.register.record(
-                .continuityLoss,
-                genericRecoveryStamp: .sequenced(1),
-                for: foreignFixture.binding
-            ) == .foreignFleet
+        // Act
+        let foreignBind = fixture.register.bind(foreignFixture.binding)
+        let foreignRecord = fixture.register.record(
+            .continuityLoss,
+            genericRecoveryRevision: foreignRecoveryRevision,
+            for: foreignFixture.binding
         )
-        #expect(fixture.register.snapshot(for: foreignFixture.binding) == .foreignFleet)
-        #expect(fixture.register.retire(foreignFixture.binding) == .foreignFleet)
+        let foreignSnapshot = fixture.register.snapshot(for: foreignFixture.binding)
+        let foreignRetirement = fixture.register.retire(foreignFixture.binding)
+        let undeclaredBind = fixture.register.bind(undeclaredBinding)
+        let undeclaredSnapshot = fixture.register.snapshot(for: undeclaredBinding)
+        let vacantSnapshot = fixture.register.snapshot(for: vacantBinding)
+        let conflictingRecord = fixture.register.record(
+            .continuityLoss,
+            genericRecoveryRevision: conflictingRecoveryRevision,
+            for: conflictingBinding
+        )
+        let conflictingSnapshot = fixture.register.snapshot(for: conflictingBinding)
+        let conflictingRetirement = fixture.register.retire(conflictingBinding)
+        let retainedState = fixture.register.state(of: fixture.binding.physicalSlotID)
 
-        #expect(fixture.register.bind(undeclaredBinding) == .undeclaredPhysicalSlot)
-        #expect(fixture.register.snapshot(for: undeclaredBinding) == .undeclaredPhysicalSlot)
-        #expect(fixture.register.snapshot(for: vacantBinding) == .unboundPhysicalSlot)
-
+        // Assert
+        #expect(foreignBind == .foreignFleet)
+        #expect(foreignRecord == .foreignFleet)
+        #expect(foreignSnapshot == .foreignFleet)
+        #expect(foreignRetirement == .foreignFleet)
+        #expect(undeclaredBind == .undeclaredPhysicalSlot)
+        #expect(undeclaredSnapshot == .undeclaredPhysicalSlot)
+        #expect(vacantSnapshot == .unboundPhysicalSlot)
         #expect(
-            fixture.register.record(
-                .continuityLoss,
-                genericRecoveryStamp: .sequenced(1),
-                for: conflictingBinding
-            ) == .currentBindingMismatch(fixture.binding)
+            conflictingRecord == .currentBindingMismatch(fixture.binding)
         )
         #expect(
-            fixture.register.snapshot(for: conflictingBinding)
-                == .currentBindingMismatch(fixture.binding)
+            conflictingSnapshot == .currentBindingMismatch(fixture.binding)
         )
-        #expect(
-            fixture.register.retire(conflictingBinding)
-                == .currentBindingMismatch(fixture.binding)
-        )
-        #expect(
-            fixture.register.state(of: fixture.binding.physicalSlotID)
-                == .boundClear(fixture.binding)
-        )
+        #expect(conflictingRetirement == .currentBindingMismatch(fixture.binding))
+        #expect(retainedState == .boundClear(fixture.binding))
     }
 
-    @Test("equal generic stamps on distinct bindings remain isolated")
-    func equalGenericStampsDoNotAuthorizeAcrossBindings() throws {
-        let registry = try makeRegistry(sourceCount: 2, reserveCount: 0)
+    @Test("equal opaque revisions on distinct bindings remain isolated")
+    func equalOpaqueRevisionsDoNotAuthorizeAcrossBindings() throws {
+        // Arrange
+        let registry = try makeRegistry(sourceCount: 1, reserveCount: 0)
         let firstBinding = try makeBinding(in: registry, sourceOrdinal: 1, generation: 1)
-        let secondBinding = try makeBinding(in: registry, sourceOrdinal: 2, generation: 1)
-        let register = FixedFilesystemRecoveryEvidenceRegister(slotRegistry: registry)
-        #expect(register.bind(firstBinding) == .boundClear(firstBinding))
-        #expect(register.bind(secondBinding) == .boundClear(secondBinding))
+        let secondBinding = makeSyntheticBinding(
+            fleetMailboxIdentity: registry.fleetMailboxIdentity,
+            physicalSlotID: firstBinding.physicalSlotID,
+            registration: makeRegistration(generation: 2)
+        )
+        let firstRegister = FixedFilesystemRecoveryEvidenceRegister(slotRegistry: registry)
+        let secondRegister = FixedFilesystemRecoveryEvidenceRegister(slotRegistry: registry)
+        #expect(firstRegister.bind(firstBinding) == .boundClear(firstBinding))
+        #expect(secondRegister.bind(secondBinding) == .boundClear(secondBinding))
+        let firstRecoveryRevision = makeRecoveryRevision(
+            for: firstBinding.physicalSlotID
+        )
+        let secondRecoveryRevision = makeRecoveryRevision(
+            for: secondBinding.physicalSlotID
+        )
+        #expect(firstRecoveryRevision == secondRecoveryRevision)
+
+        // Act
         let firstSnapshot = try requireRecorded(
-            register.record(
+            firstRegister.record(
                 .continuityLoss,
-                genericRecoveryStamp: .authorityExhausted,
+                genericRecoveryRevision: firstRecoveryRevision,
                 for: firstBinding
             )
         )
         let secondSnapshot = try requireRecorded(
-            register.record(
+            secondRegister.record(
                 .rootIdentityRevalidation,
-                genericRecoveryStamp: .authorityExhausted,
+                genericRecoveryRevision: secondRecoveryRevision,
                 for: secondBinding
             )
         )
+        let foreignAcknowledgement = secondRegister.acknowledge(firstSnapshot)
 
-        #expect(firstSnapshot.revision.genericRecoveryStamp == secondSnapshot.revision.genericRecoveryStamp)
+        // Assert
+        #expect(
+            firstSnapshot.revision.genericRecoveryRevision
+                == secondSnapshot.revision.genericRecoveryRevision
+        )
         #expect(firstSnapshot.revision.binding != secondSnapshot.revision.binding)
-        #expect(register.acknowledge(firstSnapshot) == .cleared(firstSnapshot.revision))
-        #expect(register.snapshot(for: secondBinding) == .retained(secondSnapshot))
+        #expect(
+            firstSnapshot.revision.recoveryCustodyIdentity
+                != secondSnapshot.revision.recoveryCustodyIdentity
+        )
+        #expect(foreignAcknowledgement == .currentBindingMismatch(secondBinding))
+        #expect(secondRegister.snapshot(for: secondBinding) == .retained(secondSnapshot))
     }
 
     private func makeFixture() throws -> RecoveryFixture {
@@ -330,6 +401,57 @@ struct FixedFilesystemRecoveryEvidenceRegisterTests {
             throw FixedFilesystemRecoveryEvidenceRegisterTestError.expectedRecordedEvidence
         }
         return snapshot
+    }
+
+    private func makeRecoveryRevision(
+        for physicalSlotID: FilesystemObservationPhysicalSlotID
+    ) -> GatherRecoveryRevision<FilesystemObservationPhysicalSlotID> {
+        makeRecoveryRevisionSource(for: physicalSlotID).nextRevision()
+    }
+
+    private func makeRecoveryRevisionSource(
+        for physicalSlotID: FilesystemObservationPhysicalSlotID
+    ) -> RecoveryRevisionSource {
+        RecoveryRevisionSource(
+            generation: AdmissionGeneration(owner: .filesystemObservation, value: 1),
+            physicalSlotID: physicalSlotID
+        )
+    }
+}
+
+private final class RecoveryRevisionSource {
+    private let generation: AdmissionGeneration
+    private let physicalSlotID: FilesystemObservationPhysicalSlotID
+    private let mailbox:
+        BoundedGatherMailbox<
+            FilesystemObservationPhysicalSlotID,
+            GatherTestPayload
+        >
+
+    init(
+        generation: AdmissionGeneration,
+        physicalSlotID: FilesystemObservationPhysicalSlotID
+    ) {
+        self.generation = generation
+        self.physicalSlotID = physicalSlotID
+        mailbox = BoundedGatherMailbox(
+            generation: generation,
+            declaredKeys: [physicalSlotID],
+            limits: hashProbeLimits(maximumDeclaredKeys: 1, maximumContributions: 8)
+        )
+    }
+
+    func nextRevision() -> GatherRecoveryRevision<FilesystemObservationPhysicalSlotID> {
+        let offer = mailbox.producerPort.offer(
+            generation: generation,
+            contribution: GatherContribution(
+                key: physicalSlotID,
+                payload: GatherTestPayload(label: "fixed-recovery-register"),
+                footprint: GatherFootprint(itemCount: 1, byteCount: 1),
+                recoverySignal: .authoritativeRecoveryRequired
+            )
+        )
+        return requireRecoveryRevision(requireGenericAdmission(offer))
     }
 }
 

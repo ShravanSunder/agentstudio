@@ -1,6 +1,28 @@
 import Foundation
 import os
 
+/// A closed, fixed-width set of reasons that make callback detail non-authoritative.
+///
+/// The private representation prevents callers from constructing unsupported bits. The
+/// fixed register retains this value only; it never retains paths or callback payloads.
+struct FilesystemRecoveryEvidence: Equatable, Hashable, Sendable {
+    private let bits: UInt8
+
+    static let continuityLoss = Self(bits: 1 << 0)
+    static let rootIdentityRevalidation = Self(bits: 1 << 1)
+    static let callbackCaptureTruncation = Self(bits: 1 << 2)
+    static let callbackAdmissionOverflow = Self(bits: 1 << 3)
+    static let unsupportedNativeFlags = Self(bits: 1 << 4)
+
+    func contains(_ evidence: Self) -> Bool {
+        bits & evidence.bits == evidence.bits
+    }
+
+    func unioning(_ evidence: Self) -> Self {
+        Self(bits: bits | evidence.bits)
+    }
+}
+
 struct FixedFilesystemRecoveryCustodyIdentity: Equatable, Hashable, Sendable {
     private let value: UUID
 
@@ -13,16 +35,16 @@ struct FixedFilesystemRecoveryCustodyIdentity: Equatable, Hashable, Sendable {
 
 struct FixedFilesystemRecoveryEvidenceRevision: Equatable, Hashable, Sendable {
     let binding: FilesystemObservationSlotBinding
-    let genericRecoveryStamp: GatherRecoveryStamp
+    let genericRecoveryRevision: GatherRecoveryRevision<FilesystemObservationPhysicalSlotID>
     let recoveryCustodyIdentity: FixedFilesystemRecoveryCustodyIdentity
 
     fileprivate init(
         binding: FilesystemObservationSlotBinding,
-        genericRecoveryStamp: GatherRecoveryStamp,
+        genericRecoveryRevision: GatherRecoveryRevision<FilesystemObservationPhysicalSlotID>,
         recoveryCustodyIdentity: FixedFilesystemRecoveryCustodyIdentity
     ) {
         self.binding = binding
-        self.genericRecoveryStamp = genericRecoveryStamp
+        self.genericRecoveryRevision = genericRecoveryRevision
         self.recoveryCustodyIdentity = recoveryCustodyIdentity
     }
 }
@@ -94,7 +116,7 @@ enum FixedFilesystemRecoveryEvidenceRetirementResult: Equatable, Sendable {
 
 /// Fixed-cardinality recovery custody keyed by physical observation slots.
 ///
-/// Physical-slot and generic-stamp equality are metadata, not authority. Every mutating
+/// Physical-slot and opaque generic-revision equality are metadata, not authority. Every mutating
 /// operation validates the complete current binding, and acknowledgement additionally
 /// validates the register-minted UUIDv7 custody identity captured in the exact snapshot.
 final class FixedFilesystemRecoveryEvidenceRegister: @unchecked Sendable {
@@ -173,7 +195,7 @@ final class FixedFilesystemRecoveryEvidenceRegister: @unchecked Sendable {
 
     func record(
         _ evidence: FilesystemRecoveryEvidence,
-        genericRecoveryStamp: GatherRecoveryStamp,
+        genericRecoveryRevision: GatherRecoveryRevision<FilesystemObservationPhysicalSlotID>,
         for binding: FilesystemObservationSlotBinding
     ) -> FixedFilesystemRecoveryEvidenceRecordResult {
         guard binding.fleetMailboxIdentity == fleetMailboxIdentity else {
@@ -193,7 +215,7 @@ final class FixedFilesystemRecoveryEvidenceRegister: @unchecked Sendable {
                 }
                 snapshot = Self.snapshot(
                     binding: binding,
-                    genericRecoveryStamp: genericRecoveryStamp,
+                    genericRecoveryRevision: genericRecoveryRevision,
                     evidence: evidence,
                     recoveryCustodyIdentity: FixedFilesystemRecoveryCustodyIdentity(
                         value: UUIDv7.generate()
@@ -206,14 +228,14 @@ final class FixedFilesystemRecoveryEvidenceRegister: @unchecked Sendable {
                 let joinedEvidence = currentSnapshot.evidence.unioning(evidence)
                 guard
                     joinedEvidence != currentSnapshot.evidence
-                        || genericRecoveryStamp
-                            != currentSnapshot.revision.genericRecoveryStamp
+                        || genericRecoveryRevision
+                            != currentSnapshot.revision.genericRecoveryRevision
                 else {
                     return .recorded(currentSnapshot)
                 }
                 snapshot = Self.snapshot(
                     binding: binding,
-                    genericRecoveryStamp: genericRecoveryStamp,
+                    genericRecoveryRevision: genericRecoveryRevision,
                     evidence: joinedEvidence,
                     recoveryCustodyIdentity:
                         currentSnapshot.revision.recoveryCustodyIdentity
@@ -313,14 +335,14 @@ final class FixedFilesystemRecoveryEvidenceRegister: @unchecked Sendable {
 
     private static func snapshot(
         binding: FilesystemObservationSlotBinding,
-        genericRecoveryStamp: GatherRecoveryStamp,
+        genericRecoveryRevision: GatherRecoveryRevision<FilesystemObservationPhysicalSlotID>,
         evidence: FilesystemRecoveryEvidence,
         recoveryCustodyIdentity: FixedFilesystemRecoveryCustodyIdentity
     ) -> FixedFilesystemRecoveryEvidenceSnapshot {
         FixedFilesystemRecoveryEvidenceSnapshot(
             revision: FixedFilesystemRecoveryEvidenceRevision(
                 binding: binding,
-                genericRecoveryStamp: genericRecoveryStamp,
+                genericRecoveryRevision: genericRecoveryRevision,
                 recoveryCustodyIdentity: recoveryCustodyIdentity
             ),
             evidence: evidence

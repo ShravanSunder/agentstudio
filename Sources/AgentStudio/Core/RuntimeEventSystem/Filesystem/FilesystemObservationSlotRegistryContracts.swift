@@ -140,6 +140,53 @@ struct FilesystemObservationStartingNativeLifetime: Hashable, Sendable {
     let nativeGenerationIdentity: FilesystemObservationNativeGenerationIdentity
 }
 
+struct FilesystemObservationCallbackAdmissionPortIdentity: Equatable, Hashable, Sendable {
+    private let value: UUID
+
+    var isUUIDv7: Bool { UUIDv7.isV7(value) }
+
+    init(value: UUID) {
+        self.value = value
+    }
+}
+
+struct FilesystemObservationAcceptingNativeLifetime: Equatable, Sendable {
+    let startingNativeLifetime: FilesystemObservationStartingNativeLifetime
+    let callbackAdmissionPortIdentity: FilesystemObservationCallbackAdmissionPortIdentity
+
+    var binding: FilesystemObservationSlotBinding {
+        startingNativeLifetime.binding
+    }
+}
+
+// swiftlint:disable:next type_name
+struct FilesystemObservationClosingAwaitingCallbackLeaseDrainLifetime: Equatable, Sendable {
+    let acceptingNativeLifetime: FilesystemObservationAcceptingNativeLifetime
+
+    var binding: FilesystemObservationSlotBinding {
+        acceptingNativeLifetime.binding
+    }
+}
+
+enum FilesystemObservationAcceptingPublicationResult: Equatable, Sendable {
+    case published(FilesystemObservationAcceptingNativeLifetime)
+    case alreadyPublished(FilesystemObservationAcceptingNativeLifetime)
+    case foreignFleet
+    case undeclaredPhysicalSlot
+    case startingNativeLifetimeMismatch(FilesystemObservationStartingNativeLifetime)
+    case invalidSlotState(FilesystemObservationPhysicalSlotState)
+}
+
+// swiftlint:disable:next type_name
+enum FilesystemObservationCallbackLeaseDrainClosingResult: Equatable, Sendable {
+    case transitioned(FilesystemObservationClosingAwaitingCallbackLeaseDrainLifetime)
+    case alreadyTransitioned(FilesystemObservationClosingAwaitingCallbackLeaseDrainLifetime)
+    case foreignFleet
+    case undeclaredPhysicalSlot
+    case acceptingNativeLifetimeMismatch(FilesystemObservationAcceptingNativeLifetime)
+    case invalidSlotState(FilesystemObservationPhysicalSlotState)
+}
+
 // swiftlint:disable:next type_name
 enum FilesystemObservationUnpublishedGenerationRetirementCause: Hashable, Sendable {
     case desiredWithdrawn
@@ -189,6 +236,10 @@ enum FilesystemObservationDesiredSlotState: Equatable, Sendable {
     case deferred(FilesystemObservationDesiredRegistration)
     case selected(FilesystemObservationDesiredSelection)
     case starting(FilesystemObservationStartingNativeLifetime)
+    case accepting(FilesystemObservationAcceptingNativeLifetime)
+    case closingAwaitingCallbackLeaseDrain(
+        FilesystemObservationClosingAwaitingCallbackLeaseDrainLifetime
+    )
     case retiringUnpublishedGenerations(
         FilesystemObservationRetiringUnpublishedGenerationChain
     )
@@ -240,6 +291,10 @@ enum FilesystemObservationPhysicalSlotState: Equatable, Sendable {
     case vacant
     case selected(FilesystemObservationDesiredSelection)
     case starting(FilesystemObservationStartingNativeLifetime)
+    case accepting(FilesystemObservationAcceptingNativeLifetime)
+    case closingAwaitingCallbackLeaseDrain(
+        FilesystemObservationClosingAwaitingCallbackLeaseDrainLifetime
+    )
     case retiringUnpublishedGeneration(FilesystemObservationRetiringUnpublishedNativeLifetime)
 }
 

@@ -27,12 +27,18 @@ Darwin callback generation
                     bounded credentialed observation
                                   |
                                   v
-FilesystemObservationSlotRegistry + FilesystemObservationMailbox
-  owns: fixed slot pool, exact UUIDv7 binding currentness, callback port factory,
-        per-slot lifecycle, pending retirement-fence intents,
-        fixed recovery slot shells, bounded semantic-transfer identities,
-        exact recovery evidence, one fleet gather mailbox + doorbell
-  exposes: one actor consumer and source-slot retirement requests/receipts
+FilesystemObservationMailbox
+  owns: domain facade and paired callback/native port request surface
+                                  |
+                                  v
+FilesystemObservationMailboxCore + FilesystemObservationSlotRegistry
+  core owns: one lexical coordination lock + State; sole custody of the slot
+             registry, fixed recovery register, fleet gather mailbox, and doorbell
+  registry owns: fixed slot pool, exact UUIDv7 binding currentness, per-slot
+                 lifecycle, and pending retirement-fence intents
+  together own: bounded semantic-transfer identities and exact recovery evidence
+  expose: closed facade operations, one actor consumer, and source-slot
+          retirement requests/receipts
 
                                   |
                                   v
@@ -358,6 +364,29 @@ binding/control/native construction occurs only in the approved
 `selected -> starting` transition; and plain-helper plus same-file-extension
 mutation probes fail. The approved transition probe passes. This lint is a
 source-regression guard over the structural design, not a runtime authority.
+
+### Mailbox facade and lexical storage owner
+
+`FilesystemObservationMailbox` remains the domain wrapper and coordination
+facade. It exposes the paired callback/native port request surface and only
+closed lifecycle, producer, consumer, waiter, and diagnostic operations. The
+core performs the lock-linearized port construction and authority minting. The
+facade does not own raw mutable coordination storage.
+
+`FilesystemObservationMailboxCore` is the one lexical mutable storage and
+coordination owner. Its primary declaration owns the single mailbox
+coordination lock, `State`, slot registry, generic gather mailbox, fixed
+recovery register, fleet doorbell, and every mutation or dependency-calling
+coordination operation over those values. In the rest of this contract,
+"wrapper lock" and "mailbox coordination lock" mean this core-owned lock.
+
+Immutable contracts and projections may remain in sidecar files. Pure
+transition planners may also be sidecars when they receive values and return
+values only; they cannot retain mutable state, call the core's dependencies,
+mint authority, decide currentness, or become a second coordination owner. The
+facade-to-core call is an ordinary synchronous method call. This decomposition
+adds no actor, queue, lock, event hop, lookup, currentness owner, or runtime
+authority.
 
 The source-level started-generation bound is:
 
@@ -762,6 +791,13 @@ wall-clock sleeps:
     SwiftSyntax probes accept the sole `selected -> starting` construction site
     and reject a plain helper, same-file owner extension, second issuer/factory,
     and contracts/projection mutation attempt.
+19. Mailbox behavior and callback operation counts remain identical after the
+    facade/core decomposition. Structural proof shows the core primary
+    declaration is the sole lexical owner of the one coordination lock,
+    `State`, slot registry, generic gather mailbox, fixed recovery register,
+    doorbell, and their mutations/dependency calls; the facade owns only the
+    paired-port request surface, and contracts/projections/pure planners own no
+    mutable custody or runtime authority.
 
 ## Non-Goals
 

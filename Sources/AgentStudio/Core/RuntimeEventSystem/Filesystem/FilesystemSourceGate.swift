@@ -117,17 +117,17 @@ enum FilesystemRepairAdmissionResult: Equatable, Sendable {
 /// only when it matches the recovery snapshot held by the active drain lease.
 struct FilesystemSourceGateRecoveryAcceptance: Equatable, Sendable {
     let repairGeneration: RepairGeneration
-    let acceptedEvidence: FilesystemRecoveryEvidenceSnapshot
+    let acceptedEvidence: FixedFilesystemRecoveryEvidenceSnapshot
 
     fileprivate init(
-        acceptedEvidence: FilesystemRecoveryEvidenceSnapshot,
+        acceptedEvidence: FixedFilesystemRecoveryEvidenceSnapshot,
         repairGeneration: RepairGeneration
     ) {
         self.acceptedEvidence = acceptedEvidence
         self.repairGeneration = repairGeneration
     }
 
-    func matches(_ evidence: FilesystemRecoveryEvidenceSnapshot) -> Bool {
+    func matches(_ evidence: FixedFilesystemRecoveryEvidenceSnapshot) -> Bool {
         acceptedEvidence == evidence
     }
 }
@@ -161,12 +161,12 @@ struct FilesystemSourceGate: Sendable {
     }
 
     mutating func acceptMailboxRecovery(
-        _ evidence: FilesystemRecoveryEvidenceSnapshot,
+        _ evidence: FixedFilesystemRecoveryEvidenceSnapshot,
         trigger: FilesystemRepairTriggerClass,
         watermark: FilesystemRepairWatermark,
         participants: Set<FilesystemRepairParticipantToken>
     ) -> FilesystemSourceGateRecoveryAdmissionResult {
-        guard evidence.revision.registration == registration else {
+        guard evidence.revision.binding.registration == registration else {
             return .registrationMismatch
         }
         switch recordRepair(

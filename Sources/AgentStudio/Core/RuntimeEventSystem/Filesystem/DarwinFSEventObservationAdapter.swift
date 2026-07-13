@@ -2,21 +2,18 @@ import CoreServices
 import Foundation
 
 enum DarwinFSEventObservationCaptureRejection: Equatable, Sendable {
-    case staleRegistration
     case leaseIdentityExhausted
     case closing
-    case closed
+    case callbackAuthority(FilesystemObservationCallbackAuthorityRejection)
+    case mailbox(FilesystemObservationCallbackMailboxRejection)
     case invalidReportedEventCount(Int)
     case invalidObservation(FSEventObservationValidationError)
-    case undeclaredRegistration
-    case invalidFootprint
-    case mailboxClosed
 }
 
 enum DarwinFSEventObservationCaptureResult: Sendable {
     case admitted(
         offer: FilesystemObservationOffer,
-        receipt: FilesystemObservationOfferReceipt
+        admission: FilesystemObservationCallbackAdmissionResult
     )
     case ignoredEmptyCallback
     case rejected(DarwinFSEventObservationCaptureRejection)
@@ -32,55 +29,37 @@ struct DarwinFSEventNativeCallbackInput {
 
 final class DarwinFSEventObservationAdapter: @unchecked Sendable {
     let controlBlock: FSEventRegistrationControlBlock
-    private let producer: FilesystemObservationCallbackProducerPort
-    private let signaler: FilesystemObservationCallbackSignalerPort
+    private let callbackAdmissionPort: FilesystemObservationCallbackAdmissionPort
 
     init(
         controlBlock: FSEventRegistrationControlBlock,
-        producer: FilesystemObservationCallbackProducerPort,
-        signaler: FilesystemObservationCallbackSignalerPort
+        callbackAdmissionPort: FilesystemObservationCallbackAdmissionPort
     ) {
         self.controlBlock = controlBlock
-        self.producer = producer
-        self.signaler = signaler
+        self.callbackAdmissionPort = callbackAdmissionPort
     }
 
     func capture(
-        expectedRegistration: FSEventRegistrationToken,
         input: DarwinFSEventNativeCallbackInput
     ) -> DarwinFSEventObservationCaptureResult {
-        guard input.reportedEventCount >= 0 else {
-            return .rejected(.invalidReportedEventCount(input.reportedEventCount))
-        }
-        guard input.reportedEventCount > 0 else { return .ignoredEmptyCallback }
         let callbackLease: FSEventCallbackLease
-        switch controlBlock.acquireCallbackLease(for: expectedRegistration) {
+        switch controlBlock.acquireCallbackLease() {
         case .acquired(let lease): callbackLease = lease
-        case .staleRegistration: return .rejected(.staleRegistration)
         case .leaseIdentityExhausted: return .rejected(.leaseIdentityExhausted)
         case .closing: return .rejected(.closing)
-        case .closed: return .rejected(.closed)
         }
         defer { _ = callbackLease.release() }
 
-        switch DarwinFSEventObservationCapture.makeOffer(
-            controlBlock: controlBlock,
-            input: input
+        return callbackAdmissionPort.admit(
+            using: callbackLease,
+            preflight: FilesystemObservationCallbackPreflight(
+                captureLimits: controlBlock.captureLimits
+            )
         ) {
-        case .offer(let offer):
-            switch producer.offer(offer) {
-            case .admitted(let receipt):
-                signaler.apply(receipt.wake)
-                return .admitted(offer: offer, receipt: receipt)
-            case .undeclaredRegistration:
-                return .rejected(.undeclaredRegistration)
-            case .invalidFootprint:
-                return .rejected(.invalidFootprint)
-            case .closed:
-                return .rejected(.mailboxClosed)
-            }
-        case .rejected(let rejection):
-            return .rejected(rejection)
+            DarwinFSEventObservationCapture.makeOffer(
+                controlBlock: self.controlBlock,
+                input: input
+            )
         }
     }
 }
@@ -93,8 +72,9 @@ final class DarwinFSEventObservationAdapter: @unchecked Sendable {
 /// and admits the opaque offer to the generation mailbox before releasing its
 /// callback lease.
 enum DarwinFSEventObservationCapture {
-    fileprivate enum OfferResult {
+    enum OfferResult: Sendable {
         case offer(FilesystemObservationOffer)
+        case ignoredEmptyCallback
         case rejected(DarwinFSEventObservationCaptureRejection)
     }
     private enum BoundedPathCapture {
@@ -165,6 +145,10 @@ enum DarwinFSEventObservationCapture {
         controlBlock: FSEventRegistrationControlBlock,
         input: DarwinFSEventNativeCallbackInput
     ) -> OfferResult {
+        guard input.reportedEventCount >= 0 else {
+            return .rejected(.invalidReportedEventCount(input.reportedEventCount))
+        }
+        guard input.reportedEventCount > 0 else { return .ignoredEmptyCallback }
         let nativeShape = makeNativeShape(input: input)
         return inspectNativePrefix(
             controlBlock: controlBlock,

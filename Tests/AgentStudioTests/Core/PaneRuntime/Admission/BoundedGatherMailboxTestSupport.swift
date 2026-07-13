@@ -50,6 +50,22 @@ final class GatherHashProbe: @unchecked Sendable {
     var operationCount: Int {
         lock.withLock { $0.hashCount + $0.equalityCount }
     }
+
+    var operationVector: GatherKeyOperationVector {
+        lock.withLock {
+            GatherKeyOperationVector(
+                hashCount: $0.hashCount,
+                equalityCount: $0.equalityCount
+            )
+        }
+    }
+}
+
+struct GatherKeyOperationVector: Equatable, Hashable, Sendable {
+    let hashCount: Int
+    let equalityCount: Int
+
+    static let untouched = Self(hashCount: 0, equalityCount: 0)
 }
 
 struct GatherHashProbeKey: Hashable, Sendable {

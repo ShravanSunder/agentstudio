@@ -10,6 +10,10 @@ final class FilesystemObservationSlotRegistry {
         case vacant
         case selected(FilesystemObservationDesiredSelection)
         case starting(FilesystemObservationStartingNativeLifetime)
+        case accepting(FilesystemObservationAcceptingNativeLifetime)
+        case closingAwaitingCallbackLeaseDrain(
+            FilesystemObservationClosingAwaitingCallbackLeaseDrainLifetime
+        )
         case retiringUnpublishedGeneration(
             FilesystemObservationRetiringUnpublishedNativeLifetime
         )
@@ -103,6 +107,10 @@ final class FilesystemObservationSlotRegistry {
             return .selected(selection)
         case .starting(let startingNativeLifetime):
             return .starting(startingNativeLifetime)
+        case .accepting(let acceptingNativeLifetime):
+            return .accepting(acceptingNativeLifetime)
+        case .closingAwaitingCallbackLeaseDrain(let closingNativeLifetime):
+            return .closingAwaitingCallbackLeaseDrain(closingNativeLifetime)
         case .retiringUnpublishedGeneration(let retiringNativeLifetime):
             return .retiringUnpublishedGeneration(retiringNativeLifetime)
         }
@@ -124,6 +132,12 @@ final class FilesystemObservationSlotRegistry {
             return .reservedWithoutBinding
         case .starting(let startingNativeLifetime):
             return startingNativeLifetime.binding == binding
+                ? .storedCurrent : .storedSuperseded
+        case .accepting(let acceptingNativeLifetime):
+            return acceptingNativeLifetime.binding == binding
+                ? .storedCurrent : .storedSuperseded
+        case .closingAwaitingCallbackLeaseDrain(let closingNativeLifetime):
+            return closingNativeLifetime.binding == binding
                 ? .storedCurrent : .storedSuperseded
         case .retiringUnpublishedGeneration(let retiringNativeLifetime):
             return retiringNativeLifetime.startingNativeLifetime.binding == binding
@@ -221,7 +235,14 @@ final class FilesystemObservationSlotRegistry {
             return .selected(selection)
         }
         if let startingNativeLifetime = startingNativeLifetimesBySourceID[sourceID] {
-            return .starting(startingNativeLifetime)
+            switch statesByPhysicalSlotID[startingNativeLifetime.binding.physicalSlotID] {
+            case .accepting(let acceptingNativeLifetime):
+                return .accepting(acceptingNativeLifetime)
+            case .closingAwaitingCallbackLeaseDrain(let closingNativeLifetime):
+                return .closingAwaitingCallbackLeaseDrain(closingNativeLifetime)
+            case .starting, .vacant, .selected, .retiringUnpublishedGeneration, .none:
+                return .starting(startingNativeLifetime)
+            }
         }
         if let desiredRegistration = deferredDesiredRegistrationsBySourceID[sourceID] {
             return .deferred(desiredRegistration)
@@ -353,6 +374,14 @@ final class FilesystemObservationSlotRegistry {
                 return .reservationNoLongerCurrent
             }
             return .nativeLifetimeAlreadyCommitted(startingNativeLifetime)
+        case .accepting(let acceptingNativeLifetime):
+            return .nativeLifetimeAlreadyCommitted(
+                acceptingNativeLifetime.startingNativeLifetime
+            )
+        case .closingAwaitingCallbackLeaseDrain(let closingNativeLifetime):
+            return .nativeLifetimeAlreadyCommitted(
+                closingNativeLifetime.acceptingNativeLifetime.startingNativeLifetime
+            )
         case .retiringUnpublishedGeneration(let retiringNativeLifetime):
             guard
                 retiringNativeLifetime.startingNativeLifetime.consumedReservation
@@ -417,6 +446,12 @@ final class FilesystemObservationSlotRegistry {
                 return .reservationNoLongerCurrent
             }
             return .alreadyCommitted(startingNativeLifetime)
+        case .accepting(let acceptingNativeLifetime):
+            return .alreadyCommitted(acceptingNativeLifetime.startingNativeLifetime)
+        case .closingAwaitingCallbackLeaseDrain(let closingNativeLifetime):
+            return .alreadyCommitted(
+                closingNativeLifetime.acceptingNativeLifetime.startingNativeLifetime
+            )
         case .retiringUnpublishedGeneration(let retiringNativeLifetime):
             guard
                 retiringNativeLifetime.startingNativeLifetime.consumedReservation
@@ -440,7 +475,7 @@ final class FilesystemObservationSlotRegistry {
         }
 
         switch slotState {
-        case .vacant, .selected:
+        case .vacant, .selected, .accepting, .closingAwaitingCallbackLeaseDrain:
             return .nativeLifetimeNoLongerCurrent
         case .starting(let currentStartingNativeLifetime):
             guard currentStartingNativeLifetime == failedStartingNativeLifetime else {
@@ -476,6 +511,76 @@ final class FilesystemObservationSlotRegistry {
                 )
             }
             return .alreadyRetirementRequired(retiringNativeLifetime)
+        }
+    }
+
+    func publishAcceptingNativeLifetime(
+        _ startingNativeLifetime: FilesystemObservationStartingNativeLifetime,
+        callbackAdmissionPortIdentity: FilesystemObservationCallbackAdmissionPortIdentity
+    ) -> FilesystemObservationAcceptingPublicationResult {
+        let binding = startingNativeLifetime.binding
+        guard binding.fleetMailboxIdentity == fleetMailboxIdentity else {
+            return .foreignFleet
+        }
+        guard let slotState = statesByPhysicalSlotID[binding.physicalSlotID] else {
+            return .undeclaredPhysicalSlot
+        }
+        switch slotState {
+        case .starting(let currentStartingNativeLifetime):
+            guard currentStartingNativeLifetime == startingNativeLifetime else {
+                return .startingNativeLifetimeMismatch(currentStartingNativeLifetime)
+            }
+            let acceptingNativeLifetime = FilesystemObservationAcceptingNativeLifetime(
+                startingNativeLifetime: startingNativeLifetime,
+                callbackAdmissionPortIdentity: callbackAdmissionPortIdentity
+            )
+            statesByPhysicalSlotID[binding.physicalSlotID] =
+                .accepting(acceptingNativeLifetime)
+            return .published(acceptingNativeLifetime)
+        case .accepting(let acceptingNativeLifetime):
+            guard acceptingNativeLifetime.startingNativeLifetime == startingNativeLifetime else {
+                return .startingNativeLifetimeMismatch(
+                    acceptingNativeLifetime.startingNativeLifetime
+                )
+            }
+            return .alreadyPublished(acceptingNativeLifetime)
+        case .vacant, .selected, .closingAwaitingCallbackLeaseDrain,
+            .retiringUnpublishedGeneration:
+            return .invalidSlotState(state(of: binding.physicalSlotID))
+        }
+    }
+
+    func beginClosingAwaitingCallbackLeaseDrain(
+        _ acceptingNativeLifetime: FilesystemObservationAcceptingNativeLifetime
+    ) -> FilesystemObservationCallbackLeaseDrainClosingResult {
+        let binding = acceptingNativeLifetime.binding
+        guard binding.fleetMailboxIdentity == fleetMailboxIdentity else {
+            return .foreignFleet
+        }
+        guard let slotState = statesByPhysicalSlotID[binding.physicalSlotID] else {
+            return .undeclaredPhysicalSlot
+        }
+        switch slotState {
+        case .accepting(let currentAcceptingNativeLifetime):
+            guard currentAcceptingNativeLifetime == acceptingNativeLifetime else {
+                return .acceptingNativeLifetimeMismatch(currentAcceptingNativeLifetime)
+            }
+            let closingNativeLifetime =
+                FilesystemObservationClosingAwaitingCallbackLeaseDrainLifetime(
+                    acceptingNativeLifetime: acceptingNativeLifetime
+                )
+            statesByPhysicalSlotID[binding.physicalSlotID] =
+                .closingAwaitingCallbackLeaseDrain(closingNativeLifetime)
+            return .transitioned(closingNativeLifetime)
+        case .closingAwaitingCallbackLeaseDrain(let closingNativeLifetime):
+            guard closingNativeLifetime.acceptingNativeLifetime == acceptingNativeLifetime else {
+                return .acceptingNativeLifetimeMismatch(
+                    closingNativeLifetime.acceptingNativeLifetime
+                )
+            }
+            return .alreadyTransitioned(closingNativeLifetime)
+        case .vacant, .selected, .starting, .retiringUnpublishedGeneration:
+            return .invalidSlotState(state(of: binding.physicalSlotID))
         }
     }
 
