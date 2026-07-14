@@ -101,6 +101,10 @@ where Key: Hashable & Sendable, Payload: Sendable {
     var authoritySnapshot: GatherMailboxAuthoritySnapshot {
         mailbox.authoritySnapshot
     }
+
+    var shutdownDebtSnapshot: GatherShutdownDebtSnapshot<Key> {
+        mailbox.shutdownDebtSnapshot
+    }
 }
 
 final class BoundedGatherMailbox<Key, Payload>: @unchecked Sendable
@@ -1295,6 +1299,123 @@ where Key: Hashable & Sendable, Payload: Sendable {
                 leaseSequence: state.leaseSequence,
                 recoveryCustodyEpoch: state.recoveryCustodyEpoch,
                 recoveryCustodySequence: state.recoveryCustodySequence
+            )
+        }
+    }
+
+    fileprivate var shutdownDebtSnapshot: GatherShutdownDebtSnapshot<Key> {
+        withAdmissionProtectedState { state, _ in
+            let inFlightCleanupContributionCount = state.inFlightCleanup?.contributionCount ?? 0
+            let inFlightCleanupItemCount = state.inFlightCleanup?.itemCount ?? 0
+            let inFlightCleanupByteCount = state.inFlightCleanup?.byteCount ?? 0
+            let inFlightCleanupMetadataEntryCount = state.inFlightCleanup?.metadataEntryCount ?? 0
+            let keyDebt = canonicalKeysBySlot.enumerated().map { slot, key in
+                let keyState = state.declaredSlotShells[slot].retainedNode?.keyState
+                let retryDisposition: GatherShutdownRetryDisposition =
+                    keyState?.retryBucket == nil ? .vacant : .retained
+                let recoveryDisposition: GatherShutdownRecoveryDisposition<Key>
+                if let recoverySlot = keyState?.recoverySlot {
+                    recoveryDisposition = .retained(
+                        GatherRecoveryRevision(
+                            generation: generation,
+                            key: key,
+                            stamp: recoverySlot.stamp
+                        )
+                    )
+                } else {
+                    recoveryDisposition = .vacant
+                }
+                let inFlightKeyCleanupContributionCount: Int
+                let inFlightKeyCleanupItemCount: Int
+                let inFlightKeyCleanupByteCount: Int
+                if state.inFlightCleanup?.trackedSlot == slot {
+                    inFlightKeyCleanupContributionCount = inFlightCleanupContributionCount
+                    inFlightKeyCleanupItemCount = inFlightCleanupItemCount
+                    inFlightKeyCleanupByteCount = inFlightCleanupByteCount
+                } else {
+                    inFlightKeyCleanupContributionCount = 0
+                    inFlightKeyCleanupItemCount = 0
+                    inFlightKeyCleanupByteCount = 0
+                }
+                return GatherShutdownKeyDebt(
+                    key: key,
+                    queuedContributionCount: keyState?.queuedContributionCount ?? 0,
+                    queuedItemCount: keyState?.queuedItemCount ?? 0,
+                    queuedByteCount: keyState?.queuedByteCount ?? 0,
+                    retryDisposition: retryDisposition,
+                    recoveryDisposition: recoveryDisposition,
+                    queuedCleanupContributionCount: state.cleanupContributionCountBySlot[slot]
+                        - inFlightKeyCleanupContributionCount,
+                    queuedCleanupItemCount: state.cleanupItemCountBySlot[slot]
+                        - inFlightKeyCleanupItemCount,
+                    queuedCleanupByteCount: state.cleanupByteCountBySlot[slot]
+                        - inFlightKeyCleanupByteCount
+                )
+            }
+            let activeLease: GatherShutdownActiveLeaseDebt<Key>
+            switch state.activeLease {
+            case .noActiveLease:
+                activeLease = .vacant
+            case .awaitingPresentation(let lease):
+                activeLease = .awaitingPresentation(
+                    key: canonicalKeysBySlot[lease.slot],
+                    token: lease.token
+                )
+            case .presented(let lease):
+                activeLease = .presented(
+                    key: canonicalKeysBySlot[lease.slot],
+                    token: lease.token
+                )
+            }
+            let inFlightCleanup: GatherShutdownInFlightCleanupDisposition<Key>
+            if let cleanup = state.inFlightCleanup {
+                let scope: GatherShutdownCleanupScope<Key>
+                if let slot = cleanup.trackedSlot {
+                    scope = .key(canonicalKeysBySlot[slot])
+                } else {
+                    scope = .unscoped
+                }
+                inFlightCleanup = .retained(
+                    GatherShutdownInFlightCleanupDebt(
+                        authority: cleanup.authority,
+                        scope: scope,
+                        contributionCount: cleanup.contributionCount,
+                        itemCount: cleanup.itemCount,
+                        byteCount: cleanup.byteCount,
+                        metadataEntryCount: cleanup.metadataEntryCount,
+                        hasQueuedRemainder: cleanup.hasQueuedRemainder
+                    )
+                )
+            } else {
+                inFlightCleanup = .vacant
+            }
+            let queuedCleanupCounts = GatherShutdownCleanupCounts(
+                contributionCount: state.cleanupContributionCount
+                    - inFlightCleanupContributionCount,
+                itemCount: state.cleanupItemCount - inFlightCleanupItemCount,
+                byteCount: state.cleanupByteCount - inFlightCleanupByteCount,
+                metadataEntryCount: state.cleanupMetadataEntryCount
+                    - inFlightCleanupMetadataEntryCount
+            )
+            let queuedCleanup: GatherShutdownQueuedCleanupDebt
+            if queuedCleanupCounts.contributionCount == 0
+                && queuedCleanupCounts.metadataEntryCount == 0
+            {
+                queuedCleanup = .vacant
+            } else {
+                queuedCleanup = .retained(queuedCleanupCounts)
+            }
+            return GatherShutdownDebtSnapshot(
+                keyDebt: keyDebt,
+                activeLease: activeLease,
+                queuedCleanup: queuedCleanup,
+                inFlightCleanup: inFlightCleanup,
+                isQuiescent: state.retainedContributionCount == 0
+                    && state.cleanupContributionCount == 0
+                    && state.cleanupMetadataEntryCount == 0
+                    && state.recoverySlotCount == 0
+                    && activeLease == .vacant
+                    && inFlightCleanup == .vacant
             )
         }
     }

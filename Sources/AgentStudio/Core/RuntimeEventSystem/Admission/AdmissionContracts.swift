@@ -358,6 +358,81 @@ struct GatherAdmissionDiagnostics: Sendable, Equatable {
     let isQuiescent: Bool
 }
 
+struct GatherShutdownKeyDebt<Key>: Equatable, Sendable
+where Key: Hashable & Sendable {
+    let key: Key
+    let queuedContributionCount: Int
+    let queuedItemCount: Int
+    let queuedByteCount: Int
+    let retryDisposition: GatherShutdownRetryDisposition
+    let recoveryDisposition: GatherShutdownRecoveryDisposition<Key>
+    let queuedCleanupContributionCount: Int
+    let queuedCleanupItemCount: Int
+    let queuedCleanupByteCount: Int
+}
+
+enum GatherShutdownRetryDisposition: Equatable, Sendable {
+    case vacant
+    case retained
+}
+
+enum GatherShutdownRecoveryDisposition<Key>: Equatable, Sendable
+where Key: Hashable & Sendable {
+    case vacant
+    case retained(GatherRecoveryRevision<Key>)
+}
+
+enum GatherShutdownActiveLeaseDebt<Key>: Equatable, Sendable
+where Key: Hashable & Sendable {
+    case vacant
+    case awaitingPresentation(key: Key, token: AdmissionDrainToken)
+    case presented(key: Key, token: AdmissionDrainToken)
+}
+
+enum GatherShutdownCleanupScope<Key>: Equatable, Sendable
+where Key: Hashable & Sendable {
+    case unscoped
+    case key(Key)
+}
+
+struct GatherShutdownCleanupCounts: Equatable, Sendable {
+    let contributionCount: Int
+    let itemCount: Int
+    let byteCount: Int
+    let metadataEntryCount: Int
+}
+
+enum GatherShutdownQueuedCleanupDebt: Equatable, Sendable {
+    case vacant
+    case retained(GatherShutdownCleanupCounts)
+}
+
+struct GatherShutdownInFlightCleanupDebt<Key>: Equatable, Sendable
+where Key: Hashable & Sendable {
+    let authority: AdmissionOpaqueIdentity
+    let scope: GatherShutdownCleanupScope<Key>
+    let contributionCount: Int
+    let itemCount: Int
+    let byteCount: Int
+    let metadataEntryCount: Int
+    let hasQueuedRemainder: Bool
+}
+
+enum GatherShutdownInFlightCleanupDisposition<Key>: Equatable, Sendable
+where Key: Hashable & Sendable {
+    case vacant
+    case retained(GatherShutdownInFlightCleanupDebt<Key>)
+}
+
+struct GatherShutdownDebtSnapshot<Key>: Equatable, Sendable
+where Key: Hashable & Sendable {
+    let keyDebt: [GatherShutdownKeyDebt<Key>]
+    let activeLease: GatherShutdownActiveLeaseDebt<Key>
+    let queuedCleanup: GatherShutdownQueuedCleanupDebt
+    let inFlightCleanup: GatherShutdownInFlightCleanupDisposition<Key>
+    let isQuiescent: Bool
+}
+
 struct AdmissionClock: Sendable {
     let now: @Sendable () -> Duration
 
