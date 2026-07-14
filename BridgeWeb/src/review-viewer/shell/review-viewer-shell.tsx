@@ -1,6 +1,5 @@
 import type { ReactElement, ReactNode } from 'react';
 
-import type { SelectedContentPaintTelemetryStart } from '../../app/bridge-app-review-selection-state.js';
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
 import { BridgeViewerRailToolbar } from '../../app/bridge-viewer-rail-toolbar.js';
 import { BridgeViewerResizableRailLayout } from '../../app/bridge-viewer-resizable-rail-layout.js';
@@ -10,7 +9,6 @@ import { Skeleton } from '../../components/ui/skeleton.js';
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { ReviewTreeRowMetadata } from '../../features/review/models/review-protocol-models.js';
 import {
-	createBridgeReviewItemRegistry,
 	type BridgeReviewItemRegistry,
 	reviewItemPathLabel,
 } from '../../foundation/review-package/bridge-review-item-registry.js';
@@ -28,6 +26,7 @@ import {
 } from '../chrome/bridge-review-facet-menu.js';
 import { BridgeReviewProjectionMenu } from '../chrome/bridge-review-projection-menu.js';
 import type { BridgeCodeViewItemPresentation } from '../code-view/bridge-code-view-materialization.js';
+import type { SelectedContentPaintTelemetryStart } from '../code-view/bridge-code-view-panel-types.js';
 import {
 	BridgeCodeViewPanel,
 	type BridgeCodeViewControlHandle,
@@ -39,9 +38,12 @@ import type {
 	BridgeReviewProjectionResult,
 	BridgeReviewSearchMode,
 } from '../models/review-projection-models.js';
+import { bridgeTreesDisclosurePolicyIdentity } from '../trees/bridge-trees-controller.js';
 import { BridgeReviewTreesPanel } from '../trees/bridge-trees-panel.js';
+import type { BridgeReviewTreeSelectionRevealRequest } from '../trees/bridge-trees-panel.js';
 
 export interface ReviewViewerShellProps {
+	readonly presentationRegistry: BridgeReviewItemRegistry;
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly reviewTreeRows?: readonly ReviewTreeRowMetadata[];
 	readonly projection: BridgeReviewProjectionResult;
@@ -64,6 +66,7 @@ export interface ReviewViewerShellProps {
 	readonly projectionMode?: BridgeReviewProjectionMode;
 	readonly onProjectionModeChange?: (mode: BridgeReviewProjectionMode) => void;
 	readonly treeSearchText?: string;
+	readonly treeSelectionRevealRequest?: BridgeReviewTreeSelectionRevealRequest | null;
 	readonly treeSearchMode?: BridgeReviewSearchMode;
 	readonly treeSearchOpen?: boolean;
 	readonly onTreeSearchOpen?: () => void;
@@ -88,9 +91,7 @@ export type BridgeReviewCanvasLoadingReason = 'content' | 'markdownPreview';
 const hiddenVisiblePathTextByRegistry = new WeakMap<BridgeReviewItemRegistry, string>();
 
 export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
-	const registry = createBridgeReviewItemRegistry({
-		reviewPackage: props.reviewPackage,
-	});
+	const registry = props.presentationRegistry;
 	const hiddenVisiblePathText = hiddenVisiblePathTextForRegistry(registry);
 	const projectionMode = props.projectionMode ?? { kind: 'normalReview' };
 	const gitStatusFilter = props.gitStatusFilter ?? 'all';
@@ -340,6 +341,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 							data-testid="bridge-review-rail-tree-slot"
 						>
 							<BridgeReviewTreesPanel
+								key={bridgeTreesDisclosurePolicyIdentity}
 								onSelectItem={props.onSelectItem}
 								{...(props.onTreeVisibleItemIdsChange === undefined
 									? {}
@@ -353,6 +355,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 								searchOpen={treeSearchOpen}
 								searchText={treeSearchText}
 								selectedItemId={props.selectedItemId}
+								selectionRevealRequest={props.treeSelectionRevealRequest ?? null}
 								{...(props.telemetryRecorder === undefined
 									? {}
 									: { telemetryRecorder: props.telemetryRecorder })}

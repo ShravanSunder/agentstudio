@@ -93,7 +93,7 @@ describe('Bridge file viewer source structure', () => {
 		expect(renderSnapshotControllerSource).not.toContain('renderSnapshotStore.setLocalViewport');
 	});
 
-	test('keeps the browser worker transport seam instance scoped', () => {
+	test('keeps the pane-owned File surface client instance scoped', () => {
 		const renderSnapshotControllerSource = readFileSync(
 			fileURLToPath(new URL('./bridge-file-viewer-render-snapshot-controller.ts', import.meta.url)),
 			'utf8',
@@ -103,16 +103,15 @@ describe('Bridge file viewer source structure', () => {
 			'utf8',
 		);
 
-		expect(renderSnapshotControllerSource).toContain(
-			'BridgeFileViewerRuntimeTransportFactoryProvider',
-		);
+		expect(renderSnapshotControllerSource).toContain('BridgeFileViewerSurfaceClientProvider');
+		expect(renderSnapshotControllerSource).toContain('BridgePaneSurfaceClient');
 		expect(renderSnapshotControllerSource).not.toContain(
 			'bridgeFileViewerRuntimeTransportFactoryForTest',
 		);
 		expect(renderSnapshotControllerSource).not.toContain(
 			'setBridgeFileViewerRuntimeTransportFactoryForTest',
 		);
-		expect(browserHarnessAppSource).toContain('BridgeFileViewerRuntimeTransportFactoryProvider');
+		expect(browserHarnessAppSource).toContain('BridgeFileViewerSurfaceClientProvider');
 		expect(browserHarnessAppSource).not.toContain(
 			'setBridgeFileViewerRuntimeTransportFactoryForTest',
 		);
@@ -134,25 +133,22 @@ describe('Bridge file viewer source structure', () => {
 			fileURLToPath(new URL('./bridge-file-viewer-app.tsx', import.meta.url)),
 			'utf8',
 		);
-		const stateSource = readFileSync(
-			fileURLToPath(new URL('./bridge-file-viewer-state.ts', import.meta.url)),
-			'utf8',
-		);
-		const legacyRuntimePath = fileURLToPath(
-			new URL('./bridge-file-viewer-runtime.ts', import.meta.url),
-		);
+		const legacyRuntimePaths = [
+			'./bridge-file-viewer-runtime.ts',
+			'./bridge-file-viewer-state.ts',
+			'../worktree-file-surface/worktree-file-surface-runtime.ts',
+			'../worktree-file-surface/worktree-file-surface-runtime-support.ts',
+			'../worktree-file-surface/worktree-file-app.tsx',
+		].map((relativePath): string => fileURLToPath(new URL(relativePath, import.meta.url)));
 
-		expect(existsSync(legacyRuntimePath)).toBe(false);
+		expect(legacyRuntimePaths.filter(existsSync)).toEqual([]);
 		expect(appSource).not.toContain('createBridgeFileViewerRuntime');
 		expect(appSource).not.toContain('WorktreeFileSurfaceRuntime');
-		expect(stateSource).not.toContain('defaultFetchWorktreeFileResource');
-		expect(stateSource).not.toContain('loadBridgeTextResourceWithTiming');
 	});
 
 	test('keeps Pierre runtime imports out of file viewer controller hooks', () => {
 		const controllerHookUrls = [
 			'./use-bridge-file-viewer-visible-demand-controller.ts',
-			'./use-bridge-file-viewer-shell-model.ts',
 			'./use-bridge-file-viewer-store-bindings.ts',
 		];
 
@@ -170,7 +166,6 @@ describe('Bridge file viewer source structure', () => {
 	test('keeps file viewer controller hooks independent from visual adapter modules', () => {
 		const controllerHookUrls = [
 			'./use-bridge-file-viewer-visible-demand-controller.ts',
-			'./use-bridge-file-viewer-shell-model.ts',
 			'./use-bridge-file-viewer-store-bindings.ts',
 		];
 
@@ -392,10 +387,6 @@ describe('Bridge file viewer source structure', () => {
 			fileURLToPath(new URL('./bridge-file-viewer-app.tsx', import.meta.url)),
 			'utf8',
 		);
-		const shellModelSource = readFileSync(
-			fileURLToPath(new URL('./use-bridge-file-viewer-shell-model.ts', import.meta.url)),
-			'utf8',
-		);
 		const shellSource = readFileSync(
 			fileURLToPath(new URL('./bridge-file-viewer-shell.tsx', import.meta.url)),
 			'utf8',
@@ -409,7 +400,6 @@ describe('Bridge file viewer source structure', () => {
 			'utf8',
 		);
 
-		expect(shellModelSource).not.toContain('selectedCodeViewItem');
 		expect(shellSource).toContain('selectedCodeViewItem');
 		expect(codePanelSource).toContain('selectedCodeViewItem');
 		expect(codeViewItemsSource).toContain('bridgeFileViewerCodeViewItemsForPanelState');
@@ -426,10 +416,6 @@ describe('Bridge file viewer source structure', () => {
 			fileURLToPath(new URL('./bridge-file-viewer-app.tsx', import.meta.url)),
 			'utf8',
 		);
-		const shellModelSource = readFileSync(
-			fileURLToPath(new URL('./use-bridge-file-viewer-shell-model.ts', import.meta.url)),
-			'utf8',
-		);
 		const renderSnapshotControllerSource = readFileSync(
 			fileURLToPath(new URL('./bridge-file-viewer-render-snapshot-controller.ts', import.meta.url)),
 			'utf8',
@@ -439,13 +425,15 @@ describe('Bridge file viewer source structure', () => {
 		expect(appSource).toContain(
 			'selectedCodeViewItem={renderSnapshotController.selectedCodeViewItem}',
 		);
-		expect(renderSnapshotControllerSource).toContain('createBridgeMainRenderSnapshotStore');
+		expect(renderSnapshotControllerSource).toContain('fileViewClient.renderStore');
 		expect(renderSnapshotControllerSource).toContain('useSyncExternalStore');
-		expect(shellModelSource).not.toContain('renderedOpenFileContentForState');
-		expect(shellModelSource).not.toContain('bridgeFileViewerSelectedCodeViewItemForPanelState');
-		expect(shellModelSource).not.toContain('openFileBodyState');
-		expect(shellModelSource).not.toContain('provisionalOpenFileBody');
-		expect(shellModelSource).not.toContain('lastGoodOpenFileContent');
+		expect(renderSnapshotControllerSource).not.toContain('renderedOpenFileContentForState');
+		expect(renderSnapshotControllerSource).not.toContain(
+			'bridgeFileViewerSelectedCodeViewItemForPanelState',
+		);
+		expect(renderSnapshotControllerSource).not.toContain('openFileBodyState');
+		expect(renderSnapshotControllerSource).not.toContain('provisionalOpenFileBody');
+		expect(renderSnapshotControllerSource).not.toContain('lastGoodOpenFileContent');
 	});
 
 	test('keeps File View terminal states from synthesizing worker availability', () => {

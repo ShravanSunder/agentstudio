@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 
 import type { BridgeActiveViewerSource } from '../bridge/bridge-rpc-client.js';
+import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import {
 	BridgeFileViewerApp,
 	type BridgeFileViewerAppProps,
 } from '../file-viewer/bridge-file-viewer-app.js';
 import type { BridgeFileViewerDisplaySource } from '../file-viewer/bridge-file-viewer-display-model.js';
+import { BridgeFileViewerSurfaceClientProvider } from '../file-viewer/bridge-file-viewer-render-snapshot-controller.js';
 import { startBridgeFrameJankProbe } from '../foundation/diagnostics/bridge-frame-jank-probe.js';
 import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-frame-liveness-probe.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
@@ -15,6 +17,7 @@ import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-m
 export interface BridgeFileViewerModeProps {
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly codeViewWorkerPoolEnabled?: boolean;
+	readonly fileViewClient: BridgePaneSurfaceClient;
 	readonly fileViewerProps?: BridgeFileViewerAppProps;
 	readonly isActive: boolean;
 	readonly navigationCommand?: BridgeViewerNavigationCommand;
@@ -68,23 +71,25 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 		return <BridgeFileViewerHeadlessController />;
 	}
 	return (
-		<BridgeFileViewerApp
-			{...props.fileViewerProps}
-			{...(props.codeViewWorkerFactory === undefined
-				? {}
-				: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
-			{...(props.codeViewWorkerPoolEnabled === undefined
-				? {}
-				: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
-			isActive={props.isActive}
-			{...(props.navigationCommand === undefined
-				? {}
-				: { navigationCommand: props.navigationCommand })}
-			onDisplaySourceChange={reportDisplaySource}
-			telemetryRecorder={props.telemetryRecorder}
-			telemetryTraceContext={null}
-			viewerHeaderControls={props.viewerHeaderControls}
-		/>
+		<BridgeFileViewerSurfaceClientProvider surfaceClient={props.fileViewClient}>
+			<BridgeFileViewerApp
+				{...props.fileViewerProps}
+				{...(props.codeViewWorkerFactory === undefined
+					? {}
+					: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
+				{...(props.codeViewWorkerPoolEnabled === undefined
+					? {}
+					: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
+				isActive={props.isActive}
+				{...(props.navigationCommand === undefined
+					? {}
+					: { navigationCommand: props.navigationCommand })}
+				onDisplaySourceChange={reportDisplaySource}
+				telemetryRecorder={props.telemetryRecorder}
+				telemetryTraceContext={null}
+				viewerHeaderControls={props.viewerHeaderControls}
+			/>
+		</BridgeFileViewerSurfaceClientProvider>
 	);
 }
 

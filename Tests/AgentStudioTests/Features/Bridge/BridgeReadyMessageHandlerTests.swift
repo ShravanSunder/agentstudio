@@ -89,4 +89,42 @@ final class BridgeReadyMessageHandlerTests {
             ) == .invalid(id: "bootstrap-1", message: "Invalid request")
         )
     }
+
+    @Test
+    func acceptsClosedTelemetrySessionBootstrapRequests() {
+        #expect(
+            BridgeReadyMessageHandler.decodeBootstrapMessage(
+                from:
+                    #"{"jsonrpc":"2.0","id":"telemetry-1","method":"bridge.telemetrySession.bootstrap","params":{"reason":"initial"}}"#
+            ) == .telemetrySessionBootstrap(requestId: "telemetry-1", reason: .initial)
+        )
+        #expect(
+            BridgeReadyMessageHandler.decodeBootstrapMessage(
+                from:
+                    #"{"jsonrpc":"2.0","id":"telemetry-2","method":"bridge.telemetrySession.bootstrap","params":{"reason":"sidecarReplacement"}}"#
+            ) == .telemetrySessionBootstrap(requestId: "telemetry-2", reason: .sidecarReplacement)
+        )
+    }
+
+    @Test
+    func rejectsOpenEndedTelemetrySessionBootstrapRequests() {
+        #expect(
+            BridgeReadyMessageHandler.decodeBootstrapMessage(
+                from:
+                    #"{"jsonrpc":"2.0","id":"telemetry-1","method":"bridge.telemetrySession.bootstrap","params":{"reason":"workerReplacement"}}"#
+            ) == .invalid(id: "telemetry-1", message: "Invalid request")
+        )
+        #expect(
+            BridgeReadyMessageHandler.decodeBootstrapMessage(
+                from:
+                    #"{"jsonrpc":"2.0","id":"telemetry-1","method":"bridge.telemetrySession.bootstrap","params":{"reason":"initial","extra":true}}"#
+            ) == .invalid(id: "telemetry-1", message: "Invalid request")
+        )
+        #expect(
+            BridgeReadyMessageHandler.decodeBootstrapMessage(
+                from:
+                    #"{"jsonrpc":"2.0","id":"telemetry-1","method":"bridge.telemetrySession.bootstrap","params":{"reason":"initial"},"extra":true}"#
+            ) == .invalid(id: "telemetry-1", message: "Invalid request")
+        )
+    }
 }

@@ -11,7 +11,8 @@ struct BridgeProductSchemeAdapterHarness {
 
     static func make(
         holdFirstControlResponse: Bool = false,
-        contentReturnsWithoutTerminal: Bool = false
+        contentReturnsWithoutTerminal: Bool = false,
+        metadataProgressFrameCount: Int = 0
     ) throws -> Self {
         let capabilityBytes = (0..<BridgeProductWireContract.capabilityByteLength).map(UInt8.init)
         let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(capabilityBytes)
@@ -22,7 +23,8 @@ struct BridgeProductSchemeAdapterHarness {
         )
         let provider = BridgeProductSchemeProviderSpy(
             holdFirstControlResponse: holdFirstControlResponse,
-            contentReturnsWithoutTerminal: contentReturnsWithoutTerminal
+            contentReturnsWithoutTerminal: contentReturnsWithoutTerminal,
+            metadataProgressFrameCount: metadataProgressFrameCount
         )
         return Self(
             adapter: BridgeProductSchemeAdapter(session: session, provider: provider),
@@ -67,17 +69,21 @@ actor BridgeProductSchemeProviderSpy: BridgeProductSchemeProvider {
     private let holdFirstControlResponse: Bool
     private var heldControlContinuation: CheckedContinuation<Void, Never>?
     private let metadataOperationGate = BridgeProductSessionProducerOperationGate()
+    private let metadataProgressFrameCount: Int
     private var acknowledgedLifecycleCount = 0
+    private var acknowledgedLifecycleWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var contentRequestCount = 0
     private var metadataRequestCount = 0
     private var producerFailures: [String] = []
 
     init(
         holdFirstControlResponse: Bool,
-        contentReturnsWithoutTerminal: Bool
+        contentReturnsWithoutTerminal: Bool,
+        metadataProgressFrameCount: Int = 0
     ) {
         self.holdFirstControlResponse = holdFirstControlResponse
         self.contentReturnsWithoutTerminal = contentReturnsWithoutTerminal
+        self.metadataProgressFrameCount = metadataProgressFrameCount
     }
 
     func response(
@@ -117,6 +123,28 @@ actor BridgeProductSchemeProviderSpy: BridgeProductSchemeProvider {
                 producerFailures.append("metadata opening frame rejected")
                 return
             }
+            for progressIndex in 0..<metadataProgressFrameCount {
+                let progressResult = try await session.enqueueProducerFrame(
+                    for: lease,
+                    build: { sequence in
+                        try bridgeProductMetadataProgressFrame(
+                            request: request,
+                            streamSequence: sequence,
+                            identitySuffix: "adapter-\(progressIndex)"
+                        )
+                    },
+                    overflowReset: { sequence in
+                        try bridgeProductMetadataTerminalFrame(
+                            request: request,
+                            streamSequence: sequence
+                        )
+                    }
+                )
+                guard bridgeProductSchemeFrameWasAdmitted(progressResult) else {
+                    producerFailures.append("metadata progress frame rejected")
+                    return
+                }
+            }
             await metadataOperationGate.run(lease)
         } catch {
             producerFailures.append("metadata opening frame threw")
@@ -150,7 +178,21 @@ actor BridgeProductSchemeProviderSpy: BridgeProductSchemeProvider {
     ) async -> Bool {
         _ = acknowledgement
         acknowledgedLifecycleCount += 1
+        let ready = acknowledgedLifecycleWaiters.filter {
+            $0.0 <= acknowledgedLifecycleCount
+        }
+        acknowledgedLifecycleWaiters.removeAll {
+            $0.0 <= acknowledgedLifecycleCount
+        }
+        for (_, continuation) in ready { continuation.resume() }
         return true
+    }
+
+    func waitUntilAcknowledgedLifecycleCount(_ count: Int) async {
+        guard acknowledgedLifecycleCount < count else { return }
+        await withCheckedContinuation { continuation in
+            acknowledgedLifecycleWaiters.append((count, continuation))
+        }
     }
 
     func waitUntilControlStarted(_ count: Int) async {
@@ -235,7 +277,7 @@ func collectBridgeProductSchemeReply(
     var body = Data()
     var events: [BridgeProductSchemeReplyObservation.Event] = []
     var response: HTTPURLResponse?
-    for try await result in adapter.reply(for: request) {
+    for try await result in bridgeProductSchemeReply(adapter: adapter, request: request) {
         switch result {
         case .response(let emittedResponse):
             events.append(.response)
@@ -248,6 +290,36 @@ func collectBridgeProductSchemeReply(
         }
     }
     return .init(body: body, events: events, response: response)
+}
+
+func bridgeProductSchemeReply(
+    adapter: BridgeProductSchemeAdapter,
+    request: URLRequest
+) -> AsyncThrowingStream<URLSchemeTaskResult, any Error> {
+    bridgeProductSchemeReplyWithRoutingTask(adapter: adapter, request: request).stream
+}
+
+struct BridgeProductSchemeReplyWithRoutingTask {
+    let routingTask: Task<Void, Never>
+    let stream: AsyncThrowingStream<URLSchemeTaskResult, any Error>
+}
+
+func bridgeProductSchemeReplyWithRoutingTask(
+    adapter: BridgeProductSchemeAdapter,
+    request: URLRequest
+) -> BridgeProductSchemeReplyWithRoutingTask {
+    var replyContinuation: BridgeProductSchemeReplyContinuation?
+    let stream = AsyncThrowingStream<URLSchemeTaskResult, any Error> { continuation in
+        replyContinuation = continuation
+    }
+    let routingTask = Task {
+        guard let replyContinuation else { return }
+        await adapter.route(request, continuation: replyContinuation)
+    }
+    replyContinuation?.onTermination = { _ in
+        routingTask.cancel()
+    }
+    return .init(routingTask: routingTask, stream: stream)
 }
 
 func bridgeProductSchemeRequest(

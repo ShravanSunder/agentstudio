@@ -1,26 +1,25 @@
-import type { ReactElement } from 'react';
 import { afterAll, afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode renders need app CSS.
 import './bridge-app.css';
+import { createBridgePaneRuntime } from '../core/comm-worker/bridge-pane-runtime.js';
 import type { BridgeProductCallResult } from '../core/comm-worker/bridge-product-call-contracts.js';
 import type { BridgeProductSubscriptionOptions } from '../core/comm-worker/bridge-product-subscription-contracts.js';
 import type { BridgeFileViewerBrowserTestProductSession } from '../file-viewer/bridge-file-viewer-browser-test-app.js';
 import { makeTreeRowsOnlyMetadataEvents } from '../file-viewer/bridge-file-viewer-browser-test-fixtures.js';
 import {
-	createBridgeFileViewerBrowserTestCommWorkerTransportFactory,
+	createBridgeFileViewerBrowserTestPaneSessionFactory,
 	installBridgeFileViewerNoopResizeObserver,
 	settleBridgeFileViewerBrowserUpdates,
 } from '../file-viewer/bridge-file-viewer-browser-test-harness.js';
-import { BridgeFileViewerRuntimeTransportFactoryProvider } from '../file-viewer/bridge-file-viewer-render-snapshot-controller.js';
 import {
 	actClick,
 	actUpdate,
 	actWait,
 	installBridgeReadyHandshake,
 	pollWithinActUntilEqual,
-} from './bridge-app-native-review-error.browser.test-support.js';
+} from './bridge-app-browser-test-actions.js';
 import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
 
 const originalBridgeFileViewerModeResizeObserver = globalThis.ResizeObserver;
@@ -41,7 +40,7 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		document.documentElement.removeAttribute('data-bridge-app-protocol');
 	});
 
-	test('defers initial file surface load until a Review-first route activates Files', async () => {
+	test('reuses the pane-owned File source warmed by a Review-first route', async () => {
 		let sourceDiscoveryCount = 0;
 		let metadataSubscriptionOpenCount = 0;
 		const productSession: BridgeFileViewerBrowserTestProductSession = {
@@ -58,18 +57,15 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		};
 		const handshake = installBridgeReadyHandshake({ pushNonce: 'push-reopen-1' });
 
-		renderFileProductApp(
-			<BridgeAppProtocolRouter codeViewWorkerPoolEnabled={false} protocol="review" />,
-			productSession,
-		);
-		await actWait(() => new Promise<void>((resolve) => window.setTimeout(resolve, 0)));
-		expect(sourceDiscoveryCount).toBe(0);
-		expect(metadataSubscriptionOpenCount).toBe(0);
+		renderFileProductApp('review', productSession);
+		expect(await pollWithinActUntilEqual(() => sourceDiscoveryCount, 1)).toBe(1);
+		expect(await pollWithinActUntilEqual(() => metadataSubscriptionOpenCount, 1)).toBe(1);
 
 		await clickContext('file');
 		expect(await pollWithinActUntilEqual(activeViewerMode, 'file')).toBe('file');
-		expect(await pollWithinActUntilEqual(() => sourceDiscoveryCount, 1)).toBe(1);
-		expect(await pollWithinActUntilEqual(() => metadataSubscriptionOpenCount, 1)).toBe(1);
+		await settleBridgeFileViewerBrowserUpdates();
+		expect(sourceDiscoveryCount).toBe(1);
+		expect(metadataSubscriptionOpenCount).toBe(1);
 		handshake.dispose();
 	});
 
@@ -88,10 +84,7 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		};
 		const handshake = installBridgeReadyHandshake({ pushNonce: 'push-reopen-healthy' });
 
-		renderFileProductApp(
-			<BridgeAppProtocolRouter codeViewWorkerPoolEnabled={false} protocol="worktree-file" />,
-			productSession,
-		);
+		renderFileProductApp('worktree-file', productSession);
 		expect(await pollWithinActUntilEqual(() => sourceDiscoveryCount, 1)).toBe(1);
 		expect(await pollWithinActUntilEqual(() => metadataSubscriptionOpenCount, 1)).toBe(1);
 
@@ -109,16 +102,18 @@ describe('Bridge file viewer mode re-open on switch', () => {
 });
 
 function renderFileProductApp(
-	app: ReactElement,
+	protocol: 'review' | 'worktree-file',
 	productSession: BridgeFileViewerBrowserTestProductSession,
 ): ReturnType<typeof render> {
-	const transportFactory = createBridgeFileViewerBrowserTestCommWorkerTransportFactory({
+	const paneSessionFactory = createBridgeFileViewerBrowserTestPaneSessionFactory({
 		productSessionRef: { current: productSession },
 	});
 	return render(
-		<BridgeFileViewerRuntimeTransportFactoryProvider transportFactory={transportFactory}>
-			{app}
-		</BridgeFileViewerRuntimeTransportFactoryProvider>,
+		<BridgeAppProtocolRouter
+			codeViewWorkerPoolEnabled={false}
+			paneRuntimeFactory={() => createBridgePaneRuntime({ sessionFactory: paneSessionFactory })}
+			protocol={protocol}
+		/>,
 	);
 }
 

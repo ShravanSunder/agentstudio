@@ -322,18 +322,89 @@ public struct IPCBridgeRenderDiagnostics: Codable, Equatable, Sendable {
     public let pageErrorCount: Int
     public let pageErrorKinds: [String]
     public let pageErrorMessages: [String]
+    public let productMetadataStream: IPCBridgeProductMetadataStreamDiagnostic?
+    public let productSession: IPCBridgeProductSessionDiagnostic
 
     public init(
         evaluateSucceeded: Bool,
         pageErrorCount: Int,
         pageErrorKinds: [String],
-        pageErrorMessages: [String]
+        pageErrorMessages: [String],
+        productMetadataStream: IPCBridgeProductMetadataStreamDiagnostic? = nil,
+        productSession: IPCBridgeProductSessionDiagnostic
     ) {
         self.evaluateSucceeded = evaluateSucceeded
         self.pageErrorCount = pageErrorCount
         self.pageErrorKinds = pageErrorKinds
         self.pageErrorMessages = pageErrorMessages
+        self.productMetadataStream = productMetadataStream
+        self.productSession = productSession
     }
+}
+
+public struct IPCBridgeProductSessionDiagnostic: Codable, Equatable, Sendable {
+    public let activeProducerCount: Int
+    public let activeProducerTaskCount: Int
+    public let activeContentLeaseCount: Int
+    public let queuedFrameCount: Int
+    public let queuedByteCount: Int
+    public let pendingFrameWaiterCount: Int
+    public let inFlightFrameReceiptCount: Int
+    public let pendingLifecycleAcknowledgementCount: Int
+    public let nextMetadataStreamSequence: Int
+
+    public init(
+        activeProducerCount: Int,
+        activeProducerTaskCount: Int,
+        activeContentLeaseCount: Int,
+        queuedFrameCount: Int,
+        queuedByteCount: Int,
+        pendingFrameWaiterCount: Int,
+        inFlightFrameReceiptCount: Int,
+        pendingLifecycleAcknowledgementCount: Int,
+        nextMetadataStreamSequence: Int
+    ) {
+        self.activeProducerCount = activeProducerCount
+        self.activeProducerTaskCount = activeProducerTaskCount
+        self.activeContentLeaseCount = activeContentLeaseCount
+        self.queuedFrameCount = queuedFrameCount
+        self.queuedByteCount = queuedByteCount
+        self.pendingFrameWaiterCount = pendingFrameWaiterCount
+        self.inFlightFrameReceiptCount = inFlightFrameReceiptCount
+        self.pendingLifecycleAcknowledgementCount = pendingLifecycleAcknowledgementCount
+        self.nextMetadataStreamSequence = nextMetadataStreamSequence
+    }
+}
+
+public struct IPCBridgeProductMetadataStreamDiagnostic: Codable, Equatable, Sendable {
+    public enum Kind: String, Codable, Equatable, Sendable {
+        case productMetadataStream
+    }
+
+    public let kind: Kind
+    public let acknowledgedFrameCount: Int?
+    public let activeSubscriptionCount: Int?
+    public let committedFrameCount: Int?
+    public let decoderState: String?
+    public let expectedNextStreamSequence: Int?
+    public let failureCode: String?
+    public let failureStage: String?
+    public let identityMismatchField: String?
+    public let lastChunkByteCount: Int?
+    public let lastAcknowledgedStreamSequence: Int?
+    public let lastCommittedFrameKind: String?
+    public let lastRoutedFrameKind: String?
+    public let lifecycleState: String?
+    public let peakRetainedByteCount: Int?
+    public let pushCount: Int?
+    public let readFulfilledCount: Int?
+    public let readPending: Bool?
+    public let readRequestCount: Int?
+    public let receivedByteCount: Int?
+    public let retainedByteCount: Int?
+    public let routeFailureCode: String?
+    public let routedFrameCount: Int?
+    public let streamOpenCount: Int?
 }
 
 public struct IPCBridgeReviewPackageSummary: Codable, Equatable, Sendable {
@@ -742,43 +813,5 @@ public struct IPCBridgeContentGetResult: Codable, Equatable, Sendable {
         self.mimeType = mimeType
         byteCount = handle.sizeBytes
         isBinary = handle.isBinary
-    }
-}
-
-public struct IPCBridgeTelemetryFlushResult: Codable, Equatable, Sendable {
-    public let paneId: UUID
-    public let flushed: Bool
-
-    public init(paneId: UUID, flushed: Bool) {
-        self.paneId = paneId
-        self.flushed = flushed
-    }
-}
-
-public struct IPCBridgeTelemetrySnapshotResult: Codable, Equatable, Sendable {
-    public let paneId: UUID
-    public let recorderAttached: Bool
-    public let traceExportEnabled: Bool
-    public let status: String
-    public let packageId: String?
-    public let reviewGeneration: Int?
-    public let selectedItemId: String?
-
-    public init(
-        paneId: UUID,
-        recorderAttached: Bool,
-        traceExportEnabled: Bool,
-        status: String,
-        packageId: String?,
-        reviewGeneration: Int?,
-        selectedItemId: String?
-    ) {
-        self.paneId = paneId
-        self.recorderAttached = recorderAttached
-        self.traceExportEnabled = traceExportEnabled
-        self.status = status
-        self.packageId = packageId
-        self.reviewGeneration = reviewGeneration
-        self.selectedItemId = selectedItemId
     }
 }

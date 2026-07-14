@@ -24,7 +24,7 @@ struct BridgeSchemeHandler: URLSchemeHandler, Sendable {
     let resourceLeaseRegistry: BridgeTransportResourceLeaseRegistry
     let allowedResourceKindsByProtocol: [String: Set<String>]
     let telemetryRecorder: (any BridgePerformanceTraceRecording)?
-    let telemetryIngestor: (any BridgeTelemetryBatchIngesting)?
+    let telemetrySessionOwner: BridgePaneTelemetrySessionOwner?
     let productSessionRouter: BridgeProductSchemeSessionRouter?
     let beforeContentEmission: (@Sendable () async -> Void)?
     let contentDemandAdmission: BridgeContentDemandAdmission
@@ -39,7 +39,7 @@ struct BridgeSchemeHandler: URLSchemeHandler, Sendable {
         allowedResourceKindsByProtocol: [String: Set<String>] =
             BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds,
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
-        telemetryIngestor: (any BridgeTelemetryBatchIngesting)? = nil,
+        telemetrySessionOwner: BridgePaneTelemetrySessionOwner? = nil,
         productSessionRouter: BridgeProductSchemeSessionRouter? = nil,
         beforeContentEmission: (@Sendable () async -> Void)? = nil,
         contentDemandAdmission: BridgeContentDemandAdmission = BridgeContentDemandAdmission()
@@ -50,14 +50,7 @@ struct BridgeSchemeHandler: URLSchemeHandler, Sendable {
         self.resourceLeaseRegistry = resourceLeaseRegistry
         self.allowedResourceKindsByProtocol = allowedResourceKindsByProtocol
         self.telemetryRecorder = telemetryRecorder
-        self.telemetryIngestor =
-            telemetryIngestor
-            ?? telemetryRecorder.map {
-                BridgeTelemetryIngestor(
-                    scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web]),
-                    recorder: $0
-                )
-            }
+        self.telemetrySessionOwner = telemetrySessionOwner
         self.productSessionRouter = productSessionRouter
         self.beforeContentEmission = beforeContentEmission
         self.contentDemandAdmission = contentDemandAdmission
@@ -357,32 +350,109 @@ struct BridgeSchemeHandler: URLSchemeHandler, Sendable {
             continuation.finish(throwing: BridgeSchemeError.invalidRequest("Unsupported telemetry method"))
             return
         }
+        guard let telemetrySessionOwner else {
+            continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
+            return
+        }
+        let presentedCapability = request.value(
+            forHTTPHeaderField: BridgeTelemetryWorkerWireContract.capabilityHeaderName
+        )
+        guard await telemetrySessionOwner.authorizes(presentedCapability) else {
+            emitTelemetryHTTPResponse(
+                url: url,
+                statusCode: 403,
+                body: nil,
+                continuation: continuation
+            )
+            return
+        }
         guard request.value(forHTTPHeaderField: "Content-Type")?.lowercased().hasPrefix("application/json") == true
         else {
             continuation.finish(throwing: BridgeSchemeError.invalidRequest("Unsupported telemetry content type"))
             return
         }
-        guard let body = request.httpBody else {
+        let body: Data
+        switch BridgeProductBoundedRequestBodyReader(maximumBytes: BridgeTelemetryWorkerPolicy.live.batchMaxBytes)
+            .read(request)
+        {
+        case .body(let admittedBody, _):
+            body = admittedBody
+        case .oversized:
+            emitTelemetryHTTPResponse(
+                url: url,
+                statusCode: 413,
+                body: nil,
+                continuation: continuation
+            )
+            return
+        case .invalid, .missing:
             continuation.finish(throwing: BridgeSchemeError.invalidRequest("Missing telemetry body"))
             return
         }
-        guard body.count <= BridgeTelemetryLimits.maxEncodedBatchBytes else {
-            continuation.finish(throwing: BridgeSchemeError.invalidRequest("Telemetry body too large"))
+        let admission = await telemetrySessionOwner.admit(
+            presentedCapability: presentedCapability,
+            encodedBody: body
+        )
+        switch admission {
+        case .unauthorized:
+            emitTelemetryHTTPResponse(
+                url: url,
+                statusCode: 403,
+                body: nil,
+                continuation: continuation
+            )
+        case .bodyTooLarge:
+            emitTelemetryHTTPResponse(
+                url: url,
+                statusCode: 413,
+                body: nil,
+                continuation: continuation
+            )
+        case .response(let response):
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            guard let responseBody = try? encoder.encode(response) else {
+                continuation.finish(throwing: BridgeSchemeError.invalidRequest("Telemetry response encoding failed"))
+                return
+            }
+            emitTelemetryHTTPResponse(
+                url: url,
+                statusCode: 200,
+                body: responseBody,
+                continuation: continuation
+            )
+        }
+    }
+
+    private func emitTelemetryHTTPResponse(
+        url: URL,
+        statusCode: Int,
+        body: Data?,
+        continuation: AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation
+    ) {
+        let headers = [
+            "Access-Control-Allow-Headers":
+                "Content-Type, traceparent, \(BridgeTelemetryWorkerWireContract.capabilityHeaderName)",
+            "Access-Control-Allow-Methods": Self.allowedMethods(for: .telemetryBatch),
+            "Access-Control-Allow-Origin": "*",
+            "Content-Length": String(body?.count ?? 0),
+            "Content-Type": "application/json; charset=utf-8",
+        ]
+        guard
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: statusCode,
+                httpVersion: "HTTP/1.1",
+                headerFields: headers
+            )
+        else {
+            continuation.finish(throwing: BridgeSchemeError.invalidRequest("Telemetry response failed"))
             return
         }
-        guard let telemetryIngestor else {
-            continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
-            return
+        continuation.yield(.response(response))
+        if let body {
+            continuation.yield(.data(body))
         }
-        _ = await telemetryIngestor.ingest(body)
-        continuation.yield(
-            .response(
-                Self.response(
-                    url: url,
-                    mimeType: "application/json",
-                    expectedContentLength: 0,
-                    allowedMethods: Self.allowedMethods(for: .telemetryBatch)
-                )))
         continuation.finish()
     }
 

@@ -4,34 +4,56 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, test } from 'vitest';
 
-describe('Review viewer source structure', () => {
-	test('keeps review data controllers outside the lazy visual shell boundary', () => {
-		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
-		const shellBoundarySource = readSource('../app/bridge-app-review-viewer-shell-boundary.tsx');
+import {
+	bridgeReviewNavigationTargetForCommand,
+	resolveBridgeReviewNavigationTarget,
+} from '../app/bridge-app-review-navigation-controller.js';
+import {
+	commitBridgeReviewPresentationSelection,
+	scheduleReviewMarkFileViewedCommand,
+} from '../app/bridge-app-review-selection-controller.js';
+import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
 
-		expect(modeSource).toContain('useBridgeReviewViewerStore');
-		expect(modeSource).toContain('useBridgeReviewControlEventListeners');
-		expect(modeSource).toContain('useBridgeReviewIntakeController');
-		expect(modeSource).toContain('useBridgeReviewMetadataInterestRuntime');
-		expect(modeSource).toContain('useBridgeReviewNavigationController');
-		expect(modeSource).toContain('useBridgeReviewDemandTelemetryController');
-		expect(modeSource).toContain('useBridgeReviewProjectionCoordinator');
-		expect(modeSource).toContain('useBridgeReviewSelectionController');
-		expect(modeSource).toContain('BridgeReviewViewerShellBoundary');
-		expect(modeSource).not.toContain('useBridgeReviewVisibleContentController');
-		expect(modeSource).not.toContain('LazyReviewViewerShell');
-		expect(modeSource).not.toContain('<Suspense');
+const recoveredReviewSourcePaths = [
+	'../app/bridge-app-review-navigation-controller.ts',
+	'../app/bridge-app-review-selection-controller.ts',
+	'../app/bridge-app-review-viewer-shell-boundary.tsx',
+] as const;
 
-		expect(shellBoundarySource).toContain('LazyReviewViewerShell');
-		expect(shellBoundarySource).toContain('<Suspense');
-		expect(shellBoundarySource).not.toContain('useBridgeReviewIntakeController');
-		expect(shellBoundarySource).not.toContain('useBridgeReviewMetadataInterestRuntime');
-		expect(shellBoundarySource).not.toContain('useBridgeReviewProjectionCoordinator');
-		expect(shellBoundarySource).not.toContain('useSelectedReviewContentDemandController');
-		expect(shellBoundarySource).not.toContain('useBridgeReviewSelectedContentEffect');
+const forbiddenRecoveredAuthorityTokens = [
+	'bridge-app-review-controller',
+	'bridge-viewer-mocked-backend',
+	'review-viewer/state/review-viewer-store',
+	'review-viewer/workers/projection',
+	'review-viewer/workers/shared-rpc',
+	'use-review-projection-coordinator',
+	'zustand',
+] as const;
+
+describe('Review viewer S1a recovery source structure', () => {
+	test('S1a restores the Review presentation boundary and local controllers', () => {
+		const missingSourcePaths = recoveredReviewSourcePaths.filter(
+			(relativePath): boolean => !sourceFileExists(relativePath),
+		);
+
+		expect(
+			missingSourcePaths,
+			'S1A REVIEW RECOVERY MISSING: restore the presentation boundary and local controllers without obsolete authority.',
+		).toEqual([]);
 	});
 
-	test('keeps Review mode off direct Zustand subscriptions after render-snapshot cutover', () => {
+	test('recovered Review presentation files cannot import obsolete authority', () => {
+		const violations = recoveredReviewSourcePaths.flatMap((relativePath): readonly string[] => {
+			const source = readOptionalSource(relativePath).toLowerCase();
+			return forbiddenRecoveredAuthorityTokens
+				.filter((token): boolean => source.includes(token))
+				.map((token): string => `${relativePath}: ${token}`);
+		});
+
+		expect(violations).toEqual([]);
+	});
+
+	test('keeps Review main-thread production sources off direct Zustand subscriptions', () => {
 		const forbiddenTokens = [
 			"from 'zustand",
 			'from "zustand',
@@ -40,7 +62,7 @@ describe('Review viewer source structure', () => {
 			'createStore(',
 			'createWithEqualityFn(',
 			'subscribeWithSelector',
-		];
+		] as const;
 		const violations = readReviewMainThreadProductionSources().flatMap((entry): readonly string[] =>
 			forbiddenTokens
 				.filter((token): boolean => entry.source.includes(token))
@@ -50,694 +72,150 @@ describe('Review viewer source structure', () => {
 		expect(violations).toEqual([]);
 	});
 
-	test('keeps Review control event listeners in an app-level hook', () => {
-		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
-		const hookSource = readSource('../app/use-bridge-review-control-event-listeners.ts');
+	test('keeps the recovered shell boundary presentation-only and lazily mounted', () => {
+		const boundarySource = readOptionalSource('../app/bridge-app-review-viewer-shell-boundary.tsx');
 
-		expect(modeSource).toContain('useBridgeReviewControlEventListeners');
-		expect(modeSource).not.toContain('__bridge_select_review_item');
-		expect(modeSource).not.toContain('__bridge_review_control');
-		expect(modeSource).not.toContain('bridgeAppControlCommandSchema');
-		expect(modeSource).not.toContain('applyBridgeAppControlCommand');
-
-		expect(hookSource).toContain('__bridge_select_review_item');
-		expect(hookSource).toContain('__bridge_review_control');
-		expect(hookSource).toContain('bridgeAppControlCommandSchema');
-		expect(hookSource).toContain('applyBridgeAppControlCommand');
-		expect(hookSource).not.toContain('BridgeReviewViewerShellBoundary');
-		expect(hookSource).not.toContain('@pierre/');
-		expect(hookSource).not.toContain('useBridgeReviewViewerStore');
-		expect(hookSource).not.toContain('AbortController');
-		expect(hookSource).not.toContain('resourceExecutor');
-		expect(hookSource).not.toContain('reviewDemandScheduler');
+		expect(boundarySource).toContain('BridgeReviewViewerPresentationState');
+		expect(boundarySource).toContain('ReviewViewerShellProps');
+		expect(boundarySource).toContain('LazyReviewViewerShell');
+		expect(boundarySource).toContain('<Suspense');
+		expect(boundarySource).not.toContain('BridgeReviewPackage');
+		expect(boundarySource).not.toContain('BridgeMainRenderSnapshotStore');
+		expect(boundarySource).not.toContain('fetch(');
 	});
 
-	test('cuts selected Review away from FE package-first selected resources', () => {
-		expect(sourceFileExists('../app/bridge-app-review-selected-content-controller.ts')).toBe(false);
-		const forbiddenOwners = [
-			'../app/bridge-app-review-controller.ts',
-			'../app/bridge-app-review-viewer-mode.tsx',
-			'../app/bridge-app-review-selected-content-controller.ts',
-			'../app/bridge-app-review-markdown-preview-controller.ts',
-			'../app/use-bridge-review-control-event-listeners.ts',
-			'../app/bridge-app-control-commands.ts',
-			'../app/bridge-app-review-telemetry-controller.ts',
-		].flatMap((relativePath): string[] => {
-			const source = readOptionalSource(relativePath);
-			return [
-				'useBridgeReviewSelectedContentEffect',
-				'useSelectedReviewContentDemandController',
-				'startSelectedReviewContentDemand',
-				'selectedContentResourcesForCurrentSelection',
-				'selectedContentResourcesState',
-				'loadReviewItemContentResourcesThroughDemandResult',
-				'readonly selectedContentResources: BridgeCodeViewContentResources | null',
-				'selectedContentResources,',
-				'resources: selectedContentResources',
-			]
-				.filter((token): boolean => source.includes(token))
-				.map((token): string => `${relativePath}: ${token}`);
-		});
-
-		expect(forbiddenOwners).toEqual([]);
-	});
-
-	test('cuts Review app runtime away from legacy content registry and resource executor ownership', () => {
-		const forbiddenOwners = [
-			'../app/bridge-app-review-viewer-mode.tsx',
-			'../app/bridge-app-review-runtime.ts',
-			'../app/bridge-app-review-intake-controller.ts',
-			'../app/bridge-app-review-controller.ts',
-			'../app/bridge-app-review-descriptors.ts',
-			'../app/bridge-app-review-content-identity-controller.ts',
-		].flatMap((relativePath): string[] => {
-			const source = readOptionalSource(relativePath);
-			return [
-				'descriptorRefsForReviewInvalidation',
-				'contentResourceKeysForReviewHandleIds',
-				'cancelReviewDescriptorDemandGroups',
-				'cancelReviewItemDemand',
-				'useBridgeReviewContentRegistry',
-				'useBridgeReviewResourceExecutor',
-				'createBridgeReviewContentRegistry',
-				'createBridgeResourceExecutor',
-				'createBridgeBodyRegistry',
-				'BridgeReviewContentRegistry',
-				'BridgeResourceExecutor<BridgeTextResourceStreamResult>',
-				'resourceExecutor,',
-				'contentRegistry,',
-				'invalidatedFreshnessKeysRef',
-				'setReviewContentInvalidationVersion',
-			]
-				.filter((token): boolean => source.includes(token))
-				.map((token): string => `${relativePath}: ${token}`);
-		});
-
-		expect(forbiddenOwners).toEqual([]);
-	});
-
-	test('keeps Review selection orchestration in an app-level controller hook', () => {
-		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
-		const selectionControllerSource = readSource(
-			'../app/bridge-app-review-selection-controller.ts',
+	test('keeps typed local selection before post-paint worker intent scheduling', () => {
+		const selectionSource = readOptionalSource('../app/bridge-app-review-selection-controller.ts');
+		const selectionCommitSource = sourceBetween(
+			selectionSource,
+			'export function commitBridgeReviewPresentationSelection',
+			'export function scheduleReviewMarkFileViewedCommand',
 		);
 
-		expect(modeSource).toContain('useBridgeReviewSelectionController');
-		expect(modeSource).not.toContain('pendingSelectionCommitTelemetryRef');
-		expect(modeSource).not.toContain('lastTelemetryMarkedItemRef');
-		expect(modeSource).not.toContain('review.markFileViewed');
-		expect(modeSource).not.toContain('recordReviewStartupTelemetry({');
-
-		expect(selectionControllerSource).toContain('useBridgeReviewSelectionController');
-		expect(selectionControllerSource).toContain('pendingSelectionCommitTelemetryRef');
-		expect(selectionControllerSource).toContain('lastTelemetryMarkedItemRef');
-		expect(selectionControllerSource).toContain('markFileViewed');
-		expect(selectionControllerSource).not.toContain('review.markFileViewed');
-		expect(selectionControllerSource).not.toContain('BridgeRPCClient');
-		expect(selectionControllerSource).toContain('recordReviewStartupTelemetry({');
-		expect(selectionControllerSource).not.toContain('BridgeReviewViewerShellBoundary');
-		expect(selectionControllerSource).not.toContain('useBridgeReviewViewerStore');
-		expect(selectionControllerSource).not.toContain('createBridgeReviewProjectionWebWorkerClient');
-		expect(selectionControllerSource).not.toContain('createBridgeMarkdownRenderWebWorkerClient');
-		expect(selectionControllerSource).not.toContain('@pierre/');
-	});
-
-	test('keeps Review metadata interest off page-owned RPC after ordinary RPC cutover', () => {
-		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
-		const metadataInterestRuntimeSource = readSource(
-			'../app/bridge-app-review-metadata-interest-runtime.ts',
+		expect(selectionCommitSource).toContain('commitLocalSelection(props.itemId)');
+		expect(selectionCommitSource).toContain(
+			'scheduleSelectIntentAfterLocalPaint(props.itemId, props.selectedSource)',
 		);
-
-		expect(modeSource).not.toContain('createBridgeRPCClient');
-		expect(modeSource).not.toContain('rpcClient');
-		expect(metadataInterestRuntimeSource).not.toContain('BridgeRPCClient');
-		expect(metadataInterestRuntimeSource).not.toContain('BridgeRPCCommand');
-		expect(metadataInterestRuntimeSource).not.toContain('sendCommandAndWait');
-		expect(metadataInterestRuntimeSource).not.toContain('bridge.metadata_interest.update');
-		expect(metadataInterestRuntimeSource).toContain('sendMetadataInterestRequest');
-	});
-
-	test('keeps Review intake-ready off page-owned RPC after ordinary RPC cutover', () => {
-		const intakeControllerSource = readSource('../app/bridge-app-review-intake-controller.ts');
-		const pageHandshakeSource = readSource('../bridge/bridge-page-handshake.ts');
-
-		expect(intakeControllerSource).not.toContain('BridgePageHandshakeSession');
-		expect(intakeControllerSource).not.toContain('markIntakeReady');
-		expect(intakeControllerSource).not.toContain('bridge.intakeReady');
-		expect(intakeControllerSource).toContain('sendReviewIntakeReady');
-		expect(pageHandshakeSource).not.toContain('markIntakeReady');
-		expect(pageHandshakeSource).not.toContain('bridge.intakeReady');
-	});
-
-	test('keeps Review hot-path telemetry off forced flushes', () => {
-		const forbiddenOwners = [
-			'../app/bridge-app-review-selection-controller.ts',
-			'../app/bridge-app-review-telemetry-controller.ts',
-			'../app/bridge-app-review-telemetry.ts',
-		].flatMap((relativePath): string[] => {
-			const source = readOptionalSource(relativePath);
-			return ['flush({ force: true })', 'flush({force: true})']
-				.filter((token): boolean => source.includes(token))
-				.map((token): string => `${relativePath}: ${token}`);
-		});
-
-		expect(forbiddenOwners).toEqual([]);
-	});
-
-	test('keeps Review render telemetry package keys aligned with revision-aware intake keys', () => {
-		const renderTelemetryControllerSource = readSource(
-			'../app/bridge-app-review-telemetry-controller.ts',
-		);
-
-		expect(renderTelemetryControllerSource).toContain('makeTelemetryPackageKey(');
-		expect(renderTelemetryControllerSource).not.toContain(
-			'`${props.reviewPackage.packageId}:${props.reviewPackage.reviewGeneration}`',
-		);
-	});
-
-	test('keeps selected CodeView materialize and paint telemetry wired to live apply path', () => {
-		const panelSource = readSource('code-view/bridge-code-view-panel.tsx');
-		const metadataApplySource = panelSource.slice(
-			panelSource.indexOf('runBridgeCodeViewMetadataApplyInChunks({'),
-			panelSource.indexOf(
-				'frameBudgetMilliseconds:',
-				panelSource.indexOf('runBridgeCodeViewMetadataApplyInChunks({'),
+		expect(selectionCommitSource.indexOf('commitLocalSelection(props.itemId)')).toBeLessThan(
+			selectionCommitSource.indexOf(
+				'scheduleSelectIntentAfterLocalPaint(props.itemId, props.selectedSource)',
 			),
 		);
-
-		expect(panelSource).toContain('selectedContentPaintTelemetryStart');
-		expect(panelSource).toContain(
-			'recordBridgeWorkerPreparedCodeViewItemMaterializeTelemetryForPanel',
-		);
-		expect(metadataApplySource).toContain('const updateResult = controller.applyItemUpdate(item)');
-		expect(metadataApplySource).toContain('recordWorkerPreparedApplyTelemetry');
-		expect(panelSource).toContain('shouldScheduleSelectedContentPaintedTelemetry');
-		expect(panelSource).toContain('scheduleSelectedContentPaintedTelemetry');
-		expect(panelSource).toContain("transport: 'worker'");
+		expect(selectionSource).toContain('selectIntentScheduler.cancelPending()');
+		expect(selectionSource).toContain('useLayoutEffect(');
 	});
 
-	test('routes Review selection and viewport display facts through the comm-worker render snapshot seam', () => {
-		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
-		const renderSnapshotControllerSource = readSource(
-			'../app/bridge-app-review-render-snapshot-controller.ts',
-		);
-
-		expect(modeSource).toContain('useBridgeReviewRenderSnapshotController');
-		expect(modeSource).toContain('setSelectedReviewItemId');
-		expect(modeSource).toContain('setReviewViewportItemIds');
-		expect(modeSource).not.toContain('selectBridgeReviewSelectionSlice');
-		expect(modeSource).not.toContain('selectBridgeReviewViewportSlice');
-		expect(modeSource).not.toContain('viewerActions.setMountedItemIds');
-		expect(renderSnapshotControllerSource).toContain('createBridgeMainRenderSnapshotStore');
-		expect(renderSnapshotControllerSource).toContain('createBridgePaneCommWorkerDispatcher');
-		expect(renderSnapshotControllerSource).not.toContain(
-			'registerBridgeCommWorkerRuntimePortProtocol',
-		);
-		expect(renderSnapshotControllerSource).not.toContain('createBridgeReviewRuntimeProtocolPort');
-		expect(renderSnapshotControllerSource).not.toContain('createBridgeCommWorkerCommandHandler');
-		expect(renderSnapshotControllerSource).not.toContain('.handleMessage(');
-		expect(renderSnapshotControllerSource).toContain('useSyncExternalStore');
-		expect(renderSnapshotControllerSource).toContain('bridgeWorkerPierreRenderPolicy');
-		expect(renderSnapshotControllerSource).not.toContain('maxBytes: 512 * 1024');
-		expect(renderSnapshotControllerSource).not.toContain('maxWindowLines: 400');
-		expect(renderSnapshotControllerSource).toContain('encodeBridgeWorkerSelectCommand');
-		expect(renderSnapshotControllerSource).toContain('encodeBridgeWorkerViewportCommand');
-		const viewportSetterSource = renderSnapshotControllerSource.slice(
-			renderSnapshotControllerSource.indexOf('const setReviewViewportItemIds = useCallback'),
-			renderSnapshotControllerSource.indexOf('return {'),
-		);
-		expect(viewportSetterSource).toContain('renderSnapshotStore.setLocalViewport');
-		expect(viewportSetterSource).toContain('runtimeDispatcher.dispatch');
-		expect(viewportSetterSource.indexOf('renderSnapshotStore.setLocalViewport')).toBeLessThan(
-			viewportSetterSource.indexOf('runtimeDispatcher.dispatch'),
-		);
-	});
-
-	test('keeps Review comm-worker dispatcher lifetime stable across metadata updates', () => {
-		const renderSnapshotControllerSource = readSource(
-			'../app/bridge-app-review-render-snapshot-controller.ts',
-		);
-		const dispatcherSource = renderSnapshotControllerSource.slice(
-			renderSnapshotControllerSource.indexOf('const runtimeDispatcher = useMemo'),
-			renderSnapshotControllerSource.indexOf('const latestReviewSourceRef'),
-		);
-		const sourceUpdateSource = renderSnapshotControllerSource.slice(
-			renderSnapshotControllerSource.indexOf('const synchronizeReviewSource'),
-			renderSnapshotControllerSource.indexOf('const setSelectedReviewItemId'),
-		);
-
-		expect(renderSnapshotControllerSource).toContain('encodeBridgeWorkerReviewSourceUpdateCommand');
-		expect(dispatcherSource).not.toContain('props.reviewPackage');
-		expect(dispatcherSource).not.toContain('props.reviewTreeRows');
-		expect(sourceUpdateSource).toContain('source.reviewPackage');
-		expect(sourceUpdateSource).toContain('source.reviewTreeRows');
-		expect(sourceUpdateSource).toContain('latestReviewSourceRef.current');
-		expect(sourceUpdateSource).toContain('runtimeDispatcher.dispatch');
-	});
-
-	test('removes the temporary no-courier selected loading shim from Review runtime', () => {
-		const bridgeAppSource = readSource('../app/bridge-app.tsx');
-		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
-		const selectionStateSource = readSource('../app/bridge-app-review-selection-state.ts');
-		const renderSnapshotControllerSource = readSource(
-			'../app/bridge-app-review-render-snapshot-controller.ts',
-		);
-		const runtimeProtocolSource = readSource(
-			'../core/comm-worker/bridge-comm-worker-runtime-protocol.ts',
-		);
-		const commandHandlerSource = readSource(
-			'../core/comm-worker/bridge-comm-worker-command-handler.ts',
-		);
-		const storeSource = readSource('../core/comm-worker/bridge-comm-worker-store.ts');
-		const sourceByOwner = [
-			['bridge-app.tsx', bridgeAppSource],
-			['bridge-app-review-viewer-mode.tsx', modeSource],
-			['bridge-app-review-selection-state.ts', selectionStateSource],
-			['bridge-app-review-render-snapshot-controller.ts', renderSnapshotControllerSource],
-			['bridge-comm-worker-runtime-protocol.ts', runtimeProtocolSource],
-			['bridge-comm-worker-command-handler.ts', commandHandlerSource],
-			['bridge-comm-worker-store.ts', storeSource],
-		] as const;
-		const forbiddenShimOwners = sourceByOwner.flatMap(([owner, source]): string[] =>
-			[
-				'selectedContentAvailabilityFromLegacySelectedContentState',
-				'setSelectedContentAvailability',
-				'applyLegacySelectedContentAvailabilityToMainRenderSnapshotStore',
-				'selectedContentLoadingAvailabilityEnabled',
-				'selectedContentPreparationEnabled',
-				'selectedLoadingAvailabilityEnabled',
-				'selectedPreparationAvailable',
-			]
-				.filter((token): boolean => source.includes(token))
-				.map((token): string => `${owner}: ${token}`),
-		);
-
-		expect(forbiddenShimOwners).toEqual([]);
-	});
-
-	test('keeps Review navigation reconciliation in an app-level controller hook', () => {
-		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
-		const navigationControllerSource = readSource(
+	test('keeps navigation idempotence and projection reconciliation local', () => {
+		const navigationSource = readOptionalSource(
 			'../app/bridge-app-review-navigation-controller.ts',
 		);
 
-		expect(modeSource).toContain('useBridgeReviewNavigationController');
-		expect(modeSource).not.toContain('appliedNavigationCommandRef');
-		expect(modeSource).not.toContain('projection.orderedItemIds.includes(');
-		expect(modeSource).not.toContain('clearReviewRefinementsHidingExplicitTarget(');
-
-		expect(navigationControllerSource).toContain('useBridgeReviewNavigationController');
-		expect(navigationControllerSource).toContain('appliedNavigationCommandRef');
-		expect(navigationControllerSource).toContain('projection.orderedItemIds.includes(');
-		expect(navigationControllerSource).toContain('clearReviewRefinementsHidingExplicitTarget(');
-		expect(navigationControllerSource).not.toContain('BridgeReviewViewerShellBoundary');
-		expect(navigationControllerSource).not.toContain('resourceExecutor');
-		expect(navigationControllerSource).not.toContain('reviewDemandScheduler');
-		expect(navigationControllerSource).not.toContain('createBridgeReviewProjectionWebWorkerClient');
-		expect(navigationControllerSource).not.toContain('@pierre/');
+		expect(navigationSource).toContain('appliedNavigationCommandIdRef');
+		expect(navigationSource).toContain('resolveBridgeReviewNavigationTarget');
+		expect(navigationSource).toContain('onTargetOutsideAcceptedProjection');
+		expect(navigationSource).toContain('orderedItemIds[0]');
+		expect(navigationSource).not.toContain('BridgeReviewPackage');
 	});
 
-	test('keeps Review demand telemetry package filtering in an app-level controller hook', () => {
-		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
-		const demandTelemetryControllerSource = readSource(
-			'../app/bridge-app-review-demand-telemetry-controller.ts',
-		);
-
-		expect(modeSource).toContain('useBridgeReviewDemandTelemetryController');
-		expect(modeSource).not.toContain('reviewContentDemandTelemetryForPackage');
-
-		expect(demandTelemetryControllerSource).toContain('useBridgeReviewDemandTelemetryController');
-		expect(demandTelemetryControllerSource).toContain('reviewContentDemandTelemetryForPackage');
-		expect(demandTelemetryControllerSource).not.toContain('BridgeReviewViewerShellBoundary');
-		expect(demandTelemetryControllerSource).not.toContain('useBridgeReviewViewerStore');
-		expect(demandTelemetryControllerSource).not.toContain('createBridgeReviewViewerStore');
-		expect(demandTelemetryControllerSource).not.toContain('resourceExecutor');
-		expect(demandTelemetryControllerSource).not.toContain('reviewDemandScheduler');
-		expect(demandTelemetryControllerSource).not.toContain('@pierre/');
-	});
-
-	test('deletes Review app-level content registry identity ownership', () => {
-		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
-
-		expect(sourceFileExists('../app/bridge-app-review-content-identity-controller.ts')).toBe(false);
-		expect(modeSource).not.toContain('useBridgeReviewContentIdentityController');
-		expect(modeSource).not.toContain('contentRegistry.setActiveIdentity');
-	});
-
-	test('cuts Review CodeView away from FE visible content hydration and expanded demand', () => {
-		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
-		const shellBoundarySource = readSource('../app/bridge-app-review-viewer-shell-boundary.tsx');
-		const reviewShellSource = readSource('./shell/review-viewer-shell.tsx');
-		const codeViewPanelSource = readSource('./code-view/bridge-code-view-panel.tsx');
-		const codeViewPanelTypesSource = readSource('./code-view/bridge-code-view-panel-types.ts');
-		const codeViewPanelSupportSource = readSource('./code-view/bridge-code-view-panel-support.tsx');
-		const visibleContentControllerSource = readOptionalSource(
-			'../app/bridge-app-review-visible-content-controller.ts',
-		);
-
-		const forbiddenLiveTokens = (
-			[
-				[modeSource, 'useBridgeReviewVisibleContentController'],
-				[modeSource, 'visibleContentResourcesByItemId='],
-				[modeSource, 'onCodeViewExpandedItemDemand='],
-				[shellBoundarySource, 'visibleContentResourcesByItemId'],
-				[shellBoundarySource, 'onCodeViewExpandedItemDemand'],
-				[reviewShellSource, 'visibleContentResourcesByItemId'],
-				[reviewShellSource, 'onCodeViewExpandedItemDemand'],
-				[codeViewPanelSource, 'visibleContentResourcesByItemId'],
-				[codeViewPanelSource, 'onExpandedItemDemand'],
-				[codeViewPanelTypesSource, 'visibleContentResourcesByItemId'],
-				[codeViewPanelTypesSource, 'onExpandedItemDemand'],
-				[codeViewPanelSupportSource, 'bridgeCodeViewMaterializationResourceEntriesForPanel'],
-				[visibleContentControllerSource, 'useBridgeReviewVisibleContentController'],
-				[visibleContentControllerSource, 'useVisibleReviewContentHydration'],
-				[visibleContentControllerSource, 'loadReviewItemContentResourcesThroughDemandResult'],
-				[visibleContentControllerSource, 'shouldPauseVisibleReviewContentHydration'],
-				[visibleContentControllerSource, 'requestForegroundItemContent'],
-			] satisfies ReadonlyArray<readonly [string, string]>
-		).flatMap(([source, token]): string[] => (source.includes(token) ? [token] : []));
-
-		expect(forbiddenLiveTokens).toEqual([]);
-	});
-
-	test('deletes dead Review FE content authority modules after worker render cutover', () => {
-		const selectionStateSource = readSource('../app/bridge-app-review-selection-state.ts');
-		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
-		const demandTelemetryControllerSource = readSource(
-			'../app/bridge-app-review-demand-telemetry-controller.ts',
-		);
-		const shellBoundarySource = readSource('../app/bridge-app-review-viewer-shell-boundary.tsx');
-		const reviewShellSource = readSource('./shell/review-viewer-shell.tsx');
-		const deletedLegacyFiles = [
-			'./content/visible-review-content-hydration.ts',
-			'./content/visible-review-content-hydration-demand.ts',
-			'./content/visible-review-content-hydration-load-state.ts',
-			'./content/visible-review-content-hydration-result.ts',
-			'./content/visible-review-content-hydration-support.ts',
-			'./content/review-content-demand-loader.ts',
-			'./content/review-content-loader.ts',
-			'./content/review-content-registry.ts',
-			'./content/review-content-demand-policy.ts',
-		].filter((relativePath): boolean => sourceFileExists(relativePath));
-		const forbiddenLegacyImports = (
-			[
-				['bridge-app-review-selection-state.ts', selectionStateSource],
-				['bridge-app-review-viewer-mode.tsx', modeSource],
-				['bridge-app-review-demand-telemetry-controller.ts', demandTelemetryControllerSource],
-				['bridge-app-review-viewer-shell-boundary.tsx', shellBoundarySource],
-				['review-viewer-shell.tsx', reviewShellSource],
-			] satisfies ReadonlyArray<readonly [string, string]>
-		).flatMap(([owner, source]): string[] =>
-			[
-				'./content/visible-review-content-hydration.js',
-				'../content/review-content-demand-loader.js',
-				'../content/review-content-registry.js',
-				'../content/visible-review-content-hydration.js',
-			]
-				.filter((token): boolean => source.includes(token))
-				.map((token): string => `${owner}: ${token}`),
-		);
-
-		expect(deletedLegacyFiles).toEqual([]);
-		expect(selectionStateSource).toContain(
-			"from '../review-viewer/content/visible-review-content-hydration-identity.js'",
-		);
-		expect(forbiddenLegacyImports).toEqual([]);
-	});
-
-	test('keeps Review demand telemetry types off CodeView content resources', () => {
-		const demandTypesSource = readSource('./content/review-content-demand-types.ts');
-
-		expect(demandTypesSource).not.toContain('BridgeCodeViewContentResources');
-		expect(demandTypesSource).not.toContain('ReviewContentDemandPlan');
-		expect(demandTypesSource).not.toContain('BridgeContentHandle');
-	});
-
-	test('keeps Review selected display loading on worker availability slices', () => {
-		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
-		const selectedLoadingSource = modeSource.slice(
-			modeSource.indexOf(
-				'const selectedCanvasLoadingReason = selectedCanvasLoadingReasonForCurrentSelection',
-			),
-			modeSource.indexOf('const selectedContentLoadingItemId'),
-		);
-		const unavailablePathSource = modeSource.slice(
-			modeSource.indexOf(
-				'selectedContentUnavailablePath={selectedContentUnavailablePathForCurrentSelection',
-			),
-			modeSource.indexOf('selectedItemPresentation={selectedItemPresentation}'),
-		);
-
-		expect(selectedLoadingSource).toContain('selectedContentAvailability');
-		expect(selectedLoadingSource).not.toContain('selectedContentResourcesState');
-		expect(unavailablePathSource).toContain('selectedContentAvailability');
-		expect(unavailablePathSource).not.toContain('selectedContentResourcesState');
-	});
-
-	test('selected Review CodeView consumes worker-prepared items without FE selected content resources', () => {
-		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
-		const shellBoundarySource = readSource('../app/bridge-app-review-viewer-shell-boundary.tsx');
-		const shellSource = readSource('./shell/review-viewer-shell.tsx');
-		const codeViewPanelTypesSource = readSource('./code-view/bridge-code-view-panel-types.ts');
-		const codeViewPanelSource = readSource('./code-view/bridge-code-view-panel.tsx');
-
-		expect(modeSource).toContain('selectedCodeViewItem');
-		expect(modeSource).not.toContain('shouldLoadSelectedContent');
-		expect(modeSource).not.toContain('selectedContentResources={selectedContentResources}');
-		expect(shellBoundarySource).toContain('selectedCodeViewItem');
-		expect(shellBoundarySource).not.toContain(
-			'readonly selectedContentResources: BridgeCodeViewContentResources | null;',
-		);
-		expect(shellSource).toContain('selectedCodeViewItem');
-		expect(shellSource).not.toContain(
-			'readonly selectedContentResources?: BridgeCodeViewContentResources | null;',
-		);
-		expect(codeViewPanelTypesSource).toContain('readonly selectedCodeViewItem?');
-		expect(codeViewPanelTypesSource).not.toContain(
-			'readonly selectedContentResources?: BridgeCodeViewContentResources | null;',
-		);
-		expect(codeViewPanelSource).not.toContain(
-			'selectedContentResources: props.selectedContentResources',
-		);
-	});
-
-	test('keeps Review CodeView reset items independent from worker-prepared hot deltas', () => {
-		const codeViewPanelSource = readSource('./code-view/bridge-code-view-panel.tsx');
-		const resetItemsMemoSource = codeViewPanelSource.slice(
-			codeViewPanelSource.indexOf('const initialItems = useMemo'),
-			codeViewPanelSource.indexOf('const metadataDeltaItems = useMemo'),
-		);
-
-		expect(resetItemsMemoSource).toContain('initialItemsSelector');
-		expect(resetItemsMemoSource).toContain('sourceKey');
-		expect(resetItemsMemoSource).not.toContain('props.selectedCodeViewItem');
-		expect(resetItemsMemoSource).not.toContain('props.selectedItemPresentation');
-		expect(resetItemsMemoSource).not.toContain('props.visibleCodeViewItems');
-	});
-
-	test('keys Review CodeView metadata apply by derived inputs instead of raw package identity', () => {
-		const codeViewPanelSource = readSource('./code-view/bridge-code-view-panel.tsx');
-		const metadataApplyStartIndex = codeViewPanelSource.indexOf(
-			'const metadataSourceItems = sourceReset',
-		);
-		const metadataApplyEffectSource = codeViewPanelSource.slice(
-			metadataApplyStartIndex,
-			codeViewPanelSource.indexOf(
-				'\tuseEffect(\n\t\t(): (() => void) => (): void => {',
-				metadataApplyStartIndex,
-			),
-		);
-
-		expect(metadataApplyEffectSource).toContain('metadataDeltaItems');
-		expect(metadataApplyEffectSource).toContain('initialItems');
-		expect(metadataApplyEffectSource).toContain('sourceKey');
-		expect(metadataApplyEffectSource).not.toContain('props.projection,');
-		expect(metadataApplyEffectSource).not.toContain('props.reviewPackage,');
-	});
-
-	test('keeps Review worker item selector signatures off large payload fields', () => {
-		const workerPreparedSource = readSource(
-			'./code-view/bridge-code-view-worker-prepared-items.ts',
-		);
-		const signatureSource = workerPreparedSource.slice(
-			workerPreparedSource.indexOf('function bridgeMainCodeViewItemSignature'),
-			workerPreparedSource.indexOf('function bridgeCodeViewItemPresentationKey'),
-		);
-
-		expect(signatureSource).not.toContain('contents');
-		expect(signatureSource).not.toContain('hunks');
-		expect(signatureSource).not.toContain('hunkContent');
-		expect(signatureSource).not.toContain('additionLines');
-		expect(signatureSource).not.toContain('deletionLines');
-	});
-
-	test('invalidates pending CodeView metadata apply turns during source reset', () => {
-		const codeViewPanelSource = readSource('./code-view/bridge-code-view-panel.tsx');
-		const sourceResetEffectSource = codeViewPanelSource.slice(
-			codeViewPanelSource.indexOf('useLayoutEffect((): void => {'),
-			codeViewPanelSource.indexOf('\t}, [sourceKey]);'),
-		);
-
-		expect(sourceResetEffectSource).toContain('metadataApplyTaskGenerationRef.current += 1');
-		expect(sourceResetEffectSource).toContain('pendingMetadataApplyFrameRef.current !== null');
-		expect(sourceResetEffectSource).toContain('clearTimeout(pendingMetadataApplyFrameRef.current)');
-		expect(sourceResetEffectSource).toContain('pendingMetadataApplyFrameRef.current = null');
-	});
-
-	test('reports selected paint telemetry anchors only when click start matches the selected item', () => {
-		const codeViewPanelSource = readSource('./code-view/bridge-code-view-panel.tsx');
-		const workerApplyTelemetrySource = codeViewPanelSource.slice(
-			codeViewPanelSource.indexOf('const recordWorkerPreparedApplyTelemetry ='),
-			codeViewPanelSource.indexOf('runBridgeCodeViewMetadataApplyInChunks({'),
-		);
-
-		expect(workerApplyTelemetrySource).toContain('hasSelectedContentPaintTelemetryAnchor');
-		expect(workerApplyTelemetrySource).toContain(
-			'hasAnchor: hasSelectedContentPaintTelemetryAnchor',
-		);
-		expect(workerApplyTelemetrySource).not.toContain('hasAnchor: true');
-	});
-
-	test('source reset records worker materialization telemetry for every reset item', () => {
-		const codeViewPanelSource = readSource('./code-view/bridge-code-view-panel.tsx');
-		const setItemsSource = codeViewPanelSource.slice(
-			codeViewPanelSource.indexOf('setItems: (items): void => {'),
-			codeViewPanelSource.indexOf('\t\t\tsourceReset,'),
-		);
-
-		expect(setItemsSource).toContain('for (const item of items)');
-		expect(setItemsSource).not.toContain('if (selectedItem !== null)');
-		expect(setItemsSource).toContain('recordWorkerPreparedApplyTelemetry');
-	});
-
-	test('keeps placeholder diff creation off the main-thread diff parser', () => {
-		const materializationSource = readSource('./code-view/bridge-code-view-materialization.ts');
-		const placeholderDiffSource = materializationSource.slice(
-			materializationSource.indexOf('function createPlaceholderDiffItem'),
-			materializationSource.indexOf('interface CreatePlaceholderFileItemProps'),
-		);
-		const placeholderContentSource = readSource(
-			'./code-view/bridge-code-view-placeholder-content.ts',
-		);
-
-		expect(placeholderDiffSource).not.toContain('parseDiffFromFile');
-		expect(placeholderContentSource).not.toContain('parseDiffFromFile');
-	});
-
-	test('keeps Review CodeView materialization off the main-thread diff parser', () => {
-		const materializationSource = readSource('./code-view/bridge-code-view-materialization.ts');
-		const placeholderContentSource = readSource(
-			'./code-view/bridge-code-view-placeholder-content.ts',
-		);
-
-		expect(materializationSource).not.toContain('parseDiffFromFile');
-		expect(materializationSource).not.toContain('materializeBridgeCodeViewItem');
-		expect(materializationSource).not.toContain('.readText()');
-		expect(materializationSource).not.toContain('windowTextForCodeView');
-		expect(materializationSource).not.toContain('createBridgeCodeViewDirectFileDiff');
-		expect(placeholderContentSource).not.toContain('createBridgeCodeViewDirectFileDiff');
-		expect(placeholderContentSource).not.toContain('splitFileContents');
-	});
-
-	test('keeps Review CodeView content facts body-free after worker cutover', () => {
-		const productionSources = [
-			'./code-view/bridge-code-view-materialization.ts',
-			'./code-view/bridge-code-view-panel-support.tsx',
-			'./code-view/bridge-code-view-selected-diagnostics.ts',
-			'./telemetry/bridge-review-viewer-telemetry.ts',
-		].map((relativePath) => ({
-			relativePath,
-			source: readSource(relativePath),
-		}));
-		const forbiddenTokens = [
-			'content-resource-loader',
-			'BridgeContentResource',
-			'BridgeCodeViewContentResources',
-			'readText(): string',
-		];
-		const violations = productionSources.flatMap((entry): readonly string[] =>
-			forbiddenTokens
-				.filter((token): boolean => entry.source.includes(token))
-				.map((token): string => `${entry.relativePath}: ${token}`),
-		);
-		const materializationSource = productionSources.find(
-			(entry): boolean => entry.relativePath === './code-view/bridge-code-view-materialization.ts',
-		)?.source;
-
-		expect(violations).toEqual([]);
-		expect(materializationSource).toContain('BridgeCodeViewContentFacts');
-		expect(materializationSource).toContain('BridgeCodeViewContentRoleFacts');
-	});
-
-	test('keeps Review markdown preview off main-thread content resources', () => {
-		const markdownRenderModeSource = readSource('./markdown/bridge-markdown-render-mode.ts');
-
-		expect(markdownRenderModeSource).not.toContain('BridgeContentResource');
-		expect(markdownRenderModeSource).not.toContain('readText');
-		expect(markdownRenderModeSource).not.toContain('resolveBridgeMarkdownPreviewDecision(');
-	});
-
-	test('does not preserve selected current item while applying CodeView source reset', () => {
-		const codeViewPanelSource = readSource('./code-view/bridge-code-view-panel.tsx');
-		const metadataReconcileSource = codeViewPanelSource.slice(
-			codeViewPanelSource.indexOf('const metadataItems = reconcileBridgeCodeViewMetadataItems'),
-			codeViewPanelSource.indexOf('const scheduleMetadataApplyTurn'),
-		);
-
-		expect(metadataReconcileSource).toContain('preserveItemIds: sourceReset');
-		expect(metadataReconcileSource).toContain('? []');
-		expect(metadataReconcileSource).toContain(
-			': selectedItemIdForMetadataReconcileRef.current === null',
-		);
-	});
-
-	test('selected review path does not schedule FE retry after descriptor registration', () => {
-		const forbiddenRetryOwners = [
-			'../app/bridge-app-review-viewer-mode.tsx',
-			'../app/bridge-app-review-selected-content-controller.ts',
-			'../app/bridge-app-review-selection-state.ts',
-		].flatMap((relativePath): string[] => {
-			const source = readOptionalSource(relativePath);
-			return [
-				'selectedContentRetryVersion',
-				'selectedContentRetryScheduledRef',
-				'scheduleSelectedContentRetry',
-				'shouldRetrySelectedReviewContentAfterDescriptorRegistration',
-				'retrySelectedContentAfterDescriptorRegistration',
-			]
-				.filter((token): boolean => source.includes(token))
-				.map((token): string => `${relativePath}: ${token}`);
+	test('resolves explicit Review navigation only inside the accepted projection', () => {
+		const navigationCommand = reviewNavigationCommand('review-item-two');
+		const acceptedResolution = resolveBridgeReviewNavigationTarget({
+			getReviewItem: (): undefined => undefined,
+			navigationCommand,
+			orderedItemIds: ['review-item-one', 'review-item-two'],
+		});
+		const outsideResolution = resolveBridgeReviewNavigationTarget({
+			getReviewItem: (): undefined => undefined,
+			navigationCommand,
+			orderedItemIds: ['review-item-one'],
 		});
 
-		expect(forbiddenRetryOwners).toEqual([]);
+		expect(acceptedResolution).toMatchObject({
+			itemId: 'review-item-two',
+			status: 'accepted',
+		});
+		expect(outsideResolution).toMatchObject({
+			status: 'outsideAcceptedProjection',
+			target: { itemId: 'review-item-two' },
+		});
+		expect(bridgeReviewNavigationTargetForCommand(navigationCommand)).toMatchObject({
+			commandId: navigationCommand.commandId,
+			itemId: 'review-item-two',
+		});
 	});
 
-	test('keeps the review store out of content bodies and runtime handles', () => {
-		const storeSource = readSource('./state/review-viewer-store.ts');
+	test('commits local Review selection before scheduling the typed worker intent', () => {
+		const calls: string[] = [];
+		const accepted = commitBridgeReviewPresentationSelection({
+			commitLocalSelection: (itemId): void => {
+				calls.push(`local:${itemId}`);
+			},
+			currentSelectedItemId: null,
+			hasReviewItem: (): boolean => true,
+			isActive: true,
+			itemId: 'review-item-two',
+			scheduleSelectIntentAfterLocalPaint: (itemId, selectedSource): void => {
+				calls.push(`scheduled-intent:${itemId}:${selectedSource}`);
+			},
+			selectedSource: 'keyboard',
+		});
 
-		expect(storeSource).toContain('rootSnapshot');
-		expect(storeSource).toContain('projection');
-		expect(storeSource).not.toContain('reviewPackage');
-		expect(storeSource).not.toContain('contentRegistry');
-		expect(storeSource).not.toContain('descriptorRegistry');
-		expect(storeSource).not.toContain('resourceExecutor');
-		expect(storeSource).not.toContain('AbortController');
-		expect(storeSource).not.toContain('contentHydrationByItemId');
-		expect(storeSource).not.toContain('setContentHydrationStatus');
-		expect(storeSource).not.toContain('CodeViewHandle');
-		expect(storeSource).not.toContain('useFileTree');
-		expect(storeSource).not.toContain('@pierre/');
+		expect(accepted).toBe(true);
+		expect(calls).toEqual(['local:review-item-two', 'scheduled-intent:review-item-two:keyboard']);
 	});
 
-	test('keeps Pierre imports out of review mode, shell boundary, and store surfaces', () => {
+	test('defers mark-viewed intent and reports delivery refusal', async () => {
+		const markedItemIds: string[] = [];
+		let deliveryFailureCount = 0;
+		scheduleReviewMarkFileViewedCommand({
+			itemId: 'review-item-two',
+			markFileViewed: (itemId): false => {
+				markedItemIds.push(itemId);
+				return false;
+			},
+			onDeliveryFailure: (): void => {
+				deliveryFailureCount += 1;
+			},
+		});
+
+		expect(markedItemIds).toEqual([]);
+		await Promise.resolve();
+		expect(markedItemIds).toEqual(['review-item-two']);
+		expect(deliveryFailureCount).toBe(1);
+	});
+
+	test('mounts exactly one recovered Review shell at the S1b/J1 cutover', () => {
+		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
+
+		expect(modeSource).toContain('BridgeReviewViewerShellBoundary');
+		expect(modeSource).toContain('bridgeReviewPresentationSnapshotForDisplay');
+		expect(modeSource).not.toContain('BridgeReviewDirectViewerShell');
+		expect(modeSource.match(/<BridgeReviewViewerShellBoundary/gu)).toHaveLength(1);
+	});
+
+	test('keeps Pierre imports out of Review mode and presentation-boundary surfaces', () => {
 		const forbiddenPierreOwners = [
 			'../app/bridge-app-review-viewer-mode.tsx',
 			'../app/bridge-app-review-viewer-shell-boundary.tsx',
-			'./state/review-viewer-store.ts',
 			'./shell/review-viewer-shell.tsx',
 		].filter((relativePath): boolean => readSource(relativePath).includes('@pierre/'));
 
 		expect(forbiddenPierreOwners).toEqual([]);
+	});
+
+	test('keeps Review consumers off Pierre immediate render re-entry', () => {
+		const violations = readReviewMainThreadProductionSources()
+			.filter((entry): boolean => entry.source.includes('.render(true)'))
+			.map((entry): string => entry.relativePath);
+
+		expect(violations).toEqual([]);
+	});
+
+	test('keeps streamed metadata append from mutating local tree disclosure', () => {
+		const treePanelSource = readSource('./trees/bridge-trees-panel.tsx');
+
+		expect(treePanelSource).not.toContain("updatePlan?.kind === 'appendOnly'");
+		expect(treePanelSource).not.toContain('revealAppendedPathAncestors');
 	});
 
 	test('keeps Review TypeScript and TSX files under one thousand lines', () => {
@@ -746,9 +224,6 @@ describe('Review viewer source structure', () => {
 			.map((entry): string => `${entry.relativePath}: ${entry.lineCount}`);
 
 		expect(oversizedSources).toEqual([]);
-		expect(
-			readSource('../app/bridge-app-review-demand-telemetry-controller.ts').split('\n').length,
-		).toBeLessThanOrEqual(1000);
 	});
 });
 
@@ -757,8 +232,7 @@ function readSource(relativePath: string): string {
 }
 
 function readOptionalSource(relativePath: string): string {
-	const sourcePath = fileURLToPath(new URL(relativePath, import.meta.url));
-	return existsSync(sourcePath) ? readFileSync(sourcePath, 'utf8') : '';
+	return sourceFileExists(relativePath) ? readSource(relativePath) : '';
 }
 
 function sourceFileExists(relativePath: string): boolean {
@@ -783,22 +257,18 @@ function readReviewMainThreadProductionSources(): readonly {
 }
 
 function isReviewViewerMainThreadProductionSource(relativePath: string): boolean {
-	if (
-		relativePath.includes('.test.') ||
-		relativePath.startsWith('test-support/') ||
-		relativePath.startsWith('workers/')
-	) {
-		return false;
-	}
-	return true;
+	return (
+		!relativePath.includes('.test.') &&
+		!relativePath.startsWith('test-support/') &&
+		!relativePath.startsWith('workers/')
+	);
 }
 
 function readReviewViewerSourceFiles(): readonly {
 	readonly lineCount: number;
 	readonly relativePath: string;
 }[] {
-	const rootPath = fileURLToPath(new URL('./', import.meta.url));
-	return readSourceEntries(rootPath, '');
+	return readSourceEntries(fileURLToPath(new URL('./', import.meta.url)), '');
 }
 
 function readSourceEntries(
@@ -816,8 +286,8 @@ function readSourceEntries(
 		}
 		return [
 			{
-				relativePath,
 				lineCount: readFileSync(absolutePath, 'utf8').split('\n').length,
+				relativePath,
 			},
 		];
 	});
@@ -836,11 +306,27 @@ function readSourceTextEntries(
 		if (!entry.isFile() || (!entry.name.endsWith('.ts') && !entry.name.endsWith('.tsx'))) {
 			return [];
 		}
-		return [
-			{
-				relativePath,
-				source: readFileSync(absolutePath, 'utf8'),
-			},
-		];
+		return [{ relativePath, source: readFileSync(absolutePath, 'utf8') }];
 	});
+}
+
+function sourceBetween(source: string, startToken: string, endToken: string): string {
+	const startIndex = source.indexOf(startToken);
+	const endIndex = source.indexOf(endToken, Math.max(0, startIndex));
+	return startIndex < 0 || endIndex < 0 ? '' : source.slice(startIndex, endIndex);
+}
+
+function reviewNavigationCommand(reviewItemId: string): BridgeViewerNavigationCommand {
+	return {
+		commandId: 'review-navigation-command',
+		commandKind: 'activateTarget',
+		context: 'review',
+		restoreMemory: false,
+		source: { sourceId: 'review-fixture', sourceKind: 'fixture' },
+		target: {
+			comparisonId: 'review-comparison',
+			reviewItemId,
+			targetKind: 'diff',
+		},
+	};
 }

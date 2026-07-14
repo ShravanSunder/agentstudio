@@ -9,7 +9,6 @@ import {
 	bridgeWorkerModeCommandSchema,
 	bridgeWorkerReviewIntakeReadyCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
-	bridgeWorkerReviewSourceUpdateCommandSchema,
 	bridgeWorkerSelectCommandSchema,
 	bridgeWorkerViewportCommandSchema,
 	type BridgeWorkerHealthEvent,
@@ -24,7 +23,6 @@ import {
 	type BridgeWorkerModeCommand,
 	type BridgeWorkerReviewIntakeReadyCommand,
 	type BridgeWorkerReviewInvalidateCommand,
-	type BridgeWorkerReviewSourceUpdateCommand,
 	type BridgeWorkerSelectCommand,
 	type BridgeWorkerViewportCommand,
 } from './bridge-worker-contracts.js';
@@ -38,11 +36,13 @@ export interface EncodeBridgeWorkerCommandBaseProps {
 }
 
 export interface EncodeBridgeWorkerSelectCommandProps extends EncodeBridgeWorkerCommandBaseProps {
+	readonly surface: BridgeWorkerSelectCommand['surface'];
 	readonly selectedItemId: string;
 	readonly selectedSource: BridgeWorkerSelectCommand['selectedSource'];
 }
 
 export interface EncodeBridgeWorkerViewportCommandProps extends EncodeBridgeWorkerCommandBaseProps {
+	readonly surface: BridgeWorkerViewportCommand['surface'];
 	readonly visibleItemIds: readonly string[];
 	readonly firstVisibleIndex: number;
 	readonly lastVisibleIndex: number;
@@ -50,6 +50,7 @@ export interface EncodeBridgeWorkerViewportCommandProps extends EncodeBridgeWork
 }
 
 export interface EncodeBridgeWorkerHoverCommandProps extends EncodeBridgeWorkerCommandBaseProps {
+	readonly surface: BridgeWorkerHoverCommand['surface'];
 	readonly hoveredItemId: string | null;
 }
 
@@ -89,18 +90,12 @@ export interface EncodeBridgeWorkerReviewInvalidateCommandProps extends EncodeBr
 	readonly reason: BridgeWorkerReviewInvalidateCommand['reason'];
 }
 
-export interface EncodeBridgeWorkerReviewSourceUpdateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
-	readonly contentItems: BridgeWorkerReviewSourceUpdateCommand['contentItems'];
-	readonly contentRequestDescriptors: BridgeWorkerReviewSourceUpdateCommand['contentRequestDescriptors'];
-	readonly renderSemantics: BridgeWorkerReviewSourceUpdateCommand['renderSemantics'];
-	readonly rows: BridgeWorkerReviewSourceUpdateCommand['rows'];
-}
-
 export function encodeBridgeWorkerSelectCommand(
 	props: EncodeBridgeWorkerSelectCommandProps,
 ): BridgeWorkerSelectCommand {
 	return bridgeWorkerSelectCommandSchema.parse({
 		...bridgeWorkerCommandEnvelope(props, 'select'),
+		surface: props.surface,
 		selectedItemId: props.selectedItemId,
 		selectedSource: props.selectedSource,
 	});
@@ -111,6 +106,7 @@ export function encodeBridgeWorkerViewportCommand(
 ): BridgeWorkerViewportCommand {
 	return bridgeWorkerViewportCommandSchema.parse({
 		...bridgeWorkerCommandEnvelope(props, 'viewport'),
+		surface: props.surface,
 		visibleItemIds: props.visibleItemIds,
 		firstVisibleIndex: props.firstVisibleIndex,
 		lastVisibleIndex: props.lastVisibleIndex,
@@ -123,6 +119,7 @@ export function encodeBridgeWorkerHoverCommand(
 ): BridgeWorkerHoverCommand {
 	return bridgeWorkerHoverCommandSchema.parse({
 		...bridgeWorkerCommandEnvelope(props, 'hover'),
+		surface: props.surface,
 		hoveredItemId: props.hoveredItemId,
 	});
 }
@@ -206,18 +203,6 @@ export function encodeBridgeWorkerReviewInvalidateCommand(
 		itemIds: props.itemIds,
 		pathHints: props.pathHints,
 		reason: props.reason,
-	});
-}
-
-export function encodeBridgeWorkerReviewSourceUpdateCommand(
-	props: EncodeBridgeWorkerReviewSourceUpdateCommandProps,
-): BridgeWorkerReviewSourceUpdateCommand {
-	return bridgeWorkerReviewSourceUpdateCommandSchema.parse({
-		...bridgeWorkerCommandEnvelope(props, 'reviewSourceUpdate'),
-		contentItems: props.contentItems,
-		contentRequestDescriptors: props.contentRequestDescriptors,
-		renderSemantics: props.renderSemantics,
-		rows: props.rows,
 	});
 }
 

@@ -317,6 +317,64 @@ print(fallback)
 PY
 }
 
+first_json_numeric_field() {
+  local field_name="$1"
+  local payload="$2"
+  local fallback="${3:--1}"
+  /usr/bin/python3 - "$field_name" "$payload" "$fallback" <<'PY'
+import json
+import math
+import sys
+
+field_name, payload, fallback = sys.argv[1], sys.argv[2], sys.argv[3]
+for line in payload.splitlines():
+    if not line.strip():
+        continue
+    try:
+        record = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    value = record.get(field_name)
+    if isinstance(value, bool):
+        continue
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        continue
+    if math.isfinite(numeric):
+        print(int(numeric) if numeric.is_integer() else numeric)
+        sys.exit(0)
+print(fallback)
+PY
+}
+
+first_json_boolean_field() {
+  local field_name="$1"
+  local payload="$2"
+  local fallback="${3:-unknown}"
+  /usr/bin/python3 - "$field_name" "$payload" "$fallback" <<'PY'
+import json
+import sys
+
+field_name, payload, fallback = sys.argv[1], sys.argv[2], sys.argv[3]
+for line in payload.splitlines():
+    if not line.strip():
+        continue
+    try:
+        record = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    value = record.get(field_name)
+    if isinstance(value, bool):
+        print("true" if value else "false")
+        sys.exit(0)
+    if isinstance(value, str) and value in {"true", "false"}:
+        print(value)
+        sys.exit(0)
+print(fallback)
+PY
+}
+
 json_exact_string_field() {
   local field_name="$1"
   local expected="$2"
@@ -375,6 +433,17 @@ assert_zero() {
   assert_equals "$name" "$observed" "0"
 }
 
+assert_not_equals() {
+  local name="$1"
+  local observed="$2"
+  local rejected="$3"
+  if [ "$observed" != "$rejected" ]; then
+    pass_assertion "$name" "observed=$observed rejected=$rejected"
+  else
+    fail_assertion "$name" "observed=$observed rejected=$rejected"
+  fi
+}
+
 assert_lte() {
   local name="$1"
   local observed="$2"
@@ -425,6 +494,9 @@ content_load_query="$base_query _msg:performance.bridge.swift.content_load"
 telemetry_drop_query="$base_query _msg:performance.bridge.web.telemetry_drop"
 stale_telemetry_drop_query="$telemetry_drop_query $(logsql_exact_filter agentstudio.bridge.telemetry.drop_reason stale_push)"
 non_stale_telemetry_drop_query="$telemetry_drop_query agentstudio.bridge.telemetry.drop_reason:!=\"stale_push\""
+telemetry_sidecar_drain_query="$base_query _msg:performance.bridge.swift.telemetry_sidecar_drain"
+telemetry_sidecar_nonterminal_query="$telemetry_sidecar_drain_query $(logsql_exact_filter agentstudio.bridge.phase nonterminal_reopened)"
+telemetry_sidecar_terminal_query="$telemetry_sidecar_drain_query $(logsql_exact_filter agentstudio.bridge.phase terminal_closed)"
 
 dry_run_queries=(
   "$diagnostic_completed_query | limit 0"
@@ -437,6 +509,8 @@ dry_run_queries=(
   "$content_load_query | limit 0"
   "$telemetry_drop_query | limit 0"
   "$non_stale_telemetry_drop_query | limit 0"
+  "$telemetry_sidecar_nonterminal_query | limit 0"
+  "$telemetry_sidecar_terminal_query | limit 0"
 )
 
 if [ "$dry_run" = true ]; then
@@ -507,6 +581,27 @@ stale_telemetry_drop_sample_count="$(count_log_records "$stale_telemetry_drop_qu
 stale_telemetry_dropped_total="$(sum_numeric_field "$stale_telemetry_drop_query | fields _msg,agentstudio.bridge.telemetry.drop_reason,agentstudio.bridge.telemetry.dropped_count | limit 100" "agentstudio.bridge.telemetry.dropped_count")"
 non_stale_telemetry_drop_sample_count="$(count_log_records "$non_stale_telemetry_drop_query | fields _msg,agentstudio.bridge.telemetry.drop_reason,agentstudio.bridge.telemetry.dropped_count | limit 100")"
 non_stale_telemetry_dropped_total="$(sum_numeric_field "$non_stale_telemetry_drop_query | fields _msg,agentstudio.bridge.telemetry.drop_reason,agentstudio.bridge.telemetry.dropped_count | limit 100" "agentstudio.bridge.telemetry.dropped_count")"
+telemetry_sidecar_proof_fields="_msg,agentstudio.bridge.phase,agentstudio.bridge.telemetry.session.digest,agentstudio.bridge.telemetry.accepted_batch.sequence,agentstudio.bridge.telemetry.main_producer.high_watermark,agentstudio.bridge.telemetry.comm_producer.high_watermark,agentstudio.bridge.telemetry.required_loss.count,agentstudio.bridge.telemetry.optional_loss.count,agentstudio.bridge.telemetry.worker_sequence_gap.count,agentstudio.bridge.telemetry.native_batch_sequence_gap.count,agentstudio.bridge.telemetry.proof_eligible,agentstudio.bridge.telemetry.lossy,agentstudio.bridge.telemetry.settlement_acknowledged"
+telemetry_sidecar_nonterminal_response="$(
+  wait_for_log_query \
+    "nonterminal telemetry sidecar drain receipt missing for marker $MARKER" \
+    "$telemetry_sidecar_nonterminal_query | fields $telemetry_sidecar_proof_fields | limit 10"
+)"
+telemetry_sidecar_terminal_response="$(
+  wait_for_log_query \
+    "terminal telemetry sidecar drain receipt missing for marker $MARKER" \
+    "$telemetry_sidecar_terminal_query | fields $telemetry_sidecar_proof_fields | limit 10"
+)"
+telemetry_sidecar_nonterminal_count="$(count_payload_records "$telemetry_sidecar_nonterminal_response")"
+telemetry_sidecar_terminal_count="$(count_payload_records "$telemetry_sidecar_terminal_response")"
+telemetry_sidecar_nonterminal_digest="$(first_json_string_field "agentstudio.bridge.telemetry.session.digest" "$telemetry_sidecar_nonterminal_response" missing)"
+telemetry_sidecar_terminal_digest="$(first_json_string_field "agentstudio.bridge.telemetry.session.digest" "$telemetry_sidecar_terminal_response" missing)"
+telemetry_sidecar_nonterminal_accepted_batch_sequence="$(first_json_numeric_field "agentstudio.bridge.telemetry.accepted_batch.sequence" "$telemetry_sidecar_nonterminal_response")"
+telemetry_sidecar_terminal_accepted_batch_sequence="$(first_json_numeric_field "agentstudio.bridge.telemetry.accepted_batch.sequence" "$telemetry_sidecar_terminal_response")"
+telemetry_sidecar_nonterminal_main_high_watermark="$(first_json_numeric_field "agentstudio.bridge.telemetry.main_producer.high_watermark" "$telemetry_sidecar_nonterminal_response")"
+telemetry_sidecar_nonterminal_comm_high_watermark="$(first_json_numeric_field "agentstudio.bridge.telemetry.comm_producer.high_watermark" "$telemetry_sidecar_nonterminal_response")"
+telemetry_sidecar_terminal_main_high_watermark="$(first_json_numeric_field "agentstudio.bridge.telemetry.main_producer.high_watermark" "$telemetry_sidecar_terminal_response")"
+telemetry_sidecar_terminal_comm_high_watermark="$(first_json_numeric_field "agentstudio.bridge.telemetry.comm_producer.high_watermark" "$telemetry_sidecar_terminal_response")"
 
 assert_gte "startup diagnostic completed at least once" "$diagnostic_completed_count" 1
 assert_gte "diagnostic review_expected_item count present" "$review_expected_item_count" 1
@@ -531,6 +626,28 @@ assert_lte "content_load count bounded by diagnostic review_expected_item base/h
 assert_equals "content_load count quiesced" "$content_load_count" "$content_load_before_quiescence_count"
 assert_lte "zero non-stale telemetry_drop storms (sample count)" "$non_stale_telemetry_drop_sample_count" "$NON_STALE_TELEMETRY_DROP_STORM_THRESHOLD"
 assert_lte "zero non-stale telemetry_drop storms (dropped total)" "$non_stale_telemetry_dropped_total" "$NON_STALE_TELEMETRY_DROP_STORM_THRESHOLD"
+assert_equals "one nonterminal telemetry sidecar drain receipt" "$telemetry_sidecar_nonterminal_count" 1
+assert_equals "one terminal telemetry sidecar drain receipt" "$telemetry_sidecar_terminal_count" 1
+assert_not_equals "nonterminal telemetry sidecar session digest present" "$telemetry_sidecar_nonterminal_digest" missing
+assert_equals "telemetry sidecar drain receipts share one session digest" "$telemetry_sidecar_terminal_digest" "$telemetry_sidecar_nonterminal_digest"
+assert_gte "nonterminal main producer high-watermark present" "$telemetry_sidecar_nonterminal_main_high_watermark" 0
+assert_gte "nonterminal comm producer high-watermark present" "$telemetry_sidecar_nonterminal_comm_high_watermark" 0
+assert_gte "terminal main producer high-watermark present" "$telemetry_sidecar_terminal_main_high_watermark" 0
+assert_gte "terminal comm producer high-watermark present" "$telemetry_sidecar_terminal_comm_high_watermark" 0
+assert_gte "nonterminal accepted batch sequence present" "$telemetry_sidecar_nonterminal_accepted_batch_sequence" 0
+assert_gte "terminal accepted batch sequence present" "$telemetry_sidecar_terminal_accepted_batch_sequence" 0
+assert_gte "terminal accepted batch sequence covers nonterminal drain" "$telemetry_sidecar_terminal_accepted_batch_sequence" "$telemetry_sidecar_nonterminal_accepted_batch_sequence"
+for telemetry_sidecar_phase in nonterminal terminal; do
+  telemetry_sidecar_response_variable="telemetry_sidecar_${telemetry_sidecar_phase}_response"
+  telemetry_sidecar_response="${!telemetry_sidecar_response_variable}"
+  assert_zero "$telemetry_sidecar_phase required telemetry loss" "$(first_json_numeric_field "agentstudio.bridge.telemetry.required_loss.count" "$telemetry_sidecar_response")"
+  assert_zero "$telemetry_sidecar_phase optional telemetry loss" "$(first_json_numeric_field "agentstudio.bridge.telemetry.optional_loss.count" "$telemetry_sidecar_response")"
+  assert_zero "$telemetry_sidecar_phase worker sequence gaps" "$(first_json_numeric_field "agentstudio.bridge.telemetry.worker_sequence_gap.count" "$telemetry_sidecar_response")"
+  assert_zero "$telemetry_sidecar_phase native batch sequence gaps" "$(first_json_numeric_field "agentstudio.bridge.telemetry.native_batch_sequence_gap.count" "$telemetry_sidecar_response")"
+  assert_equals "$telemetry_sidecar_phase telemetry proof eligible" "$(first_json_boolean_field "agentstudio.bridge.telemetry.proof_eligible" "$telemetry_sidecar_response")" true
+  assert_equals "$telemetry_sidecar_phase telemetry lossless" "$(first_json_boolean_field "agentstudio.bridge.telemetry.lossy" "$telemetry_sidecar_response")" false
+  assert_equals "$telemetry_sidecar_phase producer settlement acknowledged" "$(first_json_boolean_field "agentstudio.bridge.telemetry.settlement_acknowledged" "$telemetry_sidecar_response")" true
+done
 
 echo "bridge review journey smoke summary:"
 echo "marker=$MARKER"
@@ -544,6 +661,7 @@ echo "code_view_item_materialize_selected=$materialized_count"
 echo "selected_content_dropped_revision_churn=$revision_churn_drop_count"
 echo "content_load_before_quiescence=$content_load_before_quiescence_count content_load=$content_load_count quiescence_seconds=$QUIESCENCE_SECONDS review_expected_item_count=$review_expected_item_count"
 echo "telemetry_drop_samples=$telemetry_drop_sample_count dropped_total=$telemetry_dropped_total stale_samples=$stale_telemetry_drop_sample_count stale_dropped_total=$stale_telemetry_dropped_total non_stale_samples=$non_stale_telemetry_drop_sample_count non_stale_dropped_total=$non_stale_telemetry_dropped_total threshold=$NON_STALE_TELEMETRY_DROP_STORM_THRESHOLD"
+echo "telemetry_sidecar_session_digest=$telemetry_sidecar_nonterminal_digest nonterminal_accepted_batch_sequence=$telemetry_sidecar_nonterminal_accepted_batch_sequence terminal_accepted_batch_sequence=$telemetry_sidecar_terminal_accepted_batch_sequence"
 
 if [ "$assertion_failures" -ne 0 ]; then
   echo "bridge review journey smoke failed assertions=$assertion_failures" >&2

@@ -15,6 +15,14 @@ typealias BridgeProductSessionBootstrapSink =
         _ contentWorld: WKContentWorld
     ) async throws -> Void
 
+typealias BridgeTelemetrySessionBootstrapSink =
+    @MainActor (
+        _ page: WebPage,
+        _ requestId: String,
+        _ installation: BridgeTelemetrySessionInstallation?,
+        _ contentWorld: WKContentWorld
+    ) async throws -> Void
+
 struct BridgeBootstrapScriptInput {
     let bridgeNonce: String
     let pushNonce: String
@@ -35,8 +43,14 @@ struct BridgeSchemeHandlerRegistrationInput {
     let reviewContentStore: BridgeContentStore
     let resourceLeaseRegistry: BridgeTransportResourceLeaseRegistry
     let telemetryRecorder: (any BridgePerformanceTraceRecording)?
+    let telemetrySessionOwner: BridgePaneTelemetrySessionOwner?
     let productSessionOwner: BridgePaneProductSessionOwner
     let productSessionRouter: BridgeProductSchemeSessionRouter
+}
+
+struct BridgePaneTelemetrySessionDependencies: Sendable {
+    let installation: BridgeTelemetrySessionInstallation
+    let owner: BridgePaneTelemetrySessionOwner
 }
 
 struct BridgePaneProductSessionDependencies {
@@ -77,6 +91,8 @@ final class BridgePaneProductCommittedCallTarget {
             mode = .review
             sourceProtocol = .review
             update = request
+        case .reviewIntakeReady:
+            return
         case .reviewMarkFileViewed:
             return
         }
@@ -94,10 +110,114 @@ final class BridgePaneProductCommittedCallTarget {
             activeSource: activeSource
         )
     }
+
+    func applyReviewIntakeReady(_ request: BridgeProductReviewIntakeReadyRequest) async {
+        _ = await controller?.handleBridgeIntakeReadyResult(
+            BridgeIntakeReadyMethod.Params(
+                protocolId: "review",
+                streamId: request.streamId,
+                reason: request.reason
+            )
+        )
+    }
 }
 
 @MainActor
 extension BridgePaneController {
+    func enqueueTelemetrySessionBootstrapRequest(
+        requestId: String,
+        reason: BridgeReadyMessageHandler.TelemetrySessionBootstrapReason
+    ) async {
+        let precedingTransition = telemetrySessionBootstrapTransitionTail
+        let transition = Task { @MainActor [weak self] in
+            if let precedingTransition {
+                await precedingTransition.value
+            }
+            await self?.performTelemetrySessionBootstrapRequest(
+                requestId: requestId,
+                reason: reason
+            )
+        }
+        telemetrySessionBootstrapTransitionTail = transition
+        await transition.value
+    }
+
+    private func performTelemetrySessionBootstrapRequest(
+        requestId: String,
+        reason _: BridgeReadyMessageHandler.TelemetrySessionBootstrapReason
+    ) async {
+        guard let telemetrySessionOwner, let telemetryRecorder else {
+            try? await telemetrySessionBootstrapSink(page, requestId, nil, bridgeWorld)
+            return
+        }
+
+        let installation: BridgeTelemetrySessionInstallation
+        if hasPublishedTelemetrySessionBootstrap {
+            do {
+                installation = try await telemetrySessionOwner.replace(
+                    enabledScopes: [.web],
+                    endpointURL: "agentstudio://telemetry/batch",
+                    policy: .live,
+                    projector: BridgeTelemetryNativeProjector(recorder: telemetryRecorder).project
+                )
+            } catch {
+                try? await telemetrySessionBootstrapSink(page, requestId, nil, bridgeWorld)
+                return
+            }
+        } else {
+            installation = await telemetrySessionOwner.installation
+        }
+
+        hasPublishedTelemetrySessionBootstrap = true
+        do {
+            try await telemetrySessionBootstrapSink(
+                page,
+                requestId,
+                installation,
+                bridgeWorld
+            )
+        } catch {
+            await telemetrySessionOwner.invalidateActiveSession()
+        }
+    }
+
+    static func dispatchTelemetrySessionBootstrap(
+        page: WebPage,
+        requestId: String,
+        installation: BridgeTelemetrySessionInstallation?,
+        contentWorld: WKContentWorld
+    ) async throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let bootstrapJSON: String
+        if let installation {
+            let data = try encoder.encode(installation.bootstrap)
+            guard let encoded = String(data: data, encoding: .utf8) else {
+                throw BridgeError.encoding("Unable to encode telemetry session bootstrap")
+            }
+            bootstrapJSON = encoded
+        } else {
+            bootstrapJSON = "null"
+        }
+        try await page.callJavaScript(
+            """
+            document.dispatchEvent(new CustomEvent('__bridge_telemetry_session_bootstrap', {
+                detail: {
+                    requestId: requestId,
+                    result: bootstrapJSON === 'null'
+                        ? { kind: 'unavailable', reason: 'disabled' }
+                        : { kind: 'available', workerBootstrap: JSON.parse(bootstrapJSON) }
+                }
+            }));
+            """,
+            arguments: [
+                "requestId": requestId,
+                "bootstrapJSON": bootstrapJSON,
+            ],
+            contentWorld: contentWorld
+        )
+    }
+
     func enqueueProductSessionBootstrapRequest(
         requestId: String,
         reason: BridgeReadyMessageHandler.ProductSessionBootstrapReason
@@ -120,6 +240,9 @@ extension BridgePaneController {
         requestId: String,
         reason: BridgeReadyMessageHandler.ProductSessionBootstrapReason
     ) async {
+        bridgeProductBootstrapLogger.debug(
+            "Preparing product session bootstrap requestId=\(requestId, privacy: .public) reason=\(reason.rawValue, privacy: .public)"
+        )
         let installation: BridgeProductSessionInstallation
         if hasPublishedProductSessionBootstrap {
             do {
@@ -156,6 +279,9 @@ extension BridgePaneController {
                 requestId,
                 installation,
                 bridgeWorld
+            )
+            bridgeProductBootstrapLogger.debug(
+                "Delivered product session bootstrap requestId=\(requestId, privacy: .public)"
             )
         } catch {
             bridgeProductBootstrapLogger.error("Bridge product session bootstrap delivery failed: \(error)")
@@ -214,7 +340,8 @@ extension BridgePaneController {
         paneSessionId: String,
         runtime: BridgeRuntime,
         state: BridgePaneState,
-        reviewContentStore: BridgeContentStore
+        reviewContentStore: BridgeContentStore,
+        telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
     ) -> BridgePaneProductSessionDependencies {
         let committedCallTarget = BridgePaneProductCommittedCallTarget()
         let fileMetadataSource: any BridgePaneProductFileMetadataProducing =
@@ -227,21 +354,27 @@ extension BridgePaneController {
             } else {
                 BridgeUnavailablePaneProductFileMetadataSource()
             }
+        let reviewContentSource = BridgePaneProductReviewContentSource(
+            contentStore: reviewContentStore
+        )
         let provider = BridgePaneProductSchemeProvider(
             fileMetadataSource: fileMetadataSource,
-            reviewMetadataSource: BridgePaneProductReviewMetadataSource {
-                runtime.paneState.diff.packageMetadata
-            },
-            reviewContentSource: BridgePaneProductReviewContentSource(
-                contentStore: reviewContentStore,
-                currentPackage: { runtime.paneState.diff.packageMetadata }
+            reviewMetadataSource: BridgePaneProductReviewMetadataSource(
+                initialAvailability: .loading
             ),
+            reviewContentSource: reviewContentSource,
             markReviewItemViewed: { itemId in
                 runtime.paneState.review.markFileViewed(itemId)
             },
+            handleReviewIntakeReady: { request in
+                await committedCallTarget.applyReviewIntakeReady(request)
+            },
             applyActiveViewerModeUpdate: { call in
                 await committedCallTarget.applyActiveViewerModeUpdate(call)
-            }
+            },
+            lifecycleTraceRecorder: telemetryRecorder.map(
+                BridgeProductMetadataLifecycleTraceRecorder.init(recorder:)
+            )
         )
         let installation = makeInitialProductSessionInstallation(
             paneSessionId: paneSessionId,
@@ -321,9 +454,33 @@ extension BridgePaneController {
             resourceLeaseRegistry: input.resourceLeaseRegistry,
             allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds,
             telemetryRecorder: input.telemetryRecorder,
+            telemetrySessionOwner: input.telemetrySessionOwner,
             productSessionRouter: input.productSessionRouter
         )
         _ = input.productSessionOwner
+    }
+
+    nonisolated static func makeTelemetrySessionDependencies(
+        scopeGate: BridgeTelemetryScopeGate,
+        recorder: (any BridgePerformanceTraceRecording)?
+    ) -> BridgePaneTelemetrySessionDependencies? {
+        guard scopeGate.isEnabled(.web), let recorder else { return nil }
+        do {
+            let projector = BridgeTelemetryNativeProjector(recorder: recorder)
+            let installation = try BridgeTelemetrySessionInstallation.make(
+                enabledScopes: [.web],
+                endpointURL: "agentstudio://telemetry/batch",
+                policy: .live,
+                projector: projector.project
+            )
+            return BridgePaneTelemetrySessionDependencies(
+                installation: installation,
+                owner: BridgePaneTelemetrySessionOwner(initialInstallation: installation)
+            )
+        } catch {
+            bridgeProductBootstrapLogger.error("Bridge telemetry session creation failed: \(error)")
+            return nil
+        }
     }
 
     nonisolated static func resolveTelemetryDependencies(
@@ -331,28 +488,34 @@ extension BridgePaneController {
         telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy,
         telemetryScopeGate: BridgeTelemetryScopeGate?,
         telemetryRecorder: (any BridgePerformanceTraceRecording)?,
-        telemetryIngestor: (any BridgeTelemetryBatchIngesting)?
+        telemetrySessionDependencies: BridgePaneTelemetrySessionDependencies?
     ) -> (
         scopeGate: BridgeTelemetryScopeGate,
         recorder: (any BridgePerformanceTraceRecording)?,
-        ingestor: (any BridgeTelemetryBatchIngesting)?
+        sessionDependencies: BridgePaneTelemetrySessionDependencies?
     ) {
         guard telemetryRuntimePolicy.allowsTelemetry else {
-            return (BridgeTelemetryScopeGate(enabledScopes: []), nil, nil)
+            return (BridgeTelemetryScopeGate(enabledScopes: []), nil, telemetrySessionDependencies)
         }
 
         let resolvedScopeGate = telemetryScopeGate ?? BridgeTelemetryScopeGate(traceRuntime: traceRuntime)
         let resolvedRecorder =
             telemetryRecorder
             ?? (resolvedScopeGate.isEnabled ? BridgePerformanceTraceRecorder(traceRuntime: traceRuntime) : nil)
-        let resolvedIngestor =
-            resolvedScopeGate.isEnabled(.web)
-            ? (telemetryIngestor
-                ?? resolvedRecorder.map {
-                    BridgeTelemetryIngestor(scopeGate: resolvedScopeGate, recorder: $0)
-                })
-            : nil
-        return (resolvedScopeGate, resolvedRecorder, resolvedIngestor)
+        let resolvedSessionDependencies =
+            telemetrySessionDependencies
+            ?? makeTelemetrySessionDependencies(scopeGate: resolvedScopeGate, recorder: resolvedRecorder)
+        return (resolvedScopeGate, resolvedRecorder, resolvedSessionDependencies)
+    }
+
+    nonisolated static func resolveIntakeFrameSink(
+        preEncodedIntakeFrameSink: @escaping @MainActor (WebPage, PreEncodedIntakeFrame) async throws -> Void,
+        rawIntakeFrameSink: (@MainActor (WebPage, String, String) async throws -> Void)?
+    ) -> @MainActor (WebPage, PreEncodedIntakeFrame) async throws -> Void {
+        guard let rawIntakeFrameSink else { return preEncodedIntakeFrameSink }
+        return { page, frame in
+            try await rawIntakeFrameSink(page, frame.envelopeJSON, frame.pushNonce)
+        }
     }
 
     static func makeBootstrapScript(_ input: BridgeBootstrapScriptInput) -> WKUserScript {

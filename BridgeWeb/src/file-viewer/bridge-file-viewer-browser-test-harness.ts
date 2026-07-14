@@ -9,13 +9,15 @@ import {
 	waitForBridgeViewerAnimationFrame,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import {
-	createBridgeFileViewerBrowserTestCommWorkerTransportFactory,
+	createBridgeFileViewerBrowserTestPaneSessionFactory,
+	type BridgeFileViewerBrowserTestPaneSessionFactory,
 	waitForBridgeFileViewerWorkerMessageDrain,
 } from './bridge-file-viewer-browser-test-comm-worker.js';
 import type { PublishFileMetadataEvents } from './bridge-file-viewer-browser-test-fixtures.js';
 
 export {
-	createBridgeFileViewerBrowserTestCommWorkerTransportFactory,
+	createBridgeFileViewerBrowserTestPaneSessionFactory,
+	type BridgeFileViewerBrowserTestPaneSessionFactory,
 	waitForBridgeFileViewerWorkerMessageDrain,
 };
 

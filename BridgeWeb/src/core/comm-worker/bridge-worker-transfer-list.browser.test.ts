@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
-	type BridgeWorkerPierreRenderJobEvent,
+	type BridgeWorkerFilePierreRenderJobEvent,
 } from './bridge-worker-contracts.js';
 import { buildBridgeWorkerPierreRenderJob } from './bridge-worker-pierre-render-job.js';
 import {
@@ -53,7 +53,10 @@ describe('Bridge worker transfer list browser transport', () => {
 				wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 				direction: 'serverWorkerToMain',
 				transferDescriptors: [],
-				kind: 'pierreRenderJob',
+				kind: 'filePierreRenderJob',
+				publicationSequence: 1,
+				surface: 'file',
+				workerDerivationEpoch: 1,
 				job: buildBridgeWorkerPierreRenderJob({
 					itemId: 'item-codeview-file',
 					renderKind: 'fileText',
@@ -94,16 +97,16 @@ describe('Bridge worker transfer list browser transport', () => {
 						maxWindowLines: 50,
 					},
 				}),
-			} satisfies BridgeWorkerPierreRenderJobEvent,
+			} satisfies BridgeWorkerFilePierreRenderJobEvent,
 			declaredFields: [
 				{ fieldPath: ['job', 'payload'], mode: 'clone', byteLength: cloneByteLength },
 			],
 		});
 
-		const receivedMessage = new Promise<BridgeWorkerPierreRenderJobEvent>((resolve) => {
+		const receivedMessage = new Promise<BridgeWorkerFilePierreRenderJobEvent>((resolve) => {
 			channel.port1.addEventListener(
 				'message',
-				(event: MessageEvent<BridgeWorkerPierreRenderJobEvent>): void => {
+				(event: MessageEvent<BridgeWorkerFilePierreRenderJobEvent>): void => {
 					resolve(event.data);
 				},
 				{ once: true },
@@ -114,10 +117,10 @@ describe('Bridge worker transfer list browser transport', () => {
 
 		expect(preparedMessage.transferList).toEqual([]);
 		await expect(receivedMessage).resolves.toMatchObject({
-			kind: 'pierreRenderJob',
+			kind: 'filePierreRenderJob',
 			transferDescriptors: [
 				{
-					messageKind: 'pierreRenderJob',
+					messageKind: 'filePierreRenderJob',
 					fieldPath: ['job', 'payload'],
 					byteLength: cloneByteLength,
 					mode: 'clone',

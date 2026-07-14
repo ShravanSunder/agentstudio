@@ -389,7 +389,7 @@ function visitWorkerSourceNode(props: VisitWorkerSourceNodeProps): void {
 		if (isGlobalFetchExpression(node.expression, workerSourceAnalysis)) {
 			validateWorkerFetchCall({
 				fetchCall: node,
-				sourceFile,
+				workerSourceAnalysis,
 				workerAssetKind: props.workerAssetKind,
 			});
 		}
@@ -704,19 +704,20 @@ function unwrapExpression(expression: ts.Expression): ts.Expression {
 
 interface ValidateWorkerFetchCallProps {
 	readonly fetchCall: ts.CallExpression;
-	readonly sourceFile: ts.SourceFile;
+	readonly workerSourceAnalysis: WorkerSourceAnalysis;
 	readonly workerAssetKind: string;
 }
 
 function validateWorkerFetchCall(props: ValidateWorkerFetchCallProps): void {
+	const { sourceFile } = props.workerSourceAnalysis;
 	if (props.workerAssetKind !== bridgeCommWorkerAssetKind) {
-		throwWorkerSelfContainmentError(props.sourceFile, props.fetchCall, 'fetch(...)');
+		throwWorkerSelfContainmentError(sourceFile, props.fetchCall, 'fetch(...)');
 	}
 
-	const route = stringLiteralValue(props.fetchCall.arguments[0]);
+	const route = exactProductRouteValue(props.fetchCall.arguments[0], props.workerSourceAnalysis);
 	if (route === null || !bridgeProductRoutes.has(route)) {
 		throwWorkerSelfContainmentError(
-			props.sourceFile,
+			sourceFile,
 			props.fetchCall,
 			'non-product or dynamic fetch route',
 		);
@@ -725,7 +726,7 @@ function validateWorkerFetchCall(props: ValidateWorkerFetchCallProps): void {
 	const requestInit = props.fetchCall.arguments[1];
 	if (requestInit === undefined || !ts.isObjectLiteralExpression(requestInit)) {
 		throwWorkerSelfContainmentError(
-			props.sourceFile,
+			sourceFile,
 			props.fetchCall,
 			'product fetch without literal request init',
 		);
@@ -734,12 +735,12 @@ function validateWorkerFetchCall(props: ValidateWorkerFetchCallProps): void {
 	const methodProperty = requiredUniqueObjectProperty({
 		objectLiteral: requestInit,
 		propertyName: 'method',
-		sourceFile: props.sourceFile,
+		sourceFile,
 		fetchCall: props.fetchCall,
 	});
 	if (stringLiteralValue(methodProperty.initializer) !== bridgeProductRequestMethod) {
 		throwWorkerSelfContainmentError(
-			props.sourceFile,
+			sourceFile,
 			props.fetchCall,
 			'product fetch without literal POST method',
 		);
@@ -748,12 +749,12 @@ function validateWorkerFetchCall(props: ValidateWorkerFetchCallProps): void {
 	const headersProperty = requiredUniqueObjectProperty({
 		objectLiteral: requestInit,
 		propertyName: 'headers',
-		sourceFile: props.sourceFile,
+		sourceFile,
 		fetchCall: props.fetchCall,
 	});
 	if (!ts.isObjectLiteralExpression(headersProperty.initializer)) {
 		throwWorkerSelfContainmentError(
-			props.sourceFile,
+			sourceFile,
 			props.fetchCall,
 			'product fetch without literal capability headers',
 		);
@@ -761,12 +762,12 @@ function validateWorkerFetchCall(props: ValidateWorkerFetchCallProps): void {
 	const contentTypeProperty = requiredUniqueObjectProperty({
 		objectLiteral: headersProperty.initializer,
 		propertyName: bridgeProductContentTypeHeaderName,
-		sourceFile: props.sourceFile,
+		sourceFile,
 		fetchCall: props.fetchCall,
 	});
 	if (stringLiteralValue(contentTypeProperty.initializer) !== bridgeProductContentType) {
 		throwWorkerSelfContainmentError(
-			props.sourceFile,
+			sourceFile,
 			props.fetchCall,
 			'product fetch without literal application/json content type',
 		);
@@ -774,16 +775,50 @@ function validateWorkerFetchCall(props: ValidateWorkerFetchCallProps): void {
 	requiredUniqueObjectProperty({
 		objectLiteral: headersProperty.initializer,
 		propertyName: bridgeProductCapabilityHeaderName,
-		sourceFile: props.sourceFile,
+		sourceFile,
 		fetchCall: props.fetchCall,
 	});
 	if (headersProperty.initializer.properties.length !== 2) {
 		throwWorkerSelfContainmentError(
-			props.sourceFile,
+			sourceFile,
 			props.fetchCall,
 			'product fetch with headers beyond content type and capability',
 		);
 	}
+}
+
+function exactProductRouteValue(
+	expression: ts.Expression | undefined,
+	workerSourceAnalysis: WorkerSourceAnalysis,
+): string | null {
+	const inlineRoute = stringLiteralValue(expression);
+	if (inlineRoute !== null) return inlineRoute;
+	if (expression === undefined) return null;
+
+	const unwrappedExpression = unwrapExpression(expression);
+	if (!ts.isIdentifier(unwrappedExpression)) return null;
+	const declarations =
+		workerSourceAnalysis.checker.getSymbolAtLocation(unwrappedExpression)?.declarations;
+	if (declarations?.length !== 1) return null;
+	const declaration = declarations[0];
+	if (
+		declaration === undefined ||
+		!ts.isVariableDeclaration(declaration) ||
+		declaration.initializer === undefined ||
+		declaration.getSourceFile() !== workerSourceAnalysis.sourceFile
+	) {
+		return null;
+	}
+	const declarationList = declaration.parent;
+	if (
+		!ts.isVariableDeclarationList(declarationList) ||
+		(declarationList.flags & ts.NodeFlags.Const) === 0 ||
+		!ts.isVariableStatement(declarationList.parent) ||
+		declarationList.parent.parent !== workerSourceAnalysis.sourceFile
+	) {
+		return null;
+	}
+	return stringLiteralValue(declaration.initializer);
 }
 
 interface RequiredUniqueObjectPropertyProps {

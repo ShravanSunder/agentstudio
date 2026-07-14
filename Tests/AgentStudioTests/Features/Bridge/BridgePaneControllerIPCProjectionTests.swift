@@ -1,3 +1,4 @@
+import AgentStudioProgrammaticControl
 import Foundation
 import Testing
 
@@ -406,6 +407,32 @@ extension WebKitSerializedTests {
                       dropped_frame: { count: 3, worst_gap_ms: 19.75 },
                       last_long_task_at_ms: 1234.5
                     };
+                    window.__bridgeProductMetadataStreamDiagnostic = {
+                      kind: 'productMetadataStream',
+                      acknowledgedFrameCount: 1,
+                      activeSubscriptionCount: 2,
+                      committedFrameCount: 1,
+                      decoderState: 'poisoned',
+                      expectedNextStreamSequence: 1,
+                      failureCode: 'stream_identity_mismatch',
+                      failureStage: 'acknowledgement',
+                      identityMismatchField: 'metadataStreamId',
+                      lastChunkByteCount: 256,
+                      lastAcknowledgedStreamSequence: 0,
+                      lastCommittedFrameKind: 'metadataStream.accepted',
+                      lastRoutedFrameKind: 'subscription.accepted',
+                      lifecycleState: 'failed',
+                      peakRetainedByteCount: 512,
+                      pushCount: 2,
+                      readFulfilledCount: 3,
+                      readPending: false,
+                      readRequestCount: 4,
+                      receivedByteCount: 768,
+                      retainedByteCount: 0,
+                      routeFailureCode: 'unknown_subscription',
+                      routedFrameCount: 2,
+                      streamOpenCount: 1
+                    };
                     """
                 )
 
@@ -413,6 +440,8 @@ extension WebKitSerializedTests {
                 let hydrationState = try #require(result.summary.visibleHydrationStateProbe)
                 let discardProbe = try #require(result.summary.visibleHydrationDiscardProbe)
                 let frameJankProbe = try #require(result.summary.frameJankProbe)
+                let metadataStream = try #require(result.diagnostics.productMetadataStream)
+                let productSession = result.diagnostics.productSession
 
                 #expect(hydrationState.reportedVisibleItemCount == 24)
                 #expect(hydrationState.trackedVisibleItemCount == 12)
@@ -437,6 +466,45 @@ extension WebKitSerializedTests {
                 #expect(result.visibleHydrationStateProbe == hydrationState)
                 #expect(result.visibleHydrationDiscardProbe == discardProbe)
                 #expect(result.frameJankProbe == frameJankProbe)
+                expectProductMetadataStreamDiagnostic(metadataStream)
+                #expect(productSession.activeProducerCount == 0)
+                #expect(productSession.activeProducerTaskCount == 0)
+                #expect(productSession.activeContentLeaseCount == 0)
+                #expect(productSession.queuedFrameCount == 0)
+                #expect(productSession.queuedByteCount == 0)
+                #expect(productSession.pendingFrameWaiterCount == 0)
+                #expect(productSession.inFlightFrameReceiptCount == 0)
+                #expect(productSession.pendingLifecycleAcknowledgementCount == 0)
+                #expect(productSession.nextMetadataStreamSequence == 0)
+            }
+        }
+
+        @Test("IPC render state rejects negative worker acknowledgement diagnostics")
+        func ipcRenderState_rejectsNegativeWorkerAcknowledgementDiagnostics() async throws {
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(panelKind: .diffViewer, source: nil)
+            )
+            defer { controller.teardown() }
+
+            try await WebPageTestHarness.withManagedPage(controller.page) { page in
+                _ = try await page.callJavaScript(
+                    """
+                    window.__bridgeProductMetadataStreamDiagnostic = {
+                      kind: 'productMetadataStream',
+                      acknowledgedFrameCount: -1,
+                      lastAcknowledgedStreamSequence: -2,
+                      failureStage: 'acknowledgement'
+                    };
+                    """
+                )
+
+                let result = try await controller.renderStateForIPC()
+                let diagnostic = try #require(result.diagnostics.productMetadataStream)
+
+                #expect(diagnostic.acknowledgedFrameCount == nil)
+                #expect(diagnostic.lastAcknowledgedStreamSequence == nil)
+                #expect(diagnostic.failureStage == "acknowledgement")
             }
         }
 
@@ -457,6 +525,29 @@ extension WebKitSerializedTests {
                 #expect(result.visibleHydrationStateProbe == nil)
                 #expect(result.visibleHydrationDiscardProbe == nil)
                 #expect(result.frameJankProbe == nil)
+                #expect(result.diagnostics.productMetadataStream == nil)
+                #expect(result.diagnostics.productSession.activeProducerCount == 0)
+            }
+        }
+
+        @Test("IPC render state preserves native product session diagnostics when page projection fails")
+        func ipcRenderState_preservesNativeProductSessionDiagnosticsWhenPageProjectionFails() async throws {
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(panelKind: .diffViewer, source: nil)
+            )
+            defer { controller.teardown() }
+
+            try await WebPageTestHarness.withManagedPage(controller.page) { page in
+                _ = try await page.callJavaScript("JSON.stringify = () => null;")
+
+                let result = try await controller.renderStateForIPC()
+
+                #expect(!result.diagnostics.evaluateSucceeded)
+                #expect(result.diagnostics.pageErrorKinds == ["render_state_result_not_string"])
+                #expect(result.diagnostics.productMetadataStream == nil)
+                #expect(result.diagnostics.productSession.activeProducerCount == 0)
+                #expect(result.diagnostics.productSession.nextMetadataStreamSequence == 0)
             }
         }
 
@@ -496,15 +587,41 @@ extension WebKitSerializedTests {
             _ = try await controller.refreshReviewForIPC(correlationId: nil)
             _ = try await controller.selectReviewItemForIPC(itemId: "item-source", correlationId: nil)
 
-            let snapshot = controller.telemetrySnapshotForIPC()
+            let snapshot = try await controller.telemetrySnapshotForIPC()
 
             #expect(snapshot.paneId == controller.paneId)
-            #expect(snapshot.status == "ready")
-            #expect(snapshot.packageId == controller.paneState.diff.packageMetadata?.packageId)
-            #expect(snapshot.reviewGeneration == controller.paneState.diff.packageMetadata?.reviewGeneration.rawValue)
-            #expect(snapshot.selectedItemId == "item-source")
-            #expect(snapshot.recorderAttached == false)
-            #expect(snapshot.traceExportEnabled == false)
+            #expect(snapshot.kind == .unavailable)
+            #expect(snapshot.unavailableReason == .disabled)
+            #expect(snapshot.report == nil)
         }
     }
+}
+
+private func expectProductMetadataStreamDiagnostic(
+    _ diagnostic: IPCBridgeProductMetadataStreamDiagnostic
+) {
+    #expect(diagnostic.kind == .productMetadataStream)
+    #expect(diagnostic.acknowledgedFrameCount == 1)
+    #expect(diagnostic.activeSubscriptionCount == 2)
+    #expect(diagnostic.committedFrameCount == 1)
+    #expect(diagnostic.decoderState == "poisoned")
+    #expect(diagnostic.expectedNextStreamSequence == 1)
+    #expect(diagnostic.failureCode == "stream_identity_mismatch")
+    #expect(diagnostic.failureStage == "acknowledgement")
+    #expect(diagnostic.identityMismatchField == "metadataStreamId")
+    #expect(diagnostic.lastChunkByteCount == 256)
+    #expect(diagnostic.lastAcknowledgedStreamSequence == 0)
+    #expect(diagnostic.lastCommittedFrameKind == "metadataStream.accepted")
+    #expect(diagnostic.lastRoutedFrameKind == "subscription.accepted")
+    #expect(diagnostic.lifecycleState == "failed")
+    #expect(diagnostic.peakRetainedByteCount == 512)
+    #expect(diagnostic.pushCount == 2)
+    #expect(diagnostic.readFulfilledCount == 3)
+    #expect(diagnostic.readPending == false)
+    #expect(diagnostic.readRequestCount == 4)
+    #expect(diagnostic.receivedByteCount == 768)
+    #expect(diagnostic.retainedByteCount == 0)
+    #expect(diagnostic.routeFailureCode == "unknown_subscription")
+    #expect(diagnostic.routedFrameCount == 2)
+    #expect(diagnostic.streamOpenCount == 1)
 }

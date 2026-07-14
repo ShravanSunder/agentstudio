@@ -25,6 +25,7 @@ private struct BridgePageRenderSnapshot: Decodable {
     let pageErrorCount: Int
     let pageErrorKinds: [String]
     let pageErrorMessages: [String]
+    let productMetadataStreamDiagnostic: IPCBridgeProductMetadataStreamDiagnostic?
     let visibleHydrationStateProbe: IPCBridgeVisibleHydrationStateProbe?
     let visibleHydrationDiscardProbe: IPCBridgeVisibleHydrationDiscardProbe?
     let frameJankProbe: IPCBridgeFrameJankProbe?
@@ -99,12 +100,14 @@ extension BridgePaneController {
     }
 
     func renderStateForIPC() async throws -> IPCBridgeRenderStateResult {
+        let productSession = await productSessionDiagnosticForIPC()
         do {
             let result = try await page.callJavaScript(Self.renderStateJavaScript)
             guard let json = result as? String, let data = json.data(using: .utf8) else {
                 return makeRenderStateFailureResult(
                     reason: "render_state_result_not_string",
-                    detail: String(describing: result)
+                    detail: String(describing: result),
+                    productSession: productSession
                 )
             }
             let snapshot = try JSONDecoder().decode(BridgePageRenderSnapshot.self, from: data)
@@ -139,14 +142,20 @@ extension BridgePaneController {
                     evaluateSucceeded: true,
                     pageErrorCount: snapshot.pageErrorCount,
                     pageErrorKinds: snapshot.pageErrorKinds,
-                    pageErrorMessages: snapshot.pageErrorMessages
+                    pageErrorMessages: snapshot.pageErrorMessages,
+                    productMetadataStream: snapshot.productMetadataStreamDiagnostic,
+                    productSession: productSession
                 ),
                 visibleHydrationStateProbe: snapshot.visibleHydrationStateProbe,
                 visibleHydrationDiscardProbe: snapshot.visibleHydrationDiscardProbe,
                 frameJankProbe: snapshot.frameJankProbe
             )
         } catch {
-            return makeRenderStateFailureResult(reason: "render_state_evaluation_failed", detail: "\(error)")
+            return makeRenderStateFailureResult(
+                reason: "render_state_evaluation_failed",
+                detail: "\(error)",
+                productSession: productSession
+            )
         }
     }
 
@@ -277,20 +286,84 @@ extension BridgePaneController {
     }
 
     func flushTelemetryForIPC() async throws -> IPCBridgeTelemetryFlushResult {
-        try await telemetryRecorder?.drain()
-        return IPCBridgeTelemetryFlushResult(paneId: paneId, flushed: telemetryRecorder != nil)
+        guard let telemetrySessionOwner else {
+            return IPCBridgeTelemetryFlushResult(
+                paneId: paneId,
+                kind: .unavailable,
+                unavailableReason: .disabled,
+                report: nil,
+                drained: nil
+            )
+        }
+        let sidecar = try await drainTelemetrySidecar(closeAfterDrain: false)
+        guard
+            sidecar.kind == .report,
+            let telemetrySessionId = sidecar.telemetrySessionId,
+            let sidecarReport = sidecar.sidecar
+        else {
+            return IPCBridgeTelemetryFlushResult(
+                paneId: paneId,
+                kind: .unavailable,
+                unavailableReason: sidecar.reason == .disabled ? .disabled : .failed,
+                report: nil,
+                drained: nil
+            )
+        }
+        let native = await telemetrySessionOwner.snapshot
+        let report = BridgeTelemetryProofReport.drain(
+            telemetrySessionId: telemetrySessionId,
+            sidecar: sidecarReport,
+            expectedSettlementDisposition: .reopened,
+            native: native
+        )
+        try await recordTelemetrySidecarProof(
+            report: report,
+            phase: .nonterminalReopened,
+            expectedSettlementDisposition: .reopened
+        )
+        return IPCBridgeTelemetryFlushResult(
+            paneId: paneId,
+            kind: .report,
+            unavailableReason: nil,
+            report: report,
+            drained:
+                sidecarReport.type == .drained
+                && sidecarReport.settlementDisposition == .reopened
+        )
     }
 
-    func telemetrySnapshotForIPC() -> IPCBridgeTelemetrySnapshotResult {
-        let recorder = telemetryRecorder as? BridgePerformanceTraceRecorder
+    func telemetrySnapshotForIPC() async throws -> IPCBridgeTelemetrySnapshotResult {
+        guard let telemetrySessionOwner else {
+            return IPCBridgeTelemetrySnapshotResult(
+                paneId: paneId,
+                kind: .unavailable,
+                unavailableReason: .disabled,
+                report: nil
+            )
+        }
+        let sidecar = try await telemetrySidecarSnapshot()
+        guard
+            sidecar.kind == .report,
+            let telemetrySessionId = sidecar.telemetrySessionId,
+            let sidecarReport = sidecar.sidecar
+        else {
+            return IPCBridgeTelemetrySnapshotResult(
+                paneId: paneId,
+                kind: .unavailable,
+                unavailableReason: sidecar.reason == .disabled ? .disabled : .failed,
+                report: nil
+            )
+        }
+        let native = await telemetrySessionOwner.snapshot
         return IPCBridgeTelemetrySnapshotResult(
             paneId: paneId,
-            recorderAttached: telemetryRecorder != nil,
-            traceExportEnabled: recorder?.isEnabled ?? false,
-            status: paneState.diff.status.rawValue,
-            packageId: paneState.diff.packageMetadata?.packageId,
-            reviewGeneration: paneState.diff.packageMetadata?.reviewGeneration.rawValue,
-            selectedItemId: selectedReviewItemId
+            kind: .report,
+            unavailableReason: nil,
+            report: BridgeTelemetryProofReport.snapshot(
+                telemetrySessionId: telemetrySessionId,
+                sidecar: sidecarReport,
+                native: native
+            )
         )
     }
 
@@ -323,6 +396,10 @@ extension BridgePaneController {
           const finiteIntegerOrNull = (value) => {
             const number = finiteNumberOrNull(value);
             return number === null ? null : Math.trunc(number);
+          };
+          const nonnegativeIntegerOrNull = (value) => {
+            const integer = finiteIntegerOrNull(value);
+            return integer === null || integer < 0 ? null : integer;
           };
           const booleanOrNull = (value) => typeof value === 'boolean' ? value : null;
           const objectOrNull = (value) => {
@@ -383,6 +460,69 @@ extension BridgePaneController {
                 },
                 lastLongTaskAtMs: finiteNumberOrNull(rawFrameJankProbe.last_long_task_at_ms)
               };
+          const rawProductMetadataStreamDiagnostic = objectOrNull(
+            window.__bridgeProductMetadataStreamDiagnostic
+          );
+          const productMetadataStreamDiagnostic =
+            rawProductMetadataStreamDiagnostic?.kind === 'productMetadataStream'
+              ? {
+                  kind: 'productMetadataStream',
+                  acknowledgedFrameCount: nonnegativeIntegerOrNull(
+                    rawProductMetadataStreamDiagnostic.acknowledgedFrameCount
+                  ),
+                  activeSubscriptionCount: finiteIntegerOrNull(
+                    rawProductMetadataStreamDiagnostic.activeSubscriptionCount
+                  ),
+                  committedFrameCount: finiteIntegerOrNull(
+                    rawProductMetadataStreamDiagnostic.committedFrameCount
+                  ),
+                  decoderState: clip(rawProductMetadataStreamDiagnostic.decoderState, 40) || null,
+                  expectedNextStreamSequence: finiteIntegerOrNull(
+                    rawProductMetadataStreamDiagnostic.expectedNextStreamSequence
+                  ),
+                  failureCode: clip(rawProductMetadataStreamDiagnostic.failureCode, 80) || null,
+                  failureStage: clip(rawProductMetadataStreamDiagnostic.failureStage, 40) || null,
+                  identityMismatchField:
+                    clip(rawProductMetadataStreamDiagnostic.identityMismatchField, 80) || null,
+                  lastChunkByteCount: finiteIntegerOrNull(
+                    rawProductMetadataStreamDiagnostic.lastChunkByteCount
+                  ),
+                  lastAcknowledgedStreamSequence: nonnegativeIntegerOrNull(
+                    rawProductMetadataStreamDiagnostic.lastAcknowledgedStreamSequence
+                  ),
+                  lastCommittedFrameKind:
+                    clip(rawProductMetadataStreamDiagnostic.lastCommittedFrameKind, 80) || null,
+                  lastRoutedFrameKind:
+                    clip(rawProductMetadataStreamDiagnostic.lastRoutedFrameKind, 80) || null,
+                  lifecycleState:
+                    clip(rawProductMetadataStreamDiagnostic.lifecycleState, 40) || null,
+                  peakRetainedByteCount: finiteIntegerOrNull(
+                    rawProductMetadataStreamDiagnostic.peakRetainedByteCount
+                  ),
+                  pushCount: finiteIntegerOrNull(rawProductMetadataStreamDiagnostic.pushCount),
+                  readFulfilledCount: finiteIntegerOrNull(
+                    rawProductMetadataStreamDiagnostic.readFulfilledCount
+                  ),
+                  readPending: booleanOrNull(rawProductMetadataStreamDiagnostic.readPending),
+                  readRequestCount: finiteIntegerOrNull(
+                    rawProductMetadataStreamDiagnostic.readRequestCount
+                  ),
+                  receivedByteCount: finiteIntegerOrNull(
+                    rawProductMetadataStreamDiagnostic.receivedByteCount
+                  ),
+                  retainedByteCount: finiteIntegerOrNull(
+                    rawProductMetadataStreamDiagnostic.retainedByteCount
+                  ),
+                  routeFailureCode:
+                    clip(rawProductMetadataStreamDiagnostic.routeFailureCode, 80) || null,
+                  routedFrameCount: finiteIntegerOrNull(
+                    rawProductMetadataStreamDiagnostic.routedFrameCount
+                  ),
+                  streamOpenCount: finiteIntegerOrNull(
+                    rawProductMetadataStreamDiagnostic.streamOpenCount
+                  )
+                }
+              : null;
           const diffContainers = [...document.querySelectorAll('diffs-container')];
           const codeViewShadowText = diffContainers
             .map((element) => element.shadowRoot?.textContent || '')
@@ -421,6 +561,7 @@ extension BridgePaneController {
             pageErrorCount: errorProbe.length,
             pageErrorKinds,
             pageErrorMessages,
+            productMetadataStreamDiagnostic,
             visibleHydrationStateProbe,
             visibleHydrationDiscardProbe,
             frameJankProbe
@@ -431,7 +572,8 @@ extension BridgePaneController {
 
     private func makeRenderStateFailureResult(
         reason: String,
-        detail: String
+        detail: String,
+        productSession: IPCBridgeProductSessionDiagnostic
     ) -> IPCBridgeRenderStateResult {
         IPCBridgeRenderStateResult(
             paneId: paneId,
@@ -446,8 +588,24 @@ extension BridgePaneController {
                 evaluateSucceeded: false,
                 pageErrorCount: 1,
                 pageErrorKinds: [reason],
-                pageErrorMessages: [detail]
+                pageErrorMessages: [detail],
+                productSession: productSession
             )
+        )
+    }
+
+    private func productSessionDiagnosticForIPC() async -> IPCBridgeProductSessionDiagnostic {
+        let snapshot = await productSessionOwner.snapshot()
+        return IPCBridgeProductSessionDiagnostic(
+            activeProducerCount: snapshot.activeProducerCount,
+            activeProducerTaskCount: snapshot.activeProducerTaskCount,
+            activeContentLeaseCount: snapshot.activeContentLeaseCount,
+            queuedFrameCount: snapshot.queuedFrameCount,
+            queuedByteCount: snapshot.queuedByteCount,
+            pendingFrameWaiterCount: snapshot.pendingFrameWaiterCount,
+            inFlightFrameReceiptCount: snapshot.inFlightFrameReceiptCount,
+            pendingLifecycleAcknowledgementCount: snapshot.pendingLifecycleAcknowledgementCount,
+            nextMetadataStreamSequence: snapshot.nextMetadataStreamSequence
         )
     }
 

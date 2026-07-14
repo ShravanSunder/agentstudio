@@ -2,6 +2,7 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import react from '@vitejs/plugin-react';
+import type {} from '@vitest/browser/providers/playwright';
 import { defineConfig, type UserConfig } from 'vitest/config';
 
 const bridgeWebPackageRoot = dirname(fileURLToPath(import.meta.url));
@@ -10,7 +11,7 @@ const browserConfig = {
 	enabled: true,
 	provider: 'playwright',
 	headless: true,
-	instances: [{ browser: 'chromium' }],
+	instances: [{ browser: 'chromium', launch: { channel: 'chrome' } }],
 	api: {
 		host: '127.0.0.1',
 		port: 63325,

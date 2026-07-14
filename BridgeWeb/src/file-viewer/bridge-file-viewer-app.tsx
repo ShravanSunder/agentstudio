@@ -17,6 +17,7 @@ import {
 } from './bridge-file-viewer-display-model.js';
 import { BridgeFileViewerLazyLoadingFrame } from './bridge-file-viewer-lazy-loading-frame.js';
 import { useBridgeFileViewerRenderSnapshotController } from './bridge-file-viewer-render-snapshot-controller.js';
+import { useBridgeFileViewerDisplaySourceReporter } from './use-bridge-file-viewer-display-source-reporter.js';
 import { useBridgeFileViewerStoreBindings } from './use-bridge-file-viewer-store-bindings.js';
 import { useBridgeFileViewerVisibleDemandController } from './use-bridge-file-viewer-visible-demand-controller.js';
 
@@ -58,16 +59,18 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 	const { rootSnapshot, viewerActions } = useBridgeFileViewerStoreBindings();
 	const { filterMode, searchMode, searchText } = rootSnapshot;
 	const renderSnapshotController = useBridgeFileViewerRenderSnapshotController({ selection });
+	const dispatchFileViewQueryFact = renderSnapshotController.dispatchFileViewQueryFact;
 	useEffect((): void => {
-		renderSnapshotController.dispatchFileViewQueryFact({ filterMode, searchMode, searchText });
-	}, [filterMode, renderSnapshotController, searchMode, searchText]);
+		dispatchFileViewQueryFact({ filterMode, searchMode, searchText });
+	}, [dispatchFileViewQueryFact, filterMode, searchMode, searchText]);
 	const displayModel = useMemo(
 		() => bridgeFileViewerDisplayModelForSnapshot(renderSnapshotController.fileDisplaySnapshot),
 		[renderSnapshotController.fileDisplaySnapshot],
 	);
-	useEffect((): void => {
-		onDisplaySourceChange?.(displayModel.source);
-	}, [displayModel.source, onDisplaySourceChange]);
+	useBridgeFileViewerDisplaySourceReporter({
+		...(onDisplaySourceChange === undefined ? {} : { onDisplaySourceChange }),
+		source: displayModel.source,
+	});
 	const selectedDisplayItem =
 		selection === null ? null : (displayModel.fileItemById.get(selection.fileId) ?? null);
 	const openFileState = bridgeFileViewerOpenStateForSelection({

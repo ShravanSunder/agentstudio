@@ -5,6 +5,9 @@ import { bridgeWorkerPierreRenderPolicy } from '../demand/bridge-content-demand-
 import { encodeBridgeWorkerSelectCommand } from './bridge-comm-worker-protocol.js';
 import {
 	BridgePaneCommWorkerSession,
+	disposeBridgePaneCommWorkerSession,
+	getBridgePaneCommWorkerSession,
+	installBridgePaneCommWorkerSessionForHost,
 	type BridgePaneCommWorkerNativeBootstrap,
 } from './bridge-pane-comm-worker-session.js';
 import {
@@ -33,6 +36,27 @@ interface RecordedGlobalWorkerPost {
 }
 
 describe('Bridge pane comm worker session', () => {
+	test('accepts exactly one host-owned shared session', () => {
+		const session = new BridgePaneCommWorkerSession({
+			workerFactory: (): Worker => new RecordingPaneCommWorker(),
+		});
+
+		try {
+			installBridgePaneCommWorkerSessionForHost(session);
+
+			expect(getBridgePaneCommWorkerSession()).toBe(session);
+			expect(() =>
+				installBridgePaneCommWorkerSessionForHost(
+					new BridgePaneCommWorkerSession({
+						workerFactory: (): Worker => new RecordingPaneCommWorker(),
+					}),
+				),
+			).toThrow('Bridge pane comm worker session host was already installed.');
+		} finally {
+			disposeBridgePaneCommWorkerSession();
+		}
+	});
+
 	test('owns one transferred worker across two clients and terminates it only with the session', async () => {
 		const worker = new RecordingPaneCommWorker();
 		const workerFactory = vi.fn((): Worker => worker);
@@ -57,8 +81,8 @@ describe('Bridge pane comm worker session', () => {
 
 		try {
 			session.installNativeBootstrap(nativeBootstrap);
-			firstDispatcher.dispatch(makeSelectCommand('first-client-command', 1, 'item-1'));
-			secondDispatcher.dispatch(makeSelectCommand('second-client-command', 2, 'item-2'));
+			firstDispatcher.dispatch(makeSelectCommand('first-client-command', 1, 'item-1', 'review'));
+			secondDispatcher.dispatch(makeSelectCommand('second-client-command', 2, 'item-2', 'review'));
 			await flushMicrotasks();
 
 			expect(workerFactory).toHaveBeenCalledOnce();
@@ -129,8 +153,10 @@ describe('Bridge pane comm worker session', () => {
 			secondClient.clear();
 			firstDispatcher.dispose();
 			expect(worker.terminateCount).toBe(0);
-			firstDispatcher.dispatch(makeSelectCommand('disposed-client-command', 3, 'item-3'));
-			secondDispatcher.dispatch(makeSelectCommand('remaining-client-command', 4, 'item-4'));
+			firstDispatcher.dispatch(makeSelectCommand('disposed-client-command', 3, 'item-3', 'review'));
+			secondDispatcher.dispatch(
+				makeSelectCommand('remaining-client-command', 4, 'item-4', 'review'),
+			);
 			const postDisposeMessages = await workerPortRecorder.waitForCount(4);
 			expect(
 				postDisposeMessages
@@ -239,7 +265,7 @@ describe('Bridge pane comm worker session', () => {
 			client.clear();
 
 			workers[0]?.dispatchEvent(new Event(failureEventName));
-			dispatcher.dispatch(makeSelectCommand('queued-during-restart', 1, 'item-1'));
+			dispatcher.dispatch(makeSelectCommand('queued-during-restart', 1, 'item-1', 'review'));
 			const secondBootstrap = makeNativeBootstrap('worker-instance-2');
 			session.installNativeBootstrap(secondBootstrap);
 			await flushMicrotasks();
@@ -333,7 +359,9 @@ describe('Bridge pane comm worker session', () => {
 
 		try {
 			session.installNativeBootstrap(makeNativeBootstrap('failed-worker-instance'));
-			dispatcher.dispatch(makeSelectCommand('queued-after-factory-rejection', 1, 'item-1'));
+			dispatcher.dispatch(
+				makeSelectCommand('queued-after-factory-rejection', 1, 'item-1', 'review'),
+			);
 			await replacementRequest.promise;
 
 			expect(workerFactory).toHaveBeenCalledOnce();
@@ -421,9 +449,11 @@ class RecordingPaneCommWorker extends EventTarget implements Worker {
 		const transferList = Array.isArray(transferListOrOptions)
 			? transferListOrOptions
 			: (transferListOrOptions.transfer ?? []);
-		const parsedInstall = bridgePaneCommWorkerInstallSchema.parse(message);
-		const transferredCapability = transferList.includes(parsedInstall.productCapability);
-		const transferredPort = transferList.includes(parsedInstall.productPort);
+		const parsedInstall = bridgePaneCommWorkerInstallSchema.safeParse(message);
+		const transferredCapability =
+			parsedInstall.success && transferList.includes(parsedInstall.data.productCapability);
+		const transferredPort =
+			parsedInstall.success && transferList.includes(parsedInstall.data.productPort);
 		const clonedMessage = structuredClone(message, { transfer: transferList });
 		this.globalPosts.push({
 			message: clonedMessage,
@@ -549,10 +579,6 @@ function makeRuntimeBootstrapRequest(requestId: string): BridgeCommWorkerBootstr
 				maxBytes: 512 * 1024,
 				maxWindowLines: 400,
 			},
-			contentItems: [],
-			contentRequestDescriptors: [],
-			renderSemantics: [],
-			rows: [],
 		},
 	};
 }
@@ -574,10 +600,12 @@ function makeSelectCommand(
 	requestId: string,
 	epoch: number,
 	selectedItemId: string,
+	surface: 'fileView' | 'review',
 ): ReturnType<typeof encodeBridgeWorkerSelectCommand> {
 	return encodeBridgeWorkerSelectCommand({
 		requestId,
 		epoch,
+		surface,
 		selectedItemId,
 		selectedSource: 'user',
 	});

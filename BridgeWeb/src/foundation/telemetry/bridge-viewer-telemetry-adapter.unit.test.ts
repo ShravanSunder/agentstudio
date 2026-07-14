@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import type { BridgeTelemetryBatch, BridgeTelemetrySample } from './bridge-telemetry-event.js';
+import type { BridgeTelemetrySample } from './bridge-telemetry-event.js';
 import type {
 	BridgeTelemetryMeasureProps,
 	BridgeTelemetryRecorder,
 } from './bridge-telemetry-recorder.js';
-import { createBridgeTelemetryRecorder } from './bridge-telemetry-recorder.js';
+import { createBridgeTelemetryRecorderFromClient } from './bridge-telemetry-recorder.js';
 import {
 	recordBridgeCodeViewHydrationTelemetrySamples,
 	recordBridgeFrameJankTelemetrySample,
@@ -106,28 +106,18 @@ describe('bridge viewer telemetry adapter flushing', () => {
 		expect(recorder.flushForces).toEqual([]);
 	});
 
-	test('idle flushes materialize telemetry through the recorder scheduler', () => {
-		const batches: BridgeTelemetryBatch[] = [];
-		const idleCallbacks: Array<() => void> = [];
-		const recorder = createBridgeTelemetryRecorder(
+	test('posts materialize telemetry directly through the worker producer adapter', () => {
+		const samples: BridgeTelemetrySample[] = [];
+		const recorder = createBridgeTelemetryRecorderFromClient(
 			{
 				enabledScopes: new Set(['web']),
-				maxSamplesPerBatch: 4,
-				maxEncodedBatchBytes: 16_384,
-				minimumFlushIntervalMilliseconds: 0,
-				endpointUrl: 'agentstudio://telemetry/batch',
 				scenario: 'bridge-runtime',
 			},
 			{
-				flush: (batch): boolean => {
-					batches.push(batch);
-					return true;
-				},
+				record: (sample): void => void samples.push(sample),
+				flush: (): boolean => true,
 			},
 			(): number => 1_000,
-			(callback): void => {
-				idleCallbacks.push(callback);
-			},
 		);
 
 		recordBridgeCodeViewItemMaterializeTelemetrySample({
@@ -143,11 +133,8 @@ describe('bridge viewer telemetry adapter flushing', () => {
 			viewer: 'review',
 		});
 
-		expect(batches).toEqual([]);
-		expect(idleCallbacks).toHaveLength(1);
-		idleCallbacks[0]?.();
-		expect(batches.map((batch) => batch.samples.map((sample) => sample.name))).toEqual([
-			['performance.bridge.web.code_view_item_materialize'],
+		expect(samples.map((sample) => sample.name)).toEqual([
+			'performance.bridge.web.code_view_item_materialize',
 		]);
 	});
 

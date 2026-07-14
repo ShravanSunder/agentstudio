@@ -422,7 +422,8 @@ export function registerWorktreeDevServerTelemetryAndSelectionTests(): void {
 		const verifierSource = await readWorktreeDevServerVerifierSource();
 
 		expect(verifierSource).not.toContain('const selectedHitUrl = hitUrls[0];');
-		expect(verifierSource).toContain('hitUrls.find');
+		expect(verifierSource).toContain('hits.find');
+		expect(verifierSource).toContain('hit.descriptorId === props.expectedContentHandle');
 		expect(verifierSource).toContain('selectedResourceUrlUsesDevServerFrontDoor');
 	});
 

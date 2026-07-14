@@ -9,7 +9,6 @@ import Foundation
 /// Implements push/intake bootstrap injection for bridge runtime.
 enum BridgeBootstrap {
 
-    // swiftlint:disable function_body_length
     /// Generate the bootstrap JavaScript for a bridge pane.
     ///
     /// - Parameters:
@@ -41,130 +40,6 @@ enum BridgeBootstrap {
                 const REVIEW_PANE_ID = \(reviewPaneIdJSON);
                 const REVIEW_STREAM_ID = \(reviewStreamIdJSON);
                 const TELEMETRY_CONFIG = \(telemetryConfigJSON);
-                const PENDING_INTAKE_FRAME_JSON = [];
-                const HOST_PUSH_PORTS = new Set();
-                const HOST_INTAKE_PORTS = new Set();
-                function publishHostPushPort() {
-                    const channel = new MessageChannel();
-                    HOST_PUSH_PORTS.add(channel.port1);
-                    channel.port1.start();
-                    window.postMessage({
-                        type: 'agentstudio.bridge.hostPushPort',
-                        version: 1
-                    }, '*', [channel.port2]);
-                }
-
-                function postHostEnvelopeJSON(envelopeJSON) {
-                    for (const port of HOST_PUSH_PORTS) {
-                        port.postMessage({
-                            type: 'agentstudio.bridge.hostPushEnvelopeJSON',
-                            version: 1,
-                            json: envelopeJSON
-                        });
-                    }
-                }
-
-                function publishHostIntakePort() {
-                    const channel = new MessageChannel();
-                    HOST_INTAKE_PORTS.add(channel.port1);
-                    channel.port1.start();
-                    window.postMessage({
-                        type: 'agentstudio.bridge.hostIntakePort',
-                        version: 1
-                    }, '*', [channel.port2]);
-                }
-
-                function postHostIntakeFrameJSON(frameJSON) {
-                    for (const port of HOST_INTAKE_PORTS) {
-                        port.postMessage({
-                            type: 'agentstudio.bridge.hostIntakeFrameJSON',
-                            version: 1,
-                            json: frameJSON
-                        });
-                    }
-                }
-
-                function dispatchPageIntakeFrameJSON(frameJSON) {
-                    document.dispatchEvent(new CustomEvent('__bridge_intake_json', {
-                        detail: { json: frameJSON, nonce: PUSH_NONCE }
-                    }));
-                }
-
-                function dispatchIntakeFrameJSON(frameJSON) {
-                    PENDING_INTAKE_FRAME_JSON.push(frameJSON);
-                    postHostIntakeFrameJSON(frameJSON);
-                    dispatchPageIntakeFrameJSON(frameJSON);
-                }
-
-                // Install bridge internal API in bridge world only.
-                // Page world cannot access this (content world isolation).
-                window.__bridgeInternal = {
-                    // Push state to page world via CustomEvent.
-                    // Envelope metadata (__revision, __epoch) is lifted to detail level
-                    // so receiver-side stale/epoch guards work without nested unwrapping.
-                    merge: function(store, data, revision, epoch, slice, traceContext) {
-                        document.dispatchEvent(new CustomEvent('__bridge_push', {
-                            detail: {
-                                op: 'merge',
-                                store: store,
-                                slice: slice,
-                                data: data,
-                                __revision: revision,
-                                __epoch: epoch,
-                                __traceContext: traceContext || null,
-                                nonce: PUSH_NONCE
-                            }
-                        }));
-                    },
-                    replace: function(store, data, revision, epoch, slice, traceContext) {
-                        document.dispatchEvent(new CustomEvent('__bridge_push', {
-                            detail: {
-                                op: 'replace',
-                                store: store,
-                                slice: slice,
-                                data: data,
-                                __revision: revision,
-                                __epoch: epoch,
-                                __traceContext: traceContext || null,
-                                nonce: PUSH_NONCE
-                            }
-                        }));
-                    },
-                    applyEnvelope: function(envelope) {
-                        const op = envelope.op || 'replace';
-                        const revision = envelope.__revision;
-                        const epoch = envelope.__epoch;
-                        const slice = envelope.slice;
-                        const traceContext = envelope.__traceContext || null;
-                        const store = envelope.store;
-                        const payload = envelope.payload !== undefined ? envelope.payload : envelope.data;
-                        if (payload === undefined) {
-                            console.warn('[BridgeInternal] applyEnvelope: payload is undefined, envelope dropped', JSON.stringify({op: op}));
-                            return;
-                        }
-                        // Forward envelope as data with metadata lifted to detail level.
-                        if (op === 'merge') {
-                            this.merge(store, payload, revision, epoch, slice, traceContext);
-                        } else {
-                            this.replace(store, payload, revision, epoch, slice, traceContext);
-                        }
-                    },
-                    applyEnvelopeJSON: function(envelopeJSON) {
-                        postHostEnvelopeJSON(envelopeJSON);
-                        document.dispatchEvent(new CustomEvent('__bridge_push_json', {
-                            detail: { json: envelopeJSON, nonce: PUSH_NONCE }
-                        }));
-                    },
-                    applyIntakeFrameJSON: function(frameJSON) {
-                        dispatchIntakeFrameJSON(frameJSON);
-                    },
-                    appendAgentEvents: function(events) {
-                        document.dispatchEvent(new CustomEvent('__bridge_agent', {
-                            detail: { events: events, nonce: PUSH_NONCE }
-                        }));
-                    }
-                };
-
                 // Listen for bridge.ready from page world
                 document.addEventListener('__bridge_ready', function(event) {
                     const requestId = event && event.detail && typeof event.detail.requestId === 'string'
@@ -215,21 +90,26 @@ enum BridgeBootstrap {
                         params: { reason: reason }
                     }));
                 });
-                document.addEventListener('__bridge_host_push_port_request', function() {
-                    publishHostPushPort();
-                });
-                document.addEventListener('__bridge_host_intake_port_request', function() {
-                    publishHostIntakePort();
-                });
-                document.addEventListener('__bridge_intake_replay_request', function() {
-                    for (const frameJSON of PENDING_INTAKE_FRAME_JSON) {
-                        postHostIntakeFrameJSON(frameJSON);
-                        dispatchPageIntakeFrameJSON(frameJSON);
+                document.addEventListener('__bridge_telemetry_session_bootstrap_request', function(event) {
+                    const detail = event && event.detail;
+                    const requestId = detail && typeof detail.requestId === 'string'
+                        ? detail.requestId
+                        : null;
+                    const reason = detail && (detail.reason === 'initial'
+                        || detail.reason === 'sidecarReplacement')
+                        ? detail.reason
+                        : null;
+                    if (requestId === null || requestId.length === 0 || reason === null) {
+                        console.warn('[BridgeBootstrap] Rejected telemetry bootstrap request');
+                        return;
                     }
+                    window.webkit.messageHandlers.rpc.postMessage(JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: requestId,
+                        method: 'bridge.telemetrySession.bootstrap',
+                        params: { reason: reason }
+                    }));
                 });
-                publishHostPushPort();
-                publishHostIntakePort();
-
                 if (typeof REVIEW_PANE_ID === 'string' && typeof REVIEW_STREAM_ID === 'string') {
                     document.documentElement.setAttribute('data-bridge-review-pane-id', REVIEW_PANE_ID);
                     document.documentElement.setAttribute('data-bridge-review-stream-id', REVIEW_STREAM_ID);
@@ -271,6 +151,4 @@ enum BridgeBootstrap {
         }
         return json
     }
-
-    // swiftlint:enable function_body_length
 }

@@ -584,12 +584,12 @@ export async function verifyWorktreeFileSplitResetReplacement(props: {
 				label: 'split-reset replacement proof content',
 				page: props.page,
 			});
-			const hitUrls = refreshRouteProbe.hitUrls();
-			const oldContentRouteHitCount = hitUrls.filter((hitUrl) =>
-				hitUrl.includes(encodeURIComponent(props.descriptor.contentHandle)),
+			const hits = refreshRouteProbe.hits();
+			const oldContentRouteHitCount = hits.filter(
+				(hit) => hit.descriptorId === props.descriptor.contentHandle,
 			).length;
-			const replacementContentRouteHitCount = hitUrls.filter((hitUrl) =>
-				hitUrl.includes(encodeURIComponent(replacementDescriptor.contentHandle)),
+			const replacementContentRouteHitCount = hits.filter(
+				(hit) => hit.descriptorId === replacementDescriptor.contentHandle,
 			).length;
 			const proof: WorktreeFileSplitResetReplacementProof = {
 				devReloadFrameCount: devReloadProof.frameCount,

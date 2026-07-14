@@ -23,12 +23,14 @@ describe('Bridge comm worker protocol', () => {
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-select',
 				epoch: 1,
+				surface: 'review',
 				selectedItemId: 'item-1',
 				selectedSource: 'keyboard',
 			}),
 			encodeBridgeWorkerViewportCommand({
 				requestId: 'request-viewport',
 				epoch: 1,
+				surface: 'fileView',
 				visibleItemIds: ['item-1', 'item-2'],
 				firstVisibleIndex: 0,
 				lastVisibleIndex: 1,
@@ -37,6 +39,7 @@ describe('Bridge comm worker protocol', () => {
 			encodeBridgeWorkerHoverCommand({
 				requestId: 'request-hover',
 				epoch: 1,
+				surface: 'review',
 				hoveredItemId: 'item-2',
 			}),
 			encodeBridgeWorkerMarkFileViewedCommand({
@@ -100,6 +103,9 @@ describe('Bridge comm worker protocol', () => {
 			expect(command.transferDescriptors).toEqual([]);
 			expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
 		}
+		expect(
+			commands.slice(0, 3).map((command) => ('surface' in command ? command.surface : null)),
+		).toEqual(['review', 'fileView', 'review']);
 		expect(commands[3]).toMatchObject({
 			command: 'markFileViewed',
 			fileId: 'item-1',
@@ -138,11 +144,13 @@ describe('Bridge comm worker protocol', () => {
 			requestId: 'request-select',
 			epoch: 3,
 			issuedAtMilliseconds: 42,
+			surface: 'review',
 			selectedItemId: 'item-1',
 			selectedSource: 'user',
 		});
 
 		expect(command.issuedAtMilliseconds).toBe(42);
+		expect(command.surface).toBe('review');
 		expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
 	});
 

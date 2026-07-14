@@ -109,6 +109,27 @@ export class BridgeCommWorkerProductController {
 		return this.#fileSourceEnsure;
 	}
 
+	ensureReviewMetadata(): void {
+		if (this.#reviewSubscription !== null) return;
+		const interests = reviewMetadataInterestsInPriorityOrder(
+			this.#reviewInterestItemIdsByLane,
+		);
+		const workerDerivationEpoch = this.#productTransport.bumpWorkerDerivationEpoch('review');
+		this.#reviewWorkerDerivationEpoch = workerDerivationEpoch;
+		this.#reviewDesiredInterestSignature = JSON.stringify(interests);
+		try {
+			const subscription = this.#subscribeReview({ interests });
+			this.#reviewSubscription = subscription;
+			void this.#consumeReviewMetadataEvents(subscription, workerDerivationEpoch).catch(
+				(): void => {},
+			);
+		} catch (error) {
+			this.#reviewDesiredInterestSignature = null;
+			this.#onReviewMetadataFailure(error, workerDerivationEpoch);
+			throw error;
+		}
+	}
+
 	async send(command: BridgeRPCCommand): Promise<unknown> {
 		switch (command.method) {
 			case 'review.markFileViewed':
@@ -120,7 +141,10 @@ export class BridgeCommWorkerProductController {
 			case 'bridge.metadata_interest.update':
 				return await this.#updateReviewMetadataInterests(command.params);
 			case 'bridge.intakeReady':
-				throw new Error('Bridge intake readiness is local to the comm worker.');
+				return await this.#productTransport.call('review.intake.ready', {
+					reason: command.params.reason ?? null,
+					streamId: command.params.streamId ?? null,
+				});
 			default:
 				return assertNeverBridgeRPCCommand(command);
 		}
@@ -135,14 +159,7 @@ export class BridgeCommWorkerProductController {
 		this.#replaceReviewInterestLane(request.lane, request.itemIds ?? []);
 		const interests = reviewMetadataInterestsInPriorityOrder(this.#reviewInterestItemIdsByLane);
 		if (this.#reviewSubscription === null) {
-			const workerDerivationEpoch = this.#productTransport.bumpWorkerDerivationEpoch('review');
-			this.#reviewWorkerDerivationEpoch = workerDerivationEpoch;
-			this.#reviewDesiredInterestSignature = JSON.stringify(interests);
-			const subscription = this.#subscribeReview({ interests });
-			this.#reviewSubscription = subscription;
-			void this.#consumeReviewMetadataEvents(subscription, workerDerivationEpoch).catch(
-				(): void => {},
-			);
+			this.ensureReviewMetadata();
 			return;
 		}
 		const signature = JSON.stringify(interests);
@@ -347,10 +364,7 @@ export class BridgeCommWorkerProductController {
 				this.#fileSource = event.source;
 				this.#onFileMetadataEvent(event, workerDerivationEpoch);
 				if (event.eventKind === 'file.sourceAccepted' || this.#hasFileMetadataDemand) {
-					await this.#publishFileMetadataInterests().catch((): void => {});
-					if (this.#fileInterestUpdateFailed) {
-						await this.#publishFileMetadataInterests().catch((): void => {});
-					}
+					this.#scheduleFileMetadataInterestPublication();
 				}
 			}
 		} catch (error) {
@@ -366,6 +380,15 @@ export class BridgeCommWorkerProductController {
 			this.#onFileMetadataFailure(error, workerDerivationEpoch);
 			throw error;
 		}
+	}
+
+	#scheduleFileMetadataInterestPublication(): void {
+		void this.#publishFileMetadataInterests()
+			.catch((): void => {})
+			.then((): void => {
+				if (!this.#fileInterestUpdateFailed) return;
+				void this.#publishFileMetadataInterests().catch((): void => {});
+			});
 	}
 
 	async #sendActiveViewerModeUpdate(

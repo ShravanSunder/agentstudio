@@ -5,6 +5,7 @@ import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js'
 import {
 	BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT,
 	type BridgeProductSubscriptionEvent,
+	type BridgeProductSubscriptionOptions,
 } from './bridge-product-subscription-contracts.js';
 import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
@@ -76,6 +77,22 @@ describe('Bridge comm worker product controller', () => {
 				protocol: 'review',
 			},
 		});
+		await controller.send({
+			method: 'bridge.metadata_interest.update',
+			params: {
+				itemIds: [],
+				lane: 'foreground',
+				protocol: 'review',
+			},
+		});
+		await controller.send({
+			method: 'bridge.metadata_interest.update',
+			params: {
+				itemIds: [],
+				lane: 'visible',
+				protocol: 'review',
+			},
+		});
 		const sourceAcceptedEvent = {
 			eventKind: 'review.sourceAccepted',
 			generation: 7,
@@ -98,9 +115,59 @@ describe('Bridge comm worker product controller', () => {
 					{ itemIds: ['item-visible'], lane: 'visible' },
 				],
 			},
+			{
+				interests: [{ itemIds: ['item-selected', 'item-visible'], lane: 'visible' }],
+			},
+			{ interests: [] },
 		]);
 		expect(observedEvents).toEqual([sourceAcceptedEvent]);
 		expect(observedEpochs).toEqual([1]);
+	});
+
+	test('opens one canonical Review subscription for empty interests and keeps it open', async () => {
+		// Arrange
+		const events = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'review.metadata'>
+		>(1);
+		let derivationEpochBumpCount = 0;
+		let subscribeReviewCallCount = 0;
+		let subscriptionOptions: BridgeProductSubscriptionOptions<'review.metadata'> | null = null;
+		const controller = new BridgeCommWorkerProductController({
+			onFileMetadataEvent: (): void => {},
+			productTransport: {
+				...unusedProductTransport(),
+				bumpWorkerDerivationEpoch: (): number => {
+					derivationEpochBumpCount += 1;
+					return derivationEpochBumpCount;
+				},
+			},
+			subscribeReview: (options) => {
+				subscribeReviewCallCount += 1;
+				subscriptionOptions = options;
+				return {
+					cancel: async (): Promise<void> => {},
+					events,
+					subscriptionId: 'review-empty-interest-subscription',
+					subscriptionKind: 'review.metadata',
+					update: async (): Promise<void> => {},
+				};
+			},
+		});
+
+		// Act
+		await controller.send({
+			method: 'bridge.metadata_interest.update',
+			params: { itemIds: [], lane: 'foreground', protocol: 'review' },
+		});
+		await controller.send({
+			method: 'bridge.metadata_interest.update',
+			params: { itemIds: [], lane: 'visible', protocol: 'review' },
+		});
+
+		// Assert
+		expect(subscribeReviewCallCount).toBe(1);
+		expect(derivationEpochBumpCount).toBe(1);
+		expect(subscriptionOptions).toEqual({ interests: [] });
 	});
 
 	test('retains early File demand and reconciles it after one discovered source opens', async () => {
@@ -179,6 +246,63 @@ describe('Bridge comm worker product controller', () => {
 				pathScope: [],
 			},
 		]);
+	});
+
+	test('continues draining File metadata while an interest barrier is pending', async () => {
+		const events = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'file.metadata'>
+		>(64);
+		let releaseInterestUpdate = (): void => {};
+		const pendingInterestUpdate = new Promise<void>((resolve): void => {
+			releaseInterestUpdate = resolve;
+		});
+		const observedEvents: BridgeProductSubscriptionEvent<'file.metadata'>[] = [];
+		let resolveAllEventsObserved = (): void => {};
+		const allEventsObserved = new Promise<void>((resolve): void => {
+			resolveAllEventsObserved = resolve;
+		});
+		const subscription: BridgeProductSubscription<'file.metadata'> = {
+			cancel: async (): Promise<void> => {},
+			events,
+			subscriptionId: 'file-subscription-pending-barrier',
+			subscriptionKind: 'file.metadata',
+			update: async (): Promise<void> => await pendingInterestUpdate,
+		};
+		const controller = new BridgeCommWorkerProductController({
+			callCurrentFileSource: discoverCurrentFileSource,
+			onFileMetadataEvent: (event): void => {
+				observedEvents.push(event);
+				if (observedEvents.length === 66) resolveAllEventsObserved();
+			},
+			productTransport: unusedProductTransport(),
+			subscribeFile: () => subscription,
+		});
+		await controller.ensureFileSource();
+		const demandUpdate = controller.updateFileMetadataDemand({
+			epoch: 1,
+			nearbyPaths: [],
+			selectedPath: 'Sources/File.swift',
+			visiblePaths: [],
+		});
+		events.push({ eventKind: 'file.sourceAccepted', source });
+		for (let index = 0; index < 65; index += 1) {
+			events.push({
+				eventKind: 'file.treeWindow',
+				finalWindow: index === 64,
+				lineage: { lane: 'foreground', loadedBy: 'startup_window' },
+				pathScope: [],
+				rows: [],
+				source,
+				startIndex: index,
+				totalRowCount: index === 64 ? 0 : null,
+			});
+			await Promise.resolve();
+		}
+
+		await allEventsObserved;
+		expect(observedEvents).toHaveLength(66);
+		releaseInterestUpdate();
+		await demandUpdate;
 	});
 
 	test('settles unavailable File discovery once without subscribing or retrying', async () => {

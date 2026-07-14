@@ -8,7 +8,7 @@ import {
 } from './bridge-code-view-materialization.js';
 
 describe('Bridge CodeView materialization cutover', () => {
-	test('preserves placeholder height while selected content loads through worker-prepared items', () => {
+	test('preserves a header-only placeholder while selected content loads through worker-prepared items', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -28,6 +28,7 @@ describe('Bridge CodeView materialization cutover', () => {
 		const loadingItem = materializeBridgeCodeViewLoadingItem(item);
 
 		expect(loadingItem.bridgeMetadata.lineCount).toBe(placeholder.bridgeMetadata.lineCount);
+		expect(loadingItem.bridgeMetadata.lineCount).toBe(0);
 		if (loadingItem.type === 'file' && placeholder.type === 'file') {
 			expect(countContentLines(loadingItem.file.contents)).toBe(
 				countContentLines(placeholder.file.contents),

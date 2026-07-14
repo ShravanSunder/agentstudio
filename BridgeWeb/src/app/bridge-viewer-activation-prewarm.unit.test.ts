@@ -10,8 +10,29 @@ import {
 	type BridgeViewerActivationPrewarmState,
 } from './bridge-viewer-activation-prewarm.js';
 
+function forwardedPierreWorkerFactory(): Worker {
+	throw new Error('Activation prewarm must forward, not invoke, the worker factory');
+}
+
 describe('Bridge viewer activation prewarm', () => {
-	test('fires one Pierre worker prewarm per active viewer mode activation', () => {
+	test('forwards the composed Pierre worker factory into activation prewarm', () => {
+		const prewarm = vi.fn<() => void>();
+		const state: BridgeViewerActivationPrewarmState = { prewarmedModes: new Set() };
+
+		bridgeViewerActivationPrewarm({
+			activeViewerMode: 'review',
+			prewarm,
+			state,
+			workerFactory: forwardedPierreWorkerFactory,
+		});
+
+		expect(prewarm).toHaveBeenCalledExactlyOnceWith({
+			languages: ['typescript', 'tsx', 'swift', 'markdown', 'json', 'yaml'],
+			workerFactory: forwardedPierreWorkerFactory,
+		});
+	});
+
+	test('prewarms each mode once without injecting a worker factory when none is composed', () => {
 		const prewarm = vi.fn<() => void>();
 		const state: BridgeViewerActivationPrewarmState = { prewarmedModes: new Set() };
 

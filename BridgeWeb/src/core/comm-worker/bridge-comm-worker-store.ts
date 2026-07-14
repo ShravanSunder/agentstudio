@@ -12,6 +12,7 @@ import {
 } from './bridge-comm-worker-reconciler.js';
 import {
 	recordBridgeCommWorkerTaskTelemetry,
+	type BridgeCommWorkerTelemetryAction,
 	type BridgeCommWorkerTelemetryLane,
 	type BridgeCommWorkerTelemetryRecorder,
 } from './bridge-comm-worker-telemetry.js';
@@ -108,27 +109,44 @@ export interface ApplyBridgeCommWorkerReviewInvalidationFactProps {
 }
 
 export interface ApplyBridgeCommWorkerSelectedSourceChurnFactProps {
-	readonly epoch: number;
 	readonly itemId: string;
 }
 
+export interface BridgeCommWorkerSelectedDemandResult extends BridgeCommWorkerTouchedResult {
+	readonly selectedDemandEpoch: number | null;
+}
+
 export interface ApplyBridgeCommWorkerReviewSourceUpdateFactProps {
-	readonly completeItemIds?: readonly string[];
+	readonly completeContentItemIds?: readonly string[];
+	readonly completeRowIds?: readonly string[];
 	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
 	readonly epoch: number;
+	readonly removedContentItemIds?: readonly string[];
 	readonly resetComplete?: boolean;
 	readonly rows: readonly BridgeCommWorkerRow[];
+}
+
+export interface BridgeCommWorkerReviewRowMutation {
+	readonly removedRowIds: readonly string[];
+	readonly rowUpserts: readonly BridgeCommWorkerRow[];
+}
+
+export interface ApplyBridgeCommWorkerReviewRowMutationFactProps {
+	readonly epoch: number;
+	readonly mutation: BridgeCommWorkerReviewRowMutation;
 }
 
 export interface ApplyBridgeCommWorkerFileViewSourceUpdateFactProps {
 	readonly contentItems: readonly BridgeWorkerFileViewContentMetadata[];
 	readonly epoch: number;
 	readonly rows: readonly BridgeCommWorkerRow[];
+	readonly selectedContentRequestChanged: boolean;
 }
 
 export interface ApplyBridgeCommWorkerFileViewSourceMutationFactProps {
 	readonly epoch: number;
 	readonly mutation: BridgeCommWorkerFileViewRuntimeMutation;
+	readonly selectedContentRequestChanged: boolean;
 }
 
 export interface TakePendingBridgeCommWorkerSlicePatchEventProps {
@@ -157,9 +175,12 @@ export interface BridgeCommWorkerStore {
 		) => BridgeCommWorkerTouchedResult;
 		readonly applySelectedSourceChurnFact: (
 			props: ApplyBridgeCommWorkerSelectedSourceChurnFactProps,
-		) => BridgeCommWorkerTouchedResult;
+		) => BridgeCommWorkerSelectedDemandResult;
 		readonly applyReviewSourceUpdateFact: (
 			props: ApplyBridgeCommWorkerReviewSourceUpdateFactProps,
+		) => BridgeCommWorkerTouchedResult;
+		readonly applyReviewRowMutationFact: (
+			props: ApplyBridgeCommWorkerReviewRowMutationFactProps,
 		) => BridgeCommWorkerTouchedResult;
 		readonly applyFileViewSourceUpdateFact: (
 			props: ApplyBridgeCommWorkerFileViewSourceUpdateFactProps,
@@ -448,16 +469,17 @@ export function createBridgeCommWorkerStore(
 			},
 			applySelectedSourceChurnFact: (
 				fact: ApplyBridgeCommWorkerSelectedSourceChurnFactProps,
-			): BridgeCommWorkerTouchedResult => {
+			): BridgeCommWorkerSelectedDemandResult => {
 				const previousState = store.getState();
 				const selectedMetadata = previousState.contentMetadataByItemId.get(fact.itemId) ?? null;
 				if (
 					previousState.selectedId !== fact.itemId ||
-					fact.epoch < previousState.selectedEpoch ||
 					!isBridgeCommWorkerDemandEligibleContentMetadata(selectedMetadata)
 				) {
-					return { touchedKeys: [] };
+					return { selectedDemandEpoch: null, touchedKeys: [] };
 				}
+				const selectedDemandEpoch =
+					readSelectedDemandEpoch(previousState) ?? previousState.selectedEpoch;
 				store.setState({
 					...previousState,
 					availabilityByItemId: new Map(previousState.availabilityByItemId).set(
@@ -466,12 +488,11 @@ export function createBridgeCommWorkerStore(
 					),
 					demandByKey: buildDemandByKey({
 						contentMetadataByItemId: previousState.contentMetadataByItemId,
-						selectedDemandEpoch: fact.epoch,
+						selectedDemandEpoch,
 						selectedId: fact.itemId,
 						visibleIds: previousState.visibleIds,
 					}),
 					selectedDemandEnabled: true,
-					selectedEpoch: fact.epoch,
 				});
 				pendingSlicePatches.push({
 					slice: 'contentAvailability',
@@ -480,6 +501,7 @@ export function createBridgeCommWorkerStore(
 					payload: { state: 'loading' },
 				});
 				return {
+					selectedDemandEpoch,
 					touchedKeys: [`availability:${fact.itemId}`, `demand:${fact.itemId}`],
 				};
 			},
@@ -487,12 +509,36 @@ export function createBridgeCommWorkerStore(
 				fact: ApplyBridgeCommWorkerReviewSourceUpdateFactProps,
 			): BridgeCommWorkerTouchedResult => {
 				return applyBridgeCommWorkerSourceUpdateFact({
-					...(fact.completeItemIds === undefined ? {} : { completeItemIds: fact.completeItemIds }),
+					...(fact.completeContentItemIds === undefined
+						? {}
+						: { completeContentItemIds: fact.completeContentItemIds }),
+					...(fact.completeRowIds === undefined ? {} : { completeRowIds: fact.completeRowIds }),
 					contentItems: fact.contentItems,
 					epoch: fact.epoch,
 					pendingSlicePatches,
+					...(fact.removedContentItemIds === undefined
+						? {}
+						: { removedContentItemIds: fact.removedContentItemIds }),
 					...(fact.resetComplete === undefined ? {} : { resetComplete: fact.resetComplete }),
 					rows: fact.rows,
+					store,
+				});
+			},
+			applyReviewRowMutationFact: (
+				fact: ApplyBridgeCommWorkerReviewRowMutationFactProps,
+			): BridgeCommWorkerTouchedResult => {
+				const previousState = store.getState();
+				const nextRowById = new Map(previousState.rowById);
+				for (const rowId of fact.mutation.removedRowIds) nextRowById.delete(rowId);
+				for (const row of fact.mutation.rowUpserts) nextRowById.set(row.id, row);
+				return commitBridgeCommWorkerReviewSourceUpdate({
+					epoch: fact.epoch,
+					pendingSlicePatches,
+					previousState,
+					sourceIndexes: buildBridgeCommWorkerSourceIndexesFromMaps({
+						contentMetadataByItemId: previousState.contentMetadataByItemId,
+						rowById: nextRowById,
+					}),
 					store,
 				});
 			},
@@ -504,6 +550,7 @@ export function createBridgeCommWorkerStore(
 					epoch: fact.epoch,
 					pendingSlicePatches,
 					rows: fact.rows,
+					selectedContentRequestChanged: fact.selectedContentRequestChanged,
 					store,
 				});
 			},
@@ -514,6 +561,7 @@ export function createBridgeCommWorkerStore(
 					epoch: fact.epoch,
 					mutation: fact.mutation,
 					pendingSlicePatches,
+					selectedContentRequestChanged: fact.selectedContentRequestChanged,
 					store,
 				});
 			},
@@ -551,10 +599,12 @@ export function createBridgeCommWorkerStore(
 }
 
 function applyBridgeCommWorkerSourceUpdateFact(props: {
-	readonly completeItemIds?: readonly string[];
+	readonly completeContentItemIds?: readonly string[];
+	readonly completeRowIds?: readonly string[];
 	readonly contentItems: readonly BridgeWorkerContentMetadata[];
 	readonly epoch: number;
 	readonly pendingSlicePatches: BridgeWorkerSlicePatch[];
+	readonly removedContentItemIds?: readonly string[];
 	readonly resetComplete?: boolean;
 	readonly rows: readonly BridgeCommWorkerRow[];
 	readonly store: StoreApi<BridgeCommWorkerStoreState>;
@@ -570,15 +620,21 @@ function applyBridgeCommWorkerSourceUpdateFact(props: {
 		for (const contentItem of props.contentItems) {
 			nextContentMetadataByItemId.set(contentItem.itemId, contentItem);
 		}
-		if (props.completeItemIds !== undefined) {
-			const completeItemIds = new Set(props.completeItemIds);
+		for (const itemId of props.removedContentItemIds ?? []) {
+			nextContentMetadataByItemId.delete(itemId);
+		}
+		if (props.completeRowIds !== undefined) {
+			const completeRowIds = new Set(props.completeRowIds);
 			for (const itemId of nextRowById.keys()) {
-				if (!completeItemIds.has(itemId)) {
+				if (!completeRowIds.has(itemId)) {
 					nextRowById.delete(itemId);
 				}
 			}
+		}
+		if (props.completeContentItemIds !== undefined) {
+			const completeContentItemIds = new Set(props.completeContentItemIds);
 			for (const itemId of nextContentMetadataByItemId.keys()) {
-				if (!completeItemIds.has(itemId)) {
+				if (!completeContentItemIds.has(itemId)) {
 					nextContentMetadataByItemId.delete(itemId);
 				}
 			}
@@ -615,34 +671,10 @@ function commitBridgeCommWorkerReviewSourceUpdate(props: {
 	readonly store: StoreApi<BridgeCommWorkerStoreState>;
 }): BridgeCommWorkerTouchedResult {
 	const selectedId = props.previousState.selectedId;
-	const selectedMetadata =
-		selectedId === null
-			? null
-			: (props.sourceIndexes.contentMetadataByItemId.get(selectedId) ?? null);
-	const repairsSelectedDemand =
-		selectedId !== null &&
-		!props.previousState.selectedDemandEnabled &&
-		props.epoch >= props.previousState.selectedEpoch &&
-		isBridgeCommWorkerDemandEligibleContentMetadata(selectedMetadata);
-	const selectedDemandEpoch = repairsSelectedDemand
-		? props.epoch
-		: readSelectedDemandEpoch(props.previousState);
-	const nextAvailabilityByItemId = new Map(props.previousState.availabilityByItemId);
-	if (repairsSelectedDemand && selectedId !== null) {
-		nextAvailabilityByItemId.set(selectedId, 'loading');
-		props.pendingSlicePatches.push({
-			slice: 'contentAvailability',
-			operation: 'upsert',
-			itemId: selectedId,
-			payload: { state: 'loading' },
-		});
-	}
+	const selectedDemandEpoch = readSelectedDemandEpoch(props.previousState);
 	props.store.setState({
 		...props.previousState,
 		...props.sourceIndexes,
-		availabilityByItemId: nextAvailabilityByItemId,
-		selectedDemandEnabled: repairsSelectedDemand || props.previousState.selectedDemandEnabled,
-		selectedEpoch: repairsSelectedDemand ? props.epoch : props.previousState.selectedEpoch,
 		demandByKey: buildDemandByKey({
 			contentMetadataByItemId: props.sourceIndexes.contentMetadataByItemId,
 			selectedId,
@@ -652,13 +684,7 @@ function commitBridgeCommWorkerReviewSourceUpdate(props: {
 	});
 	return {
 		sourceEpoch: props.epoch,
-		touchedKeys: [
-			'sourceRows',
-			'sourceContentMetadata',
-			...(repairsSelectedDemand && selectedId !== null
-				? [`availability:${selectedId}`, `demand:${selectedId}`]
-				: []),
-		],
+		touchedKeys: ['sourceRows', 'sourceContentMetadata'],
 	};
 }
 
@@ -882,7 +908,7 @@ function instrumentBridgeCommWorkerStoreActions(
 				operation: () => props.actions.applyReviewInvalidationFact(fact),
 				...telemetryProps,
 			}),
-		applySelectedSourceChurnFact: (fact): BridgeCommWorkerTouchedResult =>
+		applySelectedSourceChurnFact: (fact): BridgeCommWorkerSelectedDemandResult =>
 			recordBridgeCommWorkerStoreActionTelemetry({
 				action: 'applySelectedSourceChurnFact',
 				lane: 'selected',
@@ -894,6 +920,13 @@ function instrumentBridgeCommWorkerStoreActions(
 				action: 'applyReviewSourceUpdateFact',
 				lane: 'background',
 				operation: () => props.actions.applyReviewSourceUpdateFact(fact),
+				...telemetryProps,
+			}),
+		applyReviewRowMutationFact: (fact): BridgeCommWorkerTouchedResult =>
+			recordBridgeCommWorkerStoreActionTelemetry({
+				action: 'applyReviewRowMutationFact',
+				lane: 'background',
+				operation: () => props.actions.applyReviewRowMutationFact(fact),
 				...telemetryProps,
 			}),
 		applyFileViewSourceUpdateFact: (fact): BridgeCommWorkerTouchedResult =>
@@ -915,16 +948,18 @@ function instrumentBridgeCommWorkerStoreActions(
 	};
 }
 
-function recordBridgeCommWorkerStoreActionTelemetry(props: {
-	readonly action: string;
+function recordBridgeCommWorkerStoreActionTelemetry<
+	TResult extends BridgeCommWorkerTouchedResult,
+>(props: {
+	readonly action: BridgeCommWorkerTelemetryAction;
 	readonly lane: BridgeCommWorkerTelemetryLane;
 	readonly now: () => number;
-	readonly operation: () => BridgeCommWorkerTouchedResult;
+	readonly operation: () => TResult;
 	readonly pendingSlicePatches: readonly BridgeWorkerSlicePatch[];
 	readonly resultReason?: NonNullable<BridgeWorkerContentAvailabilityPatchPayload['reason']>;
 	readonly sourceEpoch?: number;
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
-}): BridgeCommWorkerTouchedResult {
+}): TResult {
 	const patchCountBefore = props.pendingSlicePatches.length;
 	const startedAtMilliseconds = props.now();
 	const result = props.operation();

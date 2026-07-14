@@ -11,7 +11,7 @@ import type {
 	BridgeTelemetryRecorder,
 } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
-import { makeBridgeViewerBrowserFixture } from '../test-support/bridge-viewer-mocked-backend.js';
+import { makeBridgeViewerBrowserFixture } from '../test-support/bridge-viewer-mocked-backend-fixture.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
 import {
 	BridgeTreesController,
@@ -42,14 +42,7 @@ describe('Bridge Trees controller', () => {
 			'Tests/App/ViewTests.swift',
 		]);
 		expect(new Set(source.orderedPaths).size).toBe(source.orderedPaths.length);
-		expect(source.initialExpandedPaths).toEqual([
-			'docs',
-			'docs/plans',
-			'Sources',
-			'Sources/App',
-			'Tests',
-			'Tests/App',
-		]);
+		expect(source.initialExpandedPaths).toEqual([]);
 		expect(source.gitStatusEntries).toEqual([
 			{ path: 'docs/plans/2026-bridge-plan.md', status: 'modified' },
 			{ path: 'Sources/App/Core.swift', status: 'modified' },
@@ -133,7 +126,7 @@ describe('Bridge Trees controller', () => {
 		});
 	});
 
-	test('bounds initial expansion for large review trees so search does not preserve every branch', () => {
+	test('starts large Review trees collapsed', () => {
 		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
 		const projection = buildBridgeReviewProjection({
 			reviewPackage: fixture.reviewPackage,
@@ -146,9 +139,22 @@ describe('Bridge Trees controller', () => {
 		});
 
 		expect(source.orderedPaths).toHaveLength(fixture.metadata.pathCount);
-		expect(source.initialExpandedPaths.length).toBeLessThanOrEqual(128);
-		expect(source.initialExpandedPaths).toContain('Sources');
-		expect(source.initialExpandedPaths).not.toContain('Sources/AgentStudio/source/module-199');
+		expect(source.initialExpandedPaths).toEqual([]);
+	});
+
+	test('starts a fresh Review tree collapsed instead of expanding a path-order prefix', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+
+		const source = createBridgeTreesSource({
+			reviewPackage,
+			projection,
+		});
+
+		expect(source.initialExpandedPaths).toEqual([]);
 	});
 
 	test('plans reset append and status-only mutations without rebuilding for status changes', () => {
@@ -207,6 +213,48 @@ describe('Bridge Trees controller', () => {
 		expect(planBridgeTreesUpdate({ previous: source, next: filteredSource })).toEqual({
 			kind: 'reset',
 		});
+	});
+
+	test('resets retained disclosure when the worker starts a new Review generation', () => {
+		// Arrange
+		const previousSource = makeSource({
+			gitStatusEntries: [],
+			orderedPaths: ['Sources/Feature/File.swift'],
+			reviewGeneration: 7,
+		});
+		const nextSource = makeSource({
+			gitStatusEntries: [],
+			orderedPaths: ['Sources/Feature/File.swift'],
+			reviewGeneration: 8,
+		});
+
+		// Act / Assert
+		expect(planBridgeTreesUpdate({ previous: previousSource, next: nextSource })).toEqual({
+			kind: 'reset',
+		});
+		expect(nextSource.initialExpandedPaths).toEqual([]);
+	});
+
+	test('resets retained Pierre disclosure when the initial disclosure policy changes', () => {
+		// Arrange
+		const previousSource = {
+			...makeSource({
+				orderedPaths: ['Sources/Feature/File.swift'],
+				gitStatusEntries: [],
+			}),
+			disclosurePolicyIdentity: 'expand-first-window-v1',
+		};
+		const nextSource = makeSource({
+			orderedPaths: ['Sources/Feature/File.swift'],
+			gitStatusEntries: [],
+		});
+
+		// Act
+		const updatePlan = planBridgeTreesUpdate({ previous: previousSource, next: nextSource });
+
+		// Assert
+		expect(updatePlan).toEqual({ kind: 'reset' });
+		expect(nextSource.initialExpandedPaths).toEqual([]);
 	});
 
 	test('plans the medium streaming delta as an append-only tree mutation', () => {
@@ -577,7 +625,7 @@ describe('Bridge Trees controller', () => {
 		expect(model.scrollToPathCalls).toEqual([{ path: 'src/stale/file.ts', options: undefined }]);
 	});
 
-	test('reveals appended paths without expanding the whole large tree', () => {
+	test('appends paths without mutating directory disclosure', () => {
 		const model = new RecordingTreesModel();
 		const controller = new BridgeTreesController({ model });
 		const source = makeSource({
@@ -605,11 +653,37 @@ describe('Bridge Trees controller', () => {
 			}),
 		);
 
-		expect(streamingDirectory.expand).toHaveBeenCalledTimes(1);
-		expect(appendDirectory.expand).toHaveBeenCalledTimes(1);
+		expect(model.batchCalls.at(-1)).toEqual([
+			{ type: 'add', path: 'streaming/append/NewStreamingPanel.ts' },
+		]);
+		expect(streamingDirectory.expand).not.toHaveBeenCalled();
+		expect(appendDirectory.expand).not.toHaveBeenCalled();
 	});
 
-	test('reveals ancestors for appended review paths beyond the old startup chunk reveal cap', () => {
+	test('preserves directory disclosure when metadata appends new paths', () => {
+		const model = new RecordingTreesModel();
+		const controller = new BridgeTreesController({ model });
+		controller.applySource(
+			makeSource({
+				gitStatusEntries: [],
+				orderedPaths: ['src/a.ts'],
+			}),
+		);
+		const streamingDirectory = model.addDirectory('streaming', false);
+		const appendDirectory = model.addDirectory('streaming/append', false);
+
+		controller.applySource(
+			makeSource({
+				gitStatusEntries: [],
+				orderedPaths: ['src/a.ts', 'streaming/append/NewStreamingPanel.ts'],
+			}),
+		);
+
+		expect(streamingDirectory.expand).not.toHaveBeenCalled();
+		expect(appendDirectory.expand).not.toHaveBeenCalled();
+	});
+
+	test('reveals explicitly requested appended review paths', () => {
 		const model = new RecordingTreesModel();
 		const controller = new BridgeTreesController({ model });
 		controller.applySource(
@@ -646,6 +720,7 @@ describe('Bridge Trees controller', () => {
 				},
 			}),
 		);
+		controller.revealTreePath(appendedPaths.at(-1) ?? '');
 
 		expect(lastModuleDirectory.expand).toHaveBeenCalledTimes(1);
 	});
@@ -716,7 +791,10 @@ describe('Bridge Trees controller', () => {
 function makeSource(
 	props: Pick<ReturnType<typeof createBridgeTreesSource>, 'orderedPaths' | 'gitStatusEntries'> &
 		Partial<
-			Pick<ReturnType<typeof createBridgeTreesSource>, 'primaryItemIdByTreePath' | 'projectionId'>
+			Pick<
+				ReturnType<typeof createBridgeTreesSource>,
+				'primaryItemIdByTreePath' | 'projectionId' | 'reviewGeneration'
+			>
 		>,
 ): ReturnType<typeof createBridgeTreesSource> {
 	const reviewPackage = makeBridgeViewerProjectionFixture();
@@ -730,6 +808,7 @@ function makeSource(
 		gitStatusEntries: props.gitStatusEntries,
 		primaryItemIdByTreePath: props.primaryItemIdByTreePath ?? {},
 		projectionId: props.projectionId ?? projection.projectionId,
+		reviewGeneration: props.reviewGeneration ?? reviewPackage.reviewGeneration,
 		gitStatusSignature: props.gitStatusEntries
 			.map((entry): string => `${entry.path}\u0000${entry.status}`)
 			.join('\n'),

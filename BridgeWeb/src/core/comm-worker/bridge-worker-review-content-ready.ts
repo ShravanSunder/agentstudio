@@ -1,15 +1,24 @@
 import type { BridgeCommWorkerStore } from './bridge-comm-worker-store.js';
 import type {
-	BridgeWorkerPierreRenderJobEvent,
+	BridgeWorkerReviewPierreRenderJobEvent,
+	BridgeWorkerReviewRenderPatch,
+	BridgeWorkerReviewRenderPatchEvent,
 	BridgeWorkerReviewRenderSemantics,
 	BridgeWorkerServerToMainMessage,
+} from './bridge-worker-contracts.js';
+import {
+	BRIDGE_WORKER_WIRE_VERSION,
+	bridgeWorkerReviewRenderPatchEventSchema,
 } from './bridge-worker-contracts.js';
 import type {
 	BridgeWorkerDemandRank,
 	BridgeWorkerPierreRenderBudget,
 } from './bridge-worker-pierre-render-job.js';
 import type { BridgeWorkerFetchedReviewContentResource } from './bridge-worker-review-content-fetch.js';
-import { prepareBridgeWorkerReviewPierreRenderJobEvent } from './bridge-worker-review-pierre-job-planner.js';
+import {
+	createBridgeWorkerReviewPierreRenderJobPlanningSession,
+	prepareBridgeWorkerReviewPierreRenderJobEventFromJob,
+} from './bridge-worker-review-pierre-job-planner.js';
 import {
 	prepareBridgeWorkerStructuredMessage,
 	type PreparedBridgeWorkerStructuredMessage,
@@ -20,18 +29,31 @@ export interface PrepareBridgeWorkerReviewContentReadyEventsProps {
 	readonly budget: BridgeWorkerPierreRenderBudget;
 	readonly resources: readonly BridgeWorkerFetchedReviewContentResource[];
 	readonly semantics: BridgeWorkerReviewRenderSemantics;
+	readonly publicationSequence: number;
+	readonly workerDerivationEpoch: number;
 }
 
-export interface CommitBridgeWorkerReviewContentReadySlicePatchProps {
-	readonly epoch: number;
-	readonly preparedJobEvent: PreparedBridgeWorkerStructuredMessage<BridgeWorkerPierreRenderJobEvent>;
-	readonly sequence: number;
+export interface CommitBridgeWorkerReviewContentReadyRenderPatchProps {
+	readonly preparedJobEvent: PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent>;
+	readonly publicationSequence: number;
 	readonly store: BridgeCommWorkerStore;
+	readonly workerDerivationEpoch: number;
 }
 
-export interface BridgeWorkerReviewContentReadySlicePatchCommit {
+export interface BridgeWorkerReviewContentReadyRenderPatchCommit {
 	readonly touchedKeys: readonly string[];
-	readonly preparedMessage: BridgeWorkerPreparedServerToMainMessage;
+	readonly preparedMessage: PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewRenderPatchEvent>;
+}
+
+export type BridgeWorkerReviewContentRenderJobPreparationStepResult =
+	| { readonly status: 'pending' }
+	| {
+			readonly preparedJobEvent: PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent> | null;
+			readonly status: 'complete';
+	  };
+
+export interface BridgeWorkerReviewContentRenderJobPreparation {
+	readonly runNextStage: () => BridgeWorkerReviewContentRenderJobPreparationStepResult;
 }
 
 export type BridgeWorkerPreparedServerToMainMessage =
@@ -39,41 +61,107 @@ export type BridgeWorkerPreparedServerToMainMessage =
 
 export function prepareBridgeWorkerReviewContentRenderJobEvent(
 	props: PrepareBridgeWorkerReviewContentReadyEventsProps,
-): PreparedBridgeWorkerStructuredMessage<BridgeWorkerPierreRenderJobEvent> | null {
-	return prepareBridgeWorkerReviewPierreRenderJobEvent({
+): PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent> | null {
+	const preparation = createBridgeWorkerReviewContentRenderJobPreparation(props);
+	while (true) {
+		const result = preparation.runNextStage();
+		if (result.status === 'complete') return result.preparedJobEvent;
+	}
+}
+
+export function createBridgeWorkerReviewContentRenderJobPreparation(
+	props: PrepareBridgeWorkerReviewContentReadyEventsProps,
+): BridgeWorkerReviewContentRenderJobPreparation {
+	const planningSession = createBridgeWorkerReviewPierreRenderJobPlanningSession({
 		bridgeDemandRank: props.bridgeDemandRank,
 		budget: props.budget,
 		resources: props.resources,
 		semantics: props.semantics,
 	});
+	let plannedJob: BridgeWorkerReviewPierreRenderJobEvent['job'] | null = null;
+	let planningComplete = false;
+
+	return {
+		runNextStage: (): BridgeWorkerReviewContentRenderJobPreparationStepResult => {
+			if (!planningComplete) {
+				const planningResult = planningSession.runNextStage();
+				if (planningResult.status === 'pending') return planningResult;
+				planningComplete = true;
+				plannedJob = planningResult.job;
+				if (plannedJob === null) return { preparedJobEvent: null, status: 'complete' };
+				return { status: 'pending' };
+			}
+			if (plannedJob === null) {
+				throw new Error('Bridge worker Review render job planning completed without a job.');
+			}
+			return {
+				preparedJobEvent: prepareBridgeWorkerReviewPierreRenderJobEventFromJob({
+					job: plannedJob,
+					publicationSequence: props.publicationSequence,
+					workerDerivationEpoch: props.workerDerivationEpoch,
+				}),
+				status: 'complete',
+			};
+		},
+	};
 }
 
-export function commitBridgeWorkerReviewContentReadySlicePatch(
-	props: CommitBridgeWorkerReviewContentReadySlicePatchProps,
-): BridgeWorkerReviewContentReadySlicePatchCommit {
+export function commitBridgeWorkerReviewContentReadyRenderPatch(
+	props: CommitBridgeWorkerReviewContentReadyRenderPatchProps,
+): BridgeWorkerReviewContentReadyRenderPatchCommit {
 	const contentReadyResult = props.store.actions.applyContentReady({
 		itemId: props.preparedJobEvent.message.job.itemId,
 		contentCacheKey: props.preparedJobEvent.message.job.contentCacheKey,
 	});
 	const slicePatchEvent = props.store.actions.takePendingSlicePatchEvent({
-		epoch: props.epoch,
-		sequence: props.sequence,
+		epoch: props.workerDerivationEpoch,
+		sequence: props.publicationSequence,
 	});
+	const reviewRenderPatches = bridgeWorkerReviewRenderPatchesFromSlicePatchEvent(slicePatchEvent);
 
 	return {
 		touchedKeys: contentReadyResult.touchedKeys,
-		preparedMessage: prepareBridgeWorkerStructuredMessage({
-			message: assertBridgeWorkerSlicePatchEvent(slicePatchEvent),
-			declaredFields: [],
+		preparedMessage: prepareBridgeWorkerReviewRenderPatchEvent({
+			patches: reviewRenderPatches,
+			publicationSequence: props.publicationSequence,
+			workerDerivationEpoch: props.workerDerivationEpoch,
 		}),
 	};
 }
 
-function assertBridgeWorkerSlicePatchEvent(
+export function prepareBridgeWorkerReviewRenderPatchEvent(props: {
+	readonly patches: readonly BridgeWorkerReviewRenderPatch[];
+	readonly publicationSequence: number;
+	readonly workerDerivationEpoch: number;
+}): PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewRenderPatchEvent> {
+	return prepareBridgeWorkerStructuredMessage({
+		message: bridgeWorkerReviewRenderPatchEventSchema.parse({
+			direction: 'serverWorkerToMain',
+			kind: 'reviewRenderPatch',
+			patches: props.patches,
+			publicationSequence: props.publicationSequence,
+			surface: 'review',
+			transferDescriptors: [],
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			workerDerivationEpoch: props.workerDerivationEpoch,
+		}),
+		declaredFields: [],
+	});
+}
+
+export function bridgeWorkerReviewRenderPatchesFromSlicePatchEvent(
 	event: BridgeWorkerServerToMainMessage | null,
-): BridgeWorkerServerToMainMessage {
+): readonly BridgeWorkerReviewRenderPatch[] {
 	if (event === null) {
-		throw new Error('Bridge worker content-ready commit produced no slice patch event.');
+		throw new Error('Bridge worker Review content-ready commit produced no render patch event.');
 	}
-	return event;
+	if (event.kind !== 'slicePatch') {
+		throw new Error('Bridge worker Review content-ready commit produced an invalid patch event.');
+	}
+	return event.patches.map((patch): BridgeWorkerReviewRenderPatch => {
+		if (patch.slice !== 'rowPaint' && patch.slice !== 'contentAvailability') {
+			throw new Error('Bridge worker Review content-ready commit produced a non-render patch.');
+		}
+		return patch;
+	});
 }

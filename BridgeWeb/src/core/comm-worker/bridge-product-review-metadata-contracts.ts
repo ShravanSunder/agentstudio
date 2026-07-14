@@ -32,7 +32,7 @@ const bridgeProductReviewMetadataLoadedBySchema = z.enum([
 	'replacement',
 ]);
 
-const BRIDGE_PRODUCT_MAXIMUM_REVIEW_METADATA_WINDOW_ENTRY_COUNT = 4_096;
+export const BRIDGE_PRODUCT_MAXIMUM_REVIEW_METADATA_WINDOW_ENTRY_COUNT = 4_096;
 
 const bridgeProductReviewItemWindowSchema = z
 	.object({
@@ -78,7 +78,7 @@ const bridgeProductReviewTreeWindowSchema = z
 		});
 	});
 
-const bridgeProductReviewSourceEndpointSchema = z
+export const bridgeProductReviewSourceEndpointSchema = z
 	.object({
 		contentSetHash: bridgeProductOpaqueReferenceSchema.nullable().optional(),
 		createdAtUnixMilliseconds: bridgeProductNonnegativeSequenceSchema,
@@ -107,7 +107,7 @@ const bridgeProductReviewViewFilterSchema = z
 	})
 	.strict();
 
-const bridgeProductReviewQuerySchema = z
+export const bridgeProductReviewQuerySchema = z
 	.object({
 		baseEndpointId: bridgeProductIdentifierSchema.nullable(),
 		comparisonSemantics: z.enum([

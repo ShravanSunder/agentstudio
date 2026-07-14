@@ -114,13 +114,12 @@ extension WebKitSerializedTests {
             )
 
             #expect(controller.schemeCommandDispatcher.telemetryRecorder == nil)
-            #expect(controller.schemeCommandDispatcher.telemetryIngestor == nil)
             #expect(errorCode == -32_601)
             #expect(await recorder.samples().isEmpty)
         }
 
-        @Test("IPC telemetry flush failure does not return a flushed success result")
-        func ipcTelemetryFlushFailure_doesNotReturnFlushedSuccessResult() async {
+        @Test("IPC telemetry flush reports disabled without recorder fallback")
+        func ipcTelemetryFlushReportsDisabledWithoutRecorderFallback() async throws {
             let recorder = BridgeTelemetryRecorderSpy()
             await recorder.setDrainFailure()
             let controller = BridgePaneController(
@@ -130,9 +129,11 @@ extension WebKitSerializedTests {
             )
             defer { controller.teardown() }
 
-            await #expect(throws: BridgeTelemetryRecorderSpy.Failure.self) {
-                _ = try await controller.flushTelemetryForIPC()
-            }
+            let result = try await controller.flushTelemetryForIPC()
+
+            #expect(result.kind == .unavailable)
+            #expect(result.unavailableReason == .disabled)
+            #expect(result.report == nil)
         }
     }
 }

@@ -1,5 +1,6 @@
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
+	type BridgeWorkerHealthEvent,
 	type BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
 
@@ -54,7 +55,9 @@ export function buildBridgeWorkerRuntimeCommandFailedHealthEvent(props: {
 	};
 }
 
-export function buildBridgeWorkerFileMetadataFailureHealthEvent(): BridgeWorkerServerToMainMessage {
+export function buildBridgeWorkerFileMetadataFailureHealthEvent(
+	diagnostic?: BridgeWorkerHealthEvent['diagnostic'],
+): BridgeWorkerServerToMainMessage {
 	return {
 		direction: 'serverWorkerToMain',
 		kind: 'health',
@@ -62,6 +65,7 @@ export function buildBridgeWorkerFileMetadataFailureHealthEvent(): BridgeWorkerS
 		status: 'degraded',
 		transferDescriptors: [],
 		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		...(diagnostic === undefined ? {} : { diagnostic }),
 	};
 }
 

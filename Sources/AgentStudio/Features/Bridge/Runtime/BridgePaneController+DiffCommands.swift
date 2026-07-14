@@ -5,11 +5,6 @@ private let bridgeDiffCommandLogger = Logger(subsystem: "com.agentstudio", categ
 private let bridgeReviewStartupVisibleItemLimit = 80
 private let bridgeReviewMetadataWindowItemLimit = 80
 
-struct BridgeReviewPackageLoadData {
-    let package: BridgeReviewPackage
-    let delta: BridgeReviewDelta?
-}
-
 @MainActor
 extension BridgePaneController: BridgeRuntimeCommandHandling {
     func scheduleInitialReviewPackageLoadIfPossible() {
@@ -150,6 +145,10 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             return .success(commandId: commandId)
         } catch BridgeProviderFailure.providerUnavailable {
             paneState.diff.setStatus(.error, error: "providerUnavailable")
+            await productSchemeProvider?.publish(
+                availability: .failed,
+                traceContext: packageTraceContext
+            )
             await deliverReviewProtocolErrorFrame(
                 streamId: reset.streamId,
                 generation: reset.reviewGeneration.rawValue,
@@ -163,6 +162,10 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 "Bridge review package load failed: \(failureSummary, privacy: .public)"
             )
             paneState.diff.setStatus(.error, error: failureSummary)
+            await productSchemeProvider?.publish(
+                availability: .failed,
+                traceContext: packageTraceContext
+            )
             await deliverReviewProtocolErrorFrame(
                 streamId: reset.streamId,
                 generation: reset.reviewGeneration.rawValue,
@@ -175,6 +178,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
 
     private func beginReviewPackageLoad(artifact: DiffArtifact) async -> ReviewPackageLoadReset {
         paneState.diff.setStatus(.loading)
+        await productSchemeProvider?.publish(availability: .loading)
         paneState.diff.advanceEpoch()
         let reviewGeneration = nextReviewGeneration.next()
         nextReviewGeneration = reviewGeneration
@@ -692,6 +696,11 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
 
     private func shouldRefreshReviewPackage(for event: PaneFilesystemContextEvent) -> Bool {
         guard let currentPackage = paneState.diff.packageMetadata else { return false }
+        guard
+            !shouldSuppressReviewProtocolProduction(
+                generation: currentPackage.reviewGeneration.rawValue
+            )
+        else { return false }
         let context: PaneFilesystemContext
         switch event {
         case .cwdSubtreeChanged(let eventContext, let paths, _):
@@ -982,11 +991,4 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             providerIdentity: providerIdentity
         )
     }
-}
-
-private struct ReviewEndpointSelection {
-    let base: BridgeSourceEndpoint
-    let head: BridgeSourceEndpoint
-    let comparisonSemantics: BridgeReviewQuery.ComparisonSemantics
-    let pathScope: [String]
 }

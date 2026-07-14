@@ -6,8 +6,7 @@ import { promisify } from 'node:util';
 
 import { describe, expect, test } from 'vitest';
 
-import type { WorktreeFileDescriptor } from '../../src/features/worktree-file/models/worktree-file-protocol-models.js';
-import { reconcileOpenFileStateWithFrames } from '../../src/file-viewer/bridge-file-viewer-state.js';
+import type { WorktreeFileDescriptor } from './bridge-worktree-dev-file-fixture-contracts.js';
 import {
 	createBridgeWorktreeDevProvider,
 	type BridgeWorktreeDevProvider,
@@ -108,12 +107,11 @@ describe('Bridge worktree dev provider source-identity stability', () => {
 			expect(reopenedReadme.contentHandle).toBe(openReadme.contentHandle);
 			expect(secondSurface.source.sourceCursor).toBe(firstSurface.source.sourceCursor);
 
-			const reconciled = reconcileOpenFileStateWithFrames({
-				currentOpenFileState: { status: 'ready', path: 'README.md', descriptor: openReadme },
-				frames: secondSurface.frames,
-				openFileRequestIdRef: { current: 0 },
-			});
-			expect(reconciled.status).toBe('ready');
+			const readmeInvalidation = secondSurface.frames.find(
+				(frame) =>
+					frame.frameKind === 'worktree.fileInvalidated' && frame.invalidation.path === 'README.md',
+			);
+			expect(readmeInvalidation).toBeUndefined();
 		} finally {
 			await rm(repoRoot, { force: true, recursive: true });
 		}
@@ -143,12 +141,13 @@ describe('Bridge worktree dev provider source-identity stability', () => {
 			);
 			expect(invalidation).toBeDefined();
 
-			const reconciled = reconcileOpenFileStateWithFrames({
-				currentOpenFileState: { status: 'ready', path: 'README.md', descriptor: openReadme },
-				frames: secondSurface.frames,
-				openFileRequestIdRef: { current: 0 },
-			});
-			expect(reconciled.status).toBe('stale');
+			expect(invalidation?.frameKind).toBe('worktree.fileInvalidated');
+			if (invalidation?.frameKind !== 'worktree.fileInvalidated') {
+				return;
+			}
+			expect(invalidation.invalidation.latestDescriptor?.contentHash).not.toBe(
+				openReadme.contentHash,
+			);
 		} finally {
 			await rm(repoRoot, { force: true, recursive: true });
 		}
@@ -183,13 +182,6 @@ describe('Bridge worktree dev provider source-identity stability', () => {
 			}
 			expect(invalidation.invalidation.latestDescriptor).toBeUndefined();
 			expect(invalidation.invalidation.contentHandleIds).toContain(openReadme.contentHandle);
-
-			const reconciled = reconcileOpenFileStateWithFrames({
-				currentOpenFileState: { status: 'ready', path: 'README.md', descriptor: openReadme },
-				frames: secondSurface.frames,
-				openFileRequestIdRef: { current: 0 },
-			});
-			expect(reconciled.status).toBe('stale');
 		} finally {
 			await rm(repoRoot, { force: true, recursive: true });
 		}

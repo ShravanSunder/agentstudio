@@ -428,6 +428,51 @@ struct BridgePaneProductFileMetadataSourceTests {
         #expect(await harness.session.acknowledgeProducerLifecycle(acknowledgement))
     }
 
+    @Test("exact issued File descriptor derives demand priority from committed path membership")
+    func exactIssuedDescriptorDerivesCommittedDemandPriority() async throws {
+        // Arrange
+        let fixture = try ProductFileSourceFixture(fileCount: 1)
+        defer { fixture.remove() }
+        let source = fixture.makeSource()
+        let openSnapshot = try fixture.openSnapshot()
+        try await source.open(subscription: openSnapshot) { _ in }
+        let committedSnapshot = try fixture.updatedSnapshot(from: openSnapshot)
+        let collector = ProductFileMetadataEventCollector()
+        try await source.update(subscription: committedSnapshot) { event in
+            await collector.append(event)
+        }
+        let descriptor = try #require(
+            (await collector.events).compactMap(\.availableDescriptorForTest).first
+        )
+        let request = BridgeProductContentRequest.fileContent(
+            try fixture.contentRequest(descriptor: descriptor)
+        )
+        let coordinator = BridgePaneProductMetadataCoordinator(
+            fileMetadataSource: source,
+            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource()
+        )
+        await coordinator.apply(.subscriptionOpened(openSnapshot))
+        await coordinator.apply(
+            .subscriptionInterestsCommitted(
+                barrier: .init(
+                    subscriptionId: committedSnapshot.subscriptionId,
+                    subscriptionKind: committedSnapshot.subscriptionKind,
+                    workerDerivationEpoch: committedSnapshot.workerDerivationEpoch,
+                    interestRevision: committedSnapshot.interestRevision,
+                    interestSha256: committedSnapshot.interestSha256,
+                    updateId: "file-priority-update-1"
+                ),
+                subscription: committedSnapshot
+            )
+        )
+
+        // Act / Assert
+        #expect(await coordinator.contentDemandInterest(for: request) == .selected)
+
+        await coordinator.apply(.subscriptionCancelled(committedSnapshot))
+        #expect(await coordinator.contentDemandInterest(for: request) == .unspecified)
+    }
+
     @Test("cancelled interest materialization cannot resurrect a removed subscription")
     func cancelledMaterializationCannotResurrectRemovedSubscription() async throws {
         // Arrange

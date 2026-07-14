@@ -1,145 +1,181 @@
-import type { Dispatch, SetStateAction } from 'react';
 import { useEffect, useRef } from 'react';
 
-import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
-import type { BridgeReviewProjectionResult } from '../review-viewer/models/review-projection-models.js';
 import type {
-	BridgeReviewViewerRootSnapshot,
-	BridgeReviewViewerStoreActions,
-} from '../review-viewer/state/review-viewer-store.js';
-import {
-	clearReviewRefinementsHidingExplicitTarget,
-	itemIdForReviewFileNavigationTarget,
-	type BridgeReviewFileNavigationTarget,
-	type SelectedMarkdownPreviewState,
-} from './bridge-app-review-selection-state.js';
+	BridgeWorkerReviewDisplayItem,
+	BridgeWorkerSelectCommand,
+} from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-models.js';
 
+export type BridgeReviewNavigationSelectionSource = BridgeWorkerSelectCommand['selectedSource'];
+
+export interface BridgeReviewNavigationTarget {
+	readonly commandId: string;
+	readonly itemId: string | null;
+	readonly path: string | null;
+}
+
+export type BridgeReviewNavigationTargetResolution =
+	| { readonly status: 'none' }
+	| {
+			readonly itemId: string;
+			readonly status: 'accepted';
+			readonly target: BridgeReviewNavigationTarget;
+	  }
+	| {
+			readonly status: 'outsideAcceptedProjection';
+			readonly target: BridgeReviewNavigationTarget;
+	  };
+
 export interface UseBridgeReviewNavigationControllerProps {
-	readonly beginForegroundReviewSelection: (
-		itemId: string,
-		presentationTarget?: BridgeReviewFileNavigationTarget | null,
-	) => boolean;
-	readonly initialReviewFileTarget: BridgeReviewFileNavigationTarget | null;
+	readonly catalogRevision: number;
+	readonly clearReviewSelection: () => void;
+	readonly getReviewItem: (itemId: string) => BridgeWorkerReviewDisplayItem | undefined;
 	readonly isActive: boolean;
 	readonly navigationCommand: BridgeViewerNavigationCommand | undefined;
-	readonly projection: BridgeReviewProjectionResult | null;
-	readonly reviewPackage: BridgeReviewPackage | null;
-	readonly rootSnapshot: BridgeReviewViewerRootSnapshot;
+	readonly onTargetOutsideAcceptedProjection: (target: BridgeReviewNavigationTarget) => void;
+	readonly orderedItemIds: readonly string[];
+	readonly selectedItemId: string | null;
+	readonly selectInitialReviewItem: (
+		itemId: string,
+		selectedSource: BridgeReviewNavigationSelectionSource,
+	) => boolean | void;
 	readonly selectReviewItem: (
 		itemId: string,
-		presentationTarget?: BridgeReviewFileNavigationTarget | null,
-	) => boolean;
-	readonly setReviewRenderModeCodeView: () => void;
-	readonly setSelectedReviewItemId: (itemId: string | null) => void;
-	readonly setSelectedMarkdownPreviewState: Dispatch<
-		SetStateAction<SelectedMarkdownPreviewState | null>
-	>;
-	readonly viewerActions: BridgeReviewViewerStoreActions;
+		selectedSource: BridgeReviewNavigationSelectionSource,
+	) => boolean | void;
 }
 
 export function useBridgeReviewNavigationController(
 	props: UseBridgeReviewNavigationControllerProps,
 ): void {
 	const {
-		beginForegroundReviewSelection,
-		initialReviewFileTarget,
+		catalogRevision,
+		clearReviewSelection,
+		getReviewItem,
 		isActive,
 		navigationCommand,
-		projection,
-		reviewPackage,
-		rootSnapshot,
+		onTargetOutsideAcceptedProjection,
+		orderedItemIds,
+		selectedItemId,
+		selectInitialReviewItem,
 		selectReviewItem,
-		setReviewRenderModeCodeView,
-		setSelectedReviewItemId,
-		setSelectedMarkdownPreviewState,
-		viewerActions,
 	} = props;
-	const appliedNavigationCommandRef = useRef<BridgeViewerNavigationCommand | null>(null);
+	const appliedNavigationCommandIdRef = useRef<string | null>(null);
+	const pendingLocalSelectionItemIdRef = useRef<string | null>(null);
 
 	useEffect((): void => {
 		if (
 			!isActive ||
-			reviewPackage === null ||
-			projection === null ||
-			initialReviewFileTarget === null
+			navigationCommand === undefined ||
+			navigationCommand.context !== 'review' ||
+			appliedNavigationCommandIdRef.current === navigationCommand.commandId
 		) {
 			return;
 		}
-		const itemId = itemIdForReviewFileNavigationTarget({
-			reviewPackage,
-			target: initialReviewFileTarget,
+		const resolution = resolveBridgeReviewNavigationTarget({
+			getReviewItem,
+			navigationCommand,
+			orderedItemIds,
 		});
-		if (itemId === null) {
+		if (resolution.status === 'none') {
 			return;
 		}
-		if (
-			appliedNavigationCommandRef.current !== null &&
-			appliedNavigationCommandRef.current === navigationCommand
-		) {
+		if (resolution.status === 'outsideAcceptedProjection') {
+			onTargetOutsideAcceptedProjection(resolution.target);
 			return;
 		}
-		if (!projection.orderedItemIds.includes(itemId)) {
-			if (clearReviewRefinementsHidingExplicitTarget({ rootSnapshot, viewerActions })) {
-				appliedNavigationCommandRef.current = null;
-			}
-			return;
+		if (selectReviewItem(resolution.itemId, 'programmatic') !== false) {
+			appliedNavigationCommandIdRef.current = navigationCommand.commandId;
+			pendingLocalSelectionItemIdRef.current = resolution.itemId;
 		}
-		appliedNavigationCommandRef.current = navigationCommand ?? null;
-		selectReviewItem(itemId);
 	}, [
-		initialReviewFileTarget,
+		catalogRevision,
+		getReviewItem,
 		isActive,
 		navigationCommand,
-		projection,
-		reviewPackage,
-		rootSnapshot,
+		onTargetOutsideAcceptedProjection,
+		orderedItemIds,
 		selectReviewItem,
-		viewerActions,
 	]);
 
 	useEffect((): void => {
-		if (!isActive || reviewPackage === null || projection === null) {
+		if (!isActive) {
 			return;
 		}
+		if (selectedItemId !== null && orderedItemIds.includes(selectedItemId)) {
+			pendingLocalSelectionItemIdRef.current = null;
+			return;
+		}
+		const pendingLocalSelectionItemId = pendingLocalSelectionItemIdRef.current;
+		if (pendingLocalSelectionItemId !== null) {
+			if (orderedItemIds.includes(pendingLocalSelectionItemId)) {
+				return;
+			}
+			pendingLocalSelectionItemIdRef.current = null;
+		}
 		if (
-			rootSnapshot.selectedItemId !== null &&
-			projection.orderedItemIds.includes(rootSnapshot.selectedItemId)
+			navigationCommand?.context === 'review' &&
+			appliedNavigationCommandIdRef.current !== navigationCommand.commandId &&
+			bridgeReviewNavigationTargetForCommand(navigationCommand) !== null
 		) {
 			return;
 		}
-
-		const targetItemId =
-			initialReviewFileTarget === null
-				? null
-				: itemIdForReviewFileNavigationTarget({
-						reviewPackage,
-						target: initialReviewFileTarget,
-					});
-		const nextSelectedItemId =
-			targetItemId !== null && projection.orderedItemIds.includes(targetItemId)
-				? targetItemId
-				: (projection.orderedItemIds[0] ?? null);
-		if (rootSnapshot.selectedItemId === nextSelectedItemId) {
+		const firstProjectedItemId = orderedItemIds[0] ?? null;
+		if (firstProjectedItemId === null) {
+			pendingLocalSelectionItemIdRef.current = null;
+			if (selectedItemId !== null) {
+				clearReviewSelection();
+			}
 			return;
 		}
-
-		if (nextSelectedItemId === null) {
-			setSelectedReviewItemId(null);
-			setReviewRenderModeCodeView();
-		} else {
-			beginForegroundReviewSelection(nextSelectedItemId);
+		if (selectInitialReviewItem(firstProjectedItemId, 'programmatic') !== false) {
+			pendingLocalSelectionItemIdRef.current = firstProjectedItemId;
 		}
-		setSelectedMarkdownPreviewState(null);
 	}, [
-		beginForegroundReviewSelection,
-		initialReviewFileTarget,
+		catalogRevision,
+		clearReviewSelection,
 		isActive,
-		projection,
-		reviewPackage,
-		rootSnapshot.selectedItemId,
-		setReviewRenderModeCodeView,
-		setSelectedReviewItemId,
-		setSelectedMarkdownPreviewState,
+		navigationCommand,
+		orderedItemIds,
+		selectedItemId,
+		selectInitialReviewItem,
 	]);
+}
+
+export function resolveBridgeReviewNavigationTarget(props: {
+	readonly getReviewItem: (itemId: string) => BridgeWorkerReviewDisplayItem | undefined;
+	readonly navigationCommand: BridgeViewerNavigationCommand;
+	readonly orderedItemIds: readonly string[];
+}): BridgeReviewNavigationTargetResolution {
+	const target = bridgeReviewNavigationTargetForCommand(props.navigationCommand);
+	if (target === null) {
+		return { status: 'none' };
+	}
+	const targetItemId =
+		target.itemId ??
+		props.orderedItemIds.find((itemId): boolean => {
+			const item = props.getReviewItem(itemId);
+			const displayPath = item?.metadata.headPath ?? item?.metadata.basePath ?? null;
+			return displayPath !== null && displayPath === target.path;
+		}) ??
+		null;
+	if (targetItemId === null || !props.orderedItemIds.includes(targetItemId)) {
+		return { status: 'outsideAcceptedProjection', target };
+	}
+	return { itemId: targetItemId, status: 'accepted', target };
+}
+
+export function bridgeReviewNavigationTargetForCommand(
+	navigationCommand: BridgeViewerNavigationCommand,
+): BridgeReviewNavigationTarget | null {
+	if (navigationCommand.context !== 'review' || navigationCommand.target === undefined) {
+		return null;
+	}
+	const target = navigationCommand.target;
+	const path = target.targetKind === 'file' ? target.fileRef.path : (target.fileRef?.path ?? null);
+	return {
+		commandId: navigationCommand.commandId,
+		itemId: target.reviewItemId ?? null,
+		path,
+	};
 }

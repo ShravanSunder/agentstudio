@@ -9,6 +9,38 @@ import type {
 } from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker store', () => {
+	test('applies Review row splice removals and shifted upserts without stale rows', () => {
+		// Arrange
+		const store = createBridgeCommWorkerStore({
+			contentItems: [],
+			rows: [
+				{ id: 'row-a', index: 0, parentId: null },
+				{ id: 'row-b', index: 1, parentId: null },
+				{ id: 'row-c', index: 2, parentId: null },
+			],
+		});
+
+		// Act
+		store.actions.applyReviewRowMutationFact({
+			epoch: 3,
+			mutation: {
+				removedRowIds: ['row-b'],
+				rowUpserts: [
+					{ id: 'row-new', index: 1, parentId: null },
+					{ id: 'row-c', index: 2, parentId: 'row-new' },
+				],
+			},
+		});
+
+		// Assert
+		expect(store.getState().orderedIds).toEqual(['row-a', 'row-new', 'row-c']);
+		expect(store.getState().rowById.has('row-b')).toBe(false);
+		expect(store.getState().rowById.get('row-c')).toEqual({
+			id: 'row-c',
+			index: 2,
+			parentId: 'row-new',
+		});
+	});
 	test('normalizes worker state and rejects root snapshots getState payloads and package-shaped hot actions', () => {
 		const contentItem = makeWorkerReviewContentMetadata('item-2');
 		const store = createBridgeCommWorkerStore({
@@ -395,7 +427,7 @@ describe('Bridge comm worker store', () => {
 		expect(store.getState().contentMetadataByItemId.get('item-130')).toEqual(contentItems[129]);
 	});
 
-	test('repairs selected demand only when executable metadata reaches the current epoch', () => {
+	test('rearms selected demand from the selection epoch after independent source metadata', () => {
 		const store = createBridgeCommWorkerStore({
 			contentItems: [],
 			rows: [{ id: 'item-selected', parentId: null, index: 0 }],
@@ -403,31 +435,25 @@ describe('Bridge comm worker store', () => {
 		store.actions.applySelectedFact({ itemId: 'item-selected', epoch: 7 });
 		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 1 });
 
-		const staleResult = store.actions.applyReviewSourceUpdateFact({
+		const sourceResult = store.actions.applyReviewSourceUpdateFact({
 			contentItems: [makeWorkerReviewContentMetadata('item-selected')],
-			epoch: 6,
+			epoch: 2,
 			rows: [{ id: 'item-selected', parentId: null, index: 0 }],
 		});
-		const stalePatch = store.actions.takePendingSlicePatchEvent({ epoch: 6, sequence: 2 });
-		const currentResult = store.actions.applyReviewSourceUpdateFact({
-			contentItems: [makeWorkerReviewContentMetadata('item-selected')],
-			epoch: 8,
-			rows: [{ id: 'item-selected', parentId: null, index: 0 }],
+		const selectedDemand = store.actions.applySelectedSourceChurnFact({
+			itemId: 'item-selected',
 		});
-		const currentPatch = store.actions.takePendingSlicePatchEvent({ epoch: 8, sequence: 3 });
+		const patch = store.actions.takePendingSlicePatchEvent({ epoch: 2, sequence: 2 });
 
-		expect(staleResult.touchedKeys).toEqual(['sourceRows', 'sourceContentMetadata']);
-		expect(stalePatch).toBeNull();
+		expect(sourceResult.touchedKeys).toEqual(['sourceRows', 'sourceContentMetadata']);
 		expect(store.getState().visibleIds).toEqual([]);
 		expect(store.getState().availabilityByItemId.get('item-selected')).toBe('loading');
-		expect(store.getState().demandByKey.get('item-selected')).toBe('selected:8');
-		expect(currentResult.touchedKeys).toEqual([
-			'sourceRows',
-			'sourceContentMetadata',
-			'availability:item-selected',
-			'demand:item-selected',
-		]);
-		expect(currentPatch?.patches).toEqual([
+		expect(store.getState().demandByKey.get('item-selected')).toBe('selected:7');
+		expect(selectedDemand).toEqual({
+			selectedDemandEpoch: 7,
+			touchedKeys: ['availability:item-selected', 'demand:item-selected'],
+		});
+		expect(patch?.patches).toEqual([
 			{
 				slice: 'contentAvailability',
 				operation: 'upsert',
@@ -435,6 +461,40 @@ describe('Bridge comm worker store', () => {
 				payload: { state: 'loading' },
 			},
 		]);
+	});
+
+	test('preserves the newer selected demand epoch while rearming source churn', () => {
+		// Arrange
+		const store = createBridgeCommWorkerStore({
+			contentItems: [makeWorkerReviewContentMetadata('item-selected')],
+			rows: [{ id: 'item-selected', parentId: null, index: 0 }],
+		});
+		store.actions.applySelectedFact({ itemId: 'item-selected', epoch: 7 });
+		store.actions.applyContentReady({
+			contentCacheKey: 'review-ready-generation-7',
+			itemId: 'item-selected',
+		});
+		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 1 });
+
+		// Act
+		store.actions.applyReviewInvalidationFact({
+			epoch: 8,
+			itemIds: ['item-selected'],
+			pathHints: [],
+			reason: 'sourceChanged',
+			scope: 'items',
+		});
+		const selectedDemand = store.actions.applySelectedSourceChurnFact({
+			itemId: 'item-selected',
+		});
+
+		// Assert
+		expect(store.getState().demandByKey.get('item-selected')).toBe('selected:8');
+		expect(store.getState().availabilityByItemId.get('item-selected')).toBe('loading');
+		expect(selectedDemand).toEqual({
+			selectedDemandEpoch: 8,
+			touchedKeys: ['availability:item-selected', 'demand:item-selected'],
+		});
 	});
 
 	test('invalidates package and tree-window scopes without requiring fresh metadata', () => {
@@ -555,7 +615,8 @@ describe('Bridge comm worker store', () => {
 		});
 
 		store.actions.applyReviewSourceUpdateFact({
-			completeItemIds: ['item-1', 'row-only-item'],
+			completeContentItemIds: ['item-1'],
+			completeRowIds: ['item-1', 'row-only-item'],
 			contentItems: [makeWorkerReviewContentMetadata('item-1')],
 			epoch: 1,
 			resetComplete: false,
@@ -683,6 +744,7 @@ describe('Bridge comm worker store', () => {
 			],
 			epoch: 5,
 			rows: [{ id: 'file-text', parentId: null, index: 0 }],
+			selectedContentRequestChanged: false,
 		});
 		const nextState = store.getState();
 
@@ -721,6 +783,7 @@ describe('Bridge comm worker store', () => {
 			contentItems: [makeWorkerFileViewContentMetadata('file-1')],
 			epoch: 10,
 			rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			selectedContentRequestChanged: false,
 		});
 
 		expect(store.getState().availabilityByItemId.get('file-1')).toBe('loading');
@@ -760,6 +823,7 @@ describe('Bridge comm worker store', () => {
 			contentItems: [],
 			epoch: 14,
 			rows: [],
+			selectedContentRequestChanged: false,
 		});
 
 		expect(store.getState().paintReadyByItemId.get('file-1')).toBe('file-view:sha256:file-1');
@@ -809,6 +873,7 @@ describe('Bridge comm worker store', () => {
 			],
 			epoch: 12,
 			rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			selectedContentRequestChanged: false,
 		});
 
 		expect(store.getState().paintReadyByItemId.has('file-1')).toBe(false);

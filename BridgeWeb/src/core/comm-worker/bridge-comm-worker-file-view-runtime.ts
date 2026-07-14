@@ -96,6 +96,12 @@ export async function fetchSelectedBridgeWorkerFileViewContentReadyResource(
 			...(props.signal === undefined ? {} : { signal: props.signal }),
 		});
 	} catch {
+		if (
+			props.signal?.aborted === true ||
+			!isSelectedFileViewContentReadyPreparationCurrent(props)
+		) {
+			return { status: 'stale' };
+		}
 		return { reason: 'load_failed', status: 'terminal', state: 'failed' };
 	}
 	if (!isSelectedFileViewContentReadyPreparationCurrent(props)) {

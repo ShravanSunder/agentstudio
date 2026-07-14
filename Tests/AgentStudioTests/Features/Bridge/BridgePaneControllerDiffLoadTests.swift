@@ -163,6 +163,64 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         )
     }
 
+    @Test("File viewer mode suppresses filesystem Review refreshes until Review is active")
+    func fileViewerModeSuppressesFilesystemReviewRefreshesUntilReviewIsActive() async throws {
+        let fixture = makeRefreshRevisionFixture()
+        defer { fixture.controller.teardown() }
+        let loadResult = await fixture.controller.handleDiffCommand(
+            .loadDiff(
+                DiffArtifact(
+                    diffId: UUIDv7.generate(),
+                    worktreeId: fixture.headEndpoint.worktreeId,
+                    patchData: Data()
+                )
+            ),
+            commandId: fixture.commandId,
+            correlationId: nil
+        )
+        let package = try #require(fixture.controller.paneState.diff.packageMetadata)
+        #expect(loadResult == .success(commandId: fixture.commandId))
+        await fixture.controller.handleCommittedProductActiveViewerModeUpdate(
+            sessionId: "filesystem-refresh-mode-session",
+            sequence: 1,
+            mode: .file,
+            activeSource: BridgeActiveViewerSource(
+                protocolId: .worktreeFile,
+                streamId: "product-file-stream",
+                generation: 1
+            )
+        )
+        #expect(
+            fixture.controller.shouldSuppressReviewProtocolProduction(
+                generation: package.reviewGeneration.rawValue
+            )
+        )
+        await setRefreshComparison(fixture, changedFile: fixture.refreshedFile)
+
+        await postRefreshEvent(fixture, path: "Sources/App/New.swift", batchSeq: 30)
+        await postRefreshEvent(fixture, path: "Sources/App/New.swift", batchSeq: 31)
+        await postRefreshEvent(fixture, path: "Sources/App/New.swift", batchSeq: 32)
+
+        #expect(await fixture.provider.recordedComparisonRequestsCount() == 1)
+        #expect(fixture.controller.activeReviewRefreshTask == nil)
+        #expect(fixture.controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-old"])
+
+        await fixture.controller.handleCommittedProductActiveViewerModeUpdate(
+            sessionId: "filesystem-refresh-mode-session",
+            sequence: 2,
+            mode: .review,
+            activeSource: BridgeActiveViewerSource(
+                protocolId: .review,
+                streamId: fixture.controller.reviewProtocolStreamId(),
+                generation: package.reviewGeneration.rawValue
+            )
+        )
+        await postRefreshEvent(fixture, path: "Sources/App/New.swift", batchSeq: 33)
+
+        #expect(await fixture.provider.recordedComparisonRequestsCount() == 2)
+        #expect(fixture.controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-new"])
+    }
+
     @Test("review intake reannounce without sequence gap does not rebuild an emitted generation")
     func reviewIntakeReannounceWithoutSequenceGapDoesNotRebuildEmittedGeneration() async throws {
         let telemetryRecorder = PackageBuildReasonTelemetryRecorder()

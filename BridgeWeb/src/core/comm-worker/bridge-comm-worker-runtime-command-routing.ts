@@ -30,13 +30,23 @@ export function bridgeWorkerRuntimeSchemeRpcCommandForMessage(
 				},
 				requestId: message.requestId,
 			};
+		case 'reviewIntakeReady':
+			return {
+				command: {
+					method: 'bridge.intakeReady',
+					params: {
+						protocolId: message.protocolId,
+						reason: message.reason,
+						streamId: message.streamId,
+					},
+				},
+				requestId: message.requestId,
+			};
 		case 'hover':
 		case 'fileQueryUpdate':
 		case 'fileDisplayResync':
 		case 'mode':
-		case 'reviewIntakeReady':
 		case 'reviewInvalidate':
-		case 'reviewSourceUpdate':
 		case 'select':
 		case 'viewport':
 			return null;
@@ -64,7 +74,6 @@ export function bridgeCommWorkerTelemetryLaneForMessage(
 		case 'markFileViewed':
 		case 'mode':
 		case 'reviewIntakeReady':
-		case 'reviewSourceUpdate':
 			return 'background';
 		default:
 			return assertNeverBridgeWorkerMessage(message);

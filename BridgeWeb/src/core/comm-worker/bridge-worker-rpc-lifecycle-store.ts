@@ -3,6 +3,8 @@ import type { BridgeWorkerMainToServerCommand } from './bridge-worker-contracts.
 type BridgeWorkerRpcCommand = BridgeWorkerMainToServerCommand['command'];
 type BridgeWorkerRpcRequestState = 'pending' | 'acked' | 'failed' | 'timed_out' | 'superseded';
 
+export type BridgeWorkerRpcSurface = 'fileView' | 'pane' | 'review';
+
 export interface BridgeWorkerRpcRollbackMetadata {
 	readonly kind: string;
 	readonly previousSelectedItemId?: string;
@@ -11,6 +13,7 @@ export interface BridgeWorkerRpcRollbackMetadata {
 export interface BridgeWorkerRpcRequestEnvelope {
 	readonly requestId: string;
 	readonly command: BridgeWorkerRpcCommand;
+	readonly surface: BridgeWorkerRpcSurface;
 	readonly state: BridgeWorkerRpcRequestState;
 	readonly optimisticIntentId?: string;
 	readonly rollbackMetadata?: BridgeWorkerRpcRollbackMetadata;
@@ -25,6 +28,7 @@ export interface BridgeWorkerRpcLifecycleSnapshot {
 export interface StartBridgeWorkerRpcRequestProps {
 	readonly requestId: string;
 	readonly command: BridgeWorkerRpcCommand;
+	readonly surface?: BridgeWorkerRpcSurface;
 	readonly optimisticIntentId?: string;
 	readonly rollbackMetadata?: BridgeWorkerRpcRollbackMetadata;
 }
@@ -43,19 +47,26 @@ export interface TimeoutBridgeWorkerRpcRequestProps {
 	readonly requestId: string;
 }
 
+export interface RollbackBridgeWorkerRpcRequestProps {
+	readonly requestId: string;
+}
+
 export interface BridgeWorkerRpcLifecycleStore {
+	readonly dispose: () => void;
 	readonly getSnapshot: () => BridgeWorkerRpcLifecycleSnapshot;
 	readonly getServerSnapshot: () => BridgeWorkerRpcLifecycleSnapshot;
 	readonly subscribe: (listener: () => void) => () => void;
 	readonly startRequest: (props: StartBridgeWorkerRpcRequestProps) => void;
 	readonly ackRequest: (props: AckBridgeWorkerRpcRequestProps) => void;
 	readonly failRequest: (props: FailBridgeWorkerRpcRequestProps) => void;
+	readonly rollbackRequest: (props: RollbackBridgeWorkerRpcRequestProps) => void;
 	readonly timeoutRequest: (props: TimeoutBridgeWorkerRpcRequestProps) => void;
 }
 
 export function createBridgeWorkerRpcLifecycleStore(): BridgeWorkerRpcLifecycleStore {
 	let snapshot: BridgeWorkerRpcLifecycleSnapshot = { requestsById: {} };
 	const listeners = new Set<() => void>();
+	let isDisposed = false;
 
 	const publish = (nextRequest: BridgeWorkerRpcRequestEnvelope): void => {
 		snapshot = {
@@ -78,18 +89,30 @@ export function createBridgeWorkerRpcLifecycleStore(): BridgeWorkerRpcLifecycleS
 	};
 
 	return {
+		dispose: (): void => {
+			if (isDisposed) return;
+			isDisposed = true;
+			listeners.clear();
+			snapshot = { requestsById: {} };
+		},
 		getSnapshot: (): BridgeWorkerRpcLifecycleSnapshot => snapshot,
 		getServerSnapshot: (): BridgeWorkerRpcLifecycleSnapshot => snapshot,
 		subscribe: (listener: () => void): (() => void) => {
+			if (isDisposed) return (): void => {};
 			listeners.add(listener);
 			return (): void => {
 				listeners.delete(listener);
 			};
 		},
 		startRequest: (props: StartBridgeWorkerRpcRequestProps): void => {
+			if (isDisposed) return;
+			if (snapshot.requestsById[props.requestId] !== undefined) {
+				throw new Error(`Bridge worker RPC request ${props.requestId} is already tracked.`);
+			}
 			const request: BridgeWorkerRpcRequestEnvelope = {
 				requestId: props.requestId,
 				command: props.command,
+				surface: props.surface ?? 'pane',
 				state: 'pending',
 				...(props.optimisticIntentId === undefined
 					? {}
@@ -103,6 +126,7 @@ export function createBridgeWorkerRpcLifecycleStore(): BridgeWorkerRpcLifecycleS
 			});
 		},
 		ackRequest: (props: AckBridgeWorkerRpcRequestProps): void => {
+			if (isDisposed) return;
 			const existing = readRequest(props.requestId);
 			publish({
 				...existing,
@@ -111,6 +135,7 @@ export function createBridgeWorkerRpcLifecycleStore(): BridgeWorkerRpcLifecycleS
 			});
 		},
 		failRequest: (props: FailBridgeWorkerRpcRequestProps): void => {
+			if (isDisposed) return;
 			const existing = readRequest(props.requestId);
 			publish({
 				...existing,
@@ -118,7 +143,15 @@ export function createBridgeWorkerRpcLifecycleStore(): BridgeWorkerRpcLifecycleS
 				reason: props.reason,
 			});
 		},
+		rollbackRequest: (props: RollbackBridgeWorkerRpcRequestProps): void => {
+			if (isDisposed || snapshot.requestsById[props.requestId] === undefined) return;
+			const nextRequestsById = { ...snapshot.requestsById };
+			delete nextRequestsById[props.requestId];
+			snapshot = { requestsById: nextRequestsById };
+			for (const listener of listeners) listener();
+		},
 		timeoutRequest: (props: TimeoutBridgeWorkerRpcRequestProps): void => {
+			if (isDisposed) return;
 			const existing = readRequest(props.requestId);
 			publish({
 				...existing,

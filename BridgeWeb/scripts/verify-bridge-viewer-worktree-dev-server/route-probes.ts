@@ -2,8 +2,8 @@ import type { Page, Route } from 'playwright';
 import { z } from 'zod';
 
 import {
-	bridgeWorktreeDevFileContentRouteMatchesHandle,
-	bridgeWorktreeDevFileContentRouteUsesOrigin,
+	parseBridgeWorktreeDevFileContentRouteRequest,
+	type BridgeWorktreeDevFileContentRouteRequest,
 } from '../bridge-worktree-dev-reload-diagnostics.ts';
 import {
 	buildReviewContentRouteDeltaProof,
@@ -73,22 +73,25 @@ export function mapBridgeTelemetrySampleToProof(
 export async function installFileContentRouteGate(props: {
 	readonly gate: Deferred<void>;
 	readonly failFirstHit?: boolean;
-	readonly failFirstHitContentHandle?: string;
+	readonly failFirstHitDescriptorId?: string;
 	readonly page: Page;
 	readonly pathPattern?: string;
 }): Promise<WorktreeFileContentRouteProbe> {
 	const hitUrls: string[] = [];
+	const hits: BridgeWorktreeDevFileContentRouteRequest[] = [];
 	const foreignHitUrls: string[] = [];
-	const pathPattern = props.pathPattern ?? '**/__bridge-worktree/file-content/**';
+	const pathPattern = props.pathPattern ?? '**/__bridge-product/content**';
 	let failedFirstHit = false;
 	const routeHandler = async (route: Route): Promise<void> => {
-		const requestUrl = route.request().url();
-		if (
-			!bridgeWorktreeDevFileContentRouteUsesOrigin({
-				expectedOrigin: worktreeDevServerOrigin,
-				url: requestUrl,
-			})
-		) {
+		const request = route.request();
+		const requestUrl = request.url();
+		const hit = parseBridgeWorktreeDevFileContentRouteRequest({
+			expectedOrigin: worktreeDevServerOrigin,
+			method: request.method(),
+			postData: request.postData(),
+			url: requestUrl,
+		});
+		if (hit === null) {
 			foreignHitUrls.push(requestUrl);
 			await route.fulfill({
 				status: 599,
@@ -97,14 +100,11 @@ export async function installFileContentRouteGate(props: {
 			});
 			return;
 		}
+		hits.push(hit);
 		hitUrls.push(requestUrl);
 		const failFirstHitMatchesRequest =
-			props.failFirstHitContentHandle === undefined ||
-			bridgeWorktreeDevFileContentRouteMatchesHandle({
-				expectedContentHandle: props.failFirstHitContentHandle,
-				expectedOrigin: worktreeDevServerOrigin,
-				url: requestUrl,
-			});
+			props.failFirstHitDescriptorId === undefined ||
+			hit.descriptorId === props.failFirstHitDescriptorId;
 		if (props.failFirstHit === true && !failedFirstHit && failFirstHitMatchesRequest) {
 			failedFirstHit = true;
 			await route.fulfill({
@@ -125,6 +125,7 @@ export async function installFileContentRouteGate(props: {
 		foreignHitCount: (): number => foreignHitUrls.length,
 		foreignHitUrls: (): readonly string[] => foreignHitUrls,
 		hitCount: (): number => hitUrls.length,
+		hits: (): readonly BridgeWorktreeDevFileContentRouteRequest[] => hits,
 		hitUrls: (): readonly string[] => hitUrls,
 	};
 }

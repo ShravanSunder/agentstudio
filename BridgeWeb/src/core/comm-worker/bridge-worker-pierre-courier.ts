@@ -1,30 +1,17 @@
-import type {
-	BridgeWorkerPierreBudgetClass,
-	BridgeWorkerPierreRenderJob,
-} from './bridge-worker-pierre-render-job.js';
-
-export interface BridgeWorkerPierreCourierReceipt {
-	readonly status: 'enqueued';
-	readonly itemId: string;
-	readonly payloadByteLength: number;
-	readonly budgetClass: BridgeWorkerPierreBudgetClass;
-}
+import type { BridgeWorkerPierreRenderJob } from './bridge-worker-pierre-render-job.js';
 
 export interface CreateBridgeWorkerPierreCourierProps {
-	readonly enqueuePierreRenderJob: (
-		job: BridgeWorkerPierreRenderJob,
-	) => BridgeWorkerPierreCourierReceipt;
+	readonly submitPierreRenderJob: (job: BridgeWorkerPierreRenderJob) => void;
 }
 
 export interface BridgeWorkerPierreCourier {
-	readonly enqueue: (job: BridgeWorkerPierreRenderJob) => BridgeWorkerPierreCourierReceipt;
+	readonly submit: (job: BridgeWorkerPierreRenderJob) => void;
 }
 
 export function createBridgeWorkerPierreCourier(
 	props: CreateBridgeWorkerPierreCourierProps,
 ): BridgeWorkerPierreCourier {
 	return {
-		enqueue: (job: BridgeWorkerPierreRenderJob): BridgeWorkerPierreCourierReceipt =>
-			props.enqueuePierreRenderJob(job),
+		submit: (job: BridgeWorkerPierreRenderJob): void => props.submitPierreRenderJob(job),
 	};
 }

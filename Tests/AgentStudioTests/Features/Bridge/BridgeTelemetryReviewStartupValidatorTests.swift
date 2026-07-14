@@ -7,11 +7,11 @@ import Testing
 struct BridgeTelemetryReviewStartupValidatorTests {
     @Test
     func validatorAcceptsReviewStartupMetadataAndContentTelemetry() {
-        let validator = BridgeTelemetryBatchValidator(
+        let validator = BridgeTelemetryEventValidator(
             scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
         )
         let acceptedBatches = [
-            batchWithWebSample(
+            sampleWithWebAttributes(
                 WebSampleProps(
                     name: "performance.bridge.web.review_metadata_apply",
                     phase: "review_metadata_apply",
@@ -26,7 +26,7 @@ struct BridgeTelemetryReviewStartupValidatorTests {
                     extraNumbers: ["agentstudio.bridge.review.item_count": 527]
                 )
             ),
-            batchWithWebSample(
+            sampleWithWebAttributes(
                 WebSampleProps(
                     name: "performance.bridge.web.review_metadata_apply",
                     phase: "review_metadata_apply",
@@ -40,7 +40,7 @@ struct BridgeTelemetryReviewStartupValidatorTests {
                     ]
                 )
             ),
-            batchWithWebSample(
+            sampleWithWebAttributes(
                 WebSampleProps(
                     name: "performance.bridge.web.selected_content_ready",
                     phase: "selected_content_ready",
@@ -55,7 +55,7 @@ struct BridgeTelemetryReviewStartupValidatorTests {
                     extraNumbers: ["agentstudio.bridge.content.resource_count": 2]
                 )
             ),
-            batchWithWebSample(
+            sampleWithWebAttributes(
                 WebSampleProps(
                     name: "performance.bridge.web.selection_commit",
                     phase: "selection_commit",
@@ -71,18 +71,18 @@ struct BridgeTelemetryReviewStartupValidatorTests {
             ),
         ]
 
-        for batch in acceptedBatches {
-            #expect(validator.validate(batch) == .accepted(batch))
+        for sample in acceptedBatches {
+            #expect(validator.validate(sample) == .accepted)
         }
     }
 
     @Test
     func validatorRejectsLegacyReviewPackageBodyTelemetry() {
-        let validator = BridgeTelemetryBatchValidator(
+        let validator = BridgeTelemetryEventValidator(
             scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
         )
         let rejectedBatches = [
-            batchWithWebSample(
+            sampleWithWebAttributes(
                 WebSampleProps(
                     name: "performance.bridge.web.review_package_first_chunk",
                     phase: "review_package_first_chunk",
@@ -97,7 +97,7 @@ struct BridgeTelemetryReviewStartupValidatorTests {
                     ]
                 )
             ),
-            batchWithWebSample(
+            sampleWithWebAttributes(
                 WebSampleProps(
                     name: "performance.bridge.web.review_package_body_load",
                     phase: "review_package_body_load",
@@ -112,7 +112,7 @@ struct BridgeTelemetryReviewStartupValidatorTests {
                     ]
                 )
             ),
-            batchWithWebSample(
+            sampleWithWebAttributes(
                 WebSampleProps(
                     name: "performance.bridge.web.review_package_parse",
                     phase: "review_package_parse",
@@ -126,8 +126,8 @@ struct BridgeTelemetryReviewStartupValidatorTests {
             ),
         ]
 
-        for batch in rejectedBatches {
-            #expect(validator.validate(batch) == .dropped(.unsafeEventName))
+        for sample in rejectedBatches {
+            #expect(validator.validate(sample) == .dropped(.unsafeEventName))
         }
     }
 
@@ -142,7 +142,7 @@ struct BridgeTelemetryReviewStartupValidatorTests {
         var extraNumbers: [String: Double] = [:]
     }
 
-    private func batchWithWebSample(_ props: WebSampleProps) -> BridgeTelemetryBatch {
+    private func sampleWithWebAttributes(_ props: WebSampleProps) -> BridgeTelemetrySample {
         var stringAttributes = [
             "agentstudio.bridge.phase": props.phase,
             "agentstudio.bridge.plane": props.plane,
@@ -151,20 +151,14 @@ struct BridgeTelemetryReviewStartupValidatorTests {
             "agentstudio.bridge.transport": props.transport,
         ]
         stringAttributes.merge(props.extraStrings) { _, new in new }
-        return BridgeTelemetryBatch(
-            schemaVersion: 1,
-            scenario: "review_startup_content_stream_v1",
-            samples: [
-                BridgeTelemetrySample(
-                    scope: .web,
-                    name: props.name,
-                    durationMilliseconds: 1.25,
-                    traceContext: nil,
-                    stringAttributes: stringAttributes,
-                    numericAttributes: props.extraNumbers,
-                    booleanAttributes: [:]
-                )
-            ]
+        return BridgeTelemetrySample(
+            scope: .web,
+            name: props.name,
+            durationMilliseconds: 1.25,
+            traceContext: nil,
+            stringAttributes: stringAttributes,
+            numericAttributes: props.extraNumbers,
+            booleanAttributes: [:]
         )
     }
 }

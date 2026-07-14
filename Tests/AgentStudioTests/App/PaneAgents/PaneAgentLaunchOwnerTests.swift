@@ -418,7 +418,7 @@ private struct PaneAgentTestBridgePort: AppIPCBridgePort {
         throw AppIPCBridgeError(reason: .contentUnavailable)
     }
 
-    func telemetrySnapshot(_: IPCHandle) throws -> IPCBridgeTelemetrySnapshotResult {
+    func telemetrySnapshot(_: IPCHandle) async throws -> IPCBridgeTelemetrySnapshotResult {
         throw AppIPCBridgeError(reason: .targetNotFound)
     }
 

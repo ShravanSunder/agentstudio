@@ -45,7 +45,13 @@ function bridgeCodeViewInitialSeedSignature(props: {
 	readonly seedItemIds?: readonly string[] | undefined;
 }): string {
 	if (props.seedItemIds === undefined) {
-		return 'all';
+		return props.projection.orderedItemIds
+			.map((itemId): string =>
+				[itemId, bridgeCodeViewDescriptorPlaceholderSignature(props.reviewPackage.itemsById[itemId])].join(
+					'\u001e',
+				),
+			)
+			.join('\u001d');
 	}
 	return props.seedItemIds
 		.map((itemId): string => {

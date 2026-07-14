@@ -4,8 +4,10 @@ import { describe, expect, test } from 'vitest';
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
 import { BridgeViewerResizableRailLayout } from '../../app/bridge-viewer-resizable-rail-layout.js';
 import {
+	createBridgeReviewItemRegistry,
 	readBridgeReviewItemRegistryDiagnostics,
 	resetBridgeReviewItemRegistryDiagnosticsForTests,
+	type BridgeReviewItemRegistry,
 } from '../../foundation/review-package/bridge-review-item-registry.js';
 import {
 	makeBridgeReviewItem,
@@ -19,13 +21,19 @@ import { BridgeCodeViewPanel } from '../code-view/bridge-code-view-panel.js';
 import type { ReviewContentDemandTelemetry } from '../content/review-content-demand-types.js';
 import { BridgeMarkdownPreview } from '../markdown/bridge-markdown-preview.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
-import { BridgeReviewCanvasLoadingState, ReviewViewerShell } from './review-viewer-shell.js';
+import {
+	BridgeReviewCanvasLoadingState,
+	ReviewViewerShell,
+	type ReviewViewerShellProps,
+} from './review-viewer-shell.js';
 
 describe('review viewer shell', () => {
 	test('does not rebuild package registry facts when only selection changes', () => {
 		const reviewPackage = appendedReviewPackageForShell();
+		const presentationRegistry = createBridgeReviewItemRegistry({ reviewPackage });
 
-		ReviewViewerShell({
+		renderReviewViewerShellForTest({
+			presentationRegistry,
 			reviewPackage,
 			projection: projectionForPackage(reviewPackage),
 			selectedItemId: 'item-source',
@@ -34,7 +42,8 @@ describe('review viewer shell', () => {
 		});
 		resetBridgeReviewItemRegistryDiagnosticsForTests();
 
-		ReviewViewerShell({
+		renderReviewViewerShellForTest({
+			presentationRegistry,
 			reviewPackage,
 			projection: projectionForPackage(reviewPackage),
 			selectedItemId: 'item-added',
@@ -43,31 +52,37 @@ describe('review viewer shell', () => {
 		});
 
 		expect(readBridgeReviewItemRegistryDiagnostics()).toMatchObject({
-			cacheHitCount: 1,
+			cacheHitCount: 0,
 			fullBuildCount: 0,
 		});
 	});
 
-	test('builds registry facts at most once for repeated renders of one appended package batch', () => {
+	test('consumes one supplied registry across repeated renders of an appended package batch', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const appendedReviewPackage = appendedReviewPackageForShell(reviewPackage);
+		const presentationRegistry = createBridgeReviewItemRegistry({
+			reviewPackage: appendedReviewPackage,
+		});
 
 		resetBridgeReviewItemRegistryDiagnosticsForTests();
-		ReviewViewerShell({
+		renderReviewViewerShellForTest({
+			presentationRegistry,
 			reviewPackage: appendedReviewPackage,
 			projection: projectionForPackage(appendedReviewPackage),
 			selectedItemId: 'item-source',
 			onSelectItem: () => undefined,
 			selectedContentText: null,
 		});
-		ReviewViewerShell({
+		renderReviewViewerShellForTest({
+			presentationRegistry,
 			reviewPackage: appendedReviewPackage,
 			projection: projectionForPackage(appendedReviewPackage),
 			selectedItemId: 'item-added',
 			onSelectItem: () => undefined,
 			selectedContentText: null,
 		});
-		ReviewViewerShell({
+		renderReviewViewerShellForTest({
+			presentationRegistry,
 			reviewPackage: appendedReviewPackage,
 			projection: projectionForPackage(appendedReviewPackage),
 			selectedItemId: 'item-source',
@@ -76,8 +91,8 @@ describe('review viewer shell', () => {
 		});
 
 		expect(readBridgeReviewItemRegistryDiagnostics()).toMatchObject({
-			cacheHitCount: 2,
-			fullBuildCount: 1,
+			cacheHitCount: 0,
+			fullBuildCount: 0,
 		});
 	});
 
@@ -100,7 +115,7 @@ describe('review viewer shell', () => {
 				changeKinds: ['modified' as const],
 			},
 		};
-		const element = ReviewViewerShell({
+		const element = renderReviewViewerShellForTest({
 			reviewPackage,
 			projection: projectionForPackage(reviewPackage),
 			selectedItemId: 'item-source',
@@ -124,7 +139,7 @@ describe('review viewer shell', () => {
 
 	test('renders projection and tree refinement controls for fast review view switching', () => {
 		const reviewPackage = makeBridgeReviewPackage();
-		const element = ReviewViewerShell({
+		const element = renderReviewViewerShellForTest({
 			reviewPackage,
 			projection: projectionForPackage(reviewPackage),
 			selectedItemId: 'item-source',
@@ -163,7 +178,7 @@ describe('review viewer shell', () => {
 				providerIdentity: 'working-tree:worktree-1',
 			},
 		};
-		const element = ReviewViewerShell({
+		const element = renderReviewViewerShellForTest({
 			reviewPackage,
 			projection: projectionForPackage(reviewPackage),
 			selectedItemId: 'item-source',
@@ -179,7 +194,7 @@ describe('review viewer shell', () => {
 	test('keeps projection controls in compact rail chrome without a top app bar or footer stats', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const element = requireTestElement(
-			ReviewViewerShell({
+			renderReviewViewerShellForTest({
 				reviewPackage,
 				projection: projectionForPackage(reviewPackage),
 				selectedItemId: 'item-source',
@@ -234,7 +249,7 @@ describe('review viewer shell', () => {
 	test('renders custom review controls without native select widgets', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const element = requireTestElement(
-			ReviewViewerShell({
+			renderReviewViewerShellForTest({
 				reviewPackage,
 				projection: projectionForPackage(reviewPackage),
 				selectedItemId: 'item-source',
@@ -251,7 +266,7 @@ describe('review viewer shell', () => {
 	test('groups right rail controls as compact sidebar toolbar chrome', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const element = requireTestElement(
-			ReviewViewerShell({
+			renderReviewViewerShellForTest({
 				reviewPackage,
 				projection: projectionForPackage(reviewPackage),
 				selectedItemId: 'item-source',
@@ -286,7 +301,7 @@ describe('review viewer shell', () => {
 	test('uses the dark right-sidebar review layout', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const element = requireTestElement(
-			ReviewViewerShell({
+			renderReviewViewerShellForTest({
 				reviewPackage,
 				projection: projectionForPackage(reviewPackage),
 				selectedItemId: 'item-source',
@@ -313,7 +328,7 @@ describe('review viewer shell', () => {
 	test('keeps CodeView and right rail scrolling owned by separate containers', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const element = requireTestElement(
-			ReviewViewerShell({
+			renderReviewViewerShellForTest({
 				reviewPackage,
 				projection: projectionForPackage(reviewPackage),
 				selectedItemId: 'item-source',
@@ -342,7 +357,7 @@ describe('review viewer shell', () => {
 	test('routes review tree content through the resizable right rail slot contract', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const element = requireTestElement(
-			ReviewViewerShell({
+			renderReviewViewerShellForTest({
 				reviewPackage,
 				projection: projectionForPackage(reviewPackage),
 				selectedItemId: 'item-source',
@@ -376,7 +391,7 @@ describe('review viewer shell', () => {
 			throw new Error('expected selected fixture item');
 		}
 		const element = requireTestElement(
-			ReviewViewerShell({
+			renderReviewViewerShellForTest({
 				reviewPackage,
 				projection: projectionForPackage(reviewPackage),
 				selectedItemId: 'item-source',
@@ -394,7 +409,7 @@ describe('review viewer shell', () => {
 	test('publishes zero-valued visible demand counts for browser verifier pressure proof', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const element = requireTestElement(
-			ReviewViewerShell({
+			renderReviewViewerShellForTest({
 				reviewPackage,
 				projection: projectionForPackage(reviewPackage),
 				selectedItemId: 'item-source',
@@ -478,7 +493,7 @@ describe('review viewer shell', () => {
 	test('renders selected markdown preview in the code canvas when worker output is ready', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const element = requireTestElement(
-			ReviewViewerShell({
+			renderReviewViewerShellForTest({
 				reviewPackage,
 				projection: projectionForPackage(reviewPackage),
 				selectedItemId: 'item-source',
@@ -499,7 +514,7 @@ describe('review viewer shell', () => {
 	test('keeps CodeView while markdown worker output is not ready', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const element = requireTestElement(
-			ReviewViewerShell({
+			renderReviewViewerShellForTest({
 				reviewPackage,
 				projection: projectionForPackage(reviewPackage),
 				selectedItemId: 'item-source',
@@ -517,7 +532,7 @@ describe('review viewer shell', () => {
 	test('publishes the active canvas branch for native startup diagnostics', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const codeElement = requireTestElement(
-			ReviewViewerShell({
+			renderReviewViewerShellForTest({
 				reviewPackage,
 				projection: projectionForPackage(reviewPackage),
 				selectedItemId: 'item-source',
@@ -526,7 +541,7 @@ describe('review viewer shell', () => {
 			}),
 		);
 		const markdownElement = requireTestElement(
-			ReviewViewerShell({
+			renderReviewViewerShellForTest({
 				reviewPackage,
 				projection: projectionForPackage(reviewPackage),
 				selectedItemId: 'item-source',
@@ -537,7 +552,7 @@ describe('review viewer shell', () => {
 			}),
 		);
 		const unavailableElement = requireTestElement(
-			ReviewViewerShell({
+			renderReviewViewerShellForTest({
 				reviewPackage,
 				projection: projectionForPackage(reviewPackage),
 				selectedItemId: 'item-source',
@@ -565,7 +580,7 @@ describe('review viewer shell', () => {
 	test('shows a shadcn canvas skeleton while markdown output is rendering', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const element = requireTestElement(
-			ReviewViewerShell({
+			renderReviewViewerShellForTest({
 				reviewPackage,
 				projection: projectionForPackage(reviewPackage),
 				selectedItemId: 'item-source',
@@ -627,7 +642,7 @@ describe('review viewer shell', () => {
 			},
 		};
 
-		const element = ReviewViewerShell({
+		const element = renderReviewViewerShellForTest({
 			reviewPackage,
 			projection: projectionForPackage(reviewPackage),
 			selectedItemId: 'item-source',
@@ -641,6 +656,17 @@ describe('review viewer shell', () => {
 		expect(findElementByTestId(element, 'bridge-review-top-header')).toBeNull();
 	});
 });
+
+function renderReviewViewerShellForTest(
+	props: Omit<ReviewViewerShellProps, 'presentationRegistry'> & {
+		readonly presentationRegistry?: BridgeReviewItemRegistry;
+	},
+): ReactElement {
+	const presentationRegistry =
+		props.presentationRegistry ??
+		createBridgeReviewItemRegistry({ reviewPackage: props.reviewPackage });
+	return ReviewViewerShell({ ...props, presentationRegistry });
+}
 
 function appendedReviewPackageForShell(
 	reviewPackage: BridgeReviewPackage = makeBridgeReviewPackage(),

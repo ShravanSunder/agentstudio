@@ -238,6 +238,49 @@ struct BridgeProductSessionContractTests {
         }
     }
 
+    @Test("Review intake readiness requires strict nullable identifiers and a null result")
+    func reviewIntakeReadyRequiresStrictNullableIdentifiersAndNullResult() throws {
+        let requestObject: [String: Any] = [
+            "method": "review.intake.ready",
+            "request": ["reason": "sequence_gap", "streamId": "review:stream-1"],
+        ]
+        let nullRequestObject: [String: Any] = [
+            "method": "review.intake.ready",
+            "request": ["reason": NSNull(), "streamId": NSNull()],
+        ]
+        let resultObject: [String: Any] = [
+            "method": "review.intake.ready",
+            "result": NSNull(),
+        ]
+
+        #expect(!decodingFails(BridgeProductCallRequest.self, object: requestObject))
+        #expect(!decodingFails(BridgeProductCallRequest.self, object: nullRequestObject))
+        #expect(!decodingFails(BridgeProductCallResult.self, object: resultObject))
+
+        for invalidRequest in [
+            ["reason": NSNull()],
+            ["streamId": NSNull()],
+            ["extra": true, "reason": NSNull(), "streamId": NSNull()],
+            ["reason": "", "streamId": NSNull()],
+            ["reason": "contains spaces", "streamId": NSNull()],
+            ["reason": NSNull(), "streamId": ""],
+            ["reason": NSNull(), "streamId": "contains spaces"],
+        ] as [[String: Any]] {
+            #expect(
+                decodingFails(
+                    BridgeProductCallRequest.self,
+                    object: ["method": "review.intake.ready", "request": invalidRequest]
+                )
+            )
+        }
+        #expect(
+            decodingFails(
+                BridgeProductCallResult.self,
+                object: ["method": "review.intake.ready", "result": [:]]
+            )
+        )
+    }
+
     @Test("resync carries independent surface epochs and rejects same-surface disagreement")
     func resyncCarriesIndependentSurfaceEpochs() throws {
         let corpus = try fixtureJSONObject(

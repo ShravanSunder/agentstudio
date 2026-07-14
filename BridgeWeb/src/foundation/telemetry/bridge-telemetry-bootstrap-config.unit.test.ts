@@ -6,24 +6,16 @@ describe('bridge telemetry bootstrap config', () => {
 	test('decodes enabled scope config from the Swift handshake', () => {
 		const config = decodeBridgeTelemetryBootstrapConfig({
 			enabledScopes: ['web', 'webkit'],
-			endpointUrl: 'agentstudio://telemetry/batch',
-			maxSamplesPerBatch: 64,
-			maxEncodedBatchBytes: 16_384,
-			minimumFlushIntervalMilliseconds: 250,
 			scenario: 'bridge-runtime',
 		});
 
 		expect(config?.enabledScopes.has('web')).toBe(true);
-		expect(config?.endpointUrl).toBe('agentstudio://telemetry/batch');
+		expect(config?.scenario).toBe('bridge-runtime');
 	});
 
 	test('decodes the native viewer-open anchor for time-to-first-interaction', () => {
 		const config = decodeBridgeTelemetryBootstrapConfig({
 			enabledScopes: ['web'],
-			endpointUrl: 'agentstudio://telemetry/batch',
-			maxSamplesPerBatch: 64,
-			maxEncodedBatchBytes: 16_384,
-			minimumFlushIntervalMilliseconds: 250,
 			scenario: 'bridge-runtime',
 			viewerOpenEpochUnixMillis: 1_750_000_000_000,
 			viewerOpenTraceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
@@ -40,10 +32,6 @@ describe('bridge telemetry bootstrap config', () => {
 		expect(
 			decodeBridgeTelemetryBootstrapConfig({
 				enabledScopes: [],
-				endpointUrl: 'agentstudio://telemetry/batch',
-				maxSamplesPerBatch: 64,
-				maxEncodedBatchBytes: 16_384,
-				minimumFlushIntervalMilliseconds: 250,
 				scenario: 'bridge-runtime',
 			}),
 		).toBeNull();

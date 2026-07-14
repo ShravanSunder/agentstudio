@@ -280,6 +280,7 @@ struct BridgePaneProductSessionOwnerTests {
             identitySuffix: "pane-disposal",
             handler: handler
         )
+        await waitUntilProducerFrameWaitersReach(2, in: installation.session)
         let liveSnapshot = await owner.snapshot()
 
         // Act
@@ -292,6 +293,13 @@ struct BridgePaneProductSessionOwnerTests {
         #expect(liveSnapshot.activeSchemeTaskCount == 2)
         #expect(liveSnapshot.activeProducerCount == 2)
         #expect(liveSnapshot.activeProducerTaskCount == 2)
+        #expect(liveSnapshot.activeContentLeaseCount == 1)
+        #expect(liveSnapshot.queuedFrameCount == 0)
+        #expect(liveSnapshot.queuedByteCount == 0)
+        #expect(liveSnapshot.pendingFrameWaiterCount == 2)
+        #expect(liveSnapshot.inFlightFrameReceiptCount == 0)
+        #expect(liveSnapshot.pendingLifecycleAcknowledgementCount == 0)
+        #expect(liveSnapshot.nextMetadataStreamSequence == 1)
         #expect(retirement == .retired)
         #expect(await owner.activeInstallation == nil)
         #expect(await owner.schemeRouter.activeInstallation == nil)
@@ -300,7 +308,12 @@ struct BridgePaneProductSessionOwnerTests {
         #expect(finalSnapshot.activeProducerTaskCount == 0)
         #expect(finalSnapshot.activeContentLeaseCount == 0)
         #expect(finalSnapshot.activeTransportLeaseCount == 0)
+        #expect(finalSnapshot.queuedFrameCount == 0)
+        #expect(finalSnapshot.queuedByteCount == 0)
+        #expect(finalSnapshot.pendingFrameWaiterCount == 0)
+        #expect(finalSnapshot.inFlightFrameReceiptCount == 0)
         #expect(finalSnapshot.pendingLifecycleAcknowledgementCount == 0)
+        #expect(finalSnapshot.nextMetadataStreamSequence == 0)
         #expect(finalSnapshot.hasZeroResidue)
     }
 
@@ -619,6 +632,17 @@ private func waitUntilProductRouterIsFenced(
         await Task.yield()
     }
     Issue.record("Product router did not fence active admission")
+}
+
+private func waitUntilProducerFrameWaitersReach(
+    _ expectedCount: Int,
+    in session: BridgeProductSession
+) async {
+    for _ in 0..<512 {
+        if await session.producerSnapshot().pendingFrameWaiterCount == expectedCount { return }
+        await Task.yield()
+    }
+    Issue.record("Product producer frame waiters did not reach \(expectedCount)")
 }
 
 private func paneOwnerContentRequest(

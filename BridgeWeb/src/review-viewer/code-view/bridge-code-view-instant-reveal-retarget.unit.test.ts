@@ -33,10 +33,13 @@ describe('Bridge CodeView instant reveal retarget', () => {
 			lastSelectionScrollKeyRef: mutableRef<string | null>('source:1:selected-item'),
 			pendingSelectionScrollFrameRef: mutableRef<number | null>(null),
 			programmaticRevealGate: {
+				beginSelectionReveal: (): boolean => true,
 				onProgrammaticRevealSkipped: (): void => {
 					skippedCount += 1;
 				},
+				recordUserScrollIntent: (): void => {},
 				shouldSkipProgrammaticReveal: (): boolean => true,
+				transitionSelectionReveal: (): void => {},
 			},
 			recentInstantSelectionRevealRef: recentRevealRef,
 			remainingFrameBudget: 3,
@@ -69,8 +72,11 @@ describe('Bridge CodeView instant reveal retarget', () => {
 			lastSelectionScrollKeyRef: mutableRef<string | null>('source:1:clicked-item'),
 			pendingSelectionScrollFrameRef: mutableRef<number | null>(null),
 			programmaticRevealGate: {
+				beginSelectionReveal: (): boolean => true,
 				onProgrammaticRevealSkipped: (): void => {},
+				recordUserScrollIntent: (): void => {},
 				shouldSkipProgrammaticReveal: (): boolean => false,
+				transitionSelectionReveal: (): void => {},
 			},
 			recentInstantSelectionRevealRef: mutableRef<BridgeCodeViewInstantRevealRearmCandidate | null>(
 				{

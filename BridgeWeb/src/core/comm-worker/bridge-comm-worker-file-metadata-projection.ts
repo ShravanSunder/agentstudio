@@ -22,6 +22,12 @@ type FileTreeDisplayPatch = Extract<
 	{ readonly operation: 'batch'; readonly slice: 'fileTree' }
 >;
 type FileTreeDisplayOperation = FileTreeDisplayPatch['payload']['operations'][number];
+type FileStatusDisplayPatch = Extract<
+	BridgeWorkerFileDisplayPatch,
+	{ readonly operation: 'upsert'; readonly slice: 'fileStatus' }
+>;
+type FileStatusDisplayPayload = FileStatusDisplayPatch['payload'];
+type FileReadyStatusDisplayPayload = Extract<FileStatusDisplayPayload, { readonly state: 'ready' }>;
 
 const bridgeCommWorkerFileDisplayOperationChunkSize = 256;
 
@@ -81,7 +87,9 @@ export class BridgeCommWorkerFileMetadataProjection {
 	readonly #descriptorsByFileId = new Map<string, FileDescriptorReadyEvent>();
 	readonly #recordVisitedMember: () => void;
 	#projectionRevision = 0;
+	#readyStatus: FileReadyStatusDisplayPayload | null = null;
 	#source: BridgeProductFileSourceIdentity | null = null;
+	#status: FileStatusDisplayPayload | null = null;
 	readonly #treeIndexByPath = new Map<string, number>();
 	readonly #treeIndexByRowId = new Map<string, number>();
 	#treeRows: Array<FileTreeRow | null | undefined> = [];
@@ -100,6 +108,8 @@ export class BridgeCommWorkerFileMetadataProjection {
 			this.#treeIndexByPath.clear();
 			this.#treeIndexByRowId.clear();
 			this.#descriptorsByFileId.clear();
+			this.#readyStatus = null;
+			this.#status = null;
 			patches = fileSourceResetDisplayPatches(event.source);
 			runtimeMutation = emptyFileRuntimeResetMutation();
 			return this.#applyResult(patches, runtimeMutation);
@@ -110,7 +120,7 @@ export class BridgeCommWorkerFileMetadataProjection {
 				const change = this.#applyTreeWindow(event);
 				patches = [
 					...fileTreeDisplayOperationBatches(change.displayOperations),
-					...(event.finalWindow ? [fileTreeReplacementCommitDisplayPatch(event.source)] : []),
+					...(event.finalWindow ? this.#completeTreeReplacement(event.source) : []),
 				];
 				runtimeMutation = finalizeFileRuntimeDeltaMutation(change.runtimeMutation);
 				break;
@@ -143,6 +153,10 @@ export class BridgeCommWorkerFileMetadataProjection {
 				break;
 			}
 			case 'file.invalidated': {
+				if (event.reason === 'sourceReset' && event.fileId === null) {
+					this.#readyStatus = null;
+					this.#status = null;
+				}
 				runtimeMutation = this.#applyInvalidation(event);
 				patches = fileInvalidationDisplayPatches(event);
 				break;
@@ -219,7 +233,12 @@ export class BridgeCommWorkerFileMetadataProjection {
 		event: Extract<FileMetadataEvent, { readonly eventKind: 'file.statusPatch' }>,
 	): readonly BridgeWorkerFileDisplayPatch[] {
 		const patch = event.patch;
-		if (patch.patchKind !== 'path') return [fileStatusDisplayPatch(patch)];
+		if (patch.patchKind !== 'path') {
+			const statusPatch = fileStatusDisplayPatch(patch);
+			this.#status = statusPatch.payload;
+			if (statusPatch.payload.state === 'ready') this.#readyStatus = statusPatch.payload;
+			return [statusPatch];
+		}
 		this.#recordVisitedMember();
 		const rowIndex = this.#treeIndexByPath.get(patch.path);
 		if (rowIndex === undefined) return [];
@@ -232,6 +251,18 @@ export class BridgeCommWorkerFileMetadataProjection {
 				row: { ...this.#treeRows[rowIndex], projectionIndex: rowIndex },
 			},
 		]);
+	}
+
+	#completeTreeReplacement(
+		source: BridgeProductFileSourceIdentity,
+	): readonly BridgeWorkerFileDisplayPatch[] {
+		const patches: BridgeWorkerFileDisplayPatch[] = [fileTreeReplacementCommitDisplayPatch(source)];
+		if (this.#status?.state === 'ready') return patches;
+		const readyStatus = this.#readyStatus ?? unknownFileReadyStatusDisplayPayload();
+		this.#readyStatus = readyStatus;
+		this.#status = readyStatus;
+		patches.push({ operation: 'upsert', payload: readyStatus, slice: 'fileStatus' });
+		return patches;
 	}
 
 	#applyInvalidation(
@@ -565,7 +596,7 @@ function fileRuntimeRowsEqual(left: BridgeCommWorkerRow, right: BridgeCommWorker
 
 function fileStatusDisplayPatch(
 	patch: Extract<FileMetadataEvent, { readonly eventKind: 'file.statusPatch' }>['patch'],
-): BridgeWorkerFileDisplayPatch {
+): FileStatusDisplayPatch {
 	if (patch.patchKind === 'invalidated') {
 		return { operation: 'upsert', payload: { state: 'stale' }, slice: 'fileStatus' };
 	}
@@ -585,6 +616,18 @@ function fileStatusDisplayPatch(
 		};
 	}
 	throw new Error('Path File status patches are projected through the File tree.');
+}
+
+function unknownFileReadyStatusDisplayPayload(): FileReadyStatusDisplayPayload {
+	return {
+		ahead: null,
+		behind: null,
+		branchName: null,
+		staged: null,
+		state: 'ready',
+		unstaged: null,
+		untracked: null,
+	};
 }
 
 function fileItemDisplayUpsertPatch(

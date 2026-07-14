@@ -14,6 +14,10 @@ enum BridgeProductProducerKey: Equatable {
         return true
     }
 
+    var requiresWorkerObservation: Bool {
+        true
+    }
+
     var maximumAdmittedSequence: Int {
         switch self {
         case .metadata:
@@ -65,6 +69,44 @@ struct BridgeProductProducerFrameWaiterResolution {
 }
 
 extension BridgeProductProducerRegistry {
+    func inFlightMetadataFrameReceipt(
+        matching acknowledgement: BridgeProductMetadataFrameAcknowledgement
+    ) -> BridgeProductProducerFrameReceipt? {
+        producersByLeaseId.values.lazy.compactMap { state in
+            guard case .metadata(let metadataKey) = state.key,
+                metadataKey.request.metadataStreamId == acknowledgement.metadataStreamId,
+                metadataKey.request.paneSessionId == acknowledgement.paneSessionId,
+                metadataKey.request.workerInstanceId == acknowledgement.workerInstanceId,
+                let receipt = state.inFlightFrameReceipt,
+                receipt.sequence == acknowledgement.streamSequence
+            else {
+                return nil
+            }
+            return receipt
+        }.first
+    }
+
+    func inFlightContentFrameReceipt(
+        matching acknowledgement: BridgeProductContentFrameAcknowledgement
+    ) -> BridgeProductProducerFrameReceipt? {
+        var matchingReceipt: BridgeProductProducerFrameReceipt?
+        for state in producersByLeaseId.values {
+            guard case .content(let request) = state.key,
+                request.admission.contentRequestId == acknowledgement.contentRequestId,
+                request.admission.leaseId == acknowledgement.leaseId,
+                request.admission.paneSessionId == acknowledgement.paneSessionId,
+                request.admission.workerInstanceId == acknowledgement.workerInstanceId,
+                let receipt = state.inFlightFrameReceipt,
+                receipt.sequence == acknowledgement.contentSequence
+            else {
+                continue
+            }
+            guard matchingReceipt == nil else { return nil }
+            matchingReceipt = receipt
+        }
+        return matchingReceipt
+    }
+
     mutating func prepareFramePull(
         for lease: BridgeProductProducerLease,
         waiterToken: UUID
@@ -172,6 +214,7 @@ extension BridgeProductProducerRegistry {
     ) -> BridgeProductProducerFrameDelivery {
         let receipt = BridgeProductProducerFrameReceipt(
             producerLease: lease,
+            requiresWorkerObservation: state.key.requiresWorkerObservation,
             sequence: frame.sequence,
             nonce: UUID()
         )

@@ -150,6 +150,7 @@ const surfaceByCallKind = {
 	'file.activeViewerMode.update': 'file',
 	'file.source.current': 'file',
 	'review.activeViewerMode.update': 'review',
+	'review.intake.ready': 'review',
 	'review.markFileViewed': 'review',
 } as const satisfies {
 	readonly [TCallKind in BridgeProductCallKind]: BridgeProductCallRegistry[TCallKind]['surface'];
@@ -168,6 +169,8 @@ const surfaceByContentKind = {
 };
 
 const reviewCallSurface: 'review' = bridgeProductSurfaceForCallKind('review.markFileViewed');
+const reviewIntakeReadyCallSurface: 'review' =
+	bridgeProductSurfaceForCallKind('review.intake.ready');
 const reviewActiveModeCallSurface: 'review' = bridgeProductSurfaceForCallKind(
 	'review.activeViewerMode.update',
 );
@@ -186,6 +189,7 @@ const allMappedSurfaces: readonly BridgeProductSurface[] = [
 	...Object.values(surfaceByContentKind),
 ];
 void reviewCallSurface;
+void reviewIntakeReadyCallSurface;
 void reviewActiveModeCallSurface;
 void fileActiveModeCallSurface;
 void fileSourceCurrentCallSurface;
@@ -213,6 +217,11 @@ void markViewedResult;
 
 const emptyMarkViewedResult: BridgeProductCallResult<'review.markFileViewed'> = null;
 void emptyMarkViewedResult;
+const intakeReadyResult: Promise<null> = productTransport.call('review.intake.ready', {
+	reason: null,
+	streamId: 'review-stream-1',
+});
+void intakeReadyResult;
 
 const currentFileSourceResult = productTransport.call('file.source.current', {});
 const availableCurrentFileSourceResult: BridgeProductCallResult<'file.source.current'> = {

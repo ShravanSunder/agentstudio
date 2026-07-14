@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import { buildReviewMetadataSnapshotFrame } from '../features/review/protocol/review-metadata-frame-builder.js';
 import { bridgeReviewPackageSchema } from '../foundation/review-package/bridge-review-package-schema.js';
-import { makeBridgeViewerBrowserFixture } from '../review-viewer/test-support/bridge-viewer-mocked-backend.js';
+import { makeBridgeViewerBrowserFixture } from '../review-viewer/test-support/bridge-viewer-mocked-backend-fixture.js';
 import {
 	bridgeAppDevFixtureOptionsSchema,
 	parseBridgeAppDevFixtureOptions,

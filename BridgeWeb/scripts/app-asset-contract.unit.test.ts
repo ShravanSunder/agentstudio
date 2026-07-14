@@ -477,6 +477,53 @@ describe('app asset contract', () => {
 		}
 	});
 
+	test('allows a bundled top-level const for an exact product route without admitting dynamic routes', () => {
+		const exactProductRequest = `{
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'X-AgentStudio-Bridge-Product-Capability': capabilityHeader,
+			},
+			body: requestBody,
+		}`;
+
+		expect(() =>
+			validateWorkerSourceSelfContained({
+				workerAssetKind: 'bridge-comm-worker',
+				workerSource: `
+					const canonicalCommandRoute = 'agentstudio://rpc/command';
+					fetch(canonicalCommandRoute, ${exactProductRequest});
+					fetch(canonicalCommandRoute, ${exactProductRequest});
+				`,
+			}),
+		).not.toThrow();
+
+		for (const routeDeclaration of [
+			"let productRoute = 'agentstudio://rpc/command'",
+			"const canonical = 'agentstudio://rpc/command'; const productRoute = canonical",
+			"const productRoute = 'agentstudio://' + 'rpc/command'",
+			"const productRoute = 'agentstudio://rpc/command?alternate=1'",
+		]) {
+			expect(() =>
+				validateWorkerSourceSelfContained({
+					workerAssetKind: 'bridge-comm-worker',
+					workerSource: `${routeDeclaration}; fetch(productRoute, ${exactProductRequest});`,
+				}),
+			).toThrow(/self-contained/);
+		}
+		expect(() =>
+			validateWorkerSourceSelfContained({
+				workerAssetKind: 'bridge-comm-worker',
+				workerSource: `
+					function sendProductRequest() {
+						const productRoute = 'agentstudio://rpc/command';
+						return fetch(productRoute, ${exactProductRequest});
+					}
+				`,
+			}),
+		).toThrow(/self-contained/);
+	});
+
 	test('rejects every alternate or under-specified comm-worker fetch carrier', () => {
 		const hostileSources = [
 			"fetch('agentstudio://rpc/command', { method: 'POST', headers: { 'Content-Type': 'text/plain', 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader } });",
@@ -614,6 +661,28 @@ describe('app asset contract', () => {
 		expect(buildAssetsSource).toContain("entrypointName: 'bridge-comm-worker'");
 		expect(buildAssetsSource).toContain("kind: 'bridge-comm-worker'");
 		expect(buildAssetsSource).toContain("workerKind: 'moduleWorker'");
+	});
+
+	test('does not package the deleted Review projection worker', async () => {
+		// Arrange
+		const tsdownSource = await readFile(new URL('./../tsdown.config.ts', import.meta.url), 'utf8');
+		const buildAssetsSource = await readFile(
+			new URL('./build-app-assets.ts', import.meta.url),
+			'utf8',
+		);
+
+		// Act
+		const packagedLegacyProjectionTokens = [tsdownSource, buildAssetsSource].flatMap(
+			(source): readonly string[] =>
+				['review-projection-worker', 'bridge-review-projection'].filter((token): boolean =>
+					source.includes(token),
+				),
+		);
+
+		// Assert
+		expect(packagedLegacyProjectionTokens).toEqual([]);
+		expect(buildAssetsSource).toContain("entrypointName: 'bridge-markdown-render-worker'");
+		expect(buildAssetsSource).toContain("entrypointName: 'bridge-comm-worker'");
 	});
 
 	test('normalizes Pierre worker optional Shiki WASM sidecar import', () => {

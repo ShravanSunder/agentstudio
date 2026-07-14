@@ -17,12 +17,26 @@ struct BridgePaneProductReviewContentBody: Equatable, Sendable {
 }
 
 protocol BridgePaneProductReviewContentProducing: Sendable {
+    func replaceAuthority(
+        with availability: BridgePaneProductReviewMetadataAvailability
+    ) async throws
+    func authoritativeItemId(
+        for request: BridgeProductReviewContentRequest
+    ) async -> String?
     func contentBody(
         for request: BridgeProductReviewContentRequest
     ) async throws -> BridgePaneProductReviewContentBody
 }
 
 struct BridgeUnavailablePaneProductReviewContentSource: BridgePaneProductReviewContentProducing {
+    func replaceAuthority(
+        with _: BridgePaneProductReviewMetadataAvailability
+    ) async throws {}
+
+    func authoritativeItemId(
+        for _: BridgeProductReviewContentRequest
+    ) async -> String? { nil }
+
     func contentBody(
         for _: BridgeProductReviewContentRequest
     ) async throws -> BridgePaneProductReviewContentBody {
@@ -30,43 +44,81 @@ struct BridgeUnavailablePaneProductReviewContentSource: BridgePaneProductReviewC
     }
 }
 
-struct BridgePaneProductReviewContentSource: BridgePaneProductReviewContentProducing {
-    private let contentStore: BridgeContentStore
-    private let currentPackage: @MainActor @Sendable () -> BridgeReviewPackage?
+actor BridgePaneProductReviewContentSource: BridgePaneProductReviewContentProducing {
+    private struct IssuedDescriptorAuthority: Equatable, Sendable {
+        let handle: BridgeContentHandle
+        let packageId: String
+        let reviewGeneration: Int
+        let sourceIdentity: String
+    }
 
-    init(
-        contentStore: BridgeContentStore,
-        currentPackage: @escaping @MainActor @Sendable () -> BridgeReviewPackage?
-    ) {
+    private let contentStore: BridgeContentStore
+    private var authorityByDescriptorId: [String: IssuedDescriptorAuthority] = [:]
+    private var hasAvailableAuthority = false
+
+    init(contentStore: BridgeContentStore) {
         self.contentStore = contentStore
-        self.currentPackage = currentPackage
+    }
+
+    func replaceAuthority(
+        with availability: BridgePaneProductReviewMetadataAvailability
+    ) async throws {
+        guard case .ready(let package) = availability else {
+            hasAvailableAuthority = false
+            authorityByDescriptorId.removeAll(keepingCapacity: false)
+            return
+        }
+
+        var replacement: [String: IssuedDescriptorAuthority] = [:]
+        for itemId in package.itemsById.keys.sorted() {
+            guard let item = package.itemsById[itemId] else { continue }
+            for handle in item.contentRoles.allHandles {
+                guard replacement[handle.handleId] == nil else {
+                    hasAvailableAuthority = false
+                    authorityByDescriptorId.removeAll(keepingCapacity: false)
+                    throw BridgePaneProductReviewContentSourceError.descriptorMismatch
+                }
+                replacement[handle.handleId] = IssuedDescriptorAuthority(
+                    handle: handle,
+                    packageId: package.packageId,
+                    reviewGeneration: package.reviewGeneration.rawValue,
+                    sourceIdentity: package.query.queryId
+                )
+            }
+        }
+        authorityByDescriptorId = replacement
+        hasAvailableAuthority = true
+    }
+
+    func authoritativeItemId(
+        for request: BridgeProductReviewContentRequest
+    ) async -> String? {
+        matchingAuthority(for: request.descriptor)?.handle.itemId
     }
 
     func contentBody(
         for request: BridgeProductReviewContentRequest
     ) async throws -> BridgePaneProductReviewContentBody {
-        guard let package = await currentPackage() else {
+        guard hasAvailableAuthority else {
             throw BridgePaneProductReviewContentSourceError.unavailablePackage
         }
         let descriptor = request.descriptor
-        guard descriptor.packageId == package.packageId,
-            descriptor.reviewGeneration == package.reviewGeneration.rawValue,
-            descriptor.sourceIdentity == package.query.queryId,
-            let item = package.itemsById[descriptor.itemId],
-            let handle = item.contentRoles.allHandles.first(where: { $0.handleId == descriptor.handleId }),
-            Self.matchesAuthority(descriptor: descriptor, handle: handle)
-        else {
+        guard let authority = matchingAuthority(for: descriptor) else {
             throw BridgePaneProductReviewContentSourceError.descriptorMismatch
         }
+        let handle = authority.handle
 
         let range = try await contentStore.loadRangeObserved(
             handleId: handle.handleId,
-            requestedGeneration: package.reviewGeneration,
+            requestedGeneration: BridgeReviewGeneration(authority.reviewGeneration),
             startByte: descriptor.window.startByte,
             maximumBytes: descriptor.window.maximumBytes
         )
         try Task.checkCancellation()
-        guard range.handle == handle else {
+        guard hasAvailableAuthority,
+            authorityByDescriptorId[descriptor.descriptorId] == authority,
+            range.handle == handle
+        else {
             throw BridgePaneProductReviewContentSourceError.descriptorMismatch
         }
         if let declaredByteLength = descriptor.declaredByteLength,
@@ -100,6 +152,19 @@ struct BridgePaneProductReviewContentSource: BridgePaneProductReviewContentProdu
             sha256: range.sha256,
             wholeByteLength: range.wholeByteLength
         )
+    }
+
+    private func matchingAuthority(
+        for descriptor: BridgeProductReviewContentDescriptor
+    ) -> IssuedDescriptorAuthority? {
+        guard hasAvailableAuthority,
+            let authority = authorityByDescriptorId[descriptor.descriptorId],
+            descriptor.packageId == authority.packageId,
+            descriptor.reviewGeneration == authority.reviewGeneration,
+            descriptor.sourceIdentity == authority.sourceIdentity,
+            Self.matchesAuthority(descriptor: descriptor, handle: authority.handle)
+        else { return nil }
+        return authority
     }
 
     private static func matchesAuthority(

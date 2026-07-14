@@ -33,7 +33,12 @@ protocol BridgePaneProductFileMetadataProducing: Sendable {
     func cancel(subscriptionId: String) async
     func publish(status: GitWorkingTreeStatus) async -> [BridgePaneProductFileMetadataEmission]
     func publish(changeset: FileChangeset) async throws -> [BridgePaneProductFileMetadataEmission]
+    func authoritativePath(for request: BridgeProductFileContentRequest) async -> String?
     func contentBody(for request: BridgeProductFileContentRequest) async -> BridgePaneProductFileContentBody?
+}
+
+extension BridgePaneProductFileMetadataProducing {
+    func authoritativePath(for _: BridgeProductFileContentRequest) async -> String? { nil }
 }
 
 actor BridgeUnavailablePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducing {
@@ -60,6 +65,8 @@ actor BridgeUnavailablePaneProductFileMetadataSource: BridgePaneProductFileMetad
     func publish(status _: GitWorkingTreeStatus) -> [BridgePaneProductFileMetadataEmission] { [] }
 
     func publish(changeset _: FileChangeset) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
+
+    func authoritativePath(for _: BridgeProductFileContentRequest) -> String? { nil }
 
     func contentBody(for _: BridgeProductFileContentRequest) -> BridgePaneProductFileContentBody? { nil }
 }
@@ -105,7 +112,9 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             ignorePolicyLoader ?? { rootURL in
                 await BridgeWorktreeFileIgnorePolicy.load(
                     rootURL: rootURL,
-                    statusProvider: statusProvider
+                    statusProvider: AgentStudioGitWorkingTreeStatusProvider(
+                        timeout: AppPolicies.Bridge.worktreeFileManifestStatusReadTimeout
+                    )
                 )
             }
         self.statusProvider = statusProvider
@@ -463,6 +472,23 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             contextBySubscriptionId[subscriptionId] = context
         }
         return emissions
+    }
+
+    func authoritativePath(for request: BridgeProductFileContentRequest) -> String? {
+        let descriptor = request.descriptor
+        for subscriptionId in contextBySubscriptionId.keys.sorted() {
+            guard let context = contextBySubscriptionId[subscriptionId],
+                context.productSource == descriptor.source
+            else { continue }
+            return context.descriptorByPath.values.first(where: {
+                if case .available(let issuedDescriptor) = $0.availability {
+                    issuedDescriptor == descriptor
+                } else {
+                    false
+                }
+            })?.path
+        }
+        return nil
     }
 
     func contentBody(

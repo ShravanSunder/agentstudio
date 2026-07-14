@@ -97,6 +97,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.telemetry.first_rejected_event",
         "agentstudio.bridge.telemetry.lane",
         "agentstudio.bridge.telemetry.result",
+        "agentstudio.bridge.telemetry.session.digest",
         "agentstudio.bridge.test.scenario",
         "agentstudio.bridge.transport",
         "agentstudio.bridge.tree_path_count_bucket",
@@ -278,6 +279,10 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.metadata_manifest.expected_total",
         "agentstudio.bridge.metadata_manifest.remaining_total",
         "agentstudio.bridge.review.item_count",
+        "agentstudio.bridge.review.publication.emitted_events",
+        "agentstudio.bridge.review.publication.published_subscriptions",
+        "agentstudio.bridge.review.publication.retained",
+        "agentstudio.bridge.review.publication.superseded",
         "agentstudio.bridge.source.generation",
         "agentstudio.bridge.anchor_restore.call.count",
         "agentstudio.bridge.anchor_restore.direct_scroll_top_write.count",
@@ -291,7 +296,14 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.selected_content.frame_wait_ms",
         "agentstudio.bridge.selected_content.materialize_ms",
         "agentstudio.bridge.telemetry.dropped_count",
+        "agentstudio.bridge.telemetry.accepted_batch.sequence",
+        "agentstudio.bridge.telemetry.comm_producer.high_watermark",
+        "agentstudio.bridge.telemetry.main_producer.high_watermark",
+        "agentstudio.bridge.telemetry.native_batch_sequence_gap.count",
+        "agentstudio.bridge.telemetry.optional_loss.count",
         "agentstudio.bridge.telemetry.required_dropped_count",
+        "agentstudio.bridge.telemetry.required_loss.count",
+        "agentstudio.bridge.telemetry.worker_sequence_gap.count",
         "agentstudio.bridge.visible_descriptor.count",
         "agentstudio.bridge.visible_item.count",
         "agentstudio.bridge.visible_publisher.skipped.count",
@@ -573,6 +585,9 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.row_mounted",
         "agentstudio.bridge.scroll.active",
         "agentstudio.bridge.selected",
+        "agentstudio.bridge.telemetry.lossy",
+        "agentstudio.bridge.telemetry.proof_eligible",
+        "agentstudio.bridge.telemetry.settlement_acknowledged",
         "agentstudio.bridge.viewer.active",
         "agentstudio.ghostty.route.result",
         "agentstudio.inbox.notification.coalesced",
@@ -732,7 +747,11 @@ enum AgentStudioOTLPTraceProjection {
             return nil
         }
     }
+}
 
+// MARK: - Value Validation
+
+extension AgentStudioOTLPTraceProjection {
     private static func isAllowedNumericKey(_ key: String) -> Bool {
         allowedNumericAttributeKeys.contains(key)
     }
@@ -784,7 +803,7 @@ enum AgentStudioOTLPTraceProjection {
     }
 
     private static func isAllowedControlledStringValue(key: String, value: String) -> Bool {
-        if let allowedValues = BridgeTelemetryBatchValidator.allowedStringValuesByAttributeKey[key] {
+        if let allowedValues = BridgeTelemetryEventValidator.allowedStringValuesByAttributeKey[key] {
             return allowedValues.contains(value)
         }
         return true

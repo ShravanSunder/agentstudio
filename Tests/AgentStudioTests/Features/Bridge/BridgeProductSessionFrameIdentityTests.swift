@@ -188,6 +188,137 @@ struct BridgeProductSessionFrameIdentityTests {
         try await closeProducer(lease, in: harness.session)
     }
 
+    @Test("content observation requires exact active identity and is replay safe")
+    func contentObservationRequiresExactActiveIdentityAndSequence() async throws {
+        // Arrange
+        let harness = try await FrameIdentitySessionHarness.opened()
+        let operation = FrameIdentityProducerOperationGate()
+        let request = try fileContentRequest(identitySuffix: "observation")
+        let registration = await harness.session.registerContentProducer(request: request) { lease in
+            await operation.run(lease)
+        }
+        let lease = try #require(registration.acceptedLease)
+        _ = await operation.waitUntilStarted()
+        _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
+            for: lease,
+            build: { _ in producerRegistryContentOpeningFrame(for: request) }
+        )
+        let delivery = try #require(
+            await contentFrameDelivery(for: lease, from: harness.session)
+        )
+        let exact = try contentFrameAcknowledgement(for: request.admission, contentSequence: 0)
+        let beforeObservation = await harness.session.producerSnapshot()
+
+        // Act
+        let foreignRequestAccepted = await harness.session.acknowledgeContentFrameObservation(
+            try contentFrameAcknowledgement(
+                for: request.admission,
+                contentSequence: 0,
+                contentRequestId: "content-request-foreign"
+            )
+        )
+        let foreignLeaseAccepted = await harness.session.acknowledgeContentFrameObservation(
+            try contentFrameAcknowledgement(
+                for: request.admission,
+                contentSequence: 0,
+                leaseId: "lease-changed"
+            )
+        )
+        let foreignPaneAccepted = await harness.session.acknowledgeContentFrameObservation(
+            try contentFrameAcknowledgement(
+                for: request.admission,
+                contentSequence: 0,
+                paneSessionId: "pane-session-foreign"
+            )
+        )
+        let staleWorkerAccepted = await harness.session.acknowledgeContentFrameObservation(
+            try contentFrameAcknowledgement(
+                for: request.admission,
+                contentSequence: 0,
+                workerInstanceId: "worker-instance-stale"
+            )
+        )
+        let skippedSequenceAccepted = await harness.session.acknowledgeContentFrameObservation(
+            try contentFrameAcknowledgement(for: request.admission, contentSequence: 1)
+        )
+        let afterRejections = await harness.session.producerSnapshot()
+        let exactAccepted = await harness.session.acknowledgeContentFrameObservation(exact)
+        let exactReplayAccepted = await harness.session.acknowledgeContentFrameObservation(exact)
+        let afterReplay = await harness.session.producerSnapshot()
+
+        // Assert
+        #expect(delivery.receipt.requiresWorkerObservation)
+        #expect(beforeObservation.inFlightFrameReceiptCount == 1)
+        #expect(!foreignRequestAccepted)
+        #expect(!foreignLeaseAccepted)
+        #expect(!foreignPaneAccepted)
+        #expect(!staleWorkerAccepted)
+        #expect(!skippedSequenceAccepted)
+        #expect(afterRejections == beforeObservation)
+        #expect(exactAccepted)
+        #expect(exactReplayAccepted)
+        #expect(afterReplay.inFlightFrameReceiptCount == 0)
+        #expect(await harness.session.waitUntilProducerFrameObserved(delivery.receipt))
+        try await closeProducer(lease, in: harness.session)
+        let postRetirementAccepted =
+            await harness.session.acknowledgeContentFrameObservation(exact)
+        #expect(!postRetirementAccepted)
+    }
+
+    @Test("content observation releases only its matching concurrent producer")
+    func contentObservationReleasesOnlyMatchingConcurrentProducer() async throws {
+        // Arrange
+        let harness = try await FrameIdentitySessionHarness.opened()
+        let firstOperation = FrameIdentityProducerOperationGate()
+        let secondOperation = FrameIdentityProducerOperationGate()
+        let firstRequest = try fileContentRequest(identitySuffix: "observation-first")
+        let secondRequest = try fileContentRequest(identitySuffix: "observation-second")
+        let firstRegistration = await harness.session.registerContentProducer(request: firstRequest) { lease in
+            await firstOperation.run(lease)
+        }
+        let secondRegistration = await harness.session.registerContentProducer(request: secondRequest) { lease in
+            await secondOperation.run(lease)
+        }
+        let firstLease = try #require(firstRegistration.acceptedLease)
+        let secondLease = try #require(secondRegistration.acceptedLease)
+        _ = await firstOperation.waitUntilStarted()
+        _ = await secondOperation.waitUntilStarted()
+        _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
+            for: firstLease,
+            build: { _ in producerRegistryContentOpeningFrame(for: firstRequest) }
+        )
+        _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
+            for: secondLease,
+            build: { _ in producerRegistryContentOpeningFrame(for: secondRequest) }
+        )
+        let firstDelivery = try #require(
+            await contentFrameDelivery(for: firstLease, from: harness.session)
+        )
+        let secondDelivery = try #require(
+            await contentFrameDelivery(for: secondLease, from: harness.session)
+        )
+
+        // Act
+        let firstAccepted = await harness.session.acknowledgeContentFrameObservation(
+            try contentFrameAcknowledgement(for: firstRequest.admission, contentSequence: 0)
+        )
+        let afterFirst = await harness.session.producerSnapshot()
+        let secondAccepted = await harness.session.acknowledgeContentFrameObservation(
+            try contentFrameAcknowledgement(for: secondRequest.admission, contentSequence: 0)
+        )
+        let afterSecond = await harness.session.producerSnapshot()
+
+        // Assert
+        #expect(firstAccepted)
+        #expect(afterFirst.inFlightFrameReceiptCount == 1)
+        #expect(secondAccepted)
+        #expect(afterSecond.inFlightFrameReceiptCount == 0)
+        #expect(await harness.session.waitUntilProducerFrameObserved(firstDelivery.receipt))
+        #expect(await harness.session.waitUntilProducerFrameObserved(secondDelivery.receipt))
+        try await closeProducer(firstLease, in: harness.session)
+        try await closeProducer(secondLease, in: harness.session)
+    }
+
     @Test("maximum safe control sequence is rejected before execution")
     func maximumSafeControlSequenceIsRejectedBeforeExecution() {
         // Arrange
@@ -413,5 +544,42 @@ private func fileContentRequest(
     return try BridgeProductStrictJSON.decode(
         BridgeProductContentRequest.self,
         from: Data(requestJSON.utf8)
+    )
+}
+
+private func contentFrameDelivery(
+    for lease: BridgeProductProducerLease,
+    from session: BridgeProductSession
+) async -> BridgeProductProducerFrameDelivery? {
+    guard case .frame(let delivery) = await session.pullProducerFrame(for: lease) else {
+        return nil
+    }
+    return delivery
+}
+
+private func contentFrameAcknowledgement(
+    for admission: BridgeProductContentAdmission,
+    contentSequence: Int,
+    contentRequestId: String? = nil,
+    leaseId: String? = nil,
+    paneSessionId: String? = nil,
+    workerInstanceId: String? = nil
+) throws -> BridgeProductContentFrameAcknowledgement {
+    let data = try JSONSerialization.data(
+        withJSONObject: [
+            "contentRequestId": contentRequestId ?? admission.contentRequestId,
+            "contentSequence": contentSequence,
+            "kind": "stream.frameObserved",
+            "leaseId": leaseId ?? admission.leaseId,
+            "paneSessionId": paneSessionId ?? admission.paneSessionId,
+            "streamKind": "content",
+            "wireVersion": admission.wireVersion,
+            "workerInstanceId": workerInstanceId ?? admission.workerInstanceId,
+        ],
+        options: [.sortedKeys]
+    )
+    return try BridgeProductStrictJSON.decode(
+        BridgeProductContentFrameAcknowledgement.self,
+        from: data
     )
 }

@@ -7,6 +7,7 @@ import {
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	type BridgeWorkerFileDisplayPatchEvent,
+	type BridgeWorkerReviewDisplayPatchEvent,
 } from './bridge-worker-contracts.js';
 
 describe('Bridge main render snapshot store', () => {
@@ -424,6 +425,87 @@ describe('Bridge main render snapshot store', () => {
 		expect(nextSnapshot.fileItemById.size).toBe(0);
 		expect(nextSnapshot.fileTreeSlice.index.size).toBe(0);
 	});
+
+	test('atomically applies bounded Review display state and rejects stale publications', () => {
+		const store = createBridgeMainRenderSnapshotStore();
+		const event = makeReviewDisplayPatchEvent();
+		let publishCount = 0;
+		const unsubscribe = store.subscribe(() => {
+			publishCount += 1;
+		});
+
+		store.applyReviewDisplayPatchEvent(event);
+
+		const acceptedSnapshot = store.getSnapshot();
+		expect(publishCount).toBe(1);
+		expect(acceptedSnapshot.reviewDisplayFreshness).toEqual({
+			epoch: 2,
+			projectionRevision: 3,
+			sequence: 5,
+		});
+		expect(acceptedSnapshot.reviewSourceSlice).toMatchObject({
+			metadataWindowIdentity: 'metadata-window-package-1-r11',
+			status: 'loading',
+		});
+		expect(acceptedSnapshot.reviewItemIdsByIndex).toEqual(['item-1']);
+		expect(acceptedSnapshot.reviewItemById['item-1']?.metadata.headPath).toBe('Sources/App.swift');
+		expect(acceptedSnapshot.reviewTreeRowsByIndex).toMatchObject([
+			{ itemId: 'item-1', path: 'Sources/App.swift', rowId: 'row-item-1' },
+		]);
+
+		for (const staleEvent of [
+			{ ...event, epoch: 1, projectionRevision: 99, sequence: 99 },
+			{ ...event, projectionRevision: event.projectionRevision, sequence: 6 },
+			{ ...event, projectionRevision: 4, sequence: event.sequence },
+		]) {
+			store.applyReviewDisplayPatchEvent(staleEvent);
+			expect(store.getSnapshot()).toBe(acceptedSnapshot);
+		}
+
+		store.applyReviewDisplayPatchEvent({
+			...event,
+			epoch: 3,
+			patches: [
+				{
+					operation: 'failed',
+					payload: { error: 'metadataUnavailable', status: 'failed' },
+					slice: 'reviewSource',
+				},
+			],
+			projectionRevision: 1,
+			sequence: 6,
+		});
+		expect(store.getSnapshot()).toMatchObject({
+			reviewDisplayFreshness: { epoch: 3, projectionRevision: 1, sequence: 6 },
+			reviewItemById: {},
+			reviewItemIdsByIndex: [],
+			reviewSourceSlice: { error: 'metadataUnavailable', status: 'failed' },
+			reviewTreeRowsByIndex: [],
+		});
+
+		unsubscribe();
+	});
+
+	test('preserves local Review selection when a catalog reset reintroduces the selected item', () => {
+		// Arrange
+		const store = createBridgeMainRenderSnapshotStore();
+		const initialEvent = makeReviewDisplayPatchEvent();
+		store.applyReviewDisplayPatchEvent(initialEvent);
+		store.setLocalSelection({ selectedItemId: 'item-1', source: 'user' });
+
+		// Act
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			projectionRevision: initialEvent.projectionRevision + 1,
+			sequence: initialEvent.sequence + 1,
+		});
+
+		// Assert
+		expect(store.getSnapshot().selectionSlice).toEqual({
+			selectedItemId: 'item-1',
+			source: 'user',
+		});
+	});
 });
 
 function makeFileDisplayPatchEvent(): BridgeWorkerFileDisplayPatchEvent {
@@ -500,6 +582,86 @@ function makeFileDisplayPatchEvent(): BridgeWorkerFileDisplayPatchEvent {
 				},
 			},
 		],
+	};
+}
+
+function makeReviewDisplayPatchEvent(): BridgeWorkerReviewDisplayPatchEvent {
+	return {
+		direction: 'serverWorkerToMain',
+		epoch: 2,
+		kind: 'reviewDisplayPatch',
+		patches: [
+			{
+				operation: 'upsert',
+				payload: {
+					metadataWindowIdentity: 'metadata-window-package-1-r11',
+					status: 'loading',
+					summary: null,
+					totalItemCount: 1,
+					totalTreeRowCount: 1,
+				},
+				slice: 'reviewSource',
+			},
+			{
+				operation: 'batch',
+				payload: {
+					items: [
+						{
+							contentFacts: [],
+							extentFacts: [],
+							metadata: {
+								basePath: 'Sources/App.swift',
+								changeKind: 'modified',
+								contentDescriptorIdsByRole: {},
+								contentHashesByRole: {},
+								contentRoles: [],
+								extension: 'swift',
+								fileClass: 'source',
+								headPath: 'Sources/App.swift',
+								isHiddenByDefault: false,
+								itemId: 'item-1',
+								language: 'swift',
+								mimeTypes: ['text/plain'],
+								provenance: { agentSessionIds: [], operationIds: [], promptIds: [] },
+								reviewPriority: 'normal',
+								reviewState: 'unreviewed',
+							},
+							metadataWindowIdentity: 'metadata-window-item-1-r11',
+						},
+					],
+					operations: [],
+					reset: true,
+					startIndex: 0,
+				},
+				slice: 'reviewItem',
+			},
+			{
+				operation: 'batch',
+				payload: {
+					reset: true,
+					windows: [
+						{
+							rows: [
+								{
+									depth: 1,
+									isDirectory: false,
+									itemId: 'item-1',
+									path: 'Sources/App.swift',
+									rowId: 'row-item-1',
+								},
+							],
+							startIndex: 0,
+						},
+					],
+				},
+				slice: 'reviewTree',
+			},
+		],
+		projectionRevision: 3,
+		sequence: 5,
+		surface: 'review',
+		transferDescriptors: [],
+		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 	};
 }
 

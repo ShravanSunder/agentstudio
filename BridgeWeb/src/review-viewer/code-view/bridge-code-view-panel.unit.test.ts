@@ -6,11 +6,8 @@ import {
 	makeBridgeContentHandle,
 	makeBridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package-test-support.js';
-import type {
-	BridgeTelemetryBatch,
-	BridgeTelemetrySample,
-} from '../../foundation/telemetry/bridge-telemetry-event.js';
-import { createBridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
+import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
+import { createBridgeTelemetryRecorderFromClient } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
@@ -173,7 +170,7 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 		expect(loadingItemIds).toEqual(['selected-item']);
 	});
 
-	test('uses append and patch updates for projection deltas and reserves setItems for source reset', () => {
+	test('uses item updates for metadata without replacing the mounted manifest', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const sourceItem = reviewPackage.itemsById['source-high'];
 		if (sourceItem === undefined) {
@@ -213,7 +210,6 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 			setItems: (items: readonly BridgeCodeViewItem[]): void => {
 				model.setItems(items);
 			},
-			sourceReset: false,
 			staleScanLimit: 50,
 		});
 		flushScheduledTurns(scheduledTurns);
@@ -239,12 +235,12 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 			setItems: (items: readonly BridgeCodeViewItem[]): void => {
 				model.setItems(items);
 			},
-			sourceReset: true,
 			staleScanLimit: 50,
 		});
+		flushScheduledTurns(scheduledTurns);
 
-		expect(model.setItemsCalls).toHaveLength(1);
-		expect(model.setItemsCalls[0]?.map((item) => item.id)).toEqual([firstItem.id]);
+		expect(model.setItemsCalls).toEqual([]);
+		expect(model.appliedItemIds).toEqual([firstItem.id, 'appended-item', firstItem.id]);
 	});
 
 	test('summarizes selected content from body-free facts', () => {
@@ -742,30 +738,20 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 		});
 	});
 
-	test('idle flushes selected content painted telemetry after recorder burst throttling', () => {
-		const batches: BridgeTelemetryBatch[] = [];
+	test('posts selected content painted telemetry after the painted frame', () => {
+		const samples: BridgeTelemetrySample[] = [];
 		const frameCallbacks: FrameRequestCallback[] = [];
-		const idleCallbacks: Array<() => void> = [];
 		let nowMilliseconds = 1_000;
-		const telemetryRecorder = createBridgeTelemetryRecorder(
+		const telemetryRecorder = createBridgeTelemetryRecorderFromClient(
 			{
 				enabledScopes: new Set(['web']),
-				maxSamplesPerBatch: 4,
-				maxEncodedBatchBytes: 16_384,
-				minimumFlushIntervalMilliseconds: 250,
-				endpointUrl: 'agentstudio://telemetry/batch',
 				scenario: 'package_apply_content_fetch_v1',
 			},
 			{
-				flush: (batch: BridgeTelemetryBatch): boolean => {
-					batches.push(batch);
-					return true;
-				},
+				record: (sample): void => void samples.push(sample),
+				flush: (): boolean => true,
 			},
 			(): number => nowMilliseconds,
-			(callback): void => {
-				idleCallbacks.push(callback);
-			},
 		);
 		telemetryRecorder.record({
 			scope: 'web',
@@ -793,16 +779,9 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 		});
 		frameCallbacks[0]?.(1_020);
 
-		expect(batches.map((batch) => batch.samples.map((sample) => sample.name))).toEqual([
-			['performance.bridge.web.code_view_item_materialize'],
-		]);
-		expect(idleCallbacks).toHaveLength(1);
-		nowMilliseconds = 1_260;
-		idleCallbacks[0]?.();
-
-		expect(batches.map((batch) => batch.samples.map((sample) => sample.name))).toEqual([
-			['performance.bridge.web.code_view_item_materialize'],
-			['performance.bridge.web.selected_content_painted'],
+		expect(samples.map((sample) => sample.name)).toEqual([
+			'performance.bridge.web.code_view_item_materialize',
+			'performance.bridge.web.selected_content_painted',
 		]);
 	});
 

@@ -1,6 +1,7 @@
-import type { CodeViewItem } from '@pierre/diffs';
+import type { CodeViewItem, CodeViewOptions } from '@pierre/diffs';
 import { CodeView, type CodeViewHandle } from '@pierre/diffs/react';
 import type { ReactElement, ReactNode } from 'react';
+import { useMemo } from 'react';
 
 import { cn } from '../../app/class-name.js';
 import { BridgePierreWorkerPoolProvider } from '../workers/pierre/bridge-pierre-worker-pool.js';
@@ -17,6 +18,8 @@ interface BridgeCodeViewPanelFrameProps {
 		scrollTop: number,
 		viewer: BridgeCodeViewRenderedItemsSource,
 	) => void;
+	readonly handleCodeViewPostRender: NonNullable<CodeViewOptions<undefined>['onPostRender']>;
+	readonly handleCodeViewUserScrollIntent: () => void;
 	readonly headerRenderers: {
 		readonly renderHeaderMetadata: (item: CodeViewItem) => ReactNode;
 		readonly renderHeaderPrefix: (item: CodeViewItem) => ReactNode;
@@ -47,6 +50,10 @@ interface BridgeCodeViewPanelFrameProps {
 }
 
 export function BridgeCodeViewPanelFrame(props: BridgeCodeViewPanelFrameProps): ReactElement {
+	const codeViewOptions = useMemo<CodeViewOptions<undefined>>(
+		() => ({ ...bridgeCodeViewOptions, onPostRender: props.handleCodeViewPostRender }),
+		[props.handleCodeViewPostRender],
+	);
 	return (
 		<section
 			aria-label="Review content"
@@ -92,9 +99,15 @@ export function BridgeCodeViewPanelFrame(props: BridgeCodeViewPanelFrameProps): 
 			data-selected-presentation-version={props.selectedPresentationVersion}
 			data-selected-display-path={props.selectedDisplayPath ?? undefined}
 			data-selected-item-id={props.selectedItemId ?? undefined}
-			data-bridge-code-view-overflow={bridgeCodeViewOptions.overflow}
-			data-testid="bridge-code-view-panel"
-		>
+				data-bridge-code-view-overflow={codeViewOptions.overflow}
+				data-testid="bridge-code-view-panel"
+				onKeyDownCapture={(event): void => {
+					if (isBridgeCodeViewScrollKey(event.key)) props.handleCodeViewUserScrollIntent();
+				}}
+				onPointerDownCapture={props.handleCodeViewUserScrollIntent}
+				onTouchStartCapture={props.handleCodeViewUserScrollIntent}
+				onWheelCapture={props.handleCodeViewUserScrollIntent}
+			>
 			<BridgePierreWorkerPoolProvider
 				{...(props.workerPoolEnabled === undefined ? {} : { enabled: props.workerPoolEnabled })}
 				{...(props.workerFactory === undefined ? {} : { workerFactory: props.workerFactory })}
@@ -110,7 +123,7 @@ export function BridgeCodeViewPanelFrame(props: BridgeCodeViewPanelFrameProps): 
 					initialItems={props.initialItems}
 					key={props.sourceKey}
 					onScroll={props.handleCodeViewScroll}
-					options={bridgeCodeViewOptions}
+					options={codeViewOptions}
 					ref={props.setCodeViewHandle}
 					renderHeaderMetadata={props.headerRenderers.renderHeaderMetadata}
 					renderHeaderPrefix={props.headerRenderers.renderHeaderPrefix}
@@ -119,4 +132,16 @@ export function BridgeCodeViewPanelFrame(props: BridgeCodeViewPanelFrameProps): 
 			</BridgePierreWorkerPoolProvider>
 		</section>
 	);
+}
+
+function isBridgeCodeViewScrollKey(key: string): boolean {
+	return [
+		' ',
+		'ArrowDown',
+		'ArrowUp',
+		'End',
+		'Home',
+		'PageDown',
+		'PageUp',
+	].includes(key);
 }

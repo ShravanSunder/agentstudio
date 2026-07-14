@@ -8,7 +8,9 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     }
 
     private let applyActiveViewerModeUpdate: @MainActor @Sendable (BridgeProductCallRequest) async -> Void
+    private let contentDemandAdmission: BridgeContentDemandAdmission
     private let fileMetadataSource: any BridgePaneProductFileMetadataProducing
+    private let handleReviewIntakeReady: @MainActor @Sendable (BridgeProductReviewIntakeReadyRequest) async -> Void
     private let markReviewItemViewed: @MainActor @Sendable (String) -> Void
     private let metadataCoordinator: BridgePaneProductMetadataCoordinator
     private let reviewContentSource: any BridgePaneProductReviewContentProducing
@@ -18,12 +20,20 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         reviewMetadataSource: any BridgePaneProductReviewMetadataProducing,
         reviewContentSource: any BridgePaneProductReviewContentProducing,
         markReviewItemViewed: @escaping @MainActor @Sendable (String) -> Void,
-        applyActiveViewerModeUpdate: @escaping @MainActor @Sendable (BridgeProductCallRequest) async -> Void = { _ in }
+        handleReviewIntakeReady: @escaping @MainActor @Sendable (BridgeProductReviewIntakeReadyRequest) async -> Void =
+            { _ in },
+        applyActiveViewerModeUpdate: @escaping @MainActor @Sendable (BridgeProductCallRequest) async -> Void = { _ in },
+        lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)? = nil,
+        contentDemandAdmission: BridgeContentDemandAdmission = BridgeContentDemandAdmission()
     ) {
+        self.contentDemandAdmission = contentDemandAdmission
         self.fileMetadataSource = fileMetadataSource
+        self.handleReviewIntakeReady = handleReviewIntakeReady
         self.metadataCoordinator = BridgePaneProductMetadataCoordinator(
             fileMetadataSource: fileMetadataSource,
-            reviewMetadataSource: reviewMetadataSource
+            reviewMetadataSource: reviewMetadataSource,
+            reviewContentSource: reviewContentSource,
+            lifecycleTraceRecorder: lifecycleTraceRecorder
         )
         self.markReviewItemViewed = markReviewItemViewed
         self.reviewContentSource = reviewContentSource
@@ -58,6 +68,11 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                     return try .callCompleted(
                         correlating: request,
                         result: .reviewMarkFileViewed
+                    )
+                case .reviewIntakeReady:
+                    return try .callCompleted(
+                        correlating: request,
+                        result: .reviewIntakeReady
                     )
                 }
             case .subscriptionOpen(let openRequest):
@@ -119,10 +134,22 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 await applyActiveViewerModeUpdate(committedProductCall)
             case .reviewMarkFileViewed(let markRequest):
                 await markReviewItemViewed(markRequest.itemId)
+            case .reviewIntakeReady(let intakeRequest):
+                await handleReviewIntakeReady(intakeRequest)
             }
             return
         }
         await metadataCoordinator.apply(effect)
+    }
+
+    func publish(
+        availability: BridgePaneProductReviewMetadataAvailability,
+        traceContext: BridgeTraceContext? = nil
+    ) async {
+        await metadataCoordinator.publish(
+            availability: availability,
+            traceContext: traceContext
+        )
     }
 
     func runMetadataProducer(
@@ -162,93 +189,108 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         lease: BridgeProductProducerLease,
         session: BridgeProductSession
     ) async {
+        let interest = await metadataCoordinator.contentDemandInterest(for: request)
         do {
-            _ = try await session.enqueueRequiredProducerOpeningFrame(
-                for: lease,
-                build: { _ in
-                    .content(
-                        .init(
-                            header: .accepted(for: request.admission),
-                            payload: Data()
-                        )
+            try await contentDemandAdmission.withAdmission(for: interest) {
+                try await self.runAdmittedContentProducer(
+                    request: request,
+                    lease: lease,
+                    session: session
+                )
+            }
+        } catch {
+            return
+        }
+    }
+
+    private func runAdmittedContentProducer(
+        request: BridgeProductContentRequest,
+        lease: BridgeProductProducerLease,
+        session: BridgeProductSession
+    ) async throws {
+        _ = try await session.enqueueRequiredProducerOpeningFrame(
+            for: lease,
+            build: { _ in
+                .content(
+                    .init(
+                        header: .accepted(for: request.admission),
+                        payload: Data()
                     )
-                }
-            )
-            guard let body = await contentBody(for: request) else {
-                _ = try await session.enqueueTerminalProducerFrame(
-                    for: lease,
-                    build: { sequence in
-                        .content(
-                            .init(
-                                header: try .error(
-                                    contentSequence: sequence,
-                                    code: .unsupportedContent,
-                                    retryable: false,
-                                    safeMessage: "Content descriptor is not active"
-                                ),
-                                payload: Data()
-                            )
-                        )
-                    }
                 )
-                return
             }
-            var offsetBytes = 0
-            while offsetBytes < body.data.count {
-                try Task.checkCancellation()
-                let endOffset = min(
-                    offsetBytes + BridgeProductWireContract.maximumContentDataPayloadBytes,
-                    body.data.count
-                )
-                let chunkOffsetBytes = offsetBytes
-                let payload = body.data.subdata(in: offsetBytes..<endOffset)
-                let result = try await session.enqueueProducerFrame(
-                    for: lease,
-                    build: { sequence in
-                        .content(
-                            .init(
-                                header: try .data(
-                                    contentSequence: sequence,
-                                    offsetBytes: chunkOffsetBytes
-                                ),
-                                payload: payload
-                            )
-                        )
-                    },
-                    overflowReset: { sequence in
-                        .content(
-                            .init(
-                                header: try .reset(
-                                    contentSequence: sequence,
-                                    reason: .producerOverflow
-                                ),
-                                payload: Data()
-                            )
-                        )
-                    }
-                )
-                guard case .enqueued = result else { return }
-                offsetBytes = endOffset
-            }
+        )
+        guard let body = await contentBody(for: request) else {
             _ = try await session.enqueueTerminalProducerFrame(
                 for: lease,
                 build: { sequence in
                     .content(
                         .init(
-                            header: try .end(
+                            header: try .error(
                                 contentSequence: sequence,
-                                endOfSource: body.endOfSource,
-                                observedByteLength: body.data.count,
-                                observedSha256: body.sha256
+                                code: .unsupportedContent,
+                                retryable: false,
+                                safeMessage: "Content descriptor is not active"
                             ),
                             payload: Data()
                         )
                     )
                 }
             )
-        } catch {
             return
         }
+        var offsetBytes = 0
+        while offsetBytes < body.data.count {
+            try Task.checkCancellation()
+            let endOffset = min(
+                offsetBytes + BridgeProductWireContract.maximumContentDataPayloadBytes,
+                body.data.count
+            )
+            let chunkOffsetBytes = offsetBytes
+            let payload = body.data.subdata(in: offsetBytes..<endOffset)
+            let result = try await session.enqueueProducerFrame(
+                for: lease,
+                build: { sequence in
+                    .content(
+                        .init(
+                            header: try .data(
+                                contentSequence: sequence,
+                                offsetBytes: chunkOffsetBytes
+                            ),
+                            payload: payload
+                        )
+                    )
+                },
+                overflowReset: { sequence in
+                    .content(
+                        .init(
+                            header: try .reset(
+                                contentSequence: sequence,
+                                reason: .producerOverflow
+                            ),
+                            payload: Data()
+                        )
+                    )
+                }
+            )
+            guard case .enqueued = result else { return }
+            offsetBytes = endOffset
+        }
+        _ = try await session.enqueueTerminalProducerFrame(
+            for: lease,
+            build: { sequence in
+                .content(
+                    .init(
+                        header: try .end(
+                            contentSequence: sequence,
+                            endOfSource: body.endOfSource,
+                            observedByteLength: body.data.count,
+                            observedSha256: body.sha256
+                        ),
+                        payload: Data()
+                    )
+                )
+            }
+        )
     }
 
     func publishFileStatus(_ status: GitWorkingTreeStatus) async {
@@ -306,4 +348,5 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             safeMessage: "Metadata stream is not installed"
         )
     }
+
 }

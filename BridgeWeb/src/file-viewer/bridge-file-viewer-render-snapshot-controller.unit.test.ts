@@ -1,7 +1,12 @@
+import { createElement, type ReactElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
 
-import { encodeBridgeWorkerSelectCommand } from '../core/comm-worker/bridge-comm-worker-protocol.js';
-import { createBridgeMainRenderSnapshotStore } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
+import {
+	createBridgeMainRenderSnapshotStore,
+	type BridgeMainRenderSnapshotStore,
+} from '../core/comm-worker/bridge-main-render-snapshot-store.js';
+import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type {
 	BridgeWorkerFileDisplayPatchEvent,
 	BridgeWorkerServerToMainMessage,
@@ -10,10 +15,13 @@ import {
 	buildBridgeWorkerPierreRenderJob,
 	type BridgeWorkerCodeViewFileItem,
 } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
+import type { BridgeWorkerRpcCommandInput } from '../core/comm-worker/bridge-worker-rpc-client.js';
 import {
 	applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore,
-	createBridgeFileViewerRuntimeProtocolDispatcher,
+	BridgeFileViewerSurfaceClientProvider,
 	selectedBridgeFileViewerCodeViewItemForSnapshot,
+	type BridgeFileViewerRenderSnapshotController,
+	useBridgeFileViewerRenderSnapshotController,
 } from './bridge-file-viewer-render-snapshot-controller.js';
 
 const selectedItem: BridgeWorkerCodeViewFileItem = {
@@ -35,36 +43,90 @@ const selectedItem: BridgeWorkerCodeViewFileItem = {
 };
 
 describe('Bridge File viewer render snapshot controller', () => {
-	test('uses the pane comm dispatcher with an empty main-owned File bootstrap', () => {
-		const dispatched: unknown[] = [];
-		let bootstrapRequest: unknown = null;
-		const dispatcher = createBridgeFileViewerRuntimeProtocolDispatcher({
-			publishWorkerMessages: (): void => {},
-			transportFactory: (props) => {
-				bootstrapRequest = props.bootstrapRequest;
-				return {
-					dispatch: (message): void => {
-						dispatched.push(message);
-					},
-					dispose: (): void => {},
-				};
-			},
-		});
+	test('sends File interactions through the injected stable surface client', () => {
+		const sentCommands: BridgeWorkerRpcCommandInput[] = [];
+		const fileViewClient = makeFileViewSurfaceClient(sentCommands);
+		const controllerProbe: { current: BridgeFileViewerRenderSnapshotController | null } = {
+			current: null,
+		};
 
-		dispatcher.dispatch(
-			encodeBridgeWorkerSelectCommand({
-				epoch: 1,
-				requestId: 'select-file-1',
-				selectedItemId: 'file-1',
-				selectedSource: 'user',
-			}),
+		function Probe(): ReactElement {
+			controllerProbe.current = useBridgeFileViewerRenderSnapshotController({ selection: null });
+			return createElement('div');
+		}
+
+		renderToStaticMarkup(
+			createElement(
+				BridgeFileViewerSurfaceClientProvider,
+				{ surfaceClient: fileViewClient },
+				createElement(Probe),
+			),
 		);
+		const controller = controllerProbe.current;
+		if (controller === null) throw new Error('Expected the File controller probe to render.');
 
-		expect(bootstrapRequest).toMatchObject({
-			runtime: { contentItems: [], contentRequestDescriptors: [], renderSemantics: [], rows: [] },
+		controller.dispatchSelectedFileViewContentRequest({
+			fileId: 'file-1',
+			selectedSource: 'user',
 		});
-		expect(dispatched).toHaveLength(1);
-		dispatcher.dispose();
+		controller.dispatchVisibleFileViewViewportFact({
+			firstVisibleIndex: 2,
+			lastVisibleIndex: 3,
+			visibleItemIds: ['file-1', 'file-2'],
+		});
+
+		expect(sentCommands).toEqual([
+			expect.objectContaining({
+				command: 'select',
+				selectedItemId: 'file-1',
+				surface: 'fileView',
+			}),
+			expect.objectContaining({
+				command: 'viewport',
+				surface: 'fileView',
+				visibleItemIds: ['file-1', 'file-2'],
+			}),
+		]);
+	});
+
+	test('reports a ready File display when the selected file is genuinely rendered', () => {
+		// Arrange
+		const renderStore = createBridgeMainRenderSnapshotStore();
+		applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
+			messages: [
+				fileDisplayEvent({ epoch: 1, projectionRevision: 1, sequence: 1 }),
+				fileRenderPatchEvent({ workerDerivationEpoch: 1, publicationSequence: 2 }),
+				filePierreRenderJobEvent({ workerDerivationEpoch: 1, publicationSequence: 3 }),
+			],
+			renderSnapshotStore: renderStore,
+		});
+		const fileViewClient = makeFileViewSurfaceClient([], renderStore);
+		const controllerProbe: { current: BridgeFileViewerRenderSnapshotController | null } = {
+			current: null,
+		};
+
+		function Probe(): ReactElement {
+			controllerProbe.current = useBridgeFileViewerRenderSnapshotController({
+				selection: { fileId: 'file-1', path: 'README.md' },
+			});
+			return createElement('div');
+		}
+
+		// Act
+		renderToStaticMarkup(
+			createElement(
+				BridgeFileViewerSurfaceClientProvider,
+				{ surfaceClient: fileViewClient },
+				createElement(Probe),
+			),
+		);
+		const controller = controllerProbe.current;
+		if (controller === null) throw new Error('Expected the File controller probe to render.');
+
+		// Assert
+		expect(controller.selectedContentAvailability).toEqual({ state: 'ready' });
+		expect(controller.selectedCodeViewItem).toEqual(selectedItem);
+		expect(controller.fileDisplaySnapshot.fileStatusSlice).toMatchObject({ state: 'ready' });
 	});
 
 	test('applies display patches while rejecting cross-wired generic Review selection patches', () => {
@@ -237,7 +299,7 @@ describe('Bridge File viewer render snapshot controller', () => {
 		expect(store.getSnapshot().rowPaintById).toEqual({});
 	});
 
-	test('terminates a selected File load when worker health degrades', () => {
+	test('does not manufacture terminal File availability from unscoped worker health', () => {
 		const store = createBridgeMainRenderSnapshotStore();
 		applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
 			messages: [fileDisplayEvent({ epoch: 1, projectionRevision: 1, sequence: 1 })],
@@ -266,10 +328,7 @@ describe('Bridge File viewer render snapshot controller', () => {
 			renderSnapshotStore: store,
 		});
 
-		expect(store.getSnapshot().contentAvailabilityById['file-1']).toEqual({
-			reason: 'load_failed',
-			state: 'failed',
-		});
+		expect(store.getSnapshot().contentAvailabilityById['file-1']).toEqual({ state: 'loading' });
 	});
 
 	test('does not clear current File content for a stale reset event', () => {
@@ -325,6 +384,26 @@ describe('Bridge File viewer render snapshot controller', () => {
 		).toEqual(selectedItem);
 	});
 });
+
+function makeFileViewSurfaceClient(
+	sentCommands: BridgeWorkerRpcCommandInput[],
+	renderStore: BridgeMainRenderSnapshotStore = createBridgeMainRenderSnapshotStore(),
+): BridgePaneSurfaceClient {
+	return {
+		lifecycle: {
+			getSnapshot: () => ({ requestsById: {} }),
+			getServerSnapshot: () => ({ requestsById: {} }),
+			subscribe: () => (): void => {},
+		},
+		renderStore,
+		send: (command): string => {
+			sentCommands.push(command);
+			return `file-request-${sentCommands.length}`;
+		},
+		subscribeMessages: () => (): void => {},
+		surface: 'fileView',
+	};
+}
 
 function fileDisplayEvent(props: {
 	readonly epoch: number;

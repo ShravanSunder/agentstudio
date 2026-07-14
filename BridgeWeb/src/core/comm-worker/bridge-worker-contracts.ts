@@ -4,8 +4,8 @@ import {
 	bridgeActiveViewerModeUpdateSchema,
 	bridgeIntakeReadyParamsSchema,
 } from '../../bridge/bridge-rpc-client.js';
-import { bridgeTelemetryScopeSchema } from '../../foundation/telemetry/bridge-telemetry-scope.js';
 import { bridgeDemandLaneSchema } from '../models/bridge-demand-models.js';
+import { bridgeProductReviewContentDescriptorSchema } from './bridge-product-content-contracts.js';
 import {
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
@@ -31,6 +31,10 @@ import {
 	bridgeWorkerPierreRenderBudgetSchema,
 	bridgeWorkerPierreRenderJobSchema,
 } from './bridge-worker-pierre-render-job.js';
+import {
+	BRIDGE_WORKER_REVIEW_DISPLAY_PATCH_LIMIT,
+	bridgeWorkerReviewDisplayPatchSchema,
+} from './bridge-worker-review-display-patch-contracts.js';
 
 export const BRIDGE_WORKER_WIRE_VERSION = 1 as const;
 export {
@@ -38,11 +42,21 @@ export {
 	bridgeWorkerFileDisplayPatchSchema,
 } from './bridge-worker-file-display-patch-contracts.js';
 export type { BridgeWorkerFileDisplayPatch } from './bridge-worker-file-display-patch-contracts.js';
+export {
+	BRIDGE_WORKER_REVIEW_DISPLAY_PATCH_LIMIT,
+	bridgeWorkerReviewDisplayPatchSchema,
+} from './bridge-worker-review-display-patch-contracts.js';
+export type {
+	BridgeWorkerReviewDisplayItem,
+	BridgeWorkerReviewDisplayPatch,
+	BridgeWorkerReviewSourceDisplayPayload,
+} from './bridge-worker-review-display-patch-contracts.js';
 
 const bridgeWorkerRequestIdSchema = z.string().min(1);
 const bridgeWorkerEpochSchema = z.number().int().nonnegative();
 const bridgeWorkerSequenceSchema = z.number().int().nonnegative();
 const bridgeWorkerIssuedAtMillisecondsSchema = z.number().finite().nonnegative();
+export const bridgeWorkerInteractionSurfaceSchema = z.enum(['fileView', 'review']);
 
 export const bridgeWorkerTransferDescriptorSchema = z
 	.object({
@@ -70,6 +84,7 @@ const bridgeWorkerMainToServerBaseSchema = z
 export const bridgeWorkerSelectCommandSchema = bridgeWorkerMainToServerBaseSchema
 	.extend({
 		command: z.literal('select'),
+		surface: bridgeWorkerInteractionSurfaceSchema,
 		selectedItemId: z.string().min(1),
 		selectedSource: z.enum(['user', 'keyboard', 'programmatic']),
 	})
@@ -78,6 +93,7 @@ export const bridgeWorkerSelectCommandSchema = bridgeWorkerMainToServerBaseSchem
 export const bridgeWorkerViewportCommandSchema = bridgeWorkerMainToServerBaseSchema
 	.extend({
 		command: z.literal('viewport'),
+		surface: bridgeWorkerInteractionSurfaceSchema,
 		visibleItemIds: z.array(z.string().min(1)).readonly(),
 		firstVisibleIndex: z.number().int().nonnegative(),
 		lastVisibleIndex: z.number().int().nonnegative(),
@@ -88,6 +104,7 @@ export const bridgeWorkerViewportCommandSchema = bridgeWorkerMainToServerBaseSch
 export const bridgeWorkerHoverCommandSchema = bridgeWorkerMainToServerBaseSchema
 	.extend({
 		command: z.literal('hover'),
+		surface: bridgeWorkerInteractionSurfaceSchema,
 		hoveredItemId: z.string().min(1).nullable(),
 	})
 	.strict();
@@ -156,6 +173,7 @@ export const bridgeWorkerFileDisplayResyncReasonSchema = z.enum([
 	'acknowledgementMismatch',
 	'acknowledgementTimeout',
 	'bufferOverflow',
+	'initialMount',
 	'protocolViolation',
 ]);
 
@@ -230,31 +248,8 @@ export const bridgeWorkerReviewContentMetadataSchema = z
 	})
 	.strict();
 
-const bridgeWorkerReviewContentRequestDescriptorBaseSchema = z
-	.object({
-		itemId: z.string().min(1),
-		role: bridgeProductReviewContentRoleSchema,
-		handleId: z.string().min(1),
-		reviewGeneration: z.number().int().nonnegative(),
-		resourceUrl: z.string().min(1),
-		contentHash: z.string().min(1),
-		contentHashAlgorithm: z.string().min(1),
-		language: z.string().nullable(),
-		sizeBytes: z.number().int().nonnegative(),
-		expectedBytes: z.number().int().nonnegative().optional(),
-		maxBytes: z.number().int().positive(),
-		isBinary: z.boolean(),
-	})
-	.strict();
-
-type BridgeWorkerReviewContentRequestDescriptorDraft = z.infer<
-	typeof bridgeWorkerReviewContentRequestDescriptorBaseSchema
->;
-
 export const bridgeWorkerReviewContentRequestDescriptorSchema =
-	bridgeWorkerReviewContentRequestDescriptorBaseSchema.superRefine(
-		validateBridgeWorkerReviewContentRequestDescriptor,
-	);
+	bridgeProductReviewContentDescriptorSchema;
 
 export const bridgeWorkerReviewRenderSemanticsSchema = z
 	.object({
@@ -292,24 +287,6 @@ export const bridgeWorkerFileViewContentMetadataSchema = z
 	})
 	.strict();
 
-export const bridgeCommWorkerRowSchema = z
-	.object({
-		id: z.string().min(1),
-		parentId: z.string().min(1).nullable(),
-		index: z.number().int().nonnegative(),
-	})
-	.strict();
-
-export const bridgeWorkerReviewSourceUpdateCommandSchema = bridgeWorkerMainToServerBaseSchema
-	.extend({
-		command: z.literal('reviewSourceUpdate'),
-		contentItems: z.array(bridgeWorkerReviewContentMetadataSchema).readonly(),
-		contentRequestDescriptors: z.array(bridgeWorkerReviewContentRequestDescriptorSchema).readonly(),
-		renderSemantics: z.array(bridgeWorkerReviewRenderSemanticsSchema).readonly(),
-		rows: z.array(bridgeCommWorkerRowSchema).readonly(),
-	})
-	.strict();
-
 export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('command', [
 	bridgeWorkerSelectCommandSchema,
 	bridgeWorkerViewportCommandSchema,
@@ -320,35 +297,11 @@ export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('comma
 	bridgeWorkerActiveViewerModeUpdateCommandSchema,
 	bridgeWorkerModeCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
-	bridgeWorkerReviewSourceUpdateCommandSchema,
 	bridgeWorkerFileQueryUpdateCommandSchema,
 	bridgeWorkerFileDisplayResyncCommandSchema,
 ]);
 
 export const bridgeWorkerMainToServerMessageSchema = bridgeWorkerMainToServerCommandSchema;
-
-function validateBridgeWorkerReviewContentRequestDescriptor(
-	descriptor: BridgeWorkerReviewContentRequestDescriptorDraft,
-	context: z.RefinementCtx,
-): void {
-	if (descriptor.expectedBytes !== undefined && descriptor.expectedBytes !== descriptor.sizeBytes) {
-		context.addIssue({
-			code: z.ZodIssueCode.custom,
-			message: `Review content request descriptor ${descriptor.itemId} expectedBytes must match sizeBytes when present.`,
-			path: ['expectedBytes'],
-		});
-	}
-	if (
-		descriptor.expectedBytes !== undefined &&
-		descriptor.maxBytes < Math.max(descriptor.expectedBytes, 1)
-	) {
-		context.addIssue({
-			code: z.ZodIssueCode.custom,
-			message: `Review content request descriptor ${descriptor.itemId} maxBytes must cover expectedBytes.`,
-			path: ['maxBytes'],
-		});
-	}
-}
 
 export type BridgeWorkerSelectCommand = z.infer<typeof bridgeWorkerSelectCommandSchema>;
 export type BridgeWorkerViewportCommand = z.infer<typeof bridgeWorkerViewportCommandSchema>;
@@ -372,9 +325,6 @@ export type BridgeWorkerModeCommand = z.infer<typeof bridgeWorkerModeCommandSche
 export type BridgeWorkerReviewInvalidateCommand = z.infer<
 	typeof bridgeWorkerReviewInvalidateCommandSchema
 >;
-export type BridgeWorkerReviewSourceUpdateCommand = z.infer<
-	typeof bridgeWorkerReviewSourceUpdateCommandSchema
->;
 export type BridgeWorkerFileQueryUpdateCommand = z.infer<
 	typeof bridgeWorkerFileQueryUpdateCommandSchema
 >;
@@ -386,21 +336,6 @@ export type BridgeWorkerFileDisplayResyncCommand = z.infer<
 >;
 export type BridgeWorkerMainToServerCommand = z.infer<typeof bridgeWorkerMainToServerCommandSchema>;
 export type BridgeWorkerMainToServerMessage = BridgeWorkerMainToServerCommand;
-
-export const bridgeCommWorkerTelemetryBootstrapConfigSchema = z
-	.object({
-		enabledScopes: z.array(bridgeTelemetryScopeSchema).readonly(),
-		endpointUrl: z.string().min(1),
-		maxSamplesPerBatch: z.number().int().positive(),
-		maxEncodedBatchBytes: z.number().int().positive(),
-		minimumFlushIntervalMilliseconds: z.number().int().nonnegative(),
-		scenario: z.string().min(1),
-	})
-	.strict();
-
-export type BridgeCommWorkerTelemetryBootstrapConfig = z.infer<
-	typeof bridgeCommWorkerTelemetryBootstrapConfigSchema
->;
 
 export const bridgeCommWorkerBootstrapRequestSchema = z
 	.object({
@@ -428,14 +363,7 @@ export const bridgeCommWorkerBootstrapRequestSchema = z
 					})
 					.strict()
 					.optional(),
-				contentItems: z.array(bridgeWorkerReviewContentMetadataSchema).readonly(),
-				contentRequestDescriptors: z
-					.array(bridgeWorkerReviewContentRequestDescriptorSchema)
-					.readonly(),
-				renderSemantics: z.array(bridgeWorkerReviewRenderSemanticsSchema).readonly(),
-				rows: z.array(bridgeCommWorkerRowSchema).readonly(),
 				maxPreparationSliceMs: z.number().finite().positive().optional(),
-				telemetryConfig: bridgeCommWorkerTelemetryBootstrapConfigSchema.optional(),
 			})
 			.strict(),
 	})
@@ -603,7 +531,6 @@ export function isBridgeWorkerFileViewContentMetadata(
 ): metadata is BridgeWorkerFileViewContentMetadata {
 	return metadata !== null && bridgeWorkerFileViewContentMetadataSchema.safeParse(metadata).success;
 }
-export type BridgeCommWorkerBootstrapRow = z.infer<typeof bridgeCommWorkerRowSchema>;
 export type BridgeCommWorkerBootstrapRequest = z.infer<
 	typeof bridgeCommWorkerBootstrapRequestSchema
 >;
@@ -635,12 +562,77 @@ const bridgeWorkerSurfacePublicationEnvelopeShape = {
 	workerDerivationEpoch: bridgeWorkerEpochSchema,
 } as const;
 
+const bridgeWorkerProductMetadataStreamDiagnosticSchema = z
+	.object({
+		kind: z.literal('productMetadataStream'),
+		acknowledgedFrameCount: z.number().int().nonnegative(),
+		activeSubscriptionCount: z.number().int().nonnegative(),
+		committedFrameCount: z.number().int().nonnegative(),
+		decoderState: z.enum(['open', 'terminal', 'finished', 'poisoned']),
+		expectedNextStreamSequence: z.number().int().nonnegative(),
+		failureStage: z
+			.enum([
+				'acknowledgement',
+				'authority',
+				'decode',
+				'fetch',
+				'finish',
+				'read',
+				'route',
+				'unexpectedEof',
+			])
+			.nullable(),
+		failureCode: z
+			.enum([
+				'frame_length_invalid',
+				'frame_length_exceeds_ceiling',
+				'content_frame_tag_invalid',
+				'content_control_body_length_invalid',
+				'content_control_body_exceeds_ceiling',
+				'frame_decode_invalid',
+				'frame_payload_invalid',
+				'truncated_frame',
+				'stream_acceptance_required',
+				'duplicate_stream_acceptance',
+				'stream_identity_mismatch',
+				'stream_sequence_mismatch',
+				'post_terminal_frame',
+			])
+			.nullable(),
+		identityMismatchField: z
+			.enum(['metadataStreamId', 'paneSessionId', 'wireVersion', 'workerInstanceId'])
+			.nullable(),
+		lastChunkByteCount: z.number().int().nonnegative(),
+		lastAcknowledgedStreamSequence: z.number().int().nonnegative().nullable(),
+		lastCommittedFrameKind: z.string().min(1).nullable(),
+		lastRoutedFrameKind: z.string().min(1).nullable(),
+		lifecycleState: z.enum(['failed', 'idle', 'opening', 'reading']),
+		peakRetainedByteCount: z.number().int().nonnegative(),
+		pushCount: z.number().int().nonnegative(),
+		readFulfilledCount: z.number().int().nonnegative(),
+		readPending: z.boolean(),
+		readRequestCount: z.number().int().nonnegative(),
+		receivedByteCount: z.number().int().nonnegative(),
+		retainedByteCount: z.number().int().nonnegative(),
+		routeFailureCode: z
+			.enum(['metadata_stream_error', 'subscription_frame_rejected', 'unknown_subscription'])
+			.nullable(),
+		routedFrameCount: z.number().int().nonnegative(),
+		streamOpenCount: z.number().int().nonnegative(),
+	})
+	.strict();
+
+const bridgeWorkerHealthDiagnosticSchema = z.discriminatedUnion('kind', [
+	bridgeWorkerProductMetadataStreamDiagnosticSchema,
+]);
+
 export const bridgeWorkerHealthEventSchema = bridgeWorkerServerToMainBaseSchema
 	.extend({
 		kind: z.literal('health'),
 		requestId: bridgeWorkerRequestIdSchema.optional(),
 		status: z.enum(['ready', 'degraded']),
 		deliveryStatus: z.enum(['unknownAfterDispatch']).optional(),
+		diagnostic: bridgeWorkerHealthDiagnosticSchema.optional(),
 		message: z.string().min(1).optional(),
 	})
 	.strict();
@@ -706,7 +698,36 @@ export const bridgeWorkerFileDisplayPatchEventSchema = bridgeWorkerServerToMainB
 		}
 	});
 
+export const bridgeWorkerReviewDisplayPatchEventSchema = bridgeWorkerServerToMainBaseSchema
+	.extend({
+		kind: z.literal('reviewDisplayPatch'),
+		surface: z.literal('review'),
+		epoch: bridgeWorkerEpochSchema,
+		sequence: bridgeWorkerSequenceSchema,
+		projectionRevision: bridgeProductNonnegativeSequenceSchema,
+		patches: z
+			.array(bridgeWorkerReviewDisplayPatchSchema)
+			.min(1)
+			.max(BRIDGE_WORKER_REVIEW_DISPLAY_PATCH_LIMIT)
+			.readonly(),
+	})
+	.strict()
+	.superRefine((event, context): void => {
+		if (event.transferDescriptors.length > 0) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Review display patches must not declare transferable payloads.',
+				path: ['transferDescriptors'],
+			});
+		}
+	});
+
 export const bridgeWorkerFileRenderPatchSchema = z.discriminatedUnion('slice', [
+	bridgeWorkerRowPaintPatchSchema,
+	bridgeWorkerContentAvailabilityPatchSchema,
+]);
+
+export const bridgeWorkerReviewRenderPatchSchema = z.discriminatedUnion('slice', [
 	bridgeWorkerRowPaintPatchSchema,
 	bridgeWorkerContentAvailabilityPatchSchema,
 ]);
@@ -724,6 +745,19 @@ export const bridgeWorkerFileRenderPatchEventSchema = bridgeWorkerServerToMainBa
 	})
 	.strict();
 
+export const bridgeWorkerReviewRenderPatchEventSchema = bridgeWorkerServerToMainBaseSchema
+	.extend({
+		...bridgeWorkerSurfacePublicationEnvelopeShape,
+		kind: z.literal('reviewRenderPatch'),
+		patches: z
+			.array(bridgeWorkerReviewRenderPatchSchema)
+			.min(1)
+			.max(BRIDGE_WORKER_REVIEW_DISPLAY_PATCH_LIMIT)
+			.readonly(),
+		surface: z.literal('review'),
+	})
+	.strict();
+
 export const bridgeWorkerSubscriptionEventSchema = bridgeWorkerServerToMainBaseSchema
 	.extend({
 		kind: z.literal('subscription'),
@@ -733,10 +767,12 @@ export const bridgeWorkerSubscriptionEventSchema = bridgeWorkerServerToMainBaseS
 	})
 	.strict();
 
-export const bridgeWorkerPierreRenderJobEventSchema = bridgeWorkerServerToMainBaseSchema
+export const bridgeWorkerReviewPierreRenderJobEventSchema = bridgeWorkerServerToMainBaseSchema
 	.extend({
-		kind: z.literal('pierreRenderJob'),
+		...bridgeWorkerSurfacePublicationEnvelopeShape,
 		job: bridgeWorkerPierreRenderJobSchema,
+		kind: z.literal('reviewPierreRenderJob'),
+		surface: z.literal('review'),
 	})
 	.strict();
 
@@ -762,9 +798,11 @@ export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind'
 	bridgeWorkerHealthEventSchema,
 	bridgeWorkerSlicePatchEventSchema,
 	bridgeWorkerFileDisplayPatchEventSchema,
+	bridgeWorkerReviewDisplayPatchEventSchema,
 	bridgeWorkerFileRenderPatchEventSchema,
+	bridgeWorkerReviewRenderPatchEventSchema,
 	bridgeWorkerSubscriptionEventSchema,
-	bridgeWorkerPierreRenderJobEventSchema,
+	bridgeWorkerReviewPierreRenderJobEventSchema,
 	bridgeWorkerFilePierreRenderJobEventSchema,
 ]);
 
@@ -773,15 +811,30 @@ export type BridgeWorkerSlicePatchEvent = z.infer<typeof bridgeWorkerSlicePatchE
 export type BridgeWorkerFileDisplayPatchEvent = z.infer<
 	typeof bridgeWorkerFileDisplayPatchEventSchema
 >;
+export type BridgeWorkerReviewDisplayPatchEvent = z.infer<
+	typeof bridgeWorkerReviewDisplayPatchEventSchema
+>;
 export type BridgeWorkerFileRenderPatch = z.infer<typeof bridgeWorkerFileRenderPatchSchema>;
 type BridgeWorkerFileRenderPatchEventValue = z.infer<typeof bridgeWorkerFileRenderPatchEventSchema>;
 export type BridgeWorkerFileRenderPatchEvent = BridgeWorkerSurfacePublicationEnvelope<
 	'file',
 	BridgeWorkerFileRenderPatchEventValue
 >;
+export type BridgeWorkerReviewRenderPatch = z.infer<typeof bridgeWorkerReviewRenderPatchSchema>;
+type BridgeWorkerReviewRenderPatchEventValue = z.infer<
+	typeof bridgeWorkerReviewRenderPatchEventSchema
+>;
+export type BridgeWorkerReviewRenderPatchEvent = BridgeWorkerSurfacePublicationEnvelope<
+	'review',
+	BridgeWorkerReviewRenderPatchEventValue
+>;
 export type BridgeWorkerSubscriptionEvent = z.infer<typeof bridgeWorkerSubscriptionEventSchema>;
-export type BridgeWorkerPierreRenderJobEvent = z.infer<
-	typeof bridgeWorkerPierreRenderJobEventSchema
+type BridgeWorkerReviewPierreRenderJobEventValue = z.infer<
+	typeof bridgeWorkerReviewPierreRenderJobEventSchema
+>;
+export type BridgeWorkerReviewPierreRenderJobEvent = BridgeWorkerSurfacePublicationEnvelope<
+	'review',
+	BridgeWorkerReviewPierreRenderJobEventValue
 >;
 type BridgeWorkerFilePierreRenderJobEventValue = z.infer<
 	typeof bridgeWorkerFilePierreRenderJobEventSchema

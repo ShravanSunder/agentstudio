@@ -1,6 +1,7 @@
 import type { CodeViewLineSelection, CodeViewScrollTarget } from '@pierre/diffs';
 import { describe, expect, test } from 'vitest';
 
+import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
 import {
 	BridgeCodeViewController,
@@ -9,14 +10,292 @@ import {
 } from './bridge-code-view-controller.js';
 import type { BridgeCodeViewItem } from './bridge-code-view-materialization.js';
 import { materializeBridgeCodeViewLoadingItem } from './bridge-code-view-materialization.js';
-import { runBridgeCodeViewMetadataApplyInChunks } from './bridge-code-view-metadata-apply.js';
+import {
+	bridgeCodeViewMetadataRequiresManifestReconciliation,
+	planBridgeCodeViewManifestReconciliation,
+	runBridgeCodeViewMetadataApplyInChunks,
+	runBridgeCodeViewMetadataReconciliationInChunks,
+} from './bridge-code-view-metadata-apply.js';
 import {
 	bridgeCodeViewInitialItemsWithWorkerPreparedCodeViewItems,
+	createBridgeCodeViewInitialItemsForPanel,
 	nextCodeViewItemForCollapse,
 	reconcileBridgeCodeViewMetadataItems,
 } from './bridge-code-view-panel-support.js';
+import { createBridgeCodeViewMetadataDeltaItemsForPanel } from './bridge-code-view-worker-prepared-items.js';
 
 describe('BridgeCodeViewPanel reconcile apply path', () => {
+	test('replaces a retained selected-only model with the authoritative ordered manifest', () => {
+		// Arrange
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { facets: [], mode: { kind: 'normalReview' } },
+		});
+		const authoritativeItems = createBridgeCodeViewInitialItemsForPanel({
+			projection,
+			reviewPackage,
+		});
+		const selectedPlaceholder = authoritativeItems[1];
+		if (selectedPlaceholder === undefined) {
+			throw new Error('expected middle selected placeholder');
+		}
+		const hydratedSelectedItem: BridgeCodeViewItem = {
+			...selectedPlaceholder,
+			bridgeMetadata: {
+				...selectedPlaceholder.bridgeMetadata,
+				contentState: 'hydrated',
+			},
+			version: (selectedPlaceholder.version ?? 0) + 1,
+		};
+		const reconciledAuthoritativeItems = reconcileBridgeCodeViewMetadataItems({
+			getCurrentItem: (itemId: string) =>
+				itemId === hydratedSelectedItem.id ? hydratedSelectedItem : undefined,
+			metadataItems: authoritativeItems,
+		});
+
+		// Act
+		const plan = planBridgeCodeViewManifestReconciliation({
+			authoritativeItems: reconciledAuthoritativeItems,
+			currentItems: [hydratedSelectedItem],
+			getCurrentItem: (itemId: string): BridgeCodeViewItem | undefined =>
+				itemId === hydratedSelectedItem.id ? hydratedSelectedItem : undefined,
+		});
+
+		// Assert
+		expect(plan.kind).toBe('replace');
+		if (plan.kind !== 'replace') {
+			throw new Error('expected authoritative replacement plan');
+		}
+		expect(plan.items.map((item) => item.id)).toEqual(projection.orderedItemIds);
+		expect(plan.items[1]).toBe(hydratedSelectedItem);
+	});
+
+	test('applies retained selected-only recovery as one authoritative replacement', () => {
+		// Arrange
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { facets: [], mode: { kind: 'normalReview' } },
+		});
+		const authoritativeItems = createBridgeCodeViewInitialItemsForPanel({
+			projection,
+			reviewPackage,
+		});
+		const retainedSelectedItem = authoritativeItems[2];
+		if (retainedSelectedItem === undefined) {
+			throw new Error('expected retained middle selected item');
+		}
+		let currentItems: readonly BridgeCodeViewItem[] = [retainedSelectedItem];
+		const appliedItemIds: string[] = [];
+		const scheduledTurns: Array<() => void> = [];
+		let completionCount = 0;
+		let setItemsCount = 0;
+
+		// Act
+		runBridgeCodeViewMetadataReconciliationInChunks({
+			applyItemUpdate: (item): void => {
+				appliedItemIds.push(item.id);
+			},
+			currentItems,
+			frameBudgetMilliseconds: 8,
+			getCurrentItem: (itemId: string): BridgeCodeViewItem | undefined =>
+				currentItems.find((item): boolean => item.id === itemId),
+			isStale: (): boolean => false,
+			isTaskStale: (): boolean => false,
+			items: authoritativeItems,
+			maxUnitsPerFrame: 8,
+			noStarvationSelectedBatchLimit: 4,
+			now: (): number => 0,
+			onComplete: (): void => {
+				completionCount += 1;
+			},
+			rankForItem: (): 'visible' => 'visible',
+			scheduleNextTurn: (callback): void => {
+				scheduledTurns.push(callback);
+			},
+			setItems: (items): void => {
+				setItemsCount += 1;
+				currentItems = items;
+			},
+			staleScanLimit: 50,
+		});
+		flushScheduledTurns(scheduledTurns);
+
+		// Assert
+		expect(currentItems.map((item) => item.id)).toEqual(projection.orderedItemIds);
+		expect(setItemsCount).toBe(1);
+		expect(appliedItemIds).toEqual([]);
+		expect(completionCount).toBe(1);
+	});
+
+	test('repairs a stale selected-only Pierre model when the tracked manifest already claims every item', () => {
+		// Arrange: this is the long-lived/HMR failure shape. React retained the complete
+		// intended manifest, while the live Pierre model still contains only the old selection.
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { facets: [], mode: { kind: 'normalReview' } },
+		});
+		const authoritativeItems = createBridgeCodeViewInitialItemsForPanel({
+			projection,
+			reviewPackage,
+		});
+		const retainedSelectedItem = authoritativeItems[2];
+		if (retainedSelectedItem === undefined) {
+			throw new Error('expected retained selected item');
+		}
+		let livePierreItems: readonly BridgeCodeViewItem[] = [retainedSelectedItem];
+		const scheduledTurns: Array<() => void> = [];
+		let setItemsCount = 0;
+		const reconciliationProps = {
+			applyItemUpdate: (item: BridgeCodeViewItem): void => {
+				const existingIndex = livePierreItems.findIndex(
+					(currentItem): boolean => currentItem.id === item.id,
+				);
+				livePierreItems =
+					existingIndex === -1
+						? [...livePierreItems, item]
+						: livePierreItems.with(existingIndex, item);
+			},
+			currentItems: authoritativeItems,
+			frameBudgetMilliseconds: 8,
+			getCurrentItem: (itemId: string): BridgeCodeViewItem | undefined =>
+				livePierreItems.find((item): boolean => item.id === itemId),
+			isStale: (): boolean => false,
+			isTaskStale: (): boolean => false,
+			items: authoritativeItems,
+			maxUnitsPerFrame: 8,
+			noStarvationSelectedBatchLimit: 4,
+			now: (): number => 0,
+			onComplete: (): void => {},
+			rankForItem: (): 'visible' => 'visible',
+			scheduleNextTurn: (callback: () => void): void => {
+				scheduledTurns.push(callback);
+			},
+			setItems: (items: readonly BridgeCodeViewItem[]): void => {
+				setItemsCount += 1;
+				livePierreItems = items;
+			},
+			shouldSkipItem: (item: BridgeCodeViewItem): boolean =>
+				livePierreItems.find((currentItem): boolean => currentItem.id === item.id) === item,
+			staleScanLimit: 50,
+		};
+
+		// Act
+		runBridgeCodeViewMetadataReconciliationInChunks(reconciliationProps);
+		flushScheduledTurns(scheduledTurns);
+
+		// Assert: missing public-model membership forces one ordered replacement instead of
+		// appending each later clicked/visible item behind the retained selection.
+		expect(setItemsCount).toBe(1);
+		expect(livePierreItems.map((item): string => item.id)).toEqual(projection.orderedItemIds);
+	});
+
+	test('routes a same-manifest delta through authoritative reconciliation when Pierre lost that item', () => {
+		// Arrange: React still owns the complete manifest, but Pierre retained only the old
+		// selected item. The next visible/selected delta must repair membership, not append.
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { facets: [], mode: { kind: 'normalReview' } },
+		});
+		const authoritativeItems = createBridgeCodeViewInitialItemsForPanel({
+			projection,
+			reviewPackage,
+		});
+		const retainedSelectedItem = authoritativeItems[0];
+		const laterVisibleItem = authoritativeItems[2];
+		if (retainedSelectedItem === undefined || laterVisibleItem === undefined) {
+			throw new Error('expected retained and later visible Review items');
+		}
+
+		// Act
+		const requiresManifestReconciliation = bridgeCodeViewMetadataRequiresManifestReconciliation({
+			authoritativeItemIds: new Set(authoritativeItems.map((item): string => item.id)),
+			getCurrentItem: (itemId: string): BridgeCodeViewItem | undefined =>
+				itemId === retainedSelectedItem.id ? retainedSelectedItem : undefined,
+			manifestChanged: false,
+			metadataDeltaItems: [laterVisibleItem],
+			sourceReset: false,
+		});
+
+		// Assert
+		expect(
+			requiresManifestReconciliation,
+			'REVIEW_SAME_MANIFEST_APPEND: a missing live Pierre item must trigger one ordered manifest replacement before the delta can append.',
+		).toBe(true);
+	});
+
+	test('recovers the complete manifest before applying selected loading without a presentation', () => {
+		// Arrange: React still owns the complete authoritative manifest, while the live Pierre
+		// model retained only the first item. This is the long-lived Review failure where clicking
+		// another file enters selected loading before a presentation or prepared item exists.
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { facets: [], mode: { kind: 'normalReview' } },
+		});
+		const authoritativeItems = createBridgeCodeViewInitialItemsForPanel({
+			projection,
+			reviewPackage,
+		});
+		const retainedItem = authoritativeItems[0];
+		const selectedLoadingItem = authoritativeItems[2];
+		if (retainedItem === undefined || selectedLoadingItem === undefined) {
+			throw new Error('expected retained and selected loading Review items');
+		}
+		const metadataDeltaItems = createBridgeCodeViewMetadataDeltaItemsForPanel({
+			reviewPackage,
+			selectedCodeViewItem: null,
+			selectedContentLoadingItemId: selectedLoadingItem.id,
+			selectedItemId: selectedLoadingItem.id,
+			selectedItemPresentation: null,
+			visibleCodeViewItems: [],
+		});
+
+		// Act
+		const requiresManifestReconciliation = bridgeCodeViewMetadataRequiresManifestReconciliation({
+			authoritativeItemIds: new Set(authoritativeItems.map((item): string => item.id)),
+			getCurrentItem: (itemId: string): BridgeCodeViewItem | undefined =>
+				itemId === retainedItem.id ? retainedItem : undefined,
+			manifestChanged: false,
+			metadataDeltaItems,
+			sourceReset: false,
+		});
+
+		// Assert: selected loading must enter the metadata reconciliation lane. Otherwise the
+		// loading-only effect calls Pierre addItems and appends the clicked file behind the first.
+		expect(metadataDeltaItems).toHaveLength(1);
+		expect(metadataDeltaItems[0]?.id).toBe(selectedLoadingItem.id);
+		expect(metadataDeltaItems[0]?.bridgeMetadata.contentState).toBe('loading');
+		expect(
+			requiresManifestReconciliation,
+			'REVIEW_SELECTED_LOADING_APPEND: selected loading must recover authoritative membership before any item update can append.',
+		).toBe(true);
+	});
+
+	test('does not classify a delta outside the authoritative projection as manifest drift', () => {
+		// Arrange
+		const outsideProjectionDescriptor = makeBridgeViewerProjectionFixture().itemsById['docs-plan'];
+		if (outsideProjectionDescriptor === undefined) {
+			throw new Error('expected outside-projection Review item');
+		}
+		const outsideProjectionItem = materializeBridgeCodeViewLoadingItem(outsideProjectionDescriptor);
+
+		// Act
+		const requiresManifestReconciliation = bridgeCodeViewMetadataRequiresManifestReconciliation({
+			authoritativeItemIds: new Set(['source-high']),
+			getCurrentItem: (): BridgeCodeViewItem | undefined => undefined,
+			manifestChanged: false,
+			metadataDeltaItems: [outsideProjectionItem],
+			sourceReset: false,
+		});
+
+		// Assert
+		expect(requiresManifestReconciliation).toBe(false);
+	});
+
 	test('reconciles selected presentation loading deltas over hydrated selected item', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const sourceItem = reviewPackage.itemsById['source-high'];
@@ -178,7 +457,6 @@ function applyMetadataWithCurrentItem(props: {
 		setItems: (items): void => {
 			model.addItems(items);
 		},
-		sourceReset: false,
 		staleScanLimit: 50,
 	});
 	flushScheduledTurns(scheduledTurns);

@@ -29,12 +29,21 @@ describe('Bridge comm worker product command sender', () => {
 
 		// Act
 		await controller.send({ method: 'review.markFileViewed', params: { fileId: 'item-1' } });
+		await controller.send({
+			method: 'bridge.intakeReady',
+			params: {
+				protocolId: 'review',
+				reason: 'sequence_gap',
+				streamId: 'review-stream',
+			},
+		});
 		await controller.send(activeModeCommand('review'));
 		await controller.send(activeModeCommand('file'));
 
 		// Assert
 		expect(calls).toEqual([
 			['review.markFileViewed', { itemId: 'item-1' }],
+			['review.intake.ready', { reason: 'sequence_gap', streamId: 'review-stream' }],
 			[
 				'review.activeViewerMode.update',
 				{

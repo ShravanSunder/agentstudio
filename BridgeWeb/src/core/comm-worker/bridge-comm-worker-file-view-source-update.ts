@@ -28,6 +28,7 @@ export interface ApplyBridgeCommWorkerFileViewSourceUpdateFactProps {
 	readonly epoch: number;
 	readonly pendingSlicePatches: BridgeWorkerSlicePatch[];
 	readonly rows: readonly BridgeCommWorkerRow[];
+	readonly selectedContentRequestChanged: boolean;
 	readonly store: StoreApi<BridgeCommWorkerStoreState>;
 }
 
@@ -35,6 +36,7 @@ export interface ApplyBridgeCommWorkerFileViewSourceMutationFactProps {
 	readonly epoch: number;
 	readonly mutation: BridgeCommWorkerFileViewRuntimeMutation;
 	readonly pendingSlicePatches: BridgeWorkerSlicePatch[];
+	readonly selectedContentRequestChanged: boolean;
 	readonly store: StoreApi<BridgeCommWorkerStoreState>;
 }
 
@@ -61,6 +63,8 @@ export function applyBridgeCommWorkerFileViewSourceUpdateFact(
 	const selectedDemandEpoch = selectedDemandEpochForSourceUpdate({
 		contentMetadataByItemId: sourceIndexes.contentMetadataByItemId,
 		epoch: props.epoch,
+		selectedContentChanged:
+			selectedFileViewContentMetadataChanged || props.selectedContentRequestChanged,
 		state: previousState,
 	});
 	const selectedDemandEnabled = selectedDemandEpoch !== null;
@@ -192,6 +196,8 @@ export function applyBridgeCommWorkerFileViewSourceMutationFact(
 	const selectedDemandEpoch = selectedDemandEpochForSourceUpdate({
 		contentMetadataByItemId: state.contentMetadataByItemId,
 		epoch: props.epoch,
+		selectedContentChanged:
+			selectedFileViewContentMetadataChanged || props.selectedContentRequestChanged,
 		state,
 	});
 	const selectedDemandEnabled = selectedDemandEpoch !== null;
@@ -413,6 +419,7 @@ function buildBridgeCommWorkerFileViewSourceIndexes(props: {
 function selectedDemandEpochForSourceUpdate(props: {
 	readonly contentMetadataByItemId: ReadonlyMap<string, BridgeWorkerContentMetadata>;
 	readonly epoch: number;
+	readonly selectedContentChanged: boolean;
 	readonly state: BridgeCommWorkerStoreState;
 }): number | null {
 	if (
@@ -423,7 +430,19 @@ function selectedDemandEpochForSourceUpdate(props: {
 	) {
 		return null;
 	}
-	return props.epoch;
+	if (props.selectedContentChanged) {
+		return props.epoch;
+	}
+	return selectedDemandEpochFromState(props.state) ?? props.epoch;
+}
+
+function selectedDemandEpochFromState(state: BridgeCommWorkerStoreState): number | null {
+	if (state.selectedId === null) {
+		return null;
+	}
+	const existingDemand = state.demandByKey.get(state.selectedId);
+	const selectedEpochMatch = /^selected:(\d+)$/u.exec(existingDemand ?? '');
+	return selectedEpochMatch === null ? null : Number(selectedEpochMatch[1]);
 }
 
 function sourceRepairCandidateIds(state: BridgeCommWorkerStoreState): readonly string[] {

@@ -1,0 +1,938 @@
+import { act } from 'react';
+import { render } from 'vitest-browser-react';
+
+import { BridgeReviewViewerMode } from '../../app/bridge-app-review-viewer-mode.js';
+import type { BridgeViewerNavigationCommand } from '../../app/bridge-viewer-navigation-models.js';
+import { createBridgeMainRenderSnapshotStore } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
+import type { BridgePaneSurfaceClient } from '../../core/comm-worker/bridge-pane-runtime.js';
+import type {
+	BridgeWorkerReviewDisplayItem,
+	BridgeWorkerReviewDisplayPatchEvent,
+	BridgeWorkerServerToMainMessage,
+} from '../../core/comm-worker/bridge-worker-contracts.js';
+import { buildBridgeWorkerPierreRenderJob } from '../../core/comm-worker/bridge-worker-pierre-render-job.js';
+import type { BridgeWorkerRpcCommandInput } from '../../core/comm-worker/bridge-worker-rpc-client.js';
+import { createBridgeWorkerRpcLifecycleStore } from '../../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
+import { bridgeContentDemandExecutionPolicy } from '../../core/demand/bridge-content-demand-policy.js';
+import { createBridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
+import { parseBridgeCodeViewDiffForBrowserTest } from '../code-view/bridge-code-view-browser-test-diff.js';
+import { reviewWitnessTreeRows } from './bridge-viewer-browser-recovery-tree-fixture.js';
+import { visibleTextIncludingOpenShadowRoots } from './bridge-viewer-browser-visible-text.js';
+
+export interface BridgeReviewRecoveryWitnessFile {
+	readonly contentMarker: string;
+	readonly itemId: string;
+	readonly lineCount: number;
+	readonly path: string;
+}
+
+export interface BridgeReviewRecoveryWitnessHarness {
+	readonly codeScrollOwner: () => HTMLElement | null;
+	readonly codeText: () => string;
+	readonly files: readonly BridgeReviewRecoveryWitnessFile[];
+	readonly paintedCodeViewItems: () => readonly BridgeReviewRecoveryPaintedItem[];
+	readonly pierreSearchInput: () => HTMLInputElement | null;
+	readonly pierreTreeHost: () => HTMLElement | null;
+	readonly pierreTreePath: (path: string) => HTMLElement | null;
+	readonly publishCompleteContent: () => Promise<void>;
+	readonly publishContentForItemIds: (itemIds: readonly string[]) => Promise<readonly string[]>;
+	readonly publishDemandedContent: () => Promise<readonly string[]>;
+	readonly publishDisplay: () => Promise<void>;
+	readonly publishDisplayAtEpoch: (epoch: number) => Promise<void>;
+	readonly publishDisplayAtPackageIdentity: (metadataWindowIdentity: string) => Promise<void>;
+	readonly publishDisplayInTwoBatches: (initialItemCount: number) => Promise<void>;
+	readonly publishAuthoritativeDisplayAfterRetainedSelection: () => Promise<void>;
+	readonly publishAuthoritativeDisplayWithImmediateLocalSelection: (
+		selectedItemIndex: number,
+	) => Promise<void>;
+	readonly publishRetainedSelectedOnlyDisplay: (selectedItemIndex: number) => Promise<void>;
+	readonly publishedContentItemIds: () => readonly string[];
+	readonly renderedCodeViewItemIds: () => readonly string[];
+	readonly renderResult: ReturnType<typeof render>;
+	readonly markFileViewedCommandCount: () => number;
+	readonly selectedItemCommandCount: () => number;
+	readonly expandedTreePaths: () => readonly string[];
+	readonly visibleCodeText: (scrollOwner: HTMLElement) => string;
+	readonly viewportCommandVisibleItemIds: () => readonly (readonly string[])[];
+}
+
+export interface BridgeReviewRecoveryPaintedItem {
+	readonly bottom: number;
+	readonly itemId: string;
+	readonly paintedLineCount: number;
+	readonly text: string;
+	readonly top: number;
+}
+
+export interface BridgeReviewRecoveryScrollScan {
+	readonly blankPaintSampleCount: number;
+	readonly convergenceSampleCount: number;
+	readonly finalScrollHeight: number;
+	readonly markerConvergenceSamples: readonly BridgeReviewRecoveryMarkerConvergenceSample[];
+	readonly maximumAvailableScrollTop: number;
+	readonly maximumScrollTop: number;
+	readonly observedMarkers: ReadonlySet<string>;
+	readonly sampleCount: number;
+	readonly scrollTopSamples: readonly number[];
+}
+
+export interface BridgeReviewRecoveryMarkerConvergenceSample {
+	readonly firstVisibleItemId: string | null;
+	readonly finalVisibleItemId: string | null;
+	readonly marker: string;
+	readonly scrollHeight: number;
+	readonly scrollTop: number;
+	readonly targetItemId: string | null;
+}
+
+interface ActiveReviewRecoveryWitnessHarness {
+	readonly dispose: () => void;
+}
+
+const activeHarnesses = new Set<ActiveReviewRecoveryWitnessHarness>();
+
+export function makeBridgeReviewRecoveryWitnessFiles(props: {
+	readonly count: number;
+	readonly lineCount: number;
+	readonly markerPrefix: string;
+}): readonly BridgeReviewRecoveryWitnessFile[] {
+	return Array.from({ length: props.count }, (_, fileIndex): BridgeReviewRecoveryWitnessFile => {
+		const ordinal = String(fileIndex + 1).padStart(3, '0');
+		const groupOrdinal = String(Math.floor(fileIndex / 3) + 1).padStart(2, '0');
+		return {
+			contentMarker: `${props.markerPrefix}_CONTENT_${ordinal}`,
+			itemId: `${props.markerPrefix.toLowerCase()}-item-${ordinal}`,
+			lineCount: props.lineCount,
+			path: `Sources/RecoveryGroup${groupOrdinal}/RecoveryFile${ordinal}.swift`,
+		};
+	});
+}
+
+export function renderBridgeReviewRecoveryWitness(
+	files: readonly BridgeReviewRecoveryWitnessFile[],
+	props: { readonly navigationCommand?: BridgeViewerNavigationCommand } = {},
+): BridgeReviewRecoveryWitnessHarness {
+	if (files.length === 0) throw new Error('Review recovery witness requires at least one file.');
+	const renderStore = createBridgeMainRenderSnapshotStore();
+	const lifecycleStore = createBridgeWorkerRpcLifecycleStore();
+	const sentCommands: BridgeWorkerRpcCommandInput[] = [];
+	const publishedContentItemIds = new Set<string>();
+	let messageListener: ((message: BridgeWorkerServerToMainMessage) => void) | null = null;
+	let isDisposed = false;
+	const reviewClient: BridgePaneSurfaceClient = {
+		lifecycle: lifecycleStore,
+		renderStore,
+		send: (command): string => {
+			sentCommands.push(command);
+			return `review-recovery-witness-request-${sentCommands.length}`;
+		},
+		subscribeMessages: (listener): (() => void) => {
+			messageListener = listener;
+			return (): void => {
+				if (messageListener === listener) messageListener = null;
+			};
+		},
+		surface: 'review',
+	};
+	const renderResult = render(
+		<div data-testid="bridge-review-recovery-witness-root" style={{ height: 860, width: 1_440 }}>
+			<BridgeReviewViewerMode
+				codeViewWorkerPoolEnabled={false}
+				isActive={true}
+				{...(props.navigationCommand === undefined
+					? {}
+					: { navigationCommand: props.navigationCommand })}
+				onActiveSourceChange={(): void => {}}
+				reviewClient={reviewClient}
+				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
+				viewerHeaderControls={<div />}
+			/>
+		</div>,
+	);
+	const requireMessageListener = (): ((message: BridgeWorkerServerToMainMessage) => void) => {
+		if (messageListener === null) {
+			throw new Error(
+				'Review recovery witness production surface did not subscribe to worker messages.',
+			);
+		}
+		return messageListener;
+	};
+	const activeHarness: ActiveReviewRecoveryWitnessHarness = {
+		dispose: (): void => {
+			if (isDisposed) return;
+			isDisposed = true;
+			messageListener = null;
+			renderStore.dispose();
+			lifecycleStore.dispose();
+			activeHarnesses.delete(activeHarness);
+		},
+	};
+	activeHarnesses.add(activeHarness);
+	return {
+		codeScrollOwner: (): HTMLElement | null =>
+			bridgeReviewRecoveryWitnessCodeScrollOwner(renderResult.container),
+		codeText: (): string => bridgeReviewRecoveryWitnessCodeText(renderResult.container),
+		files,
+		paintedCodeViewItems: (): readonly BridgeReviewRecoveryPaintedItem[] =>
+			bridgeReviewRecoveryWitnessPaintedItems(renderResult.container),
+		pierreSearchInput: (): HTMLInputElement | null =>
+			bridgeReviewRecoveryWitnessPierreSearchInput(renderResult.container),
+		pierreTreeHost: (): HTMLElement | null =>
+			bridgeReviewRecoveryWitnessPierreTreeHost(renderResult.container),
+		pierreTreePath: (path: string): HTMLElement | null =>
+			bridgeReviewRecoveryWitnessPierreTreePath(renderResult.container, path),
+		publishCompleteContent: async (): Promise<void> => {
+			await act(async (): Promise<void> => {
+				const publish = requireMessageListener();
+				for (const [fileIndex, file] of files.entries()) {
+					for (const message of completeReviewContentMessages(file, fileIndex + 1)) {
+						publish(message);
+					}
+					publishedContentItemIds.add(file.itemId);
+				}
+				await Promise.resolve();
+			});
+			await advanceBridgeReviewRecoveryWitnessFrames(
+				Math.ceil(files.length / bridgeContentDemandExecutionPolicy.applyPumpMaxUnitsPerFrame) + 4,
+			);
+		},
+		publishContentForItemIds: async (itemIds: readonly string[]): Promise<readonly string[]> => {
+			const requestedItemIds = new Set(itemIds);
+			const requestedFiles = files.filter(
+				(file): boolean =>
+					requestedItemIds.has(file.itemId) && !publishedContentItemIds.has(file.itemId),
+			);
+			if (requestedFiles.length === 0) return [];
+			await act(async (): Promise<void> => {
+				const publish = requireMessageListener();
+				for (const file of requestedFiles) {
+					const fileIndex = files.indexOf(file);
+					for (const message of completeReviewContentMessages(file, fileIndex + 1)) {
+						publish(message);
+					}
+					publishedContentItemIds.add(file.itemId);
+				}
+				await Promise.resolve();
+			});
+			await advanceBridgeReviewRecoveryWitnessFrames(
+				Math.ceil(
+					requestedFiles.length / bridgeContentDemandExecutionPolicy.applyPumpMaxUnitsPerFrame,
+				) + 4,
+			);
+			return requestedFiles.map((file): string => file.itemId);
+		},
+		publishDemandedContent: async (): Promise<readonly string[]> => {
+			const demandedItemIds = new Set<string>();
+			for (const command of sentCommands) {
+				if (command.command === 'select') demandedItemIds.add(command.selectedItemId);
+				if (command.command === 'viewport') {
+					for (const itemId of command.visibleItemIds) demandedItemIds.add(itemId);
+				}
+			}
+			const demandedFiles = files.filter(
+				(file): boolean =>
+					demandedItemIds.has(file.itemId) && !publishedContentItemIds.has(file.itemId),
+			);
+			if (demandedFiles.length === 0) return [];
+			await act(async (): Promise<void> => {
+				const publish = requireMessageListener();
+				for (const file of demandedFiles) {
+					const fileIndex = files.indexOf(file);
+					for (const message of completeReviewContentMessages(file, fileIndex + 1)) {
+						publish(message);
+					}
+					publishedContentItemIds.add(file.itemId);
+				}
+				await Promise.resolve();
+			});
+			await advanceBridgeReviewRecoveryWitnessFrames(
+				Math.ceil(
+					demandedFiles.length / bridgeContentDemandExecutionPolicy.applyPumpMaxUnitsPerFrame,
+				) + 4,
+			);
+			return demandedFiles.map((file): string => file.itemId);
+		},
+		publishDisplay: async (): Promise<void> => {
+			await act(async (): Promise<void> => {
+				requireMessageListener()(reviewDisplayEvent(files));
+				await import('../shell/review-viewer-shell.js');
+				await Promise.resolve();
+				await new Promise<void>((resolve): void => {
+					requestAnimationFrame((): void => resolve());
+				});
+				await Promise.resolve();
+			});
+		},
+		publishDisplayAtEpoch: async (epoch: number): Promise<void> => {
+			await act(async (): Promise<void> => {
+				requireMessageListener()(
+					reviewDisplayEvent(files, {
+						epoch,
+						projectionRevision: epoch,
+						sequence: epoch,
+					}),
+				);
+				await Promise.resolve();
+			});
+			await advanceBridgeReviewRecoveryWitnessFrames(4);
+		},
+		publishDisplayAtPackageIdentity: async (metadataWindowIdentity: string): Promise<void> => {
+			await act(async (): Promise<void> => {
+				requireMessageListener()(
+					reviewDisplayEvent(files, {
+						metadataWindowIdentity,
+						projectionRevision: 2,
+						sequence: 2,
+					}),
+				);
+				await Promise.resolve();
+			});
+			await advanceBridgeReviewRecoveryWitnessFrames(4);
+		},
+		publishDisplayInTwoBatches: async (initialItemCount: number): Promise<void> => {
+			if (initialItemCount <= 0 || initialItemCount >= files.length) {
+				throw new Error('Two-batch Review display requires a non-empty proper initial prefix.');
+			}
+			await act(async (): Promise<void> => {
+				const publish = requireMessageListener();
+				publish(reviewDisplayEvent(files.slice(0, initialItemCount)));
+				await import('../shell/review-viewer-shell.js');
+				await Promise.resolve();
+				await new Promise<void>((resolve): void => {
+					requestAnimationFrame((): void => resolve());
+				});
+				publish(reviewDisplayAppendEvent(files, initialItemCount));
+				await Promise.resolve();
+			});
+		},
+		publishAuthoritativeDisplayAfterRetainedSelection: async (): Promise<void> => {
+			await act(async (): Promise<void> => {
+				requireMessageListener()(reviewDisplayEvent(files, { projectionRevision: 2, sequence: 2 }));
+				await Promise.resolve();
+			});
+			await advanceBridgeReviewRecoveryWitnessFrames(4);
+		},
+		publishAuthoritativeDisplayWithImmediateLocalSelection: async (
+			selectedItemIndex: number,
+		): Promise<void> => {
+			const selectedFile = files[selectedItemIndex];
+			if (selectedFile === undefined) {
+				throw new Error(
+					`Immediate Review selection index is outside the fixture: ${selectedItemIndex}`,
+				);
+			}
+			await act(async (): Promise<void> => {
+				requireMessageListener()(reviewDisplayEvent(files, { projectionRevision: 2, sequence: 2 }));
+				renderStore.setLocalSelection({ selectedItemId: selectedFile.itemId, source: 'user' });
+				await Promise.resolve();
+			});
+			await advanceBridgeReviewRecoveryWitnessFrames(4);
+		},
+		publishRetainedSelectedOnlyDisplay: async (selectedItemIndex: number): Promise<void> => {
+			const selectedFile = files[selectedItemIndex];
+			if (selectedFile === undefined) {
+				throw new Error(
+					`Retained selected-only index is outside the fixture: ${selectedItemIndex}`,
+				);
+			}
+			await act(async (): Promise<void> => {
+				requireMessageListener()(reviewDisplayEvent([selectedFile]));
+				await import('../shell/review-viewer-shell.js');
+				await Promise.resolve();
+				await new Promise<void>((resolve): void => {
+					requestAnimationFrame((): void => resolve());
+				});
+				await Promise.resolve();
+			});
+		},
+		publishedContentItemIds: (): readonly string[] => [...publishedContentItemIds],
+		renderedCodeViewItemIds: (): readonly string[] =>
+			queryBridgeReviewRecoveryWitnessOpenShadowRoots(
+				renderResult.container,
+				'[data-bridge-code-view-item-id]',
+			)
+				.map((element): string | null => element.getAttribute('data-bridge-code-view-item-id'))
+				.filter((itemId): itemId is string => itemId !== null),
+		renderResult,
+		markFileViewedCommandCount: (): number =>
+			sentCommands.filter((command) => command.command === 'markFileViewed').length,
+		selectedItemCommandCount: (): number =>
+			sentCommands.filter((command) => command.command === 'select').length,
+		expandedTreePaths: (): readonly string[] =>
+			bridgeReviewRecoveryWitnessExpandedTreePaths(renderResult.container),
+		visibleCodeText: (scrollOwner: HTMLElement): string =>
+			bridgeReviewRecoveryWitnessVisibleCodeText(renderResult.container, scrollOwner),
+		viewportCommandVisibleItemIds: (): readonly (readonly string[])[] =>
+			sentCommands.flatMap((command): readonly (readonly string[])[] =>
+				command.command === 'viewport' ? [[...command.visibleItemIds]] : [],
+			),
+	};
+}
+
+export function disposeBridgeReviewRecoveryWitnessHarnesses(): void {
+	for (const harness of activeHarnesses) harness.dispose();
+}
+
+function bridgeReviewRecoveryWitnessCodeText(container: HTMLElement): string {
+	const codePanel = container.querySelector('[data-testid="bridge-code-view-panel"]');
+	return codePanel === null ? '' : textIncludingOpenShadowRoots(codePanel);
+}
+
+function bridgeReviewRecoveryWitnessVisibleCodeText(
+	container: HTMLElement,
+	scrollOwner: HTMLElement,
+): string {
+	const codePanel = container.querySelector('[data-testid="bridge-code-view-panel"]');
+	if (codePanel === null) return '';
+	const viewportBounds = scrollOwner.getBoundingClientRect();
+	return visibleTextIncludingOpenShadowRoots(codePanel, viewportBounds);
+}
+
+function bridgeReviewRecoveryWitnessPaintedItems(
+	container: HTMLElement,
+): readonly BridgeReviewRecoveryPaintedItem[] {
+	const codePanel = container.querySelector('[data-testid="bridge-code-view-panel"]');
+	if (codePanel === null) return [];
+	return queryBridgeReviewRecoveryWitnessOpenShadowRoots(codePanel, 'diffs-container').flatMap(
+		(host): readonly BridgeReviewRecoveryPaintedItem[] => {
+			const itemMarker = host.querySelector('[data-bridge-code-view-item-id]');
+			const itemId = itemMarker?.getAttribute('data-bridge-code-view-item-id') ?? null;
+			if (itemId === null) return [];
+			const paintedLines =
+				host.shadowRoot === null ? [] : [...host.shadowRoot.querySelectorAll('[data-line-index]')];
+			const bounds = host.getBoundingClientRect();
+			return [
+				{
+					bottom: bounds.bottom,
+					itemId,
+					paintedLineCount: paintedLines.length,
+					text: paintedLines.map((line): string => line.textContent ?? '').join('\n'),
+					top: bounds.top,
+				},
+			];
+		},
+	);
+}
+
+function bridgeReviewRecoveryWitnessPierreTreeHost(container: HTMLElement): HTMLElement | null {
+	const treeHost = container.querySelector(
+		'[data-testid="bridge-review-trees-panel"] file-tree-container',
+	);
+	return treeHost instanceof HTMLElement ? treeHost : null;
+}
+
+function bridgeReviewRecoveryWitnessPierreSearchInput(
+	container: HTMLElement,
+): HTMLInputElement | null {
+	const treeHost = bridgeReviewRecoveryWitnessPierreTreeHost(container);
+	const searchContainer = treeHost?.shadowRoot?.querySelector(
+		'[data-file-tree-search-container][data-open="true"]',
+	);
+	const searchInput = searchContainer?.querySelector('[data-file-tree-search-input]');
+	return searchInput instanceof HTMLInputElement ? searchInput : null;
+}
+
+function bridgeReviewRecoveryWitnessPierreTreePath(
+	container: HTMLElement,
+	path: string,
+): HTMLElement | null {
+	const treeHost = bridgeReviewRecoveryWitnessPierreTreeHost(container);
+	const candidatePaths = path.endsWith('/') ? [path] : [path, `${path}/`];
+	const matchingRow = candidatePaths
+		.map(
+			(candidatePath): Element | null =>
+				treeHost?.shadowRoot?.querySelector(`[data-item-path="${CSS.escape(candidatePath)}"]`) ??
+				null,
+		)
+		.find((candidate): boolean => candidate !== null);
+	return matchingRow instanceof HTMLElement ? matchingRow : null;
+}
+
+function bridgeReviewRecoveryWitnessExpandedTreePaths(container: HTMLElement): readonly string[] {
+	const treeHost = bridgeReviewRecoveryWitnessPierreTreeHost(container);
+	return [
+		...(treeHost?.shadowRoot?.querySelectorAll('[data-item-path][aria-expanded="true"]') ?? []),
+	].flatMap((row): readonly string[] => {
+		const path = row.getAttribute('data-item-path');
+		return path === null ? [] : [path.replace(/\/$/u, '')];
+	});
+}
+
+function bridgeReviewRecoveryWitnessCodeScrollOwner(container: HTMLElement): HTMLElement | null {
+	const scrollOwner = container.querySelector('.bridge-code-view-scroll-owner');
+	return scrollOwner instanceof HTMLElement ? scrollOwner : null;
+}
+
+export async function advanceBridgeReviewRecoveryWitnessFrames(frameCount: number): Promise<void> {
+	for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
+		// oxlint-disable-next-line no-await-in-loop -- Each frame is an observable render boundary.
+		await act(async (): Promise<void> => {
+			await new Promise<void>((resolve): void => {
+				setTimeout(resolve, 0);
+			});
+			await new Promise<void>((resolve): void => {
+				requestAnimationFrame((): void => resolve());
+			});
+			await Promise.resolve();
+		});
+	}
+}
+
+export async function scanBridgeReviewRecoveryWitnessDocument(props: {
+	readonly markerItemIds?: readonly string[];
+	readonly markers: readonly string[];
+	readonly orderedItemIds?: readonly string[];
+	readonly sampleCount: number;
+	readonly scrollOwner: HTMLElement;
+	readonly publishDemandedContent?: () => Promise<readonly string[]>;
+	readonly scrollStrategy?: 'proportional' | 'viewportStep';
+	readonly visibleItemIds?: () => readonly string[];
+	readonly visibleCodeText: (scrollOwner: HTMLElement) => string;
+}): Promise<BridgeReviewRecoveryScrollScan> {
+	const observedMarkers = new Set<string>();
+	let blankPaintSampleCount = 0;
+	let observedMaximumAvailableScrollTop = 0;
+	let maximumScrollTop = 0;
+	const markerConvergenceSamples: BridgeReviewRecoveryMarkerConvergenceSample[] = [];
+	const scrollTopSamples: number[] = [];
+	const captureScrollSample = async (nextScrollTop: number): Promise<void> => {
+		await act(async (): Promise<void> => {
+			props.scrollOwner.scrollTop = nextScrollTop;
+			props.scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+			await Promise.resolve();
+		});
+		if (props.publishDemandedContent !== undefined) {
+			await advanceBridgeReviewRecoveryWitnessFrames(2);
+			await props.publishDemandedContent();
+		}
+		await advanceBridgeReviewRecoveryWitnessFrames(3);
+		const maximumAvailableScrollTop = Math.max(
+			0,
+			props.scrollOwner.scrollHeight - props.scrollOwner.clientHeight,
+		);
+		observedMaximumAvailableScrollTop = Math.max(
+			observedMaximumAvailableScrollTop,
+			maximumAvailableScrollTop,
+		);
+		maximumScrollTop = Math.max(maximumScrollTop, props.scrollOwner.scrollTop);
+		scrollTopSamples.push(props.scrollOwner.scrollTop);
+		const renderedText = props.visibleCodeText(props.scrollOwner);
+		if (renderedText.trim().length === 0) blankPaintSampleCount += 1;
+		for (const marker of props.markers) {
+			if (renderedText.includes(marker)) observedMarkers.add(marker);
+		}
+	};
+	for (let sampleIndex = 0; sampleIndex < props.sampleCount; sampleIndex += 1) {
+		const maximumAvailableScrollTop = Math.max(
+			0,
+			props.scrollOwner.scrollHeight - props.scrollOwner.clientHeight,
+		);
+		observedMaximumAvailableScrollTop = Math.max(
+			observedMaximumAvailableScrollTop,
+			maximumAvailableScrollTop,
+		);
+		const progress = props.sampleCount === 1 ? 1 : sampleIndex / (props.sampleCount - 1);
+		const nextScrollTop =
+			props.scrollStrategy === 'viewportStep'
+				? sampleIndex === 0
+					? 0
+					: Math.min(
+							maximumAvailableScrollTop,
+							props.scrollOwner.scrollTop + Math.max(1, props.scrollOwner.clientHeight * 0.75),
+						)
+				: Math.round(maximumAvailableScrollTop * progress);
+		// oxlint-disable-next-line no-await-in-loop -- Each scroll sample owns its React paint and demand turn.
+		await captureScrollSample(nextScrollTop);
+	}
+
+	const fixedScanSampleCount = scrollTopSamples.length;
+	const maximumConvergenceSamplesPerMarker = Math.max(8, Math.min(32, props.sampleCount));
+	for (const [markerIndex, marker] of props.markers.entries()) {
+		const isFinalMarker = markerIndex === props.markers.length - 1;
+		if (observedMarkers.has(marker) && !isFinalMarker) {
+			continue;
+		}
+		const markerProgress =
+			props.markers.length === 1 ? 1 : markerIndex / (props.markers.length - 1);
+		let previousScrollHeight = -1;
+		let stableTargetSampleCount = 0;
+		for (
+			let convergenceSampleIndex = 0;
+			convergenceSampleIndex < maximumConvergenceSamplesPerMarker;
+			convergenceSampleIndex += 1
+		) {
+			const targetScrollTop = isFinalMarker
+				? Math.max(0, props.scrollOwner.scrollHeight - props.scrollOwner.clientHeight)
+				: markerConvergenceScrollTop({
+						markerIndex,
+						markerProgress,
+						props,
+					});
+			// oxlint-disable-next-line no-await-in-loop -- Hydration can change document height after every target paint.
+			await captureScrollSample(targetScrollTop);
+			const visibleItemIds = props.visibleItemIds?.() ?? [];
+			markerConvergenceSamples.push({
+				firstVisibleItemId: visibleItemIds[0] ?? null,
+				finalVisibleItemId: visibleItemIds.at(-1) ?? null,
+				marker,
+				scrollHeight: props.scrollOwner.scrollHeight,
+				scrollTop: props.scrollOwner.scrollTop,
+				targetItemId: props.markerItemIds?.[markerIndex] ?? null,
+			});
+			const currentScrollHeight = props.scrollOwner.scrollHeight;
+			const settledTargetScrollTop = isFinalMarker
+				? Math.max(0, currentScrollHeight - props.scrollOwner.clientHeight)
+				: markerConvergenceScrollTop({
+						markerIndex,
+						markerProgress,
+						props,
+					});
+			const targetIsStable =
+				currentScrollHeight === previousScrollHeight &&
+				Math.abs(props.scrollOwner.scrollTop - settledTargetScrollTop) <= 1;
+			stableTargetSampleCount = targetIsStable ? stableTargetSampleCount + 1 : 0;
+			previousScrollHeight = currentScrollHeight;
+			if (observedMarkers.has(marker) && stableTargetSampleCount >= 2) {
+				break;
+			}
+		}
+	}
+	return {
+		blankPaintSampleCount,
+		convergenceSampleCount: scrollTopSamples.length - fixedScanSampleCount,
+		finalScrollHeight: props.scrollOwner.scrollHeight,
+		markerConvergenceSamples,
+		maximumAvailableScrollTop: observedMaximumAvailableScrollTop,
+		maximumScrollTop,
+		observedMarkers,
+		sampleCount: scrollTopSamples.length,
+		scrollTopSamples,
+	};
+}
+
+function markerConvergenceScrollTop(props: {
+	readonly markerIndex: number;
+	readonly markerProgress: number;
+	readonly props: Parameters<typeof scanBridgeReviewRecoveryWitnessDocument>[0];
+}): number {
+	const maximumScrollTop = Math.max(
+		0,
+		props.props.scrollOwner.scrollHeight - props.props.scrollOwner.clientHeight,
+	);
+	const orderedItemIds = props.props.orderedItemIds;
+	const markerItemId = props.props.markerItemIds?.[props.markerIndex];
+	const visibleItemIds = props.props.visibleItemIds?.() ?? [];
+	if (orderedItemIds === undefined || markerItemId === undefined || visibleItemIds.length === 0) {
+		return Math.round(maximumScrollTop * props.markerProgress);
+	}
+	const targetItemIndex = orderedItemIds.indexOf(markerItemId);
+	const visibleItemIndexes = visibleItemIds
+		.map((itemId): number => orderedItemIds.indexOf(itemId))
+		.filter((itemIndex): boolean => itemIndex >= 0)
+		.toSorted((left, right): number => left - right);
+	if (targetItemIndex < 0 || visibleItemIndexes.length === 0) {
+		return Math.round(maximumScrollTop * props.markerProgress);
+	}
+	const firstVisibleItemIndex = visibleItemIndexes[0] ?? targetItemIndex;
+	const finalVisibleItemIndex = visibleItemIndexes.at(-1) ?? targetItemIndex;
+	if (targetItemIndex >= firstVisibleItemIndex && targetItemIndex <= finalVisibleItemIndex) {
+		if (targetItemIndex === finalVisibleItemIndex && targetItemIndex !== firstVisibleItemIndex) {
+			return Math.round(
+				Math.min(
+					maximumScrollTop,
+					props.props.scrollOwner.scrollTop + props.props.scrollOwner.clientHeight * 0.5,
+				),
+			);
+		}
+		return props.props.scrollOwner.scrollTop;
+	}
+	const middleVisibleItemIndex =
+		visibleItemIndexes[Math.floor(visibleItemIndexes.length / 2)] ?? targetItemIndex;
+	const averageItemHeight = props.props.scrollOwner.scrollHeight / orderedItemIds.length;
+	const estimatedCorrection = (targetItemIndex - middleVisibleItemIndex) * averageItemHeight * 0.75;
+	return Math.round(
+		Math.max(
+			0,
+			Math.min(maximumScrollTop, props.props.scrollOwner.scrollTop + estimatedCorrection),
+		),
+	);
+}
+
+function reviewDisplayEvent(
+	files: readonly BridgeReviewRecoveryWitnessFile[],
+	props: {
+		readonly epoch?: number;
+		readonly metadataWindowIdentity?: string;
+		readonly projectionRevision?: number;
+		readonly sequence?: number;
+	} = {},
+): BridgeWorkerReviewDisplayPatchEvent {
+	const treeRows = reviewWitnessTreeRows(files);
+	const metadataWindowIdentity = props.metadataWindowIdentity ?? 'review-recovery-witness-window';
+	return {
+		direction: 'serverWorkerToMain',
+		epoch: props.epoch ?? 1,
+		kind: 'reviewDisplayPatch',
+		patches: [
+			{
+				operation: 'upsert',
+				payload: {
+					metadataWindowIdentity,
+					status: 'ready',
+					summary: {
+						additions: files.length,
+						deletions: files.length,
+						filesChanged: files.length,
+						hiddenFileCount: 0,
+						visibleFileCount: files.length,
+					},
+					totalItemCount: files.length,
+					totalTreeRowCount: treeRows.length,
+				},
+				slice: 'reviewSource',
+			},
+			{
+				operation: 'batch',
+				payload: {
+					items: files.map(
+						(file): BridgeWorkerReviewDisplayItem =>
+							reviewDisplayItem(file, metadataWindowIdentity),
+					),
+					operations: [],
+					reset: true,
+					startIndex: 0,
+				},
+				slice: 'reviewItem',
+			},
+			{
+				operation: 'batch',
+				payload: {
+					reset: true,
+					windows: [{ rows: treeRows, startIndex: 0 }],
+				},
+				slice: 'reviewTree',
+			},
+		],
+		projectionRevision: props.projectionRevision ?? 1,
+		sequence: props.sequence ?? 1,
+		surface: 'review',
+		transferDescriptors: [],
+		wireVersion: 1,
+	};
+}
+
+function queryBridgeReviewRecoveryWitnessOpenShadowRoots(
+	root: Element | ShadowRoot,
+	selector: string,
+): readonly Element[] {
+	const matches = [...root.querySelectorAll(selector)];
+	for (const descendant of root.querySelectorAll('*')) {
+		if (descendant.shadowRoot === null) continue;
+		matches.push(
+			...queryBridgeReviewRecoveryWitnessOpenShadowRoots(descendant.shadowRoot, selector),
+		);
+	}
+	return matches;
+}
+
+function reviewDisplayAppendEvent(
+	files: readonly BridgeReviewRecoveryWitnessFile[],
+	initialItemCount: number,
+): BridgeWorkerReviewDisplayPatchEvent {
+	const previousTreeRowCount = reviewWitnessTreeRows(files.slice(0, initialItemCount)).length;
+	const treeRows = reviewWitnessTreeRows(files);
+	return {
+		direction: 'serverWorkerToMain',
+		epoch: 1,
+		kind: 'reviewDisplayPatch',
+		patches: [
+			{
+				operation: 'upsert',
+				payload: {
+					metadataWindowIdentity: 'review-recovery-witness-window',
+					status: 'ready',
+					summary: {
+						additions: files.length,
+						deletions: files.length,
+						filesChanged: files.length,
+						hiddenFileCount: 0,
+						visibleFileCount: files.length,
+					},
+					totalItemCount: files.length,
+					totalTreeRowCount: treeRows.length,
+				},
+				slice: 'reviewSource',
+			},
+			{
+				operation: 'batch',
+				payload: {
+					items: files
+						.slice(initialItemCount)
+						.map((file): BridgeWorkerReviewDisplayItem => reviewDisplayItem(file)),
+					operations: [],
+					reset: false,
+					startIndex: initialItemCount,
+				},
+				slice: 'reviewItem',
+			},
+			{
+				operation: 'batch',
+				payload: {
+					reset: false,
+					windows: [
+						{
+							rows: treeRows.slice(previousTreeRowCount),
+							startIndex: previousTreeRowCount,
+						},
+					],
+				},
+				slice: 'reviewTree',
+			},
+		],
+		projectionRevision: 2,
+		sequence: 2,
+		surface: 'review',
+		transferDescriptors: [],
+		wireVersion: 1,
+	};
+}
+
+function reviewDisplayItem(
+	file: BridgeReviewRecoveryWitnessFile,
+	metadataWindowIdentity = 'review-recovery-witness-window',
+): BridgeWorkerReviewDisplayItem {
+	return {
+		contentFacts: [],
+		extentFacts: [
+			{ contentRole: 'base', itemId: file.itemId, lineCount: file.lineCount },
+			{ contentRole: 'head', itemId: file.itemId, lineCount: file.lineCount },
+		],
+		metadata: {
+			basePath: file.path,
+			changeKind: 'modified',
+			contentDescriptorIdsByRole: {},
+			contentHashesByRole: {},
+			contentRoles: ['base', 'head'],
+			extension: 'swift',
+			fileClass: 'source',
+			headPath: file.path,
+			isHiddenByDefault: false,
+			itemId: file.itemId,
+			language: 'swift',
+			mimeTypes: ['text/x-swift'],
+			provenance: { agentSessionIds: [], operationIds: [], promptIds: [] },
+			reviewPriority: 'normal',
+			reviewState: 'unreviewed',
+		},
+		metadataWindowIdentity,
+	};
+}
+
+function completeReviewContentMessages(
+	file: BridgeReviewRecoveryWitnessFile,
+	publicationSequence: number,
+): readonly BridgeWorkerServerToMainMessage[] {
+	const baseContents = reviewWitnessFileContents(file, 'BASE');
+	const headContents = reviewWitnessFileContents(file, file.contentMarker);
+	const baseCacheKey = `review-recovery-base-${file.itemId}`;
+	const headCacheKey = `review-recovery-head-${file.itemId}`;
+	const contentCacheKey = `${baseCacheKey}|${headCacheKey}`;
+	const job = buildBridgeWorkerPierreRenderJob({
+		bridgeDemandRank: { lane: 'visible', priority: publicationSequence },
+		budget: { className: 'visible', maxBytes: 512 * 1024, maxWindowLines: 400 },
+		contentCacheKey,
+		contentHash: `review-recovery-content-${file.itemId}`,
+		itemId: file.itemId,
+		language: 'swift',
+		payload: {
+			item: {
+				bridgeMetadata: {
+					cacheKey: contentCacheKey,
+					contentRoles: ['base', 'head'],
+					contentState: 'hydrated',
+					displayPath: file.path,
+					itemId: file.itemId,
+					lineCount: file.lineCount * 2,
+				},
+				fileDiff: parseBridgeCodeViewDiffForBrowserTest(
+					{ cacheKey: baseCacheKey, contents: baseContents, name: file.path },
+					{ cacheKey: headCacheKey, contents: headContents, name: file.path },
+				),
+				id: file.itemId,
+				type: 'diff',
+				version: 1,
+			},
+			kind: 'codeViewDiffItem',
+		},
+		renderKind: 'reviewDiff',
+		window: { endLine: file.lineCount, startLine: 1, totalLineCount: file.lineCount },
+	});
+	return [
+		{
+			direction: 'serverWorkerToMain',
+			job,
+			kind: 'reviewPierreRenderJob',
+			publicationSequence,
+			surface: 'review',
+			transferDescriptors: [
+				{
+					byteLength: job.payloadByteLength,
+					fieldPath: ['job', 'payload'],
+					messageKind: 'reviewPierreRenderJob',
+					mode: 'clone',
+				},
+			],
+			wireVersion: 1,
+			workerDerivationEpoch: 1,
+		},
+		{
+			direction: 'serverWorkerToMain',
+			kind: 'reviewRenderPatch',
+			patches: [
+				{
+					itemId: file.itemId,
+					operation: 'upsert',
+					payload: { contentCacheKey },
+					slice: 'rowPaint',
+				},
+				{
+					itemId: file.itemId,
+					operation: 'upsert',
+					payload: { state: 'ready' },
+					slice: 'contentAvailability',
+				},
+			],
+			publicationSequence,
+			surface: 'review',
+			transferDescriptors: [],
+			wireVersion: 1,
+			workerDerivationEpoch: 1,
+		},
+	];
+}
+
+function reviewWitnessFileContents(file: BridgeReviewRecoveryWitnessFile, marker: string): string {
+	return Array.from(
+		{ length: file.lineCount },
+		(_, lineIndex): string =>
+			`let recoveryWitness${String(lineIndex + 1).padStart(3, '0')} = "${marker}_LINE_${String(
+				lineIndex + 1,
+			).padStart(3, '0')}"`,
+	).join('\n');
+}
+
+function textIncludingOpenShadowRoots(root: Element | ShadowRoot): string {
+	const textFragments: string[] = [];
+	const textWalker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+	let currentNode = textWalker.nextNode();
+	while (currentNode !== null) {
+		textFragments.push(currentNode.textContent ?? '');
+		currentNode = textWalker.nextNode();
+	}
+	for (const descendant of root.querySelectorAll('*')) {
+		if (descendant.shadowRoot !== null) {
+			textFragments.push(textIncludingOpenShadowRoots(descendant.shadowRoot));
+		}
+	}
+	return textFragments.join('\n');
+}

@@ -117,6 +117,48 @@ struct BridgeProductReviewMarkFileViewedRequest: Codable, Equatable, Sendable {
     }
 }
 
+struct BridgeProductReviewIntakeReadyRequest: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case reason
+        case streamId
+    }
+
+    let reason: String?
+    let streamId: String?
+
+    init(reason: String?, streamId: String?) {
+        self.reason = reason
+        self.streamId = streamId
+    }
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
+            contract: "review.intake.ready request"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.reason = try BridgeProductContractDecoding.decodeRequiredNullable(
+            String.self,
+            forKey: .reason,
+            from: container,
+            codingPath: decoder.codingPath
+        )
+        self.streamId = try BridgeProductContractDecoding.decodeRequiredNullable(
+            String.self,
+            forKey: .streamId,
+            from: container,
+            codingPath: decoder.codingPath
+        )
+        if let reason {
+            try BridgeProductContractDecoding.validateIdentifier(reason, codingPath: decoder.codingPath)
+        }
+        if let streamId {
+            try BridgeProductContractDecoding.validateIdentifier(streamId, codingPath: decoder.codingPath)
+        }
+    }
+}
+
 struct BridgeProductActiveViewerSourceRequest: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case generation
@@ -183,6 +225,7 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
     case fileSourceCurrent(BridgeProductFileSourceCurrentRequest)
     case fileActiveViewerModeUpdate(BridgeProductActiveViewerModeUpdateRequest)
     case reviewActiveViewerModeUpdate(BridgeProductActiveViewerModeUpdateRequest)
+    case reviewIntakeReady(BridgeProductReviewIntakeReadyRequest)
     case reviewMarkFileViewed(BridgeProductReviewMarkFileViewedRequest)
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
@@ -195,6 +238,7 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
         case .fileSourceCurrent: "file.source.current"
         case .fileActiveViewerModeUpdate: "file.activeViewerMode.update"
         case .reviewActiveViewerModeUpdate: "review.activeViewerMode.update"
+        case .reviewIntakeReady: "review.intake.ready"
         case .reviewMarkFileViewed: "review.markFileViewed"
         }
     }
@@ -202,8 +246,7 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
     var surface: BridgeProductSurface {
         switch self {
         case .fileSourceCurrent, .fileActiveViewerModeUpdate: .file
-        case .reviewActiveViewerModeUpdate: .review
-        case .reviewMarkFileViewed: .review
+        case .reviewActiveViewerModeUpdate, .reviewIntakeReady, .reviewMarkFileViewed: .review
         }
     }
 
@@ -231,6 +274,10 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
             self = .reviewMarkFileViewed(
                 try container.decode(BridgeProductReviewMarkFileViewedRequest.self, forKey: .request)
             )
+        case "review.intake.ready":
+            self = .reviewIntakeReady(
+                try container.decode(BridgeProductReviewIntakeReadyRequest.self, forKey: .request)
+            )
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .method,
@@ -251,6 +298,8 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
             try container.encode(request, forKey: .request)
         case .reviewMarkFileViewed(let request):
             try container.encode(request, forKey: .request)
+        case .reviewIntakeReady(let request):
+            try container.encode(request, forKey: .request)
         }
     }
 }
@@ -259,6 +308,7 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
     case fileSourceCurrent(BridgeProductFileSourceCurrentResult)
     case fileActiveViewerModeUpdate
     case reviewActiveViewerModeUpdate
+    case reviewIntakeReady
     case reviewMarkFileViewed
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
@@ -271,6 +321,7 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
         case .fileSourceCurrent: "file.source.current"
         case .fileActiveViewerModeUpdate: "file.activeViewerMode.update"
         case .reviewActiveViewerModeUpdate: "review.activeViewerMode.update"
+        case .reviewIntakeReady: "review.intake.ready"
         case .reviewMarkFileViewed: "review.markFileViewed"
         }
     }
@@ -278,8 +329,7 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
     var surface: BridgeProductSurface {
         switch self {
         case .fileSourceCurrent, .fileActiveViewerModeUpdate: .file
-        case .reviewActiveViewerModeUpdate: .review
-        case .reviewMarkFileViewed: .review
+        case .reviewActiveViewerModeUpdate, .reviewIntakeReady, .reviewMarkFileViewed: .review
         }
     }
 
@@ -316,6 +366,13 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
                 codingPath: decoder.codingPath
             )
             self = .reviewMarkFileViewed
+        case "review.intake.ready":
+            try BridgeProductContractDecoding.decodeRequiredNull(
+                forKey: .result,
+                from: container,
+                codingPath: decoder.codingPath
+            )
+            self = .reviewIntakeReady
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .method,
@@ -332,7 +389,7 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
         case .fileSourceCurrent(let result):
             try container.encode(result, forKey: .result)
         case .fileActiveViewerModeUpdate, .reviewActiveViewerModeUpdate,
-            .reviewMarkFileViewed:
+            .reviewIntakeReady, .reviewMarkFileViewed:
             try container.encodeNil(forKey: .result)
         }
     }

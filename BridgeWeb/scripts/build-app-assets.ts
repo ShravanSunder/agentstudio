@@ -71,10 +71,6 @@ const runBuildAppAssets = async (): Promise<void> => {
 		auxiliaryScriptPaths: builtAssets.auxiliaryScripts,
 		entrypointName: 'bridge-markdown-render-worker',
 	});
-	const projectionWorkerAssetPath = requiredAuxiliaryScriptPath({
-		auxiliaryScriptPaths: builtAssets.auxiliaryScripts,
-		entrypointName: 'review-projection-worker',
-	});
 	const workerFetchProbeAssetPath = requiredAuxiliaryScriptPath({
 		auxiliaryScriptPaths: builtAssets.auxiliaryScripts,
 		entrypointName: 'bridge-worker-fetch-probe-worker',
@@ -99,12 +95,6 @@ const runBuildAppAssets = async (): Promise<void> => {
 			{
 				kind: 'bridge-markdown-render',
 				path: markdownWorkerAssetPath,
-				workerKind: 'moduleWorker',
-				source: 'packagedAppAsset',
-			},
-			{
-				kind: 'bridge-review-projection',
-				path: projectionWorkerAssetPath,
 				workerKind: 'moduleWorker',
 				source: 'packagedAppAsset',
 			},

@@ -6,6 +6,23 @@ import Testing
 
 @Suite("Bridge pane product Review content source")
 struct BridgePaneProductReviewContentSourceTests {
+    @Test("Review content authority is actor-owned rather than MainActor package-owned")
+    func reviewContentAuthorityIsActorOwned() throws {
+        // Arrange
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/Bridge/Transport/BridgePaneProductReviewContentSource.swift"
+            ),
+            encoding: .utf8
+        )
+
+        // Act / Assert
+        #expect(source.contains("actor BridgePaneProductReviewContentSource"))
+        #expect(!source.contains("currentPackage"))
+        #expect(!source.contains("@MainActor"))
+    }
+
     @Test("loads an authoritative Review byte range through the shared content store")
     @MainActor
     func loadsAuthoritativeRangeThroughSharedStore() async throws {
@@ -40,6 +57,123 @@ struct BridgePaneProductReviewContentSourceTests {
         }
     }
 
+    @Test("loading and failed availability revoke issued Review descriptors")
+    @MainActor
+    func loadingAndFailedAvailabilityRevokeIssuedDescriptors() async throws {
+        // Arrange
+        let fixture = try await ReviewProductContentFixture(content: "authority")
+        let request = try fixture.request(startByte: 0, maximumBytes: 4)
+
+        // Act / Assert
+        try await fixture.source.replaceAuthority(with: .loading)
+        await #expect(throws: BridgePaneProductReviewContentSourceError.unavailablePackage) {
+            try await fixture.source.contentBody(for: request)
+        }
+
+        try await fixture.source.replaceAuthority(with: .ready(fixture.package))
+        _ = try await fixture.source.contentBody(for: request)
+        try await fixture.source.replaceAuthority(with: .failed)
+        await #expect(throws: BridgePaneProductReviewContentSourceError.unavailablePackage) {
+            try await fixture.source.contentBody(for: request)
+        }
+    }
+
+    @Test("a replacement generation rejects an exact descriptor from the retired generation")
+    @MainActor
+    func replacementGenerationRejectsRetiredDescriptor() async throws {
+        // Arrange
+        let fixture = try await ReviewProductContentFixture(content: "authority")
+        let retiredRequest = try fixture.request(startByte: 0, maximumBytes: 4)
+        let replacementPackage = fixture.replacementPackage(generation: 8)
+
+        // Act
+        try await fixture.source.replaceAuthority(with: .ready(replacementPackage))
+
+        // Assert
+        await #expect(throws: BridgePaneProductReviewContentSourceError.descriptorMismatch) {
+            try await fixture.source.contentBody(for: retiredRequest)
+        }
+    }
+
+    @Test("highest committed Review interest wins and cancel plus resync reset revoke priority")
+    @MainActor
+    func committedReviewInterestOwnsContentPriorityLifecycle() async throws {
+        // Arrange
+        let fixture = try await ReviewProductContentFixture(content: "priority")
+        let request = BridgeProductContentRequest.reviewContent(
+            try fixture.request(startByte: 0, maximumBytes: 4)
+        )
+        let coordinator = BridgePaneProductMetadataCoordinator(
+            fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
+            reviewContentSource: fixture.source
+        )
+        let visible = try reviewProductSubscriptionLifecycle(
+            subscriptionId: "review-visible-subscription",
+            itemId: fixture.handle.itemId,
+            lane: .visible
+        )
+        let selected = try reviewProductSubscriptionLifecycle(
+            subscriptionId: "review-selected-subscription",
+            itemId: fixture.handle.itemId,
+            lane: .foreground
+        )
+        await coordinator.apply(.subscriptionOpened(visible.opened))
+        await coordinator.apply(
+            .subscriptionInterestsCommitted(
+                barrier: visible.barrier,
+                subscription: visible.committed
+            )
+        )
+        await coordinator.apply(.subscriptionOpened(selected.opened))
+        await coordinator.apply(
+            .subscriptionInterestsCommitted(
+                barrier: selected.barrier,
+                subscription: selected.committed
+            )
+        )
+
+        // Act / Assert
+        #expect(await coordinator.contentDemandInterest(for: request) == .selected)
+
+        await coordinator.apply(.subscriptionCancelled(selected.committed))
+        #expect(await coordinator.contentDemandInterest(for: request) == .visible)
+
+        let emptyState = BridgeProductSubscriptionInterestState.reviewMetadata(interests: [])
+        let emptyStateSHA256 = try emptyState.sha256Hex()
+        let resetRevision = visible.committed.interestRevision + 1
+        await coordinator.apply(
+            .resynced(
+                .init(
+                    reconciliation: [
+                        .reset(
+                            try .init(
+                                subscriptionId: visible.committed.subscriptionId,
+                                subscriptionKind: .reviewMetadata,
+                                workerDerivationEpoch: visible.committed.workerDerivationEpoch,
+                                interestRevision: resetRevision,
+                                interestSha256: emptyStateSHA256,
+                                reason: .interestMismatch
+                            )
+                        )
+                    ],
+                    revokedNativeOnlySubscriptionIds: [],
+                    resetIntents: [
+                        .init(
+                            subscription: .reviewMetadata,
+                            subscriptionId: visible.committed.subscriptionId,
+                            subscriptionKind: .reviewMetadata,
+                            workerDerivationEpoch: visible.committed.workerDerivationEpoch,
+                            interestRevision: resetRevision,
+                            interestSha256: emptyStateSHA256
+                        )
+                    ]
+                )
+            )
+        )
+        #expect(await coordinator.contentDemandInterest(for: request) == .unspecified)
+    }
+
     @Test("streams accepted data and terminal integrity frames for Review content")
     @MainActor
     func streamsReviewContentFrames() async throws {
@@ -48,7 +182,9 @@ struct BridgePaneProductReviewContentSourceTests {
         let reviewRequest = try fixture.request(startByte: 2, maximumBytes: 5)
         let provider = BridgePaneProductSchemeProvider(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
-            reviewMetadataSource: BridgePaneProductReviewMetadataSource { fixture.package },
+            reviewMetadataSource: BridgePaneProductReviewMetadataSource(
+                initialAvailability: .ready(fixture.package)
+            ),
             reviewContentSource: fixture.source,
             markReviewItemViewed: { _ in }
         )
@@ -136,10 +272,29 @@ private struct ReviewProductContentFixture {
         self.content = contentData
         self.handle = handle
         self.package = package
-        self.source = BridgePaneProductReviewContentSource(
-            contentStore: store,
-            currentPackage: { package }
+        let source = BridgePaneProductReviewContentSource(contentStore: store)
+        try await source.replaceAuthority(with: .ready(package))
+        self.source = source
+    }
+
+    func replacementPackage(generation: BridgeReviewGeneration) -> BridgeReviewPackage {
+        let replacementHandle = BridgeContentHandle(
+            handleId: handle.handleId,
+            itemId: handle.itemId,
+            role: handle.role,
+            endpointId: handle.endpointId,
+            reviewGeneration: generation,
+            resourceUrl: handle.resourceUrl,
+            contentHash: handle.contentHash,
+            contentHashAlgorithm: handle.contentHashAlgorithm,
+            cacheKey: handle.cacheKey,
+            mimeType: handle.mimeType,
+            language: handle.language,
+            sizeBytes: handle.sizeBytes,
+            sizeBytesIsExact: handle.sizeBytesIsExact,
+            isBinary: handle.isBinary
         )
+        return Self.makePackage(handle: replacementHandle)
     }
 
     func request(
@@ -281,6 +436,56 @@ private struct ReviewProductContentFixture {
             generatedAtUnixMilliseconds: 3
         )
     }
+}
+
+private struct ReviewProductSubscriptionLifecycle {
+    let opened: BridgeProductSubscriptionSnapshot
+    let committed: BridgeProductSubscriptionSnapshot
+    let barrier: BridgeProductSubscriptionCommitBarrierIntent
+}
+
+private func reviewProductSubscriptionLifecycle(
+    subscriptionId: String,
+    itemId: String,
+    lane: BridgeProductDemandLane
+) throws -> ReviewProductSubscriptionLifecycle {
+    let emptyState = BridgeProductSubscriptionInterestState.reviewMetadata(interests: [])
+    let opened = BridgeProductSubscriptionSnapshot(
+        subscription: .reviewMetadata,
+        subscriptionId: subscriptionId,
+        subscriptionKind: .reviewMetadata,
+        workerDerivationEpoch: 1,
+        interestRevision: 0,
+        interestSha256: try emptyState.sha256Hex(),
+        interestState: emptyState,
+        hasStagedUpdate: false
+    )
+    let committedState = BridgeProductSubscriptionInterestState.reviewMetadata(
+        interests: [try .init(itemIds: [itemId], lane: lane)]
+    )
+    let committedSHA256 = try committedState.sha256Hex()
+    let committed = BridgeProductSubscriptionSnapshot(
+        subscription: .reviewMetadata,
+        subscriptionId: subscriptionId,
+        subscriptionKind: .reviewMetadata,
+        workerDerivationEpoch: 1,
+        interestRevision: 1,
+        interestSha256: committedSHA256,
+        interestState: committedState,
+        hasStagedUpdate: false
+    )
+    return .init(
+        opened: opened,
+        committed: committed,
+        barrier: .init(
+            subscriptionId: subscriptionId,
+            subscriptionKind: .reviewMetadata,
+            workerDerivationEpoch: 1,
+            interestRevision: 1,
+            interestSha256: committedSHA256,
+            updateId: "\(subscriptionId)-update-1"
+        )
+    )
 }
 
 private enum ReviewProductContentFixtureError: Error {

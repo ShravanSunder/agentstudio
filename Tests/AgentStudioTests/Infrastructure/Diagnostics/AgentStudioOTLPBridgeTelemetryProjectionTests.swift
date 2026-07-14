@@ -77,6 +77,72 @@ struct AgentStudioOTLPBridgeTelemetryProjectionTests {
     }
 
     @Test
+    func bridgeProjectionPreservesSidecarDrainProofWithoutRawSessionIdentity() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 518,
+            severityText: .info,
+            body: "performance.bridge.swift.telemetry_sidecar_drain",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [
+                "service.name": "AgentStudio",
+                "agent.proof.marker": "bridge-sidecar-marker",
+            ],
+            scope: .init(name: "agentstudio.bridge.performance.swift", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.phase": .string("terminal_closed"),
+                "agentstudio.bridge.plane": .string("observability"),
+                "agentstudio.bridge.priority": .string("hot"),
+                "agentstudio.bridge.slice": .string("telemetry_sidecar"),
+                "agentstudio.bridge.telemetry.session.digest": .string(
+                    "7d3a7045d86cb97befe5c53a8f8965ae1fbaa1a75157f84a78ff605ae566993f"),
+                "agentstudio.bridge.telemetry.session.id": .string(
+                    "private-telemetry-session-uuid"),
+                "agentstudio.bridge.telemetry.accepted_batch.sequence": .int(9),
+                "agentstudio.bridge.telemetry.main_producer.high_watermark": .int(14),
+                "agentstudio.bridge.telemetry.comm_producer.high_watermark": .int(12),
+                "agentstudio.bridge.telemetry.required_loss.count": .int(0),
+                "agentstudio.bridge.telemetry.optional_loss.count": .int(0),
+                "agentstudio.bridge.telemetry.worker_sequence_gap.count": .int(0),
+                "agentstudio.bridge.telemetry.native_batch_sequence_gap.count": .int(0),
+                "agentstudio.bridge.telemetry.proof_eligible": .bool(true),
+                "agentstudio.bridge.telemetry.lossy": .bool(false),
+                "agentstudio.bridge.telemetry.settlement_acknowledged": .bool(true),
+                "agentstudio.bridge.transport": .string("scheme"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(
+            projection.attributes["agentstudio.bridge.telemetry.session.digest"]
+                == .string("7d3a7045d86cb97befe5c53a8f8965ae1fbaa1a75157f84a78ff605ae566993f")
+        )
+        #expect(projection.attributes["agentstudio.bridge.telemetry.session.id"] == nil)
+        #expect(projection.attributes["agentstudio.bridge.telemetry.accepted_batch.sequence"] == .int(9))
+        #expect(
+            projection.attributes["agentstudio.bridge.telemetry.main_producer.high_watermark"] == .int(14)
+        )
+        #expect(
+            projection.attributes["agentstudio.bridge.telemetry.comm_producer.high_watermark"] == .int(12)
+        )
+        #expect(projection.attributes["agentstudio.bridge.telemetry.required_loss.count"] == .int(0))
+        #expect(projection.attributes["agentstudio.bridge.telemetry.optional_loss.count"] == .int(0))
+        #expect(
+            projection.attributes["agentstudio.bridge.telemetry.worker_sequence_gap.count"] == .int(0)
+        )
+        #expect(
+            projection.attributes["agentstudio.bridge.telemetry.native_batch_sequence_gap.count"] == .int(0)
+        )
+        #expect(projection.attributes["agentstudio.bridge.telemetry.proof_eligible"] == .bool(true))
+        #expect(projection.attributes["agentstudio.bridge.telemetry.lossy"] == .bool(false))
+        #expect(
+            projection.attributes["agentstudio.bridge.telemetry.settlement_acknowledged"] == .bool(true)
+        )
+    }
+
+    @Test
     func bridgeProjectionPreservesFrameJankDiagnostics() {
         let record = AgentStudioTraceRecord(
             timeUnixNano: 517,

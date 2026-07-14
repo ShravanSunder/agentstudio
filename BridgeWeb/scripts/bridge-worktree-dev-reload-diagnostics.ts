@@ -47,21 +47,56 @@ export function bridgeWorktreeDevFileContentRouteUsesOrigin(props: {
 	return (
 		parsedUrl !== null &&
 		parsedUrl.origin === props.expectedOrigin &&
-		parsedUrl.pathname.startsWith('/__bridge-worktree/file-content/')
+		parsedUrl.pathname === '/__bridge-product/content'
 	);
 }
 
-export function bridgeWorktreeDevFileContentRouteMatchesHandle(props: {
-	readonly expectedContentHandle: string;
+export interface BridgeWorktreeDevFileContentRouteRequest {
+	readonly contentRequestId: string;
+	readonly descriptorId: string;
+	readonly leaseId: string;
+	readonly url: string;
+}
+
+export function parseBridgeWorktreeDevFileContentRouteRequest(props: {
 	readonly expectedOrigin: string;
+	readonly method: string;
+	readonly postData: string | null;
+	readonly url: string;
+}): BridgeWorktreeDevFileContentRouteRequest | null {
+	if (
+		props.method !== 'POST' ||
+		props.postData === null ||
+		!bridgeWorktreeDevFileContentRouteUsesOrigin(props)
+	) {
+		return null;
+	}
+	let requestBody: unknown;
+	try {
+		requestBody = JSON.parse(props.postData) as unknown;
+	} catch {
+		return null;
+	}
+	const parsedRequest = bridgeProductContentRequestSchema.safeParse(requestBody);
+	if (!parsedRequest.success || parsedRequest.data.contentKind !== 'file.content') return null;
+	return {
+		contentRequestId: parsedRequest.data.contentRequestId,
+		descriptorId: parsedRequest.data.descriptor.descriptorId,
+		leaseId: parsedRequest.data.leaseId,
+		url: props.url,
+	};
+}
+
+export function bridgeWorktreeDevFileContentRouteMatchesDescriptor(props: {
+	readonly expectedDescriptorId: string;
+	readonly expectedOrigin: string;
+	readonly method: string;
+	readonly postData: string | null;
 	readonly url: string;
 }): boolean {
-	const parsedUrl = parseBridgeWorktreeDevUrl(props.url);
 	return (
-		parsedUrl !== null &&
-		parsedUrl.origin === props.expectedOrigin &&
-		parsedUrl.pathname ===
-			`/__bridge-worktree/file-content/${encodeURIComponent(props.expectedContentHandle)}`
+		parseBridgeWorktreeDevFileContentRouteRequest(props)?.descriptorId ===
+		props.expectedDescriptorId
 	);
 }
 
@@ -72,3 +107,4 @@ function parseBridgeWorktreeDevUrl(url: string): URL | null {
 		return null;
 	}
 }
+import { bridgeProductContentRequestSchema } from '../src/core/comm-worker/bridge-product-content-contracts.js';

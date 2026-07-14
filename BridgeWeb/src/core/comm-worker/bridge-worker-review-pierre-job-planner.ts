@@ -2,7 +2,7 @@ import { parseDiffFromFile, type FileContents } from '@pierre/diffs';
 
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
-	type BridgeWorkerPierreRenderJobEvent,
+	type BridgeWorkerReviewPierreRenderJobEvent,
 	type BridgeWorkerReviewRenderSemantics,
 } from './bridge-worker-contracts.js';
 import {
@@ -30,6 +30,19 @@ export interface PlanBridgeWorkerReviewPierreRenderJobProps {
 	readonly semantics: BridgeWorkerReviewRenderSemantics;
 }
 
+export interface PrepareBridgeWorkerReviewPierreRenderJobEventProps extends PlanBridgeWorkerReviewPierreRenderJobProps {
+	readonly publicationSequence: number;
+	readonly workerDerivationEpoch: number;
+}
+
+export type BridgeWorkerReviewPierreRenderJobPlanningStepResult =
+	| { readonly status: 'pending' }
+	| { readonly job: BridgeWorkerPierreRenderJob | null; readonly status: 'complete' };
+
+export interface BridgeWorkerReviewPierreRenderJobPlanningSession {
+	readonly runNextStage: () => BridgeWorkerReviewPierreRenderJobPlanningStepResult;
+}
+
 type BridgeWorkerReviewContentRole = BridgeWorkerFetchedReviewContentResource['role'];
 type BridgeWorkerFetchedResourceByRole = ReadonlyMap<
 	BridgeWorkerReviewContentRole,
@@ -43,31 +56,181 @@ const bridgeWorkerHydratedRenderVersion = 2;
 export function planBridgeWorkerReviewPierreRenderJob(
 	props: PlanBridgeWorkerReviewPierreRenderJobProps,
 ): BridgeWorkerPierreRenderJob | null {
-	const resourcesByRole = new Map(
-		props.resources.map((resource) => [resource.role, resource] as const),
-	);
-	if (shouldRenderReviewItemAsDiff(props.semantics)) {
-		return planReviewDiffRenderJob({ ...props, resourcesByRole });
+	const planningSession = createBridgeWorkerReviewPierreRenderJobPlanningSession(props);
+	while (true) {
+		const result = planningSession.runNextStage();
+		if (result.status === 'complete') return result.job;
 	}
-	return planReviewFileRenderJob({ ...props, resourcesByRole });
+}
+
+export function createBridgeWorkerReviewPierreRenderJobPlanningSession(
+	props: PlanBridgeWorkerReviewPierreRenderJobProps,
+): BridgeWorkerReviewPierreRenderJobPlanningSession {
+	let planningStage: BridgeWorkerReviewPierreRenderJobPlanningStage = 'select';
+	let selectedPlan: BridgeWorkerReviewSelectedPlan | null = null;
+	let baseFile: FileContents | null = null;
+	let headFile: FileContents | null = null;
+	let file: FileContents | null = null;
+	let payload: BridgeWorkerPierreRenderPayload | null = null;
+
+	return {
+		runNextStage: (): BridgeWorkerReviewPierreRenderJobPlanningStepResult => {
+			switch (planningStage) {
+				case 'select': {
+					selectedPlan = selectBridgeWorkerReviewPlan(props);
+					if (selectedPlan === null) return { job: null, status: 'complete' };
+					planningStage = selectedPlan.kind === 'diff' ? 'prepareDiffBase' : 'prepareFile';
+					return { status: 'pending' };
+				}
+				case 'prepareDiffBase': {
+					const diffPlan = requireBridgeWorkerReviewDiffPlan(selectedPlan);
+					baseFile = createPierreFileContentsForReviewResource({
+						cacheKey: contentCacheKeyForNullableResource(diffPlan.base),
+						language: diffPlan.language,
+						path: props.semantics.basePath ?? props.semantics.displayPath,
+						resource: diffPlan.base,
+						window: diffPlan.window,
+					});
+					planningStage = 'prepareDiffHead';
+					return { status: 'pending' };
+				}
+				case 'prepareDiffHead': {
+					const diffPlan = requireBridgeWorkerReviewDiffPlan(selectedPlan);
+					headFile = createPierreFileContentsForReviewResource({
+						cacheKey: contentCacheKeyForNullableResource(diffPlan.head),
+						language: diffPlan.language,
+						path: props.semantics.headPath ?? props.semantics.displayPath,
+						resource: diffPlan.head,
+						window: diffPlan.window,
+					});
+					planningStage = 'validateWindowBytes';
+					return { status: 'pending' };
+				}
+				case 'prepareFile': {
+					const filePlan = requireBridgeWorkerReviewFilePlan(selectedPlan);
+					file = createPierreFileContentsForReviewResource({
+						cacheKey: filePlan.contentCacheKey,
+						language: filePlan.language,
+						path:
+							props.semantics.headPath ?? props.semantics.basePath ?? props.semantics.displayPath,
+						resource: filePlan.resource,
+						window: filePlan.window,
+					});
+					planningStage = 'validateWindowBytes';
+					return { status: 'pending' };
+				}
+				case 'validateWindowBytes': {
+					const windowByteLength =
+						selectedPlan?.kind === 'diff'
+							? bridgeWorkerStringByteLength(
+									requireBridgeWorkerReviewPlanningValue(baseFile, 'base FileContents').contents,
+								) +
+								bridgeWorkerStringByteLength(
+									requireBridgeWorkerReviewPlanningValue(headFile, 'head FileContents').contents,
+								)
+							: bridgeWorkerStringByteLength(
+									requireBridgeWorkerReviewPlanningValue(file, 'file FileContents').contents,
+								);
+					if (windowByteLength > props.budget.maxBytes) {
+						return { job: null, status: 'complete' };
+					}
+					planningStage = 'preparePayload';
+					return { status: 'pending' };
+				}
+				case 'preparePayload': {
+					if (selectedPlan?.kind === 'diff') {
+						const preparedBaseFile = requireBridgeWorkerReviewPlanningValue(
+							baseFile,
+							'base FileContents',
+						);
+						const preparedHeadFile = requireBridgeWorkerReviewPlanningValue(
+							headFile,
+							'head FileContents',
+						);
+						const fileDiff = parseDiffFromFile(preparedBaseFile, preparedHeadFile);
+						if (fileDiff.lang === undefined) fileDiff.lang = selectedPlan.language;
+						fileDiff.cacheKey = selectedPlan.contentCacheKey;
+						payload = {
+							kind: 'codeViewDiffItem',
+							item: createBridgeWorkerCodeViewDiffItem({
+								base: selectedPlan.base,
+								contentCacheKey: selectedPlan.contentCacheKey,
+								fileDiff,
+								head: selectedPlan.head,
+								semantics: props.semantics,
+								window: selectedPlan.window,
+							}),
+						};
+					} else {
+						const filePlan = requireBridgeWorkerReviewFilePlan(selectedPlan);
+						payload = {
+							kind: 'codeViewFileItem',
+							item: createBridgeWorkerCodeViewFileItem({
+								contentCacheKey: filePlan.contentCacheKey,
+								file: requireBridgeWorkerReviewPlanningValue(file, 'file FileContents'),
+								resource: filePlan.resource,
+								semantics: props.semantics,
+								window: filePlan.window,
+							}),
+						};
+					}
+					planningStage = 'buildJob';
+					return { status: 'pending' };
+				}
+				case 'buildJob':
+					return {
+						job: buildBridgeWorkerReviewPierreRenderJob({
+							bridgeDemandRank: props.bridgeDemandRank,
+							budget: props.budget,
+							payload: requireBridgeWorkerReviewPlanningValue(payload, 'render payload'),
+							selectedPlan: requireBridgeWorkerReviewPlanningValue(selectedPlan, 'selected plan'),
+							semantics: props.semantics,
+						}),
+						status: 'complete',
+					};
+				default:
+					return assertNeverBridgeWorkerReviewPierreRenderJobPlanningStage(planningStage);
+			}
+		},
+	};
+}
+
+function assertNeverBridgeWorkerReviewPierreRenderJobPlanningStage(planningStage: never): never {
+	throw new Error(
+		`Unsupported Bridge worker Review Pierre planning stage: ${String(planningStage)}`,
+	);
 }
 
 export function prepareBridgeWorkerReviewPierreRenderJobEvent(
-	props: PlanBridgeWorkerReviewPierreRenderJobProps,
-): PreparedBridgeWorkerStructuredMessage<BridgeWorkerPierreRenderJobEvent> | null {
+	props: PrepareBridgeWorkerReviewPierreRenderJobEventProps,
+): PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent> | null {
 	const job = planBridgeWorkerReviewPierreRenderJob(props);
-	if (job === null) {
-		return null;
-	}
+	return job === null
+		? null
+		: prepareBridgeWorkerReviewPierreRenderJobEventFromJob({
+				job,
+				publicationSequence: props.publicationSequence,
+				workerDerivationEpoch: props.workerDerivationEpoch,
+			});
+}
+
+export function prepareBridgeWorkerReviewPierreRenderJobEventFromJob(props: {
+	readonly job: BridgeWorkerPierreRenderJob;
+	readonly publicationSequence: number;
+	readonly workerDerivationEpoch: number;
+}): PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent> {
 	return prepareBridgeWorkerStructuredMessage({
 		message: {
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 			direction: 'serverWorkerToMain',
 			transferDescriptors: [],
-			kind: 'pierreRenderJob',
-			job,
+			kind: 'reviewPierreRenderJob',
+			job: props.job,
+			publicationSequence: props.publicationSequence,
+			surface: 'review',
+			workerDerivationEpoch: props.workerDerivationEpoch,
 		},
-		declaredFields: transferFieldsForBridgeWorkerPierreRenderPayload(job.payload),
+		declaredFields: transferFieldsForBridgeWorkerPierreRenderPayload(props.job.payload),
 	});
 }
 
@@ -75,111 +238,149 @@ interface PlanBridgeWorkerReviewRenderJobWithResourcesProps extends PlanBridgeWo
 	readonly resourcesByRole: BridgeWorkerFetchedResourceByRole;
 }
 
-function planReviewDiffRenderJob(
+type BridgeWorkerReviewPierreRenderJobPlanningStage =
+	| 'select'
+	| 'prepareDiffBase'
+	| 'prepareDiffHead'
+	| 'prepareFile'
+	| 'validateWindowBytes'
+	| 'preparePayload'
+	| 'buildJob';
+
+interface BridgeWorkerReviewDiffPlan {
+	readonly base: BridgeWorkerFetchedReviewContentResource | null;
+	readonly contentCacheKey: string;
+	readonly contentHash: string;
+	readonly head: BridgeWorkerFetchedReviewContentResource | null;
+	readonly kind: 'diff';
+	readonly language: string;
+	readonly window: BridgeWorkerPierreRenderWindow;
+}
+
+interface BridgeWorkerReviewFilePlan {
+	readonly contentCacheKey: string;
+	readonly contentHash: string;
+	readonly kind: 'file';
+	readonly language: string;
+	readonly resource: BridgeWorkerFetchedReviewContentResource;
+	readonly window: BridgeWorkerPierreRenderWindow;
+}
+
+type BridgeWorkerReviewSelectedPlan = BridgeWorkerReviewDiffPlan | BridgeWorkerReviewFilePlan;
+
+function requireBridgeWorkerReviewDiffPlan(
+	plan: BridgeWorkerReviewSelectedPlan | null,
+): BridgeWorkerReviewDiffPlan {
+	if (plan?.kind !== 'diff') throw new Error('Bridge worker Review diff plan is not prepared.');
+	return plan;
+}
+
+function requireBridgeWorkerReviewFilePlan(
+	plan: BridgeWorkerReviewSelectedPlan | null,
+): BridgeWorkerReviewFilePlan {
+	if (plan?.kind !== 'file') throw new Error('Bridge worker Review file plan is not prepared.');
+	return plan;
+}
+
+function requireBridgeWorkerReviewPlanningValue<TValue>(
+	value: TValue | null,
+	label: string,
+): TValue {
+	if (value === null) throw new Error(`Bridge worker Review ${label} is not prepared.`);
+	return value;
+}
+
+function selectBridgeWorkerReviewPlan(
+	props: PlanBridgeWorkerReviewPierreRenderJobProps,
+): BridgeWorkerReviewSelectedPlan | null {
+	const resourcesByRole = new Map(
+		props.resources.map((resource) => [resource.role, resource] as const),
+	);
+	const planProps = { ...props, resourcesByRole };
+	return shouldRenderReviewItemAsDiff(props.semantics)
+		? selectBridgeWorkerReviewDiffPlan(planProps)
+		: selectBridgeWorkerReviewFilePlan(planProps);
+}
+
+function selectBridgeWorkerReviewDiffPlan(
 	props: PlanBridgeWorkerReviewRenderJobWithResourcesProps,
-): BridgeWorkerPierreRenderJob | null {
+): BridgeWorkerReviewDiffPlan | null {
 	const diffSides = diffResourcesForReviewSemantics(props);
-	if (diffSides === null) {
-		return null;
-	}
+	if (diffSides === null) return null;
 	const presentResources = [diffSides.base, diffSides.head].filter(
 		(resource): resource is BridgeWorkerFetchedReviewContentResource => resource !== null,
 	);
-	if (presentResources.length === 0) {
-		return null;
-	}
+	if (presentResources.length === 0) return null;
 	const window = renderWindowForRoles({
 		budget: props.budget,
+		resourcesByRole: props.resourcesByRole,
 		roles: presentResources.map((resource) => resource.role),
 		semantics: props.semantics,
 	});
-	if (
-		windowedResourcesExceedByteBudget({
-			budget: props.budget,
-			resources: presentResources,
-			window,
-		})
-	) {
-		return null;
-	}
 	const contentCacheKey = `${contentCacheKeyForNullableResource(diffSides.base)}|${contentCacheKeyForNullableResource(diffSides.head)}`;
 	const contentHash = `${contentHashForNullableResource(diffSides.base)}|${contentHashForNullableResource(diffSides.head)}`;
 	const language = languageForReviewRenderJob({
 		resources: [diffSides.head, diffSides.base],
 		semantics: props.semantics,
 	});
-	return buildBridgeWorkerPierreRenderJob({
-		itemId: props.semantics.itemId,
-		renderKind: 'reviewDiff',
+	return {
+		base: diffSides.base,
 		contentCacheKey,
 		contentHash,
+		head: diffSides.head,
+		kind: 'diff',
 		language,
-		bridgeDemandRank: props.bridgeDemandRank,
 		window,
-		payload: {
-			kind: 'codeViewDiffItem',
-			item: createBridgeWorkerCodeViewDiffItem({
-				base: diffSides.base,
-				contentCacheKey,
-				head: diffSides.head,
-				language,
-				semantics: props.semantics,
-				window,
-			}),
-		},
-		budget: props.budget,
-	});
+	};
 }
 
-function planReviewFileRenderJob(
+function selectBridgeWorkerReviewFilePlan(
 	props: PlanBridgeWorkerReviewRenderJobWithResourcesProps,
-): BridgeWorkerPierreRenderJob | null {
+): BridgeWorkerReviewFilePlan | null {
 	const resource = firstReviewResourceForRoles(props.resourcesByRole, [
 		'head',
 		'file',
 		'diff',
 		'base',
 	]);
-	if (resource === null) {
-		return null;
-	}
+	if (resource === null) return null;
 	const window = renderWindowForRoles({
 		budget: props.budget,
+		resourcesByRole: props.resourcesByRole,
 		roles: [resource.role],
 		semantics: props.semantics,
 	});
-	if (
-		windowedResourcesExceedByteBudget({
-			budget: props.budget,
-			resources: [resource],
-			window,
-		})
-	) {
-		return null;
-	}
 	const contentCacheKey = contentCacheKeyForResource(resource);
 	const language = languageForReviewRenderJob({
 		resources: [resource],
 		semantics: props.semantics,
 	});
-	return buildBridgeWorkerPierreRenderJob({
-		itemId: props.semantics.itemId,
-		renderKind: 'fileText',
+	return {
 		contentCacheKey,
 		contentHash: resource.contentHash,
+		kind: 'file',
 		language,
-		bridgeDemandRank: props.bridgeDemandRank,
+		resource,
 		window,
-		payload: {
-			kind: 'codeViewFileItem',
-			item: createBridgeWorkerCodeViewFileItem({
-				contentCacheKey,
-				language,
-				resource,
-				semantics: props.semantics,
-				window,
-			}),
-		},
+	};
+}
+
+function buildBridgeWorkerReviewPierreRenderJob(props: {
+	readonly bridgeDemandRank: BridgeWorkerDemandRank;
+	readonly budget: BridgeWorkerPierreRenderBudget;
+	readonly payload: BridgeWorkerPierreRenderPayload;
+	readonly selectedPlan: BridgeWorkerReviewSelectedPlan;
+	readonly semantics: BridgeWorkerReviewRenderSemantics;
+}): BridgeWorkerPierreRenderJob {
+	return buildBridgeWorkerPierreRenderJob({
+		itemId: props.semantics.itemId,
+		renderKind: props.selectedPlan.kind === 'diff' ? 'reviewDiff' : 'fileText',
+		contentCacheKey: props.selectedPlan.contentCacheKey,
+		contentHash: props.selectedPlan.contentHash,
+		language: props.selectedPlan.language,
+		bridgeDemandRank: props.bridgeDemandRank,
+		window: props.selectedPlan.window,
+		payload: props.payload,
 		budget: props.budget,
 	});
 }
@@ -187,34 +388,15 @@ function planReviewFileRenderJob(
 function createBridgeWorkerCodeViewDiffItem(props: {
 	readonly base: BridgeWorkerFetchedReviewContentResource | null;
 	readonly contentCacheKey: string;
+	readonly fileDiff: BridgeWorkerCodeViewDiffItem['fileDiff'];
 	readonly head: BridgeWorkerFetchedReviewContentResource | null;
-	readonly language: string;
 	readonly semantics: BridgeWorkerReviewRenderSemantics;
 	readonly window: BridgeWorkerPierreRenderWindow;
 }): BridgeWorkerCodeViewDiffItem {
-	const oldFile = createPierreFileContentsForReviewResource({
-		cacheKey: contentCacheKeyForNullableResource(props.base),
-		language: props.language,
-		path: props.semantics.basePath ?? props.semantics.displayPath,
-		resource: props.base,
-		window: props.window,
-	});
-	const newFile = createPierreFileContentsForReviewResource({
-		cacheKey: contentCacheKeyForNullableResource(props.head),
-		language: props.language,
-		path: props.semantics.headPath ?? props.semantics.displayPath,
-		resource: props.head,
-		window: props.window,
-	});
-	const fileDiff = parseDiffFromFile(oldFile, newFile);
-	if (fileDiff.lang === undefined) {
-		fileDiff.lang = props.language;
-	}
-	fileDiff.cacheKey = props.contentCacheKey;
 	return {
 		id: props.semantics.itemId,
 		type: 'diff',
-		fileDiff,
+		fileDiff: props.fileDiff,
 		version: codeViewRenderVersionForWindow(props.window),
 		bridgeMetadata: bridgeWorkerCodeViewItemMetadata({
 			cacheKey: props.contentCacheKey,
@@ -227,7 +409,7 @@ function createBridgeWorkerCodeViewDiffItem(props: {
 
 function createBridgeWorkerCodeViewFileItem(props: {
 	readonly contentCacheKey: string;
-	readonly language: string;
+	readonly file: FileContents;
 	readonly resource: BridgeWorkerFetchedReviewContentResource;
 	readonly semantics: BridgeWorkerReviewRenderSemantics;
 	readonly window: BridgeWorkerPierreRenderWindow;
@@ -235,13 +417,7 @@ function createBridgeWorkerCodeViewFileItem(props: {
 	return {
 		id: props.semantics.itemId,
 		type: 'file',
-		file: createPierreFileContentsForReviewResource({
-			cacheKey: props.contentCacheKey,
-			language: props.language,
-			path: props.semantics.headPath ?? props.semantics.basePath ?? props.semantics.displayPath,
-			resource: props.resource,
-			window: props.window,
-		}),
+		file: props.file,
 		version: codeViewRenderVersionForWindow(props.window),
 		bridgeMetadata: bridgeWorkerCodeViewItemMetadata({
 			cacheKey: props.contentCacheKey,
@@ -346,26 +522,6 @@ function windowTextForBridgeWorkerCodeView(props: {
 	return props.text.slice(0, currentIndex);
 }
 
-function windowedResourcesExceedByteBudget(props: {
-	readonly budget: BridgeWorkerPierreRenderBudget;
-	readonly resources: readonly BridgeWorkerFetchedReviewContentResource[];
-	readonly window: BridgeWorkerPierreRenderWindow;
-}): boolean {
-	return (
-		props.resources.reduce(
-			(totalByteLength, resource): number =>
-				totalByteLength +
-				bridgeWorkerStringByteLength(
-					windowTextForBridgeWorkerCodeView({
-						maxLines: props.window.endLine,
-						text: resource.text,
-					}),
-				),
-			0,
-		) > props.budget.maxBytes
-	);
-}
-
 function bridgeWorkerStringByteLength(value: string): number {
 	return new TextEncoder().encode(value).byteLength;
 }
@@ -434,18 +590,32 @@ function firstReviewResourceForRoles(
 
 function renderWindowForRoles(props: {
 	readonly budget: BridgeWorkerPierreRenderBudget;
+	readonly resourcesByRole: BridgeWorkerFetchedResourceByRole;
 	readonly roles: readonly BridgeWorkerReviewContentRole[];
 	readonly semantics: BridgeWorkerReviewRenderSemantics;
 }): BridgeWorkerPierreRenderWindow {
 	const totalLineCount = Math.max(
 		0,
-		...props.roles.map((role) => props.semantics.contentLineCountsByRole[role] ?? 0),
+		...props.roles.map(
+			(role) =>
+				props.semantics.contentLineCountsByRole[role] ??
+				lineCountForFetchedReviewContent(props.resourcesByRole.get(role)?.text ?? ''),
+		),
 	);
 	return {
 		startLine: 1,
 		endLine: Math.min(totalLineCount, props.budget.maxWindowLines),
 		totalLineCount,
 	};
+}
+
+function lineCountForFetchedReviewContent(text: string): number {
+	if (text.length === 0) return 0;
+	let newlineCount = 0;
+	for (let characterIndex = 0; characterIndex < text.length; characterIndex += 1) {
+		if (text.charCodeAt(characterIndex) === 10) newlineCount += 1;
+	}
+	return text.endsWith('\n') ? newlineCount : newlineCount + 1;
 }
 
 function languageForReviewRenderJob(props: {

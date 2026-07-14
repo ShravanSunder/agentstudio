@@ -1,3 +1,5 @@
+import { runInNewContext } from 'node:vm';
+
 import { describe, expect, test, vi } from 'vitest';
 
 import {
@@ -10,6 +12,7 @@ import {
 	BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
 	BRIDGE_PRODUCT_WIRE_VERSION,
 } from '../core/comm-worker/bridge-product-contract-primitives.js';
+import type { BridgeTelemetryWorkerBootstrap } from '../core/telemetry-worker/bridge-telemetry-worker-contracts.js';
 import {
 	installBridgePageHandshake,
 	installBridgePageHandshakeSession,
@@ -92,10 +95,6 @@ describe('bridge page handshake', () => {
 						pushNonce: 'push-1',
 						telemetryConfig: {
 							enabledScopes: ['web', 'webkit'],
-							endpointUrl: 'agentstudio://telemetry/batch',
-							maxSamplesPerBatch: 64,
-							maxEncodedBatchBytes: 16_384,
-							minimumFlushIntervalMilliseconds: 250,
 							scenario: 'bridge-runtime',
 						},
 					},
@@ -115,7 +114,7 @@ describe('bridge page handshake', () => {
 		session.uninstall();
 
 		expect(session.getTelemetryConfig()?.enabledScopes.has('web')).toBe(true);
-		expect(session.getTelemetryConfig()?.endpointUrl).toBe('agentstudio://telemetry/batch');
+		expect(session.getTelemetryConfig()?.scenario).toBe('bridge-runtime');
 	});
 
 	test('notifies when the first valid telemetry config arrives after install', () => {
@@ -133,10 +132,6 @@ describe('bridge page handshake', () => {
 					pushNonce: 'push-1',
 					telemetryConfig: {
 						enabledScopes: ['web'],
-						endpointUrl: 'agentstudio://telemetry/batch',
-						maxSamplesPerBatch: 8,
-						maxEncodedBatchBytes: 16_384,
-						minimumFlushIntervalMilliseconds: 1,
 						scenario: 'metadata_apply_content_fetch_v1',
 					},
 				},
@@ -148,10 +143,6 @@ describe('bridge page handshake', () => {
 					pushNonce: 'push-2',
 					telemetryConfig: {
 						enabledScopes: ['web'],
-						endpointUrl: 'agentstudio://telemetry/batch',
-						maxSamplesPerBatch: 8,
-						maxEncodedBatchBytes: 16_384,
-						minimumFlushIntervalMilliseconds: 1,
 						scenario: 'ignored_later_config',
 					},
 				},
@@ -383,7 +374,156 @@ describe('bridge page handshake', () => {
 		expect(bootstrapRequests[0]?.requestId).not.toBe(bootstrapRequests[1]?.requestId);
 		expect(deliveredWorkerInstanceIds).toEqual(['worker-1', 'worker-2']);
 	});
+
+	test('copies an isolated-world product capability into the page realm', () => {
+		const target = new EventTarget();
+		const isolatedWorldCapability: unknown = runInNewContext(
+			'Uint8Array.from({ length: 32 }, () => 7).buffer',
+		);
+		let deliveredCapability: ArrayBuffer | null = null;
+		target.addEventListener('__bridge_product_session_bootstrap_request', (event): void => {
+			const request = extractProductBootstrapRequest(event);
+			target.dispatchEvent(
+				new CustomEvent('__bridge_product_session_bootstrap', {
+					detail: makeProductBootstrapDetail(
+						request.requestId,
+						'worker-isolated-world',
+						isolatedWorldCapability,
+					),
+				}),
+			);
+		});
+
+		const session = installBridgePageHandshakeSession(target, {
+			onProductSessionBootstrap: ({ productCapability }): void => {
+				deliveredCapability = productCapability;
+			},
+		});
+		session.uninstall();
+
+		expect(isolatedWorldCapability).not.toBeInstanceOf(ArrayBuffer);
+		expect(deliveredCapability).toBeInstanceOf(ArrayBuffer);
+		expect(deliveredCapability).not.toBe(isolatedWorldCapability);
+		expect([...new Uint8Array(deliveredCapability ?? new ArrayBuffer(0))]).toEqual(
+			Array.from({ length: BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH }, () => 7),
+		);
+	});
+
+	test('independently correlates initial and replacement telemetry bootstrap results', () => {
+		const target = new EventTarget();
+		const telemetryRequests: Array<{ readonly reason: string; readonly requestId: string }> = [];
+		const deliveredResults: string[] = [];
+		let productRequestCount = 0;
+		target.addEventListener('__bridge_product_session_bootstrap_request', (): void => {
+			productRequestCount += 1;
+		});
+		target.addEventListener('__bridge_telemetry_session_bootstrap_request', (event): void => {
+			telemetryRequests.push(extractTelemetryBootstrapRequest(event));
+		});
+		const session = installBridgePageHandshakeSession(target, {
+			onTelemetrySessionBootstrap: (result): void => {
+				deliveredResults.push(
+					result.kind === 'available'
+						? `available:${result.workerBootstrap.telemetrySessionId}`
+						: `unavailable:${result.reason}`,
+				);
+			},
+		});
+		const initialRequest = telemetryRequests[0];
+		if (initialRequest === undefined) throw new Error('expected initial telemetry request');
+		target.dispatchEvent(
+			new CustomEvent('__bridge_telemetry_session_bootstrap', {
+				detail: {
+					requestId: 'uncorrelated-telemetry-request',
+					result: {
+						kind: 'available',
+						workerBootstrap: { ...makeTelemetryWorkerBootstrap('ignored'), extra: true },
+					},
+				},
+			}),
+		);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_telemetry_session_bootstrap', {
+				detail: {
+					requestId: initialRequest.requestId,
+					result: {
+						kind: 'available',
+						workerBootstrap: makeTelemetryWorkerBootstrap('telemetry-initial'),
+					},
+				},
+			}),
+		);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_telemetry_session_bootstrap', {
+				detail: {
+					requestId: initialRequest.requestId,
+					result: { kind: 'unavailable', reason: 'failed' },
+				},
+			}),
+		);
+
+		session.requestTelemetrySessionReplacement();
+		const replacementRequest = telemetryRequests[1];
+		if (replacementRequest === undefined) throw new Error('expected replacement telemetry request');
+		target.dispatchEvent(
+			new CustomEvent('__bridge_telemetry_session_bootstrap', {
+				detail: {
+					requestId: replacementRequest.requestId,
+					result: { kind: 'unavailable', reason: 'disabled' },
+				},
+			}),
+		);
+		session.uninstall();
+
+		expect(productRequestCount).toBe(1);
+		expect(telemetryRequests).toEqual([
+			expect.objectContaining({ reason: 'initial' }),
+			expect.objectContaining({ reason: 'sidecarReplacement' }),
+		]);
+		expect(initialRequest.requestId).not.toBe(replacementRequest.requestId);
+		expect(deliveredResults).toEqual(['available:telemetry-initial', 'unavailable:disabled']);
+	});
+
+	test('rejects a correlated telemetry bootstrap result with extra fields', () => {
+		const target = new EventTarget();
+		let initialRequest: { readonly reason: string; readonly requestId: string } | null = null;
+		const deliveredResults: string[] = [];
+		target.addEventListener('__bridge_telemetry_session_bootstrap_request', (event): void => {
+			initialRequest = extractTelemetryBootstrapRequest(event);
+		});
+		const session = installBridgePageHandshakeSession(target, {
+			onTelemetrySessionBootstrap: (result): void => {
+				deliveredResults.push(result.kind);
+			},
+		});
+		const correlatedRequest = requireTelemetryBootstrapRequest(initialRequest);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_telemetry_session_bootstrap', {
+				detail: {
+					requestId: correlatedRequest.requestId,
+					result: {
+						kind: 'available',
+						workerBootstrap: {
+							...makeTelemetryWorkerBootstrap('telemetry-malformed'),
+							extra: true,
+						},
+					},
+				},
+			}),
+		);
+		session.uninstall();
+
+		expect(correlatedRequest.reason).toBe('initial');
+		expect(deliveredResults).toEqual([]);
+	});
 });
+
+function requireTelemetryBootstrapRequest(
+	request: { readonly reason: string; readonly requestId: string } | null,
+): { readonly reason: string; readonly requestId: string } {
+	if (request === null) throw new Error('expected initial telemetry request');
+	return request;
+}
 
 function extractReadyRequestId(event: Event): string {
 	if (!('detail' in event)) {
@@ -420,7 +560,57 @@ function extractProductBootstrapRequest(event: Event): {
 	return { reason: detail.reason, requestId: detail.requestId };
 }
 
-function makeProductBootstrapDetail(requestId: string, workerInstanceId: string): object {
+function extractTelemetryBootstrapRequest(event: Event): {
+	readonly reason: string;
+	readonly requestId: string;
+} {
+	if (!('detail' in event)) throw new Error('expected telemetry bootstrap request detail');
+	const detail = event.detail;
+	if (
+		typeof detail !== 'object' ||
+		detail === null ||
+		!('reason' in detail) ||
+		!('requestId' in detail) ||
+		typeof detail.reason !== 'string' ||
+		typeof detail.requestId !== 'string'
+	) {
+		throw new Error('expected typed telemetry bootstrap request');
+	}
+	return { reason: detail.reason, requestId: detail.requestId };
+}
+
+function makeTelemetryWorkerBootstrap(telemetrySessionId: string): BridgeTelemetryWorkerBootstrap {
+	return {
+		enabledScopes: ['web'],
+		endpointUrl: 'agentstudio://telemetry/batch',
+		telemetryCapability: 'telemetry-capability-0123456789abcd',
+		telemetryCapabilityDigest: 'telemetry-capability-digest-01234567',
+		telemetrySessionId,
+		policy: {
+			initialControlCredits: 2,
+			initialSampleCredits: 2,
+			compactSampleMaxEncodedBytes: 1_024,
+			producerLossKeyCap: 16,
+			producerPreReadyBufferMaxBytes: 4 * 1024,
+			producerPreReadyBufferMaxSamples: 2,
+			workerBufferMaxBytes: 8_192,
+			workerBufferMaxSamples: 8,
+			batchMaxBytes: 4_096,
+			batchMaxSamples: 4,
+			outboxMaxBytes: 8_192,
+			outboxMaxCount: 2,
+			maxRetryAttempts: 2,
+			drainTimeoutMilliseconds: 1_000,
+			minimumFlushIntervalMilliseconds: 0,
+		},
+	};
+}
+
+function makeProductBootstrapDetail(
+	requestId: string,
+	workerInstanceId: string,
+	productCapability: unknown = new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
+): object {
 	return {
 		requestId,
 		bootstrap: {
@@ -437,6 +627,6 @@ function makeProductBootstrapDetail(requestId: string, workerInstanceId: string)
 			wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
 			workerInstanceId,
 		},
-		productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
+		productCapability,
 	};
 }

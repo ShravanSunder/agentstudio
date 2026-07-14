@@ -56,6 +56,7 @@ export interface BridgePierreTreeScrollOwner {
 }
 
 export interface BridgePierreFileRowElement {
+	readonly getBoundingClientRect?: () => DOMRect;
 	readonly getAttribute: (name: string) => string | null;
 }
 
@@ -158,12 +159,34 @@ export function pierreTreeScrollOwnerForModel(
 	);
 }
 
-export function visiblePierreFileRowElementsForModel(
+export function mountedPierreFileRowElementsForModel(
 	model: BridgePierreTreeContainerModel,
 ): readonly BridgePierreFileRowElement[] {
 	return Array.from(
 		pierreTreeRowContainerForModel(model)?.querySelectorAll(pierreTreeFileRowSelector) ?? [],
 	);
+}
+
+export function visiblePierreFileRowElementsForModel(
+	model: BridgePierreTreeContainerModel,
+): readonly BridgePierreFileRowElement[] {
+	const scrollOwner = pierreTreeScrollOwnerForModel(model);
+	if (scrollOwner === null) {
+		return [];
+	}
+	const viewportBounds = scrollOwner.getBoundingClientRect();
+	if (viewportBounds.bottom <= viewportBounds.top) {
+		return [];
+	}
+	return mountedPierreFileRowElementsForModel(model).filter((rowElement): boolean => {
+		const rowBounds = rowElement.getBoundingClientRect?.();
+		return (
+			rowBounds !== undefined &&
+			rowBounds.bottom > rowBounds.top &&
+			rowBounds.bottom > viewportBounds.top &&
+			rowBounds.top < viewportBounds.bottom
+		);
+	});
 }
 
 export function pierreFilePathFromTreeEvent(event: BridgePierreTreePathEvent): string | null {

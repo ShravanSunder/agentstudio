@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
-	type BridgeWorkerPierreRenderJobEvent,
+	type BridgeWorkerFilePierreRenderJobEvent,
 } from './bridge-worker-contracts.js';
 import { buildBridgeWorkerPierreRenderJob } from './bridge-worker-pierre-render-job.js';
 import {
@@ -68,11 +68,14 @@ describe('Bridge worker transfer list', () => {
 	test('prepares contract DTOs with declared clone descriptors', () => {
 		const contents = 'export const answer = 42;\n';
 		const cloneByteLength = new TextEncoder().encode(contents).byteLength;
-		const message: BridgeWorkerPierreRenderJobEvent = {
+		const message: BridgeWorkerFilePierreRenderJobEvent = {
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 			direction: 'serverWorkerToMain',
 			transferDescriptors: [],
-			kind: 'pierreRenderJob',
+			kind: 'filePierreRenderJob',
+			publicationSequence: 1,
+			surface: 'file',
+			workerDerivationEpoch: 1,
 			job: buildBridgeWorkerPierreRenderJob({
 				itemId: 'item-1',
 				renderKind: 'fileText',
@@ -125,7 +128,7 @@ describe('Bridge worker transfer list', () => {
 
 		expect(preparedMessage.message.transferDescriptors).toEqual([
 			{
-				messageKind: 'pierreRenderJob',
+				messageKind: 'filePierreRenderJob',
 				fieldPath: ['job', 'payload'],
 				byteLength: cloneByteLength,
 				mode: 'clone',
@@ -141,7 +144,7 @@ describe('Bridge worker transfer list', () => {
 	test('requires explicit byte lengths for cloned object fields', () => {
 		expect(() =>
 			buildBridgeWorkerTransferList({
-				messageKind: 'pierreRenderJob',
+				messageKind: 'filePierreRenderJob',
 				payload: {
 					job: {
 						payload: {
@@ -158,7 +161,7 @@ describe('Bridge worker transfer list', () => {
 	test('rejects clone descriptors whose field path does not resolve', () => {
 		expect(() =>
 			buildBridgeWorkerTransferList({
-				messageKind: 'pierreRenderJob',
+				messageKind: 'filePierreRenderJob',
 				payload: {
 					job: {
 						payload: {

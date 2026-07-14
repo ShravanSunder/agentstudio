@@ -8,8 +8,7 @@ import type {
 	BridgeViewerBrowserFixture,
 	BridgeViewerBrowserFixtureClass,
 	BridgeViewerMockedBackendDeliveryMode,
-	BridgeViewerMockedBackendLatencyProfile,
-} from '../review-viewer/test-support/bridge-viewer-mocked-backend.js';
+} from '../review-viewer/test-support/bridge-viewer-mocked-backend-fixture.js';
 import {
 	bridgeViewerFileVersionSchema,
 	bridgeViewerNavigationCommandSchema,
@@ -36,6 +35,8 @@ export const bridgeAppDevFixtureLatencyProfileSchema = z.enum(['zero', 'small', 
 export type BridgeAppDevFixtureLatencyProfile = z.infer<
 	typeof bridgeAppDevFixtureLatencyProfileSchema
 >;
+
+type BridgeViewerMockedBackendLatencyProfile = BridgeAppDevFixtureLatencyProfile;
 
 export const bridgeAppDevFixtureScenarioSchema = z.enum([
 	'default',

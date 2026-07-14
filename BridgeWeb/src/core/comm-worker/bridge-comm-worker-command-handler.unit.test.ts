@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import {
 	createBridgeCommWorkerCommandHandler,
+	type BridgeCommWorkerFileMetadataDemand,
 	type BridgeCommWorkerFileViewRuntimeSource,
 } from './bridge-comm-worker-command-handler.js';
 import {
@@ -24,10 +25,14 @@ import {
 	encodeBridgeWorkerMetadataInterestUpdateCommand,
 	encodeBridgeWorkerModeCommand,
 	encodeBridgeWorkerReviewInvalidateCommand,
-	encodeBridgeWorkerReviewSourceUpdateCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
+import type { BridgeCommWorkerReviewMetadataApplication } from './bridge-comm-worker-review-metadata-applicator.js';
+import {
+	makeContentRequestDescriptor,
+	makeRenderSemantics,
+} from './bridge-comm-worker-runtime-protocol.test-support.js';
 import type { BridgeWorkerReviewContentMetadata } from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker command handler', () => {
@@ -49,6 +54,7 @@ describe('Bridge comm worker command handler', () => {
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-select',
 				epoch: 7,
+				surface: 'review',
 				selectedItemId: 'item-2',
 				selectedSource: 'user',
 			}),
@@ -103,6 +109,7 @@ describe('Bridge comm worker command handler', () => {
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-select-immediate',
 				epoch: 7,
+				surface: 'review',
 				selectedItemId: 'item-1',
 				selectedSource: 'user',
 			}),
@@ -128,6 +135,7 @@ describe('Bridge comm worker command handler', () => {
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-select-schedule',
 				epoch: 7,
+				surface: 'review',
 				selectedItemId: 'item-1',
 				selectedSource: 'user',
 			}),
@@ -157,6 +165,7 @@ describe('Bridge comm worker command handler', () => {
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-select-no-visible-demand',
 				epoch: 7,
+				surface: 'review',
 				selectedItemId: 'item-1',
 				selectedSource: 'user',
 			}),
@@ -182,6 +191,7 @@ describe('Bridge comm worker command handler', () => {
 			encodeBridgeWorkerViewportCommand({
 				requestId: 'request-viewport',
 				epoch: 8,
+				surface: 'review',
 				visibleItemIds: ['item-2', 'item-3'],
 				firstVisibleIndex: 1,
 				lastVisibleIndex: 2,
@@ -217,6 +227,99 @@ describe('Bridge comm worker command handler', () => {
 		expect(JSON.stringify(messages)).not.toMatch(/rowById|orderedIds|rootSnapshot|allRows/i);
 	});
 
+	test('explicit interaction surfaces isolate File and Review demand side effects', () => {
+		// Arrange
+		const scheduledReviewPreparations: ScheduledSelectedReviewPreparation[] = [];
+		const scheduledFileViewPreparations: ScheduledSelectedFileViewPreparation[] = [];
+		const scheduledReviewDemand: ScheduledDemandExecution[] = [];
+		const fileMetadataDemands: BridgeCommWorkerFileMetadataDemand[] = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [makeWorkerReviewContentMetadata('review-1')],
+			rows: [{ id: 'review-1', parentId: null, index: 0 }],
+			createSequence: (): number => 71,
+			scheduleDemandExecution: pushScheduledDemandExecution(scheduledReviewDemand),
+			scheduleSelectedReviewContentReadyPreparation: pushScheduledSelectedReviewPreparation(
+				scheduledReviewPreparations,
+			),
+			scheduleSelectedFileViewContentReadyPreparation: pushScheduledSelectedFileViewPreparation(
+				scheduledFileViewPreparations,
+			),
+			updateFileMetadataDemand: (demand): void => {
+				fileMetadataDemands.push(demand);
+			},
+		});
+		handler.applyFileViewRuntimeSource({
+			epoch: 1,
+			source: {
+				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
+				contentRequests: [],
+				filePathsByItemId: new Map([['file-1', 'Sources/App/file-1.swift']]),
+				rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			},
+		});
+
+		// Act: File-targeted interactions must not enter Review demand lanes.
+		handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-hostile-file-select',
+				epoch: 2,
+				surface: 'fileView',
+				selectedItemId: 'file-1',
+				selectedSource: 'user',
+			}),
+		);
+		handler.handleMessage(
+			encodeBridgeWorkerViewportCommand({
+				requestId: 'request-hostile-file-viewport',
+				epoch: 3,
+				surface: 'fileView',
+				visibleItemIds: ['file-1'],
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+			}),
+		);
+		const fileDomainSideEffectsBeforeReview = {
+			metadataDemandCount: fileMetadataDemands.length,
+			preparationCount: scheduledFileViewPreparations.length,
+		};
+
+		// Act: Review-targeted interactions must not enter File demand lanes.
+		handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-hostile-review-select',
+				epoch: 4,
+				surface: 'review',
+				selectedItemId: 'review-1',
+				selectedSource: 'user',
+			}),
+		);
+		handler.handleMessage(
+			encodeBridgeWorkerViewportCommand({
+				requestId: 'request-hostile-review-viewport',
+				epoch: 5,
+				surface: 'review',
+				visibleItemIds: ['review-1'],
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+			}),
+		);
+
+		// Assert
+		expect(scheduledFileViewPreparations.map(({ itemId }) => itemId)).toEqual(['file-1']);
+		expect(scheduledReviewPreparations.map(({ itemId }) => itemId)).toEqual(['review-1']);
+		expect(scheduledReviewDemand).toEqual([{ cause: 'viewport', epoch: 5 }]);
+		expect(fileDomainSideEffectsBeforeReview).toEqual({
+			metadataDemandCount: 2,
+			preparationCount: 1,
+		});
+		expect(fileMetadataDemands).toHaveLength(fileDomainSideEffectsBeforeReview.metadataDemandCount);
+		expect(scheduledFileViewPreparations).toHaveLength(
+			fileDomainSideEffectsBeforeReview.preparationCount,
+		);
+	});
+
 	test('review invalidation command marks selected content stale and schedules refresh demand', () => {
 		const scheduledPreparations: ScheduledSelectedReviewPreparation[] = [];
 		const handler = createBridgeCommWorkerCommandHandler({
@@ -231,6 +334,7 @@ describe('Bridge comm worker command handler', () => {
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-select-before-invalidate',
 				epoch: 7,
+				surface: 'review',
 				selectedItemId: 'item-1',
 				selectedSource: 'user',
 			}),
@@ -274,7 +378,7 @@ describe('Bridge comm worker command handler', () => {
 		expect(scheduledPreparations[1]?.store.getState().demandByKey.get('item-1')).toBe('selected:8');
 	});
 
-	test('review source update preserves worker state so path invalidation deletes stale paint', () => {
+	test('worker-owned Review metadata clears non-executable paint and preserves path state for later invalidation', () => {
 		const scheduledPreparations: ScheduledSelectedReviewPreparation[] = [];
 		const handler = createBridgeCommWorkerCommandHandler({
 			contentItems: [
@@ -292,6 +396,7 @@ describe('Bridge comm worker command handler', () => {
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-select-before-source-update',
 				epoch: 7,
+				surface: 'review',
 				selectedItemId: 'item-1',
 				selectedSource: 'user',
 			}),
@@ -306,10 +411,9 @@ describe('Bridge comm worker command handler', () => {
 		});
 		selectedStore.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 41 });
 
-		handler.handleMessage(
-			encodeBridgeWorkerReviewSourceUpdateCommand({
-				requestId: 'request-source-update',
-				epoch: 8,
+		const metadataMessages = handler.applyReviewMetadataApplication(
+			reviewMetadataApplication({
+				sourceEpoch: 8,
 				contentItems: [
 					makeWorkerReviewContentMetadata('item-1', {
 						path: 'Sources/App/After.swift',
@@ -320,6 +424,26 @@ describe('Bridge comm worker command handler', () => {
 				rows: [{ id: 'item-1', parentId: null, index: 0 }],
 			}),
 		);
+		expect(metadataMessages[0]).toMatchObject({
+			kind: 'slicePatch',
+			epoch: 8,
+			sequence: 32,
+			patches: [
+				{ slice: 'rowPaint', operation: 'delete', itemId: 'item-1' },
+				{
+					slice: 'contentAvailability',
+					operation: 'upsert',
+					itemId: 'item-1',
+					payload: { state: 'stale' },
+				},
+				{
+					slice: 'contentAvailability',
+					operation: 'upsert',
+					itemId: 'item-1',
+					payload: { state: 'unavailable' },
+				},
+			],
+		});
 		const messages = handler.handleMessage(
 			encodeBridgeWorkerReviewInvalidateCommand({
 				requestId: 'request-invalidate-after-source-update',
@@ -334,9 +458,8 @@ describe('Bridge comm worker command handler', () => {
 		expect(messages[0]).toMatchObject({
 			kind: 'slicePatch',
 			epoch: 9,
-			sequence: 32,
+			sequence: 33,
 			patches: [
-				{ slice: 'rowPaint', operation: 'delete', itemId: 'item-1' },
 				{
 					slice: 'contentAvailability',
 					operation: 'upsert',
@@ -351,8 +474,25 @@ describe('Bridge comm worker command handler', () => {
 		);
 	});
 
-	test('review source update repairs non-visible selected demand at the current epoch only', () => {
+	test('worker-owned Review metadata repairs executable selected demand from its selection epoch', () => {
+		// Arrange
 		const scheduledPreparations: ScheduledSelectedReviewPreparation[] = [];
+		const contentItems = [makeWorkerReviewContentMetadata('item-1')];
+		const contentRequestDescriptors = [
+			makeContentRequestDescriptor({
+				generation: 8,
+				itemId: 'item-1',
+				role: 'base',
+				text: 'base generation 8\n',
+			}),
+			makeContentRequestDescriptor({
+				generation: 8,
+				itemId: 'item-1',
+				role: 'head',
+				text: 'head generation 8\n',
+			}),
+		];
+		const renderSemantics = [makeRenderSemantics({ itemId: 'item-1' })];
 		const handler = createBridgeCommWorkerCommandHandler({
 			contentItems: [],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
@@ -361,36 +501,29 @@ describe('Bridge comm worker command handler', () => {
 				pushScheduledSelectedReviewPreparation(scheduledPreparations),
 			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
 		});
+
+		// Act
 		handler.handleMessage(
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-select-before-review-source',
 				epoch: 7,
+				surface: 'review',
 				selectedItemId: 'item-1',
 				selectedSource: 'user',
 			}),
 		);
 
-		const repairedMessages = handler.handleMessage(
-			encodeBridgeWorkerReviewSourceUpdateCommand({
-				requestId: 'request-review-source-repair',
-				epoch: 8,
-				contentItems: [makeWorkerReviewContentMetadata('item-1')],
-				contentRequestDescriptors: [],
-				renderSemantics: [],
-				rows: [{ id: 'item-1', parentId: null, index: 0 }],
-			}),
-		);
-		const staleMessages = handler.handleMessage(
-			encodeBridgeWorkerReviewSourceUpdateCommand({
-				requestId: 'request-stale-review-source-repair',
-				epoch: 7,
-				contentItems: [makeWorkerReviewContentMetadata('item-1')],
-				contentRequestDescriptors: [],
-				renderSemantics: [],
+		const repairedMessages = handler.applyReviewMetadataApplication(
+			reviewMetadataApplication({
+				sourceEpoch: 8,
+				contentItems,
+				contentRequestDescriptors,
+				renderSemantics,
 				rows: [{ id: 'item-1', parentId: null, index: 0 }],
 			}),
 		);
 
+		// Assert
 		expect(repairedMessages).toEqual([
 			{
 				wireVersion: 1,
@@ -408,26 +541,12 @@ describe('Bridge comm worker command handler', () => {
 					},
 				],
 			},
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				transferDescriptors: [],
-				kind: 'health',
-				requestId: 'request-review-source-repair',
-				status: 'ready',
-			},
 		]);
 		expect(scheduledPreparations).toHaveLength(1);
 		expect(scheduledPreparations[0]?.itemId).toBe('item-1');
-		expect(scheduledPreparations[0]?.epoch).toBe(8);
+		expect(scheduledPreparations[0]?.epoch).toBe(7);
 		expect(scheduledPreparations[0]?.store.getState().visibleIds).toEqual([]);
-		expect(scheduledPreparations[0]?.store.getState().demandByKey.get('item-1')).toBe('selected:8');
-		expect(staleMessages).toHaveLength(1);
-		expect(staleMessages[0]).toMatchObject({
-			kind: 'health',
-			requestId: 'request-stale-review-source-repair',
-			status: 'degraded',
-		});
+		expect(scheduledPreparations[0]?.store.getState().demandByKey.get('item-1')).toBe('selected:7');
 	});
 
 	test('unsupported commands return degraded health instead of silent success', () => {
@@ -443,6 +562,7 @@ describe('Bridge comm worker command handler', () => {
 				encodeBridgeWorkerHoverCommand({
 					requestId: 'request-hover',
 					epoch: 1,
+					surface: 'review',
 					hoveredItemId: 'item-1',
 				}),
 			),
@@ -597,6 +717,7 @@ describe('Bridge comm worker command handler', () => {
 				encodeBridgeWorkerSelectCommand({
 					requestId: 'request-current',
 					epoch: 9,
+					surface: 'review',
 					selectedItemId: 'item-2',
 					selectedSource: 'user',
 				}),
@@ -610,6 +731,7 @@ describe('Bridge comm worker command handler', () => {
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-stale',
 				epoch: 8,
+				surface: 'review',
 				selectedItemId: 'item-1',
 				selectedSource: 'user',
 			}),
@@ -618,6 +740,7 @@ describe('Bridge comm worker command handler', () => {
 			encodeBridgeWorkerViewportCommand({
 				requestId: 'request-current',
 				epoch: 9,
+				surface: 'review',
 				visibleItemIds: ['item-1'],
 				firstVisibleIndex: 0,
 				lastVisibleIndex: 0,
@@ -665,6 +788,7 @@ describe('Bridge comm worker command handler', () => {
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-no-metadata',
 				epoch: 10,
+				surface: 'review',
 				selectedItemId: 'item-no-metadata',
 				selectedSource: 'user',
 			}),
@@ -753,6 +877,7 @@ describe('Bridge comm worker command handler', () => {
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-select-before-file-metadata',
 				epoch: 1,
+				surface: 'fileView',
 				selectedItemId: 'file-1',
 				selectedSource: 'user',
 			}),
@@ -814,6 +939,7 @@ describe('Bridge comm worker command handler', () => {
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-select-file-view',
 				epoch: 7,
+				surface: 'fileView',
 				selectedItemId: 'file-1',
 				selectedSource: 'user',
 			}),
@@ -865,6 +991,7 @@ describe('Bridge comm worker command handler', () => {
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-select-before-file-source',
 				epoch: 1,
+				surface: 'fileView',
 				selectedItemId: 'file-1',
 				selectedSource: 'user',
 			}),
@@ -923,5 +1050,32 @@ function makeWorkerReviewContentMetadata(
 		sizeBytes: item.sizeBytes,
 		availableContentRoles: ['head'],
 		contentLineCountsByRole: item.contentLineCountsByRole ?? {},
+	};
+}
+
+function reviewMetadataApplication(props: {
+	readonly contentItems: BridgeCommWorkerReviewMetadataApplication['source']['contentItems'];
+	readonly contentRequestDescriptors: BridgeCommWorkerReviewMetadataApplication['source']['contentRequestDescriptors'];
+	readonly renderSemantics: BridgeCommWorkerReviewMetadataApplication['source']['renderSemantics'];
+	readonly rows: BridgeCommWorkerReviewMetadataApplication['source']['rows'];
+	readonly sourceEpoch: number;
+}): BridgeCommWorkerReviewMetadataApplication {
+	return {
+		affectedItemIds: props.contentItems.map((item) => item.itemId),
+		affectedRowIds: props.rows.map((row) => row.id),
+		completeContentItemIds: props.contentItems.map((item) => item.itemId),
+		completeRowIds: props.rows.map((row) => row.id),
+		projectionRevision: 1,
+		removedItemIds: [],
+		reset: false,
+		rowMutation: { removedRowIds: [], rowUpserts: props.rows },
+		source: {
+			contentItems: props.contentItems,
+			contentRequestDescriptors: props.contentRequestDescriptors,
+			renderSemantics: props.renderSemantics,
+			rows: props.rows,
+		},
+		sourceEpoch: props.sourceEpoch,
+		workerDerivationEpoch: 1,
 	};
 }

@@ -39,6 +39,7 @@ describe('Bridge comm worker File source mutation', () => {
 				rowRemovals: [],
 				rowUpserts: [],
 			},
+			selectedContentRequestChanged: false,
 		});
 		const patch = store.actions.takePendingSlicePatchEvent({ epoch: 2, sequence: 2 });
 

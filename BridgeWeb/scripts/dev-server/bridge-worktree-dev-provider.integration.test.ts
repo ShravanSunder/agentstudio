@@ -6,9 +6,9 @@ import { promisify } from 'node:util';
 
 import { describe, expect, test } from 'vitest';
 
-import type { WorktreeFileDescriptor } from '../../src/features/worktree-file/models/worktree-file-protocol-models.js';
-import { worktreeFileProtocolFrameSchema } from '../../src/features/worktree-file/models/worktree-file-protocol-models.js';
 import { countFlattenedWorktreeFileTreeRows } from '../../src/features/worktree-file/models/worktree-file-tree-size.js';
+import type { WorktreeFileDescriptor } from './bridge-worktree-dev-file-fixture-contracts.js';
+import { worktreeFileProtocolFrameSchema } from './bridge-worktree-dev-file-fixture-contracts.js';
 import {
 	createBridgeWorktreeDevProvider,
 	loadBridgeWorktreeDevSnapshot,
@@ -134,11 +134,15 @@ describe('Bridge worktree dev provider', () => {
 					expect.objectContaining({
 						fileId: expect.stringMatching(/^dev-file-id-/u),
 						isDirectory: false,
-						lineCount: 1,
 						path: 'src/app.ts',
 					}),
 				]),
 			);
+			expect(
+				snapshot?.frameKind === 'worktree.snapshot'
+					? snapshot.treeRows.find((row) => row.path === 'src/app.ts')?.lineCount
+					: null,
+			).toBeUndefined();
 			expect(descriptorFrame.frameKind).toBe('worktree.fileDescriptor');
 			expect(descriptorFrame.descriptor.path).toBe('src/app.ts');
 			expect(descriptorFrame.descriptor.contentDescriptor.descriptor.resourceKind).toBe(
@@ -149,6 +153,37 @@ describe('Bridge worktree dev provider', () => {
 					worktreeFileContentRequestForDescriptor(descriptorFrame.descriptor),
 				),
 			).resolves.toContain('export const value = 2');
+		} finally {
+			await rm(repoRoot, { force: true, recursive: true });
+		}
+	});
+
+	test('classifies invalid UTF-8 files as unsupported encoding without rejecting demand', async () => {
+		const repoRoot = await makeGitFixtureWorktree();
+		try {
+			await mkdir(join(repoRoot, 'assets'), { recursive: true });
+			await writeFile(
+				join(repoRoot, 'assets', 'invalid-utf8.png'),
+				Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff]),
+			);
+			const provider = await createBridgeWorktreeDevProvider({
+				baseRef: 'HEAD',
+				scenarioName: 'current-worktree',
+				worktreeRoot: repoRoot,
+			});
+
+			const surface = await provider.loadWorktreeFileSurface();
+			const descriptor = await loadWorktreeFileDescriptor(
+				provider,
+				surface,
+				'assets/invalid-utf8.png',
+			);
+
+			expect(descriptor).toMatchObject({
+				isBinary: false,
+				unavailableReason: 'unsupported_encoding',
+				virtualizedExtentKind: 'unavailable',
+			});
 		} finally {
 			await rm(repoRoot, { force: true, recursive: true });
 		}
@@ -624,6 +659,7 @@ async function makeLargeGitFixtureWorktree(): Promise<string> {
 	await mkdir(join(repoRoot, 'Sources'), { recursive: true });
 	for (let fileIndex = 0; fileIndex < 260; fileIndex += 1) {
 		const fileName = `Visible${fileIndex.toString().padStart(3, '0')}.swift`;
+		// oxlint-disable-next-line no-await-in-loop -- Deterministic fixture creation is intentionally ordered.
 		await writeFile(join(repoRoot, 'Sources', fileName), `struct Visible${fileIndex} {}\n`);
 	}
 	await runGitTestFixtureCommand(repoRoot, 'add', '.');

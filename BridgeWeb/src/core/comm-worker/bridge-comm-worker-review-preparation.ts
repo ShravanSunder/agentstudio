@@ -1,11 +1,13 @@
 import {
+	createBridgeWorkerReviewContentReadyPublication,
 	fetchBridgeWorkerReviewContentReadyResources,
 	isReviewContentReadyDemandCurrent,
-	publishBridgeWorkerReviewContentReadyFetchResult,
 	type BridgeWorkerReviewContentReadyFetchResult,
+	type BridgeWorkerReviewContentReadyPublication,
 	type DispatchBridgeWorkerReviewContentReadyProps,
 	type DispatchSelectedBridgeWorkerReviewContentReadyProps,
 } from './bridge-comm-worker-review-runtime.js';
+import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 import { recordBridgeCommWorkerSelectedContentDroppedTelemetry } from './bridge-comm-worker-telemetry.js';
 import type {
 	BridgeWorkerContentPreparationRank,
@@ -27,9 +29,44 @@ export interface EnqueueSelectedBridgeWorkerReviewContentReadyPreparationProps e
 }
 
 export interface BridgeWorkerReviewContentReadyPreparationTicket {
+	cancel(): void;
 	readonly completion: Promise<void>;
 	readonly enqueued: boolean;
+	pause(): void;
+	resume(): void;
 	readonly workId: string;
+}
+
+type BridgeWorkerReviewContentReadyPreparationLifecycle =
+	| 'active'
+	| 'paused'
+	| 'cancelled'
+	| 'settled';
+
+export function selectedReviewPreparationIdentity(props: {
+	readonly epoch: number;
+	readonly itemId: string;
+	readonly source: BridgeCommWorkerReviewRuntimeSource;
+	readonly workerDerivationEpoch: number;
+}): string {
+	const selectedContentMetadata =
+		props.source.contentItems.find((metadata) => metadata.itemId === props.itemId) ?? null;
+	const selectedContentRequestDescriptors = props.source.contentRequestDescriptors.filter(
+		(descriptor) => descriptor.itemId === props.itemId,
+	);
+	const selectedRenderSemantics =
+		props.source.renderSemantics.find((semantics) => semantics.itemId === props.itemId) ?? null;
+	return JSON.stringify(
+		canonicalReviewPreparationIdentityValue([
+			'selected-review-preparation-v1',
+			props.epoch,
+			props.workerDerivationEpoch,
+			props.itemId,
+			selectedContentMetadata,
+			selectedContentRequestDescriptors,
+			selectedRenderSemantics,
+		]),
+	);
 }
 
 export function enqueueSelectedBridgeWorkerReviewContentReadyPreparation(
@@ -51,13 +88,32 @@ export function enqueueBridgeWorkerReviewContentReadyPreparation(
 	const completion = createBridgeWorkerReviewContentReadyPreparationCompletion();
 	let fetchStarted = false;
 	let fetchResult: BridgeWorkerReviewContentReadyFetchResult | null = null;
+	let publication: BridgeWorkerReviewContentReadyPublication | null = null;
+	let lifecycle: BridgeWorkerReviewContentReadyPreparationLifecycle = 'active';
+	const resolveCompletion = (): void => {
+		if (lifecycle === 'settled' || lifecycle === 'cancelled') return;
+		lifecycle = 'settled';
+		completion.resolve();
+	};
+	const rejectCompletion = (reason: unknown): void => {
+		if (lifecycle === 'settled' || lifecycle === 'cancelled') return;
+		lifecycle = 'settled';
+		completion.reject(reason);
+	};
 	if (!isReviewContentReadyDemandCurrent(dispatchProps)) {
 		recordBridgeWorkerReviewPreparationSelectedContentDrop({
 			...dispatchProps,
 			dropReason: 'stale_before_fetch',
 		});
-		completion.resolve();
-		return { completion: completion.promise, enqueued: false, workId };
+		resolveCompletion();
+		return {
+			cancel: noopBridgeWorkerReviewContentReadyPreparationControl,
+			completion: completion.promise,
+			enqueued: false,
+			pause: noopBridgeWorkerReviewContentReadyPreparationControl,
+			resume: noopBridgeWorkerReviewContentReadyPreparationControl,
+			workId,
+		};
 	}
 
 	const work: BridgeWorkerContentPreparationWork = {
@@ -68,44 +124,82 @@ export function enqueueBridgeWorkerReviewContentReadyPreparation(
 			sourceEpoch: props.epoch,
 			workKind: 'review_content_ready',
 		},
-		runSlice: () => {
+		runSlice: (context) => {
+			if (lifecycle === 'cancelled' || lifecycle === 'settled') {
+				return { complete: true };
+			}
+			if (lifecycle === 'paused') {
+				return { complete: false, continuation: 'external' };
+			}
 			if (!fetchStarted) {
 				if (!isReviewContentReadyDemandCurrent(dispatchProps)) {
 					recordBridgeWorkerReviewPreparationSelectedContentDrop({
 						...dispatchProps,
 						dropReason: 'stale_before_fetch',
 					});
-					completion.resolve();
+					resolveCompletion();
 					return { complete: true };
 				}
 				fetchStarted = true;
 				void fetchBridgeWorkerReviewContentReadyResources(dispatchProps)
 					.then((result) => {
+						if (lifecycle === 'cancelled' || lifecycle === 'settled') return;
 						fetchResult = result;
+						if (lifecycle === 'paused') return;
 						pump.enqueueOrPromote(work);
 						props.requestPreparationDrain?.();
 					})
-					.catch(completion.reject);
+					.catch(rejectCompletion);
 				return { complete: false, continuation: 'external' };
 			}
 			if (fetchResult === null) {
 				return { complete: false, continuation: 'external' };
 			}
 			try {
-				publishBridgeWorkerReviewContentReadyFetchResult({
-					...dispatchProps,
-					fetchResult,
-				});
-				completion.resolve();
+				if (context.shouldYield()) return { complete: false };
+				if (publication === null) {
+					publication = createBridgeWorkerReviewContentReadyPublication({
+						...dispatchProps,
+						fetchResult,
+					});
+					return { complete: false };
+				}
+				const publicationResult = publication.runNextStage();
+				if (!publicationResult.complete) return { complete: false };
+				resolveCompletion();
 			} catch (error) {
-				completion.reject(error);
+				rejectCompletion(error);
 			}
 			return { complete: true };
 		},
 	};
 	pump.enqueueOrPromote(work);
 
-	return { completion: completion.promise, enqueued: true, workId };
+	return {
+		cancel: (): void => {
+			if (lifecycle === 'settled' || lifecycle === 'cancelled') return;
+			lifecycle = 'cancelled';
+			fetchResult = null;
+			publication = null;
+			pump.cancel(workId);
+			completion.resolve();
+		},
+		completion: completion.promise,
+		enqueued: true,
+		pause: (): void => {
+			if (lifecycle !== 'active') return;
+			lifecycle = 'paused';
+			pump.cancel(workId);
+		},
+		resume: (): void => {
+			if (lifecycle !== 'paused') return;
+			lifecycle = 'active';
+			if (fetchStarted && fetchResult === null) return;
+			pump.enqueueOrPromote(work);
+			props.requestPreparationDrain?.();
+		},
+		workId,
+	};
 }
 
 function recordBridgeWorkerReviewPreparationSelectedContentDrop(
@@ -159,3 +253,19 @@ function createBridgeWorkerReviewContentReadyPreparationCompletion(): {
 function noopBridgeWorkerReviewContentReadyPreparationCompletion(): void {}
 
 function noopBridgeWorkerReviewContentReadyPreparationRejection(_reason: unknown): void {}
+
+function noopBridgeWorkerReviewContentReadyPreparationControl(): void {}
+
+function canonicalReviewPreparationIdentityValue(value: unknown): unknown {
+	if (Array.isArray(value)) {
+		return value.map(canonicalReviewPreparationIdentityValue);
+	}
+	if (value === null || typeof value !== 'object') {
+		return value;
+	}
+	return Object.fromEntries(
+		Object.entries(value)
+			.toSorted(([leftKey], [rightKey]) => (leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0))
+			.map(([key, nestedValue]) => [key, canonicalReviewPreparationIdentityValue(nestedValue)]),
+	);
+}

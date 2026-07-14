@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import {
 	encodeBridgeWorkerFileDisplayResyncCommand,
 	encodeBridgeWorkerSelectCommand,
+	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
 import {
 	registerBridgeCommWorkerRuntimePortProtocol,
@@ -29,6 +30,157 @@ const source = {
 } as const;
 
 describe('Bridge comm worker File product runtime', () => {
+	test('default scheduler opens selected File content after sustained viewport churn', async () => {
+		// Arrange
+		const events = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'file.metadata'>
+		>(64);
+		const openedDescriptorIds: string[] = [];
+		const subscription: BridgeProductSubscription<'file.metadata'> = {
+			cancel: async (): Promise<void> => {},
+			events,
+			subscriptionId: 'file-subscription-default-scheduler',
+			subscriptionKind: 'file.metadata',
+			update: async (): Promise<void> => {},
+		};
+		const { dispatch } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
+			fileViewBudget: {
+				className: 'interactive',
+				maxBytes: 2 * 1024 * 1024,
+				maxWindowLines: 10_000,
+			},
+			productTransport: makeProductTransport({
+				onDiscoverSource: (): void => {},
+				onOpenDescriptor: (descriptorId): void => {
+					openedDescriptorIds.push(descriptorId);
+				},
+				subscription,
+			}),
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+		events.push({ eventKind: 'file.sourceAccepted', source });
+		events.push(makeTreeWindowEvent());
+		events.push(makeDescriptorReadyEvent());
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(openedDescriptorIds).toEqual([]);
+
+		// Act
+		for (let viewportIndex = 0; viewportIndex < 64; viewportIndex += 1) {
+			dispatch.message(
+				encodeBridgeWorkerViewportCommand({
+					epoch: viewportIndex + 1,
+					firstVisibleIndex: 0,
+					lastVisibleIndex: 0,
+					phase: viewportIndex === 63 ? 'settled' : 'momentum',
+					requestId: `request-default-scheduler-viewport-${viewportIndex}`,
+					surface: 'fileView',
+					visibleItemIds: ['file-1'],
+				}),
+			);
+		}
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				epoch: 65,
+				requestId: 'request-default-scheduler-select',
+				selectedItemId: 'file-1',
+				selectedSource: 'user',
+				surface: 'fileView',
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Assert
+		expect(openedDescriptorIds).toEqual(['descriptor-file-1']);
+	});
+
+	test('keeps File content demand eligible after concurrent Review source acceptance', async () => {
+		// Arrange
+		const fileEvents = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'file.metadata'>
+		>(64);
+		const reviewEvents = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'review.metadata'>
+		>(64);
+		const openedDescriptorIds: string[] = [];
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const fileSubscription: BridgeProductSubscription<'file.metadata'> = {
+			cancel: async (): Promise<void> => {},
+			events: fileEvents,
+			subscriptionId: 'file-subscription-cross-surface-store-isolation',
+			subscriptionKind: 'file.metadata',
+			update: async (): Promise<void> => {},
+		};
+		const { dispatch } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
+			fileViewBudget: {
+				className: 'interactive',
+				maxBytes: 2 * 1024 * 1024,
+				maxWindowLines: 10_000,
+			},
+			productTransport: makeProductTransport({
+				onDiscoverSource: (): void => {},
+				onOpenDescriptor: (descriptorId): void => {
+					openedDescriptorIds.push(descriptorId);
+				},
+				reviewEvents,
+				subscription: fileSubscription,
+			}),
+			schedulePreparationDrain: (drain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+		fileEvents.push({ eventKind: 'file.sourceAccepted', source });
+		fileEvents.push(makeTreeWindowEvent());
+		fileEvents.push(makeDescriptorReadyEvent());
+		await flushBridgeWorkerRuntimeContinuations();
+		reviewEvents.push({
+			eventKind: 'review.sourceAccepted',
+			generation: 1,
+			packageId: 'review-package-cross-surface-store-isolation',
+			revision: 1,
+			sourceIdentity: 'review-source-cross-surface-store-isolation',
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+		const reviewResetDrain = scheduledDrains.shift();
+		if (reviewResetDrain === undefined) {
+			throw new Error('Expected concurrent Review source reset preparation.');
+		}
+		await reviewResetDrain();
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Act
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				epoch: 1,
+				requestId: 'request-select-file-after-review-source-acceptance',
+				selectedItemId: 'file-1',
+				selectedSource: 'user',
+				surface: 'fileView',
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+		const pendingDrainCompletions: ReturnType<BridgeCommWorkerPreparationDrain>[] = [];
+		while (scheduledDrains.length > 0) {
+			const drain = scheduledDrains.shift();
+			if (drain === undefined) break;
+			pendingDrainCompletions.push(drain());
+			await flushBridgeWorkerRuntimeContinuations();
+		}
+		await Promise.all(pendingDrainCompletions);
+
+		// Assert
+		expect(
+			openedDescriptorIds,
+			'FILE_REVIEW_STORE_ISOLATION_FAILED: Review source acceptance removed demand-eligible File metadata.',
+		).toEqual(['descriptor-file-1']);
+	});
+
 	test('projects File subscription events and opens demanded content without a main relay', async () => {
 		// Arrange
 		const events = new BridgeProductBoundedAsyncQueue<
@@ -62,8 +214,6 @@ describe('Bridge comm worker File product runtime', () => {
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
-			contentItems: [],
-			contentRequestDescriptors: [],
 			createSequence: (): number => {
 				const sequence = nextSequence;
 				nextSequence += 1;
@@ -76,8 +226,6 @@ describe('Bridge comm worker File product runtime', () => {
 				maxWindowLines: 10_000,
 			},
 			productTransport,
-			renderSemantics: [],
-			rows: [],
 			schedulePreparationDrain: (drain): void => {
 				scheduledDrains.push(drain);
 			},
@@ -90,6 +238,7 @@ describe('Bridge comm worker File product runtime', () => {
 				requestId: 'request-select-file-1',
 				selectedItemId: 'file-1',
 				selectedSource: 'user',
+				surface: 'fileView',
 			}),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
@@ -208,15 +357,11 @@ describe('Bridge comm worker File product runtime', () => {
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
-			contentItems: [],
-			contentRequestDescriptors: [],
 			productTransport: makeProductTransport({
 				onDiscoverSource: (): void => {},
 				onOpenDescriptor: (): void => {},
 				subscription,
 			}),
-			renderSemantics: [],
-			rows: [],
 		});
 		await flushBridgeWorkerRuntimeContinuations();
 		events.push({ eventKind: 'file.sourceAccepted', source });
@@ -229,6 +374,7 @@ describe('Bridge comm worker File product runtime', () => {
 				requestId: 'request-select-interest-failure',
 				selectedItemId: 'file-1',
 				selectedSource: 'user',
+				surface: 'fileView',
 			}),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
@@ -256,9 +402,29 @@ describe('Bridge comm worker File product runtime', () => {
 				message: 'Bridge File metadata subscription failed.',
 			}),
 		);
-		expect(
-			postedMessages.filter(({ message }) => message.kind === 'fileDisplayPatch'),
-		).toHaveLength(3);
+		const fileDisplayEvents = postedMessages
+			.map(({ message }) => message)
+			.filter(
+				(message): message is BridgeWorkerFileDisplayPatchEvent =>
+					message.kind === 'fileDisplayPatch',
+			);
+		expect(fileDisplayEvents).toHaveLength(4);
+		const fileDisplaySequences = fileDisplayEvents.map((event) => event.sequence);
+		expect(new Set(fileDisplaySequences).size).toBe(fileDisplaySequences.length);
+		expect(fileDisplaySequences).toEqual(
+			fileDisplaySequences.toSorted((left, right) => left - right),
+		);
+		expect(fileDisplayEvents.map((event) => event.projectionRevision)).toEqual([1, 2, 3, 4]);
+		expect(fileDisplayEvents[2]?.patches).toContainEqual(
+			expect.objectContaining({ operation: 'upsert', slice: 'fileQuery' }),
+		);
+		expect(fileDisplayEvents[2]?.patches).toContainEqual(
+			expect.objectContaining({ operation: 'replacementCommit', slice: 'fileTree' }),
+		);
+		expect(fileDisplaySequences[2]).toBeGreaterThan(fileDisplaySequences[1] ?? -1);
+		expect(fileDisplayEvents[3]?.patches).toContainEqual(
+			expect.objectContaining({ operation: 'replacementCommit', slice: 'fileTree' }),
+		);
 	});
 
 	test('replays authoritative File display state at the active worker derivation epoch', async () => {
@@ -276,15 +442,11 @@ describe('Bridge comm worker File product runtime', () => {
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
-			contentItems: [],
-			contentRequestDescriptors: [],
 			productTransport: makeProductTransport({
 				onDiscoverSource: (): void => {},
 				onOpenDescriptor: (): void => {},
 				subscription,
 			}),
-			renderSemantics: [],
-			rows: [],
 		});
 		await flushBridgeWorkerRuntimeContinuations();
 		events.push({ eventKind: 'file.sourceAccepted', source });
@@ -343,8 +505,6 @@ describe('Bridge comm worker File product runtime', () => {
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
-			contentItems: [],
-			contentRequestDescriptors: [],
 			productTransport: makeProductTransport({
 				discoveryError: new Error('current File source call failed'),
 				onDiscoverSource: (): void => {},
@@ -360,8 +520,6 @@ describe('Bridge comm worker File product runtime', () => {
 					update: async (): Promise<void> => {},
 				},
 			}),
-			renderSemantics: [],
-			rows: [],
 		});
 
 		await flushBridgeWorkerRuntimeContinuations();
@@ -384,8 +542,6 @@ describe('Bridge comm worker File product runtime', () => {
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
-			contentItems: [],
-			contentRequestDescriptors: [],
 			productTransport: makeProductTransport({
 				onDiscoverSource: (): void => {},
 				onOpenDescriptor: (): void => {},
@@ -397,8 +553,6 @@ describe('Bridge comm worker File product runtime', () => {
 					update: async (): Promise<void> => {},
 				},
 			}),
-			renderSemantics: [],
-			rows: [],
 		});
 		await flushBridgeWorkerRuntimeContinuations();
 		events.push({ eventKind: 'file.sourceAccepted', source });
@@ -446,13 +600,28 @@ function makeProductTransport(props: {
 	readonly onDiscoverSource: () => void;
 	readonly onOpenDescriptor: (descriptorId: string) => void;
 	readonly onSubscribe?: () => void;
+	readonly reviewEvents?: BridgeProductBoundedAsyncQueue<
+		BridgeProductSubscriptionEvent<'review.metadata'>
+	>;
 	readonly subscription: BridgeProductSubscription<'file.metadata'>;
 }): BridgeProductTransportSession {
 	let fileEpoch = 0;
+	let reviewEpoch = 0;
+	const reviewEvents =
+		props.reviewEvents ??
+		new BridgeProductBoundedAsyncQueue<BridgeProductSubscriptionEvent<'review.metadata'>>(64);
+	const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+		cancel: async (): Promise<void> => {},
+		events: reviewEvents,
+		subscriptionId: 'review-subscription-for-file-runtime-test',
+		subscriptionKind: 'review.metadata',
+		update: async (): Promise<void> => {},
+	};
 	return {
 		bumpWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') fileEpoch += 1;
-			return surface === 'file' ? fileEpoch : 0;
+			if (surface === 'review') reviewEpoch += 1;
+			return surface === 'file' ? fileEpoch : reviewEpoch;
 		},
 		call: async (...arguments_): Promise<never> => {
 			const [method] = arguments_;
@@ -480,11 +649,12 @@ function makeProductTransport(props: {
 				}),
 			} as never;
 		},
-		subscribe: (): never => {
+		subscribe: ((subscriptionKind: string): never => {
+			if (subscriptionKind === 'review.metadata') return reviewSubscription as never;
 			props.onSubscribe?.();
 			return props.subscription as never;
-		},
-		workerDerivationEpoch: (surface): number => (surface === 'file' ? fileEpoch : 0),
+		}) as BridgeProductTransportSession['subscribe'],
+		workerDerivationEpoch: (surface): number => (surface === 'file' ? fileEpoch : reviewEpoch),
 	};
 }
 

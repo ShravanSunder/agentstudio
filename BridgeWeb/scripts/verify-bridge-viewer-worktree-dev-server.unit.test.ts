@@ -16,6 +16,7 @@ import {
 	makeReviewStartupTelemetrySample,
 } from './verify-bridge-viewer-worktree-dev-server/unit-test-fixtures.ts';
 import { readWorktreeDevServerVerifierSource } from './verify-bridge-viewer-worktree-dev-server/unit-test-source.ts';
+import { makeWorktreeFileTreeRow } from './verify-bridge-viewer-worktree-dev-server/unit-test-worktree-fixtures.ts';
 import { worktreeFileTreeRows } from './verify-bridge-viewer-worktree-dev-server/worktree-data.ts';
 import {
 	buildReviewContentRoutePressureProof,
@@ -51,16 +52,36 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		).resolves.toContain('file-to-review handoff canary');
 	});
 
-	test('reads Worktree/File rows from snapshot and streamed tree windows', () => {
+	test('reads Worktree/File rows from typed product tree windows', () => {
+		const source = {
+			repoId: '11111111-1111-4111-8111-111111111111',
+			rootRevisionToken: 'revision-1',
+			sourceCursor: 'cursor-1',
+			sourceId: 'source-1',
+			subscriptionGeneration: 1,
+			worktreeId: '22222222-2222-4222-8222-222222222222',
+		};
 		expect(
 			worktreeFileTreeRows([
 				{
-					frameKind: 'worktree.snapshot',
-					treeRows: [{ isDirectory: false, path: 'first-window.ts' }],
+					eventKind: 'file.treeWindow',
+					finalWindow: false,
+					lineage: { lane: 'visible', loadedBy: 'startup_window' },
+					pathScope: [],
+					rows: [makeWorktreeFileTreeRow('first-window.ts', 'row-1')],
+					source,
+					startIndex: 0,
+					totalRowCount: 2,
 				},
 				{
-					frameKind: 'worktree.treeWindow',
-					rows: [{ isDirectory: false, path: 'continued-window.ts' }],
+					eventKind: 'file.treeWindow',
+					finalWindow: true,
+					lineage: { lane: 'visible', loadedBy: 'startup_window' },
+					pathScope: [],
+					rows: [makeWorktreeFileTreeRow('continued-window.ts', 'row-2')],
+					source,
+					startIndex: 1,
+					totalRowCount: 2,
 				},
 			]).map((row) => row.path),
 		).toEqual(['first-window.ts', 'continued-window.ts']);
@@ -382,16 +403,13 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		);
 	});
 
-	test('demands Worktree/File descriptors from snapshot tree metadata instead of startup descriptor frames', async () => {
+	test('demands Worktree/File descriptors through the typed product session', async () => {
 		const verifierSource = await readWorktreeDevServerVerifierSource();
 
-		expect(verifierSource).toContain("new URL('/__bridge-worktree/file-descriptor'");
-		expect(verifierSource).toContain("descriptorUrl.searchParams.set('path', props.path)");
-		expect(verifierSource).toContain("'generation',");
-		expect(verifierSource).toContain('String(props.surface.source.subscriptionGeneration)');
-		expect(verifierSource).toContain("descriptorUrl.searchParams.set('cursor'");
+		expect(verifierSource).toContain('BridgeVerifierProductFileSession');
+		expect(verifierSource).toContain('session.demandDescriptor(props.path)');
+		expect(verifierSource).toContain('bridgeProductFileMetadataEventSchema.safeParse(frame)');
 		expect(verifierSource).toContain('worktreeFileDemandCandidatePaths(surface)');
-		expect(verifierSource).toContain('worktreeSnapshotFrameSchema.safeParse(frame)');
 		expect(verifierSource).not.toContain('function worktreeFileDescriptors(');
 		expect(verifierSource).not.toContain('firstFetchableDescriptor(');
 		expect(verifierSource).not.toContain('deepFetchableDescriptor(');

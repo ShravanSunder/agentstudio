@@ -20,6 +20,21 @@ import {
 } from './bridge-code-view-worker-prepared-items.js';
 
 describe('Bridge CodeView metadata apply pump', () => {
+	test('seeds the complete ordered projection when continuous Review has no narrow seed', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+
+		const continuousItems = createBridgeCodeViewInitialItemsForPanel({
+			projection,
+			reviewPackage,
+		});
+
+		expect(continuousItems.map((item) => item.id)).toEqual(projection.orderedItemIds);
+	});
+
 	test('builds non-reset metadata deltas from selected and visible worker-prepared items only', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const sourceItem = reviewPackage.itemsById['source-high'];
@@ -179,7 +194,7 @@ describe('Bridge CodeView metadata apply pump', () => {
 		expect(changedItems).not.toBe(firstItems);
 	});
 
-	test('refreshes initial CodeView reset items when same-source placeholder shape changes', () => {
+	test('refreshes initial CodeView reset items without fabricating placeholder body geometry', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const sourceItem = reviewPackage.itemsById['source-high'];
 		if (sourceItem === undefined) {
@@ -222,9 +237,8 @@ describe('Bridge CodeView metadata apply pump', () => {
 
 		expect(secondItems).not.toBe(firstItems);
 		expect(secondItems[0]?.bridgeMetadata.displayPath).toBe('src/renamed-source.ts');
-		expect(secondItems[0]?.bridgeMetadata.lineCount).not.toBe(
-			firstItems[0]?.bridgeMetadata.lineCount,
-		);
+		expect(secondItems[0]?.bridgeMetadata.lineCount).toBe(0);
+		expect(firstItems[0]?.bridgeMetadata.lineCount).toBe(0);
 	});
 
 	test('includes selected presentation changes in non-reset metadata deltas', () => {
@@ -246,6 +260,50 @@ describe('Bridge CodeView metadata apply pump', () => {
 		expect(deltaItems[0]?.id).toBe(sourceItem.itemId);
 		expect(deltaItems[0]?.type).toBe('file');
 		expect(deltaItems[0]?.bridgeMetadata.contentState).toBe('loading');
+	});
+
+	test('invalidates the metadata selector when selected loading starts without a presentation', () => {
+		// Arrange
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const sourceItem = reviewPackage.itemsById['source-high'];
+		if (sourceItem === undefined) {
+			throw new Error('expected fixture item');
+		}
+		const selector = createBridgeCodeViewMetadataDeltaItemsForPanelSelector();
+		const sourceKey = makeBridgeCodeViewSourceKey({
+			projection: buildBridgeReviewProjection({
+				reviewPackage,
+				request: { mode: { kind: 'normalReview' }, facets: [] },
+			}),
+			reviewPackage,
+		});
+		const beforeLoading = selector({
+			reviewPackage,
+			selectedCodeViewItem: null,
+			selectedContentLoadingItemId: null,
+			selectedItemId: sourceItem.itemId,
+			selectedItemPresentation: null,
+			sourceKey,
+			visibleCodeViewItems: [],
+		});
+
+		// Act
+		const afterLoading = selector({
+			reviewPackage,
+			selectedCodeViewItem: null,
+			selectedContentLoadingItemId: sourceItem.itemId,
+			selectedItemId: sourceItem.itemId,
+			selectedItemPresentation: null,
+			sourceKey,
+			visibleCodeViewItems: [],
+		});
+
+		// Assert
+		expect(beforeLoading).toEqual([]);
+		expect(afterLoading).not.toBe(beforeLoading);
+		expect(afterLoading).toHaveLength(1);
+		expect(afterLoading[0]?.id).toBe(sourceItem.itemId);
+		expect(afterLoading[0]?.bridgeMetadata.contentState).toBe('loading');
 	});
 
 	test('replaces stale selected worker item with requested presentation loading delta', () => {
@@ -402,7 +460,7 @@ describe('Bridge CodeView metadata apply pump', () => {
 		expect(changedItems).not.toBe(firstItems);
 	});
 
-	test('refreshes selected metadata loading delta when same-source placeholder shape changes', () => {
+	test('refreshes selected metadata loading delta without fabricating body geometry', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const sourceItem = reviewPackage.itemsById['source-high'];
 		if (sourceItem === undefined) {
@@ -444,9 +502,7 @@ describe('Bridge CodeView metadata apply pump', () => {
 
 		expect(secondItems).not.toBe(firstItems);
 		expect(secondItems[0]?.bridgeMetadata.displayPath).toBe('src/renamed-source.ts');
-		expect(secondItems[0]?.bridgeMetadata.lineCount).toBe(
-			(sourceItem.contentLineCountsByRole?.head ?? sourceItem.additions) + 7,
-		);
+		expect(secondItems[0]?.bridgeMetadata.lineCount).toBe(0);
 	});
 
 	test('keeps selected loading placeholder stable across descriptor metadata retouches', () => {
@@ -606,7 +662,6 @@ describe('Bridge CodeView metadata apply pump', () => {
 			setItems: (): void => {
 				throw new Error('source reset setItems must not run for non-reset metadata apply');
 			},
-			sourceReset: false,
 			staleScanLimit: bridgeContentDemandExecutionPolicy.applyPumpStaleScanLimit,
 		});
 
@@ -621,7 +676,7 @@ describe('Bridge CodeView metadata apply pump', () => {
 		expect(appliedItemIds).toEqual([...entries.map((item) => item.id), 'drained']);
 	});
 
-	test('seeds selected source-reset items synchronously and pumps remaining visible items', () => {
+	test('prioritizes selected metadata without replacing the mounted manifest', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const entries = ['source-high', 'docs-plan'].map((itemId): BridgeCodeViewItem => {
 			const item = reviewPackage.itemsById[itemId];
@@ -661,20 +716,61 @@ describe('Bridge CodeView metadata apply pump', () => {
 			setItems: (items): void => {
 				setItemsCalls.push(items);
 			},
-			sourceReset: true,
 			staleScanLimit: bridgeContentDemandExecutionPolicy.applyPumpStaleScanLimit,
 		});
 
-		expect(setItemsCalls.map((items) => items.map((item) => item.id))).toEqual([[selectedItem.id]]);
+		expect(setItemsCalls).toEqual([]);
 		expect(appliedItemIds).toEqual([]);
 		expect(scheduledTurns).toHaveLength(1);
 
 		scheduledTurns.shift()?.();
 
-		expect(appliedItemIds).toEqual([visibleItem.id, 'drained']);
+		expect(appliedItemIds).toEqual([selectedItem.id, visibleItem.id, 'drained']);
 	});
 
-	test('keeps skipped selected item in source-reset seed membership', () => {
+	test('preserves the mounted continuous manifest while source-reset metadata is applied', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const entries = ['source-high', 'docs-plan'].map((itemId): BridgeCodeViewItem => {
+			const item = reviewPackage.itemsById[itemId];
+			if (item === undefined) {
+				throw new Error(`expected fixture item ${itemId}`);
+			}
+			return materializeBridgeCodeViewLoadingItem(item);
+		});
+		const appliedItemIds: string[] = [];
+		const scheduledTurns: Array<() => void> = [];
+
+		runBridgeCodeViewMetadataApplyInChunks({
+			applyItemUpdate: (item): void => {
+				appliedItemIds.push(item.id);
+			},
+			frameBudgetMilliseconds: bridgeContentDemandExecutionPolicy.applyPumpFrameBudgetMilliseconds,
+			isStale: (): boolean => false,
+			items: entries,
+			maxUnitsPerFrame: bridgeContentDemandExecutionPolicy.applyPumpMaxUnitsPerFrame,
+			noStarvationSelectedBatchLimit:
+				bridgeContentDemandExecutionPolicy.applyPumpNoStarvationSelectedBatchLimit,
+			now: (): number => 0,
+			onComplete: (): void => {
+				appliedItemIds.push('drained');
+			},
+			rankForItem: (item): 'selected' | 'visible' =>
+				item.id === entries[0]?.id ? 'selected' : 'visible',
+			scheduleNextTurn: (callback): void => {
+				scheduledTurns.push(callback);
+			},
+			setItems: (): void => {
+				throw new Error('source-reset metadata must not replace the mounted continuous manifest');
+			},
+			staleScanLimit: bridgeContentDemandExecutionPolicy.applyPumpStaleScanLimit,
+		});
+
+		expect(scheduledTurns).toHaveLength(1);
+		scheduledTurns.shift()?.();
+		expect(appliedItemIds).toEqual([...entries.map((item) => item.id), 'drained']);
+	});
+
+	test('skips unchanged selected metadata while continuing visible metadata', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const entries = ['source-high', 'docs-plan'].map((itemId): BridgeCodeViewItem => {
 			const item = reviewPackage.itemsById[itemId];
@@ -715,11 +811,10 @@ describe('Bridge CodeView metadata apply pump', () => {
 				setItemsCalls.push(items);
 			},
 			shouldSkipItem: (item): boolean => item === selectedItem,
-			sourceReset: true,
 			staleScanLimit: bridgeContentDemandExecutionPolicy.applyPumpStaleScanLimit,
 		});
 
-		expect(setItemsCalls.map((items) => items.map((item) => item.id))).toEqual([[selectedItem.id]]);
+		expect(setItemsCalls).toEqual([]);
 		expect(appliedItemIds).toEqual([]);
 		expect(scheduledTurns).toHaveLength(1);
 
@@ -728,7 +823,7 @@ describe('Bridge CodeView metadata apply pump', () => {
 		expect(appliedItemIds).toEqual([visibleItem.id, 'drained']);
 	});
 
-	test('seeds at most one fallback item when source reset has no selected item', () => {
+	test('keeps the mounted manifest when metadata has no selected item', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const entries = ['source-high', 'docs-plan'].map((itemId): BridgeCodeViewItem => {
 			const item = reviewPackage.itemsById[itemId];
@@ -757,11 +852,10 @@ describe('Bridge CodeView metadata apply pump', () => {
 			setItems: (items): void => {
 				setItemsCalls.push(items);
 			},
-			sourceReset: true,
 			staleScanLimit: bridgeContentDemandExecutionPolicy.applyPumpStaleScanLimit,
 		});
 
-		expect(setItemsCalls.map((items) => items.map((item) => item.id))).toEqual([[entries[0]?.id]]);
+		expect(setItemsCalls).toEqual([]);
 		expect(scheduledTurns).toHaveLength(1);
 	});
 
@@ -804,7 +898,6 @@ describe('Bridge CodeView metadata apply pump', () => {
 				throw new Error('source reset setItems must not run for non-reset metadata apply');
 			},
 			shouldSkipItem: (item): boolean => item === unchangedItem,
-			sourceReset: false,
 			staleScanLimit: bridgeContentDemandExecutionPolicy.applyPumpStaleScanLimit,
 		});
 
@@ -853,7 +946,6 @@ describe('Bridge CodeView metadata apply pump', () => {
 				throw new Error('source reset setItems must not run for non-reset metadata apply');
 			},
 			shouldSkipItem: (item): boolean => item !== changedItem,
-			sourceReset: false,
 			staleScanLimit: bridgeContentDemandExecutionPolicy.applyPumpStaleScanLimit,
 		});
 
@@ -897,7 +989,6 @@ describe('Bridge CodeView metadata apply pump', () => {
 			setItems: (items): void => {
 				setItemsCalls.push(items);
 			},
-			sourceReset: false,
 			staleScanLimit: bridgeContentDemandExecutionPolicy.applyPumpStaleScanLimit,
 		});
 

@@ -57,6 +57,20 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
         #expect(script.contains("performance.bridge.web.telemetry_drop"))
         #expect(script.contains(#"agentstudio.bridge.telemetry.drop_reason:!=\"stale_push\""#))
         #expect(script.contains("zero non-stale telemetry_drop storms"))
+        #expect(script.contains("performance.bridge.swift.telemetry_sidecar_drain"))
+        #expect(script.contains("nonterminal_reopened"))
+        #expect(script.contains("terminal_closed"))
+        #expect(script.contains("one nonterminal telemetry sidecar drain receipt"))
+        #expect(script.contains("one terminal telemetry sidecar drain receipt"))
+        #expect(script.contains("telemetry sidecar drain receipts share one session digest"))
+        #expect(script.contains("agentstudio.bridge.telemetry.required_loss.count"))
+        #expect(script.contains("agentstudio.bridge.telemetry.optional_loss.count"))
+        #expect(script.contains("agentstudio.bridge.telemetry.worker_sequence_gap.count"))
+        #expect(script.contains("agentstudio.bridge.telemetry.native_batch_sequence_gap.count"))
+        #expect(script.contains("agentstudio.bridge.telemetry.proof_eligible"))
+        #expect(script.contains("agentstudio.bridge.telemetry.lossy"))
+        #expect(script.contains("agentstudio.bridge.telemetry.settlement_acknowledged"))
+        #expect(script.contains("terminal accepted batch sequence covers nonterminal drain"))
     }
 
     @Test("mode-idle verifier is wired through mise and asserts mode gating stability")
@@ -149,6 +163,70 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
         #expect(!result.stderr.contains("completed/skipped record missing"))
         #expect(!result.stderr.contains("skipped record missing"))
         #expect(!result.stderr.contains("did not complete successfully"))
+    }
+
+    @Test("review-journey verifier accepts one lossless correlated sidecar drain pair")
+    func reviewJourneyVerifierAcceptsLosslessCorrelatedSidecarDrainPair() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = try writeStateFile(
+            fixture: fixture,
+            action: "bridge-review-observability-smoke"
+        )
+
+        let result = try fixture.runVerifier(
+            scriptPath: "scripts/verify-bridge-review-journey-smoke.sh",
+            stateFile: stateFile,
+            environment: try reviewJourneyTelemetryEnvironment(fixture: fixture)
+        )
+
+        #expect(result.exitCode == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
+        #expect(result.stdout.contains("one nonterminal telemetry sidecar drain receipt"))
+        #expect(result.stdout.contains("one terminal telemetry sidecar drain receipt"))
+        #expect(result.stdout.contains("telemetry sidecar drain receipts share one session digest"))
+    }
+
+    @Test(
+        "review-journey verifier rejects invalid sidecar drain proof",
+        arguments: [
+            ("missing_terminal", "terminal telemetry sidecar drain receipt missing"),
+            ("digest_mismatch", "telemetry sidecar drain receipts share one session digest"),
+            ("required_loss", "terminal required telemetry loss"),
+            ("optional_loss", "terminal optional telemetry loss"),
+            ("worker_gap", "terminal worker sequence gaps"),
+            ("native_gap", "terminal native batch sequence gaps"),
+            ("proof_ineligible", "terminal telemetry proof eligible"),
+            ("lossy", "terminal telemetry lossless"),
+            ("settlement_missing", "terminal producer settlement acknowledged"),
+            ("nonterminal_sequence_missing", "nonterminal accepted batch sequence present"),
+            ("terminal_sequence_missing", "terminal accepted batch sequence present"),
+            ("sequence_regression", "terminal accepted batch sequence covers nonterminal drain"),
+        ]
+    )
+    func reviewJourneyVerifierRejectsInvalidSidecarDrainProof(
+        failureCase: String,
+        expectedFailure: String
+    ) throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = try writeStateFile(
+            fixture: fixture,
+            action: "bridge-review-observability-smoke"
+        )
+        var environment = try reviewJourneyTelemetryEnvironment(fixture: fixture)
+        environment["TELEMETRY_FAILURE_CASE"] = failureCase
+
+        let result = try fixture.runVerifier(
+            scriptPath: "scripts/verify-bridge-review-journey-smoke.sh",
+            stateFile: stateFile,
+            environment: environment
+        )
+
+        #expect(result.exitCode != 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
+        #expect(
+            result.stdout.contains(expectedFailure) || result.stderr.contains(expectedFailure),
+            "stdout: \(result.stdout)\nstderr: \(result.stderr)"
+        )
     }
 
     @Test(
@@ -263,6 +341,75 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
                 printf '{"service.name":"AgentStudio","service.version":"0.0.1-debug+testcode","dev.runtime.flavor":"debug","_msg":"app.process.start"}\\n'
                 exit 0
                 """
+            ).path,
+        ]
+    }
+
+    private func reviewJourneyTelemetryEnvironment(
+        fixture: LauncherScriptFixture
+    ) throws -> [String: String] {
+        [
+            "AGENTSTUDIO_OBSERVABILITY_ALLOW_COMPLETED_EXIT": "1",
+            "AGENTSTUDIO_OBSERVABILITY_VERIFY_ATTEMPTS": "1",
+            "AGENTSTUDIO_OBSERVABILITY_VERIFY_RETRY_DELAY_SECONDS": "0",
+            "AGENTSTUDIO_BRIDGE_REVIEW_JOURNEY_QUIESCENCE_SECONDS": "0",
+            "AGENTSTUDIO_CURL_BIN": try fixture.executable(
+                "curl-review-journey-telemetry-sidecar",
+                #"""
+                #!/bin/bash
+                args="$*"
+                diagnostic='{"_msg":"app.startup_diagnostic_action.completed","agentstudio.startup_diagnostic.action":"bridge-review-observability-smoke","agentstudio.startup_diagnostic.bridge.review_expected_item.count":4,"agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive":"true","agentstudio.startup_diagnostic.bridge.frame_liveness.raf_fired_latency.bucket":"under_16ms","agentstudio.startup_diagnostic.bridge.bridge_command.count":1,"agentstudio.startup_diagnostic.bridge.review_intake_ready_command.count":1,"agentstudio.startup_diagnostic.bridge.bridge_response.count":1,"agentstudio.startup_diagnostic.bridge.intake_frame.count":1,"agentstudio.startup_diagnostic.bridge.review_intake_snapshot_frame.count":1,"agentstudio.startup_diagnostic.bridge.review_intake_metadata_window_frame.count":1,"agentstudio.startup_diagnostic.bridge.review_intake.last_frame_kind":"review.metadataWindow","agentstudio.startup_diagnostic.bridge.review_intake.last_stream_id_matches":true,"agentstudio.startup_diagnostic.bridge.page_issue.disallowed.count":0,"agentstudio.startup_diagnostic.render_proof.succeeded":true}'
+                if [[ "$args" == *"app.zmx_startup_reconciliation.completed"* ]]; then
+                  printf '%s\n' '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}'
+                elif [[ "$args" == *"app.startup_diagnostic_action.command_exercised"* ]]; then
+                  printf '%s\n' "${diagnostic/completed/command_exercised}"
+                elif [[ "$args" == *"app.startup_diagnostic_action.completed"* ]]; then
+                  printf '%s\n' "$diagnostic"
+                elif [[ "$args" == *"performance.bridge.swift.telemetry_sidecar_drain"*"nonterminal_reopened"* ]]; then
+                  nonterminal_accepted_field='"agentstudio.bridge.telemetry.accepted_batch.sequence":5,'
+                  if [[ "${TELEMETRY_FAILURE_CASE:-}" == "nonterminal_sequence_missing" ]]; then nonterminal_accepted_field=""; fi
+                  printf '{"_msg":"performance.bridge.swift.telemetry_sidecar_drain","agentstudio.bridge.phase":"nonterminal_reopened","agentstudio.bridge.telemetry.session.digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",%s"agentstudio.bridge.telemetry.main_producer.high_watermark":8,"agentstudio.bridge.telemetry.comm_producer.high_watermark":7,"agentstudio.bridge.telemetry.required_loss.count":0,"agentstudio.bridge.telemetry.optional_loss.count":0,"agentstudio.bridge.telemetry.worker_sequence_gap.count":0,"agentstudio.bridge.telemetry.native_batch_sequence_gap.count":0,"agentstudio.bridge.telemetry.proof_eligible":true,"agentstudio.bridge.telemetry.lossy":false,"agentstudio.bridge.telemetry.settlement_acknowledged":true}\n' "$nonterminal_accepted_field"
+                elif [[ "$args" == *"performance.bridge.swift.telemetry_sidecar_drain"*"terminal_closed"* ]]; then
+                  if [[ "${TELEMETRY_FAILURE_CASE:-}" == "missing_terminal" ]]; then exit 0; fi
+                  digest="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                  accepted=6
+                  required=0
+                  optional=0
+                  worker_gap=0
+                  native_gap=0
+                  eligible=true
+                  lossy=false
+                  settled=true
+                  case "${TELEMETRY_FAILURE_CASE:-}" in
+                    digest_mismatch) digest="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" ;;
+                    required_loss) required=1 ;;
+                    optional_loss) optional=1 ;;
+                    worker_gap) worker_gap=1 ;;
+                    native_gap) native_gap=1 ;;
+                    proof_ineligible) eligible=false ;;
+                    lossy) lossy=true ;;
+                    settlement_missing) settled=false ;;
+                    sequence_regression) accepted=4 ;;
+                  esac
+                  terminal_accepted_field="\"agentstudio.bridge.telemetry.accepted_batch.sequence\":${accepted},"
+                  if [[ "${TELEMETRY_FAILURE_CASE:-}" == "terminal_sequence_missing" ]]; then terminal_accepted_field=""; fi
+                  printf '{"_msg":"performance.bridge.swift.telemetry_sidecar_drain","agentstudio.bridge.phase":"terminal_closed","agentstudio.bridge.telemetry.session.digest":"%s",%s"agentstudio.bridge.telemetry.main_producer.high_watermark":9,"agentstudio.bridge.telemetry.comm_producer.high_watermark":8,"agentstudio.bridge.telemetry.required_loss.count":%s,"agentstudio.bridge.telemetry.optional_loss.count":%s,"agentstudio.bridge.telemetry.worker_sequence_gap.count":%s,"agentstudio.bridge.telemetry.native_batch_sequence_gap.count":%s,"agentstudio.bridge.telemetry.proof_eligible":%s,"agentstudio.bridge.telemetry.lossy":%s,"agentstudio.bridge.telemetry.settlement_acknowledged":%s}\n' "$digest" "$terminal_accepted_field" "$required" "$optional" "$worker_gap" "$native_gap" "$eligible" "$lossy" "$settled"
+                elif [[ "$args" == *"performance.bridge.web.selection_commit"* ]]; then
+                  printf '%s\n%s\n%s\n%s\n' '{"_msg":"performance.bridge.web.selection_commit"}' '{"_msg":"performance.bridge.web.selection_commit"}' '{"_msg":"performance.bridge.web.selection_commit"}' '{"_msg":"performance.bridge.web.selection_commit"}'
+                elif [[ "$args" == *"performance.bridge.web.code_view_item_materialize"* ]]; then
+                  printf '%s\n%s\n%s\n' '{"_msg":"performance.bridge.web.code_view_item_materialize"}' '{"_msg":"performance.bridge.web.code_view_item_materialize"}' '{"_msg":"performance.bridge.web.code_view_item_materialize"}'
+                elif [[ "$args" == *"performance.bridge.web.selected_content_painted"* ]]; then
+                  printf '%s\n%s\n' '{"_msg":"performance.bridge.web.selected_content_painted","agentstudio.bridge.selected_content.materialize_ms":1}' '{"_msg":"performance.bridge.web.selected_content_painted","agentstudio.bridge.selected_content.materialize_ms":1}'
+                elif [[ "$args" == *"performance.bridge.swift.content_load"* ]]; then
+                  printf '%s\n%s\n%s\n%s\n' '{"_msg":"performance.bridge.swift.content_load"}' '{"_msg":"performance.bridge.swift.content_load"}' '{"_msg":"performance.bridge.swift.content_load"}' '{"_msg":"performance.bridge.swift.content_load"}'
+                elif [[ "$args" == *"performance.bridge.web.selected_content_dropped"* ]] || [[ "$args" == *"performance.bridge.web.telemetry_drop"* ]] || [[ "$args" == *"app.startup_diagnostic_action.skipped"* ]]; then
+                  exit 0
+                elif [[ "$args" == *":*"* ]]; then
+                  exit 0
+                else
+                  printf '%s\n' '{"service.name":"AgentStudio","service.version":"0.0.1-debug+testcode","dev.runtime.flavor":"debug","_msg":"app.process.start"}'
+                fi
+                """#
             ).path,
         ]
     }

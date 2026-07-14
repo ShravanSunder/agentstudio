@@ -78,6 +78,7 @@ struct BridgeProductQueuedProducerFrame: Equatable, Sendable {
 
 struct BridgeProductProducerFrameReceipt: Hashable, Sendable {
     let producerLease: BridgeProductProducerLease
+    let requiresWorkerObservation: Bool
     let sequence: Int
     let nonce: UUID
 }

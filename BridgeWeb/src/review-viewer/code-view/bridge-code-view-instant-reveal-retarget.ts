@@ -50,6 +50,7 @@ export function scheduleBridgeCodeViewInstantRevealRetargetForPanel(
 ): void {
 	if (
 		skipBridgeCodeViewProgrammaticRevealIfNeeded({
+			currentSelectionScrollKeyRef: props.lastSelectionScrollKeyRef,
 			programmaticRevealGate: props.programmaticRevealGate,
 			recentInstantSelectionRevealRef: props.recentInstantSelectionRevealRef,
 			revealIntent: 'retarget',
@@ -89,6 +90,7 @@ export function scheduleBridgeCodeViewInstantRevealRetarget(
 			}
 			if (
 				skipBridgeCodeViewProgrammaticRevealIfNeeded({
+					currentSelectionScrollKeyRef: props.lastSelectionScrollKeyRef,
 					programmaticRevealGate: props.programmaticRevealGate,
 					recentInstantSelectionRevealRef: props.recentInstantSelectionRevealRef,
 					revealIntent: 'retarget',
@@ -114,6 +116,10 @@ export function scheduleBridgeCodeViewInstantRevealRetarget(
 			) {
 				props.recentInstantSelectionRevealRef.current = null;
 				props.settledInstantSelectionRevealKeyRef.current = props.selectionScrollKey;
+				props.programmaticRevealGate.transitionSelectionReveal({
+					phase: 'cancelled',
+					selectionScrollKey: props.selectionScrollKey,
+				});
 				return;
 			}
 			const resolvedItemTop = codeViewInstance.getTopForItem(props.itemId);
@@ -135,7 +141,6 @@ export function scheduleBridgeCodeViewInstantRevealRetarget(
 					align: 'start',
 					behavior: 'instant',
 				});
-				codeViewInstance.render(true);
 			} else {
 				stableResolvedTopFrameCount += 1;
 				if (stableResolvedTopFrameCount >= bridgeCodeViewInstantRevealPolicy.stableFrameCount) {
@@ -177,8 +182,19 @@ export function scheduleBridgeCodeViewInstantRevealRetarget(
 							behavior: 'instant',
 						});
 					}
-					props.recentInstantSelectionRevealRef.current = null;
-					props.settledInstantSelectionRevealKeyRef.current = props.selectionScrollKey;
+					if (isSettledMaterialized) {
+						props.recentInstantSelectionRevealRef.current = null;
+						props.settledInstantSelectionRevealKeyRef.current = props.selectionScrollKey;
+						props.programmaticRevealGate.transitionSelectionReveal({
+							phase: 'settled',
+							selectionScrollKey: props.selectionScrollKey,
+						});
+					} else {
+						props.programmaticRevealGate.transitionSelectionReveal({
+							phase: 'awaiting-hydration',
+							selectionScrollKey: props.selectionScrollKey,
+						});
+					}
 				}
 			}
 			committedRevealScrollTop = codeViewInstance.getScrollTop();

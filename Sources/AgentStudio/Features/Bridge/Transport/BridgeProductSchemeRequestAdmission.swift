@@ -13,6 +13,14 @@ enum BridgeProductSchemeRoute: Equatable, Sendable {
         }
     }
 
+    var diagnosticName: String {
+        switch self {
+        case .command: "command"
+        case .content: "content"
+        case .metadataStream: "metadata_stream"
+        }
+    }
+
     static func classify(_ url: URL) -> Self? {
         [.command, .metadataStream, .content].first { route in
             url.absoluteString == route.absoluteURL

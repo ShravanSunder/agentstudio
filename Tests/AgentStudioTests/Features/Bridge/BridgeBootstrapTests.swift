@@ -127,7 +127,10 @@ final class BridgeBootstrapTests {
             telemetryConfig: config
         )
         #expect(script.contains("const TELEMETRY_CONFIG ="))
-        #expect(script.contains(#""endpointUrl":"agentstudio:\/\/telemetry\/batch""#))
+        #expect(!script.contains("endpointUrl"))
+        #expect(!script.contains("maxSamplesPerBatch"))
+        #expect(!script.contains("maxEncodedBatchBytes"))
+        #expect(!script.contains("minimumFlushIntervalMilliseconds"))
         #expect(!script.contains("system.bridgeTelemetry"))
         #expect(script.contains("telemetryConfig: TELEMETRY_CONFIG"))
     }

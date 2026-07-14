@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import type { BridgeProductSubscriptionEvent } from '../../src/core/comm-worker/bridge-product-subscription-contracts.ts';
+import type { BridgeWorktreeDevFileContentRouteRequest } from '../bridge-worktree-dev-reload-diagnostics.ts';
 import type {
 	ReviewCollapseControlProof,
 	ReviewContentRouteDeltaProof,
@@ -38,105 +40,6 @@ export const bridgeDevTelemetryStatusSchema = z
 		worktreeHash: z.string().min(1),
 	})
 	.strict();
-
-export const bridgeWorktreeSurfaceResponseSchema = z
-	.object({
-		frames: z.array(z.unknown()),
-		provenance: z
-			.object({
-				baseRef: z.string().min(1),
-				scenarioName: z.literal('current-worktree'),
-				worktreeRootToken: z.string().min(1),
-			})
-			.strict(),
-		source: z
-			.object({
-				sourceId: z.string().min(1),
-				sourceCursor: z.string().min(1),
-				subscriptionGeneration: z.number().int().nonnegative(),
-			})
-			.passthrough(),
-		treeSizeFacts: z
-			.object({
-				pathCount: z.number().int().nonnegative().optional(),
-				estimatedTotalHeightPixels: z.number().nonnegative().optional(),
-				rowHeightPixels: z.number().positive(),
-			})
-			.passthrough(),
-	})
-	.strict();
-
-export const worktreeFileDescriptorFrameSchema = z
-	.object({
-		frameKind: z.literal('worktree.fileDescriptor'),
-		descriptor: z
-			.object({
-				path: z.string().min(1),
-				fileId: z.string().min(1),
-				contentHandle: z.string().min(1),
-				contentHash: z.string().min(1).optional(),
-				contentDescriptor: z
-					.object({
-						descriptor: z
-							.object({
-								resourceUrl: z.string().min(1),
-							})
-							.passthrough(),
-					})
-					.passthrough(),
-				sizeBytes: z.number().int().nonnegative(),
-				virtualizedExtentKind: z.enum([
-					'exactLineCount',
-					'estimatedHeight',
-					'previewBounded',
-					'unavailable',
-				]),
-				lineCount: z.number().int().nonnegative().optional(),
-				isBinary: z.boolean(),
-			})
-			.passthrough(),
-	})
-	.passthrough();
-
-export const worktreeFileDescriptorResponseSchema = z
-	.object({
-		frame: worktreeFileDescriptorFrameSchema,
-	})
-	.strict();
-
-export const worktreeSnapshotFrameSchema = z
-	.object({
-		frameKind: z.literal('worktree.snapshot'),
-		treeRows: z
-			.array(
-				z
-					.object({
-						path: z.string().min(1),
-						isDirectory: z.boolean(),
-						fileId: z.string().min(1).optional(),
-					})
-					.passthrough(),
-			)
-			.optional(),
-	})
-	.passthrough();
-
-export const worktreeTreeWindowFrameSchema = z
-	.object({
-		frameKind: z.literal('worktree.treeWindow'),
-		rows: z
-			.array(
-				z
-					.object({
-						path: z.string().min(1),
-						isDirectory: z.boolean(),
-						fileId: z.string().min(1).optional(),
-					})
-					.passthrough(),
-			)
-			.optional(),
-	})
-	.passthrough();
 
 export const nullableNumberSchema = z.number().nullable();
 
@@ -252,15 +155,49 @@ export const worktreeReviewMetadataFrameResponseSchema = z
 	})
 	.strict();
 
-export type WorktreeFileSurface = z.infer<typeof bridgeWorktreeSurfaceResponseSchema>;
+type WorktreeProductFileMetadataEvent = BridgeProductSubscriptionEvent<'file.metadata'>;
 
-export type WorktreeFileDescriptor = z.infer<
-	typeof worktreeFileDescriptorFrameSchema
->['descriptor'];
+export type WorktreeProductFileTreeWindow = Extract<
+	WorktreeProductFileMetadataEvent,
+	{ readonly eventKind: 'file.treeWindow' }
+>;
 
-export type WorktreeFileTreeRow = NonNullable<
-	z.infer<typeof worktreeSnapshotFrameSchema>['treeRows']
->[number];
+export type WorktreeProductFileDescriptor = Extract<
+	WorktreeProductFileMetadataEvent,
+	{ readonly eventKind: 'file.descriptorReady' }
+>;
+
+export type WorktreeFileTreeRow = WorktreeProductFileTreeWindow['rows'][number];
+
+export interface WorktreeFileSurface {
+	readonly frames: readonly WorktreeProductFileTreeWindow[];
+	readonly provenance: {
+		readonly baseRef: string;
+		readonly scenarioName: string;
+		readonly worktreeRootToken: string;
+	};
+	readonly source: WorktreeProductFileTreeWindow['source'];
+	readonly treeSizeFacts: {
+		readonly estimatedTotalHeightPixels: number;
+		readonly pathCount: number;
+		readonly rowHeightPixels: number;
+	};
+}
+
+export type WorktreeFileDescriptor = WorktreeProductFileDescriptor & {
+	readonly contentDescriptor: {
+		readonly descriptor: {
+			readonly content: {
+				readonly expectedBytes: number;
+				readonly maxBytes: number;
+			} | null;
+		};
+	};
+	readonly contentHandle: string;
+	readonly contentHash?: string;
+	readonly isBinary: boolean;
+	readonly lineCount?: number;
+};
 
 export type WorktreeFileTreeExtentSource = 'localProjection' | 'providerFacts';
 
@@ -407,6 +344,7 @@ export interface WorktreeFileContentRouteProbe {
 	readonly foreignHitCount: () => number;
 	readonly foreignHitUrls: () => readonly string[];
 	readonly hitCount: () => number;
+	readonly hits: () => readonly BridgeWorktreeDevFileContentRouteRequest[];
 	readonly hitUrls: () => readonly string[];
 }
 

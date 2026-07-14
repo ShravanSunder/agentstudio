@@ -4,6 +4,7 @@ import {
 	appendedOnlyPierreTreePaths,
 	applyBridgePierreItemStream,
 	expandAncestorDirectoriesForPierreTreePaths,
+	mountedPierreFileRowElementsForModel,
 	pierreFilePathFromEventTarget,
 	pierreFilePathFromTreeEvent,
 	pierreTreeScrollOwnerForModel,
@@ -131,15 +132,25 @@ describe('Bridge Pierre tree adapter', () => {
 		);
 	});
 
-	test('queries Pierre scroll owner and visible file row elements from the shadow row container', () => {
-		const scrollOwner = new RecordingScrollOwner();
-		const visibleRows = [
-			new RecordingPierreFileRowElement('Sources/App/View.swift'),
-			new RecordingPierreFileRowElement('Sources/App/Model.swift'),
+	test('returns only mounted Pierre file rows that intersect the scroll viewport', () => {
+		const scrollOwner = new RecordingScrollOwner(boundingRect({ height: 240, top: 100 }));
+		const mountedRows = [
+			new RecordingPierreFileRowElement(
+				'Sources/App/Above.swift',
+				boundingRect({ height: 24, top: 60 }),
+			),
+			new RecordingPierreFileRowElement(
+				'Sources/App/Visible.swift',
+				boundingRect({ height: 24, top: 110 }),
+			),
+			new RecordingPierreFileRowElement(
+				'Sources/App/Below.swift',
+				boundingRect({ height: 24, top: 360 }),
+			),
 		];
 		const shadowRoot = {
 			querySelector: vi.fn((): BridgePierreTreeScrollOwner | null => scrollOwner),
-			querySelectorAll: vi.fn((): Iterable<RecordingPierreFileRowElement> => visibleRows),
+			querySelectorAll: vi.fn((): Iterable<RecordingPierreFileRowElement> => mountedRows),
 		};
 		const rootContainer = {
 			...shadowRoot,
@@ -150,7 +161,8 @@ describe('Bridge Pierre tree adapter', () => {
 		} satisfies BridgePierreTreeContainerModel;
 
 		expect(pierreTreeScrollOwnerForModel(model)).toBe(scrollOwner);
-		expect(visiblePierreFileRowElementsForModel(model)).toEqual(visibleRows);
+		expect(mountedPierreFileRowElementsForModel(model)).toEqual(mountedRows);
+		expect(visiblePierreFileRowElementsForModel(model)).toEqual([mountedRows[1]]);
 		expect(shadowRoot.querySelector).toHaveBeenCalledWith(
 			'[data-file-tree-virtualized-scroll="true"]',
 		);
@@ -185,6 +197,8 @@ class RecordingDirectoryHandle implements BridgePierreTreeDirectoryHandle {
 class RecordingScrollOwner implements BridgePierreTreeScrollOwner {
 	scrollTop = 0;
 
+	constructor(private readonly bounds: DOMRect = boundingRect({ height: 100, top: 0 })) {}
+
 	addEventListener(): void {}
 
 	dispatchEvent(): boolean {
@@ -192,7 +206,7 @@ class RecordingScrollOwner implements BridgePierreTreeScrollOwner {
 	}
 
 	getBoundingClientRect(): DOMRect {
-		return new DOMRect(0, 0, 100, 100);
+		return this.bounds;
 	}
 
 	querySelectorAll(): Iterable<RecordingPierreFileRowElement> {
@@ -218,7 +232,14 @@ class RecordingPierreTreeModel {
 }
 
 class RecordingPierreFileRowElement {
-	constructor(private readonly path: string | null) {}
+	constructor(
+		private readonly path: string | null,
+		private readonly bounds: DOMRect = boundingRect({ height: 24, top: 0 }),
+	) {}
+
+	getBoundingClientRect(): DOMRect {
+		return this.bounds;
+	}
 
 	getAttribute(name: string): string | null {
 		if (name === 'data-item-type') {
@@ -226,6 +247,36 @@ class RecordingPierreFileRowElement {
 		}
 		return name === 'data-item-path' ? this.path : null;
 	}
+}
+
+function boundingRect(props: {
+	readonly height: number;
+	readonly top: number;
+	readonly width?: number;
+}): DOMRect {
+	const width = props.width ?? 320;
+	return {
+		bottom: props.top + props.height,
+		height: props.height,
+		left: 0,
+		right: width,
+		top: props.top,
+		width,
+		x: 0,
+		y: props.top,
+		toJSON(): Record<string, number> {
+			return {
+				bottom: props.top + props.height,
+				height: props.height,
+				left: 0,
+				right: width,
+				top: props.top,
+				width,
+				x: 0,
+				y: props.top,
+			};
+		},
+	};
 }
 
 class RecordingPierreItemStreamModel<TItem> {

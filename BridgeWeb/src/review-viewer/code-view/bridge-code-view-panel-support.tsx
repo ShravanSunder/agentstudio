@@ -765,12 +765,23 @@ function renderBridgeCodeViewHeaderMetadata(props: RenderBridgeCodeViewHeaderPro
 	if (descriptor === null || !isBridgeCodeViewItem(props.item)) {
 		return null;
 	}
+	const contentState = props.item.bridgeMetadata.contentState;
+	const pendingContentLabel =
+		contentState === 'placeholder'
+			? 'Waiting for content'
+			: contentState === 'loading'
+				? 'Loading content'
+				: null;
 
 	return (
 		<span
 			className="ml-auto inline-flex min-w-0 items-center gap-2 text-[11px] text-[var(--bridge-text-muted)]"
+			data-bridge-code-view-content-state={contentState}
 			data-testid="bridge-code-view-header-metadata"
 		>
+			{pendingContentLabel === null ? null : (
+				<span className="shrink-0">{pendingContentLabel}</span>
+			)}
 			<span className="shrink-0 text-[var(--bridge-deleted)]">{`-${descriptor.deletions}`}</span>
 			<span className="shrink-0 text-[var(--bridge-added)]">{`+${descriptor.additions}`}</span>
 		</span>
@@ -854,6 +865,7 @@ export function codeViewHandleHasInstance(handle: CodeViewHandle<undefined>): bo
 
 export function makeBridgeCodeViewSourceKey(props: BridgeCodeViewSourceKeyProps): string {
 	return [
+		'continuous-ordered-manifest-v1',
 		props.reviewPackage.packageId,
 		props.reviewPackage.reviewGeneration,
 		props.projection.projectionId,

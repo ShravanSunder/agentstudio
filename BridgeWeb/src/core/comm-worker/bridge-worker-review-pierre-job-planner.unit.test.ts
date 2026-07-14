@@ -242,6 +242,57 @@ describe('Bridge worker review Pierre job planner', () => {
 		}
 	});
 
+	test('derives the bounded Review window from fetched text when metadata omits extent facts', () => {
+		const fetchedText =
+			[
+				'---',
+				'name: agentstudio-bridgeweb-react-ui',
+				'description: BridgeWeb React UI guidance',
+				'---',
+				'',
+				'# Agent Studio BridgeWeb React UI',
+				'',
+				'BridgeWeb React UI uses shared owned primitives.',
+			].join('\n') + '\n';
+		const job = planBridgeWorkerReviewPierreRenderJob({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 400,
+			},
+			resources: [
+				makeFetchedReviewContentResource({
+					contentHash: 'sha256:item-1:head',
+					role: 'head',
+					text: fetchedText,
+				}),
+			],
+			semantics: makeRenderSemantics({
+				basePath: null,
+				changeKind: 'added',
+				contentLineCountsByRole: {},
+				displayPath: '.codex/skills/agentstudio-bridgeweb-react-ui/SKILL.md',
+				headPath: '.codex/skills/agentstudio-bridgeweb-react-ui/SKILL.md',
+				itemKind: 'file',
+				language: 'markdown',
+			}),
+		});
+
+		expect(job?.window).toEqual({
+			startLine: 1,
+			endLine: 8,
+			totalLineCount: 8,
+		});
+		expect(job?.payload.kind).toBe('codeViewDiffItem');
+		if (job?.payload.kind === 'codeViewDiffItem') {
+			expect(job.payload.item.fileDiff.additionLines.join('')).toContain(
+				'# Agent Studio BridgeWeb React UI',
+			);
+			expect(job.payload.item.fileDiff.additionLines).toHaveLength(8);
+		}
+	});
+
 	test('plans file text jobs from a single preferred resource and language fallback', () => {
 		const job = planBridgeWorkerReviewPierreRenderJob({
 			bridgeDemandRank: { lane: 'visible', priority: 10 },
@@ -351,6 +402,7 @@ describe('Bridge worker review Pierre job planner', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
+			publicationSequence: 11,
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -370,12 +422,13 @@ describe('Bridge worker review Pierre job planner', () => {
 				contentLineCountsByRole: { base: 120, head: 80 },
 				itemKind: 'diff',
 			}),
+			workerDerivationEpoch: 7,
 		});
 
 		expect(prepared?.message).toMatchObject({
 			wireVersion: 1,
 			direction: 'serverWorkerToMain',
-			kind: 'pierreRenderJob',
+			kind: 'reviewPierreRenderJob',
 			job: {
 				itemId: 'item-1',
 				renderKind: 'reviewDiff',
@@ -386,7 +439,7 @@ describe('Bridge worker review Pierre job planner', () => {
 		});
 		expect(prepared?.message.transferDescriptors).toEqual([
 			{
-				messageKind: 'pierreRenderJob',
+				messageKind: 'reviewPierreRenderJob',
 				fieldPath: ['job', 'payload'],
 				byteLength: prepared?.message.job.payloadByteLength,
 				mode: 'clone',
@@ -403,6 +456,7 @@ describe('Bridge worker review Pierre job planner', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 100,
 			},
+			publicationSequence: 11,
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:head',
@@ -416,12 +470,13 @@ describe('Bridge worker review Pierre job planner', () => {
 				contentLineCountsByRole: { head: 33 },
 				itemKind: 'file',
 			}),
+			workerDerivationEpoch: 7,
 		});
 
 		expect(prepared?.message.job.payload.kind).toBe('codeViewDiffItem');
 		expect(prepared?.message.transferDescriptors).toEqual([
 			{
-				messageKind: 'pierreRenderJob',
+				messageKind: 'reviewPierreRenderJob',
 				fieldPath: ['job', 'payload'],
 				byteLength: prepared?.message.job.payloadByteLength,
 				mode: 'clone',
@@ -438,6 +493,7 @@ describe('Bridge worker review Pierre job planner', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 400,
 			},
+			publicationSequence: 11,
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:file',
@@ -452,12 +508,13 @@ describe('Bridge worker review Pierre job planner', () => {
 				itemKind: 'file',
 				language: null,
 			}),
+			workerDerivationEpoch: 7,
 		});
 
 		expect(prepared?.message.job.payload.kind).toBe('codeViewFileItem');
 		expect(prepared?.message.transferDescriptors).toEqual([
 			{
-				messageKind: 'pierreRenderJob',
+				messageKind: 'reviewPierreRenderJob',
 				fieldPath: ['job', 'payload'],
 				byteLength: prepared?.message.job.payloadByteLength,
 				mode: 'clone',
@@ -474,6 +531,7 @@ describe('Bridge worker review Pierre job planner', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
+			publicationSequence: 11,
 			resources: [
 				makeFetchedReviewContentResource({
 					role: 'base',
@@ -483,6 +541,7 @@ describe('Bridge worker review Pierre job planner', () => {
 			semantics: makeRenderSemantics({
 				itemKind: 'diff',
 			}),
+			workerDerivationEpoch: 7,
 		});
 
 		expect(prepared).toBeNull();

@@ -2,6 +2,11 @@ import { act } from 'react';
 
 import type { BridgeCommWorkerPort } from '../core/comm-worker/bridge-comm-worker-entry.js';
 import { registerBridgeCommWorkerRuntimePortProtocol } from '../core/comm-worker/bridge-comm-worker-runtime-protocol.js';
+import type {
+	BridgePaneCommWorkerDispatcher,
+	BridgePaneCommWorkerNativeBootstrap,
+} from '../core/comm-worker/bridge-pane-comm-worker-session.js';
+import type { BridgePaneSessionPort } from '../core/comm-worker/bridge-pane-runtime.js';
 import { BridgeProductBoundedAsyncQueue } from '../core/comm-worker/bridge-product-async-queue.js';
 import type { BridgeProductCallResult } from '../core/comm-worker/bridge-product-call-contracts.js';
 import {
@@ -18,10 +23,12 @@ import {
 	bridgeWorkerServerToMainMessageSchema,
 	type BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
+import { bridgeWorkerPierreRenderPolicy } from '../core/demand/bridge-content-demand-policy.js';
 import { waitForBridgeViewerAnimationFrame } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import type { BridgeFileViewerBrowserTestProductSession } from './bridge-file-viewer-browser-test-app.js';
 import type { PublishFileMetadataEvents } from './bridge-file-viewer-browser-test-fixtures.js';
-import type { BridgeFileViewerRuntimeTransportFactory } from './bridge-file-viewer-render-snapshot-controller.js';
+
+export type BridgeFileViewerBrowserTestPaneSessionFactory = () => BridgePaneSessionPort;
 
 interface BridgeFileViewerBrowserWorkerMessageDrain {
 	readonly wait: () => Promise<void>;
@@ -37,11 +44,11 @@ export async function waitForBridgeFileViewerWorkerMessageDrain(): Promise<void>
 	);
 }
 
-export function createBridgeFileViewerBrowserTestCommWorkerTransportFactory(props: {
+export function createBridgeFileViewerBrowserTestPaneSessionFactory(props: {
 	readonly productSessionRef: {
 		readonly current: BridgeFileViewerBrowserTestProductSession | undefined;
 	};
-}): BridgeFileViewerRuntimeTransportFactory {
+}): BridgeFileViewerBrowserTestPaneSessionFactory {
 	let workerMessageActQueue: Promise<void> = Promise.resolve();
 	let fileSourceDiscoveryCompleted = false;
 	let pendingFileDisplayPatchCount = 0;
@@ -105,145 +112,142 @@ export function createBridgeFileViewerBrowserTestCommWorkerTransportFactory(prop
 			});
 		});
 	};
-	return (transportProps) => {
-		const channel = new MessageChannel();
-		let workerDrainRequestSequence = 0;
-		const workerDrainWaiters = new Map<string, () => void>();
-		waitForWorkerToMainPortDrain = (): Promise<void> => {
-			workerDrainRequestSequence += 1;
-			const requestId = `${bridgeFileViewerBrowserWorkerDrainRequestPrefix}${workerDrainRequestSequence}`;
-			const completion = new Promise<void>((resolve): void => {
-				workerDrainWaiters.set(requestId, resolve);
-			});
-			channel.port2.postMessage({
-				direction: 'serverWorkerToMain',
-				kind: 'health',
-				requestId,
-				status: 'ready',
-				transferDescriptors: [],
-				wireVersion: 1,
-			});
-			return completion;
-		};
-		activeBridgeFileViewerBrowserWorkerMessageDrains.add(workerMessageDrain);
-		const productTransport = createBrowserTestProductTransport({
-			onContentTerminalSettled: (succeeded): void => {
-				pendingSettledContentTerminalPatchCount += 1;
-				if (succeeded) pendingSettledContentPierreJobCount += 1;
-			},
-			onFileSourceDiscoveryCompleted: (): void => {
-				fileSourceDiscoveryCompleted = true;
-				for (const resolve of pendingFileDisplayPatchWaiters) resolve();
-				pendingFileDisplayPatchWaiters.clear();
-			},
-			onMetadataEventsPublished: (eventCount): void => {
-				pendingFileDisplayPatchCount += eventCount;
-			},
-			onMetadataInterestUpdateSettled: (): void => {
-				void Promise.resolve()
-					.then(() => Promise.resolve())
-					.then((): void => {
-						pendingMetadataInterestUpdateCount -= 1;
-						if (pendingMetadataInterestUpdateCount === 0) {
-							for (const resolve of pendingFileDisplayPatchWaiters) resolve();
-							pendingFileDisplayPatchWaiters.clear();
-						}
-					});
-			},
-			onMetadataInterestUpdateStarted: (): void => {
-				pendingMetadataInterestUpdateCount += 1;
-			},
-			productSessionRef: props.productSessionRef,
-		});
-		channel.port1.addEventListener('message', (event: MessageEvent<unknown>): void => {
-			const message = bridgeWorkerServerToMainMessageSchema.parse(event.data);
-			if (
-				message.kind === 'health' &&
-				message.requestId?.startsWith(bridgeFileViewerBrowserWorkerDrainRequestPrefix) === true
-			) {
-				workerDrainWaiters.get(message.requestId)?.();
-				workerDrainWaiters.delete(message.requestId);
-				return;
-			}
-			if (message.kind === 'fileDisplayPatch' && pendingFileDisplayPatchCount > 0) {
-				pendingFileDisplayPatchCount -= 1;
-				if (pendingFileDisplayPatchCount === 0) {
+	return (): BridgePaneSessionPort => ({
+		createDispatcher: (dispatcherProps): BridgePaneCommWorkerDispatcher => {
+			const channel = new MessageChannel();
+			let workerDrainRequestSequence = 0;
+			const workerDrainWaiters = new Map<string, () => void>();
+			waitForWorkerToMainPortDrain = (): Promise<void> => {
+				workerDrainRequestSequence += 1;
+				const requestId = `${bridgeFileViewerBrowserWorkerDrainRequestPrefix}${workerDrainRequestSequence}`;
+				const completion = new Promise<void>((resolve): void => {
+					workerDrainWaiters.set(requestId, resolve);
+				});
+				channel.port2.postMessage({
+					direction: 'serverWorkerToMain',
+					kind: 'health',
+					requestId,
+					status: 'ready',
+					transferDescriptors: [],
+					wireVersion: 1,
+				});
+				return completion;
+			};
+			activeBridgeFileViewerBrowserWorkerMessageDrains.add(workerMessageDrain);
+			const productTransport = createBrowserTestProductTransport({
+				onContentTerminalSettled: (succeeded): void => {
+					pendingSettledContentTerminalPatchCount += 1;
+					if (succeeded) pendingSettledContentPierreJobCount += 1;
+				},
+				onFileSourceDiscoveryCompleted: (): void => {
+					fileSourceDiscoveryCompleted = true;
 					for (const resolve of pendingFileDisplayPatchWaiters) resolve();
 					pendingFileDisplayPatchWaiters.clear();
-				}
-			}
-			if (message.kind === 'filePierreRenderJob' && pendingSettledContentPierreJobCount > 0) {
-				pendingSettledContentPierreJobCount -= 1;
-				if (pendingSettledContentPierreJobCount === 0) {
-					for (const resolve of pendingFileDisplayPatchWaiters) resolve();
-					pendingFileDisplayPatchWaiters.clear();
-				}
-			}
-			if (
-				message.kind === 'fileRenderPatch' &&
-				message.patches.some(
-					(patch) =>
-						patch.slice === 'contentAvailability' &&
-						patch.operation === 'upsert' &&
-						patch.payload.state !== 'loading',
-				) &&
-				pendingSettledContentTerminalPatchCount > 0
-			) {
-				pendingSettledContentTerminalPatchCount -= 1;
-				if (pendingSettledContentTerminalPatchCount === 0) {
-					for (const resolve of pendingFileDisplayPatchWaiters) resolve();
-					pendingFileDisplayPatchWaiters.clear();
-				}
-			}
-			publishWorkerMessagesInAct({
-				messages: [message],
-				publishWorkerMessages: transportProps.publishWorkerMessages,
+				},
+				onMetadataEventsPublished: (eventCount): void => {
+					pendingFileDisplayPatchCount += eventCount;
+				},
+				onMetadataInterestUpdateSettled: (): void => {
+					void Promise.resolve()
+						.then(() => Promise.resolve())
+						.then((): void => {
+							pendingMetadataInterestUpdateCount -= 1;
+							if (pendingMetadataInterestUpdateCount === 0) {
+								for (const resolve of pendingFileDisplayPatchWaiters) resolve();
+								pendingFileDisplayPatchWaiters.clear();
+							}
+						});
+				},
+				onMetadataInterestUpdateStarted: (): void => {
+					pendingMetadataInterestUpdateCount += 1;
+				},
+				productSessionRef: props.productSessionRef,
 			});
-		});
-		registerBridgeCommWorkerRuntimePortProtocol(channel.port2 as BridgeCommWorkerPort, {
-			bridgeDemandRank: transportProps.bootstrapRequest.runtime.bridgeDemandRank,
-			budget: transportProps.bootstrapRequest.runtime.budget,
-			contentItems: transportProps.bootstrapRequest.runtime.contentItems,
-			contentRequestDescriptors: transportProps.bootstrapRequest.runtime.contentRequestDescriptors,
-			fileViewBudget: {
-				className: 'interactive',
-				maxBytes: 2 * 1024 * 1024,
-				maxWindowLines: 10_000,
-			},
-			...(transportProps.bootstrapRequest.runtime.maxPreparationSliceMs === undefined
-				? {}
-				: { maxPreparationSliceMs: transportProps.bootstrapRequest.runtime.maxPreparationSliceMs }),
-			productTransport,
-			renderSemantics: transportProps.bootstrapRequest.runtime.renderSemantics,
-			rows: transportProps.bootstrapRequest.runtime.rows,
-		});
-		channel.port1.start();
-		channel.port2.start();
-		props.productSessionRef.current?.onWorkerMessagesPublisher?.((messages): void => {
-			transportProps.publishWorkerMessages(messages);
-		});
-		return {
-			dispatch: (message): void => {
-				props.productSessionRef.current?.onWorkerCommand?.(message);
-				channel.port1.postMessage(message);
-			},
-			dispose: (): void => {
-				activeBridgeFileViewerBrowserWorkerMessageDrains.delete(workerMessageDrain);
-				waitForWorkerToMainPortDrain = null;
-				fileSourceDiscoveryCompleted = true;
-				pendingFileDisplayPatchCount = 0;
-				pendingMetadataInterestUpdateCount = 0;
-				pendingSettledContentPierreJobCount = 0;
-				pendingSettledContentTerminalPatchCount = 0;
-				for (const resolve of pendingFileDisplayPatchWaiters) resolve();
-				pendingFileDisplayPatchWaiters.clear();
-				for (const resolve of workerDrainWaiters.values()) resolve();
-				workerDrainWaiters.clear();
-				channel.port1.close();
-				channel.port2.close();
-			},
-		};
-	};
+			channel.port1.addEventListener('message', (event: MessageEvent<unknown>): void => {
+				const message = bridgeWorkerServerToMainMessageSchema.parse(event.data);
+				if (
+					message.kind === 'health' &&
+					message.requestId?.startsWith(bridgeFileViewerBrowserWorkerDrainRequestPrefix) === true
+				) {
+					workerDrainWaiters.get(message.requestId)?.();
+					workerDrainWaiters.delete(message.requestId);
+					return;
+				}
+				if (message.kind === 'fileDisplayPatch' && pendingFileDisplayPatchCount > 0) {
+					pendingFileDisplayPatchCount -= 1;
+					if (pendingFileDisplayPatchCount === 0) {
+						for (const resolve of pendingFileDisplayPatchWaiters) resolve();
+						pendingFileDisplayPatchWaiters.clear();
+					}
+				}
+				if (message.kind === 'filePierreRenderJob' && pendingSettledContentPierreJobCount > 0) {
+					pendingSettledContentPierreJobCount -= 1;
+					if (pendingSettledContentPierreJobCount === 0) {
+						for (const resolve of pendingFileDisplayPatchWaiters) resolve();
+						pendingFileDisplayPatchWaiters.clear();
+					}
+				}
+				if (
+					message.kind === 'fileRenderPatch' &&
+					message.patches.some(
+						(patch) =>
+							patch.slice === 'contentAvailability' &&
+							patch.operation === 'upsert' &&
+							patch.payload.state !== 'loading',
+					) &&
+					pendingSettledContentTerminalPatchCount > 0
+				) {
+					pendingSettledContentTerminalPatchCount -= 1;
+					if (pendingSettledContentTerminalPatchCount === 0) {
+						for (const resolve of pendingFileDisplayPatchWaiters) resolve();
+						pendingFileDisplayPatchWaiters.clear();
+					}
+				}
+				publishWorkerMessagesInAct({
+					messages: [message],
+					publishWorkerMessages: dispatcherProps.publishWorkerMessages,
+				});
+			});
+			registerBridgeCommWorkerRuntimePortProtocol(channel.port2 as BridgeCommWorkerPort, {
+				bridgeDemandRank: { lane: 'selected', priority: 0 },
+				budget: bridgeWorkerPierreRenderPolicy.reviewInteractiveRenderBudget,
+				fileViewBudget: {
+					className: 'interactive',
+					maxBytes: 2 * 1024 * 1024,
+					maxWindowLines: 10_000,
+				},
+				productTransport,
+			});
+			channel.port1.start();
+			channel.port2.start();
+			props.productSessionRef.current?.onWorkerMessagesPublisher?.((messages): void => {
+				dispatcherProps.publishWorkerMessages(messages);
+			});
+			return {
+				dispatch: (message): void => {
+					props.productSessionRef.current?.onWorkerCommand?.(message);
+					channel.port1.postMessage(message);
+				},
+				dispose: (): void => {
+					activeBridgeFileViewerBrowserWorkerMessageDrains.delete(workerMessageDrain);
+					waitForWorkerToMainPortDrain = null;
+					fileSourceDiscoveryCompleted = true;
+					pendingFileDisplayPatchCount = 0;
+					pendingMetadataInterestUpdateCount = 0;
+					pendingSettledContentPierreJobCount = 0;
+					pendingSettledContentTerminalPatchCount = 0;
+					for (const resolve of pendingFileDisplayPatchWaiters) resolve();
+					pendingFileDisplayPatchWaiters.clear();
+					for (const resolve of workerDrainWaiters.values()) resolve();
+					workerDrainWaiters.clear();
+					channel.port1.close();
+					channel.port2.close();
+				},
+			};
+		},
+		dispose: (): void => {},
+		installNativeBootstrap: (_bootstrap: BridgePaneCommWorkerNativeBootstrap): void => {},
+	});
 }
 
 function createBrowserTestProductTransport(props: {

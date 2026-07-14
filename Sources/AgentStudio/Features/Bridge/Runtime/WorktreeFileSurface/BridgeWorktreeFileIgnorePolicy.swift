@@ -1,6 +1,8 @@
 import AgentStudioGit
 import Foundation
 
+typealias BridgeWorktreeTrackedFilePathsLoader = @Sendable (URL) async throws -> Set<String>
+
 struct BridgeWorktreeFileIgnorePolicy: Sendable {
     static let empty = Self(
         filesystemPathFilter: FilesystemPathFilter.empty,
@@ -32,10 +34,18 @@ struct BridgeWorktreeFileIgnorePolicy: Sendable {
 
     static func load(
         rootURL: URL,
-        statusProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider()
+        statusProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(),
+        trackedFilePathsTimeout: Duration = AppPolicies.Bridge.worktreeFileManifestStatusReadTimeout,
+        timeoutScheduler: any BridgeGitDataPlaneTimeoutScheduler = DispatchBridgeGitDataPlaneTimeoutScheduler(),
+        trackedFilePathsLoader: @escaping BridgeWorktreeTrackedFilePathsLoader = loadTrackedFilePaths
     ) async -> Self {
         async let filesystemPathFilter = FilesystemPathFilter.loadOffExecutor(forRootPath: rootURL)
-        async let trackedFilePathsTask = trackedFilePaths(rootURL: rootURL)
+        async let trackedFilePathsTask = boundedTrackedFilePaths(
+            rootURL: rootURL,
+            timeout: trackedFilePathsTimeout,
+            timeoutScheduler: timeoutScheduler,
+            loader: trackedFilePathsLoader
+        )
         async let statusResult = statusProvider.statusResult(for: rootURL)
         let trackedFilePaths = await trackedFilePathsTask
         let publishableFilePaths = await publishableFilePaths(
@@ -46,7 +56,7 @@ struct BridgeWorktreeFileIgnorePolicy: Sendable {
         return await Self(
             filesystemPathFilter: filesystemPathFilter,
             publishableFilePaths: publishableFilePaths,
-            trackedPathsAndAncestors: trackedPathsAndAncestors(trackedFilePaths)
+            trackedPathsAndAncestors: trackedPathsAndAncestors(trackedFilePaths ?? [])
         )
     }
 
@@ -67,25 +77,39 @@ struct BridgeWorktreeFileIgnorePolicy: Sendable {
         return filesystemPathFilter.isIgnored(relativePath: normalizedPath)
     }
 
-    @concurrent nonisolated private static func trackedFilePaths(rootURL: URL) async -> Set<String> {
+    @concurrent nonisolated static func loadTrackedFilePaths(rootURL: URL) async throws -> Set<String> {
         let client = LibGit2AgentStudioGitLocalClient()
+        let trackedSnapshot = try await client.trackedPaths(
+            for: rootURL,
+            options: GitTrackedPathsOptions()
+        )
+        return Set(trackedSnapshot.entries.map { normalized($0.path) }.filter { !$0.isEmpty })
+    }
+
+    @concurrent nonisolated private static func boundedTrackedFilePaths(
+        rootURL: URL,
+        timeout: Duration,
+        timeoutScheduler: any BridgeGitDataPlaneTimeoutScheduler,
+        loader: @escaping BridgeWorktreeTrackedFilePathsLoader
+    ) async -> Set<String>? {
         do {
-            let trackedSnapshot = try await client.trackedPaths(
-                for: rootURL,
-                options: GitTrackedPathsOptions()
-            )
-            return Set(trackedSnapshot.entries.map { normalized($0.path) }.filter { !$0.isEmpty })
+            return try await BridgeGitDataPlaneTimeout.readWithHardTimeout(
+                timeout,
+                timeoutScheduler: timeoutScheduler
+            ) {
+                try await loader(rootURL)
+            }
         } catch {
-            return []
+            return nil
         }
     }
 
     private static func publishableFilePaths(
         rootURL: URL,
-        trackedFilePaths: Set<String>,
+        trackedFilePaths: Set<String>?,
         statusResult: GitWorkingTreeStatusResult
     ) -> Set<String>? {
-        guard case .available(let status) = statusResult else { return nil }
+        guard let trackedFilePaths, case .available(let status) = statusResult else { return nil }
         var publishablePaths = Set(
             trackedFilePaths.filter { FileManager.default.fileExists(atPath: rootURL.appending(path: $0).path) }
         )

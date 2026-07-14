@@ -97,6 +97,33 @@ describe('Bridge product session contracts', () => {
 		}
 	});
 
+	test('rejects every feature-shaped authority from the session bootstrap', () => {
+		// Arrange
+		const forbiddenBootstrapFields = [
+			'rows',
+			'descriptors',
+			'contentMetadata',
+			'renderSemantics',
+			'telemetryConfiguration',
+			'reviewSourceUpdate',
+			'fileViewSourceUpdate',
+		] as const;
+
+		// Act
+		const acceptanceByField = forbiddenBootstrapFields.map((field) => ({
+			accepted: bridgeProductSessionBootstrapSchema.safeParse({
+				...validProductSessionCorpus.bootstrap,
+				[field]: {},
+			}).success,
+			field,
+		}));
+
+		// Assert
+		expect(acceptanceByField).toEqual(
+			forbiddenBootstrapFields.map((field) => ({ accepted: false, field })),
+		);
+	});
+
 	test('accepts every closed request, response, metadata, and content variant', () => {
 		expect(
 			new Set(validProductSessionCorpus.controlRequests.map((request) => request.kind)),

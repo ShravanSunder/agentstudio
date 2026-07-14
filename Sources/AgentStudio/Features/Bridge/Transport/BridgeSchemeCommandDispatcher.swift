@@ -57,7 +57,6 @@ final class BridgeSchemeCommandDispatcher {
             "RPC response dropped because onResponse is not configured: \(responseJSON)")
     }
     var onSuccessResponseDelivered: (@MainActor @Sendable (String) async -> Void) = { _ in }
-    var telemetryIngestor: (any BridgeTelemetryBatchIngesting)?
     var telemetryRecorder: (any BridgePerformanceTraceRecording)?
 
     init(maxCommandIdHistory: Int = 100) {

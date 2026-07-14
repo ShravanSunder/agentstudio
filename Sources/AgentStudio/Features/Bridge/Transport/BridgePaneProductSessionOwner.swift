@@ -70,7 +70,12 @@ struct BridgePaneProductSessionOwnerSnapshot: Equatable, Sendable {
     let activeProducerTaskCount: Int
     let activeContentLeaseCount: Int
     let activeTransportLeaseCount: Int
+    let queuedFrameCount: Int
+    let queuedByteCount: Int
+    let pendingFrameWaiterCount: Int
+    let inFlightFrameReceiptCount: Int
     let pendingLifecycleAcknowledgementCount: Int
+    let nextMetadataStreamSequence: Int
 
     var hasZeroResidue: Bool {
         activeSchemeTaskCount == 0
@@ -78,6 +83,10 @@ struct BridgePaneProductSessionOwnerSnapshot: Equatable, Sendable {
             && activeProducerTaskCount == 0
             && activeContentLeaseCount == 0
             && activeTransportLeaseCount == 0
+            && queuedFrameCount == 0
+            && queuedByteCount == 0
+            && pendingFrameWaiterCount == 0
+            && inFlightFrameReceiptCount == 0
             && pendingLifecycleAcknowledgementCount == 0
     }
 
@@ -87,7 +96,12 @@ struct BridgePaneProductSessionOwnerSnapshot: Equatable, Sendable {
         activeProducerTaskCount: 0,
         activeContentLeaseCount: 0,
         activeTransportLeaseCount: 0,
-        pendingLifecycleAcknowledgementCount: 0
+        queuedFrameCount: 0,
+        queuedByteCount: 0,
+        pendingFrameWaiterCount: 0,
+        inFlightFrameReceiptCount: 0,
+        pendingLifecycleAcknowledgementCount: 0,
+        nextMetadataStreamSequence: 0
     )
 }
 
@@ -265,7 +279,12 @@ actor BridgePaneProductSessionOwner {
             activeProducerTaskCount: producers?.activeProducerTaskCount ?? 0,
             activeContentLeaseCount: producers?.activeContentLeaseCount ?? 0,
             activeTransportLeaseCount: routerSnapshot.activeTransportClaimCount,
-            pendingLifecycleAcknowledgementCount: producers?.pendingLifecycleAcknowledgementCount ?? 0
+            queuedFrameCount: producers?.queuedFrameCount ?? 0,
+            queuedByteCount: producers?.queuedByteCount ?? 0,
+            pendingFrameWaiterCount: producers?.pendingFrameWaiterCount ?? 0,
+            inFlightFrameReceiptCount: producers?.inFlightFrameReceiptCount ?? 0,
+            pendingLifecycleAcknowledgementCount: producers?.pendingLifecycleAcknowledgementCount ?? 0,
+            nextMetadataStreamSequence: producers?.nextMetadataStreamSequence ?? 0
         )
     }
 }

@@ -9,6 +9,8 @@ import {
 const capabilityHeaderKey = BRIDGE_PRODUCT_CAPABILITY_HEADER_NAME.toLowerCase();
 const capabilityPattern = /^[A-Za-z0-9_-]{43}$/u;
 
+export const BRIDGE_PRODUCT_DEV_JSON_MEDIA_TYPE = 'application/json' as const;
+
 export class BridgeProductDevRequestBodyTooLargeError extends Error {}
 
 export interface BridgeProductDevWritableResponse {
@@ -51,6 +53,15 @@ export function requireBridgeProductDevPost(props: {
 	return false;
 }
 
+export function requireBridgeProductDevJSONMediaType(props: {
+	readonly request: IncomingMessage;
+	readonly response: ServerResponse;
+}): boolean {
+	if (props.request.headers['content-type'] === BRIDGE_PRODUCT_DEV_JSON_MEDIA_TYPE) return true;
+	writeBridgeProductDevError(props.response, 415, 'Unsupported Media Type');
+	return false;
+}
+
 export async function writeBridgeProductDevResponseChunk(
 	response: BridgeProductDevWritableResponse,
 	bytes: Uint8Array,
@@ -85,6 +96,12 @@ export function writeBridgeProductDevJSONBytes(response: ServerResponse, bytes: 
 	response.end(bytes);
 }
 
+export function writeBridgeProductDevEmpty(response: ServerResponse, statusCode: number): void {
+	if (response.headersSent) return;
+	response.statusCode = statusCode;
+	response.end();
+}
+
 export function writeBridgeProductDevError(
 	response: ServerResponse,
 	statusCode: number,
@@ -103,7 +120,5 @@ export function bridgeProductDevRequestFailureStatus(error: unknown): number {
 export function bridgeProductDevSafeErrorMessage(error: unknown): string {
 	return error instanceof BridgeProductDevRequestBodyTooLargeError
 		? 'Payload Too Large'
-		: error instanceof Error
-			? error.message
-			: 'Invalid Bridge product request';
+		: 'Invalid Bridge product request';
 }

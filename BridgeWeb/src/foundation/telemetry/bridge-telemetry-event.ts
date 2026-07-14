@@ -18,38 +18,6 @@ export const bridgeTelemetrySampleSchema = z.object({
 
 export type BridgeTelemetrySample = z.infer<typeof bridgeTelemetrySampleSchema>;
 
-export const bridgeTelemetryStreamIdSchema = z.enum(['page', 'comm-worker']);
-export type BridgeTelemetryStreamId = z.infer<typeof bridgeTelemetryStreamIdSchema>;
-
-export const bridgeTelemetryBatchSchema = z.object({
-	schemaVersion: z.literal(1),
-	scenario: z.string().min(1),
-	streamId: bridgeTelemetryStreamIdSchema,
-	sequence: z.number().int().positive().optional(),
-	samples: z.array(bridgeTelemetrySampleSchema).readonly(),
-});
-
-export type BridgeTelemetryBatch = z.infer<typeof bridgeTelemetryBatchSchema>;
-
-export interface MakeBridgeTelemetryBatchProps {
-	readonly samples: readonly BridgeTelemetrySample[];
-	readonly scenario: string;
-	readonly sequence: number;
-	readonly streamId: BridgeTelemetryStreamId;
-}
-
-export function makeBridgeTelemetryBatch(
-	props: MakeBridgeTelemetryBatchProps,
-): BridgeTelemetryBatch {
-	return {
-		schemaVersion: 1,
-		scenario: props.scenario,
-		streamId: props.streamId,
-		sequence: props.sequence,
-		samples: props.samples,
-	};
-}
-
 export function makeBridgeTelemetrySample(props: BridgeTelemetrySample): BridgeTelemetrySample {
 	return {
 		scope: props.scope,

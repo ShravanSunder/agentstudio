@@ -1,9 +1,12 @@
+import { bridgeCommTelemetryProducerInstallSchema } from '../telemetry-worker/bridge-comm-telemetry-producer-install.js';
+import { createBridgeTelemetryWorkerEventProducer } from '../telemetry-worker/bridge-telemetry-worker-event-adapter.js';
 // oxlint-disable unicorn/require-post-message-target-origin -- WorkerGlobalScope.postMessage does not accept a targetOrigin argument.
 import { buildBridgeWorkerReadyHealthEvent } from './bridge-comm-worker-protocol.js';
 import {
 	registerBridgeCommWorkerRuntimePortProtocol,
 	type RegisterBridgeCommWorkerRuntimePortProtocolProps,
 } from './bridge-comm-worker-runtime-protocol.js';
+import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
 import {
 	BridgeProductControlMux,
 	BridgeProductSessionAuthorityStore,
@@ -115,8 +118,33 @@ export function bootstrapBridgeCommWorkerEntry(
 	dependencies: BridgeCommWorkerEntryDependencies = defaultBridgeCommWorkerEntryDependencies(),
 ): void {
 	let installedProductPort: MessagePort | null = null;
+	let installedTelemetryProducer: BridgeCommWorkerTelemetryRecorder | null = null;
+	const telemetryRecorder: BridgeCommWorkerTelemetryRecorder = {
+		record: (sample): void => installedTelemetryProducer?.record(sample),
+	};
 
 	port.addEventListener('message', (event: MessageEvent<unknown>): void => {
+		const parsedTelemetryInstall = bridgeCommTelemetryProducerInstallSchema.safeParse(event.data);
+		if (parsedTelemetryInstall.success) {
+			event.stopImmediatePropagation();
+			if (installedTelemetryProducer !== null) {
+				parsedTelemetryInstall.data.producerPort.close();
+				port.postMessage(
+					buildBridgeWorkerEntryDegradedHealthEvent({
+						message: 'Bridge comm telemetry producer was already installed.',
+					}),
+				);
+				return;
+			}
+			installedTelemetryProducer = createBridgeTelemetryWorkerEventProducer({
+				enabledScopes: new Set(parsedTelemetryInstall.data.enabledScopes),
+				port: parsedTelemetryInstall.data.producerPort,
+				preReadyRequiredSampleCapacity: parsedTelemetryInstall.data.preReadyRequiredSampleCapacity,
+				preReadyRequiredSampleMaxEncodedBytes:
+					parsedTelemetryInstall.data.preReadyRequiredSampleMaxEncodedBytes,
+			});
+			return;
+		}
 		const parsedInstall = bridgePaneCommWorkerInstallSchema.safeParse(event.data);
 		if (parsedInstall.success) {
 			event.stopImmediatePropagation();
@@ -134,7 +162,11 @@ export function bootstrapBridgeCommWorkerEntry(
 				productCapability: parsedInstall.data.productCapability,
 			});
 			installedProductPort = parsedInstall.data.productPort;
-			bootstrapBridgeCommWorkerRuntimeEntry(installedProductPort, productSession);
+			bootstrapBridgeCommWorkerRuntimeEntry(
+				installedProductPort,
+				productSession,
+				telemetryRecorder,
+			);
 			return;
 		}
 
@@ -169,6 +201,7 @@ function defaultBridgeCommWorkerEntryDependencies(): BridgeCommWorkerEntryDepend
 function bootstrapBridgeCommWorkerRuntimeEntry(
 	port: BridgeCommWorkerPort,
 	productSession: BridgeCommWorkerInstalledProductSession,
+	telemetryRecorder: BridgeCommWorkerTelemetryRecorder,
 ): void {
 	let didBootstrapRuntime = false;
 	let didReceiveBootstrap = false;
@@ -193,7 +226,11 @@ function bootstrapBridgeCommWorkerRuntimeEntry(
 					didBootstrapRuntime = true;
 					registerBridgeCommWorkerRuntimePortProtocol(
 						port,
-						runtimePropsFromBootstrapRequest(parsedBootstrap.data, productSession.productTransport),
+						runtimePropsFromBootstrapRequest(
+							parsedBootstrap.data,
+							productSession.productTransport,
+							telemetryRecorder,
+						),
 					);
 					port.postMessage(buildBridgeWorkerReadyHealthEvent(parsedBootstrap.data.requestId));
 					for (const pendingMessage of pendingMessagesBeforeBootstrap.splice(
@@ -243,14 +280,13 @@ function bootstrapBridgeCommWorkerRuntimeEntry(
 function runtimePropsFromBootstrapRequest(
 	request: BridgeCommWorkerBootstrapRequest,
 	productTransport: BridgeProductTransportSession,
+	telemetryClient: BridgeCommWorkerTelemetryRecorder | undefined,
 ): RegisterBridgeCommWorkerRuntimePortProtocolProps {
 	const reviewPolicy = request.runtime.surfacePolicies?.review;
 	const fileViewPolicy = request.runtime.surfacePolicies?.fileView;
 	return {
 		bridgeDemandRank: reviewPolicy?.bridgeDemandRank ?? request.runtime.bridgeDemandRank,
 		budget: reviewPolicy?.budget ?? request.runtime.budget,
-		contentItems: request.runtime.contentItems,
-		contentRequestDescriptors: request.runtime.contentRequestDescriptors,
 		...(fileViewPolicy === undefined
 			? {}
 			: {
@@ -260,9 +296,8 @@ function runtimePropsFromBootstrapRequest(
 		...(request.runtime.maxPreparationSliceMs === undefined
 			? {}
 			: { maxPreparationSliceMs: request.runtime.maxPreparationSliceMs }),
-		renderSemantics: request.runtime.renderSemantics,
-		rows: request.runtime.rows,
 		productTransport,
+		...(telemetryClient === undefined ? {} : { telemetryClient }),
 	};
 }
 

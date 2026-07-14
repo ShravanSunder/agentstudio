@@ -1,44 +1,87 @@
 import { readFile, realpath, writeFile } from 'node:fs/promises';
 
 import type { Page } from 'playwright';
-import { z } from 'zod';
 
-import { parseBridgeCoreResourceUrl } from '../../src/core/resources/bridge-resource-url.ts';
+import { bridgeProductFileMetadataEventSchema } from '../../src/core/comm-worker/bridge-product-subscription-contracts.ts';
 import { resolveBridgeWorktreeVerifierWritePath } from '../verify-bridge-viewer-worktree-dev-server-paths.ts';
 import { requireVerifierBrowser } from './browser-session.ts';
 import {
 	execFileAsync,
 	proofRunCreatedAtUnixMilliseconds,
 	repoRootPath,
+	scenarioNameFromDevServerUrl,
 	selectedContentFixtureRelativePath,
 	targetPathOverride,
 	worktreeDevServerUrl,
 } from './config.ts';
+import { BridgeVerifierProductFileSession } from './product-file-session.ts';
 import { worktreeFilePathEligibleForPerformanceClick } from './scroll-performance.ts';
 import {
-	bridgeWorktreeSurfaceResponseSchema,
 	interactionPerformanceSampleCount,
 	maximumNormalPerformanceLineCount,
-	worktreeFileDescriptorResponseSchema,
-	worktreeSnapshotFrameSchema,
-	worktreeTreeWindowFrameSchema,
 	type WorktreeDevServerBrowserProof,
 	type WorktreeFileDescriptor,
 	type WorktreeFileSurface,
 	type WorktreeFileTreeRow,
+	type WorktreeProductFileDescriptor,
 } from './types.ts';
 import { hashText, isNodeErrorWithCode } from './utils.ts';
 
-export async function fetchWorktreeSurface(): Promise<
-	z.infer<typeof bridgeWorktreeSurfaceResponseSchema>
-> {
-	const surfaceUrl = new URL('/__bridge-worktree/surface', worktreeDevServerUrl);
-	copyScenarioSearchParam(surfaceUrl);
-	const response = await fetch(surfaceUrl);
-	if (!response.ok) {
-		throw new Error(`Worktree/File surface request failed: ${response.status}`);
-	}
-	return bridgeWorktreeSurfaceResponseSchema.parse(await response.json());
+const worktreeFileRowHeightPixels = 24;
+const productFileSessionBySurface = new WeakMap<
+	WorktreeFileSurface,
+	BridgeVerifierProductFileSession
+>();
+const productFileSessionByDescriptor = new WeakMap<
+	WorktreeFileDescriptor,
+	BridgeVerifierProductFileSession
+>();
+const liveProductFileSurfaces = new Set<WorktreeFileSurface>();
+
+export async function fetchWorktreeSurface(): Promise<WorktreeFileSurface> {
+	const session = new BridgeVerifierProductFileSession({
+		baseUrl: new URL(worktreeDevServerUrl).origin,
+		scenarioName: scenarioNameFromDevServerUrl(worktreeDevServerUrl),
+	});
+	const productSource = await session.open();
+	const treeRows = productSource.treeWindows.flatMap((treeWindow) => treeWindow.rows);
+	const finalTreeWindow = productSource.treeWindows.findLast(
+		(treeWindow) => treeWindow.finalWindow,
+	);
+	const pathCount = finalTreeWindow?.totalRowCount ?? treeRows.length;
+	const surface: WorktreeFileSurface = {
+		frames: productSource.treeWindows,
+		provenance: {
+			baseRef: 'HEAD',
+			scenarioName: scenarioNameFromDevServerUrl(worktreeDevServerUrl),
+			worktreeRootToken: await bridgeWorktreeDevRootTokenForPath(repoRootPath),
+		},
+		source: productSource.sourceIdentity,
+		treeSizeFacts: {
+			estimatedTotalHeightPixels: pathCount * worktreeFileRowHeightPixels,
+			pathCount,
+			rowHeightPixels: worktreeFileRowHeightPixels,
+		},
+	};
+	productFileSessionBySurface.set(surface, session);
+	liveProductFileSurfaces.add(surface);
+	return surface;
+}
+
+export async function closeWorktreeFileSurface(surface: WorktreeFileSurface): Promise<void> {
+	const session = productFileSessionBySurface.get(surface);
+	if (session === undefined) return;
+	productFileSessionBySurface.delete(surface);
+	liveProductFileSurfaces.delete(surface);
+	if (session.state === 'open') await session.close();
+}
+
+export async function closeAllWorktreeFileSurfaces(): Promise<void> {
+	await Promise.all([...liveProductFileSurfaces].map(closeWorktreeFileSurface));
+}
+
+export function openWorktreeFileSurfaceCount(): number {
+	return liveProductFileSurfaces.size;
 }
 
 export async function readBrowserProof(page: Page): Promise<WorktreeDevServerBrowserProof> {
@@ -55,9 +98,7 @@ export async function readBrowserProof(page: Page): Promise<WorktreeDevServerBro
 
 export function assertWorktreeTreeExtentMatchesSurfaceFacts(props: {
 	readonly renderedTreeTotalSizePixels: number;
-	readonly surfaceTreeSizeFacts: z.infer<
-		typeof bridgeWorktreeSurfaceResponseSchema
-	>['treeSizeFacts'];
+	readonly surfaceTreeSizeFacts: WorktreeFileSurface['treeSizeFacts'];
 }): void {
 	const expectedHeight = props.surfaceTreeSizeFacts.estimatedTotalHeightPixels ?? null;
 	if (expectedHeight === null) {
@@ -83,13 +124,9 @@ export async function bridgeWorktreeDevRootTokenForPath(path: string): Promise<s
 export function worktreeFileTreeRows(frames: readonly unknown[]): readonly WorktreeFileTreeRow[] {
 	const rows: WorktreeFileTreeRow[] = [];
 	for (const frame of frames) {
-		const parsedFrame = worktreeSnapshotFrameSchema.safeParse(frame);
-		if (parsedFrame.success) {
-			rows.push(...(parsedFrame.data.treeRows ?? []));
-		}
-		const parsedTreeWindowFrame = worktreeTreeWindowFrameSchema.safeParse(frame);
-		if (parsedTreeWindowFrame.success) {
-			rows.push(...(parsedTreeWindowFrame.data.rows ?? []));
+		const parsedEvent = bridgeProductFileMetadataEventSchema.safeParse(frame);
+		if (parsedEvent.success && parsedEvent.data.eventKind === 'file.treeWindow') {
+			rows.push(...parsedEvent.data.rows);
 		}
 	}
 	return rows;
@@ -97,7 +134,7 @@ export function worktreeFileTreeRows(frames: readonly unknown[]): readonly Workt
 
 export function worktreeFileDemandCandidatePaths(surface: WorktreeFileSurface): readonly string[] {
 	return worktreeFileTreeRows(surface.frames)
-		.filter((row): boolean => !row.isDirectory && row.fileId !== undefined)
+		.filter((row): boolean => !row.isDirectory && row.fileId !== null)
 		.map((row): string => row.path);
 }
 
@@ -170,24 +207,19 @@ export async function fetchWorktreeFileDescriptorForPath(props: {
 	if (!knownPath) {
 		throw new Error(`Expected Worktree/File tree metadata row for ${props.path}`);
 	}
-	const descriptorUrl = new URL('/__bridge-worktree/file-descriptor', worktreeDevServerUrl);
-	copyScenarioSearchParam(descriptorUrl);
-	descriptorUrl.searchParams.set('path', props.path);
-	descriptorUrl.searchParams.set('generation', String(props.surface.source.subscriptionGeneration));
-	descriptorUrl.searchParams.set('cursor', props.surface.source.sourceCursor);
-	const response = await fetch(descriptorUrl);
-	if (!response.ok) {
+	const session = productFileSessionBySurface.get(props.surface);
+	if (session === undefined) {
+		throw new Error('Worktree/File surface does not own a typed product session.');
+	}
+	const productDescriptor = await session.demandDescriptor(props.path);
+	if (productDescriptor.path !== props.path) {
 		throw new Error(
-			`Worktree/File descriptor request failed for ${props.path}: ${response.status}`,
+			`Expected demanded Worktree/File descriptor for ${props.path}, got ${productDescriptor.path}`,
 		);
 	}
-	const descriptorResponse = worktreeFileDescriptorResponseSchema.parse(await response.json());
-	if (descriptorResponse.frame.descriptor.path !== props.path) {
-		throw new Error(
-			`Expected demanded Worktree/File descriptor for ${props.path}, got ${descriptorResponse.frame.descriptor.path}`,
-		);
-	}
-	return descriptorResponse.frame.descriptor;
+	const descriptor = verifierDescriptorFromProductDescriptor(productDescriptor);
+	productFileSessionByDescriptor.set(descriptor, session);
+	return descriptor;
 }
 
 export function isNormalWorktreeFilePerformanceDescriptor(
@@ -322,38 +354,41 @@ export async function readTextFileHashOrNull(absolutePath: string): Promise<stri
 export async function fetchWorktreeFileContent(
 	descriptor: WorktreeFileDescriptor,
 ): Promise<string> {
-	const parsedResourceUrl = parseBridgeCoreResourceUrl(
-		descriptor.contentDescriptor.descriptor.resourceUrl,
-		{
-			allowedResourceKindsByProtocol: {
-				'worktree-file': new Set(['worktree.fileContent']),
-			},
-		},
-	);
-	if (parsedResourceUrl === null) {
-		throw new Error(`Invalid Worktree/File resource URL for ${descriptor.path}`);
+	const session = productFileSessionByDescriptor.get(descriptor);
+	if (session === undefined) {
+		throw new Error('Worktree/File descriptor does not own a typed product session.');
 	}
-	const contentUrl = new URL(
-		`/__bridge-worktree/file-content/${encodeURIComponent(parsedResourceUrl.opaqueId)}`,
-		worktreeDevServerUrl,
-	);
-	copyScenarioSearchParam(contentUrl);
-	if (parsedResourceUrl.generation !== undefined) {
-		contentUrl.searchParams.set('generation', String(parsedResourceUrl.generation));
-	}
-	if (parsedResourceUrl.cursor !== undefined) {
-		contentUrl.searchParams.set('cursor', parsedResourceUrl.cursor);
-	}
-	const response = await fetch(contentUrl);
-	if (!response.ok) {
-		throw new Error(`Worktree/File content request failed: ${response.status}`);
-	}
-	return await response.text();
+	const content = await session.openContent(descriptor);
+	return new TextDecoder().decode(content.bytes);
 }
 
-export function copyScenarioSearchParam(url: URL): void {
-	const scenario = new URL(worktreeDevServerUrl).searchParams.get('scenario');
-	if (scenario !== null) {
-		url.searchParams.set('scenario', scenario);
-	}
+function verifierDescriptorFromProductDescriptor(
+	productDescriptor: WorktreeProductFileDescriptor,
+): WorktreeFileDescriptor {
+	const availableContentDescriptor =
+		productDescriptor.availability.availabilityKind === 'available'
+			? productDescriptor.availability.contentDescriptor
+			: null;
+	return {
+		...productDescriptor,
+		contentDescriptor: {
+			descriptor: {
+				content:
+					availableContentDescriptor === null
+						? null
+						: {
+								expectedBytes: availableContentDescriptor.declaredByteLength,
+								maxBytes: availableContentDescriptor.maximumBytes,
+							},
+			},
+		},
+		contentHandle: availableContentDescriptor?.descriptorId ?? productDescriptor.fileId,
+		...(availableContentDescriptor === null
+			? {}
+			: { contentHash: availableContentDescriptor.expectedSha256 }),
+		isBinary: productDescriptor.availability.availabilityKind === 'binary',
+		...(productDescriptor.totalLineCount === null
+			? {}
+			: { lineCount: productDescriptor.totalLineCount }),
+	};
 }

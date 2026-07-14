@@ -9,9 +9,14 @@ actor BridgeProductSession {
     private let maximumRequestOrResponseBytes: Int
     private let paneSessionId: String
     var producerRegistry: BridgeProductProducerRegistry
+    private var lastAcceptedContentFrameAcknowledgementByProducerLease:
+        [BridgeProductProducerLease: BridgeProductContentFrameAcknowledgement] = [:]
+    private var lastAcceptedMetadataFrameAcknowledgement: BridgeProductMetadataFrameAcknowledgement?
     private var revocationState = BridgeProductSessionRevocationState.idle
     private let workerInstanceId: String
     var contentAdmissionByProducerLease: [BridgeProductProducerLease: BridgeProductContentAdmission] = [:]
+    var producerFrameObservationByLease: [BridgeProductProducerLease: BridgeProductSessionProducerFrameObservation] =
+        [:]
     var producerFrameWaitersByLease: [BridgeProductProducerLease: BridgeProductSessionProducerFrameWaiter] = [:]
     var producerRetirementStateByLease: [BridgeProductProducerLease: BridgeProductSessionProducerRetirementState] = [:]
     private var controlReplay: BridgeProductControlReplayCache
@@ -42,6 +47,7 @@ actor BridgeProductSession {
         self.workerInstanceId = workerInstanceId
         self.capabilityDigest = Self.digest(Data(capabilityHeader.utf8))
         self.maximumRequestOrResponseBytes = maximumRequestOrResponseBytes
+        self.lastAcceptedMetadataFrameAcknowledgement = nil
         self.producerRegistry = BridgeProductProducerRegistry()
         self.controlReplay = .init(
             maximumRequestOrResponseBytes: maximumRequestOrResponseBytes
@@ -174,6 +180,9 @@ actor BridgeProductSession {
             contentAdmissionByProducerLease.removeValue(
                 forKey: acknowledgement.producerLease
             )
+            clearContentFrameObservationReplay(
+                for: acknowledgement.producerLease
+            )
         }
         return acknowledged
     }
@@ -191,6 +200,63 @@ actor BridgeProductSession {
     func authorizes(presentedCapability: String) -> Bool {
         guard lifecycle != .revoked else { return false }
         return capabilityMatches(presentedCapability)
+    }
+
+    func acknowledgeMetadataFrameObservation(
+        _ acknowledgement: BridgeProductMetadataFrameAcknowledgement
+    ) -> Bool {
+        guard lifecycle == .active,
+            acknowledgement.paneSessionId == paneSessionId,
+            acknowledgement.workerInstanceId == workerInstanceId
+        else {
+            return false
+        }
+        if lastAcceptedMetadataFrameAcknowledgement == acknowledgement {
+            return true
+        }
+        guard
+            let receipt = producerRegistry.inFlightMetadataFrameReceipt(
+                matching: acknowledgement
+            ), acknowledgeProducerFrameObserved(receipt)
+        else {
+            return false
+        }
+        lastAcceptedMetadataFrameAcknowledgement = acknowledgement
+        return true
+    }
+
+    func acknowledgeContentFrameObservation(
+        _ acknowledgement: BridgeProductContentFrameAcknowledgement
+    ) -> Bool {
+        guard lifecycle == .active,
+            acknowledgement.paneSessionId == paneSessionId,
+            acknowledgement.workerInstanceId == workerInstanceId
+        else {
+            return false
+        }
+        if lastAcceptedContentFrameAcknowledgementByProducerLease.values.contains(
+            acknowledgement
+        ) {
+            return true
+        }
+        guard
+            let receipt = producerRegistry.inFlightContentFrameReceipt(
+                matching: acknowledgement
+            ), acknowledgeProducerFrameObserved(receipt)
+        else {
+            return false
+        }
+        lastAcceptedContentFrameAcknowledgementByProducerLease[receipt.producerLease] =
+            acknowledgement
+        return true
+    }
+
+    func clearContentFrameObservationReplay(
+        for producerLease: BridgeProductProducerLease
+    ) {
+        lastAcceptedContentFrameAcknowledgementByProducerLease.removeValue(
+            forKey: producerLease
+        )
     }
 
     func beginControl(
@@ -386,6 +452,9 @@ actor BridgeProductSession {
             return BridgeProductSessionRevocationBarrier(id: id, completedResult: true)
         }
         lifecycle = .revoked
+        lastAcceptedContentFrameAcknowledgementByProducerLease.removeAll(
+            keepingCapacity: false
+        )
         let pendingProviderDispatchCompletion =
             pendingControl?.providerDispatchCompletion
         if let pendingControl {

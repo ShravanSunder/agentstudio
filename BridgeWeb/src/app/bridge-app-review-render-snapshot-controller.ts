@@ -1,475 +1,280 @@
 import type { MutableRefObject } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import {
 	encodeBridgeWorkerMarkFileViewedCommand,
-	encodeBridgeWorkerMetadataInterestUpdateCommand,
-	encodeBridgeWorkerReviewIntakeReadyCommand,
-	encodeBridgeWorkerReviewInvalidateCommand,
-	encodeBridgeWorkerReviewSourceUpdateCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from '../core/comm-worker/bridge-comm-worker-protocol.js';
-import type { BridgeCommWorkerRow } from '../core/comm-worker/bridge-comm-worker-store.js';
 import {
-	createBridgeMainRenderSnapshotStore,
 	type BridgeMainCodeViewItem,
 	type BridgeMainRenderSnapshotStore,
+	type BridgeMainReviewCatalogSnapshot,
+	type BridgeMainReviewSourceDisplaySlice,
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
-import {
-	createBridgePaneCommWorkerDispatcher,
-	type BridgePaneCommWorkerDispatcher,
-} from '../core/comm-worker/bridge-pane-comm-worker-session.js';
+import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type {
-	BridgeCommWorkerBootstrapRequest,
-	BridgeCommWorkerTelemetryBootstrapConfig,
 	BridgeWorkerContentAvailabilityPatchPayload,
-	BridgeWorkerMainToServerMessage,
-	BridgeWorkerReviewContentRequestDescriptor,
-	BridgeWorkerReviewContentMetadata,
-	BridgeWorkerReviewRenderSemantics,
+	BridgeWorkerReviewDisplayItem,
 	BridgeWorkerServerToMainMessage,
-} from '../core/comm-worker/bridge-worker-contracts.js';
-import {
-	bridgeCommWorkerBootstrapRequestSchema,
-	bridgeWorkerReviewContentRequestDescriptorSchema,
-	bridgeWorkerReviewContentMetadataSchema,
-	bridgeWorkerReviewRenderSemanticsSchema,
 } from '../core/comm-worker/bridge-worker-contracts.js';
 import {
 	createBridgeWorkerPierreCourier,
 	type BridgeWorkerPierreCourier,
 } from '../core/comm-worker/bridge-worker-pierre-courier.js';
-import type {
-	BridgeWorkerDemandRank,
-	BridgeWorkerPierreRenderBudget,
-	BridgeWorkerPierreRenderJob,
-} from '../core/comm-worker/bridge-worker-pierre-render-job.js';
-import { bridgeWorkerPierreRenderPolicy } from '../core/demand/bridge-content-demand-policy.js';
-import type { ReviewTreeRowMetadata } from '../features/review/models/review-protocol-models.js';
-import type { ReviewInvalidationFrame } from '../features/review/models/review-protocol-models.js';
-import type {
-	BridgeContentHandle,
-	BridgeContentRole,
-	BridgeReviewItemDescriptor,
-	BridgeReviewPackage,
-} from '../foundation/review-package/bridge-review-package.js';
-import type { BridgeTelemetryBootstrapConfig } from '../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
+import type { BridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
+import type { BridgeWorkerRpcLifecycleSnapshot } from '../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
 import { bridgeMainCodeViewItemSignature } from '../review-viewer/code-view/bridge-code-view-worker-prepared-items.js';
-import type {
-	BridgeReviewPanelChromeSlice,
-	BridgeReviewSelectionSlice,
-	BridgeReviewViewerRootSnapshot,
-	BridgeReviewViewportSlice,
-} from '../review-viewer/state/review-viewer-store.js';
-import { bridgeReviewViewerRootSnapshotFromSlices } from '../review-viewer/state/review-viewer-store.js';
-import type { ReviewMetadataInterestRequest } from './bridge-app-review-metadata-interest-controller.js';
-import {
-	resolveBridgeWorkerMarkFileViewedFailureCallbacks,
-	resolveBridgeWorkerMetadataInterestRequestResolvers,
-	resolveBridgeWorkerReviewIntakeReadyRequestResolvers,
-} from './bridge-app-review-worker-health-resolvers.js';
-import { bridgeReviewContentByteBoundsForHandle } from './bridge-review-content-byte-budget.js';
 
 export interface UseBridgeReviewRenderSnapshotControllerProps {
-	readonly panelChromeSlice: BridgeReviewPanelChromeSlice;
 	readonly pierreCourier: BridgeWorkerPierreCourier;
-	readonly reviewPackage: BridgeReviewPackage | null;
-	readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
-	readonly telemetryConfig: BridgeTelemetryBootstrapConfig | null;
-	readonly transportFactory?: CreateBridgeReviewRuntimeProtocolDispatcherProps['transportFactory'];
+	readonly reviewClient: BridgePaneSurfaceClient;
 }
+
+export interface BridgeReviewDirectDisplayStore extends Pick<
+	BridgeMainRenderSnapshotStore,
+	| 'getReviewItemIdAtIndex'
+	| 'getReviewCodeViewItemSnapshot'
+	| 'getReviewItemSnapshot'
+	| 'getReviewTreeRowAtIndex'
+	| 'getReviewTreeRowSnapshot'
+	| 'readReviewCatalogChangesAfter'
+	| 'reviewCatalogContainsItem'
+	| 'subscribeReviewItem'
+	| 'subscribeReviewCodeViewItem'
+	| 'subscribeReviewTreeRow'
+> {}
 
 export interface BridgeReviewRenderSnapshotController {
-	readonly invalidateReviewContent: (frame: ReviewInvalidationFrame) => void;
+	readonly catalogSnapshot: BridgeMainReviewCatalogSnapshot;
+	readonly clearSelectedReviewItemId: () => void;
+	readonly commitSelectedReviewItemId: (itemId: string) => void;
+	readonly displayStore: BridgeReviewDirectDisplayStore;
+	readonly emitSelectedReviewItemIntent: (
+		itemId: string,
+		selectedSource: 'keyboard' | 'programmatic' | 'user',
+	) => void;
 	readonly markFileViewed: (itemId: string, onDeliveryFailure?: () => void) => boolean;
-	readonly rootSnapshot: BridgeReviewViewerRootSnapshot;
+	readonly reviewSourceSlice: BridgeMainReviewSourceDisplaySlice | null;
 	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null;
 	readonly selectedContentAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
-	readonly selectionSlice: BridgeReviewSelectionSlice;
-	readonly selectionSliceRef: MutableRefObject<BridgeReviewSelectionSlice>;
-	readonly setReviewViewportItemIds: (itemIds: readonly string[]) => void;
-	readonly sendMetadataInterestRequest: (
-		request: ReviewMetadataInterestRequest,
-	) => Promise<boolean>;
-	readonly sendReviewIntakeReady: (props: {
-		readonly reason: string | null;
-		readonly streamId: string | null;
-	}) => Promise<boolean>;
-	readonly setSelectedReviewItemId: (itemId: string | null) => void;
-	readonly synchronizeReviewSource: (source: BridgeReviewRuntimeSourceSnapshot) => void;
+	readonly selectedItemId: string | null;
+	readonly selectedReviewItem: BridgeWorkerReviewDisplayItem | null;
+	readonly setReviewCodeViewVisibleItemIds: (itemIds: readonly string[]) => void;
+	readonly setReviewTreeVisibleItemIds: (itemIds: readonly string[]) => void;
 	readonly visibleCodeViewItems: readonly BridgeMainCodeViewItem[];
-	readonly viewportSliceRef: MutableRefObject<BridgeReviewViewportSlice>;
-}
-
-export interface BridgeReviewRuntimeSourceSnapshot {
-	readonly reviewPackage: BridgeReviewPackage | null;
-	readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
 }
 
 export function useBridgeReviewRenderSnapshotController(
 	props: UseBridgeReviewRenderSnapshotControllerProps,
 ): BridgeReviewRenderSnapshotController {
-	const renderSnapshotStore = useMemo(() => createBridgeMainRenderSnapshotStore(), []);
-	const renderSnapshot = useSyncExternalStore(
-		renderSnapshotStore.subscribe,
-		renderSnapshotStore.getSnapshot,
-		renderSnapshotStore.getServerSnapshot,
+	if (props.reviewClient.surface !== 'review') {
+		throw new Error('Bridge Review Viewer requires its pane-owned Review surface client.');
+	}
+	const displayStore = props.reviewClient.renderStore;
+	const catalogSnapshot = useSyncExternalStore(
+		displayStore.subscribeReviewCatalog,
+		displayStore.getReviewCatalogSnapshot,
+		displayStore.getReviewCatalogSnapshot,
 	);
-	const selectionSlice = useMemo(
-		(): BridgeReviewSelectionSlice => ({
-			selectedItemId: renderSnapshot.selectionSlice.selectedItemId,
-		}),
-		[renderSnapshot.selectionSlice.selectedItemId],
+	const reviewSourceSlice = useSyncExternalStore(
+		displayStore.subscribeReviewSource,
+		displayStore.getReviewSourceSnapshot,
+		displayStore.getReviewSourceSnapshot,
 	);
-	const viewportSlice = useMemo(
-		(): BridgeReviewViewportSlice => ({
-			visibleItemIds: renderSnapshot.viewportSlice.visibleItemIds,
-		}),
-		[renderSnapshot.viewportSlice.visibleItemIds],
+	const selectionSlice = useSyncExternalStore(
+		displayStore.subscribeReviewSelection,
+		displayStore.getReviewSelectionSnapshot,
+		displayStore.getReviewSelectionSnapshot,
 	);
-	const rootSnapshot = useMemo(
-		(): BridgeReviewViewerRootSnapshot =>
-			bridgeReviewViewerRootSnapshotFromSlices({
-				panelChromeSlice: props.panelChromeSlice,
-				selectionSlice,
-			}),
-		[props.panelChromeSlice, selectionSlice],
-	);
-	const visibleCodeViewItemsSelector = useMemo(
-		(): VisibleBridgeCodeViewItemsSelector => createVisibleBridgeCodeViewItemsSelector(),
-		[],
-	);
-	const selectedRawContentAvailability =
-		selectionSlice.selectedItemId === null
-			? null
-			: (renderSnapshot.contentAvailabilityById[selectionSlice.selectedItemId] ?? null);
-	const selectedCodeViewItem = selectedBridgeCodeViewItemForReviewPackage({
-		codeViewItemsById: renderSnapshot.codeViewItemsById,
-		reviewPackage: props.reviewPackage,
-		selectedItemId: selectionSlice.selectedItemId,
+	const selectedItemId = selectionSlice.selectedItemId;
+	const selectedReviewItem = useSelectedReviewStoreValue({
+		getSnapshot: displayStore.getReviewItemSnapshot,
+		itemId: selectedItemId,
+		subscribe: displayStore.subscribeReviewItem,
 	});
-	const visibleCodeViewItems = visibleCodeViewItemsSelector({
-		codeViewItemsById: renderSnapshot.codeViewItemsById,
-		reviewPackage: props.reviewPackage,
-		visibleItemIds: viewportSlice.visibleItemIds,
+	const selectedCodeViewItem = useSelectedReviewStoreValue({
+		getSnapshot: displayStore.getReviewCodeViewItemSnapshot,
+		itemId: selectedItemId,
+		subscribe: displayStore.subscribeReviewCodeViewItem,
 	});
-	const selectedContentAvailability = selectedContentAvailabilityForReviewPackage({
-		rawAvailability: selectedRawContentAvailability,
-		selectedCodeViewItem,
+	const rawSelectedContentAvailability = useSelectedReviewStoreValue({
+		getSnapshot: displayStore.getReviewAvailabilitySnapshot,
+		itemId: selectedItemId,
+		subscribe: displayStore.subscribeReviewAvailability,
 	});
-	const pierreCourier = props.pierreCourier;
-	const requestSequenceRef = useRef(0);
+	const selectedContentAvailability =
+		rawSelectedContentAvailability?.state === 'ready' && selectedCodeViewItem === null
+			? ({ state: 'loading' } as const)
+			: (rawSelectedContentAvailability ?? null);
+	const [codeViewRenderedItemIds, setCodeViewRenderedItemIds] = useState<readonly string[]>([]);
+	const visibleCodeViewItems = useVisibleReviewCodeViewItems({
+		displayStore,
+		itemIds: codeViewRenderedItemIds,
+	});
+	const workerViewportItemIds = useMemo(
+		(): readonly string[] => reviewCodeViewBodyDemandItemIds(codeViewRenderedItemIds),
+		[codeViewRenderedItemIds],
+	);
 	const workerEpochRef = useRef(0);
-	const selectionSliceRef = useRef(selectionSlice);
-	selectionSliceRef.current = selectionSlice;
-	const viewportSliceRef = useRef(viewportSlice);
-	viewportSliceRef.current = viewportSlice;
 	const markFileViewedFailureCallbacksRef = useRef<Map<string, () => void>>(new Map());
-	const reviewIntakeReadyRequestResolversRef = useRef<Map<string, (didSend: boolean) => void>>(
-		new Map(),
-	);
-	const metadataInterestRequestResolversRef = useRef<Map<string, (didSend: boolean) => void>>(
-		new Map(),
-	);
-
-	const publishWorkerMessages = useCallback(
-		(messages: readonly BridgeWorkerServerToMainMessage[]): void => {
-			resolveBridgeWorkerMarkFileViewedFailureCallbacks({
-				failureCallbacksByRequestId: markFileViewedFailureCallbacksRef.current,
-				messages,
-			});
-			resolveBridgeWorkerMetadataInterestRequestResolvers({
-				messages,
-				resolversByRequestId: metadataInterestRequestResolversRef.current,
-			});
-			resolveBridgeWorkerReviewIntakeReadyRequestResolvers({
-				messages,
-				resolversByRequestId: reviewIntakeReadyRequestResolversRef.current,
-			});
+	const settleWorkerRequests = useCallback((): void => {
+		settleBridgeReviewWorkerLifecycleRequests({
+			failureCallbacksByRequestId: markFileViewedFailureCallbacksRef.current,
+			lifecycleSnapshot: props.reviewClient.lifecycle.getSnapshot(),
+		});
+	}, [props.reviewClient]);
+	const pierreCourier = props.pierreCourier;
+	useEffect((): (() => void) => {
+		const failureCallbacksByRequestId = markFileViewedFailureCallbacksRef.current;
+		const unsubscribeMessages = props.reviewClient.subscribeMessages((message): void => {
 			applyBridgeWorkerMessagesToMainRenderSnapshotStore({
-				messages,
+				messages: [message],
 				pierreCourier,
-				renderSnapshotStore,
+				renderSnapshotStore: displayStore,
 			});
+		});
+		const unsubscribeLifecycle = props.reviewClient.lifecycle.subscribe(settleWorkerRequests);
+		return (): void => {
+			unsubscribeMessages();
+			unsubscribeLifecycle();
+			failureCallbacksByRequestId.clear();
+		};
+	}, [displayStore, pierreCourier, props.reviewClient, settleWorkerRequests]);
+	const clearSelectedReviewItemId = useCallback((): void => {
+		displayStore.applyWorkerPatch({ operation: 'delete', slice: 'selection' });
+	}, [displayStore]);
+	const commitSelectedReviewItemId = useCallback(
+		(itemId: string): void => {
+			displayStore.setLocalSelection({ selectedItemId: itemId, source: 'user' });
 		},
-		[pierreCourier, renderSnapshotStore],
+		[displayStore],
 	);
-	const runtimeDispatcher = useMemo(
-		(): BridgeReviewRuntimeProtocolDispatcher =>
-			createBridgeReviewRuntimeProtocolDispatcher({
-				contentItems: [],
-				contentRequestDescriptors: [],
-				publishWorkerMessages,
-				renderSemantics: [],
-				rows: [],
-				...(props.telemetryConfig === null ? {} : { telemetryConfig: props.telemetryConfig }),
-				...(props.transportFactory === undefined
-					? {}
-					: { transportFactory: props.transportFactory }),
-			}),
-		[publishWorkerMessages, props.telemetryConfig, props.transportFactory],
-	);
-	const latestReviewSourceRef = useRef<BridgeReviewRuntimeSourceSnapshot>({
-		reviewPackage: props.reviewPackage,
-		reviewTreeRows: props.reviewTreeRows,
-	});
-	latestReviewSourceRef.current = {
-		reviewPackage: props.reviewPackage,
-		reviewTreeRows: props.reviewTreeRows,
-	};
-	const synchronizedReviewSourceRef = useRef<BridgeReviewRuntimeSourceSnapshot | null>(null);
-	useEffect((): void => {
-		synchronizedReviewSourceRef.current = null;
-	}, [runtimeDispatcher]);
-	useEffect(
-		(): (() => void) => (): void => {
-			runtimeDispatcher.dispose();
-		},
-		[runtimeDispatcher],
-	);
-	const synchronizeReviewSource = useCallback(
-		(source: BridgeReviewRuntimeSourceSnapshot): void => {
-			latestReviewSourceRef.current = source;
-			const synchronizedSource = synchronizedReviewSourceRef.current;
-			if (
-				synchronizedSource?.reviewPackage === source.reviewPackage &&
-				synchronizedSource.reviewTreeRows === source.reviewTreeRows
-			) {
-				return;
-			}
-			runtimeDispatcher.dispatch(
-				encodeBridgeWorkerReviewSourceUpdateCommand({
-					requestId: nextBridgeReviewWorkerRequestId(requestSequenceRef),
-					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
-					contentItems: bridgeCommWorkerContentItemsFromReviewPackage(source.reviewPackage),
-					contentRequestDescriptors: bridgeCommWorkerContentRequestDescriptorsFromReviewPackage(
-						source.reviewPackage,
-					),
-					renderSemantics: bridgeCommWorkerRenderSemanticsFromReviewPackage(source.reviewPackage),
-					rows: bridgeCommWorkerRowsFromReviewTreeRows(source.reviewTreeRows),
-				}),
-			);
-			synchronizedReviewSourceRef.current = source;
-		},
-		[runtimeDispatcher],
-	);
-	const synchronizeLatestReviewSource = useCallback((): void => {
-		synchronizeReviewSource(latestReviewSourceRef.current);
-	}, [synchronizeReviewSource]);
-	useEffect((): void => {
-		synchronizeLatestReviewSource();
-	}, [synchronizeLatestReviewSource, props.reviewPackage, props.reviewTreeRows]);
-	const setSelectedReviewItemId = useCallback(
-		(itemId: string | null): void => {
-			if (itemId === null) {
-				renderSnapshotStore.applyWorkerPatch({
-					slice: 'selection',
-					operation: 'delete',
-				});
-				return;
-			}
-			synchronizeLatestReviewSource();
-			renderSnapshotStore.setLocalSelection({
-				selectedItemId: itemId,
-				source: 'user',
-			});
-			runtimeDispatcher.dispatch(
+	const emitSelectedReviewItemIntent = useCallback(
+		(itemId: string, selectedSource: 'keyboard' | 'programmatic' | 'user'): void => {
+			props.reviewClient.send(
 				encodeBridgeWorkerSelectCommand({
-					requestId: nextBridgeReviewWorkerRequestId(requestSequenceRef),
 					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
+					requestId: 'review-client-owned',
 					selectedItemId: itemId,
-					selectedSource: 'user',
+					selectedSource,
+					surface: 'review',
 				}),
 			);
 		},
-		[renderSnapshotStore, runtimeDispatcher, synchronizeLatestReviewSource],
+		[props.reviewClient],
 	);
-	const markFileViewed = useCallback(
-		(itemId: string, onDeliveryFailure?: () => void): boolean => {
-			if (props.reviewPackage === null || !(itemId in props.reviewPackage.itemsById)) {
-				return false;
-			}
-			const requestId = nextBridgeReviewWorkerRequestId(requestSequenceRef);
-			if (onDeliveryFailure !== undefined) {
-				markFileViewedFailureCallbacksRef.current.set(requestId, onDeliveryFailure);
-			}
-			synchronizeLatestReviewSource();
-			runtimeDispatcher.dispatch(
-				encodeBridgeWorkerMarkFileViewedCommand({
-					requestId,
-					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
-					fileId: itemId,
-				}),
-			);
-			return true;
-		},
-		[props.reviewPackage, runtimeDispatcher, synchronizeLatestReviewSource],
-	);
-	const sendMetadataInterestRequest = useCallback(
-		(request: ReviewMetadataInterestRequest): Promise<boolean> => {
-			const requestId = nextBridgeReviewWorkerRequestId(requestSequenceRef);
-			const completion = new Promise<boolean>((resolve): void => {
-				metadataInterestRequestResolversRef.current.set(requestId, resolve);
-			});
-			synchronizeLatestReviewSource();
-			runtimeDispatcher.dispatch(
-				encodeBridgeWorkerMetadataInterestUpdateCommand({
-					requestId,
-					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
-					request,
-				}),
-			);
-			return completion;
-		},
-		[runtimeDispatcher, synchronizeLatestReviewSource],
-	);
-	const sendReviewIntakeReady = useCallback(
-		(request: {
-			readonly reason: string | null;
-			readonly streamId: string | null;
-		}): Promise<boolean> => {
-			const requestId = nextBridgeReviewWorkerRequestId(requestSequenceRef);
-			const completion = new Promise<boolean>((resolve): void => {
-				reviewIntakeReadyRequestResolversRef.current.set(requestId, resolve);
-			});
-			runtimeDispatcher.dispatch(
-				encodeBridgeWorkerReviewIntakeReadyCommand({
-					requestId,
-					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
-					streamId: request.streamId,
-					reason: request.reason,
-				}),
-			);
-			return completion;
-		},
-		[runtimeDispatcher],
-	);
-	const setReviewViewportItemIds = useCallback(
-		(itemIds: readonly string[]): void => {
-			synchronizeLatestReviewSource();
-			const lastVisibleIndex = itemIds.length === 0 ? 0 : itemIds.length - 1;
-			renderSnapshotStore.setLocalViewport({
+	useEffect((): void => {
+		const lastVisibleIndex = Math.max(0, workerViewportItemIds.length - 1);
+		displayStore.setLocalViewport({
+			firstVisibleIndex: 0,
+			lastVisibleIndex,
+			visibleItemIds: workerViewportItemIds,
+		});
+		props.reviewClient.send(
+			encodeBridgeWorkerViewportCommand({
+				epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
 				firstVisibleIndex: 0,
 				lastVisibleIndex,
-				visibleItemIds: itemIds,
-			});
-			runtimeDispatcher.dispatch(
-				encodeBridgeWorkerViewportCommand({
-					requestId: nextBridgeReviewWorkerRequestId(requestSequenceRef),
-					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
-					visibleItemIds: itemIds,
-					firstVisibleIndex: 0,
-					lastVisibleIndex,
-					phase: 'settled',
-				}),
-			);
-		},
-		[renderSnapshotStore, runtimeDispatcher, synchronizeLatestReviewSource],
-	);
-	const invalidateReviewContent = useCallback(
-		(frame: ReviewInvalidationFrame): void => {
-			synchronizeLatestReviewSource();
-			runtimeDispatcher.dispatch(
-				encodeBridgeWorkerReviewInvalidateCommand({
-					requestId: nextBridgeReviewWorkerRequestId(requestSequenceRef),
-					epoch: nextBridgeReviewWorkerEpochForGeneration({
-						workerEpochRef,
-						generation: frame.generation,
+				phase: 'settled',
+				requestId: 'review-client-owned',
+				surface: 'review',
+				visibleItemIds: workerViewportItemIds,
+			}),
+		);
+	}, [displayStore, props.reviewClient, workerViewportItemIds]);
+	const setReviewCodeViewVisibleItemIds = useCallback((itemIds: readonly string[]): void => {
+		const uniqueItemIds = reviewCodeViewBodyDemandItemIds(itemIds);
+		setCodeViewRenderedItemIds((currentItemIds): readonly string[] =>
+			stringArraysEqual(currentItemIds, uniqueItemIds) ? currentItemIds : uniqueItemIds,
+		);
+	}, []);
+	const setReviewTreeVisibleItemIds = useCallback((_itemIds: readonly string[]): void => {
+		// Review metadata already carries the complete tree manifest. Tree visibility is UI-local
+		// and must not become CodeView body demand; body preparation follows CodeView visibility.
+	}, []);
+	const markFileViewed = useCallback(
+		(itemId: string, onDeliveryFailure?: () => void): boolean => {
+			if (displayStore.getReviewItemSnapshot(itemId) === undefined) return false;
+			let requestId: string;
+			try {
+				requestId = props.reviewClient.send(
+					encodeBridgeWorkerMarkFileViewedCommand({
+						epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
+						fileId: itemId,
+						requestId: 'review-client-owned',
 					}),
-					scope: frame.invalidation.scope,
-					itemIds: frame.invalidation.itemIds ?? [],
-					pathHints: frame.invalidation.pathHints ?? [],
-					reason: frame.invalidation.reason,
-				}),
-			);
+				);
+			} catch {
+				onDeliveryFailure?.();
+				return false;
+			}
+			if (onDeliveryFailure !== undefined) {
+				markFileViewedFailureCallbacksRef.current.set(requestId, onDeliveryFailure);
+				settleWorkerRequests();
+			}
+			return true;
 		},
-		[runtimeDispatcher, synchronizeLatestReviewSource],
+		[displayStore, props.reviewClient, settleWorkerRequests],
 	);
 	return {
-		invalidateReviewContent,
+		catalogSnapshot,
+		clearSelectedReviewItemId,
+		commitSelectedReviewItemId,
+		displayStore,
+		emitSelectedReviewItemIntent,
 		markFileViewed,
-		rootSnapshot,
-		selectedCodeViewItem,
+		reviewSourceSlice,
+		selectedCodeViewItem: selectedCodeViewItem ?? null,
 		selectedContentAvailability,
-		selectionSlice,
-		selectionSliceRef,
-		setReviewViewportItemIds,
-		sendMetadataInterestRequest,
-		sendReviewIntakeReady,
-		setSelectedReviewItemId,
-		synchronizeReviewSource,
+		selectedItemId,
+		selectedReviewItem: selectedReviewItem ?? null,
+		setReviewCodeViewVisibleItemIds,
+		setReviewTreeVisibleItemIds,
 		visibleCodeViewItems,
-		viewportSliceRef,
 	};
 }
 
-function bridgeCodeViewItemForReviewPackage(props: {
-	readonly codeViewItemsById: Readonly<Record<string, BridgeMainCodeViewItem>>;
-	readonly reviewPackage: BridgeReviewPackage | null;
-	readonly itemId: string | null;
-}): BridgeMainCodeViewItem | null {
-	if (props.reviewPackage === null || props.itemId === null) {
-		return null;
-	}
-	const item = props.reviewPackage.itemsById[props.itemId];
-	const codeViewItem = props.codeViewItemsById[props.itemId];
-	if (
-		item === undefined ||
-		codeViewItem === undefined ||
-		codeViewItem.bridgeMetadata.itemId !== props.itemId
-	) {
-		return null;
-	}
-	return codeViewItemCacheMatchesReviewItem(item, codeViewItem) ? codeViewItem : null;
-}
-
-export function selectedBridgeCodeViewItemForReviewPackage(props: {
-	readonly codeViewItemsById: Readonly<Record<string, BridgeMainCodeViewItem>>;
-	readonly reviewPackage: BridgeReviewPackage | null;
-	readonly selectedItemId: string | null;
-}): BridgeMainCodeViewItem | null {
-	return bridgeCodeViewItemForReviewPackage({
-		codeViewItemsById: props.codeViewItemsById,
-		itemId: props.selectedItemId,
-		reviewPackage: props.reviewPackage,
-	});
-}
-
-export function visibleBridgeCodeViewItemsForReviewPackage(props: {
-	readonly codeViewItemsById: Readonly<Record<string, BridgeMainCodeViewItem>>;
-	readonly reviewPackage: BridgeReviewPackage | null;
-	readonly visibleItemIds: readonly string[];
+function useVisibleReviewCodeViewItems(props: {
+	readonly displayStore: BridgeReviewDirectDisplayStore;
+	readonly itemIds: readonly string[];
 }): readonly BridgeMainCodeViewItem[] {
-	const visibleCodeViewItems: BridgeMainCodeViewItem[] = [];
-	for (const itemId of props.visibleItemIds) {
-		const codeViewItem = bridgeCodeViewItemForReviewPackage({
-			codeViewItemsById: props.codeViewItemsById,
-			itemId,
-			reviewPackage: props.reviewPackage,
-		});
-		if (codeViewItem !== null) {
-			visibleCodeViewItems.push(codeViewItem);
-		}
-	}
-	return visibleCodeViewItems;
+	const selector = useMemo(() => createVisibleReviewCodeViewItemsSelector(), []);
+	const subscribe = useCallback(
+		(listener: () => void): (() => void) => {
+			const unsubscribers = props.itemIds.map((itemId) =>
+				props.displayStore.subscribeReviewCodeViewItem(itemId, listener),
+			);
+			return (): void => {
+				for (const unsubscribe of unsubscribers) unsubscribe();
+			};
+		},
+		[props.displayStore, props.itemIds],
+	);
+	const getSnapshot = useCallback(
+		(): readonly BridgeMainCodeViewItem[] =>
+			selector({
+				getItem: props.displayStore.getReviewCodeViewItemSnapshot,
+				itemIds: props.itemIds,
+			}),
+		[props.displayStore, props.itemIds, selector],
+	);
+	return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
-export type VisibleBridgeCodeViewItemsSelector = (props: {
-	readonly codeViewItemsById: Readonly<Record<string, BridgeMainCodeViewItem>>;
-	readonly reviewPackage: BridgeReviewPackage | null;
-	readonly visibleItemIds: readonly string[];
-}) => readonly BridgeMainCodeViewItem[];
-
-export function createVisibleBridgeCodeViewItemsSelector(): VisibleBridgeCodeViewItemsSelector {
-	let previousItems: readonly BridgeMainCodeViewItem[] | null = null;
-
+export function createVisibleReviewCodeViewItemsSelector(): (props: {
+	readonly getItem: (itemId: string) => BridgeMainCodeViewItem | undefined;
+	readonly itemIds: readonly string[];
+}) => readonly BridgeMainCodeViewItem[] {
+	let previousItems: readonly BridgeMainCodeViewItem[] = [];
 	return (props): readonly BridgeMainCodeViewItem[] => {
-		const nextItems = visibleBridgeCodeViewItemsForReviewPackage(props);
+		const nextItems = props.itemIds.flatMap((itemId): readonly BridgeMainCodeViewItem[] => {
+			const item = props.getItem(itemId);
+			return item === undefined || item.bridgeMetadata.itemId !== itemId ? [] : [item];
+		});
 		if (
-			previousItems !== null &&
 			previousItems.length === nextItems.length &&
-			previousItems.every((previousItem, index): boolean => previousItem === nextItems[index])
+			previousItems.every((item, index): boolean => item === nextItems[index])
 		) {
 			return previousItems;
 		}
@@ -478,299 +283,35 @@ export function createVisibleBridgeCodeViewItemsSelector(): VisibleBridgeCodeVie
 	};
 }
 
-export function selectedContentAvailabilityForReviewPackage(props: {
-	readonly rawAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
-	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null;
-}): BridgeWorkerContentAvailabilityPatchPayload | null {
-	if (props.rawAvailability?.state !== 'ready') {
-		return props.rawAvailability;
-	}
-	return props.selectedCodeViewItem === null ? { state: 'loading' } : props.rawAvailability;
+export function reviewCodeViewBodyDemandItemIds(
+	codeViewVisibleItemIds: readonly string[],
+): readonly string[] {
+	return [...new Set(codeViewVisibleItemIds)];
 }
 
-function codeViewItemCacheMatchesReviewItem(
-	item: BridgeReviewItemDescriptor,
-	codeViewItem: BridgeMainCodeViewItem,
-): boolean {
-	if (codeViewItem.type === 'file') {
-		const role = codeViewItem.bridgeMetadata.contentRoles[0];
-		if (role === undefined) {
-			return false;
-		}
-		const expectedCacheKey = pierreContentCacheKeyForReviewRole(item, role);
-		return expectedCacheKey !== null && codeViewItem.bridgeMetadata.cacheKey === expectedCacheKey;
-	}
-	const roles = codeViewItem.bridgeMetadata.contentRoles;
-	const hasBase = roles.includes('base');
-	const hasHead = roles.includes('head');
-	if (!hasBase && !hasHead) {
-		return false;
-	}
-	const baseCacheKey = hasBase
-		? pierreContentCacheKeyForReviewRole(item, 'base')
-		: 'pierre-content:empty';
-	const headCacheKey = hasHead
-		? pierreContentCacheKeyForReviewRole(item, 'head')
-		: 'pierre-content:empty';
-	if (baseCacheKey === null || headCacheKey === null) {
-		return false;
-	}
-	return codeViewItem.bridgeMetadata.cacheKey === `${baseCacheKey}|${headCacheKey}`;
-}
-
-function pierreContentCacheKeyForReviewRole(
-	item: BridgeReviewItemDescriptor,
-	role: BridgeContentRole,
-): string | null {
-	const handle = reviewContentHandleForRole(item, role);
-	return handle === null
-		? null
-		: `pierre-content:${handle.contentHashAlgorithm}:${handle.contentHash}`;
-}
-
-function reviewContentHandleForRole(
-	item: BridgeReviewItemDescriptor,
-	role: BridgeContentRole,
-): BridgeContentHandle | null {
-	const directHandle = item.contentRoles[role];
-	if (directHandle !== null && directHandle !== undefined) {
-		return directHandle;
-	}
+function stringArraysEqual(first: readonly string[], second: readonly string[]): boolean {
 	return (
-		Object.values(item.contentRoles).find(
-			(handle): handle is BridgeContentHandle =>
-				handle !== null && handle !== undefined && handle.role === role,
-		) ?? null
+		first.length === second.length &&
+		first.every((itemId, itemIndex): boolean => itemId === second[itemIndex])
 	);
 }
 
-function bridgeCommWorkerRowsFromReviewTreeRows(
-	rows: readonly ReviewTreeRowMetadata[],
-): readonly BridgeCommWorkerRow[] {
-	return rows.map((row, index) => ({
-		id: row.itemId ?? row.rowId,
-		parentId: null,
-		index,
-	}));
-}
-
-export function bridgeCommWorkerContentItemsFromReviewPackage(
-	reviewPackage: BridgeReviewPackage | null,
-): readonly BridgeWorkerReviewContentMetadata[] {
-	if (reviewPackage === null) {
-		return [];
-	}
-	return reviewPackage.orderedItemIds.flatMap(
-		(itemId): readonly BridgeWorkerReviewContentMetadata[] => {
-			const item = reviewPackage.itemsById[itemId];
-			if (item === undefined) {
-				return [];
-			}
-			return [bridgeWorkerReviewContentMetadataFromReviewItem(item)];
-		},
+function useSelectedReviewStoreValue<TValue>(props: {
+	readonly getSnapshot: (itemId: string) => TValue | undefined;
+	readonly itemId: string | null;
+	readonly subscribe: (itemId: string, listener: () => void) => () => void;
+}): TValue | undefined {
+	const { getSnapshot: getItemSnapshot, itemId, subscribe: subscribeToItem } = props;
+	const subscribe = useCallback(
+		(listener: () => void): (() => void) =>
+			itemId === null ? (): void => {} : subscribeToItem(itemId, listener),
+		[itemId, subscribeToItem],
 	);
-}
-
-export function bridgeCommWorkerContentRequestDescriptorsFromReviewPackage(
-	reviewPackage: BridgeReviewPackage | null,
-): readonly BridgeWorkerReviewContentRequestDescriptor[] {
-	if (reviewPackage === null) {
-		return [];
-	}
-	return reviewPackage.orderedItemIds.flatMap(
-		(itemId): readonly BridgeWorkerReviewContentRequestDescriptor[] => {
-			const item = reviewPackage.itemsById[itemId];
-			if (item === undefined) {
-				return [];
-			}
-			return contentRequestDescriptorsForReviewItem(item);
-		},
+	const getSnapshot = useCallback(
+		(): TValue | undefined => (itemId === null ? undefined : getItemSnapshot(itemId)),
+		[getItemSnapshot, itemId],
 	);
-}
-
-export function bridgeCommWorkerRenderSemanticsFromReviewPackage(
-	reviewPackage: BridgeReviewPackage | null,
-): readonly BridgeWorkerReviewRenderSemantics[] {
-	if (reviewPackage === null) {
-		return [];
-	}
-	return reviewPackage.orderedItemIds.flatMap(
-		(itemId): readonly BridgeWorkerReviewRenderSemantics[] => {
-			const item = reviewPackage.itemsById[itemId];
-			if (item === undefined) {
-				return [];
-			}
-			return [bridgeWorkerReviewRenderSemanticsFromReviewItem(item)];
-		},
-	);
-}
-
-function bridgeWorkerReviewContentMetadataFromReviewItem(
-	item: BridgeReviewItemDescriptor,
-): BridgeWorkerReviewContentMetadata {
-	return bridgeWorkerReviewContentMetadataSchema.parse({
-		itemId: item.itemId,
-		path: item.headPath ?? item.basePath ?? item.itemId,
-		language: item.language ?? null,
-		cacheKey: item.cacheKey,
-		sizeBytes: item.sizeBytes,
-		availableContentRoles: availableContentRolesForReviewItem(item),
-		contentLineCountsByRole: item.contentLineCountsByRole ?? {},
-	});
-}
-
-export interface BridgeReviewRuntimeProtocolDispatcher {
-	readonly dispatch: (message: BridgeWorkerMainToServerMessage) => void;
-	readonly dispose: () => void;
-}
-
-export interface CreateBridgeReviewRuntimeProtocolDispatcherProps {
-	readonly bootstrapRequestId?: string;
-	readonly bridgeDemandRank?: BridgeWorkerDemandRank;
-	readonly budget?: BridgeWorkerPierreRenderBudget;
-	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
-	readonly contentRequestDescriptors: readonly BridgeWorkerReviewContentRequestDescriptor[];
-	readonly maxPreparationSliceMs?: number;
-	readonly publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
-	readonly renderSemantics: readonly BridgeWorkerReviewRenderSemantics[];
-	readonly rows: readonly BridgeCommWorkerRow[];
-	readonly telemetryConfig?: BridgeTelemetryBootstrapConfig;
-	readonly transportFactory?: (props: {
-		readonly bootstrapRequest: BridgeCommWorkerBootstrapRequest;
-		readonly publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
-	}) => BridgePaneCommWorkerDispatcher;
-}
-
-export function createBridgeReviewRuntimeProtocolDispatcher(
-	props: CreateBridgeReviewRuntimeProtocolDispatcherProps,
-): BridgeReviewRuntimeProtocolDispatcher {
-	const bootstrapRequest = bridgeCommWorkerBootstrapRequestFromReviewRuntimeProps({
-		...props,
-		requestId: props.bootstrapRequestId ?? 'review-worker-bootstrap',
-	});
-	return (props.transportFactory ?? createBridgePaneCommWorkerDispatcher)({
-		bootstrapRequest,
-		publishWorkerMessages: props.publishWorkerMessages,
-	});
-}
-
-export const createBridgePaneRuntimeProtocolDispatcher =
-	createBridgeReviewRuntimeProtocolDispatcher;
-
-export function bridgeCommWorkerBootstrapRequestFromReviewRuntimeProps(
-	props: CreateBridgeReviewRuntimeProtocolDispatcherProps & {
-		readonly requestId: string;
-	},
-): BridgeCommWorkerBootstrapRequest {
-	return bridgeCommWorkerBootstrapRequestSchema.parse({
-		schemaVersion: 1,
-		method: 'bridgeCommWorker.bootstrap',
-		requestId: props.requestId,
-		runtime: {
-			bridgeDemandRank: props.bridgeDemandRank ?? bridgeReviewRuntimeInteractiveDemandRank,
-			budget: props.budget ?? bridgeReviewRuntimeInteractiveBudget,
-			contentItems: props.contentItems,
-			contentRequestDescriptors: props.contentRequestDescriptors,
-			renderSemantics: props.renderSemantics,
-			rows: props.rows,
-			...(props.maxPreparationSliceMs === undefined
-				? {}
-				: { maxPreparationSliceMs: props.maxPreparationSliceMs }),
-			...(props.telemetryConfig === undefined
-				? {}
-				: {
-						telemetryConfig: bridgeCommWorkerTelemetryBootstrapConfigFromTelemetryConfig(
-							props.telemetryConfig,
-						),
-					}),
-		},
-	});
-}
-
-function bridgeCommWorkerTelemetryBootstrapConfigFromTelemetryConfig(
-	config: BridgeTelemetryBootstrapConfig,
-): BridgeCommWorkerTelemetryBootstrapConfig {
-	return {
-		enabledScopes: [...config.enabledScopes],
-		endpointUrl: config.endpointUrl,
-		maxEncodedBatchBytes: config.maxEncodedBatchBytes,
-		maxSamplesPerBatch: config.maxSamplesPerBatch,
-		minimumFlushIntervalMilliseconds: config.minimumFlushIntervalMilliseconds,
-		scenario: config.scenario,
-	};
-}
-
-const bridgeReviewRuntimeInteractiveDemandRank: BridgeWorkerDemandRank = {
-	lane: 'selected',
-	priority: 0,
-};
-
-const bridgeReviewRuntimeInteractiveBudget: BridgeWorkerPierreRenderBudget = {
-	...bridgeWorkerPierreRenderPolicy.reviewInteractiveRenderBudget,
-};
-
-function availableContentRolesForReviewItem(
-	item: BridgeReviewItemDescriptor,
-): readonly BridgeContentRole[] {
-	const roles: BridgeContentRole[] = [];
-	for (const role of ['base', 'head', 'diff', 'file'] as const) {
-		if (item.contentRoles[role] !== null && item.contentRoles[role] !== undefined) {
-			roles.push(role);
-		}
-	}
-	return roles;
-}
-
-function bridgeWorkerReviewRenderSemanticsFromReviewItem(
-	item: BridgeReviewItemDescriptor,
-): BridgeWorkerReviewRenderSemantics {
-	return bridgeWorkerReviewRenderSemanticsSchema.parse({
-		itemId: item.itemId,
-		itemKind: item.itemKind,
-		changeKind: item.changeKind,
-		displayPath: displayPathForReviewItem(item),
-		basePath: item.basePath ?? null,
-		headPath: item.headPath ?? null,
-		language: item.language ?? null,
-		contentLineCountsByRole: item.contentLineCountsByRole ?? {},
-	});
-}
-
-function contentRequestDescriptorsForReviewItem(
-	item: BridgeReviewItemDescriptor,
-): readonly BridgeWorkerReviewContentRequestDescriptor[] {
-	const descriptors: BridgeWorkerReviewContentRequestDescriptor[] = [];
-	for (const role of ['base', 'head', 'diff', 'file'] as const) {
-		const handle = item.contentRoles[role] ?? null;
-		if (handle !== null) {
-			descriptors.push(bridgeWorkerReviewContentRequestDescriptorFromHandle(handle));
-		}
-	}
-	return descriptors;
-}
-
-function bridgeWorkerReviewContentRequestDescriptorFromHandle(
-	handle: BridgeContentHandle,
-): BridgeWorkerReviewContentRequestDescriptor {
-	const byteBounds = bridgeReviewContentByteBoundsForHandle(handle);
-	return bridgeWorkerReviewContentRequestDescriptorSchema.parse({
-		itemId: handle.itemId,
-		role: handle.role,
-		handleId: handle.handleId,
-		reviewGeneration: handle.reviewGeneration,
-		resourceUrl: handle.resourceUrl,
-		contentHash: handle.contentHash,
-		contentHashAlgorithm: handle.contentHashAlgorithm,
-		language: handle.language ?? null,
-		sizeBytes: handle.sizeBytes,
-		...(byteBounds.expectedBytes === undefined ? {} : { expectedBytes: byteBounds.expectedBytes }),
-		maxBytes: byteBounds.maxBytes,
-		isBinary: handle.isBinary,
-	});
-}
-
-function displayPathForReviewItem(item: BridgeReviewItemDescriptor): string {
-	return item.headPath ?? item.basePath ?? item.itemId;
+	return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
 export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
@@ -784,16 +325,32 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 			case 'filePierreRenderJob':
 			case 'fileRenderPatch':
 				break;
+			case 'reviewDisplayPatch':
+				props.renderSnapshotStore.applyReviewDisplayPatchEvent(message);
+				break;
+			case 'reviewRenderPatch': {
+				if (!bridgeReviewPublicationMatchesDisplayEpoch(props.renderSnapshotStore, message)) {
+					break;
+				}
+				const currentMemberPatches = message.patches.filter(
+					(patch): boolean =>
+						patch.operation === 'reset' ||
+						props.renderSnapshotStore.reviewCatalogContainsItem(patch.itemId),
+				);
+				if (currentMemberPatches.length > 0) {
+					props.renderSnapshotStore.applySnapshotUpdate({ workerPatches: currentMemberPatches });
+				}
+				break;
+			}
 			case 'slicePatch':
-				props.renderSnapshotStore.applySnapshotUpdate({
-					workerPatches: message.patches,
-				});
 				break;
 			case 'health':
 			case 'subscription':
 				break;
-			case 'pierreRenderJob':
+			case 'reviewPierreRenderJob':
 				if (
+					!bridgeReviewPublicationMatchesDisplayEpoch(props.renderSnapshotStore, message) ||
+					!props.renderSnapshotStore.reviewCatalogContainsItem(message.job.itemId) ||
 					bridgeMainCodeViewItemMatchesExistingRenderSnapshot({
 						itemId: message.job.itemId,
 						nextItem: message.job.payload.item,
@@ -802,10 +359,10 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 				) {
 					break;
 				}
-				props.pierreCourier.enqueue(message.job);
+				props.pierreCourier.submit(message.job);
 				props.renderSnapshotStore.setWorkerCodeViewItem({
-					itemId: message.job.itemId,
 					item: message.job.payload.item,
+					itemId: message.job.itemId,
 				});
 				break;
 			default:
@@ -814,12 +371,22 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 	}
 }
 
+function bridgeReviewPublicationMatchesDisplayEpoch(
+	store: BridgeMainRenderSnapshotStore,
+	publication: Extract<
+		BridgeWorkerServerToMainMessage,
+		{ readonly kind: 'reviewPierreRenderJob' | 'reviewRenderPatch' }
+	>,
+): boolean {
+	return store.getSnapshot().reviewDisplayFreshness?.epoch === publication.workerDerivationEpoch;
+}
+
 function bridgeMainCodeViewItemMatchesExistingRenderSnapshot(props: {
 	readonly itemId: string;
 	readonly nextItem: BridgeMainCodeViewItem;
 	readonly renderSnapshotStore: BridgeMainRenderSnapshotStore;
 }): boolean {
-	const previousItem = props.renderSnapshotStore.getSnapshot().codeViewItemsById[props.itemId];
+	const previousItem = props.renderSnapshotStore.getReviewCodeViewItemSnapshot(props.itemId);
 	return (
 		previousItem !== undefined &&
 		bridgeMainCodeViewItemSignature(previousItem) ===
@@ -829,31 +396,26 @@ function bridgeMainCodeViewItemMatchesExistingRenderSnapshot(props: {
 
 export function createBridgeReviewWorkerPierreCourier(): BridgeWorkerPierreCourier {
 	return createBridgeWorkerPierreCourier({
-		enqueuePierreRenderJob: (job: BridgeWorkerPierreRenderJob) => ({
-			status: 'enqueued',
-			itemId: job.itemId,
-			payloadByteLength: job.payloadByteLength,
-			budgetClass: job.budgetClass,
-		}),
+		submitPierreRenderJob: (_job: BridgeWorkerPierreRenderJob): void => {},
 	});
 }
 
-function nextBridgeReviewWorkerRequestId(requestSequenceRef: MutableRefObject<number>): string {
-	requestSequenceRef.current += 1;
-	return `review-worker-command-${requestSequenceRef.current}`;
+function settleBridgeReviewWorkerLifecycleRequests(props: {
+	readonly failureCallbacksByRequestId: Map<string, () => void>;
+	readonly lifecycleSnapshot: BridgeWorkerRpcLifecycleSnapshot;
+}): void {
+	for (const request of Object.values(props.lifecycleSnapshot.requestsById)) {
+		if (request.state === 'pending') continue;
+		const failureCallback = props.failureCallbacksByRequestId.get(request.requestId);
+		if (failureCallback === undefined) continue;
+		props.failureCallbacksByRequestId.delete(request.requestId);
+		if (request.state !== 'acked') failureCallback();
+	}
 }
 
 function nextBridgeReviewWorkerEpoch(workerEpochRef: MutableRefObject<number>): number {
 	workerEpochRef.current += 1;
 	return workerEpochRef.current;
-}
-
-function nextBridgeReviewWorkerEpochForGeneration(props: {
-	readonly workerEpochRef: MutableRefObject<number>;
-	readonly generation: number;
-}): number {
-	props.workerEpochRef.current = Math.max(props.workerEpochRef.current + 1, props.generation);
-	return props.workerEpochRef.current;
 }
 
 function assertNeverBridgeWorkerServerMessage(_message: never): never {

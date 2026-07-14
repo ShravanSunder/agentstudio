@@ -6,7 +6,7 @@ import {
 	type BridgeCommWorkerFileMetadataDemand,
 	type BridgeCommWorkerFileViewRuntimeSource,
 	type BridgeCommWorkerReviewRuntimeSource,
-	type BridgeCommWorkerReviewSourceUpdateScheduleRequest,
+	type BridgeCommWorkerReviewMetadataResetScheduleRequest,
 	type BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest,
 	type BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 } from './bridge-comm-worker-command-handler.js';
@@ -24,14 +24,14 @@ import {
 } from './bridge-comm-worker-file-query-projection.js';
 import { enqueueSelectedBridgeWorkerFileViewContentReadyPreparation } from './bridge-comm-worker-file-view-preparation.js';
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
+import { BridgeCommWorkerReviewMetadataApplicator } from './bridge-comm-worker-review-metadata-applicator.js';
 import {
 	enqueueBridgeWorkerReviewContentReadyPreparation,
 	enqueueSelectedBridgeWorkerReviewContentReadyPreparation,
+	selectedReviewPreparationIdentity,
+	type BridgeWorkerReviewContentReadyPreparationTicket,
 } from './bridge-comm-worker-review-preparation.js';
-import {
-	canRenderBridgeWorkerReviewContentForSemantics,
-	type BridgeWorkerReviewContentResourceFetch,
-} from './bridge-comm-worker-review-runtime.js';
+import { canRenderBridgeWorkerReviewContentForSemantics } from './bridge-comm-worker-review-runtime.js';
 import {
 	enqueueBridgeCommWorkerReviewSourceReset,
 	type EnqueuedBridgeCommWorkerDemandPreparationTicket,
@@ -48,14 +48,17 @@ import {
 	buildBridgeWorkerRuntimeCommandFailedHealthEvent,
 	buildBridgeWorkerRuntimeDegradedHealthEvent,
 } from './bridge-comm-worker-runtime-health.js';
+import {
+	bridgeProductMetadataStreamHealthDiagnostic,
+	readBridgeCommWorkerRuntimeNowMilliseconds,
+	scheduleDefaultBridgeCommWorkerPreparationDrain,
+} from './bridge-comm-worker-runtime-support.js';
 import type {
-	BridgeCommWorkerRow,
 	BridgeCommWorkerStore,
 	BridgeCommWorkerStoreState,
 } from './bridge-comm-worker-store.js';
 import {
 	recordBridgeCommWorkerTaskTelemetry,
-	readBridgeCommWorkerAbsoluteNowMilliseconds,
 	type BridgeCommWorkerTelemetryRecorder,
 } from './bridge-comm-worker-telemetry.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
@@ -65,10 +68,10 @@ import {
 	type WorkerContentPreparationPumpRunResult,
 } from './bridge-worker-content-preparation-pump.js';
 import {
+	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeWorkerMainToServerMessageSchema,
-	type BridgeWorkerReviewContentMetadata,
-	type BridgeWorkerReviewContentRequestDescriptor,
-	type BridgeWorkerReviewRenderSemantics,
+	bridgeWorkerReviewDisplayPatchEventSchema,
+	type BridgeWorkerReviewDisplayPatch,
 } from './bridge-worker-contracts.js';
 import type { BridgeWorkerFileViewContentOpen } from './bridge-worker-file-view-content-fetch.js';
 import type {
@@ -76,8 +79,9 @@ import type {
 	BridgeWorkerPierreRenderBudget,
 } from './bridge-worker-pierre-render-job.js';
 import {
-	fetchBridgeWorkerReviewContentResource,
-	type BridgeWorkerContentFetch,
+	createSharedBridgeWorkerReviewContentResourceFetch,
+	type BridgeWorkerReviewContentOpen,
+	type BridgeWorkerReviewContentResourceFetch,
 } from './bridge-worker-review-content-fetch.js';
 
 export type BridgeCommWorkerPreparationDrain = () => Promise<WorkerContentPreparationPumpRunResult>;
@@ -87,17 +91,13 @@ export interface RegisterBridgeCommWorkerRuntimePortProtocolProps {
 	readonly budget: BridgeWorkerPierreRenderBudget;
 	readonly fileViewBridgeDemandRank?: BridgeWorkerDemandRank;
 	readonly fileViewBudget?: BridgeWorkerPierreRenderBudget;
-	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
-	readonly contentRequestDescriptors: readonly BridgeWorkerReviewContentRequestDescriptor[];
 	readonly createSequence?: () => number;
-	readonly fetchContent?: BridgeWorkerContentFetch;
 	readonly maxPreparationSliceMs?: number;
 	readonly now?: () => number;
 	readonly openFileViewContent?: BridgeWorkerFileViewContentOpen;
+	readonly openReviewContent?: BridgeWorkerReviewContentOpen;
 	readonly pump?: WorkerContentPreparationPump;
 	readonly productTransport?: BridgeProductTransportSession;
-	readonly renderSemantics: readonly BridgeWorkerReviewRenderSemantics[];
-	readonly rows: readonly BridgeCommWorkerRow[];
 	readonly schedulePreparationDrain?: (drain: BridgeCommWorkerPreparationDrain) => void;
 	readonly sendSchemeRpcCommand?: BridgeCommWorkerSchemeRpcCommandSender;
 	readonly schemeRpcTimeoutMilliseconds?: number;
@@ -124,23 +124,27 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	const schedulePreparationDrain =
 		props.schedulePreparationDrain ?? scheduleDefaultBridgeCommWorkerPreparationDrain;
 	let sendSchemeRpcCommand = props.sendSchemeRpcCommand ?? rejectUninstalledBridgeProductCommand;
+	const productTransport = props.productTransport;
 	const openFileViewContent: BridgeWorkerFileViewContentOpen =
 		props.openFileViewContent ??
-		(props.productTransport === undefined
+		(productTransport === undefined
 			? rejectUninstalledBridgeFileContentOpen
-			: (descriptor, abortSignal) =>
-					props.productTransport?.openContent(descriptor, abortSignal) ??
-					rejectUninstalledBridgeFileContentOpen());
+			: (descriptor, abortSignal) => productTransport.openContent(descriptor, abortSignal));
+	const openReviewContent: BridgeWorkerReviewContentOpen | undefined =
+		props.openReviewContent ??
+		(productTransport === undefined
+			? undefined
+			: (descriptor, abortSignal) => productTransport.openContent(descriptor, abortSignal));
 	const schemeRpcTimeoutMilliseconds =
 		props.schemeRpcTimeoutMilliseconds ?? bridgeCommWorkerSchemeRpcTimeoutMilliseconds;
 	const preparationCompletions: Promise<void>[] = [];
 	let drainScheduled = false;
 	let shouldRequestDrainAfterMessage = false;
 	let reviewRuntimeSource: BridgeCommWorkerReviewRuntimeSource = {
-		contentItems: props.contentItems,
-		contentRequestDescriptors: props.contentRequestDescriptors,
-		renderSemantics: props.renderSemantics,
-		rows: props.rows,
+		contentItems: [],
+		contentRequestDescriptors: [],
+		renderSemantics: [],
+		rows: [],
 	};
 	let fileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource = {
 		contentItems: [],
@@ -152,21 +156,66 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		rowsByIndex: new Map(),
 	};
 	const fetchReviewContentResource = createSharedBridgeWorkerReviewContentResourceFetch({
-		fetchContent: props.fetchContent,
+		openContent: openReviewContent,
 	});
 	const demandBackoffByItemId = new Map<string, BridgeCommWorkerDemandBackoff>();
 	const fileContentAbortControllersByItemId = new Map<string, AbortController>();
 	const fileContentPreparationGenerationByItemId = new Map<string, number>();
+	const abortFileContentPreparation = (itemId: string): void => {
+		const abortController = fileContentAbortControllersByItemId.get(itemId);
+		if (abortController === undefined) {
+			return;
+		}
+		fileContentPreparationGenerationByItemId.set(
+			itemId,
+			(fileContentPreparationGenerationByItemId.get(itemId) ?? 0) + 1,
+		);
+		fileContentAbortControllersByItemId.delete(itemId);
+		abortController.abort();
+	};
+	const abortAllFileContentPreparations = (): void => {
+		for (const itemId of fileContentAbortControllersByItemId.keys()) {
+			abortFileContentPreparation(itemId);
+		}
+	};
 	const demandInFlightItemIds = new Set<string>();
 	const pendingVisibleDemandRerunItemIds = new Set<string>();
 	const visibleDemandGenerationByItemId = new Map<string, number>();
 	const markedVisibleSourceChurnKeys = new Set<string>();
+	const activeSelectedReviewPreparationByItemId = new Map<
+		string,
+		{
+			readonly identity: string;
+			readonly ticket: BridgeWorkerReviewContentReadyPreparationTicket;
+		}
+	>();
 	let latestDemandExecutionRequest: BridgeCommWorkerDemandExecutionScheduleRequest | null = null;
 	let activeReviewSourceResetEpoch: number | null = null;
+	let activeReviewWorkerDerivationEpoch: number | null = null;
 	let activeFileWorkerDerivationEpoch: number | null = null;
 	const fileDisplayEventAuthority = new BridgeCommWorkerFileDisplayEventAuthority({
 		createSequence,
 	});
+	let reviewDisplayProjectionRevision = 0;
+	const publishReviewDisplayPatches = (publication: {
+		readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
+		readonly workerDerivationEpoch: number;
+	}): void => {
+		reviewDisplayProjectionRevision += 1;
+		port.postMessage(
+			bridgeWorkerReviewDisplayPatchEventSchema.parse({
+				direction: 'serverWorkerToMain',
+				epoch: publication.workerDerivationEpoch,
+				kind: 'reviewDisplayPatch',
+				patches: publication.patches,
+				projectionRevision: reviewDisplayProjectionRevision,
+				sequence: createSequence(),
+				surface: 'review',
+				transferDescriptors: [],
+				wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			}),
+		);
+	};
 	const fileQueryProjection = new BridgeCommWorkerFileQueryProjection();
 	let updateFileMetadataDemand: ((demand: BridgeCommWorkerFileMetadataDemand) => void) | null =
 		null;
@@ -200,7 +249,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		request: BridgeCommWorkerDemandExecutionScheduleRequest,
 	): ReadonlySet<string> => {
 		const unmarkedAffectedItemIds = request.affectedItemIds?.filter((itemId) => {
-			const churnKey = `${request.epoch}:${itemId}`;
+			const churnKey = `${request.sourceChurnRevision ?? request.epoch}:${itemId}`;
 			return !markedVisibleSourceChurnKeys.has(churnKey);
 		});
 		const sourceChurnItemIds = markVisibleReviewDemandSourceChurn({
@@ -212,7 +261,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			visibleDemandGenerationByItemId,
 		});
 		for (const itemId of sourceChurnItemIds) {
-			markedVisibleSourceChurnKeys.add(`${request.epoch}:${itemId}`);
+			markedVisibleSourceChurnKeys.add(`${request.sourceChurnRevision ?? request.epoch}:${itemId}`);
 		}
 		return sourceChurnItemIds;
 	};
@@ -223,6 +272,11 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		shouldMarkSourceChurn = true,
 	): boolean => {
 		latestDemandExecutionRequest = request;
+		const workerDerivationEpoch =
+			productTransport === undefined ? request.epoch : activeReviewWorkerDerivationEpoch;
+		if (workerDerivationEpoch === null) {
+			return false;
+		}
 		const sourceChurnItemIds = shouldMarkSourceChurn
 			? markVisibleReviewDemandSourceChurnFromRequest(request)
 			: new Set<string>();
@@ -236,7 +290,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			budget: props.budget,
 			createSequence,
 			epoch: request.epoch,
-			...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
+			...(openReviewContent === undefined ? {} : { openContent: openReviewContent }),
 			fetchReviewContentResource,
 			inFlightItemIds: demandInFlightItemIds,
 			nowMilliseconds: readBridgeCommWorkerRuntimeNowMilliseconds(props.now),
@@ -258,6 +312,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			sourceChurnItemIds: forceExecutionItemIds,
 			store: request.store,
 			visibleDemandGenerationByItemId,
+			workerDerivationEpoch,
 		});
 		let enqueued = false;
 		let startedItemCount = 0;
@@ -287,12 +342,28 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	const scheduleSelectedReviewContentReadyPreparation = (
 		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 	): void => {
+		const workerDerivationEpoch =
+			productTransport === undefined ? request.epoch : activeReviewWorkerDerivationEpoch;
+		if (workerDerivationEpoch === null) {
+			return;
+		}
+		const preparationIdentity = selectedReviewPreparationIdentity({
+			epoch: request.epoch,
+			itemId: request.itemId,
+			source: reviewRuntimeSource,
+			workerDerivationEpoch,
+		});
+		const activePreparation = activeSelectedReviewPreparationByItemId.get(request.itemId);
+		if (activePreparation?.identity === preparationIdentity) {
+			return;
+		}
+		activePreparation?.ticket.cancel();
 		const ticket = enqueueSelectedBridgeWorkerReviewContentReadyPreparation({
 			bridgeDemandRank: props.bridgeDemandRank,
 			budget: props.budget,
 			contentRequestDescriptors: reviewRuntimeSource.contentRequestDescriptors,
 			epoch: request.epoch,
-			...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
+			...(openReviewContent === undefined ? {} : { openContent: openReviewContent }),
 			fetchReviewContentResource,
 			itemId: request.itemId,
 			port,
@@ -301,29 +372,39 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			requestPreparationDrain,
 			sequence: createSequence(),
 			store: request.store,
+			workerDerivationEpoch,
 			...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 		});
 		if (ticket.enqueued) {
-			preparationCompletions.push(ticket.completion);
+			activeSelectedReviewPreparationByItemId.set(request.itemId, {
+				identity: preparationIdentity,
+				ticket,
+			});
+			const trackedCompletion = ticket.completion.finally(() => {
+				if (activeSelectedReviewPreparationByItemId.get(request.itemId)?.ticket === ticket) {
+					activeSelectedReviewPreparationByItemId.delete(request.itemId);
+				}
+			});
+			preparationCompletions.push(trackedCompletion);
 			shouldRequestDrainAfterMessage = true;
 		}
 	};
 
 	const handler = createBridgeCommWorkerCommandHandler({
-		contentItems: props.contentItems,
-		contentRequestDescriptors: props.contentRequestDescriptors,
-		renderSemantics: props.renderSemantics,
-		rows: props.rows,
+		contentItems: [],
+		contentRequestDescriptors: [],
+		renderSemantics: [],
+		rows: [],
 		createSequence,
 		...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 		scheduleSelectedReviewContentReadyPreparation,
-		scheduleReviewSourceUpdate: (
-			request: BridgeCommWorkerReviewSourceUpdateScheduleRequest,
+		scheduleReviewMetadataReset: (
+			request: BridgeCommWorkerReviewMetadataResetScheduleRequest,
 		): void => {
 			activeReviewSourceResetEpoch = request.epoch;
 			markVisibleReviewDemandSourceChurnFromRequest({
 				affectedItemIds: request.affectedItemIds,
-				cause: 'reviewSourceUpdate',
+				cause: request.cause,
 				epoch: request.epoch,
 				store: request.store,
 			});
@@ -352,10 +433,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			if (workerDerivationEpoch === null) {
 				return;
 			}
-			for (const abortController of fileContentAbortControllersByItemId.values()) {
-				abortController.abort();
-			}
-			fileContentAbortControllersByItemId.clear();
+			abortAllFileContentPreparations();
 			const abortController = new AbortController();
 			fileContentAbortControllersByItemId.set(request.itemId, abortController);
 			const preparationGeneration =
@@ -427,25 +505,39 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 						}),
 				}),
 	});
-	if (props.productTransport !== undefined) {
+	if (productTransport !== undefined) {
 		const fileMetadataProjection = new BridgeCommWorkerFileMetadataProjection();
+		const reviewMetadataApplicator = new BridgeCommWorkerReviewMetadataApplicator({
+			applyRuntimeSource: (application): void => {
+				for (const message of handler.applyReviewMetadataApplication(application)) {
+					port.postMessage(message);
+				}
+				if (pump.getPendingWorkIds().length > 0) requestPreparationDrain();
+			},
+			currentWorkerDerivationEpoch: () => productTransport.workerDerivationEpoch('review'),
+			publishDisplayPatches: publishReviewDisplayPatches,
+		});
 		const productController = new BridgeCommWorkerProductController({
 			onFileMetadataDemandFailure: (): void => {
 				port.postMessage(buildBridgeWorkerFileMetadataInterestFailureHealthEvent());
 			},
 			onFileMetadataEvent: (event, workerDerivationEpoch): void => {
 				activeFileWorkerDerivationEpoch = workerDerivationEpoch;
-				if (
-					event.eventKind === 'file.sourceAccepted' ||
-					event.eventKind === 'file.descriptorReady' ||
-					event.eventKind === 'file.invalidated'
-				) {
-					for (const abortController of fileContentAbortControllersByItemId.values()) {
-						abortController.abort();
-					}
-					fileContentAbortControllersByItemId.clear();
-				}
 				const projection = fileMetadataProjection.apply(event);
+				if (event.eventKind === 'file.sourceAccepted') {
+					abortAllFileContentPreparations();
+				} else if (event.eventKind === 'file.invalidated') {
+					if (event.fileId === null) {
+						abortAllFileContentPreparations();
+					} else {
+						abortFileContentPreparation(event.fileId);
+					}
+				} else if (
+					event.eventKind === 'file.descriptorReady' &&
+					projection.runtimeMutation !== null
+				) {
+					abortFileContentPreparation(event.fileId);
+				}
 				const displayProjection = fileQueryProjection.applyDisplayPatches(projection.patches);
 				if (displayProjection.patches.length > 0) {
 					for (const message of fileDisplayEventAuthority.publish({
@@ -466,10 +558,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			},
 			onFileMetadataFailure: (_error, workerDerivationEpoch): void => {
 				activeFileWorkerDerivationEpoch = workerDerivationEpoch;
-				for (const abortController of fileContentAbortControllersByItemId.values()) {
-					abortController.abort();
-				}
-				fileContentAbortControllersByItemId.clear();
+				abortAllFileContentPreparations();
 				const displayProjection = fileQueryProjection.applyDisplayPatches([
 					{ operation: 'clear', slice: 'fileTree' },
 					{ operation: 'reset', slice: 'fileItem' },
@@ -492,12 +581,42 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 					},
 				});
 				for (const message of messages) port.postMessage(message);
-				port.postMessage(buildBridgeWorkerFileMetadataFailureHealthEvent());
+				port.postMessage(
+					buildBridgeWorkerFileMetadataFailureHealthEvent(
+						bridgeProductMetadataStreamHealthDiagnostic(productTransport),
+					),
+				);
 			},
-			productTransport: props.productTransport,
+			onReviewMetadataEvent: (event, workerDerivationEpoch): void => {
+				activeReviewWorkerDerivationEpoch = workerDerivationEpoch;
+				reviewMetadataApplicator.apply(event, workerDerivationEpoch);
+			},
+			onReviewMetadataFailure: (_error, workerDerivationEpoch): void => {
+				activeReviewWorkerDerivationEpoch = workerDerivationEpoch;
+				publishReviewDisplayPatches({
+					patches: [
+						{
+							operation: 'failed',
+							payload: { error: 'metadataUnavailable', status: 'failed' },
+							slice: 'reviewSource',
+						},
+					],
+					workerDerivationEpoch,
+				});
+			},
+			productTransport,
 		});
+		try {
+			productController.ensureReviewMetadata();
+		} catch {
+			// The typed failure publication above keeps the runtime alive for repair/resubscription.
+		}
 		void productController.ensureFileSource().catch((): void => {
-			port.postMessage(buildBridgeWorkerFileMetadataFailureHealthEvent());
+			port.postMessage(
+				buildBridgeWorkerFileMetadataFailureHealthEvent(
+					bridgeProductMetadataStreamHealthDiagnostic(productTransport),
+				),
+			);
 		});
 		updateFileMetadataDemand = (demand): void => {
 			void productController.updateFileMetadataDemand(demand).catch((): void => {});
@@ -648,56 +767,13 @@ function createBridgeWorkerRuntimeSequenceCounter(): () => number {
 	};
 }
 
-function createSharedBridgeWorkerReviewContentResourceFetch(props: {
-	readonly fetchContent: BridgeWorkerContentFetch | undefined;
-}): BridgeWorkerReviewContentResourceFetch {
-	const inFlightResourcesByUrl = new Map<
-		string,
-		ReturnType<BridgeWorkerReviewContentResourceFetch>
-	>();
-	return async (descriptor: BridgeWorkerReviewContentRequestDescriptor) => {
-		const resourceKey = sharedBridgeWorkerReviewContentResourceKey(descriptor);
-		const existingResource = inFlightResourcesByUrl.get(resourceKey);
-		if (existingResource !== undefined) {
-			return await existingResource;
-		}
-		const resourcePromise = fetchBridgeWorkerReviewContentResource({
-			descriptor,
-			...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
-		});
-		inFlightResourcesByUrl.set(resourceKey, resourcePromise);
-		try {
-			return await resourcePromise;
-		} finally {
-			inFlightResourcesByUrl.delete(resourceKey);
-		}
-	};
-}
-
-function sharedBridgeWorkerReviewContentResourceKey(
-	descriptor: BridgeWorkerReviewContentRequestDescriptor,
-): string {
-	return [
-		descriptor.resourceUrl,
-		descriptor.itemId,
-		descriptor.role,
-		descriptor.contentHashAlgorithm,
-		descriptor.contentHash,
-		descriptor.language ?? '',
-		descriptor.sizeBytes,
-		descriptor.expectedBytes ?? '',
-		descriptor.maxBytes,
-		descriptor.isBinary,
-	].join('\u0000');
-}
-
 interface EnqueueVisibleBridgeCommWorkerReviewDemandExecutionProps {
 	readonly backoffByItemId: ReadonlyMap<string, BridgeCommWorkerDemandBackoff>;
 	readonly budget: BridgeWorkerPierreRenderBudget;
 	readonly createSequence: () => number;
 	readonly epoch: number;
-	readonly fetchContent?: BridgeWorkerContentFetch;
 	readonly fetchReviewContentResource?: BridgeWorkerReviewContentResourceFetch;
+	readonly openContent?: BridgeWorkerReviewContentOpen;
 	readonly inFlightItemIds: Set<string>;
 	readonly nowMilliseconds: number;
 	readonly pendingRerunItemIds: Set<string>;
@@ -709,6 +785,7 @@ interface EnqueueVisibleBridgeCommWorkerReviewDemandExecutionProps {
 	readonly sourceChurnItemIds: ReadonlySet<string>;
 	readonly store: BridgeCommWorkerStore;
 	readonly visibleDemandGenerationByItemId: ReadonlyMap<string, number>;
+	readonly workerDerivationEpoch: number;
 }
 
 function enqueueVisibleBridgeCommWorkerReviewDemandExecution(
@@ -745,10 +822,10 @@ function enqueueVisibleBridgeCommWorkerReviewDemandExecution(
 			contentRequestDescriptors: props.reviewRuntimeSource.contentRequestDescriptors,
 			demandKey: 'visible',
 			epoch: props.epoch,
-			...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
 			...(props.fetchReviewContentResource === undefined
 				? {}
 				: { fetchReviewContentResource: props.fetchReviewContentResource }),
+			...(props.openContent === undefined ? {} : { openContent: props.openContent }),
 			isDemandCurrent: (): boolean =>
 				(props.visibleDemandGenerationByItemId.get(itemId) ?? 0) === visibleDemandGeneration,
 			itemId,
@@ -759,6 +836,7 @@ function enqueueVisibleBridgeCommWorkerReviewDemandExecution(
 			requestPreparationDrain: props.requestPreparationDrain,
 			sequence: props.createSequence(),
 			store: props.store,
+			workerDerivationEpoch: props.workerDerivationEpoch,
 		});
 		const completion = ticket.completion.finally(() => {
 			props.inFlightItemIds.delete(itemId);
@@ -824,7 +902,7 @@ function markVisibleReviewDemandSourceChurn(props: {
 	readonly store: BridgeCommWorkerStore;
 	readonly visibleDemandGenerationByItemId: Map<string, number>;
 }): ReadonlySet<string> {
-	if (props.cause !== 'reviewInvalidate' && props.cause !== 'reviewSourceUpdate') {
+	if (props.cause !== 'reviewInvalidate' && props.cause !== 'reviewMetadata') {
 		return new Set();
 	}
 	const affectedItemIds =
@@ -862,19 +940,4 @@ function hasReviewRuntimeSourceContent(
 			semantics,
 		})
 	);
-}
-
-function readBridgeCommWorkerRuntimeNowMilliseconds(now: (() => number) | undefined): number {
-	if (now !== undefined) {
-		return now();
-	}
-	return readBridgeCommWorkerAbsoluteNowMilliseconds();
-}
-
-function scheduleDefaultBridgeCommWorkerPreparationDrain(
-	drain: BridgeCommWorkerPreparationDrain,
-): void {
-	queueMicrotask(() => {
-		void drain();
-	});
 }

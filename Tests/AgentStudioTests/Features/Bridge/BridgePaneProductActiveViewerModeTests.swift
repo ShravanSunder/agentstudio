@@ -95,6 +95,103 @@ extension WebKitSerializedTests {
             )
         }
 
+        @Test("Review package state is installed before product ready publication")
+        func reviewPackageStateIsInstalledBeforeProductReadyPublication() async throws {
+            // Arrange
+            let controllerBox = ProductActiveViewerControllerBox()
+            let reviewMetadataRecorder = ProductActiveViewerReviewMetadataRecorder(
+                controllerBox: controllerBox
+            )
+            let productProvider = BridgePaneProductSchemeProvider(
+                fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+                reviewMetadataSource: reviewMetadataRecorder,
+                reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
+                markReviewItemViewed: { _ in }
+            )
+            let paneId = UUIDv7.generate()
+            let installation = BridgePaneController.makeInitialProductSessionInstallation(
+                paneSessionId: paneId.uuidString,
+                provider: productProvider
+            )
+            let owner = BridgePaneController.makeProductSessionOwner(
+                paneSessionId: paneId.uuidString,
+                provider: productProvider,
+                activeInstallation: installation
+            )
+            let controller = BridgePaneController(
+                paneId: paneId,
+                state: BridgePaneState(
+                    panelKind: .diffViewer,
+                    source: .commit(sha: "product-ready-ordering")
+                ),
+                productSessionDependencies: BridgePaneProductSessionDependencies(
+                    installation: installation,
+                    owner: owner,
+                    productProvider: productProvider
+                )
+            )
+            controllerBox.controller = controller
+            defer { controller.teardown() }
+
+            let harness = try await BridgeProductSessionLifecycleHarness.opened()
+            let metadataRequest = try bridgeProductMetadataStreamRequest(
+                metadataStreamId: "metadata-product-ready-ordering",
+                resumeFromStreamSequence: nil
+            )
+            let registration = await harness.session.registerMetadataProducer(
+                request: metadataRequest
+            ) { lease in
+                await productProvider.runMetadataProducer(
+                    request: metadataRequest,
+                    lease: lease,
+                    session: harness.session
+                )
+            }
+            let metadataLease = try bridgeProductAcceptedLease(registration)
+            #expect(
+                await consumeNextBridgeProductProducerFrame(
+                    for: metadataLease,
+                    from: harness.session
+                )?.sequence == 0
+            )
+            let reviewOpenRequest = try bridgeProductLifecycleControlRequest(
+                bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 2, epoch: 1)
+            )
+            var metadataStreamIsReady = false
+            for _ in 0..<1000 {
+                if case .subscriptionOpenAccepted = await productProvider.response(for: reviewOpenRequest) {
+                    metadataStreamIsReady = true
+                    break
+                }
+                await Task.yield()
+            }
+            #expect(metadataStreamIsReady)
+
+            let reviewPackage = try productActiveViewerReviewPackageFixture()
+            let reviewDelta = BridgeReviewDelta(
+                packageId: reviewPackage.packageId,
+                reviewGeneration: reviewPackage.reviewGeneration,
+                revision: reviewPackage.revision + 1,
+                operations: BridgeReviewDelta.Operations()
+            )
+
+            // Act
+            await controller.commitReviewPackageLoad(
+                BridgeReviewPackageLoadData(package: reviewPackage, delta: reviewDelta),
+                traceContext: nil
+            )
+            let observations = await reviewMetadataRecorder.observations
+
+            // Assert
+            let observation = try #require(observations.last)
+            #expect(observations.count == 1)
+            #expect(observation.availability == .ready(reviewPackage))
+            #expect(observation.packageMetadata == reviewPackage)
+            #expect(observation.packageDelta == reviewDelta)
+            #expect(observation.status == .ready)
+            try await closeBridgeProductSessionProducer(metadataLease, in: harness.session)
+        }
+
         @Test("replayed committed File hint cannot replace the accepted sequence")
         func replayedCommittedFileHintIsIgnored() async throws {
             let controller = makeController()
@@ -199,6 +296,78 @@ extension WebKitSerializedTests {
             )
         }
     }
+}
+
+private struct ProductActiveViewerReviewPublicationObservation: Equatable, Sendable {
+    let availability: BridgePaneProductReviewMetadataAvailability
+    let packageMetadata: BridgeReviewPackage?
+    let packageDelta: BridgeReviewDelta?
+    let status: DiffStatus
+}
+
+@MainActor
+private final class ProductActiveViewerControllerBox {
+    weak var controller: BridgePaneController?
+
+    func observation(
+        availability: BridgePaneProductReviewMetadataAvailability
+    ) -> ProductActiveViewerReviewPublicationObservation? {
+        guard let controller else { return nil }
+        return ProductActiveViewerReviewPublicationObservation(
+            availability: availability,
+            packageMetadata: controller.paneState.diff.packageMetadata,
+            packageDelta: controller.paneState.diff.packageDelta,
+            status: controller.paneState.diff.status
+        )
+    }
+}
+
+private enum ProductActiveViewerReviewMetadataRecorderError: Error {
+    case controllerUnavailable
+}
+
+private actor ProductActiveViewerReviewMetadataRecorder:
+    BridgePaneProductReviewMetadataProducing
+{
+    private let controllerBox: ProductActiveViewerControllerBox
+    private(set) var observations: [ProductActiveViewerReviewPublicationObservation] = []
+
+    init(controllerBox: ProductActiveViewerControllerBox) {
+        self.controllerBox = controllerBox
+    }
+
+    func open(
+        subscription _: BridgeProductSubscriptionSnapshot,
+        emit _: @escaping BridgePaneProductReviewMetadataEventSink
+    ) async throws {}
+
+    func update(
+        subscription _: BridgeProductSubscriptionSnapshot,
+        emit _: @escaping BridgePaneProductReviewMetadataEventSink
+    ) async throws {}
+
+    func publish(
+        availability: BridgePaneProductReviewMetadataAvailability
+    ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
+        guard let observation = await controllerBox.observation(availability: availability) else {
+            throw ProductActiveViewerReviewMetadataRecorderError.controllerUnavailable
+        }
+        observations.append(observation)
+        return .loading(retained: 0)
+    }
+
+    func cancel(subscriptionId _: String) {}
+}
+
+private func productActiveViewerReviewPackageFixture() throws -> BridgeReviewPackage {
+    let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+    let fixtureURL = projectRoot.appending(
+        path: "Tests/BridgeContractFixtures/valid/bridge-review-package.json"
+    )
+    return try JSONDecoder().decode(
+        BridgeReviewPackage.self,
+        from: Data(contentsOf: fixtureURL)
+    )
 }
 
 private actor ProductActiveViewerReviewFrameCapture {

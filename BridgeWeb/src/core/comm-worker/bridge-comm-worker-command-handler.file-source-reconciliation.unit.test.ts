@@ -43,6 +43,7 @@ describe('Bridge comm worker command handler File source reconciliation', () => 
 				epoch: 7,
 				selectedItemId: 'file-1',
 				selectedSource: 'user',
+				surface: 'fileView',
 			}),
 		);
 		const selectedStore = scheduledFileViewPreparations[0]?.store;
@@ -120,6 +121,7 @@ describe('Bridge comm worker command handler File source reconciliation', () => 
 				epoch: 7,
 				selectedItemId: 'file-1',
 				selectedSource: 'user',
+				surface: 'fileView',
 			}),
 		);
 		const selectedStore = scheduledFileViewPreparations[0]?.store;

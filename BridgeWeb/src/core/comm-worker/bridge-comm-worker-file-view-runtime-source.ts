@@ -15,6 +15,11 @@ export interface BridgeCommWorkerFileViewRuntimeSource {
 	readonly rowsByIndex?: ReadonlyMap<number, BridgeCommWorkerRow>;
 }
 
+export interface BridgeCommWorkerFileViewRuntimeMutationApplication {
+	readonly nextSource: BridgeCommWorkerFileViewRuntimeSource;
+	readonly selectedContentRequestChanged: boolean;
+}
+
 export function applyFileViewRuntimeMutationToSource(
 	source: BridgeCommWorkerFileViewRuntimeSource,
 	mutation: BridgeCommWorkerFileViewRuntimeMutation,
@@ -55,6 +60,25 @@ export function applyFileViewRuntimeMutationToSource(
 		rowIndexByItemId.set(row.id, row.index);
 	}
 	return normalized;
+}
+
+export function applyFileViewRuntimeMutationTrackingSelectedRequest(props: {
+	readonly mutation: BridgeCommWorkerFileViewRuntimeMutation;
+	readonly selectedId: string | null;
+	readonly source: BridgeCommWorkerFileViewRuntimeSource;
+}): BridgeCommWorkerFileViewRuntimeMutationApplication {
+	const previousSelectedRequest =
+		props.selectedId === null ? null : findFileViewContentRequest(props.source, props.selectedId);
+	const nextSource = applyFileViewRuntimeMutationToSource(props.source, props.mutation);
+	const nextSelectedRequest =
+		props.selectedId === null ? null : findFileViewContentRequest(nextSource, props.selectedId);
+	return {
+		nextSource,
+		selectedContentRequestChanged: !areFileViewContentRequestsEquivalent(
+			previousSelectedRequest,
+			nextSelectedRequest,
+		),
+	};
 }
 
 export function normalizeBridgeCommWorkerFileViewRuntimeSource(
@@ -98,6 +122,20 @@ export function areFileViewContentRequestsEquivalent(
 		left.contentDescriptor.source.sourceCursor === right.contentDescriptor.source.sourceCursor &&
 		left.contentDescriptor.source.subscriptionGeneration ===
 			right.contentDescriptor.source.subscriptionGeneration
+	);
+}
+
+export function didSelectedFileViewContentRequestChange(props: {
+	readonly nextFileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource;
+	readonly previousFileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource;
+	readonly selectedId: string | null;
+}): boolean {
+	if (props.selectedId === null) {
+		return false;
+	}
+	return !areFileViewContentRequestsEquivalent(
+		findFileViewContentRequest(props.previousFileViewRuntimeSource, props.selectedId),
+		findFileViewContentRequest(props.nextFileViewRuntimeSource, props.selectedId),
 	);
 }
 

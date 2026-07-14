@@ -48,6 +48,7 @@ final class BridgePaneController {
     let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
     let reviewContentStore: BridgeContentStore
     let productSessionOwner: BridgePaneProductSessionOwner
+    let telemetrySessionOwner: BridgePaneTelemetrySessionOwner?
     let productSchemeProvider: BridgePaneProductSchemeProvider?
     let reviewPipeline: BridgeReviewPipeline
     let reviewChangeIndex = BridgeChangeIndex()
@@ -76,6 +77,7 @@ final class BridgePaneController {
     let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
     let pushNonce: String
     let productSessionBootstrapSink: BridgeProductSessionBootstrapSink
+    let telemetrySessionBootstrapSink: BridgeTelemetrySessionBootstrapSink
     let pushEnvelopeSink: @MainActor (WebPage, String, String) async throws -> Void
     let intakeFrameSink: @MainActor (WebPage, PreEncodedIntakeFrame) async throws -> Void
     private let userContentController: WKUserContentController
@@ -87,6 +89,8 @@ final class BridgePaneController {
     private var lifecycleRetirementTask: Task<Bool, Never>?
     var productSessionBootstrapTransitionTail: Task<Void, Never>?
     var hasPublishedProductSessionBootstrap = false
+    var telemetrySessionBootstrapTransitionTail: Task<Void, Never>?
+    var hasPublishedTelemetrySessionBootstrap = false
     private var teardownCleanupTask: Task<Void, Never>?
     var bridgeDeliveryTail: Task<Void, Never>?
     private var inboxPostTimestamps: [Date] = []
@@ -119,11 +123,13 @@ final class BridgePaneController {
         telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy = .live,
         telemetryScopeGate: BridgeTelemetryScopeGate? = nil,
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
-        telemetryIngestor: (any BridgeTelemetryBatchIngesting)? = nil,
         traceContextFactory: BridgeTraceContextFactory = .live,
         productSessionDependencies: BridgePaneProductSessionDependencies? = nil,
+        telemetrySessionDependencies: BridgePaneTelemetrySessionDependencies? = nil,
         productSessionBootstrapSink: @escaping BridgeProductSessionBootstrapSink =
             BridgePaneController.dispatchProductSessionBootstrap,
+        telemetrySessionBootstrapSink: @escaping BridgeTelemetrySessionBootstrapSink =
+            BridgePaneController.dispatchTelemetrySessionBootstrap,
         pushEnvelopeSink: @escaping @MainActor (WebPage, String, String) async throws -> Void =
             BridgePaneController.dispatchPushEnvelope,
         preEncodedIntakeFrameSink: @escaping @MainActor (WebPage, PreEncodedIntakeFrame) async throws -> Void =
@@ -137,10 +143,11 @@ final class BridgePaneController {
             telemetryRuntimePolicy: telemetryRuntimePolicy,
             telemetryScopeGate: telemetryScopeGate,
             telemetryRecorder: telemetryRecorder,
-            telemetryIngestor: telemetryIngestor
+            telemetrySessionDependencies: telemetrySessionDependencies
         )
         self.telemetryScopeGate = telemetryDependencies.scopeGate
         self.telemetryRecorder = telemetryDependencies.recorder
+        self.telemetrySessionOwner = telemetryDependencies.sessionDependencies?.owner
         self.traceContextFactory = traceContextFactory
         let resolvedReviewSourceProvider = reviewSourceProvider ?? BridgeUnavailableReviewSourceProvider()
         let resolvedReviewContentStore = BridgeContentStore(provider: resolvedReviewSourceProvider)
@@ -163,7 +170,8 @@ final class BridgePaneController {
                 paneSessionId: paneId.uuidString,
                 runtime: resolvedRuntime,
                 state: state,
-                reviewContentStore: resolvedReviewContentStore
+                reviewContentStore: resolvedReviewContentStore,
+                telemetryRecorder: telemetryDependencies.recorder
             )
         self.productSessionOwner = resolvedProductSessionDependencies.owner
         self.productSchemeProvider = resolvedProductSessionDependencies.productProvider
@@ -198,14 +206,12 @@ final class BridgePaneController {
         )
         self.pushNonce = bootstrapArtifacts.pushNonce
         self.productSessionBootstrapSink = productSessionBootstrapSink
+        self.telemetrySessionBootstrapSink = telemetrySessionBootstrapSink
         self.pushEnvelopeSink = pushEnvelopeSink
-        if let rawIntakeFrameSink {
-            self.intakeFrameSink = { page, frame in
-                try await rawIntakeFrameSink(page, frame.envelopeJSON, frame.pushNonce)
-            }
-        } else {
-            self.intakeFrameSink = preEncodedIntakeFrameSink
-        }
+        self.intakeFrameSink = Self.resolveIntakeFrameSink(
+            preEncodedIntakeFrameSink: preEncodedIntakeFrameSink,
+            rawIntakeFrameSink: rawIntakeFrameSink
+        )
         self.bootstrapScript = bootstrapArtifacts.script
         Self.installInitialUserScripts(
             in: userContentController,
@@ -220,6 +226,7 @@ final class BridgePaneController {
                 reviewContentStore: reviewContentStore,
                 resourceLeaseRegistry: resourceLeaseRegistry,
                 telemetryRecorder: telemetryDependencies.recorder,
+                telemetrySessionOwner: telemetryDependencies.sessionDependencies?.owner,
                 productSessionOwner: resolvedProductSessionDependencies.owner,
                 productSessionRouter: resolvedProductSessionDependencies.owner.schemeRouter
             )
@@ -236,8 +243,7 @@ final class BridgePaneController {
         configureSchemeCommandDispatcher(
             schemeCommandDispatcher,
             readyMessageHandler: readyMessageHandler,
-            telemetryRecorder: telemetryDependencies.recorder,
-            telemetryIngestor: telemetryDependencies.ingestor
+            telemetryRecorder: telemetryDependencies.recorder
         )
         configureRuntimeCallbacks()
         registerNamespaceHandlers()
@@ -247,11 +253,9 @@ final class BridgePaneController {
     private func configureSchemeCommandDispatcher(
         _ dispatcher: BridgeSchemeCommandDispatcher,
         readyMessageHandler: BridgeReadyMessageHandler,
-        telemetryRecorder: (any BridgePerformanceTraceRecording)?,
-        telemetryIngestor: (any BridgeTelemetryBatchIngesting)?
+        telemetryRecorder: (any BridgePerformanceTraceRecording)?
     ) {
         dispatcher.telemetryRecorder = telemetryRecorder
-        dispatcher.telemetryIngestor = telemetryIngestor
 
         // Log all RPC errors (parse errors, unknown methods, batch rejection, handler failures).
         // All error codes are reported through this single callback.
@@ -284,6 +288,11 @@ final class BridgePaneController {
                 }
             case .productSessionBootstrap(let requestId, let reason):
                 await enqueueProductSessionBootstrapRequest(
+                    requestId: requestId,
+                    reason: reason
+                )
+            case .telemetrySessionBootstrap(let requestId, let reason):
+                await enqueueTelemetrySessionBootstrapRequest(
                     requestId: requestId,
                     reason: reason
                 )
@@ -528,7 +537,6 @@ final class BridgePaneController {
         }
         if !isTeardownStarted {
             isTeardownStarted = true
-            page.stopLoading()
             diffPushPlan?.stop()
             reviewPushPlan?.stop()
             connectionPushPlan?.stop()
@@ -572,6 +580,38 @@ final class BridgePaneController {
         }
         let productSessionOwner = productSessionOwner
         let lifecycleRetirementTask = Task { @MainActor [weak self] in
+            if let telemetrySessionOwner = self?.telemetrySessionOwner {
+                do {
+                    let terminalDrain = try await self?.drainTelemetrySidecar(closeAfterDrain: true)
+                    guard
+                        terminalDrain?.kind == .report,
+                        let telemetrySessionId = terminalDrain?.telemetrySessionId,
+                        let sidecarReport = terminalDrain?.sidecar,
+                        sidecarReport.type == .drained
+                    else {
+                        throw BridgeTelemetrySidecarControlError.invalidResponse
+                    }
+                    let native = await telemetrySessionOwner.snapshot
+                    let report = BridgeTelemetryProofReport.drain(
+                        telemetrySessionId: telemetrySessionId,
+                        sidecar: sidecarReport,
+                        expectedSettlementDisposition: .closed,
+                        native: native
+                    )
+                    try await self?.recordTelemetrySidecarProof(
+                        report: report,
+                        phase: .terminalClosed,
+                        expectedSettlementDisposition: .closed
+                    )
+                    if !report.proofEligible {
+                        await telemetrySessionOwner.markProofFailure()
+                    }
+                } catch {
+                    await telemetrySessionOwner.markProofFailure()
+                }
+                await telemetrySessionOwner.revoke()
+            }
+            self?.page.stopLoading()
             let productSessionRetired =
                 await productSessionOwner.retire(reason: .paneDisposal) == .retired
             await teardownCleanupTask.value

@@ -1,14 +1,10 @@
 import {
-	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
-	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
-	BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
-	BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
-	BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
-	BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
-	BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
-	BRIDGE_PRODUCT_WIRE_VERSION,
-} from '../core/comm-worker/bridge-product-contract-primitives.js';
-import { bridgeProductSessionBootstrapSchema } from '../core/comm-worker/bridge-product-session-contracts.js';
+	BRIDGE_PRODUCT_DEV_BOOTSTRAP_REQUEST_MEDIA_TYPE,
+	BRIDGE_PRODUCT_DEV_BOOTSTRAP_RESPONSE_MEDIA_TYPE,
+	BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE,
+	decodeBridgeProductDevBootstrapDelivery,
+	type BridgeProductDevBootstrapRequest,
+} from '../core/comm-worker/bridge-product-dev-bootstrap.js';
 
 type BridgeAppDevProductSessionTarget = Pick<
 	EventTarget,
@@ -19,44 +15,64 @@ export interface BridgeAppDevProductSessionHost {
 	readonly dispose: () => void;
 }
 
-let bridgeAppDevProductWorkerSequence = 0;
+export interface BridgeAppDevProductSessionHostProps {
+	readonly fetchBootstrap?: typeof fetch;
+	readonly target?: BridgeAppDevProductSessionTarget;
+}
 
 export function installBridgeAppDevProductSessionHost(
-	target: BridgeAppDevProductSessionTarget = document,
+	props: BridgeAppDevProductSessionHostProps = {},
 ): BridgeAppDevProductSessionHost {
+	const target = props.target ?? document;
+	const fetchBootstrap = props.fetchBootstrap ?? globalThis.fetch.bind(globalThis);
+	let activeRequestController: AbortController | null = null;
 	let isInstalled = true;
+	let paneSessionId: string | null = null;
+	let requestSequence = 0;
+
 	const handleBootstrapRequest = (event: Event): void => {
 		if (!isInstalled || !('detail' in event)) return;
-		const requestId = productBootstrapRequestId(event.detail);
-		if (requestId === null) return;
-		bridgeAppDevProductWorkerSequence =
-			(bridgeAppDevProductWorkerSequence + 1) % Number.MAX_SAFE_INTEGER;
-		const workerSequence = bridgeAppDevProductWorkerSequence.toString(36);
-		const capabilityBytes = new Uint8Array(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH);
-		crypto.getRandomValues(capabilityBytes);
-		const bootstrap = bridgeProductSessionBootstrapSchema.parse({
-			kind: 'productSession.bootstrap',
-			paneSessionId: 'vite-dev-pane-session',
-			policy: {
-				maximumContentBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
-				maximumMetadataFrameBytes: BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
-				maximumQueuedStreamBytes: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
-				maximumQueuedStreamFrames: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
-				maximumRequestBodyBytes: BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
-				terminalFrameReserve: BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
-			},
-			wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
-			workerInstanceId: `vite-dev-worker-${workerSequence}`,
+		const request = productBootstrapRequest(event.detail);
+		if (request === null) return;
+		const bootstrapRequest = bridgeProductDevBootstrapRequest({
+			paneSessionId,
+			reason: request.reason,
 		});
-		target.dispatchEvent(
-			new CustomEvent('__bridge_product_session_bootstrap', {
-				detail: {
-					bootstrap,
-					productCapability: capabilityBytes.buffer,
-					requestId,
+		if (bootstrapRequest === null) return;
+		requestSequence += 1;
+		const issuedRequestSequence = requestSequence;
+		activeRequestController?.abort();
+		const requestController = new AbortController();
+		activeRequestController = requestController;
+		void fetchRegisteredBootstrap({
+			fetchBootstrap,
+			request: bootstrapRequest,
+			signal: requestController.signal,
+		})
+			.then(
+				(delivery): void => {
+					if (!isInstalled || issuedRequestSequence !== requestSequence) {
+						new Uint8Array(delivery.productCapability).fill(0);
+						return;
+					}
+					paneSessionId = delivery.bootstrap.paneSessionId;
+					target.dispatchEvent(
+						new CustomEvent('__bridge_product_session_bootstrap', {
+							detail: {
+								bootstrap: delivery.bootstrap,
+								productCapability: delivery.productCapability,
+								requestId: request.requestId,
+							},
+						}),
+					);
 				},
-			}),
-		);
+				(): void => {
+					// The pane-session bootstrap timeout owns visible failure and replacement.
+				},
+			)
+			.finally((): void => {
+				if (activeRequestController === requestController) activeRequestController = null;
+			});
 	};
 
 	target.addEventListener('__bridge_product_session_bootstrap_request', handleBootstrapRequest);
@@ -64,6 +80,9 @@ export function installBridgeAppDevProductSessionHost(
 		dispose: (): void => {
 			if (!isInstalled) return;
 			isInstalled = false;
+			requestSequence += 1;
+			activeRequestController?.abort();
+			activeRequestController = null;
 			target.removeEventListener(
 				'__bridge_product_session_bootstrap_request',
 				handleBootstrapRequest,
@@ -72,7 +91,42 @@ export function installBridgeAppDevProductSessionHost(
 	};
 }
 
-function productBootstrapRequestId(detail: unknown): string | null {
+async function fetchRegisteredBootstrap(props: {
+	readonly fetchBootstrap: typeof fetch;
+	readonly request: BridgeProductDevBootstrapRequest;
+	readonly signal: AbortSignal;
+}): Promise<ReturnType<typeof decodeBridgeProductDevBootstrapDelivery>> {
+	const response = await props.fetchBootstrap(BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE, {
+		body: JSON.stringify(props.request),
+		cache: 'no-store',
+		credentials: 'same-origin',
+		headers: { 'Content-Type': BRIDGE_PRODUCT_DEV_BOOTSTRAP_REQUEST_MEDIA_TYPE },
+		method: 'POST',
+		signal: props.signal,
+	});
+	if (
+		!response.ok ||
+		response.headers.get('content-type') !== BRIDGE_PRODUCT_DEV_BOOTSTRAP_RESPONSE_MEDIA_TYPE
+	) {
+		throw new Error('Bridge product dev bootstrap request was rejected.');
+	}
+	return decodeBridgeProductDevBootstrapDelivery(await response.arrayBuffer());
+}
+
+function bridgeProductDevBootstrapRequest(props: {
+	readonly paneSessionId: string | null;
+	readonly reason: 'initial' | 'workerReplacement';
+}): BridgeProductDevBootstrapRequest | null {
+	if (props.reason === 'initial') return { reason: props.reason };
+	return props.paneSessionId === null
+		? null
+		: { paneSessionId: props.paneSessionId, reason: props.reason };
+}
+
+function productBootstrapRequest(detail: unknown): {
+	readonly reason: BridgeProductDevBootstrapRequest['reason'];
+	readonly requestId: string;
+} | null {
 	if (
 		typeof detail !== 'object' ||
 		detail === null ||
@@ -84,5 +138,5 @@ function productBootstrapRequestId(detail: unknown): string | null {
 	) {
 		return null;
 	}
-	return detail.requestId;
+	return { reason: detail.reason, requestId: detail.requestId };
 }

@@ -7,6 +7,25 @@ enum BridgePaneProductReviewMetadataSourceError: Error, Equatable {
     case unknownSubscription
 }
 
+enum BridgePaneProductReviewMetadataAvailability: Equatable, Sendable {
+    case loading
+    case ready(BridgeReviewPackage)
+    case failed
+}
+
+struct BridgeReviewMetadataPublicationReceipt: Equatable, Sendable {
+    let retained: Int
+    let publishedSubscriptions: Int
+    let emittedEvents: Int
+    let superseded: Int
+}
+
+enum BridgePaneProductReviewMetadataPublicationOutcome: Equatable, Sendable {
+    case loading(retained: Int)
+    case ready(BridgeReviewMetadataPublicationReceipt)
+    case failed(retained: Int)
+}
+
 typealias BridgePaneProductReviewMetadataEventSink =
     @Sendable (BridgeProductReviewMetadataEvent) async throws -> Void
 
@@ -19,6 +38,9 @@ protocol BridgePaneProductReviewMetadataProducing: Sendable {
         subscription: BridgeProductSubscriptionSnapshot,
         emit: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws
+    func publish(
+        availability: BridgePaneProductReviewMetadataAvailability
+    ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome
     func cancel(subscriptionId: String) async
 }
 
@@ -37,13 +59,26 @@ actor BridgeUnavailablePaneProductReviewMetadataSource: BridgePaneProductReviewM
         throw BridgePaneProductReviewMetadataSourceError.unavailablePackage
     }
 
+    func publish(
+        availability _: BridgePaneProductReviewMetadataAvailability
+    ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
+        .failed(retained: 0)
+    }
+
     func cancel(subscriptionId _: String) {}
 }
 
 actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProducing {
+    private enum EmissionOutcome {
+        case published(eventCount: Int)
+        case superseded
+    }
+
     private struct SubscriptionContext: Sendable {
-        var package: BridgeReviewPackage
+        let contextId: UUID
+        var publishedPackage: BridgeReviewPackage?
         var subscription: BridgeProductSubscriptionSnapshot
+        var emit: BridgePaneProductReviewMetadataEventSink
     }
 
     private static let maximumEncodedEventBytes =
@@ -51,11 +86,12 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
     private static let preferredItemWindowCount = 64
     private static let preferredTreeWindowCount = 128
 
-    private let currentPackage: @MainActor @Sendable () -> BridgeReviewPackage?
+    private var availability: BridgePaneProductReviewMetadataAvailability
+    private var availabilityRevision = 0
     private var contextBySubscriptionId: [String: SubscriptionContext] = [:]
 
-    init(currentPackage: @escaping @MainActor @Sendable () -> BridgeReviewPackage?) {
-        self.currentPackage = currentPackage
+    init(initialAvailability: BridgePaneProductReviewMetadataAvailability) {
+        self.availability = initialAvailability
     }
 
     func open(
@@ -63,17 +99,27 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         emit: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {
         guard subscription.subscriptionKind == .reviewMetadata,
-            case .reviewMetadata = subscription.interestState,
-            let package = await currentPackage()
+            case .reviewMetadata = subscription.interestState
         else {
             throw BridgePaneProductReviewMetadataSourceError.unavailablePackage
         }
-        contextBySubscriptionId[subscription.subscriptionId] = .init(
-            package: package,
-            subscription: subscription
-        )
-        let events = [try Self.sourceAcceptedEvent(for: package)] + (try Self.windowEvents(for: package))
-        try await emitIfCurrent(events, subscription: subscription, emit: emit)
+        guard case .failed = availability else {
+            let context = SubscriptionContext(
+                contextId: UUID(),
+                publishedPackage: nil,
+                subscription: subscription,
+                emit: emit
+            )
+            contextBySubscriptionId[subscription.subscriptionId] = context
+            guard case .ready(let package) = availability else { return }
+            _ = try await emitAndCommitIfCurrent(
+                package,
+                context: context,
+                availabilityRevision: availabilityRevision
+            )
+            return
+        }
+        throw BridgePaneProductReviewMetadataSourceError.unavailablePackage
     }
 
     func update(
@@ -85,50 +131,95 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         }
         guard subscription.subscriptionKind == .reviewMetadata,
             case .reviewMetadata = subscription.interestState,
-            subscription.interestRevision >= activeContext.subscription.interestRevision,
-            let package = await currentPackage()
+            subscription.interestRevision >= activeContext.subscription.interestRevision
         else {
             throw BridgePaneProductReviewMetadataSourceError.unavailablePackage
         }
-        contextBySubscriptionId[subscription.subscriptionId] = .init(
-            package: package,
-            subscription: subscription
-        )
-        guard package.revision != activeContext.package.revision else { return }
-
-        let events: [BridgeProductReviewMetadataEvent]
-        if Self.hasSameSourceIdentity(activeContext.package, package),
-            Self.canApplyDelta(from: activeContext.package, to: package),
-            let delta = try Self.deltaEvent(from: activeContext.package, to: package)
-        {
-            events = [.delta(delta)]
-        } else {
-            let identity = try Self.identity(for: package)
-            events =
-                [
-                    .reset(.init(identity: identity, reason: .sourceChanged)),
-                    try Self.sourceAcceptedEvent(for: package),
-                ] + (try Self.windowEvents(for: package))
+        guard case .failed = availability else {
+            let context = SubscriptionContext(
+                contextId: UUID(),
+                publishedPackage: activeContext.publishedPackage,
+                subscription: subscription,
+                emit: emit
+            )
+            contextBySubscriptionId[subscription.subscriptionId] = context
+            guard case .ready(let package) = availability else { return }
+            _ = try await emitAndCommitIfCurrent(
+                package,
+                context: context,
+                availabilityRevision: availabilityRevision
+            )
+            return
         }
-        try await emitIfCurrent(events, subscription: subscription, emit: emit)
+        throw BridgePaneProductReviewMetadataSourceError.unavailablePackage
+    }
+
+    func publish(
+        availability: BridgePaneProductReviewMetadataAvailability
+    ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
+        availabilityRevision += 1
+        let publishingAvailabilityRevision = availabilityRevision
+        self.availability = availability
+        let subscriptionIds = contextBySubscriptionId.keys.sorted()
+        switch availability {
+        case .loading:
+            return .loading(retained: subscriptionIds.count)
+        case .failed:
+            return .failed(retained: subscriptionIds.count)
+        case .ready(let reviewPackage):
+            var emittedEventCount = 0
+            var publishedSubscriptionCount = 0
+            var supersededSubscriptionCount = 0
+            for subscriptionId in subscriptionIds {
+                try Task.checkCancellation()
+                guard let context = contextBySubscriptionId[subscriptionId] else { continue }
+                switch try await emitAndCommitIfCurrent(
+                    reviewPackage,
+                    context: context,
+                    availabilityRevision: publishingAvailabilityRevision
+                ) {
+                case .published(let eventCount):
+                    emittedEventCount += eventCount
+                    publishedSubscriptionCount += 1
+                case .superseded:
+                    supersededSubscriptionCount += 1
+                }
+            }
+            return .ready(
+                BridgeReviewMetadataPublicationReceipt(
+                    retained: subscriptionIds.count,
+                    publishedSubscriptions: publishedSubscriptionCount,
+                    emittedEvents: emittedEventCount,
+                    superseded: supersededSubscriptionCount
+                ))
+        }
     }
 
     func cancel(subscriptionId: String) {
         contextBySubscriptionId.removeValue(forKey: subscriptionId)
     }
 
-    private func emitIfCurrent(
-        _ events: [BridgeProductReviewMetadataEvent],
-        subscription: BridgeProductSubscriptionSnapshot,
-        emit: @escaping BridgePaneProductReviewMetadataEventSink
-    ) async throws {
+    private func emitAndCommitIfCurrent(
+        _ package: BridgeReviewPackage,
+        context: SubscriptionContext,
+        availabilityRevision publishingAvailabilityRevision: Int
+    ) async throws -> EmissionOutcome {
+        let events = try Self.events(from: context.publishedPackage, to: package)
         for event in events {
             try Task.checkCancellation()
-            guard let context = contextBySubscriptionId[subscription.subscriptionId],
-                context.subscription.interestRevision == subscription.interestRevision
-            else { return }
-            try await emit(event)
+            guard let currentContext = contextBySubscriptionId[context.subscription.subscriptionId],
+                currentContext.contextId == context.contextId,
+                availabilityRevision == publishingAvailabilityRevision
+            else { return .superseded }
+            try await context.emit(event)
         }
+        guard var currentContext = contextBySubscriptionId[context.subscription.subscriptionId],
+            currentContext.contextId == context.contextId,
+            availabilityRevision == publishingAvailabilityRevision
+        else { return .superseded }
+        currentContext.publishedPackage = package
+        contextBySubscriptionId[context.subscription.subscriptionId] = currentContext
+        return .published(eventCount: events.count)
     }
 
     private static func sourceAcceptedEvent(
@@ -139,6 +230,27 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
                 identity: try identity(for: package)
             )
         )
+    }
+
+    private static func events(
+        from currentPackage: BridgeReviewPackage?,
+        to nextPackage: BridgeReviewPackage
+    ) throws -> [BridgeProductReviewMetadataEvent] {
+        guard let currentPackage else {
+            return [try sourceAcceptedEvent(for: nextPackage)] + (try windowEvents(for: nextPackage))
+        }
+        guard currentPackage != nextPackage else { return [] }
+        if hasSameSourceIdentity(currentPackage, nextPackage),
+            canApplyDelta(from: currentPackage, to: nextPackage),
+            let delta = try deltaEvent(from: currentPackage, to: nextPackage)
+        {
+            return [.delta(delta)]
+        }
+        let identity = try identity(for: nextPackage)
+        return [
+            .reset(.init(identity: identity, reason: .sourceChanged)),
+            try sourceAcceptedEvent(for: nextPackage),
+        ] + (try windowEvents(for: nextPackage))
     }
 
     fileprivate static func identity(

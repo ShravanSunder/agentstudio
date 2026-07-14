@@ -1,5 +1,6 @@
-import { useMemo, useRef, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, type ReactElement } from 'react';
 
+import { createBridgePaneRuntime } from '../core/comm-worker/bridge-pane-runtime.js';
 import type { BridgeProductFileContentDescriptor } from '../core/comm-worker/bridge-product-content-contracts.js';
 import type {
 	BridgeProductSubscriptionOptions,
@@ -18,15 +19,15 @@ import type {
 	FileMetadataEvent,
 	PublishFileMetadataEvents,
 } from './bridge-file-viewer-browser-test-fixtures.js';
-import { createBridgeFileViewerBrowserTestCommWorkerTransportFactory } from './bridge-file-viewer-browser-test-harness.js';
 import {
-	BridgeFileViewerRuntimeTransportFactoryProvider,
-	type BridgeFileViewerRuntimeTransportFactory,
-} from './bridge-file-viewer-render-snapshot-controller.js';
+	createBridgeFileViewerBrowserTestPaneSessionFactory,
+	type BridgeFileViewerBrowserTestPaneSessionFactory,
+} from './bridge-file-viewer-browser-test-harness.js';
+import { BridgeFileViewerSurfaceClientProvider } from './bridge-file-viewer-render-snapshot-controller.js';
 
 export interface BridgeFileViewerBrowserHarnessAppProps extends BridgeFileViewerAppProps {
 	readonly fileProductSession?: BridgeFileViewerBrowserTestProductSession;
-	readonly fileViewCommWorkerTransportFactory?: BridgeFileViewerRuntimeTransportFactory;
+	readonly fileViewPaneSessionFactory?: BridgeFileViewerBrowserTestPaneSessionFactory;
 	readonly initialMetadataEvents?: readonly FileMetadataEvent[];
 }
 
@@ -67,26 +68,29 @@ export function BridgeFileViewerBrowserHarnessApp(
 						? {}
 						: { initialMetadataEvents: props.initialMetadataEvents }),
 				};
-	const fileViewCommWorkerTransportFactory = useMemo(
+	const fileViewPaneSessionFactory = useMemo(
 		() =>
-			props.fileViewCommWorkerTransportFactory ??
-			createBridgeFileViewerBrowserTestCommWorkerTransportFactory({ productSessionRef }),
-		[props.fileViewCommWorkerTransportFactory],
+			props.fileViewPaneSessionFactory ??
+			createBridgeFileViewerBrowserTestPaneSessionFactory({ productSessionRef }),
+		[props.fileViewPaneSessionFactory],
 	);
+	const paneRuntime = useMemo(
+		() => createBridgePaneRuntime({ sessionFactory: fileViewPaneSessionFactory }),
+		[fileViewPaneSessionFactory],
+	);
+	useEffect((): (() => void) => (): void => paneRuntime.dispose(), [paneRuntime]);
 	const {
 		fileProductSession: _fileProductSession,
-		fileViewCommWorkerTransportFactory: _fileViewCommWorkerTransportFactory,
+		fileViewPaneSessionFactory: _fileViewPaneSessionFactory,
 		initialMetadataEvents: _initialMetadataEvents,
 		...productionProps
 	} = props;
 	return (
-		<BridgeFileViewerRuntimeTransportFactoryProvider
-			transportFactory={fileViewCommWorkerTransportFactory}
-		>
+		<BridgeFileViewerSurfaceClientProvider surfaceClient={paneRuntime.surfaceClient('fileView')}>
 			<BridgeFileViewerAppBase
 				{...productionProps}
 				codeViewWorkerPoolEnabled={productionProps.codeViewWorkerPoolEnabled ?? false}
 			/>
-		</BridgeFileViewerRuntimeTransportFactoryProvider>
+		</BridgeFileViewerSurfaceClientProvider>
 	);
 }

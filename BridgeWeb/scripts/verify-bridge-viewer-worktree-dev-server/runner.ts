@@ -95,6 +95,7 @@ import { hashText, makeDeferred } from './utils.ts';
 import {
 	assertWorktreeTreeExtentMatchesSurfaceFacts,
 	bridgeWorktreeDevRootTokenForPath,
+	closeAllWorktreeFileSurfaces,
 	fetchFetchableWorktreeFileDescriptorForPath,
 	fetchPerformanceWorktreeFileDescriptors,
 	fetchWorktreeFileContent,
@@ -147,7 +148,11 @@ export async function runBridgeViewerWorktreeDevServerVerifier(): Promise<void> 
 		}
 	} finally {
 		clearVerifierBrowser();
-		await browser.close();
+		try {
+			await closeAllWorktreeFileSurfaces();
+		} finally {
+			await browser.close();
+		}
 	}
 }
 

@@ -6,6 +6,7 @@ import {
 	bridgeProductCallResultSchema,
 	bridgeProductFileSourceCurrentRequestSchema,
 	bridgeProductFileSourceCurrentResultSchema,
+	bridgeProductReviewIntakeReadyRequestSchema,
 } from './bridge-product-call-contracts.js';
 
 const currentFileSource = {
@@ -62,5 +63,40 @@ describe('Bridge product call contracts', () => {
 			expect(bridgeProductCallRequestSchema.parse(testCase.request)).toEqual(testCase.request);
 			expect(bridgeProductCallResultSchema.parse(testCase.result)).toEqual(testCase.result);
 		}
+	});
+
+	test('defines strict Review intake readiness request and null result contracts', () => {
+		const request = {
+			method: 'review.intake.ready',
+			request: { reason: 'sequence_gap', streamId: 'review:stream-1' },
+		} as const;
+		const nullRequest = {
+			method: 'review.intake.ready',
+			request: { reason: null, streamId: null },
+		} as const;
+		const result = { method: 'review.intake.ready', result: null } as const;
+
+		expect(bridgeProductCallRequestSchema.parse(request)).toEqual(request);
+		expect(bridgeProductCallRequestSchema.parse(nullRequest)).toEqual(nullRequest);
+		expect(bridgeProductCallResultSchema.parse(result)).toEqual(result);
+		for (const invalidRequest of [
+			{ reason: null },
+			{ streamId: null },
+			{ extra: true, reason: null, streamId: null },
+			{ reason: '', streamId: null },
+			{ reason: 'contains spaces', streamId: null },
+			{ reason: null, streamId: '' },
+			{ reason: null, streamId: 'contains spaces' },
+		]) {
+			expect(bridgeProductReviewIntakeReadyRequestSchema.safeParse(invalidRequest).success).toBe(
+				false,
+			);
+		}
+		expect(
+			bridgeProductCallResultSchema.safeParse({
+				method: 'review.intake.ready',
+				result: {},
+			}).success,
+		).toBe(false);
 	});
 });

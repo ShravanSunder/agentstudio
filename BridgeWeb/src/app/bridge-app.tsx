@@ -9,20 +9,26 @@ import {
 	type BridgeActiveViewerModeUpdate,
 	type BridgeActiveViewerSource,
 } from '../bridge/bridge-rpc-client.js';
-import { createBridgeTelemetryEventSink } from '../bridge/bridge-telemetry-event-sink.js';
 import { encodeBridgeWorkerActiveViewerModeUpdateCommand } from '../core/comm-worker/bridge-comm-worker-protocol.js';
-import { createBridgeCommWorkerTelemetryClient } from '../core/comm-worker/bridge-comm-worker-telemetry.js';
 import {
-	disposeBridgePaneCommWorkerSession,
-	getBridgePaneCommWorkerSession,
-} from '../core/comm-worker/bridge-pane-comm-worker-session.js';
+	createBridgePaneRuntime,
+	type BridgePaneRuntime,
+	type BridgePaneSurfaceClient,
+} from '../core/comm-worker/bridge-pane-runtime.js';
 import type {
 	BridgeWorkerHealthEvent,
 	BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
+import { createBridgePaneTelemetryWorkerFactory } from '../core/telemetry-worker/bridge-pane-telemetry-worker-factory.js';
+import {
+	createBridgePaneTelemetryWorkerSession,
+	type BridgePaneTelemetryWorkerSession,
+	type BridgeTelemetryWorkerLike,
+} from '../core/telemetry-worker/bridge-pane-telemetry-worker-session.js';
+import { bridgeTelemetryWorkerBootstrapSchema } from '../core/telemetry-worker/bridge-telemetry-worker-contracts.js';
+import { bridgeTelemetryCompactSampleForEvent } from '../core/telemetry-worker/bridge-telemetry-worker-event-adapter.js';
 import type { BridgeFileViewerAppProps } from '../file-viewer/bridge-file-viewer-app.js';
 import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
-import type { BridgeTelemetryBootstrapConfig } from '../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
 import {
 	createBridgeTelemetryRecorder,
 	createBridgeTelemetryRecorderFromClient,
@@ -30,35 +36,10 @@ import {
 } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import { setBridgeViewerNativeOpenAnchor } from '../foundation/telemetry/bridge-viewer-first-interaction.js';
 import type { BridgeMarkdownRenderWorkerClient } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-client.js';
-import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-client.js';
 import type { BridgeAppControlProbe } from './bridge-app-control.js';
 import { BridgeFileViewerMode } from './bridge-app-file-viewer-mode.js';
-import {
-	createBridgePaneRuntimeProtocolDispatcher,
-	type CreateBridgeReviewRuntimeProtocolDispatcherProps,
-} from './bridge-app-review-render-snapshot-controller.js';
 import { BridgeReviewViewerMode } from './bridge-app-review-viewer-mode.js';
-export {
-	reviewItemDemandCancellationTargetForSelectionChange,
-	reviewSnapshotDescriptorRefsByHandleIdForPackage,
-	reviewSnapshotFrameDescriptorsMatchPackage,
-} from './bridge-app-review-descriptors.js';
 export type { BridgeReviewFrameAuthority } from './bridge-app-review-frame-authority.js';
-export {
-	applyReviewMetadataDeltaToReviewPackage,
-	pruneEmptyReviewTreeDirectories,
-	reviewTreeRowsWithMetadataDelta,
-} from './bridge-app-review-metadata-package.js';
-export type { BridgeReviewContentDemandByteBudget } from './bridge-app-review-runtime.js';
-export {
-	bridgeReviewContentDemandByteBudget,
-	contentDemandResourceUrl,
-} from './bridge-app-review-runtime.js';
-export {
-	selectedCanvasLoadingReasonForCurrentSelection,
-	selectedContentUnavailablePathForCurrentSelection,
-	reviewFileTargetForReviewPackagePath,
-} from './bridge-app-review-selection-state.js';
 import {
 	bridgeViewerActivationPrewarm,
 	type BridgeViewerActivationPrewarmState,
@@ -73,11 +54,11 @@ import type {
 export interface BridgeAppProps {
 	readonly target?: EventTarget;
 	readonly fetchContent?: BridgeContentFetch;
-	readonly projectionWorkerClient?: BridgeReviewProjectionWorkerClient | null;
 	readonly markdownWorkerClient?: BridgeMarkdownRenderWorkerClient | null;
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly codeViewWorkerFactory?: () => Worker;
-	readonly reviewWorkerTransportFactory?: CreateBridgeReviewRuntimeProtocolDispatcherProps['transportFactory'];
+	readonly paneRuntimeFactory?: () => BridgePaneRuntime;
+	readonly telemetryWorkerFactory?: () => Promise<BridgeTelemetryWorkerLike>;
 	readonly viewerMode?: 'file' | 'review';
 	readonly fileViewerProps?: BridgeFileViewerAppProps;
 	readonly navigationCommand?: BridgeViewerNavigationCommand;
@@ -106,6 +87,12 @@ type BridgeRememberedNavigationCommands = Record<
 >;
 
 type BridgeActiveViewerSources = Record<BridgeViewerMode, BridgeActiveViewerSource | null>;
+
+interface BridgePaneRuntimeHost {
+	readonly fileViewClient: BridgePaneSurfaceClient;
+	readonly reviewClient: BridgePaneSurfaceClient;
+	readonly runtime: BridgePaneRuntime;
+}
 
 function activeViewerStateForBridgeInputs(props: {
 	readonly navigationCommand: BridgeViewerNavigationCommand | undefined;
@@ -136,6 +123,11 @@ function viewerModeForBridgeNavigationCommand(
 }
 
 export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
+	const paneRuntimeHostRef = useRef<BridgePaneRuntimeHost | null>(null);
+	paneRuntimeHostRef.current ??= createBridgePaneRuntimeHost(
+		props.paneRuntimeFactory ?? createDefaultBridgePaneRuntime,
+	);
+	const paneRuntimeHost = paneRuntimeHostRef.current;
 	const incomingNavigationCommand = props.navigationCommand;
 	const incomingViewerMode = props.viewerMode;
 	const [activeViewerState, setActiveViewerState] = useState<BridgeActiveViewerState>(() =>
@@ -168,6 +160,10 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const activeViewerModeRetryAttemptsBySignalKeyRef = useRef<Map<string, number>>(new Map());
 	const [activeViewerModeRetryRevision, setActiveViewerModeRetryRevision] = useState(0);
 	const telemetryRecorderRef = useRef<BridgeTelemetryRecorder>(createBridgeTelemetryRecorder(null));
+	const telemetryWorkerSessionRef = useRef<BridgePaneTelemetryWorkerSession | null>(null);
+	const telemetryWorkerFactoryRef = useRef(
+		props.telemetryWorkerFactory ?? createBridgePaneTelemetryWorkerFactory(),
+	);
 	const telemetryRecorder = useMemo(
 		(): BridgeTelemetryRecorder => ({
 			isEnabled: (scope) => telemetryRecorderRef.current.isEnabled(scope),
@@ -179,17 +175,14 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	);
 	const target = props.target ?? document;
 	const handshakeSessionRef = useRef<BridgePageHandshakeSession | null>(null);
-	const [telemetryConfig, setTelemetryConfig] = useState<BridgeTelemetryBootstrapConfig | null>(
-		null,
-	);
 	const isBridgeReadyGateOpenRef = useRef(false);
 	const isBridgeReadyRef = useRef(false);
 	const bridgeReadyCallbacksRef = useRef<Set<() => void>>(new Set());
-	const activeViewerModeWorkerRequestSequenceRef = useRef(0);
 	const activeViewerModeWorkerEpochRef = useRef(0);
 	const activeViewerModeRequestResolversRef = useRef<Map<string, (didSend: boolean) => void>>(
 		new Map(),
 	);
+	const activeViewerModeSettledResultsRef = useRef<Map<string, boolean>>(new Map());
 	const registerBridgeReadyCallback = useCallback((callback: () => void): (() => void) => {
 		bridgeReadyCallbacksRef.current.add(callback);
 		if (isBridgeReadyGateOpenRef.current) {
@@ -200,37 +193,152 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		};
 	}, []);
 	useEffect((): (() => void) => {
-		const paneCommWorkerSession = getBridgePaneCommWorkerSession();
-		paneCommWorkerSession.setNativeBootstrapRequester((): void => {
+		let telemetryConfigurationSequence = 0;
+		let isEffectInstalled = true;
+		const requestReplacementNativeBootstrap = (): void => {
+			const telemetryWorkerSession = telemetryWorkerSessionRef.current;
+			if (telemetryWorkerSession?.status() === 'active') {
+				try {
+					paneRuntimeHost.runtime.installTelemetryProducer({
+						enabledScopes: [
+							...(handshakeSessionRef.current?.getTelemetryConfig()?.enabledScopes ?? []),
+						],
+						preReadyRequiredSampleCapacity: telemetryWorkerSession.producerPreReadyBufferMaxSamples,
+						preReadyRequiredSampleMaxEncodedBytes:
+							telemetryWorkerSession.producerPreReadyBufferMaxBytes,
+						producerPort: telemetryWorkerSession.replaceCommProducerPort(),
+					});
+				} catch {
+					handshakeSessionRef.current?.requestTelemetrySessionReplacement();
+				}
+			}
 			handshakeSessionRef.current?.requestProductSessionReplacement();
+		};
+		const drainTelemetrySession = async (
+			session: BridgePaneTelemetryWorkerSession,
+		): Promise<void> => {
+			try {
+				await session.drainAndClose();
+			} catch {
+				session.dispose();
+			}
+		};
+		const telemetryControlGlobal = globalThis as typeof globalThis & {
+			__bridgeTelemetrySidecarControl?: {
+				readonly snapshot: () => Promise<unknown>;
+				readonly drain: () => Promise<unknown>;
+				readonly drainAndClose: () => Promise<unknown>;
+			};
+		};
+		const unavailableTelemetryReport = (): Readonly<Record<string, string>> => ({
+			kind: 'unavailable',
+			reason: telemetryWorkerSessionRef.current === null ? 'disabled' : 'failed',
 		});
+		telemetryControlGlobal.__bridgeTelemetrySidecarControl = {
+			snapshot: async (): Promise<unknown> => {
+				const session = telemetryWorkerSessionRef.current;
+				if (session === null || session.status() === 'failed') {
+					return unavailableTelemetryReport();
+				}
+				return {
+					kind: 'report',
+					telemetrySessionId: session.telemetrySessionId,
+					sidecar: await session.snapshot(),
+				};
+			},
+			drain: async (): Promise<unknown> => {
+				const session = telemetryWorkerSessionRef.current;
+				if (session === null || session.status() === 'failed') {
+					return unavailableTelemetryReport();
+				}
+				const sidecar = await session.drain();
+				return {
+					kind: 'report',
+					telemetrySessionId: session.telemetrySessionId,
+					sidecar,
+				};
+			},
+			drainAndClose: async (): Promise<unknown> => {
+				const session = telemetryWorkerSessionRef.current;
+				if (session === null || session.status() === 'failed') {
+					return unavailableTelemetryReport();
+				}
+				const sidecar = await session.drainAndClose();
+				return {
+					kind: 'report',
+					telemetrySessionId: session.telemetrySessionId,
+					sidecar,
+				};
+			},
+		};
 		const configureTelemetryRecorder = (
 			nextTelemetryConfig = handshakeSessionRef.current?.getTelemetryConfig() ?? null,
 		): void => {
-			if (nextTelemetryConfig === null) {
-				telemetryRecorderRef.current = createBridgeTelemetryRecorder(null);
-			} else {
-				const telemetryClient = createBridgeCommWorkerTelemetryClient({
-					config: nextTelemetryConfig,
-					streamId: 'page',
-					sink: createBridgeTelemetryEventSink({
-						endpointUrl: nextTelemetryConfig.endpointUrl,
-					}),
-				});
-				telemetryRecorderRef.current = createBridgeTelemetryRecorderFromClient(
-					nextTelemetryConfig,
-					telemetryClient,
-				);
+			telemetryConfigurationSequence += 1;
+			const configurationSequence = telemetryConfigurationSequence;
+			const retiringSession = telemetryWorkerSessionRef.current;
+			telemetryWorkerSessionRef.current = null;
+			telemetryRecorderRef.current = createBridgeTelemetryRecorder(null);
+			if (retiringSession !== null) {
+				void drainTelemetrySession(retiringSession);
 			}
-			setTelemetryConfig(nextTelemetryConfig);
 			setBridgeViewerNativeOpenAnchor({
 				openEpochUnixMillis: nextTelemetryConfig?.viewerOpenEpochUnixMillis ?? null,
 				traceparent: nextTelemetryConfig?.viewerOpenTraceparent ?? null,
 			});
+			const decodedWorkerBootstrap = bridgeTelemetryWorkerBootstrapSchema.safeParse(
+				nextTelemetryConfig?.workerBootstrap,
+			);
+			if (!decodedWorkerBootstrap.success || nextTelemetryConfig === null) {
+				return;
+			}
+			void telemetryWorkerFactoryRef
+				.current()
+				.then((worker): void => {
+					if (!isEffectInstalled || configurationSequence !== telemetryConfigurationSequence) {
+						worker.terminate();
+						return;
+					}
+					const telemetryWorkerSession = createBridgePaneTelemetryWorkerSession({
+						bootstrap: decodedWorkerBootstrap.data,
+						createWorker: () => worker,
+					});
+					if (telemetryWorkerSession === null) {
+						worker.terminate();
+						return;
+					}
+					telemetryWorkerSessionRef.current = telemetryWorkerSession;
+					paneRuntimeHost.runtime.installTelemetryProducer({
+						enabledScopes: [...nextTelemetryConfig.enabledScopes],
+						preReadyRequiredSampleCapacity:
+							decodedWorkerBootstrap.data.policy.producerPreReadyBufferMaxSamples,
+						preReadyRequiredSampleMaxEncodedBytes:
+							decodedWorkerBootstrap.data.policy.producerPreReadyBufferMaxBytes,
+						producerPort: telemetryWorkerSession.commProducerPort,
+					});
+					telemetryRecorderRef.current = createBridgeTelemetryRecorderFromClient(
+						nextTelemetryConfig,
+						{
+							record: (sample): void => {
+								telemetryWorkerSession.mainProducer.record(
+									bridgeTelemetryCompactSampleForEvent(
+										sample,
+										performance.timeOrigin + performance.now(),
+									),
+								);
+							},
+							flush: (): boolean => telemetryWorkerSession.mainProducer.flushLossSummary(),
+						},
+					);
+				})
+				.catch((): void => {
+					telemetryRecorderRef.current = createBridgeTelemetryRecorder(null);
+				});
 		};
 		handshakeSessionRef.current = installBridgePageHandshakeSession(target, {
 			onProductSessionBootstrap: (productSessionBootstrap): void => {
-				paneCommWorkerSession.installNativeBootstrap(productSessionBootstrap);
+				paneRuntimeHost.runtime.setNativeBootstrapRequester(requestReplacementNativeBootstrap);
+				paneRuntimeHost.runtime.installNativeBootstrap(productSessionBootstrap);
 			},
 			onReady: (): void => {
 				isBridgeReadyRef.current = true;
@@ -249,68 +357,93 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				isBridgeReadyGateOpenRef.current = false;
 			},
 			onTelemetryConfig: configureTelemetryRecorder,
+			onTelemetrySessionBootstrap: (result): void => {
+				const currentConfig = handshakeSessionRef.current?.getTelemetryConfig() ?? null;
+				if (currentConfig === null) {
+					return;
+				}
+				if (result.kind === 'available') {
+					configureTelemetryRecorder({
+						...currentConfig,
+						workerBootstrap: result.workerBootstrap,
+					});
+					return;
+				}
+				const { workerBootstrap: _discardedWorkerBootstrap, ...configWithoutAuthority } =
+					currentConfig;
+				configureTelemetryRecorder(configWithoutAuthority);
+			},
 		});
 		configureTelemetryRecorder();
 		return (): void => {
+			delete telemetryControlGlobal.__bridgeTelemetrySidecarControl;
+			isEffectInstalled = false;
+			telemetryConfigurationSequence += 1;
 			handshakeSessionRef.current?.uninstall();
 			handshakeSessionRef.current = null;
 			isBridgeReadyRef.current = false;
 			isBridgeReadyGateOpenRef.current = false;
-			setTelemetryConfig(null);
 			telemetryRecorderRef.current = createBridgeTelemetryRecorder(null);
-			disposeBridgePaneCommWorkerSession();
+			const telemetryWorkerSession = telemetryWorkerSessionRef.current;
+			telemetryWorkerSessionRef.current = null;
+			if (telemetryWorkerSession !== null) {
+				void drainTelemetrySession(telemetryWorkerSession);
+			}
 		};
-	}, [target]);
+	}, [paneRuntimeHost, target]);
 	const publishActiveViewerModeWorkerMessages = useCallback(
 		(messages: readonly BridgeWorkerServerToMainMessage[]): void => {
 			resolveBridgeWorkerActiveViewerModeRequestResolvers({
 				messages,
 				resolversByRequestId: activeViewerModeRequestResolversRef.current,
+				settledResultsByRequestId: activeViewerModeSettledResultsRef.current,
 			});
 		},
 		[],
 	);
-	const activeViewerModeRuntimeDispatcher = useMemo(
-		() =>
-			createBridgePaneRuntimeProtocolDispatcher({
-				bootstrapRequestId: 'active-viewer-mode-worker-bootstrap',
-				contentItems: [],
-				contentRequestDescriptors: [],
-				publishWorkerMessages: publishActiveViewerModeWorkerMessages,
-				renderSemantics: [],
-				rows: [],
-				...(props.reviewWorkerTransportFactory === undefined
-					? {}
-					: { transportFactory: props.reviewWorkerTransportFactory }),
-			}),
-		[publishActiveViewerModeWorkerMessages, props.reviewWorkerTransportFactory],
-	);
-	useEffect(
-		(): (() => void) => (): void => {
-			activeViewerModeRuntimeDispatcher.dispose();
+	useEffect((): (() => void) => {
+		const requestResolvers = activeViewerModeRequestResolversRef.current;
+		const settledResults = activeViewerModeSettledResultsRef.current;
+		const unsubscribePaneMessages = paneRuntimeHost.runtime.paneClient.subscribeMessages(
+			(message): void => {
+				publishActiveViewerModeWorkerMessages([message]);
+			},
+		);
+		return (): void => {
+			unsubscribePaneMessages();
 			resolvePendingBridgeWorkerActiveViewerModeRequests({
 				didSend: false,
-				resolversByRequestId: activeViewerModeRequestResolversRef.current,
+				resolversByRequestId: requestResolvers,
 			});
-		},
-		[activeViewerModeRuntimeDispatcher],
-	);
+			settledResults.clear();
+			paneRuntimeHost.runtime.dispose();
+		};
+	}, [paneRuntimeHost, publishActiveViewerModeWorkerMessages]);
 	const sendActiveViewerModeWorkerUpdate = useCallback(
 		(update: BridgeActiveViewerModeUpdate): Promise<boolean> => {
-			const requestId = `active-viewer-mode-${++activeViewerModeWorkerRequestSequenceRef.current}`;
-			const completion = new Promise<boolean>((resolve): void => {
+			let requestId: string;
+			try {
+				requestId = paneRuntimeHost.runtime.paneClient.send(
+					encodeBridgeWorkerActiveViewerModeUpdateCommand({
+						requestId: 'pane-runtime-owned',
+						epoch: ++activeViewerModeWorkerEpochRef.current,
+						update,
+					}),
+				);
+			} catch {
+				return Promise.resolve(false);
+			}
+			return new Promise<boolean>((resolve): void => {
+				const settledResult = activeViewerModeSettledResultsRef.current.get(requestId);
+				if (settledResult !== undefined) {
+					activeViewerModeSettledResultsRef.current.delete(requestId);
+					resolve(settledResult);
+					return;
+				}
 				activeViewerModeRequestResolversRef.current.set(requestId, resolve);
 			});
-			activeViewerModeRuntimeDispatcher.dispatch(
-				encodeBridgeWorkerActiveViewerModeUpdateCommand({
-					requestId,
-					epoch: ++activeViewerModeWorkerEpochRef.current,
-					update,
-				}),
-			);
-			return completion;
 		},
-		[activeViewerModeRuntimeDispatcher],
+		[paneRuntimeHost],
 	);
 	activeViewerModeRef.current = activeViewerState.viewerMode;
 	activeViewerSourcesRef.current = activeViewerSources;
@@ -460,8 +593,11 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		bridgeViewerActivationPrewarm({
 			activeViewerMode: activeViewerState.viewerMode,
 			state: activationPrewarmStateRef.current,
+			...(props.codeViewWorkerFactory === undefined
+				? {}
+				: { workerFactory: props.codeViewWorkerFactory }),
 		});
-	}, [activeViewerState.viewerMode]);
+	}, [activeViewerState.viewerMode, props.codeViewWorkerFactory]);
 	const activateViewerMode = useCallback((viewerMode: BridgeViewerMode): void => {
 		setMountedViewerModes((currentMountedViewerModes): ReadonlySet<BridgeViewerMode> => {
 			if (currentMountedViewerModes.has(viewerMode)) {
@@ -491,6 +627,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				>
 					<BridgeFileViewerMode
 						{...props}
+						fileViewClient={paneRuntimeHost.fileViewClient}
 						isActive={activeViewerState.viewerMode === 'file'}
 						onActiveSourceChange={reportFileActiveSource}
 						telemetryRecorder={telemetryRecorder}
@@ -518,11 +655,9 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				>
 					<BridgeReviewViewerMode
 						{...props}
-						handshakeSessionRef={handshakeSessionRef}
 						isActive={activeViewerState.viewerMode === 'review'}
 						onActiveSourceChange={reportReviewActiveSource}
-						registerBridgeReadyCallback={registerBridgeReadyCallback}
-						telemetryConfig={telemetryConfig}
+						reviewClient={paneRuntimeHost.reviewClient}
 						telemetryRecorderRef={telemetryRecorderRef}
 						viewerHeaderControls={
 							<BridgeViewerContextSwitcher
@@ -538,6 +673,26 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			) : null}
 		</BridgeViewerAppShell>
 	);
+}
+
+function createBridgePaneRuntimeHost(
+	runtimeFactory: () => BridgePaneRuntime,
+): BridgePaneRuntimeHost {
+	const runtime = runtimeFactory();
+	try {
+		return {
+			fileViewClient: runtime.surfaceClient('fileView'),
+			reviewClient: runtime.surfaceClient('review'),
+			runtime,
+		};
+	} catch (error: unknown) {
+		runtime.dispose();
+		throw error;
+	}
+}
+
+function createDefaultBridgePaneRuntime(): BridgePaneRuntime {
+	return createBridgePaneRuntime();
 }
 
 function bridgeActiveViewerSourcesEqual(
@@ -570,6 +725,7 @@ function activeViewerModeRetryAttemptAvailable(props: {
 function resolveBridgeWorkerActiveViewerModeRequestResolvers(props: {
 	readonly messages: readonly BridgeWorkerServerToMainMessage[];
 	readonly resolversByRequestId: Map<string, (didSend: boolean) => void>;
+	readonly settledResultsByRequestId: Map<string, boolean>;
 }): void {
 	for (const message of props.messages) {
 		if (message.kind !== 'health' || message.requestId === undefined) {
@@ -577,6 +733,10 @@ function resolveBridgeWorkerActiveViewerModeRequestResolvers(props: {
 		}
 		const resolve = props.resolversByRequestId.get(message.requestId);
 		if (resolve === undefined) {
+			props.settledResultsByRequestId.set(
+				message.requestId,
+				bridgeWorkerActiveViewerModeHealthDidSend(message),
+			);
 			continue;
 		}
 		props.resolversByRequestId.delete(message.requestId);

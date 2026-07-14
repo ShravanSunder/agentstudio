@@ -80,11 +80,14 @@ export function useBridgeCodeViewSelectionScroll(
 		lastSelectionScrollKeyRef.current = selectionScrollKey;
 		const revealRequest = {
 			revealIntent: 'selection-effect' as const,
+			selectionScrollKey,
 			targetItemId: selectedItemId,
 		};
-		const skipProgrammaticReveal =
-			programmaticRevealGate.shouldSkipProgrammaticReveal(revealRequest);
-		if (skipProgrammaticReveal) {
+		const didBeginSelectionReveal = programmaticRevealGate.beginSelectionReveal({
+			selectionScrollKey,
+			targetItemId: selectedItemId,
+		});
+		if (!didBeginSelectionReveal) {
 			pendingPreHydrationSelectionScrollKeyRef.current = null;
 			pendingSelectionRevealBehaviorRef.current = null;
 			pendingSmoothSelectionScrollKeyRef.current = null;
@@ -100,15 +103,30 @@ export function useBridgeCodeViewSelectionScroll(
 		}
 		const shouldUseInitialPlacement =
 			initialSelectedItemByViewerKeyRef.current?.sourceKey === sourceKey &&
-			initialSelectedItemByViewerKeyRef.current.selectedItemId === selectedItemId &&
-			initialItems[0]?.id === selectedItemId;
-		pendingPreHydrationSelectionScrollKeyRef.current = shouldUseInitialPlacement
-			? null
-			: selectionScrollKey;
+			(initialSelectedItemByViewerKeyRef.current.selectedItemId === selectedItemId ||
+				initialSelectedItemByViewerKeyRef.current.selectedItemId === null) &&
+			initialItems[0]?.id === selectedItemId &&
+			codeViewHandle.getInstance()?.getScrollTop() === 0;
+		pendingPreHydrationSelectionScrollKeyRef.current = selectionScrollKey;
 		pendingSmoothSelectionScrollKeyRef.current = shouldUseInitialPlacement
 			? null
 			: selectionScrollKey;
 		pendingSelectionRevealBehaviorRef.current = null;
+		if (shouldUseInitialPlacement) {
+			pendingSelectionRevealBehaviorRef.current = 'instant';
+			programmaticRevealGate.transitionSelectionReveal({
+				phase: 'awaiting-hydration',
+				selectionScrollKey,
+			});
+			setSelectionScrollDiagnostic({
+				didScroll: false,
+				itemId: selectedItemId,
+				itemTop: codeViewHandle.getInstance()?.getTopForItem(selectedItemId) ?? 'missing',
+				reason: 'initial-placement',
+				remainingFrameBudget: codeViewSelectionScrollRetryFrameBudget,
+			});
+			return;
+		}
 		if (pendingSelectionScrollFrameRef.current !== null) {
 			cancelAnimationFrame(pendingSelectionScrollFrameRef.current);
 		}
@@ -177,6 +195,7 @@ export function useBridgeCodeViewSelectionScroll(
 				const didScroll = scrollToItem(selectedItemId, {
 					behavior: scrollBehavior,
 					revealIntent: 'selection-effect',
+					selectionScrollKey,
 				});
 				if (!didScroll) {
 					if (remainingFrameBudget > 0) {

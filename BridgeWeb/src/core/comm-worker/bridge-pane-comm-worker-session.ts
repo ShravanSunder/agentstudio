@@ -1,4 +1,6 @@
+import type { BridgeTelemetryScope } from '../../foundation/telemetry/bridge-telemetry-scope.js';
 import { bridgeWorkerPierreRenderPolicy } from '../demand/bridge-content-demand-policy.js';
+import { postBridgeCommTelemetryProducerInstall } from '../telemetry-worker/bridge-comm-telemetry-producer-install.js';
 // oxlint-disable unicorn/require-post-message-target-origin -- Worker and MessagePort postMessage do not accept target origins.
 import { readBridgeCommWorkerAbsoluteNowMilliseconds } from './bridge-comm-worker-telemetry.js';
 import {
@@ -21,6 +23,13 @@ export interface BridgePaneCommWorkerNativeBootstrap {
 export interface BridgePaneCommWorkerDispatcher {
 	readonly dispatch: (message: BridgeWorkerMainToServerMessage) => void;
 	readonly dispose: () => void;
+}
+
+export interface BridgePaneCommWorkerTelemetryProducerInstall {
+	readonly enabledScopes: readonly BridgeTelemetryScope[];
+	readonly preReadyRequiredSampleCapacity: number;
+	readonly preReadyRequiredSampleMaxEncodedBytes: number;
+	readonly producerPort: MessagePort;
 }
 
 export interface BridgePaneCommWorkerSessionProps {
@@ -54,6 +63,7 @@ export class BridgePaneCommWorkerSession {
 	#isRuntimeReady = false;
 	#mainPort: MessagePort | null = null;
 	#nativeBootstrap: BridgePaneCommWorkerNativeBootstrap | null = null;
+	#telemetryProducerInstall: BridgePaneCommWorkerTelemetryProducerInstall | null = null;
 	#worker: Worker | null = null;
 	#workerPromise: Promise<Worker> | null = null;
 
@@ -89,6 +99,18 @@ export class BridgePaneCommWorkerSession {
 		this.#requestNativeBootstrap = requestNativeBootstrap;
 	}
 
+	installTelemetryProducer(install: BridgePaneCommWorkerTelemetryProducerInstall): void {
+		if (this.#isDisposed) {
+			install.producerPort.close();
+			return;
+		}
+		this.#telemetryProducerInstall?.producerPort.close();
+		this.#telemetryProducerInstall = install;
+		if (this.#worker !== null) {
+			this.#postTelemetryProducerInstall(this.#worker);
+		}
+	}
+
 	createDispatcher(props: {
 		readonly bootstrapRequest: BridgeCommWorkerBootstrapRequest;
 		readonly publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
@@ -119,6 +141,8 @@ export class BridgePaneCommWorkerSession {
 		this.#clearBootstrapTimeout();
 		this.#clients.clear();
 		this.#queuedCommands.splice(0, this.#queuedCommands.length);
+		this.#telemetryProducerInstall?.producerPort.close();
+		this.#telemetryProducerInstall = null;
 		this.#retireCurrentWorker();
 	}
 
@@ -186,6 +210,7 @@ export class BridgePaneCommWorkerSession {
 					productCapability: nativeBootstrap.productCapability,
 					productPort: productChannel.port1,
 				});
+				this.#postTelemetryProducerInstall(worker);
 				mainPort.postMessage(
 					bridgePaneCommWorkerBootstrapRequest(bootstrapClient.bootstrapRequest),
 				);
@@ -218,6 +243,21 @@ export class BridgePaneCommWorkerSession {
 				issuedAtMilliseconds: this.#now(),
 			}),
 		);
+	}
+
+	#postTelemetryProducerInstall(worker: Worker): void {
+		const install = this.#telemetryProducerInstall;
+		if (install === null) {
+			return;
+		}
+		this.#telemetryProducerInstall = null;
+		postBridgeCommTelemetryProducerInstall(worker, {
+			type: 'bridgePaneCommWorker.telemetryProducer.install',
+			enabledScopes: install.enabledScopes,
+			preReadyRequiredSampleCapacity: install.preReadyRequiredSampleCapacity,
+			preReadyRequiredSampleMaxEncodedBytes: install.preReadyRequiredSampleMaxEncodedBytes,
+			producerPort: install.producerPort,
+		});
 	}
 
 	#flushQueuedCommands(): void {
@@ -293,6 +333,15 @@ function eraseBridgeProductCapability(productCapability: ArrayBuffer): void {
 }
 
 let defaultPaneSession: BridgePaneCommWorkerSession | null = null;
+
+export function installBridgePaneCommWorkerSessionForHost(
+	session: BridgePaneCommWorkerSession,
+): void {
+	if (defaultPaneSession !== null) {
+		throw new Error('Bridge pane comm worker session host was already installed.');
+	}
+	defaultPaneSession = session;
+}
 
 export function getBridgePaneCommWorkerSession(): BridgePaneCommWorkerSession {
 	defaultPaneSession ??= new BridgePaneCommWorkerSession();

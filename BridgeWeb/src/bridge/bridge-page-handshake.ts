@@ -6,6 +6,10 @@ import {
 	type BridgeProductSessionBootstrap,
 } from '../core/comm-worker/bridge-product-session-contracts.js';
 import {
+	bridgeTelemetryWorkerBootstrapSchema,
+	type BridgeTelemetryWorkerBootstrap,
+} from '../core/telemetry-worker/bridge-telemetry-worker-contracts.js';
+import {
 	decodeBridgeTelemetryBootstrapConfig,
 	type BridgeTelemetryBootstrapConfig,
 } from '../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
@@ -20,6 +24,7 @@ export interface BridgePageHandshakeSession {
 	readonly getPushNonce: () => string | null;
 	readonly getTelemetryConfig: () => BridgeTelemetryBootstrapConfig | null;
 	readonly requestProductSessionReplacement: () => void;
+	readonly requestTelemetrySessionReplacement: () => void;
 	readonly uninstall: () => void;
 }
 
@@ -35,6 +40,11 @@ export interface InstallBridgePageHandshakeSessionProps {
 		readonly productCapability: ArrayBuffer;
 	}) => void;
 	readonly onReadyError?: (error: BridgePageReadyError) => void;
+	readonly onTelemetrySessionBootstrap?: (
+		result:
+			| { readonly kind: 'available'; readonly workerBootstrap: BridgeTelemetryWorkerBootstrap }
+			| { readonly kind: 'unavailable'; readonly reason: 'disabled' | 'failed' },
+	) => void;
 	readonly onTelemetryConfig?: (telemetryConfig: BridgeTelemetryBootstrapConfig) => void;
 	readonly onReady?: () => void;
 	readonly readyAcknowledgementTimeoutMilliseconds?: number;
@@ -59,6 +69,21 @@ const bridgeReadyAcknowledgementSchema = z
 	])
 	.readonly();
 
+const bridgeTelemetrySessionBootstrapResultSchema = z.discriminatedUnion('kind', [
+	z
+		.object({
+			kind: z.literal('available'),
+			workerBootstrap: bridgeTelemetryWorkerBootstrapSchema,
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('unavailable'),
+			reason: z.enum(['disabled', 'failed']),
+		})
+		.strict(),
+]);
+
 export function installBridgePageHandshake(target: BridgeHandshakeTarget = document): () => void {
 	return installBridgePageHandshakeSession(target).uninstall;
 }
@@ -73,6 +98,7 @@ export function installBridgePageHandshakeSession(
 	let telemetryConfig: BridgeTelemetryBootstrapConfig | null = null;
 	const deliveredProductWorkerInstanceIds = new Set<string>();
 	const pendingProductBootstrapRequestIds = new Set<string>();
+	const pendingTelemetryBootstrapRequestIds = new Set<string>();
 	let readyRequestId: string | null = null;
 	let didResolveReadyRequest = false;
 	let readyAcknowledgementTimeout: ReturnType<typeof globalThis.setTimeout> | null = null;
@@ -171,12 +197,12 @@ export function installBridgePageHandshakeSession(
 			return;
 		}
 		const parsedBootstrap = bridgeProductSessionBootstrapSchema.safeParse(detail.bootstrap);
+		const productCapability = copyProductCapabilityIntoCurrentRealm(detail.productCapability);
 		if (
 			typeof detail.requestId !== 'string' ||
 			!pendingProductBootstrapRequestIds.delete(detail.requestId) ||
 			!parsedBootstrap.success ||
-			!(detail.productCapability instanceof ArrayBuffer) ||
-			detail.productCapability.byteLength !== BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH
+			productCapability === null
 		) {
 			return;
 		}
@@ -186,7 +212,7 @@ export function installBridgePageHandshakeSession(
 		deliveredProductWorkerInstanceIds.add(parsedBootstrap.data.workerInstanceId);
 		props.onProductSessionBootstrap?.({
 			bootstrap: parsedBootstrap.data,
-			productCapability: detail.productCapability,
+			productCapability,
 		});
 	};
 	const requestProductSessionBootstrap = (reason: 'initial' | 'workerReplacement'): void => {
@@ -201,11 +227,43 @@ export function installBridgePageHandshakeSession(
 			}),
 		);
 	};
+	const handleTelemetrySessionBootstrap = (event: Event): void => {
+		if (!('detail' in event) || typeof event.detail !== 'object' || event.detail === null) {
+			return;
+		}
+		const detail = event.detail;
+		if (
+			!('requestId' in detail) ||
+			typeof detail.requestId !== 'string' ||
+			!pendingTelemetryBootstrapRequestIds.delete(detail.requestId) ||
+			!('result' in detail)
+		) {
+			return;
+		}
+		const decodedResult = bridgeTelemetrySessionBootstrapResultSchema.safeParse(detail.result);
+		if (decodedResult.success) {
+			props.onTelemetrySessionBootstrap?.(decodedResult.data);
+		}
+	};
+	const requestTelemetrySessionBootstrap = (reason: 'initial' | 'sidecarReplacement'): void => {
+		if (!isInstalled) {
+			return;
+		}
+		const requestId = createTelemetrySessionBootstrapRequestId();
+		pendingTelemetryBootstrapRequestIds.add(requestId);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_telemetry_session_bootstrap_request', {
+				detail: { reason, requestId },
+			}),
+		);
+	};
 
 	target.addEventListener('__bridge_ready_ack', handleReadyAcknowledgement);
 	target.addEventListener('__bridge_handshake', handleHandshake);
 	target.addEventListener('__bridge_product_session_bootstrap', handleProductSessionBootstrap);
+	target.addEventListener('__bridge_telemetry_session_bootstrap', handleTelemetrySessionBootstrap);
 	requestProductSessionBootstrap('initial');
+	requestTelemetrySessionBootstrap('initial');
 	target.dispatchEvent(new CustomEvent('__bridge_handshake_request'));
 
 	return {
@@ -214,9 +272,13 @@ export function installBridgePageHandshakeSession(
 		requestProductSessionReplacement: (): void => {
 			requestProductSessionBootstrap('workerReplacement');
 		},
+		requestTelemetrySessionReplacement: (): void => {
+			requestTelemetrySessionBootstrap('sidecarReplacement');
+		},
 		uninstall: (): void => {
 			isInstalled = false;
 			pendingProductBootstrapRequestIds.clear();
+			pendingTelemetryBootstrapRequestIds.clear();
 			clearReadyAcknowledgementTimeout();
 			target.removeEventListener('__bridge_ready_ack', handleReadyAcknowledgement);
 			target.removeEventListener('__bridge_handshake', handleHandshake);
@@ -224,12 +286,34 @@ export function installBridgePageHandshakeSession(
 				'__bridge_product_session_bootstrap',
 				handleProductSessionBootstrap,
 			);
+			target.removeEventListener(
+				'__bridge_telemetry_session_bootstrap',
+				handleTelemetrySessionBootstrap,
+			);
 		},
 	};
 }
 
+function copyProductCapabilityIntoCurrentRealm(value: unknown): ArrayBuffer | null {
+	try {
+		if (Object.prototype.toString.call(value) !== '[object ArrayBuffer]') {
+			return null;
+		}
+		const isolatedWorldBytes = new Uint8Array(value as ArrayBuffer);
+		if (isolatedWorldBytes.byteLength !== BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH) {
+			return null;
+		}
+		const currentRealmCapability = Uint8Array.from(isolatedWorldBytes).buffer;
+		isolatedWorldBytes.fill(0);
+		return currentRealmCapability;
+	} catch {
+		return null;
+	}
+}
+
 let bridgeReadyRequestSequence = 0;
 let productSessionBootstrapRequestSequence = 0;
+let telemetrySessionBootstrapRequestSequence = 0;
 
 function createBridgeReadyRequestId(): string {
 	bridgeReadyRequestSequence = (bridgeReadyRequestSequence + 1) % Number.MAX_SAFE_INTEGER;
@@ -240,6 +324,12 @@ function createProductSessionBootstrapRequestId(): string {
 	productSessionBootstrapRequestSequence =
 		(productSessionBootstrapRequestSequence + 1) % Number.MAX_SAFE_INTEGER;
 	return `bridge-product-bootstrap-${Date.now().toString(36)}-${productSessionBootstrapRequestSequence.toString(36)}`;
+}
+
+function createTelemetrySessionBootstrapRequestId(): string {
+	telemetrySessionBootstrapRequestSequence =
+		(telemetrySessionBootstrapRequestSequence + 1) % Number.MAX_SAFE_INTEGER;
+	return `bridge-telemetry-bootstrap-${Date.now().toString(36)}-${telemetrySessionBootstrapRequestSequence.toString(36)}`;
 }
 
 function extractPushNonce(event: Event): string | null {

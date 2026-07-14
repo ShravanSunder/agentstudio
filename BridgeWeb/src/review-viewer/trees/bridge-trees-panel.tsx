@@ -4,6 +4,7 @@ import type { ReactElement } from 'react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import {
+	mountedPierreFileRowElementsForModel,
 	pierreFilePathFromEventTarget,
 	pierreFilePathFromTreeEvent,
 	pierreTreeScrollOwnerForModel,
@@ -55,6 +56,13 @@ declare global {
 
 export { createBridgeReviewTreeVisibleItemPublisher } from './bridge-trees-visible-item-publisher.js';
 
+export interface BridgeReviewTreeSelectionRevealRequest {
+	readonly itemId: string;
+	readonly packageId: string;
+	readonly reviewGeneration: number;
+	readonly revision: number;
+}
+
 export interface BridgeReviewTreesPanelProps {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
@@ -62,6 +70,7 @@ export interface BridgeReviewTreesPanelProps {
 	readonly selectedItemId: string | null;
 	readonly searchOpen: boolean;
 	readonly searchText: string;
+	readonly selectionRevealRequest?: BridgeReviewTreeSelectionRevealRequest | null;
 	readonly onSelectItem: (itemId: string) => void;
 	readonly onSearchTextChange?: (searchText: string) => void;
 	readonly onVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
@@ -120,6 +129,7 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 	const { model } = useFileTree({
 		paths: initialSourceRef.current.orderedPaths,
 		preparedInput: initialSourceRef.current.preparedInput,
+		initialExpansion: 'closed',
 		initialExpandedPaths: initialSourceRef.current.initialExpandedPaths,
 		gitStatus: initialSourceRef.current.gitStatusEntries,
 		sort: preserveInputOrderSort,
@@ -153,7 +163,7 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 	} | null>(null);
 
 	useEffect((): void => {
-		const updatePlan = controllerRef.current?.applySource(source);
+		controllerRef.current?.applySource(source);
 		if (props.searchOpen && props.searchText.length > 0) {
 			const modelSearchText =
 				controllerRef.current?.modelSearchTextForFirstSearchMatch(props.searchText) ??
@@ -168,19 +178,6 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 			queueMicrotask(revealActiveSearchMatch);
 			requestAnimationFrame(revealActiveSearchMatch);
 			setTimeout(revealActiveSearchMatch, 0);
-		}
-		if (updatePlan?.kind === 'appendOnly') {
-			const controller = controllerRef.current;
-			const pathsToReveal = updatePlan.addedPaths;
-			const revealAppendedPathAncestors = (): void => {
-				for (const path of pathsToReveal) {
-					controller?.revealTreePathAncestors(path);
-				}
-			};
-			revealAppendedPathAncestors();
-			queueMicrotask(revealAppendedPathAncestors);
-			requestAnimationFrame(revealAppendedPathAncestors);
-			setTimeout(revealAppendedPathAncestors, 0);
 		}
 	}, [model, props.searchOpen, props.searchText, source]);
 
@@ -202,16 +199,29 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 	}, [model, props.searchOpen, props.searchText]);
 
 	useEffect((): void => {
-		if (props.selectedItemId === null) {
+		const selectionRevealRequest = props.selectionRevealRequest;
+		if (selectionRevealRequest === null || selectionRevealRequest === undefined) {
 			return;
 		}
-		const path = props.projection.primaryDisplayPathByItemId[props.selectedItemId];
+		if (selectionRevealRequest.reviewGeneration !== props.reviewPackage.reviewGeneration) {
+			return;
+		}
+		if (selectionRevealRequest.packageId !== props.reviewPackage.packageId) {
+			return;
+		}
+		const path = props.projection.primaryDisplayPathByItemId[selectionRevealRequest.itemId];
 		if (path === undefined) {
 			return;
 		}
 		controllerRef.current?.selectTreePath(path);
 		model.getItem(path)?.select();
-	}, [model, props.projection, props.selectedItemId]);
+	}, [
+		model,
+		props.projection,
+		props.reviewPackage.packageId,
+		props.reviewPackage.reviewGeneration,
+		props.selectionRevealRequest,
+	]);
 
 	const selectClickedFileRow = useCallback(
 		(event: Event): void => {
@@ -503,7 +513,7 @@ function reviewTreeRowIsMounted(props: {
 	readonly model: ReturnType<typeof useFileTree>['model'];
 	readonly path: string;
 }): boolean {
-	return visiblePierreFileRowElementsForModel(props.model).some(
+	return mountedPierreFileRowElementsForModel(props.model).some(
 		(rowElement): boolean => rowElement.getAttribute('data-item-path') === props.path,
 	);
 }

@@ -89,9 +89,20 @@ extension AppDelegate {
                 for: bridgeView.controller
             )
             recordBridgeReviewObservabilitySmokePhase("render_proof_finished", action: action)
+            let telemetrySidecarLifecyclePrepared: Bool
+            if renderProof.succeeded {
+                telemetrySidecarLifecyclePrepared = await prepareBridgeReviewTelemetrySidecarProof(
+                    controller: bridgeView.controller,
+                    action: action
+                )
+            } else {
+                telemetrySidecarLifecyclePrepared = true
+            }
             recordBridgeReviewObservabilitySmokeDiagnosticResult(
                 action: action,
-                outcome: renderProof.startupDiagnosticOutcome,
+                outcome: telemetrySidecarLifecyclePrepared
+                    ? renderProof.startupDiagnosticOutcome
+                    : "blocked",
                 renderProof: renderProof
             )
         }
@@ -141,6 +152,46 @@ extension AppDelegate {
                 phase: "startup_diagnostic_action",
                 attributes: startupDiagnosticTraceAttributes(for: action)
             )
+        }
+
+        private func prepareBridgeReviewTelemetrySidecarProof(
+            controller: BridgePaneController,
+            action: AgentStudioStartupDiagnosticAction
+        ) async -> Bool {
+            recordBridgeReviewObservabilitySmokePhase("telemetry_nonterminal_drain_started", action: action)
+            do {
+                let flushResult = try await controller.flushTelemetryForIPC()
+                guard
+                    flushResult.kind == .report,
+                    flushResult.drained == true,
+                    flushResult.report?.proofEligible == true,
+                    flushResult.report?.mainProducerHighWatermark != nil,
+                    flushResult.report?.commProducerHighWatermark != nil
+                else {
+                    recordBridgeReviewObservabilitySmokePhase(
+                        "telemetry_nonterminal_drain_failed",
+                        action: action
+                    )
+                    return false
+                }
+            } catch {
+                recordBridgeReviewObservabilitySmokePhase(
+                    "telemetry_nonterminal_drain_failed",
+                    action: action
+                )
+                return false
+            }
+            recordBridgeReviewObservabilitySmokePhase("telemetry_nonterminal_drain_finished", action: action)
+            recordBridgeReviewObservabilitySmokePhase("telemetry_terminal_retirement_started", action: action)
+            // Teardown force-attempts the terminal drain; Victoria is authoritative for its receipt validity.
+            let retired = await controller.teardown().value
+            recordBridgeReviewObservabilitySmokePhase(
+                retired
+                    ? "telemetry_terminal_retirement_finished"
+                    : "telemetry_terminal_retirement_failed",
+                action: action
+            )
+            return retired
         }
 
         private func recordBridgeReviewObservabilitySmokeDiagnosticResult(

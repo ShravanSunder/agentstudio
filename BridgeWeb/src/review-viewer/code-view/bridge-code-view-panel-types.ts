@@ -1,6 +1,5 @@
 import type { CodeViewScrollBehavior } from '@pierre/diffs';
 
-import type { SelectedContentPaintTelemetryStart } from '../../app/bridge-app-review-selection-state.js';
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
@@ -8,6 +7,13 @@ import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
 import type { BridgeCodeViewItemPresentation } from './bridge-code-view-materialization.js';
 import type { BridgeCodeViewProgrammaticRevealIntent } from './bridge-code-view-programmatic-reveal-gate.js';
+
+export interface SelectedContentPaintTelemetryStart {
+	readonly actionTraceContext: BridgeTraceContext | null;
+	readonly itemId: string;
+	readonly packageKey: string;
+	readonly startedAtMilliseconds: number;
+}
 
 export interface BridgeCodeViewPanelProps {
 	readonly reviewPackage: BridgeReviewPackage;
@@ -36,6 +42,7 @@ export interface BridgeCodeViewScrollToItemOptions {
 	readonly behavior?: CodeViewScrollBehavior;
 	readonly expandIfCollapsed?: boolean;
 	readonly revealIntent?: BridgeCodeViewProgrammaticRevealIntent;
+	readonly selectionScrollKey?: string;
 }
 
 export interface BridgeCodeViewSelectionScrollDiagnostic {

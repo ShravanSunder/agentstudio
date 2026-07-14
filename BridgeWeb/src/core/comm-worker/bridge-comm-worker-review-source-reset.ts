@@ -1,11 +1,12 @@
 import type {
 	BridgeCommWorkerDemandExecutionScheduleRequest,
-	BridgeCommWorkerReviewSourceUpdateScheduleRequest,
+	BridgeCommWorkerReviewMetadataResetScheduleRequest,
 	BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 } from './bridge-comm-worker-command-handler.js';
+import { isReviewRuntimeSourceExecutableForItem } from './bridge-comm-worker-review-source-diff.js';
 import type { WorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 
-const bridgeCommWorkerReviewSourceResetChunkItemCount = 64;
+const bridgeCommWorkerReviewSourceResetChunkEntryCount = 64;
 
 export interface EnqueuedBridgeCommWorkerDemandPreparationTicket {
 	readonly completion: Promise<void>;
@@ -17,7 +18,7 @@ interface EnqueueBridgeCommWorkerReviewSourceResetProps {
 	readonly isCurrentResetEpoch: () => boolean;
 	readonly onResetComplete: () => void;
 	readonly pump: WorkerContentPreparationPump;
-	readonly request: BridgeCommWorkerReviewSourceUpdateScheduleRequest;
+	readonly request: BridgeCommWorkerReviewMetadataResetScheduleRequest;
 	readonly requestPreparationDrain: () => void;
 	readonly scheduleDemandExecution: (
 		request: BridgeCommWorkerDemandExecutionScheduleRequest,
@@ -30,9 +31,9 @@ interface EnqueueBridgeCommWorkerReviewSourceResetProps {
 export function enqueueBridgeCommWorkerReviewSourceReset(
 	props: EnqueueBridgeCommWorkerReviewSourceResetProps,
 ): EnqueuedBridgeCommWorkerDemandPreparationTicket {
-	let processedItemCount = 0;
 	const completion = createBridgeCommWorkerCompletion();
-	const orderedItemIds = props.request.nextReviewRuntimeSource.rows.map((row) => row.id);
+	const processedContentItemIds = new Set<string>();
+	const processedRowIds = new Set<string>();
 	const affectedItemIds = new Set(props.request.affectedItemIds);
 	const work = {
 		id: `review-source-reset:${props.request.epoch}`,
@@ -47,45 +48,46 @@ export function enqueueBridgeCommWorkerReviewSourceReset(
 				completion.resolve();
 				return { complete: true };
 			}
-			processedItemCount = Math.min(
-				processedItemCount + bridgeCommWorkerReviewSourceResetChunkItemCount,
-				orderedItemIds.length,
-			);
-			const previousProcessedItemCount = Math.max(
-				0,
-				processedItemCount - bridgeCommWorkerReviewSourceResetChunkItemCount,
-			);
-			const chunkItemIds = new Set(
-				orderedItemIds.slice(previousProcessedItemCount, processedItemCount),
-			);
-			const chunkAffectedItemIds = [...chunkItemIds].filter((itemId) =>
-				affectedItemIds.has(itemId),
-			);
-			const resetComplete = processedItemCount >= orderedItemIds.length;
-			const sourceUpdateResult = props.request.store.actions.applyReviewSourceUpdateFact({
-				contentItems: props.request.nextReviewRuntimeSource.contentItems.filter((metadata) =>
-					chunkItemIds.has(metadata.itemId),
-				),
+			const runtimeSource = props.request.readReviewRuntimeSource();
+			const chunkContentItems = runtimeSource.contentItems
+				.filter((metadata) => !processedContentItemIds.has(metadata.itemId))
+				.slice(0, bridgeCommWorkerReviewSourceResetChunkEntryCount);
+			const chunkRows = runtimeSource.rows
+				.filter((row) => !processedRowIds.has(row.id))
+				.slice(0, bridgeCommWorkerReviewSourceResetChunkEntryCount);
+			for (const metadata of chunkContentItems) processedContentItemIds.add(metadata.itemId);
+			for (const row of chunkRows) processedRowIds.add(row.id);
+			const chunkAffectedItemIds = chunkContentItems
+				.map((metadata) => metadata.itemId)
+				.filter((itemId) => affectedItemIds.has(itemId));
+			const completeContentItemIds = runtimeSource.contentItems.map((metadata) => metadata.itemId);
+			const completeRowIds = runtimeSource.rows.map((row) => row.id);
+			const resetComplete =
+				completeContentItemIds.every((itemId) => processedContentItemIds.has(itemId)) &&
+				completeRowIds.every((rowId) => processedRowIds.has(rowId));
+			props.request.store.actions.applyReviewSourceUpdateFact({
+				...(resetComplete ? { completeContentItemIds, completeRowIds } : {}),
+				contentItems: chunkContentItems,
 				epoch: props.request.epoch,
-				...(resetComplete ? { completeItemIds: orderedItemIds } : {}),
 				resetComplete: false,
-				rows: props.request.nextReviewRuntimeSource.rows.filter((row) => chunkItemIds.has(row.id)),
+				rows: chunkRows,
 			});
 			const selectedId = props.request.store.getState().selectedId;
-			const selectedSourceChurnResult =
-				selectedId !== null && chunkAffectedItemIds.includes(selectedId)
+			const selectedDemand =
+				selectedId !== null &&
+				chunkAffectedItemIds.includes(selectedId) &&
+				isReviewRuntimeSourceExecutableForItem(runtimeSource, selectedId)
 					? props.request.store.actions.applySelectedSourceChurnFact({
-							epoch: props.request.epoch,
 							itemId: selectedId,
 						})
 					: null;
 			if (
 				selectedId !== null &&
-				(sourceUpdateResult.touchedKeys.includes(`demand:${selectedId}`) ||
-					selectedSourceChurnResult?.touchedKeys.includes(`demand:${selectedId}`) === true)
+				selectedDemand !== null &&
+				selectedDemand.selectedDemandEpoch !== null
 			) {
 				props.scheduleSelectedReviewContentReadyPreparation({
-					epoch: props.request.epoch,
+					epoch: selectedDemand.selectedDemandEpoch,
 					itemId: selectedId,
 					store: props.request.store,
 				});
@@ -93,7 +95,7 @@ export function enqueueBridgeCommWorkerReviewSourceReset(
 			if (chunkAffectedItemIds.length > 0) {
 				props.scheduleDemandExecution({
 					affectedItemIds: chunkAffectedItemIds,
-					cause: 'reviewSourceUpdate',
+					cause: props.request.cause,
 					epoch: props.request.epoch,
 					forceExecutionItemIds: chunkAffectedItemIds,
 					store: props.request.store,

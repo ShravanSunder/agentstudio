@@ -101,15 +101,18 @@ export function selectedContentDiagnosticsForPanel(props: {
 			selectedCodeViewItem,
 			selectedItemId: props.selectedItemId,
 		}),
-		summary: {
-			cacheKeyCount: cacheKeyEntries.length,
-			characterCount:
-				selectedCodeViewItem === null || selectedCodeViewItem === undefined
-					? 0
-					: characterCountForSelectedCodeViewItem(selectedCodeViewItem),
-			lineCount: selectedCodeViewItem?.bridgeMetadata.lineCount ?? 0,
-		},
-	};
+			summary: {
+				cacheKeyCount: cacheKeyEntries.length,
+				characterCount:
+					selectedCodeViewItem === null || selectedCodeViewItem === undefined
+						? 0
+						: characterCountForSelectedCodeViewItem(selectedCodeViewItem),
+				lineCount:
+					selectedCodeViewItem === null || selectedCodeViewItem === undefined
+						? 0
+						: lineCountForSelectedCodeViewItem(selectedCodeViewItem),
+			},
+		};
 }
 
 export function selectedMaterializationDiagnosticForPanel(props: {
@@ -167,6 +170,13 @@ function characterCountForSelectedCodeViewItem(item: BridgeMainCodeViewItem): nu
 		...item.fileDiff.deletionLines,
 	].reduce((totalCharacters, line): number => totalCharacters + line.length, 0);
 	return Math.max(changedLineCharacterCount, metadataLineCount);
+}
+
+function lineCountForSelectedCodeViewItem(item: BridgeMainCodeViewItem): number {
+	if (item.type === 'file') {
+		return item.file.contents.length === 0 ? 0 : item.file.contents.split('\n').length;
+	}
+	return item.fileDiff.additionLines.length + item.fileDiff.deletionLines.length;
 }
 
 function materializationDiagnosticForWorkerPreparedCodeViewItem(

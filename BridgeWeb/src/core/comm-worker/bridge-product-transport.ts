@@ -19,13 +19,27 @@ import {
 	type BridgeProductContentRequestFor,
 	type BridgeProductContentTerminal,
 } from './bridge-product-content-contracts.js';
+import {
+	BridgeProductContentResponseAdmission,
+	type BridgeProductContentResponseAdmissionLease,
+} from './bridge-product-content-response-admission.js';
 import { BridgeProductContentStreamDecoder } from './bridge-product-content-stream-decoder.js';
 import {
+	BRIDGE_PRODUCT_COMMAND_ROUTE,
 	BRIDGE_PRODUCT_CONTENT_ROUTE,
 	BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
 	BRIDGE_PRODUCT_STREAM_ROUTE,
 } from './bridge-product-contract-primitives.js';
-import { BridgeProductMetadataStreamDecoder } from './bridge-product-metadata-stream-decoder.js';
+import {
+	bridgeProductFrameAcknowledgementRejectedStatusSchema,
+	bridgeProductFrameAcknowledgementRequestSchema,
+	type BridgeProductFrameAcknowledgementRequest,
+} from './bridge-product-frame-acknowledgement-contracts.js';
+import {
+	BridgeProductMetadataStreamDecoder,
+	type BridgeProductMetadataStreamDecoderDiagnostics,
+	type BridgeProductMetadataStreamIdentityField,
+} from './bridge-product-metadata-stream-decoder.js';
 import type {
 	BridgeProductControlMux,
 	BridgeProductSessionAuthority,
@@ -86,8 +100,52 @@ export interface CreateBridgeProductTransportProps {
 
 export interface BridgeProductTransportSession extends BridgeProductTransport {
 	bumpWorkerDerivationEpoch(surface: BridgeProductSurface): number;
+	metadataStreamDiagnostics?(): BridgeProductMetadataStreamHealthDiagnostics;
 	workerDerivationEpoch(surface: BridgeProductSurface): number;
 }
+
+export interface BridgeProductMetadataStreamHealthDiagnostics {
+	readonly acknowledgedFrameCount: number;
+	readonly activeSubscriptionCount: number;
+	readonly committedFrameCount: number;
+	readonly decoderState: BridgeProductMetadataStreamDecoderDiagnostics['state'];
+	readonly expectedNextStreamSequence: number;
+	readonly failureStage: BridgeProductMetadataStreamFailureStage | null;
+	readonly failureCode: BridgeProductMetadataStreamDecoderDiagnostics['failureCode'];
+	readonly identityMismatchField: BridgeProductMetadataStreamIdentityField | null;
+	readonly lastChunkByteCount: number;
+	readonly lastAcknowledgedStreamSequence: number | null;
+	readonly lastCommittedFrameKind: BridgeProductMetadataFrame['kind'] | null;
+	readonly lastRoutedFrameKind: BridgeProductMetadataFrame['kind'] | null;
+	readonly lifecycleState: BridgeProductMetadataStreamLifecycleState;
+	readonly peakRetainedByteCount: number;
+	readonly pushCount: number;
+	readonly readFulfilledCount: number;
+	readonly readPending: boolean;
+	readonly readRequestCount: number;
+	readonly receivedByteCount: number;
+	readonly retainedByteCount: number;
+	readonly routeFailureCode: BridgeProductMetadataRouteFailureCode | null;
+	readonly routedFrameCount: number;
+	readonly streamOpenCount: number;
+}
+
+export type BridgeProductMetadataStreamFailureStage =
+	| 'acknowledgement'
+	| 'authority'
+	| 'decode'
+	| 'fetch'
+	| 'finish'
+	| 'read'
+	| 'route'
+	| 'unexpectedEof';
+
+export type BridgeProductMetadataStreamLifecycleState = 'failed' | 'idle' | 'opening' | 'reading';
+
+export type BridgeProductMetadataRouteFailureCode =
+	| 'metadata_stream_error'
+	| 'subscription_frame_rejected'
+	| 'unknown_subscription';
 
 export function createBridgeProductTransport(
 	props: CreateBridgeProductTransportProps,
@@ -97,10 +155,36 @@ export function createBridgeProductTransport(
 
 class BridgeProductTransportSessionImpl implements BridgeProductTransportSession {
 	readonly #authority: BridgeProductSessionAuthority;
+	readonly #contentResponseAdmission = new BridgeProductContentResponseAdmission();
 	readonly #controlMux: CreateBridgeProductTransportProps['controlMux'];
 	readonly #createIdentifier: (purpose: BridgeProductIdentifierPurpose) => string;
 	readonly #epochs: Record<BridgeProductSurface, number>;
 	#metadataReady: BridgeProductDeferred<void> | null = null;
+	#metadataStreamHealthDiagnostics: BridgeProductMetadataStreamHealthDiagnostics = {
+		acknowledgedFrameCount: 0,
+		activeSubscriptionCount: 0,
+		committedFrameCount: 0,
+		decoderState: 'open',
+		expectedNextStreamSequence: 0,
+		failureStage: null,
+		failureCode: null,
+		identityMismatchField: null,
+		lastChunkByteCount: 0,
+		lastAcknowledgedStreamSequence: null,
+		lastCommittedFrameKind: null,
+		lastRoutedFrameKind: null,
+		lifecycleState: 'idle',
+		peakRetainedByteCount: 0,
+		pushCount: 0,
+		readFulfilledCount: 0,
+		readPending: false,
+		readRequestCount: 0,
+		receivedByteCount: 0,
+		retainedByteCount: 0,
+		routeFailureCode: null,
+		routedFrameCount: 0,
+		streamOpenCount: 0,
+	};
 	readonly #subscriptions = new Map<string, BridgeProductSubscriptionFrameSink>();
 
 	constructor(props: CreateBridgeProductTransportProps) {
@@ -122,6 +206,13 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		assertBridgeProductEpoch(nextEpoch);
 		this.#epochs[surface] = nextEpoch;
 		return nextEpoch;
+	}
+
+	metadataStreamDiagnostics(): BridgeProductMetadataStreamHealthDiagnostics {
+		return Object.freeze({
+			...this.#metadataStreamHealthDiagnostics,
+			activeSubscriptionCount: this.#subscriptions.size,
+		});
 	}
 
 	workerDerivationEpoch(surface: BridgeProductSurface): number {
@@ -219,34 +310,210 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	}
 
 	async #readMetadataStream(request: BridgeProductMetadataStreamRequest): Promise<void> {
-		await this.#authority.open;
-		const response = await fetch(BRIDGE_PRODUCT_STREAM_ROUTE, {
-			body: encodeBridgeProductRequestBody(request),
-			headers: {
-				'Content-Type': 'application/json',
-				'X-AgentStudio-Bridge-Product-Capability': this.#authority.capabilityHeader,
-			},
-			method: 'POST',
-		});
+		this.#metadataStreamHealthDiagnostics = {
+			...this.#metadataStreamHealthDiagnostics,
+			failureStage: null,
+			lifecycleState: 'opening',
+			routeFailureCode: null,
+		};
+		try {
+			await this.#authority.open;
+		} catch (error) {
+			this.#recordMetadataStreamFailure('authority');
+			throw error;
+		}
+		let response: Response;
+		try {
+			response = await fetch(BRIDGE_PRODUCT_STREAM_ROUTE, {
+				body: encodeBridgeProductRequestBody(request),
+				headers: {
+					'Content-Type': 'application/json',
+					'X-AgentStudio-Bridge-Product-Capability': this.#authority.capabilityHeader,
+				},
+				method: 'POST',
+			});
+		} catch (error) {
+			this.#recordMetadataStreamFailure('fetch');
+			throw error;
+		}
 		if (!response.ok || response.body === null) {
+			this.#recordMetadataStreamFailure('fetch');
 			throw new Error(`Bridge product metadata stream failed with status ${response.status}.`);
 		}
+		this.#metadataStreamHealthDiagnostics = {
+			...this.#metadataStreamHealthDiagnostics,
+			lifecycleState: 'reading',
+			streamOpenCount: this.#metadataStreamHealthDiagnostics.streamOpenCount + 1,
+		};
 		const reader = response.body.getReader();
 		const decoder = new BridgeProductMetadataStreamDecoder(request);
 		try {
 			while (true) {
-				// eslint-disable-next-line no-await-in-loop -- Stream chunks are ordered.
-				const chunk = await reader.read();
-				if (chunk.done) break;
-				for (const frame of decoder.push(chunk.value)) {
-					this.#routeMetadataFrame(frame);
+				this.#metadataStreamHealthDiagnostics = {
+					...this.#metadataStreamHealthDiagnostics,
+					readPending: true,
+					readRequestCount: this.#metadataStreamHealthDiagnostics.readRequestCount + 1,
+				};
+				let chunk: ReadableStreamReadResult<Uint8Array>;
+				try {
+					// eslint-disable-next-line no-await-in-loop -- Stream chunks are ordered.
+					chunk = await reader.read();
+				} catch (error) {
+					this.#recordMetadataStreamFailure('read');
+					throw error;
+				}
+				this.#metadataStreamHealthDiagnostics = {
+					...this.#metadataStreamHealthDiagnostics,
+					readFulfilledCount: this.#metadataStreamHealthDiagnostics.readFulfilledCount + 1,
+					readPending: false,
+				};
+				if (chunk.done) {
+					try {
+						decoder.finish();
+					} catch (error) {
+						this.#captureMetadataStreamDiagnostics(decoder, 0, false);
+						this.#recordMetadataStreamFailure('finish');
+						throw error;
+					}
+					this.#captureMetadataStreamDiagnostics(decoder, 0, false);
+					this.#recordMetadataStreamFailure('unexpectedEof');
+					throw new Error('Bridge product metadata stream ended unexpectedly.');
+				}
+				let frames: readonly BridgeProductMetadataFrame[];
+				try {
+					frames = decoder.push(chunk.value);
+				} catch (error) {
+					this.#recordMetadataStreamFailure('decode');
+					throw error;
+				} finally {
+					this.#captureMetadataStreamDiagnostics(decoder, chunk.value.byteLength);
+				}
+				this.#metadataStreamHealthDiagnostics = {
+					...this.#metadataStreamHealthDiagnostics,
+					committedFrameCount:
+						this.#metadataStreamHealthDiagnostics.committedFrameCount + frames.length,
+					lastCommittedFrameKind:
+						frames.at(-1)?.kind ?? this.#metadataStreamHealthDiagnostics.lastCommittedFrameKind,
+				};
+				for (const frame of frames) {
+					try {
+						this.#routeMetadataFrame(frame);
+					} catch (error) {
+						const routeFailure = bridgeProductMetadataRouteFailure(error);
+						this.#recordMetadataStreamFailure('route', routeFailure.routeFailureCode);
+						throw routeFailure;
+					}
+					this.#metadataStreamHealthDiagnostics = {
+						...this.#metadataStreamHealthDiagnostics,
+						lastRoutedFrameKind: frame.kind,
+						routedFrameCount: this.#metadataStreamHealthDiagnostics.routedFrameCount + 1,
+					};
+					try {
+						// eslint-disable-next-line no-await-in-loop -- Native pacing advances only after this exact routed frame is accepted.
+						await this.#acknowledgeMetadataFrame(frame);
+					} catch (error) {
+						this.#recordMetadataStreamFailure('acknowledgement');
+						throw error;
+					}
 				}
 			}
-			decoder.finish();
-			throw new Error('Bridge product metadata stream ended unexpectedly.');
+		} catch (error) {
+			await reader.cancel(error).catch((): void => {});
+			throw error;
 		} finally {
 			reader.releaseLock();
 		}
+	}
+
+	async #acknowledgeMetadataFrame(frame: BridgeProductMetadataFrame): Promise<void> {
+		const request = bridgeProductFrameAcknowledgementRequestSchema.parse({
+			kind: 'stream.frameObserved',
+			metadataStreamId: frame.metadataStreamId,
+			paneSessionId: frame.paneSessionId,
+			streamSequence: frame.streamSequence,
+			streamKind: 'metadata',
+			wireVersion: frame.wireVersion,
+			workerInstanceId: frame.workerInstanceId,
+		});
+		await this.#sendFrameAcknowledgement(request);
+		this.#metadataStreamHealthDiagnostics = {
+			...this.#metadataStreamHealthDiagnostics,
+			acknowledgedFrameCount: this.#metadataStreamHealthDiagnostics.acknowledgedFrameCount + 1,
+			lastAcknowledgedStreamSequence: frame.streamSequence,
+		};
+	}
+
+	async #acknowledgeContentFrame<TContentKind extends BridgeProductContentKind>(
+		request: BridgeProductContentRequestFor<TContentKind>,
+		frame: BridgeProductContentFrameFor<TContentKind>,
+	): Promise<void> {
+		const acknowledgement = bridgeProductFrameAcknowledgementRequestSchema.parse({
+			contentRequestId: request.contentRequestId,
+			contentSequence: frame.header.contentSequence,
+			kind: 'stream.frameObserved',
+			leaseId: request.leaseId,
+			paneSessionId: request.paneSessionId,
+			streamKind: 'content',
+			wireVersion: request.wireVersion,
+			workerInstanceId: request.workerInstanceId,
+		});
+		await this.#sendFrameAcknowledgement(acknowledgement);
+	}
+
+	async #sendFrameAcknowledgement(
+		request: BridgeProductFrameAcknowledgementRequest,
+	): Promise<void> {
+		let response: Response;
+		try {
+			response = await fetch(BRIDGE_PRODUCT_COMMAND_ROUTE, {
+				body: encodeBridgeProductRequestBody(request),
+				headers: {
+					'Content-Type': 'application/json',
+					'X-AgentStudio-Bridge-Product-Capability': this.#authority.capabilityHeader,
+				},
+				method: 'POST',
+			});
+		} catch {
+			throw new BridgeProductFrameAcknowledgementFailure(
+				'request_failed',
+				null,
+				'Bridge product frame acknowledgement request failed.',
+			);
+		}
+		assertBridgeProductFrameAcknowledgementAccepted(response.status);
+	}
+
+	#recordMetadataStreamFailure(
+		failureStage: BridgeProductMetadataStreamFailureStage,
+		routeFailureCode: BridgeProductMetadataRouteFailureCode | null = null,
+	): void {
+		this.#metadataStreamHealthDiagnostics = {
+			...this.#metadataStreamHealthDiagnostics,
+			failureStage,
+			lifecycleState: 'failed',
+			readPending: false,
+			routeFailureCode,
+		};
+	}
+
+	#captureMetadataStreamDiagnostics(
+		decoder: BridgeProductMetadataStreamDecoder,
+		chunkByteCount: number,
+		recordPush = true,
+	): void {
+		const diagnostics = decoder.diagnostics;
+		this.#metadataStreamHealthDiagnostics = {
+			...this.#metadataStreamHealthDiagnostics,
+			decoderState: diagnostics.state,
+			expectedNextStreamSequence: diagnostics.expectedNextStreamSequence,
+			failureCode: diagnostics.failureCode,
+			identityMismatchField: diagnostics.identityMismatchField,
+			lastChunkByteCount: chunkByteCount,
+			peakRetainedByteCount: diagnostics.peakRetainedByteCount,
+			pushCount: this.#metadataStreamHealthDiagnostics.pushCount + (recordPush ? 1 : 0),
+			receivedByteCount: this.#metadataStreamHealthDiagnostics.receivedByteCount + chunkByteCount,
+			retainedByteCount: diagnostics.retainedByteCount,
+		};
 	}
 
 	#routeMetadataFrame(frame: BridgeProductMetadataFrame): void {
@@ -255,7 +522,8 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 				this.#metadataReady?.resolve();
 				return;
 			case 'metadataStream.error':
-				throw new Error(
+				throw new BridgeProductMetadataRouteFailure(
+					'metadata_stream_error',
 					frame.safeMessage ?? `Bridge product metadata stream failed: ${frame.code}.`,
 				);
 			case 'content.cancelled':
@@ -268,9 +536,21 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			case 'subscription.reset': {
 				const subscription = this.#subscriptions.get(frame.subscriptionId);
 				if (subscription === undefined) {
-					throw new Error('Bridge product metadata frame references an unknown subscription.');
+					throw new BridgeProductMetadataRouteFailure(
+						'unknown_subscription',
+						'Bridge product metadata frame references an unknown subscription.',
+					);
 				}
-				subscription.acceptFrame(frame);
+				try {
+					subscription.acceptFrame(frame);
+				} catch (error) {
+					throw new BridgeProductMetadataRouteFailure(
+						'subscription_frame_rejected',
+						error instanceof Error
+							? error.message
+							: 'Bridge product subscription rejected a metadata frame.',
+					);
+				}
 				return;
 			}
 		}
@@ -307,6 +587,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		readonly terminal: BridgeProductDeferred<BridgeProductContentTerminal<TContentKind>>;
 	}): Promise<void> {
 		let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+		let responseAdmissionLease: BridgeProductContentResponseAdmissionLease | null = null;
 		const abortReader = (): void => {
 			void reader?.cancel(props.abortSignal.reason).catch((): void => {});
 		};
@@ -314,6 +595,8 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		try {
 			props.abortSignal.throwIfAborted();
 			await this.#authority.open;
+			props.abortSignal.throwIfAborted();
+			responseAdmissionLease = await this.#contentResponseAdmission.acquire(props.abortSignal);
 			props.abortSignal.throwIfAborted();
 			const response = await fetch(BRIDGE_PRODUCT_CONTENT_ROUTE, {
 				body: encodeBridgeProductRequestBody(props.request),
@@ -336,7 +619,11 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 				if (chunk.done) break;
 				// eslint-disable-next-line no-await-in-loop -- Decoder digest validation is ordered.
 				const decoded = await decoder.push(chunk.value);
-				for (const frame of decoded.frames) props.frames.push(frame);
+				for (const frame of decoded.frames) {
+					props.frames.push(frame);
+					// eslint-disable-next-line no-await-in-loop -- This response advances only after native accepts observation of its exact decoded frame.
+					await this.#acknowledgeContentFrame(props.request, frame);
+				}
 				terminalResult = decoded.terminal ?? terminalResult;
 			}
 			decoder.finish();
@@ -346,13 +633,34 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			props.frames.close(true);
 			props.terminal.resolve(terminalResult);
 		} catch (error) {
+			if (reader !== null) await reader.cancel(error).catch((): void => {});
 			props.frames.fail(error, true);
 			props.terminal.reject(error);
 		} finally {
 			props.abortSignal.removeEventListener('abort', abortReader);
 			reader?.releaseLock();
+			responseAdmissionLease?.release();
 		}
 	}
+}
+
+class BridgeProductMetadataRouteFailure extends Error {
+	readonly routeFailureCode: BridgeProductMetadataRouteFailureCode;
+
+	constructor(routeFailureCode: BridgeProductMetadataRouteFailureCode, message: string) {
+		super(message);
+		this.name = 'BridgeProductMetadataRouteFailure';
+		this.routeFailureCode = routeFailureCode;
+	}
+}
+
+function bridgeProductMetadataRouteFailure(error: unknown): BridgeProductMetadataRouteFailure {
+	return error instanceof BridgeProductMetadataRouteFailure
+		? error
+		: new BridgeProductMetadataRouteFailure(
+				'subscription_frame_rejected',
+				error instanceof Error ? error.message : 'Bridge product metadata frame routing failed.',
+			);
 }
 
 function encodeBridgeProductRequestBody(request: object): ArrayBuffer {
@@ -361,6 +669,44 @@ function encodeBridgeProductRequestBody(request: object): ArrayBuffer {
 		throw new Error('Bridge product request exceeds its body ceiling.');
 	}
 	return Uint8Array.from(body).buffer;
+}
+
+function assertBridgeProductFrameAcknowledgementAccepted(status: number): asserts status is 204 {
+	if (status === 204) return;
+	const rejectedStatus = bridgeProductFrameAcknowledgementRejectedStatusSchema.safeParse(status);
+	if (rejectedStatus.success) {
+		throw new BridgeProductFrameAcknowledgementFailure(
+			'rejected_status',
+			rejectedStatus.data,
+			`Bridge product frame acknowledgement was rejected with status ${rejectedStatus.data}.`,
+		);
+	}
+	throw new BridgeProductFrameAcknowledgementFailure(
+		'unsupported_status',
+		status,
+		`Bridge product frame acknowledgement returned unsupported status ${status}.`,
+	);
+}
+
+type BridgeProductFrameAcknowledgementFailureCode =
+	| 'rejected_status'
+	| 'request_failed'
+	| 'unsupported_status';
+
+class BridgeProductFrameAcknowledgementFailure extends Error {
+	readonly failureCode: BridgeProductFrameAcknowledgementFailureCode;
+	readonly status: number | null;
+
+	constructor(
+		failureCode: BridgeProductFrameAcknowledgementFailureCode,
+		status: number | null,
+		message: string,
+	) {
+		super(message);
+		this.name = 'BridgeProductFrameAcknowledgementFailure';
+		this.failureCode = failureCode;
+		this.status = status;
+	}
 }
 
 function assertBridgeProductEpoch(epoch: number): void {

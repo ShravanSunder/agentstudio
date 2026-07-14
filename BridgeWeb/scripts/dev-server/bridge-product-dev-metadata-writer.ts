@@ -1,3 +1,4 @@
+import type { BridgeProductFrameAcknowledgementRequest } from '../../src/core/comm-worker/bridge-product-frame-acknowledgement-contracts.js';
 import { encodeBridgeProductMetadataFrame } from '../../src/core/comm-worker/bridge-product-metadata-frame-codec.js';
 import {
 	bridgeProductMetadataFrameSchema,
@@ -7,6 +8,15 @@ import {
 	writeBridgeProductDevResponseChunk,
 	type BridgeProductDevWritableResponse,
 } from './bridge-product-dev-http.js';
+import {
+	BridgeProductDevObservationGate,
+	type BridgeProductDevObservationDisposition,
+} from './bridge-product-dev-observation-gate.js';
+
+type BridgeProductDevMetadataObservation = Extract<
+	BridgeProductFrameAcknowledgementRequest,
+	{ readonly streamKind: 'metadata' }
+>;
 
 type BridgeProductMetadataFrameIdentityKey =
 	| 'metadataStreamId'
@@ -77,6 +87,8 @@ interface BridgeProductDevPendingFrame {
 }
 
 export class BridgeProductDevMetadataWriter {
+	readonly #observationGate =
+		new BridgeProductDevObservationGate<BridgeProductDevMetadataObservation>();
 	readonly #metadataStreamId: string;
 	readonly #paneSessionId: string;
 	#pendingWrite: Promise<void> = Promise.resolve();
@@ -102,6 +114,16 @@ export class BridgeProductDevMetadataWriter {
 
 	get streamSequence(): number {
 		return this.#streamSequence;
+	}
+
+	observe(
+		observation: BridgeProductDevMetadataObservation,
+	): BridgeProductDevObservationDisposition {
+		return this.#observationGate.observe(observation);
+	}
+
+	snapshot(): { readonly waiterCount: number } {
+		return { waiterCount: this.#observationGate.snapshot().waiterCount };
 	}
 
 	writeMetadataFrame(payload: BridgeProductDevMetadataFramePayload): Promise<void> {
@@ -138,7 +160,12 @@ export class BridgeProductDevMetadataWriter {
 	}
 
 	end(): void {
+		this.cancel();
 		this.#response.end();
+	}
+
+	cancel(): void {
+		this.#observationGate.cancel('Bridge product dev metadata observation was cancelled.');
 	}
 
 	#enqueue(
@@ -149,12 +176,23 @@ export class BridgeProductDevMetadataWriter {
 				throw new Error('Bridge product dev metadata response is closed.');
 			}
 			const pendingFrame = buildFrame(this.#streamSequence + 1);
-			await writeBridgeProductDevResponseChunk(
-				this.#response,
-				encodeBridgeProductMetadataFrame(pendingFrame.frame),
-			);
-			this.#streamSequence = pendingFrame.frame.streamSequence;
-			pendingFrame.onWritten?.();
+			const observation = metadataObservationForFrame(pendingFrame.frame);
+			const waitForObservation = this.#observationGate.register({ observation });
+			try {
+				await writeBridgeProductDevResponseChunk(
+					this.#response,
+					encodeBridgeProductMetadataFrame(pendingFrame.frame),
+				);
+				this.#streamSequence = pendingFrame.frame.streamSequence;
+				pendingFrame.onWritten?.();
+				await waitForObservation;
+			} catch (error) {
+				this.#observationGate.cancel(
+					'Bridge product dev metadata observation was cancelled after a write failure.',
+				);
+				await waitForObservation.catch((): void => {});
+				throw error;
+			}
 		});
 		this.#pendingWrite = write;
 		void write.catch((): void => {});
@@ -176,4 +214,18 @@ export class BridgeProductDevMetadataWriter {
 			workerInstanceId: this.#workerInstanceId,
 		};
 	}
+}
+
+function metadataObservationForFrame(
+	frame: BridgeProductMetadataFrame,
+): BridgeProductDevMetadataObservation {
+	return {
+		kind: 'stream.frameObserved',
+		metadataStreamId: frame.metadataStreamId,
+		paneSessionId: frame.paneSessionId,
+		streamKind: 'metadata',
+		streamSequence: frame.streamSequence,
+		wireVersion: frame.wireVersion,
+		workerInstanceId: frame.workerInstanceId,
+	};
 }

@@ -31,6 +31,7 @@ export interface BridgeTreesModel {
 }
 
 export interface BridgeTreesSource {
+	readonly disclosurePolicyIdentity: string;
 	readonly packageId: string;
 	readonly reviewGeneration: number;
 	readonly revision: number;
@@ -71,8 +72,7 @@ export interface BridgeTreesControllerProps {
 	readonly telemetryTraceContext?: BridgeTraceContext | null | undefined;
 }
 
-const bridgeTreeFullInitialExpansionPathLimit = 500;
-const bridgeTreeLargeInitialExpansionPathLimit = 48;
+export const bridgeTreesDisclosurePolicyIdentity = 'fresh-collapsed-v1';
 
 export function createBridgeTreesSource(props: CreateBridgeTreesSourceProps): BridgeTreesSource {
 	const treeRowsSource = reviewTreeRowsSourceForProjection({
@@ -94,19 +94,14 @@ export function createBridgeTreesSource(props: CreateBridgeTreesSourceProps): Br
 	});
 
 	return {
+		disclosurePolicyIdentity: bridgeTreesDisclosurePolicyIdentity,
 		packageId: props.reviewPackage.packageId,
 		reviewGeneration: props.reviewPackage.reviewGeneration,
 		revision: props.reviewPackage.revision,
 		projectionId: props.projection.projectionId,
 		orderedPaths: treePaths,
 		preparedInput,
-		initialExpandedPaths: createInitialExpandedPaths({
-			orderedPaths: treePaths,
-			expansionPathLimit:
-				treePaths.length > bridgeTreeFullInitialExpansionPathLimit
-					? bridgeTreeLargeInitialExpansionPathLimit
-					: treePaths.length,
-		}),
+		initialExpandedPaths: [],
 		gitStatusEntries,
 		primaryItemIdByTreePath,
 		gitStatusSignature: gitStatusSignature(gitStatusEntries),
@@ -163,6 +158,9 @@ export function planBridgeTreesUpdate(props: PlanBridgeTreesUpdateProps): Bridge
 	}
 
 	if (!sameProjectionIdentity(props.previous, props.next)) {
+		return { kind: 'reset' };
+	}
+	if (props.previous.disclosurePolicyIdentity !== props.next.disclosurePolicyIdentity) {
 		return { kind: 'reset' };
 	}
 
@@ -234,9 +232,6 @@ export class BridgeTreesController {
 						(path: string): FileTreeBatchOperation => ({ type: 'add', path }),
 					),
 				);
-				for (const path of updatePlan.addedPaths) {
-					expandAncestorDirectories({ model: this.#model, path });
-				}
 				if (updatePlan.shouldUpdateGitStatus) {
 					this.#model.setGitStatus(source.gitStatusEntries);
 				}
@@ -471,31 +466,6 @@ function gitStatusSignature(entries: readonly GitStatusEntry[]): string {
 	return entries
 		.map((entry: GitStatusEntry): string => `${entry.path}\u0000${entry.status}`)
 		.join('\n');
-}
-
-interface CreateInitialExpandedPathsProps {
-	readonly orderedPaths: readonly string[];
-	readonly expansionPathLimit: number;
-}
-
-function createInitialExpandedPaths(props: CreateInitialExpandedPathsProps): readonly string[] {
-	const expandedPaths: string[] = [];
-	const seenPaths = new Set<string>();
-
-	for (const path of props.orderedPaths.slice(0, props.expansionPathLimit)) {
-		const pathSegments = path.split('/').filter((segment: string): boolean => segment.length > 0);
-		let currentPath = '';
-		for (const pathSegment of pathSegments.slice(0, -1)) {
-			currentPath = currentPath.length === 0 ? pathSegment : `${currentPath}/${pathSegment}`;
-			if (seenPaths.has(currentPath)) {
-				continue;
-			}
-			seenPaths.add(currentPath);
-			expandedPaths.push(currentPath);
-		}
-	}
-
-	return expandedPaths;
 }
 
 function resetOptionsForSource(source: BridgeTreesSource): FileTreeResetOptions {

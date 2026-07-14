@@ -42,10 +42,22 @@ enum BridgeContentDemandInterest: String, Equatable, Sendable {
     }
 }
 
+struct BridgeContentDemandAdmissionSnapshot: Equatable, Sendable {
+    let backgroundCancellationTombstoneCount: Int
+    let backgroundWaiterRegistrationCount: Int
+    let backgroundWaiterCount: Int
+    let hasBackgroundCooldownTask: Bool
+    let hasBackgroundPacingTask: Bool
+    let pendingUserDemandCount: Int
+}
+
 actor BridgeContentDemandAdmission {
     private let delay: AsyncDelay
+    private var backgroundWaiterCancellationTombstones: Set<UUID> = []
+    private var backgroundWaiterContinuationsById: [UUID: CheckedContinuation<Void, Error>] = [:]
+    private var backgroundWaiterIds: [UUID] = []
+    private var backgroundWaiterRegistrationIds: Set<UUID> = []
     private var pendingUserDemandCount = 0
-    private var backgroundWaiters: [CheckedContinuation<Void, Never>] = []
     private var backgroundPacingTask: Task<Void, Never>?
     private var backgroundCooldownTask: Task<Void, Never>?
     private var cooldownGeneration = 0
@@ -56,13 +68,34 @@ actor BridgeContentDemandAdmission {
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
     }
 
+    func withAdmission<ReturnValue: Sendable>(
+        for interest: BridgeContentDemandInterest,
+        operation: @Sendable () async throws -> ReturnValue
+    ) async throws -> ReturnValue {
+        try await beginScopedAdmission(interest)
+        defer { finish(interest) }
+        try Task.checkCancellation()
+        return try await operation()
+    }
+
+    func snapshot() -> BridgeContentDemandAdmissionSnapshot {
+        BridgeContentDemandAdmissionSnapshot(
+            backgroundCancellationTombstoneCount: backgroundWaiterCancellationTombstones.count,
+            backgroundWaiterRegistrationCount: backgroundWaiterRegistrationIds.count,
+            backgroundWaiterCount: backgroundWaiterContinuationsById.count,
+            hasBackgroundCooldownTask: backgroundCooldownTask != nil,
+            hasBackgroundPacingTask: backgroundPacingTask != nil,
+            pendingUserDemandCount: pendingUserDemandCount
+        )
+    }
+
     func start(_ interest: BridgeContentDemandInterest) async {
         if interest.isUserBlocking {
             recordUserDemandStart()
             return
         }
         if interest.isBackgroundFill {
-            await waitForBackgroundTurn()
+            try? await awaitBackgroundTurn()
         }
     }
 
@@ -81,12 +114,28 @@ actor BridgeContentDemandAdmission {
         guard interest.isBackgroundFill else {
             return
         }
-        await waitForBackgroundTurn()
+        try? await awaitBackgroundTurn()
     }
 
     func waitForBackgroundTurn() async {
+        try? await awaitBackgroundTurn()
+    }
+
+    private func beginScopedAdmission(_ interest: BridgeContentDemandInterest) async throws {
+        try Task.checkCancellation()
+        if interest.isUserBlocking {
+            recordUserDemandStart()
+            return
+        }
+        if interest.isBackgroundFill {
+            try await awaitBackgroundTurn()
+        }
+    }
+
+    private func awaitBackgroundTurn() async throws {
+        try Task.checkCancellation()
         if shouldYieldForPendingUserDemand {
-            await enqueueBackgroundWaiter()
+            try await enqueueBackgroundWaiter()
             return
         }
         guard isBackgroundCooldownActive else {
@@ -94,7 +143,7 @@ actor BridgeContentDemandAdmission {
             return
         }
         guard backgroundFillTokens > 0 else {
-            await enqueueBackgroundWaiter()
+            try await enqueueBackgroundWaiter()
             return
         }
         backgroundFillTokens -= 1
@@ -148,17 +197,64 @@ actor BridgeContentDemandAdmission {
         resumeBackgroundWaiters()
     }
 
-    private func enqueueBackgroundWaiter() async {
-        await withCheckedContinuation { continuation in
-            backgroundWaiters.append(continuation)
-            scheduleBackgroundPacingTickIfNeeded()
+    private func enqueueBackgroundWaiter() async throws {
+        let waiterId = UUID()
+        backgroundWaiterRegistrationIds.insert(waiterId)
+        let admission = self
+        do {
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    registerBackgroundWaiter(waiterId, continuation: continuation)
+                }
+                try Task.checkCancellation()
+            } onCancel: {
+                Task {
+                    await admission.cancelBackgroundWaiter(waiterId)
+                }
+            }
+        } catch {
+            discardBackgroundWaiterRegistration(waiterId)
+            throw error
         }
+        discardBackgroundWaiterRegistration(waiterId)
+    }
+
+    private func registerBackgroundWaiter(
+        _ waiterId: UUID,
+        continuation: CheckedContinuation<Void, Error>
+    ) {
+        guard backgroundWaiterRegistrationIds.remove(waiterId) != nil else {
+            continuation.resume(throwing: CancellationError())
+            return
+        }
+        if backgroundWaiterCancellationTombstones.remove(waiterId) != nil {
+            continuation.resume(throwing: CancellationError())
+            return
+        }
+        backgroundWaiterIds.append(waiterId)
+        backgroundWaiterContinuationsById[waiterId] = continuation
+        releaseEligibleBackgroundWaiters()
+    }
+
+    private func cancelBackgroundWaiter(_ waiterId: UUID) {
+        if let continuation = backgroundWaiterContinuationsById.removeValue(forKey: waiterId) {
+            backgroundWaiterIds.removeAll { $0 == waiterId }
+            cancelBackgroundPacingIfNoWaiters()
+            continuation.resume(throwing: CancellationError())
+            return
+        }
+        guard backgroundWaiterRegistrationIds.contains(waiterId) else { return }
+        backgroundWaiterCancellationTombstones.insert(waiterId)
+    }
+
+    private func discardBackgroundWaiterRegistration(_ waiterId: UUID) {
+        backgroundWaiterRegistrationIds.remove(waiterId)
+        backgroundWaiterCancellationTombstones.remove(waiterId)
     }
 
     private func releaseEligibleBackgroundWaiters() {
-        guard !backgroundWaiters.isEmpty else {
-            backgroundPacingTask?.cancel()
-            backgroundPacingTask = nil
+        guard !backgroundWaiterIds.isEmpty else {
+            cancelBackgroundPacingIfNoWaiters()
             return
         }
         guard !shouldYieldForPendingUserDemand else {
@@ -169,19 +265,17 @@ actor BridgeContentDemandAdmission {
             return
         }
 
-        var releasedWaiters: [CheckedContinuation<Void, Never>] = []
-        while backgroundFillTokens > 0, !backgroundWaiters.isEmpty {
+        while backgroundFillTokens > 0, let waiterId = backgroundWaiterIds.first {
+            backgroundWaiterIds.removeFirst()
+            guard let continuation = backgroundWaiterContinuationsById.removeValue(forKey: waiterId)
+            else { continue }
             backgroundFillTokens -= 1
-            releasedWaiters.append(backgroundWaiters.removeFirst())
+            continuation.resume()
         }
-        if backgroundWaiters.isEmpty {
-            backgroundPacingTask?.cancel()
-            backgroundPacingTask = nil
+        if backgroundWaiterIds.isEmpty {
+            cancelBackgroundPacingIfNoWaiters()
         } else {
             scheduleBackgroundPacingTickIfNeeded()
-        }
-        for waiter in releasedWaiters {
-            waiter.resume()
         }
     }
 
@@ -189,7 +283,7 @@ actor BridgeContentDemandAdmission {
         guard backgroundPacingTask == nil,
             isBackgroundCooldownActive,
             !shouldYieldForPendingUserDemand,
-            !backgroundWaiters.isEmpty
+            !backgroundWaiterIds.isEmpty
         else {
             return
         }
@@ -221,10 +315,16 @@ actor BridgeContentDemandAdmission {
     }
 
     private func resumeBackgroundWaiters() {
-        let waiters = backgroundWaiters
-        backgroundWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume()
+        let waiterIds = backgroundWaiterIds
+        backgroundWaiterIds.removeAll(keepingCapacity: false)
+        for waiterId in waiterIds {
+            backgroundWaiterContinuationsById.removeValue(forKey: waiterId)?.resume()
         }
+    }
+
+    private func cancelBackgroundPacingIfNoWaiters() {
+        guard backgroundWaiterIds.isEmpty else { return }
+        backgroundPacingTask?.cancel()
+        backgroundPacingTask = nil
     }
 }

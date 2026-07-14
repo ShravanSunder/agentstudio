@@ -74,7 +74,6 @@ describe('Bridge File viewer tree display adapter', () => {
 		});
 
 		expect(demand).toEqual({
-			descriptorRefs: [],
 			firstVisibleIndex: 7,
 			lastVisibleIndex: 9,
 			visibleFileCount: 2,

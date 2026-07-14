@@ -10,10 +10,9 @@ import type {
 	BridgeFileClass,
 	BridgeReviewItemDescriptor,
 } from '../../foundation/review-package/bridge-review-package.js';
-import type {
-	BridgeViewerBrowserFixtureClass,
-	BridgeViewerMockedBackendLatencyProfile,
-} from './bridge-viewer-mocked-backend.js';
+import type { BridgeViewerBrowserFixtureClass } from './bridge-viewer-mocked-backend-fixture.js';
+
+type BridgeViewerMockedBackendLatencyProfile = 'zero' | 'small' | 'slowBounded';
 
 export function primaryPathForItem(item: BridgeReviewItemDescriptor): string {
 	return item.headPath ?? item.basePath ?? item.itemId;

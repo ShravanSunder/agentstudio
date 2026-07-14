@@ -14,6 +14,90 @@ const source = {
 } as const;
 
 describe('Bridge comm worker File metadata projection', () => {
+	test('publishes honest ready lifecycle state when the initial tree replacement completes', () => {
+		// Arrange
+		const projection = new BridgeCommWorkerFileMetadataProjection();
+		projection.apply({ eventKind: 'file.sourceAccepted', source });
+
+		// Act
+		const treeWindow = projection.apply({
+			eventKind: 'file.treeWindow',
+			finalWindow: true,
+			lineage: { lane: 'visible', loadedBy: 'startup_window' },
+			pathScope: [],
+			rows: [makeFileTreeRow()],
+			source,
+			startIndex: 0,
+			totalRowCount: 1,
+		});
+
+		// Assert
+		expect(treeWindow.patches).toContainEqual({
+			operation: 'upsert',
+			payload: {
+				ahead: null,
+				behind: null,
+				branchName: null,
+				staged: null,
+				state: 'ready',
+				unstaged: null,
+				untracked: null,
+			},
+			slice: 'fileStatus',
+		});
+	});
+
+	test('repairs stale lifecycle state on a completed replacement without erasing known summary facts', () => {
+		// Arrange
+		const projection = new BridgeCommWorkerFileMetadataProjection();
+		projection.apply({ eventKind: 'file.sourceAccepted', source });
+		projection.apply({
+			eventKind: 'file.statusPatch',
+			patch: {
+				ahead: 1,
+				behind: 2,
+				branchName: 'main',
+				patchKind: 'summary',
+				staged: 3,
+				unstaged: 4,
+				untracked: 5,
+			},
+			source,
+		});
+		projection.apply({
+			eventKind: 'file.statusPatch',
+			patch: { patchKind: 'invalidated', reason: 'git_status_changed' },
+			source,
+		});
+
+		// Act
+		const replacement = projection.apply({
+			eventKind: 'file.treeWindow',
+			finalWindow: true,
+			lineage: { lane: 'visible', loadedBy: 'replacement' },
+			pathScope: [],
+			rows: [makeFileTreeRow()],
+			source,
+			startIndex: 0,
+			totalRowCount: 1,
+		});
+
+		// Assert
+		expect(replacement.patches).toContainEqual({
+			operation: 'upsert',
+			payload: {
+				ahead: 1,
+				behind: 2,
+				branchName: 'main',
+				staged: 3,
+				state: 'ready',
+				unstaged: 4,
+				untracked: 5,
+			},
+			slice: 'fileStatus',
+		});
+	});
+
 	test('maps every File metadata event kind to bounded strict display patches', () => {
 		// Arrange
 		const projection = new BridgeCommWorkerFileMetadataProjection();
@@ -93,6 +177,19 @@ describe('Bridge comm worker File metadata projection', () => {
 				operation: 'replacementCommit',
 				payload: { sourceGeneration: 3, sourceId: 'file-source-1' },
 				slice: 'fileTree',
+			},
+			{
+				operation: 'upsert',
+				payload: {
+					ahead: null,
+					behind: null,
+					branchName: null,
+					staged: null,
+					state: 'ready',
+					unstaged: null,
+					untracked: null,
+				},
+				slice: 'fileStatus',
 			},
 		]);
 		expect(treeDelta.patches).toEqual([

@@ -27,18 +27,31 @@ export interface BridgeProductMetadataStreamDecoderDiagnostics {
 		| BridgeProductFrameDecoderFailureCode
 		| BridgeProductMetadataStreamDecoderFailureCode
 		| null;
+	readonly identityMismatchField: BridgeProductMetadataStreamIdentityField | null;
 	readonly peakRetainedByteCount: number;
 	readonly retainedByteCount: number;
 	readonly state: BridgeProductMetadataStreamDecoderState;
 }
 
+export type BridgeProductMetadataStreamIdentityField =
+	| 'metadataStreamId'
+	| 'paneSessionId'
+	| 'wireVersion'
+	| 'workerInstanceId';
+
 export class BridgeProductMetadataStreamDecoderFailure extends Error {
 	readonly failureCode: BridgeProductMetadataStreamDecoderFailureCode;
+	readonly identityMismatchField: BridgeProductMetadataStreamIdentityField | null;
 
-	constructor(failureCode: BridgeProductMetadataStreamDecoderFailureCode, message: string) {
+	constructor(
+		failureCode: BridgeProductMetadataStreamDecoderFailureCode,
+		message: string,
+		identityMismatchField: BridgeProductMetadataStreamIdentityField | null = null,
+	) {
 		super(message);
 		this.name = 'BridgeProductMetadataStreamDecoderFailure';
 		this.failureCode = failureCode;
+		this.identityMismatchField = identityMismatchField;
 	}
 }
 
@@ -51,6 +64,7 @@ export class BridgeProductMetadataStreamDecoder {
 		| BridgeProductMetadataStreamDecoderFailureCode
 		| null = null;
 	#frameDecoder: BridgeProductMetadataFrameDecoder | null;
+	#identityMismatchField: BridgeProductMetadataStreamIdentityField | null = null;
 	#peakRetainedByteCount = 0;
 	#retainedByteCount = 0;
 	#state: BridgeProductMetadataStreamDecoderState = 'open';
@@ -74,6 +88,7 @@ export class BridgeProductMetadataStreamDecoder {
 			acceptedStream: this.#acceptedStream,
 			expectedNextStreamSequence: this.#expectedNextStreamSequence,
 			failureCode: this.#failureCode,
+			identityMismatchField: this.#identityMismatchField,
 			peakRetainedByteCount: this.#peakRetainedByteCount,
 			retainedByteCount: this.#retainedByteCount,
 			state: this.#state,
@@ -108,6 +123,7 @@ export class BridgeProductMetadataStreamDecoder {
 		} catch (error) {
 			if (error instanceof BridgeProductMetadataStreamDecoderFailure) {
 				this.#failureCode = error.failureCode;
+				this.#identityMismatchField = error.identityMismatchField;
 				this.#retireAsPoisoned();
 			}
 			throw error;
@@ -197,17 +213,13 @@ export class BridgeProductMetadataStreamDecoder {
 	}
 
 	#validateFrameIdentity(frame: BridgeProductMetadataFrame): void {
-		if (
-			frame.wireVersion !== this.#expectedRequest.wireVersion ||
-			frame.paneSessionId !== this.#expectedRequest.paneSessionId ||
-			frame.workerInstanceId !== this.#expectedRequest.workerInstanceId ||
-			frame.metadataStreamId !== this.#expectedRequest.metadataStreamId
-		) {
-			throw new BridgeProductMetadataStreamDecoderFailure(
-				'stream_identity_mismatch',
-				'Bridge product metadata frame does not match its opened stream identity.',
-			);
-		}
+		const mismatchField = metadataStreamIdentityMismatchField(frame, this.#expectedRequest);
+		if (mismatchField === null) return;
+		throw new BridgeProductMetadataStreamDecoderFailure(
+			'stream_identity_mismatch',
+			'Bridge product metadata frame does not match its opened stream identity.',
+			mismatchField,
+		);
 	}
 
 	#captureFrameDecoderDiagnostics(frameDecoder: BridgeProductMetadataFrameDecoder): void {
@@ -249,4 +261,15 @@ export class BridgeProductMetadataStreamDecoder {
 			throw new Error('Bridge product metadata stream decoder is finished.');
 		}
 	}
+}
+
+function metadataStreamIdentityMismatchField(
+	frame: BridgeProductMetadataFrame,
+	expectedRequest: BridgeProductMetadataStreamRequest,
+): BridgeProductMetadataStreamIdentityField | null {
+	if (frame.wireVersion !== expectedRequest.wireVersion) return 'wireVersion';
+	if (frame.paneSessionId !== expectedRequest.paneSessionId) return 'paneSessionId';
+	if (frame.workerInstanceId !== expectedRequest.workerInstanceId) return 'workerInstanceId';
+	if (frame.metadataStreamId !== expectedRequest.metadataStreamId) return 'metadataStreamId';
+	return null;
 }

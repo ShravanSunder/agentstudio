@@ -1,176 +1,77 @@
-import type { MutableRefObject, ReactElement } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 
-import type { BridgePageHandshakeSession } from '../bridge/bridge-page-handshake.js';
 import type { BridgeActiveViewerSource } from '../bridge/bridge-rpc-client.js';
-import type { ReviewTreeRowMetadata } from '../features/review/models/review-protocol-models.js';
+import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import { startBridgeFrameJankProbe } from '../foundation/diagnostics/bridge-frame-jank-probe.js';
 import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-frame-liveness-probe.js';
-import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
-import type { BridgeTelemetryBootstrapConfig } from '../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
-import type {
-	BridgeTelemetryFlushProps,
-	BridgeTelemetryRecorder,
-} from '../foundation/telemetry/bridge-telemetry-recorder.js';
+import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import { recordBridgeFrameJankTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
-import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
-import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-types.js';
-import { useBridgeReviewProjectionCoordinator } from '../review-viewer/projections/use-review-projection-coordinator.js';
-import {
-	selectBridgeReviewPanelChromeSlice,
-	useBridgeReviewViewerStoreSelector,
-} from '../review-viewer/state/review-viewer-store.js';
-import { createBridgeMarkdownRenderWebWorkerClient } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-transport.js';
-import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-client.js';
-import { createBridgeReviewProjectionWebWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-transport.js';
-import type { BridgeDiffStatusState } from './bridge-app-review-controller.js';
-import { useBridgeReviewDemandTelemetryController } from './bridge-app-review-demand-telemetry-controller.js';
-import {
-	readBridgeReviewFrameAuthority,
-	refreshBridgeReviewFrameAuthority,
-	type BridgeReviewFrameAuthority,
-} from './bridge-app-review-frame-authority.js';
-import { useBridgeReviewIntakeController } from './bridge-app-review-intake-controller.js';
-import { useBridgeReviewMarkdownPreviewController } from './bridge-app-review-markdown-preview-controller.js';
-import { useBridgeReviewMetadataInterestRuntime } from './bridge-app-review-metadata-interest-runtime.js';
+import type { BridgeReviewSearchMode } from '../review-viewer/models/review-projection-models.js';
+import type { BridgeReviewTreeSelectionRevealRequest } from '../review-viewer/trees/bridge-trees-panel.js';
 import { useBridgeReviewNavigationController } from './bridge-app-review-navigation-controller.js';
+import { bridgeReviewPresentationSnapshotForDisplay } from './bridge-app-review-presentation-adapter.js';
 import {
 	createBridgeReviewWorkerPierreCourier,
+	type BridgeReviewRenderSnapshotController,
 	useBridgeReviewRenderSnapshotController,
 } from './bridge-app-review-render-snapshot-controller.js';
-import {
-	useBridgeResourceDescriptorRegistry,
-	useBridgeReviewViewerStore,
-} from './bridge-app-review-runtime.js';
 import { useBridgeReviewSelectionController } from './bridge-app-review-selection-controller.js';
 import {
-	makeSelectedContentResourcesKey,
-	reviewFileTargetForNavigationCommand,
-	selectedCanvasLoadingReasonForCurrentSelection,
-	selectedContentUnavailablePathForCurrentSelection,
-	selectedItemPresentationForReviewFileTarget,
-	type BridgeReviewFileNavigationTarget,
-	type SelectedMarkdownPreviewState,
-} from './bridge-app-review-selection-state.js';
-import { useBridgeReviewRenderTelemetryController } from './bridge-app-review-telemetry-controller.js';
-import {
-	makeTelemetryPackageKey,
-	type BridgeReviewPackageTelemetryContext,
-} from './bridge-app-review-telemetry.js';
-import { BridgeReviewViewerShellBoundary } from './bridge-app-review-viewer-shell-boundary.js';
-import type { BridgeAppProps } from './bridge-app.js';
-import { useBridgeReviewControlEventListeners } from './use-bridge-review-control-event-listeners.js';
+	BridgeReviewViewerShellBoundary,
+	type BridgeReviewViewerPresentationState,
+} from './bridge-app-review-viewer-shell-boundary.js';
+import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-models.js';
 
-export function BridgeReviewViewerMode(
-	props: BridgeAppProps & {
-		readonly handshakeSessionRef: MutableRefObject<BridgePageHandshakeSession | null>;
-		readonly isActive: boolean;
-		readonly onActiveSourceChange: (activeSource: BridgeActiveViewerSource | null) => void;
-		readonly registerBridgeReadyCallback: (callback: () => void) => () => void;
-		readonly telemetryConfig: BridgeTelemetryBootstrapConfig | null;
-		readonly telemetryRecorderRef: MutableRefObject<BridgeTelemetryRecorder>;
-		readonly viewerHeaderControls: ReactElement;
-	},
-): ReactElement {
-	const target = props.target ?? document;
-	const reviewFrameAuthorityRef = useRef<BridgeReviewFrameAuthority | null>(
-		readBridgeReviewFrameAuthority(),
-	);
-	const getReviewFrameAuthority = useCallback(
-		(): BridgeReviewFrameAuthority | null =>
-			refreshBridgeReviewFrameAuthority(reviewFrameAuthorityRef),
-		[],
-	);
-	const viewerStore = useBridgeReviewViewerStore();
-	const descriptorRegistry = useBridgeResourceDescriptorRegistry();
-	const reviewEnvelopeApplyTailRef = useRef<Promise<void>>(Promise.resolve());
-	const projection = useBridgeReviewViewerStoreSelector(viewerStore, (state) => state.projection);
-	const panelChromeSlice = useBridgeReviewViewerStoreSelector(
-		viewerStore,
-		selectBridgeReviewPanelChromeSlice,
-	);
-	const viewerActions = useBridgeReviewViewerStoreSelector(viewerStore, (state) => state.actions);
-	const [reviewPackage, setReviewPackage] = useState<BridgeReviewPackage | null>(null);
-	const [reviewTreeRows, setReviewTreeRowsState] = useState<readonly ReviewTreeRowMetadata[]>([]);
-	const reviewTreeRowsRef = useRef<readonly ReviewTreeRowMetadata[]>(reviewTreeRows);
-	reviewTreeRowsRef.current = reviewTreeRows;
-	const setReviewTreeRows = useCallback((rows: readonly ReviewTreeRowMetadata[]): void => {
-		reviewTreeRowsRef.current = rows;
-		setReviewTreeRowsState((): readonly ReviewTreeRowMetadata[] => rows);
-	}, []);
-	const getReviewTreeRows = useCallback(
-		(): readonly ReviewTreeRowMetadata[] => reviewTreeRowsRef.current,
-		[],
-	);
-	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
+export interface BridgeReviewViewerModeProps {
+	readonly codeViewWorkerFactory?: () => Worker;
+	readonly codeViewWorkerPoolEnabled?: boolean;
+	readonly isActive: boolean;
+	readonly navigationCommand?: BridgeViewerNavigationCommand;
+	readonly onActiveSourceChange: (activeSource: BridgeActiveViewerSource | null) => void;
+	readonly reviewClient: BridgePaneSurfaceClient;
+	readonly telemetryRecorderRef: { readonly current: BridgeTelemetryRecorder };
+	readonly viewerHeaderControls: ReactElement;
+}
+
+export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): ReactElement {
 	const {
-		invalidateReviewContent,
-		rootSnapshot,
-		selectedCodeViewItem,
-		selectedContentAvailability,
-		selectionSlice,
-		selectionSliceRef,
-		markFileViewed,
-		setReviewViewportItemIds,
-		sendMetadataInterestRequest,
-		sendReviewIntakeReady,
-		setSelectedReviewItemId,
-		synchronizeReviewSource,
-		visibleCodeViewItems,
-		viewportSliceRef,
-	} = useBridgeReviewRenderSnapshotController({
-		panelChromeSlice,
+		codeViewWorkerFactory,
+		codeViewWorkerPoolEnabled,
+		isActive,
+		navigationCommand,
+		onActiveSourceChange,
+		reviewClient,
+		telemetryRecorderRef,
+		viewerHeaderControls,
+	} = props;
+	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
+	const controller = useBridgeReviewRenderSnapshotController({
 		pierreCourier,
-		reviewPackage,
-		reviewTreeRows,
-		telemetryConfig: props.telemetryConfig,
-		...(props.reviewWorkerTransportFactory === undefined
-			? {}
-			: { transportFactory: props.reviewWorkerTransportFactory }),
+		reviewClient,
 	});
-	const setReviewRenderModeCodeView = useCallback((): void => {
-		if (viewerStore.getState().panelChromeSlice.renderMode.kind === 'codeView') {
-			return;
-		}
-		viewerActions.setRenderMode({ kind: 'codeView' });
-	}, [viewerActions, viewerStore]);
-	const [diffStatus, setDiffStatus] = useState<BridgeDiffStatusState>({
-		status: 'idle',
-		error: null,
-		epoch: 0,
-	});
-	const [lastVisibleDemandTelemetry, setLastVisibleDemandTelemetry] =
-		useState<ReviewContentDemandTelemetry | null>(null);
-	const [selectedMarkdownPreviewState, setSelectedMarkdownPreviewState] =
-		useState<SelectedMarkdownPreviewState | null>(null);
-	const [selectedReviewFileTarget, setSelectedReviewFileTarget] =
-		useState<BridgeReviewFileNavigationTarget | null>(null);
-	const [bridgeReadyEpoch, setBridgeReadyEpoch] = useState(0);
-	const selectedMarkdownPreviewStateRef = useRef<SelectedMarkdownPreviewState | null>(null);
-	selectedMarkdownPreviewStateRef.current = selectedMarkdownPreviewState;
-	const [isTreeSearchOpen, setIsTreeSearchOpen] = useState(false);
-	const telemetryRecorderRef = props.telemetryRecorderRef;
-	const isActiveRef = useRef(props.isActive);
-	isActiveRef.current = props.isActive;
-	const bridgeHandshakeSessionRef = props.handshakeSessionRef;
-	const onActiveSourceChange = props.onActiveSourceChange;
-	const registerBridgeReadyCallback = props.registerBridgeReadyCallback;
-	const currentReviewPackageTelemetryContextRef =
-		useRef<BridgeReviewPackageTelemetryContext | null>(null);
-	const [lastSelectedDemandTelemetry, setLastSelectedDemandTelemetry] =
-		useState<ReviewContentDemandTelemetry | null>(null);
-	const reviewPackageTelemetryContextRef = useRef<Map<string, BridgeReviewPackageTelemetryContext>>(
-		new Map(),
-	);
-	const reviewReadyStartMillisecondsByPackageKeyRef = useRef<Map<string, number>>(new Map());
-	const codeViewControlHandleRef = useRef<BridgeCodeViewControlHandle | null>(null);
-	const reviewPackageRef = useRef<BridgeReviewPackage | null>(null);
-	reviewPackageRef.current = reviewPackage;
-	const projectionRef = useRef(projection);
-	projectionRef.current = projection;
-	const rootSnapshotRef = useRef(rootSnapshot);
-	rootSnapshotRef.current = rootSnapshot;
-	const controlProbeSequenceRef = useRef(0);
+	const catalogSnapshot = controller.catalogSnapshot;
+	const clearSelectedReviewItemId = controller.clearSelectedReviewItemId;
+	const commitSelectedReviewItemId = controller.commitSelectedReviewItemId;
+	const displayStore = controller.displayStore;
+	const emitSelectedReviewItemIntent = controller.emitSelectedReviewItemIntent;
+	const markFileViewed = controller.markFileViewed;
+	const reviewSourceSlice = controller.reviewSourceSlice;
+	const selectedCodeViewItem = controller.selectedCodeViewItem;
+	const selectedContentAvailability = controller.selectedContentAvailability;
+	const selectedItemId = controller.selectedItemId;
+	const selectedReviewItem = controller.selectedReviewItem;
+	const setReviewCodeViewVisibleItemIds = controller.setReviewCodeViewVisibleItemIds;
+	const setReviewTreeVisibleItemIds = controller.setReviewTreeVisibleItemIds;
+	const visibleCodeViewItems = controller.visibleCodeViewItems;
+	const [treeSearchMode, setTreeSearchMode] = useState<BridgeReviewSearchMode>({ kind: 'text' });
+	const [treeSearchOpen, setTreeSearchOpen] = useState(false);
+	const [treeSearchText, setTreeSearchText] = useState('');
+	const [treeSelectionRevealRequest, setTreeSelectionRevealRequest] =
+		useState<BridgeReviewTreeSelectionRevealRequest | null>(null);
+	const treeSelectionRevealRevisionRef = useRef(0);
+	const isActiveRef = useRef(isActive);
+	const wasReviewViewportActiveRef = useRef(isActive);
+	isActiveRef.current = isActive;
 	useEffect((): (() => void) => startBridgeFrameLivenessProbe(), []);
 	useEffect(
 		(): (() => void) =>
@@ -179,7 +80,7 @@ export function BridgeReviewViewerMode(
 					recordBridgeFrameJankTelemetrySample({
 						...sample,
 						telemetryRecorder: telemetryRecorderRef.current,
-						traceContext: currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
+						traceContext: null,
 						viewer: 'review',
 						viewerIsActive: isActiveRef.current,
 					});
@@ -188,261 +89,205 @@ export function BridgeReviewViewerMode(
 		[telemetryRecorderRef],
 	);
 	useEffect((): void => {
-		const authority = getReviewFrameAuthority();
-		if (reviewPackage === null || authority === null) {
-			onActiveSourceChange(null);
-			return;
+		// The bounded Review display contract intentionally carries no native stream identity.
+		// Active-surface mode is still sent through the pane client; do not fabricate a stream id.
+		onActiveSourceChange(null);
+	}, [onActiveSourceChange]);
+	useEffect((): void => {
+		const wasActive = wasReviewViewportActiveRef.current;
+		wasReviewViewportActiveRef.current = isActive;
+		if (wasActive && !isActive) {
+			setReviewCodeViewVisibleItemIds([]);
+			setReviewTreeVisibleItemIds([]);
 		}
-		onActiveSourceChange({
-			protocol: 'review',
-			streamId: authority.streamId,
-			generation: reviewPackage.reviewGeneration,
-		});
-	}, [getReviewFrameAuthority, onActiveSourceChange, reviewPackage]);
-	const projectionWorkerClient = useMemo(
-		(): BridgeReviewProjectionWorkerClient | null =>
-			props.projectionWorkerClient === undefined
-				? createBridgeReviewProjectionWebWorkerClient()
-				: props.projectionWorkerClient,
-		[props.projectionWorkerClient],
-	);
-	const defaultMarkdownWorkerClient = useMemo(
-		() => createBridgeMarkdownRenderWebWorkerClient(),
-		[],
-	);
-	const markdownWorkerClient =
-		props.markdownWorkerClient === undefined
-			? defaultMarkdownWorkerClient
-			: props.markdownWorkerClient;
-	const currentSelectedContentKey =
-		reviewPackage === null || rootSnapshot.selectedItemId === null
-			? null
-			: makeSelectedContentResourcesKey(reviewPackage, rootSnapshot.selectedItemId);
-	const initialReviewFileTarget = useMemo(
-		() => reviewFileTargetForNavigationCommand(props.navigationCommand),
-		[props.navigationCommand],
-	);
-	const selectedItemPresentation = useMemo(
-		() =>
-			selectedItemPresentationForReviewFileTarget({
-				reviewPackage,
-				selectedItemId: rootSnapshot.selectedItemId,
-				target: selectedReviewFileTarget ?? initialReviewFileTarget,
-			}),
-		[initialReviewFileTarget, reviewPackage, rootSnapshot.selectedItemId, selectedReviewFileTarget],
-	);
-	const demandTelemetryController = useBridgeReviewDemandTelemetryController({
-		lastSelectedDemandTelemetry,
-		lastVisibleDemandTelemetry,
-		reviewPackage,
-		setLastSelectedDemandTelemetry,
-		setLastVisibleDemandTelemetry,
-	});
-	const setReviewVisibleItemIds = useCallback(
+	}, [isActive, setReviewCodeViewVisibleItemIds, setReviewTreeVisibleItemIds]);
+	const publishCodeViewVisibleItemIds = useCallback(
 		(itemIds: readonly string[]): void => {
-			setReviewViewportItemIds(itemIds);
+			if (isActive) setReviewCodeViewVisibleItemIds(itemIds);
 		},
-		[setReviewViewportItemIds],
+		[isActive, setReviewCodeViewVisibleItemIds],
 	);
-	const reviewMetadataInterestRuntime = useBridgeReviewMetadataInterestRuntime({
-		authority: getReviewFrameAuthority(),
-		bridgeReadyEpoch,
-		isActive: props.isActive,
-		reviewPackage,
-		selectedItemId: rootSnapshot.selectedItemId,
-		sendMetadataInterestRequest,
-		setVisibleContentItemIds: setReviewVisibleItemIds,
-	});
-	useEffect(
-		(): (() => void) =>
-			registerBridgeReadyCallback((): void => {
-				if (props.isActive) {
-					setBridgeReadyEpoch((currentEpoch) => currentEpoch + 1);
-				}
+	const publishTreeVisibleItemIds = useCallback(
+		(itemIds: readonly string[]): void => {
+			if (isActive) setReviewTreeVisibleItemIds(itemIds);
+		},
+		[isActive, setReviewTreeVisibleItemIds],
+	);
+	const openTreeSearch = useCallback((): void => {
+		setTreeSearchOpen(true);
+	}, []);
+	const presentationSnapshot = useMemo(
+		() =>
+			bridgeReviewPresentationSnapshotForDisplay({
+				catalogSnapshot,
+				displayStore,
+				reviewSourceSlice,
 			}),
-		[props.isActive, registerBridgeReadyCallback],
+		[catalogSnapshot, displayStore, reviewSourceSlice],
 	);
-	const flushTelemetry = useCallback(
-		(flushProps: BridgeTelemetryFlushProps = {}): void => {
-			telemetryRecorderRef.current.flush(flushProps);
-		},
-		[telemetryRecorderRef],
-	);
-	const {
-		beginForegroundReviewSelection,
-		lastSelectionCommitDurationMilliseconds,
-		selectedContentPaintTelemetryStart,
-		selectReviewItem,
-	} = useBridgeReviewSelectionController({
-		currentReviewPackageTelemetryContextRef,
-		hasProjection: panelChromeSlice.hasProjection,
-		isActive: props.isActive,
-		reviewPackage,
-		reviewPackageRef,
-		selectionSlice,
-		selectionSliceRef,
-		viewportSliceRef,
+	const reviewGeneration = presentationSnapshot?.reviewPackage.reviewGeneration ?? null;
+	const reviewPackageId = presentationSnapshot?.reviewPackage.packageId ?? null;
+	const orderedItemIds = presentationSnapshot?.reviewPackage.orderedItemIds ?? [];
+	const selectionController = useBridgeReviewSelectionController({
+		commitLocalSelection: commitSelectedReviewItemId,
+		emitSelectIntent: emitSelectedReviewItemIntent,
+		hasReviewItem: (itemId): boolean => displayStore.getReviewItemSnapshot(itemId) !== undefined,
+		isActive,
 		markFileViewed,
-		setReviewRenderModeCodeView,
-		setSelectedReviewFileTarget,
-		setSelectedReviewItemId,
-		telemetryRecorderRef,
+		selectedItemId,
 	});
-	useBridgeReviewProjectionCoordinator({
-		store: viewerStore,
-		reviewPackage,
-		projectionMode: rootSnapshot.projectionMode,
-		facets: rootSnapshot.facets,
-		gitStatusFilter: rootSnapshot.gitStatusFilter,
-		fileClassFilter: rootSnapshot.fileClassFilter,
-		projectionWorkerClient,
-		telemetryRecorder: telemetryRecorderRef.current,
-		telemetryParentTraceContext:
-			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
-		flushTelemetry,
-	});
-
-	useBridgeReviewNavigationController({
-		beginForegroundReviewSelection,
-		initialReviewFileTarget,
-		isActive: props.isActive,
-		navigationCommand: props.navigationCommand,
-		projection,
-		reviewPackage,
-		rootSnapshot,
-		selectReviewItem,
-		setReviewRenderModeCodeView,
-		setSelectedReviewItemId,
-		setSelectedMarkdownPreviewState,
-		viewerActions,
-	});
-	const getPushNonce = useCallback(
-		(): string | null => bridgeHandshakeSessionRef.current?.getPushNonce() ?? null,
-		[bridgeHandshakeSessionRef],
+	const selectReviewItem = selectionController.selectReviewItem;
+	const selectReviewItemAndRevealTree = useCallback(
+		(itemId: string, selectedSource: Parameters<typeof selectReviewItem>[1] = 'user'): boolean => {
+			if (!selectReviewItem(itemId, selectedSource)) {
+				return false;
+			}
+			if (reviewGeneration === null || reviewPackageId === null) {
+				return true;
+			}
+			treeSelectionRevealRevisionRef.current += 1;
+			setTreeSelectionRevealRequest({
+				itemId,
+				packageId: reviewPackageId,
+				reviewGeneration,
+				revision: treeSelectionRevealRevisionRef.current,
+			});
+			return true;
+		},
+		[reviewGeneration, reviewPackageId, selectReviewItem],
 	);
-
-	useBridgeReviewIntakeController({
-		target,
-		isActive: props.isActive,
-		getPushNonce,
-		getReviewFrameAuthority,
-		registerBridgeReadyCallback,
-		reviewEnvelopeApplyTailRef,
-		beginForegroundReviewSelection,
-		setReviewPackage,
-		getReviewTreeRows,
-		setReviewTreeRows,
-		setDiffStatus,
-		setSelectedItemId: setSelectedReviewItemId,
-		selectionSliceRef,
-		reviewPackageRef,
-		reviewPackageTelemetryContextRef,
-		currentReviewPackageTelemetryContextRef,
-		reviewReadyStartMillisecondsByPackageKeyRef,
-		descriptorRegistry,
-		dispatchReviewInvalidation: invalidateReviewContent,
-		sendReviewIntakeReady,
-		synchronizeReviewWorkerSource: synchronizeReviewSource,
-		telemetryRecorderRef,
+	const onTargetOutsideAcceptedProjection = useCallback((): void => {}, []);
+	useBridgeReviewNavigationController({
+		catalogRevision: catalogSnapshot.revision,
+		clearReviewSelection: clearSelectedReviewItemId,
+		getReviewItem: displayStore.getReviewItemSnapshot,
+		isActive,
+		navigationCommand,
+		onTargetOutsideAcceptedProjection,
+		orderedItemIds,
+		selectedItemId,
+		selectInitialReviewItem: selectReviewItem,
+		selectReviewItem: selectReviewItemAndRevealTree,
 	});
-	useBridgeReviewControlEventListeners({
-		codeViewControlHandleRef,
-		controlProbeSequenceRef,
-		isActive: props.isActive,
-		markdownWorkerClient,
-		projectionRef,
-		reviewPackageRef,
-		rootSnapshotRef,
+	const presentationState = reviewPresentationState({
+		codeViewWorkerFactory,
+		codeViewWorkerPoolEnabled,
+		presentationSnapshot,
+		reviewSourceSlice,
 		selectedCodeViewItem,
-		selectedMarkdownPreviewState,
-		selectReviewItem,
-		setTreeSearchOpen: setIsTreeSearchOpen,
-		target,
-		viewerActions,
-		viewerStore,
-	});
-
-	useBridgeReviewMarkdownPreviewController({
-		currentReviewPackageTelemetryContextRef,
-		isActive: props.isActive,
-		markdownWorkerClient,
-		renderModeKind: rootSnapshot.renderMode.kind,
-		reviewPackage,
-		selectedCodeViewItem,
-		selectedItemId: rootSnapshot.selectedItemId,
-		selectedMarkdownPreviewStateRef,
-		setRenderModeCodeView: setReviewRenderModeCodeView,
-		setSelectedMarkdownPreviewState,
-		telemetryRecorderRef,
-	});
-
-	useBridgeReviewRenderTelemetryController({
-		hasProjection: projection !== null,
-		isActive: props.isActive,
-		reviewPackage,
-		reviewPackageTelemetryContextRef,
-		reviewReadyStartMillisecondsByPackageKeyRef,
-		selectedCodeViewItem,
-		telemetryRecorderRef,
-	});
-
-	const selectedCanvasLoadingReason = selectedCanvasLoadingReasonForCurrentSelection({
 		selectedContentAvailability,
-		selectedContentKey: currentSelectedContentKey,
-		selectedItemId: rootSnapshot.selectedItemId,
-		selectedMarkdownPreviewState,
+		selectedItemId,
+		selectedReviewItem,
+		selectReviewItem: selectReviewItemAndRevealTree,
+		setReviewCodeViewVisibleItemIds: publishCodeViewVisibleItemIds,
+		setReviewViewportItemIds: publishTreeVisibleItemIds,
+		telemetryRecorder: telemetryRecorderRef.current,
+		treeSearchMode,
+		treeSearchOpen,
+		treeSearchText,
+		treeSelectionRevealRequest,
+		visibleCodeViewItems,
+		onTreeSearchModeChange: setTreeSearchMode,
+		onTreeSearchOpen: openTreeSearch,
+		onTreeSearchTextChange: setTreeSearchText,
 	});
-	const selectedContentLoadingItemId =
-		selectedCanvasLoadingReason === 'content' ? rootSnapshot.selectedItemId : null;
-	const selectedContentPaintTelemetryStartForPackage =
-		reviewPackage !== null &&
-		selectedContentPaintTelemetryStart !== null &&
-		selectedContentPaintTelemetryStart.packageKey === makeTelemetryPackageKey(reviewPackage)
-			? selectedContentPaintTelemetryStart
-			: null;
 	return (
 		<BridgeReviewViewerShellBoundary
-			codeViewWorkerFactory={props.codeViewWorkerFactory}
-			codeViewWorkerPoolEnabled={props.codeViewWorkerPoolEnabled}
-			currentSelectedContentKey={currentSelectedContentKey}
-			diffStatus={diffStatus}
-			isActive={props.isActive}
-			lastSelectedDemandTelemetry={
-				demandTelemetryController.lastSelectedDemandTelemetryForCurrentPackage
-			}
-			lastSelectionCommitDurationMilliseconds={lastSelectionCommitDurationMilliseconds}
-			lastVisibleDemandTelemetry={
-				demandTelemetryController.lastVisibleDemandTelemetryForCurrentPackage
-			}
-			onCodeViewControlHandleChange={(handle): void => {
-				codeViewControlHandleRef.current = handle;
-			}}
-			onSelectItem={selectReviewItem}
-			onTreeSearchOpen={(): void => setIsTreeSearchOpen(true)}
-			projection={projection}
-			reviewPackage={reviewPackage}
-			reviewMetadataInterestRuntime={reviewMetadataInterestRuntime}
-			reviewTreeRows={reviewTreeRows}
-			rootSnapshot={rootSnapshot}
-			selectedCanvasLoadingReason={selectedCanvasLoadingReason}
-			selectedCodeViewItem={selectedCodeViewItem}
-			selectedContentLoadingItemId={selectedContentLoadingItemId}
-			selectedContentPaintTelemetryStart={selectedContentPaintTelemetryStartForPackage}
-			selectedContentUnavailablePath={selectedContentUnavailablePathForCurrentSelection({
-				reviewPackage,
-				selectedContentAvailability,
-				selectedItemId: rootSnapshot.selectedItemId,
-			})}
-			selectedItemPresentation={selectedItemPresentation}
-			selectedMarkdownPreviewState={selectedMarkdownPreviewState}
-			telemetryParentTraceContext={
-				currentReviewPackageTelemetryContextRef.current?.traceContext ?? null
-			}
-			telemetryRecorder={telemetryRecorderRef.current}
-			treeSearchOpen={isTreeSearchOpen}
-			visibleCodeViewItems={visibleCodeViewItems}
-			viewerActions={viewerActions}
-			viewerHeaderControls={props.viewerHeaderControls}
+			isActive={isActive}
+			presentationState={presentationState}
+			viewerHeaderControls={viewerHeaderControls}
 		/>
+	);
+}
+
+function reviewPresentationState(props: {
+	readonly codeViewWorkerFactory: (() => Worker) | undefined;
+	readonly codeViewWorkerPoolEnabled: boolean | undefined;
+	readonly presentationSnapshot: ReturnType<typeof bridgeReviewPresentationSnapshotForDisplay>;
+	readonly reviewSourceSlice: BridgeReviewRenderSnapshotController['reviewSourceSlice'];
+	readonly selectedCodeViewItem: BridgeReviewRenderSnapshotController['selectedCodeViewItem'];
+	readonly selectedContentAvailability: BridgeReviewRenderSnapshotController['selectedContentAvailability'];
+	readonly selectedItemId: string | null;
+	readonly selectedReviewItem: BridgeReviewRenderSnapshotController['selectedReviewItem'];
+	readonly selectReviewItem: (itemId: string) => boolean;
+	readonly setReviewCodeViewVisibleItemIds: (itemIds: readonly string[]) => void;
+	readonly setReviewViewportItemIds: (itemIds: readonly string[]) => void;
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly treeSearchMode: BridgeReviewSearchMode;
+	readonly treeSearchOpen: boolean;
+	readonly treeSearchText: string;
+	readonly treeSelectionRevealRequest: BridgeReviewTreeSelectionRevealRequest | null;
+	readonly visibleCodeViewItems: BridgeReviewRenderSnapshotController['visibleCodeViewItems'];
+	readonly onTreeSearchModeChange: (mode: BridgeReviewSearchMode) => void;
+	readonly onTreeSearchOpen: () => void;
+	readonly onTreeSearchTextChange: (searchText: string) => void;
+}): BridgeReviewViewerPresentationState {
+	if (props.reviewSourceSlice === null) return { status: 'empty' };
+	if (props.reviewSourceSlice.status === 'failed') {
+		return { error: 'Review metadata is unavailable', status: 'metadataFailed' };
+	}
+	if (props.reviewSourceSlice.status === 'loading') return { status: 'metadataLoading' };
+	if (props.presentationSnapshot === null) return { status: 'projectionPending' };
+	const selectedUnavailablePath = reviewSelectedUnavailablePath(props);
+	const selectedContentIsLoading =
+		props.selectedItemId !== null &&
+		props.selectedCodeViewItem === null &&
+		selectedUnavailablePath === null;
+	return {
+		presentationKey: props.presentationSnapshot.presentationKey,
+		shellProps: {
+			presentationRegistry: props.presentationSnapshot.presentationRegistry,
+			onCodeViewVisibleItemIdsChange: props.setReviewCodeViewVisibleItemIds,
+			onTreeSearchModeChange: props.onTreeSearchModeChange,
+			onTreeSearchOpen: props.onTreeSearchOpen,
+			onTreeSearchTextChange: props.onTreeSearchTextChange,
+			onSelectItem: (itemId): void => {
+				props.selectReviewItem(itemId);
+			},
+			onTreeVisibleItemIdsChange: props.setReviewViewportItemIds,
+			projection: props.presentationSnapshot.projection,
+			reviewPackage: props.presentationSnapshot.reviewPackage,
+			reviewTreeRows: props.presentationSnapshot.reviewTreeRows,
+			selectedCanvasLoadingReason: selectedContentIsLoading ? 'content' : null,
+			selectedCodeViewItem: props.selectedCodeViewItem,
+			selectedContentLoadingItemId: selectedContentIsLoading ? props.selectedItemId : null,
+			selectedContentUnavailablePath: selectedUnavailablePath,
+			selectedItemId: props.selectedItemId,
+			telemetryRecorder: props.telemetryRecorder,
+			treeSearchMode: props.treeSearchMode,
+			treeSearchOpen: props.treeSearchOpen,
+			treeSearchText: props.treeSearchText,
+			treeSelectionRevealRequest: props.treeSelectionRevealRequest,
+			visibleCodeViewItems: props.visibleCodeViewItems,
+			...(props.codeViewWorkerFactory === undefined
+				? {}
+				: { codeViewWorkerFactory: props.codeViewWorkerFactory }),
+			...(props.codeViewWorkerPoolEnabled === undefined
+				? {}
+				: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled }),
+		},
+		status: 'ready',
+	};
+}
+
+function reviewSelectedUnavailablePath(
+	props: Pick<
+		Parameters<typeof reviewPresentationState>[0],
+		'presentationSnapshot' | 'selectedContentAvailability' | 'selectedItemId' | 'selectedReviewItem'
+	>,
+): string | null {
+	if (
+		props.selectedItemId === null ||
+		props.presentationSnapshot === null ||
+		props.selectedContentAvailability === null ||
+		!['failed', 'unavailable'].includes(props.selectedContentAvailability.state)
+	) {
+		return null;
+	}
+	return (
+		props.selectedReviewItem?.metadata.headPath ??
+		props.selectedReviewItem?.metadata.basePath ??
+		props.presentationSnapshot.projection.primaryDisplayPathByItemId[props.selectedItemId] ??
+		props.selectedItemId
 	);
 }

@@ -1,9 +1,11 @@
 import { describe, expect, expectTypeOf, test } from 'vitest';
 
 import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-review-package-test-support.js';
+import { makeContentRequestDescriptor } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { parseBridgeWorkerMainToServerMessage } from './bridge-worker-contract-parsers.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
+	bridgeCommWorkerBootstrapRequestSchema,
 	bridgeWorkerReviewRenderSemanticsSchema,
 	bridgeWorkerFileViewContentMetadataSchema,
 	bridgeWorkerReviewContentRequestDescriptorSchema,
@@ -19,6 +21,81 @@ import {
 } from './bridge-worker-contracts.js';
 
 describe('BridgeWorkerContracts', () => {
+	test('accepts policy-only session bootstrap and rejects every legacy runtime carrier', () => {
+		// Arrange
+		const policyOnlyBootstrap = {
+			schemaVersion: BRIDGE_WORKER_WIRE_VERSION,
+			method: 'bridgeCommWorker.bootstrap',
+			requestId: 'policy-only-bootstrap',
+			runtime: {
+				bridgeDemandRank: { lane: 'selected', priority: 0 },
+				budget: {
+					className: 'interactive',
+					maxBytes: 512 * 1024,
+					maxWindowLines: 400,
+				},
+			},
+		};
+
+		// Act
+		const parsedBootstrap = bridgeCommWorkerBootstrapRequestSchema.safeParse(policyOnlyBootstrap);
+
+		// Assert
+		expect(parsedBootstrap.success).toBe(true);
+		if (!parsedBootstrap.success) return;
+		expect(parsedBootstrap.data).toEqual(policyOnlyBootstrap);
+		for (const legacyRuntimeField of [
+			'contentItems',
+			'contentRequestDescriptors',
+			'renderSemantics',
+			'rows',
+		] as const) {
+			expect(
+				bridgeCommWorkerBootstrapRequestSchema.safeParse({
+					...policyOnlyBootstrap,
+					runtime: {
+						...policyOnlyBootstrap.runtime,
+						[legacyRuntimeField]: [],
+					},
+				}).success,
+				`expected strict bootstrap rejection for legacy runtime.${legacyRuntimeField}`,
+			).toBe(false);
+		}
+	});
+
+	test('rejects main-seeded Review source payloads from the worker command boundary', () => {
+		// Arrange
+		const mainSeededReviewSourceUpdate = {
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'mainToServerWorker',
+			kind: 'command',
+			command: 'reviewSourceUpdate',
+			requestId: 'request-main-seeded-review-source',
+			epoch: 3,
+			transferDescriptors: [],
+			contentItems: [],
+			contentRequestDescriptors: [],
+			renderSemantics: [],
+			rows: [],
+		};
+
+		// Act
+		const parsedMainSeededReviewSourceUpdate = bridgeWorkerMainToServerMessageSchema.safeParse(
+			mainSeededReviewSourceUpdate,
+		);
+
+		// Assert
+		expect(
+			parsedMainSeededReviewSourceUpdate.success,
+			'MAIN_SEEDED_REVIEW_SOURCE_UPDATE_ACCEPTED',
+		).toBe(false);
+		type ReviewSourceUpdateCommand = Extract<
+			BridgeWorkerMainToServerMessage,
+			{ readonly command: 'reviewSourceUpdate' }
+		>;
+		expectTypeOf<ReviewSourceUpdateCommand>().toEqualTypeOf<never>();
+	});
+
 	test('rejects untyped main to server worker messages at schema boundary', () => {
 		const selectCommand = {
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
@@ -28,12 +105,25 @@ describe('BridgeWorkerContracts', () => {
 			requestId: 'request-select',
 			epoch: 3,
 			transferDescriptors: [],
+			surface: 'review',
 			selectedItemId: 'item-1',
 			selectedSource: 'user',
 		} satisfies BridgeWorkerMainToServerMessage;
 
 		expect(parseBridgeWorkerMainToServerMessage(selectCommand)).toEqual(selectCommand);
 		expect(bridgeWorkerMainToServerMessageSchema.safeParse(selectCommand).success).toBe(true);
+		expect(
+			bridgeWorkerMainToServerMessageSchema.safeParse({
+				...selectCommand,
+				surface: undefined,
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeWorkerMainToServerMessageSchema.safeParse({
+				...selectCommand,
+				surface: 'all',
+			}).success,
+		).toBe(false);
 		expect(
 			bridgeWorkerMainToServerMessageSchema.safeParse({
 				...selectCommand,
@@ -61,6 +151,38 @@ describe('BridgeWorkerContracts', () => {
 			status: 'ready',
 		};
 		expect(bridgeWorkerServerToMainMessageSchema.safeParse(healthEvent).success).toBe(true);
+		expect(
+			bridgeWorkerServerToMainMessageSchema.safeParse({
+				...healthEvent,
+				status: 'degraded',
+				diagnostic: {
+					kind: 'productMetadataStream',
+					acknowledgedFrameCount: 1,
+					activeSubscriptionCount: 1,
+					committedFrameCount: 1,
+					decoderState: 'poisoned',
+					expectedNextStreamSequence: 1,
+					failureStage: 'decode',
+					failureCode: 'stream_identity_mismatch',
+					identityMismatchField: 'metadataStreamId',
+					lastChunkByteCount: 128,
+					lastAcknowledgedStreamSequence: 0,
+					lastCommittedFrameKind: 'metadataStream.accepted',
+					lastRoutedFrameKind: 'metadataStream.accepted',
+					lifecycleState: 'failed',
+					peakRetainedByteCount: 512,
+					pushCount: 2,
+					readFulfilledCount: 2,
+					readPending: false,
+					readRequestCount: 2,
+					receivedByteCount: 256,
+					retainedByteCount: 0,
+					routeFailureCode: null,
+					routedFrameCount: 1,
+					streamOpenCount: 1,
+				},
+			}).success,
+		).toBe(true);
 
 		const invalidCommand: BridgeWorkerMainToServerMessage = {
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
@@ -84,6 +206,7 @@ describe('BridgeWorkerContracts', () => {
 			requestId: 'request-select',
 			epoch: 1,
 			transferDescriptors: [],
+			surface: 'fileView',
 			selectedItemId: 'item-1',
 			selectedSource: 'user',
 		};
@@ -181,33 +304,24 @@ describe('BridgeWorkerContracts', () => {
 			itemId: 'item-worker-content-request',
 			path: 'Sources/App/WorkerContentRequest.swift',
 		});
-		const handle = item.contentRoles.head;
-		expect(handle).not.toBeNull();
-		const descriptor = {
+		const descriptor = makeContentRequestDescriptor({
 			itemId: item.itemId,
 			role: 'head',
-			handleId: handle?.handleId ?? 'missing',
-			reviewGeneration: handle?.reviewGeneration ?? 0,
-			resourceUrl: handle?.resourceUrl ?? 'agentstudio://resource/review/content/missing',
-			contentHash: handle?.contentHash ?? 'sha256:missing',
-			contentHashAlgorithm: handle?.contentHashAlgorithm ?? 'fixture-preview',
-			language: handle?.language ?? null,
-			sizeBytes: handle?.sizeBytes ?? 0,
-			expectedBytes: handle?.sizeBytes ?? 0,
-			maxBytes: handle?.sizeBytes ?? 1,
-			isBinary: handle?.isBinary ?? false,
-		} satisfies BridgeWorkerReviewContentRequestDescriptor;
+			text: 'let workerContent = true;\n',
+		});
 
 		expect(bridgeWorkerReviewContentRequestDescriptorSchema.parse(descriptor)).toEqual(descriptor);
 		expect(JSON.stringify(descriptor)).not.toMatch(
-			/"contentRoles"|endpointId|itemsById|"cacheKey"|mimeType/i,
+			/"contentRoles"|itemsById|"cacheKey"|resourceUrl/i,
 		);
-		expect(descriptor.resourceUrl).toMatch(/^agentstudio:\/\//);
+		expect(descriptor.contentKind).toBe('review.content');
+		expect(descriptor.descriptorId).toContain(item.itemId);
 		const inexactDescriptor = {
 			...descriptor,
-			sizeBytes: 80,
-			expectedBytes: undefined,
-			maxBytes: 64,
+			declaredByteLength: null,
+			maximumBytes: 64,
+			wholeByteLength: null,
+			window: { ...descriptor.window, maximumBytes: 64 },
 		} satisfies BridgeWorkerReviewContentRequestDescriptor;
 		expect(bridgeWorkerReviewContentRequestDescriptorSchema.parse(inexactDescriptor)).toEqual(
 			inexactDescriptor,
@@ -215,27 +329,26 @@ describe('BridgeWorkerContracts', () => {
 		expect(
 			bridgeWorkerReviewContentRequestDescriptorSchema.safeParse({
 				...descriptor,
-				endpointId: 'endpoint-head',
+				resourceUrl: 'agentstudio://resource/review/content/legacy',
 			}).success,
 		).toBe(false);
 		expect(
 			bridgeWorkerReviewContentRequestDescriptorSchema.safeParse({
 				...descriptor,
-				expectedBytes: descriptor.sizeBytes,
-				maxBytes: 0,
+				maximumBytes: 0,
+				window: { ...descriptor.window, maximumBytes: 0 },
 			}).success,
 		).toBe(false);
 		expect(
 			bridgeWorkerReviewContentRequestDescriptorSchema.safeParse({
 				...descriptor,
-				expectedBytes: descriptor.sizeBytes + 1,
+				window: { ...descriptor.window, maximumBytes: descriptor.maximumBytes + 1 },
 			}).success,
 		).toBe(false);
 		expect(
 			bridgeWorkerReviewContentRequestDescriptorSchema.safeParse({
 				...descriptor,
-				expectedBytes: descriptor.sizeBytes,
-				maxBytes: descriptor.sizeBytes - 1,
+				declaredByteLength: descriptor.maximumBytes + 1,
 			}).success,
 		).toBe(false);
 	});

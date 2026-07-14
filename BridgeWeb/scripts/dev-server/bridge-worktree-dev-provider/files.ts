@@ -1,10 +1,8 @@
-import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFile, realpath } from 'node:fs/promises';
 import { extname, relative, resolve, sep } from 'node:path';
-import { promisify } from 'node:util';
 
-const execFileAsync = promisify(execFile);
+import { defaultBridgeWorktreeDevPorts, type BridgeWorktreeDevPorts } from './ports.ts';
 
 type WorktreeFileChangeKind = 'added' | 'copied' | 'deleted' | 'modified' | 'renamed';
 
@@ -51,8 +49,12 @@ export async function loadBridgeWorktreeDevSnapshot(props: {
 	};
 }
 
-export async function bridgeWorktreeDevRootTokenForPath(path: string): Promise<string> {
-	return `root-${hashText(await realpath(path)).slice(0, 32)}`;
+export async function bridgeWorktreeDevRootTokenForPath(
+	path: string,
+	ports: BridgeWorktreeDevPorts = defaultBridgeWorktreeDevPorts,
+	signal?: AbortSignal,
+): Promise<string> {
+	return `root-${hashText(await ports.realpath(path, signal)).slice(0, 32)}`;
 }
 
 async function readChangedFiles(props: {
@@ -207,10 +209,16 @@ function changeKindForGitStatus(status: string): WorktreeFileChangeKind {
 	}
 }
 
-export async function resolveAllowedWorktreeRoot(rawWorktreeRoot: string): Promise<string> {
-	const worktreeRoot = await realpath(resolve(rawWorktreeRoot));
-	const gitRoot = (await gitStdout(worktreeRoot, ['rev-parse', '--show-toplevel'])).trim();
-	const realGitRoot = await realpath(gitRoot);
+export async function resolveAllowedWorktreeRoot(
+	rawWorktreeRoot: string,
+	ports: BridgeWorktreeDevPorts = defaultBridgeWorktreeDevPorts,
+	signal?: AbortSignal,
+): Promise<string> {
+	const worktreeRoot = await ports.realpath(resolve(rawWorktreeRoot), signal);
+	const gitRoot = (
+		await gitStdout(worktreeRoot, ['rev-parse', '--show-toplevel'], ports, signal)
+	).trim();
+	const realGitRoot = await ports.realpath(gitRoot, signal);
 	if (worktreeRoot !== realGitRoot) {
 		throw new Error(`Bridge worktree dev provider root must be the git root: ${realGitRoot}`);
 	}
@@ -294,10 +302,15 @@ async function gitShowOrNull(
 	}
 }
 
-async function gitStdout(cwd: string, args: readonly string[]): Promise<string> {
+async function gitStdout(
+	cwd: string,
+	args: readonly string[],
+	ports: BridgeWorktreeDevPorts = defaultBridgeWorktreeDevPorts,
+	signal?: AbortSignal,
+): Promise<string> {
 	// Dev-server only: production Swift-side Bridge git data prep must use agentstudio-git.
-	const result = await execFileAsync('git', [...args], { cwd, maxBuffer: 32 * 1024 * 1024 });
-	return result.stdout;
+	const bytes = await ports.runGit({ args, cwd, signal });
+	return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 }
 
 function countLineDelta(

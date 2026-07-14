@@ -116,19 +116,6 @@ final class RPCRouterTests {
         func drain() async throws {}
     }
 
-    private actor BridgeTelemetryIngestorSpy: BridgeTelemetryBatchIngesting {
-        private var ingestCount = 0
-
-        func ingest(_ data: Data) async -> BridgeTelemetryIngestResult {
-            ingestCount += 1
-            return .accepted(sampleCount: 1)
-        }
-
-        func count() -> Int {
-            ingestCount
-        }
-    }
-
     // MARK: - Dispatch
 
     @Test
@@ -357,40 +344,20 @@ final class RPCRouterTests {
     }
 
     @Test
-    func bridge_telemetry_rpc_is_method_not_found_without_ingest_or_generic_rpc_self_observation() async throws {
+    func bridge_telemetry_rpc_is_method_not_found_without_ingest_or_generic_rpc_self_observation() async {
         // Arrange
         let router = BridgeSchemeCommandDispatcher()
         let recorder = BridgeTelemetryRecorderSpy()
-        let ingestor = BridgeTelemetryIngestorSpy()
         router.telemetryRecorder = recorder
-        router.telemetryIngestor = ingestor
-
-        let batch = BridgeTelemetryBatch(
-            schemaVersion: 1,
-            scenario: "test",
-            samples: [
-                BridgeTelemetrySample(
-                    scope: .web,
-                    name: "performance.bridge.web.rpc_send",
-                    durationMilliseconds: 1,
-                    traceContext: nil,
-                    stringAttributes: [:],
-                    numericAttributes: [:],
-                    booleanAttributes: [:]
-                )
-            ]
-        )
-        let paramsData = try JSONEncoder().encode(batch)
-        let paramsJSON = try #require(String(data: paramsData, encoding: .utf8))
 
         // Act
         await router.dispatch(
-            json: #"{"jsonrpc":"2.0","method":"system.bridgeTelemetry","params":\#(paramsJSON)}"#,
+            json:
+                #"{"jsonrpc":"2.0","method":"system.bridgeTelemetry","params":{"schemaVersion":1,"scenario":"test","samples":[]}}"#,
             isBridgeReady: true
         )
 
         // Assert
-        #expect(await ingestor.count() == 0)
         let sampleNames = await recorder.samples().map(\.name)
         #expect(sampleNames.isEmpty)
     }

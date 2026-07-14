@@ -385,7 +385,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		).toHaveLength(1);
 	});
 
-	test('exits loading when selected File View worker health degrades', async () => {
+	test('keeps selected File loading through unscoped worker health and accepts content completion', async () => {
 		const targetDescriptor = makeFileDescriptor({
 			contentHandle: 'degraded-worker-content',
 			fileId: 'file-degraded-worker-target',
@@ -426,8 +426,13 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				},
 			]);
 		});
-		await waitForOpenFileState('failed');
-		expect(visibleCodeText()).not.toContain('Loading');
+		expect(openFileState()).toBe('loading');
+
+		await actUpdate((): void => {
+			deferredContent.resolve('export const completedAfterWorkerHealth = true;\n');
+		});
+		await waitForVisibleCodeText('completedAfterWorkerHealth');
+		expect(openFileState()).toBe('ready');
 	});
 
 	test('retries a failed same-file navigation target after worker source replacement failure', async () => {

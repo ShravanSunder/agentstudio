@@ -1,11 +1,21 @@
-import { parseBridgeContentResourceUrl } from '../../bridge/bridge-resource-url.js';
-import { readBridgeTextResourceStream } from '../resources/bridge-resource-stream.js';
+import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
 import type { BridgeWorkerReviewContentRequestDescriptor } from './bridge-worker-contracts.js';
 import { bridgeWorkerReviewContentRequestDescriptorSchema } from './bridge-worker-contracts.js';
 
+export type BridgeWorkerReviewContentOpen = (
+	descriptor: BridgeWorkerReviewContentRequestDescriptor,
+	abortSignal: AbortSignal,
+) => BridgeProductContentStream<'review.content'>;
+
+export interface BridgeWorkerReviewContentResourceFetch {
+	(
+		descriptor: BridgeWorkerReviewContentRequestDescriptor,
+	): Promise<BridgeWorkerFetchedReviewContentResource>;
+}
+
 export interface FetchBridgeWorkerReviewContentResourceProps {
 	readonly descriptor: BridgeWorkerReviewContentRequestDescriptor;
-	readonly fetchContent?: BridgeWorkerContentFetch;
+	readonly openContent: BridgeWorkerReviewContentOpen;
 	readonly signal?: AbortSignal;
 }
 
@@ -20,8 +30,33 @@ export interface BridgeWorkerFetchedReviewContentResource {
 	readonly textBytes: ArrayBuffer;
 }
 
-export interface BridgeWorkerContentFetch {
-	(url: string, init?: RequestInit): Promise<Response>;
+export function createSharedBridgeWorkerReviewContentResourceFetch(props: {
+	readonly openContent: BridgeWorkerReviewContentOpen | undefined;
+}): BridgeWorkerReviewContentResourceFetch {
+	const inFlightResourcesByIdentity = new Map<
+		string,
+		ReturnType<BridgeWorkerReviewContentResourceFetch>
+	>();
+	return async (descriptor: BridgeWorkerReviewContentRequestDescriptor) => {
+		const resourceKey = sharedBridgeWorkerReviewContentResourceKey(descriptor);
+		const existingResource = inFlightResourcesByIdentity.get(resourceKey);
+		if (existingResource !== undefined) {
+			return await existingResource;
+		}
+		if (props.openContent === undefined) {
+			throw new Error('Bridge worker Review content requires the shared product transport.');
+		}
+		const resourcePromise = fetchBridgeWorkerReviewContentResource({
+			descriptor,
+			openContent: props.openContent,
+		});
+		inFlightResourcesByIdentity.set(resourceKey, resourcePromise);
+		try {
+			return await resourcePromise;
+		} finally {
+			inFlightResourcesByIdentity.delete(resourceKey);
+		}
+	};
 }
 
 export async function fetchBridgeWorkerReviewContentResource(
@@ -31,47 +66,62 @@ export async function fetchBridgeWorkerReviewContentResource(
 	if (descriptor.isBinary) {
 		throw new Error('Bridge worker review content fetch cannot load binary descriptors.');
 	}
-	assertDescriptorResourceUrl(descriptor);
-	if (props.fetchContent === undefined) {
-		throw new Error('Bridge worker Review content requires the shared product transport.');
-	}
-	const requestInit = props.signal === undefined ? undefined : { signal: props.signal };
-	const response = await props.fetchContent(descriptor.resourceUrl, requestInit);
-	if (!response.ok) {
-		throw new Error(`Bridge worker review content request failed: ${response.status}.`);
-	}
-	const streamedText = await readBridgeTextResourceStream(response, {
-		maxBytes: descriptor.maxBytes,
-		...(props.signal === undefined ? {} : { signal: props.signal }),
-	});
-	if (
-		descriptor.expectedBytes !== undefined &&
-		streamedText.byteLength !== descriptor.expectedBytes
-	) {
+	const abortSignal = props.signal ?? new AbortController().signal;
+	const contentStream = props.openContent(descriptor, abortSignal);
+	const [, terminal] = await Promise.all([
+		drainBridgeProductReviewContentFrames(contentStream),
+		contentStream.terminal,
+	]);
+	if (terminal.kind === 'error') {
 		throw new Error(
-			`Bridge worker review content expected ${descriptor.expectedBytes} bytes but received ${streamedText.byteLength}.`,
+			terminal.safeMessage ?? `Bridge worker Review content failed: ${terminal.code}.`,
 		);
 	}
-	const text = streamedText.readText();
+	if (terminal.kind === 'reset') {
+		throw new Error(`Bridge worker Review content reset: ${terminal.reason}.`);
+	}
+	if (terminal.descriptorId !== descriptor.descriptorId) {
+		throw new Error('Bridge worker Review content terminal descriptor does not match demand.');
+	}
+	const text = new TextDecoder('utf-8', { fatal: true }).decode(terminal.bytes);
 	return {
 		itemId: descriptor.itemId,
 		role: descriptor.role,
-		contentHash: descriptor.contentHash,
-		contentHashAlgorithm: descriptor.contentHashAlgorithm,
+		contentHash: descriptor.contentDigest.value,
+		contentHashAlgorithm: descriptor.contentDigest.algorithm,
 		language: descriptor.language,
-		byteLength: streamedText.byteLength,
+		byteLength: terminal.bytes.byteLength,
 		text,
-		textBytes: streamedText.copyBytes(),
+		textBytes: terminal.bytes,
 	};
 }
 
-function assertDescriptorResourceUrl(descriptor: BridgeWorkerReviewContentRequestDescriptor): void {
-	const parsedResourceUrl = parseBridgeContentResourceUrl(descriptor.resourceUrl);
-	if (
-		parsedResourceUrl === null ||
-		parsedResourceUrl.handleId !== descriptor.handleId ||
-		parsedResourceUrl.generation !== descriptor.reviewGeneration
-	) {
-		throw new Error('Bridge worker review content descriptor resource URL is invalid.');
+async function drainBridgeProductReviewContentFrames(
+	contentStream: BridgeProductContentStream<'review.content'>,
+): Promise<void> {
+	for await (const frame of contentStream.frames) {
+		// The shared transport validates and assembles ordered content into its terminal result.
+		void frame;
 	}
+}
+
+function sharedBridgeWorkerReviewContentResourceKey(
+	descriptor: BridgeWorkerReviewContentRequestDescriptor,
+): string {
+	return [
+		descriptor.packageId,
+		descriptor.sourceIdentity,
+		descriptor.descriptorId,
+		descriptor.handleId,
+		descriptor.itemId,
+		descriptor.role,
+		descriptor.contentDigest.algorithm,
+		descriptor.contentDigest.authority,
+		descriptor.contentDigest.value,
+		descriptor.language ?? '',
+		descriptor.wholeByteLength ?? '',
+		descriptor.declaredByteLength ?? '',
+		descriptor.maximumBytes,
+		descriptor.window.startByte,
+	].join('\u0000');
 }

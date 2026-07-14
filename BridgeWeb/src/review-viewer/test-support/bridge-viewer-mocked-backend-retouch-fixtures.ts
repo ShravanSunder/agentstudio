@@ -1,10 +1,10 @@
 import type { BridgeReviewDelta } from '../../foundation/review-package/bridge-review-delta.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
-import * as mockedBackendSupport from './bridge-viewer-mocked-backend-support.js';
 import {
 	makeBridgeViewerBrowserFixture,
 	type BridgeViewerBrowserFixture,
-} from './bridge-viewer-mocked-backend.js';
+} from './bridge-viewer-mocked-backend-fixture.js';
+import * as mockedBackendSupport from './bridge-viewer-mocked-backend-support.js';
 
 export function makeBridgeViewerContentUnavailableFixture(): BridgeViewerBrowserFixture {
 	const fixture = makeBridgeViewerBrowserFixture();

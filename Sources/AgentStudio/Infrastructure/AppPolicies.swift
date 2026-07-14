@@ -29,6 +29,10 @@ enum AppPolicies {
         /// churn without letting one item define total retention.
         static let contentCacheMaxBytes: Int = 128 * 1024 * 1024
         static let defaultGitDataPlaneReadTimeout: Duration = .seconds(30)
+        /// File tree admission may enrich from full git status only when that
+        /// read fits inside the native viewer journey budget. On timeout the
+        /// tracked-aware filesystem fallback keeps tree publication moving.
+        static let worktreeFileManifestStatusReadTimeout: Duration = .milliseconds(100)
         static let ipcMaxResponsePayloadBytes: Int = 768 * 1024
         /// Worktree/File metadata window size for the startup snapshot and
         /// continuation tree windows. Provisional until the OD4 profiling
@@ -56,30 +60,6 @@ enum AppPolicies {
         static let contentBackgroundFillInteractiveRefillInterval: Duration = .seconds(1)
         static let contentBackgroundFillInteractiveRefillBudget: Int = 1
         static let contentBackgroundFillInteractiveCooldown: Duration = .seconds(2)
-        /// App-side shed point for bridge web telemetry that can scale with
-        /// rendered item count during scroll/paint loops. Low-volume bridge
-        /// telemetry is intentionally not admitted through this limiter; the
-        /// tradeoff is lower per-item fidelity under pressure in exchange for
-        /// keeping OTLP export fail-open for the app.
-        static let telemetryHighVolumeAdmissionWindow: Duration = .seconds(1)
-        static let telemetryHighVolumeAdmissionLimit: Int = 32
-        static let telemetryHighVolumeEventNames: Set<String> = [
-            "performance.bridge.trees.scroll_visible_demand",
-            "performance.bridge.web.code_view_item_materialize",
-            "performance.bridge.web.selected_content_painted",
-            "performance.bridge.web.visible_demand_settled",
-        ]
-        /// Selected review paint/materialize events are proof signals for
-        /// click-to-paint validation. They may share event names with
-        /// high-volume rows, so admission must use the selected sample
-        /// attribute where the event carries one instead of shedding by name.
-        static let telemetrySelectedBooleanAttributeKey = "agentstudio.bridge.selected"
-        static let telemetrySelectedProofRequiredEventNames: Set<String> = [
-            "performance.bridge.web.code_view_item_materialize"
-        ]
-        static let telemetryAlwaysProofRequiredEventNames: Set<String> = [
-            "performance.bridge.web.selected_content_painted"
-        ]
         /// Per-lane queued-job cap for the metadata lane scheduler. A pane
         /// whose gate never reopens (wedged or dead WebView) must not grow
         /// its queues without bound from watch-driven producers; on overflow

@@ -3,9 +3,15 @@ import { describe, expect, test } from 'vitest';
 import type { BridgeCommWorkerPort } from './bridge-comm-worker-entry.js';
 import { dispatchSelectedBridgeWorkerReviewContentReady } from './bridge-comm-worker-review-runtime.js';
 import {
+	makeContentRequestDescriptor,
+	openReviewContentFromDescriptorMap,
+} from './bridge-comm-worker-runtime-protocol.test-support.js';
+import {
 	createBridgeCommWorkerStore,
 	type BridgeCommWorkerStore,
 } from './bridge-comm-worker-store.js';
+import type { BridgeProductReviewContentDescriptor } from './bridge-product-content-contracts.js';
+import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
 import type {
 	BridgeWorkerReviewContentMetadata,
 	BridgeWorkerReviewContentRequestDescriptor,
@@ -19,9 +25,9 @@ interface PostedBridgeWorkerRuntimeMessage {
 }
 
 describe('Bridge comm worker review runtime', () => {
-	test('select command posts prepared Pierre job before content-ready slice patch', async () => {
+	test('select command posts typed Review Pierre job before typed Review render patch', async () => {
 		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
-		const fetchCalls: string[] = [];
+		const openedDescriptorRoles: BridgeProductReviewContentDescriptor['role'][] = [];
 		const port: BridgeCommWorkerPort = {
 			postMessage: (
 				message: BridgeWorkerServerToMainMessage,
@@ -54,13 +60,10 @@ describe('Bridge comm worker review runtime', () => {
 				makeContentRequestDescriptor({ role: 'file', text: 'unused full file' }),
 			],
 			epoch: 7,
-			fetchContent: async (url: string): Promise<Response> => {
-				fetchCalls.push(url);
-				const descriptor = descriptorByUrl.get(url);
-				if (descriptor === undefined) {
-					throw new Error(`Unexpected review content URL ${url}.`);
-				}
-				return new Response(descriptor.text);
+			workerDerivationEpoch: 7,
+			openContent: (descriptor, abortSignal): BridgeProductContentStream<'review.content'> => {
+				openedDescriptorRoles.push(descriptor.role);
+				return openReviewContentFromDescriptorMap(descriptor, abortSignal);
 			},
 			itemId: 'item-1',
 			port,
@@ -69,32 +72,32 @@ describe('Bridge comm worker review runtime', () => {
 			store,
 		});
 
-		expect(fetchCalls).toEqual([
-			'agentstudio://resource/review/content/handle-item-1-base?generation=4',
-			'agentstudio://resource/review/content/handle-item-1-head?generation=4',
-		]);
+		expect(openedDescriptorRoles).toEqual(['base', 'head']);
 		expect(postedMessages).toHaveLength(2);
 		expect(postedMessages[0]?.message).toMatchObject({
 			wireVersion: 1,
 			direction: 'serverWorkerToMain',
-			kind: 'pierreRenderJob',
+			kind: 'reviewPierreRenderJob',
+			publicationSequence: 12,
+			surface: 'review',
+			workerDerivationEpoch: 7,
 			job: {
 				itemId: 'item-1',
 				renderKind: 'reviewDiff',
 				contentCacheKey:
-					'pierre-content:fixture-preview:sha256:item-1:base|pierre-content:fixture-preview:sha256:item-1:head',
+					'pierre-content:fixture-preview:sha256:item-1:base:generation-4|pierre-content:fixture-preview:sha256:item-1:head:generation-4',
 				payload: {
 					kind: 'codeViewDiffItem',
 				},
 			},
 		});
 		const pierreJobMessage = postedMessages[0]?.message;
-		if (pierreJobMessage?.kind !== 'pierreRenderJob') {
-			throw new Error('Expected Pierre render job message first.');
+		if (pierreJobMessage?.kind !== 'reviewPierreRenderJob') {
+			throw new Error('Expected Review Pierre render job message first.');
 		}
 		expect(pierreJobMessage.transferDescriptors).toEqual([
 			{
-				messageKind: 'pierreRenderJob',
+				messageKind: 'reviewPierreRenderJob',
 				fieldPath: ['job', 'payload'],
 				byteLength: pierreJobMessage.job.payloadByteLength,
 				mode: 'clone',
@@ -110,10 +113,11 @@ describe('Bridge comm worker review runtime', () => {
 			message: {
 				wireVersion: 1,
 				direction: 'serverWorkerToMain',
-				kind: 'slicePatch',
-				epoch: 7,
-				sequence: 12,
+				kind: 'reviewRenderPatch',
+				publicationSequence: 12,
+				surface: 'review',
 				transferDescriptors: [],
+				workerDerivationEpoch: 7,
 				patches: [
 					{
 						slice: 'rowPaint',
@@ -121,7 +125,7 @@ describe('Bridge comm worker review runtime', () => {
 						itemId: 'item-1',
 						payload: {
 							contentCacheKey:
-								'pierre-content:fixture-preview:sha256:item-1:base|pierre-content:fixture-preview:sha256:item-1:head',
+								'pierre-content:fixture-preview:sha256:item-1:base:generation-4|pierre-content:fixture-preview:sha256:item-1:head:generation-4',
 						},
 					},
 					{
@@ -145,7 +149,7 @@ describe('Bridge comm worker review runtime', () => {
 					makeContentRequestDescriptor({ role: 'file', text: 'unused file content' }),
 					makeContentRequestDescriptor({ role: 'head', text: 'added head content' }),
 				],
-				expectedUrls: ['agentstudio://resource/review/content/handle-item-1-head?generation=4'],
+				expectedRoles: ['head'],
 			},
 			{
 				name: 'non-diff review item prefers head over fallback roles',
@@ -156,7 +160,7 @@ describe('Bridge comm worker review runtime', () => {
 					makeContentRequestDescriptor({ role: 'head', text: 'file head content' }),
 					makeContentRequestDescriptor({ role: 'file', text: 'unused file content' }),
 				],
-				expectedUrls: ['agentstudio://resource/review/content/handle-item-1-head?generation=4'],
+				expectedRoles: ['head'],
 			},
 		];
 
@@ -191,10 +195,11 @@ describe('Bridge comm worker review runtime', () => {
 				message: {
 					wireVersion: 1,
 					direction: 'serverWorkerToMain',
-					kind: 'slicePatch',
-					epoch: 7,
-					sequence: 12,
+					kind: 'reviewRenderPatch',
+					publicationSequence: 12,
+					surface: 'review',
 					transferDescriptors: [],
+					workerDerivationEpoch: 7,
 					patches: [
 						{
 							slice: 'contentAvailability',
@@ -211,7 +216,7 @@ describe('Bridge comm worker review runtime', () => {
 
 	test('publishes unavailable when selected diff descriptors cannot plan a render job', async () => {
 		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
-		const fetchCalls: string[] = [];
+		const openedDescriptorRoles: BridgeProductReviewContentDescriptor['role'][] = [];
 		const store = createSelectedReviewRuntimeStore();
 		store.actions.applySelectedFact({ epoch: 7, itemId: 'item-1' });
 		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
@@ -221,9 +226,9 @@ describe('Bridge comm worker review runtime', () => {
 				contentRequestDescriptors: [
 					makeContentRequestDescriptor({ role: 'base', text: 'base content' }),
 				],
-				fetchContent: async (url: string): Promise<Response> => {
-					fetchCalls.push(url);
-					return fetchContentFromDescriptorMap(url);
+				openContent: (descriptor, abortSignal): BridgeProductContentStream<'review.content'> => {
+					openedDescriptorRoles.push(descriptor.role);
+					return openReviewContentFromDescriptorMap(descriptor, abortSignal);
 				},
 				postedMessages,
 				renderSemantics: [makeRenderSemantics()],
@@ -231,12 +236,15 @@ describe('Bridge comm worker review runtime', () => {
 			}),
 		});
 
-		expect(fetchCalls).toEqual([]);
+		expect(openedDescriptorRoles).toEqual([]);
 		expect(store.getState().availabilityByItemId.get('item-1')).toBe('unavailable');
 		expect(postedMessages).toHaveLength(1);
 		expect(postedMessages[0]).toMatchObject({
 			message: {
-				kind: 'slicePatch',
+				kind: 'reviewRenderPatch',
+				publicationSequence: 12,
+				surface: 'review',
+				workerDerivationEpoch: 7,
 				patches: [
 					{
 						slice: 'contentAvailability',
@@ -262,9 +270,7 @@ describe('Bridge comm worker review runtime', () => {
 					makeContentRequestDescriptor({ role: 'base', text: 'base content' }),
 					makeContentRequestDescriptor({ role: 'head', text: 'head content' }),
 				],
-				fetchContent: async (): Promise<Response> => {
-					throw new Error('simulated worker fetch failure');
-				},
+				openContent: (descriptor) => makeFailedReviewContentStream(descriptor),
 				postedMessages,
 				renderSemantics: [makeRenderSemantics()],
 				store,
@@ -275,7 +281,10 @@ describe('Bridge comm worker review runtime', () => {
 		expect(postedMessages).toHaveLength(1);
 		expect(postedMessages[0]).toMatchObject({
 			message: {
-				kind: 'slicePatch',
+				kind: 'reviewRenderPatch',
+				publicationSequence: 12,
+				surface: 'review',
+				workerDerivationEpoch: 7,
 				patches: [
 					{
 						slice: 'contentAvailability',
@@ -290,10 +299,8 @@ describe('Bridge comm worker review runtime', () => {
 	});
 });
 
-const descriptorByUrl = new Map<string, { readonly text: string }>();
-
 interface RuntimeDescriptorSelectionCase {
-	readonly expectedUrls: readonly string[];
+	readonly expectedRoles: readonly BridgeProductReviewContentDescriptor['role'][];
 	readonly makeDescriptors: () => readonly BridgeWorkerReviewContentRequestDescriptor[];
 	readonly name: string;
 	readonly semantics: BridgeWorkerReviewRenderSemantics;
@@ -303,7 +310,7 @@ async function runRuntimeDescriptorSelectionCase(
 	scenario: RuntimeDescriptorSelectionCase,
 ): Promise<void> {
 	const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
-	const fetchCalls: string[] = [];
+	const openedDescriptorRoles: BridgeProductReviewContentDescriptor['role'][] = [];
 	const store = createSelectedReviewRuntimeStore();
 	store.actions.applySelectedFact({ epoch: 7, itemId: 'item-1' });
 	store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
@@ -317,13 +324,10 @@ async function runRuntimeDescriptorSelectionCase(
 		},
 		contentRequestDescriptors: scenario.makeDescriptors(),
 		epoch: 7,
-		fetchContent: async (url: string): Promise<Response> => {
-			fetchCalls.push(url);
-			const descriptor = descriptorByUrl.get(url);
-			if (descriptor === undefined) {
-				throw new Error(`Unexpected review content URL ${url}.`);
-			}
-			return new Response(descriptor.text);
+		workerDerivationEpoch: 7,
+		openContent: (descriptor, abortSignal): BridgeProductContentStream<'review.content'> => {
+			openedDescriptorRoles.push(descriptor.role);
+			return openReviewContentFromDescriptorMap(descriptor, abortSignal);
 		},
 		itemId: 'item-1',
 		port: {
@@ -340,13 +344,19 @@ async function runRuntimeDescriptorSelectionCase(
 		store,
 	});
 
-	expect(fetchCalls, scenario.name).toEqual(scenario.expectedUrls);
+	expect(openedDescriptorRoles, scenario.name).toEqual(scenario.expectedRoles);
 	expect(postedMessages[0]?.message, scenario.name).toMatchObject({
-		kind: 'pierreRenderJob',
+		kind: 'reviewPierreRenderJob',
+		publicationSequence: 12,
+		surface: 'review',
+		workerDerivationEpoch: 7,
 		job: { itemId: 'item-1' },
 	});
 	expect(postedMessages[1]?.message, scenario.name).toMatchObject({
-		kind: 'slicePatch',
+		kind: 'reviewRenderPatch',
+		publicationSequence: 12,
+		surface: 'review',
+		workerDerivationEpoch: 7,
 		patches: [
 			{ slice: 'rowPaint', operation: 'upsert', itemId: 'item-1' },
 			{
@@ -361,7 +371,7 @@ async function runRuntimeDescriptorSelectionCase(
 
 interface MakeDispatchPropsOptions {
 	readonly contentRequestDescriptors: readonly BridgeWorkerReviewContentRequestDescriptor[];
-	readonly fetchContent?: (url: string) => Promise<Response>;
+	readonly openContent?: DispatchSelectedReviewRuntimeProps['openContent'];
 	readonly postedMessages: PostedBridgeWorkerRuntimeMessage[];
 	readonly renderSemantics: readonly BridgeWorkerReviewRenderSemantics[];
 	readonly store: BridgeCommWorkerStore;
@@ -381,7 +391,8 @@ function makeDispatchProps(options: MakeDispatchPropsOptions): DispatchSelectedR
 		},
 		contentRequestDescriptors: options.contentRequestDescriptors,
 		epoch: 7,
-		...(options.fetchContent === undefined ? {} : { fetchContent: options.fetchContent }),
+		workerDerivationEpoch: 7,
+		...(options.openContent === undefined ? {} : { openContent: options.openContent }),
 		itemId: 'item-1',
 		port: {
 			postMessage: (
@@ -396,14 +407,6 @@ function makeDispatchProps(options: MakeDispatchPropsOptions): DispatchSelectedR
 		sequence: 12,
 		store: options.store,
 	};
-}
-
-async function fetchContentFromDescriptorMap(url: string): Promise<Response> {
-	const descriptor = descriptorByUrl.get(url);
-	if (descriptor === undefined) {
-		throw new Error(`Unexpected review content URL ${url}.`);
-	}
-	return new Response(descriptor.text);
 }
 
 function createSelectedReviewRuntimeStore(): BridgeCommWorkerStore {
@@ -440,25 +443,22 @@ function makeRenderSemantics(
 	};
 }
 
-function makeContentRequestDescriptor(props: {
-	readonly role: BridgeWorkerReviewContentRequestDescriptor['role'];
-	readonly text: string;
-}): BridgeWorkerReviewContentRequestDescriptor {
-	const textByteLength = new TextEncoder().encode(props.text).byteLength;
-	const descriptor: BridgeWorkerReviewContentRequestDescriptor = {
-		itemId: 'item-1',
-		role: props.role,
-		handleId: `handle-item-1-${props.role}`,
-		reviewGeneration: 4,
-		resourceUrl: `agentstudio://resource/review/content/handle-item-1-${props.role}?generation=4`,
-		contentHash: `sha256:item-1:${props.role}`,
-		contentHashAlgorithm: 'fixture-preview',
-		language: 'swift',
-		sizeBytes: textByteLength,
-		expectedBytes: textByteLength,
-		maxBytes: Math.max(textByteLength, 1),
-		isBinary: false,
+function makeFailedReviewContentStream(
+	descriptor: BridgeProductReviewContentDescriptor,
+): BridgeProductContentStream<'review.content'> {
+	return {
+		contentKind: 'review.content',
+		contentRequestId: `content-request-${descriptor.descriptorId}`,
+		frames: emptyReviewContentFrames(),
+		terminal: Promise.resolve({
+			code: 'internal',
+			contentKind: 'review.content',
+			descriptorId: descriptor.descriptorId,
+			kind: 'error',
+			retryable: true,
+			safeMessage: 'simulated worker content stream failure',
+		}),
 	};
-	descriptorByUrl.set(descriptor.resourceUrl, { text: props.text });
-	return descriptor;
 }
+
+async function* emptyReviewContentFrames(): AsyncIterable<never> {}

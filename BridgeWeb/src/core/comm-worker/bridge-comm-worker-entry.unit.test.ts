@@ -13,6 +13,12 @@ import {
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerSelectCommand,
 } from './bridge-comm-worker-protocol.js';
+import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
+import {
+	createBridgeCommWorkerReviewProductTestSource,
+	flushBridgeWorkerRuntimeContinuations,
+} from './bridge-comm-worker-runtime-protocol.test-support.js';
+import type { BridgeProductReviewContentDescriptor } from './bridge-product-content-contracts.js';
 import {
 	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
 	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
@@ -26,8 +32,11 @@ import {
 import {
 	bridgePaneCommWorkerInstallSchema,
 	bridgeProductControlRequestSchema,
+	bridgeProductMetadataStreamRequestSchema,
 	type BridgePaneCommWorkerInstall,
+	type BridgeProductMetadataStreamRequest,
 } from './bridge-product-session-contracts.js';
+import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import {
 	bridgeWorkerServerToMainMessageSchema,
@@ -95,6 +104,7 @@ describe('Bridge comm worker entry', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
+			publicationSequence: 1,
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -108,6 +118,7 @@ describe('Bridge comm worker entry', () => {
 				}),
 			],
 			semantics: makeRenderSemantics(),
+			workerDerivationEpoch: 1,
 		});
 		if (preparedMessage === null) {
 			throw new Error('Expected review content-ready render job.');
@@ -125,7 +136,7 @@ describe('Bridge comm worker entry', () => {
 		expect(preparedMessage.message.job.payload.kind).toBe('codeViewDiffItem');
 		expect(preparedMessage.message.transferDescriptors).toEqual([
 			{
-				messageKind: 'pierreRenderJob',
+				messageKind: 'reviewPierreRenderJob',
 				fieldPath: ['job', 'payload'],
 				byteLength: preparedMessage.message.job.payloadByteLength,
 				mode: 'clone',
@@ -153,6 +164,7 @@ describe('Bridge comm worker entry', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
+			publicationSequence: 1,
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:file',
@@ -165,6 +177,7 @@ describe('Bridge comm worker entry', () => {
 				contentLineCountsByRole: { file: 80 },
 				itemKind: 'file',
 			}),
+			workerDerivationEpoch: 1,
 		});
 		if (preparedMessage === null) {
 			throw new Error('Expected review content-ready render job.');
@@ -184,7 +197,7 @@ describe('Bridge comm worker entry', () => {
 		expect(preparedMessage.message.job.payload.kind).toBe('codeViewFileItem');
 		expect(preparedMessage.message.transferDescriptors).toEqual([
 			{
-				messageKind: 'pierreRenderJob',
+				messageKind: 'reviewPierreRenderJob',
 				fieldPath: ['job', 'payload'],
 				byteLength: preparedMessage.message.job.payloadByteLength,
 				mode: 'clone',
@@ -204,6 +217,7 @@ describe('Bridge comm worker entry', () => {
 			requestId: 'request-1',
 			epoch: 0,
 			transferDescriptors: [],
+			surface: 'review',
 			selectedItemId: 'item-1',
 			selectedSource: 'user',
 		});
@@ -252,6 +266,7 @@ describe('Bridge comm worker entry', () => {
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-before-bootstrap',
 				epoch: 1,
+				surface: 'review',
 				selectedItemId: 'item-1',
 				selectedSource: 'user',
 			}),
@@ -280,21 +295,23 @@ describe('Bridge comm worker entry', () => {
 		const harness = createInstalledBridgeCommWorkerEntryHarness();
 
 		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-1'));
-		await harness.productPort.waitForCount(1);
+		await harness.productPort.waitForCount(2);
 		harness.productPort.postMessage(
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-after-bootstrap',
 				epoch: 2,
+				surface: 'review',
 				selectedItemId: 'item-1',
 				selectedSource: 'user',
 			}),
 		);
-		const postedMessages = await harness.productPort.waitForCount(3);
+		const postedMessages = await harness.productPort.waitForCount(4);
 
 		try {
 			expect(harness.globalStarted()).toBe(true);
 			expect(harness.globalPostedMessages).toEqual([]);
 			expect(postedMessages).toEqual([
+				expectedReviewMetadataUnavailablePatch(),
 				{
 					wireVersion: 1,
 					direction: 'serverWorkerToMain',
@@ -308,7 +325,7 @@ describe('Bridge comm worker entry', () => {
 					direction: 'serverWorkerToMain',
 					kind: 'slicePatch',
 					epoch: 2,
-					sequence: 1,
+					sequence: 2,
 					transferDescriptors: [],
 					patches: [
 						{
@@ -323,7 +340,7 @@ describe('Bridge comm worker entry', () => {
 							operation: 'upsert',
 							itemId: 'item-1',
 							payload: {
-								state: 'loading',
+								state: 'unavailable',
 							},
 						},
 					],
@@ -346,15 +363,14 @@ describe('Bridge comm worker entry', () => {
 		const fetchSpy = vi.spyOn(globalThis, 'fetch');
 		const harness = createInstalledBridgeCommWorkerEntryHarness();
 
-		harness.productPort.postMessage(
-			makeBootstrapRequestWithTelemetry('bootstrap-request-telemetry'),
-		);
+		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-telemetry'));
 		await harness.productPort.waitForCount(1);
 		harness.productPort.postMessage(
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-after-telemetry-bootstrap',
 				epoch: 2,
 				issuedAtMilliseconds: 0,
+				surface: 'review',
 				selectedItemId: 'item-1',
 				selectedSource: 'user',
 			}),
@@ -369,13 +385,65 @@ describe('Bridge comm worker entry', () => {
 		}
 	});
 
+	test('production entry opens Review content through product transport without legacy fetchContent', async () => {
+		// Arrange
+		const openedContentKinds: string[] = [];
+		const reviewProductSource = createBridgeCommWorkerReviewProductTestSource();
+		const productTransport: BridgeProductTransportSession = {
+			...reviewProductSource.productTransport,
+			openContent: (descriptor): never => {
+				openedContentKinds.push(descriptor.contentKind);
+				if (descriptor.contentKind !== 'review.content') {
+					throw new Error(`Unexpected typed content kind ${descriptor.contentKind}.`);
+				}
+				return makeCompletedReviewContentStream(descriptor) as never;
+			},
+		};
+		const harness = createInstalledBridgeCommWorkerEntryHarness(productTransport);
+
+		try {
+			// Act
+			harness.productPort.postMessage(makeBootstrapRequest('review-content-bootstrap'));
+			await harness.productPort.waitForCount(1);
+			await flushBridgeWorkerRuntimeContinuations();
+			reviewProductSource.publishSource(makeReviewContentRuntimeSource(), 6);
+			await flushBridgeWorkerRuntimeContinuations();
+			await harness.productPort.waitForCount(2);
+			harness.productPort.postMessage(
+				encodeBridgeWorkerSelectCommand({
+					requestId: 'review-content-select',
+					epoch: 7,
+					surface: 'review',
+					selectedItemId: 'item-1',
+					selectedSource: 'user',
+				}),
+			);
+			await harness.productPort.waitForCount(5);
+
+			// Assert
+			expect(openedContentKinds).toEqual(['review.content', 'review.content']);
+		} finally {
+			reviewProductSource.close();
+			harness.close();
+		}
+	});
+
 	test('carries mark-viewed through the installed capability-bound product session', async () => {
 		// Arrange
 		const observedBodies: unknown[] = [];
+		const observedMetadataStreamRequests: BridgeProductMetadataStreamRequest[] = [];
 		const fetchSpy = vi
 			.spyOn(globalThis, 'fetch')
 			.mockImplementation(
 				async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+					if (init?.body instanceof ArrayBuffer) {
+						observedMetadataStreamRequests.push(
+							bridgeProductMetadataStreamRequestSchema.parse(
+								JSON.parse(new TextDecoder().decode(init.body)),
+							),
+						);
+						throw new Error('Metadata stream is intentionally unavailable in this test.');
+					}
 					if (!(init?.body instanceof Uint8Array)) {
 						throw new Error('Expected encoded Bridge product request bytes.');
 					}
@@ -432,7 +500,7 @@ describe('Bridge comm worker entry', () => {
 
 		// Act
 		productChannel.port2.postMessage(makeBootstrapRequest('product-chain-bootstrap'));
-		await productPort.waitForCount(1);
+		await productPort.waitForCount(2);
 		productChannel.port2.postMessage(
 			encodeBridgeWorkerMarkFileViewedCommand({
 				epoch: 4,
@@ -440,15 +508,26 @@ describe('Bridge comm worker entry', () => {
 				requestId: 'mark-viewed-product-chain',
 			}),
 		);
-		const messages = await productPort.waitForCount(2);
+		const messages = await productPort.waitForCount(3);
 
 		// Assert
-		expect(messages.at(-1)).toMatchObject({
+		expect(
+			messages.find(
+				(message) => message.kind === 'health' && message.requestId === 'mark-viewed-product-chain',
+			),
+		).toMatchObject({
 			kind: 'health',
 			requestId: 'mark-viewed-product-chain',
 			status: 'ready',
 		});
-		expect(fetchSpy).toHaveBeenCalledTimes(3);
+		expect(fetchSpy).toHaveBeenCalledTimes(4);
+		expect(observedMetadataStreamRequests).toEqual([
+			expect.objectContaining({
+				kind: 'metadataStream.open',
+				resumeFromStreamSequence: null,
+				wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
+			}),
+		]);
 		expect(observedBodies).toEqual([
 			expect.objectContaining({ kind: 'workerSession.open', requestSequence: 1 }),
 			expect.objectContaining({
@@ -474,13 +553,14 @@ describe('Bridge comm worker entry', () => {
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-before-bootstrap',
 				epoch: 3,
+				surface: 'review',
 				selectedItemId: 'item-1',
 				selectedSource: 'user',
 			}),
 		);
 		await harness.productPort.waitForCount(1);
 		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-1'));
-		const postedMessages = await harness.productPort.waitForCount(4);
+		const postedMessages = await harness.productPort.waitForCount(5);
 
 		try {
 			expect(harness.globalPostedMessages).toEqual([]);
@@ -494,6 +574,7 @@ describe('Bridge comm worker entry', () => {
 					message: 'Bridge comm worker command received before bootstrap.',
 					transferDescriptors: [],
 				},
+				expectedReviewMetadataUnavailablePatch(),
 				{
 					wireVersion: 1,
 					direction: 'serverWorkerToMain',
@@ -507,7 +588,7 @@ describe('Bridge comm worker entry', () => {
 					direction: 'serverWorkerToMain',
 					kind: 'slicePatch',
 					epoch: 3,
-					sequence: 1,
+					sequence: 2,
 					transferDescriptors: [],
 					patches: [
 						{
@@ -522,7 +603,7 @@ describe('Bridge comm worker entry', () => {
 							operation: 'upsert',
 							itemId: 'item-1',
 							payload: {
-								state: 'loading',
+								state: 'unavailable',
 							},
 						},
 					],
@@ -545,13 +626,14 @@ describe('Bridge comm worker entry', () => {
 		const harness = createInstalledBridgeCommWorkerEntryHarness();
 
 		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-1'));
-		await harness.productPort.waitForCount(1);
+		await harness.productPort.waitForCount(2);
 		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-2'));
-		const postedMessages = await harness.productPort.waitForCount(2);
+		const postedMessages = await harness.productPort.waitForCount(3);
 
 		try {
 			expect(harness.globalPostedMessages).toEqual([]);
 			expect(postedMessages).toEqual([
+				expectedReviewMetadataUnavailablePatch(),
 				{
 					wireVersion: 1,
 					direction: 'serverWorkerToMain',
@@ -576,7 +658,9 @@ describe('Bridge comm worker entry', () => {
 	});
 });
 
-function createInstalledBridgeCommWorkerEntryHarness(): InstalledBridgeCommWorkerEntryHarness {
+function createInstalledBridgeCommWorkerEntryHarness(
+	productTransport: BridgeProductTransportSession = makeUnavailableFileProductTransport(),
+): InstalledBridgeCommWorkerEntryHarness {
 	const globalPort = createRecordingBridgeCommWorkerPort();
 	const productChannel = new MessageChannel();
 	const productPort = new BridgeWorkerMessagePortRecorder(productChannel.port2);
@@ -587,7 +671,7 @@ function createInstalledBridgeCommWorkerEntryHarness(): InstalledBridgeCommWorke
 			void input;
 			return {
 				open,
-				productTransport: makeUnavailableFileProductTransport(),
+				productTransport,
 			};
 		},
 	});
@@ -783,6 +867,26 @@ function makeFetchedReviewContentResource(props: {
 	};
 }
 
+function expectedReviewMetadataUnavailablePatch(): BridgeWorkerServerToMainMessage {
+	return {
+		direction: 'serverWorkerToMain',
+		epoch: 1,
+		kind: 'reviewDisplayPatch',
+		patches: [
+			{
+				operation: 'failed',
+				payload: { error: 'metadataUnavailable', status: 'failed' },
+				slice: 'reviewSource',
+			},
+		],
+		projectionRevision: 1,
+		sequence: 1,
+		surface: 'review',
+		transferDescriptors: [],
+		wireVersion: 1,
+	};
+}
+
 function makeBootstrapRequest(requestId: string): BridgeCommWorkerBootstrapRequest {
 	return {
 		schemaVersion: 1,
@@ -795,38 +899,94 @@ function makeBootstrapRequest(requestId: string): BridgeCommWorkerBootstrapReque
 				maxBytes: 512 * 1024,
 				maxWindowLines: 400,
 			},
-			contentItems: [
-				{
-					itemId: 'item-1',
-					path: 'Sources/App/item-1.swift',
-					language: 'swift',
-					cacheKey: 'item-1:base|item-1:head',
-					sizeBytes: 104,
-					availableContentRoles: ['base', 'head'],
-					contentLineCountsByRole: { base: 10, head: 12 },
-				},
-			],
-			contentRequestDescriptors: [],
-			renderSemantics: [],
-			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 		},
 	};
 }
 
-function makeBootstrapRequestWithTelemetry(requestId: string): BridgeCommWorkerBootstrapRequest {
-	const request = makeBootstrapRequest(requestId);
+function makeReviewContentRuntimeSource(): BridgeCommWorkerReviewRuntimeSource {
 	return {
-		...request,
-		runtime: {
-			...request.runtime,
-			telemetryConfig: {
-				enabledScopes: ['web'],
-				endpointUrl: 'agentstudio://telemetry/batch',
-				maxEncodedBatchBytes: 16_384,
-				maxSamplesPerBatch: 8,
-				minimumFlushIntervalMilliseconds: 250,
-				scenario: 'bridge-worker-runtime',
+		contentItems: [
+			{
+				itemId: 'item-1',
+				path: 'Sources/App/item-1.swift',
+				language: 'swift',
+				cacheKey: 'item-1:base|item-1:head',
+				sizeBytes: 104,
+				availableContentRoles: ['base', 'head'],
+				contentLineCountsByRole: { base: 10, head: 12 },
 			},
-		},
+		],
+		contentRequestDescriptors: [
+			makeReviewContentDescriptor({ role: 'base', text: 'base body' }),
+			makeReviewContentDescriptor({ role: 'head', text: 'head body' }),
+		],
+		renderSemantics: [
+			{
+				basePath: 'Sources/App/item-1.swift',
+				changeKind: 'modified',
+				contentLineCountsByRole: { base: 1, head: 1 },
+				displayPath: 'Sources/App/item-1.swift',
+				headPath: 'Sources/App/item-1.swift',
+				itemId: 'item-1',
+				itemKind: 'diff',
+				language: 'swift',
+			},
+		],
+		rows: [{ id: 'item-1', parentId: null, index: 0 }],
 	};
 }
+
+function makeReviewContentDescriptor(props: {
+	readonly role: BridgeProductReviewContentDescriptor['role'];
+	readonly text: string;
+}): BridgeProductReviewContentDescriptor {
+	const byteLength = new TextEncoder().encode(props.text).byteLength;
+	return {
+		contentDigest: {
+			algorithm: 'fixture-preview',
+			authority: 'provisional',
+			value: `item-1:${props.role}:generation-4`,
+		},
+		contentKind: 'review.content',
+		declaredByteLength: byteLength,
+		descriptorId: `descriptor-item-1-${props.role}`,
+		encoding: 'utf-8',
+		endpointId: `endpoint-${props.role}`,
+		expectedSha256: null,
+		handleId: `handle-item-1-${props.role}`,
+		isBinary: false,
+		itemId: 'item-1',
+		language: 'swift',
+		maximumBytes: byteLength,
+		mimeType: 'text/plain',
+		packageId: 'package-1',
+		reviewGeneration: 4,
+		role: props.role,
+		sourceIdentity: 'source-1',
+		wholeByteLength: byteLength,
+		window: { kind: 'byteRange', maximumBytes: byteLength, startByte: 0 },
+	};
+}
+
+function makeCompletedReviewContentStream(
+	descriptor: BridgeProductReviewContentDescriptor,
+): BridgeProductContentStream<'review.content'> {
+	const bytes = new TextEncoder().encode(
+		descriptor.role === 'base' ? 'base body' : 'head body',
+	).buffer;
+	return {
+		contentKind: 'review.content',
+		contentRequestId: `content-request-${descriptor.role}`,
+		frames: emptyReviewContentFrames(),
+		terminal: Promise.resolve({
+			bytes,
+			contentKind: 'review.content',
+			descriptorId: descriptor.descriptorId,
+			endOfSource: true,
+			kind: 'complete',
+			observedSha256: 'a'.repeat(64),
+		}),
+	};
+}
+
+async function* emptyReviewContentFrames(): AsyncIterable<never> {}

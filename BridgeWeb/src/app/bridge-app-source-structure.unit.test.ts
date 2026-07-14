@@ -35,6 +35,27 @@ describe('BridgeApp source structure', () => {
 		expect(source).toContain("this.#productTransport.call('file.source.current', {})");
 		expect(source).toContain("this.#productTransport.subscribe('file.metadata', options)");
 	});
+
+	test('mounts one pane runtime and compile-deletes the legacy page-owned dispatcher', () => {
+		const source = readSource('bridge-app.tsx');
+
+		expect(source).toContain("from '../core/comm-worker/bridge-pane-runtime.js'");
+		expect(source).toContain('createBridgePaneRuntime(');
+		expect(source).not.toContain('createBridgePaneRuntimeProtocolDispatcher');
+		expect(source).not.toContain('createBridgeReviewRuntimeProtocolDispatcher');
+		expect(source).not.toContain('getBridgePaneCommWorkerSession');
+		expect(source).not.toContain('disposeBridgePaneCommWorkerSession');
+	});
+
+	test('keeps session-only pane bootstrap free of legacy Review payload carriers', () => {
+		const source = readSource('../core/comm-worker/bridge-pane-runtime.ts');
+
+		expect(source).not.toContain('bridgeCommWorkerBootstrapRequestSchema');
+		expect(source).not.toContain('contentItems: []');
+		expect(source).not.toContain('contentRequestDescriptors: []');
+		expect(source).not.toContain('renderSemantics: []');
+		expect(source).not.toContain('rows: []');
+	});
 });
 
 function readSource(relativePath: string): string {

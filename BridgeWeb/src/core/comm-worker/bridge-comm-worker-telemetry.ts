@@ -1,21 +1,5 @@
-import type { BridgeTelemetryBootstrapConfig } from '../../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
-import {
-	createBridgeTelemetryBuffer,
-	type BridgeTelemetryDropCounter,
-} from '../../foundation/telemetry/bridge-telemetry-buffer.js';
-import {
-	makeBridgeTelemetryBatch,
-	type BridgeTelemetrySample,
-	type BridgeTelemetryStreamId,
-} from '../../foundation/telemetry/bridge-telemetry-event.js';
-import type { BridgeTelemetryScope } from '../../foundation/telemetry/bridge-telemetry-scope.js';
-import {
-	nullBridgeTelemetrySink,
-	type BridgeTelemetrySink,
-} from '../../foundation/telemetry/bridge-telemetry-sink.js';
+import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
 import type { BridgeWorkerContentAvailabilityPatchPayload } from './bridge-worker-contracts.js';
-
-type BridgeCommWorkerTelemetryIdleFlushScheduler = (callback: () => void) => void;
 
 export interface BridgeCommWorkerPerformanceClock {
 	readonly timeOrigin: number;
@@ -35,96 +19,39 @@ export type BridgeCommWorkerTelemetryLane =
 	| 'speculative'
 	| 'visible';
 
+export type BridgeCommWorkerTelemetryAction =
+	| 'applyContentReady'
+	| 'applyContentTerminalAvailability'
+	| 'applyFileViewSourceMutationFact'
+	| 'applyFileViewSourceUpdateFact'
+	| 'applyReviewInvalidationFact'
+	| 'applyReviewRowMutationFact'
+	| 'applyReviewSourceUpdateFact'
+	| 'applySelectedFact'
+	| 'applySelectedSourceChurnFact'
+	| 'applyViewportFact';
+
+export type BridgeCommWorkerTelemetryCommand =
+	| 'activeViewerModeUpdate'
+	| 'fileDisplayResync'
+	| 'fileQueryUpdate'
+	| 'hover'
+	| 'markFileViewed'
+	| 'metadataInterestUpdate'
+	| 'mode'
+	| 'reviewIntakeReady'
+	| 'reviewInvalidate'
+	| 'select'
+	| 'viewport';
+
 export interface BridgeCommWorkerTelemetryRecorder {
 	readonly record: (sample: BridgeTelemetrySample) => void;
-}
-
-export interface BridgeCommWorkerTelemetryTransport {
-	readonly endpointUrl: string;
 }
 
 export type BridgeCommWorkerSelectedContentDropReason =
 	| 'stale_after_fetch'
 	| 'stale_before_fetch'
 	| 'stale_before_publish';
-
-export interface BridgeCommWorkerTelemetryClient extends BridgeCommWorkerTelemetryRecorder {
-	readonly record: (sample: BridgeTelemetrySample) => void;
-	readonly flush: () => boolean;
-	readonly isEnabled: (scope: BridgeTelemetryScope) => boolean;
-	readonly transport: BridgeCommWorkerTelemetryTransport;
-}
-
-export interface CreateBridgeCommWorkerTelemetryClientProps {
-	readonly config: BridgeTelemetryBootstrapConfig;
-	readonly sink?: BridgeTelemetrySink;
-	readonly scheduleIdleFlush?: BridgeCommWorkerTelemetryIdleFlushScheduler;
-	readonly streamId: BridgeTelemetryStreamId;
-}
-
-export function createBridgeCommWorkerTelemetryClient(
-	props: CreateBridgeCommWorkerTelemetryClientProps,
-): BridgeCommWorkerTelemetryClient {
-	const buffer = createBridgeTelemetryBuffer({
-		maxSamplesPerBatch: props.config.maxSamplesPerBatch,
-		maxEncodedBatchBytes: props.config.maxEncodedBatchBytes,
-	});
-	const sink = props.sink ?? nullBridgeTelemetrySink;
-	const scheduleIdleFlush = props.scheduleIdleFlush ?? defaultIdleFlushScheduler;
-	let idleFlushScheduled = false;
-	let nextSequence = 0;
-	const scheduleFlush = (flush: () => boolean): void => {
-		if (idleFlushScheduled) {
-			return;
-		}
-		idleFlushScheduled = true;
-		scheduleIdleFlush((): void => {
-			idleFlushScheduled = false;
-			flush();
-		});
-	};
-	const peekNextBatchSequence = (): number => nextSequence + 1;
-	const commitBatchSequence = (sequence: number): void => {
-		nextSequence = sequence;
-	};
-	const flushSnapshot = (): boolean => {
-		const snapshot = buffer.drain();
-		const samples = samplesWithDropCounters(snapshot.samples, snapshot.dropCounters);
-		if (samples.length === 0) {
-			return true;
-		}
-		const sequence = peekNextBatchSequence();
-		const didFlush = sink.flush(
-			makeBridgeTelemetryBatch({
-				scenario: props.config.scenario,
-				streamId: props.streamId,
-				sequence,
-				samples,
-			}),
-		);
-		if (!didFlush) {
-			buffer.restore(snapshot);
-			return false;
-		}
-		commitBatchSequence(sequence);
-		return true;
-	};
-	const client: BridgeCommWorkerTelemetryClient = {
-		isEnabled: (scope): boolean => props.config.enabledScopes.has(scope),
-		record: (sample): void => {
-			if (!props.config.enabledScopes.has(sample.scope)) {
-				return;
-			}
-			buffer.add(sample);
-			scheduleFlush(flushSnapshot);
-		},
-		flush: flushSnapshot,
-		transport: {
-			endpointUrl: props.config.endpointUrl,
-		},
-	};
-	return client;
-}
 
 export function readBridgeCommWorkerAbsoluteNowMilliseconds(
 	clock: BridgeCommWorkerPerformanceClock = performance,
@@ -133,8 +60,8 @@ export function readBridgeCommWorkerAbsoluteNowMilliseconds(
 }
 
 export interface RecordBridgeCommWorkerTaskTelemetryProps {
-	readonly action?: string;
-	readonly command?: string;
+	readonly action?: BridgeCommWorkerTelemetryAction;
+	readonly command?: BridgeCommWorkerTelemetryCommand;
 	readonly durationMilliseconds: number;
 	readonly lane: BridgeCommWorkerTelemetryLane;
 	readonly payloadClass?: string;
@@ -234,47 +161,4 @@ type BridgeCommWorkerTelemetryResultReason = NonNullable<
 
 function bridgeCommWorkerTaskPriority(lane: BridgeCommWorkerTelemetryLane): string {
 	return lane === 'selected' ? 'hot' : 'warm';
-}
-
-function samplesWithDropCounters(
-	samples: readonly BridgeTelemetrySample[],
-	dropCounters: readonly BridgeTelemetryDropCounter[],
-): readonly BridgeTelemetrySample[] {
-	if (dropCounters.length === 0) {
-		return samples;
-	}
-	return [...samples, ...dropCounters.map(makeTelemetryDropSample)];
-}
-
-function makeTelemetryDropSample(counter: BridgeTelemetryDropCounter): BridgeTelemetrySample {
-	return {
-		scope: 'web',
-		name: 'performance.bridge.web.telemetry_drop',
-		durationMilliseconds: null,
-		traceContext: null,
-		stringAttributes: {
-			'agentstudio.bridge.phase': 'dropped',
-			'agentstudio.bridge.plane': 'observability',
-			'agentstudio.bridge.priority': 'best_effort',
-			'agentstudio.bridge.slice': 'telemetry_drop',
-			'agentstudio.bridge.telemetry.drop_reason': counter.reason,
-			'agentstudio.bridge.telemetry.event_name': counter.eventName,
-			'agentstudio.bridge.telemetry.lane': counter.lane,
-			'agentstudio.bridge.telemetry.result': counter.result,
-			'agentstudio.bridge.transport': 'scheme',
-		},
-		numericAttributes: {
-			'agentstudio.bridge.telemetry.dropped_count': counter.count,
-		},
-		booleanAttributes: {},
-	};
-}
-
-function defaultIdleFlushScheduler(callback: () => void): void {
-	const idleCallback = globalThis.requestIdleCallback;
-	if (idleCallback === undefined) {
-		globalThis.setTimeout(callback, 0);
-		return;
-	}
-	idleCallback(callback, { timeout: 1_000 });
 }

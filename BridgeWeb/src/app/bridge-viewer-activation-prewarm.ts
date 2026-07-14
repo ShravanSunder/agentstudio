@@ -4,6 +4,7 @@ import { bridgePierreHighlightLanguageOrPlainText } from '../review-viewer/worke
 import {
 	prewarmBridgePierreWorkerPool,
 	type BridgePierreWorkerPoolPrewarmRequest,
+	type PrewarmBridgePierreWorkerPoolProps,
 } from '../review-viewer/workers/pierre/bridge-pierre-worker-prewarm.js';
 
 export type BridgeViewerActivationMode = 'file' | 'review';
@@ -12,11 +13,15 @@ export interface BridgeViewerActivationPrewarmState {
 	readonly prewarmedModes: Set<BridgeViewerActivationMode>;
 }
 
+type BridgeViewerActivationPrewarmRequest = BridgePierreWorkerPoolPrewarmRequest &
+	Pick<PrewarmBridgePierreWorkerPoolProps, 'workerFactory'>;
+
 export interface BridgeViewerActivationPrewarmProps {
 	readonly activeViewerMode: BridgeViewerActivationMode;
-	readonly prewarm?: (request: BridgePierreWorkerPoolPrewarmRequest) => void;
+	readonly prewarm?: (request: BridgeViewerActivationPrewarmRequest) => void;
 	readonly reviewPackage?: BridgeReviewPackage | null;
 	readonly state: BridgeViewerActivationPrewarmState;
+	readonly workerFactory?: () => Worker;
 }
 
 const bridgePierreStaticPrewarmLanguages: readonly SupportedLanguages[] = [
@@ -35,15 +40,17 @@ export function bridgeViewerActivationPrewarm(props: BridgeViewerActivationPrewa
 	props.state.prewarmedModes.add(props.activeViewerMode);
 	const prewarm =
 		props.prewarm ??
-		((request: BridgePierreWorkerPoolPrewarmRequest): void => {
+		((request: BridgeViewerActivationPrewarmRequest): void => {
 			void prewarmBridgePierreWorkerPool(request);
 		});
-	prewarm({
+	const request: BridgeViewerActivationPrewarmRequest = {
 		languages:
 			props.reviewPackage === undefined || props.reviewPackage === null
 				? bridgePierreStaticPrewarmLanguages
 				: bridgePierrePrewarmLanguagesForReviewPackage(props.reviewPackage),
-	});
+		...(props.workerFactory === undefined ? {} : { workerFactory: props.workerFactory }),
+	};
+	prewarm(request);
 }
 
 export function bridgePierrePrewarmLanguagesForReviewPackage(

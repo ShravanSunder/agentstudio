@@ -243,24 +243,27 @@ struct BridgeProductSchemeAdapterTests {
             capability: harness.capabilityHeader,
             bodyStream: blockedStream
         )
+        let routedReply = bridgeProductSchemeReplyWithRoutingTask(
+            adapter: harness.adapter,
+            request: blockedRequest
+        )
         let consumer = Task {
-            try? await collectBridgeProductSchemeReply(
-                adapter: harness.adapter,
-                request: blockedRequest
-            )
+            for try await _ in routedReply.stream {}
         }
         await blockedStream.waitUntilFirstRead()
 
         // Act
         consumer.cancel()
         blockedStream.releaseFirstRead()
-        _ = await consumer.value
+        _ = try? await consumer.value
+        await routedReply.routingTask.value
         let retry = try await harness.openSession(body: body)
 
         // Assert
         #expect(retry.response?.statusCode == 200)
         #expect((await harness.session.snapshot).pendingRequestKind == nil)
-        #expect((await harness.provider.snapshot).controlRequests.count == 1)
+        let controlRequestCount = await harness.provider.snapshot.controlRequests.count
+        #expect(controlRequestCount == 1, "observed \(controlRequestCount) provider dispatches")
     }
 
     @Test("cancellation after provider dispatch finishes and caches the exact response")
@@ -317,9 +320,9 @@ struct BridgeProductSchemeAdapterTests {
         )
 
         // Act and assert
-        for (route, body) in [
-            (BridgeProductWireContract.streamRoute, try JSONEncoder().encode(metadataRequest)),
-            (BridgeProductWireContract.contentRoute, try JSONEncoder().encode(contentRequest)),
+        for (expectedLifecycleCount, route, body) in [
+            (1, BridgeProductWireContract.streamRoute, try JSONEncoder().encode(metadataRequest)),
+            (2, BridgeProductWireContract.contentRoute, try JSONEncoder().encode(contentRequest)),
         ] {
             let recorder = BridgeProductSchemeReplyEventRecorder()
             let request = bridgeProductSchemeRequest(
@@ -329,7 +332,10 @@ struct BridgeProductSchemeAdapterTests {
             )
             let consumer = Task {
                 do {
-                    for try await result in harness.adapter.reply(for: request) {
+                    for try await result in bridgeProductSchemeReply(
+                        adapter: harness.adapter,
+                        request: request
+                    ) {
                         switch result {
                         case .response:
                             await recorder.record(.response)
@@ -346,6 +352,9 @@ struct BridgeProductSchemeAdapterTests {
             await recorder.waitUntilCount(2)
             consumer.cancel()
             _ = await consumer.value
+            await harness.provider.waitUntilAcknowledgedLifecycleCount(
+                expectedLifecycleCount
+            )
             #expect(Array((await recorder.snapshot).prefix(2)) == [.response, .data])
             #expect((await harness.session.producerSnapshot()).hasZeroResidue)
         }
@@ -354,6 +363,90 @@ struct BridgeProductSchemeAdapterTests {
         #expect(snapshot.contentRequestCount == 1)
         #expect(snapshot.acknowledgedLifecycleCount == 2)
         #expect(snapshot.producerFailureCount == 0)
+    }
+
+    @Test("metadata frame remains resident until an exact worker observation is accepted")
+    func metadataFrameRequiresWorkerObservationBeforeRelease() async throws {
+        // Arrange
+        let harness = try BridgeProductSchemeAdapterHarness.make()
+        #expect(try await harness.openSession().response?.statusCode == 200)
+        let metadataRequest = try bridgeProductMetadataStreamRequest(
+            metadataStreamId: "metadata-stream-worker-observation",
+            resumeFromStreamSequence: nil
+        )
+        let recorder = BridgeProductSchemeReplyEventRecorder()
+        let consumer = Task {
+            do {
+                for try await result in bridgeProductSchemeReply(
+                    adapter: harness.adapter,
+                    request: bridgeProductSchemeRequest(
+                        route: BridgeProductWireContract.streamRoute,
+                        capability: harness.capabilityHeader,
+                        body: try JSONEncoder().encode(metadataRequest)
+                    )
+                ) {
+                    switch result {
+                    case .response:
+                        await recorder.record(.response)
+                    case .data:
+                        await recorder.record(.data)
+                    @unknown default:
+                        break
+                    }
+                }
+            } catch {
+                // The stream is cancelled after the acknowledgement assertions.
+            }
+        }
+        await recorder.waitUntilCount(2)
+        let acknowledgement = try BridgeProductStrictJSON.decode(
+            BridgeProductMetadataFrameAcknowledgement.self,
+            from: Data(
+                """
+                {
+                  "kind": "stream.frameObserved",
+                  "metadataStreamId": "metadata-stream-worker-observation",
+                  "paneSessionId": "\(bridgeProductTestPaneSessionId)",
+                  "streamKind": "metadata",
+                  "streamSequence": 0,
+                  "wireVersion": 2,
+                  "workerInstanceId": "\(bridgeProductTestWorkerInstanceId)"
+                }
+                """.utf8
+            )
+        )
+        let acknowledgementRequest = bridgeProductSchemeRequest(
+            route: BridgeProductWireContract.commandRoute,
+            capability: harness.capabilityHeader,
+            body: try JSONEncoder().encode(acknowledgement)
+        )
+
+        // Act
+        let beforeAcknowledgement = await harness.session.producerSnapshot()
+        let accepted = try await collectBridgeProductSchemeReply(
+            adapter: harness.adapter,
+            request: acknowledgementRequest
+        )
+        let replay = try await collectBridgeProductSchemeReply(
+            adapter: harness.adapter,
+            request: acknowledgementRequest
+        )
+        let afterAcknowledgement = await harness.session.producerSnapshot()
+
+        // Assert
+        #expect(beforeAcknowledgement.queuedFrameCount == 1)
+        #expect(beforeAcknowledgement.inFlightFrameReceiptCount == 1)
+        #expect(accepted.response?.statusCode == 204)
+        #expect(replay.response?.statusCode == 204)
+        #expect(accepted.body.isEmpty)
+        #expect(replay.body.isEmpty)
+        #expect(afterAcknowledgement.queuedFrameCount == 0)
+        #expect(afterAcknowledgement.inFlightFrameReceiptCount == 0)
+
+        consumer.cancel()
+        _ = await consumer.value
+        await harness.provider.waitUntilAcknowledgedLifecycleCount(1)
+        #expect((await harness.session.producerSnapshot()).hasZeroResidue)
     }
 
     @Test("provider completion without a terminal frame fails instead of clean EOF")
@@ -368,25 +461,50 @@ struct BridgeProductSchemeAdapterTests {
             workerDerivationEpoch: 1
         )
 
+        let routedReply = bridgeProductSchemeReplyWithRoutingTask(
+            adapter: harness.adapter,
+            request: bridgeProductSchemeRequest(
+                route: BridgeProductWireContract.contentRoute,
+                capability: harness.capabilityHeader,
+                body: try JSONEncoder().encode(contentRequest)
+            )
+        )
+        var iterator = routedReply.stream.makeAsyncIterator()
+        guard case .response = try #require(await iterator.next()) else {
+            Issue.record("Content response did not precede its opening frame")
+            return
+        }
+        guard case .data = try #require(await iterator.next()) else {
+            Issue.record("Content producer did not emit its opening frame")
+            return
+        }
+
         // Act
-        let rejectedAsProtocolFailure: Bool
-        do {
-            _ = try await collectBridgeProductSchemeReply(
-                adapter: harness.adapter,
-                request: bridgeProductSchemeRequest(
-                    route: BridgeProductWireContract.contentRoute,
-                    capability: harness.capabilityHeader,
-                    body: try JSONEncoder().encode(contentRequest)
+        let openingObservation = try await collectBridgeProductSchemeReply(
+            adapter: harness.adapter,
+            request: bridgeProductSchemeRequest(
+                route: BridgeProductWireContract.commandRoute,
+                capability: harness.capabilityHeader,
+                body: try contentFrameAcknowledgementBody(
+                    for: contentRequest.admission,
+                    contentSequence: 0
                 )
             )
+        )
+        let rejectedAsProtocolFailure: Bool
+        do {
+            _ = try await iterator.next()
             rejectedAsProtocolFailure = false
         } catch BridgeProductSchemeAdapterError.frameDeliveryRejected {
             rejectedAsProtocolFailure = true
         } catch {
             rejectedAsProtocolFailure = false
         }
+        await routedReply.routingTask.value
 
         // Assert
+        #expect(openingObservation.response?.statusCode == 204)
+        #expect(openingObservation.body.isEmpty)
         #expect(rejectedAsProtocolFailure)
         #expect((await harness.session.producerSnapshot()).hasZeroResidue)
         let providerSnapshot = await harness.provider.snapshot
@@ -394,24 +512,23 @@ struct BridgeProductSchemeAdapterTests {
         #expect(providerSnapshot.acknowledgedLifecycleCount == 1)
     }
 
-    @Test("the off-path adapter is not registered by the live pane or legacy scheme handler")
-    func adapterRemainsUnregisteredInLiveBridge() throws {
-        // Arrange
-        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let liveSources = [
-            "Sources/AgentStudio/Features/Bridge/Runtime/BridgePaneController+Bootstrap.swift",
-            "Sources/AgentStudio/Features/Bridge/Transport/BridgeSchemeHandler.swift",
-        ]
+}
 
-        // Act
-        let source = try liveSources.map { relativePath in
-            try String(
-                contentsOf: projectRoot.appending(path: relativePath),
-                encoding: .utf8
-            )
-        }.joined(separator: "\n")
-
-        // Assert
-        #expect(!source.contains("BridgeProductSchemeAdapter"))
-    }
+private func contentFrameAcknowledgementBody(
+    for admission: BridgeProductContentAdmission,
+    contentSequence: Int
+) throws -> Data {
+    try JSONSerialization.data(
+        withJSONObject: [
+            "contentRequestId": admission.contentRequestId,
+            "contentSequence": contentSequence,
+            "kind": "stream.frameObserved",
+            "leaseId": admission.leaseId,
+            "paneSessionId": admission.paneSessionId,
+            "streamKind": "content",
+            "wireVersion": admission.wireVersion,
+            "workerInstanceId": admission.workerInstanceId,
+        ],
+        options: [.sortedKeys]
+    )
 }

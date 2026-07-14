@@ -1,0 +1,796 @@
+import { createHash } from 'node:crypto';
+
+import type { Page } from 'playwright';
+import { errors } from 'playwright';
+
+import {
+	bridgeViewerProductOnlySelectors,
+	type BridgeViewerReviewFreshRouteProof,
+	type BridgeViewerReviewHydrationCoverage,
+	type BridgeViewerReviewHydrationMilestone,
+	type BridgeViewerReviewHydrationWindowFailure,
+	type BridgeViewerReviewMountedHeaderOrderViolation,
+	type BridgeViewerReviewTreeSelectionProof,
+} from './product-only-real-router-contract.ts';
+
+const productJourneyTimeoutMilliseconds = 120_000;
+const productCompositionSettleTimeoutMilliseconds = 10_000;
+const freshReviewSettledBottomTurnCount = 3;
+const maximumFreshReviewHydrationWindowFailures = 32;
+
+interface FreshReviewViewportState {
+	readonly codeScroll: {
+		readonly clientHeight: number;
+		readonly scrollHeight: number;
+		readonly scrollTop: number;
+	};
+	readonly codeViewManifestItemCount: number;
+	readonly directoryDisclosure: readonly { readonly expanded: string; readonly path: string }[];
+	readonly metadataItemCount: number;
+	readonly mountedItemIds: readonly string[];
+	readonly selectedItemId: string | null;
+	readonly visibleItems: readonly {
+		readonly contentState: string | null;
+		readonly hostBottomOffset: number;
+		readonly hostTopOffset: number;
+		readonly itemId: string;
+	}[];
+}
+
+interface FreshReviewHydrationWindowSnapshot {
+	readonly hydratedNonSelectedItemIds: readonly string[];
+	readonly scrollTop: number;
+	readonly visibleNonSelectedItemIds: readonly string[];
+}
+
+interface FreshReviewHydrationCoverageAccumulator {
+	readonly missingHydratedVisibleWindows: BridgeViewerReviewHydrationWindowFailure[];
+	readonly observedHydratedNonSelectedItemIdSet: Set<string>;
+	readonly recordedWindowSignatures: Set<string>;
+	settledWindowCount: number;
+}
+
+export async function proveFreshReviewRoute(props: {
+	readonly expectedItemIds: readonly string[];
+	readonly page: Page;
+}): Promise<BridgeViewerReviewFreshRouteProof> {
+	await props.page.waitForSelector(bridgeViewerProductOnlySelectors.reviewShell, {
+		timeout: productJourneyTimeoutMilliseconds,
+	});
+	await waitForReviewProductTerminalState(props.page);
+	await waitForFreshReviewManifestState({
+		expectedItemCount: props.expectedItemIds.length,
+		page: props.page,
+	});
+	await installFreshReviewIdentitySnapshot(props.page);
+
+	let viewportState = await readFreshReviewViewportState(props.page);
+	const initialDirectoryDisclosure = viewportState.directoryDisclosure;
+	const selectedItemIdAtStart = viewportState.selectedItemId;
+	const expectedItemIndexById = new Map(
+		props.expectedItemIds.map((itemId, itemIndex): readonly [string, number] => [
+			itemId,
+			itemIndex,
+		]),
+	);
+	const mountedHeaderOrderViolations: BridgeViewerReviewMountedHeaderOrderViolation[] = [];
+	const mountedHeaderOrderViolationSignatures = new Set<string>();
+	recordMountedHeaderOrderViolation({
+		expectedItemIndexById,
+		mountedItemIds: viewportState.mountedItemIds,
+		mountedHeaderOrderViolations,
+		mountedHeaderOrderViolationSignatures,
+	});
+	const observedHeaderItemIds: string[] = [];
+	const observedHeaderItemIdSet = new Set<string>();
+	appendFirstSeenItemIds({
+		itemIds: viewportState.mountedItemIds,
+		observedItemIds: observedHeaderItemIds,
+		observedItemIdSet: observedHeaderItemIdSet,
+	});
+	const initialVisibleItemIds = viewportState.visibleItems.map((item): string => item.itemId);
+	const hydrationMilestones: BridgeViewerReviewHydrationMilestone[] = [];
+	const hydrationCoverageAccumulator = createFreshReviewHydrationCoverageAccumulator();
+	const initialHydrationWindow = await captureFreshReviewHydrationWindow({
+		excludedItemIds: [],
+		page: props.page,
+		selectedItemId: selectedItemIdAtStart,
+	});
+	recordFreshReviewHydrationCoverageWindow({
+		accumulator: hydrationCoverageAccumulator,
+		window: initialHydrationWindow,
+	});
+	hydrationMilestones.push({
+		hydratedNonSelectedItemIds: initialHydrationWindow.hydratedNonSelectedItemIds,
+		label: 'initial',
+		visibleNonSelectedItemIds: initialHydrationWindow.visibleNonSelectedItemIds,
+	});
+
+	const pendingMilestones: Array<{
+		readonly label: BridgeViewerReviewHydrationMilestone['label'];
+		readonly minimumObservedItemCount: number;
+	}> = [
+		{ label: 'quarter', minimumObservedItemCount: Math.ceil(props.expectedItemIds.length * 0.25) },
+		{ label: 'middle', minimumObservedItemCount: Math.ceil(props.expectedItemIds.length * 0.5) },
+		{
+			label: 'threeQuarter',
+			minimumObservedItemCount: Math.ceil(props.expectedItemIds.length * 0.75),
+		},
+		{ label: 'final', minimumObservedItemCount: props.expectedItemIds.length },
+	];
+	let settledBottomTurnCount = 0;
+	const traversalStepBudget = Math.max(512, props.expectedItemIds.length * 4);
+	for (let stepIndex = 0; stepIndex < traversalStepBudget; stepIndex += 1) {
+		viewportState = await readFreshReviewViewportState(props.page);
+		recordMountedHeaderOrderViolation({
+			expectedItemIndexById,
+			mountedItemIds: viewportState.mountedItemIds,
+			mountedHeaderOrderViolations,
+			mountedHeaderOrderViolationSignatures,
+		});
+		appendFirstSeenItemIds({
+			itemIds: viewportState.mountedItemIds,
+			observedItemIds: observedHeaderItemIds,
+			observedItemIdSet: observedHeaderItemIdSet,
+		});
+		const settledHydrationWindow = await captureFreshReviewHydrationWindow({
+			excludedItemIds: [],
+			page: props.page,
+			selectedItemId: selectedItemIdAtStart,
+		});
+		recordFreshReviewHydrationCoverageWindow({
+			accumulator: hydrationCoverageAccumulator,
+			window: settledHydrationWindow,
+		});
+		viewportState = await readFreshReviewViewportState(props.page);
+		recordMountedHeaderOrderViolation({
+			expectedItemIndexById,
+			mountedItemIds: viewportState.mountedItemIds,
+			mountedHeaderOrderViolations,
+			mountedHeaderOrderViolationSignatures,
+		});
+		appendFirstSeenItemIds({
+			itemIds: viewportState.mountedItemIds,
+			observedItemIds: observedHeaderItemIds,
+			observedItemIdSet: observedHeaderItemIdSet,
+		});
+		while (
+			pendingMilestones.length > 0 &&
+			observedHeaderItemIds.length >= (pendingMilestones[0]?.minimumObservedItemCount ?? Infinity)
+		) {
+			const milestone = pendingMilestones.shift();
+			if (milestone === undefined) break;
+			const milestoneWindow =
+				milestone.label === 'final'
+					? await captureFreshReviewHydrationWindow({
+							excludedItemIds: initialVisibleItemIds,
+							page: props.page,
+							selectedItemId: selectedItemIdAtStart,
+						})
+					: settledHydrationWindow;
+			hydrationMilestones.push({
+				hydratedNonSelectedItemIds: milestoneWindow.hydratedNonSelectedItemIds,
+				label: milestone.label,
+				visibleNonSelectedItemIds: milestoneWindow.visibleNonSelectedItemIds,
+			});
+		}
+		const maximumScrollTop = Math.max(
+			0,
+			viewportState.codeScroll.scrollHeight - viewportState.codeScroll.clientHeight,
+		);
+		if (viewportState.codeScroll.scrollTop >= maximumScrollTop - 1) {
+			settledBottomTurnCount += 1;
+			if (settledBottomTurnCount >= freshReviewSettledBottomTurnCount) break;
+		} else {
+			settledBottomTurnCount = 0;
+		}
+		await scrollFreshReviewCodeView({ page: props.page, state: viewportState });
+	}
+	for (const milestone of pendingMilestones) {
+		hydrationMilestones.push(
+			await captureFreshReviewHydrationMilestone({
+				excludedItemIds: milestone.label === 'final' ? initialVisibleItemIds : [],
+				label: milestone.label,
+				page: props.page,
+				selectedItemId: selectedItemIdAtStart,
+			}),
+		);
+	}
+	viewportState = await readFreshReviewViewportState(props.page);
+	recordMountedHeaderOrderViolation({
+		expectedItemIndexById,
+		mountedItemIds: viewportState.mountedItemIds,
+		mountedHeaderOrderViolations,
+		mountedHeaderOrderViolationSignatures,
+	});
+	appendFirstSeenItemIds({
+		itemIds: viewportState.mountedItemIds,
+		observedItemIds: observedHeaderItemIds,
+		observedItemIdSet: observedHeaderItemIdSet,
+	});
+	const identity = await readFreshReviewIdentitySnapshot(props.page);
+	return {
+		...identity,
+		codeViewManifestItemCount: viewportState.codeViewManifestItemCount,
+		completedScroll: viewportState.codeScroll,
+		expectedItemIds: props.expectedItemIds,
+		finalDirectoryDisclosure: viewportState.directoryDisclosure,
+		hydrationCoverage: freshReviewHydrationCoverage({
+			accumulator: hydrationCoverageAccumulator,
+			expectedItemIds: props.expectedItemIds,
+			selectedItemId: selectedItemIdAtStart,
+		}),
+		hydrationMilestones,
+		initialDirectoryDisclosure,
+		metadataItemCount: viewportState.metadataItemCount,
+		mountedHeaderOrderViolations,
+		observedHeaderItemIds,
+		selectedItemIdAtCompletion: viewportState.selectedItemId,
+		selectedItemIdAtStart,
+	};
+}
+
+export async function proveReviewTreeSelection(props: {
+	readonly expectedItemIds: readonly string[];
+	readonly page: Page;
+}): Promise<BridgeViewerReviewTreeSelectionProof> {
+	const beforeSelection = await readFreshReviewViewportState(props.page);
+	const targetPath = await props.page.evaluate((selectors): string => {
+		const treeHost = document.querySelector(selectors.reviewTreeHost);
+		const rootFileRows = [...(treeHost?.shadowRoot?.querySelectorAll('[data-item-path]') ?? [])]
+			.filter((row): boolean => !row.hasAttribute('aria-expanded'))
+			.filter((row): boolean => {
+				const path = row.getAttribute('data-item-path');
+				return path !== null && !path.includes('/');
+			});
+		const targetRow = rootFileRows.at(-1);
+		if (!(targetRow instanceof HTMLElement)) {
+			throw new Error('REVIEW_TREE_SELECTION_ROOT_FILE_MISSING');
+		}
+		const path = targetRow.getAttribute('data-item-path');
+		if (path === null) throw new Error('REVIEW_TREE_SELECTION_TARGET_PATH_MISSING');
+		targetRow.click();
+		return path;
+	}, bridgeViewerProductOnlySelectors);
+	const targetItemId = `review-item-${createHash('sha256').update(targetPath).digest('hex').slice(0, 32)}`;
+	if (!props.expectedItemIds.includes(targetItemId)) {
+		throw new Error(`REVIEW_TREE_SELECTION_TARGET_OUTSIDE_MANIFEST: ${targetPath}`);
+	}
+	await waitForProductCompositionState(async (): Promise<void> => {
+		await props.page.waitForFunction(
+			({ selectors, targetItemId }): boolean => {
+				const codePanel = document.querySelector(selectors.reviewCodePanel);
+				if (codePanel?.getAttribute('data-selected-item-id') !== targetItemId) return false;
+				const targetHost = queryAllInOpenShadowRoots(codePanel ?? document, 'diffs-container').find(
+					(host): boolean => {
+						const itemMarker = bridgeReviewHostElement(host, '[data-bridge-code-view-item-id]');
+						return itemMarker?.getAttribute('data-bridge-code-view-item-id') === targetItemId;
+					},
+				);
+				if (targetHost === undefined) return false;
+				const contentState = bridgeReviewHostElement(
+					targetHost,
+					'[data-bridge-code-view-content-state]',
+				)?.getAttribute('data-bridge-code-view-content-state');
+				return contentState === 'hydrated' || contentState === 'windowed';
+
+				function bridgeReviewHostElement(host: Element, selector: string): Element | null {
+					return host.querySelector(selector) ?? host.shadowRoot?.querySelector(selector) ?? null;
+				}
+
+				function queryAllInOpenShadowRoots(
+					root: Document | Element | ShadowRoot,
+					selector: string,
+				): Element[] {
+					const matches = [...root.querySelectorAll(selector)];
+					for (const descendant of root.querySelectorAll('*')) {
+						if (descendant.shadowRoot === null) continue;
+						matches.push(...queryAllInOpenShadowRoots(descendant.shadowRoot, selector));
+					}
+					return matches;
+				}
+			},
+			{ selectors: bridgeViewerProductOnlySelectors, targetItemId },
+			{ timeout: productCompositionSettleTimeoutMilliseconds },
+		);
+	});
+	await props.page.evaluate(
+		() =>
+			new Promise<void>((resolve): void => {
+				requestAnimationFrame((): void => {
+					requestAnimationFrame((): void => resolve());
+				});
+			}),
+	);
+	const afterSelection = await readFreshReviewViewportState(props.page);
+	const targetVisibleItem = afterSelection.visibleItems.find(
+		(item): boolean => item.itemId === targetItemId,
+	);
+	const expectedItemIndexById = new Map(
+		props.expectedItemIds.map((itemId, itemIndex): readonly [string, number] => [
+			itemId,
+			itemIndex,
+		]),
+	);
+	return {
+		codeViewManifestItemCountAfterSelection: afterSelection.codeViewManifestItemCount,
+		codeViewManifestItemCountBeforeSelection: beforeSelection.codeViewManifestItemCount,
+		mountedHeaderOrderViolation: mountedHeaderOrderViolationForExpectedOrder({
+			expectedItemIndexById,
+			mountedItemIds: afterSelection.mountedItemIds,
+		}),
+		selectedContentState: targetVisibleItem?.contentState ?? null,
+		selectedItemIdAtCompletion: afterSelection.selectedItemId,
+		selectedItemIdAtStart: beforeSelection.selectedItemId,
+		targetItemId,
+		targetPath,
+	};
+}
+
+async function waitForFreshReviewManifestState(props: {
+	readonly expectedItemCount: number;
+	readonly page: Page;
+}): Promise<boolean> {
+	return await waitForProductCompositionState(async (): Promise<void> => {
+		await props.page.waitForFunction(
+			({ expectedItemCount, selectors }): boolean => {
+				const shell = document.querySelector(selectors.reviewShell);
+				const codePanel = document.querySelector(selectors.reviewCodePanel);
+				const treeHost = document.querySelector(selectors.reviewTreeHost);
+				return (
+					Number(shell?.getAttribute('data-review-metadata-item-count') ?? '0') ===
+						expectedItemCount &&
+					Number(codePanel?.getAttribute('data-code-view-item-count') ?? '0') ===
+						expectedItemCount &&
+					treeHost?.shadowRoot?.querySelector('[data-item-path][aria-expanded]') !== null
+				);
+			},
+			{ expectedItemCount: props.expectedItemCount, selectors: bridgeViewerProductOnlySelectors },
+			{ timeout: productCompositionSettleTimeoutMilliseconds },
+		);
+	});
+}
+
+async function readFreshReviewViewportState(page: Page): Promise<FreshReviewViewportState> {
+	return await page.evaluate((selectors): FreshReviewViewportState => {
+		const shell = document.querySelector(selectors.reviewShell);
+		const codePanel = document.querySelector(selectors.reviewCodePanel);
+		const codeScrollOwner = document.querySelector(selectors.reviewCodeScrollOwner);
+		const treeHost = document.querySelector(selectors.reviewTreeHost);
+		if (!(codeScrollOwner instanceof HTMLElement)) {
+			throw new Error('REVIEW_FRESH_ROUTE_CODE_SCROLL_OWNER_MISSING');
+		}
+		const reviewItemHosts = queryAllInOpenShadowRoots(codePanel ?? document, 'diffs-container');
+		const codeScrollRect = codeScrollOwner.getBoundingClientRect();
+		const mountedItemIds: string[] = [];
+		const visibleItems: Array<{
+			readonly contentState: string | null;
+			readonly hostBottomOffset: number;
+			readonly hostTopOffset: number;
+			readonly itemId: string;
+		}> = [];
+		for (const reviewItemHost of reviewItemHosts) {
+			const itemMarker = bridgeReviewHostElement(reviewItemHost, '[data-bridge-code-view-item-id]');
+			if (itemMarker === null) continue;
+			const itemId = itemMarker.getAttribute('data-bridge-code-view-item-id');
+			if (itemId === null) continue;
+			mountedItemIds.push(itemId);
+			const hostRect = reviewItemHost.getBoundingClientRect();
+			if (hostRect.bottom <= codeScrollRect.top || hostRect.top >= codeScrollRect.bottom) continue;
+			visibleItems.push({
+				contentState:
+					bridgeReviewHostElement(
+						reviewItemHost,
+						'[data-bridge-code-view-content-state]',
+					)?.getAttribute('data-bridge-code-view-content-state') ?? null,
+				hostBottomOffset: hostRect.bottom - codeScrollRect.top,
+				hostTopOffset: hostRect.top - codeScrollRect.top,
+				itemId,
+			});
+		}
+		const directoryDisclosure =
+			treeHost?.shadowRoot === null || treeHost?.shadowRoot === undefined
+				? []
+				: [...treeHost.shadowRoot.querySelectorAll('[data-item-path][aria-expanded]')]
+						.map((row) => ({
+							expanded: row.getAttribute('aria-expanded') ?? '',
+							path: row.getAttribute('data-item-path') ?? '',
+						}))
+						.toSorted((left, right): number => left.path.localeCompare(right.path));
+		return {
+			codeScroll: {
+				clientHeight: codeScrollOwner.clientHeight,
+				scrollHeight: codeScrollOwner.scrollHeight,
+				scrollTop: codeScrollOwner.scrollTop,
+			},
+			codeViewManifestItemCount: Number(
+				codePanel?.getAttribute('data-code-view-item-count') ?? '0',
+			),
+			directoryDisclosure,
+			metadataItemCount: Number(shell?.getAttribute('data-review-metadata-item-count') ?? '0'),
+			mountedItemIds,
+			selectedItemId: codePanel?.getAttribute('data-selected-item-id') ?? null,
+			visibleItems,
+		};
+
+		function bridgeReviewHostElement(host: Element, selector: string): Element | null {
+			return host.querySelector(selector) ?? host.shadowRoot?.querySelector(selector) ?? null;
+		}
+
+		function queryAllInOpenShadowRoots(
+			root: Document | Element | ShadowRoot,
+			selector: string,
+		): Element[] {
+			const matches = [...root.querySelectorAll(selector)];
+			for (const descendant of root.querySelectorAll('*')) {
+				if (descendant.shadowRoot === null) continue;
+				matches.push(...queryAllInOpenShadowRoots(descendant.shadowRoot, selector));
+			}
+			return matches;
+		}
+	}, bridgeViewerProductOnlySelectors);
+}
+
+async function captureFreshReviewHydrationMilestone(props: {
+	readonly excludedItemIds: readonly string[];
+	readonly label: BridgeViewerReviewHydrationMilestone['label'];
+	readonly page: Page;
+	readonly selectedItemId: string | null;
+}): Promise<BridgeViewerReviewHydrationMilestone> {
+	const window = await captureFreshReviewHydrationWindow(props);
+	return {
+		hydratedNonSelectedItemIds: window.hydratedNonSelectedItemIds,
+		label: props.label,
+		visibleNonSelectedItemIds: window.visibleNonSelectedItemIds,
+	};
+}
+
+async function captureFreshReviewHydrationWindow(props: {
+	readonly excludedItemIds: readonly string[];
+	readonly page: Page;
+	readonly selectedItemId: string | null;
+}): Promise<FreshReviewHydrationWindowSnapshot> {
+	await waitForProductCompositionState(async (): Promise<void> => {
+		await props.page.waitForFunction(
+			({ excludedItemIds, selectedItemId, selectors }): boolean => {
+				const codePanel = document.querySelector(selectors.reviewCodePanel);
+				const codeScrollOwner = document.querySelector(selectors.reviewCodeScrollOwner);
+				if (!(codeScrollOwner instanceof HTMLElement)) return false;
+				const excludedItemIdSet = new Set(excludedItemIds);
+				const reviewItemHosts = queryAllInOpenShadowRoots(codePanel ?? document, 'diffs-container');
+				const codeScrollRect = codeScrollOwner.getBoundingClientRect();
+				const visibleCandidateStates = reviewItemHosts.flatMap(
+					(reviewItemHost): readonly (string | null)[] => {
+						const itemMarker = bridgeReviewHostElement(
+							reviewItemHost,
+							'[data-bridge-code-view-item-id]',
+						);
+						if (itemMarker === null) return [];
+						const itemId = itemMarker.getAttribute('data-bridge-code-view-item-id');
+						if (itemId === null || itemId === selectedItemId || excludedItemIdSet.has(itemId)) {
+							return [];
+						}
+						const hostRect = reviewItemHost.getBoundingClientRect();
+						if (hostRect.bottom <= codeScrollRect.top || hostRect.top >= codeScrollRect.bottom) {
+							return [];
+						}
+						return [
+							bridgeReviewHostElement(
+								reviewItemHost,
+								'[data-bridge-code-view-content-state]',
+							)?.getAttribute('data-bridge-code-view-content-state') ?? null,
+						];
+					},
+				);
+				return (
+					visibleCandidateStates.length > 0 &&
+					visibleCandidateStates.every(
+						(contentState): boolean => contentState === 'hydrated' || contentState === 'windowed',
+					)
+				);
+
+				function bridgeReviewHostElement(host: Element, selector: string): Element | null {
+					return host.querySelector(selector) ?? host.shadowRoot?.querySelector(selector) ?? null;
+				}
+
+				function queryAllInOpenShadowRoots(
+					root: Document | Element | ShadowRoot,
+					selector: string,
+				): Element[] {
+					const matches = [...root.querySelectorAll(selector)];
+					for (const descendant of root.querySelectorAll('*')) {
+						if (descendant.shadowRoot === null) continue;
+						matches.push(...queryAllInOpenShadowRoots(descendant.shadowRoot, selector));
+					}
+					return matches;
+				}
+			},
+			{
+				excludedItemIds: props.excludedItemIds,
+				selectedItemId: props.selectedItemId,
+				selectors: bridgeViewerProductOnlySelectors,
+			},
+			{ timeout: productCompositionSettleTimeoutMilliseconds },
+		);
+	});
+	await props.page.evaluate(
+		() =>
+			new Promise<void>((resolve): void => {
+				requestAnimationFrame((): void => {
+					requestAnimationFrame((): void => resolve());
+				});
+			}),
+	);
+	const excludedItemIdSet = new Set(props.excludedItemIds);
+	const state = await readFreshReviewViewportState(props.page);
+	const visibleNonSelectedItems = state.visibleItems.filter(
+		(item): boolean => item.itemId !== props.selectedItemId && !excludedItemIdSet.has(item.itemId),
+	);
+	return {
+		hydratedNonSelectedItemIds: visibleNonSelectedItems
+			.filter(
+				(item): boolean => item.contentState === 'hydrated' || item.contentState === 'windowed',
+			)
+			.map((item): string => item.itemId),
+		scrollTop: state.codeScroll.scrollTop,
+		visibleNonSelectedItemIds: visibleNonSelectedItems.map((item): string => item.itemId),
+	};
+}
+
+function createFreshReviewHydrationCoverageAccumulator(): FreshReviewHydrationCoverageAccumulator {
+	return {
+		missingHydratedVisibleWindows: [],
+		observedHydratedNonSelectedItemIdSet: new Set<string>(),
+		recordedWindowSignatures: new Set<string>(),
+		settledWindowCount: 0,
+	};
+}
+
+function recordFreshReviewHydrationCoverageWindow(props: {
+	readonly accumulator: FreshReviewHydrationCoverageAccumulator;
+	readonly window: FreshReviewHydrationWindowSnapshot;
+}): void {
+	const signature = JSON.stringify([
+		Math.round(props.window.scrollTop),
+		props.window.visibleNonSelectedItemIds,
+	]);
+	if (props.accumulator.recordedWindowSignatures.has(signature)) return;
+	props.accumulator.recordedWindowSignatures.add(signature);
+	props.accumulator.settledWindowCount += 1;
+	for (const itemId of props.window.hydratedNonSelectedItemIds) {
+		props.accumulator.observedHydratedNonSelectedItemIdSet.add(itemId);
+	}
+	const hydrationMatchesVisibility =
+		props.window.hydratedNonSelectedItemIds.length ===
+			props.window.visibleNonSelectedItemIds.length &&
+		props.window.visibleNonSelectedItemIds.every((itemId): boolean =>
+			props.window.hydratedNonSelectedItemIds.includes(itemId),
+		);
+	if (
+		hydrationMatchesVisibility ||
+		props.accumulator.missingHydratedVisibleWindows.length >=
+			maximumFreshReviewHydrationWindowFailures
+	) {
+		return;
+	}
+	props.accumulator.missingHydratedVisibleWindows.push({
+		hydratedNonSelectedItemIds: props.window.hydratedNonSelectedItemIds,
+		scrollTop: props.window.scrollTop,
+		visibleNonSelectedItemIds: props.window.visibleNonSelectedItemIds,
+	});
+}
+
+function freshReviewHydrationCoverage(props: {
+	readonly accumulator: FreshReviewHydrationCoverageAccumulator;
+	readonly expectedItemIds: readonly string[];
+	readonly selectedItemId: string | null;
+}): BridgeViewerReviewHydrationCoverage {
+	return {
+		missingHydratedVisibleWindows: props.accumulator.missingHydratedVisibleWindows,
+		observedHydratedNonSelectedItemIds: props.expectedItemIds.filter(
+			(itemId): boolean =>
+				itemId !== props.selectedItemId &&
+				props.accumulator.observedHydratedNonSelectedItemIdSet.has(itemId),
+		),
+		settledWindowCount: props.accumulator.settledWindowCount,
+	};
+}
+
+function appendFirstSeenItemIds(props: {
+	readonly itemIds: readonly string[];
+	readonly observedItemIds: string[];
+	readonly observedItemIdSet: Set<string>;
+}): void {
+	for (const itemId of props.itemIds) {
+		if (props.observedItemIdSet.has(itemId)) continue;
+		props.observedItemIdSet.add(itemId);
+		props.observedItemIds.push(itemId);
+	}
+}
+
+export function mountedHeaderOrderViolationForExpectedOrder(props: {
+	readonly expectedItemIndexById: ReadonlyMap<string, number>;
+	readonly mountedItemIds: readonly string[];
+}): BridgeViewerReviewMountedHeaderOrderViolation | null {
+	const expectedItemIndexes = props.mountedItemIds.map(
+		(itemId): number | null => props.expectedItemIndexById.get(itemId) ?? null,
+	);
+	const preservesExpectedOrder = expectedItemIndexes.every(
+		(expectedItemIndex, mountedItemIndex): boolean => {
+			if (expectedItemIndex === null) return false;
+			if (mountedItemIndex === 0) return true;
+			const previousExpectedItemIndex = expectedItemIndexes[mountedItemIndex - 1];
+			return (
+				previousExpectedItemIndex !== undefined &&
+				previousExpectedItemIndex !== null &&
+				previousExpectedItemIndex < expectedItemIndex
+			);
+		},
+	);
+	return preservesExpectedOrder
+		? null
+		: { expectedItemIndexes, mountedItemIds: [...props.mountedItemIds] };
+}
+
+function recordMountedHeaderOrderViolation(props: {
+	readonly expectedItemIndexById: ReadonlyMap<string, number>;
+	readonly mountedItemIds: readonly string[];
+	readonly mountedHeaderOrderViolations: BridgeViewerReviewMountedHeaderOrderViolation[];
+	readonly mountedHeaderOrderViolationSignatures: Set<string>;
+}): void {
+	const violation = mountedHeaderOrderViolationForExpectedOrder(props);
+	if (violation === null) return;
+	const signature = violation.mountedItemIds.join('\u0000');
+	if (props.mountedHeaderOrderViolationSignatures.has(signature)) return;
+	props.mountedHeaderOrderViolationSignatures.add(signature);
+	props.mountedHeaderOrderViolations.push(violation);
+}
+
+async function scrollFreshReviewCodeView(props: {
+	readonly page: Page;
+	readonly state: FreshReviewViewportState;
+}): Promise<void> {
+	const nextScrollTop = nextFreshReviewTraversalScrollTop({
+		codeScroll: props.state.codeScroll,
+		visibleItems: props.state.visibleItems,
+	});
+	await props.page.evaluate(
+		({ nextScrollTop, selector }): void => {
+			const codeScrollOwner = document.querySelector(selector);
+			if (!(codeScrollOwner instanceof HTMLElement)) return;
+			codeScrollOwner.dispatchEvent(
+				new WheelEvent('wheel', {
+					bubbles: true,
+					deltaY: Math.max(1, nextScrollTop - codeScrollOwner.scrollTop),
+				}),
+			);
+			codeScrollOwner.scrollTop = Math.floor(nextScrollTop);
+			codeScrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+		},
+		{ nextScrollTop, selector: bridgeViewerProductOnlySelectors.reviewCodeScrollOwner },
+	);
+	await props.page.evaluate(
+		() =>
+			new Promise<void>((resolve): void => {
+				requestAnimationFrame((): void => {
+					requestAnimationFrame((): void => resolve());
+				});
+			}),
+	);
+}
+
+export function nextFreshReviewTraversalScrollTop(props: {
+	readonly codeScroll: FreshReviewViewportState['codeScroll'];
+	readonly visibleItems: FreshReviewViewportState['visibleItems'];
+}): number {
+	const maximumScrollTop = Math.max(
+		0,
+		props.codeScroll.scrollHeight - props.codeScroll.clientHeight,
+	);
+	const viewportAdvance = Math.max(1, props.codeScroll.clientHeight * 0.8);
+	const finalVisibleHostBottomOffset = props.visibleItems.reduce(
+		(maximumBottomOffset, item): number =>
+			Number.isFinite(item.hostBottomOffset)
+				? Math.max(maximumBottomOffset, item.hostBottomOffset)
+				: maximumBottomOffset,
+		0,
+	);
+	const hydratedHostAdvance = Math.max(
+		0,
+		finalVisibleHostBottomOffset - props.codeScroll.clientHeight * 0.1,
+	);
+	return Math.min(
+		maximumScrollTop,
+		Math.floor(props.codeScroll.scrollTop + Math.max(viewportAdvance, hydratedHostAdvance)),
+	);
+}
+
+async function installFreshReviewIdentitySnapshot(page: Page): Promise<void> {
+	await page.evaluate((selectors): void => {
+		type ReviewFreshRouteProofWindow = Window & {
+			bridgeViewerFreshReviewIdentity?: {
+				readonly codeScrollOwner: Element | null;
+				readonly treeHost: Element | null;
+				readonly treeShadowRoot: ShadowRoot | null;
+			};
+		};
+		const treeHost = document.querySelector(selectors.reviewTreeHost);
+		(window as ReviewFreshRouteProofWindow).bridgeViewerFreshReviewIdentity = {
+			codeScrollOwner: document.querySelector(selectors.reviewCodeScrollOwner),
+			treeHost,
+			treeShadowRoot: treeHost?.shadowRoot ?? null,
+		};
+	}, bridgeViewerProductOnlySelectors);
+}
+
+async function readFreshReviewIdentitySnapshot(page: Page): Promise<{
+	readonly codeScrollOwnerIdentityStable: boolean;
+	readonly treeHostIdentityStable: boolean;
+	readonly treeShadowRootIdentityStable: boolean;
+}> {
+	return await page.evaluate((selectors) => {
+		type ReviewFreshRouteProofWindow = Window & {
+			bridgeViewerFreshReviewIdentity?: {
+				readonly codeScrollOwner: Element | null;
+				readonly treeHost: Element | null;
+				readonly treeShadowRoot: ShadowRoot | null;
+			};
+		};
+		const initialIdentity = (window as ReviewFreshRouteProofWindow).bridgeViewerFreshReviewIdentity;
+		const currentTreeHost = document.querySelector(selectors.reviewTreeHost);
+		return {
+			codeScrollOwnerIdentityStable:
+				initialIdentity?.codeScrollOwner ===
+				document.querySelector(selectors.reviewCodeScrollOwner),
+			treeHostIdentityStable: initialIdentity?.treeHost === currentTreeHost,
+			treeShadowRootIdentityStable:
+				initialIdentity?.treeShadowRoot === (currentTreeHost?.shadowRoot ?? null),
+		};
+	}, bridgeViewerProductOnlySelectors);
+}
+
+export async function waitForReviewProductTerminalState(page: Page): Promise<boolean> {
+	return await waitForProductCompositionState(async (): Promise<void> => {
+		await page.waitForFunction(
+			(selectors): boolean => {
+				const shell = document.querySelector(selectors.reviewShell);
+				const codePanel = document.querySelector(selectors.reviewCodePanel);
+				const state = shell?.getAttribute('data-selected-content-state');
+				const selectedPath = shell?.getAttribute('data-selected-display-path');
+				return (
+					state === 'ready' &&
+					selectedPath !== null &&
+					codePanel?.getAttribute('data-selected-display-path') === selectedPath &&
+					Number(codePanel?.getAttribute('data-selected-content-character-count') ?? '0') > 0 &&
+					Number(codePanel?.getAttribute('data-selected-content-line-count') ?? '0') > 0 &&
+					Number(codePanel?.getAttribute('data-selected-content-cache-key-count') ?? '0') > 0 &&
+					isVisibleInPage(codePanel)
+				);
+
+				// oxlint-disable-next-line unicorn/consistent-function-scoping -- Playwright serializes this browser callback without outer helpers.
+				function isVisibleInPage(element: Element | null): boolean {
+					if (!(element instanceof HTMLElement) || element.closest('[hidden]') !== null)
+						return false;
+					const style = getComputedStyle(element);
+					return (
+						style.display !== 'none' &&
+						style.visibility !== 'hidden' &&
+						element.getClientRects().length > 0
+					);
+				}
+			},
+			bridgeViewerProductOnlySelectors,
+			{ timeout: productCompositionSettleTimeoutMilliseconds },
+		);
+	});
+}
+
+async function waitForProductCompositionState(wait: () => Promise<void>): Promise<boolean> {
+	try {
+		await wait();
+		return true;
+	} catch (error: unknown) {
+		if (error instanceof errors.TimeoutError) return false;
+		throw error;
+	}
+}

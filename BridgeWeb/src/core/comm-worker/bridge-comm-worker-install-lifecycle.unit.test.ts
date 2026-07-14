@@ -211,6 +211,7 @@ describe('Bridge comm worker one-shot install lifecycle', () => {
 			epoch: 1,
 			selectedItemId: 'item-1',
 			selectedSource: 'user',
+			surface: 'review',
 		});
 
 		globalScope.dispatch(command);
@@ -339,10 +340,6 @@ function makeRuntimeBootstrapRequest(): BridgeCommWorkerBootstrapRequest {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 400,
 			},
-			contentItems: [],
-			contentRequestDescriptors: [],
-			renderSemantics: [],
-			rows: [],
 		},
 	};
 }

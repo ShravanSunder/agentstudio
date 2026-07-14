@@ -222,6 +222,7 @@ enum BridgeProductStrictJSON {
             "staged",
             "status",
             "streamSequence",
+            "streamKind",
             "streamId",
             "showBinaryFiles",
             "showHiddenFiles",

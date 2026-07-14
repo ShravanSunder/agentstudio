@@ -2,7 +2,10 @@ import type { Page } from 'playwright';
 
 import type { ReviewMetadataBeforeContentProof } from '../verify-bridge-viewer-worktree-review-proof.ts';
 import { requireVerifierBrowser } from './browser-session.ts';
-import type { WorktreeVerifierBrowserHelpers } from './types.ts';
+import type {
+	WorktreeBridgeTelemetrySampleProof,
+	WorktreeVerifierBrowserHelpers,
+} from './types.ts';
 
 export async function makeVerificationPage(): Promise<Page> {
 	const page = await requireVerifierBrowser().newPage({
@@ -12,84 +15,41 @@ export async function makeVerificationPage(): Promise<Page> {
 			height: 980,
 		},
 	});
+	const observedTelemetryBatchKeys = new Set<string>();
+	page.on('request', (request): void => {
+		if (request.method() !== 'POST') {
+			return;
+		}
+		const requestUrl = new URL(request.url());
+		if (requestUrl.pathname !== '/__bridge-dev-telemetry/batch') {
+			return;
+		}
+		const encodedBody = request.postData();
+		if (encodedBody === null) {
+			return;
+		}
+		let decodedBody: unknown;
+		try {
+			decodedBody = JSON.parse(encodedBody);
+		} catch {
+			return;
+		}
+		const observedBatch = decodeTelemetryWorkerPost(decodedBody);
+		if (observedBatch === null) {
+			return;
+		}
+		if (observedTelemetryBatchKeys.has(observedBatch.batchKey)) {
+			return;
+		}
+		observedTelemetryBatchKeys.add(observedBatch.batchKey);
+		void page
+			.evaluate((observedSamples): void => {
+				window.bridgeWorktreeVerifierTelemetrySamples?.push(...observedSamples);
+			}, observedBatch.samples)
+			.catch((): void => undefined);
+	});
 	await page.addInitScript((): void => {
 		window.bridgeWorktreeVerifierTelemetrySamples = [];
-		document.addEventListener('__bridge_command', (event: Event): void => {
-			const detail = 'detail' in event ? event.detail : null;
-			if (typeof detail !== 'object' || detail === null) {
-				return;
-			}
-			if (!('method' in detail) || detail.method !== 'system.bridgeTelemetry') {
-				return;
-			}
-			if (!('params' in detail) || typeof detail.params !== 'object' || detail.params === null) {
-				return;
-			}
-			if (!('samples' in detail.params) || !Array.isArray(detail.params.samples)) {
-				return;
-			}
-			for (const sample of detail.params.samples) {
-				if (typeof sample !== 'object' || sample === null) {
-					continue;
-				}
-				if (!('name' in sample) || typeof sample.name !== 'string') {
-					continue;
-				}
-				const stringAttributes =
-					'stringAttributes' in sample &&
-					typeof sample.stringAttributes === 'object' &&
-					sample.stringAttributes !== null
-						? sample.stringAttributes
-						: {};
-				const numericAttributes =
-					'numericAttributes' in sample &&
-					typeof sample.numericAttributes === 'object' &&
-					sample.numericAttributes !== null
-						? sample.numericAttributes
-						: {};
-				const safeNumericAttributes: Record<string, number> = {};
-				for (const [key, value] of Object.entries(numericAttributes)) {
-					if (typeof value === 'number') {
-						safeNumericAttributes[key] = value;
-					}
-				}
-				window.bridgeWorktreeVerifierTelemetrySamples?.push({
-					durationMilliseconds:
-						'durationMilliseconds' in sample &&
-						(typeof sample.durationMilliseconds === 'number' ||
-							sample.durationMilliseconds === null)
-							? sample.durationMilliseconds
-							: null,
-					name: sample.name,
-					numericAttributes: safeNumericAttributes,
-					phase:
-						'agentstudio.bridge.phase' in stringAttributes &&
-						typeof stringAttributes['agentstudio.bridge.phase'] === 'string'
-							? stringAttributes['agentstudio.bridge.phase']
-							: null,
-					result:
-						'agentstudio.bridge.result' in stringAttributes &&
-						typeof stringAttributes['agentstudio.bridge.result'] === 'string'
-							? stringAttributes['agentstudio.bridge.result']
-							: null,
-					slice:
-						'agentstudio.bridge.slice' in stringAttributes &&
-						typeof stringAttributes['agentstudio.bridge.slice'] === 'string'
-							? stringAttributes['agentstudio.bridge.slice']
-							: null,
-					transport:
-						'agentstudio.bridge.transport' in stringAttributes &&
-						typeof stringAttributes['agentstudio.bridge.transport'] === 'string'
-							? stringAttributes['agentstudio.bridge.transport']
-							: null,
-					viewer:
-						'agentstudio.bridge.viewer' in stringAttributes &&
-						typeof stringAttributes['agentstudio.bridge.viewer'] === 'string'
-							? stringAttributes['agentstudio.bridge.viewer']
-							: null,
-				});
-			}
-		});
 		const verifierHelpers: WorktreeVerifierBrowserHelpers = {
 			getBridgeFileViewerRenderedCodeLineCount(): number {
 				const canvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
@@ -217,4 +177,83 @@ export async function makeVerificationPage(): Promise<Page> {
 		});
 	});
 	return page;
+}
+
+function decodeTelemetryWorkerPost(value: unknown): {
+	readonly batchKey: string;
+	readonly samples: readonly WorktreeBridgeTelemetrySampleProof[];
+} | null {
+	if (
+		!isUnknownRecord(value) ||
+		value['type'] !== 'telemetry.batch' ||
+		value['schemaVersion'] !== 2 ||
+		typeof value['telemetrySessionId'] !== 'string' ||
+		!Number.isInteger(value['batchSequence']) ||
+		typeof value['batchSequence'] !== 'number' ||
+		!Array.isArray(value['samples'])
+	) {
+		return null;
+	}
+	return {
+		batchKey: `${value['telemetrySessionId']}:${value['batchSequence']}`,
+		samples: value['samples'].flatMap((stampedSample) => {
+			if (!isUnknownRecord(stampedSample) || !isUnknownRecord(stampedSample['sample'])) {
+				return [];
+			}
+			const compactSample = stampedSample['sample'];
+			if (
+				(compactSample['type'] !== 'event.required' &&
+					compactSample['type'] !== 'event.optional') ||
+				!isUnknownRecord(compactSample['sample'])
+			) {
+				return [];
+			}
+			const proof = mapEventSampleToVerifierProof(compactSample['sample']);
+			return proof === null ? [] : [proof];
+		}),
+	};
+}
+
+function mapEventSampleToVerifierProof(
+	sample: Readonly<Record<string, unknown>>,
+): WorktreeBridgeTelemetrySampleProof | null {
+	if (
+		typeof sample['name'] !== 'string' ||
+		!isUnknownRecord(sample['stringAttributes']) ||
+		!isUnknownRecord(sample['numericAttributes'])
+	) {
+		return null;
+	}
+	const durationMilliseconds = sample['durationMilliseconds'];
+	if (durationMilliseconds !== null && typeof durationMilliseconds !== 'number') {
+		return null;
+	}
+	const stringAttributes = sample['stringAttributes'];
+	const numericAttributes = Object.fromEntries(
+		Object.entries(sample['numericAttributes']).filter(
+			(entry): entry is [string, number] => typeof entry[1] === 'number',
+		),
+	);
+	return {
+		durationMilliseconds,
+		name: sample['name'],
+		numericAttributes,
+		phase: stringAttribute(stringAttributes, 'agentstudio.bridge.phase'),
+		result: stringAttribute(stringAttributes, 'agentstudio.bridge.result'),
+		slice: stringAttribute(stringAttributes, 'agentstudio.bridge.slice'),
+		transport: stringAttribute(stringAttributes, 'agentstudio.bridge.transport'),
+		viewer: stringAttribute(stringAttributes, 'agentstudio.bridge.viewer'),
+	};
+}
+
+function isUnknownRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function stringAttribute(
+	attributes: Readonly<Record<string, unknown>>,
+	key: string,
+): string | null {
+	const value = attributes[key];
+	return typeof value === 'string' ? value : null;
 }

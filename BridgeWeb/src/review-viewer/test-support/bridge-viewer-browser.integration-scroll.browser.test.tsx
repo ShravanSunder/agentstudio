@@ -1,325 +1,113 @@
 import { afterEach, describe, expect, test } from 'vitest';
 import { cleanup } from 'vitest-browser-react';
 
-// oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
+// oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import '../../app/bridge-app.css';
-import { reviewPackageForBridgeAppDevFixtureScenario } from '../../app/bridge-app-dev-fixture.js';
-import { createBridgePierrePortableBlobWorkerFactory } from '../workers/pierre/bridge-pierre-dev-worker-factory.js';
 import {
-	bridgeViewerRenderedTextContent,
-	bridgeViewerVisibleCodeTextContent,
-	setBridgeViewerSearchText,
-	waitForBridgeViewerAnimationFrame,
-	waitForBridgeViewerCodeScrollOwner,
-	waitForBridgeViewerText,
-	waitForBridgeViewerTreeItemButton,
-} from './bridge-viewer-browser-dom.js';
-import * as browserSupport from './bridge-viewer-browser.integration.test-support.js';
-import * as virtualizerSupport from './bridge-viewer-browser.virtualizer.test-support.js';
-import {
-	disposeBridgeViewerMockedBackends,
-	installBridgeViewerMockedBackend,
-	makeBridgeViewerBrowserFixture,
-} from './bridge-viewer-mocked-backend.js';
+	advanceBridgeReviewRecoveryWitnessFrames,
+	disposeBridgeReviewRecoveryWitnessHarnesses,
+	makeBridgeReviewRecoveryWitnessFiles,
+	renderBridgeReviewRecoveryWitness,
+	scanBridgeReviewRecoveryWitnessDocument,
+} from './bridge-viewer-browser.recovery-witness.test-support.js';
 
-describe('Bridge viewer Browser Mode large fixture scroll integration', () => {
-	afterEach(async () => {
+describe('Bridge Review sustained deep-scroll Browser witness', () => {
+	afterEach(async (): Promise<void> => {
 		cleanup();
-		await Promise.resolve();
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
-		disposeBridgeViewerMockedBackends();
+		disposeBridgeReviewRecoveryWitnessHarnesses();
+		await advanceBridgeReviewRecoveryWitnessFrames(2);
 		document.body.replaceChildren();
-		document.documentElement.removeAttribute('data-bridge-review-pane-id');
-		document.documentElement.removeAttribute('data-bridge-review-stream-id');
-		delete window.bridgeReviewControlProbe;
 	});
 
-	test('large fixture search reveals added files and renders their fetched content', async () => {
-		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
-		const backend = installBridgeViewerMockedBackend(fixture);
-		const workerFactory = createBridgePierrePortableBlobWorkerFactory();
-
-		try {
-			browserSupport.renderBridgeViewerAppWithMockedBackend({
-				backend,
-				codeViewWorkerFactory: workerFactory.workerFactory,
-				codeViewWorkerPoolEnabled: true,
-			});
-			await backend.pushMetadata(
-				reviewPackageForBridgeAppDevFixtureScenario({
-					fixture,
-					scenario: 'scroll',
-				}),
-			);
-			await browserSupport.waitForSelectedBridgeViewerDisplayPath(fixture.expected.largePath);
-			await browserSupport.waitForSelectedBridgeViewerContentState('ready');
-			await browserSupport.waitForBridgeViewerTextWithDiagnostics(fixture.expected.largeText);
-
-			setBridgeViewerSearchText('NewPanel');
-			const addedButton = await waitForBridgeViewerTreeItemButton(fixture.expected.addedPath);
-			addedButton.click();
-			await waitForBridgeViewerText(fixture.expected.addedText);
-			const codeScroll = await waitForBridgeViewerCodeScrollOwner();
-			const selectedItemId = browserSupport.bridgeReviewFixtureItemIdForPath(
-				fixture,
-				fixture.expected.addedPath,
-			);
-			const selectedHeaderOffset =
-				await browserSupport.waitForBridgeCodeHeaderItemOffsetFromScrollOwner({
-					itemId: selectedItemId,
-					maxOffset: 8,
-					scrollOwner: codeScroll,
-				});
-
-			expect(bridgeViewerRenderedTextContent()).toContain(fixture.expected.addedText);
-			expect(bridgeViewerVisibleCodeTextContent(codeScroll)).toContain(fixture.expected.addedText);
-			expect(selectedHeaderOffset).toBeGreaterThanOrEqual(0);
-			expect(selectedHeaderOffset).toBeLessThanOrEqual(8);
-			expect(
-				backend.requestedUrls.some((url: string): boolean =>
-					url.includes(fixture.expected.addedHeadHandleId),
-				),
-			).toBe(true);
-		} finally {
-			await browserSupport.cleanupBridgeViewerReactTreeBeforeExternalWorkerRevoke();
-			workerFactory.revoke();
-			backend.dispose();
-		}
-	});
-
-	test('large fixture file selection keeps the target header pinned after content hydration', async () => {
-		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
-		const backend = installBridgeViewerMockedBackend(fixture, {
-			deferContentHandleIds: [fixture.expected.addedHeadHandleId],
+	test('keeps one continuous Review document painted through deep scrolling', async () => {
+		// Arrange
+		const files = makeBridgeReviewRecoveryWitnessFiles({
+			count: 27,
+			lineCount: 64,
+			markerPrefix: 'DEEP_SCROLL',
 		});
-		const workerFactory = createBridgePierrePortableBlobWorkerFactory();
-
-		try {
-			browserSupport.renderBridgeViewerAppWithMockedBackend({
-				backend,
-				codeViewWorkerFactory: workerFactory.workerFactory,
-				codeViewWorkerPoolEnabled: true,
-			});
-			await backend.pushMetadata(
-				reviewPackageForBridgeAppDevFixtureScenario({
-					fixture,
-					scenario: 'scroll',
-				}),
-			);
-			try {
-				await browserSupport.waitForSelectedBridgeViewerDisplayPath(fixture.expected.largePath);
-			} catch (error: unknown) {
-				throw new Error(
-					[
-						error instanceof Error ? error.message : String(error),
-						`requestedUrls=${JSON.stringify(backend.requestedUrls.slice(0, 8))}`,
-					].join('\n'),
-					{ cause: error },
-				);
-			}
-			await browserSupport.waitForSelectedBridgeViewerContentState('ready');
-			await browserSupport.waitForBridgeViewerTextWithDiagnostics(fixture.expected.largeText);
-
-			setBridgeViewerSearchText('NewPanel');
-			const addedButton = await waitForBridgeViewerTreeItemButton(fixture.expected.addedPath);
-			const codeScroll = await waitForBridgeViewerCodeScrollOwner();
-			const selectedItemId = browserSupport.bridgeReviewFixtureItemIdForPath(
-				fixture,
-				fixture.expected.addedPath,
-			);
-
-			addedButton.click();
-			await browserSupport.waitForSelectedBridgeViewerDisplayPath(fixture.expected.addedPath);
-			await browserSupport.waitForPendingContentResponseCount(backend, 1);
-			expect(backend.pendingContentResponses.map((response) => response.handleId)).toEqual([
-				fixture.expected.addedHeadHandleId,
-			]);
-			const selectedHeaderButton =
-				await browserSupport.waitForBridgeCodeHeaderCollapseButtonForItem(selectedItemId);
-			const offsetBeforeHydration =
-				await browserSupport.waitForBridgeCodeHeaderOffsetFromScrollOwner({
-					collapseButton: selectedHeaderButton,
-					maxOffset: 8,
-					scrollOwner: codeScroll,
-				});
-
-			backend.pendingContentResponses[0]?.resolve();
-			await browserSupport.waitForSelectedBridgeViewerContentState('ready');
-			await browserSupport.waitForBridgeViewerTextWithDiagnostics(fixture.expected.addedText);
-			const hydratedSelectedHeaderButton =
-				await browserSupport.waitForBridgeCodeHeaderCollapseButtonForItem(selectedItemId);
-			const stableOffsetAfterHydration =
-				await browserSupport.waitForStableBridgeCodeHeaderOffsetFromScrollOwner({
-					collapseButton: hydratedSelectedHeaderButton,
-					maxOffset: 8,
-					scrollOwner: codeScroll,
-				});
-
-			expect(offsetBeforeHydration).toBeLessThanOrEqual(8);
-			expect(stableOffsetAfterHydration).toBeGreaterThanOrEqual(0);
-			expect(stableOffsetAfterHydration).toBeLessThanOrEqual(4);
-		} finally {
-			await browserSupport.cleanupBridgeViewerReactTreeBeforeExternalWorkerRevoke();
-			workerFactory.revoke();
-			backend.dispose();
+		const earlyFile = files[0];
+		const middleFile = files[Math.floor(files.length / 2)];
+		const finalFile = files.at(-1);
+		if (earlyFile === undefined || middleFile === undefined || finalFile === undefined) {
+			throw new Error('Deep-scroll Review recovery witness requires traversal markers.');
 		}
-	});
+		const harness = renderBridgeReviewRecoveryWitness(files);
+		await expect
+			.element(harness.renderResult.getByTestId('bridge-review-fallback-frame'))
+			.toBeVisible();
 
-	test('large fixture deep tree selection scrolls the selected file body into the CodeView viewport', async () => {
-		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
-		const backend = installBridgeViewerMockedBackend(fixture);
-		const workerFactory = createBridgePierrePortableBlobWorkerFactory();
-		const deepPath = 'Sources/AgentStudio/source/module-24/file-292.ts';
-		const deepExpectedText = "export const fillerbrowser-filler-large-diffshub-292 = 'head';";
-
-		try {
-			browserSupport.renderBridgeViewerAppWithMockedBackend({
-				backend,
-				codeViewWorkerFactory: workerFactory.workerFactory,
-				codeViewWorkerPoolEnabled: true,
-			});
-			await backend.pushMetadata(
-				reviewPackageForBridgeAppDevFixtureScenario({
-					fixture,
-					scenario: 'scroll',
-				}),
+		// Act
+		await harness.publishDisplay();
+		await expect.poll(() => harness.selectedItemCommandCount()).toBe(1);
+		await expect
+			.element(harness.renderResult.getByTestId('bridge-code-view-panel'))
+			.toHaveAttribute('data-code-view-item-count', String(files.length));
+		await expect.poll(() => harness.codeScrollOwner()).not.toBeNull();
+		const scrollOwner = harness.codeScrollOwner();
+		if (scrollOwner === null) throw new Error('Production Review CodeView has no scroll owner.');
+		const scrollTopBeforeHydration = scrollOwner.scrollTop;
+		await harness.publishCompleteContent();
+		await expect
+			.element(harness.renderResult.getByTestId('review-viewer-shell'))
+			.toHaveAttribute('data-selected-content-state', 'ready');
+		await expect.poll(() => scrollOwner.scrollHeight > scrollOwner.clientHeight).toBe(true);
+		await advanceBridgeReviewRecoveryWitnessFrames(4);
+		const initialVisibleText = harness.visibleCodeText(scrollOwner);
+		if (!initialVisibleText.includes(earlyFile.contentMarker)) {
+			const codePanel = harness.renderResult.container.querySelector(
+				'[data-testid="bridge-code-view-panel"]',
 			);
-			await browserSupport.waitForSelectedBridgeViewerDisplayPath(fixture.expected.largePath);
-			await browserSupport.waitForSelectedBridgeViewerContentState('ready');
-			await browserSupport.waitForBridgeViewerTextWithDiagnostics(fixture.expected.largeText);
-
-			const codeScroll = await waitForBridgeViewerCodeScrollOwner();
-			const scrollTopBeforeClick = codeScroll.scrollTop;
-			const selectedItemId = browserSupport.bridgeReviewFixtureItemIdForPath(fixture, deepPath);
-
-			const motionSamples = await browserSupport.sampleBridgeCodeViewScrollMotion({
-				frameCount: 24,
-				scrollOwner: codeScroll,
-				action: (): void => {
-					window.dispatchEvent(
-						new CustomEvent('__bridge_review_control', {
-							detail: {
-								method: 'bridge.fileTree.revealPath',
-								path: deepPath,
-							},
-						}),
-					);
-				},
-			});
-			await browserSupport.waitForSelectedBridgeViewerDisplayPath(deepPath);
-			await browserSupport.waitForSelectedBridgeViewerContentState('ready');
-			await browserSupport.waitForBridgeViewerTextWithDiagnostics(deepExpectedText);
-			expect(
-				backend.requestedUrls.some((url: string): boolean =>
-					url.includes(`${selectedItemId}-head`),
-				),
-			).toBe(true);
-			await browserSupport.waitForBridgeViewerVisibleCodeTextWithDiagnostics(
-				codeScroll,
-				deepExpectedText,
+			throw new Error(
+				`initial hydration anchor diagnostic=${JSON.stringify({
+					selectedInitialItemIndex: codePanel?.getAttribute('data-selected-initial-item-index'),
+					selectedInitialItemIsFirst: codePanel?.getAttribute(
+						'data-selected-initial-item-is-first',
+					),
+					selectedItemId: codePanel?.getAttribute('data-selected-item-id'),
+					selectionScrollDidScroll: codePanel?.getAttribute('data-selection-scroll-did-scroll'),
+					selectionScrollItemTop: codePanel?.getAttribute('data-selection-scroll-item-top'),
+					selectionScrollReason: codePanel?.getAttribute('data-selection-scroll-reason'),
+					scrollTopAfterHydration: scrollOwner.scrollTop,
+					scrollTopBeforeHydration,
+					visibleTextPrefix: initialVisibleText.slice(0, 240),
+				})}`,
 			);
-			const selectedHeaderButton =
-				await browserSupport.waitForBridgeCodeHeaderCollapseButtonForItem(selectedItemId);
-			const selectedHeaderOffset =
-				await browserSupport.waitForBridgeCodeHeaderOffsetFromScrollOwner({
-					collapseButton: selectedHeaderButton,
-					maxOffset: 8,
-					scrollOwner: codeScroll,
-				});
-			await browserSupport.waitForStableBridgeViewerVisibleCodeTextWithDiagnostics(
-				codeScroll,
-				deepExpectedText,
-			);
-
-			expect(bridgeViewerVisibleCodeTextContent(codeScroll)).toContain(deepExpectedText);
-			expect(selectedHeaderOffset).toBeGreaterThanOrEqual(-20);
-			expect(codeScroll.scrollTop).not.toBe(scrollTopBeforeClick);
-			const motionSummary = browserSupport.summarizeBridgeCodeViewScrollMotion(motionSamples);
-			expect(browserSupport.isBridgeCodeViewIntentionalRevealMotionSample(motionSamples)).toBe(
-				true,
-			);
-			expect(motionSummary.largeFrameDeltaCount).toBeLessThanOrEqual(1);
-		} finally {
-			await browserSupport.cleanupBridgeViewerReactTreeBeforeExternalWorkerRevoke();
-			workerFactory.revoke();
-			backend.dispose();
 		}
-	});
-
-	test('large fixture mid-scroll hydration keeps off-screen content from shifting the visible item', async () => {
-		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
-		const targetItemId = 'browser-hunked-diff';
-		const aboveViewportItemIds = ['browser-source-b', 'browser-added-source', 'browser-docs-plan'];
-		const deferredHandleIds = aboveViewportItemIds.flatMap((itemId): readonly string[] =>
-			virtualizerSupport.contentHandleIdsForFixtureItem(fixture, itemId),
-		);
-		const targetItem = fixture.reviewPackage.itemsById[targetItemId];
-		const targetPath = targetItem?.headPath ?? targetItem?.basePath;
-		if (targetPath === undefined || targetPath === null) {
-			throw new Error('expected large fixture mid-scroll target path.');
-		}
-		const backend = installBridgeViewerMockedBackend(fixture, {
-			deferContentHandleIds: deferredHandleIds,
+		const scan = await scanBridgeReviewRecoveryWitnessDocument({
+			markerItemIds: [earlyFile.itemId, middleFile.itemId, finalFile.itemId],
+			markers: [earlyFile.contentMarker, middleFile.contentMarker, finalFile.contentMarker],
+			orderedItemIds: files.map((file): string => file.itemId),
+			sampleCount: 25,
+			scrollOwner,
+			visibleItemIds: (): readonly string[] => {
+				const viewportBounds = scrollOwner.getBoundingClientRect();
+				return harness
+					.paintedCodeViewItems()
+					.filter(
+						(paintedItem): boolean =>
+							paintedItem.bottom > viewportBounds.top && paintedItem.top < viewportBounds.bottom,
+					)
+					.map((paintedItem): string => paintedItem.itemId);
+			},
+			visibleCodeText: harness.visibleCodeText,
 		});
-		const workerFactory = createBridgePierrePortableBlobWorkerFactory();
 
-		try {
-			browserSupport.renderBridgeViewerAppWithMockedBackend({
-				backend,
-				codeViewWorkerFactory: workerFactory.workerFactory,
-				codeViewWorkerPoolEnabled: false,
-			});
-			await backend.pushMetadata();
-			await browserSupport.waitForBridgeViewerTextWithDiagnostics(fixture.expected.initialText);
-
-			const codeScroll = await waitForBridgeViewerCodeScrollOwner();
-			await virtualizerSupport.waitForInitialRevealSettled(codeScroll);
-
-			// Scroll deep into the filler tail (mid-scroll), then reveal a target that sits right
-			// after the deferred items (source-b/added-source/docs-plan); Pierre's overscan mounts
-			// them as off-screen-above placeholders with their content genuinely requested, matching
-			// the proven pattern in bridge-viewer-browser.virtualizer.browser.test.tsx's "does not
-			// chase post-settle non-selected hydration above the selected file".
-			codeScroll.scrollTop = Math.min(codeScroll.scrollHeight - codeScroll.clientHeight, 12_000);
-			codeScroll.dispatchEvent(new Event('scroll', { bubbles: true }));
-			await virtualizerSupport.waitForBridgeViewerScrollIdle(codeScroll);
-			expect(codeScroll.scrollTop).toBeGreaterThan(0);
-
-			virtualizerSupport.revealReviewTreePath(targetPath);
-			await browserSupport.waitForBridgeCodeHeaderItemOffsetFromScrollOwner({
-				itemId: targetItemId,
-				maxOffset: 12,
-				scrollOwner: codeScroll,
-			});
-			await browserSupport.waitForSelectedBridgeViewerContentState('ready');
-			await virtualizerSupport.waitForBridgeViewerScrollIdle(codeScroll);
-			await virtualizerSupport.waitForStableScrollTop(codeScroll);
-
-			const anchorBefore = virtualizerSupport.firstFullyVisibleBridgeCodeHeader(codeScroll);
-			for (const itemId of aboveViewportItemIds) {
-				virtualizerSupport.resolveDeferredContentForItem({
-					backend,
-					itemId,
-					targetHandleIds: virtualizerSupport.contentHandleIdsForFixtureItem(fixture, itemId),
-				});
-				// oxlint-disable-next-line no-await-in-loop -- Each hydration must settle before sampling the next one.
-				await virtualizerSupport.waitForBridgeViewerScrollIdle(codeScroll);
-				const anchorOffset = virtualizerSupport.bridgeCodeHeaderOffsetForItem({
-					itemId: anchorBefore.itemId,
-					scrollOwner: codeScroll,
-				});
-				expect(anchorOffset).not.toBeNull();
-				expect(Math.abs((anchorOffset ?? 0) - anchorBefore.offset), itemId).toBeLessThanOrEqual(2);
-			}
-
-			expect(virtualizerSupport.firstFullyVisibleBridgeCodeHeader(codeScroll).itemId).toBe(
-				anchorBefore.itemId,
-			);
-		} finally {
-			await browserSupport.cleanupBridgeViewerReactTreeBeforeExternalWorkerRevoke();
-			workerFactory.revoke();
-			backend.dispose();
-		}
+		// Assert
+		const scanDiagnostic = {
+			blankPaintSampleCount: scan.blankPaintSampleCount,
+			didObserveFinal: scan.observedMarkers.has(finalFile.contentMarker),
+			didObserveMiddle: scan.observedMarkers.has(middleFile.contentMarker),
+			markerConvergenceSamples: scan.markerConvergenceSamples,
+			maximumScrollTop: scan.maximumScrollTop,
+		};
+		expect(
+			scan.maximumScrollTop > 0 &&
+				scan.blankPaintSampleCount === 0 &&
+				scan.observedMarkers.has(middleFile.contentMarker) &&
+				scan.observedMarkers.has(finalFile.contentMarker),
+			`G0 REVIEW DEEP SCROLL MISSING: expected sustained scrolling to reach final Review source while the continuous Pierre CodeView stayed painted; diagnostic=${JSON.stringify(scanDiagnostic)}`,
+		).toBe(true);
+		expect(scan.sampleCount - scan.convergenceSampleCount).toBe(25);
 	});
 });

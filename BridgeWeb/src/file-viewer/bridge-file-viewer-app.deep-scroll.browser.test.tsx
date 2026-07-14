@@ -1,0 +1,744 @@
+import { afterEach, describe, expect, test } from 'vitest';
+import { cleanup, render } from 'vitest-browser-react';
+
+// oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
+import '../app/bridge-app.css';
+import { installBridgeReadyHandshake } from '../app/bridge-app-browser-test-actions.js';
+import {
+	installBridgeAppDevProductSessionHost,
+	type BridgeAppDevProductSessionHost,
+} from '../app/bridge-app-dev-product-session-host.js';
+import { BridgeAppProtocolRouter } from '../app/bridge-app-protocol-router.js';
+import {
+	createBridgePaneRuntime,
+	type BridgePaneRuntime,
+} from '../core/comm-worker/bridge-pane-runtime.js';
+import { ensureBridgeCodeViewThemeResolved } from '../review-viewer/code-view/bridge-code-view-theme.js';
+import {
+	bridgeViewerCodeGeometry,
+	bridgeViewerVisibleCodeTextContent,
+	bridgeViewerVisibleTreeItemPaths,
+	findBridgeViewerTreeScrollOwner,
+	waitForBridgeViewerVisibleTreeItemPath,
+} from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
+import { createBridgePierrePortableBlobWorkerFactory } from '../review-viewer/workers/pierre/bridge-pierre-dev-worker-factory.js';
+import { terminateBridgePierreWorkerPoolSingletonForTest } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
+import { createBridgeCommWorkerModuleWorker } from '../review-viewer/workers/shared-rpc/bridge-comm-worker-dev-factory.js';
+import {
+	BridgeFileViewerBrowserHarnessApp,
+	type BridgeFileViewerBrowserTestProductSession,
+} from './bridge-file-viewer-browser-test-app.js';
+import {
+	makeFileContent,
+	makeFileDescriptor,
+	makeSourceAcceptedMetadataEvent,
+	makeTreeWindowMetadataEvent,
+	type FileMetadataEvent,
+} from './bridge-file-viewer-browser-test-fixtures.js';
+import {
+	actFrame,
+	actClick,
+	actUpdate,
+	createBridgeFileViewerBrowserTestPaneSessionFactory,
+	openFilePath,
+	openFileState,
+	renderedFilePath,
+	selectedDisplayPath,
+	settleBridgeFileViewerBrowserUpdates,
+	waitForFileCodeViewScrollable,
+	waitForFileCodeViewScrollOwner,
+	waitForMetadataTreeRowCount,
+	waitForOpenFileState,
+	waitForTreeScrollHeightAtLeast,
+	waitForVisibleCodeText,
+} from './bridge-file-viewer-browser-test-harness.js';
+
+const deepScrollTreeRowCount = 3_420;
+const deepScrollTreeWindowRowCount = 256;
+const deepScrollSourceLineCount = 8_000;
+const deepScrollSelectedPath = 'File-000.swift';
+const deepScrollFinalTreePath = 'File-3419.swift';
+const deepScrollFirstSourceText = 'export const deepScrollSourceLine0001 = 1;';
+const deepScrollFinalSourceText =
+	'export const deepScrollFinalSourceCanary = "bridge-file-deep-scroll-final-8000";';
+const deepScrollFractions = [
+	0.08, 0.16, 0.24, 0.32, 0.4, 0.48, 0.56, 0.64, 0.72, 0.8, 0.88, 0.96, 1,
+] as const;
+
+interface DeepScrollOwners {
+	readonly codeScrollOwner: HTMLElement;
+	readonly expectedSelectedPath: string;
+	readonly routeOwners?: DeepScrollRouteOwners;
+	readonly treeScrollOwner: HTMLElement;
+}
+
+interface DeepScrollRouteOwners {
+	readonly appRoot: HTMLElement;
+	readonly fileModeHost: HTMLElement;
+}
+
+interface SurfacePaintSnapshot {
+	readonly clientRectCount: number;
+	readonly height: number;
+	readonly opacity: string;
+	readonly visibility: string;
+	readonly width: number;
+}
+
+interface DeepScrollSurfaceSnapshot {
+	readonly code: SurfacePaintSnapshot;
+	readonly codeContainerCount: number;
+	readonly codeLineCount: number;
+	readonly codeScrollTop: number;
+	readonly codeVisibleCharacterCount: number;
+	readonly renderedPath: string | null;
+	readonly selectedPath: string | null;
+	readonly tree: SurfacePaintSnapshot;
+	readonly treeScrollTop: number;
+	readonly treeVisiblePathCount: number;
+}
+
+let disposeRouteHandshake: (() => void) | null = null;
+let routePierreWorkerFactory: ReturnType<
+	typeof createBridgePierrePortableBlobWorkerFactory
+> | null = null;
+let routePaneRuntime: BridgePaneRuntime | null = null;
+let routeProductSessionHost: BridgeAppDevProductSessionHost | null = null;
+
+// oxlint-disable-next-line no-underscore-dangle -- Vite injects this test-only compile flag.
+declare const __BRIDGE_REAL_VITE_PRODUCT_TEST__: boolean | undefined;
+
+const realViteProductTestEnabled =
+	typeof __BRIDGE_REAL_VITE_PRODUCT_TEST__ !== 'undefined' && __BRIDGE_REAL_VITE_PRODUCT_TEST__;
+const realViteProductTest = realViteProductTestEnabled ? test : test.skip;
+
+describe('BridgeFileViewerApp sustained deep scrolling', () => {
+	afterEach(async () => {
+		await actUpdate((): void => {
+			cleanup();
+		});
+		await settleBridgeFileViewerBrowserUpdates();
+		await actFrame();
+		disposeRouteHandshake?.();
+		disposeRouteHandshake = null;
+		routeProductSessionHost?.dispose();
+		routeProductSessionHost = null;
+		routePaneRuntime?.dispose();
+		routePaneRuntime = null;
+		document.body.replaceChildren();
+		terminateBridgePierreWorkerPoolSingletonForTest();
+		routePierreWorkerFactory?.revoke();
+		routePierreWorkerFactory = null;
+	});
+
+	test('keeps the production FileTree and CodeView painted through sustained deep scrolling', async () => {
+		await ensureBridgeCodeViewThemeResolved();
+		const sourceText = makeDeepScrollSourceText();
+		const selectedDescriptor = makeFileDescriptor({
+			contentExpectedBytes: new TextEncoder().encode(sourceText).byteLength,
+			contentHandle: 'deep-scroll-selected-content',
+			fileId: 'file-000',
+			lineCount: deepScrollSourceLineCount,
+			path: deepScrollSelectedPath,
+		});
+
+		render(
+			<div style={{ height: '720px', overflow: 'hidden', width: '1280px' }}>
+				<BridgeFileViewerBrowserHarnessApp
+					autoOpenInitialFile
+					codeViewWorkerPoolEnabled={false}
+					initialMetadataEvents={makeDeepScrollMetadataEvents(selectedDescriptor)}
+					fileProductSession={{
+						readContent: async () => makeFileContent(sourceText),
+					}}
+				/>
+			</div>,
+		);
+
+		await waitForMetadataTreeRowCount(deepScrollTreeRowCount);
+		await waitForTreeScrollHeightAtLeast(deepScrollTreeRowCount * 24);
+		await waitForOpenFileState('ready');
+		await waitForVisibleCodeText(deepScrollFirstSourceText);
+		const owners = await requireDeepScrollOwners();
+		await waitForFileCodeViewScrollable(owners.codeScrollOwner);
+		assertDeepScrollSurfaceInvariant({ owners, step: 'initial' });
+
+		await runDeepScrollSequence({
+			fractionIndex: 0,
+			owners,
+			previousCodeScrollTop: 0,
+			previousTreeScrollTop: 0,
+		});
+		await waitForBridgeViewerVisibleTreeItemPath(owners.treeScrollOwner, deepScrollFinalTreePath);
+		await waitForDeepScrollFinalSource({ attempt: 0, owners });
+		const finalSnapshot = assertDeepScrollSurfaceInvariant({ owners, step: 'final' });
+
+		expect(finalSnapshot.treeScrollTop).toBeGreaterThan(70_000);
+		expect(finalSnapshot.codeScrollTop).toBeGreaterThan(100_000);
+		expect(bridgeViewerVisibleTreeItemPaths(owners.treeScrollOwner)).toContain(
+			deepScrollFinalTreePath,
+		);
+		expect(bridgeViewerVisibleCodeTextContent(owners.codeScrollOwner)).toContain(
+			deepScrollFinalSourceText,
+		);
+	});
+
+	test('keeps the full production File route painted through sustained deep scrolling', async () => {
+		const sourceText = makeDeepScrollSourceText();
+		const selectedDescriptor = makeFileDescriptor({
+			contentExpectedBytes: new TextEncoder().encode(sourceText).byteLength,
+			contentHandle: 'deep-scroll-route-selected-content',
+			fileId: 'file-000',
+			lineCount: deepScrollSourceLineCount,
+			path: deepScrollSelectedPath,
+		});
+		const productSession: BridgeFileViewerBrowserTestProductSession = {
+			initialMetadataEvents: makeDeepScrollMetadataEvents(selectedDescriptor),
+			readContent: async () => makeFileContent(sourceText),
+		};
+		const paneSessionFactory = createBridgeFileViewerBrowserTestPaneSessionFactory({
+			productSessionRef: { current: productSession },
+		});
+		disposeRouteHandshake = installBridgeReadyHandshake({ pushNonce: 'deep-scroll-route' }).dispose;
+		routePierreWorkerFactory = createBridgePierrePortableBlobWorkerFactory();
+
+		render(
+			<BridgeAppProtocolRouter
+				codeViewWorkerFactory={routePierreWorkerFactory.workerFactory}
+				codeViewWorkerPoolEnabled
+				fileViewerProps={{ autoOpenInitialFile: true }}
+				paneRuntimeFactory={() => createBridgePaneRuntime({ sessionFactory: paneSessionFactory })}
+				protocol="worktree-file"
+			/>,
+		);
+
+		await waitForPierreWorkerRouteReady({ attempt: 0 });
+		await waitForMetadataTreeRowCount(deepScrollTreeRowCount);
+		await waitForTreeScrollHeightAtLeast(deepScrollTreeRowCount * 24);
+		await waitForOpenFileState('ready');
+		await waitForVisibleCodeText(deepScrollFirstSourceText);
+		const owners = await requireDeepScrollOwners({
+			routeOwners: {
+				appRoot: await waitForDeepScrollRouteElement({
+					attempt: 0,
+					selector: '[data-testid="bridge-app-root"]',
+				}),
+				fileModeHost: await waitForDeepScrollRouteElement({
+					attempt: 0,
+					selector: '[data-testid="bridge-viewer-mode-host-file"]',
+				}),
+			},
+		});
+		await waitForFileCodeViewScrollable(owners.codeScrollOwner);
+		assertDeepScrollSurfaceInvariant({ owners, step: 'route-initial' });
+
+		await runDeepScrollSequence({
+			fractionIndex: 0,
+			owners,
+			previousCodeScrollTop: 0,
+			previousTreeScrollTop: 0,
+		});
+		await waitForBridgeViewerVisibleTreeItemPath(owners.treeScrollOwner, deepScrollFinalTreePath);
+		await waitForDeepScrollFinalSource({ attempt: 0, owners });
+		const finalSnapshot = assertDeepScrollSurfaceInvariant({ owners, step: 'route-final' });
+
+		expect(finalSnapshot.treeScrollTop).toBeGreaterThan(70_000);
+		expect(finalSnapshot.codeScrollTop).toBeGreaterThan(100_000);
+		expect(bridgeViewerVisibleTreeItemPaths(owners.treeScrollOwner)).toContain(
+			deepScrollFinalTreePath,
+		);
+		expect(bridgeViewerVisibleCodeTextContent(owners.codeScrollOwner)).toContain(
+			deepScrollFinalSourceText,
+		);
+	});
+
+	realViteProductTest(
+		'keeps the real Vite module-worker File route painted through sustained deep scrolling',
+		async () => {
+			disposeRouteHandshake = installBridgeReadyHandshake({
+				pushNonce: 'deep-scroll-real-vite',
+			}).dispose;
+			routeProductSessionHost = installBridgeAppDevProductSessionHost();
+			routePierreWorkerFactory = createBridgePierrePortableBlobWorkerFactory();
+
+			render(
+				<BridgeAppProtocolRouter
+					codeViewWorkerFactory={routePierreWorkerFactory.workerFactory}
+					codeViewWorkerPoolEnabled
+					fileViewerProps={{ autoOpenInitialFile: false }}
+					paneRuntimeFactory={() => {
+						routePaneRuntime ??= createBridgePaneRuntime({
+							sessionProps: { workerFactory: createBridgeCommWorkerModuleWorker },
+						});
+						return routePaneRuntime;
+					}}
+					protocol="worktree-file"
+				/>,
+			);
+
+			await waitForPierreWorkerRouteReady({ attempt: 0 });
+			const metadataState = await waitForRealViteFileMetadataStable({
+				attempt: 0,
+				previousIdentity: null,
+				stableFrameCount: 0,
+			});
+			const fileButton = await waitForFirstVisibleRealViteFileButton({ attempt: 0 });
+			const selectedPath = fileButton.dataset['itemPath'];
+			if (selectedPath === undefined || selectedPath.length === 0) {
+				throw new Error('FILE_DEEP_SCROLL_REAL_VITE_FILE_PATH_MISSING');
+			}
+			await fetch('/__g0-product-trace?reset=1', { method: 'POST' });
+			await actClick(fileButton);
+			await waitForRealViteSelectedFileReady({
+				attempt: 0,
+				selectedPath,
+				treeRowCount: metadataState.treeRowCount,
+			});
+			const owners = await requireDeepScrollOwners({
+				expectedSelectedPath: selectedPath,
+				routeOwners: {
+					appRoot: await waitForDeepScrollRouteElement({
+						attempt: 0,
+						selector: '[data-testid="bridge-app-root"]',
+					}),
+					fileModeHost: await waitForDeepScrollRouteElement({
+						attempt: 0,
+						selector: '[data-testid="bridge-viewer-mode-host-file"]',
+					}),
+				},
+			});
+			await waitForTreeScrollHeightAtLeast(metadataState.treeRowCount * 20);
+			assertDeepScrollSurfaceInvariant({ owners, step: 'real-vite-initial' });
+
+			await runDeepScrollSequence({
+				fractionIndex: 0,
+				owners,
+				previousCodeScrollTop: 0,
+				previousTreeScrollTop: 0,
+			});
+			const finalSnapshot = assertDeepScrollSurfaceInvariant({
+				owners,
+				step: 'real-vite-final',
+			});
+
+			expect(finalSnapshot.treeScrollTop).toBeGreaterThan(20_000);
+			expect(finalSnapshot.treeVisiblePathCount).toBeGreaterThan(0);
+			expect(finalSnapshot.codeVisibleCharacterCount).toBeGreaterThan(0);
+		},
+	);
+});
+
+function makeDeepScrollMetadataEvents(
+	descriptor: ReturnType<typeof makeFileDescriptor>,
+): readonly FileMetadataEvent[] {
+	const windowCount = Math.ceil(deepScrollTreeRowCount / deepScrollTreeWindowRowCount);
+	const treeWindowEvents = Array.from({ length: windowCount }, (_value, windowIndex) => {
+		const startIndex = windowIndex * deepScrollTreeWindowRowCount;
+		return makeTreeWindowMetadataEvent({
+			rowCount: Math.min(deepScrollTreeWindowRowCount, deepScrollTreeRowCount - startIndex),
+			sourceIdentity: descriptor.source,
+			startIndex,
+			totalPathCount: deepScrollTreeRowCount,
+		});
+	});
+	return [makeSourceAcceptedMetadataEvent(descriptor.source), ...treeWindowEvents, descriptor];
+}
+
+function makeDeepScrollSourceText(): string {
+	const ordinaryLineCount = deepScrollSourceLineCount - 1;
+	const ordinaryLines = Array.from(
+		{ length: ordinaryLineCount },
+		(_value, index): string =>
+			`export const deepScrollSourceLine${String(index + 1).padStart(4, '0')} = ${index + 1};`,
+	);
+	return [...ordinaryLines, deepScrollFinalSourceText].join('\n');
+}
+
+async function requireDeepScrollOwners(
+	props: {
+		readonly expectedSelectedPath?: string;
+		readonly routeOwners?: DeepScrollRouteOwners;
+	} = {},
+): Promise<DeepScrollOwners> {
+	const treeScrollOwner = findBridgeViewerTreeScrollOwner();
+	if (treeScrollOwner === null) {
+		throw new Error('FILE_DEEP_SCROLL_HARNESS_INVALID: expected the Pierre FileTree scroll owner.');
+	}
+	return {
+		codeScrollOwner: await waitForFileCodeViewScrollOwner(),
+		expectedSelectedPath: props.expectedSelectedPath ?? deepScrollSelectedPath,
+		...(props.routeOwners === undefined ? {} : { routeOwners: props.routeOwners }),
+		treeScrollOwner,
+	};
+}
+
+async function runDeepScrollSequence(props: {
+	readonly fractionIndex: number;
+	readonly owners: DeepScrollOwners;
+	readonly previousCodeScrollTop: number;
+	readonly previousTreeScrollTop: number;
+}): Promise<void> {
+	const fraction = deepScrollFractions[props.fractionIndex];
+	if (fraction === undefined) {
+		return;
+	}
+	const codeScrollTop = Math.floor(
+		(props.owners.codeScrollOwner.scrollHeight - props.owners.codeScrollOwner.clientHeight) *
+			fraction,
+	);
+	const treeScrollTop = Math.floor(
+		(props.owners.treeScrollOwner.scrollHeight - props.owners.treeScrollOwner.clientHeight) *
+			fraction,
+	);
+	await actUpdate((): void => {
+		props.owners.treeScrollOwner.scrollTop = treeScrollTop;
+		props.owners.treeScrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+		props.owners.codeScrollOwner.scrollTop = codeScrollTop;
+		props.owners.codeScrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+	});
+	await actFrame();
+	await assertDeepScrollSurfaceInvariantWithDiagnostics({
+		minimumCodeScrollTop: Math.max(props.previousCodeScrollTop, codeScrollTop - 1),
+		minimumTreeScrollTop: Math.max(props.previousTreeScrollTop, treeScrollTop - 1),
+		owners: props.owners,
+		step: `fraction-${fraction}`,
+	});
+	await actFrame();
+	const settledSnapshot = await assertDeepScrollSurfaceInvariantWithDiagnostics({
+		minimumCodeScrollTop: Math.max(props.previousCodeScrollTop, codeScrollTop - 1),
+		minimumTreeScrollTop: Math.max(props.previousTreeScrollTop, treeScrollTop - 1),
+		owners: props.owners,
+		step: `fraction-${fraction}-settled`,
+	});
+	await runDeepScrollSequence({
+		fractionIndex: props.fractionIndex + 1,
+		owners: props.owners,
+		previousCodeScrollTop: settledSnapshot.codeScrollTop,
+		previousTreeScrollTop: settledSnapshot.treeScrollTop,
+	});
+}
+
+async function assertDeepScrollSurfaceInvariantWithDiagnostics(props: {
+	readonly minimumCodeScrollTop?: number;
+	readonly minimumTreeScrollTop?: number;
+	readonly owners: DeepScrollOwners;
+	readonly step: string;
+}): Promise<DeepScrollSurfaceSnapshot> {
+	try {
+		return assertDeepScrollSurfaceInvariant(props);
+	} catch (error: unknown) {
+		if (routeProductSessionHost === null) throw error;
+		const productTrace = await fetch('/__g0-product-trace?summary=1').then(
+			async (response): Promise<unknown> => await response.json(),
+			(): null => null,
+		);
+		const message = error instanceof Error ? error.message : String(error);
+		throw new Error(
+			`${message} productTrace=${JSON.stringify(productTrace)} worker=${realViteFileWorkerDiagnostic()}`,
+		);
+	}
+}
+
+function assertDeepScrollSurfaceInvariant(props: {
+	readonly minimumCodeScrollTop?: number;
+	readonly minimumTreeScrollTop?: number;
+	readonly owners: DeepScrollOwners;
+	readonly step: string;
+}): DeepScrollSurfaceSnapshot {
+	const currentTreeScrollOwner = findBridgeViewerTreeScrollOwner();
+	const currentCodeScrollOwner = document.querySelector('.bridge-code-view-scroll-owner');
+	const fileTreeContainer = document.querySelector('file-tree-container');
+	const codeCanvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
+	if (!(fileTreeContainer instanceof HTMLElement) || !(codeCanvas instanceof HTMLElement)) {
+		throw new Error(
+			`FILE_DEEP_SCROLL_SURFACE_DISAPPEARED: step=${props.step} tree=${fileTreeContainer === null ? 'missing' : 'invalid'} code=${codeCanvas === null ? 'missing' : 'invalid'}`,
+		);
+	}
+	if (
+		currentTreeScrollOwner !== props.owners.treeScrollOwner ||
+		currentCodeScrollOwner !== props.owners.codeScrollOwner ||
+		!props.owners.treeScrollOwner.isConnected ||
+		!props.owners.codeScrollOwner.isConnected
+	) {
+		throw new Error(
+			`FILE_DEEP_SCROLL_SCROLL_OWNER_REPLACED: step=${props.step} treeSame=${currentTreeScrollOwner === props.owners.treeScrollOwner} codeSame=${currentCodeScrollOwner === props.owners.codeScrollOwner} treeConnected=${props.owners.treeScrollOwner.isConnected} codeConnected=${props.owners.codeScrollOwner.isConnected}`,
+		);
+	}
+	assertDeepScrollRouteInvariant({ owners: props.owners, step: props.step });
+	const codeGeometry = bridgeViewerCodeGeometry();
+	const snapshot: DeepScrollSurfaceSnapshot = {
+		code: surfacePaintSnapshot(codeCanvas),
+		codeContainerCount: codeGeometry.containerCount,
+		codeLineCount: codeGeometry.lineCount,
+		codeScrollTop: props.owners.codeScrollOwner.scrollTop,
+		codeVisibleCharacterCount: bridgeViewerVisibleCodeTextContent(
+			props.owners.codeScrollOwner,
+		).trim().length,
+		renderedPath: renderedFilePath(),
+		selectedPath: selectedDisplayPath(),
+		tree: surfacePaintSnapshot(fileTreeContainer),
+		treeScrollTop: props.owners.treeScrollOwner.scrollTop,
+		treeVisiblePathCount: bridgeViewerVisibleTreeItemPaths(props.owners.treeScrollOwner).length,
+	};
+	const hasPositiveSurfacePaint =
+		hasPositivePaint(snapshot.tree) &&
+		hasPositivePaint(snapshot.code) &&
+		snapshot.treeVisiblePathCount > 0 &&
+		snapshot.codeContainerCount > 0 &&
+		snapshot.codeLineCount > 0 &&
+		snapshot.codeVisibleCharacterCount > 0;
+	if (!hasPositiveSurfacePaint) {
+		throw new Error(
+			`FILE_DEEP_SCROLL_SURFACE_DISAPPEARED: step=${props.step} geometry=${JSON.stringify(snapshot)}`,
+		);
+	}
+	if (
+		selectedDisplayPath() !== props.owners.expectedSelectedPath ||
+		openFilePath() !== props.owners.expectedSelectedPath ||
+		renderedFilePath() !== props.owners.expectedSelectedPath ||
+		openFileState() !== 'ready' ||
+		codeCanvas.getAttribute('data-pierre-code-view-owner') !== 'CodeView.file' ||
+		codeCanvas.getAttribute('data-shiki-rendering') !== 'pierre'
+	) {
+		throw new Error(
+			`FILE_DEEP_SCROLL_IDENTITY_DIVERGED: step=${props.step} selected=${selectedDisplayPath() ?? 'missing'} open=${openFilePath() ?? 'missing'} rendered=${renderedFilePath() ?? 'missing'} state=${openFileState() ?? 'missing'} pierreOwner=${codeCanvas.getAttribute('data-pierre-code-view-owner') ?? 'missing'}`,
+		);
+	}
+	if (
+		snapshot.codeScrollTop < (props.minimumCodeScrollTop ?? 0) ||
+		snapshot.treeScrollTop < (props.minimumTreeScrollTop ?? 0)
+	) {
+		throw new Error(
+			`FILE_DEEP_SCROLL_POSITION_REGRESSED: step=${props.step} tree=${snapshot.treeScrollTop}/${props.minimumTreeScrollTop ?? 0} code=${snapshot.codeScrollTop}/${props.minimumCodeScrollTop ?? 0}`,
+		);
+	}
+	return snapshot;
+}
+
+interface RealViteFileMetadataState {
+	readonly identity: string;
+	readonly treeRowCount: number;
+}
+
+async function waitForRealViteFileMetadataStable(props: {
+	readonly attempt: number;
+	readonly previousIdentity: string | null;
+	readonly stableFrameCount: number;
+}): Promise<RealViteFileMetadataState> {
+	const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+	if (shell instanceof HTMLElement) {
+		const fileItemCount = Number(shell.getAttribute('data-file-display-item-count'));
+		const generation = shell.getAttribute('data-file-display-generation');
+		const sourceId = shell.getAttribute('data-file-display-source-id');
+		const treeRowCount = Number(shell.getAttribute('data-file-display-tree-row-count'));
+		const metadataReady =
+			shell.getAttribute('data-file-display-status') === 'ready' &&
+			sourceId !== null &&
+			sourceId.length > 0 &&
+			generation !== null &&
+			generation.length > 0 &&
+			Number.isSafeInteger(fileItemCount) &&
+			fileItemCount > 0 &&
+			Number.isSafeInteger(treeRowCount) &&
+			treeRowCount >= 1_000;
+		const selectedPath = shell.getAttribute('data-selected-display-path');
+		if (metadataReady && selectedPath !== null) {
+			throw new Error(`FILE_DEEP_SCROLL_REAL_VITE_AUTO_OPENED: selected=${selectedPath}`);
+		}
+		if (metadataReady) {
+			const identity = `${sourceId}:${generation}:${treeRowCount}:${fileItemCount}`;
+			const stableFrameCount = identity === props.previousIdentity ? props.stableFrameCount + 1 : 0;
+			if (stableFrameCount >= 12) {
+				return { identity, treeRowCount };
+			}
+			await actFrame();
+			return await waitForRealViteFileMetadataStable({
+				attempt: props.attempt + 1,
+				previousIdentity: identity,
+				stableFrameCount,
+			});
+		}
+	}
+	if (props.attempt >= 600) {
+		throw new Error(
+			`FILE_DEEP_SCROLL_REAL_VITE_PROVIDER_FAILED: shell=${shell instanceof HTMLElement ? shell.outerHTML.slice(0, 800) : 'missing'}`,
+		);
+	}
+	await actFrame();
+	return await waitForRealViteFileMetadataStable({
+		attempt: props.attempt + 1,
+		previousIdentity: props.previousIdentity,
+		stableFrameCount: props.stableFrameCount,
+	});
+}
+
+async function waitForFirstVisibleRealViteFileButton(props: {
+	readonly attempt: number;
+}): Promise<HTMLButtonElement> {
+	const treeContainer = document.querySelector('file-tree-container');
+	const fileButton = treeContainer?.shadowRoot?.querySelector(
+		'button[data-type="item"][data-item-type="file"][data-item-path]',
+	);
+	if (fileButton instanceof HTMLButtonElement && fileButton.getClientRects().length > 0) {
+		return fileButton;
+	}
+	if (props.attempt >= 180) {
+		throw new Error('FILE_DEEP_SCROLL_REAL_VITE_VISIBLE_FILE_MISSING');
+	}
+	await actFrame();
+	return await waitForFirstVisibleRealViteFileButton({ attempt: props.attempt + 1 });
+}
+
+async function waitForRealViteSelectedFileReady(props: {
+	readonly attempt: number;
+	readonly selectedPath: string;
+	readonly treeRowCount: number;
+}): Promise<void> {
+	const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+	if (shell instanceof HTMLElement) {
+		const selectedPath = shell.getAttribute('data-selected-display-path');
+		const selectedOpenFilePath = shell.getAttribute('data-worktree-open-file-path');
+		const openFileStatus = shell.getAttribute('data-worktree-open-file-state');
+		if (
+			selectedPath === props.selectedPath &&
+			(openFileStatus === 'failed' || openFileStatus === 'unavailable')
+		) {
+			throw new Error(
+				`G0 FILE REAL VITE CONTENT UNAVAILABLE: selected=${selectedPath} openState=${openFileStatus} treeRows=${props.treeRowCount} worker=${realViteFileWorkerDiagnostic()}`,
+			);
+		}
+		if (
+			selectedPath === props.selectedPath &&
+			selectedOpenFilePath === props.selectedPath &&
+			openFileStatus === 'ready'
+		) {
+			return;
+		}
+	}
+	if (props.attempt >= 600) {
+		const productTrace = await fetch('/__g0-product-trace').then(
+			async (response): Promise<unknown> => await response.json(),
+			(): null => null,
+		);
+		throw new Error(
+			`FILE_DEEP_SCROLL_REAL_VITE_CONTENT_FAILED: selected=${props.selectedPath} productTrace=${JSON.stringify(productTrace)} worker=${realViteFileWorkerDiagnostic()} shell=${shell instanceof HTMLElement ? shell.outerHTML.slice(0, 800) : 'missing'}`,
+		);
+	}
+	await actFrame();
+	await waitForRealViteSelectedFileReady({ ...props, attempt: props.attempt + 1 });
+}
+
+function realViteFileWorkerDiagnostic(): string {
+	if (routePaneRuntime === null) return 'missing';
+	return JSON.stringify({
+		fileLifecycle: routePaneRuntime.surfaceClient('fileView').lifecycle.getSnapshot(),
+		renderFreshness: routePaneRuntime.surfaceClient('fileView').renderStore.getSnapshot()
+			.fileDisplayFreshness,
+	});
+}
+
+function assertDeepScrollRouteInvariant(props: {
+	readonly owners: DeepScrollOwners;
+	readonly step: string;
+}): void {
+	const routeOwners = props.owners.routeOwners;
+	if (routeOwners === undefined) {
+		return;
+	}
+	const currentAppRoot = document.querySelector('[data-testid="bridge-app-root"]');
+	const currentFileModeHost = document.querySelector(
+		'[data-testid="bridge-viewer-mode-host-file"]',
+	);
+	const appRootPaint = surfacePaintSnapshot(routeOwners.appRoot);
+	const fileModeHostPaint = surfacePaintSnapshot(routeOwners.fileModeHost);
+	if (
+		currentAppRoot !== routeOwners.appRoot ||
+		currentFileModeHost !== routeOwners.fileModeHost ||
+		!routeOwners.appRoot.isConnected ||
+		!routeOwners.fileModeHost.isConnected ||
+		routeOwners.fileModeHost.hidden ||
+		routeOwners.appRoot.getAttribute('data-bridge-viewer-mode') !== 'file' ||
+		!hasPositivePaint(appRootPaint) ||
+		!hasPositivePaint(fileModeHostPaint)
+	) {
+		throw new Error(
+			`FILE_DEEP_SCROLL_ROUTE_LIVENESS_BROKE: step=${props.step} appRootSame=${currentAppRoot === routeOwners.appRoot} fileModeHostSame=${currentFileModeHost === routeOwners.fileModeHost} appRootConnected=${routeOwners.appRoot.isConnected} fileModeHostConnected=${routeOwners.fileModeHost.isConnected} fileModeHidden=${routeOwners.fileModeHost.hidden} mode=${routeOwners.appRoot.getAttribute('data-bridge-viewer-mode') ?? 'missing'} appGeometry=${JSON.stringify(appRootPaint)} hostGeometry=${JSON.stringify(fileModeHostPaint)}`,
+		);
+	}
+}
+
+function surfacePaintSnapshot(element: HTMLElement): SurfacePaintSnapshot {
+	const rectangle = element.getBoundingClientRect();
+	const style = getComputedStyle(element);
+	return {
+		clientRectCount: element.getClientRects().length,
+		height: Math.round(rectangle.height),
+		opacity: style.opacity,
+		visibility: style.visibility,
+		width: Math.round(rectangle.width),
+	};
+}
+
+function hasPositivePaint(snapshot: SurfacePaintSnapshot): boolean {
+	return (
+		snapshot.clientRectCount > 0 &&
+		snapshot.height > 0 &&
+		snapshot.width > 0 &&
+		snapshot.opacity !== '0' &&
+		snapshot.visibility !== 'hidden'
+	);
+}
+
+async function waitForDeepScrollFinalSource(props: {
+	readonly attempt: number;
+	readonly owners: DeepScrollOwners;
+}): Promise<void> {
+	const visibleSourceText = bridgeViewerVisibleCodeTextContent(props.owners.codeScrollOwner);
+	if (visibleSourceText.includes(deepScrollFinalSourceText)) {
+		return;
+	}
+	if (props.attempt >= 120) {
+		throw new Error(
+			`FILE_DEEP_SCROLL_FINAL_SOURCE_UNREADABLE: selected=${selectedDisplayPath() ?? 'missing'} rendered=${renderedFilePath() ?? 'missing'} codeScrollTop=${props.owners.codeScrollOwner.scrollTop} codeScrollHeight=${props.owners.codeScrollOwner.scrollHeight} visible=${visibleSourceText.slice(-240)}`,
+		);
+	}
+	await actFrame();
+	assertDeepScrollSurfaceInvariant({
+		owners: props.owners,
+		step: `final-source-wait-${props.attempt}`,
+	});
+	await waitForDeepScrollFinalSource({ attempt: props.attempt + 1, owners: props.owners });
+}
+
+async function waitForPierreWorkerRouteReady(props: { readonly attempt: number }): Promise<void> {
+	const workerState = document.documentElement.dataset['bridgePierreWorkerPoolState'];
+	const themeState = document.documentElement.dataset['bridgePierreCodeViewThemeState'];
+	if (workerState === 'ready' && themeState === 'ready') {
+		return;
+	}
+	if (props.attempt >= 120 || workerState === 'failed' || themeState === 'failed') {
+		throw new Error(
+			`FILE_DEEP_SCROLL_HARNESS_INVALID: Pierre route worker/theme did not become ready; worker=${workerState ?? 'missing'} theme=${themeState ?? 'missing'}`,
+		);
+	}
+	await actFrame();
+	await waitForPierreWorkerRouteReady({ attempt: props.attempt + 1 });
+}
+
+async function waitForDeepScrollRouteElement(props: {
+	readonly attempt: number;
+	readonly selector: string;
+}): Promise<HTMLElement> {
+	const element = document.querySelector(props.selector);
+	if (element instanceof HTMLElement) {
+		return element;
+	}
+	if (props.attempt >= 120) {
+		throw new Error(`FILE_DEEP_SCROLL_HARNESS_INVALID: missing route element ${props.selector}.`);
+	}
+	await actFrame();
+	return await waitForDeepScrollRouteElement({
+		attempt: props.attempt + 1,
+		selector: props.selector,
+	});
+}

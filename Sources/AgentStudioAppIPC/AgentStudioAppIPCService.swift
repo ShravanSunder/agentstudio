@@ -144,7 +144,7 @@ public protocol AppIPCBridgePort: Sendable {
         _ params: IPCBridgeFileViewShowMarkdownPreviewParams
     ) async throws -> IPCBridgePageControlResult
     func getContent(_ params: IPCBridgeContentGetParams) async throws -> IPCBridgeContentGetResult
-    func telemetrySnapshot(_ handle: IPCHandle) throws -> IPCBridgeTelemetrySnapshotResult
+    func telemetrySnapshot(_ handle: IPCHandle) async throws -> IPCBridgeTelemetrySnapshotResult
     func flushTelemetry(_ handle: IPCHandle) async throws -> IPCBridgeTelemetryFlushResult
 }
 

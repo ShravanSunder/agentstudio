@@ -18,6 +18,10 @@ type ReviewMetadataPayloadEvent = Extract<
 	BridgeProductReviewMetadataEvent,
 	{ readonly eventKind: 'review.snapshot' | 'review.window' }
 >;
+type ReviewMetadataSnapshotEvent = Extract<
+	BridgeProductReviewMetadataEvent,
+	{ readonly eventKind: 'review.snapshot' }
+>;
 
 export interface BridgeCommWorkerReviewMetadataIdentity {
 	readonly generation: number;
@@ -26,12 +30,16 @@ export interface BridgeCommWorkerReviewMetadataIdentity {
 }
 
 export interface BridgeCommWorkerReviewMetadataSnapshot {
+	readonly baseEndpoint: ReviewMetadataSnapshotEvent['baseEndpoint'] | null;
 	readonly contentSources: readonly BridgeProductReviewContentSourceDescriptor[];
 	readonly extentFacts: readonly BridgeProductReviewExtentFact[];
+	readonly headEndpoint: ReviewMetadataSnapshotEvent['headEndpoint'] | null;
 	readonly identity: BridgeCommWorkerReviewMetadataIdentity | null;
 	readonly itemMetadata: readonly BridgeProductReviewItemMetadata[];
 	readonly orderedItemIds: readonly string[];
+	readonly query: ReviewMetadataSnapshotEvent['query'] | null;
 	readonly revision: number | null;
+	readonly summary: ReviewMetadataPayloadEvent['summary'] | null;
 	readonly totalItemCount: number | null;
 	readonly totalTreeRowCount: number | null;
 	readonly treeRows: readonly BridgeProductReviewTreeRow[];
@@ -45,17 +53,23 @@ export interface BridgeCommWorkerReviewMetadataApplyResult {
 }
 
 export class BridgeCommWorkerReviewMetadataProjection {
+	#baseEndpoint: ReviewMetadataSnapshotEvent['baseEndpoint'] | null = null;
 	readonly #contentSourceByDescriptorId = new Map<
 		string,
 		BridgeProductReviewContentSourceDescriptor
 	>();
+	readonly #contentSourceDescriptorIdsByItemId = new Map<string, Set<string>>();
 	readonly #extentFactByKey = new Map<string, BridgeProductReviewExtentFact>();
+	readonly #extentFactKeysByItemId = new Map<string, Set<string>>();
 	readonly #itemIndexById = new Map<string, number>();
 	readonly #itemMetadataById = new Map<string, BridgeProductReviewItemMetadata>();
+	#headEndpoint: ReviewMetadataSnapshotEvent['headEndpoint'] | null = null;
 	#identity: BridgeCommWorkerReviewMetadataIdentity | null = null;
 	#itemIdsByIndex: Array<string | undefined> = [];
 	#projectionRevision = 0;
+	#query: ReviewMetadataSnapshotEvent['query'] | null = null;
 	#revision: number | null = null;
+	#summary: ReviewMetadataPayloadEvent['summary'] | null = null;
 	#totalItemCount: number | null = null;
 	#totalTreeRowCount: number | null = null;
 	readonly #treeRowIndexById = new Map<string, number>();
@@ -78,6 +92,9 @@ export class BridgeCommWorkerReviewMetadataProjection {
 				this.#resetProjection();
 				this.#identity = reviewMetadataIdentity(event);
 				this.#revision = event.revision;
+				this.#baseEndpoint = event.baseEndpoint;
+				this.#headEndpoint = event.headEndpoint;
+				this.#query = event.query;
 				this.#applyPayload(event, affectedItemIds);
 				reset = true;
 				break;
@@ -119,17 +136,21 @@ export class BridgeCommWorkerReviewMetadataProjection {
 			(itemId): itemId is string => itemId !== undefined,
 		);
 		return {
+			baseEndpoint: this.#baseEndpoint,
 			contentSources: [...this.#contentSourceByDescriptorId.values()].toSorted((left, right) =>
 				left.descriptorId.localeCompare(right.descriptorId),
 			),
 			extentFacts: [...this.#extentFactByKey.values()].toSorted(compareReviewExtentFacts),
+			headEndpoint: this.#headEndpoint,
 			identity: this.#identity,
 			itemMetadata: orderedItemIds.flatMap((itemId) => {
 				const item = this.#itemMetadataById.get(itemId);
 				return item === undefined ? [] : [item];
 			}),
 			orderedItemIds,
+			query: this.#query,
 			revision: this.#revision,
+			summary: this.#summary,
 			totalItemCount: this.#totalItemCount,
 			totalTreeRowCount: this.#totalTreeRowCount,
 			treeRows: this.#treeRows.filter(
@@ -138,7 +159,42 @@ export class BridgeCommWorkerReviewMetadataProjection {
 		};
 	}
 
+	snapshotItems(itemIds: readonly string[]): BridgeCommWorkerReviewMetadataSnapshot {
+		const uniqueItemIds = [...new Set(itemIds)];
+		return {
+			baseEndpoint: this.#baseEndpoint,
+			contentSources: uniqueItemIds.flatMap((itemId) =>
+				[...(this.#contentSourceDescriptorIdsByItemId.get(itemId) ?? [])].flatMap(
+					(descriptorId) => {
+						const source = this.#contentSourceByDescriptorId.get(descriptorId);
+						return source === undefined ? [] : [source];
+					},
+				),
+			),
+			extentFacts: uniqueItemIds.flatMap((itemId) =>
+				[...(this.#extentFactKeysByItemId.get(itemId) ?? [])].flatMap((factKey) => {
+					const fact = this.#extentFactByKey.get(factKey);
+					return fact === undefined ? [] : [fact];
+				}),
+			),
+			headEndpoint: this.#headEndpoint,
+			identity: this.#identity,
+			itemMetadata: uniqueItemIds.flatMap((itemId) => {
+				const item = this.#itemMetadataById.get(itemId);
+				return item === undefined ? [] : [item];
+			}),
+			orderedItemIds: uniqueItemIds.filter((itemId) => this.#itemMetadataById.has(itemId)),
+			query: this.#query,
+			revision: this.#revision,
+			summary: this.#summary,
+			totalItemCount: this.#totalItemCount,
+			totalTreeRowCount: this.#totalTreeRowCount,
+			treeRows: [],
+		};
+	}
+
 	#applyPayload(event: ReviewMetadataPayloadEvent, affectedItemIds: Set<string>): void {
+		this.#summary = event.summary;
 		this.#applyItemWindow(event, affectedItemIds);
 		this.#applyTreeWindow(event);
 		for (const item of event.itemMetadata) {
@@ -147,7 +203,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 		}
 		this.#upsertContentSources(event.contentSources, affectedItemIds);
 		for (const fact of event.extentFacts) {
-			this.#extentFactByKey.set(reviewExtentFactKey(fact), fact);
+			this.#upsertExtentFact(fact);
 			affectedItemIds.add(fact.itemId);
 		}
 	}
@@ -201,6 +257,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 		this.#assertCurrentIdentity(event);
 		this.#assertCurrentRevision(event.fromRevision);
 		this.#upsertContentSources(event.contentSources, affectedItemIds);
+		this.#summary = event.summary;
 		for (const operation of event.operations) {
 			switch (operation.operationKind) {
 				case 'upsertItem':
@@ -224,7 +281,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 					break;
 				case 'upsertExtentFacts':
 					for (const fact of operation.facts) {
-						this.#extentFactByKey.set(reviewExtentFactKey(fact), fact);
+						this.#upsertExtentFact(fact);
 						affectedItemIds.add(fact.itemId);
 					}
 					break;
@@ -232,6 +289,9 @@ export class BridgeCommWorkerReviewMetadataProjection {
 					for (const descriptorId of operation.descriptorIds) {
 						const source = this.#contentSourceByDescriptorId.get(descriptorId);
 						if (source !== undefined) affectedItemIds.add(source.itemId);
+						if (source !== undefined) {
+							this.#contentSourceDescriptorIdsByItemId.get(source.itemId)?.delete(descriptorId);
+						}
 						this.#contentSourceByDescriptorId.delete(descriptorId);
 					}
 					break;
@@ -259,9 +319,11 @@ export class BridgeCommWorkerReviewMetadataProjection {
 		for (const [descriptorId, source] of this.#contentSourceByDescriptorId) {
 			if (removedItemIds.has(source.itemId)) this.#contentSourceByDescriptorId.delete(descriptorId);
 		}
+		for (const itemId of itemIds) this.#contentSourceDescriptorIdsByItemId.delete(itemId);
 		for (const [factKey, fact] of this.#extentFactByKey) {
 			if (removedItemIds.has(fact.itemId)) this.#extentFactByKey.delete(factKey);
 		}
+		for (const itemId of itemIds) this.#extentFactKeysByItemId.delete(itemId);
 	}
 
 	#spliceTreeRows(
@@ -296,8 +358,20 @@ export class BridgeCommWorkerReviewMetadataProjection {
 				throw new Error('Bridge Review content descriptor identity changed without invalidation.');
 			}
 			this.#contentSourceByDescriptorId.set(source.descriptorId, source);
+			const descriptorIds =
+				this.#contentSourceDescriptorIdsByItemId.get(source.itemId) ?? new Set<string>();
+			descriptorIds.add(source.descriptorId);
+			this.#contentSourceDescriptorIdsByItemId.set(source.itemId, descriptorIds);
 			affectedItemIds.add(source.itemId);
 		}
+	}
+
+	#upsertExtentFact(fact: BridgeProductReviewExtentFact): void {
+		const factKey = reviewExtentFactKey(fact);
+		this.#extentFactByKey.set(factKey, fact);
+		const factKeys = this.#extentFactKeysByItemId.get(fact.itemId) ?? new Set<string>();
+		factKeys.add(factKey);
+		this.#extentFactKeysByItemId.set(fact.itemId, factKeys);
 	}
 
 	#assertCurrentIdentity(event: BridgeProductReviewMetadataEvent): void {
@@ -322,13 +396,19 @@ export class BridgeCommWorkerReviewMetadataProjection {
 	}
 
 	#resetProjection(): void {
+		this.#baseEndpoint = null;
 		this.#contentSourceByDescriptorId.clear();
+		this.#contentSourceDescriptorIdsByItemId.clear();
 		this.#extentFactByKey.clear();
+		this.#extentFactKeysByItemId.clear();
 		this.#itemIndexById.clear();
 		this.#itemMetadataById.clear();
+		this.#headEndpoint = null;
 		this.#identity = null;
 		this.#itemIdsByIndex = [];
+		this.#query = null;
 		this.#revision = null;
+		this.#summary = null;
 		this.#totalItemCount = null;
 		this.#totalTreeRowCount = null;
 		this.#treeRowIndexById.clear();

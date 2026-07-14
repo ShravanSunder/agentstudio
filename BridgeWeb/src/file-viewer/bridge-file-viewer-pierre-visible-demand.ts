@@ -74,7 +74,6 @@ export function visibleFileDemandChangeForPierreVisibleFileRows(props: {
 	return visibleItemIds.length === 0
 		? null
 		: {
-				descriptorRefs: [],
 				firstVisibleIndex: Math.min(...visibleItemIndexes),
 				lastVisibleIndex: Math.max(...visibleItemIndexes),
 				visibleFileCount: visibleItemIds.length,

@@ -53,6 +53,7 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 				requestId: 'select-worker-path-one',
 				selectedItemId: 'file-1',
 				selectedSource: 'user',
+				surface: 'fileView',
 			}),
 		);
 		handler.handleMessage(
@@ -61,6 +62,7 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 				requestId: 'select-worker-path-two',
 				selectedItemId: 'file-2',
 				selectedSource: 'user',
+				surface: 'fileView',
 			}),
 		);
 		handler.handleMessage(
@@ -69,6 +71,7 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 				requestId: 'select-stale-worker-path',
 				selectedItemId: 'file-1',
 				selectedSource: 'user',
+				surface: 'fileView',
 			}),
 		);
 
@@ -122,6 +125,7 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 				lastVisibleIndex: 2,
 				phase: 'settled',
 				requestId: 'viewport-worker-paths',
+				surface: 'fileView',
 				visibleItemIds: ['file-1', 'file-2'],
 			}),
 		);
@@ -157,6 +161,7 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 				requestId: 'select-before-worker-path',
 				selectedItemId: 'file-late',
 				selectedSource: 'user',
+				surface: 'fileView',
 			}),
 		);
 		demands.splice(0);
@@ -199,6 +204,7 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 				requestId: 'request-select-product-file',
 				selectedItemId: 'file-1',
 				selectedSource: 'user',
+				surface: 'fileView',
 			}),
 		);
 		scheduledFileViewPreparations.splice(0);
@@ -285,6 +291,122 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 		expect(scenario.readyStore.getState().availabilityByItemId.get('file-1')).toBe('ready');
 	});
 
+	test('does not replace a loading selected File preparation when unrelated metadata arrives', () => {
+		// Arrange
+		const scheduledFileViewPreparations: ScheduledSelectedFileViewPreparation[] = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [],
+			rows: [],
+			scheduleSelectedReviewContentReadyPreparation: (): void => {},
+			scheduleSelectedFileViewContentReadyPreparation: (
+				preparation: ScheduledSelectedFileViewPreparation,
+			): void => {
+				scheduledFileViewPreparations.push(preparation);
+			},
+		});
+		handler.applyFileViewRuntimeSource({
+			epoch: 7,
+			source: {
+				contentItems: [makeWorkerFileViewContentMetadata()],
+				contentRequests: [makeProductFileViewContentRequest()],
+				rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			},
+		});
+		handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-file-loading-before-unrelated-metadata',
+				epoch: 7,
+				selectedItemId: 'file-1',
+				selectedSource: 'user',
+				surface: 'fileView',
+			}),
+		);
+		const loadingStore = assertReadyStore(scheduledFileViewPreparations[0]?.store);
+		expect(loadingStore.getState().availabilityByItemId.get('file-1')).toBe('loading');
+		scheduledFileViewPreparations.splice(0, scheduledFileViewPreparations.length);
+
+		// Act
+		const messages = handler.applyFileViewRuntimeMutation({
+			epoch: 8,
+			mutation: {
+				contentRemovals: [],
+				contentRequestRemovals: [],
+				contentRequestUpserts: [],
+				contentUpserts: [],
+				filePathRemovals: [],
+				filePathUpserts: [{ itemId: 'file-2', path: 'Sources/App/file-2.swift' }],
+				kind: 'delta',
+				rowRemovals: [],
+				rowUpserts: [{ id: 'file-2', parentId: null, index: 1 }],
+			},
+		});
+
+		// Assert
+		expect(messages).toEqual([]);
+		expect(scheduledFileViewPreparations).toEqual([]);
+		expect(loadingStore.getState().demandByKey.get('file-1')).toBe('selected:7');
+		expect(loadingStore.getState().availabilityByItemId.get('file-1')).toBe('loading');
+	});
+
+	test('schedules selected File preparation when only its content request changes', () => {
+		// Arrange
+		const scheduledFileViewPreparations: ScheduledSelectedFileViewPreparation[] = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [],
+			rows: [],
+			scheduleSelectedReviewContentReadyPreparation: (): void => {},
+			scheduleSelectedFileViewContentReadyPreparation: (
+				preparation: ScheduledSelectedFileViewPreparation,
+			): void => {
+				scheduledFileViewPreparations.push(preparation);
+			},
+		});
+		handler.applyFileViewRuntimeSource({
+			epoch: 6,
+			source: {
+				contentItems: [makeWorkerFileViewContentMetadata()],
+				contentRequests: [makeProductFileViewContentRequest(6)],
+				rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			},
+		});
+		handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-file-before-request-only-mutation',
+				epoch: 7,
+				selectedItemId: 'file-1',
+				selectedSource: 'user',
+				surface: 'fileView',
+			}),
+		);
+		const loadingStore = assertReadyStore(scheduledFileViewPreparations[0]?.store);
+		expect(loadingStore.getState().availabilityByItemId.get('file-1')).toBe('loading');
+		scheduledFileViewPreparations.splice(0, scheduledFileViewPreparations.length);
+
+		// Act
+		const messages = handler.applyFileViewRuntimeMutation({
+			epoch: 8,
+			mutation: {
+				contentRemovals: [],
+				contentRequestRemovals: [],
+				contentRequestUpserts: [makeProductFileViewContentRequest(8)],
+				contentUpserts: [],
+				filePathRemovals: [],
+				filePathUpserts: [],
+				kind: 'delta',
+				rowRemovals: [],
+				rowUpserts: [],
+			},
+		});
+
+		// Assert
+		expect(messages).toEqual([]);
+		expect(scheduledFileViewPreparations).toHaveLength(1);
+		expect(scheduledFileViewPreparations[0]?.epoch).toBe(8);
+		expect(scheduledFileViewPreparations[0]?.itemId).toBe('file-1');
+		expect(loadingStore.getState().demandByKey.get('file-1')).toBe('selected:8');
+		expect(loadingStore.getState().availabilityByItemId.get('file-1')).toBe('loading');
+	});
+
 	test('schedules selected File View preparation when a replacement descriptor repairs loading demand', () => {
 		const scheduledFileViewPreparations: ScheduledSelectedFileViewPreparation[] = [];
 		const handler = createBridgeCommWorkerCommandHandler({
@@ -312,6 +434,7 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 				epoch: 7,
 				selectedItemId: 'file-1',
 				selectedSource: 'user',
+				surface: 'fileView',
 			}),
 		);
 		scheduledFileViewPreparations.splice(0, scheduledFileViewPreparations.length);
@@ -365,6 +488,7 @@ function createReadySelectedFileViewScenario(): {
 			epoch: 7,
 			selectedItemId: 'file-1',
 			selectedSource: 'user',
+			surface: 'fileView',
 		}),
 	);
 	const readyStore = assertReadyStore(scheduledFileViewPreparations[0]?.store);

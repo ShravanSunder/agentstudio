@@ -28,6 +28,7 @@ type BridgeNormalizedLanguage = ReturnType<typeof bridgePierreOptionalHighlightL
 export function createBridgeCodeViewMetadataDeltaItemsForPanel(props: {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null | undefined;
+	readonly selectedContentLoadingItemId?: string | null | undefined;
 	readonly selectedItemId: string | null;
 	readonly selectedItemPresentation: BridgeCodeViewItemPresentation | null | undefined;
 	readonly visibleCodeViewItems?: readonly BridgeMainCodeViewItem[] | undefined;
@@ -61,12 +62,15 @@ export function createBridgeCodeViewMetadataDeltaItemsForPanel(props: {
 	}
 	if (
 		selectedDescriptor !== undefined &&
-		props.selectedItemPresentation !== null &&
-		props.selectedItemPresentation !== undefined
+		((props.selectedItemPresentation !== null && props.selectedItemPresentation !== undefined) ||
+			props.selectedContentLoadingItemId === props.selectedItemId)
 	) {
 		deltaItemsById.set(
 			props.selectedItemId,
-			materializeBridgeCodeViewLoadingItem(selectedDescriptor, props.selectedItemPresentation),
+			materializeBridgeCodeViewLoadingItem(
+				selectedDescriptor,
+				props.selectedItemPresentation ?? null,
+			),
 		);
 	}
 	return [...deltaItemsById.values()];
@@ -75,6 +79,7 @@ export function createBridgeCodeViewMetadataDeltaItemsForPanel(props: {
 export type BridgeCodeViewMetadataDeltaItemsForPanelSelector = (props: {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null | undefined;
+	readonly selectedContentLoadingItemId?: string | null | undefined;
 	readonly selectedItemId: string | null;
 	readonly selectedItemPresentation: BridgeCodeViewItemPresentation | null | undefined;
 	readonly sourceKey: string;
@@ -85,6 +90,7 @@ interface BridgeCodeViewMetadataDeltaItemsCacheEntry {
 	readonly result: readonly BridgeCodeViewItem[];
 	readonly selectedDescriptorSignature: string | null;
 	readonly selectedCodeViewItemSignature: string;
+	readonly selectedContentLoadingItemId: string | null | undefined;
 	readonly selectedItemId: string | null;
 	readonly selectedItemPresentationKey: string;
 	readonly sourceKey: string;
@@ -112,6 +118,7 @@ export function createBridgeCodeViewMetadataDeltaItemsForPanelSelector(): Bridge
 			previousEntry !== null &&
 			previousEntry.sourceKey === props.sourceKey &&
 			previousEntry.selectedItemId === props.selectedItemId &&
+			previousEntry.selectedContentLoadingItemId === props.selectedContentLoadingItemId &&
 			previousEntry.selectedCodeViewItemSignature === selectedCodeViewItemSignature &&
 			previousEntry.selectedItemPresentationKey === selectedItemPresentationKey &&
 			previousEntry.selectedDescriptorSignature === selectedDescriptorSignature &&
@@ -126,6 +133,7 @@ export function createBridgeCodeViewMetadataDeltaItemsForPanelSelector(): Bridge
 		previousEntry = {
 			result,
 			selectedCodeViewItemSignature,
+			selectedContentLoadingItemId: props.selectedContentLoadingItemId,
 			selectedDescriptorSignature,
 			selectedItemId: props.selectedItemId,
 			selectedItemPresentationKey,

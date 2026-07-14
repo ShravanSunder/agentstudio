@@ -33,6 +33,21 @@ describe('Bridge CodeView selected diagnostics', () => {
 		expect(diagnostics.summary.characterCount).toBeGreaterThan(0);
 	});
 
+	test('reports actual selected diff lines when presentation metadata has no line extent', () => {
+		// Arrange
+		const selectedCodeViewItem = makeSelectedCodeViewItem();
+		selectedCodeViewItem.bridgeMetadata.lineCount = 0;
+
+		// Act
+		const diagnostics = selectedContentDiagnosticsForPanel({
+			selectedCodeViewItem,
+			selectedItemId: selectedCodeViewItem.id,
+		});
+
+		// Assert
+		expect(diagnostics.summary.lineCount).toBe(2);
+	});
+
 	test('maps added-file diff cache keys by semantic role', () => {
 		const selectedCodeViewItem = makeOneSidedSelectedCodeViewItem({
 			cacheKey: 'pierre-content:empty|pierre-content:sha256:head',

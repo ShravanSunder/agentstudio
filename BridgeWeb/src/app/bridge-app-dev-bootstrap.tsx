@@ -1,39 +1,15 @@
 import { createRoot } from 'react-dom/client';
 
-import {
-	makeBridgeViewerBrowserFixture,
-	installBridgeViewerMockedBackend,
-	type BridgeViewerBrowserFixture,
-	type BridgeViewerMockedBackend,
-} from '../review-viewer/test-support/bridge-viewer-mocked-backend.js';
+import { createBridgePaneRuntime } from '../core/comm-worker/bridge-pane-runtime.js';
 import {
 	createBridgeMarkdownRenderModuleWorkerFactory,
 	createBridgeMarkdownRenderWebWorkerClient,
 } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-transport.js';
 import { createBridgePierrePortableBlobWorkerFactory } from '../review-viewer/workers/pierre/bridge-pierre-dev-worker-factory.js';
-import {
-	createBridgeReviewProjectionModuleWorkerFactory,
-	createBridgeReviewProjectionWebWorkerClient,
-} from '../review-viewer/workers/projection/review-projection-worker-transport.js';
-import {
-	deliveryModeForMockedBackend,
-	fixtureClassForMockedBackend,
-	latencyProfileForMockedBackend,
-	parseBridgeAppDevFixtureOptions,
-	bridgeAppDevWorktreeReviewComparisonId,
-	bridgeAppDevWorktreeReviewSourceId,
-	reviewPackageForBridgeAppDevFixtureScenario,
-	type BridgeAppDevFixtureScenario,
-} from './bridge-app-dev-fixture.js';
+import { createBridgeCommWorkerModuleWorker } from '../review-viewer/workers/shared-rpc/bridge-comm-worker-dev-factory.js';
+import { parseBridgeAppDevFixtureOptions } from './bridge-app-dev-fixture.js';
 import { installBridgeAppDevProductSessionHost } from './bridge-app-dev-product-session-host.js';
-import {
-	createBridgeAppDevTelemetryBootstrapConfig,
-	installBridgeAppDevTelemetryHost,
-} from './bridge-app-dev-telemetry.js';
-import {
-	installBridgeAppDevWorktreeReviewBackend,
-	type BridgeAppDevWorktreeReviewBackend,
-} from './bridge-app-dev-worktree-review.js';
+import { installBridgeAppDevTelemetryHost } from './bridge-app-dev-telemetry.js';
 import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Dev server must load the same app CSS as packaged BridgeWeb.
@@ -48,13 +24,11 @@ if (rootElement !== null) {
 		fixtureClass: options.fixtureClass,
 		scenario: searchParams.get('scenario') ?? options.scenario,
 	});
-	const telemetryConfig = createBridgeAppDevTelemetryBootstrapConfig(telemetryScenario);
 	const telemetryHost = installBridgeAppDevTelemetryHost({
 		respondToHandshakeRequests: false,
 		scenario: telemetryScenario,
 	});
 	const productSessionHost = installBridgeAppDevProductSessionHost();
-	const fixtureClass = fixtureClassForMockedBackend(options.fixtureClass);
 	const workerFactory = options.workersEnabled
 		? createBridgePierrePortableBlobWorkerFactory()
 		: null;
@@ -63,28 +37,9 @@ if (rootElement !== null) {
 				workerFactory: createBridgeMarkdownRenderModuleWorkerFactory(),
 			})
 		: null;
-	const projectionWorkerClient = options.workersEnabled
-		? createBridgeReviewProjectionWebWorkerClient({
-				workerFactory: createBridgeReviewProjectionModuleWorkerFactory(),
-			})
-		: null;
-	const fixture = fixtureClass === null ? null : makeBridgeViewerBrowserFixture({ fixtureClass });
-	const backend =
-		fixture === null
-			? null
-			: installBridgeViewerMockedBackend(fixture, {
-					latencyProfile: latencyProfileForMockedBackend(options.latencyProfile),
-					telemetryConfig,
-				});
-	const worktreeReviewBackend =
-		options.fixtureClass === 'worktree'
-			? installBridgeAppDevWorktreeReviewBackend({ telemetryConfig })
-			: null;
-
 	window.addEventListener(
 		'beforeunload',
 		(): void => {
-			backend?.dispose();
 			productSessionHost.dispose();
 			telemetryHost.dispose();
 			workerFactory?.revoke();
@@ -97,38 +52,15 @@ if (rootElement !== null) {
 			codeViewWorkerPoolEnabled={options.workersEnabled}
 			markdownWorkerClient={markdownWorkerClient}
 			navigationCommand={options.navigationCommand}
-			{...(worktreeReviewBackend === null
-				? {}
-				: {
-						reviewNavigationSource: {
-							sourceKind: 'reviewComparison',
-							sourceId: bridgeAppDevWorktreeReviewSourceId,
-							comparisonId: bridgeAppDevWorktreeReviewComparisonId,
-						},
-					})}
+			paneRuntimeFactory={(): ReturnType<typeof createBridgePaneRuntime> =>
+				createBridgePaneRuntime({
+					sessionProps: { workerFactory: createBridgeCommWorkerModuleWorker },
+				})
+			}
 			fileViewerProps={{ autoOpenInitialFile: true }}
 			{...(workerFactory === null ? {} : { codeViewWorkerFactory: workerFactory.workerFactory })}
-			{...(backend === null
-				? worktreeReviewBackend !== null
-					? {
-							fetchContent: worktreeReviewBackend.fetchContent,
-							projectionWorkerClient,
-						}
-					: { projectionWorkerClient }
-				: {
-						fetchContent: backend.fetchContent,
-						projectionWorkerClient: backend.projectionWorkerClient,
-					})}
 		/>,
 	);
-
-	void pushDevFixture({
-		backend,
-		deliveryMode: deliveryModeForMockedBackend(options.deliveryMode),
-		fixture,
-		scenario: options.scenario,
-		worktreeReviewBackend,
-	});
 }
 
 function bridgeAppDevTelemetryScenario(props: {
@@ -136,29 +68,4 @@ function bridgeAppDevTelemetryScenario(props: {
 	readonly scenario: string;
 }): string {
 	return `vite-dev-${props.fixtureClass}-${props.scenario}`;
-}
-
-async function pushDevFixture(props: {
-	readonly backend: BridgeViewerMockedBackend | null;
-	readonly deliveryMode: 'full-load' | 'streaming-append';
-	readonly fixture: BridgeViewerBrowserFixture | null;
-	readonly scenario: BridgeAppDevFixtureScenario;
-	readonly worktreeReviewBackend: BridgeAppDevWorktreeReviewBackend | null;
-}): Promise<void> {
-	if (props.worktreeReviewBackend !== null) {
-		await props.worktreeReviewBackend.pushMetadata();
-		return;
-	}
-	if (props.backend === null || props.fixture === null) {
-		return;
-	}
-	await props.backend.pushMetadata(
-		reviewPackageForBridgeAppDevFixtureScenario({
-			fixture: props.fixture,
-			scenario: props.scenario,
-		}),
-	);
-	if (props.deliveryMode === 'streaming-append') {
-		await props.backend.pushDelta();
-	}
 }

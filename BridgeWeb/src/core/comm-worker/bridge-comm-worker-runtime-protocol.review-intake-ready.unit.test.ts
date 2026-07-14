@@ -4,12 +4,11 @@ import { encodeBridgeWorkerReviewIntakeReadyCommand } from './bridge-comm-worker
 import { registerBridgeCommWorkerRuntimePortProtocol } from './bridge-comm-worker-runtime-protocol.js';
 import {
 	createRecordingBridgeCommWorkerPort,
-	makeRenderSemantics,
-	makeWorkerReviewContentMetadata,
+	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 
 describe('Bridge comm worker runtime review intake-ready protocol', () => {
-	test('acknowledges review intake readiness locally without scheme RPC', () => {
+	test('waits for the worker-owned product call before acknowledging review intake readiness', async () => {
 		const sendSchemeRpcCommand = vi.fn(async (): Promise<void> => {});
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 
@@ -20,10 +19,6 @@ describe('Bridge comm worker runtime review intake-ready protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
-			contentRequestDescriptors: [],
-			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
-			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 			sendSchemeRpcCommand,
 		});
 
@@ -35,8 +30,16 @@ describe('Bridge comm worker runtime review intake-ready protocol', () => {
 				reason: 'bridge-ready',
 			}),
 		);
+		await flushBridgeWorkerRuntimeContinuations();
 
-		expect(sendSchemeRpcCommand).not.toHaveBeenCalled();
+		expect(sendSchemeRpcCommand).toHaveBeenCalledWith({
+			method: 'bridge.intakeReady',
+			params: {
+				protocolId: 'review',
+				reason: 'bridge-ready',
+				streamId: 'review:pane-1',
+			},
+		});
 		expect(postedMessages.map((postedMessage) => postedMessage.message)).toEqual([
 			expect.objectContaining({
 				kind: 'health',

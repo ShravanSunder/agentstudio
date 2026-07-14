@@ -46,15 +46,15 @@ describe('Bridge CodeView materialization', () => {
 			bridgeMetadata: {
 				contentState: 'placeholder',
 				itemId: 'source-high',
-				lineCount: 5,
+				lineCount: 0,
 			},
 		});
 		expect(firstItem.collapsed).toBeUndefined();
 		if (firstItem.type !== 'diff') {
 			throw new Error('expected first placeholder diff item');
 		}
-		expect(firstItem.fileDiff.deletionLines).toHaveLength(2);
-		expect(firstItem.fileDiff.additionLines).toHaveLength(3);
+		expect(firstItem.fileDiff.deletionLines).toEqual([]);
+		expect(firstItem.fileDiff.additionLines).toEqual([]);
 		expectTypeOf(firstItem).toMatchTypeOf<BridgeCodeViewItem>();
 	});
 
@@ -82,7 +82,50 @@ describe('Bridge CodeView materialization', () => {
 		]);
 	});
 
-	test('creates expanded one-sided diff placeholders without app-side height rows', () => {
+	test('keeps the complete unloaded manifest header-only without fabricating extent bodies', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const sourceHighItem = reviewPackage.itemsById['source-high'];
+		if (sourceHighItem === undefined) {
+			throw new Error('expected source fixture item');
+		}
+		const reviewPackageWithLargeExtents = {
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				'source-high': {
+					...sourceHighItem,
+					contentLineCountsByRole: { base: 4_000, head: 4_271 },
+				},
+			},
+		};
+		const projection = buildBridgeReviewProjection({
+			reviewPackage: reviewPackageWithLargeExtents,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+
+		const items = createBridgeCodeViewInitialItems({
+			reviewPackage: reviewPackageWithLargeExtents,
+			projection,
+		});
+		const placeholder = items.find(
+			(item: BridgeCodeViewItem): boolean => item.id === 'source-high',
+		);
+
+		expect(items.map((item): string => item.id)).toEqual(projection.orderedItemIds);
+		if (placeholder?.type !== 'diff') {
+			throw new Error('expected diff placeholder item');
+		}
+		expect(placeholder.fileDiff.deletionLines).toEqual([]);
+		expect(placeholder.fileDiff.additionLines).toEqual([]);
+		expect(placeholder.fileDiff.hunks).toEqual([]);
+		expect(placeholder.bridgeMetadata).toMatchObject({
+			contentState: 'placeholder',
+			contentRoles: [],
+			lineCount: 0,
+		});
+	});
+
+	test('creates header-only one-sided diff placeholders without app-side height rows', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -98,12 +141,12 @@ describe('Bridge CodeView materialization', () => {
 			throw new Error('expected deleted-source placeholder diff');
 		}
 		expect(placeholderDiff.bridgeMetadata.contentState).toBe('placeholder');
-		expect(placeholderDiff.fileDiff.deletionLines).toHaveLength(2);
+		expect(placeholderDiff.fileDiff.deletionLines).toEqual([]);
 		expect(placeholderDiff.fileDiff.additionLines).toEqual([]);
 		expect(placeholderDiff.collapsed).toBeUndefined();
 		expect(placeholderDiff.bridgeMetadata).toMatchObject({
 			contentRoles: [],
-			lineCount: 2,
+			lineCount: 0,
 		});
 	});
 
@@ -129,13 +172,13 @@ describe('Bridge CodeView materialization', () => {
 		expect(placeholder.bridgeMetadata).toMatchObject({
 			contentState: 'placeholder',
 			itemId: 'source-high',
-			lineCount: 5,
+			lineCount: 0,
 		});
-		expect(countPierreContentLines(placeholder.file.contents)).toBe(5);
+		expect(countPierreContentLines(placeholder.file.contents)).toBe(0);
 		expect(placeholder.collapsed).toBeUndefined();
 	});
 
-	test('uses streamed line extents in unloaded file-target placeholders', () => {
+	test('keeps unloaded file-target placeholders header-only despite streamed extents', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const sourceHighItem = reviewPackage.itemsById['source-high'];
 		if (sourceHighItem === undefined) {
@@ -173,14 +216,16 @@ describe('Bridge CodeView materialization', () => {
 		expect(placeholder.bridgeMetadata).toMatchObject({
 			contentState: 'placeholder',
 			itemId: 'source-high',
-			lineCount: 37,
+			lineCount: 0,
 		});
-		expect(countPierreContentLines(placeholder.file.contents)).toBe(37);
+		expect(countPierreContentLines(placeholder.file.contents)).toBe(0);
 		expect(placeholder.collapsed).toBeUndefined();
-		expect(placeholder.file.cacheKey).toBe(`${sourceHighItem.cacheKey}:placeholder`);
+		expect(placeholder.file.cacheKey).toBe(
+			`${sourceHighItem.cacheKey}:placeholder:current:header-only`,
+		);
 	});
 
-	test('uses streamed line extents in unloaded diff placeholders', () => {
+	test('keeps unloaded diff placeholders header-only despite streamed extents', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const sourceHighItem = reviewPackage.itemsById['source-high'];
 		if (sourceHighItem === undefined) {
@@ -220,13 +265,13 @@ describe('Bridge CodeView materialization', () => {
 			contentState: 'placeholder',
 			contentRoles: [],
 			itemId: 'source-high',
-			lineCount: 36,
+			lineCount: 0,
 		});
-		expect(placeholder.fileDiff.deletionLines).toHaveLength(17);
-		expect(placeholder.fileDiff.additionLines).toHaveLength(19);
+		expect(placeholder.fileDiff.deletionLines).toEqual([]);
+		expect(placeholder.fileDiff.additionLines).toEqual([]);
 	});
 
-	test('uses item-local change counts when unloaded diff placeholders lack line extents', () => {
+	test('does not fabricate unloaded diff bodies from item-local change counts', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const sourceHighItem = reviewPackage.itemsById['source-high'];
 		const sourceNormalItem = reviewPackage.itemsById['source-normal'];
@@ -271,13 +316,13 @@ describe('Bridge CodeView materialization', () => {
 			contentState: 'placeholder',
 			contentRoles: [],
 			itemId: 'source-high',
-			lineCount: 5,
+			lineCount: 0,
 		});
-		expect(placeholder.fileDiff.deletionLines).toHaveLength(2);
-		expect(placeholder.fileDiff.additionLines).toHaveLength(3);
+		expect(placeholder.fileDiff.deletionLines).toEqual([]);
+		expect(placeholder.fileDiff.additionLines).toEqual([]);
 	});
 
-	test('renders an added placeholder as a one-sided (empty base) diff, ignoring cross-item base estimates', () => {
+	test('renders an added placeholder as a header-only diff without cross-item estimates', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const sourceHighItem = reviewPackage.itemsById['source-high'];
 		const sourceNormalItem = reviewPackage.itemsById['source-normal'];
@@ -318,15 +363,15 @@ describe('Bridge CodeView materialization', () => {
 		if (placeholder?.type !== 'diff') {
 			throw new Error('expected diff placeholder item');
 		}
-		// Empty base → pure-add diff (no phantom "unmodified"/context rows, no base role).
+		// Loading records preserve type and identity without claiming source-backed rows.
 		expect(placeholder.collapsed).toBeUndefined();
-		expect(placeholder.fileDiff.deletionLines).toHaveLength(0);
-		expect(placeholder.fileDiff.additionLines).toHaveLength(179);
+		expect(placeholder.fileDiff.deletionLines).toEqual([]);
+		expect(placeholder.fileDiff.additionLines).toEqual([]);
 		expect(placeholder.bridgeMetadata.contentRoles).not.toContain('base');
-		expect(placeholder.bridgeMetadata.lineCount).toBe(179);
+		expect(placeholder.bridgeMetadata.lineCount).toBe(0);
 	});
 
-	test('renders a deleted placeholder as a one-sided (empty head) diff, ignoring cross-item head estimates', () => {
+	test('renders a deleted placeholder as a header-only diff without cross-item estimates', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const sourceHighItem = reviewPackage.itemsById['source-high'];
 		const sourceNormalItem = reviewPackage.itemsById['source-normal'];
@@ -364,15 +409,15 @@ describe('Bridge CodeView materialization', () => {
 		if (placeholder?.type !== 'diff') {
 			throw new Error('expected diff placeholder item');
 		}
-		// Empty head → pure-delete diff (no phantom context rows, no head role).
+		// Loading records preserve type and identity without claiming source-backed rows.
 		expect(placeholder.collapsed).toBeUndefined();
-		expect(placeholder.fileDiff.deletionLines).toHaveLength(179);
-		expect(placeholder.fileDiff.additionLines).toHaveLength(0);
+		expect(placeholder.fileDiff.deletionLines).toEqual([]);
+		expect(placeholder.fileDiff.additionLines).toEqual([]);
 		expect(placeholder.bridgeMetadata.contentRoles).not.toContain('head');
-		expect(placeholder.bridgeMetadata.lineCount).toBe(179);
+		expect(placeholder.bridgeMetadata.lineCount).toBe(0);
 	});
 
-	test('uses one-sided placeholder height from item-local addition and deletion counts', () => {
+	test('keeps one-sided placeholders header-only without item-local height estimates', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const sourceHighItem = reviewPackage.itemsById['source-high'];
 		const sourceNormalItem = reviewPackage.itemsById['source-normal'];
@@ -423,18 +468,18 @@ describe('Bridge CodeView materialization', () => {
 			throw new Error('expected one-sided diff placeholders');
 		}
 		expect(addedPlaceholder.collapsed).toBeUndefined();
-		expect(addedPlaceholder.fileDiff.deletionLines).toHaveLength(0);
-		expect(addedPlaceholder.fileDiff.additionLines).toHaveLength(17);
+		expect(addedPlaceholder.fileDiff.deletionLines).toEqual([]);
+		expect(addedPlaceholder.fileDiff.additionLines).toEqual([]);
 		expect(addedPlaceholder.bridgeMetadata).toMatchObject({
 			contentRoles: [],
-			lineCount: 17,
+			lineCount: 0,
 		});
 		expect(deletedPlaceholder.collapsed).toBeUndefined();
-		expect(deletedPlaceholder.fileDiff.deletionLines).toHaveLength(11);
-		expect(deletedPlaceholder.fileDiff.additionLines).toHaveLength(0);
+		expect(deletedPlaceholder.fileDiff.deletionLines).toEqual([]);
+		expect(deletedPlaceholder.fileDiff.additionLines).toEqual([]);
 		expect(deletedPlaceholder.bridgeMetadata).toMatchObject({
 			contentRoles: [],
-			lineCount: 11,
+			lineCount: 0,
 		});
 	});
 
@@ -472,7 +517,7 @@ describe('Bridge CodeView materialization', () => {
 		}
 	});
 
-	test('preserves streamed line extents in visible loading file-target items', () => {
+	test('keeps visible loading file-target items header-only despite streamed extents', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['source-high'];
 		if (item === undefined) {
@@ -495,14 +540,16 @@ describe('Bridge CodeView materialization', () => {
 		expect(loadingItem.bridgeMetadata).toMatchObject({
 			contentState: 'loading',
 			itemId: item.itemId,
-			lineCount: 37,
+			lineCount: 0,
 		});
-		expect(countPierreContentLines(loadingItem.file.contents)).toBe(37);
+		expect(countPierreContentLines(loadingItem.file.contents)).toBe(0);
 		expect(loadingItem.file.contents).not.toContain('Loading content...');
-		expect(loadingItem.file.cacheKey).toBe(`${item.cacheKey}:placeholder`);
+		expect(loadingItem.file.cacheKey).toBe(
+			`${item.cacheKey}:placeholder:current:header-only`,
+		);
 	});
 
-	test('uses file extent facts as the fallback for current file-target loading items', () => {
+	test('does not turn file extent facts into current file-target loading bodies', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['source-high'];
 		if (item === undefined) {
@@ -522,10 +569,12 @@ describe('Bridge CodeView materialization', () => {
 		if (loadingItem.type !== 'file') {
 			throw new Error('expected selected review file target loading item to keep file view');
 		}
-		expect(loadingItem.bridgeMetadata.lineCount).toBe(37);
-		expect(countPierreContentLines(loadingItem.file.contents)).toBe(37);
+		expect(loadingItem.bridgeMetadata.lineCount).toBe(0);
+		expect(countPierreContentLines(loadingItem.file.contents)).toBe(0);
 		expect(loadingItem.file.contents).not.toContain('Loading content...');
-		expect(loadingItem.file.cacheKey).toBe(`${item.cacheKey}:placeholder`);
+		expect(loadingItem.file.cacheKey).toBe(
+			`${item.cacheKey}:placeholder:current:header-only`,
+		);
 	});
 
 	test('does not reserve one-sided loading height from addition and deletion extents', () => {
@@ -557,15 +606,15 @@ describe('Bridge CodeView materialization', () => {
 		if (addedLoadingItem.type !== 'diff' || deletedLoadingItem.type !== 'diff') {
 			throw new Error('expected one-sided diff loading items');
 		}
-		expect(addedLoadingItem.fileDiff.deletionLines).toHaveLength(0);
-		expect(addedLoadingItem.fileDiff.additionLines).toHaveLength(17);
+		expect(addedLoadingItem.fileDiff.deletionLines).toEqual([]);
+		expect(addedLoadingItem.fileDiff.additionLines).toEqual([]);
 		expect(addedLoadingItem.fileDiff.additionLines).not.toContain('Loading content...\n');
-		expect(deletedLoadingItem.fileDiff.deletionLines).toHaveLength(11);
+		expect(deletedLoadingItem.fileDiff.deletionLines).toEqual([]);
 		expect(deletedLoadingItem.fileDiff.deletionLines).not.toContain('Loading content...\n');
-		expect(deletedLoadingItem.fileDiff.additionLines).toHaveLength(0);
+		expect(deletedLoadingItem.fileDiff.additionLines).toEqual([]);
 	});
 
-	test('materializes a visible one-sided loading item with non-empty CodeView body text', () => {
+	test('materializes a visible one-sided loading item as a header-only CodeView record', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['hidden-binary'];
 		if (item === undefined) {
@@ -577,14 +626,14 @@ describe('Bridge CodeView materialization', () => {
 		if (loadingItem.type !== 'diff') {
 			throw new Error('expected loading item to use one-sided diff view');
 		}
-		expect(loadingItem.fileDiff.additionLines.length).toBeGreaterThan(0);
+		expect(loadingItem.fileDiff.additionLines).toEqual([]);
 		expect(loadingItem.fileDiff.additionLines).not.toContain('Loading content...\n');
 		expect(loadingItem.collapsed).toBeUndefined();
 		expect(loadingItem.bridgeMetadata).toMatchObject({
 			contentState: 'loading',
 			contentRoles: [],
 			itemId: item.itemId,
-			lineCount: 3,
+			lineCount: 0,
 		});
 	});
 
@@ -600,13 +649,13 @@ describe('Bridge CodeView materialization', () => {
 		if (loadingItem.type !== 'diff') {
 			throw new Error('expected loading item to keep diff view');
 		}
-		expect(loadingItem.fileDiff.additionLines.length).toBeGreaterThan(0);
+		expect(loadingItem.fileDiff.additionLines).toEqual([]);
 		expect(loadingItem.fileDiff.additionLines).not.toContain('Loading content...\n');
 		expect(loadingItem.bridgeMetadata).toMatchObject({
 			contentState: 'loading',
 			contentRoles: [],
 			itemId: item.itemId,
-			lineCount: 5,
+			lineCount: 0,
 		});
 	});
 
@@ -650,10 +699,10 @@ describe('Bridge CodeView materialization', () => {
 			throw new Error('expected a file loading item');
 		}
 
-		expect(loadingItem.bridgeMetadata.lineCount).toBe(4000);
-		expect(countPierreContentLines(loadingItem.file.contents)).toBe(4000);
+		expect(loadingItem.bridgeMetadata.lineCount).toBe(0);
+		expect(countPierreContentLines(loadingItem.file.contents)).toBe(0);
 		expect(loadingItem.file.contents).not.toContain('Loading content...');
-		expect(loadingItem.file.cacheKey).toBe(`${item.cacheKey}:placeholder`);
+		expect(loadingItem.file.cacheKey).toBe(`${item.cacheKey}:placeholder:head:header-only`);
 	});
 });
 

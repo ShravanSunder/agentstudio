@@ -20,6 +20,7 @@ describe('Bridge comm worker client', () => {
 			epoch: 1,
 			selectedItemId: 'item-1',
 			selectedSource: 'user',
+			surface: 'fileView',
 		});
 
 		expect(postMessage).toHaveBeenCalledOnce();

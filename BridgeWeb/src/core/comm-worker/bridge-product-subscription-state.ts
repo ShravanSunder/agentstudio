@@ -328,9 +328,14 @@ function initialUpdateOptions<TSubscriptionKind extends BridgeProductSubscriptio
 	subscriptionKind: TSubscriptionKind,
 	options: BridgeProductSubscriptionOptions<TSubscriptionKind>,
 ): BridgeProductSubscriptionUpdateOptions<TSubscriptionKind> {
-	return subscriptionKind === 'file.metadata'
-		? bridgeProductFileMetadataSubscriptionUpdateOptionsSchema.parse(options)
-		: bridgeProductReviewMetadataSubscriptionUpdateOptionsSchema.parse(options);
+	if (subscriptionKind === 'file.metadata') {
+		const parsed = bridgeProductFileMetadataSubscriptionOptionsSchema.parse(options);
+		return bridgeProductFileMetadataSubscriptionUpdateOptionsSchema.parse({
+			interests: parsed.interests,
+			pathScope: parsed.pathScope,
+		});
+	}
+	return bridgeProductReviewMetadataSubscriptionUpdateOptionsSchema.parse(options);
 }
 
 function interestStateForUpdate<TSubscriptionKind extends BridgeProductSubscriptionKind>(

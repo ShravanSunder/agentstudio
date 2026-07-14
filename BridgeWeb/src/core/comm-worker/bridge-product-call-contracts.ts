@@ -28,6 +28,13 @@ export const bridgeProductReviewMarkFileViewedRequestSchema = z
 	.object({ itemId: bridgeProductIdentifierSchema })
 	.strict();
 export const bridgeProductReviewMarkFileViewedResultSchema = z.null();
+export const bridgeProductReviewIntakeReadyRequestSchema = z
+	.object({
+		reason: bridgeProductIdentifierSchema.nullable(),
+		streamId: bridgeProductIdentifierSchema.nullable(),
+	})
+	.strict();
+export const bridgeProductReviewIntakeReadyResultSchema = z.null();
 
 const bridgeProductActiveViewerSourceBaseSchema = z
 	.object({
@@ -68,6 +75,11 @@ export type BridgeProductCallRegistry = {
 		readonly result: z.infer<typeof bridgeProductReviewMarkFileViewedResultSchema>;
 		readonly surface: 'review';
 	};
+	readonly 'review.intake.ready': {
+		readonly request: z.infer<typeof bridgeProductReviewIntakeReadyRequestSchema>;
+		readonly result: z.infer<typeof bridgeProductReviewIntakeReadyResultSchema>;
+		readonly surface: 'review';
+	};
 	readonly 'review.activeViewerMode.update': {
 		readonly request: z.infer<typeof bridgeProductReviewActiveViewerModeUpdateRequestSchema>;
 		readonly result: z.infer<typeof bridgeProductActiveViewerModeUpdateResultSchema>;
@@ -85,6 +97,7 @@ const bridgeProductSurfaceByCallKind = {
 	'file.activeViewerMode.update': 'file',
 	'file.source.current': 'file',
 	'review.activeViewerMode.update': 'review',
+	'review.intake.ready': 'review',
 	'review.markFileViewed': 'review',
 } as const satisfies {
 	readonly [TCallKind in BridgeProductCallKind]: BridgeProductCallRegistry[TCallKind]['surface'];
@@ -121,6 +134,12 @@ export const bridgeProductCallRequestSchema = z.discriminatedUnion('method', [
 			request: bridgeProductReviewMarkFileViewedRequestSchema,
 		})
 		.strict(),
+	z
+		.object({
+			method: z.literal('review.intake.ready'),
+			request: bridgeProductReviewIntakeReadyRequestSchema,
+		})
+		.strict(),
 ]);
 
 export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
@@ -146,6 +165,12 @@ export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
 		.object({
 			method: z.literal('review.markFileViewed'),
 			result: bridgeProductReviewMarkFileViewedResultSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('review.intake.ready'),
+			result: bridgeProductReviewIntakeReadyResultSchema,
 		})
 		.strict(),
 ]);

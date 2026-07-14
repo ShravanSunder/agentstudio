@@ -51,17 +51,6 @@ export default defineConfig([
 	},
 	{
 		...sharedBridgeWebBuildConfig,
-		name: 'review-projection-worker',
-		entry: {
-			'review-projection-worker':
-				'./src/review-viewer/workers/projection/review-projection-worker-entry.ts',
-		},
-		outputOptions: {
-			codeSplitting: false,
-		},
-	},
-	{
-		...sharedBridgeWebBuildConfig,
 		name: 'bridge-worker-fetch-probe-worker',
 		entry: {
 			'bridge-worker-fetch-probe-worker':
@@ -76,6 +65,16 @@ export default defineConfig([
 		name: 'bridge-comm-worker',
 		entry: {
 			'bridge-comm-worker': './src/core/comm-worker/bridge-comm-worker-entry.ts',
+		},
+		outputOptions: {
+			codeSplitting: false,
+		},
+	},
+	{
+		...sharedBridgeWebBuildConfig,
+		name: 'bridge-telemetry-worker',
+		entry: {
+			'bridge-telemetry-worker': './src/core/telemetry-worker/bridge-telemetry-worker-entry.ts',
 		},
 		outputOptions: {
 			codeSplitting: false,

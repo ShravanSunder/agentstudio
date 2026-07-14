@@ -10,38 +10,42 @@ import {
 } from './bridge-comm-worker-telemetry.js';
 import type {
 	BridgeWorkerContentAvailabilityPatchPayload,
+	BridgeWorkerReviewPierreRenderJobEvent,
 	BridgeWorkerReviewContentRequestDescriptor,
 	BridgeWorkerReviewRenderSemantics,
-	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
 import type {
 	BridgeWorkerDemandRank,
 	BridgeWorkerPierreRenderBudget,
 } from './bridge-worker-pierre-render-job.js';
 import {
-	type BridgeWorkerContentFetch,
 	type BridgeWorkerFetchedReviewContentResource,
 	fetchBridgeWorkerReviewContentResource,
+	type BridgeWorkerReviewContentOpen,
+	type BridgeWorkerReviewContentResourceFetch,
 } from './bridge-worker-review-content-fetch.js';
 import {
-	commitBridgeWorkerReviewContentReadySlicePatch,
-	prepareBridgeWorkerReviewContentRenderJobEvent,
+	bridgeWorkerReviewRenderPatchesFromSlicePatchEvent,
+	commitBridgeWorkerReviewContentReadyRenderPatch,
+	createBridgeWorkerReviewContentRenderJobPreparation,
+	prepareBridgeWorkerReviewRenderPatchEvent,
 } from './bridge-worker-review-content-ready.js';
-import { prepareBridgeWorkerStructuredMessage } from './bridge-worker-transfer-list.js';
+import { type PreparedBridgeWorkerStructuredMessage } from './bridge-worker-transfer-list.js';
 
 export interface DispatchSelectedBridgeWorkerReviewContentReadyProps {
 	readonly bridgeDemandRank: BridgeWorkerDemandRank;
 	readonly budget: BridgeWorkerPierreRenderBudget;
 	readonly contentRequestDescriptors: readonly BridgeWorkerReviewContentRequestDescriptor[];
 	readonly epoch: number;
-	readonly fetchContent?: BridgeWorkerContentFetch;
 	readonly fetchReviewContentResource?: BridgeWorkerReviewContentResourceFetch;
 	readonly itemId: string;
+	readonly openContent?: BridgeWorkerReviewContentOpen;
 	readonly port: BridgeCommWorkerPort;
 	readonly renderSemantics: readonly BridgeWorkerReviewRenderSemantics[];
 	readonly sequence: number;
 	readonly store: BridgeCommWorkerStore;
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
+	readonly workerDerivationEpoch: number;
 }
 
 export interface DispatchBridgeWorkerReviewContentReadyProps extends DispatchSelectedBridgeWorkerReviewContentReadyProps {
@@ -66,10 +70,12 @@ export type BridgeWorkerReviewContentReadyFetchResult =
 			readonly status: 'stale';
 	  };
 
-export interface BridgeWorkerReviewContentResourceFetch {
-	(
-		descriptor: BridgeWorkerReviewContentRequestDescriptor,
-	): Promise<BridgeWorkerFetchedReviewContentResource>;
+export interface BridgeWorkerReviewContentReadyPublication {
+	readonly runNextStage: () => BridgeWorkerReviewContentReadyPublicationStepResult;
+}
+
+export interface BridgeWorkerReviewContentReadyPublicationStepResult {
+	readonly complete: boolean;
 }
 
 export async function dispatchSelectedBridgeWorkerReviewContentReady(
@@ -144,53 +150,164 @@ export function publishBridgeWorkerReviewContentReadyFetchResult(
 		readonly fetchResult: BridgeWorkerReviewContentReadyFetchResult;
 	},
 ): void {
-	if (props.fetchResult.status === 'stale') {
-		recordSelectedReviewContentDropIfNeeded({
-			dropReason: props.fetchResult.reason,
-			recordSelectedContentDrops: props.recordSelectedContentDrops,
-			telemetryClient: props.telemetryClient,
-		});
-		return;
+	const publication = createBridgeWorkerReviewContentReadyPublication(props);
+	while (!publication.runNextStage().complete) {
+		// Synchronous compatibility entry point. Production preparation uses one stage per pump slice.
 	}
-	if (props.fetchResult.status === 'terminal') {
-		postReviewContentTerminalAvailability({
-			...props,
-			reason: props.fetchResult.reason,
-			state: props.fetchResult.state,
-		});
-		return;
-	}
-	if (!isReviewContentReadyDemandCurrent(props)) {
-		recordSelectedReviewContentDropIfNeeded({
-			dropReason: 'stale_before_publish',
-			recordSelectedContentDrops: props.recordSelectedContentDrops,
-			telemetryClient: props.telemetryClient,
-		});
-		return;
-	}
-	const preparedJobEvent = prepareBridgeWorkerReviewContentRenderJobEvent({
-		bridgeDemandRank: props.bridgeDemandRank,
-		budget: props.budget,
-		resources: props.fetchResult.resources,
-		semantics: props.fetchResult.semantics,
-	});
-	if (preparedJobEvent === null) {
-		postReviewContentTerminalAvailability({
-			...props,
-			reason: 'descriptor_rejected',
-			state: 'unavailable',
-		});
-		return;
-	}
+}
 
-	postPreparedBridgeCommWorkerMessage(props.port, preparedJobEvent);
-	const contentReadyCommit = commitBridgeWorkerReviewContentReadySlicePatch({
-		epoch: props.epoch,
-		preparedJobEvent,
-		sequence: props.sequence,
+export function createBridgeWorkerReviewContentReadyPublication(
+	props: DispatchBridgeWorkerReviewContentReadyProps & {
+		readonly fetchResult: BridgeWorkerReviewContentReadyFetchResult;
+	},
+): BridgeWorkerReviewContentReadyPublication {
+	let publicationStage: BridgeWorkerReviewContentReadyPublicationStage = 'classify';
+	let preparedJobEvent: PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent> | null =
+		null;
+	let renderJobPreparation: ReturnType<
+		typeof createBridgeWorkerReviewContentRenderJobPreparation
+	> | null = null;
+	let terminalReason: BridgeWorkerTerminalContentAvailabilityReason | null = null;
+	let terminalState: BridgeWorkerTerminalContentAvailabilityState | null = null;
+	const completeBridgeWorkerReviewContentReadyPublication =
+		(): BridgeWorkerReviewContentReadyPublicationStepResult => {
+			publicationStage = 'complete';
+			return { complete: true };
+		};
+
+	return {
+		runNextStage: (): BridgeWorkerReviewContentReadyPublicationStepResult => {
+			switch (publicationStage) {
+				case 'classify': {
+					if (props.fetchResult.status === 'stale') {
+						recordSelectedReviewContentDropIfNeeded({
+							dropReason: props.fetchResult.reason,
+							recordSelectedContentDrops: props.recordSelectedContentDrops,
+							telemetryClient: props.telemetryClient,
+						});
+						return completeBridgeWorkerReviewContentReadyPublication();
+					}
+					if (props.fetchResult.status === 'terminal') {
+						terminalReason = props.fetchResult.reason;
+						terminalState = props.fetchResult.state;
+						publicationStage = 'commitTerminal';
+						return { complete: false };
+					}
+					if (!isReviewContentReadyDemandCurrent(props)) {
+						recordSelectedReviewContentDropIfNeeded({
+							dropReason: 'stale_before_publish',
+							recordSelectedContentDrops: props.recordSelectedContentDrops,
+							telemetryClient: props.telemetryClient,
+						});
+						return completeBridgeWorkerReviewContentReadyPublication();
+					}
+					renderJobPreparation = createBridgeWorkerReviewContentRenderJobPreparation({
+						bridgeDemandRank: props.bridgeDemandRank,
+						budget: props.budget,
+						publicationSequence: props.sequence,
+						resources: props.fetchResult.resources,
+						semantics: props.fetchResult.semantics,
+						workerDerivationEpoch: props.workerDerivationEpoch,
+					});
+					publicationStage = 'prepareReady';
+					return { complete: false };
+				}
+				case 'prepareReady': {
+					if (renderJobPreparation === null) {
+						throw new Error('Bridge worker Review render-job preparation is not initialized.');
+					}
+					const preparationResult = renderJobPreparation.runNextStage();
+					if (preparationResult.status === 'pending') return { complete: false };
+					preparedJobEvent = preparationResult.preparedJobEvent;
+					if (preparedJobEvent === null) {
+						terminalReason = 'descriptor_rejected';
+						terminalState = 'unavailable';
+						publicationStage = 'commitTerminal';
+						return { complete: false };
+					}
+					publicationStage = 'commitReady';
+					return { complete: false };
+				}
+				case 'commitReady': {
+					if (!isReviewContentReadyDemandCurrent(props)) {
+						recordSelectedReviewContentDropIfNeeded({
+							dropReason: 'stale_before_publish',
+							recordSelectedContentDrops: props.recordSelectedContentDrops,
+							telemetryClient: props.telemetryClient,
+						});
+						return completeBridgeWorkerReviewContentReadyPublication();
+					}
+					commitPreparedBridgeWorkerReviewContentReady({
+						...props,
+						preparedJobEvent: requirePreparedBridgeWorkerReviewJobEvent(preparedJobEvent),
+					});
+					return completeBridgeWorkerReviewContentReadyPublication();
+				}
+				case 'commitTerminal':
+					postReviewContentTerminalAvailability({
+						...props,
+						reason: requireBridgeWorkerTerminalReason(terminalReason),
+						state: requireBridgeWorkerTerminalState(terminalState),
+					});
+					return completeBridgeWorkerReviewContentReadyPublication();
+				case 'complete':
+					return { complete: true };
+				default:
+					return assertNeverBridgeWorkerReviewContentReadyPublicationStage(publicationStage);
+			}
+		},
+	};
+}
+
+type BridgeWorkerReviewContentReadyPublicationStage =
+	| 'classify'
+	| 'prepareReady'
+	| 'commitReady'
+	| 'commitTerminal'
+	| 'complete';
+
+function assertNeverBridgeWorkerReviewContentReadyPublicationStage(publicationStage: never): never {
+	throw new Error(
+		`Unsupported Bridge worker Review content-ready publication stage: ${String(publicationStage)}`,
+	);
+}
+
+function commitPreparedBridgeWorkerReviewContentReady(
+	props: DispatchBridgeWorkerReviewContentReadyProps & {
+		readonly preparedJobEvent: PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent>;
+	},
+): void {
+	postPreparedBridgeCommWorkerMessage(props.port, props.preparedJobEvent);
+	const contentReadyCommit = commitBridgeWorkerReviewContentReadyRenderPatch({
+		preparedJobEvent: props.preparedJobEvent,
+		publicationSequence: props.sequence,
 		store: props.store,
+		workerDerivationEpoch: props.workerDerivationEpoch,
 	});
 	postPreparedBridgeCommWorkerMessage(props.port, contentReadyCommit.preparedMessage);
+}
+
+function requirePreparedBridgeWorkerReviewJobEvent(
+	preparedJobEvent: PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent> | null,
+): PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent> {
+	if (preparedJobEvent === null) {
+		throw new Error('Bridge worker Review prepared job event is unavailable.');
+	}
+	return preparedJobEvent;
+}
+
+function requireBridgeWorkerTerminalReason(
+	reason: BridgeWorkerTerminalContentAvailabilityReason | null,
+): BridgeWorkerTerminalContentAvailabilityReason {
+	if (reason === null) throw new Error('Bridge worker Review terminal reason is unavailable.');
+	return reason;
+}
+
+function requireBridgeWorkerTerminalState(
+	state: BridgeWorkerTerminalContentAvailabilityState | null,
+): BridgeWorkerTerminalContentAvailabilityState {
+	if (state === null) throw new Error('Bridge worker Review terminal state is unavailable.');
+	return state;
 }
 
 function recordSelectedReviewContentDropIfNeeded(props: {
@@ -234,14 +351,15 @@ function postReviewContentTerminalAvailability(
 		state: props.state,
 	});
 	const slicePatchEvent = props.store.actions.takePendingSlicePatchEvent({
-		epoch: props.epoch,
+		epoch: props.workerDerivationEpoch,
 		sequence: props.sequence,
 	});
 	postPreparedBridgeCommWorkerMessage(
 		props.port,
-		prepareBridgeWorkerStructuredMessage({
-			message: assertBridgeWorkerSlicePatchEvent(slicePatchEvent),
-			declaredFields: [],
+		prepareBridgeWorkerReviewRenderPatchEvent({
+			patches: bridgeWorkerReviewRenderPatchesFromSlicePatchEvent(slicePatchEvent),
+			publicationSequence: props.sequence,
+			workerDerivationEpoch: props.workerDerivationEpoch,
 		}),
 	);
 }
@@ -281,22 +399,14 @@ function selectedReviewContentReadyDemandKey(
 }
 
 function createBridgeWorkerReviewContentResourceFetch(
-	props: Pick<DispatchBridgeWorkerReviewContentReadyProps, 'fetchContent'>,
+	props: Pick<DispatchBridgeWorkerReviewContentReadyProps, 'openContent'>,
 ): BridgeWorkerReviewContentResourceFetch {
-	return (descriptor: BridgeWorkerReviewContentRequestDescriptor) =>
-		fetchBridgeWorkerReviewContentResource({
-			descriptor,
-			...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
-		});
-}
-
-function assertBridgeWorkerSlicePatchEvent(
-	event: BridgeWorkerServerToMainMessage | null,
-): BridgeWorkerServerToMainMessage {
-	if (event === null) {
-		throw new Error('Bridge worker terminal content availability produced no slice patch event.');
-	}
-	return event;
+	return (descriptor: BridgeWorkerReviewContentRequestDescriptor) => {
+		if (props.openContent === undefined) {
+			throw new Error('Bridge worker Review content requires the shared product transport.');
+		}
+		return fetchBridgeWorkerReviewContentResource({ descriptor, openContent: props.openContent });
+	};
 }
 
 function selectReviewContentRequestDescriptorsForSemantics(props: {

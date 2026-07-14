@@ -1,26 +1,34 @@
 import { describe, expect, test } from 'vitest';
 
+import {
+	makeContentRequestDescriptor,
+	makeImmediateReviewContentStream,
+} from './bridge-comm-worker-runtime-protocol.test-support.js';
+import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
 import type { BridgeWorkerReviewContentRequestDescriptor } from './bridge-worker-contracts.js';
 import { fetchBridgeWorkerReviewContentResource } from './bridge-worker-review-content-fetch.js';
 
 describe('Bridge worker review content fetch', () => {
-	test('fetches typed review content descriptors through injected worker fetch', async () => {
-		const calls: string[] = [];
+	test('opens typed Review content descriptors through the product content stream', async () => {
+		const descriptor = makeContentRequestDescriptor({
+			role: 'head',
+			text: 'hello bridge worker',
+		});
+		const openedDescriptorIds: string[] = [];
+
 		const result = await fetchBridgeWorkerReviewContentResource({
-			descriptor: makeContentRequestDescriptor(),
-			fetchContent: async (url: string): Promise<Response> => {
-				calls.push(url);
-				return new Response('hello bridge worker');
+			descriptor,
+			openContent: (openedDescriptor) => {
+				openedDescriptorIds.push(openedDescriptor.descriptorId);
+				return makeImmediateReviewContentStream(openedDescriptor, 'hello bridge worker');
 			},
 		});
 
-		expect(calls).toEqual([
-			'agentstudio://resource/review/content/handle-item-1-head?generation=4',
-		]);
+		expect(openedDescriptorIds).toEqual([descriptor.descriptorId]);
 		expect(result).toMatchObject({
 			itemId: 'item-1',
 			role: 'head',
-			contentHash: 'sha256:item-1:head',
+			contentHash: 'sha256:item-1:head:generation-4',
 			contentHashAlgorithm: 'fixture-preview',
 			language: 'swift',
 			byteLength: 19,
@@ -29,77 +37,90 @@ describe('Bridge worker review content fetch', () => {
 		expect(new TextDecoder().decode(result.textBytes)).toBe('hello bridge worker');
 	});
 
-	test('uses descriptor max bytes instead of display size for inexact review content', async () => {
+	test('accepts a completed stream for an inexact Review byte range', async () => {
+		const descriptor = makeContentRequestDescriptor({ role: 'head', text: 'fixture' });
+		const maximumBytes = 64;
 		const result = await fetchBridgeWorkerReviewContentResource({
 			descriptor: {
-				...makeContentRequestDescriptor(),
-				sizeBytes: 4,
-				maxBytes: 64,
+				...descriptor,
+				declaredByteLength: null,
+				maximumBytes,
+				wholeByteLength: null,
+				window: { ...descriptor.window, maximumBytes },
 			},
-			fetchContent: async (): Promise<Response> => new Response('hello bridge worker'),
+			openContent: (openedDescriptor) =>
+				makeImmediateReviewContentStream(openedDescriptor, 'hello bridge worker'),
 		});
 
 		expect(result.byteLength).toBe(19);
 		expect(result.text).toBe('hello bridge worker');
 	});
 
-	test('rejects exact review content when streamed byte length differs from expected bytes', async () => {
+	test('rejects an error terminal from the Review content transport', async () => {
+		const descriptor = makeContentRequestDescriptor({ role: 'head', text: 'fixture' });
+
 		await expect(
 			fetchBridgeWorkerReviewContentResource({
-				descriptor: {
-					...makeContentRequestDescriptor(),
-					sizeBytes: 0,
-					expectedBytes: 0,
-					maxBytes: 1,
-				},
-				fetchContent: async (): Promise<Response> => new Response('x'),
+				descriptor,
+				openContent: (openedDescriptor) =>
+					makeReviewContentErrorStream(openedDescriptor, 'Review content length mismatch.'),
 			}),
-		).rejects.toThrow(/expected 0 bytes/i);
+		).rejects.toThrow(/length mismatch/i);
 	});
 
-	test('rejects stale or mismatched descriptor resource urls before fetch', async () => {
-		const fetchCalls: string[] = [];
+	test('rejects a completed stream whose descriptor identity does not match demand', async () => {
+		const descriptor = makeContentRequestDescriptor({ role: 'head', text: 'fixture' });
+		const mismatchedDescriptor = {
+			...descriptor,
+			descriptorId: 'descriptor-stale-head-3',
+		};
 
 		await expect(
 			fetchBridgeWorkerReviewContentResource({
-				descriptor: {
-					...makeContentRequestDescriptor(),
-					resourceUrl: 'agentstudio://resource/review/content/handle-item-1-head?generation=3',
-				},
-				fetchContent: async (url: string): Promise<Response> => {
-					fetchCalls.push(url);
-					return new Response('must not fetch');
-				},
+				descriptor,
+				openContent: () => makeImmediateReviewContentStream(mismatchedDescriptor, 'stale'),
 			}),
-		).rejects.toThrow(/descriptor resource url/i);
-		expect(fetchCalls).toEqual([]);
+		).rejects.toThrow(/terminal descriptor does not match demand/i);
 	});
 
-	test('rejects binary descriptors before text fetch', async () => {
+	test('rejects binary descriptors before opening a text content stream', async () => {
+		const descriptor = makeContentRequestDescriptor({ role: 'head', text: 'fixture' });
+		let openCallCount = 0;
+
 		await expect(
 			fetchBridgeWorkerReviewContentResource({
 				descriptor: {
-					...makeContentRequestDescriptor(),
+					...descriptor,
+					encoding: null,
 					isBinary: true,
+				} as unknown as BridgeWorkerReviewContentRequestDescriptor,
+				openContent: (openedDescriptor) => {
+					openCallCount += 1;
+					return makeImmediateReviewContentStream(openedDescriptor, 'must not open');
 				},
-				fetchContent: async (): Promise<Response> => new Response('must not fetch'),
 			}),
-		).rejects.toThrow(/binary/i);
+		).rejects.toThrow();
+		expect(openCallCount).toBe(0);
 	});
 });
 
-function makeContentRequestDescriptor(): BridgeWorkerReviewContentRequestDescriptor {
+function makeReviewContentErrorStream(
+	descriptor: BridgeWorkerReviewContentRequestDescriptor,
+	safeMessage: string,
+): BridgeProductContentStream<'review.content'> {
 	return {
-		itemId: 'item-1',
-		role: 'head',
-		handleId: 'handle-item-1-head',
-		reviewGeneration: 4,
-		resourceUrl: 'agentstudio://resource/review/content/handle-item-1-head?generation=4',
-		contentHash: 'sha256:item-1:head',
-		contentHashAlgorithm: 'fixture-preview',
-		language: 'swift',
-		sizeBytes: 1024,
-		maxBytes: 1024,
-		isBinary: false,
+		contentKind: 'review.content',
+		contentRequestId: 'content-request-error',
+		frames: emptyContentFrames(),
+		terminal: Promise.resolve({
+			code: 'invalid_request',
+			contentKind: 'review.content',
+			descriptorId: descriptor.descriptorId,
+			kind: 'error',
+			retryable: false,
+			safeMessage,
+		}),
 	};
 }
+
+async function* emptyContentFrames(): AsyncIterable<never> {}

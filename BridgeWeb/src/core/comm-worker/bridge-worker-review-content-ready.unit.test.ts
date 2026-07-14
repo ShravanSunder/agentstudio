@@ -1,30 +1,32 @@
 import { describe, expect, test } from 'vitest';
 
 import { createBridgeCommWorkerStore } from './bridge-comm-worker-store.js';
-import type {
-	BridgeWorkerReviewContentMetadata,
-	BridgeWorkerReviewRenderSemantics,
+import {
+	bridgeWorkerServerToMainMessageSchema,
+	type BridgeWorkerReviewContentMetadata,
+	type BridgeWorkerReviewRenderSemantics,
 } from './bridge-worker-contracts.js';
 import type { BridgeWorkerFetchedReviewContentResource } from './bridge-worker-review-content-fetch.js';
 import {
-	commitBridgeWorkerReviewContentReadySlicePatch,
+	commitBridgeWorkerReviewContentReadyRenderPatch,
 	prepareBridgeWorkerReviewContentRenderJobEvent,
 } from './bridge-worker-review-content-ready.js';
 
 describe('Bridge worker review content ready', () => {
-	test('prepares review Pierre job events without publishing ready before courier acceptance', () => {
+	test('publishes only schema-valid surface-typed Review content-ready events', () => {
+		// Arrange
 		const store = createBridgeCommWorkerStore({
 			contentItems: [makeWorkerReviewContentMetadata('item-1')],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 		});
-
-		const result = prepareBridgeWorkerReviewContentRenderJobEvent({
+		const preparedJobEvent = prepareBridgeWorkerReviewContentRenderJobEvent({
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: {
 				className: 'interactive',
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
+			publicationSequence: 11,
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -38,12 +40,72 @@ describe('Bridge worker review content ready', () => {
 				}),
 			],
 			semantics: makeRenderSemantics(),
+			workerDerivationEpoch: 7,
+		});
+		if (preparedJobEvent === null) {
+			throw new Error('Expected review render job event.');
+		}
+
+		// Act
+		const contentReadyCommit = commitBridgeWorkerReviewContentReadyRenderPatch({
+			preparedJobEvent,
+			publicationSequence: 11,
+			store,
+			workerDerivationEpoch: 7,
+		});
+		const publications = [
+			preparedJobEvent.message,
+			contentReadyCommit.preparedMessage.message,
+		] as const;
+
+		// Assert
+		expect(publications.map(({ kind }) => kind)).toEqual([
+			'reviewPierreRenderJob',
+			'reviewRenderPatch',
+		]);
+		expect(publications).toEqual([
+			expect.objectContaining({ kind: 'reviewPierreRenderJob', surface: 'review' }),
+			expect.objectContaining({ kind: 'reviewRenderPatch', surface: 'review' }),
+		]);
+		for (const publication of publications) {
+			expect(bridgeWorkerServerToMainMessageSchema.safeParse(publication).success).toBe(true);
+		}
+	});
+
+	test('prepares review Pierre job events without publishing ready before courier acceptance', () => {
+		const store = createBridgeCommWorkerStore({
+			contentItems: [makeWorkerReviewContentMetadata('item-1')],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+		});
+
+		const result = prepareBridgeWorkerReviewContentRenderJobEvent({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			publicationSequence: 11,
+			resources: [
+				makeFetchedReviewContentResource({
+					contentHash: 'sha256:item-1:base',
+					role: 'base',
+					text: 'base content\n',
+				}),
+				makeFetchedReviewContentResource({
+					contentHash: 'sha256:item-1:head',
+					role: 'head',
+					text: 'head content\n',
+				}),
+			],
+			semantics: makeRenderSemantics(),
+			workerDerivationEpoch: 7,
 		});
 
 		expect(result?.message).toMatchObject({
 			wireVersion: 1,
 			direction: 'serverWorkerToMain',
-			kind: 'pierreRenderJob',
+			kind: 'reviewPierreRenderJob',
 			job: {
 				itemId: 'item-1',
 				renderKind: 'reviewDiff',
@@ -56,7 +118,7 @@ describe('Bridge worker review content ready', () => {
 		});
 		expect(result?.message.transferDescriptors).toEqual([
 			{
-				messageKind: 'pierreRenderJob',
+				messageKind: 'reviewPierreRenderJob',
 				fieldPath: ['job', 'payload'],
 				byteLength: result?.message.job.payloadByteLength,
 				mode: 'clone',
@@ -79,6 +141,7 @@ describe('Bridge worker review content ready', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
+			publicationSequence: 11,
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -92,16 +155,17 @@ describe('Bridge worker review content ready', () => {
 				}),
 			],
 			semantics: makeRenderSemantics(),
+			workerDerivationEpoch: 7,
 		});
 		if (preparedJobEvent === null) {
 			throw new Error('Expected review render job event.');
 		}
 
-		const result = commitBridgeWorkerReviewContentReadySlicePatch({
-			epoch: 7,
+		const result = commitBridgeWorkerReviewContentReadyRenderPatch({
 			preparedJobEvent,
-			sequence: 11,
+			publicationSequence: 11,
 			store,
+			workerDerivationEpoch: 7,
 		});
 
 		expect(result.touchedKeys).toEqual([
@@ -112,10 +176,11 @@ describe('Bridge worker review content ready', () => {
 		expect(result.preparedMessage.message).toMatchObject({
 			wireVersion: 1,
 			direction: 'serverWorkerToMain',
-			kind: 'slicePatch',
-			epoch: 7,
-			sequence: 11,
+			kind: 'reviewRenderPatch',
+			publicationSequence: 11,
+			surface: 'review',
 			transferDescriptors: [],
+			workerDerivationEpoch: 7,
 			patches: [
 				{
 					slice: 'rowPaint',
@@ -153,6 +218,7 @@ describe('Bridge worker review content ready', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
+			publicationSequence: 11,
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -161,6 +227,7 @@ describe('Bridge worker review content ready', () => {
 				}),
 			],
 			semantics: makeRenderSemantics(),
+			workerDerivationEpoch: 7,
 		});
 
 		expect(result).toBeNull();

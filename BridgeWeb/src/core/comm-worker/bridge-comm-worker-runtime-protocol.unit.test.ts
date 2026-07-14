@@ -5,7 +5,7 @@ import {
 	encodeBridgeWorkerActiveViewerModeUpdateCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerMetadataInterestUpdateCommand,
-	encodeBridgeWorkerReviewSourceUpdateCommand,
+	encodeBridgeWorkerReviewIntakeReadyCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
 import {
@@ -15,19 +15,66 @@ import {
 import {
 	assertBridgeCommWorkerPreparationDrain,
 	createBridgeWorkerSequenceCounter,
-	createDeferredTextResponse,
+	createBridgeCommWorkerReviewProductTestSource,
+	createDeferredReviewContentStream,
 	createRecordingBridgeCommWorkerPort,
-	descriptorByUrl,
 	flushBridgeWorkerRuntimeContinuations,
 	makeContentRequestDescriptor,
-	makeImmediateTextResponse,
 	makeRenderSemantics,
 	makeWorkerReviewContentMetadata,
-	type DeferredTextResponse,
+	openReviewContentFromDescriptorMap,
+	type DeferredReviewContentStream,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 
 describe('Bridge comm worker runtime protocol', () => {
+	test('opens Review metadata through worker-owned intake readiness', async () => {
+		// Arrange
+		const sentCommands: BridgeRPCCommand[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			sendSchemeRpcCommand: async (command): Promise<void> => {
+				sentCommands.push(command);
+			},
+		});
+
+		// Act
+		dispatch.message(
+			encodeBridgeWorkerReviewIntakeReadyCommand({
+				requestId: 'request-review-intake-ready',
+				epoch: 1,
+				reason: 'bridge-ready',
+				streamId: 'review:pane-1',
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Assert
+		expect(sentCommands).toEqual([
+			{
+				method: 'bridge.intakeReady',
+				params: {
+					protocolId: 'review',
+					reason: 'bridge-ready',
+					streamId: 'review:pane-1',
+				},
+			},
+		]);
+		expect(postedMessages.map((postedMessage) => postedMessage.message)).toContainEqual(
+			expect.objectContaining({
+				kind: 'health',
+				requestId: 'request-review-intake-ready',
+				status: 'ready',
+			}),
+		);
+	});
+
 	test('forwards markFileViewed commands to Swift through worker-owned scheme RPC', async () => {
 		const sentCommands: BridgeRPCCommand[] = [];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
@@ -40,10 +87,6 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
-			contentRequestDescriptors: [],
-			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
-			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 			sendSchemeRpcCommand: async (command): Promise<void> => {
 				sentCommands.push(command);
 				await schemeRpcCompletion.promise;
@@ -94,10 +137,6 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
-			contentRequestDescriptors: [],
-			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
-			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 			sendSchemeRpcCommand: async (): Promise<void> => {
 				throw new Error('scheme down');
 			},
@@ -140,10 +179,6 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
-			contentRequestDescriptors: [],
-			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
-			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 			sendSchemeRpcCommand: async (command): Promise<void> => {
 				sentCommands.push(command);
 			},
@@ -193,10 +228,6 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
-			contentRequestDescriptors: [],
-			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
-			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 			sendSchemeRpcCommand: async (command): Promise<void> => {
 				sentCommands.push(command);
 				await schemeRpcCompletion.promise;
@@ -261,10 +292,6 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
-			contentRequestDescriptors: [],
-			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
-			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 			sendSchemeRpcCommand: async (): Promise<void> => {
 				throw new Error('scheme down');
 			},
@@ -314,10 +341,6 @@ describe('Bridge comm worker runtime protocol', () => {
 					maxBytes: 512 * 1024,
 					maxWindowLines: 50,
 				},
-				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
-				contentRequestDescriptors: [],
-				renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
-				rows: [{ id: 'item-1', parentId: null, index: 0 }],
 				schemeRpcTimeoutMilliseconds: 25,
 				sendSchemeRpcCommand: async (): Promise<void> => new Promise((): void => {}),
 			});
@@ -380,10 +403,6 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
-			contentRequestDescriptors: [],
-			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
-			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 			sendSchemeRpcCommand: async (command): Promise<void> => {
 				sentCommands.push(command);
 				await schemeRpcCompletion.promise;
@@ -452,10 +471,6 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
-			contentRequestDescriptors: [],
-			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
-			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 			sendSchemeRpcCommand: async (): Promise<void> => {
 				throw new Error('scheme down');
 			},
@@ -497,6 +512,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		let clockMs = 0;
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const reviewProductSource = createBridgeCommWorkerReviewProductTestSource();
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
@@ -505,34 +521,40 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			contentItems: [makeWorkerReviewContentMetadata()],
-			contentRequestDescriptors: [
-				makeContentRequestDescriptor({ role: 'base', text: 'visible base' }),
-				makeContentRequestDescriptor({ role: 'head', text: 'visible head' }),
-			],
 			createSequence: createBridgeWorkerSequenceCounter(101),
-			fetchContent: async (url: string): Promise<Response> => {
-				const descriptor = descriptorByUrl.get(url);
-				if (descriptor === undefined) {
-					throw new Error(`Unexpected review content URL ${url}.`);
-				}
-				return makeImmediateTextResponse(descriptor.text);
-			},
+			openReviewContent: openReviewContentFromDescriptorMap,
 			pump: createWorkerContentPreparationPump({
 				maxSliceMs: 8,
 				now: () => clockMs,
 			}),
-			renderSemantics: [makeRenderSemantics()],
-			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			productTransport: reviewProductSource.productTransport,
 			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
 				scheduledDrains.push(drain);
 			},
 		});
+		reviewProductSource.publishSource(
+			{
+				contentItems: [makeWorkerReviewContentMetadata()],
+				contentRequestDescriptors: [
+					makeContentRequestDescriptor({ role: 'base', text: 'visible base' }),
+					makeContentRequestDescriptor({ role: 'head', text: 'visible head' }),
+				],
+				renderSemantics: [makeRenderSemantics()],
+				rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			},
+			4,
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await flushBridgeWorkerRuntimeContinuations();
+		scheduledDrains.length = 0;
+		postedMessages.length = 0;
 
 		dispatch.message(
 			encodeBridgeWorkerViewportCommand({
 				requestId: 'request-visible-viewport',
 				epoch: 5,
+				surface: 'review',
 				visibleItemIds: ['item-1'],
 				firstVisibleIndex: 0,
 				lastVisibleIndex: 0,
@@ -554,15 +576,15 @@ describe('Bridge comm worker runtime protocol', () => {
 		const firstDrainResult = await firstDrainCompletion;
 
 		expect(firstDrainResult.completedIds).toEqual([]);
-		expect(secondDrainResult.completedIds).toEqual(['review-content-ready:item-1:visible:102']);
+		expect(secondDrainResult.completedIds).toEqual(['review-content-ready:item-1:visible:104']);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'slicePatch',
 			'health',
-			'pierreRenderJob',
-			'slicePatch',
+			'reviewPierreRenderJob',
+			'reviewRenderPatch',
 		]);
 		expect(postedMessages[2]?.message).toMatchObject({
-			kind: 'pierreRenderJob',
+			kind: 'reviewPierreRenderJob',
 			job: {
 				itemId: 'item-1',
 				bridgeDemandRank: { lane: 'visible', priority: 1 },
@@ -570,9 +592,9 @@ describe('Bridge comm worker runtime protocol', () => {
 			},
 		});
 		expect(postedMessages[3]?.message).toMatchObject({
-			kind: 'slicePatch',
-			epoch: 5,
-			sequence: 102,
+			kind: 'reviewRenderPatch',
+			publicationSequence: 104,
+			workerDerivationEpoch: 5,
 			patches: [
 				{
 					slice: 'rowPaint',
@@ -593,6 +615,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		let clockMs = 0;
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const reviewProductSource = createBridgeCommWorkerReviewProductTestSource();
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
@@ -601,31 +624,24 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			contentItems: [],
-			contentRequestDescriptors: [],
 			createSequence: createBridgeWorkerSequenceCounter(201),
-			fetchContent: async (url: string): Promise<Response> => {
-				const descriptor = descriptorByUrl.get(url);
-				if (descriptor === undefined) {
-					throw new Error(`Unexpected review content URL ${url}.`);
-				}
-				return makeImmediateTextResponse(descriptor.text);
-			},
+			openReviewContent: openReviewContentFromDescriptorMap,
 			pump: createWorkerContentPreparationPump({
 				maxSliceMs: 8,
 				now: () => clockMs,
 			}),
-			renderSemantics: [],
-			rows: [],
+			productTransport: reviewProductSource.productTransport,
 			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
 				scheduledDrains.push(drain);
 			},
 		});
+		await flushBridgeWorkerRuntimeContinuations();
 
 		dispatch.message(
 			encodeBridgeWorkerViewportCommand({
 				requestId: 'request-visible-before-source',
 				epoch: 5,
+				surface: 'review',
 				visibleItemIds: ['item-1'],
 				firstVisibleIndex: 0,
 				lastVisibleIndex: 0,
@@ -638,10 +654,8 @@ describe('Bridge comm worker runtime protocol', () => {
 		]);
 		expect(scheduledDrains).toEqual([]);
 
-		dispatch.message(
-			encodeBridgeWorkerReviewSourceUpdateCommand({
-				requestId: 'request-source-after-viewport',
-				epoch: 6,
+		reviewProductSource.publishSource(
+			{
 				contentItems: [makeWorkerReviewContentMetadata()],
 				contentRequestDescriptors: [
 					makeContentRequestDescriptor({ role: 'base', text: 'source repair base' }),
@@ -649,13 +663,15 @@ describe('Bridge comm worker runtime protocol', () => {
 				],
 				renderSemantics: [makeRenderSemantics()],
 				rows: [{ id: 'item-1', parentId: null, index: 0 }],
-			}),
+			},
+			6,
 		);
+		await flushBridgeWorkerRuntimeContinuations();
 
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'slicePatch',
 			'health',
-			'health',
+			'reviewDisplayPatch',
 		]);
 		expect(scheduledDrains).toHaveLength(1);
 		clockMs += 1;
@@ -666,17 +682,17 @@ describe('Bridge comm worker runtime protocol', () => {
 		const secondDrainResult = await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
 		const firstDrainResult = await firstDrainCompletion;
 
-		expect(firstDrainResult.completedIds).toEqual(['review-source-reset:6']);
-		expect(secondDrainResult.completedIds).toEqual(['review-content-ready:item-1:visible:202']);
+		expect(firstDrainResult.completedIds).toEqual(['review-source-reset:1']);
+		expect(secondDrainResult.completedIds).toEqual(['review-content-ready:item-1:visible:204']);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'slicePatch',
 			'health',
-			'health',
-			'pierreRenderJob',
-			'slicePatch',
+			'reviewDisplayPatch',
+			'reviewPierreRenderJob',
+			'reviewRenderPatch',
 		]);
 		expect(postedMessages[3]?.message).toMatchObject({
-			kind: 'pierreRenderJob',
+			kind: 'reviewPierreRenderJob',
 			job: {
 				itemId: 'item-1',
 				bridgeDemandRank: { lane: 'visible', priority: 1 },
@@ -684,9 +700,9 @@ describe('Bridge comm worker runtime protocol', () => {
 			},
 		});
 		expect(postedMessages[4]?.message).toMatchObject({
-			kind: 'slicePatch',
-			epoch: 6,
-			sequence: 202,
+			kind: 'reviewRenderPatch',
+			publicationSequence: 204,
+			workerDerivationEpoch: 1,
 			patches: [
 				{
 					slice: 'rowPaint',
@@ -708,6 +724,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		const fetchCallsByItemId = new Map<string, number>();
+		const reviewProductSource = createBridgeCommWorkerReviewProductTestSource();
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
@@ -716,65 +733,73 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			contentItems: [
-				makeWorkerReviewContentMetadata({ itemId: 'item-1' }),
-				makeWorkerReviewContentMetadata({ itemId: 'item-2' }),
-			],
-			contentRequestDescriptors: [
-				makeContentRequestDescriptor({
-					itemId: 'item-1',
-					role: 'base',
-					text: 'ready base',
-				}),
-				makeContentRequestDescriptor({
-					itemId: 'item-1',
-					role: 'head',
-					text: 'ready head',
-				}),
-				makeContentRequestDescriptor({
-					itemId: 'item-2',
-					role: 'base',
-					text: 'cold base',
-				}),
-				makeContentRequestDescriptor({
-					itemId: 'item-2',
-					role: 'head',
-					text: 'cold head',
-				}),
-			],
 			createSequence: createBridgeWorkerSequenceCounter(301),
-			fetchContent: async (url: string): Promise<Response> => {
-				const descriptor = descriptorByUrl.get(url);
-				if (descriptor === undefined) {
-					throw new Error(`Unexpected review content URL ${url}.`);
-				}
+			openReviewContent: (descriptor, abortSignal) => {
 				fetchCallsByItemId.set(
 					descriptor.itemId,
 					(fetchCallsByItemId.get(descriptor.itemId) ?? 0) + 1,
 				);
-				return makeImmediateTextResponse(descriptor.text);
+				return openReviewContentFromDescriptorMap(descriptor, abortSignal);
 			},
 			pump: createWorkerContentPreparationPump({
 				maxSliceMs: 8,
 				now: () => clockMs,
 			}),
-			renderSemantics: [
-				makeRenderSemantics({ itemId: 'item-1' }),
-				makeRenderSemantics({ itemId: 'item-2' }),
-			],
-			rows: [
-				{ id: 'item-1', parentId: null, index: 0 },
-				{ id: 'item-2', parentId: null, index: 1 },
-			],
+			productTransport: reviewProductSource.productTransport,
 			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
 				scheduledDrains.push(drain);
 			},
 		});
+		reviewProductSource.publishSource(
+			{
+				contentItems: [
+					makeWorkerReviewContentMetadata({ itemId: 'item-1' }),
+					makeWorkerReviewContentMetadata({ itemId: 'item-2' }),
+				],
+				contentRequestDescriptors: [
+					makeContentRequestDescriptor({
+						itemId: 'item-1',
+						role: 'base',
+						text: 'ready base',
+					}),
+					makeContentRequestDescriptor({
+						itemId: 'item-1',
+						role: 'head',
+						text: 'ready head',
+					}),
+					makeContentRequestDescriptor({
+						itemId: 'item-2',
+						role: 'base',
+						text: 'cold base',
+					}),
+					makeContentRequestDescriptor({
+						itemId: 'item-2',
+						role: 'head',
+						text: 'cold head',
+					}),
+				],
+				renderSemantics: [
+					makeRenderSemantics({ itemId: 'item-1' }),
+					makeRenderSemantics({ itemId: 'item-2' }),
+				],
+				rows: [
+					{ id: 'item-1', parentId: null, index: 0 },
+					{ id: 'item-2', parentId: null, index: 1 },
+				],
+			},
+			4,
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await flushBridgeWorkerRuntimeContinuations();
+		scheduledDrains.length = 0;
+		postedMessages.length = 0;
 
 		dispatch.message(
 			encodeBridgeWorkerViewportCommand({
 				requestId: 'request-ready-visible',
 				epoch: 5,
+				surface: 'review',
 				visibleItemIds: ['item-1'],
 				firstVisibleIndex: 0,
 				lastVisibleIndex: 0,
@@ -792,6 +817,7 @@ describe('Bridge comm worker runtime protocol', () => {
 			encodeBridgeWorkerViewportCommand({
 				requestId: 'request-cold-visible',
 				epoch: 6,
+				surface: 'review',
 				visibleItemIds: ['item-1', 'item-2'],
 				firstVisibleIndex: 0,
 				lastVisibleIndex: 1,
@@ -806,7 +832,9 @@ describe('Bridge comm worker runtime protocol', () => {
 		await coldFirstDrain;
 
 		const pierreJobItemIds = postedMessages.flatMap((postedMessage) =>
-			postedMessage.message.kind === 'pierreRenderJob' ? [postedMessage.message.job.itemId] : [],
+			postedMessage.message.kind === 'reviewPierreRenderJob'
+				? [postedMessage.message.job.itemId]
+				: [],
 		);
 		expect(pierreJobItemIds).toEqual(['item-1', 'item-2']);
 		expect(fetchCallsByItemId.get('item-1')).toBe(2);
@@ -817,7 +845,8 @@ describe('Bridge comm worker runtime protocol', () => {
 		const clockMs = 0;
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
-		const deferredResponsesByUrl = new Map<string, DeferredTextResponse>();
+		const deferredStreamsByDescriptorId = new Map<string, DeferredReviewContentStream>();
+		const reviewProductSource = createBridgeCommWorkerReviewProductTestSource();
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
@@ -826,49 +855,57 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
-			contentRequestDescriptors: [
-				makeContentRequestDescriptor({
-					generation: 4,
-					itemId: 'item-1',
-					role: 'base',
-					text: 'old base',
-				}),
-				makeContentRequestDescriptor({
-					generation: 4,
-					itemId: 'item-1',
-					role: 'head',
-					text: 'old head',
-				}),
-			],
 			createSequence: createBridgeWorkerSequenceCounter(401),
-			fetchContent: (url: string): Promise<Response> => {
-				const descriptor = descriptorByUrl.get(url);
-				if (descriptor === undefined) {
-					throw new Error(`Unexpected review content URL ${url}.`);
+			openReviewContent: (descriptor, abortSignal) => {
+				if (descriptor.descriptorId.endsWith('-4')) {
+					const deferredStream = createDeferredReviewContentStream(descriptor);
+					deferredStreamsByDescriptorId.set(descriptor.descriptorId, deferredStream);
+					return deferredStream.stream;
 				}
-				if (url.includes('generation=4')) {
-					const deferredResponse = createDeferredTextResponse();
-					deferredResponsesByUrl.set(url, deferredResponse);
-					return deferredResponse.promise;
-				}
-				return Promise.resolve(makeImmediateTextResponse(descriptor.text));
+				return openReviewContentFromDescriptorMap(descriptor, abortSignal);
 			},
 			pump: createWorkerContentPreparationPump({
 				maxSliceMs: 8,
 				now: () => clockMs,
 			}),
-			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
-			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			productTransport: reviewProductSource.productTransport,
 			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
 				scheduledDrains.push(drain);
 			},
 		});
+		reviewProductSource.publishSource(
+			{
+				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+				contentRequestDescriptors: [
+					makeContentRequestDescriptor({
+						generation: 4,
+						itemId: 'item-1',
+						role: 'base',
+						text: 'old base',
+					}),
+					makeContentRequestDescriptor({
+						generation: 4,
+						itemId: 'item-1',
+						role: 'head',
+						text: 'old head',
+					}),
+				],
+				renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+				rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			},
+			4,
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await flushBridgeWorkerRuntimeContinuations();
+		scheduledDrains.length = 0;
+		postedMessages.length = 0;
 
 		dispatch.message(
 			encodeBridgeWorkerViewportCommand({
 				requestId: 'request-visible-before-update',
 				epoch: 5,
+				surface: 'review',
 				visibleItemIds: ['item-1'],
 				firstVisibleIndex: 0,
 				lastVisibleIndex: 0,
@@ -877,12 +914,10 @@ describe('Bridge comm worker runtime protocol', () => {
 		);
 		const staleFirstDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
-		expect(deferredResponsesByUrl.size).toBe(2);
+		expect(deferredStreamsByDescriptorId.size).toBe(2);
 
-		dispatch.message(
-			encodeBridgeWorkerReviewSourceUpdateCommand({
-				requestId: 'request-update-during-visible-fetch',
-				epoch: 6,
+		reviewProductSource.publishSource(
+			{
 				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
 				contentRequestDescriptors: [
 					makeContentRequestDescriptor({
@@ -900,12 +935,13 @@ describe('Bridge comm worker runtime protocol', () => {
 				],
 				renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
 				rows: [{ id: 'item-1', parentId: null, index: 0 }],
-			}),
+			},
+			6,
 		);
-		expect(scheduledDrains).toHaveLength(2);
+		await flushBridgeWorkerRuntimeContinuations();
 
-		for (const deferredResponse of deferredResponsesByUrl.values()) {
-			deferredResponse.resolve('old body');
+		for (const deferredStream of deferredStreamsByDescriptorId.values()) {
+			deferredStream.resolve('old body');
 		}
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(scheduledDrains).toHaveLength(2);
@@ -921,7 +957,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		await freshFirstDrain;
 
 		const pierreJobMessages = postedMessages.flatMap((postedMessage) =>
-			postedMessage.message.kind === 'pierreRenderJob' ? [postedMessage.message] : [],
+			postedMessage.message.kind === 'reviewPierreRenderJob' ? [postedMessage.message] : [],
 		);
 		expect(pierreJobMessages).toHaveLength(1);
 		expect(JSON.stringify(pierreJobMessages[0])).toContain('fresh head');

@@ -2,8 +2,6 @@ import type { CodeViewOptions } from '@pierre/diffs';
 
 import { bridgePierreDarkThemeName } from './bridge-code-view-theme.js';
 
-const codeViewReviewBottomScrollSlackPixels = 960;
-
 export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 	theme: {
 		dark: bridgePierreDarkThemeName,
@@ -35,7 +33,7 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 	stickyHeaders: true,
 	layout: {
 		paddingTop: 0,
-		paddingBottom: codeViewReviewBottomScrollSlackPixels,
+		paddingBottom: 0,
 		gap: 1,
 	},
 	unsafeCSS: `

@@ -3,21 +3,14 @@ import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
-	bridgeProductContentIdentityFromDescriptor,
-	bridgeProductContentRequestSchema,
-	type BridgeProductFileContentDescriptor,
-	type BridgeProductContentRequest,
-} from './bridge-product-content-contracts.js';
-import {
-	concatenateBytes,
-	encodeMinimalControlFrame,
-	encodeMinimalDataFrame,
-} from './bridge-product-content-frame-test-support.js';
-import {
 	BRIDGE_PRODUCT_COMMAND_ROUTE,
-	BRIDGE_PRODUCT_CONTENT_ROUTE,
 	BRIDGE_PRODUCT_STREAM_ROUTE,
 } from './bridge-product-contract-primitives.js';
+import type { BridgeProductFileSourceIdentity } from './bridge-product-file-contracts.js';
+import {
+	bridgeProductFrameAcknowledgementRequestSchema,
+	type BridgeProductFrameAcknowledgementRequest,
+} from './bridge-product-frame-acknowledgement-contracts.js';
 import { encodeBridgeProductMetadataFrame } from './bridge-product-metadata-frame-codec.js';
 import {
 	BridgeProductControlMux,
@@ -38,13 +31,59 @@ import {
 	type BridgeProductIdentifierPurpose,
 } from './bridge-product-transport.js';
 
-const abcSha256 = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
-
 afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
 describe('Bridge product transport', () => {
+	test('keeps a File subscription alive through its initial source event', async () => {
+		const harness = createTransportHarness();
+		const subscription = harness.transport.subscribe('file.metadata', {
+			interests: [],
+			pathScope: [],
+			source: fileSourceConfiguration(),
+		});
+		const nextEvent = subscription.events[Symbol.asyncIterator]().next();
+		await harness.server.waitForMetadataStream();
+		const request = harness.server.requiredMetadataRequest();
+		const emptyHash = emptyInterestHash('file.metadata');
+		harness.server.emitMetadata(metadataAccepted(request, 0));
+		harness.server.emitMetadata(
+			subscriptionAccepted({
+				epoch: 0,
+				interestHash: emptyHash,
+				kind: 'file.metadata',
+				request,
+				streamSequence: 1,
+				subscriptionId: subscription.subscriptionId,
+			}),
+		);
+		await waitForCondition(
+			() => harness.transport.metadataStreamDiagnostics?.().readRequestCount === 3,
+		);
+
+		harness.server.emitMetadata(
+			fileSourceAcceptedData({
+				epoch: 0,
+				interestHash: emptyHash,
+				request,
+				streamSequence: 2,
+				subscriptionId: subscription.subscriptionId,
+			}),
+		);
+
+		await expect(nextEvent).resolves.toMatchObject({
+			done: false,
+			value: { eventKind: 'file.sourceAccepted', source: fileSourceIdentity() },
+		});
+		expect(harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
+			activeSubscriptionCount: 1,
+			failureStage: null,
+			lastAcknowledgedStreamSequence: 2,
+			routedFrameCount: 3,
+		});
+	});
+
 	test('shares one accepted physical stream, routes early mixed events, and preserves initial interest', async () => {
 		const harness = createTransportHarness({ fileEpoch: 5, reviewEpoch: 2 });
 		harness.server.holdNextSubscriptionOpen();
@@ -72,6 +111,30 @@ describe('Bridge product transport', () => {
 				subscriptionId: review.subscriptionId,
 			}),
 		);
+		await waitForCondition(
+			() => harness.transport.metadataStreamDiagnostics?.().readRequestCount === 3,
+		);
+		expect(harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
+			acknowledgedFrameCount: 2,
+			failureStage: null,
+			lastAcknowledgedStreamSequence: 1,
+			lastRoutedFrameKind: 'subscription.accepted',
+			lifecycleState: 'reading',
+			readFulfilledCount: 2,
+			readPending: true,
+			readRequestCount: 3,
+			routeFailureCode: null,
+			routedFrameCount: 2,
+		});
+		expect(
+			harness.server.frameAcknowledgements.map((acknowledgement) => {
+				expect(acknowledgement.streamKind).toBe('metadata');
+				if (acknowledgement.streamKind !== 'metadata') {
+					throw new Error('Expected a metadata frame acknowledgement.');
+				}
+				return acknowledgement.streamSequence;
+			}),
+		).toEqual([0, 1]);
 		harness.server.emitMetadata(
 			reviewData({
 				epoch: 2,
@@ -123,6 +186,70 @@ describe('Bridge product transport', () => {
 		expect(harness.server.metadataFetchCount).toBe(1);
 	});
 
+	test('rejects a closed acknowledgement conflict status and cancels the metadata reader', async () => {
+		const harness = createTransportHarness();
+		harness.server.nextAcknowledgementStatus = 409;
+		const subscription = harness.transport.subscribe('review.metadata', { interests: [] });
+		const nextEvent = subscription.events[Symbol.asyncIterator]().next();
+		await harness.server.waitForMetadataStream();
+		harness.server.emitMetadata(metadataAccepted(harness.server.requiredMetadataRequest(), 0));
+
+		await expect(nextEvent).rejects.toThrow(/acknowledgement.*409/iu);
+		expect(harness.server.metadataReaderCancelCount).toBe(1);
+		expect(harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
+			acknowledgedFrameCount: 0,
+			failureStage: 'acknowledgement',
+			lastAcknowledgedStreamSequence: null,
+			lastRoutedFrameKind: 'metadataStream.accepted',
+			readRequestCount: 1,
+			routedFrameCount: 1,
+		});
+	});
+
+	test('records an unknown subscription acceptance as a route failure before read three', async () => {
+		const harness = createTransportHarness();
+		const subscription = harness.transport.subscribe('review.metadata', { interests: [] });
+		const nextEvent = subscription.events[Symbol.asyncIterator]().next();
+		await harness.server.waitForMetadataStream();
+		const request = harness.server.requiredMetadataRequest();
+		harness.server.emitMetadata(metadataAccepted(request, 0));
+		harness.server.emitMetadata(
+			subscriptionAccepted({
+				epoch: 0,
+				interestHash: emptyInterestHash('review.metadata'),
+				kind: 'review.metadata',
+				request,
+				streamSequence: 1,
+				subscriptionId: 'unknown-subscription',
+			}),
+		);
+
+		await expect(nextEvent).rejects.toThrow(/unknown subscription/iu);
+		expect(harness.server.metadataReaderCancelCount).toBe(1);
+		expect(
+			harness.server.frameAcknowledgements.map((acknowledgement) => {
+				expect(acknowledgement.streamKind).toBe('metadata');
+				if (acknowledgement.streamKind !== 'metadata') {
+					throw new Error('Expected a metadata frame acknowledgement.');
+				}
+				return acknowledgement.streamSequence;
+			}),
+		).toEqual([0]);
+		expect(harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
+			activeSubscriptionCount: 0,
+			committedFrameCount: 2,
+			failureStage: 'route',
+			lastCommittedFrameKind: 'subscription.accepted',
+			lastRoutedFrameKind: 'metadataStream.accepted',
+			lifecycleState: 'failed',
+			readFulfilledCount: 2,
+			readPending: false,
+			readRequestCount: 2,
+			routeFailureCode: 'unknown_subscription',
+			routedFrameCount: 1,
+		});
+	});
+
 	test('poisons a logical subscription on hostile pre-acceptance data', async () => {
 		const harness = createTransportHarness();
 		const subscription = harness.transport.subscribe('review.metadata', { interests: [] });
@@ -144,6 +271,60 @@ describe('Bridge product transport', () => {
 		);
 
 		await expect(nextEvent).rejects.toThrow(/accepted sequence zero|sequence is not contiguous/iu);
+	});
+
+	test('exposes payload-free metadata stream diagnostics after a poisoned packaged frame', async () => {
+		const harness = createTransportHarness();
+		const subscription = harness.transport.subscribe('file.metadata', {
+			interests: [],
+			pathScope: [],
+			source: fileSourceConfiguration(),
+		});
+		const nextEvent = subscription.events[Symbol.asyncIterator]().next();
+		await harness.server.waitForMetadataStream();
+		const request = harness.server.requiredMetadataRequest();
+		harness.server.emitMetadata(metadataAccepted(request, 0));
+		harness.server.emitMetadata(
+			bridgeProductMetadataFrameSchema.parse({
+				...subscriptionAccepted({
+					epoch: 0,
+					interestHash: emptyInterestHash('file.metadata'),
+					kind: 'file.metadata',
+					request,
+					streamSequence: 1,
+					subscriptionId: subscription.subscriptionId,
+				}),
+				metadataStreamId: 'metadata-stream-mismatch',
+			}),
+		);
+
+		await expect(nextEvent).rejects.toThrow();
+		expect(harness.server.metadataReaderCancelCount).toBe(1);
+		expect(harness.transport.metadataStreamDiagnostics?.()).toEqual({
+			acknowledgedFrameCount: 1,
+			activeSubscriptionCount: 0,
+			committedFrameCount: 1,
+			decoderState: 'poisoned',
+			expectedNextStreamSequence: 1,
+			failureStage: 'decode',
+			failureCode: 'stream_identity_mismatch',
+			identityMismatchField: 'metadataStreamId',
+			lastChunkByteCount: expect.any(Number),
+			lastAcknowledgedStreamSequence: 0,
+			lastCommittedFrameKind: 'metadataStream.accepted',
+			lastRoutedFrameKind: 'metadataStream.accepted',
+			lifecycleState: 'failed',
+			peakRetainedByteCount: expect.any(Number),
+			pushCount: 2,
+			readFulfilledCount: 2,
+			readPending: false,
+			readRequestCount: 2,
+			receivedByteCount: expect.any(Number),
+			retainedByteCount: 0,
+			routeFailureCode: null,
+			routedFrameCount: 1,
+			streamOpenCount: 1,
+		});
 	});
 
 	test('settles cancel only after the correlated terminal metadata frame', async () => {
@@ -210,45 +391,6 @@ describe('Bridge product transport', () => {
 			workerDerivationEpoch: 7,
 		});
 	});
-
-	test('opens concurrent content outside the control sequence', async () => {
-		const harness = createTransportHarness({ fileEpoch: 3 });
-		const first = harness.transport.openContent(
-			fileContentDescriptor('descriptor-1'),
-			new AbortController().signal,
-		);
-		const second = harness.transport.openContent(
-			fileContentDescriptor('descriptor-2'),
-			new AbortController().signal,
-		);
-
-		const terminals = await Promise.all([first.terminal, second.terminal]);
-		await harness.transport.call('review.markFileViewed', { itemId: 'review-item-1' });
-
-		expect(terminals.map((terminal) => terminal.kind)).toEqual(['complete', 'complete']);
-		expect(harness.server.contentRequests).toHaveLength(2);
-		expect(harness.server.contentRequests.map((request) => request.workerDerivationEpoch)).toEqual([
-			3, 3,
-		]);
-		expect(harness.server.controlRequests).toHaveLength(1);
-		expect(harness.server.controlRequests[0]?.requestSequence).toBe(2);
-	});
-
-	test('cancels the content response reader when the required signal aborts', async () => {
-		const harness = createTransportHarness();
-		harness.server.holdContentResponses = true;
-		const abortController = new AbortController();
-		const content = harness.transport.openContent(
-			fileContentDescriptor('descriptor-abort'),
-			abortController.signal,
-		);
-		await harness.server.waitForContentRequestCount(1);
-
-		abortController.abort(new DOMException('cancelled', 'AbortError'));
-
-		await expect(content.terminal).rejects.toThrow();
-		expect(harness.server.contentReaderCancelCount).toBe(1);
-	});
 });
 
 interface TransportHarness {
@@ -298,11 +440,12 @@ function createTransportHarness(
 }
 
 class TestProductServer {
-	readonly contentRequests: BridgeProductContentRequest[] = [];
-	contentReaderCancelCount = 0;
 	readonly controlRequests: BridgeProductControlRequest[] = [];
-	holdContentResponses = false;
+	readonly frameAcknowledgements: BridgeProductFrameAcknowledgementRequest[] = [];
 	metadataFetchCount = 0;
+	metadataReaderCancelCount = 0;
+	nextAcknowledgementStatus = 204;
+	readonly requestRoutes: string[] = [];
 	#heldOpen: (() => void) | null = null;
 	#holdOpen = false;
 	#metadataController: ReadableStreamDefaultController<Uint8Array> | null = null;
@@ -310,11 +453,27 @@ class TestProductServer {
 
 	readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 		const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+		this.requestRoutes.push(url);
 		if (url === BRIDGE_PRODUCT_STREAM_ROUTE) return this.#openMetadataStream(init);
-		if (url === BRIDGE_PRODUCT_CONTENT_ROUTE) return this.#openContent(init);
-		if (url === BRIDGE_PRODUCT_COMMAND_ROUTE) return await this.#handleControl(init);
+		if (url === BRIDGE_PRODUCT_COMMAND_ROUTE) {
+			const body = parseBody(init);
+			return typeof body === 'object' &&
+				body !== null &&
+				'kind' in body &&
+				body.kind === 'stream.frameObserved'
+				? this.#acknowledgeFrame(body)
+				: await this.#handleControl(body);
+		}
 		return new Response(null, { status: 404 });
 	};
+
+	async #acknowledgeFrame(body: unknown): Promise<Response> {
+		const request = bridgeProductFrameAcknowledgementRequestSchema.parse(body);
+		this.frameAcknowledgements.push(request);
+		const status = this.nextAcknowledgementStatus;
+		this.nextAcknowledgementStatus = 204;
+		return new Response(null, { status });
+	}
 
 	emitMetadata(frame: BridgeProductMetadataFrame): void {
 		if (this.#metadataController === null) throw new Error('Metadata stream is not open.');
@@ -348,10 +507,6 @@ class TestProductServer {
 		return this.#metadataRequest;
 	}
 
-	async waitForContentRequestCount(count: number): Promise<void> {
-		await waitForCondition(() => this.contentRequests.length >= count);
-	}
-
 	async waitForControlKind(kind: BridgeProductControlRequest['kind'], count = 1): Promise<void> {
 		await waitForCondition(
 			() => this.controlRequests.filter((request) => request.kind === kind).length >= count,
@@ -367,6 +522,9 @@ class TestProductServer {
 		this.#metadataRequest = bridgeProductMetadataStreamRequestSchema.parse(parseBody(init));
 		return new Response(
 			new ReadableStream<Uint8Array>({
+				cancel: (): void => {
+					this.metadataReaderCancelCount += 1;
+				},
 				start: (controller): void => {
 					this.#metadataController = controller;
 				},
@@ -374,47 +532,8 @@ class TestProductServer {
 		);
 	}
 
-	#openContent(init?: RequestInit): Response {
-		const request = bridgeProductContentRequestSchema.parse(parseBody(init));
-		this.contentRequests.push(request);
-		if (this.holdContentResponses) {
-			return new Response(
-				new ReadableStream<Uint8Array>({
-					cancel: (): void => {
-						this.contentReaderCancelCount += 1;
-					},
-				}),
-			);
-		}
-		const acceptedBody = {
-			contentRequestId: request.contentRequestId,
-			declaredByteLength: 3,
-			expectedSha256: 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
-			identity: bridgeProductContentIdentityFromDescriptor(request.descriptor),
-			leaseId: request.leaseId,
-			maximumBytes: request.descriptor.maximumBytes,
-			paneSessionId: request.paneSessionId,
-			wireVersion: request.wireVersion,
-			workerDerivationEpoch: request.workerDerivationEpoch,
-			workerInstanceId: request.workerInstanceId,
-		};
-		return new Response(
-			Uint8Array.from(
-				concatenateBytes(
-					encodeMinimalControlFrame(0x01, 0, acceptedBody),
-					encodeMinimalDataFrame(1, 0, Uint8Array.from([97, 98, 99])),
-					encodeMinimalControlFrame(0x03, 2, {
-						endOfSource: true,
-						observedByteLength: 3,
-						observedSha256: abcSha256,
-					}),
-				),
-			).buffer,
-		);
-	}
-
-	async #handleControl(init?: RequestInit): Promise<Response> {
-		const request = bridgeProductControlRequestSchema.parse(parseBody(init));
+	async #handleControl(body: unknown): Promise<Response> {
+		const request = bridgeProductControlRequestSchema.parse(body);
 		this.controlRequests.push(request);
 		if (request.kind === 'subscription.open' && this.#holdOpen) {
 			this.#holdOpen = false;
@@ -543,6 +662,31 @@ function reviewData(props: {
 	});
 }
 
+function fileSourceAcceptedData(props: {
+	readonly epoch: number;
+	readonly interestHash: string;
+	readonly request: BridgeProductMetadataStreamRequest;
+	readonly streamSequence: number;
+	readonly subscriptionId: string;
+}): BridgeProductMetadataFrame {
+	return bridgeProductMetadataFrameSchema.parse({
+		...metadataIdentity(props.request, props.streamSequence),
+		cursor: 'source-cursor-1',
+		data: {
+			event: { eventKind: 'file.sourceAccepted', source: fileSourceIdentity() },
+			subscriptionKind: 'file.metadata',
+		},
+		interestRevision: 0,
+		interestSha256: props.interestHash,
+		kind: 'subscription.data',
+		sourceGeneration: 1,
+		subscriptionId: props.subscriptionId,
+		subscriptionKind: 'file.metadata',
+		subscriptionSequence: 1,
+		workerDerivationEpoch: props.epoch,
+	});
+}
+
 function subscriptionCancelled(props: {
 	readonly epoch: number;
 	readonly interestHash: string;
@@ -604,27 +748,6 @@ function metadataIdentity(
 	};
 }
 
-function fileContentDescriptor(descriptorId: string): BridgeProductFileContentDescriptor {
-	return {
-		contentKind: 'file.content',
-		declaredByteLength: 3,
-		descriptorId,
-		encoding: 'utf-8',
-		expectedSha256: abcSha256,
-		fileId: `file-${descriptorId}`,
-		maximumBytes: 2 * 1024 * 1024,
-		source: {
-			repoId: '00000000-0000-4000-8000-000000000001',
-			rootRevisionToken: null,
-			sourceCursor: 'source-cursor-1',
-			sourceId: 'source-1',
-			subscriptionGeneration: 1,
-			worktreeId: '00000000-0000-4000-8000-000000000002',
-		},
-		window: { kind: 'prefix', maximumBytes: 2 * 1024 * 1024, maximumLines: 10_000, startByte: 0 },
-	} as const;
-}
-
 function fileSourceConfiguration(): BridgeProductSubscriptionOptions<'file.metadata'>['source'] {
 	return {
 		cwdScope: null,
@@ -632,6 +755,17 @@ function fileSourceConfiguration(): BridgeProductSubscriptionOptions<'file.metad
 		includeStatuses: true,
 		repoId: '00000000-0000-4000-8000-000000000001',
 		rootPathToken: 'root-token-1',
+		worktreeId: '00000000-0000-4000-8000-000000000002',
+	} as const;
+}
+
+function fileSourceIdentity(): BridgeProductFileSourceIdentity {
+	return {
+		repoId: '00000000-0000-4000-8000-000000000001',
+		rootRevisionToken: null,
+		sourceCursor: 'source-cursor-1',
+		sourceId: 'source-1',
+		subscriptionGeneration: 1,
 		worktreeId: '00000000-0000-4000-8000-000000000002',
 	} as const;
 }

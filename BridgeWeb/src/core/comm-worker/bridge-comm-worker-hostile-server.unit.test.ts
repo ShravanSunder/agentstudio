@@ -28,11 +28,13 @@ describe('Bridge comm worker hostile server test support', () => {
 			epoch: 1,
 			selectedItemId: 'item-1',
 			selectedSource: 'user',
+			surface: 'fileView',
 		});
 		const secondTask = client.select({
 			epoch: 2,
 			selectedItemId: 'item-2',
 			selectedSource: 'user',
+			surface: 'fileView',
 		});
 
 		activeReply.resolve({

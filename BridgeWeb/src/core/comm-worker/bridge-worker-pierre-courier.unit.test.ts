@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs';
 import { parseDiffFromFile } from '@pierre/diffs';
 import { describe, expect, test } from 'vitest';
 
-import type { BridgeWorkerPierreRenderJobEvent } from './bridge-worker-contracts.js';
 import { createBridgeWorkerPierreCourier } from './bridge-worker-pierre-courier.js';
 import {
 	buildBridgeWorkerPierreRenderJob,
@@ -11,7 +10,7 @@ import {
 } from './bridge-worker-pierre-render-job.js';
 
 describe('Bridge worker Pierre courier', () => {
-	test('review courier enqueues BridgeWorkerPierreRenderJob through the injected Pierre seam without main content work', () => {
+	test('review courier submits BridgeWorkerPierreRenderJob through the injected Pierre seam without main content work', () => {
 		const job = buildBridgeWorkerPierreRenderJob({
 			itemId: 'item-1',
 			renderKind: 'reviewDiff',
@@ -58,36 +57,17 @@ describe('Bridge worker Pierre courier', () => {
 				maxWindowLines: 400,
 			},
 		});
-		const event = {
-			wireVersion: 1,
-			direction: 'serverWorkerToMain',
-			transferDescriptors: [],
-			kind: 'pierreRenderJob',
-			job,
-		} satisfies BridgeWorkerPierreRenderJobEvent;
-		const enqueuedJobs: BridgeWorkerPierreRenderJob[] = [];
+		const submittedJobs: BridgeWorkerPierreRenderJob[] = [];
 		const courier = createBridgeWorkerPierreCourier({
-			enqueuePierreRenderJob: (receivedJob) => {
-				enqueuedJobs.push(receivedJob);
-				return {
-					status: 'enqueued',
-					itemId: receivedJob.itemId,
-					payloadByteLength: receivedJob.payloadByteLength,
-					budgetClass: receivedJob.budgetClass,
-				};
+			submitPierreRenderJob: (receivedJob): void => {
+				submittedJobs.push(receivedJob);
 			},
 		});
 
-		const receipt = courier.enqueue(event.job);
+		courier.submit(job);
 
-		expect(receipt).toEqual({
-			status: 'enqueued',
-			itemId: 'item-1',
-			payloadByteLength: job.payloadByteLength,
-			budgetClass: 'interactive',
-		});
-		expect(enqueuedJobs).toEqual([job]);
-		expect(enqueuedJobs[0]).toBe(job);
+		expect(submittedJobs).toEqual([job]);
+		expect(submittedJobs[0]).toBe(job);
 	});
 
 	test('courier seam and review snapshot controller do not import main-thread content processors', () => {

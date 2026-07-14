@@ -1,3 +1,3 @@
-import { runBridgeViewerWorktreeDevServerVerifier } from './verify-bridge-viewer-worktree-dev-server/runner.ts';
+import { runSelfHostedBridgeViewerProductOnlyRegression } from './verify-bridge-viewer-worktree-dev-server/product-only-real-router-regression.ts';
 
-await runBridgeViewerWorktreeDevServerVerifier();
+await runSelfHostedBridgeViewerProductOnlyRegression();

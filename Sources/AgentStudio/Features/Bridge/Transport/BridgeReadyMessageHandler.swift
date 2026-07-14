@@ -17,9 +17,15 @@ final class BridgeReadyMessageHandler: NSObject, WKScriptMessageHandler {
         case workerReplacement
     }
 
+    enum TelemetrySessionBootstrapReason: String, Sendable, Equatable {
+        case initial
+        case sidecarReplacement
+    }
+
     enum BootstrapMessage: Sendable, Equatable {
         case ready(requestId: String)
         case productSessionBootstrap(requestId: String, reason: ProductSessionBootstrapReason)
+        case telemetrySessionBootstrap(requestId: String, reason: TelemetrySessionBootstrapReason)
         case invalid(id: String?, message: String)
     }
 
@@ -71,6 +77,14 @@ final class BridgeReadyMessageHandler: NSObject, WKScriptMessageHandler {
                 return .invalid(id: requestId, message: "Invalid request")
             }
             return .productSessionBootstrap(requestId: requestId, reason: reason)
+        case "bridge.telemetrySession.bootstrap":
+            guard params.keys.sorted() == ["reason"],
+                let rawReason = params["reason"] as? String,
+                let reason = TelemetrySessionBootstrapReason(rawValue: rawReason)
+            else {
+                return .invalid(id: requestId, message: "Invalid request")
+            }
+            return .telemetrySessionBootstrap(requestId: requestId, reason: reason)
         default:
             return nil
         }
@@ -91,6 +105,9 @@ final class BridgeReadyMessageHandler: NSObject, WKScriptMessageHandler {
                 "[BridgeReadyMessageHandler] dropped bootstrap request because callback is not configured")
             return
         }
+        bridgeReadyMessageHandlerLogger.debug(
+            "Received bootstrap request kind=\(String(describing: bootstrapMessage), privacy: .public)"
+        )
         Task { @MainActor in
             await callback(bootstrapMessage)
         }

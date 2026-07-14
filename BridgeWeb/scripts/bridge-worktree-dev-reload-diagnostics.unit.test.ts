@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'vitest';
 
+import { contentRequest } from '../src/core/comm-worker/bridge-product-content-frame-test-support.js';
 import {
-	bridgeWorktreeDevFileContentRouteMatchesHandle,
+	bridgeWorktreeDevFileContentRouteMatchesDescriptor,
 	bridgeWorktreeDevFileContentRouteUsesOrigin,
+	parseBridgeWorktreeDevFileContentRouteRequest,
 	parseBridgeWorktreeDevReloadIntegerList,
 	parseBridgeWorktreeDevReloadIntegerToken,
 } from './bridge-worktree-dev-reload-diagnostics.js';
@@ -26,10 +28,12 @@ describe('bridge worktree dev reload diagnostics', () => {
 		);
 	});
 
-	test('matches file-content route URLs only on the expected dev-server origin', () => {
+	test('correlates typed File content POST bodies only on the product endpoint and origin', () => {
 		const expectedOrigin = 'http://127.0.0.1:5173';
 		const expectedUrl =
-			'http://127.0.0.1:5173/__bridge-worktree/file-content/dev-file-1?scenario=current-worktree';
+			'http://127.0.0.1:5173/__bridge-product/content?scenario=current-worktree';
+		const request = contentRequest();
+		const postData = JSON.stringify(request);
 
 		expect(
 			bridgeWorktreeDevFileContentRouteUsesOrigin({
@@ -38,29 +42,50 @@ describe('bridge worktree dev reload diagnostics', () => {
 			}),
 		).toBe(true);
 		expect(
-			bridgeWorktreeDevFileContentRouteMatchesHandle({
-				expectedContentHandle: 'dev-file-1',
+			bridgeWorktreeDevFileContentRouteMatchesDescriptor({
+				expectedDescriptorId: request.descriptor.descriptorId,
 				expectedOrigin,
+				method: 'POST',
+				postData,
 				url: expectedUrl,
 			}),
 		).toBe(true);
 		expect(
+			parseBridgeWorktreeDevFileContentRouteRequest({
+				expectedOrigin,
+				method: 'POST',
+				postData,
+				url: expectedUrl,
+			}),
+		).toMatchObject({
+			contentRequestId: request.contentRequestId,
+			descriptorId: request.descriptor.descriptorId,
+			leaseId: request.leaseId,
+		});
+
+		for (const invalidRequest of [
+			{ method: 'GET', postData, url: expectedUrl },
+			{ method: 'POST', postData: null, url: expectedUrl },
+			{ method: 'POST', postData: '{', url: expectedUrl },
+			{
+				method: 'POST',
+				postData,
+				url: 'http://localhost:5173/__bridge-product/content',
+			},
+			{
+				method: 'POST',
+				postData,
+				url: 'http://127.0.0.1:5173/__bridge-worktree/file-content/dev-file-1',
+			},
+		]) {
+			expect(
+				parseBridgeWorktreeDevFileContentRouteRequest({ expectedOrigin, ...invalidRequest }),
+			).toBeNull();
+		}
+		expect(
 			bridgeWorktreeDevFileContentRouteUsesOrigin({
 				expectedOrigin,
-				url: 'http://localhost:5173/__bridge-worktree/file-content/dev-file-1',
-			}),
-		).toBe(false);
-		expect(
-			bridgeWorktreeDevFileContentRouteMatchesHandle({
-				expectedContentHandle: 'dev-file-1',
-				expectedOrigin,
-				url: 'http://evil.invalid/__bridge-worktree/file-content/dev-file-1',
-			}),
-		).toBe(false);
-		expect(
-			bridgeWorktreeDevFileContentRouteUsesOrigin({
-				expectedOrigin,
-				url: 'not a url',
+				url: 'http://localhost:5173/__bridge-product/content',
 			}),
 		).toBe(false);
 	});

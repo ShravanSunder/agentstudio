@@ -60,6 +60,10 @@ extension BridgePaneController {
         paneState.diff.setPackageMetadata(load.package)
         paneState.diff.setPackageDelta(load.delta)
         paneState.diff.setStatus(.ready)
+        await productSchemeProvider?.publish(
+            availability: .ready(load.package),
+            traceContext: traceContext
+        )
     }
 
     func deliverReviewProtocolErrorFrame(

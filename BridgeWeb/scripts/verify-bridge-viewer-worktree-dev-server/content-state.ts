@@ -1,7 +1,6 @@
 import type { Page } from 'playwright';
 
 import {
-	bridgeWorktreeDevFileContentRouteMatchesHandle,
 	bridgeWorktreeDevFileContentRouteUsesOrigin,
 } from '../bridge-worktree-dev-reload-diagnostics.ts';
 import { worktreeFileScrollExtentCanarySatisfied } from '../verify-bridge-viewer-worktree-review-proof.ts';
@@ -25,21 +24,18 @@ export function assertSelectedContentRouteProof(props: {
 	readonly expectedContentHandle: string;
 	readonly probe: WorktreeFileContentRouteProbe;
 }): WorktreeFileSelectedContentRouteProof {
+	const hits = props.probe.hits();
 	const hitUrls = props.probe.hitUrls();
 	const foreignHitUrls = props.probe.foreignHitUrls();
-	const selectedHitUrl = hitUrls.find((url: string): boolean =>
-		bridgeWorktreeDevFileContentRouteMatchesHandle({
-			expectedContentHandle: props.expectedContentHandle,
-			expectedOrigin: worktreeDevServerOrigin,
-			url,
-		}),
+	const selectedHit = hits.find(
+		(hit): boolean => hit.descriptorId === props.expectedContentHandle,
 	);
-	const selectedResourceUrlContainsHandle = selectedHitUrl !== undefined;
+	const selectedResourceUrlContainsHandle = selectedHit !== undefined;
 	const selectedResourceUrlUsesDevServerFrontDoor =
-		selectedHitUrl !== undefined &&
+		selectedHit !== undefined &&
 		bridgeWorktreeDevFileContentRouteUsesOrigin({
 			expectedOrigin: worktreeDevServerOrigin,
-			url: selectedHitUrl,
+			url: selectedHit.url,
 		});
 	const proof: WorktreeFileSelectedContentRouteProof = {
 		expectedContentHandle: props.expectedContentHandle,

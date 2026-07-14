@@ -249,6 +249,12 @@ describe('Bridge product metadata stream decoder', () => {
 			).toThrow(/identity|stream|pane|worker/iu);
 			expect(decoder.diagnostics).toMatchObject({
 				failureCode: 'stream_identity_mismatch',
+				identityMismatchField:
+					wrongIdentityFrame.metadataStreamId !== acceptedFrame.metadataStreamId
+						? 'metadataStreamId'
+						: wrongIdentityFrame.paneSessionId !== acceptedFrame.paneSessionId
+							? 'paneSessionId'
+							: 'workerInstanceId',
 				retainedByteCount: 0,
 				state: 'poisoned',
 			});
@@ -270,6 +276,7 @@ describe('Bridge product metadata stream decoder', () => {
 		expect(transactionalDecoder.diagnostics).toMatchObject({
 			acceptedStream: false,
 			failureCode: 'stream_identity_mismatch',
+			identityMismatchField: 'metadataStreamId',
 			retainedByteCount: 0,
 			state: 'poisoned',
 		});

@@ -1,255 +1,202 @@
-import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef } from 'react';
 
-import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
-import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
-import type {
-	BridgeReviewSelectionSlice,
-	BridgeReviewViewportSlice,
-} from '../review-viewer/state/review-viewer-store.js';
-import type {
-	BridgeReviewFileNavigationTarget,
-	SelectedContentPaintTelemetryStart,
-} from './bridge-app-review-selection-state.js';
-import {
-	createChildTraceContext,
-	makeTelemetryMarkedItemKey,
-	makeTelemetryPackageKey,
-	recordReviewStartupTelemetry,
-	type BridgeReviewPackageTelemetryContext,
-	type PendingReviewSelectionCommitTelemetry,
-} from './bridge-app-review-telemetry.js';
+import type { BridgeWorkerSelectCommand } from '../core/comm-worker/bridge-worker-contracts.js';
 
-declare global {
-	interface Window {
-		__bridgeReviewSliceInvalidationProbe?: {
-			clicks: {
-				readonly invalidatedKeyCount: number;
-				readonly packageItemCount: number;
-				readonly selectedItemCount: number;
-				readonly subscriberNotificationCount: number;
-				readonly visibleDeltaCount: number;
-			}[];
-		};
-	}
-}
+export type BridgeReviewSelectionSource = BridgeWorkerSelectCommand['selectedSource'];
 
 export interface UseBridgeReviewSelectionControllerProps {
-	readonly currentReviewPackageTelemetryContextRef: MutableRefObject<BridgeReviewPackageTelemetryContext | null>;
-	readonly hasProjection: boolean;
+	readonly commitLocalSelection: (itemId: string) => void;
+	readonly emitSelectIntent: (itemId: string, selectedSource: BridgeReviewSelectionSource) => void;
+	readonly hasReviewItem: (itemId: string) => boolean;
 	readonly isActive: boolean;
-	readonly reviewPackage: BridgeReviewPackage | null;
-	readonly reviewPackageRef: MutableRefObject<BridgeReviewPackage | null>;
-	readonly selectionSlice: BridgeReviewSelectionSlice;
-	readonly selectionSliceRef: MutableRefObject<BridgeReviewSelectionSlice>;
-	readonly viewportSliceRef: MutableRefObject<BridgeReviewViewportSlice>;
-	readonly markFileViewed: (itemId: string, onDeliveryFailure?: () => void) => boolean;
-	readonly setReviewRenderModeCodeView: () => void;
-	readonly setSelectedReviewFileTarget: Dispatch<
-		SetStateAction<BridgeReviewFileNavigationTarget | null>
-	>;
-	readonly setSelectedReviewItemId: (itemId: string | null) => void;
-	readonly telemetryRecorderRef: MutableRefObject<BridgeTelemetryRecorder>;
+	readonly markFileViewed: (itemId: string, onDeliveryFailure?: () => void) => boolean | void;
+	readonly selectedItemId: string | null;
 }
 
 export interface BridgeReviewSelectionController {
 	readonly beginForegroundReviewSelection: (
 		itemId: string,
-		presentationTarget?: BridgeReviewFileNavigationTarget | null,
+		selectedSource?: BridgeReviewSelectionSource,
 	) => boolean;
-	readonly lastSelectionCommitDurationMilliseconds: number | null;
-	readonly selectedContentPaintTelemetryStart: SelectedContentPaintTelemetryStart | null;
 	readonly selectReviewItem: (
 		itemId: string,
-		presentationTarget?: BridgeReviewFileNavigationTarget | null,
+		selectedSource?: BridgeReviewSelectionSource,
 	) => boolean;
+}
+
+export interface BridgeReviewPostPaintSelectionFrameScheduler {
+	readonly cancelPending: () => void;
+	readonly schedule: (itemId: string, selectedSource: BridgeReviewSelectionSource) => void;
 }
 
 export function useBridgeReviewSelectionController(
 	props: UseBridgeReviewSelectionControllerProps,
 ): BridgeReviewSelectionController {
-	const {
-		currentReviewPackageTelemetryContextRef,
-		hasProjection,
-		isActive,
-		reviewPackage,
-		reviewPackageRef,
-		selectionSlice,
-		selectionSliceRef,
-		viewportSliceRef,
-		markFileViewed,
-		setReviewRenderModeCodeView,
-		setSelectedReviewFileTarget,
-		setSelectedReviewItemId,
-		telemetryRecorderRef,
-	} = props;
-	const lastTelemetryMarkedItemRef = useRef<string | null>(null);
-	const pendingSelectionCommitTelemetryRef = useRef<PendingReviewSelectionCommitTelemetry | null>(
+	const selectedItemIdRef = useRef(props.selectedItemId);
+	selectedItemIdRef.current = props.selectedItemId;
+	const latestPropsRef = useRef(props);
+	latestPropsRef.current = props;
+	const lastMarkedItemIdRef = useRef<string | null>(null);
+	const selectIntentSchedulerRef = useRef<BridgeReviewPostPaintSelectionFrameScheduler | null>(
 		null,
 	);
-	const [lastSelectionCommitDurationMilliseconds, setLastSelectionCommitDurationMilliseconds] =
-		useState<number | null>(null);
-	const [selectedContentPaintTelemetryStart, setSelectedContentPaintTelemetryStart] =
-		useState<SelectedContentPaintTelemetryStart | null>(null);
-
-	const beginForegroundReviewSelection = useCallback(
-		(
-			itemId: string,
-			presentationTarget: BridgeReviewFileNavigationTarget | null = null,
-		): boolean => {
-			const currentReviewPackage = reviewPackageRef.current;
-			if (currentReviewPackage === null || !(itemId in currentReviewPackage.itemsById)) {
-				return false;
-			}
-			const previousSelectedItemId = selectionSliceRef.current.selectedItemId;
-			const isSelectionChange = previousSelectedItemId !== itemId;
-			if (isSelectionChange) {
-				const packageKey = makeTelemetryPackageKey(currentReviewPackage);
-				const startedAtMilliseconds = performance.now();
-				const actionTraceContext = createChildTraceContext(
-					currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
-				);
-				const paintTelemetryStart = telemetryRecorderRef.current.isEnabled('web')
-					? {
-							itemId,
-							packageKey,
-							startedAtMilliseconds,
-							actionTraceContext,
+	if (selectIntentSchedulerRef.current === null) {
+		selectIntentSchedulerRef.current = createBridgeReviewPostPaintSelectionFrameScheduler({
+			cancelAnimationFrame: (frameId): void => globalThis.cancelAnimationFrame(frameId),
+			onPostPaintSelection: (itemId, selectedSource): void => {
+				latestPropsRef.current.emitSelectIntent(itemId, selectedSource);
+			},
+			isPendingIntentCurrent: (itemId): boolean =>
+				latestPropsRef.current.isActive &&
+				selectedItemIdRef.current === itemId &&
+				latestPropsRef.current.hasReviewItem(itemId),
+			requestAnimationFrame: (callback): number => globalThis.requestAnimationFrame(callback),
+		});
+	}
+	const selectIntentScheduler = selectIntentSchedulerRef.current;
+	const markViewedSchedulerRef = useRef<BridgeReviewPostPaintSelectionFrameScheduler | null>(null);
+	if (markViewedSchedulerRef.current === null) {
+		markViewedSchedulerRef.current = createBridgeReviewPostPaintSelectionFrameScheduler({
+			cancelAnimationFrame: (frameId): void => globalThis.cancelAnimationFrame(frameId),
+			onPostPaintSelection: (itemId): void => {
+				scheduleReviewMarkFileViewedCommand({
+					itemId,
+					markFileViewed: latestPropsRef.current.markFileViewed,
+					onDeliveryFailure: (): void => {
+						if (lastMarkedItemIdRef.current === itemId) {
+							lastMarkedItemIdRef.current = null;
 						}
-					: null;
-				setSelectedContentPaintTelemetryStart(paintTelemetryStart);
-				pendingSelectionCommitTelemetryRef.current =
-					paintTelemetryStart === null
-						? null
-						: {
-								itemId,
-								packageKey,
-								startedAtMilliseconds,
-								traceContext: actionTraceContext,
-							};
-			}
-			if (presentationTarget !== null || isSelectionChange) {
-				setSelectedReviewFileTarget(presentationTarget);
-			}
-			setSelectedReviewItemId(itemId);
-			setReviewRenderModeCodeView();
-			recordBridgeReviewSliceInvalidationProbe({
-				itemId,
-				packageItemCount: currentReviewPackage.orderedItemIds.length,
-				visibleItemIds: viewportSliceRef.current.visibleItemIds,
-			});
-			return true;
+					},
+				});
+			},
+			isPendingIntentCurrent: (itemId): boolean =>
+				latestPropsRef.current.isActive &&
+				selectedItemIdRef.current === itemId &&
+				latestPropsRef.current.hasReviewItem(itemId),
+			requestAnimationFrame: (callback): number => globalThis.requestAnimationFrame(callback),
+		});
+	}
+	const markViewedScheduler = markViewedSchedulerRef.current;
+	useLayoutEffect(
+		(): (() => void) => (): void => {
+			selectIntentScheduler.cancelPending();
+			markViewedScheduler.cancelPending();
 		},
-		[
-			currentReviewPackageTelemetryContextRef,
-			reviewPackageRef,
-			selectionSliceRef,
-			setReviewRenderModeCodeView,
-			setSelectedReviewFileTarget,
-			setSelectedReviewItemId,
-			telemetryRecorderRef,
-			viewportSliceRef,
-		],
+		[markViewedScheduler, selectIntentScheduler],
+	);
+	const beginForegroundReviewSelection = useCallback(
+		(itemId: string, selectedSource: BridgeReviewSelectionSource = 'user'): boolean => {
+			const accepted = commitBridgeReviewPresentationSelection({
+				commitLocalSelection: props.commitLocalSelection,
+				currentSelectedItemId: selectedItemIdRef.current,
+				hasReviewItem: props.hasReviewItem,
+				isActive: props.isActive,
+				itemId,
+				scheduleSelectIntentAfterLocalPaint: selectIntentScheduler.schedule,
+				selectedSource,
+			});
+			if (accepted) {
+				selectedItemIdRef.current = itemId;
+			}
+			return accepted;
+		},
+		[props.commitLocalSelection, props.hasReviewItem, props.isActive, selectIntentScheduler],
 	);
 	const selectReviewItem = useCallback(
-		(
-			itemId: string,
-			presentationTarget: BridgeReviewFileNavigationTarget | null = null,
-		): boolean => {
-			const currentReviewPackage = reviewPackageRef.current;
-			if (
-				!beginForegroundReviewSelection(itemId, presentationTarget) ||
-				currentReviewPackage === null
-			) {
+		(itemId: string, selectedSource: BridgeReviewSelectionSource = 'user'): boolean => {
+			if (!beginForegroundReviewSelection(itemId, selectedSource)) {
 				return false;
 			}
-			lastTelemetryMarkedItemRef.current = makeTelemetryMarkedItemKey(currentReviewPackage, itemId);
-			scheduleReviewMarkFileViewedCommand({
-				itemId,
-				markFileViewed,
-				onDeliveryFailure: (): void => {
-					if (
-						lastTelemetryMarkedItemRef.current ===
-						makeTelemetryMarkedItemKey(currentReviewPackage, itemId)
-					) {
-						lastTelemetryMarkedItemRef.current = null;
-					}
-				},
-			});
+			if (lastMarkedItemIdRef.current === itemId) {
+				return true;
+			}
+			lastMarkedItemIdRef.current = itemId;
+			markViewedScheduler.schedule(itemId, selectedSource);
 			return true;
 		},
-		[beginForegroundReviewSelection, markFileViewed, reviewPackageRef],
+		[beginForegroundReviewSelection, markViewedScheduler],
 	);
 
-	useLayoutEffect((): void => {
-		const pendingTelemetry = pendingSelectionCommitTelemetryRef.current;
-		if (
-			pendingTelemetry === null ||
-			!isActive ||
-			reviewPackage === null ||
-			!hasProjection ||
-			selectionSlice.selectedItemId !== pendingTelemetry.itemId
-		) {
-			return;
-		}
-		if (makeTelemetryPackageKey(reviewPackage) !== pendingTelemetry.packageKey) {
-			pendingSelectionCommitTelemetryRef.current = null;
-			setSelectedContentPaintTelemetryStart((currentStart) =>
-				currentStart?.packageKey === pendingTelemetry.packageKey ? null : currentStart,
-			);
-			return;
-		}
-		pendingSelectionCommitTelemetryRef.current = null;
-		const durationMilliseconds = performance.now() - pendingTelemetry.startedAtMilliseconds;
-		setLastSelectionCommitDurationMilliseconds(Math.max(0, durationMilliseconds));
-		recordReviewStartupTelemetry({
-			telemetryRecorder: telemetryRecorderRef.current,
-			phase: 'selection_commit',
-			slice: 'review_projection',
-			transport: 'worker',
-			traceContext: pendingTelemetry.traceContext,
-			durationMilliseconds,
-			result: 'success',
-		});
-	}, [hasProjection, isActive, reviewPackage, selectionSlice.selectedItemId, telemetryRecorderRef]);
+	return { beginForegroundReviewSelection, selectReviewItem };
+}
 
-	useEffect((): void => {
-		if (
-			!isActive ||
-			reviewPackage === null ||
-			selectionSlice.selectedItemId === null ||
-			!telemetryRecorderRef.current.isEnabled('web')
-		) {
-			return;
-		}
-		const markedItemKey = makeTelemetryMarkedItemKey(reviewPackage, selectionSlice.selectedItemId);
-		if (lastTelemetryMarkedItemRef.current === markedItemKey) {
-			return;
-		}
-		lastTelemetryMarkedItemRef.current = markedItemKey;
-		if (
-			!markFileViewed(selectionSlice.selectedItemId, (): void => {
-				if (lastTelemetryMarkedItemRef.current === markedItemKey) {
-					lastTelemetryMarkedItemRef.current = null;
-				}
-			})
-		) {
-			lastTelemetryMarkedItemRef.current = null;
-		}
-	}, [
-		isActive,
-		markFileViewed,
-		reviewPackage,
-		selectionSlice.selectedItemId,
-		telemetryRecorderRef,
-	]);
+export function commitBridgeReviewPresentationSelection(props: {
+	readonly commitLocalSelection: (itemId: string) => void;
+	readonly currentSelectedItemId: string | null;
+	readonly hasReviewItem: (itemId: string) => boolean;
+	readonly isActive: boolean;
+	readonly itemId: string;
+	readonly scheduleSelectIntentAfterLocalPaint: (
+		itemId: string,
+		selectedSource: BridgeReviewSelectionSource,
+	) => void;
+	readonly selectedSource: BridgeReviewSelectionSource;
+}): boolean {
+	if (!props.isActive || !props.hasReviewItem(props.itemId)) {
+		return false;
+	}
+	if (props.currentSelectedItemId === props.itemId) {
+		return true;
+	}
+	props.commitLocalSelection(props.itemId);
+	props.scheduleSelectIntentAfterLocalPaint(props.itemId, props.selectedSource);
+	return true;
+}
 
-	return {
-		beginForegroundReviewSelection,
-		lastSelectionCommitDurationMilliseconds,
-		selectedContentPaintTelemetryStart,
-		selectReviewItem,
+export function createBridgeReviewPostPaintSelectionFrameScheduler(props: {
+	readonly cancelAnimationFrame: (frameId: number) => void;
+	readonly onPostPaintSelection: (
+		itemId: string,
+		selectedSource: BridgeReviewSelectionSource,
+	) => void;
+	readonly isPendingIntentCurrent: (itemId: string) => boolean;
+	readonly requestAnimationFrame: (callback: FrameRequestCallback) => number;
+}): BridgeReviewPostPaintSelectionFrameScheduler {
+	let pendingFrameId: number | null = null;
+	let pendingIntent: {
+		readonly itemId: string;
+		readonly selectedSource: BridgeReviewSelectionSource;
+	} | null = null;
+
+	const cancelPending = (): void => {
+		pendingIntent = null;
+		if (pendingFrameId === null) {
+			return;
+		}
+		props.cancelAnimationFrame(pendingFrameId);
+		pendingFrameId = null;
 	};
+	const schedule = (itemId: string, selectedSource: BridgeReviewSelectionSource): void => {
+		pendingIntent = { itemId, selectedSource };
+		if (pendingFrameId !== null) {
+			return;
+		}
+		pendingFrameId = props.requestAnimationFrame((): void => {
+			pendingFrameId = props.requestAnimationFrame((): void => {
+				pendingFrameId = null;
+				const intent = pendingIntent;
+				pendingIntent = null;
+				if (intent === null || !props.isPendingIntentCurrent(intent.itemId)) {
+					return;
+				}
+				props.onPostPaintSelection(intent.itemId, intent.selectedSource);
+			});
+		});
+	};
+
+	return { cancelPending, schedule };
+}
+
+export function scheduleReviewMarkFileViewedCommand(props: {
+	readonly itemId: string;
+	readonly markFileViewed: (itemId: string, onDeliveryFailure?: () => void) => boolean | void;
+	readonly onDeliveryFailure?: () => void;
+}): void {
+	queueMicrotask((): void => {
+		if (props.markFileViewed(props.itemId, props.onDeliveryFailure) === false) {
+			props.onDeliveryFailure?.();
+		}
+	});
 }
 
 export function createBridgeReviewSelectionControllerInteractionContract(): {
@@ -263,38 +210,4 @@ export function createBridgeReviewSelectionControllerInteractionContract(): {
 			'panelChromeSlice',
 		],
 	};
-}
-
-function recordBridgeReviewSliceInvalidationProbe(props: {
-	readonly itemId: string;
-	readonly packageItemCount: number;
-	readonly visibleItemIds: readonly string[];
-}): void {
-	const probeWindow = (globalThis as typeof globalThis & { readonly window?: Window }).window;
-	// oxlint-disable-next-line no-underscore-dangle -- Intentional Bridge debug surface name.
-	const probe = probeWindow?.__bridgeReviewSliceInvalidationProbe;
-	if (probe === undefined) {
-		return;
-	}
-	const invalidatedKeys = new Set(props.visibleItemIds);
-	invalidatedKeys.add(props.itemId);
-	probe.clicks.push({
-		invalidatedKeyCount: invalidatedKeys.size,
-		packageItemCount: props.packageItemCount,
-		selectedItemCount: 1,
-		subscriberNotificationCount: invalidatedKeys.size,
-		visibleDeltaCount: props.visibleItemIds.length,
-	});
-}
-
-export function scheduleReviewMarkFileViewedCommand(props: {
-	readonly itemId: string;
-	readonly markFileViewed: (itemId: string, onDeliveryFailure?: () => void) => boolean | void;
-	readonly onDeliveryFailure?: () => void;
-}): void {
-	queueMicrotask((): void => {
-		if (props.markFileViewed(props.itemId, props.onDeliveryFailure) === false) {
-			props.onDeliveryFailure?.();
-		}
-	});
 }

@@ -16,14 +16,15 @@ import {
 	bridgeProductFileSourceConfigurationSchema,
 	type BridgeProductSubscriptionEvent,
 } from '../../src/core/comm-worker/bridge-product-subscription-contracts.js';
-import type {
-	WorktreeFileDescriptor,
-	WorktreeTreeRowMetadata,
-} from '../../src/features/worktree-file/models/worktree-file-protocol-models.js';
+import type { BridgeProductDevContentPayload } from './bridge-product-dev-content-producer.js';
 import {
 	deriveBridgeProductDevFilePrefix,
 	type BridgeProductDevFilePrefix,
 } from './bridge-product-dev-file-prefix.js';
+import type {
+	WorktreeFileDescriptor,
+	WorktreeTreeRowMetadata,
+} from './bridge-worktree-dev-file-fixture-contracts.js';
 import type { BridgeWorktreeDevProvider } from './bridge-worktree-dev-provider.js';
 
 const bridgeProductDevRepoId = '00000000-0000-4000-8000-000000000001';
@@ -35,6 +36,11 @@ type BridgeProductFileDescriptorReadyEvent = Extract<
 	BridgeProductFileEvent,
 	{ readonly eventKind: 'file.descriptorReady' }
 >;
+type BridgeProductFileTreeWindowEvent = Extract<
+	BridgeProductFileEvent,
+	{ readonly eventKind: 'file.treeWindow' }
+>;
+type BridgeProductFileTreeRow = BridgeProductFileTreeWindowEvent['rows'][number];
 
 function parseFileDescriptorReadyEvent(value: unknown): BridgeProductFileDescriptorReadyEvent {
 	const event = bridgeProductFileMetadataEventSchema.parse(value);
@@ -73,18 +79,34 @@ export class BridgeProductDevFileAdapter {
 
 	async loadDescriptor(path: string): Promise<BridgeProductFileDescriptorReadyEvent> {
 		const sourceSnapshot = await this.loadSource();
-		const legacyFrame = await this.#provider.loadWorktreeFileDescriptor({
-			path,
-			sourceCursor: sourceSnapshot.identity.sourceCursor,
-			subscriptionGeneration: sourceSnapshot.identity.subscriptionGeneration,
-		});
-		return await this.#descriptorEvent(legacyFrame.descriptor, sourceSnapshot.identity);
+		let legacyFrame: Awaited<ReturnType<BridgeWorktreeDevProvider['loadWorktreeFileDescriptor']>>;
+		try {
+			legacyFrame = await this.#provider.loadWorktreeFileDescriptor({
+				path,
+				sourceCursor: sourceSnapshot.identity.sourceCursor,
+				subscriptionGeneration: sourceSnapshot.identity.subscriptionGeneration,
+			});
+		} catch (error: unknown) {
+			return unavailableDescriptorEventForKnownFile({ error, path, sourceSnapshot });
+		}
+		return await this.#descriptorEvent(legacyFrame.descriptor, sourceSnapshot);
 	}
 
-	content(descriptor: BridgeProductFileContentDescriptor): BridgeProductDevFileContent | null {
+	loadContent(
+		descriptor: BridgeProductFileContentDescriptor,
+		signal?: AbortSignal,
+	): Promise<BridgeProductDevContentPayload | null> {
+		if (signal?.aborted === true) {
+			return Promise.reject(
+				new DOMException('Bridge product File content was cancelled.', 'AbortError'),
+			);
+		}
 		const content = this.#contentByDescriptorId.get(descriptor.descriptorId);
-		if (content === undefined) return null;
-		return JSON.stringify(content.descriptor) === JSON.stringify(descriptor) ? content : null;
+		return Promise.resolve(
+			content !== undefined && JSON.stringify(content.descriptor) === JSON.stringify(descriptor)
+				? content
+				: null,
+		);
 	}
 
 	async #loadSource(): Promise<BridgeProductDevFileSourceSnapshot> {
@@ -143,13 +165,17 @@ export class BridgeProductDevFileAdapter {
 
 	async #descriptorEvent(
 		descriptor: WorktreeFileDescriptor,
-		source: BridgeProductFileSourceIdentity,
+		sourceSnapshot: BridgeProductDevFileSourceSnapshot,
 	): Promise<BridgeProductFileDescriptorReadyEvent> {
+		const source = sourceSnapshot.identity;
 		if (descriptor.isBinary || descriptor.virtualizedExtentKind === 'unavailable') {
 			return parseFileDescriptorReadyEvent({
 				availability: descriptor.isBinary
 					? { availabilityKind: 'binary' }
-					: { availabilityKind: 'unavailable', reason: 'unreadable' },
+					: {
+							availabilityKind: 'unavailable',
+							reason: descriptor.unavailableReason ?? 'unreadable',
+						},
 				encoding: null,
 				endsMidLine: false,
 				endsWithNewline: false,
@@ -171,11 +197,20 @@ export class BridgeProductDevFileAdapter {
 			});
 		}
 
-		const contentText = await this.#provider.loadWorktreeFileContent({
-			descriptorId: descriptor.contentHandle,
-			sourceCursor: source.sourceCursor,
-			subscriptionGeneration: source.subscriptionGeneration,
-		});
+		let contentText: string;
+		try {
+			contentText = await this.#provider.loadWorktreeFileContent({
+				descriptorId: descriptor.contentHandle,
+				sourceCursor: source.sourceCursor,
+				subscriptionGeneration: source.subscriptionGeneration,
+			});
+		} catch (error: unknown) {
+			return unavailableDescriptorEventForKnownFile({
+				error,
+				path: descriptor.path,
+				sourceSnapshot,
+			});
+		}
 		const sourceBytes = new TextEncoder().encode(contentText);
 		const prefix = deriveBridgeProductDevFilePrefix(sourceBytes, {
 			maximumBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
@@ -234,6 +269,63 @@ export class BridgeProductDevFileAdapter {
 			virtualizedExtentKind: props.prefix.didReachEnd ? 'exactLineCount' : 'previewBounded',
 		});
 	}
+}
+
+function unavailableDescriptorEventForKnownFile(props: {
+	readonly error: unknown;
+	readonly path: string;
+	readonly sourceSnapshot: BridgeProductDevFileSourceSnapshot;
+}): BridgeProductFileDescriptorReadyEvent {
+	const reason = itemScopedUnavailableReason(props.error);
+	const row = fileTreeRowForPath(props.sourceSnapshot.treeEvents, props.path);
+	if (reason === null || row?.fileId === null || row?.fileId === undefined || row.isDirectory) {
+		throw props.error;
+	}
+	return parseFileDescriptorReadyEvent({
+		availability: { availabilityKind: 'unavailable', reason },
+		encoding: null,
+		endsMidLine: false,
+		endsWithNewline: false,
+		estimatedContentHeightPixels: null,
+		eventKind: 'file.descriptorReady',
+		fileExtension: null,
+		fileId: row.fileId,
+		language: null,
+		modifiedAtUnixMilliseconds: null,
+		path: row.path,
+		payloadByteCount: 0,
+		payloadLineCount: 0,
+		rowId: row.rowId,
+		sizeBytes: row.sizeBytes ?? 0,
+		source: props.sourceSnapshot.identity,
+		totalLineCount: null,
+		truncationKind: 'none',
+		virtualizedExtentKind: 'unavailable',
+	});
+}
+
+function fileTreeRowForPath(
+	events: readonly BridgeProductFileEvent[],
+	path: string,
+): BridgeProductFileTreeRow | null {
+	for (const event of events) {
+		if (event.eventKind !== 'file.treeWindow') continue;
+		const row = event.rows.find((candidate): boolean => candidate.path === path);
+		if (row !== undefined) return row;
+	}
+	return null;
+}
+
+function itemScopedUnavailableReason(error: unknown): 'outside_scope' | 'unreadable' | null {
+	if (!(error instanceof Error)) return 'unreadable';
+	if (
+		error.name === 'AbortError' ||
+		error.message.startsWith('Rejected stale Bridge worktree file descriptor') ||
+		error.message.startsWith('Rejected stale Bridge worktree file content')
+	) {
+		return null;
+	}
+	return error.message.includes('escapes root') ? 'outside_scope' : 'unreadable';
 }
 
 function chunkRows(
