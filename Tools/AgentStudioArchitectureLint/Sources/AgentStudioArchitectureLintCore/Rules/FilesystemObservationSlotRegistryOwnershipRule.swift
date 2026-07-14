@@ -7,8 +7,10 @@ struct FilesystemObservationSlotRegistryOwnershipRule: ArchitectureRule {
         "FilesystemObservationSlotRegistry must not have production extensions"
     static let ownerAliasMessage =
         "FilesystemObservationSlotRegistry must not be aliased in production"
-    static let outsideTransitionMessage =
-        "Filesystem observation binding/control/native construction must occur directly in beginNativeLifetime's selected transition"
+    static let identityOutsideTransitionMessage =
+        "Filesystem observation binding/control/native identity issuance must occur directly in beginNativeLifetime's requiresNativeLifetimeIdentities transition"
+    static let completionOutsidePlannerMessage =
+        "Filesystem observation binding and starting-lifetime construction must occur only in FilesystemObservationSlotAdmissionPlanner.completeNativeCommit"
     static let constructorCardinalityMessage =
         "Each filesystem observation binding/control/native constructor must have exactly one production call site"
     static let constructorAliasMessage =
@@ -17,6 +19,8 @@ struct FilesystemObservationSlotRegistryOwnershipRule: ArchitectureRule {
         "Filesystem observation binding/control/native initializers must not escape as values"
     static let mutableContractMessage =
         "Filesystem observation slot-registry contracts must remain immutable value contracts with read-only projections"
+    static let plannerUUIDGenerationMessage =
+        "Filesystem observation planners must not generate UUIDv7 identities"
 
     let id = "agentstudio_filesystem_observation_slot_registry_ownership"
     let severity = ArchitectureSeverity.error
@@ -56,13 +60,6 @@ struct FilesystemObservationSlotRegistryOwnershipRule: ArchitectureRule {
     }
 }
 
-private enum FilesystemObservationLifetimeConstructor: String, CaseIterable, Sendable {
-    case binding = "FilesystemObservationSlotBinding"
-    case bindingIdentity = "FilesystemObservationSlotBindingIdentity"
-    case controlBlockIdentity = "FilesystemObservationControlBlockIdentity"
-    case nativeGenerationIdentity = "FilesystemObservationNativeGenerationIdentity"
-}
-
 private struct FilesystemObservationOwnershipSite: Sendable {
     let sourceIdentity: String
     let position: AbsolutePosition
@@ -75,7 +72,7 @@ private struct FilesystemObservationOwnerSite: Sendable {
 
 private struct FilesystemObservationConstructionSite: Sendable {
     let site: FilesystemObservationOwnershipSite
-    let constructor: FilesystemObservationLifetimeConstructor
+    let constructor: FilesystemSlotConstructionPolicy.ProtectedConstructor
     let isApprovedTransition: Bool
 }
 
@@ -92,6 +89,10 @@ private struct FilesystemObservationSlotRegistryOwnershipInventory: Sendable {
         "Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemObservationSlotRegistry.swift"
     static let contractsPath =
         "Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemObservationSlotRegistryContracts.swift"
+    static let admissionPlannerPath =
+        "Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemObservationSlotAdmissionPlanner.swift"
+    static let filesystemSourcePrefix =
+        "Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/"
 
     let violationsBySourceIdentity: [String: [FilesystemObservationOwnershipViolation]]
 
@@ -144,9 +145,10 @@ private struct FilesystemObservationSlotRegistryOwnershipInventory: Sendable {
                 let path = context.workspaceRelativePath ?? ""
                 return path.contains("FilesystemObservationSlotRegistry")
                     || context.source.contains(Self.registryName)
-                    || FilesystemObservationLifetimeConstructor.allCases.contains { constructor in
-                        context.source.contains(constructor.rawValue)
-                    }
+                    || FilesystemSlotConstructionPolicy.ProtectedConstructor
+                        .allCases.contains { constructor in
+                            context.source.contains(constructor.rawValue)
+                        }
             })
         if let canonicalOwner = approvedOwnerSites.first {
             for ownerSite in ownerSites
@@ -206,16 +208,36 @@ private struct FilesystemObservationSlotRegistryOwnershipInventory: Sendable {
                     message: FilesystemObservationSlotRegistryOwnershipRule.mutableContractMessage
                 )
             }
+            for site in scanner.plannerUUIDGenerationSites {
+                append(
+                    site,
+                    message: FilesystemObservationSlotRegistryOwnershipRule
+                        .plannerUUIDGenerationMessage
+                )
+            }
         }
 
         let constructionSites = scans.flatMap(\.constructionSites)
         for constructionSite in constructionSites where !constructionSite.isApprovedTransition {
+            let message: String
+            switch constructionSite.constructor.approvedOwner {
+            case .registryTransition:
+                message =
+                    FilesystemObservationSlotRegistryOwnershipRule
+                    .identityOutsideTransitionMessage
+            case .admissionPlannerCompletion:
+                message =
+                    FilesystemObservationSlotRegistryOwnershipRule
+                    .completionOutsidePlannerMessage
+            }
             append(
                 constructionSite.site,
-                message: FilesystemObservationSlotRegistryOwnershipRule.outsideTransitionMessage
+                message: message
             )
         }
-        for constructor in FilesystemObservationLifetimeConstructor.allCases {
+        for constructor in FilesystemSlotConstructionPolicy.ProtectedConstructor
+            .allCases
+        {
             let sites = constructionSites.filter { $0.constructor == constructor }
             if sites.isEmpty, ownershipAnchorContext != nil || !ownerSites.isEmpty {
                 let diagnosticSite: FilesystemObservationOwnershipSite? =
@@ -352,6 +374,7 @@ private final class FilesystemObservationSlotRegistryOwnershipScanner: SyntaxVis
     private(set) var constructorAliasSites: [FilesystemObservationOwnershipSite] = []
     private(set) var initializerEscapeSites: [FilesystemObservationOwnershipSite] = []
     private(set) var mutableContractSites: [FilesystemObservationOwnershipSite] = []
+    private(set) var plannerUUIDGenerationSites: [FilesystemObservationOwnershipSite] = []
 
     private let sourceIdentity: String
     private let workspaceRelativePath: String
@@ -405,7 +428,9 @@ private final class FilesystemObservationSlotRegistryOwnershipScanner: SyntaxVis
     }
 
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
-        if filesystemObservationTerminalTypeName(node.extendedType.trimmedDescription)
+        if FilesystemSlotConstructionPolicy.terminalTypeName(
+            node.extendedType.trimmedDescription
+        )
             == FilesystemObservationSlotRegistryOwnershipInventory.registryName
         {
             ownerExtensionSites.append(site(node))
@@ -414,9 +439,14 @@ private final class FilesystemObservationSlotRegistryOwnershipScanner: SyntaxVis
     }
 
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
+        if isFilesystemPlannerSource,
+            FilesystemSlotConstructionPolicy.isUUIDv7Generation(node)
+        {
+            plannerUUIDGenerationSites.append(site(node.calledExpression))
+        }
         guard
             let constructor =
-                filesystemObservationConstructor(
+                FilesystemSlotConstructionPolicy.protectedConstructor(
                     expressionDescription: node.calledExpression.trimmedDescription
                 ) ?? contextualConstructor(of: node)
         else {
@@ -426,7 +456,10 @@ private final class FilesystemObservationSlotRegistryOwnershipScanner: SyntaxVis
             FilesystemObservationConstructionSite(
                 site: site(node.calledExpression),
                 constructor: constructor,
-                isApprovedTransition: isApprovedConstruction(node)
+                isApprovedTransition: isApprovedConstruction(
+                    node,
+                    constructor: constructor
+                )
             )
         )
         return .visitChildren
@@ -442,7 +475,10 @@ private final class FilesystemObservationSlotRegistryOwnershipScanner: SyntaxVis
             ownerAliasSites.append(site(node))
         }
         if !referencedNames.isDisjoint(
-            with: Set(FilesystemObservationLifetimeConstructor.allCases.map(\.rawValue))
+            with: Set(
+                FilesystemSlotConstructionPolicy.ProtectedConstructor
+                    .allCases.map(\.rawValue)
+            )
         ) {
             constructorAliasSites.append(site(node))
         }
@@ -452,14 +488,18 @@ private final class FilesystemObservationSlotRegistryOwnershipScanner: SyntaxVis
     override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
         if node.declName.baseName.text == "self",
             let base = node.base,
-            filesystemObservationConstructor(expressionDescription: base.trimmedDescription) != nil
+            FilesystemSlotConstructionPolicy.protectedConstructor(
+                expressionDescription: base.trimmedDescription
+            ) != nil
         {
             constructorAliasSites.append(site(node))
             return .visitChildren
         }
         guard node.declName.baseName.text == "init",
             let base = node.base,
-            filesystemObservationConstructor(expressionDescription: base.trimmedDescription) != nil,
+            FilesystemSlotConstructionPolicy.protectedConstructor(
+                expressionDescription: base.trimmedDescription
+            ) != nil,
             !isCalledExpression(node)
         else {
             return .visitChildren
@@ -532,9 +572,20 @@ private final class FilesystemObservationSlotRegistryOwnershipScanner: SyntaxVis
             == FilesystemObservationSlotRegistryOwnershipInventory.contractsPath
     }
 
+    private var isFilesystemPlannerSource: Bool {
+        guard
+            workspaceRelativePath.hasPrefix(
+                FilesystemObservationSlotRegistryOwnershipInventory.filesystemSourcePrefix
+            )
+        else {
+            return false
+        }
+        return workspaceRelativePath.split(separator: "/").last?.hasSuffix("Planner.swift") == true
+    }
+
     private func contextualConstructor(
         of node: FunctionCallExprSyntax
-    ) -> FilesystemObservationLifetimeConstructor? {
+    ) -> FilesystemSlotConstructionPolicy.ProtectedConstructor? {
         guard let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self),
             memberAccess.declName.baseName.text == "init",
             memberAccess.base == nil || memberAccess.base?.trimmedDescription == "Self"
@@ -545,7 +596,7 @@ private final class FilesystemObservationSlotRegistryOwnershipScanner: SyntaxVis
         var ancestor = node.parent
         while let current = ancestor {
             if let declaration = current.as(ExtensionDeclSyntax.self),
-                let constructor = filesystemObservationConstructor(
+                let constructor = FilesystemSlotConstructionPolicy.protectedConstructor(
                     expressionDescription: declaration.extendedType.trimmedDescription
                 )
             {
@@ -553,7 +604,7 @@ private final class FilesystemObservationSlotRegistryOwnershipScanner: SyntaxVis
             }
             if let declaration = current.as(FunctionDeclSyntax.self),
                 let returnType = declaration.signature.returnClause?.type,
-                let constructor = filesystemObservationConstructor(
+                let constructor = FilesystemSlotConstructionPolicy.protectedConstructor(
                     expressionDescription: returnType.trimmedDescription
                 )
             {
@@ -562,7 +613,7 @@ private final class FilesystemObservationSlotRegistryOwnershipScanner: SyntaxVis
             if let declaration = current.as(VariableDeclSyntax.self) {
                 for binding in declaration.bindings {
                     guard let type = binding.typeAnnotation?.type,
-                        let constructor = filesystemObservationConstructor(
+                        let constructor = FilesystemSlotConstructionPolicy.protectedConstructor(
                             expressionDescription: type.trimmedDescription
                         )
                     else {
@@ -614,24 +665,36 @@ private final class FilesystemObservationSlotRegistryOwnershipScanner: SyntaxVis
         return call.calledExpression.id == node.id
     }
 
-    private func isApprovedConstruction(_ node: FunctionCallExprSyntax) -> Bool {
+    private func isApprovedConstruction(
+        _ node: FunctionCallExprSyntax,
+        constructor: FilesystemSlotConstructionPolicy.ProtectedConstructor
+    ) -> Bool {
+        switch constructor.approvedOwner {
+        case .registryTransition:
+            return isApprovedRegistryIdentityConstruction(node)
+        case .admissionPlannerCompletion:
+            return isApprovedAdmissionPlannerCompletion(node)
+        }
+    }
+
+    private func isApprovedRegistryIdentityConstruction(
+        _ node: FunctionCallExprSyntax
+    ) -> Bool {
         guard
             workspaceRelativePath
                 == FilesystemObservationSlotRegistryOwnershipInventory.registryPath
-        else {
-            return false
-        }
+        else { return false }
 
-        var foundSelectedCase = false
+        var foundIdentityRequirementCase = false
         var ancestor = node.parent
         while let current = ancestor {
             if let switchCase = current.as(SwitchCaseSyntax.self) {
-                guard !foundSelectedCase,
-                    filesystemObservationIsExactSelectedCase(switchCase)
+                guard !foundIdentityRequirementCase,
+                    filesystemObservationIsExactIdentityRequirementCase(switchCase)
                 else {
                     return false
                 }
-                foundSelectedCase = true
+                foundIdentityRequirementCase = true
             } else if current.is(ClosureExprSyntax.self)
                 || current.is(InitializerDeclSyntax.self)
                 || current.is(SubscriptDeclSyntax.self)
@@ -643,7 +706,10 @@ private final class FilesystemObservationSlotRegistryOwnershipScanner: SyntaxVis
             {
                 return false
             } else if let function = current.as(FunctionDeclSyntax.self) {
-                guard function.name.text == "beginNativeLifetime", foundSelectedCase else {
+                guard
+                    function.name.text == "beginNativeLifetime",
+                    foundIdentityRequirementCase
+                else {
                     return false
                 }
                 return filesystemObservationFunctionIsDirectRegistryMember(function)
@@ -654,20 +720,41 @@ private final class FilesystemObservationSlotRegistryOwnershipScanner: SyntaxVis
         }
         return false
     }
-}
 
-private func filesystemObservationConstructor(
-    expressionDescription: String
-) -> FilesystemObservationLifetimeConstructor? {
-    var description = expressionDescription
-    if description.hasSuffix(".init") {
-        description.removeLast(".init".count)
+    private func isApprovedAdmissionPlannerCompletion(
+        _ node: FunctionCallExprSyntax
+    ) -> Bool {
+        guard
+            workspaceRelativePath
+                == FilesystemObservationSlotRegistryOwnershipInventory.admissionPlannerPath
+        else { return false }
+
+        var ancestor = node.parent
+        while let current = ancestor {
+            if current.is(ClosureExprSyntax.self)
+                || current.is(InitializerDeclSyntax.self)
+                || current.is(SubscriptDeclSyntax.self)
+                || current.is(AccessorDeclSyntax.self)
+                || current.is(ClassDeclSyntax.self)
+                || current.is(StructDeclSyntax.self)
+                || current.is(ActorDeclSyntax.self)
+                || current.is(ExtensionDeclSyntax.self)
+            {
+                return false
+            }
+            if let function = current.as(FunctionDeclSyntax.self) {
+                guard function.name.text == "completeNativeCommit" else { return false }
+                return
+                    FilesystemSlotConstructionPolicy
+                    .isDirectAdmissionPlannerMember(function)
+            }
+            ancestor = current.parent
+        }
+        return false
     }
-    let terminalName = filesystemObservationTerminalTypeName(description)
-    return FilesystemObservationLifetimeConstructor.allCases.first { $0.rawValue == terminalName }
 }
 
-private func filesystemObservationIsExactSelectedCase(
+private func filesystemObservationIsExactIdentityRequirementCase(
     _ switchCase: SwitchCaseSyntax
 ) -> Bool {
     guard case .case(let caseLabel) = switchCase.label,
@@ -676,7 +763,7 @@ private func filesystemObservationIsExactSelectedCase(
     else {
         return false
     }
-    guard filesystemObservationSwitchUsesCanonicalSlotState(switchCase) else {
+    guard filesystemObservationSwitchUsesCanonicalNativeCommitPlan(switchCase) else {
         return false
     }
     guard let expressionPattern = caseItem.pattern.as(ExpressionPatternSyntax.self) else {
@@ -684,22 +771,25 @@ private func filesystemObservationIsExactSelectedCase(
     }
     let expression = expressionPattern.expression
     if let call = expression.as(FunctionCallExprSyntax.self) {
-        return filesystemObservationDirectMemberName(call.calledExpression) == "selected"
+        return FilesystemSlotConstructionPolicy.directMemberName(call.calledExpression)
+            == "requiresNativeLifetimeIdentities"
     }
-    return filesystemObservationDirectMemberName(expression) == "selected"
+    return FilesystemSlotConstructionPolicy.directMemberName(expression)
+        == "requiresNativeLifetimeIdentities"
 }
 
-private func filesystemObservationSwitchUsesCanonicalSlotState(
+private func filesystemObservationSwitchUsesCanonicalNativeCommitPlan(
     _ switchCase: SwitchCaseSyntax
 ) -> Bool {
     var ancestor = switchCase.parent
     while let current = ancestor {
         if let switchExpression = current.as(SwitchExprSyntax.self) {
             guard
-                filesystemObservationDirectMemberName(switchExpression.subject) == "slotState",
+                FilesystemSlotConstructionPolicy.directMemberName(switchExpression.subject)
+                    == "plan",
                 let function = filesystemObservationEnclosingFunction(switchExpression),
-                filesystemObservationHasReservationParameter(function),
-                filesystemObservationSwitchImmediatelyFollowsCanonicalLookup(
+                FilesystemSlotConstructionPolicy.hasReservationParameter(function),
+                filesystemObservationSwitchImmediatelyFollowsCanonicalPlan(
                     switchExpression,
                     in: function
                 )
@@ -735,58 +825,41 @@ private func filesystemObservationEnclosingFunction(
     return nil
 }
 
-private func filesystemObservationHasReservationParameter(
-    _ function: FunctionDeclSyntax
-) -> Bool {
-    function.signature.parameterClause.parameters.contains { parameter in
-        let localName = parameter.secondName?.text ?? parameter.firstName.text
-        return localName == "reservation"
-    }
-}
-
-private func filesystemObservationSwitchImmediatelyFollowsCanonicalLookup(
+private func filesystemObservationSwitchImmediatelyFollowsCanonicalPlan(
     _ switchExpression: SwitchExprSyntax,
     in function: FunctionDeclSyntax
 ) -> Bool {
     let statements = Array(function.body?.statements ?? [])
     guard
+        statements.contains(where: {
+            $0.item.positionAfterSkippingLeadingTrivia
+                == switchExpression.positionAfterSkippingLeadingTrivia
+        }),
         let precedingStatement = statements.last(where: {
             $0.positionAfterSkippingLeadingTrivia
                 < switchExpression.positionAfterSkippingLeadingTrivia
         }),
-        let guardStatement = precedingStatement.item.as(GuardStmtSyntax.self),
-        guardStatement.conditions.count == 1,
-        let condition = guardStatement.conditions.first?.condition.as(
-            OptionalBindingConditionSyntax.self
-        ),
-        condition.bindingSpecifier.tokenKind == .keyword(.let),
-        condition.pattern.as(IdentifierPatternSyntax.self)?.identifier.text == "slotState",
-        let initializer = condition.initializer?.value.as(SubscriptCallExprSyntax.self),
-        filesystemObservationDirectMemberName(initializer.calledExpression)
-            == "statesByPhysicalSlotID",
-        initializer.arguments.count == 1,
-        let keyExpression = initializer.arguments.first?.expression.as(MemberAccessExprSyntax.self),
-        keyExpression.declName.baseName.text == "physicalSlotID",
-        let keyBase = keyExpression.base,
-        filesystemObservationDirectMemberName(keyBase) == "reservation"
+        let declaration = precedingStatement.item.as(VariableDeclSyntax.self),
+        declaration.bindingSpecifier.tokenKind == .keyword(.let),
+        declaration.bindings.count == 1,
+        let binding = declaration.bindings.first,
+        binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text == "plan",
+        let initializer = binding.initializer?.value.as(FunctionCallExprSyntax.self),
+        let memberAccess = initializer.calledExpression.as(MemberAccessExprSyntax.self),
+        memberAccess.declName.baseName.text == "planNativeCommit",
+        let plannerBase = memberAccess.base,
+        FilesystemSlotConstructionPolicy.terminalTypeName(plannerBase.trimmedDescription)
+            == "FilesystemObservationSlotAdmissionPlanner",
+        initializer.arguments.map(\.label?.text) == [
+            "reservation",
+            "fleetMailboxIdentity",
+            "slotState",
+            "pendingRecord",
+        ]
     else {
         return false
     }
     return true
-}
-
-private func filesystemObservationDirectMemberName(_ expression: ExprSyntax) -> String? {
-    if let memberAccess = expression.as(MemberAccessExprSyntax.self) {
-        return memberAccess.declName.baseName.text
-    }
-    if let declarationReference = expression.as(DeclReferenceExprSyntax.self) {
-        return declarationReference.baseName.text
-    }
-    return nil
-}
-
-private func filesystemObservationTerminalTypeName(_ description: String) -> String {
-    description.split(separator: ".").last.map(String.init) ?? description
 }
 
 private func filesystemObservationIdentifierTokens(in description: String) -> Set<String> {
@@ -886,7 +959,7 @@ private func filesystemObservationNearestMemberOwnerName(
             return declaration.name.text
         }
         if let declaration = current.as(ExtensionDeclSyntax.self) {
-            return filesystemObservationTerminalTypeName(
+            return FilesystemSlotConstructionPolicy.terminalTypeName(
                 declaration.extendedType.trimmedDescription
             )
         }

@@ -401,7 +401,12 @@ struct DarwinFSEventObservationAdapterTests: Sendable {
         let mismatchedStartingNativeLifetime = FilesystemObservationStartingNativeLifetime(
             desiredRegistration: FilesystemObservationDesiredRegistration(
                 identity: fixture.startingNativeLifetime.desiredRegistration.identity,
-                registration: mismatchedRegistration
+                acceptedTopologyRevision: fixture.startingNativeLifetime.desiredRegistration
+                    .acceptedTopologyRevision,
+                configuration: makeTestFilesystemObservationSourceConfiguration(
+                    mismatchedRegistration
+                ),
+                admission: fixture.startingNativeLifetime.desiredRegistration.admission
             ),
             consumedReservation: fixture.startingNativeLifetime.consumedReservation,
             binding: mismatchedBinding,

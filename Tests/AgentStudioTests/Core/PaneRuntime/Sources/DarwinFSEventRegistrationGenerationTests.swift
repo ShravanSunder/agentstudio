@@ -7,46 +7,150 @@ import os
 
 @Suite("Dormant Darwin FSEvent registration generation")
 struct DarwinFSEventRegistrationGenerationTests {
+    @Test("persistent native owner creates once and replays exact completion")
+    func persistentNativeOwnerCreatesOnceAndReplaysCompletion() throws {
+        // Arrange
+        let fixture = try makePersistentNativeOwnerFixture()
+
+        // Act
+        let firstResult = fixture.nativeOwner.createOrReplay(
+            controlBlock: fixture.controlBlock,
+            adapter: fixture.adapter,
+            nativeDriver: fixture.nativeDriver,
+            callbackQueueBarrier: fixture.callbackQueueBarrier
+        )
+        let replayedResult = fixture.nativeOwner.createOrReplay(
+            controlBlock: fixture.controlBlock,
+            adapter: fixture.adapter,
+            nativeDriver: fixture.nativeDriver,
+            callbackQueueBarrier: fixture.callbackQueueBarrier
+        )
+
+        // Assert
+        guard case .created(let firstCompletion) = firstResult,
+            case .created(let replayedCompletion) = replayedResult
+        else {
+            Issue.record("exact owner create must succeed and replay its typed completion")
+            return
+        }
+        #expect(firstCompletion === replayedCompletion)
+        #expect(fixture.ledger.events == [.create])
+    }
+
+    @Test("creation abandonment is exact replayable and permanently consumes create right")
+    func creationAbandonmentPermanentlyConsumesCreateRight() throws {
+        // Arrange
+        let fixture = try makePersistentNativeOwnerFixture()
+
+        // Act
+        let firstAbandonment = fixture.nativeOwner.abandonCreation()
+        let replayedAbandonment = fixture.nativeOwner.abandonCreation()
+        let delayedCreate = fixture.nativeOwner.createOrReplay(
+            controlBlock: fixture.controlBlock,
+            adapter: fixture.adapter,
+            nativeDriver: fixture.nativeDriver,
+            callbackQueueBarrier: fixture.callbackQueueBarrier
+        )
+
+        // Assert
+        guard case .creationAbandoned(let firstCompletion) = firstAbandonment,
+            case .creationAbandoned(let replayedCompletion) = replayedAbandonment,
+            case .creationAbandoned(let delayedCreateCompletion) = delayedCreate
+        else {
+            Issue.record("abandoned create authority must replay one exact typed completion")
+            return
+        }
+        #expect(firstCompletion === replayedCompletion)
+        #expect(firstCompletion === delayedCreateCompletion)
+        #expect(fixture.ledger.events.isEmpty)
+    }
+
+    @Test("foreign binding is a typed native owner authority rejection")
+    func foreignBindingIsTypedAuthorityRejection() throws {
+        // Arrange
+        let localFixture = try makePersistentNativeOwnerFixture()
+        let foreignFixture = try makePersistentNativeOwnerFixture()
+
+        // Act
+        let result = localFixture.nativeOwner.createOrReplay(
+            controlBlock: foreignFixture.controlBlock,
+            adapter: foreignFixture.adapter,
+            nativeDriver: localFixture.nativeDriver,
+            callbackQueueBarrier: localFixture.callbackQueueBarrier
+        )
+
+        // Assert
+        guard
+            case .authorityRejected(
+                .bindingMismatch(let expectedBinding, let presentedBinding)
+            ) = result
+        else {
+            Issue.record("foreign binding must return a typed authority rejection")
+            return
+        }
+        #expect(expectedBinding == localFixture.startingNativeLifetime.binding)
+        #expect(presentedBinding == foreignFixture.startingNativeLifetime.binding)
+        #expect(localFixture.ledger.events.isEmpty)
+    }
+
     @Test("native create failure returns exact typed cleanup without stream operations")
     func createFailureReturnsTypedCleanup() throws {
-        let fixture = try makeFixture(createSucceeds: false)
+        var fixture: GenerationFixture? = try makeFixture(createSucceeds: false)
+        let mailbox = try #require(fixture).mailbox
+        let ledger = try #require(fixture).ledger
+        let startingNativeLifetime = try #require(fixture).startingNativeLifetime
+        weak var retainedAdapter = try #require(fixture).adapter
 
-        switch fixture.creationResult {
+        switch try #require(fixture).creationResult {
         case .created:
             Issue.record("configured native create failure must not produce a generation")
-        case .failed(let cleanup):
-            #expect(cleanup.startingNativeLifetime == fixture.startingNativeLifetime)
+        case .creationRejected(let cleanup):
+            #expect(cleanup.startingNativeLifetime == startingNativeLifetime)
             #expect(cleanup.nativeFailure == .nativeCreateRejected)
-            #expect(cleanup.releaseCallbackContext() == .released)
-            #expect(cleanup.releaseCallbackContext() == .alreadyReleased)
+        case .creationAbandoned, .authorityRejected:
+            Issue.record("configured native create failure must retain typed rejection evidence")
         }
-        #expect(fixture.ledger.events == [.create])
+        fixture = nil
+
+        withExtendedLifetime(mailbox) {
+            #expect(retainedAdapter != nil)
+        }
+        #expect(ledger.events == [.create])
     }
 
     @Test("native start failure invalidates and drains without stopping")
     func startFailureNeverStopsUnstartedStream() async throws {
-        let fixture = try makeFixture(startSucceeds: false)
-        let generation = try requireCreatedGeneration(fixture.creationResult)
+        var fixture: GenerationFixture? = try makeFixture(startSucceeds: false)
+        let mailbox = try #require(fixture).mailbox
+        let ledger = try #require(fixture).ledger
+        let startingNativeLifetime = try #require(fixture).startingNativeLifetime
+        weak var retainedAdapter = try #require(fixture).adapter
 
-        switch await generation.start() {
-        case .started, .invalidPhase:
-            Issue.record("configured native start failure must return typed cleanup")
-        case .failed(let cleanup):
-            #expect(cleanup.startingNativeLifetime == fixture.startingNativeLifetime)
-            #expect(cleanup.binding == fixture.startingNativeLifetime.binding)
-            #expect(
-                cleanup.nativeGenerationIdentity
-                    == fixture.startingNativeLifetime.nativeGenerationIdentity
-            )
-            #expect(
-                cleanup.controlBlockIdentity
-                    == fixture.startingNativeLifetime.binding.controlBlockIdentity
-            )
-            #expect(cleanup.releaseCallbackContext() == .released)
+        do {
+            let generation = try requireCreatedGeneration(try #require(fixture).creationResult)
+            switch await generation.start() {
+            case .started, .acceptingPublicationRejected, .invalidPhase:
+                Issue.record("configured native start failure must return typed cleanup")
+            case .failed(let cleanup):
+                #expect(cleanup.startingNativeLifetime == startingNativeLifetime)
+                #expect(cleanup.binding == startingNativeLifetime.binding)
+                #expect(
+                    cleanup.nativeGenerationIdentity
+                        == startingNativeLifetime.nativeGenerationIdentity
+                )
+                #expect(
+                    cleanup.controlBlockIdentity
+                        == startingNativeLifetime.binding.controlBlockIdentity
+                )
+            }
+            #expect(generation.phase == .startFailed)
         }
+        fixture = nil
 
-        #expect(fixture.ledger.events == [.create, .start, .invalidate, .barrier, .release])
-        #expect(generation.phase == .startFailed)
+        withExtendedLifetime(mailbox) {
+            #expect(retainedAdapter != nil)
+        }
+        #expect(ledger.events == [.create, .start, .invalidate, .barrier, .release])
     }
 
     @Test("successful start atomically publishes exact accepting lifetime")
@@ -65,7 +169,7 @@ struct DarwinFSEventRegistrationGenerationTests {
                     of: fixture.startingNativeLifetime.binding.physicalSlotID
                 ) == .accepting(acceptingNativeLifetime)
             )
-        case .failed, .invalidPhase:
+        case .failed, .acceptingPublicationRejected, .invalidPhase:
             Issue.record("successful native start must publish the exact accepting lifetime")
         }
         #expect(fixture.ledger.events == [.create, .start])
@@ -180,18 +284,26 @@ struct DarwinFSEventRegistrationGenerationTests {
     @Test("created close omits stop and retains callback context beyond stream release")
     func unstartedCloseRetainsCallbackContext() async throws {
         var fixture: GenerationFixture? = try makeFixture()
-        let generation = try requireCreatedGeneration(try #require(fixture).creationResult)
-        weak var adapter: DarwinGenerationTestCallbackAdapter?
-        adapter = try #require(fixture).adapter
-        fixture?.adapter = nil
+        let mailbox = try #require(fixture).mailbox
+        let ledger = try #require(fixture).ledger
+        let startingNativeLifetime = try #require(fixture).startingNativeLifetime
+        weak var retainedAdapter = try #require(fixture).adapter
 
-        let receipt = try requireClosedReceipt(await generation.close())
+        do {
+            let generation = try requireCreatedGeneration(try #require(fixture).creationResult)
+            let receipt = try requireClosedReceipt(await generation.close())
+            #expect(receipt.binding == startingNativeLifetime.binding)
+            #expect(
+                receipt.nativeGenerationIdentity
+                    == startingNativeLifetime.nativeGenerationIdentity
+            )
+        }
+        fixture = nil
 
-        #expect(try #require(fixture).ledger.events == [.create, .invalidate, .barrier, .release])
-        #expect(adapter != nil)
-        #expect(receipt.releaseCallbackContext() == .released)
-        #expect(adapter == nil)
-        #expect(receipt.releaseCallbackContext() == .alreadyReleased)
+        #expect(ledger.events == [.create, .invalidate, .barrier, .release])
+        withExtendedLifetime(mailbox) {
+            #expect(retainedAdapter != nil)
+        }
     }
 
     @Test("duplicate close replays the identical retained receipt")
@@ -293,7 +405,7 @@ struct DarwinFSEventRegistrationGenerationTests {
                 acceptingNativeLifetime.startingNativeLifetime
                     == fixture.startingNativeLifetime
             )
-        case .failed, .invalidPhase:
+        case .failed, .acceptingPublicationRejected, .invalidPhase:
             Issue.record("successful native start must publish accepting")
         }
         let receipt = try requireClosedReceipt(await closeTask.value)
@@ -347,11 +459,9 @@ struct DarwinFSEventRegistrationGenerationTests {
             startSucceeds: startSucceeds,
             startSynchronization: startSynchronization
         )
-        let creationResult = DarwinFSEventRegistrationGeneration.create(
-            startingNativeLifetime: startingNativeLifetime,
+        let creationResult = mailboxFixture.nativeGenerationPorts.nativeOwner.createOrReplay(
             controlBlock: controlBlock,
             adapter: adapter,
-            nativeGenerationPorts: mailboxFixture.nativeGenerationPorts,
             nativeDriver: nativeDriver,
             callbackQueueBarrier: callbackQueueBarrier
                 ?? DarwinGenerationTestBarrier(ledger: ledger)
@@ -363,6 +473,47 @@ struct DarwinFSEventRegistrationGenerationTests {
             adapter: adapter,
             ledger: ledger,
             creationResult: creationResult
+        )
+    }
+
+    private func makePersistentNativeOwnerFixture() throws -> PersistentNativeOwnerFixture {
+        let mailboxFixture = try makeMailboxFixture()
+        let startingNativeLifetime = mailboxFixture.startingNativeLifetime
+        let controlBlock = try FSEventRegistrationControlBlock(
+            startingNativeLifetime: startingNativeLifetime,
+            watchRoot: WatchRoot(
+                sourceID: startingNativeLifetime.binding.registration.sourceID,
+                declaredPath: "/workspace/repo",
+                resolvedPath: "/private/workspace/repo"
+            ),
+            captureLimits: try FSEventCaptureLimits(
+                maximumInspectedNativeRecords: 8,
+                maximumCopiedRecords: 8,
+                maximumCopiedUTF8Bytes: 4096,
+                maximumSinglePathUTF8Bytes: 1024
+            ),
+            callbackQueue: DispatchQueue(label: "test.darwin-native-owner.callback")
+        )
+        let adapter = DarwinGenerationTestCallbackAdapter(
+            controlBlock: controlBlock,
+            callbackAdmissionPort: mailboxFixture.nativeGenerationPorts.callbackAdmissionPort
+        )
+        let ledger = DarwinGenerationTestLedger()
+        let nativeDriver = DarwinGenerationTestNativeDriver(
+            ledger: ledger,
+            createSucceeds: true,
+            startSucceeds: true,
+            startSynchronization: .immediate
+        )
+        return PersistentNativeOwnerFixture(
+            mailbox: mailboxFixture.mailbox,
+            startingNativeLifetime: startingNativeLifetime,
+            nativeOwner: mailboxFixture.nativeGenerationPorts.nativeOwner,
+            controlBlock: controlBlock,
+            adapter: adapter,
+            nativeDriver: nativeDriver,
+            callbackQueueBarrier: DarwinGenerationTestBarrier(ledger: ledger),
+            ledger: ledger
         )
     }
 
@@ -386,7 +537,7 @@ struct DarwinFSEventRegistrationGenerationTests {
             )
         )
         let registration = makeRegistration()
-        _ = mailbox.recordDesiredRegistration(registration)
+        _ = mailbox.installTestConfiguration(registration)
         guard case .selected(let selection) = mailbox.selectNextDesiredSource(),
             case .committed(let startingNativeLifetime) = mailbox.beginNativeLifetime(
                 selection.reservation
@@ -416,12 +567,12 @@ struct DarwinFSEventRegistrationGenerationTests {
     }
 
     private func requireCreatedGeneration(
-        _ result: DarwinFSEventRegistrationGenerationCreationResult
+        _ result: DarwinFSEventNativeOwnerCreationResult
     ) throws -> DarwinFSEventRegistrationGeneration {
         switch result {
         case .created(let generation):
             generation
-        case .failed:
+        case .creationRejected, .creationAbandoned, .authorityRejected:
             try #require(nil as DarwinFSEventRegistrationGeneration?)
         }
     }
@@ -481,7 +632,18 @@ private struct GenerationFixture {
     let nativeGenerationPorts: FilesystemObservationNativeGenerationPorts
     var adapter: DarwinGenerationTestCallbackAdapter?
     let ledger: DarwinGenerationTestLedger
-    let creationResult: DarwinFSEventRegistrationGenerationCreationResult
+    let creationResult: DarwinFSEventNativeOwnerCreationResult
+}
+
+private struct PersistentNativeOwnerFixture {
+    let mailbox: FilesystemObservationMailbox
+    let startingNativeLifetime: FilesystemObservationStartingNativeLifetime
+    let nativeOwner: DarwinFSEventRegistrationNativeOwner
+    let controlBlock: FSEventRegistrationControlBlock
+    let adapter: DarwinGenerationTestCallbackAdapter
+    let nativeDriver: DarwinGenerationTestNativeDriver
+    let callbackQueueBarrier: DarwinGenerationTestBarrier
+    let ledger: DarwinGenerationTestLedger
 }
 
 private struct GenerationMailboxFixture {

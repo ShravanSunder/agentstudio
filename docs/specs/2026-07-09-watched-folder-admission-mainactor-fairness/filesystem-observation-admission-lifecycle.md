@@ -478,24 +478,31 @@ The mutable owner is one narrow primary declaration in one file. Production
 extensions of that owner are forbidden. Opaque mutation capability remains
 lexically private to that declaration; it is not returned, injected, stored in
 a reusable issuer, or shared with the contracts/projection file. A reusable
-construction or issuance key is permitted only as temporary implementation
-scaffolding and must be removed before registry integration. It is not part of
-the accepted architecture.
+construction or issuance key is not part of the accepted architecture.
 
 The lock-linearized `selected -> starting` transition is the only operation
-that may construct a slot binding, control-block identity, or native-generation
-identity. Their concrete construction therefore has exactly one production
-call site inside that transition. Reservation, retry, projection, tests, and
-same-file helpers cannot mint them. This decomposition adds no actor, lock,
-runtime authority, lookup, event path, or second currentness owner.
+that may mint the UUIDv7 binding, control-block, and native-generation
+identities. The registry passes those identities in one closed typed bundle to
+the stateless admission planner. The planner constructs the complete binding
+and starting-lifetime product and returns it for atomic application by the
+registry. It cannot mint UUIDs, retain snapshots, mutate registry state, accept
+`inout` storage, or execute a caller-provided closure.
+
+The same split applies to the other registry transitions: the registry captures
+one synchronous operation-specific immutable snapshot and mints any required
+UUIDv7 identity; a stateless planner returns a complete typed transition
+product; the primary registry declaration performs every stored-property
+write. Whole registry dictionaries are not retained across mutation because a
+retained Swift copy-on-write snapshot could turn the next write into O(N) work.
 
 Swift access control alone cannot prevent a deliberately added same-file
 extension from reaching a `private` member of the owner. Architecture lint
 therefore enforces the lexical boundary: the owner has no production extension;
-binding/control/native construction occurs only in the approved
-`selected -> starting` transition; and plain-helper plus same-file-extension
-mutation probes fail. The approved transition probe passes. This lint is a
-source-regression guard over the structural design, not a runtime authority.
+UUIDv7 issuance for binding/control/native identity occurs only in the approved
+`selected -> starting` transition; complete binding/lifetime construction
+occurs only in the approved stateless completion planner; and plain-helper plus
+same-file-extension mutation probes fail. This lint is a source-regression
+guard over the structural design, not a runtime authority.
 
 ### Mailbox facade and lexical storage owner
 

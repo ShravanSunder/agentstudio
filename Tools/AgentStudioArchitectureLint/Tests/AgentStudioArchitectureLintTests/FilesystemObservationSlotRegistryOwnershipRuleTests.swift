@@ -17,6 +17,10 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
                     contents: approvedRegistrySource()
                 ),
                 source(
+                    path: admissionPlannerPath,
+                    contents: approvedAdmissionPlannerSource()
+                ),
+                source(
                     path: contractsPath,
                     contents: """
                         struct FilesystemObservationSlotBindingIdentity {
@@ -45,6 +49,7 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
         let diagnostics = validate(
             sources: [
                 source(path: registryPath, contents: approvedRegistrySource()),
+                source(path: admissionPlannerPath, contents: approvedAdmissionPlannerSource()),
                 source(
                     path: contractsPath,
                     contents: """
@@ -79,7 +84,7 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
                     contents: approvedRegistrySource(
                         extraOwnerMembers: """
                             private func mintAnotherBinding() {
-                                _ = FilesystemObservationSlotBinding(value: 2)
+                                _ = FilesystemObservationSlotBindingIdentity(value: UUIDv7.generate())
                             }
                             """
                     )
@@ -87,7 +92,7 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
             ]
         )
 
-        #expect(diagnostics.contains { $0.message == outsideTransitionMessage })
+        #expect(diagnostics.contains { $0.message == identityOutsideTransitionMessage })
         #expect(diagnostics.contains { $0.message == constructorCardinalityMessage })
     }
 
@@ -106,12 +111,13 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
                             }
                         }
                         """
-                )
+                ),
+                source(path: admissionPlannerPath, contents: approvedAdmissionPlannerSource()),
             ]
         )
 
         #expect(diagnostics.contains { $0.message == ownerExtensionMessage })
-        #expect(diagnostics.contains { $0.message == outsideTransitionMessage })
+        #expect(diagnostics.contains { $0.message == identityOutsideTransitionMessage })
         #expect(diagnostics.contains { $0.message == constructorCardinalityMessage })
     }
 
@@ -120,6 +126,7 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
         let diagnostics = validate(
             sources: [
                 source(path: registryPath, contents: approvedRegistrySource()),
+                source(path: admissionPlannerPath, contents: approvedAdmissionPlannerSource()),
                 source(
                     path: filesystemSourcePath("FilesystemObservationSlotBindingFactory.swift"),
                     contents: """
@@ -133,11 +140,11 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
             ]
         )
 
-        #expect(diagnostics.contains { $0.message == outsideTransitionMessage })
+        #expect(diagnostics.contains { $0.message == identityOutsideTransitionMessage })
         #expect(diagnostics.contains { $0.message == constructorCardinalityMessage })
     }
 
-    @Test("rejects missing and duplicate lifetime constructors")
+    @Test("rejects missing and duplicate protected constructors")
     func rejectsMissingAndDuplicateConstructors() {
         let missingDiagnostics = validate(
             sources: [
@@ -146,19 +153,21 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
                     contents: approvedRegistrySource(
                         nativeGenerationConstruction: "let nativeGeneration = existingGeneration"
                     )
-                )
+                ),
+                source(path: admissionPlannerPath, contents: approvedAdmissionPlannerSource()),
             ]
         )
         let duplicateDiagnostics = validate(
             sources: [
+                source(path: registryPath, contents: approvedRegistrySource()),
                 source(
-                    path: registryPath,
-                    contents: approvedRegistrySource(
-                        extraSelectedStatements: """
-                            _ = FilesystemObservationNativeGenerationIdentity(value: 2)
+                    path: admissionPlannerPath,
+                    contents: approvedAdmissionPlannerSource(
+                        extraCompletionStatements: """
+                            _ = FilesystemObservationStartingNativeLifetime(value: 2)
                             """
                     )
-                )
+                ),
             ]
         )
 
@@ -171,6 +180,7 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
         let diagnostics = validate(
             sources: [
                 source(path: registryPath, contents: approvedRegistrySource()),
+                source(path: admissionPlannerPath, contents: approvedAdmissionPlannerSource()),
                 source(
                     path: filesystemSourcePath("FilesystemObservationSlotEscapes.swift"),
                     contents: """
@@ -191,6 +201,7 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
         let diagnostics = validate(
             sources: [
                 source(path: registryPath, contents: approvedRegistrySource()),
+                source(path: admissionPlannerPath, contents: approvedAdmissionPlannerSource()),
                 source(
                     path: filesystemSourcePath("FilesystemObservationMetatypeEscapes.swift"),
                     contents: """
@@ -212,7 +223,7 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
         )
 
         #expect(diagnostics.contains { $0.message == constructorAliasMessage })
-        #expect(diagnostics.filter { $0.message == outsideTransitionMessage }.count >= 2)
+        #expect(diagnostics.contains { $0.message == identityOutsideTransitionMessage })
     }
 
     @Test("rejects registry aliases that could extend the owner indirectly")
@@ -220,6 +231,7 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
         let diagnostics = validate(
             sources: [
                 source(path: registryPath, contents: approvedRegistrySource()),
+                source(path: admissionPlannerPath, contents: approvedAdmissionPlannerSource()),
                 source(
                     path: filesystemSourcePath("FilesystemObservationSlotRegistryAlias.swift"),
                     contents: """
@@ -236,126 +248,41 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
         #expect(diagnostics.contains { $0.message == ownerAliasMessage })
     }
 
-    @Test("requires the exact selected enum case rather than a textual lookalike")
-    func rejectsSelectedCaseNameLookalike() {
-        let diagnostics = validate(
-            sources: [
-                source(
-                    path: registryPath,
-                    contents: approvedRegistrySource(selectedCaseName: "selectedFake")
-                )
-            ]
-        )
-
-        #expect(diagnostics.filter { $0.message == outsideTransitionMessage }.count == 4)
-    }
-
-    @Test("requires selected to be the top-level enum case pattern")
-    func rejectsNestedSelectedPatternLookalike() {
+    @Test("requires the exact identity-requirement enum case rather than a textual lookalike")
+    func rejectsIdentityRequirementCaseNameLookalike() {
         let diagnostics = validate(
             sources: [
                 source(
                     path: registryPath,
                     contents: approvedRegistrySource(
-                        selectedCaseName: "selectedFake(.selected)"
+                        identityRequirementCaseName: "requiresNativeLifetimeIdentitiesFake"
                     )
                 )
             ]
         )
 
-        #expect(diagnostics.filter { $0.message == outsideTransitionMessage }.count == 4)
+        #expect(diagnostics.filter { $0.message == identityOutsideTransitionMessage }.count == 3)
     }
 
-    @Test("rejects construction in a nested selected switch unrelated to the slot transition")
-    func rejectsNestedSelectedSwitch() {
+    @Test("requires the identity requirement to be the top-level enum case pattern")
+    func rejectsNestedIdentityRequirementPatternLookalike() {
         let diagnostics = validate(
             sources: [
                 source(
                     path: registryPath,
-                    contents: """
-                        final class FilesystemObservationSlotRegistry {
-                            func beginNativeLifetime(_ slotState: SlotState, other: OtherState) {
-                                switch slotState {
-                                case .selected:
-                                    break
-                                case .vacant:
-                                    switch other {
-                                    case .selected:
-                                        _ = FilesystemObservationSlotBindingIdentity(value: 1)
-                                        _ = FilesystemObservationControlBlockIdentity(value: 1)
-                                        _ = FilesystemObservationSlotBinding(value: 1)
-                                        _ = FilesystemObservationNativeGenerationIdentity(value: 1)
-                                    }
-                                }
-                            }
-                        }
-                        """
+                    contents: approvedRegistrySource(
+                        identityRequirementCaseName:
+                            "result(.requiresNativeLifetimeIdentities)"
+                    )
                 )
             ]
         )
 
-        #expect(diagnostics.filter { $0.message == outsideTransitionMessage }.count == 4)
+        #expect(diagnostics.filter { $0.message == identityOutsideTransitionMessage }.count == 3)
     }
 
-    @Test("binds approved construction to the canonical slot-state switch")
-    func rejectsDirectUnrelatedSelectedSwitch() {
-        let diagnostics = validate(
-            sources: [
-                source(
-                    path: registryPath,
-                    contents: """
-                        final class FilesystemObservationSlotRegistry {
-                            func beginNativeLifetime(_ slotState: SlotState, other: OtherState) {
-                                switch other {
-                                case .selected:
-                                    _ = FilesystemObservationSlotBindingIdentity(value: 1)
-                                    _ = FilesystemObservationControlBlockIdentity(value: 1)
-                                    _ = FilesystemObservationSlotBinding(value: 1)
-                                    _ = FilesystemObservationNativeGenerationIdentity(value: 1)
-                                }
-                            }
-                        }
-                        """
-                )
-            ]
-        )
-
-        #expect(diagnostics.filter { $0.message == outsideTransitionMessage }.count == 4)
-    }
-
-    @Test("requires slot state to come from the reservation physical-slot lookup")
-    func rejectsShadowSlotStateParameter() {
-        let diagnostics = validate(
-            sources: [
-                source(
-                    path: registryPath,
-                    contents: """
-                        final class FilesystemObservationSlotRegistry {
-                            func beginNativeLifetime(
-                                _ reservation: Reservation,
-                                slotState: SlotState
-                            ) {
-                                switch slotState {
-                                case .vacant:
-                                    break
-                                case .selected:
-                                    _ = FilesystemObservationSlotBindingIdentity(value: 1)
-                                    _ = FilesystemObservationControlBlockIdentity(value: 1)
-                                    _ = FilesystemObservationSlotBinding(value: 1)
-                                    _ = FilesystemObservationNativeGenerationIdentity(value: 1)
-                                }
-                            }
-                        }
-                        """
-                )
-            ]
-        )
-
-        #expect(diagnostics.filter { $0.message == outsideTransitionMessage }.count == 4)
-    }
-
-    @Test("rejects an unrelated local slot-state binding")
-    func rejectsUnrelatedLocalSlotStateBinding() {
+    @Test("rejects construction in a nested identity-requirement switch")
+    func rejectsNestedIdentityRequirementSwitch() {
         let diagnostics = validate(
             sources: [
                 source(
@@ -363,15 +290,22 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
                     contents: """
                         final class FilesystemObservationSlotRegistry {
                             func beginNativeLifetime(_ reservation: Reservation) {
-                                let slotState = unrelatedState
-                                switch slotState {
-                                case .vacant:
+                                let plan = FilesystemObservationSlotAdmissionPlanner.planNativeCommit(
+                                    reservation: reservation,
+                                    fleetMailboxIdentity: fleetMailboxIdentity,
+                                    slotState: slotState,
+                                    pendingRecord: pendingRecord
+                                )
+                                switch plan {
+                                case .requiresNativeLifetimeIdentities:
+                                    switch otherPlan {
+                                    case .requiresNativeLifetimeIdentities:
+                                        _ = FilesystemObservationSlotBindingIdentity(value: UUIDv7.generate())
+                                        _ = FilesystemObservationControlBlockIdentity(value: UUIDv7.generate())
+                                        _ = FilesystemObservationNativeGenerationIdentity(value: UUIDv7.generate())
+                                    }
+                                case .result:
                                     break
-                                case .selected:
-                                    _ = FilesystemObservationSlotBindingIdentity(value: 1)
-                                    _ = FilesystemObservationControlBlockIdentity(value: 1)
-                                    _ = FilesystemObservationSlotBinding(value: 1)
-                                    _ = FilesystemObservationNativeGenerationIdentity(value: 1)
                                 }
                             }
                         }
@@ -380,7 +314,87 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
             ]
         )
 
-        #expect(diagnostics.filter { $0.message == outsideTransitionMessage }.count == 4)
+        #expect(diagnostics.filter { $0.message == identityOutsideTransitionMessage }.count == 3)
+    }
+
+    @Test("binds approved construction to the canonical native-commit plan switch")
+    func rejectsDirectUnrelatedIdentityRequirementSwitch() {
+        let diagnostics = validate(
+            sources: [
+                source(
+                    path: registryPath,
+                    contents: """
+                        final class FilesystemObservationSlotRegistry {
+                            func beginNativeLifetime(_ reservation: Reservation) {
+                                switch otherPlan {
+                                case .requiresNativeLifetimeIdentities:
+                                    _ = FilesystemObservationSlotBindingIdentity(value: UUIDv7.generate())
+                                    _ = FilesystemObservationControlBlockIdentity(value: UUIDv7.generate())
+                                    _ = FilesystemObservationNativeGenerationIdentity(value: UUIDv7.generate())
+                                }
+                            }
+                        }
+                        """
+                )
+            ]
+        )
+
+        #expect(diagnostics.filter { $0.message == identityOutsideTransitionMessage }.count == 3)
+    }
+
+    @Test("requires plan to come from the canonical planner call")
+    func rejectsShadowPlanParameter() {
+        let diagnostics = validate(
+            sources: [
+                source(
+                    path: registryPath,
+                    contents: """
+                        final class FilesystemObservationSlotRegistry {
+                            func beginNativeLifetime(_ reservation: Reservation, plan: NativeCommitPlan) {
+                                switch plan {
+                                case .result:
+                                    break
+                                case .requiresNativeLifetimeIdentities:
+                                    _ = FilesystemObservationSlotBindingIdentity(value: UUIDv7.generate())
+                                    _ = FilesystemObservationControlBlockIdentity(value: UUIDv7.generate())
+                                    _ = FilesystemObservationNativeGenerationIdentity(value: UUIDv7.generate())
+                                }
+                            }
+                        }
+                        """
+                )
+            ]
+        )
+
+        #expect(diagnostics.filter { $0.message == identityOutsideTransitionMessage }.count == 3)
+    }
+
+    @Test("rejects an unrelated local plan binding")
+    func rejectsUnrelatedLocalPlanBinding() {
+        let diagnostics = validate(
+            sources: [
+                source(
+                    path: registryPath,
+                    contents: """
+                        final class FilesystemObservationSlotRegistry {
+                            func beginNativeLifetime(_ reservation: Reservation) {
+                                let plan = unrelatedPlan
+                                switch plan {
+                                case .result:
+                                    break
+                                case .requiresNativeLifetimeIdentities:
+                                    _ = FilesystemObservationSlotBindingIdentity(value: UUIDv7.generate())
+                                    _ = FilesystemObservationControlBlockIdentity(value: UUIDv7.generate())
+                                    _ = FilesystemObservationNativeGenerationIdentity(value: UUIDv7.generate())
+                                }
+                            }
+                        }
+                        """
+                )
+            ]
+        )
+
+        #expect(diagnostics.filter { $0.message == identityOutsideTransitionMessage }.count == 3)
     }
 
     @Test("rejects mutable contracts and mutating contract extensions")
@@ -388,6 +402,7 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
         let diagnostics = validate(
             sources: [
                 source(path: registryPath, contents: approvedRegistrySource()),
+                source(path: admissionPlannerPath, contents: approvedAdmissionPlannerSource()),
                 source(
                     path: contractsPath,
                     contents: """
@@ -427,6 +442,7 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
         let diagnostics = validate(
             sources: [
                 source(path: registryPath, contents: approvedRegistrySource()),
+                source(path: admissionPlannerPath, contents: approvedAdmissionPlannerSource()),
                 source(
                     path: contractsPath,
                     contents: """
@@ -456,6 +472,7 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
         let diagnostics = validate(
             sources: [
                 source(path: registryPath, contents: approvedRegistrySource()),
+                source(path: admissionPlannerPath, contents: approvedAdmissionPlannerSource()),
                 source(
                     path: contractsPath,
                     contents: """
@@ -503,7 +520,7 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
         )
 
         #expect(diagnostics.filter { $0.message == primaryOwnerMessage }.count == 1)
-        #expect(diagnostics.filter { $0.message == constructorCardinalityMessage }.count == 4)
+        #expect(diagnostics.filter { $0.message == constructorCardinalityMessage }.count == 5)
         #expect(diagnostics.allSatisfy { $0.path.hasSuffix(contractsPath) })
     }
 
@@ -549,6 +566,42 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
         #expect(diagnostics.isEmpty)
     }
 
+    @Test("rejects binding completion outside the exact admission planner method")
+    func rejectsBindingCompletionOutsideExactPlannerMethod() {
+        let diagnostics = validate(
+            sources: [
+                source(path: registryPath, contents: approvedRegistrySource()),
+                source(
+                    path: admissionPlannerPath,
+                    contents: approvedAdmissionPlannerSource(
+                        completionFunctionName: "completeNativeCommitLookalike"
+                    )
+                ),
+            ]
+        )
+
+        #expect(diagnostics.filter { $0.message == completionOutsidePlannerMessage }.count == 2)
+    }
+
+    @Test("rejects UUIDv7 generation in filesystem planners")
+    func rejectsPlannerUUIDGeneration() {
+        let diagnostics = validate(
+            sources: [
+                source(path: registryPath, contents: approvedRegistrySource()),
+                source(
+                    path: admissionPlannerPath,
+                    contents: approvedAdmissionPlannerSource(
+                        extraCompletionStatements: """
+                            _ = UUIDv7.generate()
+                            """
+                    )
+                ),
+            ]
+        )
+
+        #expect(diagnostics.contains { $0.message == plannerUUIDGenerationMessage })
+    }
+
     private func validate(sources: [SourceProbe]) -> [ArchitectureDiagnostic] {
         let contexts = sources.map { source in
             ArchitectureLintContext(
@@ -576,36 +629,61 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
 
     private func approvedRegistrySource(
         ownerDeclaration: String = "final class",
-        selectedCaseName: String = "selected",
+        identityRequirementCaseName: String = "requiresNativeLifetimeIdentities",
         nativeGenerationConstruction: String =
-            "let nativeGeneration = FilesystemObservationNativeGenerationIdentity(value: 1)",
+            "let nativeGeneration = FilesystemObservationNativeGenerationIdentity(value: UUIDv7.generate())",
         extraSelectedStatements: String = "",
         extraOwnerMembers: String = ""
     ) -> String {
         """
         \(ownerDeclaration) FilesystemObservationSlotRegistry {
-            private var statesByPhysicalSlotID: [PhysicalSlotID: SlotState] = [:]
-
             func beginNativeLifetime(_ reservation: Reservation) {
-                guard let slotState =
-                    statesByPhysicalSlotID[reservation.physicalSlotID]
-                else {
-                    return
-                }
-                switch slotState {
-                case .vacant:
+                let plan = FilesystemObservationSlotAdmissionPlanner.planNativeCommit(
+                    reservation: reservation,
+                    fleetMailboxIdentity: fleetMailboxIdentity,
+                    slotState: slotState,
+                    pendingRecord: pendingRecord
+                )
+                switch plan {
+                case .result:
                     break
-                case .\(selectedCaseName):
-                    let bindingIdentity = FilesystemObservationSlotBindingIdentity(value: 1)
-                    let controlBlockIdentity = FilesystemObservationControlBlockIdentity(value: 1)
-                    let binding = FilesystemObservationSlotBinding(value: 1)
+                case .\(identityRequirementCaseName)(let selection):
+                    let bindingIdentity = FilesystemObservationSlotBindingIdentity(value: UUIDv7.generate())
+                    let controlBlockIdentity = FilesystemObservationControlBlockIdentity(value: UUIDv7.generate())
                     \(nativeGenerationConstruction)
-                    _ = (bindingIdentity, controlBlockIdentity, binding, nativeGeneration)
+                    _ = FilesystemObservationSlotAdmissionPlanner.completeNativeCommit(
+                        selection: selection,
+                        identities: .init(
+                            bindingIdentity: bindingIdentity,
+                            controlBlockIdentity: controlBlockIdentity,
+                            nativeGenerationIdentity: nativeGeneration
+                        )
+                    )
                     \(extraSelectedStatements)
                 }
             }
 
             \(extraOwnerMembers)
+        }
+        """
+    }
+
+    private func approvedAdmissionPlannerSource(
+        completionFunctionName: String = "completeNativeCommit",
+        extraCompletionStatements: String = ""
+    ) -> String {
+        """
+        enum FilesystemObservationSlotAdmissionPlanner {
+            static func \(completionFunctionName)(
+                selection: Selection,
+                identities: NativeCommitIdentityBundle
+            ) -> NativeCommitTransition {
+                let binding = FilesystemObservationSlotBinding(value: 1)
+                let startingNativeLifetime = FilesystemObservationStartingNativeLifetime(value: 1)
+                \(extraCompletionStatements)
+                _ = (selection, identities, binding)
+                return NativeCommitTransition(startingNativeLifetime: startingNativeLifetime)
+            }
         }
         """
     }
@@ -616,6 +694,10 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
 
     private var contractsPath: String {
         filesystemSourcePath("FilesystemObservationSlotRegistryContracts.swift")
+    }
+
+    private var admissionPlannerPath: String {
+        filesystemSourcePath("FilesystemObservationSlotAdmissionPlanner.swift")
     }
 
     private var primaryOwnerMessage: String {
@@ -630,8 +712,12 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
         "FilesystemObservationSlotRegistry must not be aliased in production"
     }
 
-    private var outsideTransitionMessage: String {
-        "Filesystem observation binding/control/native construction must occur directly in beginNativeLifetime's selected transition"
+    private var identityOutsideTransitionMessage: String {
+        "Filesystem observation binding/control/native identity issuance must occur directly in beginNativeLifetime's requiresNativeLifetimeIdentities transition"
+    }
+
+    private var completionOutsidePlannerMessage: String {
+        "Filesystem observation binding and starting-lifetime construction must occur only in FilesystemObservationSlotAdmissionPlanner.completeNativeCommit"
     }
 
     private var constructorCardinalityMessage: String {
@@ -648,6 +734,10 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
 
     private var mutableContractMessage: String {
         "Filesystem observation slot-registry contracts must remain immutable value contracts with read-only projections"
+    }
+
+    private var plannerUUIDGenerationMessage: String {
+        "Filesystem observation planners must not generate UUIDv7 identities"
     }
 }
 

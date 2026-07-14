@@ -114,7 +114,7 @@ struct FilesystemLeaseTransferArchitectureTests {
         ).filter { $0.hasSuffix(".swift") }
 
         // Act / Assert
-        #expect(!registrySource.contains("extension FilesystemObservationSlotRegistry"))
+        #expect(!registrySource.contains("extension FilesystemObservationSlotRegistry {"))
         #expect(registrySource.contains("FilesystemObservationRetirementTransitionPlanner."))
         for sourceFileName in sourceFileNames
         where sourceFileName != registryFileName && sourceFileName != plannerFileName {

@@ -295,7 +295,7 @@ struct FilesystemObservationRetirementFenceTests {
         let generationN = try requireCreatedGeneration(fixture.creationResult)
         _ = try requireStartedLifetime(await generationN.start())
         let registrationNPlusOne = makeRegistration(registrationGeneration: 708)
-        _ = fixture.mailbox.recordDesiredRegistration(registrationNPlusOne)
+        _ = fixture.mailbox.installTestConfiguration(registrationNPlusOne)
         let receiptN = try requireClosedReceipt(await generationN.close())
 
         // Act: installing N's fence promotes N+1 into the replacement reserve slot.
@@ -480,7 +480,7 @@ extension FilesystemObservationRetirementFenceTests {
         let controlBlock: FSEventRegistrationControlBlock
         let callbackAdmissionPort: FilesystemObservationCallbackAdmissionPort
         let captureLimits: FSEventCaptureLimits
-        let creationResult: DarwinFSEventRegistrationGenerationCreationResult
+        let creationResult: DarwinFSEventNativeOwnerCreationResult
     }
 
     private struct StartedGeneration {
@@ -520,7 +520,7 @@ extension FilesystemObservationRetirementFenceTests {
                     cleanupQuantum: .entriesAndBytes(maximumEntries: 8, maximumBytes: 65_536)
                 )
         )
-        _ = mailbox.recordDesiredRegistration(registration)
+        _ = mailbox.installTestConfiguration(registration)
         guard case .selected(let selection) = mailbox.selectNextDesiredSource(),
             case .committed(let startingNativeLifetime) = mailbox.beginNativeLifetime(
                 selection.reservation
@@ -540,11 +540,9 @@ extension FilesystemObservationRetirementFenceTests {
             controlBlock: controlBlock,
             callbackAdmissionPort: nativeGenerationPorts.callbackAdmissionPort
         )
-        let creationResult = DarwinFSEventRegistrationGeneration.create(
-            startingNativeLifetime: startingNativeLifetime,
+        let creationResult = nativeGenerationPorts.nativeOwner.createOrReplay(
             controlBlock: controlBlock,
             adapter: adapter,
-            nativeGenerationPorts: nativeGenerationPorts,
             nativeDriver: RetirementFenceNativeDriver(),
             callbackQueueBarrier: RetirementFenceCallbackQueueBarrier()
         )
@@ -584,11 +582,9 @@ extension FilesystemObservationRetirementFenceTests {
             callbackAdmissionPort: nativeGenerationPorts.callbackAdmissionPort
         )
         let generation = try requireCreatedGeneration(
-            DarwinFSEventRegistrationGeneration.create(
-                startingNativeLifetime: startingNativeLifetime,
+            nativeGenerationPorts.nativeOwner.createOrReplay(
                 controlBlock: controlBlock,
                 adapter: adapter,
-                nativeGenerationPorts: nativeGenerationPorts,
                 nativeDriver: RetirementFenceNativeDriver(),
                 callbackQueueBarrier: RetirementFenceCallbackQueueBarrier()
             )
@@ -607,7 +603,7 @@ extension FilesystemObservationRetirementFenceTests {
         mailbox: FilesystemObservationMailbox,
         captureLimits: FSEventCaptureLimits
     ) async throws -> StartedGeneration {
-        guard case .enqueued = mailbox.recordDesiredRegistration(registration) else {
+        guard case .enqueued = mailbox.installTestConfiguration(registration) else {
             throw RetirementFenceTestFailure.fixtureConstructionFailed
         }
         let startedGeneration = try await makeAndStartNextGeneration(
@@ -799,7 +795,7 @@ extension FilesystemObservationRetirementFenceTests {
     }
 
     private func requireCreatedGeneration(
-        _ result: DarwinFSEventRegistrationGenerationCreationResult
+        _ result: DarwinFSEventNativeOwnerCreationResult
     ) throws -> DarwinFSEventRegistrationGeneration {
         guard case .created(let generation) = result else {
             throw RetirementFenceTestFailure.fixtureConstructionFailed

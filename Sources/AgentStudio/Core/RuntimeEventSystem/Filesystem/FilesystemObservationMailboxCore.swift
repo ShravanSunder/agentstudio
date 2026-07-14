@@ -67,13 +67,16 @@ struct FilesystemObservationContributionIdentity: Equatable, Hashable, Sendable 
 struct FilesystemObservationNativeGenerationPorts: Sendable {
     let callbackAdmissionPort: FilesystemObservationCallbackAdmissionPort
     let lifecyclePort: FilesystemObservationNativeLifecyclePort
+    let nativeOwner: DarwinFSEventRegistrationNativeOwner
 
     fileprivate init(
         callbackAdmissionPort: FilesystemObservationCallbackAdmissionPort,
-        lifecyclePort: FilesystemObservationNativeLifecyclePort
+        lifecyclePort: FilesystemObservationNativeLifecyclePort,
+        nativeOwner: DarwinFSEventRegistrationNativeOwner
     ) {
         self.callbackAdmissionPort = callbackAdmissionPort
         self.lifecyclePort = lifecyclePort
+        self.nativeOwner = nativeOwner
     }
 }
 
@@ -114,9 +117,14 @@ struct FilesystemObservationCallbackAdmissionPort: Equatable, Sendable {
 
 struct FilesystemObservationNativeLifecyclePort: Sendable {
     private let operation: FilesystemObservationNativeLifecycleOperation
+    private let mailboxLifetimeOwner: FilesystemObservationMailbox?
 
-    fileprivate init(operation: FilesystemObservationNativeLifecycleOperation) {
+    fileprivate init(
+        operation: FilesystemObservationNativeLifecycleOperation,
+        mailboxLifetimeOwner: FilesystemObservationMailbox? = nil
+    ) {
         self.operation = operation
+        self.mailboxLifetimeOwner = mailboxLifetimeOwner
     }
 
     func publishAccepting(
@@ -134,19 +142,16 @@ struct FilesystemObservationNativeLifecyclePort: Sendable {
 
 private final class FilesystemObservationNativeLifecycleOperation: @unchecked Sendable {
     private let expectedStartingNativeLifetime: FilesystemObservationStartingNativeLifetime
-    private let callbackAdmissionPort: FilesystemObservationCallbackAdmissionPort
-    private let mailboxLifetimeOwner: FilesystemObservationMailbox
-    private let core: FilesystemObservationMailboxCore
+    private let callbackAdmissionPortIdentity: FilesystemObservationCallbackAdmissionPortIdentity
+    private weak var core: FilesystemObservationMailboxCore?
 
     init(
         startingNativeLifetime: FilesystemObservationStartingNativeLifetime,
-        callbackAdmissionPort: FilesystemObservationCallbackAdmissionPort,
-        mailboxLifetimeOwner: FilesystemObservationMailbox,
+        callbackAdmissionPortIdentity: FilesystemObservationCallbackAdmissionPortIdentity,
         core: FilesystemObservationMailboxCore
     ) {
         expectedStartingNativeLifetime = startingNativeLifetime
-        self.callbackAdmissionPort = callbackAdmissionPort
-        self.mailboxLifetimeOwner = mailboxLifetimeOwner
+        self.callbackAdmissionPortIdentity = callbackAdmissionPortIdentity
         self.core = core
     }
 
@@ -156,20 +161,22 @@ private final class FilesystemObservationNativeLifecycleOperation: @unchecked Se
         guard startingNativeLifetime == expectedStartingNativeLifetime else {
             return .startingNativeLifetimeMismatch(expectedStartingNativeLifetime)
         }
+        guard let core else { return .mailboxReleased }
         return core.publishAcceptingNativeLifetime(
             startingNativeLifetime,
-            callbackAdmissionPortIdentity: callbackAdmissionPort.identity
+            callbackAdmissionPortIdentity: callbackAdmissionPortIdentity
         )
     }
 
     func beginClosingAwaitingCallbackLeaseDrain(
         _ acceptingNativeLifetime: FilesystemObservationAcceptingNativeLifetime
     ) -> FilesystemObservationCallbackLeaseDrainClosingResult {
+        guard let core else { return .mailboxReleased }
         guard
             acceptingNativeLifetime.startingNativeLifetime
                 == expectedStartingNativeLifetime,
             acceptingNativeLifetime.callbackAdmissionPortIdentity
-                == callbackAdmissionPort.identity
+                == callbackAdmissionPortIdentity
         else {
             return core.acceptingNativeLifetimeMismatch(
                 for: expectedStartingNativeLifetime
@@ -373,13 +380,17 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         )
     }
 
+    private struct IssuedNativeGenerationPortCustody: Sendable {
+        let startingNativeLifetime: FilesystemObservationStartingNativeLifetime
+        let callbackAdmissionPortIdentity: FilesystemObservationCallbackAdmissionPortIdentity
+        let synchronization: any FilesystemObservationCallbackSynchronization
+        let lifecycleOperation: FilesystemObservationNativeLifecycleOperation
+        let nativeOwner: DarwinFSEventRegistrationNativeOwner
+    }
+
     private enum NativeGenerationPortCustody: Sendable {
         case vacant
-        case issued(
-            startingNativeLifetime: FilesystemObservationStartingNativeLifetime,
-            callbackAdmissionPortIdentity: FilesystemObservationCallbackAdmissionPortIdentity,
-            synchronization: any FilesystemObservationCallbackSynchronization
-        )
+        case issued(IssuedNativeGenerationPortCustody)
     }
 
     private struct PendingRetirementFenceReadyQueue: Sendable {
@@ -481,6 +492,14 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
     }
 
     private struct State: Sendable {
+        enum ConfigurationIntentReplayCustody: Sendable {
+            case vacant
+            case retained(
+                batch: FilesystemSourceConfigurationIntentBatch,
+                result: FilesystemConfigurationIntentBatchAdmissionResult
+            )
+        }
+
         var lifecycle: Lifecycle
         var activeLease: ActiveLeaseCustody
         var pendingWholeLeaseCompletion: PendingWholeLeaseCompletionCustody
@@ -488,6 +507,7 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         var nativeGenerationPortsByPhysicalSlotID: [FilesystemObservationPhysicalSlotID: NativeGenerationPortCustody]
         var pendingRetirementFenceReadyQueue: PendingRetirementFenceReadyQueue
         var isFleetOrdinaryAdmissionSealed: Bool
+        var configurationIntentReplayCustody: ConfigurationIntentReplayCustody
 
         init(
             physicalSlotIDs: [FilesystemObservationPhysicalSlotID],
@@ -506,6 +526,7 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                 physicalSlotIDs: physicalSlotIDs
             )
             self.isFleetOrdinaryAdmissionSealed = isFleetOrdinaryAdmissionSealed
+            configurationIntentReplayCustody = .vacant
         }
     }
 
@@ -577,11 +598,119 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         slotRegistry.physicalSlotIDs
     }
 
-    func recordDesiredRegistration(
-        _ registration: FSEventRegistrationToken
+    func installDesiredConfiguration(
+        _ configuration: FilesystemObservationSourceConfiguration,
+        acceptedTopologyRevision: FilesystemObservationAcceptedTopologyRevision
     ) -> FilesystemObservationDesiredUpdateResult {
         lock.withLock { _ in
-            slotRegistry.recordDesiredRegistration(registration)
+            slotRegistry.installDesiredConfiguration(
+                configuration,
+                acceptedTopologyRevision: acceptedTopologyRevision
+            )
+        }
+    }
+
+    func admitConfigurationIntents(
+        _ batch: FilesystemSourceConfigurationIntentBatch
+    ) -> FilesystemConfigurationIntentBatchAdmissionResult {
+        let plan: FilesystemConfigurationIntentAdmissionPlanner.Plan
+        switch FilesystemConfigurationIntentAdmissionPlanner.prepare(batch) {
+        case .planned(let preparedPlan):
+            plan = preparedPlan
+        case .rejected(let rejection):
+            return .rejected(rejection)
+        }
+
+        return lock.withLock { state in
+            switch state.configurationIntentReplayCustody {
+            case .vacant:
+                break
+            case .retained(let retainedBatch, let retainedResult):
+                if batch.acceptedTopologyRevision.value
+                    < retainedBatch.acceptedTopologyRevision.value
+                {
+                    return .rejected(
+                        .staleAcceptedTopologyRevision(
+                            submitted: batch.acceptedTopologyRevision,
+                            retained: retainedBatch.acceptedTopologyRevision
+                        )
+                    )
+                }
+                if batch.acceptedTopologyRevision == retainedBatch.acceptedTopologyRevision {
+                    guard batch == retainedBatch else {
+                        return .rejected(
+                            .conflictingBatchForAcceptedTopologyRevision(
+                                batch.acceptedTopologyRevision
+                            )
+                        )
+                    }
+                    return retainedResult
+                }
+            }
+
+            var admissionsBySourceID: [FilesystemSourceID: FilesystemConfigurationIntentAdmission] = [:]
+            admissionsBySourceID.reserveCapacity(plan.orderedIntents.count)
+
+            for orderedIntent in plan.orderedIntents {
+                let sourceID = orderedIntent.sourceID
+                let admission: FilesystemConfigurationIntentAdmission
+                switch orderedIntent.intent {
+                case .install(let installationIntent):
+                    admission = .installation(
+                        slotRegistry.installDesiredConfiguration(
+                            installationIntent.desiredConfiguration,
+                            acceptedTopologyRevision: batch.acceptedTopologyRevision
+                        )
+                    )
+                case .replace(let replacementIntent):
+                    let replacementResult: FilesystemObservationReplacementAdmissionResult
+                    switch recoveryRegister.issuePriorContinuityAuthority(
+                        for: replacementIntent.exactPriorBinding
+                    ) {
+                    case .issued(let priorContinuityAuthority):
+                        replacementResult =
+                            slotRegistry.admitReplacementDesiredConfiguration(
+                                replacementIntent.desiredConfiguration,
+                                acceptedTopologyRevision: batch.acceptedTopologyRevision,
+                                exactPriorBinding: replacementIntent.exactPriorBinding,
+                                priorContinuityAuthority: priorContinuityAuthority
+                            )
+                    case .foreignFleet:
+                        replacementResult = .rejected(.priorContinuityForeignFleet)
+                    case .undeclaredPhysicalSlot:
+                        replacementResult = .rejected(
+                            .priorContinuityUndeclaredPhysicalSlot
+                        )
+                    case .unboundPhysicalSlot:
+                        replacementResult = .rejected(.priorContinuityUnboundPhysicalSlot)
+                    case .currentBindingMismatch(let currentBinding):
+                        replacementResult = .rejected(
+                            .priorContinuityCurrentBindingMismatch(currentBinding)
+                        )
+                    }
+                    admission = .replacement(replacementResult)
+                case .remove(let removalIntent):
+                    admission = .removal(
+                        slotRegistry.admitRemoval(
+                            of: removalIntent.exactPriorBinding,
+                            acceptedTopologyRevision: batch.acceptedTopologyRevision
+                        )
+                    )
+                }
+                admissionsBySourceID[sourceID] = admission
+            }
+
+            let result: FilesystemConfigurationIntentBatchAdmissionResult = .admitted(
+                FilesystemConfigurationIntentBatchAdmission(
+                    acceptedTopologyRevision: batch.acceptedTopologyRevision,
+                    admissionsBySourceID: admissionsBySourceID
+                )
+            )
+            state.configurationIntentReplayCustody = .retained(
+                batch: batch,
+                result: result
+            )
+            return result
         }
     }
 
@@ -646,7 +775,7 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         of physicalSlotID: FilesystemObservationPhysicalSlotID
     ) -> FilesystemObservationPhysicalSlotState {
         lock.withLock { _ in
-            slotRegistry.state(of: physicalSlotID)
+            slotRegistry.read.state(of: physicalSlotID)
         }
     }
 
@@ -739,7 +868,7 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         for startingNativeLifetime: FilesystemObservationStartingNativeLifetime
     ) -> FilesystemObservationCallbackLeaseDrainClosingResult {
         lock.withLock { _ in
-            switch slotRegistry.state(of: startingNativeLifetime.binding.physicalSlotID) {
+            switch slotRegistry.read.state(of: startingNativeLifetime.binding.physicalSlotID) {
             case .accepting(let acceptingNativeLifetime):
                 return .acceptingNativeLifetimeMismatch(acceptingNativeLifetime)
             case .closingAwaitingCallbackLeaseDrain(let closingNativeLifetime):
@@ -767,41 +896,57 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                 ? .undeclaredPhysicalSlot : .foreignFleet
         }
         switch existingCustody {
-        case .issued(
-            let issuedStartingNativeLifetime,
-            let callbackAdmissionPortIdentity,
-            let issuedSynchronization
-        ):
-            return issuedStartingNativeLifetime == startingNativeLifetime
+        case .issued(let issuedCustody):
+            return issuedCustody.startingNativeLifetime == startingNativeLifetime
                 ? .created(
                     makeNativeGenerationPorts(
                         for: startingNativeLifetime,
                         retaining: mailboxLifetimeOwner,
-                        callbackAdmissionPortIdentity: callbackAdmissionPortIdentity,
-                        synchronization: issuedSynchronization
+                        callbackAdmissionPortIdentity: issuedCustody
+                            .callbackAdmissionPortIdentity,
+                        synchronization: issuedCustody.synchronization,
+                        lifecycleOperation: issuedCustody.lifecycleOperation,
+                        nativeOwner: issuedCustody.nativeOwner
                     )
                 ) : .bindingNotCurrent
         case .vacant:
             break
         }
-        switch slotRegistry.state(of: binding.physicalSlotID) {
+        switch slotRegistry.read.state(of: binding.physicalSlotID) {
         case .starting(let currentStartingNativeLifetime)
         where currentStartingNativeLifetime == startingNativeLifetime:
             let callbackAdmissionPortIdentity =
                 FilesystemObservationCallbackAdmissionPortIdentity(
                     value: UUIDv7.generate()
                 )
+            let lifecycleOperation = FilesystemObservationNativeLifecycleOperation(
+                startingNativeLifetime: startingNativeLifetime,
+                callbackAdmissionPortIdentity: callbackAdmissionPortIdentity,
+                core: self
+            )
+            let nativeOwner = DarwinFSEventRegistrationNativeOwner(
+                startingNativeLifetime: startingNativeLifetime,
+                lifecyclePort: FilesystemObservationNativeLifecyclePort(
+                    operation: lifecycleOperation
+                )
+            )
             let ports = makeNativeGenerationPorts(
                 for: startingNativeLifetime,
                 retaining: mailboxLifetimeOwner,
                 callbackAdmissionPortIdentity: callbackAdmissionPortIdentity,
-                synchronization: synchronization
+                synchronization: synchronization,
+                lifecycleOperation: lifecycleOperation,
+                nativeOwner: nativeOwner
             )
             state.nativeGenerationPortsByPhysicalSlotID[binding.physicalSlotID] =
                 .issued(
-                    startingNativeLifetime: startingNativeLifetime,
-                    callbackAdmissionPortIdentity: callbackAdmissionPortIdentity,
-                    synchronization: synchronization
+                    IssuedNativeGenerationPortCustody(
+                        startingNativeLifetime: startingNativeLifetime,
+                        callbackAdmissionPortIdentity: callbackAdmissionPortIdentity,
+                        synchronization: synchronization,
+                        lifecycleOperation: lifecycleOperation,
+                        nativeOwner: nativeOwner
+                    )
                 )
             return .created(ports)
         case .undeclaredPhysicalSlot:
@@ -821,7 +966,9 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         for startingNativeLifetime: FilesystemObservationStartingNativeLifetime,
         retaining mailboxLifetimeOwner: FilesystemObservationMailbox,
         callbackAdmissionPortIdentity: FilesystemObservationCallbackAdmissionPortIdentity,
-        synchronization: any FilesystemObservationCallbackSynchronization
+        synchronization: any FilesystemObservationCallbackSynchronization,
+        lifecycleOperation: FilesystemObservationNativeLifecycleOperation,
+        nativeOwner: DarwinFSEventRegistrationNativeOwner
     ) -> FilesystemObservationNativeGenerationPorts {
         let leaseAdmissionAuthority = CallbackLeaseAdmissionAuthority(
             binding: startingNativeLifetime.binding
@@ -835,16 +982,14 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                 synchronization: synchronization
             )
         )
+        let lifecyclePort = FilesystemObservationNativeLifecyclePort(
+            operation: lifecycleOperation,
+            mailboxLifetimeOwner: mailboxLifetimeOwner
+        )
         return FilesystemObservationNativeGenerationPorts(
             callbackAdmissionPort: callbackAdmissionPort,
-            lifecyclePort: FilesystemObservationNativeLifecyclePort(
-                operation: FilesystemObservationNativeLifecycleOperation(
-                    startingNativeLifetime: startingNativeLifetime,
-                    callbackAdmissionPort: callbackAdmissionPort,
-                    mailboxLifetimeOwner: mailboxLifetimeOwner,
-                    core: self
-                )
-            )
+            lifecyclePort: lifecyclePort,
+            nativeOwner: nativeOwner
         )
     }
 
@@ -897,7 +1042,7 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         }
         guard
             case .pending(let pendingLifetime) =
-                slotRegistry.pendingRetirementFence(for: physicalSlotID)
+                slotRegistry.read.pendingRetirementFence(for: physicalSlotID)
         else {
             preconditionFailure("Pending fence ready queue lost registry custody")
         }
@@ -963,7 +1108,7 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
             case .physicalSlot(let physicalSlotID) =
                 state.pendingRetirementFenceReadyQueue.first(),
             case .pending(let pendingLifetime) =
-                slotRegistry.pendingRetirementFence(for: physicalSlotID)
+                slotRegistry.read.pendingRetirementFence(for: physicalSlotID)
         else {
             preconditionFailure("Cleanup-blocked fence queue must contain pending custody")
         }
@@ -981,7 +1126,7 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
             guard state.lifecycle == .open else {
                 return .mailboxRejected(.closed)
             }
-            switch slotRegistry.storedBindingCurrentness(of: binding) {
+            switch slotRegistry.read.storedBindingCurrentness(of: binding) {
             case .storedCurrent:
                 break
             case .undeclaredPhysicalSlot:
@@ -1860,7 +2005,7 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
             return
         }
         guard fences.count == 1,
-            case .retirementFenceInstalled(let installedLifetime) = slotRegistry.state(
+            case .retirementFenceInstalled(let installedLifetime) = slotRegistry.read.state(
                 of: authority.binding.physicalSlotID
             ),
             installedLifetime.contributionIdentity == fence.0,
@@ -1927,7 +2072,7 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         }
         guard
             case .retirementFenceInstalled(let installedLifetime) =
-                slotRegistry.state(of: binding.physicalSlotID),
+                slotRegistry.read.state(of: binding.physicalSlotID),
             installedLifetime.contributionIdentity == exactFence.1,
             installedLifetime.fence == exactFence.2
         else {
@@ -2196,7 +2341,7 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
             + gatherDiagnostics.cleanupMetadataEntryCount
         var retiringLifecycleCount = 0
         for physicalSlotID in slotRegistry.physicalSlotIDs {
-            switch slotRegistry.state(of: physicalSlotID) {
+            switch slotRegistry.read.state(of: physicalSlotID) {
             case .closingAwaitingPredecessor, .retirementFencePending,
                 .retirementFenceInstalled, .retirementFenceTransferredAwaitingCleanup,
                 .retiredAwaitingContextRelease:

@@ -20,7 +20,10 @@ struct FilesystemSourceConfigurationReceiptTests {
         let repairingSourceID = makeSourceID()
         let installedSourceID = makeSourceID()
         let repairingConfiguration = makeConfiguration(sourceID: repairingSourceID)
-        let handoffIdentity = FilesystemContinuityRepairHandoffIdentity(value: UUIDv7.generate())
+        let handoffAuthority = makeHandoffAuthority(
+            configuration: repairingConfiguration,
+            acceptedTopologyRevision: 43
+        )
 
         let receipt = try FilesystemSourceConfigurationReceipt(
             acceptedTopologyRevision: 43,
@@ -28,13 +31,13 @@ struct FilesystemSourceConfigurationReceiptTests {
             dispositions: [
                 repairingSourceID: .installedAwaitingContinuityRepair(
                     desiredConfiguration: repairingConfiguration,
-                    handoffIdentity: handoffIdentity
+                    handoffAuthority: handoffAuthority
                 ),
                 installedSourceID: .installed(makeConfiguration(sourceID: installedSourceID)),
             ]
         )
 
-        #expect(handoffIdentity.isUUIDv7)
+        #expect(handoffAuthority.handoffIdentity.isUUIDv7)
         #expect(
             receipt.currentness == .nonCurrent(retrySources: [repairingSourceID])
         )
@@ -51,14 +54,59 @@ struct FilesystemSourceConfigurationReceiptTests {
                 requestedSourceIDs: [requestedSourceID],
                 dispositions: [
                     requestedSourceID: .installedAwaitingContinuityRepair(
-                        desiredConfiguration: makeConfiguration(sourceID: foreignSourceID),
-                        handoffIdentity: FilesystemContinuityRepairHandoffIdentity(
-                            value: UUIDv7.generate()
+                        desiredConfiguration: makeConfiguration(
+                            sourceID: foreignSourceID
+                        ),
+                        handoffAuthority: makeHandoffAuthority(
+                            configuration: makeConfiguration(
+                                sourceID: foreignSourceID
+                            ),
+                            acceptedTopologyRevision: 44
                         )
                     )
                 ]
             )
         }
+    }
+
+    private func makeHandoffAuthority(
+        configuration: FilesystemObservationSourceConfiguration,
+        acceptedTopologyRevision: UInt64
+    ) -> FilesystemContinuityRepairHandoffAuthority {
+        FilesystemContinuityRepairHandoffAuthority(
+            acceptingBinding: makeConfigurationReceiptBinding(
+                registration: configuration.registration
+            ),
+            handoffIdentity: FilesystemContinuityRepairHandoffIdentity(
+                value: UUIDv7.generate()
+            ),
+            desiredIdentity: FilesystemObservationDesiredIdentity(
+                value: UUIDv7.generate()
+            ),
+            acceptedTopologyRevision: FilesystemObservationAcceptedTopologyRevision(
+                value: acceptedTopologyRevision
+            )
+        )
+    }
+
+    private func makeConfigurationReceiptBinding(
+        registration: FSEventRegistrationToken
+    ) -> FilesystemObservationSlotBinding {
+        FilesystemObservationSlotBinding(
+            fleetMailboxIdentity: FilesystemObservationFleetMailboxIdentity(
+                value: UUIDv7.generate()
+            ),
+            physicalSlotID: FilesystemObservationPhysicalSlotID(
+                value: UUIDv7.generate()
+            ),
+            identity: FilesystemObservationSlotBindingIdentity(
+                value: UUIDv7.generate()
+            ),
+            registration: registration,
+            controlBlockIdentity: FilesystemObservationControlBlockIdentity(
+                value: UUIDv7.generate()
+            )
+        )
     }
 
     @Test("cross-kind change is represented by independent source-keyed entries")

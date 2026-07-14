@@ -116,18 +116,31 @@ struct FilesystemObservationSourceConfiguration: Hashable, Sendable {
     var sourceKind: FilesystemSourceKind { registration.sourceID.kind }
 }
 
+indirect enum FilesystemObservationDesiredAdmission: Hashable, Sendable {
+    case installation
+    case replacementRetainingPredecessor(FilesystemObservationAcceptingNativeLifetime)
+    case replacementAfterPredecessorClose(FilesystemObservationSlotBinding)
+}
+
 struct FilesystemObservationDesiredRegistration: Hashable, Sendable {
     let identity: FilesystemObservationDesiredIdentity
-    let registration: FSEventRegistrationToken
+    let acceptedTopologyRevision: FilesystemObservationAcceptedTopologyRevision
+    let configuration: FilesystemObservationSourceConfiguration
+    let admission: FilesystemObservationDesiredAdmission
 
-    var sourceID: FilesystemSourceID { registration.sourceID }
+    var registration: FSEventRegistrationToken { configuration.registration }
+    var sourceID: FilesystemSourceID { configuration.sourceID }
 
     init(
         identity: FilesystemObservationDesiredIdentity,
-        registration: FSEventRegistrationToken
+        acceptedTopologyRevision: FilesystemObservationAcceptedTopologyRevision,
+        configuration: FilesystemObservationSourceConfiguration,
+        admission: FilesystemObservationDesiredAdmission
     ) {
         self.identity = identity
-        self.registration = registration
+        self.acceptedTopologyRevision = acceptedTopologyRevision
+        self.configuration = configuration
+        self.admission = admission
     }
 }
 
@@ -141,6 +154,29 @@ struct FilesystemObservationSlotReservation: Hashable, Sendable {
 struct FilesystemObservationDesiredSelection: Hashable, Sendable {
     let desiredRegistration: FilesystemObservationDesiredRegistration
     let reservation: FilesystemObservationSlotReservation
+}
+
+enum FilesystemObservationReplacementAdmissionRejection: Equatable, Sendable {
+    case sourceMismatch(
+        exactPriorSourceID: FilesystemSourceID,
+        desiredSourceID: FilesystemSourceID
+    )
+    case priorBindingNotCurrent(FilesystemObservationStoredBindingCurrentness)
+    case priorBindingNotAccepting(FilesystemObservationPhysicalSlotState)
+    case canonicalResolvedRootMismatch
+    case authorizationScopeMismatch
+    case eventCoverageMismatch
+    case priorContinuityDiscontinuous(FixedFilesystemRecoveryEvidenceSnapshot)
+    case authorityBindingMismatch
+    case priorContinuityForeignFleet
+    case priorContinuityUndeclaredPhysicalSlot
+    case priorContinuityUnboundPhysicalSlot
+    case priorContinuityCurrentBindingMismatch(FilesystemObservationSlotBinding)
+}
+
+enum FilesystemObservationReplacementAdmissionResult: Equatable, Sendable {
+    case admitted(FilesystemObservationDesiredUpdateResult)
+    case rejected(FilesystemObservationReplacementAdmissionRejection)
 }
 
 struct FilesystemObservationStartingNativeLifetime: Hashable, Sendable {
@@ -160,7 +196,7 @@ struct FilesystemObservationCallbackAdmissionPortIdentity: Equatable, Hashable, 
     }
 }
 
-struct FilesystemObservationAcceptingNativeLifetime: Equatable, Sendable {
+struct FilesystemObservationAcceptingNativeLifetime: Hashable, Sendable {
     let startingNativeLifetime: FilesystemObservationStartingNativeLifetime
     let callbackAdmissionPortIdentity: FilesystemObservationCallbackAdmissionPortIdentity
 
@@ -328,13 +364,33 @@ enum FilesystemObservationRetirementFenceRequestResult: Equatable, Sendable {
     case closed
 }
 
+enum FilesystemObservationPostStartDisposition: Equatable, Sendable {
+    case current
+    case closePredecessor(FilesystemObservationAcceptingNativeLifetime)
+    case closePublished(FilesystemObservationAcceptingNativeLifetime)
+    case closePredecessorAndPublished(
+        predecessor: FilesystemObservationAcceptingNativeLifetime,
+        published: FilesystemObservationAcceptingNativeLifetime
+    )
+}
+
+struct FilesystemObservationPostStartPublication: Equatable, Sendable {
+    let acceptingNativeLifetime: FilesystemObservationAcceptingNativeLifetime
+    let disposition: FilesystemObservationPostStartDisposition
+}
+
+struct FilesystemAwaitingAcceptingPublicationLifetime: Equatable, Sendable {
+    let startingNativeLifetime: FilesystemObservationStartingNativeLifetime
+}
+
 enum FilesystemObservationAcceptingPublicationResult: Equatable, Sendable {
-    case published(FilesystemObservationAcceptingNativeLifetime)
-    case alreadyPublished(FilesystemObservationAcceptingNativeLifetime)
+    case published(FilesystemObservationPostStartPublication)
+    case alreadyPublished(FilesystemObservationPostStartPublication)
     case foreignFleet
     case undeclaredPhysicalSlot
     case startingNativeLifetimeMismatch(FilesystemObservationStartingNativeLifetime)
     case invalidSlotState(FilesystemObservationPhysicalSlotState)
+    case mailboxReleased
 }
 
 // swiftlint:disable:next type_name
@@ -345,6 +401,7 @@ enum FilesystemObservationCallbackLeaseDrainClosingResult: Equatable, Sendable {
     case undeclaredPhysicalSlot
     case acceptingNativeLifetimeMismatch(FilesystemObservationAcceptingNativeLifetime)
     case invalidSlotState(FilesystemObservationPhysicalSlotState)
+    case mailboxReleased
 }
 
 // swiftlint:disable:next type_name
@@ -497,6 +554,10 @@ enum FilesystemObservationDesiredWithdrawalResult: Equatable, Sendable {
     case withdrewDeferred(FilesystemObservationDesiredRegistration)
     case withdrewPendingConfiguration(FilesystemObservationDesiredRegistration)
     case releasedSelectedReservation(FilesystemObservationDesiredSelection)
+    case awaitingAcceptingPublication(
+        FilesystemAwaitingAcceptingPublicationLifetime
+    )
+    case closeAccepting(FilesystemObservationAcceptingNativeLifetime)
     case retiringGeneration(FilesystemObservationRetiringNativeLifetime)
     case alreadyAbsent
     case staleDesiredIdentity(FilesystemObservationDesiredIdentity)
@@ -617,7 +678,7 @@ enum FilesystemSourceConfigurationDisposition: Equatable, Sendable {
     case installed(FilesystemObservationSourceConfiguration)
     case installedAwaitingContinuityRepair(
         desiredConfiguration: FilesystemObservationSourceConfiguration,
-        handoffIdentity: FilesystemContinuityRepairHandoffIdentity
+        handoffAuthority: FilesystemContinuityRepairHandoffAuthority
     )
     case unchanged(FilesystemObservationSourceConfiguration)
     case removalComplete

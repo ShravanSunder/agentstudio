@@ -121,6 +121,50 @@ enum FixedFilesystemRecoveryEvidenceRetirementResult: Equatable, Sendable {
 /// operation validates the complete current binding, and acknowledgement additionally
 /// validates the register-minted UUIDv7 custody identity captured in the exact snapshot.
 final class FixedFilesystemRecoveryEvidenceRegister: @unchecked Sendable {
+    struct PriorContinuityAuthority: Sendable {
+        enum Projection: Equatable, Sendable {
+            case exactContinuous
+            case exactDiscontinuous(FixedFilesystemRecoveryEvidenceSnapshot)
+            case bindingMismatch
+        }
+
+        fileprivate enum Storage: Sendable {
+            case exactContinuous(FilesystemObservationSlotBinding)
+            case exactDiscontinuous(FixedFilesystemRecoveryEvidenceSnapshot)
+        }
+
+        private let storage: Storage
+
+        fileprivate init(storage: Storage) {
+            self.storage = storage
+        }
+
+        func project(
+            against presentedExactBinding: FilesystemObservationSlotBinding
+        ) -> Projection {
+            switch storage {
+            case .exactContinuous(let exactPriorBinding):
+                guard exactPriorBinding == presentedExactBinding else {
+                    return .bindingMismatch
+                }
+                return .exactContinuous
+            case .exactDiscontinuous(let retainedSnapshot):
+                guard retainedSnapshot.revision.binding == presentedExactBinding else {
+                    return .bindingMismatch
+                }
+                return .exactDiscontinuous(retainedSnapshot)
+            }
+        }
+    }
+
+    enum PriorContinuityAuthorityIssueResult: Sendable {
+        case issued(PriorContinuityAuthority)
+        case foreignFleet
+        case undeclaredPhysicalSlot
+        case unboundPhysicalSlot
+        case currentBindingMismatch(FilesystemObservationSlotBinding)
+    }
+
     private enum SlotState: Equatable, Sendable {
         case vacant
         case boundClear(FilesystemObservationSlotBinding)
@@ -270,6 +314,38 @@ final class FixedFilesystemRecoveryEvidenceRegister: @unchecked Sendable {
                     return .currentBindingMismatch(retainedSnapshot.revision.binding)
                 }
                 return .retained(retainedSnapshot)
+            }
+        }
+    }
+
+    func issuePriorContinuityAuthority(
+        for exactPriorBinding: FilesystemObservationSlotBinding
+    ) -> PriorContinuityAuthorityIssueResult {
+        guard exactPriorBinding.fleetMailboxIdentity == fleetMailboxIdentity else {
+            return .foreignFleet
+        }
+        return lock.withLock { state in
+            guard let slotState = state.slotsByPhysicalSlotID[exactPriorBinding.physicalSlotID]
+            else {
+                return .undeclaredPhysicalSlot
+            }
+            switch slotState {
+            case .vacant:
+                return .unboundPhysicalSlot
+            case .boundClear(let currentBinding):
+                guard currentBinding == exactPriorBinding else {
+                    return .currentBindingMismatch(currentBinding)
+                }
+                return .issued(
+                    PriorContinuityAuthority(storage: .exactContinuous(currentBinding))
+                )
+            case .boundRetained(let retainedSnapshot):
+                guard retainedSnapshot.revision.binding == exactPriorBinding else {
+                    return .currentBindingMismatch(retainedSnapshot.revision.binding)
+                }
+                return .issued(
+                    PriorContinuityAuthority(storage: .exactDiscontinuous(retainedSnapshot))
+                )
             }
         }
     }

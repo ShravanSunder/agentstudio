@@ -10,7 +10,25 @@ enum FilesystemObservationDesiredStateInput: Equatable, Sendable {
     case retirement(FilesystemObservationRetiringGenerationChain)
 }
 
+enum FilesystemObservationStartingCurrentnessSnapshot {
+    case absent
+    case retained(FilesystemObservationStartingNativeLifetime)
+}
+
 enum FilesystemObservationSlotReadModel {
+    static func storedBindingCurrentness(
+        classifiedCurrentness: FilesystemObservationStoredBindingCurrentness,
+        binding: FilesystemObservationSlotBinding,
+        startingLifetime: FilesystemObservationStartingCurrentnessSnapshot
+    ) -> FilesystemObservationStoredBindingCurrentness {
+        guard classifiedCurrentness == .storedCurrent,
+            case .retained(let currentStartingLifetime) = startingLifetime
+        else {
+            return classifiedCurrentness
+        }
+        return currentStartingLifetime.binding == binding ? .storedCurrent : .storedSuperseded
+    }
+
     static func activeSourceIDs(
         selected: [FilesystemSourceID: FilesystemObservationDesiredSelection],
         starting: [FilesystemSourceID: FilesystemObservationStartingNativeLifetime],
@@ -62,5 +80,14 @@ enum FilesystemObservationSlotReadModel {
                 return .retiringGenerations(chain)
             }
         }
+    }
+
+    static func pendingRetirementFence(
+        from physicalSlotState: FilesystemObservationPhysicalSlotState
+    ) -> FilesystemObservationPendingRetirementFenceLookup {
+        guard case .retirementFencePending(let lifetime) = physicalSlotState else {
+            return .notPending(physicalSlotState)
+        }
+        return .pending(lifetime)
     }
 }

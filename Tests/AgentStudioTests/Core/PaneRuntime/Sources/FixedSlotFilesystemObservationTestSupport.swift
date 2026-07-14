@@ -6,6 +6,47 @@ import os
 
 @testable import AgentStudio
 
+func makeTestFilesystemObservationSourceConfiguration(
+    _ registration: FSEventRegistrationToken
+) -> FilesystemObservationSourceConfiguration {
+    FilesystemObservationSourceConfiguration(
+        registration: registration,
+        canonicalResolvedRootIdentity: FilesystemCanonicalResolvedRootIdentity(
+            path: "/private/test/\(registration.sourceID.rootID.uuidString)"
+        ),
+        authorizationScopeIdentity: FilesystemAuthorizationScopeIdentity(
+            value: registration.sourceID.rootID
+        ),
+        eventCoverage: .recursiveFileEvents
+    )
+}
+
+extension FilesystemObservationSlotRegistry {
+    func installTestConfiguration(
+        _ registration: FSEventRegistrationToken
+    ) -> FilesystemObservationDesiredUpdateResult {
+        installDesiredConfiguration(
+            makeTestFilesystemObservationSourceConfiguration(registration),
+            acceptedTopologyRevision: FilesystemObservationAcceptedTopologyRevision(
+                value: registration.registrationGeneration
+            )
+        )
+    }
+}
+
+extension FilesystemObservationMailbox {
+    func installTestConfiguration(
+        _ registration: FSEventRegistrationToken
+    ) -> FilesystemObservationDesiredUpdateResult {
+        installDesiredConfiguration(
+            makeTestFilesystemObservationSourceConfiguration(registration),
+            acceptedTopologyRevision: FilesystemObservationAcceptedTopologyRevision(
+                value: registration.registrationGeneration
+            )
+        )
+    }
+}
+
 enum TestCredentialedTransferAcknowledgement: Equatable, Sendable {
     case transferredAuthoritative(wake: AdmissionWakeDirective)
     case transferredRecovery(
@@ -225,7 +266,7 @@ func makeFixedSlotMailboxFixture(
     var startingNativeLifetimesByRegistration: [FSEventRegistrationToken: FilesystemObservationStartingNativeLifetime] =
         [:]
     for registration in registrations {
-        guard case .enqueued = mailbox.recordDesiredRegistration(registration) else {
+        guard case .enqueued = mailbox.installTestConfiguration(registration) else {
             throw FixedSlotFilesystemObservationTestFailure.fixtureConstructionFailed
         }
     }
@@ -629,7 +670,7 @@ func makeFixture(
         replacementReserveSlotCount: 0,
         limits: mailboxLimits()
     )
-    guard case .enqueued = mailbox.recordDesiredRegistration(registration) else {
+    guard case .enqueued = mailbox.installTestConfiguration(registration) else {
         throw AdapterFixtureError.fixtureConstructionFailed
     }
     guard case .selected(let selection) = mailbox.selectNextDesiredSource() else {

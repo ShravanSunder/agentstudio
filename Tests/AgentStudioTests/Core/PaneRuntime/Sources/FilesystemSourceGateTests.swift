@@ -704,7 +704,7 @@ struct FilesystemSourceGateTests {
                 cleanupQuantum: .entriesAndBytes(maximumEntries: 1, maximumBytes: 256)
             )
         )
-        _ = mailbox.recordDesiredRegistration(registration)
+        _ = mailbox.installTestConfiguration(registration)
         guard case .selected(let selection) = mailbox.selectNextDesiredSource() else {
             Issue.record("desired registration did not receive a physical slot")
             throw TestFailure.recoveryEvidenceNotRecorded
@@ -853,7 +853,9 @@ struct FilesystemSourceGateTests {
             acceptingBinding: acceptingBinding,
             handoffIdentity: FilesystemContinuityRepairHandoffIdentity(value: UUIDv7.generate()),
             desiredIdentity: FilesystemObservationDesiredIdentity(value: UUIDv7.generate()),
-            acceptedTopologyRevision: acceptedTopologyRevision
+            acceptedTopologyRevision: FilesystemObservationAcceptedTopologyRevision(
+                value: acceptedTopologyRevision
+            )
         )
     }
 

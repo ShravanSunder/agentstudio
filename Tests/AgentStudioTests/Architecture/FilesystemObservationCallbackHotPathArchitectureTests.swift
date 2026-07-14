@@ -120,7 +120,7 @@ struct FilesystemCallbackHotPathArchitectureTests {
         let storedBindingCurrentnessBody = try #require(
             slotRegistrySource.callbackProofSlice(
                 from: "    func storedBindingCurrentness(\n",
-                to: "    func recordDesiredRegistration("
+                to: "    func desiredState("
             )
         )
         let keyedSlotStateBody = try #require(
@@ -169,7 +169,7 @@ struct FilesystemCallbackHotPathArchitectureTests {
 
         #expect(
             captureAndOfferBody.callbackProofOccurrenceCount(
-                of: "slotRegistry.storedBindingCurrentness(of: binding)"
+                of: "slotRegistry.read.storedBindingCurrentness(of: binding)"
             ) == 1
         )
         #expect(captureAndOfferBody.callbackProofOccurrenceCount(of: "switch capture()") == 1)

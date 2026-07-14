@@ -336,6 +336,105 @@ struct FixedFilesystemRecoveryEvidenceRegisterTests {
         #expect(secondRegister.snapshot(for: secondBinding) == .retained(secondSnapshot))
     }
 
+    @Test("clear prior continuity authority projects only for its exact binding")
+    func clearPriorContinuityAuthorityRequiresExactBinding() throws {
+        // Arrange
+        let fixture = try makeBoundFixture()
+        let conflictingBinding = makeSyntheticBinding(
+            fleetMailboxIdentity: fixture.registry.fleetMailboxIdentity,
+            physicalSlotID: fixture.binding.physicalSlotID,
+            registration: makeRegistration(generation: 303)
+        )
+
+        // Act
+        let authority = try requireIssuedPriorContinuityAuthority(
+            fixture.register.issuePriorContinuityAuthority(for: fixture.binding)
+        )
+        let exactProjection = authority.project(against: fixture.binding)
+        let mismatchedProjection = authority.project(against: conflictingBinding)
+
+        // Assert
+        #expect(exactProjection == .exactContinuous)
+        #expect(mismatchedProjection == .bindingMismatch)
+    }
+
+    @Test("retained prior continuity authority projects the exact retained snapshot")
+    func retainedPriorContinuityAuthorityProjectsExactSnapshot() throws {
+        // Arrange
+        let fixture = try makeBoundFixture()
+        let retainedSnapshot = try requireRecorded(
+            fixture.register.record(
+                .continuityLoss,
+                genericRecoveryRevision: makeRecoveryRevision(
+                    for: fixture.binding.physicalSlotID
+                ),
+                for: fixture.binding
+            )
+        )
+
+        // Act
+        let authority = try requireIssuedPriorContinuityAuthority(
+            fixture.register.issuePriorContinuityAuthority(for: fixture.binding)
+        )
+        let projection = authority.project(against: fixture.binding)
+
+        // Assert
+        #expect(projection == .exactDiscontinuous(retainedSnapshot))
+    }
+
+    @Test("prior continuity authority issuance rejects every non-exact slot state")
+    func priorContinuityAuthorityIssuanceRejectsNonExactSlotState() throws {
+        // Arrange
+        let fixture = try makeBoundFixture()
+        let foreignFixture = try makeFixture()
+        let undeclaredBinding = makeSyntheticBinding(
+            fleetMailboxIdentity: fixture.registry.fleetMailboxIdentity,
+            physicalSlotID: foreignFixture.binding.physicalSlotID,
+            registration: fixture.binding.registration
+        )
+        let vacantBinding = try makeBinding(
+            in: fixture.registry,
+            sourceOrdinal: 2,
+            generation: 2
+        )
+        let conflictingBinding = makeSyntheticBinding(
+            fleetMailboxIdentity: fixture.registry.fleetMailboxIdentity,
+            physicalSlotID: fixture.binding.physicalSlotID,
+            registration: makeRegistration(generation: 404)
+        )
+
+        // Act
+        let foreignResult = fixture.register.issuePriorContinuityAuthority(
+            for: foreignFixture.binding
+        )
+        let undeclaredResult = fixture.register.issuePriorContinuityAuthority(
+            for: undeclaredBinding
+        )
+        let vacantResult = fixture.register.issuePriorContinuityAuthority(for: vacantBinding)
+        let mismatchResult = fixture.register.issuePriorContinuityAuthority(
+            for: conflictingBinding
+        )
+
+        // Assert
+        guard case .foreignFleet = foreignResult else {
+            Issue.record("Expected foreign-fleet prior continuity rejection")
+            return
+        }
+        guard case .undeclaredPhysicalSlot = undeclaredResult else {
+            Issue.record("Expected undeclared-slot prior continuity rejection")
+            return
+        }
+        guard case .unboundPhysicalSlot = vacantResult else {
+            Issue.record("Expected vacant-slot prior continuity rejection")
+            return
+        }
+        guard case .currentBindingMismatch(let currentBinding) = mismatchResult else {
+            Issue.record("Expected current-binding prior continuity rejection")
+            return
+        }
+        #expect(currentBinding == fixture.binding)
+    }
+
     private func makeFixture() throws -> RecoveryFixture {
         let registry = try makeRegistry(sourceCount: 2, reserveCount: 0)
         let binding = try makeBinding(in: registry, sourceOrdinal: 1, generation: 1)
@@ -367,7 +466,7 @@ struct FixedFilesystemRecoveryEvidenceRegisterTests {
         sourceOrdinal: Int,
         generation: UInt64
     ) throws -> FilesystemObservationSlotBinding {
-        _ = registry.recordDesiredRegistration(
+        _ = registry.installTestConfiguration(
             makeRegistration(sourceOrdinal: sourceOrdinal, generation: generation)
         )
         let selection = try requireSelectedDesiredSource(registry.selectNextDesiredSource())
@@ -401,6 +500,18 @@ struct FixedFilesystemRecoveryEvidenceRegisterTests {
             throw FixedFilesystemRecoveryEvidenceRegisterTestError.expectedRecordedEvidence
         }
         return snapshot
+    }
+
+    private func requireIssuedPriorContinuityAuthority(
+        _ result: FixedFilesystemRecoveryEvidenceRegister.PriorContinuityAuthorityIssueResult,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) throws -> FixedFilesystemRecoveryEvidenceRegister.PriorContinuityAuthority {
+        guard case .issued(let authority) = result else {
+            Issue.record("Expected issued prior continuity authority", sourceLocation: sourceLocation)
+            throw FixedFilesystemRecoveryEvidenceRegisterTestError
+                .expectedPriorContinuityAuthority
+        }
+        return authority
     }
 
     private func makeRecoveryRevision(
@@ -463,4 +574,5 @@ private struct RecoveryFixture {
 
 private enum FixedFilesystemRecoveryEvidenceRegisterTestError: Error {
     case expectedRecordedEvidence
+    case expectedPriorContinuityAuthority
 }

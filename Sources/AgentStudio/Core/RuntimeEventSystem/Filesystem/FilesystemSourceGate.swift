@@ -620,7 +620,7 @@ struct FilesystemSourceGate: Sendable {
 }
 
 extension FilesystemRepairParticipantKind {
-    fileprivate static func requiredKinds(
+    static func requiredKinds(
         for sourceKind: FilesystemSourceKind,
         trigger: FilesystemRepairTriggerClass
     ) -> Set<Self> {

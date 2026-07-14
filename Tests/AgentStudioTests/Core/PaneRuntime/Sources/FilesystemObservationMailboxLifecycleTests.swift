@@ -8,6 +8,60 @@ import Testing
 struct FilesystemObservationMailboxLifecycleTests {
     private let generation = AdmissionGeneration(owner: .filesystemObservation, value: 72)
 
+    @Test("repeated native port creation replays the fixed slot native owner")
+    func repeatedNativePortCreationReplaysFixedSlotNativeOwner() throws {
+        // Arrange
+        let fixture = try makeMailboxFixture(registration: makeRegistration(index: 8))
+        let startingNativeLifetime = try #require(
+            fixture.startingNativeLifetimesByRegistration.values.first
+        )
+
+        // Act
+        guard
+            case .created(let firstPorts) = fixture.mailbox.nativeGenerationPorts(
+                for: startingNativeLifetime
+            ),
+            case .created(let replayedPorts) = fixture.mailbox.nativeGenerationPorts(
+                for: startingNativeLifetime
+            )
+        else {
+            Issue.record("exact starting custody must create and replay native ports")
+            return
+        }
+
+        // Assert
+        #expect(firstPorts.nativeOwner === replayedPorts.nativeOwner)
+    }
+
+    @Test("mailbox fixed slot retains native owner after caller references are dropped")
+    func mailboxFixedSlotRetainsNativeOwner() throws {
+        // Arrange
+        let fixture = try makeMailboxFixture(registration: makeRegistration(index: 9))
+        let mailbox = fixture.mailbox
+        let startingNativeLifetime = try #require(
+            fixture.startingNativeLifetimesByRegistration.values.first
+        )
+        weak var retainedNativeOwner: DarwinFSEventRegistrationNativeOwner?
+
+        // Act
+        do {
+            guard
+                case .created(let ports) = mailbox.nativeGenerationPorts(
+                    for: startingNativeLifetime
+                )
+            else {
+                Issue.record("exact starting custody must create native ports")
+                return
+            }
+            retainedNativeOwner = ports.nativeOwner
+        }
+
+        // Assert
+        withExtendedLifetime(mailbox) {
+            #expect(retainedNativeOwner != nil)
+        }
+    }
+
     @Test("a sealed mailbox remains drainable until retained custody is transferred")
     func sealedMailboxRemainsDrainable() async throws {
         // Arrange

@@ -36,7 +36,7 @@ struct FilesystemObservationCallbackScaleTests {
             limits: limits(boundSlotCount: configuredSourceBound)
         )
         for registration in registrations {
-            guard case .enqueued = mailbox.recordDesiredRegistration(registration) else {
+            guard case .enqueued = mailbox.installTestConfiguration(registration) else {
                 throw FixedSlotFilesystemObservationTestFailure.fixtureConstructionFailed
             }
         }

@@ -4,7 +4,7 @@ struct FilesystemContinuityRepairHandoffAuthority: Hashable, Sendable {
     let acceptingBinding: FilesystemObservationSlotBinding
     let handoffIdentity: FilesystemContinuityRepairHandoffIdentity
     let desiredIdentity: FilesystemObservationDesiredIdentity
-    let acceptedTopologyRevision: UInt64
+    let acceptedTopologyRevision: FilesystemObservationAcceptedTopologyRevision
 }
 
 struct FilesystemSourceGateContinuityRepairAcceptance: Equatable, Sendable {

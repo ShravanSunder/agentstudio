@@ -223,7 +223,7 @@ private func makeStartingNativeLifetime(
         registrationGeneration: registrationGeneration,
         sourceRootID: sourceRootID
     )
-    guard case .enqueued = registry.recordDesiredRegistration(registration) else {
+    guard case .enqueued = registry.installTestConfiguration(registration) else {
         throw FSEventRegistrationControlBlockTestError.fixtureConstructionFailed
     }
     guard case .selected(let selection) = registry.selectNextDesiredSource() else {

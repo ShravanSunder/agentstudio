@@ -1,49 +1,6 @@
-import CoreServices
 import Dispatch
 import Foundation
 import os
-
-enum DarwinFSEventNativeStreamCreationFailure: Error, Equatable, Sendable {
-    case nativeCreateRejected
-}
-
-final class DarwinFSEventNativeStreamHandle: @unchecked Sendable {
-    fileprivate enum Storage {
-        case native(FSEventStreamRef)
-        case test(UUID)
-    }
-
-    fileprivate let storage: Storage
-
-    fileprivate init(storage: Storage) {
-        self.storage = storage
-    }
-
-    static func testHandle(identity: UUID = UUID()) -> DarwinFSEventNativeStreamHandle {
-        DarwinFSEventNativeStreamHandle(storage: .test(identity))
-    }
-}
-
-struct DarwinFSEventNativeStreamCreationRequest: @unchecked Sendable {
-    let resolvedRootPath: String
-    let callbackQueue: DispatchQueue
-    let callback: FSEventStreamCallback
-    let callbackContextPointer: UnsafeMutableRawPointer
-}
-
-protocol DarwinFSEventNativeDriver: Sendable {
-    func createStream(
-        request: DarwinFSEventNativeStreamCreationRequest
-    ) -> Result<DarwinFSEventNativeStreamHandle, DarwinFSEventNativeStreamCreationFailure>
-    func startStream(_ stream: DarwinFSEventNativeStreamHandle) -> Bool
-    func stopStream(_ stream: DarwinFSEventNativeStreamHandle)
-    func invalidateStream(_ stream: DarwinFSEventNativeStreamHandle)
-    func releaseStream(_ stream: DarwinFSEventNativeStreamHandle)
-}
-
-protocol DarwinFSEventCallbackQueueBarrier: Sendable {
-    func waitForBarrier(on callbackQueue: DispatchQueue) async
-}
 
 /// The callback operation owned by one dormant native generation.
 ///
@@ -59,99 +16,18 @@ protocol DarwinFSEventRegistrationCallbackAdapter: AnyObject, Sendable {
 
 extension DarwinFSEventObservationAdapter: DarwinFSEventRegistrationCallbackAdapter {}
 
-struct DarwinFSEventAsyncCallbackQueueBarrier: DarwinFSEventCallbackQueueBarrier {
-    func waitForBarrier(on callbackQueue: DispatchQueue) async {
-        await withCheckedContinuation { continuation in
-            callbackQueue.async {
-                continuation.resume()
-            }
-        }
-    }
-}
-
-struct DarwinFSEventSystemNativeDriver: DarwinFSEventNativeDriver {
-    private static let latency: CFTimeInterval = 0.1
-
-    func createStream(
-        request: DarwinFSEventNativeStreamCreationRequest
-    ) -> Result<DarwinFSEventNativeStreamHandle, DarwinFSEventNativeStreamCreationFailure> {
-        var streamContext = FSEventStreamContext(
-            version: 0,
-            info: request.callbackContextPointer,
-            retain: nil,
-            release: nil,
-            copyDescription: nil
-        )
-        let watchPaths = [request.resolvedRootPath as NSString] as CFArray
-        let flags = FSEventStreamCreateFlags(
-            kFSEventStreamCreateFlagFileEvents
-                | kFSEventStreamCreateFlagNoDefer
-                | kFSEventStreamCreateFlagUseCFTypes
-        )
-        guard
-            let stream = FSEventStreamCreate(
-                kCFAllocatorDefault,
-                request.callback,
-                &streamContext,
-                watchPaths,
-                FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-                Self.latency,
-                flags
-            )
-        else {
-            return .failure(.nativeCreateRejected)
-        }
-        FSEventStreamSetDispatchQueue(stream, request.callbackQueue)
-        return .success(DarwinFSEventNativeStreamHandle(storage: .native(stream)))
-    }
-
-    func startStream(_ stream: DarwinFSEventNativeStreamHandle) -> Bool {
-        FSEventStreamStart(nativeStream(from: stream))
-    }
-
-    func stopStream(_ stream: DarwinFSEventNativeStreamHandle) {
-        FSEventStreamStop(nativeStream(from: stream))
-    }
-
-    func invalidateStream(_ stream: DarwinFSEventNativeStreamHandle) {
-        FSEventStreamInvalidate(nativeStream(from: stream))
-    }
-
-    func releaseStream(_ stream: DarwinFSEventNativeStreamHandle) {
-        FSEventStreamRelease(nativeStream(from: stream))
-    }
-
-    private func nativeStream(from stream: DarwinFSEventNativeStreamHandle) -> FSEventStreamRef {
-        switch stream.storage {
-        case .native(let nativeStream):
-            nativeStream
-        case .test:
-            preconditionFailure("system native driver cannot operate on a test stream handle")
-        }
-    }
-}
-
-enum DarwinFSEventCallbackContextReleaseResult: Equatable, Sendable {
-    case released
-    case alreadyReleased
-}
-
 final class DarwinFSEventRegistrationLeaseDrainReceipt: @unchecked Sendable, Equatable {
     let binding: FilesystemObservationSlotBinding
     let nativeGenerationIdentity: FilesystemObservationNativeGenerationIdentity
     let controlBlockIdentity: FilesystemObservationControlBlockIdentity
 
-    private let callbackContextCustody: DarwinFSEventCallbackContextCustody
-
     fileprivate init(
         binding: FilesystemObservationSlotBinding,
-        nativeGenerationIdentity: FilesystemObservationNativeGenerationIdentity,
-        callbackContextCustody: DarwinFSEventCallbackContextCustody
+        nativeGenerationIdentity: FilesystemObservationNativeGenerationIdentity
     ) {
         self.binding = binding
         self.nativeGenerationIdentity = nativeGenerationIdentity
         controlBlockIdentity = binding.controlBlockIdentity
-        self.callbackContextCustody = callbackContextCustody
     }
 
     static func == (
@@ -161,62 +37,52 @@ final class DarwinFSEventRegistrationLeaseDrainReceipt: @unchecked Sendable, Equ
         lhs === rhs
     }
 
-    func releaseCallbackContext() -> DarwinFSEventCallbackContextReleaseResult {
-        callbackContextCustody.release()
-    }
 }
 
-struct DarwinFSEventRegistrationCreateFailureCleanup: Sendable {
+final class DarwinFSEventRegistrationCreateFailureCleanup: @unchecked Sendable, Equatable {
     let startingNativeLifetime: FilesystemObservationStartingNativeLifetime
     let nativeFailure: DarwinFSEventNativeStreamCreationFailure
-    private let callbackContextCustody: DarwinFSEventCallbackContextCustody
 
-    fileprivate init(
+    init(
         startingNativeLifetime: FilesystemObservationStartingNativeLifetime,
-        nativeFailure: DarwinFSEventNativeStreamCreationFailure,
-        callbackContextCustody: DarwinFSEventCallbackContextCustody
+        nativeFailure: DarwinFSEventNativeStreamCreationFailure
     ) {
         self.startingNativeLifetime = startingNativeLifetime
         self.nativeFailure = nativeFailure
-        self.callbackContextCustody = callbackContextCustody
     }
 
-    func releaseCallbackContext() -> DarwinFSEventCallbackContextReleaseResult {
-        callbackContextCustody.release()
+    static func == (
+        lhs: DarwinFSEventRegistrationCreateFailureCleanup,
+        rhs: DarwinFSEventRegistrationCreateFailureCleanup
+    ) -> Bool {
+        lhs === rhs
     }
 }
 
-struct DarwinFSEventRegistrationStartFailureCleanup: Sendable {
+final class DarwinFSEventRegistrationStartFailureCleanup: @unchecked Sendable, Equatable {
     let startingNativeLifetime: FilesystemObservationStartingNativeLifetime
     let binding: FilesystemObservationSlotBinding
     let nativeGenerationIdentity: FilesystemObservationNativeGenerationIdentity
     let controlBlockIdentity: FilesystemObservationControlBlockIdentity
-    private let callbackContextCustody: DarwinFSEventCallbackContextCustody
-
-    fileprivate init(
-        startingNativeLifetime: FilesystemObservationStartingNativeLifetime,
-        callbackContextCustody: DarwinFSEventCallbackContextCustody
-    ) {
+    fileprivate init(startingNativeLifetime: FilesystemObservationStartingNativeLifetime) {
         self.startingNativeLifetime = startingNativeLifetime
         binding = startingNativeLifetime.binding
         nativeGenerationIdentity = startingNativeLifetime.nativeGenerationIdentity
         controlBlockIdentity = startingNativeLifetime.binding.controlBlockIdentity
-        self.callbackContextCustody = callbackContextCustody
     }
 
-    func releaseCallbackContext() -> DarwinFSEventCallbackContextReleaseResult {
-        callbackContextCustody.release()
+    static func == (
+        lhs: DarwinFSEventRegistrationStartFailureCleanup,
+        rhs: DarwinFSEventRegistrationStartFailureCleanup
+    ) -> Bool {
+        lhs === rhs
     }
-}
-
-enum DarwinFSEventRegistrationGenerationCreationResult: Sendable {
-    case created(DarwinFSEventRegistrationGeneration)
-    case failed(DarwinFSEventRegistrationCreateFailureCleanup)
 }
 
 enum DarwinFSEventRegistrationGenerationStartResult: Sendable {
     case started(FilesystemObservationAcceptingNativeLifetime)
     case failed(DarwinFSEventRegistrationStartFailureCleanup)
+    case acceptingPublicationRejected(FilesystemObservationAcceptingPublicationResult)
     case invalidPhase(DarwinFSEventRegistrationGenerationPhase)
 }
 
@@ -232,6 +98,7 @@ enum DarwinFSEventRegistrationGenerationPhase: Equatable, Sendable {
     case starting
     case startingCloseRequested
     case started
+    case startedAwaitingAcceptingPublication
     case closingCreatedStream
     case closingStartedStream
     case closed
@@ -242,6 +109,7 @@ enum DarwinFSEventRegistrationGenerationPhase: Equatable, Sendable {
 private enum DarwinFSEventRegistrationStartCompletionOutcome: Sendable {
     case accepting(FilesystemObservationAcceptingNativeLifetime)
     case failed(DarwinFSEventRegistrationStartFailureCleanup)
+    case acceptingPublicationRejected(FilesystemObservationAcceptingPublicationResult)
 }
 
 private final class DarwinFSEventRegistrationStartCompletion: @unchecked Sendable {
@@ -292,59 +160,8 @@ private final class DarwinFSEventRegistrationStartCompletion: @unchecked Sendabl
     }
 }
 
-private final class DarwinFSEventCallbackContextCustody: @unchecked Sendable {
-    private enum State: Sendable {
-        case retained(UInt)
-        case released
-    }
-
-    private let lock: OSAllocatedUnfairLock<State>
-
-    init(pointer: UnsafeMutableRawPointer) {
-        lock = OSAllocatedUnfairLock(initialState: .retained(UInt(bitPattern: pointer)))
-    }
-
-    func release() -> DarwinFSEventCallbackContextReleaseResult {
-        let pointerAddressToRelease = lock.withLock { state -> UInt? in
-            switch state {
-            case .retained(let pointerAddress):
-                state = .released
-                return pointerAddress
-            case .released:
-                return nil
-            }
-        }
-        guard let pointerAddressToRelease else { return .alreadyReleased }
-        guard let pointerToRelease = UnsafeMutableRawPointer(bitPattern: pointerAddressToRelease)
-        else {
-            preconditionFailure("retained callback-context pointer address became invalid")
-        }
-        Unmanaged<DarwinFSEventRegistrationCallbackContext>
-            .fromOpaque(pointerToRelease)
-            .release()
-        return .released
-    }
-
-    deinit {
-        _ = release()
-    }
-}
-
-private final class DarwinFSEventRegistrationCallbackContext: @unchecked Sendable {
-    let registration: FSEventRegistrationToken
-    let adapter: any DarwinFSEventRegistrationCallbackAdapter
-
-    init(
-        registration: FSEventRegistrationToken,
-        adapter: any DarwinFSEventRegistrationCallbackAdapter
-    ) {
-        self.registration = registration
-        self.adapter = adapter
-    }
-}
-
 final class DarwinFSEventRegistrationGeneration: @unchecked Sendable {
-    private struct NativeCustody: Sendable {
+    struct NativeCustody: Sendable {
         let stream: DarwinFSEventNativeStreamHandle
         let callbackQueue: DispatchQueue
         let callbackContextCustody: DarwinFSEventCallbackContextCustody
@@ -362,6 +179,10 @@ final class DarwinFSEventRegistrationGeneration: @unchecked Sendable {
             DarwinFSEventRegistrationStartCompletion
         )
         case started(NativeCustody, FilesystemObservationAcceptingNativeLifetime)
+        case startedAwaitingAcceptingPublication(
+            NativeCustody,
+            FilesystemObservationAcceptingPublicationResult
+        )
         case closingCreatedStream(NativeCustody)
         case closingStartedStream(NativeCustody)
         case closed(ClosedCustody)
@@ -369,118 +190,27 @@ final class DarwinFSEventRegistrationGeneration: @unchecked Sendable {
         case startFailed(DarwinFSEventRegistrationStartFailureCleanup)
     }
 
-    // The imported C callback signature cannot be wrapped without hiding its ABI shape.
-    // swiftlint:disable closure_parameter_position
-    private static let callback: FSEventStreamCallback = {
-        _, callbackContextPointer, eventCount, eventPaths, eventFlags, eventIDs in
-        guard let callbackContextPointer else { return }
-        let callbackContext = Unmanaged<DarwinFSEventRegistrationCallbackContext>
-            .fromOpaque(callbackContextPointer)
-            .takeUnretainedValue()
-        let eventFlagsBuffer = UnsafeBufferPointer(
-            start: eventFlags,
-            count: Int(eventCount)
-        )
-        let eventIDsBuffer = UnsafeBufferPointer(
-            start: eventIDs,
-            count: Int(eventCount)
-        )
-        _ = callbackContext.adapter.capture(
-            input: DarwinFSEventNativeCallbackInput(
-                capturedAt: ContinuousClock().now,
-                reportedEventCount: Int(eventCount),
-                eventPaths: eventPaths,
-                eventFlags: eventFlagsBuffer,
-                eventIDs: eventIDsBuffer
-            )
-        )
-    }
-    // swiftlint:enable closure_parameter_position
-
     let startingNativeLifetime: FilesystemObservationStartingNativeLifetime
     let controlBlock: FSEventRegistrationControlBlock
-    private let nativeGenerationPorts: FilesystemObservationNativeGenerationPorts
+    private let lifecyclePort: FilesystemObservationNativeLifecyclePort
     private let nativeDriver: any DarwinFSEventNativeDriver
     private let callbackQueueBarrier: any DarwinFSEventCallbackQueueBarrier
     private let stateLock: OSAllocatedUnfairLock<State>
 
-    private init(
+    init(
         startingNativeLifetime: FilesystemObservationStartingNativeLifetime,
         controlBlock: FSEventRegistrationControlBlock,
-        nativeGenerationPorts: FilesystemObservationNativeGenerationPorts,
+        lifecyclePort: FilesystemObservationNativeLifecyclePort,
         nativeDriver: any DarwinFSEventNativeDriver,
         callbackQueueBarrier: any DarwinFSEventCallbackQueueBarrier,
         nativeCustody: NativeCustody
     ) {
         self.startingNativeLifetime = startingNativeLifetime
         self.controlBlock = controlBlock
-        self.nativeGenerationPorts = nativeGenerationPorts
+        self.lifecyclePort = lifecyclePort
         self.nativeDriver = nativeDriver
         self.callbackQueueBarrier = callbackQueueBarrier
         stateLock = OSAllocatedUnfairLock(initialState: .created(nativeCustody))
-    }
-
-    static func create(
-        startingNativeLifetime: FilesystemObservationStartingNativeLifetime,
-        controlBlock: FSEventRegistrationControlBlock,
-        adapter: any DarwinFSEventRegistrationCallbackAdapter,
-        nativeGenerationPorts: FilesystemObservationNativeGenerationPorts,
-        nativeDriver: any DarwinFSEventNativeDriver = DarwinFSEventSystemNativeDriver(),
-        callbackQueueBarrier: any DarwinFSEventCallbackQueueBarrier =
-            DarwinFSEventAsyncCallbackQueueBarrier()
-    ) -> DarwinFSEventRegistrationGenerationCreationResult {
-        precondition(
-            controlBlock.startingNativeLifetime == startingNativeLifetime,
-            "native generation requires the control block's exact starting lifetime"
-        )
-        precondition(
-            controlBlock.registration == startingNativeLifetime.binding.registration,
-            "native generation requires its exact binding registration"
-        )
-        precondition(
-            adapter.controlBlock === controlBlock,
-            "native generation and callback adapter must share one control block"
-        )
-        let callbackContext = DarwinFSEventRegistrationCallbackContext(
-            registration: startingNativeLifetime.binding.registration,
-            adapter: adapter
-        )
-        let callbackContextPointer = Unmanaged.passRetained(callbackContext).toOpaque()
-        let callbackContextCustody = DarwinFSEventCallbackContextCustody(
-            pointer: callbackContextPointer
-        )
-        let callbackQueue = controlBlock.callbackQueue
-        let request = DarwinFSEventNativeStreamCreationRequest(
-            resolvedRootPath: controlBlock.watchRoot.resolvedPath,
-            callbackQueue: callbackQueue,
-            callback: callback,
-            callbackContextPointer: callbackContextPointer
-        )
-        switch nativeDriver.createStream(request: request) {
-        case .success(let stream):
-            return .created(
-                DarwinFSEventRegistrationGeneration(
-                    startingNativeLifetime: startingNativeLifetime,
-                    controlBlock: controlBlock,
-                    nativeGenerationPorts: nativeGenerationPorts,
-                    nativeDriver: nativeDriver,
-                    callbackQueueBarrier: callbackQueueBarrier,
-                    nativeCustody: NativeCustody(
-                        stream: stream,
-                        callbackQueue: callbackQueue,
-                        callbackContextCustody: callbackContextCustody
-                    )
-                )
-            )
-        case .failure(let nativeFailure):
-            return .failed(
-                DarwinFSEventRegistrationCreateFailureCleanup(
-                    startingNativeLifetime: startingNativeLifetime,
-                    nativeFailure: nativeFailure,
-                    callbackContextCustody: callbackContextCustody
-                )
-            )
-        }
     }
 
     var phase: DarwinFSEventRegistrationGenerationPhase {
@@ -490,6 +220,7 @@ final class DarwinFSEventRegistrationGeneration: @unchecked Sendable {
             case .starting: .starting
             case .startingCloseRequested: .startingCloseRequested
             case .started: .started
+            case .startedAwaitingAcceptingPublication: .startedAwaitingAcceptingPublication
             case .closingCreatedStream: .closingCreatedStream
             case .closingStartedStream: .closingStartedStream
             case .closed: .closed
@@ -515,6 +246,8 @@ final class DarwinFSEventRegistrationGeneration: @unchecked Sendable {
             case .starting: return .invalidPhase(.starting)
             case .startingCloseRequested: return .invalidPhase(.startingCloseRequested)
             case .started: return .invalidPhase(.started)
+            case .startedAwaitingAcceptingPublication:
+                return .invalidPhase(.startedAwaitingAcceptingPublication)
             case .closingCreatedStream: return .invalidPhase(.closingCreatedStream)
             case .closingStartedStream: return .invalidPhase(.closingStartedStream)
             case .closed: return .invalidPhase(.closed)
@@ -541,8 +274,7 @@ final class DarwinFSEventRegistrationGeneration: @unchecked Sendable {
             await controlBlock.waitUntilLeasesDrained()
             nativeDriver.releaseStream(custody.stream)
             let cleanup = DarwinFSEventRegistrationStartFailureCleanup(
-                startingNativeLifetime: startingNativeLifetime,
-                callbackContextCustody: custody.callbackContextCustody
+                startingNativeLifetime: startingNativeLifetime
             )
             stateLock.withLock { state in
                 state = .startFailed(cleanup)
@@ -552,28 +284,15 @@ final class DarwinFSEventRegistrationGeneration: @unchecked Sendable {
         }
 
         let acceptingNativeLifetime: FilesystemObservationAcceptingNativeLifetime
-        switch nativeGenerationPorts.lifecyclePort.publishAccepting(startingNativeLifetime) {
-        case .published(let accepting), .alreadyPublished(let accepting):
-            acceptingNativeLifetime = accepting
-        case .foreignFleet, .undeclaredPhysicalSlot, .startingNativeLifetimeMismatch,
-            .invalidSlotState:
-            _ = controlBlock.beginClosing()
-            nativeDriver.stopStream(custody.stream)
-            nativeDriver.invalidateStream(custody.stream)
-            _ = controlBlock.markStreamInvalidated()
-            await callbackQueueBarrier.waitForBarrier(on: custody.callbackQueue)
-            _ = controlBlock.markCallbackQueueDrained()
-            await controlBlock.waitUntilLeasesDrained()
-            nativeDriver.releaseStream(custody.stream)
-            let cleanup = DarwinFSEventRegistrationStartFailureCleanup(
-                startingNativeLifetime: startingNativeLifetime,
-                callbackContextCustody: custody.callbackContextCustody
-            )
+        switch lifecyclePort.publishAccepting(startingNativeLifetime) {
+        case .published(let publication), .alreadyPublished(let publication):
+            acceptingNativeLifetime = publication.acceptingNativeLifetime
+        case let rejection:
             stateLock.withLock { state in
-                state = .startFailed(cleanup)
+                state = .startedAwaitingAcceptingPublication(custody, rejection)
             }
-            completion.resolve(.failed(cleanup))
-            return .failed(cleanup)
+            completion.resolve(.acceptingPublicationRejected(rejection))
+            return .acceptingPublicationRejected(rejection)
         }
         stateLock.withLock { state in
             switch state {
@@ -582,12 +301,65 @@ final class DarwinFSEventRegistrationGeneration: @unchecked Sendable {
             case .startingCloseRequested:
                 break
             case .created, .started, .closingCreatedStream, .closingStartedStream,
-                .closed, .startFailureDraining, .startFailed:
+                .startedAwaitingAcceptingPublication, .closed, .startFailureDraining,
+                .startFailed:
                 preconditionFailure("native start completion requires an in-flight start state")
             }
         }
         completion.resolve(.accepting(acceptingNativeLifetime))
         return .started(acceptingNativeLifetime)
+    }
+
+    func retryAcceptingPublication() -> DarwinFSEventRegistrationGenerationStartResult {
+        enum RetrySelection {
+            case pending(NativeCustody)
+            case started(FilesystemObservationAcceptingNativeLifetime)
+            case invalidPhase(DarwinFSEventRegistrationGenerationPhase)
+        }
+        let custody: NativeCustody
+        switch stateLock.withLock({ state -> RetrySelection in
+            switch state {
+            case .startedAwaitingAcceptingPublication(let retainedCustody, _):
+                return .pending(retainedCustody)
+            case .started(_, let acceptingNativeLifetime):
+                return .started(acceptingNativeLifetime)
+            case .created: return .invalidPhase(.created)
+            case .starting: return .invalidPhase(.starting)
+            case .startingCloseRequested: return .invalidPhase(.startingCloseRequested)
+            case .closingCreatedStream: return .invalidPhase(.closingCreatedStream)
+            case .closingStartedStream: return .invalidPhase(.closingStartedStream)
+            case .closed: return .invalidPhase(.closed)
+            case .startFailureDraining: return .invalidPhase(.startFailureDraining)
+            case .startFailed: return .invalidPhase(.startFailed)
+            }
+        }) {
+        case .pending(let retainedCustody):
+            custody = retainedCustody
+        case .started(let acceptingNativeLifetime):
+            return .started(acceptingNativeLifetime)
+        case .invalidPhase(let phase):
+            return .invalidPhase(phase)
+        }
+
+        switch lifecyclePort.publishAccepting(startingNativeLifetime) {
+        case .published(let publication), .alreadyPublished(let publication):
+            let acceptingNativeLifetime = publication.acceptingNativeLifetime
+            stateLock.withLock { state in
+                guard case .startedAwaitingAcceptingPublication = state else {
+                    preconditionFailure("accepting publication retry requires retained custody")
+                }
+                state = .started(custody, acceptingNativeLifetime)
+            }
+            return .started(acceptingNativeLifetime)
+        case let rejection:
+            stateLock.withLock { state in
+                guard case .startedAwaitingAcceptingPublication = state else {
+                    preconditionFailure("accepting publication retry requires retained custody")
+                }
+                state = .startedAwaitingAcceptingPublication(custody, rejection)
+            }
+            return .acceptingPublicationRejected(rejection)
+        }
     }
 
     // The close path keeps its custody claim, native fence, and receipt minting visibly ordered.
@@ -628,6 +400,8 @@ final class DarwinFSEventRegistrationGeneration: @unchecked Sendable {
             case .started(let custody, let acceptingNativeLifetime):
                 state = .closingStartedStream(custody)
                 return .accepting(custody, acceptingNativeLifetime)
+            case .startedAwaitingAcceptingPublication:
+                return .alreadyClosing
             case .closingCreatedStream, .closingStartedStream:
                 return .alreadyClosing
             case .startFailed(let cleanup):
@@ -650,6 +424,8 @@ final class DarwinFSEventRegistrationGeneration: @unchecked Sendable {
                 closeCustody = .accepting(custody, acceptingNativeLifetime)
             case .failed(let cleanup):
                 return .startFailed(cleanup)
+            case .acceptingPublicationRejected:
+                return .alreadyClosing
             }
         }
         let custody: NativeCustody
@@ -675,7 +451,7 @@ final class DarwinFSEventRegistrationGeneration: @unchecked Sendable {
         case .created:
             break
         case .accepting(let acceptingNativeLifetime):
-            switch nativeGenerationPorts.lifecyclePort
+            switch lifecyclePort
                 .beginClosingAwaitingCallbackLeaseDrain(acceptingNativeLifetime)
             {
             case .transitioned, .alreadyTransitioned:
@@ -695,8 +471,7 @@ final class DarwinFSEventRegistrationGeneration: @unchecked Sendable {
         await controlBlock.waitUntilLeasesDrained()
         let receipt = DarwinFSEventRegistrationLeaseDrainReceipt(
             binding: startingNativeLifetime.binding,
-            nativeGenerationIdentity: startingNativeLifetime.nativeGenerationIdentity,
-            callbackContextCustody: custody.callbackContextCustody
+            nativeGenerationIdentity: startingNativeLifetime.nativeGenerationIdentity
         )
         nativeDriver.releaseStream(custody.stream)
         stateLock.withLock { state in

@@ -655,7 +655,7 @@ struct FilesystemObservationLeaseTransferTests {
             replacementReserveSlotCount: 0,
             limits: leaseTransferMailboxLimits()
         )
-        guard case .enqueued = mailbox.recordDesiredRegistration(registration),
+        guard case .enqueued = mailbox.installTestConfiguration(registration),
             case .selected(let selection) = mailbox.selectNextDesiredSource(),
             case .committed(let startingLifetime) = mailbox.beginNativeLifetime(
                 selection.reservation
@@ -677,11 +677,9 @@ struct FilesystemObservationLeaseTransferTests {
             callbackAdmissionPort: nativePorts.callbackAdmissionPort
         )
         guard
-            case .created(let nativeGeneration) = DarwinFSEventRegistrationGeneration.create(
-                startingNativeLifetime: startingLifetime,
+            case .created(let nativeGeneration) = nativePorts.nativeOwner.createOrReplay(
                 controlBlock: controlBlock,
                 adapter: adapter,
-                nativeGenerationPorts: nativePorts,
                 nativeDriver: LeaseTransferNativeDriver(),
                 callbackQueueBarrier: LeaseTransferCallbackQueueBarrier()
             ),

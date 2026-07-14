@@ -31,10 +31,20 @@ final class FilesystemObservationMailbox: @unchecked Sendable {
         core.physicalSlotIDs
     }
 
-    func recordDesiredRegistration(
-        _ registration: FSEventRegistrationToken
+    func installDesiredConfiguration(
+        _ configuration: FilesystemObservationSourceConfiguration,
+        acceptedTopologyRevision: FilesystemObservationAcceptedTopologyRevision
     ) -> FilesystemObservationDesiredUpdateResult {
-        core.recordDesiredRegistration(registration)
+        core.installDesiredConfiguration(
+            configuration,
+            acceptedTopologyRevision: acceptedTopologyRevision
+        )
+    }
+
+    func admitConfigurationIntents(
+        _ batch: FilesystemSourceConfigurationIntentBatch
+    ) -> FilesystemConfigurationIntentBatchAdmissionResult {
+        core.admitConfigurationIntents(batch)
     }
 
     func selectNextDesiredSource() -> FilesystemObservationDesiredSelectionResult {

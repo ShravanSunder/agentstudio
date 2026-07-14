@@ -328,21 +328,26 @@ Execute in this order:
    `FilesystemObservationSlotRegistry.swift` retains the one primary mutable
    owner declaration, slot/FIFO/lifecycle storage, and transitions. It has no
    production extension.
-3. Remove every reusable construction/issuance key, issuer, or factory. Keep
-   opaque mutation capability lexical to the narrow primary declaration. The
-   concrete binding, control-block identity, and native-generation identity
-   constructors each have exactly one production call site inside the
-   lock-linearized `selected -> starting` transition.
+3. Remove every reusable issuance key, issuer, or factory. Keep opaque mutation
+   capability and UUIDv7 issuance lexical to the narrow primary declaration.
+   The lock-linearized `selected -> starting` transition mints one closed typed
+   identity bundle. A stateless admission planner consumes that bundle and the
+   operation-specific selection snapshot to construct the complete binding and
+   starting-lifetime transition product. Planners cannot generate UUIDs, retain
+   whole registry dictionaries, mutate owner state, accept `inout` storage, or
+   execute caller-provided closures.
 4. Add the focused SwiftSyntax ownership rule. It rejects mutation-owner
-   extensions and construction outside the approved transition, including a
-   plain same-file helper and a same-file extension. It accepts the primary
-   owner with the sole approved transition and read-only contracts/projections.
+   extensions, identity issuance outside the approved registry transition, and
+   binding/lifetime construction outside the approved stateless completion
+   planner. It accepts the primary owner, the one identity-minting transition,
+   stateless complete-product planners, and read-only contracts/projections.
 5. Re-run the unchanged D1/D2a behavior suite, focused architecture-lint rule
    tests, scoped lint, and the full architecture lint before integration.
 
-The SwiftSyntax tests include explicit source probes for: approved
-`selected -> starting` construction, a plain helper bypass, a same-file
-extension bypass, a second issuer/factory, and a contracts/projection mutation
+The SwiftSyntax tests include explicit source probes for: approved UUIDv7
+identity issuance plus planner completion, planner-side UUID generation, a
+plain helper bypass, a same-file extension bypass, a second issuer/factory,
+planner mutation/`inout`/closure escape, and a contracts/projection mutation
 attempt. Each forbidden probe must produce the expected diagnostic. This rule
 is compile-time/source enforcement only; D2b adds no lock, actor, runtime key,
 event path, currentness owner, or second authority.

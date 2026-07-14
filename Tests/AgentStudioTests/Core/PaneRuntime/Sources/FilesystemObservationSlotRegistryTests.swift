@@ -17,7 +17,7 @@ struct FilesystemObservationSlotRegistryTests {
         let physicalSlotIDs = registry.physicalSlotIDs
         let sourceOffsets = 0..<registry.maximumSimultaneousSourceCount
         let startingNativeLifetimes = try sourceOffsets.map { sourceOffset in
-            _ = registry.recordDesiredRegistration(
+            _ = registry.installTestConfiguration(
                 makeRegistration(sourceOrdinal: sourceOffset + 1, generation: 1)
             )
             let selection = try requireSelectedDesiredSource(
@@ -43,7 +43,7 @@ struct FilesystemObservationSlotRegistryTests {
         #expect(bindings.allSatisfy { $0.controlBlockIdentity.isUUIDv7 })
         #expect(
             physicalSlotIDs.filter { physicalSlotID in
-                registry.state(of: physicalSlotID) == .vacant
+                registry.read.state(of: physicalSlotID) == .vacant
             }.count == 2
         )
     }
@@ -54,7 +54,7 @@ struct FilesystemObservationSlotRegistryTests {
         let registry = try makeRegistry(physicalSlotCount: 1)
         let registration = makeRegistration(generation: 7)
         let desiredRegistration = try requireEnqueuedDesiredRegistration(
-            registry.recordDesiredRegistration(registration)
+            registry.installTestConfiguration(registration)
         )
         let selection = try requireSelectedDesiredSource(registry.selectNextDesiredSource())
 
@@ -75,9 +75,9 @@ struct FilesystemObservationSlotRegistryTests {
         #expect(binding.identity.isUUIDv7)
         #expect(binding.controlBlockIdentity.isUUIDv7)
         #expect(startingNativeLifetime.nativeGenerationIdentity.isUUIDv7)
-        #expect(registry.storedBindingCurrentness(of: binding) == .storedCurrent)
+        #expect(registry.read.storedBindingCurrentness(of: binding) == .storedCurrent)
         #expect(
-            registry.state(of: selection.reservation.physicalSlotID)
+            registry.read.state(of: selection.reservation.physicalSlotID)
                 == .starting(startingNativeLifetime)
         )
     }
@@ -86,7 +86,7 @@ struct FilesystemObservationSlotRegistryTests {
     func doubleCommitmentPreservesExactBinding() throws {
         // Arrange
         let registry = try makeRegistry(physicalSlotCount: 1)
-        _ = registry.recordDesiredRegistration(makeRegistration(generation: 11))
+        _ = registry.installTestConfiguration(makeRegistration(generation: 11))
         let selection = try requireSelectedDesiredSource(registry.selectNextDesiredSource())
         let startingNativeLifetime = try requireCommittedNativeLifetime(
             registry.beginNativeLifetime(selection.reservation)
@@ -98,11 +98,11 @@ struct FilesystemObservationSlotRegistryTests {
         // Assert
         #expect(secondResult == .alreadyCommitted(startingNativeLifetime))
         #expect(
-            registry.storedBindingCurrentness(of: startingNativeLifetime.binding)
+            registry.read.storedBindingCurrentness(of: startingNativeLifetime.binding)
                 == .storedCurrent
         )
         #expect(
-            registry.state(of: selection.reservation.physicalSlotID)
+            registry.read.state(of: selection.reservation.physicalSlotID)
                 == .starting(startingNativeLifetime)
         )
     }
@@ -113,14 +113,14 @@ struct FilesystemObservationSlotRegistryTests {
         let registry = try makeRegistry(physicalSlotCount: 2)
         let foreignRegistry = try makeRegistry(physicalSlotCount: 1)
         let vacantSlotID = try #require(registry.physicalSlotIDs.last)
-        _ = registry.recordDesiredRegistration(makeRegistration(generation: 17))
+        _ = registry.installTestConfiguration(makeRegistration(generation: 17))
         let currentSelection = try requireSelectedDesiredSource(
             registry.selectNextDesiredSource()
         )
         let currentStarting = try requireCommittedNativeLifetime(
             registry.beginNativeLifetime(currentSelection.reservation)
         )
-        _ = foreignRegistry.recordDesiredRegistration(makeRegistration(generation: 18))
+        _ = foreignRegistry.installTestConfiguration(makeRegistration(generation: 18))
         let foreignSelection = try requireSelectedDesiredSource(
             foreignRegistry.selectNextDesiredSource()
         )
@@ -130,15 +130,15 @@ struct FilesystemObservationSlotRegistryTests {
 
         // Act / Assert
         #expect(registry.fleetMailboxIdentity != foreignRegistry.fleetMailboxIdentity)
-        #expect(registry.state(of: vacantSlotID) == .vacant)
+        #expect(registry.read.state(of: vacantSlotID) == .vacant)
         #expect(
-            registry.state(of: foreignSelection.reservation.physicalSlotID)
+            registry.read.state(of: foreignSelection.reservation.physicalSlotID)
                 == .undeclaredPhysicalSlot
         )
         #expect(
-            registry.storedBindingCurrentness(of: currentStarting.binding) == .storedCurrent
+            registry.read.storedBindingCurrentness(of: currentStarting.binding) == .storedCurrent
         )
-        #expect(registry.storedBindingCurrentness(of: foreignStarting.binding) == .foreignFleet)
+        #expect(registry.read.storedBindingCurrentness(of: foreignStarting.binding) == .foreignFleet)
     }
 
     @Test("invalid capacity inputs fail with exact configuration results")
@@ -164,7 +164,7 @@ struct FilesystemObservationSlotRegistryTests {
         let deliberatelyNonUUIDSortedSourceOrdinals = [3, 1, 2]
         let desiredRegistrations = try deliberatelyNonUUIDSortedSourceOrdinals.map { sourceOrdinal in
             try requireEnqueuedDesiredRegistration(
-                registry.recordDesiredRegistration(
+                registry.installTestConfiguration(
                     makeRegistration(sourceOrdinal: sourceOrdinal, generation: 1)
                 )
             )
@@ -192,7 +192,7 @@ struct FilesystemObservationSlotRegistryTests {
         #expect(selections.allSatisfy { $0.reservation.identity.isUUIDv7 })
         #expect(Set(selections.map { $0.reservation.physicalSlotID }).count == 1)
         #expect(
-            registry.deferredDesiredRegistrationsInFIFOOrder
+            registry.read.deferredDesiredRegistrationsInFIFOOrder
                 == Array(desiredRegistrations[0...1])
         )
     }
@@ -204,20 +204,20 @@ struct FilesystemObservationSlotRegistryTests {
         let firstRegistration = makeRegistration(sourceOrdinal: 1, generation: 1)
         let middleRegistration = makeRegistration(sourceOrdinal: 2, generation: 1)
         let lastRegistration = makeRegistration(sourceOrdinal: 3, generation: 1)
-        _ = registry.recordDesiredRegistration(firstRegistration)
+        _ = registry.installTestConfiguration(firstRegistration)
         let originalMiddle = try requireEnqueuedDesiredRegistration(
-            registry.recordDesiredRegistration(middleRegistration)
+            registry.installTestConfiguration(middleRegistration)
         )
-        _ = registry.recordDesiredRegistration(lastRegistration)
+        _ = registry.installTestConfiguration(lastRegistration)
 
         // Act
         let desiredNPlusThree = try requireReplacedDesiredRegistration(
-            registry.recordDesiredRegistration(
+            registry.installTestConfiguration(
                 makeRegistration(sourceOrdinal: 2, generation: 3)
             )
         )
         let desiredNPlusFour = try requireReplacedDesiredRegistration(
-            registry.recordDesiredRegistration(
+            registry.installTestConfiguration(
                 makeRegistration(sourceOrdinal: 2, generation: 4)
             )
         )
@@ -227,13 +227,13 @@ struct FilesystemObservationSlotRegistryTests {
         #expect(desiredNPlusThree.identity != desiredNPlusFour.identity)
         #expect(desiredNPlusFour.registration.registrationGeneration == 4)
         #expect(
-            registry.deferredDesiredRegistrationsInFIFOOrder.map { $0.sourceID }
+            registry.read.deferredDesiredRegistrationsInFIFOOrder.map { $0.sourceID }
                 == [
                     firstRegistration.sourceID, middleRegistration.sourceID,
                     lastRegistration.sourceID,
                 ]
         )
-        #expect(registry.deferredDesiredRegistrationsInFIFOOrder[1] == desiredNPlusFour)
+        #expect(registry.read.deferredDesiredRegistrationsInFIFOOrder[1] == desiredNPlusFour)
     }
 
     @Test("active source capacity preserves physical reserve for replacement overlap")
@@ -246,7 +246,7 @@ struct FilesystemObservationSlotRegistryTests {
                 replacementReserveSlotCount: replacementReserveSlotCount
             )
             for sourceOrdinal in 1...(maximumSourceCount + 1) {
-                _ = registry.recordDesiredRegistration(
+                _ = registry.installTestConfiguration(
                     makeRegistration(sourceOrdinal: sourceOrdinal, generation: 1)
                 )
             }
@@ -260,13 +260,13 @@ struct FilesystemObservationSlotRegistryTests {
             // Assert
             #expect(successfulSelections.count == maximumSourceCount)
             #expect(capacityResult == .deferredBehindActiveSourceCapacity)
-            #expect(registry.deferredDesiredRegistrationsInFIFOOrder.count == 1)
+            #expect(registry.read.deferredDesiredRegistrationsInFIFOOrder.count == 1)
 
             let occupiedSlotIDs = Set(successfulSelections.map(\.reservation.physicalSlotID))
             #expect(occupiedSlotIDs.count == maximumSourceCount)
             #expect(
                 registry.physicalSlotIDs.filter { physicalSlotID in
-                    registry.state(of: physicalSlotID) == .vacant
+                    registry.read.state(of: physicalSlotID) == .vacant
                 }.count == replacementReserveSlotCount
             )
         }
@@ -275,7 +275,7 @@ struct FilesystemObservationSlotRegistryTests {
             maximumSimultaneousSourceCount: 1,
             replacementReserveSlotCount: 1
         )
-        _ = replacementRegistry.recordDesiredRegistration(makeRegistration(generation: 1))
+        _ = replacementRegistry.installTestConfiguration(makeRegistration(generation: 1))
         let originalSelection = try requireSelectedDesiredSource(
             replacementRegistry.selectNextDesiredSource()
         )
@@ -283,11 +283,11 @@ struct FilesystemObservationSlotRegistryTests {
             replacementRegistry.beginNativeLifetime(originalSelection.reservation)
         )
         let unrelatedDesired = try requireEnqueuedDesiredRegistration(
-            replacementRegistry.recordDesiredRegistration(
+            replacementRegistry.installTestConfiguration(
                 makeRegistration(sourceOrdinal: 2, generation: 1)
             )
         )
-        _ = replacementRegistry.recordDesiredRegistration(makeRegistration(generation: 2))
+        _ = replacementRegistry.installTestConfiguration(makeRegistration(generation: 2))
         _ = try requireRetirementRequired(
             replacementRegistry.retireUnpublishedNativeGenerationAfterCreateOrStartFailure(
                 originalStartingNativeLifetime
@@ -295,7 +295,7 @@ struct FilesystemObservationSlotRegistryTests {
         )
 
         let deferredBeforeReplacementSelection =
-            replacementRegistry.deferredDesiredRegistrationsInFIFOOrder
+            replacementRegistry.read.deferredDesiredRegistrationsInFIFOOrder
         let replacementSelection = try requireSelectedDesiredSource(
             replacementRegistry.selectNextDesiredSource()
         )
@@ -312,7 +312,7 @@ struct FilesystemObservationSlotRegistryTests {
         )
         #expect(unrelatedCapacityResult == .deferredBehindActiveSourceCapacity)
         #expect(
-            replacementRegistry.deferredDesiredRegistrationsInFIFOOrder == [unrelatedDesired]
+            replacementRegistry.read.deferredDesiredRegistrationsInFIFOOrder == [unrelatedDesired]
         )
     }
 
@@ -321,10 +321,10 @@ struct FilesystemObservationSlotRegistryTests {
         // Arrange
         let registry = try makeRegistry(physicalSlotCount: 1)
         let originalDesired = try requireEnqueuedDesiredRegistration(
-            registry.recordDesiredRegistration(makeRegistration(generation: 1))
+            registry.installTestConfiguration(makeRegistration(generation: 1))
         )
         let currentDesired = try requireReplacedDesiredRegistration(
-            registry.recordDesiredRegistration(makeRegistration(generation: 2))
+            registry.installTestConfiguration(makeRegistration(generation: 2))
         )
 
         // Act
@@ -345,7 +345,7 @@ struct FilesystemObservationSlotRegistryTests {
         #expect(staleResult == .staleDesiredIdentity(currentDesired.identity))
         #expect(exactResult == .withdrewDeferred(currentDesired))
         #expect(absentResult == .alreadyAbsent)
-        #expect(registry.desiredState(for: currentDesired.sourceID) == .absent)
+        #expect(registry.read.desiredState(for: currentDesired.sourceID) == .absent)
     }
 
     @Test("one generalized retirement chain retains exactly two causal generations")
@@ -354,13 +354,13 @@ struct FilesystemObservationSlotRegistryTests {
         let fixture = try makeTwoRetiringGenerationsFixture()
 
         // Act
-        let retirementChain = fixture.registry.retiringGenerationChain(
+        let retirementChain = fixture.registry.read.retiringGenerationChain(
             for: fixture.newestDesired.sourceID
         )
-        let oldestCurrentness = fixture.registry.storedBindingCurrentness(
+        let oldestCurrentness = fixture.registry.read.storedBindingCurrentness(
             of: fixture.oldestStartingNativeLifetime.binding
         )
-        let successorCurrentness = fixture.registry.storedBindingCurrentness(
+        let successorCurrentness = fixture.registry.read.storedBindingCurrentness(
             of: fixture.successorStartingNativeLifetime.binding
         )
 
@@ -369,7 +369,7 @@ struct FilesystemObservationSlotRegistryTests {
         #expect(oldestCurrentness == .storedSuperseded)
         #expect(successorCurrentness == .storedSuperseded)
         #expect(
-            fixture.registry.desiredState(for: fixture.newestDesired.sourceID)
+            fixture.registry.read.desiredState(for: fixture.newestDesired.sourceID)
                 == .deferred(fixture.newestDesired)
         )
     }
@@ -389,14 +389,14 @@ func makeTwoRetiringGenerationsFixture() throws
     -> FilesystemObservationTwoRetiringGenerationsFixture
 {
     let registry = try makeRegistry(physicalSlotCount: 3)
-    _ = registry.recordDesiredRegistration(makeRegistration(generation: 1))
+    _ = registry.installTestConfiguration(makeRegistration(generation: 1))
     let oldestSelection = try requireSelectedDesiredSource(
         registry.selectNextDesiredSource()
     )
     let oldestStartingNativeLifetime = try requireCommittedNativeLifetime(
         registry.beginNativeLifetime(oldestSelection.reservation)
     )
-    _ = registry.recordDesiredRegistration(makeRegistration(generation: 2))
+    _ = registry.installTestConfiguration(makeRegistration(generation: 2))
     let oldestRetirement = try requireRetirementRequired(
         registry.retireUnpublishedNativeGenerationAfterCreateOrStartFailure(
             oldestStartingNativeLifetime
@@ -408,7 +408,7 @@ func makeTwoRetiringGenerationsFixture() throws
     let successorStartingNativeLifetime = try requireCommittedNativeLifetime(
         registry.beginNativeLifetime(successorSelection.reservation)
     )
-    let newestUpdate = registry.recordDesiredRegistration(
+    let newestUpdate = registry.installTestConfiguration(
         makeRegistration(generation: 3)
     )
     guard case .deferredToConfigurationCurrentness(let newestDesired) = newestUpdate
