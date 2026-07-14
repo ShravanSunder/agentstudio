@@ -971,6 +971,36 @@ transfer, rejection, and stale completion are exhaustive. UI disappearance is
 never an acknowledgement; Git-only repair never returns a registered worktree
 to healthy.
 
+Keep the two off-main actors separate by responsibility:
+
+- `WorktreeContentRepairConsumerRegistry` is the sole lifecycle authority for
+  consumer membership, captured repair generations, temporal eligibility,
+  retry/acknowledgement custody, and causal exact-source-registration
+  retirement receipts.
+- `FilesystemContentRepairProjector` is the bounded effect executor for serial
+  delivery, resumable acknowledgement/SourceGate forwarding, and bounded exact
+  completed replay. It does not decide membership or generation currentness.
+
+A registry-issued activation proves origin, not permanent temporal eligibility.
+For a new projection, the projector first reserves per-source admission, then
+asks the registry to classify the full activation before any consumer call.
+Only the exact current active generation or an exact capture-ledger
+`.completed` entry is eligible. Pending, superseded, older/evicted completed,
+retired, or mismatched activations reject without consumer work. The exact
+completed exception covers zero-consumer terminalization and final-consumer
+terminalization before the projector acknowledgement. The reservation survives
+the actor suspension so a reentrant call cannot admit competing work.
+
+Apply the same bounded currentness classification before retaining or resuming
+externally supplied accepted-acknowledgement forwarding. Retire projector state
+only from an exact typed registry registration-retirement receipt. The projector
+must match its `FSEventRegistrationToken` against the exact registration carried
+by its SourceGate acceptance and observation-slot binding, then prove zero
+delivery, forwarding, and replay-transfer debt for that registration. Retirement
+then clears the source's bounded replay. Do not add another
+actor, EventBus route, MainActor operation, source identity, or UUID-derived
+ordering.
+
 W2a mechanics complete requires the exact W1b dormant-ready gate plus F3 fleet
 shutdown and WF-C participant registry/projector integration. Production still
 uses only the legacy callback protocol.
@@ -983,6 +1013,21 @@ Planned exact suites:
 
 Each exact filter must discover at least one named test and the integration
 oracle must enumerate the captured participants independently from production.
+`FilesystemContentRepairProjectorTests` and the registry suite additionally
+prove:
+
+- a copied stale activation cannot redeliver after the per-source 256-record
+  projector replay window evicts its completion;
+- a superseded generation retained in a latest-completed slot is ineligible
+  unless its exact capture-ledger entry is `.completed`;
+- zero-consumer and final-consumer completion remain eligible through the
+  projector's final acknowledgement;
+- reentry while registry eligibility is suspended observes the reserved
+  admission and cannot create a second journal or consumer call;
+- retirement with registry or projector debt rejects, an exact debt-free
+  receipt retires once, and stale/mismatched receipts cannot clear state;
+- external acknowledgement forwarding rejects stale/superseded/retired values
+  after bounded replay eviction without recreating effects.
 
 ## 7. Vertical Slice WF-D — Deferred Atomic W2b Cut
 
@@ -1109,6 +1154,8 @@ same integration gate.
 | shutdown never loses debt | child Fleet Shutdown | F3 | every debt class, cancellation, resume without event/timer | integration |
 | real Darwin lifetime matches receipts | child callback/fence contract | G2 | temporary root and explicit teardown ledger | real-boundary integration |
 | repair health requires exact participants | parent repair matrix | WF-C | participant applicability/withdrawal/transfer table | unit/integration |
+| repair execution requires current registry authority | parent registered-worktree repair contract | WF-C | exact active/completed eligibility; stale-after-256-eviction and superseded-slot rejection; zero/final-consumer terminalization; actor-reentry reservation | unit/actor integration |
+| repair retirement is causal and debt-safe | parent registered-worktree repair contract | WF-C | exact registry source-registration retirement receipt; SourceGate/binding registration match; registry/projector debt rejection; stale/mismatched receipt rejection; bounded replay cleanup; external-forward currentness | unit/actor integration |
 | production has exactly one ingress | hard-cut rule | WF-D | pre-cut legacy-only RED; post-cut fixed-only GREEN | structural/integration/smoke |
 | ingress owner graph is exclusive | child callback/consumer contract | H2/WF-D | pre-W2b production actor has legacy ingress only and dormant harness has exactly one fixed consumer/waiter; post-W2b production actor has fixed ingress only; no instance can own both routes | compiler/structural/integration |
 

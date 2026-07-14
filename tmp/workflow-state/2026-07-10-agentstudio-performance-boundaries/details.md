@@ -597,3 +597,38 @@ parent C2 inventory found no design contradiction; continue
 the W2b atomic production cut. Product-performance claims remain open until
 that cut and the final Victoria, authenticated exact-PID IPC, large-root,
 native UI, and human interaction-feel proof loop.
+
+## 2026-07-14 WF-C C1 temporal eligibility correction checkpoint
+
+Implementation exposed that a registry-issued, copyable
+`ContentRepairActivatedGeneration` proves origin but cannot permanently prove
+temporal eligibility after the projector's bounded replay evicts an old
+completion. The user approved preserving the two-actor responsibility split:
+C1 remains the lifecycle authority and C2 remains the bounded effect executor.
+
+C1 now validates the complete activation before C2 may perform consumer work.
+Only the exact current active generation or an exact capture-ledger
+`.completed` entry is eligible; pending, superseded, mismatched, retired, and
+older/evicted generations reject. The completed exception preserves valid
+zero-consumer and final-consumer projector acknowledgement. C1 also returns an
+owner-minted, non-forgeable retirement receipt carrying the exact final
+`FSEventRegistrationToken`; C2 will match that registration against its
+SourceGate acceptance/binding before clearing bounded state.
+
+Fresh parent proof before checkpoint commit:
+
+- expected RED: missing eligibility API and exhaustive result types failed
+  focused compilation;
+- focused registry: 22 tests, 1 suite, exit 0;
+- scoped swift-format: exit 0;
+- scoped SwiftLint: 0 violations across five C1 files, exit 0;
+- `git diff --check`: exit 0;
+- actor mutation/state remains in the 892-line registry owner; pure immutable
+  lifecycle classification lives in the 579-line registry-state owner;
+- the maintained spec and WF-C plans record the approved separation and causal
+  exact-registration retirement contract.
+
+Continue `shravan-dev-workflow:implementation-execute-plan` by integrating C2's
+reserved admission, eligibility/forwarding ports, and debt-safe retirement.
+Production remains wholly legacy until W2b, and all product-performance and
+real-app proof gates remain open.

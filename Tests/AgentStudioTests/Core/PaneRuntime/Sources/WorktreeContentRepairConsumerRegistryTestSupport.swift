@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 
 @testable import AgentStudio
 
@@ -156,4 +157,168 @@ func emptyShutdownDebt() -> WorktreeContentRepairConsumerRegistryShutdownDebt {
         retainedRetries: [],
         outboundAcknowledgements: []
     )
+}
+
+extension WorktreeContentRepairConsumerRegistryTests {
+    @Test("projection eligibility accepts only exact active and retained completed generations")
+    func projectionEligibilityAcceptsExactLifecycleAuthority() async throws {
+        // Arrange
+        let activeFixture = try await makeBoundFixture()
+        let completedFixture = try await makeBoundFixture()
+        let completedAcknowledgement = try requireAccepted(
+            await completedFixture.registry.acknowledge(
+                repairGenerationID: completedFixture.bound.repairGeneration.id,
+                consumer: completedFixture.consumer.token,
+                disposition: .rebuiltCurrent(consumerRevision: 19)
+            )
+        )
+        let zeroConsumerRegistry = WorktreeContentRepairConsumerRegistry()
+        let zeroConsumerRegistration = makeRegistration()
+        let zeroConsumerCapture = try await requirePrepared(
+            prepareCapture(zeroConsumerRegistry, registration: zeroConsumerRegistration)
+        )
+        let zeroConsumerActivation = try await bindActive(
+            zeroConsumerCapture,
+            registry: zeroConsumerRegistry
+        )
+
+        // Act
+        let activeEligibility = await activeFixture.registry.validateProjectionEligibility(
+            activeFixture.activated
+        )
+        let completedEligibility = await completedFixture.registry.validateProjectionEligibility(
+            completedFixture.activated
+        )
+        let zeroConsumerEligibility = await zeroConsumerRegistry.validateProjectionEligibility(
+            zeroConsumerActivation
+        )
+
+        // Assert
+        #expect(activeEligibility == .eligible(.currentActive(activeFixture.activated)))
+        #expect(completedEligibility == .eligible(.retainedCompleted(completedFixture.activated)))
+        #expect(zeroConsumerEligibility == .eligible(.retainedCompleted(zeroConsumerActivation)))
+        #expect(
+            completedAcknowledgement.sourceGateAcknowledgement.repairGenerationID
+                == completedFixture.bound.repairGeneration.id
+        )
+    }
+
+    @Test("projection eligibility rejects pending superseded mismatched foreign and shutdown generations")
+    func projectionEligibilityRejectsEveryNonAuthoritativeLifecycle() async throws {
+        // Arrange
+        let registration = makeRegistration()
+        let pendingRegistry = WorktreeContentRepairConsumerRegistry()
+        _ = try await requireRegistration(
+            pendingRegistry.register(registration: registration, eligibility: .eligible)
+        )
+        let pendingActiveCapture = try await requirePrepared(
+            prepareCapture(pendingRegistry, registration: registration)
+        )
+        let pendingActive = try await bindActive(pendingActiveCapture, registry: pendingRegistry)
+        let pendingCapture = try await requirePrepared(
+            prepareCapture(pendingRegistry, registration: registration)
+        )
+        let pendingBoundResult = await pendingRegistry.bind(
+            pendingCapture,
+            to: makeRepair(capture: pendingCapture)
+        )
+        guard case .boundPending(let pendingBound) = pendingBoundResult else {
+            Issue.record("Expected pending generation")
+            return
+        }
+
+        let parallelRegistry = WorktreeContentRepairConsumerRegistry()
+        let parallelConsumer = try await requireRegistration(
+            parallelRegistry.register(registration: registration, eligibility: .eligible)
+        )
+        let parallelFirstCapture = try await requirePrepared(
+            prepareCapture(parallelRegistry, registration: registration)
+        )
+        let parallelFirst = try await bindActive(parallelFirstCapture, registry: parallelRegistry)
+        _ = await parallelRegistry.acknowledge(
+            repairGenerationID: parallelFirst.boundGeneration.repairGeneration.id,
+            consumer: parallelConsumer.token,
+            disposition: .rebuiltCurrent(consumerRevision: 1)
+        )
+        let parallelPendingCapture = try await requirePrepared(
+            prepareCapture(parallelRegistry, registration: registration)
+        )
+        let parallelPendingActivation = try await bindActive(
+            parallelPendingCapture,
+            registry: parallelRegistry
+        )
+
+        let mismatchRegistry = WorktreeContentRepairConsumerRegistry()
+        _ = try await requireRegistration(
+            mismatchRegistry.register(registration: registration, eligibility: .eligible)
+        )
+        let mismatchCapture = try await requirePrepared(
+            prepareCapture(mismatchRegistry, registration: registration)
+        )
+        let mismatchedActivation = try await bindActive(mismatchCapture, registry: mismatchRegistry)
+
+        let foreignFixture = try await makeBoundFixture()
+        let shutdownRegistry = WorktreeContentRepairConsumerRegistry()
+        let shutdownRegistration = makeRegistration()
+        let shutdownCapture = try await requirePrepared(
+            prepareCapture(shutdownRegistry, registration: shutdownRegistration)
+        )
+        let shutdownActivation = try await bindActive(shutdownCapture, registry: shutdownRegistry)
+        _ = await shutdownRegistry.beginOrResumeShutdown()
+
+        // Act
+        let pending = await pendingRegistry.validateProjectionEligibility(parallelPendingActivation)
+        let supersededActivationResult = await pendingRegistry.activateBoundGeneration(
+            pendingBound.repairGeneration.id
+        )
+        guard case .activated(let newestActive) = supersededActivationResult else {
+            Issue.record("Expected pending generation activation")
+            return
+        }
+        let superseded = await pendingRegistry.validateProjectionEligibility(pendingActive)
+        let newest = await pendingRegistry.validateProjectionEligibility(newestActive)
+        let mismatch = await pendingRegistry.validateProjectionEligibility(mismatchedActivation)
+        let foreign = await pendingRegistry.validateProjectionEligibility(foreignFixture.activated)
+        let shuttingDown = await shutdownRegistry.validateProjectionEligibility(shutdownActivation)
+
+        // Assert
+        #expect(pending == .ineligible(.pendingGeneration(pendingBound.repairGeneration.id)))
+        #expect(superseded == .ineligible(.supersededGeneration(pendingActive.boundGeneration.repairGeneration.id)))
+        #expect(newest == .eligible(.currentActive(newestActive)))
+        #expect(mismatch == .ineligible(.activationMismatch(mismatchedActivation.boundGeneration.repairGeneration.id)))
+        #expect(foreign == .ineligible(.foreignSource(foreignFixture.registration.sourceID)))
+        #expect(shuttingDown == .shuttingDown)
+    }
+
+    @Test("projection eligibility rejects completed generations evicted from the capture ledger")
+    func projectionEligibilityRejectsEvictedCompletedGeneration() async throws {
+        // Arrange
+        let registry = WorktreeContentRepairConsumerRegistry()
+        let registration = makeRegistration()
+        var oldestActivation: ContentRepairActivatedGeneration?
+        for generationOffset in 0...256 {
+            let capture = try await requirePrepared(
+                prepareCapture(registry, registration: registration)
+            )
+            let activation = try await bindActive(capture, registry: registry)
+            if generationOffset == 0 {
+                oldestActivation = activation
+            }
+        }
+        guard let oldestActivation else {
+            Issue.record("Expected oldest activation")
+            return
+        }
+
+        // Act
+        let eligibility = await registry.validateProjectionEligibility(oldestActivation)
+
+        // Assert
+        #expect(
+            eligibility
+                == .ineligible(
+                    .staleGeneration(oldestActivation.boundGeneration.repairGeneration.id)
+                )
+        )
+    }
 }

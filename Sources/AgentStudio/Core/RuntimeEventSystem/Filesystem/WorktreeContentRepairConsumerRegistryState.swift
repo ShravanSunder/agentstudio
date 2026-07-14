@@ -44,6 +44,21 @@ enum WorktreeContentRepairConsumerRegistryState {
         case superseded
     }
 
+    enum SourceRetirementPlan: Sendable {
+        case authorized(finalRegistration: FSEventRegistrationToken)
+        case rejected(ContentRepairSourceRetirementResult)
+    }
+
+    struct ProjectionEligibilitySnapshot: Sendable {
+        let lifecycle: WorktreeContentRepairConsumerRegistryLifecycle
+        let activatedGeneration: ContentRepairActivatedGeneration
+        let baselineRegistration: FSEventRegistrationToken?
+        let activeRepair: ActiveRepairRecord?
+        let pendingRepair: ActiveRepairRecord?
+        let terminalReplay: ActiveRepairRecord?
+        let captureLedger: [ContentRepairCaptureIdentity: CaptureLedgerEntry]
+    }
+
     enum AcceptedOutboundOperation: Equatable, Sendable {
         case acknowledgement(
             repairGenerationID: RepairGenerationID,
@@ -113,6 +128,25 @@ enum WorktreeContentRepairConsumerRegistryState {
         latestInvalidationGeneration: ContentRepairInvalidationGeneration?,
         registration: FSEventRegistrationToken
     ) -> ContentRepairConsumerCurrentness {
+        if let latestInvalidationGeneration {
+            return .nonCurrent(.noRetainedContent(latestInvalidationGeneration))
+        }
+        return .current(.baseline(registration))
+    }
+
+    static func initialCurrentness(
+        registration: FSEventRegistrationToken,
+        pendingCaptureIdentity: ContentRepairCaptureIdentity?,
+        captureLedger: [ContentRepairCaptureIdentity: CaptureLedgerEntry],
+        latestInvalidationGeneration: ContentRepairInvalidationGeneration?
+    ) -> ContentRepairConsumerCurrentness {
+        if let pendingCaptureIdentity,
+            case .prepared(let prepared) = captureLedger[pendingCaptureIdentity]
+        {
+            return .nonCurrent(
+                .noRetainedContent(prepared.capture.invalidationGeneration)
+            )
+        }
         if let latestInvalidationGeneration {
             return .nonCurrent(.noRetainedContent(latestInvalidationGeneration))
         }
@@ -317,6 +351,114 @@ enum WorktreeContentRepairConsumerRegistryState {
             }
         }
         return nil
+    }
+
+    static func preparedCaptureIdentity(
+        pendingCaptureIdentity: ContentRepairCaptureIdentity?,
+        pendingRepair: ActiveRepairRecord?,
+        ledger: [ContentRepairCaptureIdentity: CaptureLedgerEntry]
+    ) -> ContentRepairCaptureIdentity? {
+        if let pendingCaptureIdentity, case .prepared = ledger[pendingCaptureIdentity] {
+            return pendingCaptureIdentity
+        }
+        guard let pendingRepair,
+            let retained = boundCaptureRecord(
+                repairGenerationID: pendingRepair.generation.id,
+                ledger: ledger
+            )
+        else {
+            return nil
+        }
+        return retained.prepared.capture.identity
+    }
+
+    static func hasExactCompletedCapture(
+        _ activatedGeneration: ContentRepairActivatedGeneration,
+        ledger: [ContentRepairCaptureIdentity: CaptureLedgerEntry]
+    ) -> Bool {
+        ledger.values.contains { entry in
+            guard case .completed(let retained) = entry else { return false }
+            return retained.bound == activatedGeneration.boundGeneration
+        }
+    }
+
+    static func hasBoundCapture(
+        repairGenerationID: RepairGenerationID,
+        ledger: [ContentRepairCaptureIdentity: CaptureLedgerEntry]
+    ) -> Bool {
+        ledger.values.contains { entry in
+            switch entry {
+            case .bound(let retained), .completed(let retained):
+                retained.bound.repairGeneration.id == repairGenerationID
+            case .prepared, .aborted, .superseded:
+                false
+            }
+        }
+    }
+
+    static func projectionEligibility(
+        _ snapshot: ProjectionEligibilitySnapshot
+    ) -> ContentRepairProjectionEligibilityResult {
+        guard snapshot.lifecycle != .shutdown else { return .shuttingDown }
+        let activatedGeneration = snapshot.activatedGeneration
+        let boundGeneration = activatedGeneration.boundGeneration
+        let repairGenerationID = boundGeneration.repairGeneration.id
+        let sourceID = repairGenerationID.registration.sourceID
+        guard sourceID.kind == .registeredWorktreeContent else {
+            return .ineligible(.sourceKindNotSupported(sourceID))
+        }
+        guard let baselineRegistration = snapshot.baselineRegistration else {
+            return .ineligible(.foreignSource(sourceID))
+        }
+        guard baselineRegistration == repairGenerationID.registration else {
+            return .ineligible(.activationMismatch(repairGenerationID))
+        }
+        if let activeRepair = snapshot.activeRepair {
+            let activeBoundGeneration = projectBoundGeneration(activeRepair)
+            if activeBoundGeneration == boundGeneration {
+                return .eligible(.currentActive(activatedGeneration))
+            }
+            if activeRepair.generation.id == repairGenerationID {
+                return .ineligible(.activationMismatch(repairGenerationID))
+            }
+        }
+        if snapshot.pendingRepair?.generation.id == repairGenerationID {
+            return .ineligible(.pendingGeneration(repairGenerationID))
+        }
+        if hasExactCompletedCapture(activatedGeneration, ledger: snapshot.captureLedger) {
+            return .eligible(.retainedCompleted(activatedGeneration))
+        }
+        if let terminalReplay = snapshot.terminalReplay,
+            terminalReplay.generation.id == repairGenerationID
+        {
+            return projectBoundGeneration(terminalReplay) == boundGeneration
+                ? .ineligible(.supersededGeneration(repairGenerationID))
+                : .ineligible(.activationMismatch(repairGenerationID))
+        }
+        if hasBoundCapture(
+            repairGenerationID: repairGenerationID,
+            ledger: snapshot.captureLedger
+        ) {
+            return .ineligible(.activationMismatch(repairGenerationID))
+        }
+        return .ineligible(.staleGeneration(repairGenerationID))
+    }
+
+    static func sourceRetirementPlan(
+        sourceID: FilesystemSourceID,
+        lifecycle: WorktreeContentRepairConsumerRegistryLifecycle,
+        finalRegistration: FSEventRegistrationToken?,
+        debt: ContentRepairSourceRetirementDebt
+    ) -> SourceRetirementPlan {
+        guard lifecycle != .shutdown else { return .rejected(.shuttingDown) }
+        guard sourceID.kind == .registeredWorktreeContent else {
+            return .rejected(.sourceKindNotSupported(sourceID))
+        }
+        guard let finalRegistration else {
+            return .rejected(.alreadyRetired(sourceID))
+        }
+        guard debt.isEmpty else { return .rejected(.outstandingDebt(debt)) }
+        return .authorized(finalRegistration: finalRegistration)
     }
 
     static func prunedCaptureLedger(

@@ -827,7 +827,12 @@ struct WorktreeContentRepairConsumerRegistryTests {
         }
         #expect(retainedRetryDebt.outboundAcknowledgements.isEmpty)
         #expect(retainedRetryDebt.retainedRetries == [request.retryToken])
-        #expect(retired == .retired(registration.sourceID))
+        guard case .retired(let retirementReceipt) = retired else {
+            Issue.record("Expected exact source retirement receipt")
+            return
+        }
+        #expect(retirementReceipt.sourceID == registration.sourceID)
+        #expect(retirementReceipt.finalRegistration == registration)
         #expect(replayedRetirement == .alreadyRetired(registration.sourceID))
         #expect(await retirementRegistry.lookup(retirementConsumer.token) == .foreignSource)
     }

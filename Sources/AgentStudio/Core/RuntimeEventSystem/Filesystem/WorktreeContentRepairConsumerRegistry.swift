@@ -6,6 +6,19 @@ struct ContentRepairActivatedGeneration: Equatable, Sendable {
     }
 }
 
+struct ContentRepairSourceRetirementReceipt: Equatable, Sendable {
+    let sourceID: FilesystemSourceID
+    let finalRegistration: FSEventRegistrationToken
+
+    fileprivate init(
+        sourceID: FilesystemSourceID,
+        finalRegistration: FSEventRegistrationToken
+    ) {
+        self.sourceID = sourceID
+        self.finalRegistration = finalRegistration
+    }
+}
+
 actor WorktreeContentRepairConsumerRegistry {
     private typealias RegistryState = WorktreeContentRepairConsumerRegistryState
     private typealias PriorInvalidationSnapshot = RegistryState.PriorInvalidationSnapshot
@@ -76,7 +89,12 @@ actor WorktreeContentRepairConsumerRegistry {
             generation: initialConsumerGeneration
         )
         nextConsumerRegistrationOrdinal = followingOrdinal
-        let currentness = initialCurrentness(for: token, registration: registration)
+        let currentness = RegistryState.initialCurrentness(
+            registration: registration,
+            pendingCaptureIdentity: pendingCaptureBySourceID[sourceID],
+            captureLedger: captureLedgerByIdentity,
+            latestInvalidationGeneration: latestInvalidationGenerationBySourceID[sourceID]
+        )
         let record = ConsumerRecord(
             token: token,
             registration: registration,
@@ -321,6 +339,23 @@ actor WorktreeContentRepairConsumerRegistry {
         )
     }
 
+    func validateProjectionEligibility(
+        _ activatedGeneration: ContentRepairActivatedGeneration
+    ) -> ContentRepairProjectionEligibilityResult {
+        let sourceID = activatedGeneration.boundGeneration.repairGeneration.id.registration.sourceID
+        return RegistryState.projectionEligibility(
+            RegistryState.ProjectionEligibilitySnapshot(
+                lifecycle: lifecycle,
+                activatedGeneration: activatedGeneration,
+                baselineRegistration: baselineRegistrationBySourceID[sourceID],
+                activeRepair: activeRepairBySourceID[sourceID],
+                pendingRepair: pendingBoundRepairBySourceID[sourceID],
+                terminalReplay: completedRepairBySourceID[sourceID],
+                captureLedger: captureLedgerByIdentity
+            )
+        )
+    }
+
     func acknowledge(
         repairGenerationID: RepairGenerationID,
         consumer: ContentRepairConsumerToken,
@@ -423,12 +458,20 @@ actor WorktreeContentRepairConsumerRegistry {
         disposition _: ContentRepairWithdrawalDisposition
     ) -> ContentRepairWithdrawalResult {
         guard lifecycle != .shutdown else { return .shuttingDown }
-        if let replayed = replayedWithdrawal(for: token) {
+        if let replayed = RegistryState.replayedWithdrawal(
+            for: token,
+            pendingByToken: pendingOutboundAcknowledgementByToken,
+            confirmedBySourceID: confirmedAcknowledgementBySourceID
+        ) {
             return .withdrawnAndAcknowledged(replayed)
         }
         guard var sourceConsumers = consumersBySourceID[token.sourceID] else { return .foreignSource }
         guard let record = sourceConsumers[token.identity], record.token == token else { return .staleToken }
-        if let captureIdentity = preparedCaptureIdentity(for: token.sourceID) {
+        if let captureIdentity = RegistryState.preparedCaptureIdentity(
+            pendingCaptureIdentity: pendingCaptureBySourceID[token.sourceID],
+            pendingRepair: pendingBoundRepairBySourceID[token.sourceID],
+            ledger: captureLedgerByIdentity
+        ) {
             return .captureInProgress(captureIdentity)
         }
         if case .nonCurrent(.retryRetained(let retry)) = record.currentness {
@@ -464,13 +507,22 @@ actor WorktreeContentRepairConsumerRegistry {
         eligibility: ContentRepairCaptureEligibility
     ) -> ContentRepairConsumerReplacementResult {
         guard lifecycle != .shutdown else { return .shuttingDown }
-        if let replayed = replayedReplacement(for: token, eligibility: eligibility) {
+        if let replayed = RegistryState.replayedReplacement(
+            for: token,
+            eligibility: eligibility,
+            pendingByToken: pendingOutboundAcknowledgementByToken,
+            confirmedBySourceID: confirmedAcknowledgementBySourceID
+        ) {
             return .replaced(replayed)
         }
         guard lifecycle == .open else { return .shuttingDown }
         guard var sourceConsumers = consumersBySourceID[token.sourceID] else { return .foreignSource }
         guard let prior = sourceConsumers[token.identity], prior.token == token else { return .staleToken }
-        if let captureIdentity = preparedCaptureIdentity(for: token.sourceID) {
+        if let captureIdentity = RegistryState.preparedCaptureIdentity(
+            pendingCaptureIdentity: pendingCaptureBySourceID[token.sourceID],
+            pendingRepair: pendingBoundRepairBySourceID[token.sourceID],
+            ledger: captureLedgerByIdentity
+        ) {
             return .captureInProgress(captureIdentity)
         }
         guard let replacementToken = token.replacement() else {
@@ -524,24 +576,6 @@ actor WorktreeContentRepairConsumerRegistry {
             )
         }
         return .replaced(replacement)
-    }
-
-    private func initialCurrentness(
-        for token: ContentRepairConsumerToken,
-        registration: FSEventRegistrationToken
-    ) -> ContentRepairConsumerCurrentness {
-        let sourceID = token.sourceID
-        if let captureIdentity = pendingCaptureBySourceID[sourceID],
-            case .prepared(let prepared) = captureLedgerByIdentity[captureIdentity]
-        {
-            return .nonCurrent(
-                .noRetainedContent(prepared.capture.invalidationGeneration)
-            )
-        }
-        if let latestInvalidationGeneration = latestInvalidationGenerationBySourceID[sourceID] {
-            return .nonCurrent(.noRetainedContent(latestInvalidationGeneration))
-        }
-        return .current(.baseline(registration))
     }
 
     private func markCapturedConsumersPending(_ capture: ContentRepairPreparedCapture) {
@@ -676,28 +710,6 @@ actor WorktreeContentRepairConsumerRegistry {
         }
     }
 
-    private func replayedWithdrawal(
-        for token: ContentRepairConsumerToken
-    ) -> ContentRepairAcceptedAcknowledgement? {
-        RegistryState.replayedWithdrawal(
-            for: token,
-            pendingByToken: pendingOutboundAcknowledgementByToken,
-            confirmedBySourceID: confirmedAcknowledgementBySourceID
-        )
-    }
-
-    private func replayedReplacement(
-        for token: ContentRepairConsumerToken,
-        eligibility: ContentRepairCaptureEligibility
-    ) -> ContentRepairConsumerReplacement? {
-        RegistryState.replayedReplacement(
-            for: token,
-            eligibility: eligibility,
-            pendingByToken: pendingOutboundAcknowledgementByToken,
-            confirmedBySourceID: confirmedAcknowledgementBySourceID
-        )
-    }
-
     private func finishActiveRepairIfReady(sourceID: FilesystemSourceID) {
         guard let repair = activeRepairBySourceID[sourceID], repair.pendingConsumerIdentities.isEmpty else {
             return
@@ -738,25 +750,6 @@ actor WorktreeContentRepairConsumerRegistry {
             sourceID: sourceID,
             retentionLimit: Self.terminalCaptureRetentionLimitPerSource
         )
-    }
-
-    private func preparedCaptureIdentity(
-        for sourceID: FilesystemSourceID
-    ) -> ContentRepairCaptureIdentity? {
-        if let captureIdentity = pendingCaptureBySourceID[sourceID],
-            case .prepared = captureLedgerByIdentity[captureIdentity]
-        {
-            return captureIdentity
-        }
-        if let pendingRepair = pendingBoundRepairBySourceID[sourceID],
-            let retained = RegistryState.boundCaptureRecord(
-                repairGenerationID: pendingRepair.generation.id,
-                ledger: captureLedgerByIdentity
-            )
-        {
-            return retained.prepared.capture.identity
-        }
-        return nil
     }
 
     private func makeShutdownDebtSnapshot() -> WorktreeContentRepairConsumerRegistryShutdownDebt {
@@ -867,19 +860,24 @@ extension WorktreeContentRepairConsumerRegistry {
     func retireSource(
         _ sourceID: FilesystemSourceID
     ) -> ContentRepairSourceRetirementResult {
-        guard lifecycle != .shutdown else { return .shuttingDown }
-        guard sourceID.kind == .registeredWorktreeContent else {
-            return .sourceKindNotSupported(sourceID)
-        }
-        let sourceIsKnown =
-            baselineRegistrationBySourceID[sourceID] != nil
-            || consumersBySourceID[sourceID] != nil
-            || completedRepairBySourceID[sourceID] != nil
-            || latestInvalidationGenerationBySourceID[sourceID] != nil
-            || confirmedAcknowledgementBySourceID[sourceID] != nil
-        guard sourceIsKnown else { return .alreadyRetired(sourceID) }
         let debt = makeSourceRetirementDebt(sourceID)
-        guard debt.isEmpty else { return .outstandingDebt(debt) }
+        let plan = RegistryState.sourceRetirementPlan(
+            sourceID: sourceID,
+            lifecycle: lifecycle,
+            finalRegistration: baselineRegistrationBySourceID[sourceID],
+            debt: debt
+        )
+        let finalRegistration: FSEventRegistrationToken
+        switch plan {
+        case .authorized(let authorizedRegistration):
+            finalRegistration = authorizedRegistration
+        case .rejected(let result):
+            return result
+        }
+        let receipt = ContentRepairSourceRetirementReceipt(
+            sourceID: sourceID,
+            finalRegistration: finalRegistration
+        )
         consumersBySourceID[sourceID] = nil
         baselineRegistrationBySourceID[sourceID] = nil
         completedRepairBySourceID[sourceID] = nil
@@ -889,6 +887,6 @@ extension WorktreeContentRepairConsumerRegistry {
             RegistryState.captureSourceID(entry) != sourceID
         }
         completeShutdownIfReady()
-        return .retired(sourceID)
+        return .retired(receipt)
     }
 }

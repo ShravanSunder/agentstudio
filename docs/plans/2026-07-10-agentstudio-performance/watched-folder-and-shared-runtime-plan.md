@@ -206,9 +206,16 @@ Add:
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/WorktreeContentRepairConsumerRegistry.swift`
   - Generation-bearing participant registration.
   - Captured participant set per repair generation.
-  - Exhaustive unregister/replacement transfer, late-registration currentness, acknowledgement, retry, and shutdown behavior.
+  - Sole owner of exhaustive unregister/replacement transfer,
+    late-registration currentness, active/pending/completed/superseded repair
+    lifecycle, temporal projection eligibility, acknowledgement/retry custody,
+    and exact debt-free source-registration retirement receipts. It does not
+    own the observation-slot binding.
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemContentRepairProjector.swift`
-  - Convert coarse registered-worktree repair into bounded consumer-specific rebuild requests; never fabricate a full file inventory.
+  - Convert coarse registered-worktree repair into bounded serial
+    consumer-specific rebuild requests, own resumable acknowledgement/SourceGate
+    forwarding plus bounded exact replay, and never fabricate a full file
+    inventory or decide consumer membership/currentness.
 
 Prepare the actor-owned isolated fixed-slot drain as the sole mailbox consumer
 in the W1b/W2a assembly. The actor owns fixed per-slot semantic replay shells,
@@ -234,6 +241,26 @@ The initial registered-worktree repair participant matrix is fixed before implem
 | later content consumer | not applicable until it registers a typed generation token before presenting current content | same typed current/non-current/not-applicable receipt vocabulary | absence from UI is never acknowledgement |
 
 The W2a protocol-level registry test table owns applicability, captured participant generation, success receipt, `markedNonCurrent(retry:)`, `notApplicable`, withdrawal/transfer, and independent currentness oracle for every row. The executor may discover additional current consumers, but may not redefine these baseline participants or receipt semantics.
+
+The registry and projector remain separate off-main actors. A registry-issued
+activation proves origin authenticity, not permanent temporal eligibility. For
+new work, the projector reserves per-source admission before awaiting the
+registry's exhaustive classification of the full activation. Only the exact
+current active generation or an exact capture-ledger `.completed` entry may
+enter delivery. Pending, superseded, older/evicted completed, retired, and
+mismatched activations reject without consumer effects. Exact completed entries
+remain eligible so zero-consumer or final-consumer registry terminalization can
+precede the projector acknowledgement without deadlocking completion.
+
+External accepted-acknowledgement forwarding receives equivalent bounded
+currentness classification before it creates or resumes forwarding custody.
+Source retirement crosses the boundary only as an exact typed registry receipt:
+the registry first proves zero consumer/retry/acknowledgement/capture debt for
+the exact `FSEventRegistrationToken`. The projector matches that registration
+against its exact SourceGate acceptance and observation-slot binding, then
+proves zero delivery/forwarding debt for the same registration before clearing
+bounded replay and source state. This adds no actor, EventBus,
+MainActor work, source identity, or UUID ordering.
 
 ### W2b — Atomic production admission and participant cut after W10
 
@@ -269,7 +296,13 @@ rebind/late-old-ack, N→N+1→N+2 replacement, reservation-only withdrawal at
 pop/reserve, atomic native-lifetime commitment, post-commit withdrawal at
 create/start, safe/unsafe prior authority, cleanup-gated retirement, release-once/
 tombstone replay, exact shutdown debt, Git-only acknowledgement, unregister/
-replacement, and late/stale acknowledgement.
+replacement, and late/stale acknowledgement. WF-C also proves stale activation
+rejection after the 256-record completed-replay window evicts it, exact
+capture-ledger rejection of a superseded latest-completed slot, zero-consumer
+and final-consumer completion, actor reentry while eligibility is suspended,
+debt-blocked and receipt-authorized retirement, stale/mismatched retirement
+receipt rejection, and equivalent currentness for external acknowledgement
+forwarding.
 
 W2a completion proves mechanics only. W2b is the production repair/admission gate and tests visible, background, closed, replaced, failed, and not-applicable Bridge states against an independent captured-participant ledger. Its integration proof injects oversized/drop input through the real production callback composition, captures the exact live participant generations, and reaches `healthy` only after every matching receipt.
 

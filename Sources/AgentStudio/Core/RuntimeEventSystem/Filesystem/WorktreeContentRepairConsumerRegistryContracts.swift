@@ -231,6 +231,26 @@ enum ContentRepairBoundGenerationActivationResult: Equatable, Sendable {
     case shuttingDown
 }
 
+enum ContentRepairProjectionEligibility: Equatable, Sendable {
+    case currentActive(ContentRepairActivatedGeneration)
+    case retainedCompleted(ContentRepairActivatedGeneration)
+}
+
+enum ContentRepairProjectionIneligibility: Equatable, Sendable {
+    case pendingGeneration(RepairGenerationID)
+    case supersededGeneration(RepairGenerationID)
+    case staleGeneration(RepairGenerationID)
+    case activationMismatch(RepairGenerationID)
+    case foreignSource(FilesystemSourceID)
+    case sourceKindNotSupported(FilesystemSourceID)
+}
+
+enum ContentRepairProjectionEligibilityResult: Equatable, Sendable {
+    case eligible(ContentRepairProjectionEligibility)
+    case ineligible(ContentRepairProjectionIneligibility)
+    case shuttingDown
+}
+
 enum ContentRepairConsumerDisposition: Equatable, Sendable {
     case rebuiltCurrent(consumerRevision: UInt64)
     case markedNonCurrent(retry: ContentRepairRetryToken)
@@ -363,7 +383,7 @@ struct ContentRepairSourceRetirementDebt: Equatable, Sendable {
 }
 
 enum ContentRepairSourceRetirementResult: Equatable, Sendable {
-    case retired(FilesystemSourceID)
+    case retired(ContentRepairSourceRetirementReceipt)
     case alreadyRetired(FilesystemSourceID)
     case outstandingDebt(ContentRepairSourceRetirementDebt)
     case sourceKindNotSupported(FilesystemSourceID)

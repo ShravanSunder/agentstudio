@@ -1241,6 +1241,51 @@ to a replacement token; disappearing from the registry is not an
 acknowledgement. `staleGeneration` and `rejected` retain source repair debt.
 The registry, not live UI discovery, decides the captured acknowledgement set.
 
+The registry and projector remain separate off-main actors with non-overlapping
+authority. The registry owns consumer membership, captured generations,
+active/pending/completed/superseded lifecycle, retry custody, and temporal
+eligibility. The projector owns bounded serial delivery, its resumable
+acknowledgement journal, SourceGate forwarding, and bounded completed replay.
+An owner-issued `ContentRepairActivatedGeneration` proves origin authenticity;
+because it is a copyable value, it does not permanently prove that the same
+generation remains eligible for effects.
+
+Before a new projector journal may perform consumer delivery, the projector
+reserves that source's admission state and asks the registry to classify the
+full activation. Reserving before the actor hop prevents reentrant projection
+from admitting another generation while validation is suspended. The registry
+returns an exhaustive typed result:
+
+- the exact currently active generation is eligible;
+- an exact capture-ledger `.completed` entry is eligible;
+- pending, superseded, older or evicted completed, retired, and mismatched
+  activations are ineligible.
+
+The exact `.completed` exception is required because a zero-consumer repair may
+terminalize in the registry before the projector acknowledges itself, and the
+final consumer acknowledgement may terminalize a nonempty repair before the
+projector finishes its own acknowledgement. Eligibility consults the exact
+capture-ledger case, not a generic latest-completed slot that may also describe
+superseded work. An ineligible activation performs no consumer effect.
+
+Externally supplied accepted acknowledgements receive an equivalent bounded
+currentness classification before the projector starts or retains forwarding
+work. Replayed exact current acknowledgements may resume; stale, superseded,
+retired, or mismatched values cannot recreate SourceGate or registry effects
+after bounded replay eviction.
+
+Source retirement is causal and typed. After the registry proves that the exact
+source registration has no consumer, retry, acknowledgement, or capture debt,
+it returns a retirement receipt naming that exact `FSEventRegistrationToken`.
+The projector accepts only that receipt, matches its registration against the
+exact registration carried by the SourceGate acceptance and observation-slot
+binding, verifies that no delivery/forwarding journal or other projector debt
+remains for that registration, and then clears its bounded replay and source
+state. A raw source ID or caller-selected order cannot retire either owner.
+This protocol introduces no actor, EventBus, MainActor work, source identity,
+or UUID ordering;
+UUIDv7 remains opaque identity and checked integer generations remain ordering.
+
 One off-main content-repair projector owns delivery and acknowledgement. For
 the same generation:
 
@@ -1392,8 +1437,8 @@ globally.
 | `FilesystemRootIndexSnapshot` | topology-updated canonical ownership lookup | global fanout or pane projection |
 | `FilesystemActor` | sole fleet mailbox drain, bounded semantic transfer, fence completion, SourceGate acceptance, filesystem-domain reduction/orchestration, and fact production | native stream/control-block lifecycle, MainActor mutation |
 | `FilesystemProjectionIndex` | pane/worktree projection and stale rejection | source admission or UI ownership |
-| content-repair projector | generation-bearing coarse invalidation, captured consumer set, acknowledgement/retry transfer | full-tree path enumeration, Git snapshots, visual rendering |
-| `WorktreeContentRepairConsumerRegistry` | generation-bearing consumer registration, repair snapshot, acknowledgement and retry transfer | live UI discovery, content rebuilding |
+| content-repair projector | bounded serial consumer delivery, resumable acknowledgement/forwarding journal, and bounded exact replay | consumer membership or temporal eligibility, full-tree path enumeration, Git snapshots, visual rendering |
+| `WorktreeContentRepairConsumerRegistry` | generation-bearing consumer registration, captured repair lifecycle and temporal eligibility, acknowledgement/retry transfer, and exact source-registration retirement receipt | observation-slot binding ownership, live UI discovery, content rebuilding, consumer delivery |
 | topology projector | immutable discovery-to-mutation diff | canonical observable state |
 | domain MainActor appliers | field-scoped canonical mutations and typed post-effects | backlog, projection, I/O, serialization |
 | `WorkspacePersistenceRevisionOwner` + `WorkspacePersistenceCoordinator` | one write sequence, changed sets, paged checkpoints, stale-write rejection | SQLite schema, canonical UI mutation |
