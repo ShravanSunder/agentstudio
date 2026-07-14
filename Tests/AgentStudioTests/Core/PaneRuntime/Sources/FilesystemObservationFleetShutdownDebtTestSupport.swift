@@ -219,6 +219,20 @@ func requireAppliedShutdownDebtSnapshot(
     return snapshot
 }
 
+func requireAppliedShutdownDebtSnapshot(
+    _ result: FilesystemObservationFleetShutdownBeginResult,
+    sourceLocation: SourceLocation = #_sourceLocation
+) -> FilesystemObservationFleetShutdownMailboxDebtSnapshot {
+    guard case .applied(let snapshot) = result else {
+        Issue.record(
+            "Expected applied lifecycle shutdown snapshot, got \(result)",
+            sourceLocation: sourceLocation
+        )
+        preconditionFailure("Expected applied lifecycle shutdown debt snapshot")
+    }
+    return snapshot
+}
+
 func requireAlreadyAppliedShutdownDebtSnapshot(
     _ result: FilesystemObservationFleetIngressFreezeAndSnapshotResult,
     sourceLocation: SourceLocation = #_sourceLocation

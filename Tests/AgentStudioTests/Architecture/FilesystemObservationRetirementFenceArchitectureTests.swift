@@ -50,7 +50,9 @@ struct FilesystemRetirementFenceArchitectureTests {
         let cleanupBody = try #require(
             coreSource.retirementFenceProofSlice(
                 from: "    func performCleanup() -> AdmissionCleanupTurnResult {\n",
-                to: "    private func retryOnePendingRetirementFenceAfterProgressLocked(\n"
+                to:
+                    "    private func performFleetShutdownGenericCleanupTurn() "
+                    + "-> AdmissionCleanupTurnResult {\n"
             )
         )
 

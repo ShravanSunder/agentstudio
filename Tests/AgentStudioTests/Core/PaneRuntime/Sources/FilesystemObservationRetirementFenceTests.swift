@@ -154,14 +154,14 @@ struct FilesystemObservationRetirementFenceTests {
         _ = await localGeneration.close()
     }
 
-    @Test("retiring lifecycle custody blocks invalidation after generic fence transfer")
-    func retiringLifecycleCustodyBlocksInvalidation() async throws {
+    @Test("retiring lifecycle remains exact nonquiescent shutdown debt after fence transfer")
+    func retiringLifecycleRemainsExactShutdownDebt() async throws {
         // Arrange
         let fixture = try makeRetirementFenceFixture(generationValue: 705)
         let generation = try requireCreatedGeneration(fixture.creationResult)
         _ = try requireStartedLifetime(await generation.start())
         let receipt = try requireClosedReceipt(await generation.close())
-        _ = try requireInstalledFence(
+        let installedFence = try requireInstalledFence(
             fixture.mailbox.lifecyclePort.requestRetirementFence(receipt)
         )
         let consumer = fixture.mailbox.actorConsumerPort
@@ -173,19 +173,38 @@ struct FilesystemObservationRetirementFenceTests {
                 consumerPort: consumer
             ) == .transferredAuthoritative(wake: .noWake)
         )
-        #expect(fixture.mailbox.lifecyclePort.seal() == .applied)
+        let harness = try FilesystemObservationDrainHarnessActor(
+            mailbox: fixture.mailbox,
+            bindings: [fixture.startingNativeLifetime.binding],
+            maximumContributionsPerLease: 1
+        )
+        let lifecycle = FilesystemObservationFleetLifecycle()
+        _ = requireAppliedShutdownDebtSnapshot(
+            lifecycle.beginShutdownAndSnapshot(mailbox: fixture.mailbox)
+        )
 
         // Act
-        let invalidation = fixture.mailbox.lifecyclePort.invalidate()
+        let capturedDebt = await lifecycle.shutdownDebtSnapshot(
+            mailbox: fixture.mailbox,
+            drainPort: await harness.fleetShutdownDrainPort
+        )
 
         // Assert
-        let custody = requireOutstandingCustody(invalidation)
-        #expect(custody.retainedContributionCount == 0)
-        #expect(custody.activeLeaseCount == 0)
-        #expect(custody.retryEvidenceRegistrationCount == 0)
-        #expect(custody.recoveryEvidenceRegistrationCount == 0)
-        #expect(custody.cleanupEntryCount == 0)
-        #expect(custody.retiringLifecycleCount == 1)
+        guard case .captured(let snapshot, let turnPlan) = capturedDebt,
+            let slot = snapshot.mailbox.slots.first,
+            case .retiredAwaitingContextRelease(let retirement, .oldest) =
+                slot.registry.lifecycle,
+            case .fenceBacked(let fenceIdentity, _, _) = retirement.disposition
+        else {
+            Issue.record("Completed retirement was not retained as exact context-release debt")
+            return
+        }
+        #expect(retirement.native.binding == fixture.startingNativeLifetime.binding)
+        #expect(fenceIdentity == installedFence.identity)
+        #expect(!slot.isQuiescent)
+        #expect(!snapshot.mailbox.isQuiescent)
+        #expect(!snapshot.isQuiescent)
+        #expect(turnPlan == .advanceMailbox)
     }
 
     @Test("a contracted fence retries only after cleanup becomes quiescent")

@@ -284,11 +284,11 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         }
     }
 
-    private enum Lifecycle: Sendable {
+    private enum Lifecycle: Equatable, Sendable {
         case open
         case sealed
         case invalidated
-        case finished
+        case finished(FilesystemObservationFleetShutdownIdentity)
     }
 
     private enum ActiveLeaseCustody: Sendable {
@@ -359,11 +359,6 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
             binding: FilesystemObservationSlotBinding,
             evidence: FixedFilesystemRecoveryEvidenceSnapshot
         )
-    }
-
-    private enum CustodyInspection: Sendable {
-        case quiescent
-        case outstanding(FilesystemObservationOutstandingCustody)
     }
 
     private enum PendingRetirementFenceAttempt: Sendable {
@@ -1773,9 +1768,6 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
             finalizeUnpublishedNativeGeneration: finalizeUnpublishedNativeGeneration,
             fenceBackedRetirementPermit: fenceBackedRetirementPermit,
             applyContextReleaseAcknowledgement: applyContextReleaseAcknowledgement,
-            seal: seal,
-            invalidate: invalidate,
-            finish: finish,
             diagnostics: { self.diagnostics }
         )
     }
@@ -2319,68 +2311,68 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
             ? .scheduleDrain : .noWake
     }
 
-    func seal() -> FilesystemObservationLifecycleTransitionResult {
-        lock.withLock { state in
+    func completeFleetShutdown(
+        using authority: FilesystemFleetShutdownCompletionAuthority
+    ) -> FilesystemFleetShutdownTerminationResult {
+        let result = lock.withLock { state -> FilesystemFleetShutdownTerminationResult in
+            guard authority.fleetMailboxIdentity == fleetMailboxIdentity else {
+                return .fleetMailboxMismatch(
+                    expected: fleetMailboxIdentity,
+                    presented: authority.fleetMailboxIdentity
+                )
+            }
             switch state.lifecycle {
             case .open:
                 break
-            case .sealed:
-                return .alreadyApplied
-            case .invalidated, .finished:
-                return .invalidState(lifecycleSnapshot(state.lifecycle))
+            case .finished(let retainedShutdownIdentity):
+                guard retainedShutdownIdentity == authority.shutdownIdentity else {
+                    return .shutdownIdentityMismatch(
+                        expected: retainedShutdownIdentity,
+                        presented: authority.shutdownIdentity
+                    )
+                }
+                return .terminationAlreadyAdvanced(.finished)
+            case .sealed, .invalidated:
+                return .terminationAlreadyAdvanced(lifecycleSnapshot(state.lifecycle))
             }
-            let result = gatherMailbox.lifecyclePort.seal(generation: generation)
-            guard result == .applied else {
-                preconditionFailure("Generation-bound filesystem mailbox failed to seal")
+            guard
+                case .shutdownFrozen(let retainedShutdownIdentity) =
+                    state.fleetIngressLifecycle
+            else {
+                return .shutdownNotFrozen
+            }
+            guard retainedShutdownIdentity == authority.shutdownIdentity else {
+                return .shutdownIdentityMismatch(
+                    expected: retainedShutdownIdentity,
+                    presented: authority.shutdownIdentity
+                )
+            }
+            let freshDebt = makeFleetShutdownDebtSnapshotLocked(
+                shutdownIdentity: retainedShutdownIdentity,
+                state: state
+            )
+            guard freshDebt.isQuiescent else {
+                return .mailboxDebtChanged(freshDebt)
+            }
+            let sealResult = gatherMailbox.lifecyclePort.seal(generation: generation)
+            guard sealResult == .applied else {
+                preconditionFailure("Quiescent filesystem mailbox failed to seal")
             }
             state.lifecycle = .sealed
-            return .applied
-        }
-    }
-
-    func invalidate() -> FilesystemObservationLifecycleTransitionResult {
-        lock.withLock { state in
-            switch state.lifecycle {
-            case .open:
-                return .invalidState(.open)
-            case .sealed:
-                break
-            case .invalidated:
-                return .alreadyApplied
-            case .finished:
-                return .invalidState(.finished)
-            }
-            switch inspectCustody(state: state) {
-            case .quiescent:
-                break
-            case .outstanding(let custody):
-                return .outstandingCustody(custody)
-            }
-            let result = gatherMailbox.lifecyclePort.invalidate(generation: generation)
-            guard result == .applied else {
-                preconditionFailure("Generation-bound filesystem mailbox failed to invalidate")
+            let invalidationResult = gatherMailbox.lifecyclePort.invalidate(
+                generation: generation
+            )
+            guard invalidationResult == .applied else {
+                preconditionFailure("Quiescent filesystem mailbox failed to invalidate")
             }
             state.lifecycle = .invalidated
+            state.lifecycle = .finished(retainedShutdownIdentity)
             return .applied
         }
-    }
-
-    func finish() -> FilesystemObservationLifecycleTransitionResult {
-        let transition = lock.withLock { state -> FilesystemObservationLifecycleTransitionResult in
-            switch state.lifecycle {
-            case .invalidated:
-                state.lifecycle = .finished
-                return .applied
-            case .finished:
-                return .alreadyApplied
-            case .open, .sealed:
-                return .invalidState(lifecycleSnapshot(state.lifecycle))
-            }
-        }
-        if transition == .applied {
+        if result == .applied {
             doorbell.lifecyclePort.finish()
         }
-        return transition
+        return result
     }
 
     var diagnostics: FilesystemObservationMailboxDiagnostics {
@@ -3281,68 +3273,4 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         }
     }
 
-    private func inspectCustody(
-        state: State
-    ) -> CustodyInspection {
-        let gatherDiagnostics = gatherMailbox.lifecyclePort.diagnostics
-        let activeLeaseCount: Int
-        switch state.activeLease {
-        case .vacant:
-            activeLeaseCount = 0
-        case .authoritative, .recovery:
-            activeLeaseCount = 1
-        }
-        var retryEvidenceRegistrationCount = 0
-        for custody in state.retryEvidenceByPhysicalSlotID.values {
-            switch custody {
-            case .vacant:
-                break
-            case .retained:
-                retryEvidenceRegistrationCount += 1
-            }
-        }
-        var recoveryEvidenceRegistrationCount = 0
-        for physicalSlotID in slotRegistry.physicalSlotIDs {
-            switch recoveryRegister.state(of: physicalSlotID) {
-            case .boundRetained:
-                recoveryEvidenceRegistrationCount += 1
-            case .undeclaredPhysicalSlot, .vacant, .boundClear:
-                break
-            }
-        }
-        let cleanupEntryCount =
-            gatherDiagnostics.cleanupContributionCount
-            + gatherDiagnostics.cleanupMetadataEntryCount
-        var retiringLifecycleCount = 0
-        for physicalSlotID in slotRegistry.physicalSlotIDs {
-            switch slotRegistry.read.state(of: physicalSlotID) {
-            case .closingAwaitingPredecessor, .retirementFencePending,
-                .retirementFenceInstalled, .retirementFenceTransferredAwaitingCleanup,
-                .retiredAwaitingContextRelease:
-                retiringLifecycleCount += 1
-            case .undeclaredPhysicalSlot, .vacant, .selected, .starting, .accepting,
-                .closingAwaitingCallbackLeaseDrain, .retiringUnpublishedGeneration:
-                break
-            }
-        }
-        let custody = FilesystemObservationOutstandingCustody(
-            retainedContributionCount: gatherDiagnostics.retainedContributionCount,
-            activeLeaseCount: activeLeaseCount,
-            retryEvidenceRegistrationCount: retryEvidenceRegistrationCount,
-            recoveryEvidenceRegistrationCount: recoveryEvidenceRegistrationCount,
-            cleanupEntryCount: cleanupEntryCount,
-            retiringLifecycleCount: retiringLifecycleCount
-        )
-        guard
-            custody.retainedContributionCount > 0
-                || custody.activeLeaseCount > 0
-                || custody.retryEvidenceRegistrationCount > 0
-                || custody.recoveryEvidenceRegistrationCount > 0
-                || custody.cleanupEntryCount > 0
-                || custody.retiringLifecycleCount > 0
-        else {
-            return .quiescent
-        }
-        return .outstanding(custody)
-    }
 }

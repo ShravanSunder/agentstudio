@@ -214,22 +214,6 @@ enum FilesystemObservationLifecycleStateSnapshot: Equatable, Sendable {
     case finished
 }
 
-struct FilesystemObservationOutstandingCustody: Equatable, Sendable {
-    let retainedContributionCount: Int
-    let activeLeaseCount: Int
-    let retryEvidenceRegistrationCount: Int
-    let recoveryEvidenceRegistrationCount: Int
-    let cleanupEntryCount: Int
-    let retiringLifecycleCount: Int
-}
-
-enum FilesystemObservationLifecycleTransitionResult: Equatable, Sendable {
-    case applied
-    case alreadyApplied
-    case invalidState(FilesystemObservationLifecycleStateSnapshot)
-    case outstandingCustody(FilesystemObservationOutstandingCustody)
-}
-
 enum FilesystemObservationDrainAcknowledgement: Equatable, Sendable {
     case retried(wake: AdmissionWakeDirective)
     case transferredAuthoritative(
@@ -432,9 +416,6 @@ struct FilesystemObservationLifecyclePort: Sendable {
     private let requestRetirementFenceImplementation:
         @Sendable (DarwinFSEventRegistrationLeaseDrainReceipt) ->
             FilesystemObservationRetirementFenceRequestResult
-    private let sealImplementation: @Sendable () -> FilesystemObservationLifecycleTransitionResult
-    private let invalidateImplementation: @Sendable () -> FilesystemObservationLifecycleTransitionResult
-    private let finishImplementation: @Sendable () -> FilesystemObservationLifecycleTransitionResult
     private let diagnosticsImplementation: @Sendable () -> FilesystemObservationMailboxDiagnostics
     private let finalizeUnpublishedNativeGenerationImplementation:
         @Sendable (
@@ -463,9 +444,6 @@ struct FilesystemObservationLifecyclePort: Sendable {
         applyContextReleaseAcknowledgement:
             @escaping @Sendable (FilesystemObservationContextReleaseAcknowledgement) ->
             FilesystemObservationContextReleaseApplyResult,
-        seal: @escaping @Sendable () -> FilesystemObservationLifecycleTransitionResult,
-        invalidate: @escaping @Sendable () -> FilesystemObservationLifecycleTransitionResult,
-        finish: @escaping @Sendable () -> FilesystemObservationLifecycleTransitionResult,
         diagnostics: @escaping @Sendable () -> FilesystemObservationMailboxDiagnostics
     ) {
         requestRetirementFenceImplementation = requestRetirementFence
@@ -474,9 +452,6 @@ struct FilesystemObservationLifecyclePort: Sendable {
         fenceBackedRetirementPermitImplementation = fenceBackedRetirementPermit
         applyContextReleaseAcknowledgementImplementation =
             applyContextReleaseAcknowledgement
-        sealImplementation = seal
-        invalidateImplementation = invalidate
-        finishImplementation = finish
         diagnosticsImplementation = diagnostics
     }
 
@@ -503,18 +478,6 @@ struct FilesystemObservationLifecyclePort: Sendable {
         _ acknowledgement: FilesystemObservationContextReleaseAcknowledgement
     ) -> FilesystemObservationContextReleaseApplyResult {
         applyContextReleaseAcknowledgementImplementation(acknowledgement)
-    }
-
-    func seal() -> FilesystemObservationLifecycleTransitionResult {
-        sealImplementation()
-    }
-
-    func invalidate() -> FilesystemObservationLifecycleTransitionResult {
-        invalidateImplementation()
-    }
-
-    func finish() -> FilesystemObservationLifecycleTransitionResult {
-        finishImplementation()
     }
 
     var diagnostics: FilesystemObservationMailboxDiagnostics {

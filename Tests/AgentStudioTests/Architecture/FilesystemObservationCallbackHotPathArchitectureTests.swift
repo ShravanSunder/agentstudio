@@ -320,11 +320,13 @@ struct FilesystemCallbackHotPathArchitectureTests {
             "Facade must not retain private mutable state"
         )
         #expect(
-            facadeSource.range(
-                of: #"\basync\b"#,
-                options: .regularExpression
-            ) == nil,
-            "Facade operations must remain synchronous rather than creating actor work"
+            facadeSource.callbackProofOccurrenceCount(of: "async") == 1
+                && facadeSource.contains(
+                    "func advanceFleetShutdownOneTurn(\n"
+                        + "        for shutdownIdentity: "
+                        + "FilesystemObservationFleetShutdownIdentity,"
+                ),
+            "Only the bounded shutdown forwarder may cross the native-owner async boundary"
         )
         #expect(
             facadeSource.range(

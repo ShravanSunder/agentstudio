@@ -274,8 +274,8 @@ struct FilesystemObservationFleetLifecycleResumeTests {
         #expect(turnPlan == .advanceActorDrain)
     }
 
-    @Test("quiescent resume replays stable completion-ready debt without terminating")
-    func quiescentResumeReplaysStableCompletionReadyDebt() async throws {
+    @Test("quiescent resume completes once and every lifecycle entry point replays its receipt")
+    func quiescentResumeCompletesAndReplaysStableReceipt() async throws {
         let fixture = try makeFixture(sourceCount: 1)
         let startingNativeLifetime = try #require(
             fixture.fixedSlotFixture.startingNativeLifetimesByRegistration[
@@ -291,25 +291,101 @@ struct FilesystemObservationFleetLifecycleResumeTests {
             lifecycle.beginShutdownAndSnapshot(mailbox: fixture.mailbox)
         )
 
-        let firstDebt = try await advanceToCompletionReadiness(
+        let receipt = try await advanceToCompletion(
             lifecycle: lifecycle,
             fixture: fixture,
             harness: harness
         )
-        let replay = await lifecycle.resumeShutdown(
-            mailbox: fixture.mailbox,
-            drainPort: await harness.fleetShutdownDrainPort
+        let resumedReceipt = requireCompletedResume(
+            await lifecycle.resumeShutdown(
+                mailbox: fixture.mailbox,
+                drainPort: await harness.fleetShutdownDrainPort
+            )
         )
-        guard case .readyForCompletion(let replayedDebt) = replay else {
-            Issue.record("Expected replayed completion-ready debt, received \(replay)")
-            return
-        }
+        let begunReceipt = requireCompletedBegin(
+            lifecycle.beginShutdownAndSnapshot(mailbox: fixture.mailbox)
+        )
+        let capturedReceipt = requireCompletedCapture(
+            await lifecycle.shutdownDebtSnapshot(
+                mailbox: fixture.mailbox,
+                drainPort: await harness.fleetShutdownDrainPort
+            )
+        )
 
-        #expect(firstDebt == replayedDebt)
-        #expect(firstDebt.shutdownIdentity == begun.shutdownIdentity)
-        #expect(firstDebt.shutdownIdentity.isUUIDv7)
-        #expect(firstDebt.isQuiescent)
-        #expect(fixture.mailbox.diagnostics.lifecycleState == .open)
+        #expect(receipt.shutdownIdentity == begun.shutdownIdentity)
+        #expect(receipt.shutdownIdentity.isUUIDv7)
+        #expect(receipt.completionIdentity.isUUIDv7)
+        #expect(receipt.fleetMailboxIdentity == fixture.mailbox.fleetMailboxIdentity)
+        #expect(receipt.finalDebt.shutdownIdentity == begun.shutdownIdentity)
+        #expect(receipt.finalDebt.mailbox.fleetMailboxIdentity == receipt.fleetMailboxIdentity)
+        #expect(receipt.finalDebt.isQuiescent)
+        #expect(fixture.mailbox.diagnostics.lifecycleState == .finished)
+        #expect(fixture.mailbox.diagnostics.doorbellState == .finished)
+        #expect(resumedReceipt == receipt)
+        #expect(begunReceipt == receipt)
+        #expect(capturedReceipt == receipt)
+    }
+
+    @Test("cancelled final resume retains one receipt after its response is discarded")
+    func cancelledFinalResumeRetainsOneReceiptAfterLostResponse() async throws {
+        let fixture = try makeFixture(sourceCount: 1)
+        let startingNativeLifetime = try #require(
+            fixture.fixedSlotFixture.startingNativeLifetimesByRegistration[
+                fixture.registrations[0]
+            ]
+        )
+        _ = requireShutdownDebtNativePorts(
+            fixture.mailbox.nativeGenerationPorts(for: startingNativeLifetime)
+        )
+        let harness = try makeHarness(fixture)
+        let lifecycle = FilesystemObservationFleetLifecycle()
+        let begun = requireAppliedShutdownDebtSnapshot(
+            lifecycle.beginShutdownAndSnapshot(mailbox: fixture.mailbox)
+        )
+        let completionReadyDebt = try await advanceToCompletionReadiness(
+            lifecycle: lifecycle,
+            fixture: fixture,
+            harness: harness,
+            shutdownIdentity: begun.shutdownIdentity
+        )
+
+        let abandonedCompletionRequest = Task {
+            withUnsafeCurrentTask { task in
+                task?.cancel()
+            }
+            #expect(Task.isCancelled)
+            return await lifecycle.resumeShutdown(
+                mailbox: fixture.mailbox,
+                drainPort: await harness.fleetShutdownDrainPort
+            )
+        }
+        _ = await abandonedCompletionRequest.value
+
+        let begunReceipt = requireCompletedBegin(
+            lifecycle.beginShutdownAndSnapshot(mailbox: fixture.mailbox)
+        )
+        let resumedReceipt = requireCompletedResume(
+            await lifecycle.resumeShutdown(
+                mailbox: fixture.mailbox,
+                drainPort: await harness.fleetShutdownDrainPort
+            )
+        )
+        let capturedReceipt = requireCompletedCapture(
+            await lifecycle.shutdownDebtSnapshot(
+                mailbox: fixture.mailbox,
+                drainPort: await harness.fleetShutdownDrainPort
+            )
+        )
+
+        #expect(begunReceipt.shutdownIdentity == begun.shutdownIdentity)
+        #expect(begunReceipt.shutdownIdentity.isUUIDv7)
+        #expect(begunReceipt.completionIdentity.isUUIDv7)
+        #expect(begunReceipt.finalDebt == completionReadyDebt)
+        #expect(begunReceipt.finalDebt.isQuiescent)
+        #expect(resumedReceipt == begunReceipt)
+        #expect(capturedReceipt == begunReceipt)
+        #expect(fixture.mailbox.diagnostics.lifecycleState == .finished)
+        #expect(fixture.mailbox.diagnostics.doorbellState == .finished)
     }
 }
 
@@ -537,11 +613,11 @@ private func prepareActorDrainState(
     throw FleetShutdownResumeTestFailure.arrangeFailed
 }
 
-private func advanceToCompletionReadiness(
+private func advanceToCompletion(
     lifecycle: FilesystemObservationFleetLifecycle,
     fixture: FleetShutdownResumeFixture,
     harness: FilesystemObservationDrainHarnessActor
-) async throws -> FilesystemObservationFleetShutdownDebtSnapshot {
+) async throws -> FilesystemObservationFleetShutdownReceipt {
     let maximumArrangeTurns = fixture.registrations.count * 32 + 16
     for _ in 0..<maximumArrangeTurns {
         let result = await lifecycle.resumeShutdown(
@@ -549,17 +625,104 @@ private func advanceToCompletionReadiness(
             drainPort: await harness.fleetShutdownDrainPort
         )
         switch result {
-        case .readyForCompletion(let snapshot):
-            return snapshot
+        case .completed(let receipt):
+            return receipt
         case .incomplete, .awaitingActorProgress:
             continue
         case .resumeAlreadyInProgress, .unavailable:
-            Issue.record("Arrange could not advance to completion readiness: \(result)")
+            Issue.record("Arrange could not advance to completion: \(result)")
+            throw FleetShutdownResumeTestFailure.arrangeFailed
+        }
+    }
+    Issue.record("Arrange exceeded its fixed completion turn bound")
+    throw FleetShutdownResumeTestFailure.arrangeFailed
+}
+
+private func advanceToCompletionReadiness(
+    lifecycle: FilesystemObservationFleetLifecycle,
+    fixture: FleetShutdownResumeFixture,
+    harness: FilesystemObservationDrainHarnessActor,
+    shutdownIdentity: FilesystemObservationFleetShutdownIdentity
+) async throws -> FilesystemObservationFleetShutdownDebtSnapshot {
+    let drainPort = await harness.fleetShutdownDrainPort
+    let maximumArrangeTurns = fixture.registrations.count * 32 + 16
+    for _ in 0..<maximumArrangeTurns {
+        let capture = await lifecycle.shutdownDebtSnapshot(
+            mailbox: fixture.mailbox,
+            drainPort: drainPort
+        )
+        guard case .captured(let snapshot, let turnPlan) = capture else {
+            Issue.record("Arrange could not capture completion readiness: \(capture)")
+            throw FleetShutdownResumeTestFailure.arrangeFailed
+        }
+        switch turnPlan {
+        case .advanceMailbox:
+            let result = await fixture.mailbox.advanceFleetShutdownOneTurn(
+                for: shutdownIdentity
+            )
+            guard case .progressed = result else {
+                Issue.record("Arrange mailbox turn did not make bounded progress: \(result)")
+                throw FleetShutdownResumeTestFailure.arrangeFailed
+            }
+        case .advanceActorDrain:
+            switch await drainPort.advanceOneTurn() {
+            case .leaseTransfer, .cleanup:
+                continue
+            case .noProgress(let noProgress):
+                Issue.record("Arrange actor drain did not make bounded progress: \(noProgress)")
+                throw FleetShutdownResumeTestFailure.arrangeFailed
+            }
+        case .beginSourceGateShutdown:
+            _ = await drainPort.beginOneReadySourceGateShutdown()
+        case .readyForCompletion:
+            return snapshot
+        case .awaitOwnedProgress(let awaitedProgress):
+            Issue.record("Arrange unexpectedly awaited owned progress: \(awaitedProgress)")
             throw FleetShutdownResumeTestFailure.arrangeFailed
         }
     }
     Issue.record("Arrange exceeded its fixed completion-readiness turn bound")
     throw FleetShutdownResumeTestFailure.arrangeFailed
+}
+
+private func requireAppliedShutdownDebtSnapshot(
+    _ result: FilesystemObservationFleetShutdownBeginResult
+) -> FilesystemObservationFleetShutdownMailboxDebtSnapshot {
+    guard case .applied(let snapshot) = result else {
+        Issue.record("Expected applied lifecycle shutdown snapshot, received \(result)")
+        preconditionFailure("Expected applied lifecycle shutdown snapshot")
+    }
+    return snapshot
+}
+
+private func requireCompletedResume(
+    _ result: FilesystemObservationFleetShutdownResumeResult
+) -> FilesystemObservationFleetShutdownReceipt {
+    guard case .completed(let receipt) = result else {
+        Issue.record("Expected completed shutdown resume receipt, received \(result)")
+        preconditionFailure("Expected completed shutdown resume receipt")
+    }
+    return receipt
+}
+
+private func requireCompletedBegin(
+    _ result: FilesystemObservationFleetShutdownBeginResult
+) -> FilesystemObservationFleetShutdownReceipt {
+    guard case .completed(let receipt) = result else {
+        Issue.record("Expected completed shutdown begin receipt, received \(result)")
+        preconditionFailure("Expected completed shutdown begin receipt")
+    }
+    return receipt
+}
+
+private func requireCompletedCapture(
+    _ result: FilesystemObservationFleetShutdownDebtCaptureResult
+) -> FilesystemObservationFleetShutdownReceipt {
+    guard case .completed(let receipt) = result else {
+        Issue.record("Expected completed shutdown debt receipt, received \(result)")
+        preconditionFailure("Expected completed shutdown debt receipt")
+    }
+    return receipt
 }
 
 private func queuedContributionCount(

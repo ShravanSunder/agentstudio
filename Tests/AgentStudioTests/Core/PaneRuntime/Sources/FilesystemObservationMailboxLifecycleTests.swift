@@ -62,23 +62,28 @@ struct FilesystemObservationMailboxLifecycleTests {
         }
     }
 
-    @Test("a sealed mailbox remains drainable until retained custody is transferred")
-    func sealedMailboxRemainsDrainable() async throws {
+    @Test("fleet ingress freeze preserves drain progress for admitted observations")
+    func fleetIngressFreezePreservesAdmittedDrainProgress() async throws {
         // Arrange
         let registration = makeRegistration(index: 1)
         let fixture = try makeMailboxFixture(registration: registration)
         let mailbox = fixture.mailbox
         let offer = try fixture.admitCallback(
             .authoritative(
-                try makeObservation(registration: registration, path: "/sealed/file", eventID: 1)
+                try makeObservation(registration: registration, path: "/frozen/file", eventID: 1)
             )
         )
         expectRetainedCallback(offer)
         let consumerBinding = mailbox.actorConsumerPort.bindConsumer().binding
+        let lifecycle = FilesystemObservationFleetLifecycle()
 
         // Act
-        #expect(mailbox.lifecyclePort.seal() == .applied)
-        #expect(mailbox.lifecyclePort.stateSnapshot == .sealed)
+        guard
+            case .applied(let shutdown) = lifecycle.beginShutdownAndSnapshot(mailbox: mailbox)
+        else {
+            Issue.record("fleet shutdown did not freeze ingress with exact retained debt")
+            return
+        }
         #expect(await mailbox.actorWaiterPort.nextSignal() == .signaled)
         let lease = requireLease(
             mailbox.actorConsumerPort.takeDrain(binding: consumerBinding)
@@ -89,9 +94,13 @@ struct FilesystemObservationMailboxLifecycleTests {
         )
 
         // Assert
+        #expect(shutdown.fleetMailboxIdentity == mailbox.fleetMailboxIdentity)
+        #expect(!shutdown.isQuiescent)
         #expect(acknowledgement == .transferredAuthoritative(wake: .noWake))
-        expectClosed(mailbox.actorConsumerPort.takeDrain(binding: consumerBinding))
-        #expect(mailbox.lifecyclePort.stateSnapshot == .sealed)
+        guard case .empty = mailbox.actorConsumerPort.takeDrain(binding: consumerBinding) else {
+            Issue.record("frozen mailbox must remain open and empty after admitted drain")
+            return
+        }
     }
 
     @Test("recovery transfer requires source-gate acceptance of the leased snapshot")
@@ -148,165 +157,6 @@ struct FilesystemObservationMailboxLifecycleTests {
                 for: fixture.binding.physicalSlotID
             ) == .clear(fixture.binding)
         )
-    }
-
-    @Test("invalidation reports retained contribution custody")
-    func invalidationRejectsRetainedContribution() throws {
-        // Arrange
-        let registration = makeRegistration(index: 3)
-        let fixture = try makeMailboxFixture(registration: registration)
-        let mailbox = fixture.mailbox
-        _ = try fixture.admitCallback(
-            .authoritative(
-                try makeObservation(registration: registration, path: "/pending/file", eventID: 3)
-            )
-        )
-        #expect(mailbox.lifecyclePort.seal() == .applied)
-
-        // Act
-        let result = mailbox.lifecyclePort.invalidate()
-
-        // Assert
-        let custody = requireOutstandingCustody(result)
-        #expect(custody.retainedContributionCount == 1)
-        #expect(custody.activeLeaseCount == 0)
-        #expect(mailbox.lifecyclePort.stateSnapshot == .sealed)
-    }
-
-    @Test("invalidation reports active lease custody")
-    func invalidationRejectsActiveLease() throws {
-        // Arrange
-        let registration = makeRegistration(index: 4)
-        let fixture = try makeMailboxFixture(registration: registration)
-        let mailbox = fixture.mailbox
-        _ = try fixture.admitCallback(
-            .authoritative(
-                try makeObservation(registration: registration, path: "/leased/file", eventID: 4)
-            )
-        )
-        let consumerBinding = mailbox.actorConsumerPort.bindConsumer().binding
-        _ = requireLease(
-            mailbox.actorConsumerPort.takeDrain(binding: consumerBinding)
-        )
-        #expect(mailbox.lifecyclePort.seal() == .applied)
-
-        // Act
-        let result = mailbox.lifecyclePort.invalidate()
-
-        // Assert
-        let custody = requireOutstandingCustody(result)
-        #expect(custody.activeLeaseCount == 1)
-        #expect(custody.retainedContributionCount == 1)
-        #expect(mailbox.lifecyclePort.stateSnapshot == .sealed)
-    }
-
-    @Test("invalidation reports retry and recovery-evidence custody")
-    func invalidationRejectsRetryAndRecoveryEvidence() throws {
-        // Arrange
-        let registration = makeRegistration(index: 5)
-        let fixture = try makeMailboxFixture(registration: registration)
-        let mailbox = fixture.mailbox
-        _ = try fixture.admitCallback(
-            .requiresRecovery(
-                try makeObservation(registration: registration, path: "/retry/file", eventID: 5),
-                evidence: .continuityLoss
-            )
-        )
-        let consumerBinding = mailbox.actorConsumerPort.bindConsumer().binding
-        let lease = requireLease(
-            mailbox.actorConsumerPort.takeDrain(binding: consumerBinding)
-        )
-        #expect(
-            mailbox.actorConsumerPort.acknowledge(token: lease.token, disposition: .retry)
-                == .retried(wake: .scheduleDrain)
-        )
-        #expect(mailbox.lifecyclePort.seal() == .applied)
-
-        // Act
-        let result = mailbox.lifecyclePort.invalidate()
-
-        // Assert
-        let custody = requireOutstandingCustody(result)
-        #expect(custody.retryEvidenceRegistrationCount == 1)
-        #expect(custody.recoveryEvidenceRegistrationCount == 1)
-        #expect(mailbox.lifecyclePort.stateSnapshot == .sealed)
-    }
-
-    @Test("exact accepted recovery transfer permits quiescent invalidation and finish")
-    func acceptedRecoveryTransferPermitsInvalidationAndFinish() throws {
-        // Arrange
-        let registration = makeRegistration(index: 6)
-        let fixture = try makeMailboxFixture(registration: registration)
-        let mailbox = fixture.mailbox
-        let recovery = requireRetainedRecovery(
-            try fixture.admitCallback(
-                .requiresRecovery(
-                    try makeObservation(registration: registration, path: "/transfer/file", eventID: 6),
-                    evidence: .continuityLoss
-                )
-            )
-        )
-        let consumerBinding = mailbox.actorConsumerPort.bindConsumer().binding
-        let lease = requireLease(
-            mailbox.actorConsumerPort.takeDrain(binding: consumerBinding)
-        )
-        var sourceGate = FilesystemSourceGate(binding: recovery.revision.binding)
-        let recoveryParticipants = makeRequiredParticipants()
-        _ = requireRecoveryAcceptance(
-            sourceGate.acceptMailboxRecovery(
-                recovery,
-                trigger: .continuityLoss,
-                watermark: .recoveryRevision(1),
-                participants: recoveryParticipants
-            )
-        )
-        #expect(mailbox.lifecyclePort.seal() == .applied)
-        let rejectedInvalidation = requireOutstandingCustody(
-            mailbox.lifecyclePort.invalidate()
-        )
-        #expect(rejectedInvalidation.activeLeaseCount == 1)
-        #expect(rejectedInvalidation.recoveryEvidenceRegistrationCount == 1)
-
-        // Act: exact accepted transfer makes the sealed mailbox quiescent.
-        #expect(
-            try credentialedTransferAcknowledgement(
-                for: lease,
-                consumerPort: mailbox.actorConsumerPort,
-                sourceGate: &sourceGate,
-                recoveryContext: .required(
-                    trigger: .continuityLoss,
-                    watermark: .recoveryRevision(1),
-                    participants: recoveryParticipants
-                )
-            )
-                == .transferredRecovery(
-                    evidence: .cleared(recovery.revision),
-                    wake: .noWake
-                )
-        )
-        #expect(mailbox.lifecyclePort.diagnostics.gather.isQuiescent)
-
-        // Act
-        let invalidation = mailbox.lifecyclePort.invalidate()
-        let finish = mailbox.lifecyclePort.finish()
-
-        // Assert
-        #expect(invalidation == .applied)
-        #expect(finish == .applied)
-        #expect(mailbox.lifecyclePort.stateSnapshot == .finished)
-    }
-
-    @Test("finish rejects every lifecycle state before invalidation")
-    func finishRejectsBeforeInvalidation() throws {
-        // Arrange
-        let registration = makeRegistration(index: 7)
-        let mailbox = try makeMailboxFixture(registration: registration).mailbox
-
-        // Act / Assert
-        #expect(mailbox.lifecyclePort.finish() == .invalidState(.open))
-        #expect(mailbox.lifecyclePort.seal() == .applied)
-        #expect(mailbox.lifecyclePort.finish() == .invalidState(.sealed))
-        #expect(mailbox.lifecyclePort.stateSnapshot == .sealed)
     }
 
     private func makeMailboxFixture(

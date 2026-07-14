@@ -145,16 +145,10 @@ final class FilesystemObservationMailbox: @unchecked Sendable {
         core.performCleanup()
     }
 
-    func seal() -> FilesystemObservationLifecycleTransitionResult {
-        core.seal()
-    }
-
-    func invalidate() -> FilesystemObservationLifecycleTransitionResult {
-        core.invalidate()
-    }
-
-    func finish() -> FilesystemObservationLifecycleTransitionResult {
-        core.finish()
+    func completeFleetShutdown(
+        using authority: FilesystemFleetShutdownCompletionAuthority
+    ) -> FilesystemFleetShutdownTerminationResult {
+        core.completeFleetShutdown(using: authority)
     }
 
     var diagnostics: FilesystemObservationMailboxDiagnostics {

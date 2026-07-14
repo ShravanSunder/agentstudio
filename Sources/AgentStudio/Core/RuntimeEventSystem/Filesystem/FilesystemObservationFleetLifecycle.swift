@@ -11,6 +11,64 @@ struct FilesystemObservationFleetShutdownIdentity: Hashable, Sendable {
     }
 }
 
+struct FilesystemFleetShutdownCompletionIdentity: Hashable, Sendable {
+    private let value: UUID
+
+    var isUUIDv7: Bool { UUIDv7.isV7(value) }
+
+    fileprivate init() {
+        value = UUIDv7.generate()
+    }
+}
+
+struct FilesystemFleetShutdownCompletionAuthority: Equatable, Sendable {
+    let fleetMailboxIdentity: FilesystemObservationFleetMailboxIdentity
+    let shutdownIdentity: FilesystemObservationFleetShutdownIdentity
+
+    fileprivate init(
+        fleetMailboxIdentity: FilesystemObservationFleetMailboxIdentity,
+        shutdownIdentity: FilesystemObservationFleetShutdownIdentity
+    ) {
+        self.fleetMailboxIdentity = fleetMailboxIdentity
+        self.shutdownIdentity = shutdownIdentity
+    }
+}
+
+struct FilesystemObservationFleetShutdownReceipt: Equatable, Sendable {
+    let fleetMailboxIdentity: FilesystemObservationFleetMailboxIdentity
+    let shutdownIdentity: FilesystemObservationFleetShutdownIdentity
+    let completionIdentity: FilesystemFleetShutdownCompletionIdentity
+    let finalDebt: FilesystemObservationFleetShutdownDebtSnapshot
+    private let completionAuthority: FilesystemFleetShutdownCompletionAuthority
+
+    fileprivate init(
+        completionIdentity: FilesystemFleetShutdownCompletionIdentity,
+        finalDebt: FilesystemObservationFleetShutdownDebtSnapshot,
+        completionAuthority: FilesystemFleetShutdownCompletionAuthority
+    ) {
+        fleetMailboxIdentity = completionAuthority.fleetMailboxIdentity
+        shutdownIdentity = completionAuthority.shutdownIdentity
+        self.completionIdentity = completionIdentity
+        self.finalDebt = finalDebt
+        self.completionAuthority = completionAuthority
+    }
+}
+
+enum FilesystemFleetShutdownTerminationResult: Equatable, Sendable {
+    case applied
+    case fleetMailboxMismatch(
+        expected: FilesystemObservationFleetMailboxIdentity,
+        presented: FilesystemObservationFleetMailboxIdentity
+    )
+    case shutdownNotFrozen
+    case shutdownIdentityMismatch(
+        expected: FilesystemObservationFleetShutdownIdentity,
+        presented: FilesystemObservationFleetShutdownIdentity
+    )
+    case mailboxDebtChanged(FilesystemObservationFleetShutdownMailboxDebtSnapshot)
+    case terminationAlreadyAdvanced(FilesystemObservationLifecycleStateSnapshot)
+}
+
 enum FilesystemObservationFleetIngressLifecycle: Equatable, Sendable {
     case accepting
     case shutdownFrozen(FilesystemObservationFleetShutdownIdentity)
@@ -29,6 +87,22 @@ enum FilesystemFleetOrdinaryAdmissionDisposition: Equatable, Sendable {
 enum FilesystemObservationFleetIngressFreezeResult: Equatable, Sendable {
     case applied(FilesystemObservationFleetShutdownIdentity)
     case alreadyApplied(FilesystemObservationFleetShutdownIdentity)
+    case completed(FilesystemObservationFleetShutdownReceipt)
+    case fleetMailboxMismatch(
+        expected: FilesystemObservationFleetMailboxIdentity,
+        presented: FilesystemObservationFleetMailboxIdentity
+    )
+    case shutdownIdentityMismatch(
+        expected: FilesystemObservationFleetShutdownIdentity,
+        presented: FilesystemObservationFleetShutdownIdentity
+    )
+    case terminationAlreadyAdvanced(FilesystemObservationLifecycleStateSnapshot)
+}
+
+enum FilesystemObservationFleetShutdownBeginResult: Equatable, Sendable {
+    case applied(FilesystemObservationFleetShutdownMailboxDebtSnapshot)
+    case alreadyApplied(FilesystemObservationFleetShutdownMailboxDebtSnapshot)
+    case completed(FilesystemObservationFleetShutdownReceipt)
     case fleetMailboxMismatch(
         expected: FilesystemObservationFleetMailboxIdentity,
         presented: FilesystemObservationFleetMailboxIdentity
@@ -57,6 +131,7 @@ enum FilesystemObservationFleetShutdownDebtCaptureResult: Equatable, Sendable {
         presented: FilesystemObservationFleetShutdownIdentity
     )
     case shutdownRejected
+    case completed(FilesystemObservationFleetShutdownReceipt)
     case terminationAlreadyAdvanced(FilesystemObservationLifecycleStateSnapshot)
     case debtJoinRejected(FilesystemObservationFleetShutdownDebtJoinRejection)
 }
@@ -70,6 +145,7 @@ final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
     private enum ShutdownBindingResolution: Sendable {
         case bound(ShutdownBinding)
         case fleetMailboxMismatch(ShutdownBinding)
+        case completed(FilesystemObservationFleetShutdownReceipt)
     }
 
     private enum ShutdownDebtCaptureBindingResolution: Sendable {
@@ -78,6 +154,7 @@ final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
         case shutdownFreezeInProgress
         case fleetMailboxMismatch(ShutdownBinding)
         case shutdownRejected
+        case completed(FilesystemObservationFleetShutdownReceipt)
     }
 
     private enum ShutdownResumeClaim: Sendable {
@@ -90,6 +167,7 @@ final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
         case fleetMailboxMismatch(ShutdownBinding)
         case resumeAlreadyInProgress(FilesystemObservationFleetShutdownRetainedDebt)
         case shutdownRejected
+        case completed(FilesystemObservationFleetShutdownReceipt)
     }
 
     private enum ShutdownTurnExecutionResult: Sendable {
@@ -110,6 +188,7 @@ final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
             retainedDebt: FilesystemObservationFleetShutdownRetainedDebt
         )
         case rejected(ShutdownBinding)
+        case completed(FilesystemObservationFleetShutdownReceipt)
     }
 
     private let lock = OSAllocatedUnfairLock(initialState: State.open)
@@ -123,6 +202,8 @@ final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
             return .applied(snapshot.shutdownIdentity)
         case .alreadyApplied(let snapshot):
             return .alreadyApplied(snapshot.shutdownIdentity)
+        case .completed(let receipt):
+            return .completed(receipt)
         case .fleetMailboxMismatch(let expected, let presented):
             return .fleetMailboxMismatch(expected: expected, presented: presented)
         case .shutdownIdentityMismatch(let expected, let presented):
@@ -134,7 +215,7 @@ final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
 
     func beginShutdownAndSnapshot(
         mailbox: FilesystemObservationMailbox
-    ) -> FilesystemObservationFleetIngressFreezeAndSnapshotResult {
+    ) -> FilesystemObservationFleetShutdownBeginResult {
         let bindingResult = lock.withLock { state -> ShutdownBindingResolution in
             switch state {
             case .open:
@@ -150,6 +231,16 @@ final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
                     return .fleetMailboxMismatch(binding)
                 }
                 return .bound(binding)
+            case .completed(let receipt):
+                guard receipt.fleetMailboxIdentity == mailbox.fleetMailboxIdentity else {
+                    return .fleetMailboxMismatch(
+                        ShutdownBinding(
+                            fleetMailboxIdentity: receipt.fleetMailboxIdentity,
+                            shutdownIdentity: receipt.shutdownIdentity
+                        )
+                    )
+                }
+                return .completed(receipt)
             }
         }
 
@@ -162,6 +253,8 @@ final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
                 expected: retainedBinding.fleetMailboxIdentity,
                 presented: mailbox.fleetMailboxIdentity
             )
+        case .completed(let receipt):
+            return .completed(receipt)
         }
 
         let result = mailbox.freezeFleetIngressAndSnapshot(for: binding.shutdownIdentity)
@@ -182,7 +275,18 @@ final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
                 state = .rejected(binding)
             }
         }
-        return result
+        switch result {
+        case .applied(let snapshot):
+            return .applied(snapshot)
+        case .alreadyApplied(let snapshot):
+            return .alreadyApplied(snapshot)
+        case .fleetMailboxMismatch(let expected, let presented):
+            return .fleetMailboxMismatch(expected: expected, presented: presented)
+        case .shutdownIdentityMismatch(let expected, let presented):
+            return .shutdownIdentityMismatch(expected: expected, presented: presented)
+        case .terminationAlreadyAdvanced(let lifecycle):
+            return .terminationAlreadyAdvanced(lifecycle)
+        }
     }
 
     func shutdownDebtSnapshot(
@@ -205,6 +309,16 @@ final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
                 return .bound(binding)
             case .rejected:
                 return .shutdownRejected
+            case .completed(let receipt):
+                guard receipt.fleetMailboxIdentity == mailbox.fleetMailboxIdentity else {
+                    return .fleetMailboxMismatch(
+                        ShutdownBinding(
+                            fleetMailboxIdentity: receipt.fleetMailboxIdentity,
+                            shutdownIdentity: receipt.shutdownIdentity
+                        )
+                    )
+                }
+                return .completed(receipt)
             }
         }
 
@@ -223,6 +337,8 @@ final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
             )
         case .shutdownRejected:
             return .shutdownRejected
+        case .completed(let receipt):
+            return .completed(receipt)
         }
 
         let mailboxSnapshot: FilesystemObservationFleetShutdownMailboxDebtSnapshot
@@ -281,6 +397,8 @@ final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
             return .resumeAlreadyInProgress(retainedDebt)
         case .shutdownRejected:
             return .unavailable(.shutdownRejected)
+        case .completed(let receipt):
+            return .completed(receipt)
         }
 
         let firstCapture = await shutdownDebtSnapshot(mailbox: mailbox, drainPort: drainPort)
@@ -314,7 +432,12 @@ final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
                 turnPlan: firstPlan
             )
         case .readyForCompletion:
-            return retainCompletion(binding: binding, finalDebt: firstSnapshot)
+            return await completeShutdown(
+                mailbox: mailbox,
+                drainPort: drainPort,
+                binding: binding,
+                fallbackDebt: firstSnapshot
+            )
         }
         if case .rejected(let failure) = executionResult {
             restoreDrainingState(
@@ -347,7 +470,12 @@ final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
                 turnPlan: freshPlan
             )
         }
-        return retainCompletion(binding: binding, finalDebt: freshSnapshot)
+        return await completeShutdown(
+            mailbox: mailbox,
+            drainPort: drainPort,
+            binding: binding,
+            fallbackDebt: freshSnapshot
+        )
     }
 
     private func claimResume(
@@ -375,6 +503,16 @@ final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
                 return .resumeAlreadyInProgress(retainedDebt)
             case .rejected:
                 return .shutdownRejected
+            case .completed(let receipt):
+                guard receipt.fleetMailboxIdentity == mailbox.fleetMailboxIdentity else {
+                    return .fleetMailboxMismatch(
+                        ShutdownBinding(
+                            fleetMailboxIdentity: receipt.fleetMailboxIdentity,
+                            shutdownIdentity: receipt.shutdownIdentity
+                        )
+                    )
+                }
+                return .completed(receipt)
             }
         }
     }
@@ -437,16 +575,106 @@ final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
         }
     }
 
-    private func retainCompletion(
+    private func completeShutdown(
+        mailbox: FilesystemObservationMailbox,
+        drainPort: FilesystemObservationFleetShutdownDrainPort,
         binding: ShutdownBinding,
-        finalDebt: FilesystemObservationFleetShutdownDebtSnapshot
-    ) -> FilesystemObservationFleetShutdownResumeResult {
-        retainDebt(
-            binding: binding,
-            snapshot: finalDebt,
-            turnPlan: .readyForCompletion
+        fallbackDebt: FilesystemObservationFleetShutdownDebtSnapshot
+    ) async -> FilesystemObservationFleetShutdownResumeResult {
+        let freshCapture = await shutdownDebtSnapshot(mailbox: mailbox, drainPort: drainPort)
+        guard case .captured(let finalDebt, let finalPlan) = freshCapture else {
+            restoreDrainingState(
+                binding: binding,
+                retainedDebt: .incomplete(
+                    snapshot: fallbackDebt,
+                    turnPlan: .readyForCompletion
+                )
+            )
+            return .unavailable(resumeFailure(from: freshCapture))
+        }
+        guard finalPlan == .readyForCompletion else {
+            return retainIncomplete(
+                binding: binding,
+                snapshot: finalDebt,
+                turnPlan: finalPlan
+            )
+        }
+
+        let completionAuthority = FilesystemFleetShutdownCompletionAuthority(
+            fleetMailboxIdentity: binding.fleetMailboxIdentity,
+            shutdownIdentity: binding.shutdownIdentity
         )
-        return .readyForCompletion(finalDebt)
+        switch mailbox.completeFleetShutdown(using: completionAuthority) {
+        case .applied:
+            // Mailbox termination, identity minting, and completed-state retention contain no
+            // suspension point. Cooperative cancellation therefore cannot split this transition
+            // or cause a second completion identity to be minted on retry.
+            let receipt = FilesystemObservationFleetShutdownReceipt(
+                completionIdentity: FilesystemFleetShutdownCompletionIdentity(),
+                finalDebt: finalDebt,
+                completionAuthority: completionAuthority
+            )
+            lock.withLock { state in
+                guard case .resuming(let retainedBinding, _) = state,
+                    retainedBinding.shutdownIdentity == binding.shutdownIdentity,
+                    retainedBinding.fleetMailboxIdentity == binding.fleetMailboxIdentity
+                else {
+                    preconditionFailure(
+                        "Fleet completion must commit from its single-flight resume claim"
+                    )
+                }
+                state = .completed(receipt)
+            }
+            return .completed(receipt)
+        case .mailboxDebtChanged:
+            let changedCapture = await shutdownDebtSnapshot(
+                mailbox: mailbox,
+                drainPort: drainPort
+            )
+            guard case .captured(let changedDebt, let changedPlan) = changedCapture else {
+                restoreDrainingState(
+                    binding: binding,
+                    retainedDebt: .incomplete(
+                        snapshot: finalDebt,
+                        turnPlan: finalPlan
+                    )
+                )
+                return .unavailable(resumeFailure(from: changedCapture))
+            }
+            return retainIncomplete(
+                binding: binding,
+                snapshot: changedDebt,
+                turnPlan: changedPlan
+            )
+        case .fleetMailboxMismatch(let expected, let presented):
+            restoreDrainingState(
+                binding: binding,
+                retainedDebt: .incomplete(snapshot: finalDebt, turnPlan: finalPlan)
+            )
+            return .unavailable(
+                .fleetMailboxMismatch(expected: expected, presented: presented)
+            )
+        case .shutdownNotFrozen:
+            restoreDrainingState(
+                binding: binding,
+                retainedDebt: .incomplete(snapshot: finalDebt, turnPlan: finalPlan)
+            )
+            return .unavailable(.mailboxShutdownNotFrozen)
+        case .shutdownIdentityMismatch(let expected, let presented):
+            restoreDrainingState(
+                binding: binding,
+                retainedDebt: .incomplete(snapshot: finalDebt, turnPlan: finalPlan)
+            )
+            return .unavailable(
+                .shutdownIdentityMismatch(expected: expected, presented: presented)
+            )
+        case .terminationAlreadyAdvanced(let lifecycle):
+            restoreDrainingState(
+                binding: binding,
+                retainedDebt: .incomplete(snapshot: finalDebt, turnPlan: finalPlan)
+            )
+            return .unavailable(.terminationAlreadyAdvanced(lifecycle))
+        }
     }
 
     private func executeMailboxTurn(
@@ -498,6 +726,8 @@ final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
         switch capture {
         case .captured:
             preconditionFailure("Captured shutdown debt is not a resume failure")
+        case .completed:
+            preconditionFailure("Completed shutdown debt is not a resume failure")
         case .shutdownNotBegun:
             return .shutdownNotBegun
         case .shutdownFreezeInProgress:

@@ -97,7 +97,7 @@ enum FilesystemObservationFleetShutdownResumeResult: Equatable, Sendable {
         snapshot: FilesystemObservationFleetShutdownDebtSnapshot,
         turnPlan: FilesystemObservationFleetShutdownTurnPlan
     )
-    case readyForCompletion(FilesystemObservationFleetShutdownDebtSnapshot)
+    case completed(FilesystemObservationFleetShutdownReceipt)
     case resumeAlreadyInProgress(FilesystemObservationFleetShutdownRetainedDebt)
     case unavailable(FilesystemObservationFleetShutdownResumeFailure)
 }

@@ -458,7 +458,23 @@ struct FilesystemObservationFleetShutdownDrainPortTests {
 
         let closedFixture = try makeFixture(sourceCount: 1)
         let closedHarness = try makeHarness(fixture: closedFixture)
-        #expect(closedFixture.mailbox.lifecyclePort.seal() == .applied)
+        let startingNativeLifetime = try #require(
+            closedFixture.fixture.startingNativeLifetimesByRegistration[
+                closedFixture.registrations[0]
+            ]
+        )
+        _ = requireShutdownDebtNativePorts(
+            closedFixture.mailbox.nativeGenerationPorts(for: startingNativeLifetime)
+        )
+        let lifecycle = FilesystemObservationFleetLifecycle()
+        _ = requireAppliedShutdownDebtSnapshot(
+            lifecycle.beginShutdownAndSnapshot(mailbox: closedFixture.mailbox)
+        )
+        _ = try await advanceToCompletedLifecycle(
+            lifecycle: lifecycle,
+            fixture: closedFixture,
+            harness: closedHarness
+        )
         let closedPort = await closedHarness.fleetShutdownDrainPort
         #expect(await closedPort.advanceOneTurn() == .noProgress(.mailboxClosed))
     }
@@ -590,6 +606,9 @@ struct FilesystemObservationFleetShutdownDrainPortTests {
         #expect(cleared.semanticReplay.isQuiescent)
     }
 
+}
+
+extension FilesystemObservationFleetShutdownDrainPortTests {
     @Test("source gate begin skips debt and advances only the first ready gate")
     func sourceGateBeginSkipsDebtAndAdvancesOnlyFirstReadyGate() async throws {
         let fixture = try makeFixture(sourceCount: 3)
@@ -825,6 +844,31 @@ struct FilesystemObservationFleetShutdownDrainPortTests {
         return snapshot
     }
 
+    private func advanceToCompletedLifecycle(
+        lifecycle: FilesystemObservationFleetLifecycle,
+        fixture: Fixture,
+        harness: FilesystemObservationDrainHarnessActor
+    ) async throws -> FilesystemObservationFleetShutdownReceipt {
+        let maximumTurns = fixture.registrations.count * 32 + 16
+        for _ in 0..<maximumTurns {
+            let result = await lifecycle.resumeShutdown(
+                mailbox: fixture.mailbox,
+                drainPort: await harness.fleetShutdownDrainPort
+            )
+            switch result {
+            case .completed(let receipt):
+                return receipt
+            case .incomplete, .awaitingActorProgress:
+                continue
+            case .resumeAlreadyInProgress, .unavailable:
+                Issue.record("Could not complete lifecycle arrangement: \(result)")
+                throw FleetShutdownDrainPortTestFailure.lifecycleCompletionFailed
+            }
+        }
+        Issue.record("Lifecycle arrangement exceeded its fixed turn bound")
+        throw FleetShutdownDrainPortTestFailure.lifecycleCompletionFailed
+    }
+
     private func admitRepair(
         to gate: inout FilesystemSourceGate,
         sequence: UInt64
@@ -876,6 +920,7 @@ struct FilesystemObservationFleetShutdownDrainPortTests {
 }
 
 private enum FleetShutdownDrainPortTestFailure: Error {
+    case lifecycleCompletionFailed
     case repairAdmissionFailed
 }
 

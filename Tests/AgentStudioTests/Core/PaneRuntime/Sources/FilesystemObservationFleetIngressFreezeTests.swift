@@ -325,13 +325,13 @@ private enum ConcurrentFleetShutdownResultProjection {
         mismatchPresented: FilesystemObservationFleetMailboxIdentity
     )
     case invalid(
-        FilesystemObservationFleetIngressFreezeAndSnapshotResult,
-        FilesystemObservationFleetIngressFreezeAndSnapshotResult
+        FilesystemObservationFleetShutdownBeginResult,
+        FilesystemObservationFleetShutdownBeginResult
     )
 
     init(
-        _ first: FilesystemObservationFleetIngressFreezeAndSnapshotResult,
-        _ second: FilesystemObservationFleetIngressFreezeAndSnapshotResult
+        _ first: FilesystemObservationFleetShutdownBeginResult,
+        _ second: FilesystemObservationFleetShutdownBeginResult
     ) {
         switch (first, second) {
         case (.applied(let snapshot), .fleetMailboxMismatch(let expected, let presented)),
@@ -348,7 +348,7 @@ private enum ConcurrentFleetShutdownResultProjection {
 }
 
 private func expectFleetMailboxMismatch(
-    _ result: FilesystemObservationFleetIngressFreezeAndSnapshotResult,
+    _ result: FilesystemObservationFleetShutdownBeginResult,
     expected: FilesystemObservationFleetMailboxIdentity,
     presented: FilesystemObservationFleetMailboxIdentity,
     sourceLocation: SourceLocation = #_sourceLocation

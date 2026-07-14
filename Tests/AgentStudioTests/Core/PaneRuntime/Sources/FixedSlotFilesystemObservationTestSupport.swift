@@ -541,17 +541,6 @@ func requireRecoveryAcceptance(
     return acceptance
 }
 
-func requireOutstandingCustody(
-    _ result: FilesystemObservationLifecycleTransitionResult,
-    sourceLocation: SourceLocation = #_sourceLocation
-) -> FilesystemObservationOutstandingCustody {
-    guard case .outstandingCustody(let custody) = result else {
-        Issue.record("expected outstanding custody: \(result)", sourceLocation: sourceLocation)
-        preconditionFailure("Expected outstanding filesystem custody")
-    }
-    return custody
-}
-
 func expectAlreadyLeased(
     _ result: FilesystemObservationTakeDrainResult,
     sourceLocation: SourceLocation = #_sourceLocation
