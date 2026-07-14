@@ -560,3 +560,40 @@ uses UUID ordering. The official workflow remains
 F3 shutdown mechanics are complete; continue at WF-C/W2a repair participant
 mechanics. Production remains wholly legacy until the later W2b atomic cut, so
 no product-performance claim is made from this checkpoint.
+
+## 2026-07-14 WF-C C1 content-repair registry checkpoint
+
+WF-C C1 is frozen and committed at `5e4da5c0`. The off-main
+`WorktreeContentRepairConsumerRegistry` now owns a bounded active generation
+plus newest pending successor per registered-worktree source, exact captured
+consumer generations, current/non-current/retry transfer, acknowledgement
+custody through exact SourceGate confirmation, bounded terminal replay, and
+debt-safe source retirement. AgentStudio-owned consumer, capture, and retry
+identities are UUIDv7; numeric generations and ordinals remain the only
+ordering authorities.
+
+The C2 boundary check tightened two type contracts before the checkpoint:
+every delivery request carries its exact content-invalidation generation, and
+only a registry-issued `ContentRepairActivatedGeneration` can enter the future
+projector. Pending generations and completed replay cannot regain activation
+authority.
+
+Fresh parent proof:
+
+- expected RED: missing active/pending/completed binding cases and missing
+  delivery invalidation generation failed compilation;
+- focused registry: 19 tests, 1 suite, exit 0;
+- surrounding SourceGate: 20 tests, 1 suite, exit 0;
+- scoped SwiftLint: 0 violations across the five C1 files;
+- `mise run lint`: swift-format OK, SwiftLint 0/1,554, architecture lint OK,
+  31 mutation rows restored exactly, release scripts passed, exit 0;
+- `git diff --check`: exit 0;
+- all five production/test files remain below 900 lines.
+
+One bounded implementation review and one remediation are complete. A later
+parent C2 inventory found no design contradiction; continue
+`shravan-dev-workflow:implementation-execute-plan` at
+`FilesystemContentRepairProjector`, then isolated SourceGate integration and
+the W2b atomic production cut. Product-performance claims remain open until
+that cut and the final Victoria, authenticated exact-PID IPC, large-root,
+native UI, and human interaction-feel proof loop.
