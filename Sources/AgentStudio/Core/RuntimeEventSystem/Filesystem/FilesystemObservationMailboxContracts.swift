@@ -52,16 +52,14 @@ enum FilesystemObservationMailboxContribution: Sendable {
         identity: FilesystemObservationContributionIdentity,
         observation: FSEventObservation
     )
+    case retirementFence(
+        identity: FilesystemObservationContributionIdentity,
+        fence: FilesystemObservationSlotRetirementFence
+    )
 
     var identity: FilesystemObservationContributionIdentity {
         switch self {
-        case .observation(let identity, _): identity
-        }
-    }
-
-    var observation: FSEventObservation {
-        switch self {
-        case .observation(_, let observation): observation
+        case .observation(let identity, _), .retirementFence(let identity, _): identity
         }
     }
 }
@@ -204,6 +202,7 @@ struct FilesystemObservationOutstandingCustody: Equatable, Sendable {
     let retryEvidenceRegistrationCount: Int
     let recoveryEvidenceRegistrationCount: Int
     let cleanupEntryCount: Int
+    let retiringLifecycleCount: Int
 }
 
 enum FilesystemObservationLifecycleTransitionResult: Equatable, Sendable {
@@ -232,6 +231,33 @@ enum FilesystemObservationDrainAcknowledgement: Equatable, Sendable {
             wake
         case .dispositionMismatch, .invalidToken, .closed:
             .noWake
+        }
+    }
+
+    var didAdvanceCustody: Bool {
+        switch self {
+        case .retried, .transferredAuthoritative, .transferredRecovery:
+            true
+        case .dispositionMismatch, .invalidToken, .closed:
+            false
+        }
+    }
+
+    func mergingWake(
+        _ additionalWake: AdmissionWakeDirective
+    ) -> Self {
+        let mergedWake: AdmissionWakeDirective =
+            wake == .scheduleDrain || additionalWake == .scheduleDrain
+            ? .scheduleDrain : .noWake
+        switch self {
+        case .retried:
+            return .retried(wake: mergedWake)
+        case .transferredAuthoritative:
+            return .transferredAuthoritative(wake: mergedWake)
+        case .transferredRecovery(let evidence, _):
+            return .transferredRecovery(evidence: evidence, wake: mergedWake)
+        case .dispositionMismatch, .invalidToken, .closed:
+            return self
         }
     }
 }
@@ -324,21 +350,34 @@ struct FilesystemObservationActorWaiterPort: Sendable {
 }
 
 struct FilesystemObservationLifecyclePort: Sendable {
+    private let requestRetirementFenceImplementation:
+        @Sendable (DarwinFSEventRegistrationLeaseDrainReceipt) ->
+            FilesystemObservationRetirementFenceRequestResult
     private let sealImplementation: @Sendable () -> FilesystemObservationLifecycleTransitionResult
     private let invalidateImplementation: @Sendable () -> FilesystemObservationLifecycleTransitionResult
     private let finishImplementation: @Sendable () -> FilesystemObservationLifecycleTransitionResult
     private let diagnosticsImplementation: @Sendable () -> FilesystemObservationMailboxDiagnostics
 
     init(
+        requestRetirementFence:
+            @escaping @Sendable (DarwinFSEventRegistrationLeaseDrainReceipt) ->
+            FilesystemObservationRetirementFenceRequestResult,
         seal: @escaping @Sendable () -> FilesystemObservationLifecycleTransitionResult,
         invalidate: @escaping @Sendable () -> FilesystemObservationLifecycleTransitionResult,
         finish: @escaping @Sendable () -> FilesystemObservationLifecycleTransitionResult,
         diagnostics: @escaping @Sendable () -> FilesystemObservationMailboxDiagnostics
     ) {
+        requestRetirementFenceImplementation = requestRetirementFence
         sealImplementation = seal
         invalidateImplementation = invalidate
         finishImplementation = finish
         diagnosticsImplementation = diagnostics
+    }
+
+    func requestRetirementFence(
+        _ receipt: DarwinFSEventRegistrationLeaseDrainReceipt
+    ) -> FilesystemObservationRetirementFenceRequestResult {
+        requestRetirementFenceImplementation(receipt)
     }
 
     func seal() -> FilesystemObservationLifecycleTransitionResult {

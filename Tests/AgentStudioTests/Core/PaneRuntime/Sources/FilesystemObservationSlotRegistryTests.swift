@@ -348,6 +348,32 @@ struct FilesystemObservationSlotRegistryTests {
         #expect(registry.desiredState(for: currentDesired.sourceID) == .absent)
     }
 
+    @Test("one generalized retirement chain retains exactly two causal generations")
+    func generalizedRetirementChainIsStrictlyBounded() throws {
+        // Arrange
+        let fixture = try makeTwoRetiringGenerationsFixture()
+
+        // Act
+        let retirementChain = fixture.registry.retiringGenerationChain(
+            for: fixture.newestDesired.sourceID
+        )
+        let oldestCurrentness = fixture.registry.storedBindingCurrentness(
+            of: fixture.oldestStartingNativeLifetime.binding
+        )
+        let successorCurrentness = fixture.registry.storedBindingCurrentness(
+            of: fixture.successorStartingNativeLifetime.binding
+        )
+
+        // Assert
+        #expect(retirementChain == fixture.fullRetirementChain)
+        #expect(oldestCurrentness == .storedSuperseded)
+        #expect(successorCurrentness == .storedSuperseded)
+        #expect(
+            fixture.registry.desiredState(for: fixture.newestDesired.sourceID)
+                == .deferred(fixture.newestDesired)
+        )
+    }
+
 }
 
 func makeRegistry(
@@ -402,8 +428,8 @@ func makeTwoRetiringGenerationsFixture() throws
         successorRetirement: successorRetirement,
         newestDesired: newestDesired,
         fullRetirementChain: .oldestAndSuccessor(
-            oldest: oldestRetirement,
-            successor: successorRetirement
+            oldest: .unpublished(oldestRetirement),
+            successor: .unpublished(successorRetirement)
         )
     )
 }
@@ -479,7 +505,7 @@ struct FilesystemObservationTwoRetiringGenerationsFixture {
     let oldestRetirement: FilesystemObservationRetiringUnpublishedNativeLifetime
     let successorRetirement: FilesystemObservationRetiringUnpublishedNativeLifetime
     let newestDesired: FilesystemObservationDesiredRegistration
-    let fullRetirementChain: FilesystemObservationRetiringUnpublishedGenerationChain
+    let fullRetirementChain: FilesystemObservationRetiringGenerationChain
 }
 
 enum FilesystemObservationSlotRegistryTestError: Error {

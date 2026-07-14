@@ -13,6 +13,7 @@ struct FilesystemRecoveryEvidence: Equatable, Hashable, Sendable {
     static let callbackCaptureTruncation = Self(bits: 1 << 2)
     static let callbackAdmissionOverflow = Self(bits: 1 << 3)
     static let unsupportedNativeFlags = Self(bits: 1 << 4)
+    static let retirementFenceAdmissionContraction = Self(bits: 1 << 5)
 
     func contains(_ evidence: Self) -> Bool {
         bits & evidence.bits == evidence.bits

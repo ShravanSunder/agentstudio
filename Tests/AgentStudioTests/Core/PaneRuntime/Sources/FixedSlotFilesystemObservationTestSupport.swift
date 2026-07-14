@@ -294,7 +294,18 @@ func requireObservations(
             #expect(contribution.identity.binding == lease.binding)
             #expect(contribution.identity.isUUIDv7)
         }
-        return retainedContributions.map(\.observation)
+        return retainedContributions.map { contribution in
+            switch contribution {
+            case .observation(_, let observation):
+                return observation
+            case .retirementFence:
+                Issue.record(
+                    "Expected observation contribution, got retirement fence",
+                    sourceLocation: sourceLocation
+                )
+                preconditionFailure("Expected observation contribution")
+            }
+        }
     case .recovery:
         Issue.record("Expected observation-bearing lease", sourceLocation: sourceLocation)
         preconditionFailure("Expected observation-bearing lease")

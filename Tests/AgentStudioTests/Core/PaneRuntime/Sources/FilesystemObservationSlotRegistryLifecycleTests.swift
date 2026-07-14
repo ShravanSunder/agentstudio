@@ -200,7 +200,7 @@ struct FilesystemObservationSlotRegistryTestsReservation {
             Issue.record("Expected newest starting-source request to be retained for D1c")
             return
         }
-        guard case .retiringUnpublishedGeneration(let retiringNativeLifetime) = withdrawalResult
+        guard case .retiringGeneration(.unpublished(let retiringNativeLifetime)) = withdrawalResult
         else {
             Issue.record("Expected exact starting lifetime to require retirement")
             return
@@ -212,7 +212,7 @@ struct FilesystemObservationSlotRegistryTestsReservation {
         #expect(retiringNativeLifetime.cause == .desiredWithdrawn)
         #expect(
             registry.desiredState(for: originalDesired.sourceID)
-                == .retiringUnpublishedGenerations(.oldest(retiringNativeLifetime))
+                == .retiringGenerations(.oldest(.unpublished(retiringNativeLifetime)))
         )
         #expect(
             registry.state(of: startingNativeLifetime.binding.physicalSlotID)
@@ -226,7 +226,7 @@ struct FilesystemObservationSlotRegistryTestsReservation {
         )
         #expect(
             registry.storedBindingCurrentness(of: startingNativeLifetime.binding)
-                == .storedCurrent
+                == .storedSuperseded
         )
     }
 }
@@ -339,7 +339,7 @@ struct FilesystemObservationSlotRegistryTestsRetirement {
                 == .alreadyRetirementRequired(fixture.successorRetirement)
         )
         #expect(
-            fixture.registry.retiringUnpublishedGenerationChain(
+            fixture.registry.retiringGenerationChain(
                 for: fixture.newestDesired.sourceID
             ) == fixture.fullRetirementChain
         )
@@ -350,8 +350,8 @@ struct FilesystemObservationSlotRegistryTestsRetirement {
         #expect(
             thirdSelectionResult
                 == .deferredBehindRetiringGenerationLimit(
-                    oldest: fixture.oldestRetirement,
-                    successor: fixture.successorRetirement
+                    oldest: .unpublished(fixture.oldestRetirement),
+                    successor: .unpublished(fixture.successorRetirement)
                 )
         )
         #expect(fixture.registry.state(of: thirdPhysicalSlotID) == .vacant)
@@ -390,7 +390,7 @@ struct FilesystemObservationSlotRegistryTestsRetirement {
                 == [fixture.newestDesired]
         )
         #expect(
-            fixture.registry.retiringUnpublishedGenerationChain(
+            fixture.registry.retiringGenerationChain(
                 for: fixture.newestDesired.sourceID
             ) == fixture.fullRetirementChain
         )
@@ -415,7 +415,7 @@ struct FilesystemObservationSlotRegistryTestsRetirement {
             sourceID: desiredRegistration.sourceID,
             desiredIdentity: desiredRegistration.identity
         )
-        guard case .retiringUnpublishedGeneration(let retiringNativeLifetime) = withdrawalResult
+        guard case .retiringGeneration(.unpublished(let retiringNativeLifetime)) = withdrawalResult
         else {
             Issue.record("Expected withdrawal to require unpublished-generation retirement")
             return

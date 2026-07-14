@@ -166,6 +166,106 @@ struct FilesystemObservationClosingAwaitingCallbackLeaseDrainLifetime: Equatable
     var binding: FilesystemObservationSlotBinding {
         acceptingNativeLifetime.binding
     }
+
+    func matches(_ receipt: DarwinFSEventRegistrationLeaseDrainReceipt) -> Bool {
+        let startingNativeLifetime = acceptingNativeLifetime.startingNativeLifetime
+        return receipt.binding == startingNativeLifetime.binding
+            && receipt.nativeGenerationIdentity == startingNativeLifetime.nativeGenerationIdentity
+            && receipt.controlBlockIdentity == startingNativeLifetime.binding.controlBlockIdentity
+    }
+}
+
+struct FilesystemObservationRetirementFenceIdentity: Equatable, Hashable, Sendable {
+    private let value: UUID
+
+    var isUUIDv7: Bool { UUIDv7.isV7(value) }
+
+    init(value: UUID) {
+        self.value = value
+    }
+}
+
+struct FilesystemObservationSlotRetirementFence: Equatable, Sendable {
+    let binding: FilesystemObservationSlotBinding
+    let identity: FilesystemObservationRetirementFenceIdentity
+}
+
+struct FilesystemClosingAwaitingPredecessorLifetime: Equatable, Sendable {
+    let closingNativeLifetime: FilesystemObservationClosingAwaitingCallbackLeaseDrainLifetime
+    let leaseDrainReceipt: DarwinFSEventRegistrationLeaseDrainReceipt
+
+    var binding: FilesystemObservationSlotBinding { closingNativeLifetime.binding }
+    var startingNativeLifetime: FilesystemObservationStartingNativeLifetime {
+        closingNativeLifetime.acceptingNativeLifetime.startingNativeLifetime
+    }
+}
+
+struct FilesystemRetirementFencePendingLifetime: Equatable, Sendable {
+    let closingNativeLifetime: FilesystemObservationClosingAwaitingCallbackLeaseDrainLifetime
+    let leaseDrainReceipt: DarwinFSEventRegistrationLeaseDrainReceipt
+    let fence: FilesystemObservationSlotRetirementFence
+
+    var binding: FilesystemObservationSlotBinding { closingNativeLifetime.binding }
+    var startingNativeLifetime: FilesystemObservationStartingNativeLifetime {
+        closingNativeLifetime.acceptingNativeLifetime.startingNativeLifetime
+    }
+}
+
+struct FilesystemRetirementFenceInstalledLifetime: Equatable, Sendable {
+    let pendingLifetime: FilesystemRetirementFencePendingLifetime
+    let contributionIdentity: FilesystemObservationContributionIdentity
+
+    var binding: FilesystemObservationSlotBinding { pendingLifetime.binding }
+    var fence: FilesystemObservationSlotRetirementFence { pendingLifetime.fence }
+    var identity: FilesystemObservationRetirementFenceIdentity { fence.identity }
+    var startingNativeLifetime: FilesystemObservationStartingNativeLifetime {
+        pendingLifetime.startingNativeLifetime
+    }
+}
+
+enum FilesystemRetirementFencePreparationResult: Equatable, Sendable {
+    case awaitingPredecessor(FilesystemClosingAwaitingPredecessorLifetime)
+    case pending(FilesystemRetirementFencePendingLifetime)
+    case alreadyAwaitingPredecessor(FilesystemClosingAwaitingPredecessorLifetime)
+    case alreadyPending(FilesystemRetirementFencePendingLifetime)
+    case alreadyInstalled(FilesystemRetirementFenceInstalledLifetime)
+    case foreignFleet
+    case undeclaredPhysicalSlot
+    case receiptMismatch
+    case retiringGenerationLimitReached
+    case invalidSlotState(FilesystemObservationPhysicalSlotState)
+}
+
+enum FilesystemRetirementFenceInstallationResult: Equatable, Sendable {
+    case installed(FilesystemRetirementFenceInstalledLifetime)
+    case alreadyInstalled(FilesystemRetirementFenceInstalledLifetime)
+    case stalePendingLifetime
+    case invalidSlotState(FilesystemObservationPhysicalSlotState)
+}
+
+enum FilesystemObservationPendingRetirementFenceLookup: Equatable, Sendable {
+    case pending(FilesystemRetirementFencePendingLifetime)
+    case notPending(FilesystemObservationPhysicalSlotState)
+}
+
+enum FilesystemObservationRetirementFenceRequestResult: Equatable, Sendable {
+    case awaitingPredecessor(FilesystemClosingAwaitingPredecessorLifetime)
+    case pending(FilesystemRetirementFencePendingLifetime)
+    case pendingAwaitingCleanup(FilesystemRetirementFencePendingLifetime)
+    case pendingAfterContraction(
+        FilesystemRetirementFencePendingLifetime,
+        FixedFilesystemRecoveryEvidenceSnapshot
+    )
+    case installed(FilesystemRetirementFenceInstalledLifetime)
+    case alreadyAwaitingPredecessor(FilesystemClosingAwaitingPredecessorLifetime)
+    case alreadyPending(FilesystemRetirementFencePendingLifetime)
+    case alreadyInstalled(FilesystemRetirementFenceInstalledLifetime)
+    case foreignFleet
+    case undeclaredPhysicalSlot
+    case receiptMismatch
+    case retiringGenerationLimitReached
+    case invalidSlotState(FilesystemObservationPhysicalSlotState)
+    case closed
 }
 
 enum FilesystemObservationAcceptingPublicationResult: Equatable, Sendable {
@@ -199,16 +299,87 @@ struct FilesystemObservationRetiringUnpublishedNativeLifetime: Hashable, Sendabl
     let cause: FilesystemObservationUnpublishedGenerationRetirementCause
 }
 
-// swiftlint:disable:next type_name
-enum FilesystemObservationRetiringUnpublishedGenerationChain: Equatable, Sendable {
+enum FilesystemObservationRetiringNativeLifetime: Equatable, Sendable {
+    case unpublished(FilesystemObservationRetiringUnpublishedNativeLifetime)
+    case closingAwaitingPredecessor(FilesystemClosingAwaitingPredecessorLifetime)
+    case retirementFencePending(FilesystemRetirementFencePendingLifetime)
+    case retirementFenceInstalled(FilesystemRetirementFenceInstalledLifetime)
+
+    var sourceID: FilesystemSourceID {
+        switch self {
+        case .unpublished(let lifetime):
+            lifetime.startingNativeLifetime.desiredRegistration.sourceID
+        case .closingAwaitingPredecessor(let lifetime):
+            lifetime.binding.registration.sourceID
+        case .retirementFencePending(let lifetime):
+            lifetime.binding.registration.sourceID
+        case .retirementFenceInstalled(let lifetime):
+            lifetime.binding.registration.sourceID
+        }
+    }
+
+    var startingNativeLifetime: FilesystemObservationStartingNativeLifetime {
+        switch self {
+        case .unpublished(let lifetime):
+            lifetime.startingNativeLifetime
+        case .closingAwaitingPredecessor(let lifetime):
+            lifetime.closingNativeLifetime.acceptingNativeLifetime.startingNativeLifetime
+        case .retirementFencePending(let lifetime):
+            lifetime.closingNativeLifetime.acceptingNativeLifetime.startingNativeLifetime
+        case .retirementFenceInstalled(let lifetime):
+            lifetime.pendingLifetime.closingNativeLifetime.acceptingNativeLifetime
+                .startingNativeLifetime
+        }
+    }
+}
+
+enum FilesystemObservationRetiringGenerationChain: Equatable, Sendable {
     // Fixed cardinality is intentional; Optional cannot encode the two-generation case.
     // swiftlint:disable:next discouraged_none_name
     case none
-    case oldest(FilesystemObservationRetiringUnpublishedNativeLifetime)
+    case oldest(FilesystemObservationRetiringNativeLifetime)
     case oldestAndSuccessor(
-        oldest: FilesystemObservationRetiringUnpublishedNativeLifetime,
-        successor: FilesystemObservationRetiringUnpublishedNativeLifetime
+        oldest: FilesystemObservationRetiringNativeLifetime,
+        successor: FilesystemObservationRetiringNativeLifetime
     )
+
+    func replacing(
+        _ currentLifetime: FilesystemObservationRetiringNativeLifetime,
+        with replacementLifetime: FilesystemObservationRetiringNativeLifetime
+    ) -> FilesystemRetiringChainReplacement {
+        switch self {
+        case .none:
+            return .currentLifetimeMismatch
+        case .oldest(let oldest):
+            guard oldest == currentLifetime else {
+                return .currentLifetimeMismatch
+            }
+            return .replaced(.oldest(replacementLifetime))
+        case .oldestAndSuccessor(let oldest, let successor):
+            if oldest == currentLifetime {
+                return .replaced(
+                    .oldestAndSuccessor(
+                        oldest: replacementLifetime,
+                        successor: successor
+                    )
+                )
+            }
+            guard successor == currentLifetime else {
+                return .currentLifetimeMismatch
+            }
+            return .replaced(
+                .oldestAndSuccessor(
+                    oldest: oldest,
+                    successor: replacementLifetime
+                )
+            )
+        }
+    }
+}
+
+enum FilesystemRetiringChainReplacement: Equatable, Sendable {
+    case replaced(FilesystemObservationRetiringGenerationChain)
+    case currentLifetimeMismatch
 }
 
 enum FilesystemObservationDesiredUpdateResult: Equatable, Sendable {
@@ -226,8 +397,8 @@ enum FilesystemObservationDesiredSelectionResult: Equatable, Sendable {
     case deferredBehindActiveSourceCapacity
     case deferredBehindSlotCapacity
     case deferredBehindRetiringGenerationLimit(
-        oldest: FilesystemObservationRetiringUnpublishedNativeLifetime,
-        successor: FilesystemObservationRetiringUnpublishedNativeLifetime
+        oldest: FilesystemObservationRetiringNativeLifetime,
+        successor: FilesystemObservationRetiringNativeLifetime
     )
 }
 
@@ -240,8 +411,8 @@ enum FilesystemObservationDesiredSlotState: Equatable, Sendable {
     case closingAwaitingCallbackLeaseDrain(
         FilesystemObservationClosingAwaitingCallbackLeaseDrainLifetime
     )
-    case retiringUnpublishedGenerations(
-        FilesystemObservationRetiringUnpublishedGenerationChain
+    case retiringGenerations(
+        FilesystemObservationRetiringGenerationChain
     )
 }
 
@@ -254,7 +425,7 @@ enum FilesystemObservationDesiredWithdrawalResult: Equatable, Sendable {
     case withdrewDeferred(FilesystemObservationDesiredRegistration)
     case withdrewPendingConfiguration(FilesystemObservationDesiredRegistration)
     case releasedSelectedReservation(FilesystemObservationDesiredSelection)
-    case retiringUnpublishedGeneration(FilesystemObservationRetiringUnpublishedNativeLifetime)
+    case retiringGeneration(FilesystemObservationRetiringNativeLifetime)
     case alreadyAbsent
     case staleDesiredIdentity(FilesystemObservationDesiredIdentity)
 }
@@ -295,6 +466,11 @@ enum FilesystemObservationPhysicalSlotState: Equatable, Sendable {
     case closingAwaitingCallbackLeaseDrain(
         FilesystemObservationClosingAwaitingCallbackLeaseDrainLifetime
     )
+    case closingAwaitingPredecessor(
+        FilesystemClosingAwaitingPredecessorLifetime
+    )
+    case retirementFencePending(FilesystemRetirementFencePendingLifetime)
+    case retirementFenceInstalled(FilesystemRetirementFenceInstalledLifetime)
     case retiringUnpublishedGeneration(FilesystemObservationRetiringUnpublishedNativeLifetime)
 }
 

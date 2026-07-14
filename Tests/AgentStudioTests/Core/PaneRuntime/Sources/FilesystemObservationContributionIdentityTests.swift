@@ -138,12 +138,18 @@ struct FilesystemObservationContributionIdentityTests {
     private func requiredSingleEventID(
         _ contribution: FilesystemObservationMailboxContribution
     ) -> UInt64 {
-        guard contribution.observation.records.count == 1,
-            let eventID = contribution.observation.records.first?.eventID
-        else {
-            preconditionFailure("Expected one event record per contribution")
+        switch contribution {
+        case .observation(_, let observation):
+            guard observation.records.count == 1,
+                let eventID = observation.records.first?.eventID
+            else {
+                preconditionFailure("Expected one event record per contribution")
+            }
+            return eventID
+        case .retirementFence:
+            Issue.record("Expected observation contribution, got retirement fence")
+            preconditionFailure("Expected observation contribution")
         }
-        return eventID
     }
 }
 

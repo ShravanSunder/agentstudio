@@ -270,6 +270,20 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         case outstanding(FilesystemObservationOutstandingCustody)
     }
 
+    private enum PendingRetirementFenceAttempt: Sendable {
+        case noEligibleFence
+        case awaitingCleanup(FilesystemRetirementFencePendingLifetime)
+        case installed(
+            FilesystemRetirementFenceInstalledLifetime,
+            AdmissionWakeDirective
+        )
+        case contracted(
+            FilesystemRetirementFencePendingLifetime,
+            FixedFilesystemRecoveryEvidenceSnapshot,
+            AdmissionWakeDirective
+        )
+    }
+
     private enum NativeGenerationPortCustody: Sendable {
         case vacant
         case issued(
@@ -279,11 +293,110 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         )
     }
 
+    private struct PendingRetirementFenceReadyQueue: Sendable {
+        private enum Endpoint: Sendable {
+            case boundary
+            case slot(Int)
+        }
+
+        private enum Link: Sendable {
+            case detached
+            case linked(previous: Endpoint, next: Endpoint)
+        }
+
+        enum AppendResult: Sendable {
+            case appended
+            case alreadyPresent
+            case undeclaredPhysicalSlot
+        }
+
+        enum PopResult: Sendable {
+            case physicalSlot(FilesystemObservationPhysicalSlotID)
+            case empty
+        }
+
+        private let physicalSlotIDs: [FilesystemObservationPhysicalSlotID]
+        private let slotIndexByPhysicalSlotID: [FilesystemObservationPhysicalSlotID: Int]
+        private var links: [Link]
+        private var head = Endpoint.boundary
+        private var tail = Endpoint.boundary
+        private(set) var count = 0
+
+        init(physicalSlotIDs: [FilesystemObservationPhysicalSlotID]) {
+            self.physicalSlotIDs = physicalSlotIDs
+            slotIndexByPhysicalSlotID = Dictionary(
+                uniqueKeysWithValues: physicalSlotIDs.enumerated().map { ($0.element, $0.offset) }
+            )
+            links = Array(repeating: .detached, count: physicalSlotIDs.count)
+        }
+
+        mutating func append(
+            _ physicalSlotID: FilesystemObservationPhysicalSlotID
+        ) -> AppendResult {
+            guard let slotIndex = slotIndexByPhysicalSlotID[physicalSlotID] else {
+                return .undeclaredPhysicalSlot
+            }
+            guard case .detached = links[slotIndex] else {
+                return .alreadyPresent
+            }
+            switch tail {
+            case .boundary:
+                head = .slot(slotIndex)
+                tail = .slot(slotIndex)
+                links[slotIndex] = .linked(previous: .boundary, next: .boundary)
+            case .slot(let previousTailIndex):
+                guard
+                    case .linked(let previous, .boundary) = links[previousTailIndex]
+                else {
+                    preconditionFailure("Pending fence queue tail must terminate at boundary")
+                }
+                links[previousTailIndex] = .linked(
+                    previous: previous,
+                    next: .slot(slotIndex)
+                )
+                links[slotIndex] = .linked(
+                    previous: .slot(previousTailIndex),
+                    next: .boundary
+                )
+                tail = .slot(slotIndex)
+            }
+            count += 1
+            return .appended
+        }
+
+        func first() -> PopResult {
+            guard case .slot(let firstIndex) = head else { return .empty }
+            return .physicalSlot(physicalSlotIDs[firstIndex])
+        }
+
+        mutating func popFirst() -> PopResult {
+            guard case .slot(let firstIndex) = head else { return .empty }
+            guard case .linked(.boundary, let next) = links[firstIndex] else {
+                preconditionFailure("Pending fence queue head must begin at boundary")
+            }
+            links[firstIndex] = .detached
+            switch next {
+            case .boundary:
+                head = .boundary
+                tail = .boundary
+            case .slot(let nextIndex):
+                guard case .linked(_, let nextAfterHead) = links[nextIndex] else {
+                    preconditionFailure("Pending fence queue successor must remain linked")
+                }
+                links[nextIndex] = .linked(previous: .boundary, next: nextAfterHead)
+                head = .slot(nextIndex)
+            }
+            count -= 1
+            return .physicalSlot(physicalSlotIDs[firstIndex])
+        }
+    }
+
     private struct State: Sendable {
         var lifecycle: Lifecycle
         var activeLease: ActiveLeaseCustody
         var retryEvidenceByPhysicalSlotID: [FilesystemObservationPhysicalSlotID: RetryEvidenceCustody]
         var nativeGenerationPortsByPhysicalSlotID: [FilesystemObservationPhysicalSlotID: NativeGenerationPortCustody]
+        var pendingRetirementFenceReadyQueue: PendingRetirementFenceReadyQueue
         var isFleetOrdinaryAdmissionSealed: Bool
 
         init(
@@ -297,6 +410,9 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
             )
             nativeGenerationPortsByPhysicalSlotID = Dictionary(
                 uniqueKeysWithValues: physicalSlotIDs.map { ($0, .vacant) }
+            )
+            pendingRetirementFenceReadyQueue = PendingRetirementFenceReadyQueue(
+                physicalSlotIDs: physicalSlotIDs
             )
             self.isFleetOrdinaryAdmissionSealed = isFleetOrdinaryAdmissionSealed
         }
@@ -465,6 +581,67 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         }
     }
 
+    func requestRetirementFence(
+        _ receipt: DarwinFSEventRegistrationLeaseDrainReceipt
+    ) -> FilesystemObservationRetirementFenceRequestResult {
+        let lockedResult:
+            (
+                FilesystemObservationRetirementFenceRequestResult,
+                AdmissionWakeDirective
+            ) = lock.withLock { state in
+                guard state.lifecycle == .open else {
+                    return (.closed, .noWake)
+                }
+                switch slotRegistry.prepareRetirementFence(receipt) {
+                case .awaitingPredecessor(let lifetime):
+                    return (.awaitingPredecessor(lifetime), .noWake)
+                case .alreadyAwaitingPredecessor(let lifetime):
+                    return (.alreadyAwaitingPredecessor(lifetime), .noWake)
+                case .alreadyInstalled(let lifetime):
+                    return (.alreadyInstalled(lifetime), .noWake)
+                case .foreignFleet:
+                    return (.foreignFleet, .noWake)
+                case .undeclaredPhysicalSlot:
+                    return (.undeclaredPhysicalSlot, .noWake)
+                case .receiptMismatch:
+                    return (.receiptMismatch, .noWake)
+                case .retiringGenerationLimitReached:
+                    return (.retiringGenerationLimitReached, .noWake)
+                case .invalidSlotState(let slotState):
+                    return (.invalidSlotState(slotState), .noWake)
+                case .alreadyPending(let lifetime):
+                    return (.alreadyPending(lifetime), .noWake)
+                case .pending(let lifetime):
+                    switch state.pendingRetirementFenceReadyQueue.append(
+                        lifetime.binding.physicalSlotID
+                    ) {
+                    case .appended, .alreadyPresent:
+                        break
+                    case .undeclaredPhysicalSlot:
+                        preconditionFailure("Registry returned an undeclared pending fence slot")
+                    }
+                    switch attemptOnePendingRetirementFenceLocked(state: &state) {
+                    case .noEligibleFence:
+                        return (.pending(lifetime), .noWake)
+                    case .awaitingCleanup:
+                        return (.pendingAwaitingCleanup(lifetime), .noWake)
+                    case .installed(let installed, let wake):
+                        guard installed.fence == lifetime.fence else {
+                            return (.pending(lifetime), wake)
+                        }
+                        return (.installed(installed), wake)
+                    case .contracted(let contracted, let evidence, let wake):
+                        guard contracted.fence == lifetime.fence else {
+                            return (.pending(lifetime), wake)
+                        }
+                        return (.pendingAfterContraction(contracted, evidence), wake)
+                    }
+                }
+            }
+        doorbell.ownerPort.apply(lockedResult.1)
+        return lockedResult.0
+    }
+
     fileprivate func acceptingNativeLifetimeMismatch(
         for startingNativeLifetime: FilesystemObservationStartingNativeLifetime
     ) -> FilesystemObservationCallbackLeaseDrainClosingResult {
@@ -538,7 +715,9 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
             return binding.fleetMailboxIdentity == fleetMailboxIdentity
                 ? .undeclaredPhysicalSlot : .foreignFleet
         case .starting, .vacant, .selected, .accepting,
-            .closingAwaitingCallbackLeaseDrain, .retiringUnpublishedGeneration:
+            .closingAwaitingCallbackLeaseDrain, .closingAwaitingPredecessor,
+            .retirementFencePending, .retirementFenceInstalled,
+            .retiringUnpublishedGeneration:
             return binding.fleetMailboxIdentity == fleetMailboxIdentity
                 ? .bindingNotCurrent : .foreignFleet
         }
@@ -591,11 +770,108 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
 
     var lifecyclePort: FilesystemObservationLifecyclePort {
         FilesystemObservationLifecyclePort(
+            requestRetirementFence: requestRetirementFence,
             seal: seal,
             invalidate: invalidate,
             finish: finish,
             diagnostics: { self.diagnostics }
         )
+    }
+
+    private func attemptOnePendingRetirementFenceLocked(
+        state: inout State
+    ) -> PendingRetirementFenceAttempt {
+        guard case .physicalSlot = state.pendingRetirementFenceReadyQueue.first() else {
+            return .noEligibleFence
+        }
+        let diagnostics = gatherMailbox.lifecyclePort.diagnostics
+        guard diagnostics.cleanupContributionCount == 0,
+            diagnostics.cleanupMetadataEntryCount == 0,
+            diagnostics.outstandingCleanupTurnCount == 0
+        else {
+            return .awaitingCleanup(
+                firstPendingRetirementFenceLocked(state: &state)
+            )
+        }
+        guard
+            case .physicalSlot(let physicalSlotID) =
+                state.pendingRetirementFenceReadyQueue.popFirst()
+        else {
+            return .noEligibleFence
+        }
+        guard
+            case .pending(let pendingLifetime) =
+                slotRegistry.pendingRetirementFence(for: physicalSlotID)
+        else {
+            preconditionFailure("Pending fence ready queue lost registry custody")
+        }
+
+        let contributionIdentity = FilesystemObservationContributionIdentity(
+            binding: pendingLifetime.binding,
+            value: UUIDv7.generate()
+        )
+        let contribution = FilesystemObservationMailboxContribution.retirementFence(
+            identity: contributionIdentity,
+            fence: pendingLifetime.fence
+        )
+        let gatherResult = gatherMailbox.producerPort.offer(
+            generation: generation,
+            contribution: GatherContribution(
+                key: physicalSlotID,
+                payload: contribution,
+                footprint: GatherFootprint(itemCount: 0, byteCount: 0),
+                recoverySignal: .ordinary
+            )
+        )
+        switch gatherResult {
+        case .admitted(.retained, let wake),
+            .admitted(.retainedWithRecovery, let wake):
+            switch slotRegistry.installRetirementFence(
+                pendingLifetime,
+                contributionIdentity: contributionIdentity
+            ) {
+            case .installed(let installed), .alreadyInstalled(let installed):
+                return .installed(installed, wake)
+            case .stalePendingLifetime, .invalidSlotState:
+                preconditionFailure("Retained fence contribution lost registry authority")
+            }
+        case .admitted(.contractedToRecovery(let genericRevision, let cause), let wake):
+            if case .recoveryAuthorityExhaustedTransition = cause {
+                state.isFleetOrdinaryAdmissionSealed = true
+            }
+            _ = recoveryRegister.record(
+                .retirementFenceAdmissionContraction,
+                genericRecoveryRevision: genericRevision,
+                for: pendingLifetime.binding
+            )
+            switch state.pendingRetirementFenceReadyQueue.append(physicalSlotID) {
+            case .appended:
+                break
+            case .alreadyPresent, .undeclaredPhysicalSlot:
+                preconditionFailure("Contracted fence must requeue exactly once")
+            }
+            return .contracted(
+                pendingLifetime,
+                requiredRecoverySnapshot(for: pendingLifetime.binding),
+                wake
+            )
+        case .undeclaredKey, .invalidFootprint, .closed, .staleGeneration:
+            preconditionFailure("Validated pending fence offer violated mailbox configuration")
+        }
+    }
+
+    private func firstPendingRetirementFenceLocked(
+        state: inout State
+    ) -> FilesystemRetirementFencePendingLifetime {
+        guard
+            case .physicalSlot(let physicalSlotID) =
+                state.pendingRetirementFenceReadyQueue.first(),
+            case .pending(let pendingLifetime) =
+                slotRegistry.pendingRetirementFence(for: physicalSlotID)
+        else {
+            preconditionFailure("Cleanup-blocked fence queue must contain pending custody")
+        }
+        return pendingLifetime
     }
 
     fileprivate func captureAndOffer(
@@ -729,24 +1005,64 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         disposition: FilesystemObservationDrainDisposition
     ) -> FilesystemObservationDrainAcknowledgement {
         let result = lock.withLock { state in
-            acknowledgeLocked(
+            let acknowledgement = acknowledgeLocked(
                 token: token,
                 disposition: disposition,
                 state: &state
             )
+            guard acknowledgement.didAdvanceCustody else {
+                return acknowledgement
+            }
+            let fenceWake = retryOnePendingRetirementFenceAfterProgressLocked(
+                state: &state
+            )
+            return acknowledgement.mergingWake(fenceWake)
         }
         doorbell.ownerPort.apply(result.wake)
         return result
     }
 
     func performCleanup() -> AdmissionCleanupTurnResult {
-        let result = lock.withLock { _ in
-            gatherMailbox.consumerPort.performCleanup(generation: generation)
+        let result = lock.withLock { state in
+            let cleanupResult = gatherMailbox.consumerPort.performCleanup(
+                generation: generation
+            )
+            guard case .performed(let turn) = cleanupResult else {
+                return cleanupResult
+            }
+            let fenceWake = retryOnePendingRetirementFenceAfterProgressLocked(
+                state: &state
+            )
+            return .performed(
+                AdmissionCleanupTurn(
+                    release: turn.release,
+                    wake: Self.mergeWake(turn.wake, fenceWake)
+                )
+            )
         }
         if case .performed(let turn) = result {
             doorbell.ownerPort.apply(turn.wake)
         }
         return result
+    }
+
+    private func retryOnePendingRetirementFenceAfterProgressLocked(
+        state: inout State
+    ) -> AdmissionWakeDirective {
+        switch attemptOnePendingRetirementFenceLocked(state: &state) {
+        case .installed(_, let wake), .contracted(_, _, let wake):
+            return wake
+        case .noEligibleFence, .awaitingCleanup:
+            return .noWake
+        }
+    }
+
+    private static func mergeWake(
+        _ first: AdmissionWakeDirective,
+        _ second: AdmissionWakeDirective
+    ) -> AdmissionWakeDirective {
+        first == .scheduleDrain || second == .scheduleDrain
+            ? .scheduleDrain : .noWake
     }
 
     func seal() -> FilesystemObservationLifecycleTransitionResult {
@@ -1249,12 +1565,24 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         let cleanupEntryCount =
             gatherDiagnostics.cleanupContributionCount
             + gatherDiagnostics.cleanupMetadataEntryCount
+        var retiringLifecycleCount = 0
+        for physicalSlotID in slotRegistry.physicalSlotIDs {
+            switch slotRegistry.state(of: physicalSlotID) {
+            case .closingAwaitingPredecessor, .retirementFencePending,
+                .retirementFenceInstalled:
+                retiringLifecycleCount += 1
+            case .undeclaredPhysicalSlot, .vacant, .selected, .starting, .accepting,
+                .closingAwaitingCallbackLeaseDrain, .retiringUnpublishedGeneration:
+                break
+            }
+        }
         let custody = FilesystemObservationOutstandingCustody(
             retainedContributionCount: gatherDiagnostics.retainedContributionCount,
             activeLeaseCount: activeLeaseCount,
             retryEvidenceRegistrationCount: retryEvidenceRegistrationCount,
             recoveryEvidenceRegistrationCount: recoveryEvidenceRegistrationCount,
-            cleanupEntryCount: cleanupEntryCount
+            cleanupEntryCount: cleanupEntryCount,
+            retiringLifecycleCount: retiringLifecycleCount
         )
         guard
             custody.retainedContributionCount > 0
@@ -1262,6 +1590,7 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                 || custody.retryEvidenceRegistrationCount > 0
                 || custody.recoveryEvidenceRegistrationCount > 0
                 || custody.cleanupEntryCount > 0
+                || custody.retiringLifecycleCount > 0
         else {
             return .quiescent
         }
