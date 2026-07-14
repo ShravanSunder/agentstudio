@@ -469,6 +469,21 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
             return .physicalSlot(physicalSlotIDs[firstIndex])
         }
 
+        var elementsInFIFOOrder: [FilesystemObservationPhysicalSlotID] {
+            var elements: [FilesystemObservationPhysicalSlotID] = []
+            elements.reserveCapacity(count)
+            var cursor = head
+            while case .slot(let slotIndex) = cursor {
+                elements.append(physicalSlotIDs[slotIndex])
+                guard case .linked(_, let next) = links[slotIndex] else {
+                    preconditionFailure("Pending fence queue traversal reached a detached slot")
+                }
+                cursor = next
+            }
+            precondition(elements.count == count, "Pending fence queue count drifted")
+            return elements
+        }
+
         mutating func popFirst() -> PopResult {
             guard case .slot(let firstIndex) = head else { return .empty }
             guard case .linked(.boundary, let next) = links[firstIndex] else {
@@ -619,6 +634,64 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                 }
                 return .alreadyApplied(retainedIdentity)
             }
+        }
+    }
+
+    func freezeFleetIngressAndSnapshot(
+        for shutdownIdentity: FilesystemObservationFleetShutdownIdentity
+    ) -> FilesystemObservationFleetIngressFreezeAndSnapshotResult {
+        lock.withLock { state in
+            guard state.lifecycle == .open else {
+                return .terminationAlreadyAdvanced(lifecycleSnapshot(state.lifecycle))
+            }
+            switch state.fleetIngressLifecycle {
+            case .accepting:
+                state.fleetIngressLifecycle = .shutdownFrozen(shutdownIdentity)
+                return .applied(
+                    makeFleetShutdownDebtSnapshotLocked(
+                        shutdownIdentity: shutdownIdentity,
+                        state: state
+                    )
+                )
+            case .shutdownFrozen(let retainedIdentity):
+                guard retainedIdentity == shutdownIdentity else {
+                    return .shutdownIdentityMismatch(
+                        expected: retainedIdentity,
+                        presented: shutdownIdentity
+                    )
+                }
+                return .alreadyApplied(
+                    makeFleetShutdownDebtSnapshotLocked(
+                        shutdownIdentity: retainedIdentity,
+                        state: state
+                    )
+                )
+            }
+        }
+    }
+
+    func fleetShutdownDebtSnapshot(
+        for shutdownIdentity: FilesystemObservationFleetShutdownIdentity
+    ) -> FilesystemObservationFleetIngressFreezeAndSnapshotResult {
+        lock.withLock { state in
+            guard state.lifecycle == .open else {
+                return .terminationAlreadyAdvanced(lifecycleSnapshot(state.lifecycle))
+            }
+            guard case .shutdownFrozen(let retainedIdentity) = state.fleetIngressLifecycle else {
+                preconditionFailure("Fleet shutdown debt requires an atomic ingress freeze")
+            }
+            guard retainedIdentity == shutdownIdentity else {
+                return .shutdownIdentityMismatch(
+                    expected: retainedIdentity,
+                    presented: shutdownIdentity
+                )
+            }
+            return .alreadyApplied(
+                makeFleetShutdownDebtSnapshotLocked(
+                    shutdownIdentity: retainedIdentity,
+                    state: state
+                )
+            )
         }
     }
 
@@ -2541,6 +2614,173 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
             return snapshot.revision.binding
         case .undeclaredPhysicalSlot, .vacant:
             preconditionFailure("Generic custody exists without a fixed slot binding")
+        }
+    }
+
+    private func makeFleetShutdownDebtSnapshotLocked(
+        shutdownIdentity: FilesystemObservationFleetShutdownIdentity,
+        state: State
+    ) -> FilesystemObservationFleetShutdownMailboxDebtSnapshot {
+        let genericDebt = gatherMailbox.lifecyclePort.shutdownDebtSnapshot
+        let genericDebtByPhysicalSlotID = Dictionary(
+            uniqueKeysWithValues: genericDebt.keyDebt.map { ($0.key, $0) }
+        )
+        precondition(
+            genericDebtByPhysicalSlotID.count == slotRegistry.physicalSlotIDs.count,
+            "Generic shutdown debt must cover every declared physical slot exactly once"
+        )
+        let slots = slotRegistry.physicalSlotIDs.map { physicalSlotID in
+            guard let genericSlotDebt = genericDebtByPhysicalSlotID[physicalSlotID] else {
+                preconditionFailure("Generic shutdown debt omitted a declared physical slot")
+            }
+            let nativeOwner: FilesystemObservationNativeOwnerShutdownDebt
+            switch state.nativeGenerationPortsByPhysicalSlotID[physicalSlotID] {
+            case .vacant:
+                nativeOwner = .vacant
+            case .issued(let custody):
+                nativeOwner = .issued(
+                    callbackAdmissionPortIdentity: custody.callbackAdmissionPortIdentity,
+                    projection: custody.nativeOwner.fleetShutdownProjection
+                )
+            case nil:
+                preconditionFailure("Native shutdown custody omitted a declared physical slot")
+            }
+            let retryEvidence: FilesystemObservationRetryEvidenceShutdownDebt
+            switch state.retryEvidenceByPhysicalSlotID[physicalSlotID] {
+            case .vacant:
+                retryEvidence = .vacant
+            case .retained(let binding, let evidence):
+                retryEvidence = .retained(binding: binding, evidence: evidence)
+            case nil:
+                preconditionFailure("Retry shutdown custody omitted a declared physical slot")
+            }
+            let recoveryEvidence: FilesystemObservationRecoveryShutdownDebt
+            switch recoveryRegister.state(of: physicalSlotID) {
+            case .undeclaredPhysicalSlot:
+                preconditionFailure("Recovery shutdown custody rejected a declared physical slot")
+            case .vacant:
+                recoveryEvidence = .vacant
+            case .boundClear(let binding):
+                recoveryEvidence = .clear(binding)
+            case .boundRetained(let evidence):
+                recoveryEvidence = .retained(evidence)
+            }
+            return FilesystemObservationSlotShutdownDebt(
+                physicalSlotID: physicalSlotID,
+                registry: slotRegistry.read.fleetShutdownSlotDebt(for: physicalSlotID),
+                nativeOwner: nativeOwner,
+                retryEvidence: retryEvidence,
+                recoveryEvidence: recoveryEvidence,
+                generic: genericSlotDebt,
+                completedReleaseReplay: slotRegistry.read.fleetShutdownCompletedRelease(
+                    for: physicalSlotID
+                )
+            )
+        }
+        let activeLease = fleetShutdownActiveLeaseDebt(state.activeLease)
+        let pendingWholeLeaseCompletion =
+            fleetShutdownPendingCompletionDebt(
+                state.pendingWholeLeaseCompletion
+            )
+        let desiredCustody = slotRegistry.read.fleetShutdownDesiredCustody
+        let fenceFIFO = state.pendingRetirementFenceReadyQueue.elementsInFIFOOrder
+        let isQuiescent =
+            slots.allSatisfy(\.isQuiescent)
+            && desiredCustody.isVacant
+            && activeLease == .vacant
+            && pendingWholeLeaseCompletion == .vacant
+            && genericDebt.isQuiescent
+            && fenceFIFO.isEmpty
+        return FilesystemObservationFleetShutdownMailboxDebtSnapshot(
+            fleetMailboxIdentity: fleetMailboxIdentity,
+            shutdownIdentity: shutdownIdentity,
+            fleetIngressLifecycle: state.fleetIngressLifecycle,
+            fleetOrdinaryAdmissionDisposition: state.fleetOrdinaryAdmissionDisposition,
+            mailboxLifecycle: lifecycleSnapshot(state.lifecycle),
+            slots: slots,
+            desiredCustody: desiredCustody,
+            activeLease: activeLease,
+            pendingWholeLeaseCompletion: pendingWholeLeaseCompletion,
+            genericMailboxDebt: genericDebt,
+            retirementFenceReadyFIFO: fenceFIFO,
+            isQuiescent: isQuiescent
+        )
+    }
+
+    private func fleetShutdownActiveLeaseDebt(
+        _ activeLease: ActiveLeaseCustody
+    ) -> FilesystemObservationActiveLeaseShutdownDebt {
+        switch activeLease {
+        case .vacant:
+            return .vacant
+        case .authoritative(let token, let binding, let fingerprint):
+            return .authoritative(
+                token: token,
+                binding: binding,
+                fingerprint: fleetShutdownFingerprint(fingerprint)
+            )
+        case .recovery(let token, let binding, let evidence, let fingerprint):
+            return .recovery(
+                token: token,
+                binding: binding,
+                evidence: evidence,
+                fingerprint: fleetShutdownFingerprint(fingerprint)
+            )
+        }
+    }
+
+    private func fleetShutdownPendingCompletionDebt(
+        _ custody: PendingWholeLeaseCompletionCustody
+    ) -> FilesystemObservationPendingWholeLeaseCompletionShutdownDebt {
+        switch custody {
+        case .vacant:
+            return .vacant
+        case .ordinary(let authority, let acknowledgement):
+            return .ordinary(
+                authority: authority,
+                acknowledgement: acknowledgement
+            )
+        case .retirement(
+            let authority,
+            let acknowledgement,
+            let installedLifetime,
+            let disposition
+        ):
+            return .retirement(
+                authority: authority,
+                acknowledgement: acknowledgement,
+                binding: installedLifetime.binding,
+                fenceIdentity: installedLifetime.identity,
+                contributionIdentity: installedLifetime.contributionIdentity,
+                disposition: disposition
+            )
+        }
+    }
+
+    private func fleetShutdownFingerprint(
+        _ fingerprint: WholeLeaseFingerprint
+    ) -> FilesystemObservationLeaseShutdownFingerprint {
+        switch fingerprint {
+        case .contributions(let contributions):
+            return .contributions(contributions.map(fleetShutdownContributionReference))
+        case .contributionsWithRecovery(let contributions, let evidence):
+            return .contributionsWithRecovery(
+                contributions.map(fleetShutdownContributionReference),
+                evidence.revision
+            )
+        case .recovery(let evidence):
+            return .recovery(evidence.revision)
+        }
+    }
+
+    private func fleetShutdownContributionReference(
+        _ fingerprint: ContributionFingerprint
+    ) -> FilesystemObservationLeaseShutdownContributionReference {
+        switch fingerprint {
+        case .observation(let identity):
+            return .observation(identity)
+        case .retirementFence(let identity, let fence):
+            return .retirementFence(identity, fence.identity)
         }
     }
 

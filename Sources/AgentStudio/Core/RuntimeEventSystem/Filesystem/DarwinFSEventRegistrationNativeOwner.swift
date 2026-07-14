@@ -128,6 +128,7 @@ final class DarwinFSEventRegistrationNativeOwner: @unchecked Sendable {
             DarwinFSEventNativeOwnerFleetShutdownProjection(
                 binding: startingNativeLifetime.binding,
                 nativePhase: fleetShutdownNativePhase,
+                callbackDrain: fleetShutdownCallbackDrainProjection,
                 finalizationPhase: fleetShutdownFinalizationPhase,
                 advancePhase: fleetShutdownAdvancePhase
             )
@@ -413,30 +414,31 @@ final class DarwinFSEventRegistrationNativeOwner: @unchecked Sendable {
     }
 
     private var fleetShutdownNativePhase: DarwinFSEventNativeOwnerFleetShutdownNativePhase {
+        let reference = fleetShutdownReference(startingNativeLifetime)
         switch state {
         case .creationAvailable:
-            return .creationAvailable(startingNativeLifetime)
+            return .creationAvailable(reference)
         case .creating:
-            return .creating(startingNativeLifetime)
+            return .creating(reference)
         case .created(let generation):
-            return .created(startingNativeLifetime, generationPhase: generation.phase)
+            return .created(reference, generationPhase: generation.phase)
         case .creationRejected(let cleanup, _):
-            return .creationRejected(cleanup)
-        case .creationAbandoned(let abandonment):
-            return .creationAbandoned(abandonment)
+            return .creationRejected(reference, cleanup.nativeFailure)
+        case .creationAbandoned:
+            return .creationAbandoned(reference)
         case .starting(let generation, _):
-            return .starting(startingNativeLifetime, generationPhase: generation.phase)
+            return .starting(reference, generationPhase: generation.phase)
         case .abandoningStart(let generation, _):
-            return .abandoningStart(startingNativeLifetime, generationPhase: generation.phase)
+            return .abandoningStart(reference, generationPhase: generation.phase)
         case .publishingAcceptance(let generation, _):
             return .publishingAcceptance(
-                startingNativeLifetime,
+                reference,
                 generationPhase: generation.phase
             )
         case .acceptingPublicationPending(let generation, let rejection):
             return .acceptingPublicationPending(
-                startingNativeLifetime,
-                rejection,
+                reference,
+                fleetShutdownAcceptingPublicationRejection(rejection),
                 generationPhase: generation.phase
             )
         case .startCompleted(let generation, let result):
@@ -451,44 +453,167 @@ final class DarwinFSEventRegistrationNativeOwner: @unchecked Sendable {
         switch result {
         case .started(let acceptingNativeLifetime):
             return .accepting(
-                acceptingNativeLifetime,
+                fleetShutdownReference(acceptingNativeLifetime.startingNativeLifetime),
+                callbackAdmissionPortIdentity:
+                    acceptingNativeLifetime.callbackAdmissionPortIdentity,
                 generationPhase: generation.phase
             )
         case .unpublished(let quiescence):
-            return .unpublished(projectUnpublishedCompletion(quiescence))
+            switch quiescence {
+            case .createdNeverStartedClosed(let completion):
+                return .createdNeverStartedClosed(
+                    fleetShutdownReference(completion.startingNativeLifetime)
+                )
+            case .startRejectedAfterDrain(let completion):
+                return .startRejectedAfterDrain(
+                    fleetShutdownReference(completion.startingNativeLifetime)
+                )
+            }
         case .acceptingPublicationRejected(let rejection):
             return .acceptingPublicationPending(
-                startingNativeLifetime,
-                rejection,
+                fleetShutdownReference(startingNativeLifetime),
+                fleetShutdownAcceptingPublicationRejection(rejection),
                 generationPhase: generation.phase
             )
         case .authorityRejected(let rejection):
             return .authorityRejected(
-                startingNativeLifetime,
-                rejection,
+                fleetShutdownReference(startingNativeLifetime),
+                fleetShutdownAuthorityRejection(rejection),
                 generationPhase: generation.phase
             )
         case .lifecycleRejected(let rejection):
             return .lifecycleRejected(
-                startingNativeLifetime,
-                rejection,
+                fleetShutdownReference(startingNativeLifetime),
+                fleetShutdownLifecycleRejection(rejection),
                 generationPhase: generation.phase
             )
         }
     }
 
+    private func fleetShutdownReference(
+        _ lifetime: FilesystemObservationStartingNativeLifetime
+    ) -> FilesystemObservationNativeShutdownReference {
+        FilesystemObservationNativeShutdownReference(
+            binding: lifetime.binding,
+            nativeGenerationIdentity: lifetime.nativeGenerationIdentity
+        )
+    }
+
+    private func fleetShutdownAcceptingPublicationRejection(
+        _ rejection: FilesystemObservationAcceptingPublicationResult
+    ) -> DarwinAcceptingPublicationShutdownRejection {
+        switch rejection {
+        case .foreignFleet:
+            return .foreignFleet
+        case .undeclaredPhysicalSlot:
+            return .undeclaredPhysicalSlot
+        case .startingNativeLifetimeMismatch(let lifetime):
+            return .startingNativeLifetimeMismatch(fleetShutdownReference(lifetime))
+        case .invalidSlotState:
+            return .invalidSlotState
+        case .mailboxReleased:
+            return .mailboxReleased
+        case .published, .alreadyPublished:
+            preconditionFailure("accepted publication cannot be pending shutdown debt")
+        }
+    }
+
+    private func fleetShutdownAuthorityRejection(
+        _ rejection: DarwinFSEventNativeOwnerAuthorityRejection
+    ) -> DarwinFSEventNativeOwnerAuthorityShutdownRejection {
+        switch rejection {
+        case .bindingMismatch(let expected, let presented):
+            return .bindingMismatch(expected: expected, presented: presented)
+        case .startingNativeLifetimeMismatch(let expected, let presented):
+            return .startingNativeLifetimeMismatch(
+                expected: fleetShutdownReference(expected),
+                presented: fleetShutdownReference(presented)
+            )
+        case .callbackAdapterControlBlockMismatch(let expected, let presented):
+            return .callbackAdapterControlBlockMismatch(
+                expected: expected,
+                presented: presented
+            )
+        case .creationCompletionMismatch(let expected, let presented):
+            return .creationCompletionMismatch(
+                expected: fleetShutdownReference(expected),
+                presented: fleetShutdownReference(presented)
+            )
+        case .creationRightUnavailable(let lifetime):
+            return .creationRightUnavailable(fleetShutdownReference(lifetime))
+        }
+    }
+
+    private func fleetShutdownLifecycleRejection(
+        _ rejection: DarwinFSEventNativeOwnerLifecycleRejection
+    ) -> DarwinFSEventNativeOwnerLifecycleShutdownRejection {
+        switch rejection {
+        case .generationPhase(let phase):
+            return .generationPhase(phase)
+        case .mailboxClosing:
+            return .mailboxClosing
+        case .closeAlreadyInProgress:
+            return .closeAlreadyInProgress
+        }
+    }
+
     private var fleetShutdownFinalizationPhase: DarwinNativeFleetShutdownFinalizationPhase {
+        let reference = fleetShutdownReference(startingNativeLifetime)
         switch nativeFinalizationState {
         case .awaitingMaterialization:
-            return .awaitingMaterialization
+            return .awaitingMaterialization(reference)
         case .retainedContext:
-            return .retainedContext
+            return .retainedContext(reference)
         case .retirementPermitRetained(let permit, _):
-            return .retirementPermitRetained(permit)
+            return .retirementPermitRetained(
+                reference,
+                fleetShutdownRetirementReference(permit)
+            )
         case .finalizing(let permit, _):
-            return .finalizing(permit)
+            return .finalizing(reference, fleetShutdownRetirementReference(permit))
         case .finalized(let acknowledgement):
-            return .finalized(acknowledgement)
+            return .finalized(
+                reference,
+                fleetShutdownRetirementReference(acknowledgement.permit),
+                releaseAuthority: acknowledgement.releaseAuthority
+            )
+        }
+    }
+
+    private var fleetShutdownCallbackDrainProjection: DarwinNativeOwnerCallbackDrainProjection {
+        let generation: DarwinFSEventRegistrationGeneration
+        switch state {
+        case .creationAvailable, .creating, .creationRejected, .creationAbandoned:
+            return .notMaterialized
+        case .created(let retainedGeneration),
+            .starting(let retainedGeneration, _),
+            .abandoningStart(let retainedGeneration, _),
+            .publishingAcceptance(let retainedGeneration, _),
+            .acceptingPublicationPending(let retainedGeneration, _),
+            .startCompleted(let retainedGeneration, _):
+            generation = retainedGeneration
+        }
+        return .materialized(
+            lifecycle: generation.controlBlock.lifecycleSnapshot,
+            leaseDrainCompletion: generation.controlBlock.leaseDrainCompletionSnapshot
+        )
+    }
+
+    private func fleetShutdownRetirementReference(
+        _ permit: FilesystemObservationNativeRetirementPermit
+    ) -> DarwinNativeFleetShutdownRetirementReference {
+        switch permit {
+        case .fenceBacked(let receipt):
+            return .fenceBacked(
+                fenceIdentity: receipt.fenceIdentity,
+                disposition: receipt.disposition,
+                retirementAuthority: receipt.retirementAuthority
+            )
+        case .unpublished(let receipt):
+            return .unpublished(
+                retirementAuthority: receipt.retirementAuthority,
+                finalizationKind: receipt.completion.finalizationKind
+            )
         }
     }
 

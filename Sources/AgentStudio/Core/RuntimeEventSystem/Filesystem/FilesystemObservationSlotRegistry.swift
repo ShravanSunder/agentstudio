@@ -905,4 +905,32 @@ extension FilesystemObservationSlotRegistry.ReadView {
             from: state(of: physicalSlotID)
         )
     }
+
+    var fleetShutdownProjectionPhysicalSlotIDs: [FilesystemObservationPhysicalSlotID] {
+        registry.physicalSlotIDs
+    }
+
+    var fleetShutdownProjectionPendingConfigurations:
+        [FilesystemSourceID: FilesystemObservationPendingConfigurationRecord]
+    {
+        registry.pendingConfigurationDesiredBySourceID
+    }
+
+    func fleetShutdownProjectionSlotState(
+        for physicalSlotID: FilesystemObservationPhysicalSlotID
+    ) -> FilesystemObservationRegistrySlotState? {
+        registry.statesByPhysicalSlotID[physicalSlotID]
+    }
+
+    func fleetShutdownProjectionPublicationRetention(
+        for physicalSlotID: FilesystemObservationPhysicalSlotID
+    ) -> FilesystemObservationPostStartPublicationRetention {
+        registry.postStartPublicationRetentionByPhysicalSlotID[physicalSlotID] ?? .vacant
+    }
+
+    func fleetShutdownProjectionCompletedRelease(
+        for physicalSlotID: FilesystemObservationPhysicalSlotID
+    ) -> FilesystemObservationLastCompletedRelease? {
+        registry.lastCompletedReleasesByPhysicalSlotID[physicalSlotID]
+    }
 }

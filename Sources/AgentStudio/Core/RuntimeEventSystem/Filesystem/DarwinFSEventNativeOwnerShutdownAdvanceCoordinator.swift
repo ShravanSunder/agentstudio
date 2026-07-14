@@ -85,7 +85,7 @@ final class DarwinFSEventNativeOwnerShutdownAdvanceCoordinator: @unchecked Senda
             case .advancing, .publishing:
                 return .inFlight
             case .completed(let completion):
-                return .completed(completion)
+                return .completed(completion.shutdownReference)
             }
         }
     }

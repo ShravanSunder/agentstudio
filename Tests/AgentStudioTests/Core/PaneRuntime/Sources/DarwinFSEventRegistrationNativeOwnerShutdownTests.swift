@@ -65,9 +65,14 @@ struct DarwinFSEventRegistrationNativeOwnerShutdownTests {
         #expect(abandonment === replayedAbandonment)
         #expect(abandonment.startingNativeLifetime == fixture.startingNativeLifetime)
         #expect(fixture.nativeDriverLedger.events.isEmpty)
+        #expect(fixture.nativeOwner.fleetShutdownProjection.callbackDrain == .notMaterialized)
         #expect(
             fixture.nativeOwner.fleetShutdownProjection.advancePhase
-                == .completed(.unpublished(.creationAbandoned(abandonment)))
+                == .completed(
+                    .creationAbandoned(
+                        nativeShutdownReference(for: fixture.startingNativeLifetime)
+                    )
+                )
         )
     }
 
@@ -94,10 +99,15 @@ struct DarwinFSEventRegistrationNativeOwnerShutdownTests {
         #expect(completion === replayedCompletion)
         #expect(
             fixture.nativeOwner.fleetShutdownProjection.nativePhase
-                == .unpublished(.createdNeverStartedClosed(completion))
+                == .createdNeverStartedClosed(
+                    nativeShutdownReference(for: fixture.startingNativeLifetime)
+                )
         )
         #expect(
-            fixture.nativeOwner.fleetShutdownProjection.finalizationPhase == .retainedContext
+            fixture.nativeOwner.fleetShutdownProjection.finalizationPhase
+                == .retainedContext(
+                    nativeShutdownReference(for: fixture.startingNativeLifetime)
+                )
         )
     }
 
@@ -127,7 +137,10 @@ struct DarwinFSEventRegistrationNativeOwnerShutdownTests {
         #expect(result == .completed(.unpublished(.creationRejected(cleanup))))
         #expect(
             fixture.nativeOwner.fleetShutdownProjection.nativePhase
-                == .creationRejected(cleanup)
+                == .creationRejected(
+                    nativeShutdownReference(for: fixture.startingNativeLifetime),
+                    cleanup.nativeFailure
+                )
         )
     }
 
@@ -154,7 +167,9 @@ struct DarwinFSEventRegistrationNativeOwnerShutdownTests {
         #expect(result == .completed(.unpublished(.startRejectedAfterDrain(quiescence))))
         #expect(
             fixture.nativeOwner.fleetShutdownProjection.nativePhase
-                == .unpublished(.startRejectedAfterDrain(quiescence))
+                == .startRejectedAfterDrain(
+                    nativeShutdownReference(for: fixture.startingNativeLifetime)
+                )
         )
     }
 
@@ -216,8 +231,8 @@ struct DarwinFSEventRegistrationNativeOwnerShutdownTests {
         #expect(
             fixture.nativeOwner.fleetShutdownProjection.nativePhase
                 == .acceptingPublicationPending(
-                    fixture.startingNativeLifetime,
-                    initialRejection,
+                    nativeShutdownReference(for: fixture.startingNativeLifetime),
+                    .invalidSlotState,
                     generationPhase: .startedAwaitingAcceptingPublication
                 )
         )
@@ -303,6 +318,14 @@ struct DarwinFSEventRegistrationNativeOwnerShutdownTests {
         }
         await barrierGate.waitUntilEntered()
 
+        #expect(
+            fixture.nativeOwner.fleetShutdownProjection.callbackDrain
+                == .materialized(
+                    lifecycle: .closing(.streamInvalidated, activeLeaseCount: 0),
+                    leaseDrainCompletion: .pending(waiterCount: 0)
+                )
+        )
+
         // Act
         cancelledRequester.cancel()
         await barrierGate.release()
@@ -317,6 +340,80 @@ struct DarwinFSEventRegistrationNativeOwnerShutdownTests {
             return
         }
         #expect(receipt === replayedReceipt)
+        #expect(
+            fixture.nativeOwner.fleetShutdownProjection.callbackDrain
+                == .materialized(
+                    lifecycle: .closing(.leasesDrained, activeLeaseCount: 0),
+                    leaseDrainCompletion: .completed(resumedWaiterCount: 0)
+                )
+        )
+    }
+
+    @Test("projection exposes exact callback close and lease drain phases")
+    func projectionExposesExactCallbackDrainPhases() async throws {
+        // Arrange
+        let fixture = try makeD3NativeOwnerRetirementFixture(generationValue: 10_012)
+        let invalidationGate = DarwinNativeOwnerShutdownSynchronousGate()
+        let barrierGate = DarwinNativeOwnerShutdownAsyncGate()
+        let driver = DarwinNativeOwnerShutdownDriver(invalidationGate: invalidationGate)
+        let generation = try createGeneration(
+            fixture,
+            nativeDriver: driver,
+            callbackQueueBarrier: DarwinNativeOwnerShutdownBarrier(gate: barrierGate)
+        )
+        guard case .started = await fixture.nativeOwner.startOrReplay(creation: generation),
+            case .acquired(let callbackLease) = fixture.controlBlock.acquireCallbackLease()
+        else {
+            Issue.record("fixture must retain one active callback lease")
+            return
+        }
+        #expect(
+            fixture.nativeOwner.fleetShutdownProjection.callbackDrain
+                == .materialized(
+                    lifecycle: .open(activeLeaseCount: 1),
+                    leaseDrainCompletion: .pending(waiterCount: 0)
+                )
+        )
+        let shutdownTask = Task { await fixture.nativeOwner.advanceFleetShutdown() }
+        await invalidationGate.waitUntilEntered()
+
+        // Act / Assert — admission is closed before native invalidation completes.
+        #expect(
+            fixture.nativeOwner.fleetShutdownProjection.callbackDrain
+                == .materialized(
+                    lifecycle: .closing(.admissionClosed, activeLeaseCount: 1),
+                    leaseDrainCompletion: .pending(waiterCount: 0)
+                )
+        )
+        invalidationGate.release()
+        await barrierGate.waitUntilEntered()
+        #expect(
+            fixture.nativeOwner.fleetShutdownProjection.callbackDrain
+                == .materialized(
+                    lifecycle: .closing(.streamInvalidated, activeLeaseCount: 1),
+                    leaseDrainCompletion: .pending(waiterCount: 0)
+                )
+        )
+        await barrierGate.release()
+        try await waitForCallbackDrainProjection(
+            fixture.nativeOwner,
+            expected: .materialized(
+                lifecycle: .closing(.callbackQueueDrained, activeLeaseCount: 1),
+                leaseDrainCompletion: .pending(waiterCount: 1)
+            )
+        )
+        #expect(callbackLease.release() == .released)
+        guard case .completed = await shutdownTask.value else {
+            Issue.record("lease release must complete native shutdown")
+            return
+        }
+        #expect(
+            fixture.nativeOwner.fleetShutdownProjection.callbackDrain
+                == .materialized(
+                    lifecycle: .closing(.leasesDrained, activeLeaseCount: 0),
+                    leaseDrainCompletion: .completed(resumedWaiterCount: 1)
+                )
+        )
     }
 
     @Test("projection reports retained permit and final acknowledgement without payload custody")
@@ -344,7 +441,13 @@ struct DarwinFSEventRegistrationNativeOwnerShutdownTests {
         // Act / Assert
         #expect(
             fixture.nativeOwner.fleetShutdownProjection.finalizationPhase
-                == .retirementPermitRetained(permit)
+                == .retirementPermitRetained(
+                    nativeShutdownReference(for: fixture.startingNativeLifetime),
+                    .unpublished(
+                        retirementAuthority: receipt.retirementAuthority,
+                        finalizationKind: .neverMaterialized
+                    )
+                )
         )
         guard
             case .finalized(let acknowledgement) = fixture.nativeOwner.finalizeNativeLifetime(
@@ -357,10 +460,84 @@ struct DarwinFSEventRegistrationNativeOwnerShutdownTests {
         }
         #expect(
             fixture.nativeOwner.fleetShutdownProjection.finalizationPhase
-                == .finalized(acknowledgement)
+                == .finalized(
+                    nativeShutdownReference(for: fixture.startingNativeLifetime),
+                    .unpublished(
+                        retirementAuthority: receipt.retirementAuthority,
+                        finalizationKind: .neverMaterialized
+                    ),
+                    releaseAuthority: acknowledgement.releaseAuthority
+                )
         )
         #expect(fixture.finalizationLedger.retainedPointerReleaseCount == 0)
     }
+
+    @Test("shutdown projection contracts cannot expose native starting payload")
+    func shutdownProjectionContractsArePayloadFreeByConstruction() throws {
+        // Arrange
+        let testFileURL = URL(fileURLWithPath: #filePath)
+        let projectRoot =
+            testFileURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let contractsURL = projectRoot.appending(
+            path:
+                "Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/"
+                + "DarwinFSEventRegistrationNativeOwnerContracts.swift"
+        )
+        let source = try String(contentsOf: contractsURL, encoding: .utf8)
+        let referenceStart = try #require(
+            source.range(of: "struct FilesystemObservationNativeShutdownReference")
+        )
+        let referenceEnd = try #require(
+            source.range(of: "enum DarwinNativeOwnerShutdownCompletionReference")
+        )
+        let completionEnd = try #require(
+            source.range(of: "extension DarwinFSEventNativeOwnerFleetShutdownCompletion")
+        )
+        let phaseStart = try #require(
+            source.range(of: "enum DarwinAcceptingPublicationShutdownRejection")
+        )
+        let phaseEnd = try #require(
+            source.range(of: "enum DarwinFSEventNativeOwnerStartResult")
+        )
+        let projectionContracts =
+            source[referenceStart.lowerBound..<referenceEnd.lowerBound]
+            + source[referenceEnd.lowerBound..<completionEnd.lowerBound]
+            + source[phaseStart.lowerBound..<phaseEnd.lowerBound]
+
+        // Act / Assert
+        #expect(!projectionContracts.contains("FilesystemObservationStartingNativeLifetime"))
+        #expect(!projectionContracts.contains("FilesystemObservationDesiredRegistration"))
+        #expect(!projectionContracts.contains("FilesystemObservationSourceConfiguration"))
+        #expect(!projectionContracts.contains("canonicalResolvedRoot"))
+        #expect(!projectionContracts.contains("Unsafe"))
+        #expect(!projectionContracts.contains("Pointer"))
+    }
+}
+
+private func nativeShutdownReference(
+    for lifetime: FilesystemObservationStartingNativeLifetime
+) -> FilesystemObservationNativeShutdownReference {
+    FilesystemObservationNativeShutdownReference(
+        binding: lifetime.binding,
+        nativeGenerationIdentity: lifetime.nativeGenerationIdentity
+    )
+}
+
+private func waitForCallbackDrainProjection(
+    _ nativeOwner: DarwinFSEventRegistrationNativeOwner,
+    expected: DarwinNativeOwnerCallbackDrainProjection
+) async throws {
+    for _ in 0..<10_000 {
+        guard nativeOwner.fleetShutdownProjection.callbackDrain != expected else { return }
+        await Task.yield()
+    }
+    throw DarwinNativeOwnerShutdownTestFailure.callbackDrainProjectionTimeout
 }
 
 private final class ControlledShutdownResultPublisher:
@@ -422,19 +599,23 @@ private func createGeneration(
 }
 
 private enum DarwinNativeOwnerShutdownTestFailure: Error {
+    case callbackDrainProjectionTimeout
     case expectedCreatedGeneration
 }
 
 private struct DarwinNativeOwnerShutdownDriver: DarwinFSEventNativeDriver {
     let createGate: DarwinNativeOwnerShutdownSynchronousGate?
     let startGate: DarwinNativeOwnerShutdownSynchronousGate?
+    let invalidationGate: DarwinNativeOwnerShutdownSynchronousGate?
 
     init(
         createGate: DarwinNativeOwnerShutdownSynchronousGate? = nil,
-        startGate: DarwinNativeOwnerShutdownSynchronousGate? = nil
+        startGate: DarwinNativeOwnerShutdownSynchronousGate? = nil,
+        invalidationGate: DarwinNativeOwnerShutdownSynchronousGate? = nil
     ) {
         self.createGate = createGate
         self.startGate = startGate
+        self.invalidationGate = invalidationGate
     }
 
     func createStream(
@@ -450,7 +631,9 @@ private struct DarwinNativeOwnerShutdownDriver: DarwinFSEventNativeDriver {
     }
 
     func stopStream(_: DarwinFSEventNativeStreamHandle) {}
-    func invalidateStream(_: DarwinFSEventNativeStreamHandle) {}
+    func invalidateStream(_: DarwinFSEventNativeStreamHandle) {
+        invalidationGate?.pause()
+    }
     func releaseStream(_: DarwinFSEventNativeStreamHandle) {}
 }
 

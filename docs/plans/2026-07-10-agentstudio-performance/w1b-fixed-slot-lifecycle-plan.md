@@ -897,8 +897,9 @@ Execute and checkpoint F3 in these compile-complete slices:
    mailbox, native-retirement, semantic-transfer, SourceGate, fleet-lifecycle,
    and fleet-exhaustion filters plus scoped/full lint.
 
-RED/GREEN must include: every physical slot state; callback lease and barrier
-phase; generic queued, retry, recovery, active lease, queued cleanup and
+RED/GREEN must include: every physical slot state retained at a mailbox-lock
+transaction boundary; callback lease and barrier phase; generic queued, retry,
+recovery, active lease, queued cleanup and
 in-flight cleanup; pending whole-lease completion; semantic accepted-prefix
 replay; SourceGate dirty/reconciling/awaiting-acknowledgements/failed debt;
 pending and installed fences; retained retirement receipt; pending/finalized
@@ -907,6 +908,14 @@ every phase; repeated begin/resume/completion; foreign and stale shutdown
 identity; and exact completed-receipt replay. The independent oracle asserts
 zero copied payloads, one stable UUIDv7 shutdown identity, one termination,
 zero silent custody loss, declared-slot/FIFO ordering, and no UUID sorting.
+
+Registry states that exist only between two transitions in the same mailbox-lock
+transaction are not retained shutdown debt and cannot be observed by the atomic
+freeze/snapshot operation. Prove those states through the exact stable projection
+immediately before the transaction, the exact stable projection after it, and a
+source-backed assertion that freeze cannot interleave inside the transaction. Do
+not add a test hook, unlock gap, or wider construction authority solely to expose
+such a transient state.
 
 Split/replan if F3 requires payload duplication, another consumer/drain task,
 another lock around mailbox/registry custody, persistence, a timer/poll loop,

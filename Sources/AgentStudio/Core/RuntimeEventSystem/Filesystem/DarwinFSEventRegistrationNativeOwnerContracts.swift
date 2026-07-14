@@ -126,66 +126,186 @@ enum DarwinFSEventNativeOwnerFleetShutdownResult: Equatable, Sendable {
     case incomplete(DarwinFSEventNativeOwnerFleetShutdownDebt)
 }
 
+/// Payload-free correlation for one native generation during fleet shutdown.
+///
+/// The binding identifies the fixed-slot lineage without retaining desired configuration or a
+/// canonical root. The native generation identity correlates owner-local phase transitions.
+struct FilesystemObservationNativeShutdownReference: Equatable, Sendable {
+    let binding: FilesystemObservationSlotBinding
+    let nativeGenerationIdentity: FilesystemObservationNativeGenerationIdentity
+}
+
+enum DarwinNativeOwnerShutdownCompletionReference: Equatable, Sendable {
+    case creationAbandoned(FilesystemObservationNativeShutdownReference)
+    case creationRejected(
+        FilesystemObservationNativeShutdownReference,
+        DarwinFSEventNativeStreamCreationFailure
+    )
+    case createdNeverStartedClosed(FilesystemObservationNativeShutdownReference)
+    case startRejectedAfterDrain(FilesystemObservationNativeShutdownReference)
+    case acceptingGenerationClosed(FilesystemObservationNativeShutdownReference)
+}
+
+extension DarwinFSEventNativeOwnerFleetShutdownCompletion {
+    var shutdownReference: DarwinNativeOwnerShutdownCompletionReference {
+        switch self {
+        case .unpublished(let completion):
+            let reference = FilesystemObservationNativeShutdownReference(
+                binding: completion.startingNativeLifetime.binding,
+                nativeGenerationIdentity: completion.startingNativeLifetime
+                    .nativeGenerationIdentity
+            )
+            switch completion {
+            case .creationAbandoned:
+                return .creationAbandoned(reference)
+            case .creationRejected(let cleanup):
+                return .creationRejected(reference, cleanup.nativeFailure)
+            case .createdNeverStartedClosed:
+                return .createdNeverStartedClosed(reference)
+            case .startRejectedAfterDrain:
+                return .startRejectedAfterDrain(reference)
+            }
+        case .acceptingGenerationClosed(let receipt):
+            return .acceptingGenerationClosed(
+                FilesystemObservationNativeShutdownReference(
+                    binding: receipt.binding,
+                    nativeGenerationIdentity: receipt.nativeGenerationIdentity
+                )
+            )
+        }
+    }
+}
+
+enum DarwinAcceptingPublicationShutdownRejection: Equatable, Sendable {
+    case foreignFleet
+    case undeclaredPhysicalSlot
+    case startingNativeLifetimeMismatch(FilesystemObservationNativeShutdownReference)
+    case invalidSlotState
+    case mailboxReleased
+}
+
+enum DarwinFSEventNativeOwnerAuthorityShutdownRejection: Equatable, Sendable {
+    case bindingMismatch(
+        expected: FilesystemObservationSlotBinding,
+        presented: FilesystemObservationSlotBinding
+    )
+    case startingNativeLifetimeMismatch(
+        expected: FilesystemObservationNativeShutdownReference,
+        presented: FilesystemObservationNativeShutdownReference
+    )
+    case callbackAdapterControlBlockMismatch(
+        expected: FilesystemObservationControlBlockIdentity,
+        presented: FilesystemObservationControlBlockIdentity
+    )
+    case creationCompletionMismatch(
+        expected: FilesystemObservationNativeShutdownReference,
+        presented: FilesystemObservationNativeShutdownReference
+    )
+    case creationRightUnavailable(FilesystemObservationNativeShutdownReference)
+}
+
+enum DarwinFSEventNativeOwnerLifecycleShutdownRejection: Equatable, Sendable {
+    case generationPhase(DarwinFSEventRegistrationGenerationPhase)
+    case mailboxClosing
+    case closeAlreadyInProgress
+}
+
 enum DarwinFSEventNativeOwnerFleetShutdownNativePhase: Equatable, Sendable {
-    case creationAvailable(FilesystemObservationStartingNativeLifetime)
-    case creating(FilesystemObservationStartingNativeLifetime)
+    case creationAvailable(FilesystemObservationNativeShutdownReference)
+    case creating(FilesystemObservationNativeShutdownReference)
     case created(
-        FilesystemObservationStartingNativeLifetime,
+        FilesystemObservationNativeShutdownReference,
         generationPhase: DarwinFSEventRegistrationGenerationPhase
     )
     case starting(
-        FilesystemObservationStartingNativeLifetime,
+        FilesystemObservationNativeShutdownReference,
         generationPhase: DarwinFSEventRegistrationGenerationPhase
     )
     case abandoningStart(
-        FilesystemObservationStartingNativeLifetime,
+        FilesystemObservationNativeShutdownReference,
         generationPhase: DarwinFSEventRegistrationGenerationPhase
     )
     case publishingAcceptance(
-        FilesystemObservationStartingNativeLifetime,
+        FilesystemObservationNativeShutdownReference,
         generationPhase: DarwinFSEventRegistrationGenerationPhase
     )
     case acceptingPublicationPending(
-        FilesystemObservationStartingNativeLifetime,
-        FilesystemObservationAcceptingPublicationResult,
+        FilesystemObservationNativeShutdownReference,
+        DarwinAcceptingPublicationShutdownRejection,
         generationPhase: DarwinFSEventRegistrationGenerationPhase
     )
-    case creationRejected(DarwinFSEventRegistrationCreateFailureCleanup)
-    case creationAbandoned(DarwinFSEventRegistrationCreationAbandonment)
-    case unpublished(DarwinFSEventUnpublishedNativeCompletion)
+    case creationRejected(
+        FilesystemObservationNativeShutdownReference,
+        DarwinFSEventNativeStreamCreationFailure
+    )
+    case creationAbandoned(FilesystemObservationNativeShutdownReference)
+    case createdNeverStartedClosed(FilesystemObservationNativeShutdownReference)
+    case startRejectedAfterDrain(FilesystemObservationNativeShutdownReference)
     case accepting(
-        FilesystemObservationAcceptingNativeLifetime,
+        FilesystemObservationNativeShutdownReference,
+        callbackAdmissionPortIdentity: FilesystemObservationCallbackAdmissionPortIdentity,
         generationPhase: DarwinFSEventRegistrationGenerationPhase
     )
     case authorityRejected(
-        FilesystemObservationStartingNativeLifetime,
-        DarwinFSEventNativeOwnerAuthorityRejection,
+        FilesystemObservationNativeShutdownReference,
+        DarwinFSEventNativeOwnerAuthorityShutdownRejection,
         generationPhase: DarwinFSEventRegistrationGenerationPhase
     )
     case lifecycleRejected(
-        FilesystemObservationStartingNativeLifetime,
-        DarwinFSEventNativeOwnerLifecycleRejection,
+        FilesystemObservationNativeShutdownReference,
+        DarwinFSEventNativeOwnerLifecycleShutdownRejection,
         generationPhase: DarwinFSEventRegistrationGenerationPhase
     )
 }
 
+enum DarwinNativeFleetShutdownRetirementReference: Equatable, Sendable {
+    case fenceBacked(
+        fenceIdentity: FilesystemObservationRetirementFenceIdentity,
+        disposition: FilesystemObservationSlotRetirementDisposition,
+        retirementAuthority: FilesystemObservationSlotRetirementAuthority
+    )
+    case unpublished(
+        retirementAuthority: FilesystemUnpublishedRetirementAuthority,
+        finalizationKind: FilesystemObservationUnpublishedFinalizationKind
+    )
+}
+
 enum DarwinNativeFleetShutdownFinalizationPhase: Equatable, Sendable {
-    case awaitingMaterialization
-    case retainedContext
-    case retirementPermitRetained(FilesystemObservationNativeRetirementPermit)
-    case finalizing(FilesystemObservationNativeRetirementPermit)
-    case finalized(FilesystemObservationContextReleaseAcknowledgement)
+    case awaitingMaterialization(FilesystemObservationNativeShutdownReference)
+    case retainedContext(FilesystemObservationNativeShutdownReference)
+    case retirementPermitRetained(
+        FilesystemObservationNativeShutdownReference,
+        DarwinNativeFleetShutdownRetirementReference
+    )
+    case finalizing(
+        FilesystemObservationNativeShutdownReference,
+        DarwinNativeFleetShutdownRetirementReference
+    )
+    case finalized(
+        FilesystemObservationNativeShutdownReference,
+        DarwinNativeFleetShutdownRetirementReference,
+        releaseAuthority: FilesystemObservationContextReleaseAuthority
+    )
+}
+
+enum DarwinNativeOwnerCallbackDrainProjection: Equatable, Sendable {
+    case notMaterialized
+    case materialized(
+        lifecycle: FSEventRegistrationLifecycleSnapshot,
+        leaseDrainCompletion: FSEventCallbackLeaseDrainCompletionSnapshot
+    )
 }
 
 enum DarwinFSEventNativeOwnerFleetShutdownAdvancePhase: Equatable, Sendable {
     case available
     case inFlight
-    case completed(DarwinFSEventNativeOwnerFleetShutdownCompletion)
+    case completed(DarwinNativeOwnerShutdownCompletionReference)
 }
 
 struct DarwinFSEventNativeOwnerFleetShutdownProjection: Equatable, Sendable {
     let binding: FilesystemObservationSlotBinding
     let nativePhase: DarwinFSEventNativeOwnerFleetShutdownNativePhase
+    let callbackDrain: DarwinNativeOwnerCallbackDrainProjection
     let finalizationPhase: DarwinNativeFleetShutdownFinalizationPhase
     let advancePhase: DarwinFSEventNativeOwnerFleetShutdownAdvancePhase
 }
