@@ -50,6 +50,58 @@ enum FilesystemObservationFleetShutdownTurnPlan: Equatable, Sendable {
     case readyForCompletion
 }
 
+enum FilesystemObservationFleetShutdownRetainedDebt: Equatable, Sendable {
+    case awaitingInitialCapture
+    case incomplete(
+        snapshot: FilesystemObservationFleetShutdownDebtSnapshot,
+        turnPlan: FilesystemObservationFleetShutdownTurnPlan
+    )
+}
+
+enum FilesystemObservationFleetShutdownResumeFailure: Equatable, Sendable {
+    case shutdownNotBegun
+    case shutdownFreezeInProgress
+    case fleetMailboxMismatch(
+        expected: FilesystemObservationFleetMailboxIdentity,
+        presented: FilesystemObservationFleetMailboxIdentity
+    )
+    case shutdownIdentityMismatch(
+        expected: FilesystemObservationFleetShutdownIdentity,
+        presented: FilesystemObservationFleetShutdownIdentity
+    )
+    case shutdownRejected
+    case mailboxShutdownNotFrozen
+    case actorDrainConfigurationRejected(
+        FilesystemObservationFleetShutdownDrainConfigurationRejection
+    )
+    case actorDrainUndeclaredBinding(FilesystemObservationSlotBinding)
+    case actorDrainMailboxClosed
+    case terminationAlreadyAdvanced(FilesystemObservationLifecycleStateSnapshot)
+    case debtJoinRejected(FilesystemObservationFleetShutdownDebtJoinRejection)
+}
+
+enum FilesystemFleetShutdownAwaitedActorProgress: Equatable, Sendable {
+    case recoveryContextUnavailable(
+        binding: FilesystemObservationSlotBinding,
+        evidence: FixedFilesystemRecoveryEvidenceRevision
+    )
+}
+
+enum FilesystemObservationFleetShutdownResumeResult: Equatable, Sendable {
+    case incomplete(
+        snapshot: FilesystemObservationFleetShutdownDebtSnapshot,
+        turnPlan: FilesystemObservationFleetShutdownTurnPlan
+    )
+    case awaitingActorProgress(
+        FilesystemFleetShutdownAwaitedActorProgress,
+        snapshot: FilesystemObservationFleetShutdownDebtSnapshot,
+        turnPlan: FilesystemObservationFleetShutdownTurnPlan
+    )
+    case readyForCompletion(FilesystemObservationFleetShutdownDebtSnapshot)
+    case resumeAlreadyInProgress(FilesystemObservationFleetShutdownRetainedDebt)
+    case unavailable(FilesystemObservationFleetShutdownResumeFailure)
+}
+
 enum FilesystemObservationFleetShutdownDebtJoiner {
     static func join(
         mailbox: FilesystemObservationFleetShutdownMailboxDebtSnapshot,
@@ -154,7 +206,7 @@ enum FilesystemObservationFleetShutdownTurnPlanner {
     static func plan(
         _ snapshot: FilesystemObservationFleetShutdownDebtSnapshot
     ) -> FilesystemObservationFleetShutdownTurnPlan {
-        if hasMailboxOwnedProgress(snapshot.mailbox) {
+        if hasMailboxPreDrainProgress(snapshot.mailbox) {
             return .advanceMailbox
         }
         if case .vacant = snapshot.mailbox.activeLease {
@@ -182,6 +234,11 @@ enum FilesystemObservationFleetShutdownTurnPlanner {
         if snapshot.actor.hasReadySourceGate {
             return .beginSourceGateShutdown
         }
+        if snapshot.actor.haveAllSourceGatesBegunShutdown,
+            hasMailboxFinalizationProgress(snapshot.mailbox)
+        {
+            return .advanceMailbox
+        }
         if snapshot.isQuiescent {
             return .readyForCompletion
         }
@@ -193,7 +250,7 @@ enum FilesystemObservationFleetShutdownTurnPlanner {
         )
     }
 
-    private static func hasMailboxOwnedProgress(
+    private static func hasMailboxPreDrainProgress(
         _ mailbox: FilesystemObservationFleetShutdownMailboxDebtSnapshot
     ) -> Bool {
         if !FilesystemObservationFleetShutdownProgressPlanner
@@ -205,10 +262,10 @@ enum FilesystemObservationFleetShutdownTurnPlanner {
         if case .retained = mailbox.genericMailboxDebt.queuedCleanup {
             return true
         }
-        return mailbox.slots.contains(where: hasMailboxOwnedProgress)
+        return mailbox.slots.contains(where: hasMailboxPreDrainProgress)
     }
 
-    private static func hasMailboxOwnedProgress(
+    private static func hasMailboxPreDrainProgress(
         _ slot: FilesystemObservationSlotShutdownDebt
     ) -> Bool {
         guard case .issued(_, let nativeProjection) = slot.nativeOwner else { return false }
@@ -217,18 +274,34 @@ enum FilesystemObservationFleetShutdownTurnPlanner {
             return true
         case .completed:
             switch slot.registry.lifecycle {
-            case .starting, .closingAwaitingCallbackLeaseDrain, .retiringUnpublished:
+            case .starting, .closingAwaitingCallbackLeaseDrain:
                 return true
+            case .retiringUnpublished:
+                return slot.generic.recoveryDisposition == .vacant
             case .retiredAwaitingContextRelease:
-                switch nativeProjection.finalizationPhase {
-                case .awaitingMaterialization, .retainedContext, .retirementPermitRetained,
-                    .finalizing, .finalized:
-                    return true
-                }
+                return false
             case .vacant, .selected, .awaitingAcceptingPublication, .accepting,
                 .closingAwaitingPredecessor, .retirementFencePending,
                 .retirementFenceInstalled, .retirementFenceTransferredAwaitingCleanup:
                 return false
+            }
+        }
+    }
+
+    private static func hasMailboxFinalizationProgress(
+        _ mailbox: FilesystemObservationFleetShutdownMailboxDebtSnapshot
+    ) -> Bool {
+        mailbox.slots.contains { slot in
+            guard case .issued(_, let nativeProjection) = slot.nativeOwner,
+                case .completed = nativeProjection.advancePhase,
+                case .retiredAwaitingContextRelease = slot.registry.lifecycle
+            else {
+                return false
+            }
+            switch nativeProjection.finalizationPhase {
+            case .awaitingMaterialization, .retainedContext, .retirementPermitRetained,
+                .finalizing, .finalized:
+                return true
             }
         }
     }
@@ -239,12 +312,18 @@ enum FilesystemObservationFleetShutdownTurnPlanner {
         if !snapshot.actor.isSemanticTransferQuiescent {
             return true
         }
-        return snapshot.mailbox.genericMailboxDebt.keyDebt.contains { debt in
-            debt.queuedContributionCount > 0
-                || debt.queuedItemCount > 0
-                || debt.queuedByteCount > 0
-                || debt.retryDisposition == .retained
-                || debt.recoveryDisposition != .vacant
-        }
+        return snapshot.mailbox.genericMailboxDebt.keyDebt.contains(
+            where: hasActorDrainCustody
+        )
+    }
+
+    private static func hasActorDrainCustody(
+        _ debt: GatherShutdownKeyDebt<FilesystemObservationPhysicalSlotID>
+    ) -> Bool {
+        debt.queuedContributionCount > 0
+            || debt.queuedItemCount > 0
+            || debt.queuedByteCount > 0
+            || debt.retryDisposition == .retained
+            || debt.recoveryDisposition != .vacant
     }
 }
