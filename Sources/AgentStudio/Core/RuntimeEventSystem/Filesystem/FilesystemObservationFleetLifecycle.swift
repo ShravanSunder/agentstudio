@@ -40,6 +40,27 @@ enum FilesystemObservationFleetIngressFreezeResult: Equatable, Sendable {
     case terminationAlreadyAdvanced(FilesystemObservationLifecycleStateSnapshot)
 }
 
+// swiftlint:disable:next type_name
+enum FilesystemObservationFleetShutdownDebtCaptureResult: Equatable, Sendable {
+    case captured(
+        snapshot: FilesystemObservationFleetShutdownDebtSnapshot,
+        turnPlan: FilesystemObservationFleetShutdownTurnPlan
+    )
+    case shutdownNotBegun
+    case shutdownFreezeInProgress
+    case fleetMailboxMismatch(
+        expected: FilesystemObservationFleetMailboxIdentity,
+        presented: FilesystemObservationFleetMailboxIdentity
+    )
+    case shutdownIdentityMismatch(
+        expected: FilesystemObservationFleetShutdownIdentity,
+        presented: FilesystemObservationFleetShutdownIdentity
+    )
+    case shutdownRejected
+    case terminationAlreadyAdvanced(FilesystemObservationLifecycleStateSnapshot)
+    case debtJoinRejected(FilesystemObservationFleetShutdownDebtJoinRejection)
+}
+
 final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
     private struct ShutdownBinding: Sendable {
         let fleetMailboxIdentity: FilesystemObservationFleetMailboxIdentity
@@ -49,6 +70,14 @@ final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
     private enum ShutdownBindingResolution: Sendable {
         case bound(ShutdownBinding)
         case fleetMailboxMismatch(ShutdownBinding)
+    }
+
+    private enum ShutdownDebtCaptureBindingResolution: Sendable {
+        case bound(ShutdownBinding)
+        case shutdownNotBegun
+        case shutdownFreezeInProgress
+        case fleetMailboxMismatch(ShutdownBinding)
+        case shutdownRejected
     }
 
     private enum State: Sendable {
@@ -128,5 +157,72 @@ final class FilesystemObservationFleetLifecycle: @unchecked Sendable {
             }
         }
         return result
+    }
+
+    func shutdownDebtSnapshot(
+        mailbox: FilesystemObservationMailbox,
+        drainPort: FilesystemObservationFleetShutdownDrainPort
+    ) async -> FilesystemObservationFleetShutdownDebtCaptureResult {
+        let bindingResolution = lock.withLock { state in
+            switch state {
+            case .open:
+                return ShutdownDebtCaptureBindingResolution.shutdownNotBegun
+            case .freezing(let binding):
+                guard binding.fleetMailboxIdentity == mailbox.fleetMailboxIdentity else {
+                    return .fleetMailboxMismatch(binding)
+                }
+                return .shutdownFreezeInProgress
+            case .draining(let binding):
+                guard binding.fleetMailboxIdentity == mailbox.fleetMailboxIdentity else {
+                    return .fleetMailboxMismatch(binding)
+                }
+                return .bound(binding)
+            case .rejected:
+                return .shutdownRejected
+            }
+        }
+
+        let binding: ShutdownBinding
+        switch bindingResolution {
+        case .bound(let retainedBinding):
+            binding = retainedBinding
+        case .shutdownNotBegun:
+            return .shutdownNotBegun
+        case .shutdownFreezeInProgress:
+            return .shutdownFreezeInProgress
+        case .fleetMailboxMismatch(let retainedBinding):
+            return .fleetMailboxMismatch(
+                expected: retainedBinding.fleetMailboxIdentity,
+                presented: mailbox.fleetMailboxIdentity
+            )
+        case .shutdownRejected:
+            return .shutdownRejected
+        }
+
+        let mailboxSnapshot: FilesystemObservationFleetShutdownMailboxDebtSnapshot
+        switch mailbox.fleetShutdownDebtSnapshot(for: binding.shutdownIdentity) {
+        case .applied(let snapshot), .alreadyApplied(let snapshot):
+            mailboxSnapshot = snapshot
+        case .fleetMailboxMismatch(let expected, let presented):
+            return .fleetMailboxMismatch(expected: expected, presented: presented)
+        case .shutdownIdentityMismatch(let expected, let presented):
+            return .shutdownIdentityMismatch(expected: expected, presented: presented)
+        case .terminationAlreadyAdvanced(let lifecycle):
+            return .terminationAlreadyAdvanced(lifecycle)
+        }
+
+        let actorSnapshot = await drainPort.snapshot()
+        switch FilesystemObservationFleetShutdownDebtJoiner.join(
+            mailbox: mailboxSnapshot,
+            actor: actorSnapshot
+        ) {
+        case .joined(let snapshot):
+            return .captured(
+                snapshot: snapshot,
+                turnPlan: FilesystemObservationFleetShutdownTurnPlanner.plan(snapshot)
+            )
+        case .rejected(let rejection):
+            return .debtJoinRejected(rejection)
+        }
     }
 }

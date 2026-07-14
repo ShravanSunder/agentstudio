@@ -6,6 +6,281 @@ import os
 
 @Suite("Filesystem observation fleet shutdown drain port")
 struct FilesystemObservationFleetShutdownDrainPortTests {
+    @Test("full debt capture normalizes actor projections into mailbox slot order")
+    func fullDebtCaptureNormalizesActorProjectionsIntoMailboxSlotOrder() async throws {
+        let fixture = try makeFixture(sourceCount: 3)
+        let actorOrder = [fixture.bindings[2], fixture.bindings[0], fixture.bindings[1]]
+        let harness = try makeHarness(
+            fixture: fixture,
+            bindingsInDeclarationOrder: actorOrder
+        )
+        let lifecycle = FilesystemObservationFleetLifecycle()
+        _ = lifecycle.beginShutdownAndSnapshot(mailbox: fixture.mailbox)
+
+        let result = await lifecycle.shutdownDebtSnapshot(
+            mailbox: fixture.mailbox,
+            drainPort: await harness.fleetShutdownDrainPort
+        )
+
+        guard case .captured(let snapshot, let turnPlan) = result else {
+            Issue.record("full debt capture rejected valid reordered actor coverage: \(result)")
+            return
+        }
+        let mailboxOrder = snapshot.mailbox.slots.map(\.physicalSlotID)
+        #expect(snapshot.actor.semanticReplay.slots.map(\.physicalSlotID) == mailboxOrder)
+        #expect(
+            snapshot.actor.sourceGatesInBindingDeclarationOrder.map(\.binding.physicalSlotID)
+                == mailboxOrder
+        )
+        #expect(turnPlan == .beginSourceGateShutdown)
+        #expect(snapshot.shutdownIdentity.isUUIDv7)
+
+        let incompleteSourceGateActor = FilesystemObservationFleetShutdownActorDebtSnapshot(
+            semanticReplay: snapshot.actor.semanticReplay,
+            sourceGatesInBindingDeclarationOrder: Array(
+                snapshot.actor.sourceGatesInBindingDeclarationOrder.dropLast()
+            )
+        )
+        guard
+            case .rejected(.sourceGateCoverageMismatch(let expectedSlots, let presentedBindings)) =
+                FilesystemObservationFleetShutdownDebtJoiner.join(
+                    mailbox: snapshot.mailbox,
+                    actor: incompleteSourceGateActor
+                )
+        else {
+            Issue.record("incomplete SourceGate coverage produced a full fleet snapshot")
+            return
+        }
+        #expect(expectedSlots == mailboxOrder)
+        #expect(
+            presentedBindings
+                == incompleteSourceGateActor.sourceGatesInBindingDeclarationOrder.map(\.binding)
+        )
+
+        let replay = await lifecycle.shutdownDebtSnapshot(
+            mailbox: fixture.mailbox,
+            drainPort: await harness.fleetShutdownDrainPort
+        )
+        #expect(replay == result)
+    }
+
+    @Test("full debt capture rejects incomplete actor coverage before planning")
+    func fullDebtCaptureRejectsIncompleteActorCoverageBeforePlanning() async throws {
+        let fixture = try makeFixture(sourceCount: 2)
+        let incompleteBindings = [fixture.bindings[1]]
+        let harness = try makeHarness(
+            fixture: fixture,
+            bindingsInDeclarationOrder: incompleteBindings
+        )
+        let lifecycle = FilesystemObservationFleetLifecycle()
+        let mailboxSnapshot = requireAppliedShutdownDebtSnapshot(
+            lifecycle.beginShutdownAndSnapshot(mailbox: fixture.mailbox)
+        )
+
+        let result = await lifecycle.shutdownDebtSnapshot(
+            mailbox: fixture.mailbox,
+            drainPort: await harness.fleetShutdownDrainPort
+        )
+
+        guard case .debtJoinRejected(.semanticSlotCoverageMismatch(let mailbox, let actor)) = result
+        else {
+            Issue.record("incomplete actor coverage produced a plan: \(result)")
+            return
+        }
+        #expect(mailbox == mailboxSnapshot.slots.map(\.physicalSlotID))
+        #expect(actor == incompleteBindings.map(\.physicalSlotID))
+    }
+
+    @Test("full debt join rejects foreign SourceGate fleet identity before planning")
+    func fullDebtJoinRejectsForeignSourceGateFleetIdentityBeforePlanning() async throws {
+        let fixture = try makeFixture(sourceCount: 1)
+        let foreignFixture = try makeFixture(sourceCount: 1)
+        let harness = try makeHarness(fixture: fixture)
+        let snapshot = await requireCapturedDebt(fixture: fixture, harness: harness)
+        let sourceGate = try #require(snapshot.actor.sourceGatesInBindingDeclarationOrder.first)
+        let originalBinding = sourceGate.binding
+        let foreignBinding = FilesystemObservationSlotBinding(
+            fleetMailboxIdentity: foreignFixture.mailbox.fleetMailboxIdentity,
+            physicalSlotID: originalBinding.physicalSlotID,
+            identity: originalBinding.identity,
+            registration: originalBinding.registration,
+            controlBlockIdentity: originalBinding.controlBlockIdentity
+        )
+        let foreignSourceGate = FilesystemSourceGateShutdownDebtSnapshot(
+            binding: foreignBinding,
+            repairLifecycle: sourceGate.repairLifecycle,
+            mailboxRecoveryReplay: sourceGate.mailboxRecoveryReplay,
+            continuityRepairReplay: sourceGate.continuityRepairReplay
+        )
+        let foreignActor = FilesystemObservationFleetShutdownActorDebtSnapshot(
+            semanticReplay: snapshot.actor.semanticReplay,
+            sourceGatesInBindingDeclarationOrder: [foreignSourceGate]
+        )
+
+        let joinResult = FilesystemObservationFleetShutdownDebtJoiner.join(
+            mailbox: snapshot.mailbox,
+            actor: foreignActor
+        )
+
+        #expect(
+            joinResult
+                == .rejected(
+                    .sourceGateFleetMailboxMismatch(
+                        expected: fixture.mailbox.fleetMailboxIdentity,
+                        presentedBindings: [foreignBinding]
+                    )
+                )
+        )
+    }
+
+    @Test("detached desired custody waits instead of falsely advancing mailbox")
+    func detachedDesiredCustodyWaitsInsteadOfFalselyAdvancingMailbox() async throws {
+        let fixture = try makeFixture(sourceCount: 1)
+        let harness = try makeHarness(fixture: fixture)
+        let snapshot = await requireCapturedDebt(fixture: fixture, harness: harness)
+        let sourceGate = try #require(snapshot.actor.sourceGatesInBindingDeclarationOrder.first)
+        let registration = fixture.registrations[0]
+        let detachedDesired = FilesystemObservationDesiredShutdownReference(
+            sourceID: registration.sourceID,
+            registration: registration,
+            desiredIdentity: FilesystemObservationDesiredIdentity(value: UUIDv7.generate()),
+            acceptedTopologyRevision: FilesystemObservationAcceptedTopologyRevision(value: 1)
+        )
+        let detachedCustody = FilesystemObservationPendingDesiredShutdownCustody(
+            desired: detachedDesired,
+            continuityRepair: .absent
+        )
+        let desiredCustody = FilesystemObservationDesiredShutdownCustody(
+            deferredFIFO: [],
+            pendingInDeclaredSlotOrder: [],
+            pendingInDeferredFIFOOrder: [],
+            detachedPending: FilesystemObservationDetachedPendingShutdownInventory(
+                pendingBySourceID: [registration.sourceID: detachedCustody]
+            )
+        )
+        let mailbox = FilesystemObservationFleetShutdownMailboxDebtSnapshot(
+            fleetMailboxIdentity: snapshot.mailbox.fleetMailboxIdentity,
+            shutdownIdentity: snapshot.mailbox.shutdownIdentity,
+            fleetIngressLifecycle: snapshot.mailbox.fleetIngressLifecycle,
+            fleetOrdinaryAdmissionDisposition: snapshot.mailbox.fleetOrdinaryAdmissionDisposition,
+            mailboxLifecycle: snapshot.mailbox.mailboxLifecycle,
+            slots: snapshot.mailbox.slots,
+            desiredCustody: desiredCustody,
+            activeLease: snapshot.mailbox.activeLease,
+            pendingWholeLeaseCompletion: snapshot.mailbox.pendingWholeLeaseCompletion,
+            genericMailboxDebt: snapshot.mailbox.genericMailboxDebt,
+            retirementFenceReadyFIFO: snapshot.mailbox.retirementFenceReadyFIFO,
+            isQuiescent: false
+        )
+        let actor = FilesystemObservationFleetShutdownActorDebtSnapshot(
+            semanticReplay: snapshot.actor.semanticReplay,
+            sourceGatesInBindingDeclarationOrder: [
+                FilesystemSourceGateShutdownDebtSnapshot(
+                    binding: sourceGate.binding,
+                    repairLifecycle: .repairAdmissionOpen(.noOutstandingRepair),
+                    mailboxRecoveryReplay: .vacant,
+                    continuityRepairReplay: sourceGate.continuityRepairReplay
+                )
+            ]
+        )
+
+        let turnPlan = FilesystemObservationFleetShutdownTurnPlanner.plan(
+            FilesystemObservationFleetShutdownDebtSnapshot(mailbox: mailbox, actor: actor)
+        )
+
+        #expect(turnPlan == .beginSourceGateShutdown)
+    }
+
+    @Test("queued observation produces one actor-drain turn plan")
+    func queuedObservationProducesOneActorDrainTurnPlan() async throws {
+        let fixture = try makeFixture(sourceCount: 1)
+        expectRetainedCallback(
+            try fixture.fixture.admitCallback(
+                .authoritative(
+                    try makeObservation(
+                        registration: fixture.registrations[0],
+                        path: "/fleet-shutdown-plan/actor-drain",
+                        eventID: 1
+                    )
+                ),
+                for: fixture.registrations[0]
+            )
+        )
+        let harness = try makeHarness(fixture: fixture)
+        let lifecycle = FilesystemObservationFleetLifecycle()
+        _ = lifecycle.beginShutdownAndSnapshot(mailbox: fixture.mailbox)
+
+        let result = await lifecycle.shutdownDebtSnapshot(
+            mailbox: fixture.mailbox,
+            drainPort: await harness.fleetShutdownDrainPort
+        )
+
+        guard case .captured(let snapshot, .advanceMailbox) = result else {
+            Issue.record("queued observation did not produce a full debt plan: \(result)")
+            return
+        }
+        let originalSlot = try #require(snapshot.mailbox.slots.first)
+        let actorDrainSlot = FilesystemObservationSlotShutdownDebt(
+            physicalSlotID: originalSlot.physicalSlotID,
+            registry: originalSlot.registry,
+            nativeOwner: .vacant,
+            retryEvidence: originalSlot.retryEvidence,
+            recoveryEvidence: originalSlot.recoveryEvidence,
+            generic: originalSlot.generic,
+            completedReleaseReplay: originalSlot.completedReleaseReplay
+        )
+        let actorDrainMailbox = FilesystemObservationFleetShutdownMailboxDebtSnapshot(
+            fleetMailboxIdentity: snapshot.mailbox.fleetMailboxIdentity,
+            shutdownIdentity: snapshot.mailbox.shutdownIdentity,
+            fleetIngressLifecycle: snapshot.mailbox.fleetIngressLifecycle,
+            fleetOrdinaryAdmissionDisposition: snapshot.mailbox.fleetOrdinaryAdmissionDisposition,
+            mailboxLifecycle: snapshot.mailbox.mailboxLifecycle,
+            slots: [actorDrainSlot],
+            desiredCustody: snapshot.mailbox.desiredCustody,
+            activeLease: snapshot.mailbox.activeLease,
+            pendingWholeLeaseCompletion: snapshot.mailbox.pendingWholeLeaseCompletion,
+            genericMailboxDebt: snapshot.mailbox.genericMailboxDebt,
+            retirementFenceReadyFIFO: snapshot.mailbox.retirementFenceReadyFIFO,
+            isQuiescent: false
+        )
+        let actorDrainSnapshot = FilesystemObservationFleetShutdownDebtSnapshot(
+            mailbox: actorDrainMailbox,
+            actor: snapshot.actor
+        )
+
+        #expect(
+            FilesystemObservationFleetShutdownTurnPlanner.plan(actorDrainSnapshot)
+                == .advanceActorDrain
+        )
+    }
+
+    @Test("full debt capture distinguishes shutdown not begun and foreign mailbox")
+    func fullDebtCaptureDistinguishesNotBegunAndForeignMailbox() async throws {
+        let fixture = try makeFixture(sourceCount: 1)
+        let foreignFixture = try makeFixture(sourceCount: 1)
+        let harness = try makeHarness(fixture: fixture)
+        let lifecycle = FilesystemObservationFleetLifecycle()
+        let port = await harness.fleetShutdownDrainPort
+
+        #expect(
+            await lifecycle.shutdownDebtSnapshot(mailbox: fixture.mailbox, drainPort: port)
+                == .shutdownNotBegun
+        )
+        _ = lifecycle.beginShutdownAndSnapshot(mailbox: fixture.mailbox)
+        guard
+            case .fleetMailboxMismatch(let expected, let presented) =
+                await lifecycle.shutdownDebtSnapshot(
+                    mailbox: foreignFixture.mailbox,
+                    drainPort: port
+                )
+        else {
+            Issue.record("foreign mailbox was not rejected by retained lifecycle binding")
+            return
+        }
+        #expect(expected == fixture.mailbox.fleetMailboxIdentity)
+        #expect(presented == foreignFixture.mailbox.fleetMailboxIdentity)
+    }
+
     @Test("snapshot preserves binding declaration order and remains exact")
     func snapshotPreservesBindingDeclarationOrderAndRemainsExact() async throws {
         let fixture = try makeFixture(sourceCount: 3)
@@ -531,6 +806,23 @@ struct FilesystemObservationFleetShutdownDrainPortTests {
             consumerPort: consumerPort,
             recoveryContextResolver: recoveryContextResolver
         )
+    }
+
+    private func requireCapturedDebt(
+        fixture: Fixture,
+        harness: FilesystemObservationDrainHarnessActor
+    ) async -> FilesystemObservationFleetShutdownDebtSnapshot {
+        let lifecycle = FilesystemObservationFleetLifecycle()
+        _ = lifecycle.beginShutdownAndSnapshot(mailbox: fixture.mailbox)
+        let result = await lifecycle.shutdownDebtSnapshot(
+            mailbox: fixture.mailbox,
+            drainPort: await harness.fleetShutdownDrainPort
+        )
+        guard case .captured(let snapshot, _) = result else {
+            Issue.record("arrange failed to capture complete fleet shutdown debt: \(result)")
+            preconditionFailure("Expected complete fleet shutdown debt")
+        }
+        return snapshot
     }
 
     private func admitRepair(

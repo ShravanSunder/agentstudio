@@ -3,11 +3,24 @@ struct FilesystemObservationFleetShutdownActorDebtSnapshot: Equatable, Sendable 
     let semanticReplay: FilesystemObservationSemanticShutdownDebtSnapshot
     let sourceGatesInBindingDeclarationOrder: [FilesystemSourceGateShutdownDebtSnapshot]
 
-    var isQuiescent: Bool {
+    var isSemanticTransferQuiescent: Bool {
         semanticReplay.isQuiescent
-            && sourceGatesInBindingDeclarationOrder.allSatisfy {
-                $0.shutdownBeginReadiness == .alreadyBegan
-            }
+    }
+
+    var hasReadySourceGate: Bool {
+        sourceGatesInBindingDeclarationOrder.contains {
+            $0.shutdownBeginReadiness == .ready
+        }
+    }
+
+    var haveAllSourceGatesBegunShutdown: Bool {
+        sourceGatesInBindingDeclarationOrder.allSatisfy {
+            $0.shutdownBeginReadiness == .alreadyBegan
+        }
+    }
+
+    var isQuiescent: Bool {
+        isSemanticTransferQuiescent && haveAllSourceGatesBegunShutdown
     }
 }
 
