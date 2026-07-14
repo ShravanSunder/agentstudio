@@ -244,12 +244,64 @@ struct FilesystemSourceGate: Sendable {
     private(set) var state: FilesystemSourceGateState
     private var nextRepairSequence: UInt64
     private var mailboxRecoveryReplay: MailboxRecoveryReplayShell
+    private var continuityRepairHandoffReplay: FilesystemSourceGateContinuityRepairReplay
 
     init(binding: FilesystemObservationSlotBinding) {
         self.binding = binding
         state = .healthy(binding.registration)
         nextRepairSequence = 0
         mailboxRecoveryReplay = .vacant
+        continuityRepairHandoffReplay = FilesystemSourceGateContinuityRepairReplay()
+    }
+
+    mutating func acceptContinuityRepairHandoff(
+        _ authority: FilesystemContinuityRepairHandoffAuthority,
+        trigger: FilesystemRepairTriggerClass,
+        watermark: FilesystemRepairWatermark,
+        participants: Set<FilesystemRepairParticipantToken>
+    ) -> FilesystemSourceGateHandoffAdmissionResult {
+        guard authority.acceptingBinding == binding else {
+            return .bindingMismatch
+        }
+        switch continuityRepairHandoffReplay.compare(
+            authority: authority,
+            trigger: trigger,
+            watermark: watermark,
+            participants: participants
+        ) {
+        case .vacant:
+            break
+        case .identical(let acceptance):
+            return .admitted(acceptance)
+        case .conflict(let conflict):
+            return .retainedRequestConflict(conflict)
+        }
+        if case .shuttingDown = state { return .shuttingDown }
+        switch recordRepair(
+            trigger: trigger,
+            watermark: watermark,
+            participants: participants
+        ) {
+        case .admitted(let repairGeneration):
+            let acceptance = FilesystemSourceGateContinuityRepairAcceptance(
+                authority: authority,
+                repairGeneration: repairGeneration
+            )
+            continuityRepairHandoffReplay.retain(
+                authority: authority,
+                trigger: trigger,
+                watermark: watermark,
+                participants: participants,
+                acceptance: acceptance
+            )
+            return .admitted(acceptance)
+        case .rejected(let rejection):
+            return .rejected(rejection)
+        case .generationExhausted:
+            return .generationExhausted
+        case .shuttingDown:
+            return .shuttingDown
+        }
     }
 
     mutating func acceptMailboxRecovery(

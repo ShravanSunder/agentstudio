@@ -143,6 +143,235 @@ struct FilesystemSourceGateTests {
         #expect(gate.state == .dirty(acceptance.repairGeneration))
     }
 
+    @Test("continuity repair handoff replay returns the exact retained acceptance")
+    func continuityRepairHandoffReplayIsIdempotent() {
+        // Arrange
+        let registration = makeRegistration()
+        let binding = makeSlotBinding(registration: registration)
+        let authority = makeContinuityRepairHandoffAuthority(
+            acceptingBinding: binding,
+            acceptedTopologyRevision: 71
+        )
+        var gate = FilesystemSourceGate(binding: binding)
+        let participants = makeRequiredParticipants(for: registration.sourceID.kind)
+        let watermark = FilesystemRepairWatermark.recoveryRevision(72)
+
+        // Act
+        let firstResult = gate.acceptContinuityRepairHandoff(
+            authority,
+            trigger: .continuityLoss,
+            watermark: watermark,
+            participants: participants
+        )
+        let replayResult = gate.acceptContinuityRepairHandoff(
+            authority,
+            trigger: .continuityLoss,
+            watermark: watermark,
+            participants: participants
+        )
+
+        // Assert
+        guard case .admitted(let firstAcceptance) = firstResult else {
+            Issue.record("continuity repair handoff was not admitted: \(firstResult)")
+            return
+        }
+        guard case .admitted(let replayAcceptance) = replayResult else {
+            Issue.record("continuity repair handoff replay was not admitted: \(replayResult)")
+            return
+        }
+        #expect(firstAcceptance.matches(authority))
+        #expect(replayAcceptance == firstAcceptance)
+        #expect(replayResult == firstResult)
+        #expect(firstAcceptance.repairGeneration.id.registration == registration)
+        #expect(firstAcceptance.repairGeneration.id.sequence == 0)
+        #expect(gate.state == .dirty(firstAcceptance.repairGeneration))
+
+        let followingResult = gate.recordRepair(
+            trigger: .callbackGateOverflow,
+            watermark: .recoveryRevision(73),
+            participants: participants
+        )
+        guard case .admitted(let followingRepair) = followingResult else {
+            Issue.record("following repair was not admitted: \(followingResult)")
+            return
+        }
+        #expect(followingRepair.id.sequence == firstAcceptance.repairGeneration.id.sequence + 1)
+    }
+
+    @Test("continuity repair handoff rejects a foreign accepting binding before mutation")
+    func continuityRepairHandoffRejectsForeignBindingBeforeMutation() {
+        // Arrange
+        let registration = makeRegistration()
+        let acceptedBinding = makeSlotBinding(registration: registration)
+        let foreignAuthority = makeContinuityRepairHandoffAuthority(
+            acceptingBinding: makeSlotBinding(registration: registration),
+            acceptedTopologyRevision: 81
+        )
+        var gate = FilesystemSourceGate(binding: acceptedBinding)
+        let participants = makeRequiredParticipants(for: registration.sourceID.kind)
+
+        // Act
+        let result = gate.acceptContinuityRepairHandoff(
+            foreignAuthority,
+            trigger: .continuityLoss,
+            watermark: .recoveryRevision(82),
+            participants: participants
+        )
+
+        // Assert
+        #expect(result == .bindingMismatch)
+        #expect(gate.state == .healthy(registration))
+
+        let acceptedAuthority = makeContinuityRepairHandoffAuthority(
+            acceptingBinding: acceptedBinding,
+            acceptedTopologyRevision: 81
+        )
+        let acceptedResult = gate.acceptContinuityRepairHandoff(
+            acceptedAuthority,
+            trigger: .continuityLoss,
+            watermark: .recoveryRevision(82),
+            participants: participants
+        )
+        guard case .admitted(let acceptance) = acceptedResult else {
+            Issue.record("valid handoff after foreign rejection was not admitted: \(acceptedResult)")
+            return
+        }
+        #expect(acceptance.repairGeneration.id.sequence == 0)
+    }
+
+    @Test("retained continuity repair handoff rejects foreign authority and changed request")
+    func retainedContinuityRepairHandoffRejectsConflictsWithoutMutation() {
+        // Arrange
+        let registration = makeRegistration()
+        let binding = makeSlotBinding(registration: registration)
+        let authority = makeContinuityRepairHandoffAuthority(
+            acceptingBinding: binding,
+            acceptedTopologyRevision: 91
+        )
+        var gate = FilesystemSourceGate(binding: binding)
+        let participants = makeRequiredParticipants(for: registration.sourceID.kind)
+        let acceptedResult = gate.acceptContinuityRepairHandoff(
+            authority,
+            trigger: .continuityLoss,
+            watermark: .recoveryRevision(92),
+            participants: participants
+        )
+        guard case .admitted(let acceptance) = acceptedResult else {
+            Issue.record("continuity repair handoff was not admitted: \(acceptedResult)")
+            return
+        }
+        let foreignAuthority = FilesystemContinuityRepairHandoffAuthority(
+            acceptingBinding: authority.acceptingBinding,
+            handoffIdentity: FilesystemContinuityRepairHandoffIdentity(value: UUIDv7.generate()),
+            desiredIdentity: authority.desiredIdentity,
+            acceptedTopologyRevision: authority.acceptedTopologyRevision
+        )
+        let changedParticipants = participants.union([
+            makeParticipant(.contentConsumer, generation: 93)
+        ])
+
+        // Act
+        let foreignAuthorityResult = gate.acceptContinuityRepairHandoff(
+            foreignAuthority,
+            trigger: .continuityLoss,
+            watermark: .recoveryRevision(92),
+            participants: participants
+        )
+        let changedRequestResult = gate.acceptContinuityRepairHandoff(
+            authority,
+            trigger: .callbackGateOverflow,
+            watermark: .recoveryRevision(94),
+            participants: changedParticipants
+        )
+
+        // Assert
+        guard case .retainedRequestConflict(let authorityConflict) = foreignAuthorityResult else {
+            Issue.record("foreign retained handoff authority was not rejected: \(foreignAuthorityResult)")
+            return
+        }
+        guard case .retainedRequestConflict(let requestConflict) = changedRequestResult else {
+            Issue.record("changed retained handoff request was not rejected: \(changedRequestResult)")
+            return
+        }
+        #expect(authorityConflict.mismatches == [.authority])
+        #expect(requestConflict.mismatches == [.trigger, .watermark, .participants])
+        #expect(gate.state == .dirty(acceptance.repairGeneration))
+
+        let followingResult = gate.recordRepair(
+            trigger: .callbackGateOverflow,
+            watermark: .recoveryRevision(95),
+            participants: participants
+        )
+        guard case .admitted(let followingRepair) = followingResult else {
+            Issue.record("following repair was not admitted: \(followingResult)")
+            return
+        }
+        #expect(followingRepair.id.sequence == acceptance.repairGeneration.id.sequence + 1)
+    }
+
+    @Test("shutdown rejects continuity repair handoff without mutation")
+    func shutdownRejectsContinuityRepairHandoffWithoutMutation() {
+        // Arrange
+        let registration = makeRegistration()
+        let binding = makeSlotBinding(registration: registration)
+        let authority = makeContinuityRepairHandoffAuthority(
+            acceptingBinding: binding,
+            acceptedTopologyRevision: 101
+        )
+        var gate = FilesystemSourceGate(binding: binding)
+        #expect(gate.beginShutdown() == .applied)
+        let shutdownState = gate.state
+
+        // Act
+        let result = gate.acceptContinuityRepairHandoff(
+            authority,
+            trigger: .continuityLoss,
+            watermark: .recoveryRevision(102),
+            participants: makeRequiredParticipants(for: registration.sourceID.kind)
+        )
+
+        // Assert
+        #expect(result == .shuttingDown)
+        #expect(gate.state == shutdownState)
+    }
+
+    @Test("shutdown replays an exact continuity repair handoff admitted before shutdown")
+    func shutdownReplaysRetainedContinuityRepairHandoff() {
+        // Arrange
+        let registration = makeRegistration()
+        let binding = makeSlotBinding(registration: registration)
+        let authority = makeContinuityRepairHandoffAuthority(
+            acceptingBinding: binding,
+            acceptedTopologyRevision: 111
+        )
+        var gate = FilesystemSourceGate(binding: binding)
+        let participants = makeRequiredParticipants(for: registration.sourceID.kind)
+        let firstResult = gate.acceptContinuityRepairHandoff(
+            authority,
+            trigger: .continuityLoss,
+            watermark: .recoveryRevision(112),
+            participants: participants
+        )
+        guard case .admitted = firstResult else {
+            Issue.record("continuity repair handoff was not admitted: \(firstResult)")
+            return
+        }
+        #expect(gate.beginShutdown() == .applied)
+        let shutdownState = gate.state
+
+        // Act
+        let replayResult = gate.acceptContinuityRepairHandoff(
+            authority,
+            trigger: .continuityLoss,
+            watermark: .recoveryRevision(112),
+            participants: participants
+        )
+
+        // Assert
+        #expect(replayResult == firstResult)
+        #expect(gate.state == shutdownState)
+    }
+
     @Test("reconciliation completion waits for every captured acknowledgement")
     func reconciliationCompletionDoesNotClearRepairDebt() throws {
         var gate = makeSourceGate()
@@ -613,6 +842,18 @@ struct FilesystemSourceGateTests {
             identity: FilesystemObservationSlotBindingIdentity(value: UUIDv7.generate()),
             registration: registration,
             controlBlockIdentity: FilesystemObservationControlBlockIdentity(value: UUIDv7.generate())
+        )
+    }
+
+    private func makeContinuityRepairHandoffAuthority(
+        acceptingBinding: FilesystemObservationSlotBinding,
+        acceptedTopologyRevision: UInt64
+    ) -> FilesystemContinuityRepairHandoffAuthority {
+        FilesystemContinuityRepairHandoffAuthority(
+            acceptingBinding: acceptingBinding,
+            handoffIdentity: FilesystemContinuityRepairHandoffIdentity(value: UUIDv7.generate()),
+            desiredIdentity: FilesystemObservationDesiredIdentity(value: UUIDv7.generate()),
+            acceptedTopologyRevision: acceptedTopologyRevision
         )
     }
 
