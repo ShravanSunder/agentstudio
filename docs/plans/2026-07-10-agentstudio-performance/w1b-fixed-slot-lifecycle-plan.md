@@ -289,6 +289,14 @@ atomic gate. The integration gate re-reads one exhaustive D1+D2a registry
 transition table and C's fixed-shell contract without composing either into the
 mailbox.
 
+D2a's committed native custody is consumed only through one fixed per-slot
+native owner. Its closed `NativeCreationState` owns create-or-abandon; after
+creation, its closed `NativeStartRight` owns start-or-abandon-after-create. No
+copyable binding/lifetime value may call native create or start directly. The
+owner survives cancellation and lost responses; cleanup values return evidence
+and expose no callback-context release operation. Deinit cannot release retained
+context.
+
 `FilesystemObservationSlotRegistry` is a non-locking mutable state owner accessed
 only while `FilesystemObservationMailboxCore` holds the mailbox coordination lock.
 It never owns a second lock. Native create/start/stop/invalidate/barrier and
@@ -600,6 +608,27 @@ D2c is a serial registry-integration slice distributed across the owners that
 make its transitions legitimate; it is not a pre-interface registry task and
 is not a prerequisite for C or D2b.
 
+Modify together for this focused hard cut:
+
+- `FilesystemObservationSlotRegistryContracts.swift` for same-source
+  `install | replace(exact prior binding) | remove(exact prior binding)`, strict
+  post-start/unpublished/repair-handoff unions, and
+  `installedAwaitingContinuityRepair`;
+- `FilesystemObservationSlotRegistry.swift` for exact prior classification,
+  successful-start publication, retained close obligations, desired-record
+  repair custody, and handoff acknowledgement;
+- `FilesystemObservationMailboxCore.swift` and mailbox contracts for
+  `awaitingAcceptingPublication`, exact unpublished final receipt, and the typed
+  D3 permit join;
+- `DarwinFSEventRegistrationGeneration.swift` for the persistent native owner,
+  one-shot create/start rights, zero-callback unpublished quiescence, and removal
+  of direct/deinit context release;
+- `FilesystemSourceGate.swift` for one exact idempotent
+  `ContinuityRepairHandoffAuthority` admission that replays the same acceptance
+  and repair generation after cancellation/lost response;
+- focused lifecycle, receipt/currentness, SourceGate, compiler, and controlled-
+  start tests. Production `FilesystemActor` remains unchanged until W2b.
+
 - Atomic E/F1/G1 supplies the real native generation, paired callback port,
   start publication, callback-close, and exact lease-drain receipt required for
   `starting -> accepting -> closingAwaitingCallbackLeaseDrain`.
@@ -611,6 +640,42 @@ is not a prerequisite for C or D2b.
   cleanup predicate, and retirement receipt required for
   `retirementFenceInstalled -> retirementFenceTransferredAwaitingCleanup ->
   retiredAwaitingContextRelease`.
+
+Configuration intent remains source-ID keyed. `replace` rejects a prior binding
+whose source ID differs from the desired configuration. A cross-kind accepted
+topology revision is old-source `remove` plus new-source `install`, producing two
+existing source-ID-keyed receipt entries; no configuration-operation UUID or
+receipt redesign is permitted.
+
+Successful `FSEventStreamStart` always reaches exact-owner accepting publication
+before pending removal/supersession closes anything. Publication atomically
+retains `current | closePredecessor | closePublished | closePredecessorAndPublished`.
+Semantic transfer while merely `starting` returns
+`awaitingAcceptingPublication`. Failed/abandoned create/start routes prove zero
+callback/generic/semantic custody and never enter H2.
+
+When no continuous prior exists, retain one `PendingContinuityRepairState` on
+the existing desired record:
+
+```text
+pending(authority)
+handoffInFlight(acceptingBinding, UUIDv7 handoffAuthority,
+                desiredIdentity, topologyRevision,
+                sameDesired | superseded(newAuthority) | removed(authority))
+```
+
+The registry installs `handoffInFlight` before SourceGate admission. SourceGate
+must return the same acceptance and repair generation for the same exact handoff
+authority. Registry acknowledgement transfers custody once and resolves the
+closed successor; stale results cannot clear/recreate newer desired custody.
+Pending removal consumes without a scan. Removal/supersession after handoff
+starts cannot cancel or duplicate binding-local repair.
+
+Publishing an accepting binding with this repair emits
+`installedAwaitingContinuityRepair`, which represents one source ID and derives
+non-current retry membership. Exact SourceGate repair completion and every
+participant acknowledgement publish the compact product-current transition;
+`.installed` cannot be emitted while that repair remains pending or in flight.
 
 The registry remains the sole mutable slot-state owner and lock-linearization
 point, but consumes those opaque authorities instead of minting or simulating
@@ -629,13 +694,32 @@ and that transferred-awaiting-cleanup remains retiring, slot-occupying,
 predecessor-ordering, and non-reusable. No placeholder port, receipt, fence,
 SourceGate acceptance, or surrogate issuer is permitted to make D2c earlier.
 
+The D2c proof matrix adds deterministic pauses at: before native create, before
+native start, after successful start/before publication, after desired-record
+handoff retention, after SourceGate mutation/before registry acknowledgement,
+and before D3 acknowledgement apply. It proves create/start abandonment,
+create/start rejection, created-never-started closure, safe-prior retention,
+repair-required absence, same-source replace rejection, cross-kind remove plus
+install receipts, exact handoff replay, supersession/removal during handoff,
+non-current installed-repairing receipts, and lost-response replay without
+`Task.sleep`.
+
 ### D3 — Release-once, acknowledgement, tombstone, binding reuse
 
 Extend the native generation/control block and slot registry after H2 freezes the
 receipt authority and D2c completes the authority-backed lifecycle table.
 
-The native owner consumes the exact final receipt, releases retained callback
-context once, then mints and retains the exact UUIDv7 release acknowledgement.
+The native owner consumes exactly one strict permit:
+
+```text
+NativeRetirementPermit
+  = fenceBacked(existing H2 final receipt)
+  | unpublished(exact unpublished final receipt)
+```
+
+The native owner releases retained callback context once or records exact
+never-materialized finalization, then mints and retains the exact UUIDv7 release
+acknowledgement with the same permit-lineage discriminant.
 No other owner can construct it. The registry applies it once, installs one
 fixed completion tombstone, returns `alreadyApplied` for lost/repeated response
 while vacant, and returns typed stale after reuse. D3 is the only owner allowed
@@ -645,12 +729,13 @@ acknowledged vacant state can later participate in another native-lifetime
 commitment, issue a new UUIDv7 binding, and rebind the corresponding fixed
 recovery shell.
 
-RED/GREEN proves receipt alone cannot recycle; acknowledgement cannot mint before
-native release-once; matching acknowledgement applies once; foreign binding,
-fence, or release identity does nothing; no rebind occurs before acknowledgement;
-rebind installs a new exact binding; old binding/custody/receipt/acknowledgement
-is stale; and native context release remains exactly once. Deinit is not the
-oracle.
+RED/GREEN proves neither H2 nor unpublished receipt alone can recycle;
+acknowledgement cannot mint before native release-once/finalization; matching
+acknowledgement applies once; foreign binding, permit lineage, fence, or release
+identity does nothing; pending desired-record repair survives unpublished D3;
+no rebind occurs before acknowledgement; rebind installs a new exact binding;
+old binding/custody/receipt/acknowledgement is stale; and native context release
+remains exactly once. Deinit is not the oracle.
 
 ### F3 — Fleet shutdown debt and deterministic resume
 

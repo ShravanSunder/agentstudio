@@ -818,6 +818,10 @@ struct FilesystemSourceConfigurationReceipt: Sendable {
 
 enum FilesystemSourceConfigurationDisposition: Sendable {
     case installed(FSEventRegistrationToken)
+    case installedAwaitingContinuityRepair(
+        FSEventRegistrationToken,
+        ContinuityRepairHandoffAuthority
+    )
     case unchanged(FSEventRegistrationToken)
     case removalComplete
     case deferred(FilesystemSourceConfigurationDeferredDisposition)
@@ -879,9 +883,13 @@ registration/filter-load concurrency, token generation, and stale rejection.
 Every requested source receives exactly one disposition; an omitted dictionary
 entry is invalid. `FilesystemSourceConfigurationCurrentness` is a total derived
 projection: its retry set contains exactly the source IDs whose disposition is
-`.deferred(.nonCurrent)` or `.failed(.nonCurrent)`. No initializer accepts an
-independent currentness value, so retained-current-plus-retry and closed-non-
-current-without-retry receipts are unrepresentable.
+`.installedAwaitingContinuityRepair`, `.deferred(.nonCurrent)`, or
+`.failed(.nonCurrent)`. `installedAwaitingContinuityRepair` proves native
+installation and accepting publication but retains non-current retry membership
+until the exact SourceGate repair generation and every participant
+acknowledgement complete. No initializer accepts an independent currentness
+value, so retained-current-plus-retry and closed-non-current-without-retry
+receipts are unrepresentable.
 
 Deferred or failed sources retain old authority only when accepted topology
 still requests identical canonical root, source kind, authorization scope, and

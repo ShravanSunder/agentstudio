@@ -25,6 +25,41 @@ Implement the accepted AgentStudio performance-boundary specs and reviewed plans
 
 ## Review-cycle ledger
 
+- D2c/D3 focused lifecycle reconvergence, 2026-07-13: implementation source
+  proved three accepted assumptions incomplete. Source-kind changes have no
+  implicit logical correlation key because kind is part of `FilesystemSourceID`;
+  native commitment has no consumed create-or-abandon right; and `.starting`
+  callback custody can enter the mailbox before accepting publication while
+  whole-lease transfer lacks a publication-eligibility check. Direct cleanup
+  context release also bypasses D3. Product edits are frozen while the focused
+  contract is aligned. Focused review plus the local FSEvents SDK corrected the
+  initial draft: callbacks begin only after successful native start, so every
+  unpublished route proves zero callback/mailbox custody and no second consumer
+  exists. The revised recommendation uses explicit exact-prior configuration
+  intents, one fixed per-binding native owner with separate one-shot create and
+  start rights, `createdNeverStartedClosed` withdrawal, atomic accepting
+  publication with a complete retained close-obligation disposition, one
+  bounded desired-record continuity requirement handed to the next accepting
+  binding when prior continuity is absent, same-source exact replacement with
+  cross-kind change represented as old-source removal plus new-source install
+  through existing source-ID-keyed receipts, and one D3
+  permit/acknowledgement union that keeps H2 semantically unchanged. Raw context
+  release from cleanup or deinitialization is forbidden. Revised draft:
+  `tmp/spec-workflows/2026-07-13-d2c-d3-lifecycle-reconvergence/focused-lifecycle-amendment.md`.
+  Broad spec review `2/2` and broad plan review `1/1` remain closed.
+  The user-approved smaller correction keeps UUIDv7 for native/lifecycle
+  lineage but removes the proposed cross-source configuration-operation UUID:
+  replacement is same-source only and cross-kind change is old-source removal
+  plus new-source install. One final focused review cycle found and the parent
+  validated two type-surface gaps: SourceGate handoff needed exact idempotent
+  replay, and accepting-plus-repair needed an honest non-current configuration
+  disposition. The one remediation adds fixed `pending | handoffInFlight`
+  desired-record custody and `installedAwaitingContinuityRepair`; it adds no
+  actor, task, map, EventBus route, MainActor work, or ownership boundary. The
+  correction is folded into the maintained specs and D2c/D3 plan; implementation
+  resumes at D2c. Review reduction:
+  `tmp/spec-workflows/2026-07-13-d2c-d3-lifecycle-reconvergence/final-focused-review-reduction.md`.
+
 - H2 exact transfer checkpoint, 2026-07-13: dormant whole-lease transfer now
   requires exact semantic acceptance, exact SourceGate acceptance when recovery
   exists, and one opaque combined authority before generic acknowledgement.

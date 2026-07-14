@@ -204,6 +204,7 @@ and bound-plus-one calibration must cover both bindings together.
 ```text
 FilesystemObservationReplacementResult
   = installed(binding)
+  | installedAwaitingContinuityRepair(binding, repairHandoffAuthority)
   | deferredRetainingCurrent(existingBinding, desiredIdentity, reason)
   | deferredNonCurrent(desiredIdentity, reason)
   | failedRetainingCurrent(existingBinding, desiredIdentity, stage)
@@ -215,6 +216,9 @@ stage = reserve | create | start
 
   Only `deferredRetainingCurrent` and `failedRetainingCurrent` preserve old
   authority/currentness; unsafe or absent N uses the non-current cases.
+  `installedAwaitingContinuityRepair` proves native installation and accepting
+  publication but derives non-current retry membership until the exact repair
+  generation and every participant acknowledgement complete.
 - Deferred desired state and reservation results are closed:
 
 ```text
@@ -263,20 +267,19 @@ FilesystemObservationDesiredWithdrawalResult
   its exact context-release acknowledgement. Each actor turn performs at most
   one selection. Fairness is counted in selections, never elapsed time.
 - FIFO pop transitions `deferred -> selected` under the registry lock and keeps
-  one exact intent authority through reserve/create/start. Withdrawal under that
-  same lock invalidates the authority. Every asynchronous create/start
-  completion revalidates it under the registry lock before publishing callback
-  authority. The registry consumes the exact selected reservation and, in one
+  one exact intent authority through reserve and native-lifetime commitment.
+  Withdrawal before commitment invalidates the authority. The registry consumes
+  the exact selected reservation and, in one
   lock-linearized transition before any native create call, mints the complete
   binding/control-block identities and commits exact unpublished-native-
-  generation custody. The native wrapper is materialized only from that
-  non-forgeable committed custody and every create/start outcome must return the
-  same custody. A stale completion cannot publish: selected reservation custody
-  is released if commitment never began, while every committed but unpublished
-  native generation follows stop/invalidate/barrier/lease-drain/context-release
-  retirement even when `FSEventStreamCreate` returns no stream. Failure requeues
-  only if the same desired authority remains valid; withdrawn work never rotates
-  back into the FIFO.
+  generation custody. The fixed per-slot native owner is materialized only from
+  that non-forgeable committed custody and consumes one-shot create-or-abandon
+  and start-or-abandon rights. A copied completion cannot create or start after
+  abandonment, acknowledgement, or reuse. Every committed but unpublished
+  native generation follows its exact D3 route even when
+  `FSEventStreamCreate` returns no stream. Failure requeues only if the same
+  desired identity remains requested; withdrawn work never rotates back into
+  the FIFO.
 - Global contribution/item/byte capacity remains independent from slot
   cardinality and is enforced by the one generic mailbox.
 
@@ -297,9 +300,138 @@ non-current.
 
 For retainable N, reserve/create/start N+1 occurs before N closes; reserve,
 create, or start failure leaves N authoritative and returns a typed deferred or
-failure disposition. Successful start publishes N+1 authority, then closes N.
-For unsafe N, close/barrier/lease drain linearizes before deferred replacement;
-no failure may resurrect it. Removal closes N without creating desired state.
+failure disposition. Successful start always publishes N+1 authority before
+pending removal or supersession closes N+1, then closes N when required. For
+unsafe N, close/barrier/lease drain linearizes before deferred replacement; no
+failure may resurrect it. Removal closes N without creating desired state.
+
+`replace` requires the exact prior binding and desired configuration to have the
+same `FilesystemSourceID`. Because source kind is part of that identity, a
+cross-kind topology revision is exact `remove(oldSourceID)` plus exact
+`install(newSourceID)`. The existing source-ID-keyed configuration receipt
+contains `removalComplete` for the old source and the exact new-source
+installed/deferred/failed disposition under one accepted topology revision. No
+cross-source operation identity or inferred logical source key exists.
+
+### Native owner, successful-start publication, and unpublished retirement
+
+Native-lifetime commitment installs one fixed per-slot owner with closed rights:
+
+```text
+NativeCreationState
+  = available(exact binding and generation)
+  | abandoned(exact abandonment completion)
+  | rejected(exact create rejection completion)
+  | created(exact stream, NativeStartRight)
+
+NativeStartRight
+  = available(exact created stream)
+  | attempted(exact start completion)
+  | abandonedAfterCreate(exact created-never-started quiescence)
+```
+
+The owner survives caller cancellation and lost responses. Cleanup values expose
+evidence, never callback-context release. Deinitialization cannot release a
+retained context. Missing causal evidence remains fixed slot-held shutdown debt.
+
+Darwin begins callbacks only after successful `FSEventStreamStart`. Successful
+start may admit bounded callback custody before the registry publishes
+`accepting`; failed start admits none. Semantic transfer while `starting` returns
+`awaitingAcceptingPublication` and retries without a semantic sink or SourceGate
+clear. Exact-owner accepting publication must win after successful start and
+atomically retains:
+
+```text
+FilesystemObservationPostStartDisposition
+  = current
+  | closePredecessor(exact N)
+  | closePublished(exact N+1)
+  | closePredecessorAndPublished(exact N, exact N+1)
+```
+
+Pending removal or supersession cannot convert successful start into
+unpublished cleanup. Lost responses replay every exact close obligation and
+predecessor N remains oldest.
+
+Unpublished retirement is limited to terminal paths that prove zero callback
+admission, generic leases, semantic activity, and unpublished replay:
+
+```text
+UnpublishedNativeQuiescence
+  = creationAbandoned(exact consumed create right; no context existed)
+  | createRejected(exact create completion; retained context, no stream)
+  | createdNeverStartedClosed(exact consumed start right;
+      invalidate/barrier/zero-lease/stream-release completion)
+  | startRejectedAfterDrain(exact invalidate/barrier/zero-lease/
+      stream-release completion)
+
+UnpublishedContinuityDisposition
+  = retainedPriorRemainsAuthoritative(exact prior accepting binding)
+  | desiredRetryRequiresNoRepair(exact desired identity and configuration)
+  | withdrawnSourceRequiresNoRepair(exact withdrawal or removal authority)
+  | pendingRepairRetained(exact PendingContinuityRepairAuthority)
+```
+
+A still-desired source without a continuous prior retains exactly one pending
+repair authority on its desired-configuration record; the failed binding owns no
+SourceGate and may retire promptly. Pre-create retry and exact removal require no
+repair. Removal consumes pending repair because no source remains to make
+current.
+
+Repair handoff is fixed-cardinality and replayable:
+
+```text
+PendingContinuityRepairState
+  = pending(exact PendingContinuityRepairAuthority)
+  | handoffInFlight(
+      exact accepting binding,
+      exact UUIDv7 ContinuityRepairHandoffAuthority,
+      exact desired identity and accepted topology revision,
+      ContinuityRepairSuccessorDisposition)
+
+ContinuityRepairSuccessorDisposition
+  = sameDesired
+  | superseded(exact newer PendingContinuityRepairAuthority)
+  | removed(exact removal authority)
+```
+
+The registry retains `handoffInFlight` before the actor calls SourceGate. The
+SourceGate admits that exact handoff idempotently and replays the same repair
+generation/acceptance after cancellation or lost response. Exact registry
+acknowledgement transfers custody to the accepting binding and resolves the
+closed successor. Stale results cannot clear or recreate newer desired custody.
+
+The source-ID-keyed configuration disposition adds one honest installing state:
+
+```text
+installedAwaitingContinuityRepair(
+  exact desired configuration,
+  exact UUIDv7 ContinuityRepairHandoffAuthority)
+```
+
+It derives non-current retry membership. `.installed` cannot appear for that
+source until no continuity repair is pending or in flight. Exact SourceGate
+repair completion plus every participant acknowledgement publishes the compact
+product-current transition; immutable historical receipts are not mutated.
+
+The registry may mint an unpublished final receipt only after exact native
+quiescence, exact continuity disposition, zero binding-local retry/cleanup debt,
+and predecessor eligibility. Pending continuity repair may survive only in the
+bounded desired-record state above.
+
+```text
+NativeRetirementPermit
+  = fenceBacked(existing H2 final receipt)
+  | unpublished(exact unpublished final receipt)
+```
+
+The persistent native owner consumes the exact permit and is the sole context-
+release/finalization owner. It retains one exact UUIDv7 acknowledgement. Under
+the mailbox-core lock, exact application preserves desired-record repair,
+removes only the oldest eligible retirement, installs one fixed tombstone,
+vacates the slot, and returns replayable `alreadyApplied`. A new binding makes
+every old value typed stale. Unpublished retirement never satisfies or weakens
+the H2 accepting-lineage/final-fence equivalence.
 
 ## Closed Slot Lifecycle
 
@@ -760,12 +892,18 @@ wall-clock sleeps:
     rank-`q` selection within `q + 1` successful vacancy selections. Injected
     pre-commit failure releases only the exact reservation; injected
     post-commit create/start failure rotates without wall-clock policy while its
-    exact unpublished native generation retires through D3. Same-root safe N is
+    exact unpublished native generation retires through the unpublished D3
+    permit. Same-root safe N is
     retained; changed/removed/unauthorized N closes and never resurrects.
     Deterministic withdrawal after FIFO pop, reservation, native-lifetime
-    commitment, native create, and native start invalidates exact intent
-    authority, releases or retires every unpublished resource, and publishes no
-    callback authority.
+    commitment and native create consumes the exact create/start right, releases
+    or retires every unpublished resource, and publishes no callback authority.
+    Withdrawal racing a successful native start instead publishes accepting and
+    retains the exact post-start close disposition. Failed create/start without
+    a retained prior preserves one desired-record repair authority across D3;
+    exact handoff replay admits one SourceGate repair generation; removal consumes
+    pending repair; and currentness remains non-current through
+    `installedAwaitingContinuityRepair` until all repair acknowledgements finish.
 13. N retiring + N+1 current/closing + N+2/N+3 desired while unrelated slots
     churn proves two started generations per source, one eligible pending fence,
     one desired identity, oldest-first retirement, fleet fairness, the static
