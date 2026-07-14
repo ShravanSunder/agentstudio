@@ -548,6 +548,7 @@ enum FilesystemRetiringChainReplacement: Equatable, Sendable {
 }
 
 enum FilesystemObservationDesiredUpdateResult: Equatable, Sendable {
+    case fleetShutdownInProgress(FilesystemObservationFleetShutdownIdentity)
     case enqueued(FilesystemObservationDesiredRegistration)
     case replacedDeferred(
         FilesystemObservationDesiredRegistration,
@@ -557,6 +558,7 @@ enum FilesystemObservationDesiredUpdateResult: Equatable, Sendable {
 }
 
 enum FilesystemObservationDesiredSelectionResult: Equatable, Sendable {
+    case fleetShutdownInProgress(FilesystemObservationFleetShutdownIdentity)
     case selected(FilesystemObservationDesiredSelection)
     case noDeferredDesiredSource
     case deferredBehindActiveSourceCapacity
@@ -608,6 +610,7 @@ enum FilesystemObservationReservationReleaseResult: Equatable, Sendable {
 }
 
 enum FilesystemObservationNativeLifetimeCommitResult: Equatable, Sendable {
+    case fleetShutdownInProgress(FilesystemObservationFleetShutdownIdentity)
     case committed(FilesystemObservationStartingNativeLifetime)
     case foreignFleet
     case undeclaredPhysicalSlot

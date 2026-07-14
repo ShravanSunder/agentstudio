@@ -134,9 +134,9 @@ struct FilesystemObservationMailboxTests {
         let fixture = try makeMailboxFixture(
             registrations: [registration],
             limits: limits(global: 0, perRegistration: 1, perLease: 1),
-            recoveryAuthoritySeed: .preseeded(.sequenced(.max))
+            recoveryAuthoritySeed: .preseededSequenced(.max)
         )
-        _ = requireContractedRecovery(
+        let terminalRecovery = requireContractedRecovery(
             try fixture.admitCallback(
                 .authoritative(
                     try makeObservation(
@@ -167,7 +167,18 @@ struct FilesystemObservationMailboxTests {
             return .ignoredEmptyCallback
         }
 
-        expectRejection(result, expected: .mailbox(.fleetOrdinaryAdmissionSealed))
+        expectRejection(
+            result,
+            expected: .mailbox(
+                .fleetAdmissionExhausted(
+                    FilesystemObservationFleetAdmissionExhaustionDebt(
+                        triggeringBinding: fixture.binding(for: registration),
+                        terminalGenericRecoveryRevision:
+                            terminalRecovery.revision.genericRecoveryRevision
+                    )
+                )
+            )
+        )
         #expect(inspectionLedger.inspectionCount == 0)
         #expect(
             fixture.mailbox.lifecyclePort.diagnostics.gather.admission.offered

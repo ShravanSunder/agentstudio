@@ -501,19 +501,23 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         }
 
         var lifecycle: Lifecycle
+        var fleetIngressLifecycle: FilesystemObservationFleetIngressLifecycle
+        var fleetOrdinaryAdmissionDisposition: FilesystemFleetOrdinaryAdmissionDisposition
         var activeLease: ActiveLeaseCustody
         var pendingWholeLeaseCompletion: PendingWholeLeaseCompletionCustody
         var retryEvidenceByPhysicalSlotID: [FilesystemObservationPhysicalSlotID: RetryEvidenceCustody]
         var nativeGenerationPortsByPhysicalSlotID: [FilesystemObservationPhysicalSlotID: NativeGenerationPortCustody]
         var pendingRetirementFenceReadyQueue: PendingRetirementFenceReadyQueue
-        var isFleetOrdinaryAdmissionSealed: Bool
         var configurationIntentReplayCustody: ConfigurationIntentReplayCustody
 
         init(
             physicalSlotIDs: [FilesystemObservationPhysicalSlotID],
-            isFleetOrdinaryAdmissionSealed: Bool
+            fleetOrdinaryAdmissionDisposition:
+                FilesystemFleetOrdinaryAdmissionDisposition
         ) {
             lifecycle = .open
+            fleetIngressLifecycle = .accepting
+            self.fleetOrdinaryAdmissionDisposition = fleetOrdinaryAdmissionDisposition
             activeLease = .vacant
             pendingWholeLeaseCompletion = .vacant
             retryEvidenceByPhysicalSlotID = Dictionary(
@@ -525,7 +529,6 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
             pendingRetirementFenceReadyQueue = PendingRetirementFenceReadyQueue(
                 physicalSlotIDs: physicalSlotIDs
             )
-            self.isFleetOrdinaryAdmissionSealed = isFleetOrdinaryAdmissionSealed
             configurationIntentReplayCustody = .vacant
         }
     }
@@ -583,9 +586,7 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         lock = OSAllocatedUnfairLock(
             initialState: State(
                 physicalSlotIDs: slotRegistry.physicalSlotIDs,
-                isFleetOrdinaryAdmissionSealed: FilesystemObservationMailboxProjection.isFleetOrdinaryAdmissionSealed(
-                    recoveryAuthoritySeed
-                )
+                fleetOrdinaryAdmissionDisposition: .ordinary
             )
         )
     }
@@ -598,12 +599,38 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         slotRegistry.physicalSlotIDs
     }
 
+    func freezeFleetIngress(
+        for shutdownIdentity: FilesystemObservationFleetShutdownIdentity
+    ) -> FilesystemObservationFleetIngressFreezeResult {
+        lock.withLock { state in
+            guard state.lifecycle == .open else {
+                return .terminationAlreadyAdvanced(lifecycleSnapshot(state.lifecycle))
+            }
+            switch state.fleetIngressLifecycle {
+            case .accepting:
+                state.fleetIngressLifecycle = .shutdownFrozen(shutdownIdentity)
+                return .applied(shutdownIdentity)
+            case .shutdownFrozen(let retainedIdentity):
+                guard retainedIdentity == shutdownIdentity else {
+                    return .shutdownIdentityMismatch(
+                        expected: retainedIdentity,
+                        presented: shutdownIdentity
+                    )
+                }
+                return .alreadyApplied(retainedIdentity)
+            }
+        }
+    }
+
     func installDesiredConfiguration(
         _ configuration: FilesystemObservationSourceConfiguration,
         acceptedTopologyRevision: FilesystemObservationAcceptedTopologyRevision
     ) -> FilesystemObservationDesiredUpdateResult {
-        lock.withLock { _ in
-            slotRegistry.installDesiredConfiguration(
+        lock.withLock { state in
+            if case .shutdownFrozen(let shutdownIdentity) = state.fleetIngressLifecycle {
+                return .fleetShutdownInProgress(shutdownIdentity)
+            }
+            return slotRegistry.installDesiredConfiguration(
                 configuration,
                 acceptedTopologyRevision: acceptedTopologyRevision
             )
@@ -622,6 +649,9 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         }
 
         return lock.withLock { state in
+            if case .shutdownFrozen(let shutdownIdentity) = state.fleetIngressLifecycle {
+                return .rejected(.fleetShutdownInProgress(shutdownIdentity))
+            }
             switch state.configurationIntentReplayCustody {
             case .vacant:
                 break
@@ -715,15 +745,27 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
     }
 
     func selectNextDesiredSource() -> FilesystemObservationDesiredSelectionResult {
-        lock.withLock { _ in
-            slotRegistry.selectNextDesiredSource()
+        lock.withLock { state in
+            if case .shutdownFrozen(let shutdownIdentity) = state.fleetIngressLifecycle {
+                return .fleetShutdownInProgress(shutdownIdentity)
+            }
+            return slotRegistry.selectNextDesiredSource()
         }
     }
 
     func beginNativeLifetime(
         _ reservation: FilesystemObservationSlotReservation
     ) -> FilesystemObservationNativeLifetimeCommitResult {
-        lock.withLock { _ in
+        lock.withLock { state in
+            if case .shutdownFrozen(let shutdownIdentity) = state.fleetIngressLifecycle {
+                if case .starting(let startingNativeLifetime) =
+                    slotRegistry.read.state(of: reservation.physicalSlotID),
+                    startingNativeLifetime.consumedReservation == reservation
+                {
+                    return .alreadyCommitted(startingNativeLifetime)
+                }
+                return .fleetShutdownInProgress(shutdownIdentity)
+            }
             let result = slotRegistry.beginNativeLifetime(reservation)
             switch result {
             case .committed(let startingNativeLifetime),
@@ -738,7 +780,8 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                     )
                 }
             case .foreignFleet, .undeclaredPhysicalSlot, .reservationNoLongerCurrent,
-                .staleReservation, .deferredToConfigurationCurrentness:
+                .staleReservation, .deferredToConfigurationCurrentness,
+                .fleetShutdownInProgress:
                 break
             }
             return result
@@ -1262,7 +1305,12 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
             }
         case .admitted(.contractedToRecovery(let genericRevision, let cause), let wake):
             if case .recoveryAuthorityExhaustedTransition = cause {
-                state.isFleetOrdinaryAdmissionSealed = true
+                state.fleetOrdinaryAdmissionDisposition = .fleetAdmissionExhausted(
+                    FilesystemObservationFleetAdmissionExhaustionDebt(
+                        triggeringBinding: pendingLifetime.binding,
+                        terminalGenericRecoveryRevision: genericRevision
+                    )
+                )
             }
             _ = recoveryRegister.record(
                 .retirementFenceAdmissionContraction,
@@ -1310,6 +1358,9 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
             guard state.lifecycle == .open else {
                 return .mailboxRejected(.closed)
             }
+            if case .shutdownFrozen(let shutdownIdentity) = state.fleetIngressLifecycle {
+                return .mailboxRejected(.fleetShutdownInProgress(shutdownIdentity))
+            }
             switch slotRegistry.read.storedBindingCurrentness(of: binding) {
             case .storedCurrent:
                 break
@@ -1326,8 +1377,10 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
             guard preflight.matchesCaptureConfiguration else {
                 return .mailboxRejected(.captureConfigurationMismatch)
             }
-            guard !state.isFleetOrdinaryAdmissionSealed else {
-                return .mailboxRejected(.fleetOrdinaryAdmissionSealed)
+            if case .fleetAdmissionExhausted(let exactDebt) =
+                state.fleetOrdinaryAdmissionDisposition
+            {
+                return .mailboxRejected(.fleetAdmissionExhausted(exactDebt))
             }
             switch capture() {
             case .ignoredEmptyCallback:
@@ -1338,6 +1391,8 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                 switch offerValidatedBindingLocked(offer, for: binding, state: &state) {
                 case .admitted(let receipt):
                     return .admitted(offer, receipt)
+                case .fleetShutdownInProgress(let shutdownIdentity):
+                    return .mailboxRejected(.fleetShutdownInProgress(shutdownIdentity))
                 case .undeclaredSlot:
                     return .mailboxRejected(.undeclaredSlot)
                 case .bindingMismatch:
@@ -1345,7 +1400,13 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                 case .invalidFootprint:
                     return .mailboxRejected(.invalidFootprint)
                 case .fleetOrdinaryAdmissionSealed:
-                    return .mailboxRejected(.fleetOrdinaryAdmissionSealed)
+                    guard
+                        case .fleetAdmissionExhausted(let exactDebt) =
+                            state.fleetOrdinaryAdmissionDisposition
+                    else {
+                        preconditionFailure("Generic sealed replay lost exact fleet exhaustion debt")
+                    }
+                    return .mailboxRejected(.fleetAdmissionExhausted(exactDebt))
                 case .closed:
                     return .mailboxRejected(.closed)
                 }
@@ -1390,10 +1451,22 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                 recoverySignal: offer.recoverySignal
             )
         )
-        if case .admitted(.contractedToRecovery(_, let cause), _) = gatherResult {
+        if case .admitted(.contractedToRecovery(let genericRevision, let cause), _) = gatherResult {
             switch cause {
-            case .recoveryAuthorityExhaustedTransition, .ordinaryAdmissionAlreadySealed:
-                state.isFleetOrdinaryAdmissionSealed = true
+            case .recoveryAuthorityExhaustedTransition:
+                state.fleetOrdinaryAdmissionDisposition = .fleetAdmissionExhausted(
+                    FilesystemObservationFleetAdmissionExhaustionDebt(
+                        triggeringBinding: binding,
+                        terminalGenericRecoveryRevision: genericRevision
+                    )
+                )
+            case .ordinaryAdmissionAlreadySealed:
+                guard
+                    case .fleetAdmissionExhausted =
+                        state.fleetOrdinaryAdmissionDisposition
+                else {
+                    preconditionFailure("Generic sealed replay lost exact fleet exhaustion debt")
+                }
             case .capacityPressure:
                 break
             }
@@ -1772,6 +1845,9 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                 gather: gatherMailbox.lifecyclePort.diagnostics,
                 doorbellState: doorbell.lifecyclePort.stateSnapshot,
                 lifecycleState: lifecycleSnapshot(state.lifecycle),
+                fleetIngressLifecycle: state.fleetIngressLifecycle,
+                fleetOrdinaryAdmissionDisposition:
+                    state.fleetOrdinaryAdmissionDisposition,
                 recoveryEvidenceByPhysicalSlotID: Dictionary(
                     uniqueKeysWithValues: slotRegistry.physicalSlotIDs.map {
                         ($0, recoverySnapshotResult(for: $0))

@@ -31,6 +31,12 @@ final class FilesystemObservationMailbox: @unchecked Sendable {
         core.physicalSlotIDs
     }
 
+    func freezeFleetIngress(
+        for shutdownIdentity: FilesystemObservationFleetShutdownIdentity
+    ) -> FilesystemObservationFleetIngressFreezeResult {
+        core.freezeFleetIngress(for: shutdownIdentity)
+    }
+
     func installDesiredConfiguration(
         _ configuration: FilesystemObservationSourceConfiguration,
         acceptedTopologyRevision: FilesystemObservationAcceptedTopologyRevision

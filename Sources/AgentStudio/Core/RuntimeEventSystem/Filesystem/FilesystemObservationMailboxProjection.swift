@@ -6,17 +6,12 @@ enum FilesystemObservationMailboxProjection {
         switch seed {
         case .initial:
             [:]
-        case .preseeded(let stamp):
-            Dictionary(uniqueKeysWithValues: physicalSlotIDs.map { ($0, stamp) })
-        }
-    }
-
-    static func isFleetOrdinaryAdmissionSealed(
-        _ seed: FilesystemObservationRecoveryAuthoritySeed
-    ) -> Bool {
-        switch seed {
-        case .initial, .preseeded(.sequenced): false
-        case .preseeded(.authorityExhausted): true
+        case .preseededSequenced(let sequence):
+            Dictionary(
+                uniqueKeysWithValues: physicalSlotIDs.map {
+                    ($0, GatherRecoveryStamp.sequenced(sequence))
+                }
+            )
         }
     }
 

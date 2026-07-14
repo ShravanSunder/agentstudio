@@ -744,19 +744,177 @@ remains exactly once. Deinit is not the oracle.
 
 ### F3 — Fleet shutdown debt and deterministic resume
 
-Add:
+This is a coordination slice over existing custody owners, not a new drain,
+queue, persistence layer, or payload owner. Add/modify narrowly:
 
-- `FilesystemObservationFleetLifecycle.swift`
-- `FilesystemObservationFleetLifecycleTests.swift`
+- `AdmissionContracts.swift` and `BoundedGatherMailbox.swift` for one exact,
+  payload-free `GatherShutdownDebtSnapshot` projected under the existing generic
+  mailbox lock;
+- `BoundedGatherMailboxShutdownDebtTests.swift` for queued, retry, recovery,
+  active-lease, queued-cleanup, and in-flight-cleanup debt;
+- `FilesystemObservationFleetLifecycle.swift` as the sole fleet-shutdown
+  coordination owner and UUIDv7 shutdown-identity issuer;
+- `FilesystemObservationMailboxContracts.swift`,
+  `FilesystemObservationMailbox.swift`, and
+  `FilesystemObservationMailboxCore.swift` for atomic ingress freeze, exact
+  owner-referencing debt projection, bounded progress operations, and a
+  completion-authorized termination port;
+- `DarwinFSEventRegistrationNativeOwnerContracts.swift` and
+  `DarwinFSEventRegistrationNativeOwner.swift` for idempotent owner-local
+  shutdown advance and exact native-phase/finalization debt across every create,
+  start, publication, close, retirement-permit, and context-finalization phase;
+- `FilesystemObservationSemanticReplay.swift` and
+  `FilesystemObservationLeaseTransfer.swift` only for exact identity/fingerprint
+  debt and deterministic resume of already-owned semantic transfer; neither may
+  expose or copy observation payloads;
+- `FilesystemSourceGate.swift` for an exact read-only shutdown-debt projection
+  and shutdown-safe completion ordering; no new repair owner or queue;
+- `FilesystemObservationFleetLifecycleTests.swift` and
+  `FilesystemObservationFleetExhaustionIntegrationTests.swift` for the whole
+  state/debt table and cross-slice exhaustion oracle.
 
-Own typed completed/incomplete shutdown results. The snapshot references existing
-slot/native/generic/replay/SourceGate/receipt owners and never duplicates payload
-custody. Requester cancellation cannot cancel the internal drain. Explicit
-resume and custody-completion events progress without a timer or new source
-event. Only completed authorizes global seal, invalidation, and doorbell finish.
+The generic shutdown projection is a prerequisite and remains domain-agnostic.
+It reports exact key-indexed queued counts, retry custody, opaque recovery
+revisions, active lease phase/key/token, queued-cleanup counts, and in-flight
+cleanup authority/scope/remainder state. The filesystem projection joins those
+entries in `slotRegistry.physicalSlotIDs` declaration order; it does not treat
+the generic mailbox's internal `Set`-derived key array as cross-instance order.
+`isQuiescent` is true only when all custody classes are vacant. The projection
+never copies a generic or filesystem contribution payload, and UUID values
+never determine projection or drain order.
 
-Parameterized RED/GREEN covers every debt class, including fleet generic
-exhaustion. Persistence and silent invalidation are forbidden.
+The fleet owner retains one state with closed alternatives:
+
+```text
+open
+draining(shutdownIdentity, latest exact debt)
+completed(stable completion receipt)
+```
+
+`beginShutdown` mints one owner-local UUIDv7 identity only on `open -> draining`,
+atomically freezes new configuration intent and callback admission through the
+mailbox core, and records the resulting exact debt before it returns. Repeated
+begin, explicit `resumeShutdown`, cancellation/lost response, and every
+custody-completion notification reuse that same identity and either replay the
+same completed receipt or return the newest exact incomplete snapshot. No
+caller-selected UUID can begin, resume, authorize, or order shutdown.
+
+The mailbox freeze is distinct from generic recovery-authority exhaustion:
+
+```text
+callback/configuration ingress
+  = open
+  | frozenForShutdown(exact shutdown identity)
+
+ordinary admission disposition
+  = ordinary
+  | fleetAdmissionExhausted(exact triggering binding,
+                            exact terminal generic recovery revision)
+```
+
+Replace the Boolean fleet-exhaustion flag with that strict retained
+disposition. The exact flipping offer installs the exhaustion debt once; later
+already-sealed callbacks replay the same typed debt and cannot replace its
+binding or revision. Shutdown freeze rejects new configuration and callback
+admission while leaving consumer transfer, retry, recovery, cleanup,
+retirement-fence, SourceGate, native-close, and acknowledgement progress open.
+Freeze and debt capture occur in one mailbox-lock transaction; no callback can
+enter between them.
+
+The exact incomplete snapshot joins references/projections from the existing
+owners without moving their custody:
+
+```text
+declared slot order and exact physical-slot lifecycle state
+native owner phase, callback lease/barrier state, permit and finalization state
+generic queued/retry/recovery/lease/cleanup debt
+mailbox active lease and pending whole-lease completion
+semantic replay fingerprint, accepted prefix and transfer authority identity
+SourceGate repair state and pending participant acknowledgements
+pending fence, retained retirement receipt and release acknowledgement
+ordinary or exact fleet-exhaustion admission disposition
+```
+
+Every correlated state uses a discriminated union rather than independent
+optionals. Snapshot values contain identities, revisions, counts, phases, and
+existing immutable receipts only. They do not copy observations, changed paths,
+generic contributions, semantic payloads, or native callback memory, and they
+cannot mutate any referenced owner.
+
+SourceGate does not enter `.shuttingDown` while an already-admitted semantic or
+repair operation can still make progress. The fleet lifecycle first drains that
+exact transfer/repair custody through existing acknowledgement events, then
+calls the existing idempotent `beginShutdown()` to reject future repair
+admission and retain the final SourceGate shutdown debt. This explicit delayed
+begin is preferred to adding a second shutdown repair state machine. A dirty,
+failed, or awaiting-participant gate remains exact incomplete debt until its
+existing owner reports the required completion; shutdown never declares it
+clean or silently discards it.
+
+Progress is one bounded phase per explicit turn:
+
+1. freeze ingress and snapshot all owners;
+2. close each exact native callback authority and advance its persistent native
+   owner through stop/invalidate/barrier/zero-lease evidence;
+3. install or retry eligible retirement fences in declared slot/FIFO order;
+4. transfer generic and semantic custody, apply SourceGate acceptance, and
+   perform bounded cleanup through the existing actor/transfer owner;
+5. retain/apply final retirement receipts, native release acknowledgements, and
+   fixed-slot tombstones;
+6. after every owner projects quiescence, retain one completion receipt and use
+   its opaque completion authority to terminate the mailbox.
+
+Each acknowledgement, cleanup completion, transfer completion, native phase
+completion, or explicit resume invokes the same bounded transition. No
+`Task.sleep`, wall-clock polling, periodic retry, new filesystem event, or
+request-scoped task is required. Requester cancellation can abandon only its
+await of the result; it cannot revert `draining`, cancel native closure, erase
+debt, or discard the retained completion receipt.
+
+Raw `seal`, `invalidate`, and `finish` are removed from the normal mailbox
+facade/lifecycle capability. One termination operation accepts only the exact
+completion authority retained by `FilesystemObservationFleetLifecycle` and
+performs `seal -> invalidate -> doorbell finish` after a fresh quiescence check.
+No test helper, registry, native owner, callback, consumer, or ordinary caller
+can construct that authority or invoke a partial termination sequence.
+
+Execute and checkpoint F3 in these compile-complete slices:
+
+1. RED then GREEN the generic payload-free debt projection and its exhaustive
+   quiescence table without filesystem imports.
+2. RED the filesystem snapshot against current count-only custody inspection,
+   the Boolean exhaustion flag, and publicly callable raw lifecycle operations;
+   then add strict mailbox freeze/debt/termination contracts in one hard cut.
+3. RED then GREEN native-owner phase projection and idempotent shutdown advance,
+   including cancellation/lost-response replay before create, during create,
+   created-not-started, starting, accepting-publication pending, accepting,
+   callback close/barrier, permit retained, finalizing, and finalized.
+4. RED then GREEN identity-only semantic replay/lease-transfer debt and the
+   explicit SourceGate delayed-begin ordering. No payload snapshot is accepted
+   as proof.
+5. Add the fleet lifecycle owner and drive every debt class from incomplete to
+   completed using explicit completion events. Then run the exact generic,
+   mailbox, native-retirement, semantic-transfer, SourceGate, fleet-lifecycle,
+   and fleet-exhaustion filters plus scoped/full lint.
+
+RED/GREEN must include: every physical slot state; callback lease and barrier
+phase; generic queued, retry, recovery, active lease, queued cleanup and
+in-flight cleanup; pending whole-lease completion; semantic accepted-prefix
+replay; SourceGate dirty/reconciling/awaiting-acknowledgements/failed debt;
+pending and installed fences; retained retirement receipt; pending/finalized
+native context; ordinary admission and exact fleet exhaustion; cancellation at
+every phase; repeated begin/resume/completion; foreign and stale shutdown
+identity; and exact completed-receipt replay. The independent oracle asserts
+zero copied payloads, one stable UUIDv7 shutdown identity, one termination,
+zero silent custody loss, declared-slot/FIFO ordering, and no UUID sorting.
+
+Split/replan if F3 requires payload duplication, another consumer/drain task,
+another lock around mailbox/registry custody, persistence, a timer/poll loop,
+SourceGate mutation under the generic lease, cancellation-coupled state, direct
+native work under the mailbox lock, caller-constructible completion authority,
+or any termination path that can bypass exact completed shutdown. If an owner
+cannot expose exact payload-free debt, extend that owner narrowly; do not
+approximate it with counts or move its custody into the fleet lifecycle.
 
 ### G2 — Real dormant Darwin lifecycle integration
 

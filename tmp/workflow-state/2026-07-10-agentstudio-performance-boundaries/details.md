@@ -463,3 +463,30 @@ Evidence:
 Stop code edits and reconverge when live source materially contradicts the accepted ownership/dataflow contract, a hard cut cannot remain atomic, a required proof is too large/flaky for its task, a real-root operation cannot stay inside the authorized sentinel, or a scope-external infrastructure failure would require edits.
 
 The goal is complete only when every material matrix row is `done` or explicitly `not-applicable`, the implementation review is disposed, the PR is created/updated and freshly proven ready, and no merge has been performed. Missing user-feel, CG1 approval, permission, hardware, stack, or PR authority is an open gate; treat the goal as host-blocked only after the same blocker repeats under the host blocked-state rule.
+
+## 2026-07-14 D3 native-retirement checkpoint
+
+D3 is frozen and committed at `7777953ff58f5578ce8a2a37d39641c4369915c0`.
+The persistent native owner now retains the exact fence-backed or unpublished
+retirement permit, finalizes callback context exactly once, replays one UUIDv7
+acknowledgement, and lets the registry atomically install the completion
+tombstone before vacancy and fresh UUIDv7 rebinding. Strict discriminated
+unions replace optional correlated lifecycle fields. SwiftSyntax rules enforce
+the canonical issuers and registry/native-retirement ownership seams.
+
+Fresh parent proof:
+
+- focused context-release/native-retirement: 20 tests, 4 suites, exit 0;
+- ownership architecture regression: 26 tests, 1 suite, exit 0;
+- `mise run test`: 5,040 tests, 614 main suites, all serialized WebKit lanes,
+  exit 0; configured E2E and Zmx E2E lanes skipped;
+- `mise run lint`: swift-format OK, SwiftLint 0/1,529, architecture lint OK,
+  31 mutation rows restored exactly, release scripts passed, exit 0;
+- `git diff --check`: exit 0.
+
+Two signed commit attempts failed after hooks with the 1Password signer error
+`failed to fill whole buffer`; the checkpoint was committed unsigned without
+changing the verified index. The official workflow remains
+`shravan-dev-workflow:implementation-execute-plan`; F3 fleet shutdown debt and
+deterministic resume is the next implementation slice, with G2 real Darwin
+lifecycle proof still open.

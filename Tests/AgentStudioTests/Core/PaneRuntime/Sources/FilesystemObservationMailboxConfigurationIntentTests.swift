@@ -393,7 +393,7 @@ private func makeAcceptingConfigurationIntentFixture(
     ) {
     case .enqueued(let enqueuedDesiredRegistration):
         desiredRegistration = enqueuedDesiredRegistration
-    case .replacedDeferred, .deferredToConfigurationCurrentness:
+    case .fleetShutdownInProgress, .replacedDeferred, .deferredToConfigurationCurrentness:
         throw ConfigurationIntentTestError.expectedEnqueuedDesiredRegistration
     }
     let selection = try requireSelectedDesiredSource(

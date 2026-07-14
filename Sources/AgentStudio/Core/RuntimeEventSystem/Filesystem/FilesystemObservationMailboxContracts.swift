@@ -6,7 +6,7 @@ enum FilesystemObservationMailboxConfigurationError: Error, Equatable {
 
 enum FilesystemObservationRecoveryAuthoritySeed: Equatable, Sendable {
     case initial
-    case preseeded(GatherRecoveryStamp)
+    case preseededSequenced(UInt64)
 }
 
 enum FilesystemObservationOffer: Sendable {
@@ -74,11 +74,12 @@ enum FilesystemObservationCallbackAuthorityRejection: Equatable, Sendable {
 }
 
 enum FilesystemObservationCallbackMailboxRejection: Equatable, Sendable {
+    case fleetShutdownInProgress(FilesystemObservationFleetShutdownIdentity)
     case undeclaredSlot
     case invalidFootprint
     case captureConfigurationMismatch
     case fenced
-    case fleetOrdinaryAdmissionSealed
+    case fleetAdmissionExhausted(FilesystemObservationFleetAdmissionExhaustionDebt)
     case closed
 }
 
@@ -153,6 +154,7 @@ struct FilesystemObservationOfferReceipt: Equatable, Sendable {
 
 enum FilesystemObservationOfferResult: Equatable, Sendable {
     case admitted(FilesystemObservationOfferReceipt)
+    case fleetShutdownInProgress(FilesystemObservationFleetShutdownIdentity)
     case undeclaredSlot
     case bindingMismatch
     case invalidFootprint
@@ -290,6 +292,8 @@ struct FilesystemObservationMailboxDiagnostics: Sendable {
     let gather: GatherAdmissionDiagnostics
     let doorbellState: AdmissionDoorbellStateSnapshot
     let lifecycleState: FilesystemObservationLifecycleStateSnapshot
+    let fleetIngressLifecycle: FilesystemObservationFleetIngressLifecycle
+    let fleetOrdinaryAdmissionDisposition: FilesystemFleetOrdinaryAdmissionDisposition
     private let recoveryEvidenceByPhysicalSlotID:
         [FilesystemObservationPhysicalSlotID: FixedFilesystemRecoveryEvidenceSnapshotResult]
 
@@ -297,12 +301,17 @@ struct FilesystemObservationMailboxDiagnostics: Sendable {
         gather: GatherAdmissionDiagnostics,
         doorbellState: AdmissionDoorbellStateSnapshot,
         lifecycleState: FilesystemObservationLifecycleStateSnapshot,
+        fleetIngressLifecycle: FilesystemObservationFleetIngressLifecycle,
+        fleetOrdinaryAdmissionDisposition:
+            FilesystemFleetOrdinaryAdmissionDisposition,
         recoveryEvidenceByPhysicalSlotID:
             [FilesystemObservationPhysicalSlotID: FixedFilesystemRecoveryEvidenceSnapshotResult]
     ) {
         self.gather = gather
         self.doorbellState = doorbellState
         self.lifecycleState = lifecycleState
+        self.fleetIngressLifecycle = fleetIngressLifecycle
+        self.fleetOrdinaryAdmissionDisposition = fleetOrdinaryAdmissionDisposition
         self.recoveryEvidenceByPhysicalSlotID = recoveryEvidenceByPhysicalSlotID
     }
 

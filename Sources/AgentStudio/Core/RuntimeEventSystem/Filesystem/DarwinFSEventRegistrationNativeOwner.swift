@@ -2,6 +2,9 @@ import CoreServices
 import Foundation
 import os
 
+// The fixed-slot owner intentionally keeps all native authority transitions in one lexical owner.
+// swiftlint:disable file_length type_body_length
+
 /// The persistent native custody owner for one committed fixed-slot binding.
 ///
 /// The mailbox retains this owner for the entire binding lifetime. The owner consumes one
@@ -105,6 +108,8 @@ final class DarwinFSEventRegistrationNativeOwner: @unchecked Sendable {
     private let stateCondition = NSCondition()
     private var state = State.creationAvailable
     private var nativeFinalizationState = NativeFinalizationState.awaitingMaterialization
+    private let fleetShutdownAdvanceCoordinator =
+        DarwinFSEventNativeOwnerShutdownAdvanceCoordinator()
 
     var nativeFinalizationSnapshot: DarwinFSEventNativeFinalizationSnapshot {
         stateCondition.withLock {
@@ -115,6 +120,17 @@ final class DarwinFSEventRegistrationNativeOwner: @unchecked Sendable {
             case .finalized(let acknowledgement):
                 return .finalized(acknowledgement)
             }
+        }
+    }
+
+    var fleetShutdownProjection: DarwinFSEventNativeOwnerFleetShutdownProjection {
+        stateCondition.withLock {
+            DarwinFSEventNativeOwnerFleetShutdownProjection(
+                binding: startingNativeLifetime.binding,
+                nativePhase: fleetShutdownNativePhase,
+                finalizationPhase: fleetShutdownFinalizationPhase,
+                advancePhase: fleetShutdownAdvancePhase
+            )
         }
     }
 
@@ -230,6 +246,23 @@ final class DarwinFSEventRegistrationNativeOwner: @unchecked Sendable {
         await consumeStartRight(creation: creation, intent: .abandon)
     }
 
+    /// Advances this owner's already-held native rights toward whole-fleet shutdown.
+    ///
+    /// This operation deliberately stops at native quiescence. Retirement permits, context
+    /// finalization, registry mutation, and shutdown identity remain with their existing owners.
+    func advanceFleetShutdown() async -> DarwinFSEventNativeOwnerFleetShutdownResult {
+        switch fleetShutdownAdvanceCoordinator.claim() {
+        case .perform(let completion):
+            let result = await performFleetShutdownAdvance()
+            fleetShutdownAdvanceCoordinator.publish(result, for: completion)
+            return result
+        case .wait(let completion):
+            return await completion.wait()
+        case .completed(let completed):
+            return .completed(completed)
+        }
+    }
+
     func finalizeNativeLifetime(
         using permit: FilesystemObservationNativeRetirementPermit,
         contextFinalizer: any DarwinFSEventCallbackContextFinalizer =
@@ -300,6 +333,167 @@ final class DarwinFSEventRegistrationNativeOwner: @unchecked Sendable {
             }
             return retainedUnpublishedCompletionMatches(completion)
         }
+    }
+
+    private func performFleetShutdownAdvance()
+        async -> DarwinFSEventNativeOwnerFleetShutdownResult
+    {
+        switch abandonCreation() {
+        case .creationAbandoned(let abandonment):
+            return .completed(.unpublished(.creationAbandoned(abandonment)))
+        case .creationRejected(let cleanup):
+            return .completed(.unpublished(.creationRejected(cleanup)))
+        case .created(let generation):
+            return await advanceCreatedGenerationTowardFleetShutdown(generation)
+        case .authorityRejected:
+            preconditionFailure("owner-local creation abandonment cannot reject its own authority")
+        }
+    }
+
+    private func advanceCreatedGenerationTowardFleetShutdown(
+        _ generation: DarwinFSEventRegistrationGeneration
+    ) async -> DarwinFSEventNativeOwnerFleetShutdownResult {
+        switch await consumeStartRight(creation: generation, intent: .abandon) {
+        case .started:
+            return await closeAcceptingGenerationForFleetShutdown(generation)
+        case .unpublished(let quiescence):
+            return .completed(.unpublished(projectUnpublishedCompletion(quiescence)))
+        case .acceptingPublicationRejected(let rejection):
+            return .incomplete(.acceptingPublicationPending(rejection))
+        case .authorityRejected(let rejection):
+            return .incomplete(
+                .nativeAuthorityRejected(rejection, generationPhase: generation.phase)
+            )
+        case .lifecycleRejected(let rejection):
+            return .incomplete(
+                .nativeLifecycleRejected(rejection, generationPhase: generation.phase)
+            )
+        }
+    }
+
+    private func closeAcceptingGenerationForFleetShutdown(
+        _ generation: DarwinFSEventRegistrationGeneration
+    ) async -> DarwinFSEventNativeOwnerFleetShutdownResult {
+        switch await generation.close() {
+        case .closed(let receipt):
+            return .completed(.acceptingGenerationClosed(receipt))
+        case .startFailed:
+            return .incomplete(
+                .nativeLifecycleRejected(
+                    .generationPhase(.startFailed),
+                    generationPhase: generation.phase
+                )
+            )
+        case .mailboxRejected(let rejection):
+            return .incomplete(
+                .nativeLifecycleRejected(
+                    .mailboxClosing(rejection),
+                    generationPhase: generation.phase
+                )
+            )
+        case .alreadyClosing:
+            return .incomplete(
+                .nativeLifecycleRejected(
+                    .closeAlreadyInProgress,
+                    generationPhase: generation.phase
+                )
+            )
+        }
+    }
+
+    private func projectUnpublishedCompletion(
+        _ quiescence: DarwinFSEventUnpublishedQuiescence
+    ) -> DarwinFSEventUnpublishedNativeCompletion {
+        switch quiescence {
+        case .createdNeverStartedClosed(let completion):
+            return .createdNeverStartedClosed(completion)
+        case .startRejectedAfterDrain(let completion):
+            return .startRejectedAfterDrain(completion)
+        }
+    }
+
+    private var fleetShutdownNativePhase: DarwinFSEventNativeOwnerFleetShutdownNativePhase {
+        switch state {
+        case .creationAvailable:
+            return .creationAvailable(startingNativeLifetime)
+        case .creating:
+            return .creating(startingNativeLifetime)
+        case .created(let generation):
+            return .created(startingNativeLifetime, generationPhase: generation.phase)
+        case .creationRejected(let cleanup, _):
+            return .creationRejected(cleanup)
+        case .creationAbandoned(let abandonment):
+            return .creationAbandoned(abandonment)
+        case .starting(let generation, _):
+            return .starting(startingNativeLifetime, generationPhase: generation.phase)
+        case .abandoningStart(let generation, _):
+            return .abandoningStart(startingNativeLifetime, generationPhase: generation.phase)
+        case .publishingAcceptance(let generation, _):
+            return .publishingAcceptance(
+                startingNativeLifetime,
+                generationPhase: generation.phase
+            )
+        case .acceptingPublicationPending(let generation, let rejection):
+            return .acceptingPublicationPending(
+                startingNativeLifetime,
+                rejection,
+                generationPhase: generation.phase
+            )
+        case .startCompleted(let generation, let result):
+            return fleetShutdownCompletedStartPhase(result, generation: generation)
+        }
+    }
+
+    private func fleetShutdownCompletedStartPhase(
+        _ result: DarwinFSEventNativeOwnerStartResult,
+        generation: DarwinFSEventRegistrationGeneration
+    ) -> DarwinFSEventNativeOwnerFleetShutdownNativePhase {
+        switch result {
+        case .started(let acceptingNativeLifetime):
+            return .accepting(
+                acceptingNativeLifetime,
+                generationPhase: generation.phase
+            )
+        case .unpublished(let quiescence):
+            return .unpublished(projectUnpublishedCompletion(quiescence))
+        case .acceptingPublicationRejected(let rejection):
+            return .acceptingPublicationPending(
+                startingNativeLifetime,
+                rejection,
+                generationPhase: generation.phase
+            )
+        case .authorityRejected(let rejection):
+            return .authorityRejected(
+                startingNativeLifetime,
+                rejection,
+                generationPhase: generation.phase
+            )
+        case .lifecycleRejected(let rejection):
+            return .lifecycleRejected(
+                startingNativeLifetime,
+                rejection,
+                generationPhase: generation.phase
+            )
+        }
+    }
+
+    private var fleetShutdownFinalizationPhase: DarwinNativeFleetShutdownFinalizationPhase {
+        switch nativeFinalizationState {
+        case .awaitingMaterialization:
+            return .awaitingMaterialization
+        case .retainedContext:
+            return .retainedContext
+        case .retirementPermitRetained(let permit, _):
+            return .retirementPermitRetained(permit)
+        case .finalizing(let permit, _):
+            return .finalizing(permit)
+        case .finalized(let acknowledgement):
+            return .finalized(acknowledgement)
+        }
+    }
+
+    private var fleetShutdownAdvancePhase: DarwinFSEventNativeOwnerFleetShutdownAdvancePhase {
+        fleetShutdownAdvanceCoordinator.phase
     }
 
     private func consumeStartRight(

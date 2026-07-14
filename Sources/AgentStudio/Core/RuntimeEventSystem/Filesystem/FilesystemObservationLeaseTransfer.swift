@@ -139,6 +139,10 @@ struct FilesystemObservationLeaseTransfer {
         )
     }
 
+    var semanticShutdownDebtSnapshot: FilesystemObservationSemanticShutdownDebtSnapshot {
+        semanticReplay.shutdownDebtSnapshot
+    }
+
     mutating func transfer<SemanticSink: FilesystemObservationSemanticCustodySink>(
         _ lease: FilesystemObservationDrainLease,
         sourceGate: inout FilesystemSourceGate,

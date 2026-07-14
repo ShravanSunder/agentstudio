@@ -171,6 +171,35 @@ struct FilesystemObservationSemanticReplayDiagnostics: Equatable, Sendable {
     let maximumRetainedIdentityCapacity: Int
 }
 
+struct FilesystemObservationSemanticRetainedShutdownDebt: Equatable, Sendable {
+    let fingerprint: FilesystemObservationSemanticLeaseFingerprint
+    let currentAttemptIdentity: FilesystemObservationSemanticAttemptIdentity
+    let acceptedPrefix: [FilesystemObservationSemanticAcceptedDisposition]
+}
+
+enum FilesystemObservationSemanticShutdownSlotDebt: Equatable, Sendable {
+    case vacant(FilesystemObservationPhysicalSlotID)
+    case retained(FilesystemObservationSemanticRetainedShutdownDebt)
+
+    var physicalSlotID: FilesystemObservationPhysicalSlotID {
+        switch self {
+        case .vacant(let physicalSlotID): physicalSlotID
+        case .retained(let debt): debt.fingerprint.binding.physicalSlotID
+        }
+    }
+}
+
+struct FilesystemObservationSemanticShutdownDebtSnapshot: Equatable, Sendable {
+    let slots: [FilesystemObservationSemanticShutdownSlotDebt]
+
+    var isQuiescent: Bool {
+        slots.allSatisfy { slot in
+            if case .vacant = slot { return true }
+            return false
+        }
+    }
+}
+
 /// Actor-isolated bounded replay for contribution-bearing filesystem leases.
 ///
 /// This value owns no synchronization or source semantics. Its caller must keep
@@ -190,6 +219,7 @@ struct FilesystemObservationSemanticReplay: Sendable {
 
     private let maximumContributionsPerLease: Int
     private let maximumRetainedIdentityCapacity: Int
+    private let physicalSlotIDsInDeclarationOrder: [FilesystemObservationPhysicalSlotID]
     private var shellsByPhysicalSlotID: [FilesystemObservationPhysicalSlotID: Shell]
     private var retainedIdentityCount = 0
     private var retainedIdentityHighWater = 0
@@ -215,6 +245,7 @@ struct FilesystemObservationSemanticReplay: Sendable {
         }
         self.maximumContributionsPerLease = maximumContributionsPerLease
         maximumRetainedIdentityCapacity = capacity
+        physicalSlotIDsInDeclarationOrder = physicalSlotIDs
         shellsByPhysicalSlotID = Dictionary(
             uniqueKeysWithValues: physicalSlotIDs.map { ($0, Shell.vacant) }
         )
@@ -404,6 +435,28 @@ struct FilesystemObservationSemanticReplay: Sendable {
             retainedIdentityCount: retainedIdentityCount,
             retainedIdentityHighWater: retainedIdentityHighWater,
             maximumRetainedIdentityCapacity: maximumRetainedIdentityCapacity
+        )
+    }
+
+    var shutdownDebtSnapshot: FilesystemObservationSemanticShutdownDebtSnapshot {
+        FilesystemObservationSemanticShutdownDebtSnapshot(
+            slots: physicalSlotIDsInDeclarationOrder.map { physicalSlotID in
+                guard let shell = shellsByPhysicalSlotID[physicalSlotID] else {
+                    preconditionFailure("Declared semantic replay slot disappeared")
+                }
+                switch shell {
+                case .vacant:
+                    return .vacant(physicalSlotID)
+                case .retained(let retained):
+                    return .retained(
+                        FilesystemObservationSemanticRetainedShutdownDebt(
+                            fingerprint: retained.fingerprint,
+                            currentAttemptIdentity: retained.currentAttemptIdentity,
+                            acceptedPrefix: retained.acceptedPrefix
+                        )
+                    )
+                }
+            }
         )
     }
 

@@ -34,6 +34,7 @@ struct FilesystemConfigurationIntentSourceMismatch: Equatable, Hashable, Sendabl
 }
 
 enum FilesystemConfigurationIntentBatchRejection: Equatable, Sendable {
+    case fleetShutdownInProgress(FilesystemObservationFleetShutdownIdentity)
     case sourceMismatches(Set<FilesystemConfigurationIntentSourceMismatch>)
     case staleAcceptedTopologyRevision(
         submitted: FilesystemObservationAcceptedTopologyRevision,

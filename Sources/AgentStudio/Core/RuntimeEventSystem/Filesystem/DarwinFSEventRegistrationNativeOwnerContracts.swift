@@ -98,10 +98,96 @@ enum DarwinFSEventUnpublishedQuiescence: Sendable {
     case startRejectedAfterDrain(DarwinFSEventStartRejectedQuiescence)
 }
 
-enum DarwinFSEventNativeOwnerLifecycleRejection: Sendable {
+enum DarwinFSEventNativeOwnerLifecycleRejection: Equatable, Sendable {
     case generationPhase(DarwinFSEventRegistrationGenerationPhase)
     case mailboxClosing(FilesystemObservationCallbackLeaseDrainClosingResult)
     case closeAlreadyInProgress
+}
+
+enum DarwinFSEventNativeOwnerFleetShutdownCompletion: Equatable, Sendable {
+    case unpublished(DarwinFSEventUnpublishedNativeCompletion)
+    case acceptingGenerationClosed(DarwinFSEventRegistrationLeaseDrainReceipt)
+}
+
+enum DarwinFSEventNativeOwnerFleetShutdownDebt: Equatable, Sendable {
+    case acceptingPublicationPending(FilesystemObservationAcceptingPublicationResult)
+    case nativeAuthorityRejected(
+        DarwinFSEventNativeOwnerAuthorityRejection,
+        generationPhase: DarwinFSEventRegistrationGenerationPhase
+    )
+    case nativeLifecycleRejected(
+        DarwinFSEventNativeOwnerLifecycleRejection,
+        generationPhase: DarwinFSEventRegistrationGenerationPhase
+    )
+}
+
+enum DarwinFSEventNativeOwnerFleetShutdownResult: Equatable, Sendable {
+    case completed(DarwinFSEventNativeOwnerFleetShutdownCompletion)
+    case incomplete(DarwinFSEventNativeOwnerFleetShutdownDebt)
+}
+
+enum DarwinFSEventNativeOwnerFleetShutdownNativePhase: Equatable, Sendable {
+    case creationAvailable(FilesystemObservationStartingNativeLifetime)
+    case creating(FilesystemObservationStartingNativeLifetime)
+    case created(
+        FilesystemObservationStartingNativeLifetime,
+        generationPhase: DarwinFSEventRegistrationGenerationPhase
+    )
+    case starting(
+        FilesystemObservationStartingNativeLifetime,
+        generationPhase: DarwinFSEventRegistrationGenerationPhase
+    )
+    case abandoningStart(
+        FilesystemObservationStartingNativeLifetime,
+        generationPhase: DarwinFSEventRegistrationGenerationPhase
+    )
+    case publishingAcceptance(
+        FilesystemObservationStartingNativeLifetime,
+        generationPhase: DarwinFSEventRegistrationGenerationPhase
+    )
+    case acceptingPublicationPending(
+        FilesystemObservationStartingNativeLifetime,
+        FilesystemObservationAcceptingPublicationResult,
+        generationPhase: DarwinFSEventRegistrationGenerationPhase
+    )
+    case creationRejected(DarwinFSEventRegistrationCreateFailureCleanup)
+    case creationAbandoned(DarwinFSEventRegistrationCreationAbandonment)
+    case unpublished(DarwinFSEventUnpublishedNativeCompletion)
+    case accepting(
+        FilesystemObservationAcceptingNativeLifetime,
+        generationPhase: DarwinFSEventRegistrationGenerationPhase
+    )
+    case authorityRejected(
+        FilesystemObservationStartingNativeLifetime,
+        DarwinFSEventNativeOwnerAuthorityRejection,
+        generationPhase: DarwinFSEventRegistrationGenerationPhase
+    )
+    case lifecycleRejected(
+        FilesystemObservationStartingNativeLifetime,
+        DarwinFSEventNativeOwnerLifecycleRejection,
+        generationPhase: DarwinFSEventRegistrationGenerationPhase
+    )
+}
+
+enum DarwinNativeFleetShutdownFinalizationPhase: Equatable, Sendable {
+    case awaitingMaterialization
+    case retainedContext
+    case retirementPermitRetained(FilesystemObservationNativeRetirementPermit)
+    case finalizing(FilesystemObservationNativeRetirementPermit)
+    case finalized(FilesystemObservationContextReleaseAcknowledgement)
+}
+
+enum DarwinFSEventNativeOwnerFleetShutdownAdvancePhase: Equatable, Sendable {
+    case available
+    case inFlight
+    case completed(DarwinFSEventNativeOwnerFleetShutdownCompletion)
+}
+
+struct DarwinFSEventNativeOwnerFleetShutdownProjection: Equatable, Sendable {
+    let binding: FilesystemObservationSlotBinding
+    let nativePhase: DarwinFSEventNativeOwnerFleetShutdownNativePhase
+    let finalizationPhase: DarwinNativeFleetShutdownFinalizationPhase
+    let advancePhase: DarwinFSEventNativeOwnerFleetShutdownAdvancePhase
 }
 
 enum DarwinFSEventNativeOwnerStartResult: Sendable {
