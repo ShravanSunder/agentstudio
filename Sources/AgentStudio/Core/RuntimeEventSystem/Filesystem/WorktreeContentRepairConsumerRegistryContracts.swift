@@ -293,6 +293,24 @@ enum ContentRepairAcknowledgementConfirmationResult: Equatable, Sendable {
     case shuttingDown
 }
 
+enum ContentRepairAcknowledgementForwardingEligibility: Equatable, Sendable {
+    case pendingExact(ContentRepairAcceptedAcknowledgement)
+    case confirmedExact(ContentRepairAcceptedAcknowledgement)
+}
+
+enum ContentRepairForwardingIneligibility: Equatable, Sendable {
+    case acknowledgementMismatch(FilesystemRepairAcknowledgementToken)
+    case staleAcknowledgement(FilesystemRepairAcknowledgementToken)
+    case foreignOrRetiredSource(FilesystemSourceID)
+    case sourceKindNotSupported(FilesystemSourceID)
+}
+
+enum ContentRepairForwardingEligibilityResult: Equatable, Sendable {
+    case eligible(ContentRepairAcknowledgementForwardingEligibility)
+    case ineligible(ContentRepairForwardingIneligibility)
+    case shuttingDown
+}
+
 enum ContentRepairWithdrawalDisposition: Equatable, Sendable {
     case noRetainedState
 }

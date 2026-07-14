@@ -356,6 +356,20 @@ actor WorktreeContentRepairConsumerRegistry {
         )
     }
 
+    func validateAcknowledgementForwardingEligibility(
+        _ acknowledgement: ContentRepairAcceptedAcknowledgement
+    ) -> ContentRepairForwardingEligibilityResult {
+        let token = acknowledgement.sourceGateAcknowledgement
+        let sourceID = token.repairGenerationID.registration.sourceID
+        return RegistryState.acknowledgementForwardingEligibility(
+            lifecycle: lifecycle,
+            acknowledgement: acknowledgement,
+            baselineRegistration: baselineRegistrationBySourceID[sourceID],
+            pendingRecord: pendingOutboundAcknowledgementByToken[token],
+            confirmedRecord: confirmedAcknowledgementBySourceID[sourceID]?[token]
+        )
+    }
+
     func acknowledge(
         repairGenerationID: RepairGenerationID,
         consumer: ContentRepairConsumerToken,
@@ -366,10 +380,13 @@ actor WorktreeContentRepairConsumerRegistry {
             return .debtRetained(.foreignSource)
         }
         guard var repair = activeRepairBySourceID[consumer.sourceID] else {
-            return replayedAcknowledgement(
+            return RegistryState.replayedAcknowledgement(
                 repairGenerationID: repairGenerationID,
                 consumer: consumer,
-                disposition: disposition
+                disposition: disposition,
+                pendingByToken: pendingOutboundAcknowledgementByToken,
+                confirmedBySourceID: confirmedAcknowledgementBySourceID,
+                completedBySourceID: completedRepairBySourceID
             )
         }
         guard repair.generation.id == repairGenerationID else {
@@ -784,21 +801,6 @@ actor WorktreeContentRepairConsumerRegistry {
 }
 
 extension WorktreeContentRepairConsumerRegistry {
-    private func replayedAcknowledgement(
-        repairGenerationID: RepairGenerationID,
-        consumer: ContentRepairConsumerToken,
-        disposition: ContentRepairConsumerDisposition
-    ) -> ContentRepairAcknowledgementResult {
-        RegistryState.replayedAcknowledgement(
-            repairGenerationID: repairGenerationID,
-            consumer: consumer,
-            disposition: disposition,
-            pendingByToken: pendingOutboundAcknowledgementByToken,
-            confirmedBySourceID: confirmedAcknowledgementBySourceID,
-            completedBySourceID: completedRepairBySourceID
-        )
-    }
-
     func completeRetry(
         _ retry: ContentRepairRetryToken,
         consumerRevision: UInt64

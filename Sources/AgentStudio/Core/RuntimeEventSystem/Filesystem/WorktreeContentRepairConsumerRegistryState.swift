@@ -461,6 +461,36 @@ enum WorktreeContentRepairConsumerRegistryState {
         return .authorized(finalRegistration: finalRegistration)
     }
 
+    static func acknowledgementForwardingEligibility(
+        lifecycle: WorktreeContentRepairConsumerRegistryLifecycle,
+        acknowledgement: ContentRepairAcceptedAcknowledgement,
+        baselineRegistration: FSEventRegistrationToken?,
+        pendingRecord: PendingAcknowledgementRecord?,
+        confirmedRecord: ConfirmedAcknowledgementRecord?
+    ) -> ContentRepairForwardingEligibilityResult {
+        guard lifecycle != .shutdown else { return .shuttingDown }
+        let token = acknowledgement.sourceGateAcknowledgement
+        let registration = token.repairGenerationID.registration
+        let sourceID = registration.sourceID
+        guard sourceID.kind == .registeredWorktreeContent else {
+            return .ineligible(.sourceKindNotSupported(sourceID))
+        }
+        guard baselineRegistration == registration else {
+            return .ineligible(.foreignOrRetiredSource(sourceID))
+        }
+        if let pending = pendingRecord {
+            return pending.accepted == acknowledgement
+                ? .eligible(.pendingExact(acknowledgement))
+                : .ineligible(.acknowledgementMismatch(token))
+        }
+        if let confirmed = confirmedRecord {
+            return confirmed.pending.accepted == acknowledgement
+                ? .eligible(.confirmedExact(acknowledgement))
+                : .ineligible(.acknowledgementMismatch(token))
+        }
+        return .ineligible(.staleAcknowledgement(token))
+    }
+
     static func prunedCaptureLedger(
         _ ledger: [ContentRepairCaptureIdentity: CaptureLedgerEntry],
         sourceID: FilesystemSourceID,

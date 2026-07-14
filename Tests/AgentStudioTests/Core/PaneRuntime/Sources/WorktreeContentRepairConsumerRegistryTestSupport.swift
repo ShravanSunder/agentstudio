@@ -321,4 +321,192 @@ extension WorktreeContentRepairConsumerRegistryTests {
                 )
         )
     }
+
+    @Test("acknowledgement forwarding eligibility distinguishes exact pending and confirmed custody")
+    func acknowledgementForwardingEligibilityIsExactAcrossOperations() async throws {
+        // Arrange
+        let normal = try await makeBoundFixture()
+        let withdrawal = try await makeBoundFixture()
+        let replacement = try await makeBoundFixture()
+        let normalAccepted = try requireAccepted(
+            await normal.registry.acknowledge(
+                repairGenerationID: normal.bound.repairGeneration.id,
+                consumer: normal.consumer.token,
+                disposition: .rebuiltCurrent(consumerRevision: 41)
+            )
+        )
+        let withdrawalAccepted = try requireWithdrawalAccepted(
+            await withdrawal.registry.withdraw(
+                withdrawal.consumer.token,
+                disposition: .noRetainedState
+            )
+        )
+        let replaced = try requireReplacement(
+            await replacement.registry.replace(replacement.consumer.token, eligibility: .eligible)
+        )
+        guard case .transferred(let replacementAccepted) = replaced.repairDisposition else {
+            Issue.record("Expected replacement acknowledgement")
+            return
+        }
+        let mismatched = ContentRepairAcceptedAcknowledgement(
+            sourceGateAcknowledgement: normalAccepted.sourceGateAcknowledgement,
+            disposition: .rebuiltCurrent(consumerRevision: 42)
+        )
+
+        // Act
+        let normalPending = await normal.registry.validateAcknowledgementForwardingEligibility(
+            normalAccepted
+        )
+        let withdrawalPending = await withdrawal.registry.validateAcknowledgementForwardingEligibility(
+            withdrawalAccepted
+        )
+        let replacementPending = await replacement.registry.validateAcknowledgementForwardingEligibility(
+            replacementAccepted
+        )
+        let mismatch = await normal.registry.validateAcknowledgementForwardingEligibility(mismatched)
+        _ = await normal.registry.confirmSourceGateAcknowledgement(
+            normalAccepted.sourceGateAcknowledgement
+        )
+        let normalConfirmed = await normal.registry.validateAcknowledgementForwardingEligibility(
+            normalAccepted
+        )
+
+        // Assert
+        #expect(normalPending == .eligible(.pendingExact(normalAccepted)))
+        #expect(withdrawalPending == .eligible(.pendingExact(withdrawalAccepted)))
+        #expect(replacementPending == .eligible(.pendingExact(replacementAccepted)))
+        #expect(
+            mismatch
+                == .ineligible(
+                    .acknowledgementMismatch(normalAccepted.sourceGateAcknowledgement)
+                )
+        )
+        #expect(normalConfirmed == .eligible(.confirmedExact(normalAccepted)))
+    }
+
+    @Test("acknowledgement forwarding eligibility rejects confirmed custody evicted at the bound")
+    func acknowledgementForwardingEligibilityRejectsEvictedConfirmation() async throws {
+        // Arrange
+        let registry = WorktreeContentRepairConsumerRegistry()
+        let registration = makeRegistration()
+        for _ in 0...256 {
+            _ = try await requireRegistration(
+                registry.register(registration: registration, eligibility: .eligible)
+            )
+        }
+        let capture = try await requirePrepared(
+            prepareCapture(registry, registration: registration)
+        )
+        let bound = try await bindActive(capture, registry: registry).boundGeneration
+        var oldestAcknowledgement: ContentRepairAcceptedAcknowledgement?
+        for request in bound.deliveryRequests {
+            let accepted = try requireAccepted(
+                await registry.acknowledge(
+                    repairGenerationID: bound.repairGeneration.id,
+                    consumer: request.consumer,
+                    disposition: .rebuiltCurrent(
+                        consumerRevision: request.consumer.registrationOrdinal
+                    )
+                )
+            )
+            if oldestAcknowledgement == nil {
+                oldestAcknowledgement = accepted
+            }
+            _ = await registry.confirmSourceGateAcknowledgement(
+                accepted.sourceGateAcknowledgement
+            )
+        }
+        guard let oldestAcknowledgement else {
+            Issue.record("Expected oldest acknowledgement")
+            return
+        }
+
+        // Act
+        let eligibility = await registry.validateAcknowledgementForwardingEligibility(
+            oldestAcknowledgement
+        )
+
+        // Assert
+        #expect(
+            eligibility
+                == .ineligible(
+                    .staleAcknowledgement(oldestAcknowledgement.sourceGateAcknowledgement)
+                )
+        )
+    }
+
+    @Test("acknowledgement forwarding eligibility rejects retired foreign unsupported and shutdown sources")
+    func acknowledgementForwardingEligibilityRejectsUnavailableSources() async throws {
+        // Arrange
+        let retired = try await makeBoundFixture()
+        let retiredAccepted = try requireAccepted(
+            await retired.registry.acknowledge(
+                repairGenerationID: retired.bound.repairGeneration.id,
+                consumer: retired.consumer.token,
+                disposition: .rebuiltCurrent(consumerRevision: 71)
+            )
+        )
+        _ = await retired.registry.confirmSourceGateAcknowledgement(
+            retiredAccepted.sourceGateAcknowledgement
+        )
+        _ = await retired.registry.retireSource(retired.registration.sourceID)
+
+        let foreignRegistry = WorktreeContentRepairConsumerRegistry()
+        let shutdown = try await makeBoundFixture()
+        let shutdownAccepted = try requireAccepted(
+            await shutdown.registry.acknowledge(
+                repairGenerationID: shutdown.bound.repairGeneration.id,
+                consumer: shutdown.consumer.token,
+                disposition: .rebuiltCurrent(consumerRevision: 81)
+            )
+        )
+        _ = await shutdown.registry.confirmSourceGateAcknowledgement(
+            shutdownAccepted.sourceGateAcknowledgement
+        )
+        _ = await shutdown.registry.beginOrResumeShutdown()
+        let unsupportedSourceID = FilesystemSourceID(
+            kind: .watchedParentMembership,
+            rootID: UUIDv7.generate()
+        )
+        let unsupported = ContentRepairAcceptedAcknowledgement(
+            sourceGateAcknowledgement: FilesystemRepairAcknowledgementToken(
+                repairGenerationID: RepairGenerationID(
+                    registration: FSEventRegistrationToken(
+                        sourceID: unsupportedSourceID,
+                        registrationGeneration: 0,
+                        rootGeneration: 0
+                    ),
+                    sequence: 0
+                ),
+                participant: retiredAccepted.sourceGateAcknowledgement.participant
+            ),
+            disposition: retiredAccepted.disposition
+        )
+
+        // Act
+        let retiredResult = await retired.registry.validateAcknowledgementForwardingEligibility(
+            retiredAccepted
+        )
+        let foreignResult = await foreignRegistry.validateAcknowledgementForwardingEligibility(
+            retiredAccepted
+        )
+        let unsupportedResult = await foreignRegistry.validateAcknowledgementForwardingEligibility(
+            unsupported
+        )
+        let shutdownResult = await shutdown.registry.validateAcknowledgementForwardingEligibility(
+            shutdownAccepted
+        )
+
+        // Assert
+        #expect(
+            retiredResult
+                == .ineligible(.foreignOrRetiredSource(retired.registration.sourceID))
+        )
+        #expect(
+            foreignResult
+                == .ineligible(.foreignOrRetiredSource(retired.registration.sourceID))
+        )
+        #expect(unsupportedResult == .ineligible(.sourceKindNotSupported(unsupportedSourceID)))
+        #expect(shutdownResult == .shuttingDown)
+    }
 }
