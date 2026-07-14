@@ -49,6 +49,17 @@ final class FilesystemObservationMailbox: @unchecked Sendable {
         core.fleetShutdownDebtSnapshot(for: shutdownIdentity)
     }
 
+    func advanceFleetShutdownOneTurn(
+        for shutdownIdentity: FilesystemObservationFleetShutdownIdentity,
+        contextFinalizer: any DarwinFSEventCallbackContextFinalizer =
+            DarwinFSEventUnmanagedCallbackContextFinalizer()
+    ) async -> FilesystemObservationFleetShutdownProgressResult {
+        await core.advanceFleetShutdownOneTurn(
+            for: shutdownIdentity,
+            contextFinalizer: contextFinalizer
+        )
+    }
+
     func installDesiredConfiguration(
         _ configuration: FilesystemObservationSourceConfiguration,
         acceptedTopologyRevision: FilesystemObservationAcceptedTopologyRevision

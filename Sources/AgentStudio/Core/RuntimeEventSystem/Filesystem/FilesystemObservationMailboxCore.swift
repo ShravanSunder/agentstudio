@@ -380,6 +380,11 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         )
     }
 
+    private enum RetirementFencePreparation: Sendable {
+        case completed(FilesystemObservationRetirementFenceRequestResult)
+        case prepared(FilesystemRetirementFencePendingLifetime)
+    }
+
     private struct IssuedNativeGenerationPortCustody: Sendable {
         let startingNativeLifetime: FilesystemObservationStartingNativeLifetime
         let callbackAdmissionPortIdentity: FilesystemObservationCallbackAdmissionPortIdentity
@@ -391,6 +396,34 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
     private enum NativeGenerationPortCustody: Sendable {
         case vacant
         case issued(IssuedNativeGenerationPortCustody)
+    }
+
+    private enum FleetShutdownProgressTurnState: Sendable {
+        case idle
+        case inFlight
+    }
+
+    private enum FleetShutdownProgressPlan: Sendable {
+        case completed(
+            FilesystemObservationFleetShutdownProgressResult,
+            AdmissionWakeDirective
+        )
+        case advanceNativeOwner(DarwinFSEventRegistrationNativeOwner)
+        case applyNativeCompletion(DarwinFSEventRegistrationNativeOwner)
+        case performGenericCleanup
+        case retainFenceRetirementPermit(FilesystemObservationSlotRetirementReceipt)
+        case finalizeNativeContext(
+            DarwinFSEventRegistrationNativeOwner,
+            FilesystemObservationNativeRetirementPermit
+        )
+        case applyContextReleaseAcknowledgement(
+            FilesystemObservationContextReleaseAcknowledgement
+        )
+
+        var isCompleted: Bool {
+            guard case .completed = self else { return false }
+            return true
+        }
     }
 
     private struct PendingRetirementFenceReadyQueue: Sendable {
@@ -524,6 +557,7 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         var nativeGenerationPortsByPhysicalSlotID: [FilesystemObservationPhysicalSlotID: NativeGenerationPortCustody]
         var pendingRetirementFenceReadyQueue: PendingRetirementFenceReadyQueue
         var configurationIntentReplayCustody: ConfigurationIntentReplayCustody
+        var fleetShutdownProgressTurn: FleetShutdownProgressTurnState
 
         init(
             physicalSlotIDs: [FilesystemObservationPhysicalSlotID],
@@ -545,6 +579,7 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                 physicalSlotIDs: physicalSlotIDs
             )
             configurationIntentReplayCustody = .vacant
+            fleetShutdownProgressTurn = .idle
         }
     }
 
@@ -693,6 +728,395 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                 )
             )
         }
+    }
+
+    func advanceFleetShutdownOneTurn(
+        for shutdownIdentity: FilesystemObservationFleetShutdownIdentity,
+        contextFinalizer: any DarwinFSEventCallbackContextFinalizer
+    ) async -> FilesystemObservationFleetShutdownProgressResult {
+        let plan = lock.withLock { state in
+            claimFleetShutdownProgressPlanLocked(
+                shutdownIdentity: shutdownIdentity,
+                state: &state
+            )
+        }
+        guard !plan.isCompleted else {
+            return applyCompletedFleetShutdownProgressPlan(plan)
+        }
+        defer {
+            lock.withLock { state in
+                state.fleetShutdownProgressTurn = .idle
+            }
+        }
+
+        switch plan {
+        case .completed:
+            preconditionFailure("completed fleet progress plan was handled before execution")
+        case .advanceNativeOwner(let nativeOwner):
+            let result = await nativeOwner.advanceFleetShutdown()
+            return fleetShutdownProgressResult(
+                .nativeOwnerAdvanced(result),
+                shutdownIdentity: shutdownIdentity
+            )
+        case .applyNativeCompletion(let nativeOwner):
+            let result = await nativeOwner.advanceFleetShutdown()
+            return applyRetainedNativeShutdownCompletion(
+                result,
+                shutdownIdentity: shutdownIdentity
+            )
+        case .performGenericCleanup:
+            guard case .performed = performFleetShutdownGenericCleanupTurn() else {
+                return fleetShutdownNoProgressResult(for: shutdownIdentity)
+            }
+            return fleetShutdownProgressResult(
+                .genericCleanupPerformed,
+                shutdownIdentity: shutdownIdentity
+            )
+        case .retainFenceRetirementPermit(let receipt):
+            guard case .issued = fenceBackedRetirementPermit(for: receipt) else {
+                return fleetShutdownNoProgressResult(for: shutdownIdentity)
+            }
+            return fleetShutdownProgressResult(
+                .finalRetirementPermitRetained(receipt.binding),
+                shutdownIdentity: shutdownIdentity
+            )
+        case .finalizeNativeContext(let nativeOwner, let permit):
+            let result = nativeOwner.finalizeNativeLifetime(
+                using: permit,
+                contextFinalizer: contextFinalizer
+            )
+            guard case .finalized(let acknowledgement) = result else {
+                return fleetShutdownNoProgressResult(for: shutdownIdentity)
+            }
+            return fleetShutdownProgressResult(
+                .nativeContextFinalized(
+                    binding: acknowledgement.binding,
+                    releaseAuthority: acknowledgement.releaseAuthority
+                ),
+                shutdownIdentity: shutdownIdentity
+            )
+        case .applyContextReleaseAcknowledgement(let acknowledgement):
+            guard
+                case .applied = applyContextReleaseAcknowledgement(
+                    acknowledgement,
+                    attemptsPromotedFence: false
+                )
+            else {
+                return fleetShutdownNoProgressResult(for: shutdownIdentity)
+            }
+            return fleetShutdownProgressResult(
+                .contextReleaseAcknowledgementApplied(
+                    binding: acknowledgement.binding,
+                    releaseAuthority: acknowledgement.releaseAuthority
+                ),
+                shutdownIdentity: shutdownIdentity
+            )
+        }
+    }
+
+    private func claimFleetShutdownProgressPlanLocked(
+        shutdownIdentity: FilesystemObservationFleetShutdownIdentity,
+        state: inout State
+    ) -> FleetShutdownProgressPlan {
+        guard state.lifecycle == .open else {
+            return .completed(
+                .terminationAlreadyAdvanced(lifecycleSnapshot(state.lifecycle)),
+                .noWake
+            )
+        }
+        guard case .shutdownFrozen(let retainedIdentity) = state.fleetIngressLifecycle else {
+            return .completed(.shutdownNotFrozen, .noWake)
+        }
+        guard retainedIdentity == shutdownIdentity else {
+            return .completed(
+                .shutdownIdentityMismatch(
+                    expected: retainedIdentity,
+                    presented: shutdownIdentity
+                ),
+                .noWake
+            )
+        }
+        guard case .idle = state.fleetShutdownProgressTurn else {
+            return .completed(
+                .noProgress(
+                    makeFleetShutdownDebtSnapshotLocked(
+                        shutdownIdentity: retainedIdentity,
+                        state: state
+                    )
+                ),
+                .noWake
+            )
+        }
+        state.fleetShutdownProgressTurn = .inFlight
+
+        if let progress = withdrawOneDesiredCustodyLocked(
+            shutdownIdentity: shutdownIdentity,
+            state: &state
+        ) {
+            return .completed(progress, .noWake)
+        }
+
+        if let nativeProgressPlan = claimNativeFleetShutdownProgressPlanLocked(state: state) {
+            return nativeProgressPlan
+        }
+
+        let genericDebt = gatherMailbox.lifecyclePort.shutdownDebtSnapshot
+        if FilesystemObservationFleetShutdownProgressPlanner.hasQueuedGenericCleanup(
+            genericDebt
+        ) {
+            return .performGenericCleanup
+        }
+
+        switch attemptOnePendingRetirementFenceLocked(state: &state) {
+        case .installed(let installed, let wake):
+            return .completed(
+                makeFleetShutdownProgressResultLocked(
+                    .retirementFenceAdvanced(installed.binding.physicalSlotID),
+                    shutdownIdentity: shutdownIdentity,
+                    state: state
+                ),
+                wake
+            )
+        case .contracted(let pending, _, let wake):
+            return .completed(
+                makeFleetShutdownProgressResultLocked(
+                    .retirementFenceAdvanced(pending.binding.physicalSlotID),
+                    shutdownIdentity: shutdownIdentity,
+                    state: state
+                ),
+                wake
+            )
+        case .noEligibleFence, .awaitingCleanup:
+            break
+        }
+
+        if let finalizationPlan = claimNativeFleetShutdownFinalizationPlanLocked(state: state) {
+            return finalizationPlan
+        }
+
+        state.fleetShutdownProgressTurn = .idle
+        return .completed(
+            .noProgress(
+                makeFleetShutdownDebtSnapshotLocked(
+                    shutdownIdentity: shutdownIdentity,
+                    state: state
+                )
+            ),
+            .noWake
+        )
+    }
+
+    private func claimNativeFleetShutdownProgressPlanLocked(
+        state: State
+    ) -> FleetShutdownProgressPlan? {
+        for physicalSlotID in slotRegistry.physicalSlotIDs {
+            guard
+                case .issued(let custody) =
+                    state.nativeGenerationPortsByPhysicalSlotID[physicalSlotID]
+            else {
+                continue
+            }
+            switch custody.nativeOwner.fleetShutdownProjection.advancePhase {
+            case .available, .inFlight:
+                return .advanceNativeOwner(custody.nativeOwner)
+            case .completed:
+                switch slotRegistry.read.state(of: physicalSlotID) {
+                case .starting, .closingAwaitingCallbackLeaseDrain,
+                    .retiringUnpublishedGeneration:
+                    return .applyNativeCompletion(custody.nativeOwner)
+                case .undeclaredPhysicalSlot, .vacant, .selected, .accepting,
+                    .closingAwaitingPredecessor, .retirementFencePending,
+                    .retirementFenceInstalled, .retirementFenceTransferredAwaitingCleanup,
+                    .retiredAwaitingContextRelease:
+                    break
+                }
+            }
+        }
+        return nil
+    }
+
+    private func claimNativeFleetShutdownFinalizationPlanLocked(
+        state: State
+    ) -> FleetShutdownProgressPlan? {
+        for physicalSlotID in slotRegistry.physicalSlotIDs {
+            guard
+                case .issued(let custody) =
+                    state.nativeGenerationPortsByPhysicalSlotID[physicalSlotID],
+                case .retiredAwaitingContextRelease(let retiredLifetime) =
+                    slotRegistry.read.state(of: physicalSlotID)
+            else {
+                continue
+            }
+            switch custody.nativeOwner.fleetShutdownProjection.finalizationPhase {
+            case .awaitingMaterialization, .retainedContext:
+                guard case .fenceBacked(let fenceLifetime) = retiredLifetime else {
+                    continue
+                }
+                return .retainFenceRetirementPermit(fenceLifetime.receipt)
+            case .retirementPermitRetained, .finalizing:
+                return .finalizeNativeContext(custody.nativeOwner, retiredLifetime.permit)
+            case .finalized:
+                guard
+                    case .finalized(let acknowledgement) =
+                        custody.nativeOwner.nativeFinalizationSnapshot
+                else {
+                    continue
+                }
+                return .applyContextReleaseAcknowledgement(acknowledgement)
+            }
+        }
+        return nil
+    }
+
+    private func withdrawOneDesiredCustodyLocked(
+        shutdownIdentity: FilesystemObservationFleetShutdownIdentity,
+        state: inout State
+    ) -> FilesystemObservationFleetShutdownProgressResult? {
+        let candidates =
+            FilesystemObservationFleetShutdownProgressPlanner
+            .desiredWithdrawalCandidates(
+                from: makeFleetShutdownDebtSnapshotLocked(
+                    shutdownIdentity: shutdownIdentity,
+                    state: state
+                )
+            )
+
+        for candidate in candidates {
+            switch slotRegistry.withdrawDesiredSource(
+                sourceID: candidate.sourceID,
+                desiredIdentity: candidate.desiredIdentity
+            ) {
+            case .withdrewDeferred, .withdrewPendingConfiguration,
+                .releasedSelectedReservation, .awaitingAcceptingPublication:
+                return makeFleetShutdownProgressResultLocked(
+                    .desiredCustodyWithdrawn(candidate),
+                    shutdownIdentity: shutdownIdentity,
+                    state: state
+                )
+            case .closeAccepting, .retiringGeneration, .alreadyAbsent,
+                .staleDesiredIdentity:
+                continue
+            }
+        }
+        return nil
+    }
+
+    private func applyRetainedNativeShutdownCompletion(
+        _ result: DarwinFSEventNativeOwnerFleetShutdownResult,
+        shutdownIdentity: FilesystemObservationFleetShutdownIdentity
+    ) -> FilesystemObservationFleetShutdownProgressResult {
+        guard case .completed(let completion) = result else {
+            return fleetShutdownNoProgressResult(for: shutdownIdentity)
+        }
+        switch completion {
+        case .unpublished(let unpublishedCompletion):
+            switch physicalSlotState(
+                of: unpublishedCompletion.startingNativeLifetime.binding.physicalSlotID
+            ) {
+            case .starting:
+                guard
+                    case .retirementRequired =
+                        retireUnpublishedNativeGenerationAfterCreateOrStartFailure(
+                            unpublishedCompletion.startingNativeLifetime
+                        )
+                else {
+                    return fleetShutdownNoProgressResult(for: shutdownIdentity)
+                }
+                return fleetShutdownProgressResult(
+                    .nativeCompletionApplied(completion.shutdownReference),
+                    shutdownIdentity: shutdownIdentity
+                )
+            case .retiringUnpublishedGeneration(let retiringLifetime):
+                guard
+                    case .finalized(let finalReceipt) = finalizeUnpublishedNativeGeneration(
+                        retiringLifetime,
+                        completion: unpublishedCompletion
+                    )
+                else {
+                    return fleetShutdownNoProgressResult(for: shutdownIdentity)
+                }
+                return fleetShutdownProgressResult(
+                    .finalRetirementPermitRetained(finalReceipt.binding),
+                    shutdownIdentity: shutdownIdentity
+                )
+            case .undeclaredPhysicalSlot, .vacant, .selected, .accepting,
+                .closingAwaitingCallbackLeaseDrain, .closingAwaitingPredecessor,
+                .retirementFencePending, .retirementFenceInstalled,
+                .retirementFenceTransferredAwaitingCleanup,
+                .retiredAwaitingContextRelease:
+                return fleetShutdownNoProgressResult(for: shutdownIdentity)
+            }
+        case .acceptingGenerationClosed(let receipt):
+            switch prepareRetirementFenceForFleetShutdown(receipt) {
+            case .awaitingPredecessor, .pending:
+                return fleetShutdownProgressResult(
+                    .nativeCompletionApplied(completion.shutdownReference),
+                    shutdownIdentity: shutdownIdentity
+                )
+            case .pendingAwaitingCleanup, .pendingAfterContraction, .installed,
+                .alreadyAwaitingPredecessor, .alreadyPending, .alreadyInstalled, .retired,
+                .foreignFleet, .undeclaredPhysicalSlot, .receiptMismatch,
+                .retiringGenerationLimitReached, .invalidSlotState, .closed:
+                return fleetShutdownNoProgressResult(for: shutdownIdentity)
+            }
+        }
+    }
+
+    private func fleetShutdownProgressResult(
+        _ progress: FilesystemObservationFleetShutdownProgress,
+        shutdownIdentity: FilesystemObservationFleetShutdownIdentity
+    ) -> FilesystemObservationFleetShutdownProgressResult {
+        lock.withLock { state in
+            makeFleetShutdownProgressResultLocked(
+                progress,
+                shutdownIdentity: shutdownIdentity,
+                state: state
+            )
+        }
+    }
+
+    private func makeFleetShutdownProgressResultLocked(
+        _ progress: FilesystemObservationFleetShutdownProgress,
+        shutdownIdentity: FilesystemObservationFleetShutdownIdentity,
+        state: State
+    ) -> FilesystemObservationFleetShutdownProgressResult {
+        .progressed(
+            FilesystemObservationFleetShutdownProgressReceipt(
+                progress: progress,
+                debt: makeFleetShutdownDebtSnapshotLocked(
+                    shutdownIdentity: shutdownIdentity,
+                    state: state
+                )
+            )
+        )
+    }
+
+    private func fleetShutdownNoProgressResult(
+        for shutdownIdentity: FilesystemObservationFleetShutdownIdentity
+    ) -> FilesystemObservationFleetShutdownProgressResult {
+        lock.withLock { state in
+            .noProgress(
+                makeFleetShutdownDebtSnapshotLocked(
+                    shutdownIdentity: shutdownIdentity,
+                    state: state
+                )
+            )
+        }
+    }
+
+    private func applyCompletedFleetShutdownProgressPlan(
+        _ plan: FleetShutdownProgressPlan
+    ) -> FilesystemObservationFleetShutdownProgressResult {
+        guard case .completed(let result, let wake) = plan else {
+            preconditionFailure("only completed fleet progress plans can apply directly")
+        }
+        doorbell.ownerPort.apply(wake)
+        if case .progressed = result {
+            lock.withLock { state in
+                state.fleetShutdownProgressTurn = .idle
+            }
+        }
+        return result
     }
 
     func installDesiredConfiguration(
@@ -954,6 +1378,16 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
     func applyContextReleaseAcknowledgement(
         _ acknowledgement: FilesystemObservationContextReleaseAcknowledgement
     ) -> FilesystemObservationContextReleaseApplyResult {
+        applyContextReleaseAcknowledgement(
+            acknowledgement,
+            attemptsPromotedFence: true
+        )
+    }
+
+    private func applyContextReleaseAcknowledgement(
+        _ acknowledgement: FilesystemObservationContextReleaseAcknowledgement,
+        attemptsPromotedFence: Bool
+    ) -> FilesystemObservationContextReleaseApplyResult {
         let lockedResult:
             (
                 FilesystemObservationContextReleaseApplyResult,
@@ -1040,6 +1474,9 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                     case .undeclaredPhysicalSlot:
                         preconditionFailure("Promoted successor must own a declared physical slot")
                     }
+                    guard attemptsPromotedFence else {
+                        return (result, .noWake)
+                    }
                     switch attemptOnePendingRetirementFenceLocked(state: &state) {
                     case .installed(_, let wake), .contracted(_, _, let wake):
                         return (result, wake)
@@ -1106,39 +1543,10 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                 FilesystemObservationRetirementFenceRequestResult,
                 AdmissionWakeDirective
             ) = lock.withLock { state in
-                guard state.lifecycle == .open else {
-                    return (.closed, .noWake)
-                }
-                switch slotRegistry.prepareRetirementFence(receipt) {
-                case .awaitingPredecessor(let lifetime):
-                    return (.awaitingPredecessor(lifetime), .noWake)
-                case .alreadyAwaitingPredecessor(let lifetime):
-                    return (.alreadyAwaitingPredecessor(lifetime), .noWake)
-                case .alreadyInstalled(let lifetime):
-                    return (.alreadyInstalled(lifetime), .noWake)
-                case .alreadyRetired(let receipt):
-                    return (.retired(receipt), .noWake)
-                case .foreignFleet:
-                    return (.foreignFleet, .noWake)
-                case .undeclaredPhysicalSlot:
-                    return (.undeclaredPhysicalSlot, .noWake)
-                case .receiptMismatch:
-                    return (.receiptMismatch, .noWake)
-                case .retiringGenerationLimitReached:
-                    return (.retiringGenerationLimitReached, .noWake)
-                case .invalidSlotState(let slotState):
-                    return (.invalidSlotState(slotState), .noWake)
-                case .alreadyPending(let lifetime):
-                    return (.alreadyPending(lifetime), .noWake)
-                case .pending(let lifetime):
-                    switch state.pendingRetirementFenceReadyQueue.append(
-                        lifetime.binding.physicalSlotID
-                    ) {
-                    case .appended, .alreadyPresent:
-                        break
-                    case .undeclaredPhysicalSlot:
-                        preconditionFailure("Registry returned an undeclared pending fence slot")
-                    }
+                switch prepareRetirementFenceLocked(receipt, state: &state) {
+                case .completed(let result):
+                    return (result, .noWake)
+                case .prepared(let lifetime):
                     switch attemptOnePendingRetirementFenceLocked(state: &state) {
                     case .noEligibleFence:
                         return (.pending(lifetime), .noWake)
@@ -1159,6 +1567,59 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
             }
         doorbell.ownerPort.apply(lockedResult.1)
         return lockedResult.0
+    }
+
+    private func prepareRetirementFenceForFleetShutdown(
+        _ receipt: DarwinFSEventRegistrationLeaseDrainReceipt
+    ) -> FilesystemObservationRetirementFenceRequestResult {
+        lock.withLock { state in
+            switch prepareRetirementFenceLocked(receipt, state: &state) {
+            case .completed(let result):
+                return result
+            case .prepared(let lifetime):
+                return .pending(lifetime)
+            }
+        }
+    }
+
+    private func prepareRetirementFenceLocked(
+        _ receipt: DarwinFSEventRegistrationLeaseDrainReceipt,
+        state: inout State
+    ) -> RetirementFencePreparation {
+        guard state.lifecycle == .open else {
+            return .completed(.closed)
+        }
+        switch slotRegistry.prepareRetirementFence(receipt) {
+        case .awaitingPredecessor(let lifetime):
+            return .completed(.awaitingPredecessor(lifetime))
+        case .alreadyAwaitingPredecessor(let lifetime):
+            return .completed(.alreadyAwaitingPredecessor(lifetime))
+        case .alreadyInstalled(let lifetime):
+            return .completed(.alreadyInstalled(lifetime))
+        case .alreadyRetired(let receipt):
+            return .completed(.retired(receipt))
+        case .foreignFleet:
+            return .completed(.foreignFleet)
+        case .undeclaredPhysicalSlot:
+            return .completed(.undeclaredPhysicalSlot)
+        case .receiptMismatch:
+            return .completed(.receiptMismatch)
+        case .retiringGenerationLimitReached:
+            return .completed(.retiringGenerationLimitReached)
+        case .invalidSlotState(let slotState):
+            return .completed(.invalidSlotState(slotState))
+        case .alreadyPending(let lifetime):
+            return .completed(.alreadyPending(lifetime))
+        case .pending(let lifetime):
+            switch state.pendingRetirementFenceReadyQueue.append(
+                lifetime.binding.physicalSlotID
+            ) {
+            case .appended, .alreadyPresent:
+                return .prepared(lifetime)
+            case .undeclaredPhysicalSlot:
+                preconditionFailure("Registry returned an undeclared pending fence slot")
+            }
+        }
     }
 
     fileprivate func acceptingNativeLifetimeMismatch(
@@ -1822,6 +2283,16 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                     wake: Self.mergeWake(turn.wake, fenceWake)
                 )
             )
+        }
+        if case .performed(let turn) = result {
+            doorbell.ownerPort.apply(turn.wake)
+        }
+        return result
+    }
+
+    private func performFleetShutdownGenericCleanupTurn() -> AdmissionCleanupTurnResult {
+        let result = lock.withLock { _ in
+            gatherMailbox.consumerPort.performCleanup(generation: generation)
         }
         if case .performed(let turn) = result {
             doorbell.ownerPort.apply(turn.wake)

@@ -5,6 +5,9 @@ import os
 @testable import AgentStudio
 
 enum FilesystemObservationDrainHarnessTakeResult: Sendable {
+    case configurationRejected(
+        FilesystemObservationFleetShutdownDrainConfigurationRejection
+    )
     case lease(FilesystemObservationDrainLease)
     case cleanupRequired
     case empty
@@ -166,9 +169,29 @@ private final class DrainHarnessAcknowledgementController:
 /// Dormant H2 integration harness. The actor is the sole owner of one consumer,
 /// one waiter, the task-free transfer state, SourceGate state, and semantic sink.
 actor FilesystemObservationDrainHarnessActor {
+    private enum ConfigurationPreflight: Sendable {
+        case accepted
+        case rejected(FilesystemObservationFleetShutdownDrainConfigurationRejection)
+    }
+
+    private enum RecoveryContextPreflight {
+        case resolved(
+            [FixedFilesystemRecoveryEvidenceRevision: FilesystemObservationRecoveryAdmissionContext]
+        )
+        case unavailable(
+            binding: FilesystemObservationSlotBinding,
+            evidence: FixedFilesystemRecoveryEvidenceRevision
+        )
+    }
+
     private let acknowledgementController: DrainHarnessAcknowledgementController
+    private let configurationPreflight: ConfigurationPreflight
     private let consumerPort: FilesystemObservationActorConsumerPort
     private let waiterPort: FilesystemObservationActorWaiterPort
+    private let bindingsInDeclarationOrder: [FilesystemObservationSlotBinding]
+    private let recoveryEvidenceLookup:
+        @Sendable (FilesystemObservationSlotBinding) -> FixedFilesystemRecoveryEvidenceSnapshotResult
+    private let recoveryContextResolver: FilesystemObservationRecoveryContextResolver
     private var consumerBinding: AdmissionConsumerBinding
     private var transfer: FilesystemObservationLeaseTransfer
     private var sourceGatesByBinding: [FilesystemObservationSlotBinding: FilesystemSourceGate]
@@ -177,15 +200,40 @@ actor FilesystemObservationDrainHarnessActor {
     init(
         mailbox: FilesystemObservationMailbox,
         bindings: [FilesystemObservationSlotBinding],
-        maximumContributionsPerLease: Int
+        maximumContributionsPerLease: Int,
+        consumerPort suppliedConsumerPort: FilesystemObservationActorConsumerPort? = nil,
+        recoveryContextResolver: FilesystemObservationRecoveryContextResolver = .unavailable
     ) throws {
+        let baseConsumerPort = suppliedConsumerPort ?? mailbox.actorConsumerPort
         let acknowledgementController =
             DrainHarnessAcknowledgementController(
-                underlyingPort: mailbox.actorConsumerPort
+                underlyingPort: baseConsumerPort
             )
         self.acknowledgementController = acknowledgementController
+        let mailboxPhysicalSlotIDsInDeclarationOrder = mailbox.physicalSlotIDs
+        let actorPhysicalSlotIDsInDeclarationOrder = bindings.map(\.physicalSlotID)
+        if actorPhysicalSlotIDsInDeclarationOrder.count
+            == mailboxPhysicalSlotIDsInDeclarationOrder.count,
+            Set(actorPhysicalSlotIDsInDeclarationOrder)
+                == Set(mailboxPhysicalSlotIDsInDeclarationOrder)
+        {
+            configurationPreflight = .accepted
+        } else {
+            configurationPreflight = .rejected(
+                .physicalSlotCoverageMismatch(
+                    mailboxPhysicalSlotIDsInDeclarationOrder:
+                        mailboxPhysicalSlotIDsInDeclarationOrder,
+                    actorBindingsInDeclarationOrder: bindings
+                )
+            )
+        }
         consumerPort = acknowledgementController.interceptedPort
         waiterPort = mailbox.actorWaiterPort
+        bindingsInDeclarationOrder = bindings
+        recoveryEvidenceLookup = { binding in
+            mailbox.recoveryEvidence(for: binding)
+        }
+        self.recoveryContextResolver = recoveryContextResolver
         consumerBinding = consumerPort.bindConsumer().binding
         transfer = try FilesystemObservationLeaseTransfer(
             physicalSlotIDs: bindings.map(\.physicalSlotID),
@@ -196,7 +244,20 @@ actor FilesystemObservationDrainHarnessActor {
         )
     }
 
+    var fleetShutdownDrainPort: FilesystemObservationFleetShutdownDrainPort {
+        FilesystemObservationFleetShutdownDrainPort(
+            snapshot: { await self.fleetShutdownActorDebtSnapshot() },
+            advanceOneTurn: { await self.advanceFleetShutdownDrainOneTurn() },
+            beginOneReadySourceGateShutdown: {
+                await self.beginOneReadySourceGateShutdown()
+            }
+        )
+    }
+
     func takeLease() -> FilesystemObservationDrainHarnessTakeResult {
+        if case .rejected(let rejection) = configurationPreflight {
+            return .configurationRejected(rejection)
+        }
         switch consumerPort.takeDrain(binding: consumerBinding) {
         case .lease(let lease):
             return .lease(lease)
@@ -261,6 +322,12 @@ actor FilesystemObservationDrainHarnessActor {
         transfer.diagnostics
     }
 
+    func replaceSourceGateForTesting(_ sourceGate: FilesystemSourceGate) -> Bool {
+        guard sourceGatesByBinding[sourceGate.binding] != nil else { return false }
+        sourceGatesByBinding[sourceGate.binding] = sourceGate
+        return true
+    }
+
     func sourceGateState(
         for binding: FilesystemObservationSlotBinding
     ) -> FilesystemObservationDrainHarnessSourceGateLookup {
@@ -268,6 +335,142 @@ actor FilesystemObservationDrainHarnessActor {
             return .undeclaredBinding
         }
         return .state(state)
+    }
+
+    private func fleetShutdownActorDebtSnapshot()
+        -> FilesystemObservationFleetShutdownActorDebtSnapshot
+    {
+        FilesystemObservationFleetShutdownActorDebtSnapshot(
+            semanticReplay: transfer.semanticShutdownDebtSnapshot,
+            sourceGatesInBindingDeclarationOrder: bindingsInDeclarationOrder.map(
+                sourceGateShutdownDebt
+            )
+        )
+    }
+
+    private func sourceGateShutdownDebt(
+        for binding: FilesystemObservationSlotBinding
+    ) -> FilesystemSourceGateShutdownDebtSnapshot {
+        guard let sourceGate = sourceGatesByBinding[binding] else {
+            preconditionFailure("Declared SourceGate disappeared from actor ownership")
+        }
+        return sourceGate.shutdownDebtSnapshot
+    }
+
+    private func advanceFleetShutdownDrainOneTurn()
+        -> FilesystemObservationFleetShutdownDrainAdvanceResult
+    {
+        if case .rejected(let rejection) = configurationPreflight {
+            return .noProgress(.configurationRejected(rejection))
+        }
+        let recoveryContextsByRevision:
+            [FixedFilesystemRecoveryEvidenceRevision: FilesystemObservationRecoveryAdmissionContext]
+        switch preflightRecoveryContexts() {
+        case .resolved(let resolvedContexts):
+            recoveryContextsByRevision = resolvedContexts
+        case .unavailable(let binding, let evidence):
+            return .noProgress(
+                .recoveryContextUnavailable(
+                    binding: binding,
+                    evidence: evidence
+                )
+            )
+        }
+
+        switch consumerPort.takeDrain(binding: consumerBinding) {
+        case .lease(let lease):
+            guard var sourceGate = sourceGatesByBinding[lease.binding] else {
+                return .noProgress(.undeclaredBinding(lease.binding))
+            }
+            let recoveryContext = recoveryContext(
+                for: lease,
+                resolvedContextsByRevision: recoveryContextsByRevision
+            )
+            let result = transfer.transfer(
+                lease,
+                sourceGate: &sourceGate,
+                recoveryContext: recoveryContext,
+                semanticSink: &semanticSink,
+                consumerPort: consumerPort
+            )
+            sourceGatesByBinding[lease.binding] = sourceGate
+            return .leaseTransfer(binding: lease.binding, result)
+        case .cleanupRequired:
+            return .cleanup(consumerPort.performCleanup())
+        case .empty:
+            return .noProgress(.mailboxEmpty)
+        case .alreadyLeased:
+            return .noProgress(.activeLeaseAlreadyTaken)
+        case .closed:
+            return .noProgress(.mailboxClosed)
+        }
+    }
+
+    private func beginOneReadySourceGateShutdown()
+        -> FilesystemObservationSourceGateShutdownTurnResult
+    {
+        for binding in bindingsInDeclarationOrder {
+            guard var sourceGate = sourceGatesByBinding[binding] else {
+                preconditionFailure("Declared SourceGate disappeared from actor ownership")
+            }
+            guard sourceGate.shutdownDebtSnapshot.shutdownBeginReadiness == .ready else {
+                continue
+            }
+            guard case .applied(let debt) = sourceGate.beginShutdown() else {
+                preconditionFailure("Ready SourceGate did not begin shutdown")
+            }
+            sourceGatesByBinding[binding] = sourceGate
+            return .applied(binding: binding, debt: debt)
+        }
+
+        let snapshot = fleetShutdownActorDebtSnapshot()
+        if snapshot.sourceGatesInBindingDeclarationOrder.allSatisfy({
+            $0.shutdownBeginReadiness == .alreadyBegan
+        }) {
+            return .allGatesAlreadyShutdown(snapshot)
+        }
+        return .outstandingDebt(snapshot)
+    }
+
+    private func preflightRecoveryContexts() -> RecoveryContextPreflight {
+        var contextsByRevision:
+            [FixedFilesystemRecoveryEvidenceRevision: FilesystemObservationRecoveryAdmissionContext] = [:]
+        for binding in bindingsInDeclarationOrder {
+            guard case .retained(let evidence) = recoveryEvidenceLookup(binding) else {
+                continue
+            }
+            switch recoveryContextResolver.resolve(binding: binding, evidence: evidence) {
+            case .resolved(let context):
+                contextsByRevision[evidence.revision] = context
+            case .unavailable:
+                return .unavailable(
+                    binding: binding,
+                    evidence: evidence.revision
+                )
+            }
+        }
+        return .resolved(contextsByRevision)
+    }
+
+    private func recoveryContext(
+        for lease: FilesystemObservationDrainLease,
+        resolvedContextsByRevision: [FixedFilesystemRecoveryEvidenceRevision:
+            FilesystemObservationRecoveryAdmissionContext]
+    ) -> FilesystemObservationRecoveryAdmissionContext {
+        let evidence: FixedFilesystemRecoveryEvidenceSnapshot
+        switch lease.payload {
+        case .contributions:
+            return .notRequired
+        case .contributionsWithRecovery(_, let retainedEvidence),
+            .recovery(let retainedEvidence):
+            evidence = retainedEvidence
+        }
+        guard let context = resolvedContextsByRevision[evidence.revision] else {
+            preconditionFailure(
+                "Fleet shutdown drain requires frozen recovery evidence before taking a lease"
+            )
+        }
+        return context
     }
 }
 
