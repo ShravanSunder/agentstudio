@@ -31,7 +31,10 @@ struct FilesystemObservationSemanticShutdownDebtTests {
 
     @Test("presentation retains exact fingerprint and current UUIDv7 attempt before acceptance")
     func presentationRetainsExactFingerprintAndCurrentAttemptBeforeAcceptance() throws {
-        let fixture = try makeFixture(registrationGeneration: 1101)
+        let fixture = try makeFixture(
+            registrationGeneration: 1101,
+            admissionMode: .authoritativeOnly
+        )
         var replay = try FilesystemObservationSemanticReplay(
             physicalSlotIDs: [fixture.lease.binding.physicalSlotID],
             maximumContributionsPerLease: 3
@@ -53,7 +56,11 @@ struct FilesystemObservationSemanticShutdownDebtTests {
 
     @Test("shutdown debt retains the exact strict accepted prefix")
     func shutdownDebtRetainsExactStrictAcceptedPrefix() throws {
-        let fixture = try makeFixture(registrationGeneration: 1102, contributionCount: 3)
+        let fixture = try makeFixture(
+            registrationGeneration: 1102,
+            contributionCount: 3,
+            admissionMode: .authoritativeOnly
+        )
         var replay = try FilesystemObservationSemanticReplay(
             physicalSlotIDs: [fixture.lease.binding.physicalSlotID],
             maximumContributionsPerLease: 3
@@ -103,7 +110,11 @@ struct FilesystemObservationSemanticShutdownDebtTests {
 
     @Test("exact transferred acknowledgement clears semantic shutdown debt")
     func exactTransferredAcknowledgementClearsSemanticShutdownDebt() throws {
-        let fixture = try makeFixture(registrationGeneration: 1103, contributionCount: 2)
+        let fixture = try makeFixture(
+            registrationGeneration: 1103,
+            contributionCount: 2,
+            admissionMode: .authoritativeOnly
+        )
         var transfer = try FilesystemObservationLeaseTransfer(
             physicalSlotIDs: [fixture.lease.binding.physicalSlotID],
             maximumContributionsPerLease: 3
@@ -130,9 +141,83 @@ struct FilesystemObservationSemanticShutdownDebtTests {
             ])
     }
 
+    @Test("fully accepted prefix remains nonquiescent until exact transfer acknowledgement")
+    func fullyAcceptedPrefixRemainsUntilExactTransferAcknowledgement() throws {
+        let fixture = try makeFixture(
+            registrationGeneration: 1105,
+            contributionCount: 3,
+            admissionMode: .firstObservationRequiresRecovery
+        )
+        var transfer = try FilesystemObservationLeaseTransfer(
+            physicalSlotIDs: [fixture.lease.binding.physicalSlotID],
+            maximumContributionsPerLease: 3
+        )
+        var sourceGate = FilesystemSourceGate(binding: fixture.lease.binding)
+        var semanticSink = AcceptAllSemanticShutdownDebtSink()
+
+        let missingRecoveryAuthority = transfer.transfer(
+            fixture.lease,
+            sourceGate: &sourceGate,
+            recoveryContext: .notRequired,
+            semanticSink: &semanticSink,
+            consumerPort: fixture.mailbox.actorConsumerPort
+        )
+
+        #expect(missingRecoveryAuthority == .rejected(.recoveryContextRequired))
+        let retainedSnapshot = transfer.semanticShutdownDebtSnapshot
+        #expect(!retainedSnapshot.isQuiescent)
+        guard case .retained(let retained) = try #require(retainedSnapshot.slots.first) else {
+            Issue.record("Fully accepted semantic custody must remain retained before transfer ACK")
+            return
+        }
+        let contributionIdentities = contributionIdentities(in: fixture.lease)
+        #expect(retained.fingerprint.orderedContributionIdentities == contributionIdentities)
+        #expect(retained.acceptedPrefix == Array(repeating: .observationAccepted, count: 3))
+        #expect(retained.currentAttemptIdentity.isUUIDv7)
+        guard
+            case .retained(let repeatedRetained) = try #require(
+                transfer.semanticShutdownDebtSnapshot.slots.first
+            )
+        else {
+            Issue.record("Repeated shutdown projection must retain semantic custody")
+            return
+        }
+        #expect(repeatedRetained.currentAttemptIdentity == retained.currentAttemptIdentity)
+
+        let reboundConsumer = fixture.mailbox.actorConsumerPort.bindConsumer().binding
+        let retriedLease = requireLease(
+            fixture.mailbox.actorConsumerPort.takeDrain(binding: reboundConsumer)
+        )
+        let exactTransfer = transfer.transfer(
+            retriedLease,
+            sourceGate: &sourceGate,
+            recoveryContext: .required(
+                trigger: .continuityLoss,
+                watermark: .recoveryRevision(1),
+                participants: makeRequiredParticipants()
+            ),
+            semanticSink: &semanticSink,
+            consumerPort: fixture.mailbox.actorConsumerPort
+        )
+
+        guard case .transferred = exactTransfer else {
+            Issue.record("Exact retry must acknowledge and clear semantic custody, got \(exactTransfer)")
+            return
+        }
+        #expect(transfer.semanticShutdownDebtSnapshot.isQuiescent)
+        #expect(
+            transfer.semanticShutdownDebtSnapshot.slots == [
+                .vacant(fixture.lease.binding.physicalSlotID)
+            ])
+    }
+
     @Test("stale and foreign attempts cannot alter exact shutdown debt")
     func staleAndForeignAttemptsCannotAlterExactShutdownDebt() throws {
-        let fixture = try makeFixture(registrationGeneration: 1104, contributionCount: 2)
+        let fixture = try makeFixture(
+            registrationGeneration: 1104,
+            contributionCount: 2,
+            admissionMode: .authoritativeOnly
+        )
         var replay = try FilesystemObservationSemanticReplay(
             physicalSlotIDs: [fixture.lease.binding.physicalSlotID],
             maximumContributionsPerLease: 3
@@ -177,15 +262,24 @@ struct FilesystemObservationSemanticShutdownDebtTests {
         let lease: FilesystemObservationDrainLease
     }
 
+    private enum FixtureAdmissionMode {
+        case authoritativeOnly
+        case firstObservationRequiresRecovery
+    }
+
     private func makeFixtures(count: Int) throws -> [Fixture] {
         try (0..<count).map { ordinal in
-            try makeFixture(registrationGeneration: UInt64(1200 + ordinal))
+            try makeFixture(
+                registrationGeneration: UInt64(1200 + ordinal),
+                admissionMode: .authoritativeOnly
+            )
         }
     }
 
     private func makeFixture(
         registrationGeneration: UInt64,
-        contributionCount: Int = 1
+        contributionCount: Int = 1,
+        admissionMode: FixtureAdmissionMode
     ) throws -> Fixture {
         let registration = makeRegistration(registrationGeneration: registrationGeneration)
         let limits = GatherMailboxLimits(
@@ -212,17 +306,23 @@ struct FilesystemObservationSemanticShutdownDebtTests {
             callbackQueueLabel: "test.filesystem-observation-semantic-shutdown-debt"
         )
         for ordinal in 0..<contributionCount {
-            expectRetainedCallback(
-                try fixture.admitCallback(
-                    .authoritative(
-                        makeObservation(
-                            registration: registration,
-                            path: "/semantic-shutdown-debt/\(ordinal)",
-                            eventID: UInt64(ordinal + 1)
-                        )
+            let observation = try makeObservation(
+                registration: registration,
+                path: "/semantic-shutdown-debt/\(ordinal)",
+                eventID: UInt64(ordinal + 1)
+            )
+            switch (admissionMode, ordinal) {
+            case (.firstObservationRequiresRecovery, 0):
+                _ = requireRetainedRecovery(
+                    try fixture.admitCallback(
+                        .requiresRecovery(observation, evidence: .continuityLoss)
                     )
                 )
-            )
+            case (.authoritativeOnly, _), (.firstObservationRequiresRecovery, _):
+                expectRetainedCallback(
+                    try fixture.admitCallback(.authoritative(observation))
+                )
+            }
         }
         let consumerPort = fixture.mailbox.actorConsumerPort
         return Fixture(

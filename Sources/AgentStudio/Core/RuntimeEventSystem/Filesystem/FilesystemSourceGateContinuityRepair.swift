@@ -41,6 +41,23 @@ enum FilesystemSourceGateHandoffAdmissionResult: Equatable, Sendable {
     case shuttingDown
 }
 
+struct SourceGateContinuityRequestDebt: Equatable, Sendable {
+    let authority: FilesystemContinuityRepairHandoffAuthority
+    let trigger: FilesystemRepairTriggerClass
+    let watermark: FilesystemRepairWatermark
+    let participants: Set<FilesystemRepairParticipantToken>
+}
+
+struct SourceGateRetainedContinuityDebt: Equatable, Sendable {
+    let request: SourceGateContinuityRequestDebt
+    let acceptance: FilesystemSourceGateContinuityRepairAcceptance
+}
+
+enum SourceGateContinuityReplayDebt: Equatable, Sendable {
+    case vacant
+    case retained(SourceGateRetainedContinuityDebt)
+}
+
 struct FilesystemSourceGateContinuityRepairReplay: Sendable {
     enum Comparison: Equatable, Sendable {
         case vacant
@@ -66,6 +83,25 @@ struct FilesystemSourceGateContinuityRepairReplay: Sendable {
     }
 
     private var state = State.vacant
+
+    var shutdownDebtSnapshot: SourceGateContinuityReplayDebt {
+        switch state {
+        case .vacant:
+            .vacant
+        case .retained(let retained):
+            .retained(
+                SourceGateRetainedContinuityDebt(
+                    request: SourceGateContinuityRequestDebt(
+                        authority: retained.request.authority,
+                        trigger: retained.request.trigger,
+                        watermark: retained.request.watermark,
+                        participants: retained.request.participants
+                    ),
+                    acceptance: retained.acceptance
+                )
+            )
+        }
+    }
 
     func compare(
         authority: FilesystemContinuityRepairHandoffAuthority,

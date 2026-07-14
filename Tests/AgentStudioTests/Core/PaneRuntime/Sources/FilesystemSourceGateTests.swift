@@ -319,7 +319,10 @@ struct FilesystemSourceGateTests {
             acceptedTopologyRevision: 101
         )
         var gate = FilesystemSourceGate(binding: binding)
-        #expect(gate.beginShutdown() == .applied)
+        guard case .applied = gate.beginShutdown() else {
+            Issue.record("healthy SourceGate did not begin shutdown")
+            return
+        }
         let shutdownState = gate.state
 
         // Act
@@ -356,8 +359,9 @@ struct FilesystemSourceGateTests {
             Issue.record("continuity repair handoff was not admitted: \(firstResult)")
             return
         }
-        #expect(gate.beginShutdown() == .applied)
-        let shutdownState = gate.state
+        let beforeBegin = gate.shutdownDebtSnapshot
+        #expect(gate.beginShutdown() == .outstandingDebt(beforeBegin))
+        let stateAfterRejectedBegin = gate.state
 
         // Act
         let replayResult = gate.acceptContinuityRepairHandoff(
@@ -369,7 +373,7 @@ struct FilesystemSourceGateTests {
 
         // Assert
         #expect(replayResult == firstResult)
-        #expect(gate.state == shutdownState)
+        #expect(gate.state == stateAfterRejectedBegin)
     }
 
     @Test("reconciliation completion waits for every captured acknowledgement")
@@ -551,19 +555,25 @@ struct FilesystemSourceGateTests {
         #expect(gate.state == .dirty(repair))
     }
 
-    @Test("shutdown is terminal and retains exact outstanding debt")
+    @Test("shutdown is terminal after the gate becomes ready")
     func shutdownRejectsFurtherTransitions() throws {
         var gate = makeSourceGate()
         let participant = makeParticipant(.contentRepairProjector, generation: 6)
-        let repair = try admitRepair(to: &gate, participants: [participant])
-
-        #expect(gate.beginShutdown() == .applied)
+        let repairID = RepairGenerationID(registration: makeRegistration(), sequence: 0)
         let shutdown = FilesystemSourceGateShutdown(
             registration: makeRegistration(),
-            debt: .dirty(repair)
+            debt: .noOutstandingRepair
         )
+        let expectedSnapshot = FilesystemSourceGateShutdownDebtSnapshot(
+            binding: gate.binding,
+            repairLifecycle: .repairAdmissionClosed(shutdown),
+            mailboxRecoveryReplay: .vacant,
+            continuityRepairReplay: .vacant
+        )
+
+        #expect(gate.beginShutdown() == .applied(expectedSnapshot))
         #expect(gate.state == .shuttingDown(shutdown))
-        #expect(gate.beginReconciliation(repair.id) == .shuttingDown)
+        #expect(gate.beginReconciliation(repairID) == .shuttingDown)
         #expect(
             gate.recordRepair(
                 trigger: .continuityLoss,
@@ -571,7 +581,7 @@ struct FilesystemSourceGateTests {
                 participants: [participant]
             ) == .shuttingDown
         )
-        #expect(gate.beginShutdown() == .alreadyApplied)
+        #expect(gate.beginShutdown() == .alreadyApplied(expectedSnapshot))
     }
 
     @Test("empty participant capture is rejected")

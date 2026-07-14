@@ -88,6 +88,66 @@ struct FilesystemSourceGateShutdown: Equatable, Sendable {
     let debt: FilesystemSourceGateShutdownDebt
 }
 
+enum FilesystemSourceGateRepairLifecycleShutdownDebt: Equatable, Sendable {
+    case repairAdmissionOpen(FilesystemSourceGateShutdownDebt)
+    case repairAdmissionClosed(FilesystemSourceGateShutdown)
+}
+
+struct SourceGateMailboxRecoveryRequestDebt: Equatable, Sendable {
+    let evidence: FixedFilesystemRecoveryEvidenceSnapshot
+    let trigger: FilesystemRepairTriggerClass
+    let watermark: FilesystemRepairWatermark
+    let participants: Set<FilesystemRepairParticipantToken>
+}
+
+struct SourceGateRetainedMailboxRecoveryDebt: Equatable, Sendable {
+    let request: SourceGateMailboxRecoveryRequestDebt
+    let acceptance: FilesystemSourceGateRecoveryAcceptance
+}
+
+enum SourceGateMailboxRecoveryReplayDebt: Equatable, Sendable {
+    case vacant
+    case retained(SourceGateRetainedMailboxRecoveryDebt)
+}
+
+enum FilesystemSourceGateShutdownBeginReadiness: Equatable, Sendable {
+    case ready
+    case awaitingRepairLifecycle
+    case awaitingMailboxRecoveryTransfer
+    case awaitingRepairLifecycleAndMailboxRecoveryTransfer
+    case alreadyBegan
+}
+
+struct FilesystemSourceGateShutdownDebtSnapshot: Equatable, Sendable {
+    let binding: FilesystemObservationSlotBinding
+    let repairLifecycle: FilesystemSourceGateRepairLifecycleShutdownDebt
+    let mailboxRecoveryReplay: SourceGateMailboxRecoveryReplayDebt
+    let continuityRepairReplay: SourceGateContinuityReplayDebt
+
+    var registration: FSEventRegistrationToken { binding.registration }
+
+    var shutdownBeginReadiness: FilesystemSourceGateShutdownBeginReadiness {
+        switch (repairLifecycle, mailboxRecoveryReplay) {
+        case (.repairAdmissionClosed, _):
+            .alreadyBegan
+        case (.repairAdmissionOpen(.noOutstandingRepair), .vacant):
+            .ready
+        case (.repairAdmissionOpen(.noOutstandingRepair), .retained):
+            .awaitingMailboxRecoveryTransfer
+        case (.repairAdmissionOpen, .vacant):
+            .awaitingRepairLifecycle
+        case (.repairAdmissionOpen, .retained):
+            .awaitingRepairLifecycleAndMailboxRecoveryTransfer
+        }
+    }
+}
+
+enum FilesystemSourceGateShutdownBeginResult: Equatable, Sendable {
+    case applied(FilesystemSourceGateShutdownDebtSnapshot)
+    case alreadyApplied(FilesystemSourceGateShutdownDebtSnapshot)
+    case outstandingDebt(FilesystemSourceGateShutdownDebtSnapshot)
+}
+
 enum FilesystemSourceGateState: Equatable, Sendable {
     case healthy(FSEventRegistrationToken)
     case dirty(RepairGeneration)
@@ -252,6 +312,53 @@ struct FilesystemSourceGate: Sendable {
         nextRepairSequence = 0
         mailboxRecoveryReplay = .vacant
         continuityRepairHandoffReplay = FilesystemSourceGateContinuityRepairReplay()
+    }
+
+    var shutdownDebtSnapshot: FilesystemSourceGateShutdownDebtSnapshot {
+        let repairLifecycle: FilesystemSourceGateRepairLifecycleShutdownDebt
+        switch state {
+        case .healthy:
+            repairLifecycle = .repairAdmissionOpen(.noOutstandingRepair)
+        case .dirty(let repair):
+            repairLifecycle = .repairAdmissionOpen(.dirty(repair))
+        case .reconciling(let repair):
+            repairLifecycle = .repairAdmissionOpen(.reconciling(repair))
+        case .reconcilingAndDirty(let active, let pending):
+            repairLifecycle = .repairAdmissionOpen(
+                .reconcilingAndDirty(active: active, pending: pending)
+            )
+        case .awaitingAcknowledgements(let awaiting):
+            repairLifecycle = .repairAdmissionOpen(.awaitingAcknowledgements(awaiting))
+        case .repairFailed(let failure):
+            repairLifecycle = .repairAdmissionOpen(.repairFailed(failure))
+        case .shuttingDown(let shutdown):
+            repairLifecycle = .repairAdmissionClosed(shutdown)
+        }
+        return FilesystemSourceGateShutdownDebtSnapshot(
+            binding: binding,
+            repairLifecycle: repairLifecycle,
+            mailboxRecoveryReplay: mailboxRecoveryShutdownDebtSnapshot,
+            continuityRepairReplay: continuityRepairHandoffReplay.shutdownDebtSnapshot
+        )
+    }
+
+    private var mailboxRecoveryShutdownDebtSnapshot: SourceGateMailboxRecoveryReplayDebt {
+        switch mailboxRecoveryReplay {
+        case .vacant:
+            .vacant
+        case .retained(let retained):
+            .retained(
+                SourceGateRetainedMailboxRecoveryDebt(
+                    request: SourceGateMailboxRecoveryRequestDebt(
+                        evidence: retained.request.evidence,
+                        trigger: retained.request.trigger,
+                        watermark: retained.request.watermark,
+                        participants: retained.request.participants
+                    ),
+                    acceptance: retained.acceptance
+                )
+            )
+        }
     }
 
     mutating func acceptContinuityRepairHandoff(
@@ -558,51 +665,25 @@ struct FilesystemSourceGate: Sendable {
         }
     }
 
-    mutating func beginShutdown() -> FilesystemSourceGateTransitionResult {
-        switch state {
-        case .shuttingDown:
-            return .alreadyApplied
-        case .healthy:
+    mutating func beginShutdown() -> FilesystemSourceGateShutdownBeginResult {
+        let currentSnapshot = shutdownDebtSnapshot
+
+        switch currentSnapshot.shutdownBeginReadiness {
+        case .alreadyBegan:
+            return .alreadyApplied(currentSnapshot)
+        case .ready:
             state = .shuttingDown(
                 FilesystemSourceGateShutdown(
                     registration: registration,
                     debt: .noOutstandingRepair
                 )
             )
-        case .dirty(let repair):
-            state = .shuttingDown(
-                FilesystemSourceGateShutdown(registration: registration, debt: .dirty(repair))
-            )
-        case .reconciling(let repair):
-            state = .shuttingDown(
-                FilesystemSourceGateShutdown(
-                    registration: registration,
-                    debt: .reconciling(repair)
-                )
-            )
-        case .reconcilingAndDirty(let active, let pending):
-            state = .shuttingDown(
-                FilesystemSourceGateShutdown(
-                    registration: registration,
-                    debt: .reconcilingAndDirty(active: active, pending: pending)
-                )
-            )
-        case .awaitingAcknowledgements(let awaiting):
-            state = .shuttingDown(
-                FilesystemSourceGateShutdown(
-                    registration: registration,
-                    debt: .awaitingAcknowledgements(awaiting)
-                )
-            )
-        case .repairFailed(let failure):
-            state = .shuttingDown(
-                FilesystemSourceGateShutdown(
-                    registration: registration,
-                    debt: .repairFailed(failure)
-                )
-            )
+            return .applied(shutdownDebtSnapshot)
+        case .awaitingRepairLifecycle,
+            .awaitingMailboxRecoveryTransfer,
+            .awaitingRepairLifecycleAndMailboxRecoveryTransfer:
+            return .outstandingDebt(currentSnapshot)
         }
-        return .applied
     }
 
     private mutating func admit(_ repair: RepairGeneration) {
