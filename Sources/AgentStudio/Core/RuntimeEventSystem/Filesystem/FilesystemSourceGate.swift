@@ -134,10 +134,65 @@ struct FilesystemSourceGateRecoveryAcceptance: Equatable, Sendable {
 
 enum FilesystemSourceGateRecoveryAdmissionResult: Equatable, Sendable {
     case admitted(FilesystemSourceGateRecoveryAcceptance)
-    case registrationMismatch
+    case bindingMismatch
+    case retainedRequestConflict(FilesystemSourceGateRecoveryRequestConflict)
     case rejected(FilesystemRepairAdmissionRejection)
     case generationExhausted
     case shuttingDown
+}
+
+struct FilesystemSourceGateTransferClearReceipt: Equatable, Sendable {
+    fileprivate let authority: FilesystemObservationWholeLeaseTransferAuthority
+    fileprivate let acknowledgement: FilesystemLeaseAcknowledgementReceipt
+    let acceptedEvidenceRevision: FixedFilesystemRecoveryEvidenceRevision
+    fileprivate let repairGenerationID: RepairGenerationID
+
+    var binding: FilesystemObservationSlotBinding { authority.binding }
+
+    func matches(
+        authority expectedAuthority: FilesystemObservationWholeLeaseTransferAuthority,
+        acknowledgement expectedAcknowledgement: FilesystemLeaseAcknowledgementReceipt
+    ) -> Bool {
+        authority == expectedAuthority
+            && acknowledgement == expectedAcknowledgement
+            && expectedAcknowledgement.matches(expectedAuthority)
+    }
+}
+
+enum FilesystemSourceGateTransferClearCompletion: Equatable, Sendable {
+    case notRequired(FilesystemObservationSlotBinding)
+    case cleared(FilesystemSourceGateTransferClearReceipt)
+
+    var binding: FilesystemObservationSlotBinding {
+        switch self {
+        case .notRequired(let binding): binding
+        case .cleared(let receipt): receipt.binding
+        }
+    }
+}
+
+enum FilesystemSourceGateTransferClearResult: Equatable, Sendable {
+    case cleared(FilesystemSourceGateTransferClearReceipt)
+    case acknowledgementMismatch
+    case authorityHasNoRecoveryCustody
+    case acceptanceMismatch
+    case noRetainedRecovery
+}
+
+enum FilesystemSourceGateRecoveryRequestMismatch: Hashable, Sendable {
+    case evidence
+    case trigger
+    case watermark
+    case participants
+}
+
+struct FilesystemSourceGateRecoveryRequestConflict: Equatable, Sendable {
+    let mismatches: Set<FilesystemSourceGateRecoveryRequestMismatch>
+
+    fileprivate init(mismatches: Set<FilesystemSourceGateRecoveryRequestMismatch>) {
+        precondition(!mismatches.isEmpty, "a retained recovery request conflict must differ")
+        self.mismatches = mismatches
+    }
 }
 
 enum FilesystemSourceGateTransitionResult: Equatable, Sendable {
@@ -150,14 +205,51 @@ enum FilesystemSourceGateTransitionResult: Equatable, Sendable {
 }
 
 struct FilesystemSourceGate: Sendable {
-    let registration: FSEventRegistrationToken
+    private enum MailboxRecoveryRequestComparison: Equatable, Sendable {
+        case identical
+        case conflict(FilesystemSourceGateRecoveryRequestConflict)
+    }
+
+    private struct MailboxRecoveryRequest: Equatable, Sendable {
+        let evidence: FixedFilesystemRecoveryEvidenceSnapshot
+        let trigger: FilesystemRepairTriggerClass
+        let watermark: FilesystemRepairWatermark
+        let participants: Set<FilesystemRepairParticipantToken>
+
+        func compare(
+            with retainedRequest: Self
+        ) -> MailboxRecoveryRequestComparison {
+            var mismatches: Set<FilesystemSourceGateRecoveryRequestMismatch> = []
+            if evidence != retainedRequest.evidence { mismatches.insert(.evidence) }
+            if trigger != retainedRequest.trigger { mismatches.insert(.trigger) }
+            if watermark != retainedRequest.watermark { mismatches.insert(.watermark) }
+            if participants != retainedRequest.participants { mismatches.insert(.participants) }
+            guard !mismatches.isEmpty else { return .identical }
+            return .conflict(FilesystemSourceGateRecoveryRequestConflict(mismatches: mismatches))
+        }
+    }
+
+    private struct RetainedMailboxRecovery: Equatable, Sendable {
+        let request: MailboxRecoveryRequest
+        let acceptance: FilesystemSourceGateRecoveryAcceptance
+    }
+
+    private enum MailboxRecoveryReplayShell: Equatable, Sendable {
+        case vacant
+        case retained(RetainedMailboxRecovery)
+    }
+
+    let binding: FilesystemObservationSlotBinding
+    var registration: FSEventRegistrationToken { binding.registration }
     private(set) var state: FilesystemSourceGateState
     private var nextRepairSequence: UInt64
+    private var mailboxRecoveryReplay: MailboxRecoveryReplayShell
 
-    init(registration: FSEventRegistrationToken) {
-        self.registration = registration
-        state = .healthy(registration)
+    init(binding: FilesystemObservationSlotBinding) {
+        self.binding = binding
+        state = .healthy(binding.registration)
         nextRepairSequence = 0
+        mailboxRecoveryReplay = .vacant
     }
 
     mutating func acceptMailboxRecovery(
@@ -166,8 +258,25 @@ struct FilesystemSourceGate: Sendable {
         watermark: FilesystemRepairWatermark,
         participants: Set<FilesystemRepairParticipantToken>
     ) -> FilesystemSourceGateRecoveryAdmissionResult {
-        guard evidence.revision.binding.registration == registration else {
-            return .registrationMismatch
+        guard evidence.revision.binding == binding else {
+            return .bindingMismatch
+        }
+        let request = MailboxRecoveryRequest(
+            evidence: evidence,
+            trigger: trigger,
+            watermark: watermark,
+            participants: participants
+        )
+        switch mailboxRecoveryReplay {
+        case .vacant:
+            break
+        case .retained(let retained):
+            switch request.compare(with: retained.request) {
+            case .identical:
+                return .admitted(retained.acceptance)
+            case .conflict(let conflict):
+                return .retainedRequestConflict(conflict)
+            }
         }
         switch recordRepair(
             trigger: trigger,
@@ -175,12 +284,14 @@ struct FilesystemSourceGate: Sendable {
             participants: participants
         ) {
         case .admitted(let repairGeneration):
-            return .admitted(
-                FilesystemSourceGateRecoveryAcceptance(
-                    acceptedEvidence: evidence,
-                    repairGeneration: repairGeneration
-                )
+            let acceptance = FilesystemSourceGateRecoveryAcceptance(
+                acceptedEvidence: evidence,
+                repairGeneration: repairGeneration
             )
+            mailboxRecoveryReplay = .retained(
+                RetainedMailboxRecovery(request: request, acceptance: acceptance)
+            )
+            return .admitted(acceptance)
         case .rejected(let rejection):
             return .rejected(rejection)
         case .generationExhausted:
@@ -188,6 +299,43 @@ struct FilesystemSourceGate: Sendable {
         case .shuttingDown:
             return .shuttingDown
         }
+    }
+
+    mutating func clearTransferredMailboxRecovery(
+        authority: FilesystemObservationWholeLeaseTransferAuthority,
+        acknowledgement: FilesystemLeaseAcknowledgementReceipt
+    ) -> FilesystemSourceGateTransferClearResult {
+        guard acknowledgement.matches(authority) else {
+            return .acknowledgementMismatch
+        }
+        let acceptance: FilesystemSourceGateRecoveryAcceptance
+        switch authority.evidence {
+        case .contributionsWithRecovery(_, let recoveryAcceptance),
+            .recovery(let recoveryAcceptance):
+            acceptance = recoveryAcceptance
+        case .contributions:
+            return .authorityHasNoRecoveryCustody
+        }
+        guard authority.binding == binding,
+            acceptance.acceptedEvidence.revision.binding == binding
+        else {
+            return .acceptanceMismatch
+        }
+        guard case .retained(let retained) = mailboxRecoveryReplay else {
+            return .noRetainedRecovery
+        }
+        guard retained.acceptance == acceptance else {
+            return .acceptanceMismatch
+        }
+        mailboxRecoveryReplay = .vacant
+        return .cleared(
+            FilesystemSourceGateTransferClearReceipt(
+                authority: authority,
+                acknowledgement: acknowledgement,
+                acceptedEvidenceRevision: acceptance.acceptedEvidence.revision,
+                repairGenerationID: acceptance.repairGeneration.id
+            )
+        )
     }
 
     mutating func recordRepair(

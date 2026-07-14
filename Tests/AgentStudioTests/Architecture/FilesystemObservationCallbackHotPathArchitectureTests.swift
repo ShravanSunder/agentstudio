@@ -123,6 +123,12 @@ struct FilesystemCallbackHotPathArchitectureTests {
                 to: "    func recordDesiredRegistration("
             )
         )
+        let keyedSlotStateBody = try #require(
+            slotRegistrySource.callbackProofSlice(
+                from: "    func state(\n",
+                to: "    func storedBindingCurrentness("
+            )
+        )
         let genericOfferBody = try #require(
             gatherMailboxSource.callbackProofSlice(
                 from: "    fileprivate func offer(\n",
@@ -187,10 +193,21 @@ struct FilesystemCallbackHotPathArchitectureTests {
 
         #expect(
             storedBindingCurrentnessBody.callbackProofOccurrenceCount(
-                of: "statesByPhysicalSlotID[binding.physicalSlotID]"
+                of: "state(of: binding.physicalSlotID)"
             ) == 1
         )
         #expect(storedBindingCurrentnessBody.callbackProofOccurrenceCount(of: "statesByPhysicalSlotID.") == 0)
+        #expect(
+            storedBindingCurrentnessBody.callbackProofOccurrenceCount(
+                of: "FilesystemObservationSlotCurrentnessClassifier.classify("
+            ) == 1
+        )
+        #expect(
+            keyedSlotStateBody.callbackProofOccurrenceCount(
+                of: "statesByPhysicalSlotID[physicalSlotID]"
+            ) == 1
+        )
+        #expect(keyedSlotStateBody.callbackProofOccurrenceCount(of: "statesByPhysicalSlotID.") == 0)
 
         #expect(genericOfferBody.callbackProofOccurrenceCount(of: "makeOfferContext(for: contribution.key)") == 1)
         #expect(genericOfferBody.callbackProofOccurrenceCount(of: "attemptOffer(") == 1)

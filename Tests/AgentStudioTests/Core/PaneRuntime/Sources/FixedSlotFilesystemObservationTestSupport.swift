@@ -6,6 +6,127 @@ import os
 
 @testable import AgentStudio
 
+enum TestCredentialedTransferAcknowledgement: Equatable, Sendable {
+    case transferredAuthoritative(wake: AdmissionWakeDirective)
+    case transferredRecovery(
+        evidence: FixedFilesystemRecoveryAcknowledgeResult,
+        wake: AdmissionWakeDirective
+    )
+    case retried(wake: AdmissionWakeDirective)
+    case rejected
+}
+
+private final class TestTransferAcknowledgementCapture: @unchecked Sendable {
+    private enum Captured: Sendable {
+        case vacant
+        case acknowledgement(FilesystemObservationDrainAcknowledgement)
+    }
+
+    private let captured = OSAllocatedUnfairLock(initialState: Captured.vacant)
+    private let underlying: FilesystemObservationActorConsumerPort
+
+    init(underlying: FilesystemObservationActorConsumerPort) {
+        self.underlying = underlying
+    }
+
+    var port: FilesystemObservationActorConsumerPort {
+        FilesystemObservationActorConsumerPort(
+            bind: underlying.bindConsumer,
+            take: underlying.takeDrain,
+            acknowledge: acknowledge,
+            cleanup: underlying.performCleanup,
+            preflightWholeLeaseTransfer: underlying.preflightWholeLeaseTransfer,
+            completeWholeLeaseTransfer: underlying.completeWholeLeaseTransfer
+        )
+    }
+
+    func projectedAcknowledgement() -> TestCredentialedTransferAcknowledgement {
+        captured.withLock { state in
+            switch state {
+            case .vacant:
+                return .rejected
+            case .acknowledgement(let acknowledgement):
+                switch acknowledgement {
+                case .transferredAuthoritative(_, let wake):
+                    return .transferredAuthoritative(wake: wake)
+                case .transferredRecovery(_, let evidence, let wake):
+                    return .transferredRecovery(evidence: evidence, wake: wake)
+                case .retried(let wake):
+                    return .retried(wake: wake)
+                case .dispositionMismatch, .invalidToken, .closed:
+                    return .rejected
+                }
+            }
+        }
+    }
+
+    private func acknowledge(
+        token: AdmissionDrainToken,
+        disposition: FilesystemObservationDrainDisposition
+    ) -> FilesystemObservationDrainAcknowledgement {
+        let acknowledgement = underlying.acknowledge(
+            token: token,
+            disposition: disposition
+        )
+        captured.withLock { state in
+            state = .acknowledgement(acknowledgement)
+        }
+        return acknowledgement
+    }
+}
+
+private struct AcceptAllFilesystemSemanticSink: FilesystemObservationSemanticCustodySink {
+    mutating func accept(
+        _: FSEventObservation,
+        identity _: FilesystemObservationContributionIdentity
+    ) -> FilesystemObservationSemanticCustodyResult {
+        .accepted
+    }
+}
+
+func credentialedTransferAcknowledgement(
+    for lease: FilesystemObservationDrainLease,
+    consumerPort: FilesystemObservationActorConsumerPort,
+    sourceGate: inout FilesystemSourceGate,
+    recoveryContext: FilesystemObservationRecoveryAdmissionContext = .notRequired
+) throws -> TestCredentialedTransferAcknowledgement {
+    let capture = TestTransferAcknowledgementCapture(underlying: consumerPort)
+    var transfer = try FilesystemObservationLeaseTransfer(
+        physicalSlotIDs: [lease.binding.physicalSlotID],
+        maximumContributionsPerLease: max(1, testContributionCount(in: lease))
+    )
+    var semanticSink = AcceptAllFilesystemSemanticSink()
+    _ = transfer.transfer(
+        lease,
+        sourceGate: &sourceGate,
+        recoveryContext: recoveryContext,
+        semanticSink: &semanticSink,
+        consumerPort: capture.port
+    )
+    return capture.projectedAcknowledgement()
+}
+
+func credentialedTransferAcknowledgement(
+    for lease: FilesystemObservationDrainLease,
+    consumerPort: FilesystemObservationActorConsumerPort
+) throws -> TestCredentialedTransferAcknowledgement {
+    var sourceGate = FilesystemSourceGate(binding: lease.binding)
+    return try credentialedTransferAcknowledgement(
+        for: lease,
+        consumerPort: consumerPort,
+        sourceGate: &sourceGate
+    )
+}
+
+private func testContributionCount(in lease: FilesystemObservationDrainLease) -> Int {
+    switch lease.payload {
+    case .contributions(let batch), .contributionsWithRecovery(let batch, _):
+        1 + batch.remaining.count
+    case .recovery:
+        0
+    }
+}
+
 enum FixedSlotFilesystemObservationTestFailure: Error {
     case fixtureConstructionFailed
     case callbackPortUnavailable
@@ -329,7 +450,7 @@ func acceptRecovery(
     _ evidence: FixedFilesystemRecoveryEvidenceSnapshot,
     sourceLocation: SourceLocation = #_sourceLocation
 ) throws -> FilesystemSourceGateRecoveryAcceptance {
-    var sourceGate = FilesystemSourceGate(registration: evidence.revision.binding.registration)
+    var sourceGate = FilesystemSourceGate(binding: evidence.revision.binding)
     guard
         case .admitted(let acceptance) = sourceGate.acceptMailboxRecovery(
             evidence,
@@ -342,6 +463,14 @@ func acceptRecovery(
         throw FixedSlotFilesystemObservationTestFailure.recoveryNotAccepted
     }
     return acceptance
+}
+
+func requiredRecoveryAdmissionContext() -> FilesystemObservationRecoveryAdmissionContext {
+    .required(
+        trigger: .continuityLoss,
+        watermark: .recoveryRevision(1),
+        participants: makeRequiredParticipants()
+    )
 }
 
 func makeRequiredParticipants() -> Set<FilesystemRepairParticipantToken> {

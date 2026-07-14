@@ -31,17 +31,17 @@ struct FilesystemObservationRetirementFenceTests {
 
         #expect(contributionKind(in: firstLease) == .observation(eventID: 1))
         #expect(
-            consumer.acknowledge(
-                token: firstLease.token,
-                disposition: .transferredAuthoritative
+            try credentialedTransferAcknowledgement(
+                for: firstLease,
+                consumerPort: consumer
             ) == .transferredAuthoritative(wake: .scheduleDrain)
         )
         secondLease = requireLease(consumer.takeDrain(binding: binding))
         #expect(contributionKind(in: secondLease) == .observation(eventID: 2))
         #expect(
-            consumer.acknowledge(
-                token: secondLease.token,
-                disposition: .transferredAuthoritative
+            try credentialedTransferAcknowledgement(
+                for: secondLease,
+                consumerPort: consumer
             ) == .transferredAuthoritative(wake: .scheduleDrain)
         )
         thirdLease = requireLease(consumer.takeDrain(binding: binding))
@@ -168,9 +168,9 @@ struct FilesystemObservationRetirementFenceTests {
         let consumerBinding = consumer.bindConsumer().binding
         let fenceLease = requireLease(consumer.takeDrain(binding: consumerBinding))
         #expect(
-            consumer.acknowledge(
-                token: fenceLease.token,
-                disposition: .transferredAuthoritative
+            try credentialedTransferAcknowledgement(
+                for: fenceLease,
+                consumerPort: consumer
             ) == .transferredAuthoritative(wake: .noWake)
         )
         #expect(fixture.mailbox.lifecyclePort.seal() == .applied)
@@ -210,7 +210,7 @@ struct FilesystemObservationRetirementFenceTests {
 
         // Act / Assert: neither an invalid acknowledgement nor queued cleanup retries the fence.
         #expect(
-            consumer.acknowledge(token: invalidToken, disposition: .transferredAuthoritative)
+            consumer.acknowledge(token: invalidToken, disposition: .retry)
                 == .invalidToken
         )
         #expect(
@@ -265,10 +265,12 @@ struct FilesystemObservationRetirementFenceTests {
             throw RetirementFenceTestFailure.cleanupDidNotAdvance
         }
         let observationLease = requireLease(consumer.takeDrain(binding: consumerBinding))
-        let recoveryAcceptance = try acceptRecovery(requireRecovery(observationLease))
-        let acknowledgement = consumer.acknowledge(
-            token: observationLease.token,
-            disposition: .transferredRecovery(recoveryAcceptance)
+        var sourceGate = FilesystemSourceGate(binding: observationLease.binding)
+        let acknowledgement = try credentialedTransferAcknowledgement(
+            for: observationLease,
+            consumerPort: consumer,
+            sourceGate: &sourceGate,
+            recoveryContext: requiredRecoveryAdmissionContext()
         )
 
         // Assert

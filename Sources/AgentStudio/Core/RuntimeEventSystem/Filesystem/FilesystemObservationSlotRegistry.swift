@@ -1,36 +1,66 @@
 import Foundation
 
+private enum FilesystemObservationRegistrySlotState: Equatable {
+    case vacant
+    case selected(FilesystemObservationDesiredSelection)
+    case starting(FilesystemObservationStartingNativeLifetime)
+    case accepting(FilesystemObservationAcceptingNativeLifetime)
+    case closingAwaitingCallbackLeaseDrain(
+        FilesystemObservationClosingAwaitingCallbackLeaseDrainLifetime
+    )
+    case closingAwaitingPredecessor(FilesystemClosingAwaitingPredecessorLifetime)
+    case retirementFencePending(FilesystemRetirementFencePendingLifetime)
+    case retirementFenceInstalled(FilesystemRetirementFenceInstalledLifetime)
+    case retirementFenceTransferredAwaitingCleanup(
+        FilesystemRetirementFenceTransferredLifetime
+    )
+    case retiredAwaitingContextRelease(FilesystemRetiredContextReleaseLifetime)
+    case retiringUnpublishedGeneration(FilesystemObservationRetiringUnpublishedNativeLifetime)
+}
+
+private func projectFilesystemObservationSlotState(
+    _ slotState: FilesystemObservationRegistrySlotState?
+) -> FilesystemObservationPhysicalSlotState {
+    guard let slotState else { return .undeclaredPhysicalSlot }
+    switch slotState {
+    case .vacant:
+        return .vacant
+    case .selected(let selection):
+        return .selected(selection)
+    case .starting(let startingNativeLifetime):
+        return .starting(startingNativeLifetime)
+    case .accepting(let acceptingNativeLifetime):
+        return .accepting(acceptingNativeLifetime)
+    case .closingAwaitingCallbackLeaseDrain(let closingNativeLifetime):
+        return .closingAwaitingCallbackLeaseDrain(closingNativeLifetime)
+    case .closingAwaitingPredecessor(let lifetime):
+        return .closingAwaitingPredecessor(lifetime)
+    case .retirementFencePending(let lifetime):
+        return .retirementFencePending(lifetime)
+    case .retirementFenceInstalled(let lifetime):
+        return .retirementFenceInstalled(lifetime)
+    case .retirementFenceTransferredAwaitingCleanup(let lifetime):
+        return .retirementFenceTransferredAwaitingCleanup(lifetime)
+    case .retiredAwaitingContextRelease(let lifetime):
+        return .retiredAwaitingContextRelease(lifetime)
+    case .retiringUnpublishedGeneration(let retiringNativeLifetime):
+        return .retiringUnpublishedGeneration(retiringNativeLifetime)
+    }
+}
+
 /// Fixed-cardinality owner of physical slots and their current bindings.
 ///
 /// This owner is intentionally non-locking. Its eventual mailbox caller must hold the
 /// wrapper coordination lock. UUIDv7 values provide opaque identity only: exact stored
 /// equality determines currentness, and UUID order never determines lifecycle or FIFO.
 final class FilesystemObservationSlotRegistry {
-    private enum SlotState: Equatable {
-        case vacant
-        case selected(FilesystemObservationDesiredSelection)
-        case starting(FilesystemObservationStartingNativeLifetime)
-        case accepting(FilesystemObservationAcceptingNativeLifetime)
-        case closingAwaitingCallbackLeaseDrain(
-            FilesystemObservationClosingAwaitingCallbackLeaseDrainLifetime
-        )
-        case closingAwaitingPredecessor(
-            FilesystemClosingAwaitingPredecessorLifetime
-        )
-        case retirementFencePending(FilesystemRetirementFencePendingLifetime)
-        case retirementFenceInstalled(FilesystemRetirementFenceInstalledLifetime)
-        case retiringUnpublishedGeneration(
-            FilesystemObservationRetiringUnpublishedNativeLifetime
-        )
-    }
-
     let maximumSimultaneousSourceCount: Int
     let replacementReserveSlotCount: Int
     let physicalSlotCount: Int
     let fleetMailboxIdentity: FilesystemObservationFleetMailboxIdentity
     let physicalSlotIDs: [FilesystemObservationPhysicalSlotID]
 
-    private var statesByPhysicalSlotID: [FilesystemObservationPhysicalSlotID: SlotState]
+    private var statesByPhysicalSlotID: [FilesystemObservationPhysicalSlotID: FilesystemObservationRegistrySlotState]
     private var deferredSourceOrder: [FilesystemSourceID] = []
     private var deferredDesiredRegistrationsBySourceID: [FilesystemSourceID: FilesystemObservationDesiredRegistration] =
         [:]
@@ -43,21 +73,10 @@ final class FilesystemObservationSlotRegistry {
         [:]
 
     var deferredDesiredRegistrationsInFIFOOrder: [FilesystemObservationDesiredRegistration] {
-        deferredSourceOrder.map { sourceID in
-            guard
-                let desiredRegistration =
-                    deferredDesiredRegistrationsBySourceID[sourceID]
-            else {
-                preconditionFailure("FIFO source must retain one exact desired registration")
-            }
-            return desiredRegistration
-        }
-    }
-
-    func retiringGenerationChain(
-        for sourceID: FilesystemSourceID
-    ) -> FilesystemObservationRetiringGenerationChain {
-        retiringGenerationChainsBySourceID[sourceID] ?? .none
+        FilesystemObservationSlotReadModel.deferredRegistrations(
+            sourceOrder: deferredSourceOrder,
+            registrationsBySourceID: deferredDesiredRegistrationsBySourceID
+        )
     }
 
     init(
@@ -101,58 +120,17 @@ final class FilesystemObservationSlotRegistry {
     func state(
         of physicalSlotID: FilesystemObservationPhysicalSlotID
     ) -> FilesystemObservationPhysicalSlotState {
-        guard let slotState = statesByPhysicalSlotID[physicalSlotID] else {
-            return .undeclaredPhysicalSlot
-        }
-        switch slotState {
-        case .vacant:
-            return .vacant
-        case .selected(let selection):
-            return .selected(selection)
-        case .starting(let startingNativeLifetime):
-            return .starting(startingNativeLifetime)
-        case .accepting(let acceptingNativeLifetime):
-            return .accepting(acceptingNativeLifetime)
-        case .closingAwaitingCallbackLeaseDrain(let closingNativeLifetime):
-            return .closingAwaitingCallbackLeaseDrain(closingNativeLifetime)
-        case .closingAwaitingPredecessor(let lifetime):
-            return .closingAwaitingPredecessor(lifetime)
-        case .retirementFencePending(let lifetime):
-            return .retirementFencePending(lifetime)
-        case .retirementFenceInstalled(let lifetime):
-            return .retirementFenceInstalled(lifetime)
-        case .retiringUnpublishedGeneration(let retiringNativeLifetime):
-            return .retiringUnpublishedGeneration(retiringNativeLifetime)
-        }
+        projectFilesystemObservationSlotState(statesByPhysicalSlotID[physicalSlotID])
     }
 
     func storedBindingCurrentness(
         of binding: FilesystemObservationSlotBinding
     ) -> FilesystemObservationStoredBindingCurrentness {
-        guard binding.fleetMailboxIdentity == fleetMailboxIdentity else {
-            return .foreignFleet
-        }
-        guard let slotState = statesByPhysicalSlotID[binding.physicalSlotID] else {
-            return .undeclaredPhysicalSlot
-        }
-        switch slotState {
-        case .vacant:
-            return .vacant
-        case .selected:
-            return .reservedWithoutBinding
-        case .starting(let startingNativeLifetime):
-            return startingNativeLifetime.binding == binding
-                ? .storedCurrent : .storedSuperseded
-        case .accepting(let acceptingNativeLifetime):
-            return acceptingNativeLifetime.binding == binding
-                ? .storedCurrent : .storedSuperseded
-        case .closingAwaitingCallbackLeaseDrain(let closingNativeLifetime):
-            return closingNativeLifetime.binding == binding
-                ? .storedCurrent : .storedSuperseded
-        case .closingAwaitingPredecessor, .retirementFencePending,
-            .retirementFenceInstalled, .retiringUnpublishedGeneration:
-            return .storedSuperseded
-        }
+        FilesystemObservationSlotCurrentnessClassifier.classify(
+            binding: binding,
+            fleetMailboxIdentity: fleetMailboxIdentity,
+            physicalSlotState: state(of: binding.physicalSlotID)
+        )
     }
 
     func recordDesiredRegistration(
@@ -184,20 +162,28 @@ final class FilesystemObservationSlotRegistry {
         guard let oldestDeferredSourceID = deferredSourceOrder.first else {
             return .noDeferredDesiredSource
         }
-        let currentActiveLogicalSourceCount = activeLogicalSourceCount
+        let activeSourceIDs = FilesystemObservationSlotReadModel.activeSourceIDs(
+            selected: selectedDesiredSourcesBySourceID,
+            starting: startingNativeLifetimesBySourceID,
+            retiring: retiringGenerationChainsBySourceID
+        )
         var encounteredActiveSourceCapacityLimit = false
         for (sourceIndex, sourceID) in deferredSourceOrder.enumerated() {
             let retirementChain = retiringGenerationChain(for: sourceID)
             if case .oldestAndSuccessor = retirementChain {
                 continue
             }
-            if !isActiveLogicalSource(sourceID)
-                && currentActiveLogicalSourceCount >= maximumSimultaneousSourceCount
+            if !activeSourceIDs.contains(sourceID)
+                && activeSourceIDs.count >= maximumSimultaneousSourceCount
             {
                 encounteredActiveSourceCapacityLimit = true
                 continue
             }
-            guard let physicalSlotID = firstVacantPhysicalSlotID() else {
+            guard
+                let physicalSlotID = physicalSlotIDs.first(where: {
+                    statesByPhysicalSlotID[$0] == .vacant
+                })
+            else {
                 return .deferredBehindSlotCapacity
             }
             guard let desiredRegistration = deferredDesiredRegistrationsBySourceID[sourceID] else {
@@ -242,39 +228,31 @@ final class FilesystemObservationSlotRegistry {
         for sourceID: FilesystemSourceID
     ) -> FilesystemObservationDesiredSlotState {
         if let selection = selectedDesiredSourcesBySourceID[sourceID] {
-            return .selected(selection)
+            return FilesystemObservationSlotReadModel.desiredState(from: .selected(selection))
         }
         if let startingNativeLifetime = startingNativeLifetimesBySourceID[sourceID] {
-            switch statesByPhysicalSlotID[startingNativeLifetime.binding.physicalSlotID] {
-            case .accepting(let acceptingNativeLifetime):
-                return .accepting(acceptingNativeLifetime)
-            case .closingAwaitingCallbackLeaseDrain(let closingNativeLifetime):
-                return .closingAwaitingCallbackLeaseDrain(closingNativeLifetime)
-            case .starting, .vacant, .selected, .closingAwaitingPredecessor,
-                .retirementFencePending, .retirementFenceInstalled,
-                .retiringUnpublishedGeneration, .none:
-                return .starting(startingNativeLifetime)
-            }
+            return FilesystemObservationSlotReadModel.desiredState(
+                from: .starting(
+                    startingNativeLifetime,
+                    state(of: startingNativeLifetime.binding.physicalSlotID)
+                )
+            )
         }
         if let desiredRegistration = deferredDesiredRegistrationsBySourceID[sourceID] {
-            return .deferred(desiredRegistration)
+            return FilesystemObservationSlotReadModel.desiredState(
+                from: .deferred(desiredRegistration)
+            )
         }
-        let retirementChain = retiringGenerationChain(for: sourceID)
-        switch retirementChain {
-        case .none:
-            return .absent
-        case .oldest, .oldestAndSuccessor:
-            return .retiringGenerations(retirementChain)
-        }
+        return FilesystemObservationSlotReadModel.desiredState(
+            from: .retirement(retiringGenerationChain(for: sourceID))
+        )
     }
 
     func pendingConfigurationState(
         for sourceID: FilesystemSourceID
     ) -> FilesystemObservationPendingConfigurationState {
-        guard let desiredRegistration = pendingConfigurationDesiredBySourceID[sourceID] else {
-            return .absent
-        }
-        return .retained(desiredRegistration)
+        pendingConfigurationDesiredBySourceID[sourceID]
+            .map(FilesystemObservationPendingConfigurationState.retained) ?? .absent
     }
 
     func withdrawDesiredSource(
@@ -400,6 +378,10 @@ final class FilesystemObservationSlotRegistry {
             return .nativeLifetimeAlreadyCommitted(lifetime.startingNativeLifetime)
         case .retirementFenceInstalled(let lifetime):
             return .nativeLifetimeAlreadyCommitted(lifetime.startingNativeLifetime)
+        case .retirementFenceTransferredAwaitingCleanup(let lifetime):
+            return .nativeLifetimeAlreadyCommitted(lifetime.startingNativeLifetime)
+        case .retiredAwaitingContextRelease(let lifetime):
+            return .nativeLifetimeAlreadyCommitted(lifetime.startingNativeLifetime)
         case .retiringUnpublishedGeneration(let retiringNativeLifetime):
             guard
                 retiringNativeLifetime.startingNativeLifetime.consumedReservation
@@ -476,6 +458,10 @@ final class FilesystemObservationSlotRegistry {
             return .alreadyCommitted(lifetime.startingNativeLifetime)
         case .retirementFenceInstalled(let lifetime):
             return .alreadyCommitted(lifetime.startingNativeLifetime)
+        case .retirementFenceTransferredAwaitingCleanup(let lifetime):
+            return .alreadyCommitted(lifetime.startingNativeLifetime)
+        case .retiredAwaitingContextRelease(let lifetime):
+            return .alreadyCommitted(lifetime.startingNativeLifetime)
         case .retiringUnpublishedGeneration(let retiringNativeLifetime):
             guard
                 retiringNativeLifetime.startingNativeLifetime.consumedReservation
@@ -501,7 +487,8 @@ final class FilesystemObservationSlotRegistry {
         switch slotState {
         case .vacant, .selected, .accepting, .closingAwaitingCallbackLeaseDrain,
             .closingAwaitingPredecessor, .retirementFencePending,
-            .retirementFenceInstalled:
+            .retirementFenceInstalled, .retirementFenceTransferredAwaitingCleanup,
+            .retiredAwaitingContextRelease:
             return .nativeLifetimeNoLongerCurrent
         case .starting(let currentStartingNativeLifetime):
             guard currentStartingNativeLifetime == failedStartingNativeLifetime else {
@@ -572,7 +559,8 @@ final class FilesystemObservationSlotRegistry {
             return .alreadyPublished(acceptingNativeLifetime)
         case .vacant, .selected, .closingAwaitingCallbackLeaseDrain,
             .closingAwaitingPredecessor, .retirementFencePending,
-            .retirementFenceInstalled, .retiringUnpublishedGeneration:
+            .retirementFenceInstalled, .retirementFenceTransferredAwaitingCleanup,
+            .retiredAwaitingContextRelease, .retiringUnpublishedGeneration:
             return .invalidSlotState(state(of: binding.physicalSlotID))
         }
     }
@@ -608,6 +596,7 @@ final class FilesystemObservationSlotRegistry {
             return .alreadyTransitioned(closingNativeLifetime)
         case .vacant, .selected, .starting, .closingAwaitingPredecessor,
             .retirementFencePending, .retirementFenceInstalled,
+            .retirementFenceTransferredAwaitingCleanup, .retiredAwaitingContextRelease,
             .retiringUnpublishedGeneration:
             return .invalidSlotState(state(of: binding.physicalSlotID))
         }
@@ -686,6 +675,20 @@ final class FilesystemObservationSlotRegistry {
                 return .receiptMismatch
             }
             return .alreadyInstalled(installedLifetime)
+        case .retirementFenceTransferredAwaitingCleanup(let transferredLifetime):
+            guard transferredLifetime.installedLifetime.pendingLifetime.leaseDrainReceipt == receipt
+            else {
+                return .receiptMismatch
+            }
+            return .alreadyInstalled(transferredLifetime.installedLifetime)
+        case .retiredAwaitingContextRelease(let retiredLifetime):
+            guard
+                retiredLifetime.transferredLifetime.installedLifetime.pendingLifetime
+                    .leaseDrainReceipt == receipt
+            else {
+                return .receiptMismatch
+            }
+            return .alreadyRetired(retiredLifetime.receipt)
         case .vacant, .selected, .starting, .accepting,
             .retiringUnpublishedGeneration:
             return .invalidSlotState(state(of: binding.physicalSlotID))
@@ -734,21 +737,10 @@ final class FilesystemObservationSlotRegistry {
             return .alreadyInstalled(installedLifetime)
         case .vacant, .selected, .starting, .accepting,
             .closingAwaitingCallbackLeaseDrain, .closingAwaitingPredecessor,
+            .retirementFenceTransferredAwaitingCleanup, .retiredAwaitingContextRelease,
             .retiringUnpublishedGeneration:
             return .invalidSlotState(state(of: binding.physicalSlotID))
         }
-    }
-
-    func pendingRetirementFence(
-        for physicalSlotID: FilesystemObservationPhysicalSlotID
-    ) -> FilesystemObservationPendingRetirementFenceLookup {
-        guard
-            case .retirementFencePending(let pendingLifetime) =
-                statesByPhysicalSlotID[physicalSlotID]
-        else {
-            return .notPending(state(of: physicalSlotID))
-        }
-        return .pending(pendingLifetime)
     }
 
     private func makeDesiredRegistration(
@@ -799,22 +791,101 @@ final class FilesystemObservationSlotRegistry {
         deferredSourceOrder.append(sourceID)
     }
 
-    private func firstVacantPhysicalSlotID() -> FilesystemObservationPhysicalSlotID? {
-        physicalSlotIDs.first { physicalSlotID in
-            statesByPhysicalSlotID[physicalSlotID] == .vacant
+    func retiringGenerationChain(
+        for sourceID: FilesystemSourceID
+    ) -> FilesystemObservationRetiringGenerationChain {
+        retiringGenerationChainsBySourceID[sourceID] ?? .none
+    }
+
+    func pendingRetirementFence(
+        for physicalSlotID: FilesystemObservationPhysicalSlotID
+    ) -> FilesystemObservationPendingRetirementFenceLookup {
+        guard
+            case .retirementFencePending(let pendingLifetime) =
+                statesByPhysicalSlotID[physicalSlotID]
+        else {
+            return .notPending(state(of: physicalSlotID))
+        }
+        return .pending(pendingLifetime)
+    }
+
+    func transferRetirementFence(
+        _ installedLifetime: FilesystemRetirementFenceInstalledLifetime,
+        retirementAuthority: FilesystemObservationSlotRetirementAuthority
+    ) -> FilesystemObservationRetirementFenceTransferResult {
+        let binding = installedLifetime.binding
+        let currentState = FilesystemObservationRetirementTransitionPlanner.transferState(
+            physicalSlotState: state(of: binding.physicalSlotID),
+            retiringGenerationChain: retiringGenerationChain(
+                for: binding.registration.sourceID
+            )
+        )
+        let transferredLifetime = FilesystemRetirementFenceTransferredLifetime(
+            installedLifetime: installedLifetime,
+            retirementAuthority: retirementAuthority
+        )
+        switch FilesystemObservationRetirementTransitionPlanner.planFenceTransfer(
+            FilesystemRetirementFenceTransferRequest(
+                installedLifetime: installedLifetime,
+                transferredLifetime: transferredLifetime,
+                currentState: currentState
+            )
+        ) {
+        case .apply(let lifetime, let replacementChain):
+            retiringGenerationChainsBySourceID[binding.registration.sourceID] = replacementChain
+            statesByPhysicalSlotID[binding.physicalSlotID] =
+                .retirementFenceTransferredAwaitingCleanup(lifetime)
+            return .transferred(lifetime)
+        case .alreadyTransferred(let lifetime):
+            return .alreadyTransferred(lifetime)
+        case .alreadyRetired(let lifetime):
+            return .alreadyRetired(lifetime)
+        case .authorityMismatch:
+            return .authorityMismatch
+        case .invalidSlotState(let slotState):
+            return .invalidSlotState(slotState)
         }
     }
 
-    private var activeLogicalSourceCount: Int {
-        var activeSourceIDs = Set(selectedDesiredSourcesBySourceID.keys)
-        activeSourceIDs.formUnion(startingNativeLifetimesBySourceID.keys)
-        activeSourceIDs.formUnion(retiringGenerationChainsBySourceID.keys)
-        return activeSourceIDs.count
-    }
-
-    private func isActiveLogicalSource(_ sourceID: FilesystemSourceID) -> Bool {
-        selectedDesiredSourcesBySourceID[sourceID] != nil
-            || startingNativeLifetimesBySourceID[sourceID] != nil
-            || retiringGenerationChainsBySourceID[sourceID] != nil
+    func completeRetirement(
+        _ transferredLifetime: FilesystemRetirementFenceTransferredLifetime,
+        disposition: FilesystemObservationSlotRetirementDisposition
+    ) -> FilesystemObservationRetirementCompletionResult {
+        let binding = transferredLifetime.binding
+        let currentState = FilesystemObservationRetirementTransitionPlanner.completionState(
+            physicalSlotState: state(of: binding.physicalSlotID),
+            retiringGenerationChain: retiringGenerationChain(
+                for: binding.registration.sourceID
+            )
+        )
+        let receipt = FilesystemObservationSlotRetirementReceipt(
+            binding: binding,
+            fenceIdentity: transferredLifetime.fence.identity,
+            disposition: disposition,
+            retirementAuthority: transferredLifetime.retirementAuthority
+        )
+        let retiredLifetime = FilesystemRetiredContextReleaseLifetime(
+            transferredLifetime: transferredLifetime,
+            receipt: receipt
+        )
+        switch FilesystemObservationRetirementTransitionPlanner.planRetirementCompletion(
+            FilesystemObservationRetirementCompletionRequest(
+                transferredLifetime: transferredLifetime,
+                retiredLifetime: retiredLifetime,
+                currentState: currentState
+            )
+        ) {
+        case .apply(let lifetime, let replacementChain):
+            retiringGenerationChainsBySourceID[binding.registration.sourceID] = replacementChain
+            statesByPhysicalSlotID[binding.physicalSlotID] =
+                .retiredAwaitingContextRelease(lifetime)
+            return .retired(lifetime.receipt)
+        case .alreadyRetired(let retainedReceipt):
+            return .alreadyRetired(retainedReceipt)
+        case .authorityMismatch:
+            return .authorityMismatch
+        case .invalidSlotState(let slotState):
+            return .invalidSlotState(slotState)
+        }
     }
 }

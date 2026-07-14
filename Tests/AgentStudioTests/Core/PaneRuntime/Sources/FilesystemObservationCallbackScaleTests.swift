@@ -143,9 +143,9 @@ struct FilesystemObservationCallbackScaleTests {
         let drainedLease = try requireSingleContributionLease(
             consumer.takeDrain(binding: consumerBinding)
         )
-        let acknowledgement = consumer.acknowledge(
-            token: drainedLease.token,
-            disposition: .transferredAuthoritative
+        let acknowledgement = try credentialedTransferAcknowledgement(
+            for: drainedLease,
+            consumerPort: consumer
         )
         let selectedSlotRecoveryState = fixture.mailbox.lifecyclePort.diagnostics.recoveryEvidence(
             for: selectedBinding.physicalSlotID
@@ -157,7 +157,7 @@ struct FilesystemObservationCallbackScaleTests {
             disposition: disposition,
             wake: wake,
             selectedSlotRecoveryState: selectedSlotRecoveryState,
-            drainedContributionCount: drainedLease.contributionCount,
+            drainedContributionCount: requireObservations(drainedLease).count,
             acknowledgement: acknowledgement,
             operationVector: synchronization.operationVector(wake: wake)
         )
@@ -166,7 +166,7 @@ struct FilesystemObservationCallbackScaleTests {
     private func requireSingleContributionLease(
         _ result: FilesystemObservationTakeDrainResult,
         sourceLocation: SourceLocation = #_sourceLocation
-    ) throws -> (token: AdmissionDrainToken, contributionCount: Int) {
+    ) throws -> FilesystemObservationDrainLease {
         guard case .lease(let lease) = result else {
             Issue.record("Expected one filesystem observation drain lease", sourceLocation: sourceLocation)
             throw FixedSlotFilesystemObservationTestFailure.fixtureConstructionFailed
@@ -175,7 +175,8 @@ struct FilesystemObservationCallbackScaleTests {
             Issue.record("Expected an authoritative contribution-only lease", sourceLocation: sourceLocation)
             throw FixedSlotFilesystemObservationTestFailure.fixtureConstructionFailed
         }
-        return (lease.token, 1 + contributions.remaining.count)
+        #expect(1 + contributions.remaining.count == 1)
+        return lease
     }
 
     private func makeRegistration(index: Int) -> FSEventRegistrationToken {
@@ -214,7 +215,7 @@ private struct CallbackScaleOutcome {
     let wake: FilesystemObservationCallbackWakeApplication
     let selectedSlotRecoveryState: FixedFilesystemRecoveryEvidenceSnapshotResult
     let drainedContributionCount: Int
-    let acknowledgement: FilesystemObservationDrainAcknowledgement
+    let acknowledgement: TestCredentialedTransferAcknowledgement
     let operationVector: IndependentCallbackOperationVector
 }
 

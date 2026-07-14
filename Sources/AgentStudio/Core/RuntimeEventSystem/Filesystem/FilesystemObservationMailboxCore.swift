@@ -1,6 +1,46 @@
 import Foundation
 import os
 
+struct FilesystemObservationWholeLeasePreflightReceipt: Equatable, Sendable {
+    fileprivate let identity: UUID
+    let binding: FilesystemObservationSlotBinding
+    fileprivate let token: AdmissionDrainToken
+
+    var isUUIDv7: Bool { UUIDv7.isV7(identity) }
+
+    fileprivate init(
+        binding: FilesystemObservationSlotBinding,
+        token: AdmissionDrainToken
+    ) {
+        identity = UUIDv7.generate()
+        self.binding = binding
+        self.token = token
+    }
+
+    fileprivate func matches(
+        token expectedToken: AdmissionDrainToken,
+        binding expectedBinding: FilesystemObservationSlotBinding
+    ) -> Bool {
+        token == expectedToken && binding == expectedBinding
+    }
+}
+
+struct FilesystemLeaseAcknowledgementReceipt: Equatable, Sendable {
+    fileprivate let authorityIdentity: UUID
+    let binding: FilesystemObservationSlotBinding
+
+    fileprivate init(authority: FilesystemObservationWholeLeaseTransferAuthority) {
+        authorityIdentity = authority.preflight.identity
+        binding = authority.binding
+    }
+
+    func matches(
+        _ authority: FilesystemObservationWholeLeaseTransferAuthority
+    ) -> Bool {
+        authorityIdentity == authority.preflight.identity && binding == authority.binding
+    }
+}
+
 // This fixed-capacity mailbox keeps all custody transitions together under one lock.
 // swiftlint:disable file_length type_body_length
 
@@ -248,12 +288,61 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         case vacant
         case authoritative(
             token: AdmissionDrainToken,
-            binding: FilesystemObservationSlotBinding
+            binding: FilesystemObservationSlotBinding,
+            fingerprint: WholeLeaseFingerprint
         )
         case recovery(
             token: AdmissionDrainToken,
             binding: FilesystemObservationSlotBinding,
-            evidence: FixedFilesystemRecoveryEvidenceSnapshot
+            evidence: FixedFilesystemRecoveryEvidenceSnapshot,
+            fingerprint: WholeLeaseFingerprint
+        )
+    }
+
+    private enum ContributionFingerprint: Equatable, Sendable {
+        case observation(FilesystemObservationContributionIdentity)
+        case retirementFence(
+            FilesystemObservationContributionIdentity,
+            FilesystemObservationSlotRetirementFence
+        )
+
+        var identity: FilesystemObservationContributionIdentity {
+            switch self {
+            case .observation(let identity), .retirementFence(let identity, _): identity
+            }
+        }
+    }
+
+    private enum WholeLeaseFingerprint: Equatable, Sendable {
+        case contributions([ContributionFingerprint])
+        case contributionsWithRecovery(
+            [ContributionFingerprint],
+            FixedFilesystemRecoveryEvidenceSnapshot
+        )
+        case recovery(FixedFilesystemRecoveryEvidenceSnapshot)
+
+        var contributionFingerprints: [ContributionFingerprint] {
+            switch self {
+            case .contributions(let contributions),
+                .contributionsWithRecovery(let contributions, _):
+                contributions
+            case .recovery:
+                []
+            }
+        }
+    }
+
+    private enum PendingWholeLeaseCompletionCustody: Sendable {
+        case vacant
+        case ordinary(
+            FilesystemObservationWholeLeaseTransferAuthority,
+            FilesystemLeaseAcknowledgementReceipt
+        )
+        case retirement(
+            FilesystemObservationWholeLeaseTransferAuthority,
+            FilesystemLeaseAcknowledgementReceipt,
+            FilesystemRetirementFenceInstalledLifetime,
+            FilesystemObservationSlotRetirementDisposition
         )
     }
 
@@ -394,6 +483,7 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
     private struct State: Sendable {
         var lifecycle: Lifecycle
         var activeLease: ActiveLeaseCustody
+        var pendingWholeLeaseCompletion: PendingWholeLeaseCompletionCustody
         var retryEvidenceByPhysicalSlotID: [FilesystemObservationPhysicalSlotID: RetryEvidenceCustody]
         var nativeGenerationPortsByPhysicalSlotID: [FilesystemObservationPhysicalSlotID: NativeGenerationPortCustody]
         var pendingRetirementFenceReadyQueue: PendingRetirementFenceReadyQueue
@@ -405,6 +495,7 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         ) {
             lifecycle = .open
             activeLease = .vacant
+            pendingWholeLeaseCompletion = .vacant
             retryEvidenceByPhysicalSlotID = Dictionary(
                 uniqueKeysWithValues: physicalSlotIDs.map { ($0, .vacant) }
             )
@@ -599,6 +690,8 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                     return (.alreadyAwaitingPredecessor(lifetime), .noWake)
                 case .alreadyInstalled(let lifetime):
                     return (.alreadyInstalled(lifetime), .noWake)
+                case .alreadyRetired(let receipt):
+                    return (.retired(receipt), .noWake)
                 case .foreignFleet:
                     return (.foreignFleet, .noWake)
                 case .undeclaredPhysicalSlot:
@@ -717,6 +810,7 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         case .starting, .vacant, .selected, .accepting,
             .closingAwaitingCallbackLeaseDrain, .closingAwaitingPredecessor,
             .retirementFencePending, .retirementFenceInstalled,
+            .retirementFenceTransferredAwaitingCleanup, .retiredAwaitingContextRelease,
             .retiringUnpublishedGeneration:
             return binding.fleetMailboxIdentity == fleetMailboxIdentity
                 ? .bindingNotCurrent : .foreignFleet
@@ -759,7 +853,9 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
             bind: bindConsumer,
             take: takeDrain,
             acknowledge: acknowledge,
-            cleanup: performCleanup
+            cleanup: performCleanup,
+            preflightWholeLeaseTransfer: preflightWholeLeaseTransfer,
+            completeWholeLeaseTransfer: completeWholeLeaseTransfer
         )
     }
 
@@ -1022,6 +1118,215 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         return result
     }
 
+    func preflightWholeLeaseTransfer(
+        _ lease: FilesystemObservationDrainLease
+    ) -> FilesystemObservationWholeLeasePreflightResult {
+        lock.withLock { state in
+            guard state.lifecycle == .open || state.lifecycle == .sealed else {
+                return .rejected(.closed)
+            }
+            let retainedFingerprint: WholeLeaseFingerprint
+            switch state.activeLease {
+            case .vacant:
+                return .rejected(.invalidToken)
+            case .authoritative(let token, let binding, let fingerprint),
+                .recovery(let token, let binding, _, let fingerprint):
+                guard token == lease.token else { return .rejected(.invalidToken) }
+                guard binding == lease.binding else { return .rejected(.bindingMismatch) }
+                retainedFingerprint = fingerprint
+            }
+            let presentedFingerprint = wholeLeaseFingerprint(for: lease.payload)
+            guard retainedFingerprint == presentedFingerprint else {
+                return .rejected(.malformedRetirementFence)
+            }
+            switch validateRetirementFence(
+                in: presentedFingerprint,
+                binding: lease.binding
+            ) {
+            case .valid:
+                break
+            case .malformed:
+                return .rejected(.malformedRetirementFence)
+            case .installedMismatch:
+                return .rejected(.installedRetirementFenceMismatch)
+            }
+            return .authorized(
+                FilesystemObservationWholeLeasePreflightReceipt(
+                    binding: lease.binding,
+                    token: lease.token
+                )
+            )
+        }
+    }
+
+    func completeWholeLeaseTransfer(
+        authority: FilesystemObservationWholeLeaseTransferAuthority,
+        acknowledgement: FilesystemLeaseAcknowledgementReceipt,
+        semantic: FilesystemSemanticClearCompletion,
+        sourceGate: FilesystemSourceGateTransferClearCompletion,
+        registry: FilesystemObservationRegistryCompletionAuthority
+    ) -> FilesystemObservationWholeLeaseCompletionResult {
+        lock.withLock { state in
+            guard acknowledgement.matches(authority) else {
+                return .rejected(.acknowledgementMismatch)
+            }
+            guard
+                clearCompletionsMatch(
+                    authority: authority,
+                    acknowledgement: acknowledgement,
+                    semantic: semantic,
+                    sourceGate: sourceGate
+                )
+            else {
+                return .rejected(.semanticClearMismatch)
+            }
+            switch (state.pendingWholeLeaseCompletion, registry) {
+            case (
+                .ordinary(let pendingAuthority, let pendingAcknowledgement),
+                .ordinaryLease
+            ):
+                guard pendingAuthority == authority else {
+                    return .rejected(.authorityMismatch)
+                }
+                guard pendingAcknowledgement == acknowledgement else {
+                    return .rejected(.acknowledgementMismatch)
+                }
+                state.pendingWholeLeaseCompletion = .vacant
+                return .completed(
+                    FilesystemObservationWholeLeaseTransferReceipt(
+                        binding: authority.binding,
+                        outcome: .ordinaryLease
+                    )
+                )
+            case (
+                .retirement(
+                    let pendingAuthority,
+                    let pendingAcknowledgement,
+                    let installedLifetime,
+                    let disposition
+                ),
+                .retirement(let retirementAuthority)
+            ):
+                precondition(
+                    bindingLocalTransferDebtIsClear(
+                        for: authority.binding,
+                        state: state
+                    ),
+                    "Credentialed final-fence ACK must make binding-local debt clear"
+                )
+                guard pendingAuthority == authority else {
+                    return .rejected(.authorityMismatch)
+                }
+                guard pendingAcknowledgement == acknowledgement else {
+                    return .rejected(.acknowledgementMismatch)
+                }
+                let transferredLifetime: FilesystemRetirementFenceTransferredLifetime
+                switch slotRegistry.transferRetirementFence(
+                    installedLifetime,
+                    retirementAuthority: retirementAuthority
+                ) {
+                case .transferred(let lifetime), .alreadyTransferred(let lifetime):
+                    transferredLifetime = lifetime
+                case .alreadyRetired(let lifetime):
+                    state.pendingWholeLeaseCompletion = .vacant
+                    return .completed(
+                        FilesystemObservationWholeLeaseTransferReceipt(
+                            binding: authority.binding,
+                            outcome: .retired(lifetime.receipt)
+                        )
+                    )
+                case .authorityMismatch, .invalidSlotState:
+                    return .rejected(.registryTransitionRejected)
+                }
+                switch slotRegistry.completeRetirement(
+                    transferredLifetime,
+                    disposition: disposition
+                ) {
+                case .retired(let receipt), .alreadyRetired(let receipt):
+                    state.pendingWholeLeaseCompletion = .vacant
+                    return .completed(
+                        FilesystemObservationWholeLeaseTransferReceipt(
+                            binding: authority.binding,
+                            outcome: .retired(receipt)
+                        )
+                    )
+                case .authorityMismatch, .invalidSlotState:
+                    return .rejected(.registryTransitionRejected)
+                }
+            case (.vacant, _):
+                return .rejected(.noAcknowledgedTransfer)
+            case (.ordinary, .retirement), (.retirement, .ordinaryLease):
+                return .rejected(.authorityMismatch)
+            }
+        }
+    }
+
+    private func clearCompletionsMatch(
+        authority: FilesystemObservationWholeLeaseTransferAuthority,
+        acknowledgement: FilesystemLeaseAcknowledgementReceipt,
+        semantic: FilesystemSemanticClearCompletion,
+        sourceGate: FilesystemSourceGateTransferClearCompletion
+    ) -> Bool {
+        switch (authority.evidence, semantic, sourceGate) {
+        case (
+            .contributions,
+            .cleared(let semanticReceipt),
+            .notRequired(let sourceGateBinding)
+        ):
+            return semanticReceipt.matches(
+                authority: authority,
+                acknowledgement: acknowledgement
+            )
+                && sourceGateBinding == authority.binding
+        case (
+            .contributionsWithRecovery,
+            .cleared(let semanticReceipt),
+            .cleared(let sourceGateReceipt)
+        ):
+            return semanticReceipt.matches(
+                authority: authority,
+                acknowledgement: acknowledgement
+            )
+                && sourceGateReceipt.matches(
+                    authority: authority,
+                    acknowledgement: acknowledgement
+                )
+        case (
+            .recovery,
+            .notRequired(let semanticBinding),
+            .cleared(let sourceGateReceipt)
+        ):
+            return semanticBinding == authority.binding
+                && sourceGateReceipt.matches(
+                    authority: authority,
+                    acknowledgement: acknowledgement
+                )
+        case (.contributions, _, _), (.contributionsWithRecovery, _, _),
+            (.recovery, _, _):
+            return false
+        }
+    }
+
+    private func bindingLocalTransferDebtIsClear(
+        for binding: FilesystemObservationSlotBinding,
+        state: State
+    ) -> Bool {
+        guard
+            let retryCustody = state.retryEvidenceByPhysicalSlotID[binding.physicalSlotID]
+        else {
+            return false
+        }
+        guard case .vacant = retryCustody else { return false }
+        guard
+            case .boundClear(let recoveryBinding) = recoveryRegister.state(
+                of: binding.physicalSlotID
+            )
+        else {
+            return false
+        }
+        return recoveryBinding == binding
+    }
+
     func performCleanup() -> AdmissionCleanupTurnResult {
         let result = lock.withLock { state in
             let cleanupResult = gatherMailbox.consumerPort.performCleanup(
@@ -1265,28 +1570,31 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
     ) -> FilesystemObservationDrainLease {
         let binding = requiredCurrentBinding(for: gatherLease.key)
         switch state.activeLease {
-        case .authoritative(_, let retainedBinding):
+        case .authoritative(_, let retainedBinding, let fingerprint):
             guard retainedBinding == binding else {
                 preconditionFailure("Rebound filesystem lease changed its exact slot binding")
             }
-            state.activeLease = .authoritative(token: gatherLease.token, binding: binding)
-            return FilesystemObservationDrainLease(
+            let lease = FilesystemObservationDrainLease(
                 token: gatherLease.token,
                 binding: binding,
                 payload: FilesystemObservationMailboxProjection.contributionsPayload(
                     from: gatherLease.payload
                 )
             )
-        case .recovery(_, let retainedBinding, let evidence):
+            guard wholeLeaseFingerprint(for: lease.payload) == fingerprint else {
+                preconditionFailure("Retried filesystem lease changed exact payload custody")
+            }
+            state.activeLease = .authoritative(
+                token: gatherLease.token,
+                binding: binding,
+                fingerprint: fingerprint
+            )
+            return lease
+        case .recovery(_, let retainedBinding, let evidence, let fingerprint):
             guard retainedBinding == binding else {
                 preconditionFailure("Rebound recovery lease changed its exact slot binding")
             }
-            state.activeLease = .recovery(
-                token: gatherLease.token,
-                binding: binding,
-                evidence: evidence
-            )
-            return FilesystemObservationDrainLease(
+            let lease = FilesystemObservationDrainLease(
                 token: gatherLease.token,
                 binding: binding,
                 payload: FilesystemObservationMailboxProjection.recoveryPayload(
@@ -1294,6 +1602,16 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                     evidence: evidence
                 )
             )
+            guard wholeLeaseFingerprint(for: lease.payload) == fingerprint else {
+                preconditionFailure("Retried recovery lease changed exact payload custody")
+            }
+            state.activeLease = .recovery(
+                token: gatherLease.token,
+                binding: binding,
+                evidence: evidence,
+                fingerprint: fingerprint
+            )
+            return lease
         case .vacant:
             return mapNewLease(gatherLease, state: &state)
         }
@@ -1310,21 +1628,20 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         let payload: FilesystemObservationDrainPayload
         switch gatherLease.payload {
         case .contributions(let contributions):
-            state.activeLease = .authoritative(token: gatherLease.token, binding: binding)
             payload = .contributions(
                 FilesystemObservationMailboxProjection.contributionsPayloads(
                     from: contributions
                 )
             )
+            state.activeLease = .authoritative(
+                token: gatherLease.token,
+                binding: binding,
+                fingerprint: wholeLeaseFingerprint(for: payload)
+            )
         case .contributionsWithRecovery(let contributions, _):
             let evidence = evidenceForLease(
                 binding: binding,
                 retryEvidenceByPhysicalSlotID: &state.retryEvidenceByPhysicalSlotID
-            )
-            state.activeLease = .recovery(
-                token: gatherLease.token,
-                binding: binding,
-                evidence: evidence
             )
             payload = .contributionsWithRecovery(
                 FilesystemObservationMailboxProjection.contributionsPayloads(
@@ -1332,17 +1649,24 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                 ),
                 evidence
             )
+            state.activeLease = .recovery(
+                token: gatherLease.token,
+                binding: binding,
+                evidence: evidence,
+                fingerprint: wholeLeaseFingerprint(for: payload)
+            )
         case .recovery:
             let evidence = evidenceForLease(
                 binding: binding,
                 retryEvidenceByPhysicalSlotID: &state.retryEvidenceByPhysicalSlotID
             )
+            payload = .recovery(evidence)
             state.activeLease = .recovery(
                 token: gatherLease.token,
                 binding: binding,
-                evidence: evidence
+                evidence: evidence,
+                fingerprint: wholeLeaseFingerprint(for: payload)
             )
-            payload = .recovery(evidence)
         }
         return FilesystemObservationDrainLease(
             token: gatherLease.token,
@@ -1357,10 +1681,10 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         state: inout State
     ) -> FilesystemObservationDrainAcknowledgement {
         switch (state.activeLease, disposition) {
-        case (.authoritative(let activeToken, _), .retry) where activeToken == token:
+        case (.authoritative(let activeToken, _, _), .retry) where activeToken == token:
             return completeRetry(token: token, recovery: .authoritative, state: &state)
         case (
-            .recovery(let activeToken, _, let evidence),
+            .recovery(let activeToken, _, let evidence, _),
             .retry
         ) where activeToken == token:
             return completeRetry(
@@ -1369,28 +1693,247 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                 state: &state
             )
         case (
-            .authoritative(let activeToken, _),
-            .transferredAuthoritative
+            .authoritative(let activeToken, let binding, let fingerprint),
+            .transferredAuthoritative(let authority)
         ) where activeToken == token:
-            return completeAuthoritativeTransfer(token: token, state: &state)
+            guard
+                validateTransferAuthority(
+                    authority,
+                    token: token,
+                    binding: binding,
+                    fingerprint: fingerprint,
+                    recoveryEvidence: .notRequired
+                )
+            else {
+                return .dispositionMismatch
+            }
+            return completeAuthoritativeTransfer(
+                token: token,
+                authority: authority,
+                fingerprint: fingerprint,
+                state: &state
+            )
         case (
-            .recovery(let activeToken, _, let retainedEvidence),
-            .transferredRecovery(let acceptance)
-        ) where activeToken == token && acceptance.matches(retainedEvidence):
+            .recovery(
+                let activeToken,
+                let binding,
+                let retainedEvidence,
+                let fingerprint
+            ),
+            .transferredRecovery(let authority, let acceptance)
+        ) where activeToken == token:
+            guard acceptance.matches(retainedEvidence),
+                validateTransferAuthority(
+                    authority,
+                    token: token,
+                    binding: binding,
+                    fingerprint: fingerprint,
+                    recoveryEvidence: .required(retainedEvidence)
+                )
+            else {
+                return .dispositionMismatch
+            }
             return completeRecoveryTransfer(
                 token: token,
+                authority: authority,
                 evidence: retainedEvidence,
+                fingerprint: fingerprint,
                 state: &state
             )
         case (.vacant, _):
             return .invalidToken
-        case (.authoritative(let activeToken, _), _) where activeToken == token:
+        case (.authoritative(let activeToken, _, _), _) where activeToken == token:
             return .dispositionMismatch
-        case (.recovery(let activeToken, _, _), _) where activeToken == token:
+        case (.recovery(let activeToken, _, _, _), _) where activeToken == token:
             return .dispositionMismatch
         case (.authoritative, _), (.recovery, _):
             return .invalidToken
         }
+    }
+
+    private enum RetirementFenceValidation {
+        case valid
+        case malformed
+        case installedMismatch
+    }
+
+    private enum TransferRecoveryEvidence {
+        case notRequired
+        case required(FixedFilesystemRecoveryEvidenceSnapshot)
+    }
+
+    private func validateTransferAuthority(
+        _ authority: FilesystemObservationWholeLeaseTransferAuthority,
+        token: AdmissionDrainToken,
+        binding: FilesystemObservationSlotBinding,
+        fingerprint: WholeLeaseFingerprint,
+        recoveryEvidence: TransferRecoveryEvidence
+    ) -> Bool {
+        guard authority.preflight.matches(token: token, binding: binding) else {
+            return false
+        }
+        let contributionIdentities = fingerprint.contributionFingerprints.map(\.identity)
+        switch (authority.evidence, recoveryEvidence, fingerprint) {
+        case (
+            .contributions(let semanticAuthority),
+            .notRequired,
+            .contributions
+        ):
+            return semanticAuthorityMatches(
+                semanticAuthority,
+                binding: binding,
+                fingerprint: fingerprint,
+                contributionIdentities: contributionIdentities
+            )
+        case (
+            .contributionsWithRecovery(let semanticAuthority, let acceptance),
+            .required(let evidence),
+            .contributionsWithRecovery
+        ):
+            return acceptance.matches(evidence)
+                && semanticAuthorityMatches(
+                    semanticAuthority,
+                    binding: binding,
+                    fingerprint: fingerprint,
+                    contributionIdentities: contributionIdentities
+                )
+        case (
+            .recovery(let acceptance),
+            .required(let evidence),
+            .recovery
+        ):
+            return acceptance.matches(evidence)
+        case (.contributions, _, _), (.contributionsWithRecovery, _, _),
+            (.recovery, _, _):
+            return false
+        }
+    }
+
+    private func semanticAuthorityMatches(
+        _ semanticAuthority: FilesystemSemanticLeaseAcceptanceAuthority,
+        binding: FilesystemObservationSlotBinding,
+        fingerprint: WholeLeaseFingerprint,
+        contributionIdentities: [FilesystemObservationContributionIdentity]
+    ) -> Bool {
+        guard
+            semanticAuthority.matches(
+                binding: binding,
+                contributionIdentities: contributionIdentities
+            )
+        else {
+            return false
+        }
+        let fenceIdentities = fingerprint.contributionFingerprints.compactMap { contribution in
+            if case .retirementFence(_, let fence) = contribution {
+                return fence.identity
+            }
+            return nil
+        }
+        switch (fenceIdentities.first, semanticAuthority.acceptedRetirementFenceIdentity) {
+        case (.none, .none):
+            return true
+        case (.some(let expected), .some(let accepted)):
+            return fenceIdentities.count == 1 && expected == accepted
+        case (.none, .some), (.some, .none):
+            return false
+        }
+    }
+
+    private func retainPendingWholeLeaseCompletion(
+        authority: FilesystemObservationWholeLeaseTransferAuthority,
+        acknowledgement: FilesystemLeaseAcknowledgementReceipt,
+        fingerprint: WholeLeaseFingerprint,
+        recoveryDisposition: FilesystemObservationSlotRetirementDisposition,
+        state: inout State
+    ) {
+        guard case .vacant = state.pendingWholeLeaseCompletion else {
+            preconditionFailure("A whole-lease completion must finish before another transfer")
+        }
+        let fences = fingerprint.contributionFingerprints.compactMap { contribution in
+            if case .retirementFence(let identity, let fence) = contribution {
+                return (identity, fence)
+            }
+            return nil
+        }
+        guard let fence = fences.first else {
+            state.pendingWholeLeaseCompletion = .ordinary(authority, acknowledgement)
+            return
+        }
+        guard fences.count == 1,
+            case .retirementFenceInstalled(let installedLifetime) = slotRegistry.state(
+                of: authority.binding.physicalSlotID
+            ),
+            installedLifetime.contributionIdentity == fence.0,
+            installedLifetime.fence == fence.1
+        else {
+            preconditionFailure("Acknowledged retirement fence lost exact registry custody")
+        }
+        state.pendingWholeLeaseCompletion = .retirement(
+            authority,
+            acknowledgement,
+            installedLifetime,
+            recoveryDisposition
+        )
+    }
+
+    private func wholeLeaseFingerprint(
+        for payload: FilesystemObservationDrainPayload
+    ) -> WholeLeaseFingerprint {
+        switch payload {
+        case .contributions(let batch):
+            return .contributions(
+                ([batch.first] + batch.remaining).map(contributionFingerprint)
+            )
+        case .contributionsWithRecovery(let batch, let evidence):
+            return .contributionsWithRecovery(
+                ([batch.first] + batch.remaining).map(contributionFingerprint),
+                evidence
+            )
+        case .recovery(let evidence):
+            return .recovery(evidence)
+        }
+    }
+
+    private func contributionFingerprint(
+        _ contribution: FilesystemObservationMailboxContribution
+    ) -> ContributionFingerprint {
+        switch contribution {
+        case .observation(let identity, _):
+            return .observation(identity)
+        case .retirementFence(let identity, let fence):
+            return .retirementFence(identity, fence)
+        }
+    }
+
+    private func validateRetirementFence(
+        in fingerprint: WholeLeaseFingerprint,
+        binding: FilesystemObservationSlotBinding
+    ) -> RetirementFenceValidation {
+        let contributions = fingerprint.contributionFingerprints
+        let fences = contributions.enumerated().compactMap { index, contribution in
+            if case .retirementFence(let identity, let fence) = contribution {
+                return (index, identity, fence)
+            }
+            return nil
+        }
+        guard !fences.isEmpty else { return .valid }
+        guard fences.count == 1,
+            let exactFence = fences.first,
+            exactFence.0 == contributions.count - 1,
+            exactFence.1.binding == binding,
+            exactFence.2.binding == binding
+        else {
+            return .malformed
+        }
+        guard
+            case .retirementFenceInstalled(let installedLifetime) =
+                slotRegistry.state(of: binding.physicalSlotID),
+            installedLifetime.contributionIdentity == exactFence.1,
+            installedLifetime.fence == exactFence.2
+        else {
+            return .installedMismatch
+        }
+        return .valid
     }
 
     private enum RetryRecovery: Sendable {
@@ -1428,8 +1971,20 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
 
     private func completeAuthoritativeTransfer(
         token: AdmissionDrainToken,
+        authority: FilesystemObservationWholeLeaseTransferAuthority,
+        fingerprint: WholeLeaseFingerprint,
         state: inout State
     ) -> FilesystemObservationDrainAcknowledgement {
+        guard
+            finalFenceTransferDebtIsReadyForAcknowledgement(
+                binding: authority.binding,
+                fingerprint: fingerprint,
+                recoveryEvidence: .notRequired,
+                state: state
+            )
+        else {
+            return .dispositionMismatch
+        }
         let acknowledgement = gatherMailbox.consumerPort.acknowledge(
             token: token,
             disposition: .transferred
@@ -1439,15 +1994,37 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                 acknowledgement
             )
         }
+        let transferReceipt = FilesystemLeaseAcknowledgementReceipt(
+            authority: authority
+        )
         state.activeLease = .vacant
-        return .transferredAuthoritative(wake: wake)
+        retainPendingWholeLeaseCompletion(
+            authority: authority,
+            acknowledgement: transferReceipt,
+            fingerprint: fingerprint,
+            recoveryDisposition: .quiescentWithoutRecovery,
+            state: &state
+        )
+        return .transferredAuthoritative(receipt: transferReceipt, wake: wake)
     }
 
     private func completeRecoveryTransfer(
         token: AdmissionDrainToken,
+        authority: FilesystemObservationWholeLeaseTransferAuthority,
         evidence: FixedFilesystemRecoveryEvidenceSnapshot,
+        fingerprint: WholeLeaseFingerprint,
         state: inout State
     ) -> FilesystemObservationDrainAcknowledgement {
+        guard
+            finalFenceTransferDebtIsReadyForAcknowledgement(
+                binding: authority.binding,
+                fingerprint: fingerprint,
+                recoveryEvidence: .required(evidence),
+                state: state
+            )
+        else {
+            return .dispositionMismatch
+        }
         let acknowledgement = gatherMailbox.consumerPort.acknowledge(
             token: token,
             disposition: .transferred
@@ -1458,11 +2035,63 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
             )
         }
         let evidenceAcknowledgement = recoveryRegister.acknowledge(evidence)
+        if wholeLeaseContainsRetirementFence(fingerprint) {
+            guard case .cleared(evidence.revision) = evidenceAcknowledgement else {
+                preconditionFailure(
+                    "Validated final-fence recovery acknowledgement did not clear exact evidence"
+                )
+            }
+        }
+        let transferReceipt = FilesystemLeaseAcknowledgementReceipt(
+            authority: authority
+        )
         state.activeLease = .vacant
+        retainPendingWholeLeaseCompletion(
+            authority: authority,
+            acknowledgement: transferReceipt,
+            fingerprint: fingerprint,
+            recoveryDisposition: .quiescentAfterRecovery(evidence.revision),
+            state: &state
+        )
         return .transferredRecovery(
+            receipt: transferReceipt,
             evidence: evidenceAcknowledgement,
             wake: wake
         )
+    }
+
+    private func finalFenceTransferDebtIsReadyForAcknowledgement(
+        binding: FilesystemObservationSlotBinding,
+        fingerprint: WholeLeaseFingerprint,
+        recoveryEvidence: TransferRecoveryEvidence,
+        state: State
+    ) -> Bool {
+        let containsFinalFence = wholeLeaseContainsRetirementFence(fingerprint)
+        guard containsFinalFence else { return true }
+        guard
+            let retryEvidence = state.retryEvidenceByPhysicalSlotID[binding.physicalSlotID],
+            case .vacant = retryEvidence
+        else {
+            return false
+        }
+        switch (recoveryEvidence, recoveryRegister.state(of: binding.physicalSlotID)) {
+        case (.notRequired, .boundClear(let retainedBinding)):
+            return retainedBinding == binding
+        case (.required(let evidence), .boundRetained(let retainedEvidence)):
+            return retainedEvidence == evidence
+                && evidence.revision.binding == binding
+        case (.notRequired, _), (.required, _):
+            return false
+        }
+    }
+
+    private func wholeLeaseContainsRetirementFence(
+        _ fingerprint: WholeLeaseFingerprint
+    ) -> Bool {
+        fingerprint.contributionFingerprints.contains { contribution in
+            if case .retirementFence = contribution { return true }
+            return false
+        }
     }
 
     private func evidenceForLease(
@@ -1569,7 +2198,8 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         for physicalSlotID in slotRegistry.physicalSlotIDs {
             switch slotRegistry.state(of: physicalSlotID) {
             case .closingAwaitingPredecessor, .retirementFencePending,
-                .retirementFenceInstalled:
+                .retirementFenceInstalled, .retirementFenceTransferredAwaitingCleanup,
+                .retiredAwaitingContextRelease:
                 retiringLifecycleCount += 1
             case .undeclaredPhysicalSlot, .vacant, .selected, .starting, .accepting,
                 .closingAwaitingCallbackLeaseDrain, .retiringUnpublishedGeneration:

@@ -44,11 +44,31 @@ struct FilesystemObservationSemanticReplayAttempt: Equatable, Sendable {
 
 enum FilesystemObservationSemanticAcceptedDisposition: Equatable, Sendable {
     case observationAccepted
+    case retirementFenceAccepted(FilesystemObservationRetirementFenceIdentity)
 }
 
 struct FilesystemSemanticLeaseAcceptanceAuthority: Equatable, Sendable {
     let attemptIdentity: FilesystemObservationSemanticAttemptIdentity
     fileprivate let fingerprint: FilesystemObservationSemanticLeaseFingerprint
+    fileprivate let acceptedDispositions: [FilesystemObservationSemanticAcceptedDisposition]
+
+    func matches(
+        binding: FilesystemObservationSlotBinding,
+        contributionIdentities: [FilesystemObservationContributionIdentity]
+    ) -> Bool {
+        fingerprint.binding == binding
+            && fingerprint.orderedContributionIdentities == contributionIdentities
+            && acceptedDispositions.count == contributionIdentities.count
+    }
+
+    var acceptedRetirementFenceIdentity: FilesystemObservationRetirementFenceIdentity? {
+        for disposition in acceptedDispositions.reversed() {
+            if case .retirementFenceAccepted(let identity) = disposition {
+                return identity
+            }
+        }
+        return nil
+    }
 }
 
 enum FilesystemObservationSemanticPresentationResult: Equatable, Sendable {
@@ -104,8 +124,39 @@ enum FilesystemObservationSemanticCompletionResult: Equatable, Sendable {
     case undeclaredPhysicalSlot
 }
 
+struct FilesystemObservationSemanticTransferClearReceipt: Equatable, Sendable {
+    fileprivate let authority: FilesystemObservationWholeLeaseTransferAuthority
+    fileprivate let acknowledgement: FilesystemLeaseAcknowledgementReceipt
+    fileprivate let attemptIdentity: FilesystemObservationSemanticAttemptIdentity
+
+    var binding: FilesystemObservationSlotBinding { authority.binding }
+
+    func matches(
+        authority expectedAuthority: FilesystemObservationWholeLeaseTransferAuthority,
+        acknowledgement expectedAcknowledgement: FilesystemLeaseAcknowledgementReceipt
+    ) -> Bool {
+        authority == expectedAuthority
+            && acknowledgement == expectedAcknowledgement
+            && expectedAcknowledgement.matches(expectedAuthority)
+    }
+}
+
+enum FilesystemSemanticClearCompletion: Equatable, Sendable {
+    case notRequired(FilesystemObservationSlotBinding)
+    case cleared(FilesystemObservationSemanticTransferClearReceipt)
+
+    var binding: FilesystemObservationSlotBinding {
+        switch self {
+        case .notRequired(let binding): binding
+        case .cleared(let receipt): receipt.binding
+        }
+    }
+}
+
 enum FilesystemSemanticTransferCompletionResult: Equatable, Sendable {
-    case cleared
+    case cleared(FilesystemObservationSemanticTransferClearReceipt)
+    case acknowledgementMismatch
+    case authorityHasNoSemanticCustody
     case notSemanticallyComplete
     case staleConsumerAttempt
     case fingerprintMismatch
@@ -333,7 +384,8 @@ struct FilesystemObservationSemanticReplay: Sendable {
             return .wholeLeaseSemanticallyAccepted(
                 FilesystemSemanticLeaseAcceptanceAuthority(
                     attemptIdentity: attempt.identity,
-                    fingerprint: attempt.fingerprint
+                    fingerprint: attempt.fingerprint,
+                    acceptedDispositions: retained.acceptedPrefix
                 )
             )
         }
@@ -355,22 +407,35 @@ struct FilesystemObservationSemanticReplay: Sendable {
         )
     }
 
-    /// H2's same-file transfer coordinator is the only intended caller.
-    /// Semantic completion alone cannot reach this operation.
-    fileprivate mutating func completeTransferredLease(
-        _ authority: FilesystemSemanticLeaseAcceptanceAuthority
+    /// H2's transfer coordinator is the only intended caller. Exact whole-lease
+    /// authority plus the mailbox-minted post-ACK receipt are required so semantic
+    /// completion alone cannot prematurely clear retained replay.
+    mutating func completeTransferredLease(
+        authority wholeLeaseAuthority: FilesystemObservationWholeLeaseTransferAuthority,
+        acknowledgement: FilesystemLeaseAcknowledgementReceipt
     ) -> FilesystemSemanticTransferCompletionResult {
-        let physicalSlotID = authority.fingerprint.binding.physicalSlotID
+        guard acknowledgement.matches(wholeLeaseAuthority) else {
+            return .acknowledgementMismatch
+        }
+        let semanticAuthority: FilesystemSemanticLeaseAcceptanceAuthority
+        switch wholeLeaseAuthority.evidence {
+        case .contributions(let authority),
+            .contributionsWithRecovery(let authority, _):
+            semanticAuthority = authority
+        case .recovery:
+            return .authorityHasNoSemanticCustody
+        }
+        let physicalSlotID = semanticAuthority.fingerprint.binding.physicalSlotID
         guard let shell = shellsByPhysicalSlotID[physicalSlotID] else {
             return .undeclaredPhysicalSlot
         }
         guard case .retained(let retained) = shell else {
             return .fingerprintMismatch
         }
-        guard retained.fingerprint == authority.fingerprint else {
+        guard retained.fingerprint == semanticAuthority.fingerprint else {
             return .fingerprintMismatch
         }
-        guard retained.currentAttemptIdentity == authority.attemptIdentity else {
+        guard retained.currentAttemptIdentity == semanticAuthority.attemptIdentity else {
             return .staleConsumerAttempt
         }
         guard
@@ -381,7 +446,13 @@ struct FilesystemObservationSemanticReplay: Sendable {
         }
         shellsByPhysicalSlotID[physicalSlotID] = .vacant
         retainedIdentityCount -= retained.fingerprint.orderedContributionIdentities.count
-        return .cleared
+        return .cleared(
+            FilesystemObservationSemanticTransferClearReceipt(
+                authority: wholeLeaseAuthority,
+                acknowledgement: acknowledgement,
+                attemptIdentity: semanticAuthority.attemptIdentity
+            )
+        )
     }
 
     private enum RetainedLeaseLookup {

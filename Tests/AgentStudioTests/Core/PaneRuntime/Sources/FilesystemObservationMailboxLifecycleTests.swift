@@ -29,9 +29,9 @@ struct FilesystemObservationMailboxLifecycleTests {
         let lease = requireLease(
             mailbox.actorConsumerPort.takeDrain(binding: consumerBinding)
         )
-        let acknowledgement = mailbox.actorConsumerPort.acknowledge(
-            token: lease.token,
-            disposition: .transferredAuthoritative
+        let acknowledgement = try credentialedTransferAcknowledgement(
+            for: lease,
+            consumerPort: mailbox.actorConsumerPort
         )
 
         // Assert
@@ -58,20 +58,27 @@ struct FilesystemObservationMailboxLifecycleTests {
         let lease = requireLease(
             mailbox.actorConsumerPort.takeDrain(binding: consumerBinding)
         )
-        var sourceGate = FilesystemSourceGate(registration: registration)
-        let acceptance = requireRecoveryAcceptance(
+        var sourceGate = FilesystemSourceGate(binding: recovery.revision.binding)
+        let recoveryParticipants = makeRequiredParticipants()
+        _ = requireRecoveryAcceptance(
             sourceGate.acceptMailboxRecovery(
                 recovery,
                 trigger: .continuityLoss,
                 watermark: .recoveryRevision(1),
-                participants: makeRequiredParticipants()
+                participants: recoveryParticipants
             )
         )
 
         // Act
-        let acknowledgement = mailbox.actorConsumerPort.acknowledge(
-            token: lease.token,
-            disposition: .transferredRecovery(acceptance)
+        let acknowledgement = try credentialedTransferAcknowledgement(
+            for: lease,
+            consumerPort: mailbox.actorConsumerPort,
+            sourceGate: &sourceGate,
+            recoveryContext: .required(
+                trigger: .continuityLoss,
+                watermark: .recoveryRevision(1),
+                participants: recoveryParticipants
+            )
         )
 
         // Assert
@@ -189,13 +196,14 @@ struct FilesystemObservationMailboxLifecycleTests {
         let lease = requireLease(
             mailbox.actorConsumerPort.takeDrain(binding: consumerBinding)
         )
-        var sourceGate = FilesystemSourceGate(registration: registration)
-        let acceptance = requireRecoveryAcceptance(
+        var sourceGate = FilesystemSourceGate(binding: recovery.revision.binding)
+        let recoveryParticipants = makeRequiredParticipants()
+        _ = requireRecoveryAcceptance(
             sourceGate.acceptMailboxRecovery(
                 recovery,
                 trigger: .continuityLoss,
                 watermark: .recoveryRevision(1),
-                participants: makeRequiredParticipants()
+                participants: recoveryParticipants
             )
         )
         #expect(mailbox.lifecyclePort.seal() == .applied)
@@ -207,9 +215,15 @@ struct FilesystemObservationMailboxLifecycleTests {
 
         // Act: exact accepted transfer makes the sealed mailbox quiescent.
         #expect(
-            mailbox.actorConsumerPort.acknowledge(
-                token: lease.token,
-                disposition: .transferredRecovery(acceptance)
+            try credentialedTransferAcknowledgement(
+                for: lease,
+                consumerPort: mailbox.actorConsumerPort,
+                sourceGate: &sourceGate,
+                recoveryContext: .required(
+                    trigger: .continuityLoss,
+                    watermark: .recoveryRevision(1),
+                    participants: recoveryParticipants
+                )
             )
                 == .transferredRecovery(
                     evidence: .cleared(recovery.revision),

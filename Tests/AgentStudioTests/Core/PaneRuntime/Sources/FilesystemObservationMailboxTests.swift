@@ -225,7 +225,7 @@ struct FilesystemObservationMailboxTests {
         )
         let oldLease = requireLease(consumer.takeDrain(binding: consumerBinding))
         #expect(requireRecovery(oldLease) == oldRecovery)
-        let oldRecoveryAcceptance = try acceptRecovery(oldRecovery)
+        var sourceGate = FilesystemSourceGate(binding: oldLease.binding)
         let newestRecovery = requireRetainedRecovery(
             try fixture.admitCallback(
                 .requiresRecovery(
@@ -237,9 +237,11 @@ struct FilesystemObservationMailboxTests {
         )
 
         // Act
-        let acknowledgement = consumer.acknowledge(
-            token: oldLease.token,
-            disposition: .transferredRecovery(oldRecoveryAcceptance)
+        let acknowledgement = try credentialedTransferAcknowledgement(
+            for: oldLease,
+            consumerPort: consumer,
+            sourceGate: &sourceGate,
+            recoveryContext: requiredRecoveryAdmissionContext()
         )
 
         // Assert
@@ -433,7 +435,6 @@ struct FilesystemObservationMailboxTests {
         let oldLease = requireLease(
             consumer.takeDrain(binding: oldBinding)
         )
-        let alphaRecoveryAcceptance = try acceptRecovery(alphaRecovery)
         _ = try fixture.admitCallback(
             .authoritative(
                 try makeObservation(registration: beta, path: "/beta/ready", eventID: 71)
@@ -454,7 +455,7 @@ struct FilesystemObservationMailboxTests {
         )
         let lateOldAcknowledgement = consumer.acknowledge(
             token: oldLease.token,
-            disposition: .transferredRecovery(alphaRecoveryAcceptance)
+            disposition: .retry
         )
         let retryAcknowledgement = consumer.acknowledge(
             token: replacementLease.token,
@@ -463,9 +464,9 @@ struct FilesystemObservationMailboxTests {
         let betaLease = requireLease(
             consumer.takeDrain(binding: replacementBinding)
         )
-        _ = consumer.acknowledge(
-            token: betaLease.token,
-            disposition: .transferredAuthoritative
+        _ = try credentialedTransferAcknowledgement(
+            for: betaLease,
+            consumerPort: consumer
         )
         let retriedAlphaLease = requireLease(
             consumer.takeDrain(binding: replacementBinding)

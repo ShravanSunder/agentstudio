@@ -13,7 +13,7 @@ struct FilesystemSourceGateTests {
             registration: registration,
             evidence: .continuityLoss.unioning(.callbackAdmissionOverflow)
         )
-        var gate = FilesystemSourceGate(registration: registration)
+        var gate = FilesystemSourceGate(binding: evidence.revision.binding)
         let participants = makeRequiredParticipants(for: registration.sourceID.kind)
 
         // Act
@@ -35,23 +35,19 @@ struct FilesystemSourceGateTests {
         #expect(gate.state == .dirty(acceptance.repairGeneration))
     }
 
-    @Test("mailbox recovery acceptance rejects evidence from another registration")
-    func mailboxRecoveryAcceptanceRejectsForeignRegistration() throws {
+    @Test("mailbox recovery acceptance rejects a foreign exact binding before mutation")
+    func mailboxRecoveryAcceptanceRejectsForeignBinding() throws {
         // Arrange
         let registration = makeRegistration()
-        let foreignRegistration = FSEventRegistrationToken(
-            sourceID: FilesystemSourceID(
-                kind: .registeredWorktreeContent,
-                rootID: UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-000000000099")!
-            ),
-            registrationGeneration: registration.registrationGeneration + 1,
-            rootGeneration: registration.rootGeneration
-        )
-        let foreignEvidence = try makeRecoveryEvidenceSnapshot(
-            registration: foreignRegistration,
+        let acceptedEvidence = try makeRecoveryEvidenceSnapshot(
+            registration: registration,
             evidence: .continuityLoss
         )
-        var gate = FilesystemSourceGate(registration: registration)
+        let foreignEvidence = try makeRecoveryEvidenceSnapshot(
+            registration: registration,
+            evidence: .continuityLoss
+        )
+        var gate = FilesystemSourceGate(binding: acceptedEvidence.revision.binding)
 
         // Act
         let result = gate.acceptMailboxRecovery(
@@ -62,13 +58,94 @@ struct FilesystemSourceGateTests {
         )
 
         // Assert
-        #expect(result == .registrationMismatch)
+        #expect(result == .bindingMismatch)
         #expect(gate.state == .healthy(registration))
+    }
+
+    @Test("identical mailbox recovery replay returns the exact retained acceptance")
+    func identicalMailboxRecoveryReplayIsIdempotent() throws {
+        // Arrange
+        let registration = makeRegistration()
+        let evidence = try makeRecoveryEvidenceSnapshot(
+            registration: registration,
+            evidence: .continuityLoss
+        )
+        var gate = FilesystemSourceGate(binding: evidence.revision.binding)
+        let participants = makeRequiredParticipants(for: registration.sourceID.kind)
+        let watermark = FilesystemRepairWatermark.recoveryRevision(41)
+        let firstResult = gate.acceptMailboxRecovery(
+            evidence,
+            trigger: .continuityLoss,
+            watermark: watermark,
+            participants: participants
+        )
+        let firstAcceptance = requireRecoveryAcceptance(firstResult)
+
+        // Act
+        let replayResult = gate.acceptMailboxRecovery(
+            evidence,
+            trigger: .continuityLoss,
+            watermark: watermark,
+            participants: participants
+        )
+
+        // Assert
+        #expect(replayResult == firstResult)
+        #expect(requireRecoveryAcceptance(replayResult) == firstAcceptance)
+        #expect(gate.state == .dirty(firstAcceptance.repairGeneration))
+        let followingResult = gate.recordRepair(
+            trigger: .callbackGateOverflow,
+            watermark: .recoveryRevision(42),
+            participants: participants
+        )
+        guard case .admitted(let followingRepair) = followingResult else {
+            Issue.record("following repair was not admitted: \(followingResult)")
+            return
+        }
+        #expect(followingRepair.id.sequence == firstAcceptance.repairGeneration.id.sequence + 1)
+    }
+
+    @Test("same recovery evidence with a different request returns a typed conflict")
+    func conflictingMailboxRecoveryReplayIsRejected() throws {
+        // Arrange
+        let registration = makeRegistration()
+        let evidence = try makeRecoveryEvidenceSnapshot(
+            registration: registration,
+            evidence: .continuityLoss
+        )
+        var gate = FilesystemSourceGate(binding: evidence.revision.binding)
+        let participants = makeRequiredParticipants(for: registration.sourceID.kind)
+        let acceptedResult = gate.acceptMailboxRecovery(
+            evidence,
+            trigger: .continuityLoss,
+            watermark: .recoveryRevision(51),
+            participants: participants
+        )
+        let acceptance = requireRecoveryAcceptance(acceptedResult)
+        let conflictingParticipants = participants.union([
+            makeParticipant(.contentConsumer, generation: 52)
+        ])
+
+        // Act
+        let conflict = gate.acceptMailboxRecovery(
+            evidence,
+            trigger: .callbackGateOverflow,
+            watermark: .recoveryRevision(53),
+            participants: conflictingParticipants
+        )
+
+        // Assert
+        guard case .retainedRequestConflict(let retainedConflict) = conflict else {
+            Issue.record("conflicting retained request was not rejected: \(conflict)")
+            return
+        }
+        #expect(retainedConflict.mismatches == [.trigger, .watermark, .participants])
+        #expect(gate.state == .dirty(acceptance.repairGeneration))
     }
 
     @Test("reconciliation completion waits for every captured acknowledgement")
     func reconciliationCompletionDoesNotClearRepairDebt() throws {
-        var gate = FilesystemSourceGate(registration: makeRegistration())
+        var gate = makeSourceGate()
         let projection = makeParticipant(.paneFilesystemProjection, generation: 11)
         let git = makeParticipant(.gitWorkingDirectoryProjector, generation: 7)
         let repair = try admitRepair(to: &gate, participants: [projection, git])
@@ -104,7 +181,7 @@ struct FilesystemSourceGateTests {
 
     @Test("foreign stale and duplicate acknowledgements cannot clear debt")
     func invalidAcknowledgementsPreserveDebt() throws {
-        var gate = FilesystemSourceGate(registration: makeRegistration())
+        var gate = makeSourceGate()
         let projection = makeParticipant(.paneFilesystemProjection, generation: 4)
         let repair = try admitRepair(to: &gate, participants: [projection])
         #expect(gate.beginReconciliation(repair.id) == .applied)
@@ -136,7 +213,7 @@ struct FilesystemSourceGateTests {
 
     @Test("new trigger while reconciling supersedes the completed older scan")
     func triggerDuringReconciliationRequiresNewestRepair() throws {
-        var gate = FilesystemSourceGate(registration: makeRegistration())
+        var gate = makeSourceGate()
         let participant = makeParticipant(.paneFilesystemProjection, generation: 1)
         let first = try admitRepair(to: &gate, participants: [participant])
         #expect(gate.beginReconciliation(first.id) == .applied)
@@ -156,7 +233,7 @@ struct FilesystemSourceGateTests {
 
     @Test("new trigger while awaiting acknowledgements invalidates old receipts")
     func triggerWhileAwaitingAcknowledgementsCreatesNewDebt() throws {
-        var gate = FilesystemSourceGate(registration: makeRegistration())
+        var gate = makeSourceGate()
         let participant = makeParticipant(.gitWorkingDirectoryProjector, generation: 3)
         let first = try admitRepair(to: &gate, participants: [participant])
         #expect(gate.beginReconciliation(first.id) == .applied)
@@ -174,7 +251,7 @@ struct FilesystemSourceGateTests {
 
     @Test("failed reconciliation retains retryable repair generation")
     func failedReconciliationRetainsDebt() throws {
-        var gate = FilesystemSourceGate(registration: makeRegistration())
+        var gate = makeSourceGate()
         let participant = makeParticipant(.contentRepairProjector, generation: 2)
         let repair = try admitRepair(to: &gate, participants: [participant])
         #expect(gate.beginReconciliation(repair.id) == .applied)
@@ -199,7 +276,7 @@ struct FilesystemSourceGateTests {
 
     @Test("failure while newer debt exists retries the newest generation")
     func failedActiveRepairPreservesNewestPendingDebt() throws {
-        var gate = FilesystemSourceGate(registration: makeRegistration())
+        var gate = makeSourceGate()
         let participant = makeParticipant(.contentRepairProjector, generation: 3)
         let active = try admitRepair(to: &gate, participants: [participant])
         #expect(gate.beginReconciliation(active.id) == .applied)
@@ -230,7 +307,7 @@ struct FilesystemSourceGateTests {
 
     @Test("rejected acknowledgement returns the same generation to dirty")
     func rejectedAcknowledgementPreservesSameGenerationDebt() throws {
-        var gate = FilesystemSourceGate(registration: makeRegistration())
+        var gate = makeSourceGate()
         let participant = makeParticipant(.gitWorkingDirectoryProjector, generation: 8)
         let repair = try admitRepair(to: &gate, participants: [participant])
         #expect(gate.beginReconciliation(repair.id) == .applied)
@@ -247,7 +324,7 @@ struct FilesystemSourceGateTests {
 
     @Test("shutdown is terminal and retains exact outstanding debt")
     func shutdownRejectsFurtherTransitions() throws {
-        var gate = FilesystemSourceGate(registration: makeRegistration())
+        var gate = makeSourceGate()
         let participant = makeParticipant(.contentRepairProjector, generation: 6)
         let repair = try admitRepair(to: &gate, participants: [participant])
 
@@ -270,7 +347,7 @@ struct FilesystemSourceGateTests {
 
     @Test("empty participant capture is rejected")
     func emptyRepairAdmissionDoesNotMutateHealthyState() {
-        var gate = FilesystemSourceGate(registration: makeRegistration())
+        var gate = makeSourceGate()
 
         #expect(
             gate.recordRepair(
@@ -285,9 +362,7 @@ struct FilesystemSourceGateTests {
     @Test("source kinds reject recovery owners from the other repair matrix")
     func sourceKindsCannotBorrowRecoveryOwners() {
         let registeredWorktreeRegistration = makeRegistration()
-        var registeredWorktreeGate = FilesystemSourceGate(
-            registration: registeredWorktreeRegistration
-        )
+        var registeredWorktreeGate = makeSourceGate(registration: registeredWorktreeRegistration)
         let watchedParentOwner = makeParticipant(.canonicalTopologyCommit, generation: 1)
         let secondWatchedParentOwner = makeParticipant(.scanScheduler, generation: 2)
         #expect(
@@ -306,7 +381,7 @@ struct FilesystemSourceGateTests {
         #expect(registeredWorktreeGate.state == .healthy(registeredWorktreeRegistration))
 
         let watchedParentRegistration = makeRegistration(kind: .watchedParentMembership)
-        var watchedParentGate = FilesystemSourceGate(registration: watchedParentRegistration)
+        var watchedParentGate = makeSourceGate(registration: watchedParentRegistration)
         let registeredWorktreeOwner = makeParticipant(
             .gitWorkingDirectoryProjector,
             generation: 1
@@ -323,7 +398,7 @@ struct FilesystemSourceGateTests {
 
     @Test("source kinds require their complete mandatory owner matrix")
     func sourceKindsRequireMandatoryOwners() {
-        var registeredWorktreeGate = FilesystemSourceGate(registration: makeRegistration())
+        var registeredWorktreeGate = makeSourceGate()
         let projector = makeParticipant(.contentRepairProjector, generation: 1)
         #expect(
             registeredWorktreeGate.recordRepair(
@@ -516,6 +591,28 @@ struct FilesystemSourceGateTests {
             ),
             registrationGeneration: 5,
             rootGeneration: 9
+        )
+    }
+
+    private func makeSourceGate() -> FilesystemSourceGate {
+        makeSourceGate(registration: makeRegistration())
+    }
+
+    private func makeSourceGate(
+        registration: FSEventRegistrationToken
+    ) -> FilesystemSourceGate {
+        FilesystemSourceGate(binding: makeSlotBinding(registration: registration))
+    }
+
+    private func makeSlotBinding(
+        registration: FSEventRegistrationToken
+    ) -> FilesystemObservationSlotBinding {
+        FilesystemObservationSlotBinding(
+            fleetMailboxIdentity: FilesystemObservationFleetMailboxIdentity(value: UUIDv7.generate()),
+            physicalSlotID: FilesystemObservationPhysicalSlotID(value: UUIDv7.generate()),
+            identity: FilesystemObservationSlotBindingIdentity(value: UUIDv7.generate()),
+            registration: registration,
+            controlBlockIdentity: FilesystemObservationControlBlockIdentity(value: UUIDv7.generate())
         )
     }
 

@@ -185,8 +185,24 @@ enum FilesystemObservationTakeDrainResult: Sendable {
 
 enum FilesystemObservationDrainDisposition: Equatable, Sendable {
     case retry
-    case transferredAuthoritative
-    case transferredRecovery(FilesystemSourceGateRecoveryAcceptance)
+    case transferredAuthoritative(FilesystemObservationWholeLeaseTransferAuthority)
+    case transferredRecovery(
+        FilesystemObservationWholeLeaseTransferAuthority,
+        FilesystemSourceGateRecoveryAcceptance
+    )
+}
+
+enum FilesystemObservationWholeLeasePreflightRejection: Equatable, Sendable {
+    case invalidToken
+    case bindingMismatch
+    case malformedRetirementFence
+    case installedRetirementFenceMismatch
+    case closed
+}
+
+enum FilesystemObservationWholeLeasePreflightResult: Equatable, Sendable {
+    case authorized(FilesystemObservationWholeLeasePreflightReceipt)
+    case rejected(FilesystemObservationWholeLeasePreflightRejection)
 }
 
 enum FilesystemObservationLifecycleStateSnapshot: Equatable, Sendable {
@@ -214,8 +230,12 @@ enum FilesystemObservationLifecycleTransitionResult: Equatable, Sendable {
 
 enum FilesystemObservationDrainAcknowledgement: Equatable, Sendable {
     case retried(wake: AdmissionWakeDirective)
-    case transferredAuthoritative(wake: AdmissionWakeDirective)
+    case transferredAuthoritative(
+        receipt: FilesystemLeaseAcknowledgementReceipt,
+        wake: AdmissionWakeDirective
+    )
     case transferredRecovery(
+        receipt: FilesystemLeaseAcknowledgementReceipt,
         evidence: FixedFilesystemRecoveryAcknowledgeResult,
         wake: AdmissionWakeDirective
     )
@@ -225,9 +245,9 @@ enum FilesystemObservationDrainAcknowledgement: Equatable, Sendable {
 
     var wake: AdmissionWakeDirective {
         switch self {
-        case .retried(let wake), .transferredAuthoritative(let wake):
+        case .retried(let wake), .transferredAuthoritative(_, let wake):
             wake
-        case .transferredRecovery(_, let wake):
+        case .transferredRecovery(_, _, let wake):
             wake
         case .dispositionMismatch, .invalidToken, .closed:
             .noWake
@@ -252,10 +272,14 @@ enum FilesystemObservationDrainAcknowledgement: Equatable, Sendable {
         switch self {
         case .retried:
             return .retried(wake: mergedWake)
-        case .transferredAuthoritative:
-            return .transferredAuthoritative(wake: mergedWake)
-        case .transferredRecovery(let evidence, _):
-            return .transferredRecovery(evidence: evidence, wake: mergedWake)
+        case .transferredAuthoritative(let receipt, _):
+            return .transferredAuthoritative(receipt: receipt, wake: mergedWake)
+        case .transferredRecovery(let receipt, let evidence, _):
+            return .transferredRecovery(
+                receipt: receipt,
+                evidence: evidence,
+                wake: mergedWake
+            )
         case .dispositionMismatch, .invalidToken, .closed:
             return self
         }
@@ -298,6 +322,17 @@ struct FilesystemObservationActorConsumerPort: Sendable {
             FilesystemObservationDrainDisposition
         ) -> FilesystemObservationDrainAcknowledgement
     private let cleanupImplementation: @Sendable () -> AdmissionCleanupTurnResult
+    private let preflightWholeLeaseTransferImplementation:
+        @Sendable (FilesystemObservationDrainLease) ->
+            FilesystemObservationWholeLeasePreflightResult
+    private let completeWholeLeaseTransferImplementation:
+        @Sendable (
+            FilesystemObservationWholeLeaseTransferAuthority,
+            FilesystemLeaseAcknowledgementReceipt,
+            FilesystemSemanticClearCompletion,
+            FilesystemSourceGateTransferClearCompletion,
+            FilesystemObservationRegistryCompletionAuthority
+        ) -> FilesystemObservationWholeLeaseCompletionResult
 
     init(
         bind: @escaping @Sendable () -> AdmissionConsumerBindResult,
@@ -307,12 +342,25 @@ struct FilesystemObservationActorConsumerPort: Sendable {
                 AdmissionDrainToken,
                 FilesystemObservationDrainDisposition
             ) -> FilesystemObservationDrainAcknowledgement,
-        cleanup: @escaping @Sendable () -> AdmissionCleanupTurnResult
+        cleanup: @escaping @Sendable () -> AdmissionCleanupTurnResult,
+        preflightWholeLeaseTransfer:
+            @escaping @Sendable (FilesystemObservationDrainLease) ->
+            FilesystemObservationWholeLeasePreflightResult,
+        completeWholeLeaseTransfer:
+            @escaping @Sendable (
+                FilesystemObservationWholeLeaseTransferAuthority,
+                FilesystemLeaseAcknowledgementReceipt,
+                FilesystemSemanticClearCompletion,
+                FilesystemSourceGateTransferClearCompletion,
+                FilesystemObservationRegistryCompletionAuthority
+            ) -> FilesystemObservationWholeLeaseCompletionResult
     ) {
         bindImplementation = bind
         takeImplementation = take
         acknowledgeImplementation = acknowledge
         cleanupImplementation = cleanup
+        preflightWholeLeaseTransferImplementation = preflightWholeLeaseTransfer
+        completeWholeLeaseTransferImplementation = completeWholeLeaseTransfer
     }
 
     func bindConsumer() -> AdmissionConsumerBindResult {
@@ -334,6 +382,28 @@ struct FilesystemObservationActorConsumerPort: Sendable {
 
     func performCleanup() -> AdmissionCleanupTurnResult {
         cleanupImplementation()
+    }
+
+    func preflightWholeLeaseTransfer(
+        _ lease: FilesystemObservationDrainLease
+    ) -> FilesystemObservationWholeLeasePreflightResult {
+        preflightWholeLeaseTransferImplementation(lease)
+    }
+
+    func completeWholeLeaseTransfer(
+        authority: FilesystemObservationWholeLeaseTransferAuthority,
+        acknowledgement: FilesystemLeaseAcknowledgementReceipt,
+        semantic: FilesystemSemanticClearCompletion,
+        sourceGate: FilesystemSourceGateTransferClearCompletion,
+        registry: FilesystemObservationRegistryCompletionAuthority
+    ) -> FilesystemObservationWholeLeaseCompletionResult {
+        completeWholeLeaseTransferImplementation(
+            authority,
+            acknowledgement,
+            semantic,
+            sourceGate,
+            registry
+        )
     }
 }
 

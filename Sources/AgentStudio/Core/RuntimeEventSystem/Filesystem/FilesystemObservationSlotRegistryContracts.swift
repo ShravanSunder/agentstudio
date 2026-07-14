@@ -223,12 +223,61 @@ struct FilesystemRetirementFenceInstalledLifetime: Equatable, Sendable {
     }
 }
 
+struct FilesystemRetirementFenceTransferredLifetime: Equatable, Sendable {
+    let installedLifetime: FilesystemRetirementFenceInstalledLifetime
+    let retirementAuthority: FilesystemObservationSlotRetirementAuthority
+
+    var binding: FilesystemObservationSlotBinding { installedLifetime.binding }
+    var fence: FilesystemObservationSlotRetirementFence { installedLifetime.fence }
+    var startingNativeLifetime: FilesystemObservationStartingNativeLifetime {
+        installedLifetime.startingNativeLifetime
+    }
+}
+
+enum FilesystemObservationSlotRetirementDisposition: Equatable, Sendable {
+    case quiescentWithoutRecovery
+    case quiescentAfterRecovery(FixedFilesystemRecoveryEvidenceRevision)
+}
+
+struct FilesystemObservationSlotRetirementReceipt: Equatable, Sendable {
+    let binding: FilesystemObservationSlotBinding
+    let fenceIdentity: FilesystemObservationRetirementFenceIdentity
+    let disposition: FilesystemObservationSlotRetirementDisposition
+    let retirementAuthority: FilesystemObservationSlotRetirementAuthority
+}
+
+struct FilesystemRetiredContextReleaseLifetime: Equatable, Sendable {
+    let transferredLifetime: FilesystemRetirementFenceTransferredLifetime
+    let receipt: FilesystemObservationSlotRetirementReceipt
+
+    var binding: FilesystemObservationSlotBinding { transferredLifetime.binding }
+    var startingNativeLifetime: FilesystemObservationStartingNativeLifetime {
+        transferredLifetime.startingNativeLifetime
+    }
+}
+
+enum FilesystemObservationRetirementFenceTransferResult: Equatable, Sendable {
+    case transferred(FilesystemRetirementFenceTransferredLifetime)
+    case alreadyTransferred(FilesystemRetirementFenceTransferredLifetime)
+    case alreadyRetired(FilesystemRetiredContextReleaseLifetime)
+    case authorityMismatch
+    case invalidSlotState(FilesystemObservationPhysicalSlotState)
+}
+
+enum FilesystemObservationRetirementCompletionResult: Equatable, Sendable {
+    case retired(FilesystemObservationSlotRetirementReceipt)
+    case alreadyRetired(FilesystemObservationSlotRetirementReceipt)
+    case authorityMismatch
+    case invalidSlotState(FilesystemObservationPhysicalSlotState)
+}
+
 enum FilesystemRetirementFencePreparationResult: Equatable, Sendable {
     case awaitingPredecessor(FilesystemClosingAwaitingPredecessorLifetime)
     case pending(FilesystemRetirementFencePendingLifetime)
     case alreadyAwaitingPredecessor(FilesystemClosingAwaitingPredecessorLifetime)
     case alreadyPending(FilesystemRetirementFencePendingLifetime)
     case alreadyInstalled(FilesystemRetirementFenceInstalledLifetime)
+    case alreadyRetired(FilesystemObservationSlotRetirementReceipt)
     case foreignFleet
     case undeclaredPhysicalSlot
     case receiptMismatch
@@ -260,6 +309,7 @@ enum FilesystemObservationRetirementFenceRequestResult: Equatable, Sendable {
     case alreadyAwaitingPredecessor(FilesystemClosingAwaitingPredecessorLifetime)
     case alreadyPending(FilesystemRetirementFencePendingLifetime)
     case alreadyInstalled(FilesystemRetirementFenceInstalledLifetime)
+    case retired(FilesystemObservationSlotRetirementReceipt)
     case foreignFleet
     case undeclaredPhysicalSlot
     case receiptMismatch
@@ -304,6 +354,10 @@ enum FilesystemObservationRetiringNativeLifetime: Equatable, Sendable {
     case closingAwaitingPredecessor(FilesystemClosingAwaitingPredecessorLifetime)
     case retirementFencePending(FilesystemRetirementFencePendingLifetime)
     case retirementFenceInstalled(FilesystemRetirementFenceInstalledLifetime)
+    case retirementFenceTransferredAwaitingCleanup(FilesystemRetirementFenceTransferredLifetime)
+    case retiredAwaitingContextRelease(
+        FilesystemRetiredContextReleaseLifetime
+    )
 
     var sourceID: FilesystemSourceID {
         switch self {
@@ -314,6 +368,10 @@ enum FilesystemObservationRetiringNativeLifetime: Equatable, Sendable {
         case .retirementFencePending(let lifetime):
             lifetime.binding.registration.sourceID
         case .retirementFenceInstalled(let lifetime):
+            lifetime.binding.registration.sourceID
+        case .retirementFenceTransferredAwaitingCleanup(let lifetime):
+            lifetime.binding.registration.sourceID
+        case .retiredAwaitingContextRelease(let lifetime):
             lifetime.binding.registration.sourceID
         }
     }
@@ -329,6 +387,10 @@ enum FilesystemObservationRetiringNativeLifetime: Equatable, Sendable {
         case .retirementFenceInstalled(let lifetime):
             lifetime.pendingLifetime.closingNativeLifetime.acceptingNativeLifetime
                 .startingNativeLifetime
+        case .retirementFenceTransferredAwaitingCleanup(let lifetime):
+            lifetime.startingNativeLifetime
+        case .retiredAwaitingContextRelease(let lifetime):
+            lifetime.startingNativeLifetime
         }
     }
 }
@@ -471,6 +533,10 @@ enum FilesystemObservationPhysicalSlotState: Equatable, Sendable {
     )
     case retirementFencePending(FilesystemRetirementFencePendingLifetime)
     case retirementFenceInstalled(FilesystemRetirementFenceInstalledLifetime)
+    case retirementFenceTransferredAwaitingCleanup(FilesystemRetirementFenceTransferredLifetime)
+    case retiredAwaitingContextRelease(
+        FilesystemRetiredContextReleaseLifetime
+    )
     case retiringUnpublishedGeneration(FilesystemObservationRetiringUnpublishedNativeLifetime)
 }
 

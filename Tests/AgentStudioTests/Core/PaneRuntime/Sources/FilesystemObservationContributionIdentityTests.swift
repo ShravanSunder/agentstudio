@@ -95,9 +95,9 @@ struct FilesystemObservationContributionIdentityTests {
                 == (0..<contributionCount).map(UInt64.init)
         )
         #expect(
-            consumer.acknowledge(
-                token: lease.token,
-                disposition: .transferredAuthoritative
+            try credentialedTransferAcknowledgement(
+                for: lease,
+                consumerPort: consumer
             ) == .transferredAuthoritative(wake: .noWake)
         )
     }
