@@ -121,6 +121,83 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
         #expect(diagnostics.contains { $0.message == constructorCardinalityMessage })
     }
 
+    @Test("accepts only the canonical native-retirement registry extension")
+    func acceptsCanonicalNativeRetirementExtension() {
+        let diagnostics = validate(
+            sources: [
+                source(path: registryPath, contents: approvedRegistrySource()),
+                source(path: admissionPlannerPath, contents: approvedAdmissionPlannerSource()),
+                source(
+                    path: nativeRetirementExtensionPath,
+                    contents: """
+                        extension FilesystemObservationSlotRegistry {
+                            func replayNativeRetirement() {
+                                _ = statesByPhysicalSlotID
+                                _ = retiringGenerationChainsBySourceID
+                                _ = lastCompletedReleasesByPhysicalSlotID
+                            }
+                        }
+                        """
+                ),
+            ]
+        )
+
+        #expect(diagnostics.isEmpty)
+    }
+
+    @Test("rejects other extension files and foreign native-retirement storage access")
+    func rejectsForeignNativeRetirementExtensionAndStorageAccess() {
+        let diagnostics = validate(
+            sources: [
+                source(path: registryPath, contents: approvedRegistrySource()),
+                source(path: admissionPlannerPath, contents: approvedAdmissionPlannerSource()),
+                source(
+                    path: filesystemSourcePath("ForeignRegistryExtension.swift"),
+                    contents: """
+                        extension FilesystemObservationSlotRegistry {
+                            func bypassNativeRetirementOwner() {}
+                        }
+                        """
+                ),
+                source(
+                    path: filesystemSourcePath("ForeignRegistryStorageReader.swift"),
+                    contents: """
+                        func bypassRegistryStorage(_ registry: FilesystemObservationSlotRegistry) {
+                            _ = registry.statesByPhysicalSlotID
+                        }
+                        """
+                ),
+            ]
+        )
+
+        #expect(diagnostics.contains { $0.message == ownerExtensionMessage })
+        #expect(diagnostics.contains { $0.message == nativeRetirementStorageMessage })
+    }
+
+    @Test("allows unrelated values whose members share registry storage names")
+    func acceptsUnrelatedMemberNames() {
+        let diagnostics = validate(
+            sources: [
+                source(path: registryPath, contents: approvedRegistrySource()),
+                source(path: admissionPlannerPath, contents: approvedAdmissionPlannerSource()),
+                source(
+                    path: filesystemSourcePath("UnrelatedSlotStateInput.swift"),
+                    contents: """
+                        struct UnrelatedSlotStateInput {
+                            let statesByPhysicalSlotID: [Int: Int]
+                        }
+
+                        func inspectUnrelatedInput(_ input: UnrelatedSlotStateInput) {
+                            _ = input.statesByPhysicalSlotID
+                        }
+                        """
+                ),
+            ]
+        )
+
+        #expect(!diagnostics.contains { $0.message == nativeRetirementStorageMessage })
+    }
+
     @Test("rejects a second issuer or factory")
     func rejectsSecondIssuerFactory() {
         let diagnostics = validate(
@@ -700,12 +777,20 @@ struct FilesystemObservationSlotRegistryOwnershipRuleTests {
         filesystemSourcePath("FilesystemObservationSlotAdmissionPlanner.swift")
     }
 
+    private var nativeRetirementExtensionPath: String {
+        filesystemSourcePath("FilesystemObservationSlotRegistry+NativeRetirement.swift")
+    }
+
     private var primaryOwnerMessage: String {
         "FilesystemObservationSlotRegistry must remain exactly one top-level final primary class in its owner file"
     }
 
     private var ownerExtensionMessage: String {
         "FilesystemObservationSlotRegistry must not have production extensions"
+    }
+
+    private var nativeRetirementStorageMessage: String {
+        "Filesystem observation native-retirement storage may be used only by the registry owner and its canonical native-retirement extension"
     }
 
     private var ownerAliasMessage: String {

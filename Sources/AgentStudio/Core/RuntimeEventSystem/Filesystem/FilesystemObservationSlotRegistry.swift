@@ -16,19 +16,21 @@ final class FilesystemObservationSlotRegistry {
     let fleetMailboxIdentity: FilesystemObservationFleetMailboxIdentity
     let physicalSlotIDs: [FilesystemObservationPhysicalSlotID]
 
-    private var statesByPhysicalSlotID: [FilesystemObservationPhysicalSlotID: FilesystemObservationRegistrySlotState]
+    var statesByPhysicalSlotID: [FilesystemObservationPhysicalSlotID: FilesystemObservationRegistrySlotState]
     private var deferredSourceOrder: [FilesystemSourceID] = []
     private var deferredDesiredRegistrationsBySourceID: [FilesystemSourceID: FilesystemObservationDesiredRegistration] =
         [:]
     private var selectedDesiredSourcesBySourceID: [FilesystemSourceID: FilesystemObservationDesiredSelection] = [:]
     private var startingNativeLifetimesBySourceID: [FilesystemSourceID: FilesystemObservationStartingNativeLifetime] =
         [:]
-    private var retiringGenerationChainsBySourceID: [FilesystemSourceID: FilesystemObservationRetiringGenerationChain] =
+    var retiringGenerationChainsBySourceID: [FilesystemSourceID: FilesystemObservationRetiringGenerationChain] =
         [:]
     private var pendingConfigurationDesiredBySourceID:
         [FilesystemSourceID: FilesystemObservationPendingConfigurationRecord] = [:]
     private var postStartPublicationRetentionByPhysicalSlotID:
         [FilesystemObservationPhysicalSlotID: FilesystemObservationPostStartPublicationRetention]
+    var lastCompletedReleasesByPhysicalSlotID:
+        [FilesystemObservationPhysicalSlotID: FilesystemObservationLastCompletedRelease]
 
     var read: ReadView { ReadView(registry: self) }
 
@@ -70,6 +72,9 @@ final class FilesystemObservationSlotRegistry {
         )
         postStartPublicationRetentionByPhysicalSlotID = Dictionary(
             uniqueKeysWithValues: physicalSlotIDs.map { ($0, .vacant) }
+        )
+        lastCompletedReleasesByPhysicalSlotID = Dictionary(
+            uniqueKeysWithValues: physicalSlotIDs.map { ($0, .none) }
         )
     }
 
@@ -387,6 +392,8 @@ final class FilesystemObservationSlotRegistry {
             startingNativeLifetimesBySourceID[sourceID] = startingNativeLifetime
             statesByPhysicalSlotID[reservation.physicalSlotID] =
                 .starting(startingNativeLifetime)
+            lastCompletedReleasesByPhysicalSlotID[reservation.physicalSlotID] =
+                FilesystemObservationLastCompletedRelease.none
             return .committed(startingNativeLifetime)
         }
     }
@@ -762,38 +769,6 @@ final class FilesystemObservationSlotRegistry {
         }
     }
 
-    func completeRetirement(
-        _ transferredLifetime: FilesystemRetirementFenceTransferredLifetime,
-        disposition: FilesystemObservationSlotRetirementDisposition
-    ) -> FilesystemObservationRetirementCompletionResult {
-        let binding = transferredLifetime.binding
-        let currentState = FilesystemObservationRetirementTransitionPlanner.completionState(
-            physicalSlotState: read.state(of: binding.physicalSlotID),
-            retiringGenerationChain: read.retiringGenerationChain(
-                for: binding.registration.sourceID
-            )
-        )
-        let retiredLifetime = FilesystemObservationRetirementTransitionPlanner.makeRetiredLifetime(
-            transferredLifetime: transferredLifetime,
-            disposition: disposition
-        )
-        switch FilesystemObservationRetirementTransitionPlanner.planRetirementCompletion(
-            FilesystemObservationRetirementCompletionRequest(
-                transferredLifetime: transferredLifetime,
-                retiredLifetime: retiredLifetime,
-                currentState: currentState
-            )
-        ) {
-        case .apply(let mutation, let result):
-            retiringGenerationChainsBySourceID[binding.registration.sourceID] =
-                mutation.retiringGenerationChain
-            statesByPhysicalSlotID[binding.physicalSlotID] =
-                .retiredAwaitingContextRelease(mutation.retiredLifetime)
-            return result
-        case .unchanged(let result):
-            return result
-        }
-    }
     private func supersededPendingRecord(
         _ requirement: FilesystemContinuityRepairCustodyPlanner.SupersessionRequirement,
         desiredRegistration: FilesystemObservationDesiredRegistration

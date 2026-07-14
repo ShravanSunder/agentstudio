@@ -97,18 +97,27 @@ struct FilesystemLeaseTransferArchitectureTests {
         #expect(!source.contains("FilesystemObservationDrainHarnessActor"))
     }
 
-    @Test("retirement planner is called only by the primary registry owner")
-    func retirementPlannerIsCalledOnlyByPrimaryRegistryOwner() throws {
+    @Test("retirement planner is called only by canonical registry owner files")
+    func retirementPlannerIsCalledOnlyByCanonicalRegistryOwnerFiles() throws {
         // Arrange
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let filesystemDirectory = projectRoot.appending(
             path: "Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem"
         )
         let registryFileName = "FilesystemObservationSlotRegistry.swift"
+        let nativeRetirementExtensionFileName =
+            "FilesystemObservationSlotRegistry+NativeRetirement.swift"
         let plannerFileName = "FilesystemObservationRetirementTransitionPlanner.swift"
         let registrySource = try readSource(
             "Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/\(registryFileName)"
         )
+        let nativeRetirementExtensionSource = try readSource(
+            "Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/\(nativeRetirementExtensionFileName)"
+        )
+        let registryOwnerFileNames: Set<String> = [
+            registryFileName,
+            nativeRetirementExtensionFileName,
+        ]
         let sourceFileNames = try FileManager.default.contentsOfDirectory(
             atPath: filesystemDirectory.path
         ).filter { $0.hasSuffix(".swift") }
@@ -116,15 +125,22 @@ struct FilesystemLeaseTransferArchitectureTests {
         // Act / Assert
         #expect(!registrySource.contains("extension FilesystemObservationSlotRegistry {"))
         #expect(registrySource.contains("FilesystemObservationRetirementTransitionPlanner."))
+        #expect(
+            nativeRetirementExtensionSource.contains(
+                "FilesystemObservationRetirementTransitionPlanner."
+            )
+        )
         for sourceFileName in sourceFileNames
-        where sourceFileName != registryFileName && sourceFileName != plannerFileName {
+        where !registryOwnerFileNames.contains(sourceFileName)
+            && sourceFileName != plannerFileName
+        {
             let source = try String(
                 contentsOf: filesystemDirectory.appending(path: sourceFileName),
                 encoding: .utf8
             )
             #expect(
                 !source.contains("FilesystemObservationRetirementTransitionPlanner."),
-                "Only the primary registry owner may call the retirement planner"
+                "Only canonical registry owner files may call the retirement planner"
             )
         }
     }

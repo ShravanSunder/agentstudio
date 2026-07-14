@@ -21,6 +21,8 @@ struct FilesystemObservationSlotRegistryOwnershipRule: ArchitectureRule {
         "Filesystem observation slot-registry contracts must remain immutable value contracts with read-only projections"
     static let plannerUUIDGenerationMessage =
         "Filesystem observation planners must not generate UUIDv7 identities"
+    static let nativeRetirementStorageMessage =
+        "Filesystem observation native-retirement storage may be used only by the registry owner and its canonical native-retirement extension"
 
     let id = "agentstudio_filesystem_observation_slot_registry_ownership"
     let severity = ArchitectureSeverity.error
@@ -87,12 +89,19 @@ private struct FilesystemObservationSlotRegistryOwnershipInventory: Sendable {
     static let productionSourcePrefix = "Sources/AgentStudio/"
     static let registryPath =
         "Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemObservationSlotRegistry.swift"
+    static let nativeRetirementExtensionPath =
+        "Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemObservationSlotRegistry+NativeRetirement.swift"
     static let contractsPath =
         "Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemObservationSlotRegistryContracts.swift"
     static let admissionPlannerPath =
         "Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemObservationSlotAdmissionPlanner.swift"
     static let filesystemSourcePrefix =
         "Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/"
+    static let nativeRetirementStorageNames: Set<String> = [
+        "statesByPhysicalSlotID",
+        "retiringGenerationChainsBySourceID",
+        "lastCompletedReleasesByPhysicalSlotID",
+    ]
 
     let violationsBySourceIdentity: [String: [FilesystemObservationOwnershipViolation]]
 
@@ -108,10 +117,15 @@ private struct FilesystemObservationSlotRegistryOwnershipInventory: Sendable {
 
         let contractTypeNames = Self.contractTypeNames(in: productionContexts)
         let scans = productionContexts.map { context in
+            let registryReceiverNames = filesystemObservationRegistryReceiverNames(
+                in: context.sourceFile,
+                registryName: Self.registryName
+            )
             let scanner = FilesystemObservationSlotRegistryOwnershipScanner(
                 sourceIdentity: context.syntaxScopeSourceIdentity,
                 workspaceRelativePath: context.workspaceRelativePath ?? "",
-                contractTypeNames: contractTypeNames
+                contractTypeNames: contractTypeNames,
+                registryReceiverNames: registryReceiverNames
             )
             scanner.walk(context.sourceFile)
             return scanner
@@ -213,6 +227,13 @@ private struct FilesystemObservationSlotRegistryOwnershipInventory: Sendable {
                     site,
                     message: FilesystemObservationSlotRegistryOwnershipRule
                         .plannerUUIDGenerationMessage
+                )
+            }
+            for site in scanner.foreignNativeRetirementStorageSites {
+                append(
+                    site,
+                    message: FilesystemObservationSlotRegistryOwnershipRule
+                        .nativeRetirementStorageMessage
                 )
             }
         }
@@ -375,20 +396,24 @@ private final class FilesystemObservationSlotRegistryOwnershipScanner: SyntaxVis
     private(set) var initializerEscapeSites: [FilesystemObservationOwnershipSite] = []
     private(set) var mutableContractSites: [FilesystemObservationOwnershipSite] = []
     private(set) var plannerUUIDGenerationSites: [FilesystemObservationOwnershipSite] = []
+    private(set) var foreignNativeRetirementStorageSites: [FilesystemObservationOwnershipSite] = []
 
     private let sourceIdentity: String
     private let workspaceRelativePath: String
     private let contractTypeNames: Set<String>
+    private let registryReceiverNames: Set<String>
 
     init(
         sourceIdentity: String,
         workspaceRelativePath: String,
         contractTypeNames: Set<String>,
+        registryReceiverNames: Set<String>,
         viewMode: SyntaxTreeViewMode = .sourceAccurate
     ) {
         self.sourceIdentity = sourceIdentity
         self.workspaceRelativePath = workspaceRelativePath
         self.contractTypeNames = contractTypeNames
+        self.registryReceiverNames = registryReceiverNames
         super.init(viewMode: viewMode)
     }
 
@@ -432,6 +457,9 @@ private final class FilesystemObservationSlotRegistryOwnershipScanner: SyntaxVis
             node.extendedType.trimmedDescription
         )
             == FilesystemObservationSlotRegistryOwnershipInventory.registryName
+            && workspaceRelativePath
+                != FilesystemObservationSlotRegistryOwnershipInventory
+                .nativeRetirementExtensionPath
         {
             ownerExtensionSites.append(site(node))
         }
@@ -486,6 +514,18 @@ private final class FilesystemObservationSlotRegistryOwnershipScanner: SyntaxVis
     }
 
     override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
+        if FilesystemObservationSlotRegistryOwnershipInventory
+            .nativeRetirementStorageNames.contains(node.declName.baseName.text),
+            let baseReference = node.base?.as(DeclReferenceExprSyntax.self),
+            registryReceiverNames.contains(baseReference.baseName.text),
+            workspaceRelativePath
+                != FilesystemObservationSlotRegistryOwnershipInventory.registryPath,
+            workspaceRelativePath
+                != FilesystemObservationSlotRegistryOwnershipInventory
+                .nativeRetirementExtensionPath
+        {
+            foreignNativeRetirementStorageSites.append(site(node))
+        }
         if node.declName.baseName.text == "self",
             let base = node.base,
             FilesystemSlotConstructionPolicy.protectedConstructor(
@@ -860,57 +900,6 @@ private func filesystemObservationSwitchImmediatelyFollowsCanonicalPlan(
         return false
     }
     return true
-}
-
-private func filesystemObservationIdentifierTokens(in description: String) -> Set<String> {
-    Set(
-        description.split { character in
-            !character.isLetter && !character.isNumber && character != "_"
-        }.map(String.init)
-    )
-}
-
-private func filesystemObservationIsTopLevel(_ node: some SyntaxProtocol) -> Bool {
-    var ancestor = node.parent
-    while let current = ancestor {
-        if current.is(SourceFileSyntax.self) {
-            return true
-        }
-        if current.is(ClassDeclSyntax.self)
-            || current.is(StructDeclSyntax.self)
-            || current.is(EnumDeclSyntax.self)
-            || current.is(ActorDeclSyntax.self)
-            || current.is(ExtensionDeclSyntax.self)
-            || current.is(FunctionDeclSyntax.self)
-            || current.is(InitializerDeclSyntax.self)
-            || current.is(SubscriptDeclSyntax.self)
-            || current.is(AccessorDeclSyntax.self)
-            || current.is(ClosureExprSyntax.self)
-        {
-            return false
-        }
-        ancestor = current.parent
-    }
-    return false
-}
-
-private func filesystemObservationIsInsideExecutableScope(
-    _ node: some SyntaxProtocol
-) -> Bool {
-    var ancestor = node.parent
-    while let current = ancestor {
-        if current.is(FunctionDeclSyntax.self)
-            || current.is(InitializerDeclSyntax.self)
-            || current.is(SubscriptDeclSyntax.self)
-            || current.is(AccessorDeclSyntax.self)
-            || current.is(AccessorBlockSyntax.self)
-            || current.is(ClosureExprSyntax.self)
-        {
-            return true
-        }
-        ancestor = current.parent
-    }
-    return false
 }
 
 private func filesystemObservationFunctionIsDirectRegistryMember(

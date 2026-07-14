@@ -40,11 +40,40 @@ final class DarwinFSEventRegistrationNativeOwner: @unchecked Sendable {
     }
 
     private enum CreationCompletion {
-        case created(DarwinFSEventRegistrationGeneration)
+        case created(
+            DarwinFSEventRegistrationGeneration,
+            DarwinFSEventCallbackContextCustody
+        )
         case rejected(
             DarwinFSEventRegistrationCreateFailureCleanup,
             DarwinFSEventCallbackContextCustody
         )
+    }
+
+    private enum NativeFinalizationMaterialization {
+        case neverMaterialized
+        case retainedContext(DarwinFSEventCallbackContextCustody)
+    }
+
+    private enum NativeFinalizationState {
+        case awaitingMaterialization
+        case retainedContext(DarwinFSEventCallbackContextCustody)
+        case retirementPermitRetained(
+            FilesystemObservationNativeRetirementPermit,
+            NativeFinalizationMaterialization
+        )
+        case finalizing(
+            FilesystemObservationNativeRetirementPermit,
+            NativeFinalizationMaterialization
+        )
+        case finalized(FilesystemObservationContextReleaseAcknowledgement)
+    }
+
+    private enum NativeFinalizationAction {
+        case recordNeverMaterialized
+        case releaseRetainedContext(DarwinFSEventCallbackContextCustody)
+        case replay(FilesystemObservationContextReleaseAcknowledgement)
+        case rejected(FilesystemObservationNativeFinalizationRejection)
     }
 
     private enum StartIntent {
@@ -75,6 +104,19 @@ final class DarwinFSEventRegistrationNativeOwner: @unchecked Sendable {
     private let lifecyclePort: FilesystemObservationNativeLifecyclePort
     private let stateCondition = NSCondition()
     private var state = State.creationAvailable
+    private var nativeFinalizationState = NativeFinalizationState.awaitingMaterialization
+
+    var nativeFinalizationSnapshot: DarwinFSEventNativeFinalizationSnapshot {
+        stateCondition.withLock {
+            switch nativeFinalizationState {
+            case .awaitingMaterialization, .retainedContext, .retirementPermitRetained,
+                .finalizing:
+                return .pending
+            case .finalized(let acknowledgement):
+                return .finalized(acknowledgement)
+            }
+        }
+    }
 
     init(
         startingNativeLifetime: FilesystemObservationStartingNativeLifetime,
@@ -131,11 +173,13 @@ final class DarwinFSEventRegistrationNativeOwner: @unchecked Sendable {
         stateCondition.lock()
         let result: DarwinFSEventNativeOwnerCreationResult
         switch completion {
-        case .created(let generation):
+        case .created(let generation, let callbackContextCustody):
             state = .created(generation)
+            nativeFinalizationState = .retainedContext(callbackContextCustody)
             result = .created(generation)
         case .rejected(let cleanup, let callbackContextCustody):
             state = .creationRejected(cleanup, callbackContextCustody)
+            nativeFinalizationState = .retainedContext(callbackContextCustody)
             result = .creationRejected(cleanup)
         }
         stateCondition.broadcast()
@@ -184,6 +228,78 @@ final class DarwinFSEventRegistrationNativeOwner: @unchecked Sendable {
         creation: DarwinFSEventRegistrationGeneration
     ) async -> DarwinFSEventNativeOwnerStartResult {
         await consumeStartRight(creation: creation, intent: .abandon)
+    }
+
+    func finalizeNativeLifetime(
+        using permit: FilesystemObservationNativeRetirementPermit,
+        contextFinalizer: any DarwinFSEventCallbackContextFinalizer =
+            DarwinFSEventUnmanagedCallbackContextFinalizer()
+    ) -> FilesystemObservationNativeFinalizationResult {
+        let action = claimNativeFinalizationAction(using: permit)
+        switch action {
+        case .recordNeverMaterialized:
+            return retainNativeFinalizationAcknowledgement(
+                makeNeverMaterializedAcknowledgement(for: permit),
+                permit: permit
+            )
+        case .releaseRetainedContext(let callbackContextCustody):
+            contextFinalizer.releaseRetainedContext(
+                at: callbackContextCustody.retainedPointerAddress
+            )
+            return retainNativeFinalizationAcknowledgement(
+                makeReleasedContextAcknowledgement(for: permit),
+                permit: permit
+            )
+        case .replay(let acknowledgement):
+            return .alreadyFinalized(acknowledgement)
+        case .rejected(let rejection):
+            return .rejected(rejection)
+        }
+    }
+
+    func retainRetirementPermit(
+        _ permit: FilesystemObservationNativeRetirementPermit
+    ) -> DarwinFSEventNativeRetirementPermitRetentionResult {
+        let expectedBinding = startingNativeLifetime.binding
+        guard permit.binding == expectedBinding else {
+            return .bindingMismatch(expected: expectedBinding, presented: permit.binding)
+        }
+
+        stateCondition.lock()
+        defer { stateCondition.unlock() }
+        switch nativeFinalizationState {
+        case .awaitingMaterialization:
+            guard nativeFinalizationMatchesTerminalState(permit) else {
+                return permitRetentionRejection()
+            }
+            nativeFinalizationState = .retirementPermitRetained(permit, .neverMaterialized)
+            return .retained
+        case .retainedContext(let callbackContextCustody):
+            guard nativeFinalizationMatchesTerminalState(permit) else {
+                return permitRetentionRejection()
+            }
+            nativeFinalizationState = .retirementPermitRetained(
+                permit,
+                .retainedContext(callbackContextCustody)
+            )
+            return .retained
+        case .retirementPermitRetained(let retainedPermit, _),
+            .finalizing(let retainedPermit, _):
+            return retainedPermit == permit ? .alreadyRetained : .permitLineageMismatch
+        case .finalized(let acknowledgement):
+            return acknowledgement.permit == permit ? .alreadyRetained : .permitLineageMismatch
+        }
+    }
+
+    func matchesUnpublishedCompletion(
+        _ completion: DarwinFSEventUnpublishedNativeCompletion
+    ) -> Bool {
+        stateCondition.withLock {
+            guard completion.startingNativeLifetime == startingNativeLifetime else {
+                return false
+            }
+            return retainedUnpublishedCompletionMatches(completion)
+        }
     }
 
     private func consumeStartRight(
@@ -377,6 +493,194 @@ final class DarwinFSEventRegistrationNativeOwner: @unchecked Sendable {
         completion.resolve(result)
     }
 
+    private func claimNativeFinalizationAction(
+        using permit: FilesystemObservationNativeRetirementPermit
+    ) -> NativeFinalizationAction {
+        let expectedBinding = startingNativeLifetime.binding
+        guard permit.binding == expectedBinding else {
+            return .rejected(
+                .bindingMismatch(expected: expectedBinding, presented: permit.binding)
+            )
+        }
+
+        stateCondition.lock()
+        defer { stateCondition.unlock() }
+        while true {
+            switch nativeFinalizationState {
+            case .finalizing(let claimedPermit, _):
+                guard claimedPermit == permit else {
+                    return .rejected(.permitLineageMismatch)
+                }
+                stateCondition.wait()
+            case .finalized(let acknowledgement):
+                guard acknowledgement.permit == permit else {
+                    return .rejected(.permitLineageMismatch)
+                }
+                return .replay(acknowledgement)
+            case .retirementPermitRetained(let retainedPermit, let materialization):
+                guard retainedPermit == permit else {
+                    return .rejected(.permitLineageMismatch)
+                }
+                nativeFinalizationState = .finalizing(permit, materialization)
+                switch materialization {
+                case .neverMaterialized:
+                    return .recordNeverMaterialized
+                case .retainedContext(let callbackContextCustody):
+                    return .releaseRetainedContext(callbackContextCustody)
+                }
+            case .awaitingMaterialization, .retainedContext:
+                return nativeFinalizationRejection(for: permit)
+            }
+        }
+    }
+
+    private func nativeFinalizationMatchesTerminalState(
+        _ permit: FilesystemObservationNativeRetirementPermit
+    ) -> Bool {
+        switch permit {
+        case .unpublished(let receipt):
+            return receipt.startingNativeLifetime == startingNativeLifetime
+                && retainedUnpublishedCompletionMatches(receipt.completion)
+        case .fenceBacked(let receipt):
+            guard
+                case .startCompleted(
+                    let retainedGeneration,
+                    .started(let acceptingNativeLifetime)
+                ) = state
+            else {
+                return false
+            }
+            return acceptingNativeLifetime.startingNativeLifetime == startingNativeLifetime
+                && receipt.binding == acceptingNativeLifetime.binding
+                && retainedGeneration.phase == .closed
+        }
+    }
+
+    private func retainedUnpublishedCompletionMatches(
+        _ presentedCompletion: DarwinFSEventUnpublishedNativeCompletion
+    ) -> Bool {
+        switch (state, presentedCompletion) {
+        case (
+            .creationAbandoned(let retainedAbandonment),
+            .creationAbandoned(let presentedAbandonment)
+        ):
+            return presentedAbandonment === retainedAbandonment
+        case (
+            .creationRejected(let retainedCleanup, _),
+            .creationRejected(let presentedCleanup)
+        ):
+            return presentedCleanup === retainedCleanup
+        case (
+            .startCompleted(_, .unpublished(.createdNeverStartedClosed(let retainedQuiescence))),
+            .createdNeverStartedClosed(let presentedQuiescence)
+        ):
+            return presentedQuiescence === retainedQuiescence
+        case (
+            .startCompleted(_, .unpublished(.startRejectedAfterDrain(let retainedQuiescence))),
+            .startRejectedAfterDrain(let presentedQuiescence)
+        ):
+            return presentedQuiescence === retainedQuiescence
+        case (.creationAvailable, _), (.creating, _), (.created, _), (.starting, _),
+            (.abandoningStart, _), (.publishingAcceptance, _),
+            (.acceptingPublicationPending, _), (.startCompleted, _),
+            (.creationRejected, _), (.creationAbandoned, _):
+            return false
+        }
+    }
+
+    private func nativeFinalizationRejection(
+        for _: FilesystemObservationNativeRetirementPermit
+    ) -> NativeFinalizationAction {
+        nativeLifetimeIsFinal
+            ? .rejected(.permitLineageMismatch)
+            : .rejected(.nativeLifetimeNotFinal)
+    }
+
+    private func permitRetentionRejection()
+        -> DarwinFSEventNativeRetirementPermitRetentionResult
+    {
+        nativeLifetimeIsFinal ? .permitLineageMismatch : .nativeLifetimeNotFinal
+    }
+
+    private var nativeLifetimeIsFinal: Bool {
+        switch state {
+        case .creationRejected, .creationAbandoned, .startCompleted(_, .unpublished):
+            return true
+        case .startCompleted(let retainedGeneration, .started):
+            return retainedGeneration.phase == .closed
+        case .creationAvailable, .creating, .created, .starting, .abandoningStart,
+            .publishingAcceptance, .acceptingPublicationPending, .startCompleted:
+            return false
+        }
+    }
+
+    private func makeReleasedContextAcknowledgement(
+        for permit: FilesystemObservationNativeRetirementPermit
+    ) -> FilesystemObservationContextReleaseAcknowledgement {
+        let finalization = FilesystemObservationReleasedContextFinalization(
+            startingNativeLifetime: startingNativeLifetime
+        )
+        let releaseAuthority = FilesystemObservationContextReleaseAuthority(
+            value: UUIDv7.generate()
+        )
+        switch permit {
+        case .fenceBacked(let receipt):
+            return .fenceBacked(
+                FilesystemFenceContextReleaseAcknowledgement(
+                    receipt: receipt,
+                    finalization: finalization,
+                    releaseAuthority: releaseAuthority
+                )
+            )
+        case .unpublished(let receipt):
+            return .unpublished(
+                .releasedRetainedContext(
+                    receipt: receipt,
+                    finalization: finalization,
+                    releaseAuthority: releaseAuthority
+                )
+            )
+        }
+    }
+
+    private func makeNeverMaterializedAcknowledgement(
+        for permit: FilesystemObservationNativeRetirementPermit
+    ) -> FilesystemObservationContextReleaseAcknowledgement {
+        guard case .unpublished(let receipt) = permit,
+            receipt.completion.finalizationKind == .neverMaterialized
+        else {
+            preconditionFailure("never-materialized finalization requires creation abandonment")
+        }
+        return .unpublished(
+            .neverMaterialized(
+                receipt: receipt,
+                finalization: FilesystemObservationNeverMaterializedFinalization(
+                    startingNativeLifetime: startingNativeLifetime
+                ),
+                releaseAuthority: FilesystemObservationContextReleaseAuthority(
+                    value: UUIDv7.generate()
+                )
+            )
+        )
+    }
+
+    private func retainNativeFinalizationAcknowledgement(
+        _ acknowledgement: FilesystemObservationContextReleaseAcknowledgement,
+        permit: FilesystemObservationNativeRetirementPermit
+    ) -> FilesystemObservationNativeFinalizationResult {
+        stateCondition.lock()
+        guard case .finalizing(let claimedPermit, _) = nativeFinalizationState,
+            claimedPermit == permit
+        else {
+            stateCondition.unlock()
+            preconditionFailure("native finalization must complete the exact claimed permit")
+        }
+        nativeFinalizationState = .finalized(acknowledgement)
+        stateCondition.broadcast()
+        stateCondition.unlock()
+        return .finalized(acknowledgement)
+    }
+
     private func authorityRejection(
         controlBlock: FSEventRegistrationControlBlock,
         adapter: any DarwinFSEventRegistrationCallbackAdapter
@@ -425,20 +729,19 @@ final class DarwinFSEventRegistrationNativeOwner: @unchecked Sendable {
         )
         switch nativeDriver.createStream(request: request) {
         case .success(let stream):
-            return .created(
-                DarwinFSEventRegistrationGeneration(
-                    startingNativeLifetime: startingNativeLifetime,
-                    controlBlock: controlBlock,
-                    lifecyclePort: lifecyclePort,
-                    nativeDriver: nativeDriver,
-                    callbackQueueBarrier: callbackQueueBarrier,
-                    nativeCustody: DarwinFSEventRegistrationGeneration.NativeCustody(
-                        stream: stream,
-                        callbackQueue: callbackQueue,
-                        callbackContextCustody: callbackContextCustody
-                    )
+            let generation = DarwinFSEventRegistrationGeneration(
+                startingNativeLifetime: startingNativeLifetime,
+                controlBlock: controlBlock,
+                lifecyclePort: lifecyclePort,
+                nativeDriver: nativeDriver,
+                callbackQueueBarrier: callbackQueueBarrier,
+                nativeCustody: DarwinFSEventRegistrationGeneration.NativeCustody(
+                    stream: stream,
+                    callbackQueue: callbackQueue,
+                    callbackContextCustody: callbackContextCustody
                 )
             )
+            return .created(generation, callbackContextCustody)
         case .failure(let nativeFailure):
             return .rejected(
                 DarwinFSEventRegistrationCreateFailureCleanup(

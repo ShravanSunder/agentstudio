@@ -427,17 +427,44 @@ struct FilesystemObservationLifecyclePort: Sendable {
     private let invalidateImplementation: @Sendable () -> FilesystemObservationLifecycleTransitionResult
     private let finishImplementation: @Sendable () -> FilesystemObservationLifecycleTransitionResult
     private let diagnosticsImplementation: @Sendable () -> FilesystemObservationMailboxDiagnostics
+    private let finalizeUnpublishedNativeGenerationImplementation:
+        @Sendable (
+            FilesystemObservationRetiringUnpublishedNativeLifetime,
+            DarwinFSEventUnpublishedNativeCompletion
+        ) -> FilesystemObservationUnpublishedFinalReceiptResult
+    private let fenceBackedRetirementPermitImplementation:
+        @Sendable (FilesystemObservationSlotRetirementReceipt) ->
+            FilesystemFenceRetirementPermitResult
+    private let applyContextReleaseAcknowledgementImplementation:
+        @Sendable (FilesystemObservationContextReleaseAcknowledgement) ->
+            FilesystemObservationContextReleaseApplyResult
 
     init(
         requestRetirementFence:
             @escaping @Sendable (DarwinFSEventRegistrationLeaseDrainReceipt) ->
             FilesystemObservationRetirementFenceRequestResult,
+        finalizeUnpublishedNativeGeneration:
+            @escaping @Sendable (
+                FilesystemObservationRetiringUnpublishedNativeLifetime,
+                DarwinFSEventUnpublishedNativeCompletion
+            ) -> FilesystemObservationUnpublishedFinalReceiptResult,
+        fenceBackedRetirementPermit:
+            @escaping @Sendable (FilesystemObservationSlotRetirementReceipt) ->
+            FilesystemFenceRetirementPermitResult,
+        applyContextReleaseAcknowledgement:
+            @escaping @Sendable (FilesystemObservationContextReleaseAcknowledgement) ->
+            FilesystemObservationContextReleaseApplyResult,
         seal: @escaping @Sendable () -> FilesystemObservationLifecycleTransitionResult,
         invalidate: @escaping @Sendable () -> FilesystemObservationLifecycleTransitionResult,
         finish: @escaping @Sendable () -> FilesystemObservationLifecycleTransitionResult,
         diagnostics: @escaping @Sendable () -> FilesystemObservationMailboxDiagnostics
     ) {
         requestRetirementFenceImplementation = requestRetirementFence
+        finalizeUnpublishedNativeGenerationImplementation =
+            finalizeUnpublishedNativeGeneration
+        fenceBackedRetirementPermitImplementation = fenceBackedRetirementPermit
+        applyContextReleaseAcknowledgementImplementation =
+            applyContextReleaseAcknowledgement
         sealImplementation = seal
         invalidateImplementation = invalidate
         finishImplementation = finish
@@ -448,6 +475,25 @@ struct FilesystemObservationLifecyclePort: Sendable {
         _ receipt: DarwinFSEventRegistrationLeaseDrainReceipt
     ) -> FilesystemObservationRetirementFenceRequestResult {
         requestRetirementFenceImplementation(receipt)
+    }
+
+    func finalizeUnpublishedNativeGeneration(
+        _ retiringLifetime: FilesystemObservationRetiringUnpublishedNativeLifetime,
+        completion: DarwinFSEventUnpublishedNativeCompletion
+    ) -> FilesystemObservationUnpublishedFinalReceiptResult {
+        finalizeUnpublishedNativeGenerationImplementation(retiringLifetime, completion)
+    }
+
+    func fenceBackedRetirementPermit(
+        for receipt: FilesystemObservationSlotRetirementReceipt
+    ) -> FilesystemFenceRetirementPermitResult {
+        fenceBackedRetirementPermitImplementation(receipt)
+    }
+
+    func applyContextReleaseAcknowledgement(
+        _ acknowledgement: FilesystemObservationContextReleaseAcknowledgement
+    ) -> FilesystemObservationContextReleaseApplyResult {
+        applyContextReleaseAcknowledgementImplementation(acknowledgement)
     }
 
     func seal() -> FilesystemObservationLifecycleTransitionResult {

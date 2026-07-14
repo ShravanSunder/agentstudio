@@ -292,7 +292,7 @@ struct FilesystemObservationSlotRetirementReceipt: Equatable, Sendable {
     let retirementAuthority: FilesystemObservationSlotRetirementAuthority
 }
 
-struct FilesystemRetiredContextReleaseLifetime: Equatable, Sendable {
+struct FilesystemFenceBackedRetiredContextReleaseLifetime: Equatable, Sendable {
     let transferredLifetime: FilesystemRetirementFenceTransferredLifetime
     let receipt: FilesystemObservationSlotRetirementReceipt
 
@@ -300,6 +300,42 @@ struct FilesystemRetiredContextReleaseLifetime: Equatable, Sendable {
     var startingNativeLifetime: FilesystemObservationStartingNativeLifetime {
         transferredLifetime.startingNativeLifetime
     }
+}
+
+struct FilesystemUnpublishedRetiredContextReleaseLifetime: Equatable, Sendable {
+    let receipt: FilesystemObservationUnpublishedFinalReceipt
+
+    var binding: FilesystemObservationSlotBinding { receipt.binding }
+    var startingNativeLifetime: FilesystemObservationStartingNativeLifetime {
+        receipt.startingNativeLifetime
+    }
+}
+
+enum FilesystemRetiredContextReleaseLifetime: Equatable, Sendable {
+    case fenceBacked(FilesystemFenceBackedRetiredContextReleaseLifetime)
+    case unpublished(FilesystemUnpublishedRetiredContextReleaseLifetime)
+
+    var binding: FilesystemObservationSlotBinding {
+        switch self {
+        case .fenceBacked(let lifetime): lifetime.binding
+        case .unpublished(let lifetime): lifetime.binding
+        }
+    }
+
+    var startingNativeLifetime: FilesystemObservationStartingNativeLifetime {
+        switch self {
+        case .fenceBacked(let lifetime): lifetime.startingNativeLifetime
+        case .unpublished(let lifetime): lifetime.startingNativeLifetime
+        }
+    }
+
+    var permit: FilesystemObservationNativeRetirementPermit {
+        switch self {
+        case .fenceBacked(let lifetime): .fenceBacked(lifetime.receipt)
+        case .unpublished(let lifetime): .unpublished(lifetime.receipt)
+        }
+    }
+
 }
 
 enum FilesystemObservationRetirementFenceTransferResult: Equatable, Sendable {

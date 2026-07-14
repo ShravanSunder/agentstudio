@@ -42,6 +42,22 @@ enum DarwinFSEventNativeOwnerCreationResult: Sendable {
     case authorityRejected(DarwinFSEventNativeOwnerAuthorityRejection)
 }
 
+enum DarwinFSEventNativeFinalizationSnapshot: Equatable, Sendable {
+    case pending
+    case finalized(FilesystemObservationContextReleaseAcknowledgement)
+}
+
+enum DarwinFSEventNativeRetirementPermitRetentionResult: Equatable, Sendable {
+    case retained
+    case alreadyRetained
+    case bindingMismatch(
+        expected: FilesystemObservationSlotBinding,
+        presented: FilesystemObservationSlotBinding
+    )
+    case permitLineageMismatch
+    case nativeLifetimeNotFinal
+}
+
 final class DarwinFSEventCreatedNeverStartedQuiescence: @unchecked Sendable, Equatable {
     let startingNativeLifetime: FilesystemObservationStartingNativeLifetime
 

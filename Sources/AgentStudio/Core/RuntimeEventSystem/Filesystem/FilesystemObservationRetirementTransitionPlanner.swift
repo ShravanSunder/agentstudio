@@ -158,13 +158,15 @@ enum FilesystemObservationRetirementTransitionPlanner {
         transferredLifetime: FilesystemRetirementFenceTransferredLifetime,
         disposition: FilesystemObservationSlotRetirementDisposition
     ) -> FilesystemRetiredContextReleaseLifetime {
-        FilesystemRetiredContextReleaseLifetime(
-            transferredLifetime: transferredLifetime,
-            receipt: FilesystemObservationSlotRetirementReceipt(
-                binding: transferredLifetime.binding,
-                fenceIdentity: transferredLifetime.fence.identity,
-                disposition: disposition,
-                retirementAuthority: transferredLifetime.retirementAuthority
+        .fenceBacked(
+            FilesystemFenceBackedRetiredContextReleaseLifetime(
+                transferredLifetime: transferredLifetime,
+                receipt: FilesystemObservationSlotRetirementReceipt(
+                    binding: transferredLifetime.binding,
+                    fenceIdentity: transferredLifetime.fence.identity,
+                    disposition: disposition,
+                    retirementAuthority: transferredLifetime.retirementAuthority
+                )
             )
         )
     }
@@ -385,11 +387,18 @@ enum FilesystemObservationRetirementTransitionPlanner {
             }
             return .unchanged(.alreadyInstalled(installedLifetime))
         case .retiredAwaitingContextRelease(let retiredLifetime):
-            let installedLifetime = retiredLifetime.transferredLifetime.installedLifetime
+            guard case .fenceBacked(let fenceBackedLifetime) = retiredLifetime else {
+                return .unchanged(
+                    .invalidSlotState(
+                        projectFilesystemObservationSlotState(request.currentSlotState)
+                    )
+                )
+            }
+            let installedLifetime = fenceBackedLifetime.transferredLifetime.installedLifetime
             guard installedLifetime.pendingLifetime.leaseDrainReceipt == request.receipt else {
                 return .unchanged(.receiptMismatch)
             }
-            return .unchanged(.alreadyRetired(retiredLifetime.receipt))
+            return .unchanged(.alreadyRetired(fenceBackedLifetime.receipt))
         case .vacant, .selected, .starting, .startingAwaitingAcceptingPublication,
             .accepting, .retiringUnpublishedGeneration:
             return .unchanged(
@@ -541,8 +550,11 @@ enum FilesystemObservationRetirementTransitionPlanner {
             }
             return .unchanged(.alreadyTransferred(currentTransferredLifetime))
         case .retired(let retiredLifetime):
+            guard case .fenceBacked(let fenceBackedLifetime) = retiredLifetime else {
+                return .unchanged(.authorityMismatch)
+            }
             guard
-                retiredLifetime.transferredLifetime.installedLifetime
+                fenceBackedLifetime.transferredLifetime.installedLifetime
                     == request.installedLifetime
             else {
                 return .unchanged(.authorityMismatch)
@@ -561,6 +573,9 @@ enum FilesystemObservationRetirementTransitionPlanner {
             guard currentTransferredLifetime == request.transferredLifetime else {
                 return .unchanged(.authorityMismatch)
             }
+            guard case .fenceBacked(let fenceBackedLifetime) = request.retiredLifetime else {
+                return .unchanged(.authorityMismatch)
+            }
             guard
                 case .replaced(let replacementChain) = currentChain.replacing(
                     .retirementFenceTransferredAwaitingCleanup(
@@ -576,15 +591,18 @@ enum FilesystemObservationRetirementTransitionPlanner {
                     retiredLifetime: request.retiredLifetime,
                     retiringGenerationChain: replacementChain
                 ),
-                .retired(request.retiredLifetime.receipt)
+                .retired(fenceBackedLifetime.receipt)
             )
         case .retired(let retiredLifetime):
+            guard case .fenceBacked(let fenceBackedLifetime) = retiredLifetime else {
+                return .unchanged(.authorityMismatch)
+            }
             guard
-                retiredLifetime.transferredLifetime == request.transferredLifetime
+                fenceBackedLifetime.transferredLifetime == request.transferredLifetime
             else {
                 return .unchanged(.authorityMismatch)
             }
-            return .unchanged(.alreadyRetired(retiredLifetime.receipt))
+            return .unchanged(.alreadyRetired(fenceBackedLifetime.receipt))
         case .invalid(let physicalSlotState):
             return .unchanged(.invalidSlotState(physicalSlotState))
         }

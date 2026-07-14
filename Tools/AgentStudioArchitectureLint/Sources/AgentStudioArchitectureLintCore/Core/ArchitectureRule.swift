@@ -53,5 +53,6 @@ enum ArchitectureRuleRegistry {
         EventBusSubscriberPolicyRule(),
         RuntimeSignalPlaneRule(),
         FilesystemObservationSlotRegistryOwnershipRule(),
+        FilesystemObservationNativeRetirementOwnershipRule(),
     ]
 }

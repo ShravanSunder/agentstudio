@@ -755,6 +755,187 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         }
     }
 
+    func finalizeUnpublishedNativeGeneration(
+        _ retiringLifetime: FilesystemObservationRetiringUnpublishedNativeLifetime,
+        completion: DarwinFSEventUnpublishedNativeCompletion
+    ) -> FilesystemObservationUnpublishedFinalReceiptResult {
+        lock.withLock { state in
+            let startingNativeLifetime = retiringLifetime.startingNativeLifetime
+            let binding = startingNativeLifetime.binding
+            guard bindingLocalTransferDebtIsClear(for: binding, state: state) else {
+                return .bindingLocalDebtRetained
+            }
+            guard
+                let portCustody = state.nativeGenerationPortsByPhysicalSlotID[
+                    binding.physicalSlotID
+                ],
+                case .issued(let issuedCustody) = portCustody,
+                issuedCustody.startingNativeLifetime == startingNativeLifetime,
+                issuedCustody.nativeOwner.matchesUnpublishedCompletion(completion)
+            else {
+                return .completionMismatch
+            }
+            let result = slotRegistry.finalizeUnpublishedNativeGeneration(
+                retiringLifetime,
+                completion: completion
+            )
+            let finalReceipt: FilesystemObservationUnpublishedFinalReceipt
+            switch result {
+            case .finalized(let receipt), .alreadyFinalized(let receipt):
+                finalReceipt = receipt
+            case .foreignFleet, .undeclaredPhysicalSlot, .bindingMismatch,
+                .completionMismatch, .bindingLocalDebtRetained, .awaitingPredecessor,
+                .invalidSlotState:
+                return result
+            }
+            switch issuedCustody.nativeOwner.retainRetirementPermit(
+                .unpublished(finalReceipt)
+            ) {
+            case .retained, .alreadyRetained:
+                return result
+            case .bindingMismatch, .permitLineageMismatch, .nativeLifetimeNotFinal:
+                preconditionFailure(
+                    "Exact unpublished final receipt must bind to its persistent native owner"
+                )
+            }
+        }
+    }
+
+    func fenceBackedRetirementPermit(
+        for receipt: FilesystemObservationSlotRetirementReceipt
+    ) -> FilesystemFenceRetirementPermitResult {
+        lock.withLock { state in
+            let result = slotRegistry.fenceBackedRetirementPermit(for: receipt)
+            let permit: FilesystemObservationNativeRetirementPermit
+            switch result {
+            case .issued(let issuedPermit), .alreadyIssued(let issuedPermit):
+                permit = issuedPermit
+            case .foreignFleet, .undeclaredPhysicalSlot, .receiptMismatch,
+                .invalidSlotState:
+                return result
+            }
+            let binding = permit.binding
+            guard
+                let portCustody = state.nativeGenerationPortsByPhysicalSlotID[
+                    binding.physicalSlotID
+                ],
+                case .issued(let issuedCustody) = portCustody,
+                issuedCustody.startingNativeLifetime.binding == binding
+            else {
+                return .receiptMismatch
+            }
+            switch issuedCustody.nativeOwner.retainRetirementPermit(permit) {
+            case .retained, .alreadyRetained:
+                return result
+            case .bindingMismatch, .permitLineageMismatch, .nativeLifetimeNotFinal:
+                preconditionFailure(
+                    "Exact fence-backed permit must bind to its persistent native owner"
+                )
+            }
+        }
+    }
+
+    func applyContextReleaseAcknowledgement(
+        _ acknowledgement: FilesystemObservationContextReleaseAcknowledgement
+    ) -> FilesystemObservationContextReleaseApplyResult {
+        let lockedResult:
+            (
+                FilesystemObservationContextReleaseApplyResult,
+                AdmissionWakeDirective
+            ) = lock.withLock { state in
+                let binding = acknowledgement.binding
+                switch slotRegistry.read.state(of: binding.physicalSlotID) {
+                case .vacant, .selected, .starting, .accepting,
+                    .closingAwaitingCallbackLeaseDrain, .closingAwaitingPredecessor,
+                    .retirementFencePending, .retirementFenceInstalled,
+                    .retirementFenceTransferredAwaitingCleanup,
+                    .retiringUnpublishedGeneration, .undeclaredPhysicalSlot:
+                    return (
+                        slotRegistry.applyContextReleaseAcknowledgement(acknowledgement),
+                        .noWake
+                    )
+                case .retiredAwaitingContextRelease:
+                    break
+                }
+                guard
+                    let portCustody = state.nativeGenerationPortsByPhysicalSlotID[
+                        binding.physicalSlotID
+                    ]
+                else {
+                    return (.undeclaredPhysicalSlot, .noWake)
+                }
+                guard case .issued(let issuedCustody) = portCustody else {
+                    return (.staleBinding, .noWake)
+                }
+                guard issuedCustody.startingNativeLifetime.binding == binding else {
+                    return (.bindingMismatch, .noWake)
+                }
+                guard
+                    case .finalized(let retainedAcknowledgement) =
+                        issuedCustody.nativeOwner.nativeFinalizationSnapshot
+                else {
+                    return (.releaseAuthorityMismatch, .noWake)
+                }
+                guard retainedAcknowledgement.permit == acknowledgement.permit else {
+                    return (
+                        filesystemObservationContextReleasePermitMismatch(
+                            expected: retainedAcknowledgement.permit,
+                            presented: acknowledgement.permit
+                        ),
+                        .noWake
+                    )
+                }
+                guard retainedAcknowledgement.releaseAuthority == acknowledgement.releaseAuthority,
+                    retainedAcknowledgement == acknowledgement
+                else {
+                    return (.releaseAuthorityMismatch, .noWake)
+                }
+                guard
+                    case .boundClear(let recoveryBinding) = recoveryRegister.state(
+                        of: binding.physicalSlotID
+                    ),
+                    recoveryBinding == binding
+                else {
+                    return (.bindingLocalDebtRetained, .noWake)
+                }
+                let result = slotRegistry.applyContextReleaseAcknowledgement(
+                    acknowledgement
+                )
+                guard case .applied(let application) = result else {
+                    return (result, .noWake)
+                }
+                guard case .retired(let retiredBinding) = recoveryRegister.retire(binding),
+                    retiredBinding == binding
+                else {
+                    preconditionFailure(
+                        "Context release preflight must make exact recovery retirement infallible"
+                    )
+                }
+                state.nativeGenerationPortsByPhysicalSlotID[binding.physicalSlotID] = .vacant
+                switch application.successorDisposition {
+                case .none:
+                    return (result, .noWake)
+                case .promoted(let pendingLifetime):
+                    switch state.pendingRetirementFenceReadyQueue.append(
+                        pendingLifetime.binding.physicalSlotID
+                    ) {
+                    case .appended, .alreadyPresent:
+                        break
+                    case .undeclaredPhysicalSlot:
+                        preconditionFailure("Promoted successor must own a declared physical slot")
+                    }
+                    switch attemptOnePendingRetirementFenceLocked(state: &state) {
+                    case .installed(_, let wake), .contracted(_, _, let wake):
+                        return (result, wake)
+                    case .noEligibleFence, .awaitingCleanup:
+                        return (result, .noWake)
+                    }
+                }
+            }
+        doorbell.ownerPort.apply(lockedResult.1)
+        return lockedResult.0
+    }
+
     func nativeGenerationPorts(
         for startingNativeLifetime: FilesystemObservationStartingNativeLifetime,
         retaining mailboxLifetimeOwner: FilesystemObservationMailbox,
@@ -1012,6 +1193,9 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
     var lifecyclePort: FilesystemObservationLifecyclePort {
         FilesystemObservationLifecyclePort(
             requestRetirementFence: requestRetirementFence,
+            finalizeUnpublishedNativeGeneration: finalizeUnpublishedNativeGeneration,
+            fenceBackedRetirementPermit: fenceBackedRetirementPermit,
+            applyContextReleaseAcknowledgement: applyContextReleaseAcknowledgement,
             seal: seal,
             invalidate: invalidate,
             finish: finish,
@@ -1374,10 +1558,13 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
                     transferredLifetime = lifetime
                 case .alreadyRetired(let lifetime):
                     state.pendingWholeLeaseCompletion = .vacant
+                    guard case .fenceBacked(let fenceBackedLifetime) = lifetime else {
+                        return .rejected(.registryTransitionRejected)
+                    }
                     return .completed(
                         FilesystemObservationWholeLeaseTransferReceipt(
                             binding: authority.binding,
-                            outcome: .retired(lifetime.receipt)
+                            outcome: .retired(fenceBackedLifetime.receipt)
                         )
                     )
                 case .authorityMismatch, .invalidSlotState:

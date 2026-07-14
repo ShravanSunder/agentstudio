@@ -48,5 +48,9 @@ enum ExpectedRuleInventory {
             id: "agentstudio_filesystem_observation_slot_registry_ownership",
             severity: .error
         ),
+        ExpectedRule(
+            id: "agentstudio_filesystem_observation_native_retirement_ownership",
+            severity: .error
+        ),
     ]
 }
