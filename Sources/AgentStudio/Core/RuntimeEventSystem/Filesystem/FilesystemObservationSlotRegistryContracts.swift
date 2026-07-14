@@ -84,6 +84,16 @@ struct FilesystemObservationNativeGenerationIdentity: Hashable, Sendable {
     }
 }
 
+struct FilesystemContinuityRepairHandoffIdentity: Hashable, Sendable {
+    private let value: UUID
+
+    var isUUIDv7: Bool { UUIDv7.isV7(value) }
+
+    init(value: UUID) {
+        self.value = value
+    }
+}
+
 struct FilesystemCanonicalResolvedRootIdentity: Hashable, Sendable {
     let path: String
 }
@@ -605,6 +615,10 @@ enum FilesystemSourceConfigurationFailureDisposition: Equatable, Sendable {
 
 enum FilesystemSourceConfigurationDisposition: Equatable, Sendable {
     case installed(FilesystemObservationSourceConfiguration)
+    case installedAwaitingContinuityRepair(
+        desiredConfiguration: FilesystemObservationSourceConfiguration,
+        handoffIdentity: FilesystemContinuityRepairHandoffIdentity
+    )
     case unchanged(FilesystemObservationSourceConfiguration)
     case removalComplete
     case deferred(FilesystemSourceConfigurationDeferredDisposition)
@@ -612,7 +626,8 @@ enum FilesystemSourceConfigurationDisposition: Equatable, Sendable {
 
     fileprivate var representedSourceIDs: Set<FilesystemSourceID> {
         switch self {
-        case .installed(let configuration), .unchanged(let configuration):
+        case .installed(let configuration), .unchanged(let configuration),
+            .installedAwaitingContinuityRepair(let configuration, _):
             [configuration.sourceID]
         case .removalComplete:
             []
@@ -625,7 +640,8 @@ enum FilesystemSourceConfigurationDisposition: Equatable, Sendable {
 
     fileprivate var requiresRetryWhileNonCurrent: Bool {
         switch self {
-        case .deferred(.nonCurrent), .failed(.nonCurrent):
+        case .installedAwaitingContinuityRepair, .deferred(.nonCurrent),
+            .failed(.nonCurrent):
             true
         case .installed, .unchanged, .removalComplete,
             .deferred(.retainingCurrent), .failed(.retainingCurrent):

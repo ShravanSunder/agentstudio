@@ -15,6 +15,70 @@ struct FilesystemSourceConfigurationReceiptTests {
         #expect(configuration.sourceID == configuration.registration.sourceID)
     }
 
+    @Test("installed configuration awaiting continuity repair is exact and non-current")
+    func installedAwaitingContinuityRepairIsExactAndNonCurrent() throws {
+        let repairingSourceID = makeSourceID()
+        let installedSourceID = makeSourceID()
+        let repairingConfiguration = makeConfiguration(sourceID: repairingSourceID)
+        let handoffIdentity = FilesystemContinuityRepairHandoffIdentity(value: UUIDv7.generate())
+
+        let receipt = try FilesystemSourceConfigurationReceipt(
+            acceptedTopologyRevision: 43,
+            requestedSourceIDs: [repairingSourceID, installedSourceID],
+            dispositions: [
+                repairingSourceID: .installedAwaitingContinuityRepair(
+                    desiredConfiguration: repairingConfiguration,
+                    handoffIdentity: handoffIdentity
+                ),
+                installedSourceID: .installed(makeConfiguration(sourceID: installedSourceID)),
+            ]
+        )
+
+        #expect(handoffIdentity.isUUIDv7)
+        #expect(
+            receipt.currentness == .nonCurrent(retrySources: [repairingSourceID])
+        )
+    }
+
+    @Test("installed awaiting repair rejects a configuration for another source")
+    func installedAwaitingContinuityRepairRejectsForeignSource() {
+        let requestedSourceID = makeSourceID()
+        let foreignSourceID = makeSourceID()
+
+        #expect(throws: FilesystemConfigurationReceiptError.self) {
+            try FilesystemSourceConfigurationReceipt(
+                acceptedTopologyRevision: 44,
+                requestedSourceIDs: [requestedSourceID],
+                dispositions: [
+                    requestedSourceID: .installedAwaitingContinuityRepair(
+                        desiredConfiguration: makeConfiguration(sourceID: foreignSourceID),
+                        handoffIdentity: FilesystemContinuityRepairHandoffIdentity(
+                            value: UUIDv7.generate()
+                        )
+                    )
+                ]
+            )
+        }
+    }
+
+    @Test("cross-kind change is represented by independent source-keyed entries")
+    func crossKindChangeUsesRemovalAndInstallEntries() throws {
+        let oldSourceID = makeSourceID(kind: .watchedParentMembership)
+        let newSourceID = makeSourceID(kind: .registeredWorktreeContent)
+
+        let receipt = try FilesystemSourceConfigurationReceipt(
+            acceptedTopologyRevision: 45,
+            requestedSourceIDs: [oldSourceID, newSourceID],
+            dispositions: [
+                oldSourceID: .removalComplete,
+                newSourceID: .installed(makeConfiguration(sourceID: newSourceID)),
+            ]
+        )
+
+        #expect(receipt.dispositions.count == 2)
+        #expect(receipt.currentness == .current)
+    }
+
     @Test("receipt rejects missing and unexpected source dispositions together")
     func receiptRejectsNonTotalDispositionCoverage() {
         let requestedSourceID = makeSourceID()
