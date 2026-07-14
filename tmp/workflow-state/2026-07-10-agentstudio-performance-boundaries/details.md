@@ -490,3 +490,73 @@ changing the verified index. The official workflow remains
 `shravan-dev-workflow:implementation-execute-plan`; F3 fleet shutdown debt and
 deterministic resume is the next implementation slice, with G2 real Darwin
 lifecycle proof still open.
+
+## 2026-07-14 F3 authorized-completion checkpoint
+
+F3 is frozen and committed at `80b7c396`. The fleet lifecycle now performs a
+fresh joined actor and mailbox quiescence capture, presents one lifecycle-owned
+completion authority to the mailbox, synchronously seals and invalidates the
+generic gather mailbox, marks the filesystem mailbox finished, finishes the
+doorbell, then mints and retains one UUIDv7 completion receipt without another
+suspension point. Begin, resume, and debt capture replay that exact receipt.
+Raw filesystem `seal`, `invalidate`, and `finish` surfaces are removed; the
+generic gather and doorbell lifecycle operations remain private composition
+primitives. UUID values are never used for ordering.
+
+Fresh parent proof:
+
+- `swift test --disable-sandbox --filter FilesystemObservation`: 179 tests,
+  28 suites, exit 0;
+- `swift test --disable-sandbox --filter FilesystemSourceGate`: 23 tests,
+  2 suites, exit 0;
+- cancelled/lost-response final completion replays the exact retained UUIDv7
+  receipt and finished mailbox/doorbell state;
+- bounded read-only completion review found no implementation defect and one
+  proof-only gap, remediated in the focused suite;
+- `mise run lint`: swift-format OK, SwiftLint 0/1,548, architecture lint OK,
+  31 mutation rows restored exactly, release scripts passed, exit 0;
+- `git diff --check`: exit 0.
+
+The 1Password signer hung after staged hooks, so the attempt was cancelled and
+the checkpoint was committed with the allowed unsigned local fallback. The
+official workflow remains `shravan-dev-workflow:implementation-execute-plan`.
+G2 real Darwin lifecycle proof is next, followed by WF-C/W2a repair participant
+mechanics and the W2b atomic production cut. Product-performance claims remain
+open until the Victoria, authenticated exact-PID IPC, large-root, native UI,
+and explicit human interaction-feel proof gates pass.
+
+## 2026-07-14 G2 real-Darwin lifecycle checkpoint
+
+The dormant fixed-slot lifecycle now has one real CoreServices integration
+proof. A UUIDv7-named temporary root is installed through the production Darwin
+driver and callback adapter; a real post-start filesystem mutation enters the
+bounded callback path and deliberately contracts to exact recovery evidence.
+The test then proves stop, invalidate, callback-queue barrier, zero callback
+leases, exact close-receipt replay, exact recovery-revision retirement, the
+fence-backed retirement permit, release-once unmanaged callback context,
+acknowledgement replay/application, and final physical-slot vacancy. Transparent
+test wrappers retain the actual native operation order:
+`create -> start -> stop -> invalidate -> barrier -> release`.
+
+Fresh parent proof:
+
+- expected RED before the suite existed: the focused filter discovered zero
+  tests;
+- `mise run test-large -- --filter DarwinFSEventObservationLifecycleIntegrationTests`:
+  1 test, 1 suite, exit 0, 0.018 seconds;
+- repeated focused runs and the surrounding `DarwinFSEventObservation` filter:
+  27 tests, 3 suites, exit 0;
+- one bounded review found two proof defects; one remediation requires the exact
+  `.quiescentAfterRecovery(recoverySnapshot.revision)` receipt and closes the
+  real generation before rethrowing callback/write failure;
+- `mise run lint`: swift-format OK, SwiftLint 0/1,549, architecture lint OK,
+  31 mutation rows restored exactly, release scripts passed, exit 0;
+- `git diff --check`: exit 0.
+
+AgentStudio-owned test identities use UUIDv7; native FSEvent handles retain
+their platform identity; lifecycle order remains revision/fence based and never
+uses UUID ordering. The official workflow remains
+`shravan-dev-workflow:implementation-execute-plan`. W1b dormant readiness and
+F3 shutdown mechanics are complete; continue at WF-C/W2a repair participant
+mechanics. Production remains wholly legacy until the later W2b atomic cut, so
+no product-performance claim is made from this checkpoint.
