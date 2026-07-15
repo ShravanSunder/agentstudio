@@ -3,6 +3,7 @@ import Foundation
 enum RepoExplorerListEntry: Identifiable, Equatable {
     case resolvedGroupHeader(RepoPresentationGroup)
     case resolvedWorktreeRow(groupId: String, repoId: UUID, worktreeId: UUID)
+    case topologyFault(RepoExplorerTopologyFault)
 
     var id: String {
         switch self {
@@ -10,6 +11,8 @@ enum RepoExplorerListEntry: Identifiable, Equatable {
             return "group:\(group.id)"
         case .resolvedWorktreeRow(let groupId, let repoId, let worktreeId):
             return "worktree:\(groupId):\(repoId.uuidString):\(worktreeId.uuidString)"
+        case .topologyFault:
+            return "topology-fault"
         }
     }
 

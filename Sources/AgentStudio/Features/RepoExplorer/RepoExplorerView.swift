@@ -164,12 +164,13 @@ struct RepoExplorerView: View {
         !debouncedQuery.isEmpty
     }
 
-    private var worktreeStatusById: [UUID: GitBranchStatus] {
-        let factsByWorktreeId = Dictionary(
-            uniqueKeysWithValues: sidebarRepos.flatMap(\.worktrees).compactMap { worktree in
-                repoCache.worktreeFacts(for: worktree.id).map { (worktree.id, $0) }
+    private func worktreeStatusById(for rowIndex: RepoExplorerRowIndex) -> [UUID: GitBranchStatus] {
+        var factsByWorktreeId: [UUID: RepoWorktreeCacheFacts] = [:]
+        for worktreeId in rowIndex.worktreeIds {
+            if let facts = repoCache.worktreeFacts(for: worktreeId) {
+                factsByWorktreeId[worktreeId] = facts
             }
-        )
+        }
         return Self.mergeBranchStatuses(
             worktreeEnrichmentsByWorktreeId: factsByWorktreeId.compactMapValues { $0.enrichment },
             pullRequestCountsByWorktreeId: factsByWorktreeId.compactMapValues { $0.pullRequestCount }
@@ -288,6 +289,7 @@ struct RepoExplorerView: View {
 
     private var groupList: some View {
         let rowIndex = sidebarRowIndex
+        let branchStatusesByWorktreeId = worktreeStatusById(for: rowIndex)
         return List {
             ForEach(rowIndex.entries) { entry in
                 switch entry {
@@ -342,7 +344,7 @@ struct RepoExplorerView: View {
                                 repo: resolvedWorktreeContext.repo,
                                 in: resolvedWorktreeContext.group
                             ),
-                            branchStatus: worktreeStatusById[resolvedWorktreeContext.worktree.id] ?? .unknown,
+                            branchStatus: branchStatusesByWorktreeId[resolvedWorktreeContext.worktree.id] ?? .unknown,
                             unreadCount: unreadCount(resolvedWorktreeContext.worktree),
                             onUnreadPillTap: {
                                 onShowNotificationsForWorktree(resolvedWorktreeContext.worktree)
@@ -378,6 +380,17 @@ struct RepoExplorerView: View {
                             )
                         )
                     }
+
+                case .topologyFault(let fault):
+                    RepoExplorerTopologyFaultRow(fault: fault)
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: AppStyles.General.Spacing.standard,
+                                leading: AppStyles.Shell.Sidebar.groupChildRowLeadingInset,
+                                bottom: AppStyles.General.Spacing.standard,
+                                trailing: AppStyles.General.Spacing.standard
+                            )
+                        )
                 }
             }
 
@@ -481,6 +494,29 @@ struct RepoExplorerView: View {
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path.path)
     }
 
+}
+
+private struct RepoExplorerTopologyFaultRow: View {
+    let fault: RepoExplorerTopologyFault
+
+    var body: some View {
+        HStack(alignment: .top, spacing: AppStyles.General.Spacing.standard) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.yellow)
+
+            VStack(alignment: .leading, spacing: AppStyles.General.Spacing.tight) {
+                Text("Repository data unavailable")
+                    .font(.system(size: AppStyles.General.Typography.textBase, weight: .semibold))
+                Text(
+                    "Detected \(fault.duplicateIdentityCount) duplicate worktree identity claim(s). Refresh repositories to recover."
+                )
+                .font(.system(size: AppStyles.General.Typography.textSm))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .allowsHitTesting(false)
+    }
 }
 
 private struct RepoExplorerLoadingSectionHeaderRow: View {
