@@ -369,7 +369,62 @@ TA9. The batch contract names field ownership and merge policy for stable IDs,
 stable-key/path matching, repo/worktree names and paths, user-owned tags,
 availability, cache enrichment, and path-index generation. An incompatible
 base revision is rejected and reprojected unless every conflicting field has an
-explicit safe merge.
+explicit safe merge. Identity preservation is one-to-one: one existing
+repository or worktree UUID may be consumed by at most one resulting live
+entity in a transaction, and every resulting worktree UUID and stable key is
+globally unique. The canonical MainActor mutation boundary validates these
+invariants before publishing atom state or an observation revision. Failure is
+a typed transaction rejection with no partial live mutation, persistence
+attempt, or downstream effect; persistence validation is defense in depth, not
+the first invariant owner.
+
+Identity reconciliation and canonical apply expose separate strict
+discriminated results, never `nil` or sets of correlated optionals:
+
+```text
+CanonicalTopologyReconciliationResult
+  = accepted(CanonicalTopologyCandidate)
+  | rejected(TopologyIdentityRejection)
+
+TopologyIdentityRejection
+  = duplicateRepositoryUUID(exact UUID)
+  | duplicateWorktreeUUID(exact UUID)
+  | duplicateRepositoryStableKey(exact stable key)
+  | duplicateWorktreeStableKey(exact stable key)
+  | repositoryOwnershipMismatch(worktree UUID, expected repo UUID,
+                                claimed repo UUID)
+  | identityClaimedTwice(entity kind, exact UUID, competing stable keys)
+
+TopologyApplyResult
+  = accepted(TopologyApplyReceipt)
+  | rejected(TopologyApplyRejection)
+
+TopologyApplyRejection
+  = identity(TopologyIdentityRejection)
+  | staleBase(expected revision, actual revision)
+  | incompatibleBase(expected revision, actual revision,
+                     conflicting field ownership)
+```
+
+Each associated value identifies its complete conflicting claim without relying
+on collection order. Reconciliation acceptance carries a uniquely identified
+candidate and cannot reject for a base revision it does not own. Apply acceptance
+carries the exact committed topology revision, changed keys, and ordered effect
+record. Every rejection changes no live atom value, canonical revision,
+persistence state, or downstream effect. Every canonical reconciliation owner
+and projector/applier boundary enforces these same identity invariants; the
+canonical apply owner additionally enforces base-revision compatibility.
+
+Normative identity example: historical worktree UUID X and two current
+same-name candidates at the original and renamed paths reconcile to two unique
+live identities `[X, Y]`, with X consumed by exactly one candidate and Y newly
+issued for the other. `[X, X]` is always `identityClaimedTwice`, never an
+accepted reconciliation. Persistence constraints and UI duplicate defenses are
+defense in depth only; they cannot repair or authorize an invalid canonical
+transaction. Newly issued repository and worktree identities use UUIDv7 where
+the domain supports it; UUIDv7 remains opaque identity, never revision or
+ordering authority. Repo Explorer duplicate handling may be nontrapping fault
+containment, but it cannot make duplicate canonical identity acceptable.
 
 TA10. Cache cleanup and pane orphaning/reassociation patches join the canonical
 topology patch in one bounded MainActor transaction. A successful transaction
@@ -378,6 +433,15 @@ resync, Git baseline, pane/filesystem projection, Forge scope, persistence,
 trace identity, and repair acknowledgements. Downstream failure preserves the
 matching repair obligation only for owners named by the source-kind matrix;
 independent enrichment/durability/telemetry owners retain their own retry state.
+
+Repository reassociation is one typed atomic transaction over repository name,
+path, availability, worktrees, and path-index generation. It first prepares and
+validates the complete candidate, then commits those fields and its ordered
+effects together. A rejection preserves every field byte-for-byte, restores no
+pane residency, schedules no persistence/effect work, and does not advance or
+schedule the path-index generation. Acceptance schedules exactly one logical
+path-index rebuild/generation advance for the transaction, not one for metadata
+and another for worktrees.
 
 TA11. Ordinary topology persistence receives only the revisioned changed-key
 record produced by the accepted topology transaction. Full state is available
@@ -471,6 +535,15 @@ notification scans, path normalization, and sorting cannot be hidden in row
 builders or broad body recomputation. This preserves the current `List`/row-
 index direction; it does not authorize a native sidebar redesign or place
 native work in the Bridge slice.
+
+Pane-management identity/status contexts and per-worktree inbox badge counts
+are native display facts under NR1. A pane/body evaluation may consume keyed
+repo, worktree, path-resolution, cache, and inbox-count facts, but it cannot
+linearly scan repository/worktree collections or the retained notification log.
+When management and location presentation target the same pane identity, one
+projection result is shared rather than recomputed. The existing canonical atom
+owners maintain any derived keyed indexes/counts atomically; this requirement
+does not introduce another actor, EventBus route, or canonical source of truth.
 
 ### Responsiveness and Proof
 
@@ -1868,6 +1941,7 @@ candidate acceptance:
 | root-index rebuild and memory envelope | filesystem performance owner using scale/case/symlink fixtures | component-trie routing remains component-bound and rebuild stays outside MainActor |
 | absolute and control-relative interaction/currentness ceilings | human owner from baseline/control distributions before candidate acceptance | no done claim until approved; stale/non-current beyond its ceiling is failure |
 | per-operation MainActor service/scaling ceilings | human/performance owner from fixed changed-key work across 10/100/300 fleets | topology apply, persistence page, Bridge capture/WebKit send, and first post-page mutation each pass independently of end-to-end latency |
+| native pane-management projection and inbox-count scaling | native display performance owner using fixed visible-pane work across 10/100/300 topology fleets and bounded retained-notification fixtures | hot pane projection performs zero fleet topology or notification-log scans; projection/invalidation counts and MainActor service remain fixed-pane bounded; the paired workload shows a material lookup/CPU reduction from baseline |
 
 The first cut keeps one physical FSEvent stream per registration behind the
 mailbox; stream consolidation is not a planner option. Revisit it only when

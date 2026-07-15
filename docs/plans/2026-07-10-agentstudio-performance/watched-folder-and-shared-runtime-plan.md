@@ -322,7 +322,17 @@ Add:
   - One running scan per watched folder.
   - Running-plus-newest-dirty collapse.
   - One immediate follow-up maximum.
-  - Explicit global concurrency and oldest-ready/fair scheduling.
+  - Explicit global concurrency and oldest-ready/fair scheduling of bounded
+    scanner quanta, not complete recursive scans.
+  - A suspended logical run requeues at the tail without changing its checked
+    scan-run generation. A new generation is minted only for a new logical
+    scan after final completion, cancellation, or replacement.
+  - Retain a concurrency credit from active quantum through pending and leased
+    final-result custody. Release the credit only after an identical final
+    result is acknowledged as transferred; retry re-presents the same result.
+    Therefore `active + pending + leased <= maximumConcurrentScans`, with at
+    most one leased result. A slow consumer reduces scanning throughput instead
+    of creating an unbounded inventory queue.
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/WatchedFolderScanResult.swift`
   - Normative `WatchedFolderScanRequest`, strict `WatchedFolderScanCause`,
     non-empty `WatchedFolderRepairObligation`,
@@ -356,13 +366,52 @@ Modify:
   - Replace `try?` suppression that converts traversal/metadata errors into absence-capable results.
   - Return only exhaustive `RepoScannerResult` traversal/validation evidence,
     with authoritative negative distinct from timeout/cancellation/failure.
+  - Add one opaque resumable scanner-session port. Each session owns its lazy
+    `FileManager.DirectoryEnumerator`, accumulated evidence, traversal/error
+    state, and cumulative active service duration behind synchronous protected
+    state.
+  - `advanceOneQuantum` has a strict result union: `suspended(usage:)` or
+    `finished(RepoScannerResult)`. Suspension exposes usage only and never a
+    repository inventory. Only the scanner session constructs a final result.
+  - Bound a quantum by calibrated positive item, path-byte, candidate, failure,
+    and active-service limits. Reaching a quantum cap suspends the session;
+    reaching an absolute scan/failure cap finishes with non-authoritative
+    evidence and retained repair debt, never a truncated
+    `completeAuthoritative` result.
+  - Express production limits as one typed compile-time watched-folder scan
+    policy with independently named fields. Tests inject smaller policies. Do
+    not reuse callback, EventBus, replay, or envelope capacities as scan limits;
+    calibration may change one pressure surface without coupling the others.
+  - Hold the synchronous scanner-state lock only while advancing or reading the
+    enumerator/state. Never hold it across awaited Git validation. One strict
+    quantum lease prevents concurrent advancement of the same enumerator.
 
-The scheduler accepts a completion only for the exact current
-`FSEventRegistrationToken` and checked scan-run generation. It never derives
-removal candidates. Partial results may add verified positives and must retain
-dirty/repair state. In the target/post-W5 architecture, W5 alone derives
-removal candidates from `completeAuthoritative` inventory after exact token,
-scan-run, and canonical-base checks.
+The scheduler accepts a suspension or completion only from the exact session it
+created for the exact current `FSEventRegistrationToken` and checked scan-run
+generation; completion ingestion remains private. It never derives removal
+candidates. Partial results may add verified positives and must retain
+dirty/repair state. An ordinary trigger never erases a pending repair
+obligation. In the target/post-W5 architecture, W5 alone derives removal
+candidates from `completeAuthoritative` inventory after exact token, scan-run,
+and canonical-base checks.
+
+Production integration prerequisite: before the scheduler can feed the legacy
+topology path, repair the current double-reconciliation regression at the
+canonical live mutation boundary. In the transitional pre-W5 product path,
+`RepositoryTopologyAtom` owns the single identity-preserving merge and exposes
+strict `RepositoryWorktreeReconciliationResult` and
+`RepositoryReassociationResult` unions. It consumes each existing worktree
+identity at most once, validates global UUID/stable-key uniqueness and repo
+ownership before assignment, uses UUIDv7 for newly issued identities without
+using UUID ordering as authority, and leaves live state unchanged on rejection.
+Reassociation prepares and validates repo metadata, availability, and worktrees
+before one commit; rejection also preserves path-index generation and produces
+no pane/cache/persistence/trace effect, while acceptance schedules no duplicate
+index rebuild. `WorkspaceCacheCoordinator` exhaustively handles rejection and
+must not interpret persistence failure as mutation rejection or recovery. This
+is an immediate correctness guard for the pre-W5 product path; W5 later replaces
+the transitional result types with separate canonical reconciliation/apply
+contracts and removes the identity-preserving merge from the atom.
 
 ### Test proof
 
@@ -379,7 +428,12 @@ cases: permission denial, unreadable child, validation timeout/failure,
 cancellation, missing/replaced root, malformed `.git`, symlink loop, and exact
 completion/count classification. Scheduler cases: hot/cold folder fairness,
 one-running, trigger during running scan, newest-dirty collapse, exact-current
-generation rejection, and separated queue/service/follow-up metrics.
+generation rejection, cancellation-aware result leasing, all-waiter shutdown,
+and separated queue/service/follow-up metrics. Deterministic fairness proof uses
+10/100/300 ready roots plus one continuously yielding root and asserts every
+quiet root receives a quantum within the independent WS4 selection bound. A
+slow result consumer proves the final-result custody invariant, zero silent
+loss, bounded high-water, and resumed progress without sleeps.
 
 Independent oracle: literal generated directory/repository manifest. Do not derive expected absence from scanner output.
 
@@ -393,6 +447,19 @@ scanner/scheduler evidence; it does not construct canonical identity removals.
 W5 hard-cuts that transitional comparison and re-proves the invariant at the
 final topology-projector owner against canonical truth. W3 does not move
 removal derivation into the scanner or scheduler.
+
+The production-integration RED case reproduces the historical duplicate-ID
+failure: existing worktree `X`, then same-name discovered entries at the
+original and renamed paths. Guarded reconciliation followed by canonical apply
+must produce `[X, Y]`, never `[X, X]`; atom state, autosave input, and Repo
+Explorer projection remain valid. Malformed duplicate-ID/stable-key input is a
+typed rejection with byte-for-byte unchanged live state and zero downstream
+effects. A reassociation rejection additionally proves unchanged repository
+name/path, availability, worktrees, path-index generation, pane residency,
+cache state, persistence input, and trace/effect counts. Acceptance proves one
+index-generation advance. Repo Explorer's nontrapping duplicate handling is a
+fault-containment test, never the canonical invariant oracle. The scheduler
+remains dormant until this proof is GREEN.
 
 Split trigger: the validation provider cannot distinguish authoritative negative from timeout/failure.
 
@@ -514,6 +581,14 @@ field ownership, identity joins, stale scan rejection, complete-current removal
 derivation, partial/stale no-removal with retained non-current debt, and literal
 topology diff output against an independent generated manifest.
 
+Identity projection consumes each existing repo/worktree UUID at most once per
+transaction. Replace the duplicated coordinator/atom identity-preservation
+algorithms with one projector-owned reconciliation contract; an already
+reconciled result must never pass through a second identity-preserving merge.
+The regression oracle starts with existing worktree `X`, projects two discovered
+same-name entries at the original and renamed paths, and requires distinct
+result identities `[X, Y]`, never `[X, X]`.
+
 The W5a integration test uses the real `WorkspaceTopologyProjectionMirror`, W4.5 pager/lease, and contiguous `TopologyProjectionUpdate` stream. It proves pre-source-admission bootstrap, post-base replay, missing-update gap rejection, and bounded rebootstrap; W4.5's test journal fixture is not this proof.
 
 ### W5b — MainActor applier and effect record
@@ -539,6 +614,16 @@ Modify:
 
 `TopologyApplyBatch` contains field-scoped patches, exhaustive watched-root currentness transitions, and cache/orphan/reassociation effects. It never carries a fleet replacement. MainActor apply performs no path, regex, JSON, scan, Git, Bridge package, persistence normalization, or same-bus repost work. Last-known topology remains usable, but the Repo Explorer read model must not render `repairing`, `nonCurrentRetrying`, `repairFailed`, or `unavailable` indistinguishably from `current`.
 
+Before mutating any atom, `WorkspaceTopologyApplier` validates global repo and
+worktree UUID/stable-key uniqueness and the one-to-one identity-consumption
+ledger produced by the projector. Duplicate identity is an exhaustive typed
+rejection case: it publishes no atom revision, persistence revision, EventBus
+fact, cache/pane effect, or repair acknowledgement. `RepositoryTopologyAtom`
+must not retain an independent identity-preserving merge after this cutover.
+Persistence retains its duplicate checks as defense in depth, and Repo Explorer
+may use nontrapping defensive indexing only for fault containment; neither may
+mask a rejected canonical transaction or count as the invariant proof.
+
 Every accepted canonical transaction creates exactly one normative compact `TopologyProjectionUpdate` and one causally complete `WorkspacePersistenceChangeSet` carrying that same revision; atoms never allocate their own revisions. The mirror advances only across contiguous accepted revisions. A gap marks it non-current and reboots through the versioned pager plus post-base update journal.
 
 Instrument the apply with `MainActorWorkLedger`; include input/changed-key count and revision, and no `await` inside the span. W5b has its own RED/GREEN for atomic stale-base rejection, pane/cache/orphan effects, observation/trace contraction, and fixed-changed-key scaling; W5a proof is not a substitute.
@@ -563,6 +648,13 @@ Extend:
 - `RepoExplorerReadModelTests.swift` and `RepoExplorerViewTests.swift` for visible currentness states
 
 Invariants: stale base has no partial mutation or revision advance; one multi-atom apply advances the revision owner exactly once; every participating atom receives the same accepted revision; discovery-owned and user-owned fields merge only per spec; cache cleanup and orphaning are atomic with topology; at most one observation invalidation and trace refresh; accepted effect record exhaustively names source/Git/projection/Forge/persistence/trace/repair follow-ups and watched-root currentness. A non-current root retains last-known state but has a distinguishable Repo Explorer presentation.
+
+Add a RED regression for the historical double reconciliation: guarded
+projector output `[X, Y]` entering the canonical apply path must remain `[X, Y]`.
+Add malformed-batch cases for duplicate IDs within one repo and across repos,
+duplicate stable keys, and one existing identity claimed by path and name.
+Every rejection proves byte-for-byte unchanged live topology, unchanged atom
+and persistence revisions, zero autosave attempt, and zero downstream effects.
 
 Oracle: independent literal topology/pane/cache map. For 10/100/300 fleets with the same changed keys, MainActor service must remain within the calibrated fixed-change envelope.
 
@@ -797,11 +889,52 @@ RED/GREEN: required. If containment still misses SLO because package/React work 
 
 ## 13. Task W11 — Native Projection And Architecture Guardrails
 
-Sequencing note: under the user-approved performance-first amendment, W11 runs
-after W1–W10 product behavior, focused proof, and applicable atomic cuts. It
-must validate settled APIs and must not block initial performance implementation.
+W11a is product performance work and may run after the W5 keyed topology/read
+contracts stabilize. W11b is enforcement work and runs after W1–W10 product
+behavior, focused proof, and applicable atomic cuts. This preserves the
+user-approved performance-first sequencing: runtime hot paths are corrected
+before the final SwiftSyntax guardrails validate settled APIs.
 
 Requirements: NR1 plus enforcement contract.
+
+### W11a — Keyed native pane-management and inbox display projection
+
+Current PID evidence records approximately 148,000 topology lookups/minute with
+the heaviest Swift stack in `PaneManagementContext`, inbox aggregation, and
+SwiftUI pane rendering. Live source confirms `PaneLeafContainer.body` constructs
+two management contexts per evaluation; each context may perform linear
+`RepositoryTopologyAtom.repo`/`worktree` scans, a worktree-path prefix scan, and
+an `InboxNotificationAtom.notifications.reduce` for one worktree.
+
+Modify:
+
+- `RepositoryTopologyAtom.swift` and/or its existing derived owner to maintain
+  keyed repo/worktree lookup state atomically with canonical topology mutation.
+  Hot `repo(id)` and `worktree(id)` reads must not flatten or scan the fleet.
+- `InboxNotificationAtom.swift` to maintain exact keyed unread/roll-up counts
+  for worktree, tab, and pane identities across append, coalescence, mutation,
+  retention, hydration, removal, and empty-lane transitions. Hot count reads do
+  not reduce the retained notification log.
+- `PaneManagementContext.swift` and `PaneLeafContainer.swift` to consume one
+  keyed/prederived snapshot per distinct pane identity and avoid projecting the
+  same pane twice when the management and location targets are equal. SwiftUI
+  `body` performs no fleet topology scan or inbox-log aggregation.
+
+Preserve canonical MainActor ownership. This task adds no actor, EventBus route,
+filesystem work, or second source of truth; indexes and counts are derived
+state maintained by the existing canonical mutation owner. Add deterministic
+correctness tests covering every inbox mutation/retention path and topology
+replacement/reassociation, plus a 10/100/300-fleet fixed-pane proof whose
+lookup/projection work is independent of fleet size. Instrument pane-management
+projection count, topology keyed/fallback lookup count, inbox aggregation count,
+SwiftUI invalidation count, and MainActor service.
+
+Acceptance requires the final Victoria baseline-to-candidate report to show a
+material reduction from the recorded 148,000 topology lookups/minute under the
+same pane/workload manifest. Zero linear topology and inbox-log scans are
+structural CI gates; elapsed CPU/footprint improvement remains runtime proof.
+
+### W11b — Architecture guardrails
 
 Outside W5b's spec-required watched-root currentness integration, treat `RepoExplorerRowIndex.swift` and `RepoExplorerView.swift` as read-only unless runtime evidence proves another contract violation. Preserve/extend:
 

@@ -752,3 +752,29 @@ UUIDv7 remains opaque source/lifecycle authority. Checked numeric generations
 remain ordering/currentness only. Scanner paths and Git metadata remain
 evidence and cannot select watcher/root authority. Implementation resumes at
 the W4a construction RED and exhaustive RepoScanner RED.
+
+## 2026-07-15 W3 bounded-quantum alignment
+
+The user explicitly aligned on bounded watched-folder scan quanta. W3 schedules
+one bounded quantum per root turn rather than one complete recursive scan per
+turn. A suspended scan retains its logical run generation and exposes no
+inventory. Final results retain a scheduler credit through pending/leased
+custody until exact transfer acknowledgement, so consumer pressure throttles
+new scans instead of growing an unbounded result queue. The focused W3 plan now
+also names repair-preserving trigger merge, cancellation-safe waiting/shutdown,
+private completion ingestion, scanner-owned service duration, and deterministic
+10/100/300-root fairness/custody proof.
+
+## 2026-07-15 topology identity atomicity prerequisite
+
+The historical duplicate-worktree-UUID crash path is closed at the current
+canonical mutation boundary before W3 integration. Scanned ingress is ID-free;
+`RepositoryTopologyAtom` is the sole UUIDv7 minting and identity-consumption
+owner; one existing identity can be consumed only once; UUID and stable-key
+uniqueness are validated globally before mutation. Reassociation prepares and
+validates repository metadata, availability, and worktrees before one commit.
+Typed rejection propagates through the mutation and cache coordinators with no
+topology, pane-residency, cache, persistence, trace, or index-generation effect.
+The guarded regression produces `[X, Y]`, never `[X, X]`. Focused parent proof
+passed 37 tests across the topology atom and both cache-coordinator suites;
+strict scoped lint/format and diff checks passed. Checkpoint commit `b39a0f23`.

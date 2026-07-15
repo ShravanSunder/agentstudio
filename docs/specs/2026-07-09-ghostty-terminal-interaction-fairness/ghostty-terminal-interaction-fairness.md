@@ -300,7 +300,12 @@ guarantees no later callback.
 
 GT7. Telemetry records wakeups, scheduled ticks, executed ticks, coalesced
 wakeups, pending high-water, wakeup-to-start age, tick service duration, dirty
-follow-ups, and shutdown/stale drops.
+follow-ups, actions emitted per tick, synchronous action-capture service,
+tick-originated deferred MainActor action hops, contracted presentation samples,
+committed presentation mutations, post-tick scheduled MainActor turns, post-tick
+MainActor queue age, and shutdown/stale drops. A candidate does not satisfy GT7
+when `ghostty_app_tick` service improves while tick-originated deferred work or
+observable mutations expand.
 
 GT8. Sustained-producer proof records actions/messages processed per tick and
 tick p50/p95/p99/max service. If one tick violates the accepted interaction
@@ -315,8 +320,10 @@ not a passing low-latency sample.
 
 ### Action Callback and Per-Tick Contraction
 
-GA1. C callback payloads are synchronously copied into owned `Sendable` values
-before any asynchronous handoff. Ephemeral C pointers never cross a task.
+GA1. C callback payloads are synchronously copied into owned, manifest-bounded
+`Sendable` values before any asynchronous handoff. Ephemeral C pointers never
+cross a task, and neither a pointer address nor `ObjectIdentifier` survives as
+payload or asynchronous identity.
 
 GA2. Actions emitted by any host-owned synchronous libghostty call already on
 MainActor—including app tick and direct key/text/mouse/surface calls—use a
@@ -805,13 +812,21 @@ presentation action can arrive outside a MainActor host scope. It keeps latest
 values by `(surface generation, signal key)`, schedules one MainActor apply, and
 cannot contain facts, commands, activity deadlines, or strings without that
 signal's declared bound. Already-MainActor presentation actions apply directly
-to `TerminalPresentationState`; they do not enqueue back to MainActor.
+to `TerminalPresentationState`; they do not enqueue back to MainActor. Surface
+teardown invalidates the exact generation and removes its retained latest values;
+every queued apply revalidates that generation, so generation N presentation
+cannot commit after teardown or mutate generation N+1.
 
 `TerminalActivityMailbox` merges by `(TerminalRuntimeGeneration, activity key)`
 before actor admission. It retains latest rows/pinned/progress state,
 accumulated row growth/counts, current evidence provenance, and exact lease/
 deadline changes in separate storage. It schedules at most one ready signal per
 pane generation.
+
+`TerminalActivityMailbox` and `TerminalFactOwner` are separate custody owners.
+Activity contraction cannot hold, evict, acknowledge, or replay an exact fact,
+and there is no generic lossy semantic-fact mailbox between action capture and
+`TerminalFactOwner`.
 
 `TerminalActivityProjector` is one shared actor keyed by pane/runtime generation,
 not one actor per pane and not a global raw FIFO. It owns quiet windows,
@@ -1542,6 +1557,9 @@ Deterministic proof must cover:
   confirmation, terminally settle each accepted read exactly once, and deny
   stale/secure requests before surface free;
 - actions inside a tick take the synchronous MainActor fast path;
+- actions inside a tick create zero deferred MainActor action-routing tasks,
+  and latest-value presentation contraction bounds observable mutations by the
+  declared surface/key set rather than raw action count;
 - actions reentered from direct MainActor key/text/mouse/binding/lifecycle calls
   receive the direct-host-call origin and no redundant actor hop;
 - workspace, clipboard, and URL actions require the first successful purpose

@@ -171,6 +171,14 @@ Add:
 
 One hundred thousand wakeups before one MainActor turn must create one scheduled turn. A true sustained-refill test records producer pushes after tick entry and during draining; a preloaded-only burst is invalid. Wake/drain/shutdown races use deterministic gates, not sleeps.
 
+Instrument each tick with raw action count, synchronous action-capture service,
+tick-originated deferred MainActor action hops, contracted presentation samples,
+committed presentation mutations, and post-tick MainActor queue age. The GREEN
+oracle requires zero deferred action-routing hops for actions emitted inside a
+host-stamped MainActor tick. A presentation burst is successful only when its
+committed mutations are bounded by the declared surface/key set rather than raw
+action count; a shorter tick that leaves more queued MainActor work is a failure.
+
 Independent oracle: literal gate transition model plus producer push/tick entry/exit watermarks.
 
 RED/GREEN: current task-per-wakeup is RED. GREEN proves bounded amplification and exact dirty follow-up.
@@ -216,6 +224,11 @@ Add:
   - tag, selected-vendor availability, source/origin allowance, synchronous handled result, default-host/fallback policy, payload/content disposition, plane, privileged purpose, generation policy.
 - `GhosttyActionAdmissionPolicy.swift`
   - exhaustive descriptor lookup generated/checked against `GhosttyActionTag.allCases` and selected headers.
+- `GhosttyActionSnapshot.swift`
+  - strict `Sendable` discriminated union containing only owned, bounded Swift
+    values plus app/surface generation identity; no `ghostty_action_s`, target
+    pointer, borrowed payload pointer, or `ObjectIdentifier` survives callback
+    return.
 - `UserIntentGate.swift`
   - starts unbound for each physical input event; first eligible workspace/URL/clipboard purpose claims and consumes it; no second purpose/action.
 - `TerminalWorkspaceCommandSink.swift`
@@ -265,6 +278,11 @@ Add:
 
 Mechanical proof compares both selected header tag sets, `GhosttyActionTag.allCases`, descriptors, and all 66 accepted manifest rows. Behavioral proof covers every policy and each privileged, exact, notification, fallback, command, and suppression disposition.
 
+The mechanical proof also exhaustively exercises every selected-header
+pointer-bearing payload. The fixture invalidates borrowed storage immediately
+after callback return and proves the captured `GhosttyActionSnapshot` remains
+complete, bounded, generation-keyed, and independent of native pointer identity.
+
 Oracle: literal manifest plus side-effect/fallback counters; expected values may not call production descriptor lookup.
 
 For NS, the independent success oracle is `TerminalNotificationAdmissionReceipt` joined with the real shared `InboxPromoter`/atom mutation result. Extend `InboxPromoterTests.swift`, `GhosttyActionRouterTests.swift`, and add a Terminal→App adapter→existing-router→Inbox integration test. Assert one notification admission owner identity and exactly one inbox row when router observation and direct NS admission overlap. Oversized, rate-limited, stale-generation, or policy-denied requests return false and create neither an inbox row, raw replay, nor delayed effect. For EF/bell, test the separate manifest policy and any secondary content-free fact independently.
@@ -293,6 +311,8 @@ Prepare the target `TerminalRuntime` assembly and exercise it in focused/integra
 - dispatch every Ghostty action to exactly one descriptor-selected plane;
 - mutate direct local presentation state for scrollbar/search/mouse/cell/key/current metadata;
 - offer foreign-only current presentation to the latest mailbox when needed;
+- key every pending presentation batch by surface generation, invalidate it on
+  teardown/replacement, and apply each changed value at most once per flush;
 - commit exact lifecycle/command/health current facts synchronously to `TerminalFactOwner` and route secure-input authority through `SecureInputOwner`;
 - expose named semantic `RuntimeDomainFact` endpoints without wiring a second production bus before IG1;
 - expose `TerminalStateSnapshot` and `facts(after:)` for IPC status/wait.
@@ -321,6 +341,11 @@ Add:
 - `Architecture/TerminalSignalPlaneArchitectureTests.swift`
 
 Flood 100,000 scrollbar/search/mouse/cell samples interleaved with close, command-finished, renderer health, secure-input, and notification facts. Expected: bounded latest state; zero global posts/replay for samples; exact fact order or explicit non-current gap; no sample eviction of facts.
+
+The flood also records raw actions, tick-originated deferred MainActor hops, and
+presentation mutations. Tick-originated action hops are exactly zero after the
+hard cut, and mutation count is bounded by the declared presentation key set for
+each flushed surface rather than by the number of raw samples.
 
 The flood classification is exact:
 
@@ -574,6 +599,12 @@ Use the shared standard runner/evidence ledger. Execute pinned versus candidate 
 Fixed workloads include ASCII, Unicode/wide, CSI/request-response, idle typing, loaded typing, cursor/caret, TUI mouse, focus, reveal, hidden/visible, watched idle/pressure, Bridge visible/background, multi-pane fairness, and scrollback fill/clear/prune. The terminal core owns 24 cells and eight probe-calibration prerequisites; the combined core matrix has 34 cells.
 
 For every cell, the S6d report queries marker-scoped VictoriaMetrics for p50/p95/p99/max and support counts and VictoriaLogs for required stages, final-state validity, and exact build/run/calibration identity. It reports absolute values, baseline-to-candidate deltas, percentage deltas, control-relative deltas, and evidence adequacy. When the pinned/candidate adapters are not semantically equivalent, a pure-vendor row consumes the conditional A0 adaptation-control digest and reports adapter cost separately; without that proof its label is “vendor plus mandatory adaptation.” MainActor evidence keeps queue age, synchronous service time, independent heartbeat gaps/overdue counts, AppKit dispatch-to-handler, Ghostty host-call service, and input-to-current-layer publication as separate distributions; proximity alone never attributes a heartbeat gap to one operation. Missing stages, unsupported tails, stale identity, evidence loss, or a violated MainActor/interaction ceiling yields `invalidEvidence` or `validFail`, never pass.
+
+The marker-scoped terminal report additionally includes actions per tick,
+post-tick MainActor turns scheduled, and observable presentation mutations per
+tick. Host-contraction acceptance requires lower or equal post-tick expansion;
+bulk-throughput or tick-service improvement cannot hide extra deferred turns or
+observable mutations.
 
 Throughput reports separately:
 
