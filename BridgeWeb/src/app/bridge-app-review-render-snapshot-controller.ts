@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import {
 	encodeBridgeWorkerMarkFileViewedCommand,
+	encodeBridgeWorkerReviewIntakeReadyCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from '../core/comm-worker/bridge-comm-worker-protocol.js';
@@ -26,6 +27,17 @@ import {
 } from '../core/comm-worker/bridge-worker-pierre-courier.js';
 import type { BridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import type { BridgeWorkerRpcLifecycleSnapshot } from '../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
+
+const BRIDGE_REVIEW_INTAKE_READY_MAX_ATTEMPTS = 3;
+
+type BridgeReviewIntakeReadyAttemptState = 'acked' | 'exhausted' | 'idle' | 'pending' | 'sending';
+
+interface BridgeReviewIntakeReadyAttempt {
+	attemptCount: number;
+	readonly client: BridgePaneSurfaceClient;
+	requestId: string | null;
+	state: BridgeReviewIntakeReadyAttemptState;
+}
 
 export interface UseBridgeReviewRenderSnapshotControllerProps {
 	readonly pierreCourier: BridgeWorkerPierreCourier;
@@ -118,11 +130,19 @@ export function useBridgeReviewRenderSnapshotController(
 		[codeViewRenderedItemIds],
 	);
 	const workerEpochRef = useRef(0);
+	const reviewIntakeReadyAttemptRef = useRef<BridgeReviewIntakeReadyAttempt | null>(null);
 	const markFileViewedFailureCallbacksRef = useRef<Map<string, () => void>>(new Map());
 	const settleWorkerRequests = useCallback((): void => {
+		const lifecycleSnapshot = props.reviewClient.lifecycle.getSnapshot();
 		settleBridgeReviewWorkerLifecycleRequests({
 			failureCallbacksByRequestId: markFileViewedFailureCallbacksRef.current,
-			lifecycleSnapshot: props.reviewClient.lifecycle.getSnapshot(),
+			lifecycleSnapshot,
+		});
+		settleBridgeReviewIntakeReadyAttempt({
+			attemptRef: reviewIntakeReadyAttemptRef,
+			client: props.reviewClient,
+			lifecycleSnapshot,
+			workerEpochRef,
 		});
 	}, [props.reviewClient]);
 	const pierreCourier = props.pierreCourier;
@@ -143,6 +163,13 @@ export function useBridgeReviewRenderSnapshotController(
 			failureCallbacksByRequestId.clear();
 		};
 	}, [displayStore, pierreCourier, props.reviewClient, settleWorkerRequests]);
+	useEffect((): void => {
+		beginBridgeReviewIntakeReadyDelivery({
+			attemptRef: reviewIntakeReadyAttemptRef,
+			client: props.reviewClient,
+			workerEpochRef,
+		});
+	}, [props.reviewClient]);
 	const clearSelectedReviewItemId = useCallback((): void => {
 		displayStore.applyWorkerPatch({ operation: 'delete', slice: 'selection' });
 	}, [displayStore]);
@@ -426,6 +453,88 @@ function settleBridgeReviewWorkerLifecycleRequests(props: {
 		props.failureCallbacksByRequestId.delete(request.requestId);
 		if (request.state !== 'acked') failureCallback();
 	}
+}
+
+function beginBridgeReviewIntakeReadyDelivery(props: {
+	readonly attemptRef: MutableRefObject<BridgeReviewIntakeReadyAttempt | null>;
+	readonly client: BridgePaneSurfaceClient;
+	readonly workerEpochRef: MutableRefObject<number>;
+}): void {
+	let attempt = props.attemptRef.current;
+	if (attempt?.client !== props.client) {
+		attempt = {
+			attemptCount: 0,
+			client: props.client,
+			requestId: null,
+			state: 'idle',
+		};
+		props.attemptRef.current = attempt;
+	}
+	if (attempt.state !== 'idle') return;
+	startBridgeReviewIntakeReadyAttempt(props);
+}
+
+function startBridgeReviewIntakeReadyAttempt(props: {
+	readonly attemptRef: MutableRefObject<BridgeReviewIntakeReadyAttempt | null>;
+	readonly client: BridgePaneSurfaceClient;
+	readonly workerEpochRef: MutableRefObject<number>;
+}): void {
+	const attempt = props.attemptRef.current;
+	if (attempt?.client !== props.client || attempt.state !== 'idle') return;
+	if (attempt.attemptCount >= BRIDGE_REVIEW_INTAKE_READY_MAX_ATTEMPTS) {
+		attempt.state = 'exhausted';
+		return;
+	}
+	attempt.attemptCount += 1;
+	attempt.requestId = null;
+	attempt.state = 'sending';
+	let requestId: string;
+	try {
+		requestId = props.client.send(
+			encodeBridgeWorkerReviewIntakeReadyCommand({
+				epoch: nextBridgeReviewWorkerEpoch(props.workerEpochRef),
+				requestId: 'review-client-owned',
+				streamId: null,
+			}),
+		);
+	} catch (error: unknown) {
+		if (props.attemptRef.current === attempt) attempt.state = 'exhausted';
+		throw error;
+	}
+	if (props.attemptRef.current !== attempt) return;
+	attempt.requestId = requestId;
+	attempt.state = 'pending';
+	settleBridgeReviewIntakeReadyAttempt({
+		...props,
+		lifecycleSnapshot: props.client.lifecycle.getSnapshot(),
+	});
+}
+
+function settleBridgeReviewIntakeReadyAttempt(props: {
+	readonly attemptRef: MutableRefObject<BridgeReviewIntakeReadyAttempt | null>;
+	readonly client: BridgePaneSurfaceClient;
+	readonly lifecycleSnapshot: BridgeWorkerRpcLifecycleSnapshot;
+	readonly workerEpochRef: MutableRefObject<number>;
+}): void {
+	const attempt = props.attemptRef.current;
+	if (
+		attempt?.client !== props.client ||
+		attempt.state !== 'pending' ||
+		attempt.requestId === null
+	) {
+		return;
+	}
+	const request = props.lifecycleSnapshot.requestsById[attempt.requestId];
+	if (request === undefined || request.state === 'pending') return;
+	if (request.state === 'acked') {
+		attempt.state = 'acked';
+		return;
+	}
+	if (request.state !== 'failed' && request.state !== 'timed_out') return;
+	attempt.requestId = null;
+	attempt.state =
+		attempt.attemptCount >= BRIDGE_REVIEW_INTAKE_READY_MAX_ATTEMPTS ? 'exhausted' : 'idle';
+	if (attempt.state === 'idle') startBridgeReviewIntakeReadyAttempt(props);
 }
 
 function nextBridgeReviewWorkerEpoch(workerEpochRef: MutableRefObject<number>): number {

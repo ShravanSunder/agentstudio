@@ -19,7 +19,10 @@ import type {
 import { buildBridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from '../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
 import type { BridgeWorkerRpcCommandInput } from '../core/comm-worker/bridge-worker-rpc-client.js';
-import { createBridgeWorkerRpcLifecycleStore } from '../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
+import {
+	createBridgeWorkerRpcLifecycleStore,
+	type BridgeWorkerRpcLifecycleStore,
+} from '../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
 import {
 	bridgeFileViewerDisplayModelForSnapshot,
 	type BridgeFileViewerDisplaySource,
@@ -84,6 +87,151 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		await expect
 			.element(rendered.getByTestId('review-direct-display-probe'))
 			.toHaveAttribute('data-review-later-row-path', 'Sources/Later.swift');
+	});
+
+	test('emits one initial Review intake-ready command and does not duplicate it on rerender', async () => {
+		// Arrange
+		const harness = makeReviewSurfaceHarness();
+		const onActiveSourceChange = vi.fn();
+		const telemetryRecorderRef = { current: createBridgeTelemetryRecorder(null) };
+		const viewerHeaderControls = <div />;
+		const rendered = render(
+			<BridgeReviewViewerMode
+				isActive={false}
+				onActiveSourceChange={onActiveSourceChange}
+				reviewClient={harness.reviewClient}
+				telemetryRecorderRef={telemetryRecorderRef}
+				viewerHeaderControls={viewerHeaderControls}
+			/>,
+		);
+		await expect.element(rendered.getByTestId('bridge-review-fallback-frame')).toBeInTheDocument();
+
+		// Assert
+		const initialIntakeReadyCommands = harness.sentCommands.filter(
+			(command) => command.command === 'reviewIntakeReady',
+		);
+		expect(initialIntakeReadyCommands).toHaveLength(1);
+		expect(initialIntakeReadyCommands[0]).toMatchObject({
+			command: 'reviewIntakeReady',
+			protocolId: 'review',
+			reason: null,
+			streamId: null,
+		});
+
+		// Act
+		await act(async (): Promise<void> => {
+			rendered.rerender(
+				<BridgeReviewViewerMode
+					isActive={false}
+					onActiveSourceChange={onActiveSourceChange}
+					reviewClient={harness.reviewClient}
+					telemetryRecorderRef={telemetryRecorderRef}
+					viewerHeaderControls={viewerHeaderControls}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		// Assert
+		expect(
+			harness.sentCommands.filter((command) => command.command === 'reviewIntakeReady'),
+		).toHaveLength(1);
+	});
+
+	test('retries timed-out Review intake-ready delivery until acknowledgement with newer shared epochs', async () => {
+		// Arrange
+		const harness = makeReviewSurfaceHarness();
+		const rendered = render(<ReviewIntakeLifecycleProbe reviewClient={harness.reviewClient} />);
+		await expect.element(rendered.getByTestId('review-intake-lifecycle-probe')).toBeInTheDocument();
+		const initialRequestId = requireDefined(
+			reviewIntakeReadyRequestIds(harness.lifecycleStore)[0],
+			'Expected an initial Review intake-ready request.',
+		);
+
+		// Act: fail the flushed initial request after the component has already rendered.
+		await act(async (): Promise<void> => {
+			harness.lifecycleStore.timeoutRequest({ requestId: initialRequestId });
+			await Promise.resolve();
+		});
+
+		// Assert: exactly one retry uses the next shared Review epoch.
+		const retriedCommands = reviewIntakeReadyCommands(harness.sentCommands);
+		expect(retriedCommands).toHaveLength(2);
+		const initialCommand = requireDefined(
+			retriedCommands[0],
+			'Expected the initial Review intake-ready command.',
+		);
+		const retryCommand = requireDefined(
+			retriedCommands[1],
+			'Expected a retried Review intake-ready command.',
+		);
+		expect(retryCommand.epoch).toBeGreaterThan(initialCommand.epoch);
+		const retryRequestId = requireDefined(
+			reviewIntakeReadyRequestIds(harness.lifecycleStore)[1],
+			'Expected a retried Review intake-ready request.',
+		);
+
+		// Act: acknowledge the retry, rerender, then exercise later select and viewport intents.
+		await act(async (): Promise<void> => {
+			harness.lifecycleStore.ackRequest({
+				acknowledgedAtSequence: 1,
+				requestId: retryRequestId,
+			});
+			rendered.rerender(<ReviewIntakeLifecycleProbe reviewClient={harness.reviewClient} />);
+			await Promise.resolve();
+		});
+		expect(reviewIntakeReadyCommands(harness.sentCommands)).toHaveLength(2);
+		await act(async (): Promise<void> => {
+			requireHTMLElement(
+				document.querySelector('[data-testid="review-intake-lifecycle-probe"]'),
+			).click();
+			await Promise.resolve();
+		});
+		await expect
+			.poll(() =>
+				harness.sentCommands.some(
+					(command) =>
+						command.command === 'viewport' && command.visibleItemIds.includes('item-after-intake'),
+				),
+			)
+			.toBe(true);
+
+		// Assert: acknowledgement is terminal and subsequent Review intents remain newer.
+		const retryEpoch = retryCommand.epoch;
+		const laterSelectCommand = harness.sentCommands.findLast(
+			(command) => command.command === 'select',
+		);
+		const laterViewportCommand = harness.sentCommands.findLast(
+			(command) =>
+				command.command === 'viewport' && command.visibleItemIds.includes('item-after-intake'),
+		);
+		expect(laterSelectCommand?.epoch).toBeGreaterThan(retryEpoch);
+		expect(laterViewportCommand?.epoch).toBeGreaterThan(retryEpoch);
+		expect(reviewIntakeReadyCommands(harness.sentCommands)).toHaveLength(2);
+	});
+
+	test('bounds unacknowledged Review intake-ready delivery attempts', async () => {
+		// Arrange
+		const harness = makeReviewSurfaceHarness();
+		const rendered = render(<ReviewIntakeLifecycleProbe reviewClient={harness.reviewClient} />);
+		await expect.element(rendered.getByTestId('review-intake-lifecycle-probe')).toBeInTheDocument();
+
+		// Act: exhaust each permitted attempt without acknowledging delivery.
+		for (let attemptIndex = 0; attemptIndex < 3; attemptIndex += 1) {
+			const requestId = requireDefined(
+				reviewIntakeReadyRequestIds(harness.lifecycleStore)[attemptIndex],
+				`Expected Review intake-ready request ${attemptIndex + 1}.`,
+			);
+			// oxlint-disable-next-line no-await-in-loop -- Each timeout synchronously creates the next bounded attempt.
+			await act(async (): Promise<void> => {
+				harness.lifecycleStore.timeoutRequest({ requestId });
+				await Promise.resolve();
+			});
+		}
+		rendered.rerender(<ReviewIntakeLifecycleProbe reviewClient={harness.reviewClient} />);
+
+		// Assert
+		expect(reviewIntakeReadyCommands(harness.sentCommands)).toHaveLength(3);
 	});
 
 	test('keeps an inactive recovered Review mount stable across a streamed metadata-window burst', async () => {
@@ -275,6 +423,28 @@ function ReviewDirectDisplayProbe(props: {
 	);
 }
 
+function ReviewIntakeLifecycleProbe(props: {
+	readonly reviewClient: BridgePaneSurfaceClient;
+}): ReactElement {
+	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
+	const controller = useBridgeReviewRenderSnapshotController({
+		pierreCourier,
+		reviewClient: props.reviewClient,
+	});
+	return (
+		<button
+			data-testid="review-intake-lifecycle-probe"
+			onClick={(): void => {
+				controller.setReviewCodeViewVisibleItemIds(['item-after-intake']);
+				controller.emitSelectedReviewItemIntent('item-after-intake', 'user');
+			}}
+			type="button"
+		>
+			Exercise later Review intents
+		</button>
+	);
+}
+
 function FileDisplaySourceProbe(props: {
 	readonly onDisplaySourceChange: (source: BridgeFileViewerDisplaySource | null) => void;
 }): ReactElement {
@@ -291,6 +461,7 @@ function FileDisplaySourceProbe(props: {
 }
 
 interface ReviewSurfaceHarness {
+	readonly lifecycleStore: BridgeWorkerRpcLifecycleStore;
 	readonly publish: (message: BridgeWorkerServerToMainMessage) => void;
 	readonly reviewClient: BridgePaneSurfaceClient;
 	readonly sentCommands: BridgeWorkerRpcCommandInput[];
@@ -332,6 +503,7 @@ function makeReviewSurfaceHarness(): ReviewSurfaceHarness {
 	const sentCommands: BridgeWorkerRpcCommandInput[] = [];
 	let messageListener: ((message: BridgeWorkerServerToMainMessage) => void) | null = null;
 	return {
+		lifecycleStore,
 		publish: (message): void => {
 			if (messageListener === null) throw new Error('Expected the Review message listener.');
 			messageListener(message);
@@ -341,8 +513,14 @@ function makeReviewSurfaceHarness(): ReviewSurfaceHarness {
 			renderFulfillmentCoordinator: createTestRenderFulfillmentCoordinator(),
 			renderStore: displayStore,
 			send: vi.fn((command): string => {
+				const requestId = `review-request-${sentCommands.length + 1}`;
+				lifecycleStore.startRequest({
+					command: command.command,
+					requestId,
+					surface: 'review',
+				});
 				sentCommands.push(command);
-				return `review-request-${sentCommands.length}`;
+				return requestId;
 			}),
 			subscribeMessages: (listener): (() => void) => {
 				messageListener = listener;
@@ -354,6 +532,23 @@ function makeReviewSurfaceHarness(): ReviewSurfaceHarness {
 		},
 		sentCommands,
 	};
+}
+
+function reviewIntakeReadyCommands(
+	commands: readonly BridgeWorkerRpcCommandInput[],
+): readonly Extract<BridgeWorkerRpcCommandInput, { readonly command: 'reviewIntakeReady' }>[] {
+	return commands.filter(
+		(
+			command,
+		): command is Extract<BridgeWorkerRpcCommandInput, { readonly command: 'reviewIntakeReady' }> =>
+			command.command === 'reviewIntakeReady',
+	);
+}
+
+function reviewIntakeReadyRequestIds(lifecycleStore: BridgeWorkerRpcLifecycleStore): string[] {
+	return Object.values(lifecycleStore.getSnapshot().requestsById)
+		.filter((request) => request.command === 'reviewIntakeReady')
+		.map((request) => request.requestId);
 }
 
 function createTestRenderFulfillmentCoordinator(): BridgeMainRenderFulfillmentCoordinator {
@@ -576,6 +771,11 @@ function reviewDisplayEvent(props: {
 function requireHTMLElement(element: Element | null): HTMLElement {
 	if (!(element instanceof HTMLElement)) throw new Error('Expected an HTML element.');
 	return element;
+}
+
+function requireDefined<TValue>(value: TValue | undefined, message: string): TValue {
+	if (value === undefined) throw new Error(message);
+	return value;
 }
 
 async function settleRenderedReviewFrame(): Promise<void> {
