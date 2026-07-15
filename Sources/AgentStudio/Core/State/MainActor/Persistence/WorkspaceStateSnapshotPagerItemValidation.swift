@@ -1,9 +1,13 @@
-extension WorkspaceStateSnapshotPager {
-    func validateProjectedItemIdentity(
+enum WorkspaceStateSnapshotPagerItemValidator {
+    static func validateProjectedItemIdentity<
+        ParticipantID: Hashable & Sendable,
+        Item: WorkspaceStateSnapshotIdentifiedItem
+    >(
         _ item: Item,
         expectedItemID: Item.SnapshotItemID,
         participantID: ParticipantID
-    ) -> WorkspaceStateSnapshotPageTakeRejection<ParticipantID, Item.SnapshotItemID>? {
+    ) -> WorkspaceStateSnapshotPageTakeRejection<ParticipantID, Item.SnapshotItemID>?
+    where Item.SnapshotParticipantID == ParticipantID {
         let itemID = item.snapshotItemID
         guard item.snapshotParticipantID == participantID else {
             return .itemParticipantMismatch(
