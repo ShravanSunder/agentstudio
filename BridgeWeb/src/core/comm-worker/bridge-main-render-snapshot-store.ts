@@ -434,12 +434,9 @@ export function createBridgeMainRenderSnapshotStore(
 		applyReviewDisplayPatchEvent: (event: BridgeWorkerReviewDisplayPatchEvent): void => {
 			if (isDisposed) return;
 			const shouldPublishInitialRootSnapshot = snapshot.reviewDisplayFreshness === null;
-			const itemIdsBeforeReset = reviewDisplayEventResetsPresentation(
-				snapshot.reviewDisplayFreshness,
-				event,
-			)
-				? [...reviewItemIndexById.keys()]
-				: [];
+			const replacesWorkerDerivationEpoch =
+				snapshot.reviewDisplayFreshness !== null &&
+				event.epoch > snapshot.reviewDisplayFreshness.epoch;
 			const effect = applyReviewDisplayPatchEventInPlace({
 				event,
 				reviewItemIndexById,
@@ -447,14 +444,20 @@ export function createBridgeMainRenderSnapshotStore(
 				snapshot,
 			});
 			if (effect === null) return;
-			const removedItemIds = [...effect.itemIds].filter(
-				(itemId): boolean => !reviewItemIndexById.has(itemId),
-			);
 			const renderCopyInvalidation = invalidateBridgeMainReviewRenderCopies({
-				itemIds: [...new Set([...itemIdsBeforeReset, ...removedItemIds])],
+				itemIds: bridgeMainReviewRenderCopyInvalidationItemIds({
+					currentItemsById: snapshot.reviewItemById,
+					previousItemsById: effect.previousItemsById,
+					replacesWorkerDerivationEpoch,
+				}),
 				snapshot,
 			});
-			snapshot = renderCopyInvalidation.snapshot;
+			const renderCopyPathReconciliation = reconcileBridgeMainReviewRenderCopyPaths({
+				currentItemsById: snapshot.reviewItemById,
+				previousItemsById: effect.previousItemsById,
+				snapshot: renderCopyInvalidation.snapshot,
+			});
+			snapshot = renderCopyPathReconciliation.snapshot;
 			reviewCatalogChangeCursor += 1;
 			const catalogChange: BridgeMainReviewCatalogChange = {
 				cursor: reviewCatalogChangeCursor,
@@ -490,8 +493,15 @@ export function createBridgeMainRenderSnapshotStore(
 			for (const itemId of renderCopyInvalidation.codeViewItemIds) {
 				reviewCodeViewItemListeners.publish(itemId);
 			}
+			for (const itemId of renderCopyPathReconciliation.codeViewItemIds) {
+				reviewCodeViewItemListeners.publish(itemId);
+			}
 			publishBridgeMainListeners(reviewCatalogListeners);
-			if (shouldPublishInitialRootSnapshot || renderCopyInvalidation.changed) {
+			if (
+				shouldPublishInitialRootSnapshot ||
+				renderCopyInvalidation.changed ||
+				renderCopyPathReconciliation.changed
+			) {
 				publish({ ...snapshot });
 			}
 		},
@@ -541,6 +551,7 @@ function emptyBridgeMainReviewCatalogSnapshot(): BridgeMainReviewCatalogSnapshot
 interface BridgeMainReviewDisplayPatchEffect {
 	readonly itemIds: ReadonlySet<string>;
 	readonly itemOrderMutations: readonly BridgeMainReviewCatalogOrderMutation[];
+	readonly previousItemsById: ReadonlyMap<string, BridgeWorkerReviewDisplayItem>;
 	readonly reset: boolean;
 	readonly sourceChanged: boolean;
 	readonly treeRowIds: ReadonlySet<string>;
@@ -557,6 +568,7 @@ function applyReviewDisplayPatchEventInPlace(props: {
 	const mutableState = props.snapshot;
 	const itemIds = new Set<string>();
 	const itemOrderMutations: BridgeMainReviewCatalogOrderMutation[] = [];
+	const previousItemsById = new Map<string, BridgeWorkerReviewDisplayItem>();
 	const treeRowIds = new Set<string>();
 	const treeRowOrderMutations: BridgeMainReviewCatalogOrderMutation[] = [];
 	let reset = false;
@@ -566,7 +578,14 @@ function applyReviewDisplayPatchEventInPlace(props: {
 		props.event.epoch > mutableState.reviewDisplayFreshness.epoch
 	) {
 		reset = true;
-		for (const itemId of Object.keys(mutableState.reviewItemById)) itemIds.add(itemId);
+		for (const itemId of Object.keys(mutableState.reviewItemById)) {
+			capturePreviousBridgeMainReviewDisplayItem({
+				itemId,
+				mutableState,
+				previousItemsById,
+			});
+			itemIds.add(itemId);
+		}
 		for (const rowId of props.reviewTreeRowById.keys()) treeRowIds.add(rowId);
 		mutableState.reviewItemById = {};
 		mutableState.reviewItemIdsByIndex = [];
@@ -588,6 +607,7 @@ function applyReviewDisplayPatchEventInPlace(props: {
 					itemOrderMutations,
 					mutableState,
 					patch,
+					previousItemsById,
 					resetPresentation: (): void => {
 						reset = true;
 					},
@@ -621,6 +641,7 @@ function applyReviewDisplayPatchEventInPlace(props: {
 	return {
 		itemIds,
 		itemOrderMutations,
+		previousItemsById,
 		reset,
 		sourceChanged,
 		treeRowIds,
@@ -633,6 +654,7 @@ function applyReviewItemDisplayPatchInPlace(props: {
 	readonly itemOrderMutations: BridgeMainReviewCatalogOrderMutation[];
 	readonly mutableState: MutableBridgeMainReviewDisplayState;
 	readonly patch: Extract<BridgeWorkerReviewDisplayPatch, { readonly slice: 'reviewItem' }>;
+	readonly previousItemsById: Map<string, BridgeWorkerReviewDisplayItem>;
 	readonly resetPresentation: () => void;
 	readonly reviewItemIndexById: Map<string, number>;
 	readonly reviewTreeRowById: Map<string, BridgeMainReviewTreeDisplayRow>;
@@ -641,7 +663,14 @@ function applyReviewItemDisplayPatchInPlace(props: {
 }): void {
 	if (props.patch.operation === 'reset') {
 		props.resetPresentation();
-		for (const itemId of Object.keys(props.mutableState.reviewItemById)) props.itemIds.add(itemId);
+		for (const itemId of Object.keys(props.mutableState.reviewItemById)) {
+			capturePreviousBridgeMainReviewDisplayItem({
+				itemId,
+				mutableState: props.mutableState,
+				previousItemsById: props.previousItemsById,
+			});
+			props.itemIds.add(itemId);
+		}
 		props.mutableState.reviewItemById = {};
 		props.mutableState.reviewItemIdsByIndex = [];
 		props.reviewItemIndexById.clear();
@@ -649,7 +678,14 @@ function applyReviewItemDisplayPatchInPlace(props: {
 	}
 	if (props.patch.payload.reset) {
 		props.resetPresentation();
-		for (const itemId of Object.keys(props.mutableState.reviewItemById)) props.itemIds.add(itemId);
+		for (const itemId of Object.keys(props.mutableState.reviewItemById)) {
+			capturePreviousBridgeMainReviewDisplayItem({
+				itemId,
+				mutableState: props.mutableState,
+				previousItemsById: props.previousItemsById,
+			});
+			props.itemIds.add(itemId);
+		}
 		props.mutableState.reviewItemById = {};
 		props.mutableState.reviewItemIdsByIndex = [];
 		props.reviewItemIndexById.clear();
@@ -662,12 +698,22 @@ function applyReviewItemDisplayPatchInPlace(props: {
 		});
 	}
 	for (const [offset, item] of props.patch.payload.items.entries()) {
+		capturePreviousBridgeMainReviewDisplayItem({
+			itemId: item.metadata.itemId,
+			mutableState: props.mutableState,
+			previousItemsById: props.previousItemsById,
+		});
 		props.mutableState.reviewItemById[item.metadata.itemId] = item;
 		props.itemIds.add(item.metadata.itemId);
 		if (props.patch.payload.startIndex !== null) {
 			const itemIndex = props.patch.payload.startIndex + offset;
 			const previousItemId = props.mutableState.reviewItemIdsByIndex[itemIndex];
 			if (previousItemId !== null && previousItemId !== undefined) {
+				capturePreviousBridgeMainReviewDisplayItem({
+					itemId: previousItemId,
+					mutableState: props.mutableState,
+					previousItemsById: props.previousItemsById,
+				});
 				props.reviewItemIndexById.delete(previousItemId);
 				if (previousItemId !== item.metadata.itemId) {
 					delete props.mutableState.reviewItemById[previousItemId];
@@ -683,6 +729,7 @@ function applyReviewItemDisplayPatchInPlace(props: {
 		itemOrderMutations: props.itemOrderMutations,
 		mutableState: props.mutableState,
 		operations: props.patch.payload.operations ?? [],
+		previousItemsById: props.previousItemsById,
 		reviewItemIndexById: props.reviewItemIndexById,
 		reviewTreeRowById: props.reviewTreeRowById,
 		treeRowIds: props.treeRowIds,
@@ -739,6 +786,7 @@ function applyReviewDisplayMutationOperationsInPlace(props: {
 		BridgeWorkerReviewDisplayPatch,
 		{ readonly operation: 'batch'; readonly slice: 'reviewItem' }
 	>['payload']['operations'];
+	readonly previousItemsById: Map<string, BridgeWorkerReviewDisplayItem>;
 	readonly reviewItemIndexById: Map<string, number>;
 	readonly reviewTreeRowById: Map<string, BridgeMainReviewTreeDisplayRow>;
 	readonly treeRowIds: Set<string>;
@@ -748,12 +796,22 @@ function applyReviewDisplayMutationOperationsInPlace(props: {
 		switch (operation.operationKind) {
 			case 'upsertItems':
 				for (const item of operation.items) {
+					capturePreviousBridgeMainReviewDisplayItem({
+						itemId: item.metadata.itemId,
+						mutableState: props.mutableState,
+						previousItemsById: props.previousItemsById,
+					});
 					props.mutableState.reviewItemById[item.metadata.itemId] = item;
 					props.itemIds.add(item.metadata.itemId);
 				}
 				break;
 			case 'removeItems':
 				for (const itemId of operation.itemIds) {
+					capturePreviousBridgeMainReviewDisplayItem({
+						itemId,
+						mutableState: props.mutableState,
+						previousItemsById: props.previousItemsById,
+					});
 					delete props.mutableState.reviewItemById[itemId];
 					props.itemIds.add(itemId);
 					const itemIndex = props.reviewItemIndexById.get(itemId);
@@ -771,6 +829,11 @@ function applyReviewDisplayMutationOperationsInPlace(props: {
 			case 'replaceItemOrder':
 				for (const itemId of Object.keys(props.mutableState.reviewItemById)) {
 					if (operation.itemIds.includes(itemId)) continue;
+					capturePreviousBridgeMainReviewDisplayItem({
+						itemId,
+						mutableState: props.mutableState,
+						previousItemsById: props.previousItemsById,
+					});
 					delete props.mutableState.reviewItemById[itemId];
 					props.itemIds.add(itemId);
 				}
@@ -828,15 +891,168 @@ function reviewDisplayEventIsFresh(
 
 const BRIDGE_MAIN_REVIEW_CATALOG_CHANGE_LIMIT = 256;
 
-function reviewDisplayEventResetsPresentation(
-	current: BridgeMainReviewDisplayFreshness | null,
-	event: BridgeWorkerReviewDisplayPatchEvent,
-): boolean {
-	if (current !== null && event.epoch > current.epoch) return true;
-	return event.patches.some((patch): boolean => {
-		if (patch.slice === 'reviewSource') return false;
-		return patch.operation === 'reset' || patch.payload.reset;
+function capturePreviousBridgeMainReviewDisplayItem(props: {
+	readonly itemId: string;
+	readonly mutableState: MutableBridgeMainReviewDisplayState;
+	readonly previousItemsById: Map<string, BridgeWorkerReviewDisplayItem>;
+}): void {
+	if (props.previousItemsById.has(props.itemId)) return;
+	const previousItem = props.mutableState.reviewItemById[props.itemId];
+	if (previousItem !== undefined) props.previousItemsById.set(props.itemId, previousItem);
+}
+
+function bridgeMainReviewRenderCopyInvalidationItemIds(props: {
+	readonly currentItemsById: Readonly<Record<string, BridgeWorkerReviewDisplayItem>>;
+	readonly previousItemsById: ReadonlyMap<string, BridgeWorkerReviewDisplayItem>;
+	readonly replacesWorkerDerivationEpoch: boolean;
+}): readonly string[] {
+	return [...props.previousItemsById].flatMap(([itemId, previousItem]) => {
+		if (props.replacesWorkerDerivationEpoch) return [itemId];
+		const currentItem = props.currentItemsById[itemId];
+		return currentItem !== undefined &&
+			bridgeMainReviewDisplayItemsShareRenderIdentity(previousItem, currentItem)
+			? []
+			: [itemId];
 	});
+}
+
+function bridgeMainReviewDisplayItemsShareRenderIdentity(
+	previousItem: BridgeWorkerReviewDisplayItem,
+	currentItem: BridgeWorkerReviewDisplayItem,
+): boolean {
+	if (
+		previousItem.metadata.itemId !== currentItem.metadata.itemId ||
+		previousItem.metadata.changeKind !== currentItem.metadata.changeKind ||
+		previousItem.metadata.fileClass !== currentItem.metadata.fileClass ||
+		previousItem.metadata.language !== currentItem.metadata.language ||
+		previousItem.contentFacts.length === 0 ||
+		previousItem.contentFacts.length !== currentItem.contentFacts.length ||
+		!stringArraysEqual(previousItem.metadata.contentRoles, currentItem.metadata.contentRoles)
+	) {
+		return false;
+	}
+	return previousItem.contentFacts.every((previousFact, factIndex): boolean => {
+		const currentFact = currentItem.contentFacts[factIndex];
+		return (
+			currentFact !== undefined &&
+			previousFact.role === currentFact.role &&
+			previousFact.semanticDocumentRevision === currentFact.semanticDocumentRevision &&
+			previousFact.contentDigest.algorithm === currentFact.contentDigest.algorithm &&
+			previousFact.contentDigest.authority === currentFact.contentDigest.authority &&
+			previousFact.contentDigest.value === currentFact.contentDigest.value
+		);
+	});
+}
+
+interface BridgeMainReviewRenderCopyPathReconciliation {
+	readonly changed: boolean;
+	readonly codeViewItemIds: readonly string[];
+	readonly snapshot: MutableBridgeMainRenderSnapshot;
+}
+
+function reconcileBridgeMainReviewRenderCopyPaths(props: {
+	readonly currentItemsById: Readonly<Record<string, BridgeWorkerReviewDisplayItem>>;
+	readonly previousItemsById: ReadonlyMap<string, BridgeWorkerReviewDisplayItem>;
+	readonly snapshot: MutableBridgeMainRenderSnapshot;
+}): BridgeMainReviewRenderCopyPathReconciliation {
+	let codeViewItemsById: Record<string, BridgeMainCodeViewItem> | null = null;
+	const codeViewItemIds: string[] = [];
+	for (const [itemId, previousDisplayItem] of props.previousItemsById) {
+		const currentDisplayItem = props.currentItemsById[itemId];
+		const currentCodeViewItem = props.snapshot.codeViewItemsById[itemId];
+		if (
+			currentDisplayItem === undefined ||
+			currentCodeViewItem === undefined ||
+			!bridgeMainReviewDisplayItemsShareRenderIdentity(previousDisplayItem, currentDisplayItem) ||
+			bridgeMainReviewDisplayItemsSharePaths(previousDisplayItem, currentDisplayItem)
+		) {
+			continue;
+		}
+		const reconciledCodeViewItem = bridgeMainReviewCodeViewItemForDisplayPaths({
+			codeViewItem: currentCodeViewItem,
+			displayItem: currentDisplayItem,
+		});
+		if (reconciledCodeViewItem === currentCodeViewItem) continue;
+		codeViewItemsById ??= { ...props.snapshot.codeViewItemsById };
+		codeViewItemsById[itemId] = reconciledCodeViewItem;
+		codeViewItemIds.push(itemId);
+	}
+	if (codeViewItemsById === null) {
+		return { changed: false, codeViewItemIds, snapshot: props.snapshot };
+	}
+	return {
+		changed: true,
+		codeViewItemIds,
+		snapshot: { ...props.snapshot, codeViewItemsById },
+	};
+}
+
+function bridgeMainReviewDisplayItemsSharePaths(
+	previousItem: BridgeWorkerReviewDisplayItem,
+	currentItem: BridgeWorkerReviewDisplayItem,
+): boolean {
+	return (
+		previousItem.metadata.basePath === currentItem.metadata.basePath &&
+		previousItem.metadata.headPath === currentItem.metadata.headPath
+	);
+}
+
+function bridgeMainReviewCodeViewItemForDisplayPaths(props: {
+	readonly codeViewItem: BridgeMainCodeViewItem;
+	readonly displayItem: BridgeWorkerReviewDisplayItem;
+}): BridgeMainCodeViewItem {
+	const metadata = props.displayItem.metadata;
+	const displayPath = metadata.headPath ?? metadata.basePath ?? metadata.itemId;
+	const nextVersion = (props.codeViewItem.version ?? 0) + 1;
+	if (!Number.isSafeInteger(nextVersion)) {
+		throw new Error('Bridge main Review CodeView item version exhausted its safe integer range.');
+	}
+	const bridgeMetadata = {
+		...props.codeViewItem.bridgeMetadata,
+		displayPath,
+	};
+	if (props.codeViewItem.type === 'file') {
+		if (
+			props.codeViewItem.bridgeMetadata.displayPath === displayPath &&
+			props.codeViewItem.file.name === displayPath
+		) {
+			return props.codeViewItem;
+		}
+		return {
+			...props.codeViewItem,
+			bridgeMetadata,
+			file: { ...props.codeViewItem.file, name: displayPath },
+			version: nextVersion,
+		};
+	}
+	const previousPath =
+		metadata.changeKind === 'renamed' || metadata.changeKind === 'copied'
+			? (metadata.basePath ?? props.codeViewItem.fileDiff.prevName)
+			: undefined;
+	if (
+		props.codeViewItem.bridgeMetadata.displayPath === displayPath &&
+		props.codeViewItem.fileDiff.name === displayPath &&
+		(previousPath === undefined || props.codeViewItem.fileDiff.prevName === previousPath)
+	) {
+		return props.codeViewItem;
+	}
+	return {
+		...props.codeViewItem,
+		bridgeMetadata,
+		fileDiff: {
+			...props.codeViewItem.fileDiff,
+			name: displayPath,
+			...(previousPath === undefined ? {} : { prevName: previousPath }),
+		},
+		version: nextVersion,
+	};
+}
+
+function stringArraysEqual(first: readonly string[], second: readonly string[]): boolean {
+	return (
+		first.length === second.length &&
+		first.every((value, valueIndex): boolean => value === second[valueIndex])
+	);
 }
 
 interface BridgeMainReviewRenderCopyInvalidation {

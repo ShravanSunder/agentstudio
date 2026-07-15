@@ -7,6 +7,7 @@ import {
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	type BridgeWorkerFileDisplayPatchEvent,
+	type BridgeWorkerReviewDisplayItem,
 	type BridgeWorkerReviewDisplayPatchEvent,
 } from './bridge-worker-contracts.js';
 
@@ -505,6 +506,219 @@ describe('Bridge main render snapshot store', () => {
 			selectedItemId: 'item-1',
 			source: 'user',
 		});
+	});
+
+	test('preserves unchanged ready Review render copies while invalidating removed or semantically changed copies', () => {
+		// Arrange
+		const store = createBridgeMainRenderSnapshotStore();
+		const initialEvent = makeReviewDisplayPatchEvent();
+		const initialItemPatch = initialEvent.patches[1];
+		if (initialItemPatch?.slice !== 'reviewItem' || initialItemPatch.operation !== 'batch') {
+			throw new Error('expected Review fixture item batch');
+		}
+		const initialCatalogItem = initialItemPatch.payload.items[0];
+		if (initialCatalogItem === undefined) {
+			throw new Error('expected retained Review fixture item');
+		}
+		const retainedCatalogItem: BridgeWorkerReviewDisplayItem = {
+			...initialCatalogItem,
+			contentFacts: [
+				{
+					contentDigest: {
+						algorithm: 'sha256',
+						authority: 'authoritative',
+						value: 'a'.repeat(64),
+					},
+					role: 'file',
+					semanticDocumentRevision: 'semantic-item-1',
+				},
+			],
+			metadata: {
+				...initialCatalogItem.metadata,
+				contentRoles: ['file'],
+			},
+		};
+		const removedCatalogItem: BridgeWorkerReviewDisplayItem = {
+			...retainedCatalogItem,
+			metadata: {
+				...retainedCatalogItem.metadata,
+				basePath: 'Sources/Removed.swift',
+				headPath: 'Sources/Removed.swift',
+				itemId: 'item-removed',
+			},
+			metadataWindowIdentity: 'metadata-window-item-removed-r11',
+		};
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			patches: [
+				{
+					...initialItemPatch,
+					payload: {
+						...initialItemPatch.payload,
+						items: [retainedCatalogItem, removedCatalogItem],
+					},
+				},
+			],
+		});
+		const retainedCodeViewItem = makeBridgeMainCodeViewItem('item-1');
+		const removedCodeViewItem = makeBridgeMainCodeViewItem('item-removed');
+		const retainedRowPaint = {
+			contentCacheKey: 'pierre-content:item-1',
+			status: 'ready',
+		};
+		store.applySnapshotUpdate({
+			codeViewItemPatches: [
+				{ operation: 'upsert', itemId: 'item-1', item: retainedCodeViewItem },
+				{ operation: 'upsert', itemId: 'item-removed', item: removedCodeViewItem },
+			],
+			workerPatches: [
+				{
+					itemId: 'item-1',
+					operation: 'upsert',
+					payload: retainedRowPaint,
+					slice: 'rowPaint',
+				},
+				{
+					itemId: 'item-1',
+					operation: 'upsert',
+					payload: { state: 'ready' },
+					slice: 'contentAvailability',
+				},
+				{
+					itemId: 'item-removed',
+					operation: 'upsert',
+					payload: { contentCacheKey: 'pierre-content:item-removed', status: 'ready' },
+					slice: 'rowPaint',
+				},
+				{
+					itemId: 'item-removed',
+					operation: 'upsert',
+					payload: { state: 'ready' },
+					slice: 'contentAvailability',
+				},
+			],
+		});
+		const addedCatalogItem: BridgeWorkerReviewDisplayItem = {
+			...retainedCatalogItem,
+			metadata: {
+				...retainedCatalogItem.metadata,
+				basePath: 'Sources/Added.swift',
+				headPath: 'Sources/Added.swift',
+				itemId: 'item-added',
+			},
+			metadataWindowIdentity: 'metadata-window-item-added-r12',
+		};
+		const changedRetainedCatalogItem: BridgeWorkerReviewDisplayItem = {
+			...retainedCatalogItem,
+			contentFacts: [
+				{
+					contentDigest: {
+						algorithm: 'sha256',
+						authority: 'authoritative',
+						value: 'b'.repeat(64),
+					},
+					role: 'file',
+					semanticDocumentRevision: 'semantic-item-1-changed',
+				},
+			],
+		};
+
+		// Act
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			patches: [
+				{
+					...initialItemPatch,
+					payload: {
+						...initialItemPatch.payload,
+						items: [retainedCatalogItem, addedCatalogItem],
+					},
+				},
+			],
+			projectionRevision: initialEvent.projectionRevision + 1,
+			sequence: initialEvent.sequence + 1,
+		});
+
+		// Assert
+		const snapshot = store.getSnapshot();
+		expect(snapshot.reviewItemIdsByIndex).toEqual(['item-1', 'item-added']);
+		expect(snapshot.codeViewItemsById['item-1']).toBe(retainedCodeViewItem);
+		expect(snapshot.contentAvailabilityById['item-1']).toEqual({ state: 'ready' });
+		expect(snapshot.rowPaintById['item-1']).toEqual(retainedRowPaint);
+		expect(snapshot.codeViewItemsById['item-removed']).toBeUndefined();
+		expect(snapshot.contentAvailabilityById['item-removed']).toBeUndefined();
+		expect(snapshot.rowPaintById['item-removed']).toBeUndefined();
+
+		// Act: unchanged complete content is retained while its same-epoch display path changes.
+		const renamedRetainedCatalogItem: BridgeWorkerReviewDisplayItem = {
+			...retainedCatalogItem,
+			metadata: {
+				...retainedCatalogItem.metadata,
+				basePath: 'Sources/Renamed.swift',
+				headPath: 'Sources/Renamed.swift',
+			},
+			metadataWindowIdentity: 'metadata-window-item-1-renamed-r13',
+		};
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			patches: [
+				{
+					...initialItemPatch,
+					payload: {
+						...initialItemPatch.payload,
+						items: [renamedRetainedCatalogItem, addedCatalogItem],
+					},
+				},
+			],
+			projectionRevision: initialEvent.projectionRevision + 2,
+			sequence: initialEvent.sequence + 2,
+		});
+
+		// Assert
+		const renamedSnapshot = store.getSnapshot();
+		const renamedCodeViewItem = renamedSnapshot.codeViewItemsById['item-1'];
+		expect(renamedCodeViewItem).not.toBe(retainedCodeViewItem);
+		expect(renamedCodeViewItem).toMatchObject({
+			bridgeMetadata: {
+				contentState: 'hydrated',
+				displayPath: 'Sources/Renamed.swift',
+			},
+			file: {
+				contents: retainedCodeViewItem.type === 'file' ? retainedCodeViewItem.file.contents : '',
+				name: 'Sources/Renamed.swift',
+			},
+			type: 'file',
+		});
+		expect(renamedCodeViewItem?.version).toBeGreaterThan(retainedCodeViewItem.version ?? 0);
+		expect(renamedSnapshot.contentAvailabilityById['item-1']).toEqual({ state: 'ready' });
+		expect(renamedSnapshot.rowPaintById['item-1']).toEqual(retainedRowPaint);
+
+		// Act: the same catalog identity now names different authoritative content.
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			patches: [
+				{
+					...initialItemPatch,
+					payload: {
+						...initialItemPatch.payload,
+						items: [
+							{
+								...changedRetainedCatalogItem,
+								metadata: renamedRetainedCatalogItem.metadata,
+							},
+							addedCatalogItem,
+						],
+					},
+				},
+			],
+			projectionRevision: initialEvent.projectionRevision + 3,
+			sequence: initialEvent.sequence + 3,
+		});
+
+		// Assert
+		expect(store.getSnapshot().codeViewItemsById['item-1']).toBeUndefined();
+		expect(store.getSnapshot().contentAvailabilityById['item-1']).toBeUndefined();
+		expect(store.getSnapshot().rowPaintById['item-1']).toBeUndefined();
 	});
 });
 
