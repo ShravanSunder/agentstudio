@@ -268,23 +268,30 @@ newer same-root work but rotate behind already-ready unrelated roots. Production
 `P` and work quantum sizes are frozen through calibration, while this scheduling
 formula is invariant. The 300-source oracle does not depend on wall-clock sleeps.
 
-WS5. A scan result must declare `complete`, `partialTraversal`,
-`partialValidation`, `cancelled`, `rootUnavailable`, `permissionDenied`, or an
-equivalently precise exhaustive outcome.
+WS5. `RepoScannerResult` is a strict discriminated union whose cases are
+`completeAuthoritative`, `partial`, `unavailable`, `cancelled`, and `failed`.
+Each case carries only its valid case-specific payload. Traversal, validation,
+permission, and root failure reasons remain exhaustive inside those payloads;
+correlated optionals or a separate completion field may not encode the union.
 
-WS6. Repository/worktree removal may be inferred only from a complete scan of
-the same current root generation. “Complete” requires authoritative traversal
-of every in-policy directory and authoritative classification/validation of
-every encountered `.git` candidate. A validation timeout or suppressed error
-makes the result partial. Partial, failed, cancelled, or stale scans cannot
-establish absence.
+WS6. Repository/worktree removal may be inferred only by the topology projector
+from a `completeAuthoritative` inventory accepted for the exact current
+`FSEventRegistrationToken`, checked scan-run generation, and a compatible
+canonical topology base revision. “Complete”
+requires authoritative traversal of every in-policy directory and authoritative
+classification/validation of every encountered `.git` candidate. A validation
+timeout or suppressed error makes the result partial. Partial, failed,
+cancelled, unavailable, stale, or base-incompatible results cannot establish
+absence and carry no removal authority.
 
 WS7. A partial scan may merge verified positive discoveries only if it cannot
 remove prior canonical truth and the resulting state remains marked dirty.
 
-WS8. Scan telemetry distinguishes queue wait, traversal/validation service
-time, completion class, directories visited, repositories validated, stale
-completion drops, and follow-up count.
+WS8. Scan telemetry distinguishes ownership: `RepoScannerResult` carries
+traversal/validation service time, completion case, directories visited, and
+repositories validated; `ScheduledWatchedFolderScanResult` carries queue wait,
+stale-completion drops, and follow-up count. Neither telemetry surface grants
+topology authority.
 
 WS9. The scanner records candidate count plus validation success, negative,
 timeout, cancellation, and failure counts. A negative result is authoritative
@@ -322,13 +329,17 @@ explicit support defines its disappearance semantics.
 
 ### Topology Convergence and MainActor Apply
 
-TA1. Repository scan results cross into topology projection as immutable,
-generation-bearing snapshots with explicit completeness plus the canonical
-topology revision on which the diff is based.
+TA1. `ScheduledWatchedFolderScanResult` crosses into topology projection as an
+immutable snapshot binding exhaustive scanner evidence to the exact
+`FSEventRegistrationToken` and checked scan-run generation. At W5,
+`TopologyProjectionRequest` atomically binds that accepted scheduled result to
+the projector mirror's canonical base revision; the resulting projection and
+apply batch carry that base revision.
 
-TA2. Repository identity resolution, existing-versus-discovered joins,
-worktree reconciliation construction, removal candidate construction, and
-cache mutation construction execute outside MainActor.
+TA2. The topology projector owns repository identity resolution,
+existing-versus-discovered joins, worktree reconciliation construction,
+removal-candidate derivation from a complete authoritative current inventory,
+and cache mutation construction. All execute outside MainActor.
 
 TA3. MainActor remains the owner of canonical observable atoms.
 
@@ -906,9 +917,13 @@ path-component radix trie, rebuilt off-main only when registered root identity
 changes and atomically swapped after generation validation. It is derived cache,
 never persisted watcher authority.
 
-Each `RegisteredRootDescriptor` contains source/root/registration generation,
+Each `RegisteredRootDescriptor` is constructed only by source configuration
+from host-authorized root input. It contains one exact
+`FSEventRegistrationToken` as its sole source/root/registration authority plus
 standardized lexical components, once-resolved canonical components, volume
-identity/case policy, and both aliases in the trie. Incoming event routing
+identity/case policy, and both aliases in the trie. Scanner paths, `.git`
+metadata, and scan results are evidence only and cannot construct, select, or
+widen this authority. Incoming event routing
 standardizes separators and `.`/`..` components without filesystem I/O and
 selects the deepest component-complete alias match. It does not lowercase every
 path, compare raw string prefixes, scan every root, or call
@@ -936,51 +951,67 @@ Triggers merge by retaining the newest source/root generation and the union of
 unresolved repair obligations. A hot root's follow-up reenters the fair ready
 queue; it does not recursively retain a scan slot. Oldest-ready-root age and
 per-root repair age are bounded/observable. Scan traversal and Git validation
-run outside actor-isolated service and return through a generation-bearing
-completion.
+run outside actor-isolated service and return as traversal-only evidence. The
+scheduler binds that evidence to the exact request and checked scan-run
+generation before forwarding it.
 
 ```swift
 struct WatchedFolderScanRequest: Sendable {
-    let source: FSEventRegistrationToken
-    let repair: RepairGeneration?
-    let trigger: WatchedFolderScanTrigger
     let canonicalRoot: RegisteredRootDescriptor
+    let cause: WatchedFolderScanCause
 }
 
-enum ScanCompletionClass: Sendable {
-    case completeAuthoritative
-    case partial
-    case unavailable
-    case cancelled
-    case failed
+enum WatchedFolderScanCause: Sendable {
+    case initialAdd
+    case callback
+    case manual
+    case fallback
+    case repair(WatchedFolderRepairObligation)
 }
 
-struct WatchedFolderScanResult: Sendable {
+struct WatchedFolderRepairObligation: Sendable {
+    let generation: RepairGeneration
+    let unresolved: NonEmptyWatchedFolderRepairObligations
+}
+
+enum RepoScannerResult: Sendable {
+    case completeAuthoritative(CompleteRepoScan)
+    case partial(PartialRepoScan)
+    case unavailable(UnavailableRepoScan)
+    case cancelled(CancelledRepoScan)
+    case failed(FailedRepoScan)
+}
+
+struct ScheduledWatchedFolderScanResult: Sendable {
     let request: WatchedFolderScanRequest
-    let positiveDiscoveries: [DiscoveredRepoTopologyInfo]
-    let removalCandidates: [CanonicalRepositoryIdentity]
-    let completion: ScanCompletionClass
-    let failures: [ScanFailureReason]
-    let counts: ScanResultCounts
-    let startedAt: ContinuousClock.Instant
-    let completedAt: ContinuousClock.Instant
+    let scanRunGeneration: UInt64
+    let scannerResult: RepoScannerResult
+    let schedulingMetrics: WatchedFolderScanSchedulingMetrics
 }
 ```
 
-`RepoScanner` returns this exhaustive result rather than collapsing traversal,
+`RepoScanner` returns `RepoScannerResult` rather than collapsing traversal,
 stat, validation, timeout, cancellation, and permission failures into an empty
-array. Only `completeAuthoritative` may authorize absence/removal. Partial
-positive discoveries may merge while repair debt remains; negative results do
-not delete last-known topology.
+array. Complete and partial payloads contain their valid positive inventory,
+structured reasons, counts, and traversal/validation service metrics; a
+validation provider's authoritative negative is distinct from timeout,
+cancellation, and failure. The scanner never receives prior topology and never
+constructs removal candidates. Partial positive discoveries may merge while
+repair debt remains; negative results do not delete last-known topology.
 
 #### Topology projection, apply, and currentness
 
-`FilesystemTopologyProjector` is an actor. It consumes accepted scan results,
-current immutable topology/field-ownership input, and canonical revision; it
-performs normalization, repository/worktree joins, pane/cache reconciliation,
-and stale-result rejection off-main. It produces one `TopologyApplyBatch` with
-field-scoped inserts/updates/removals, pane/cache patches, currentness, and
-ordered post-apply effects.
+`FilesystemTopologyProjector` is an actor. It consumes accepted
+`TopologyProjectionRequest` values that bind one scheduled result to the
+current immutable topology/field-ownership mirror and canonical base revision;
+it performs
+normalization, repository/worktree joins, pane/cache reconciliation,
+removal-candidate derivation, and stale-result rejection off-main. It may derive
+removals only from `completeAuthoritative` inventory after exact current
+`FSEventRegistrationToken`, checked scan-run generation, and compatible
+mirror/base-revision checks. It produces one
+`TopologyApplyBatch` with field-scoped inserts/updates/removals, pane/cache
+patches, currentness, and ordered post-apply effects.
 
 The projector owns `WorkspaceTopologyProjectionMirror`, a rebuildable off-main
 mirror of the discovery-owned repository/worktree fields, user-owned field
@@ -1319,24 +1350,34 @@ or explicit non-current state with retained retry.
 
 ### Scan Result Contract
 
-A scan result contains:
+A `RepoScannerResult` contains only traversal/validation evidence as an
+exhaustive associated-value case: normalized verified positives, structured
+failure reasons valid for that case, directories/candidates visited, validation
+success/authoritative-negative/timeout/cancellation/failure counts,
+traversal/validation service timestamps, and whether cancellation was observed.
+It contains no source authority, prior topology, scheduling metric, or removal
+candidate.
 
-- watched-root ID and root generation;
-- trigger/repair generation;
-- normalized positive discoveries;
-- removal candidates only when traversal was authoritative;
-- completion class and structured traversal/validation failure reasons;
-- encountered candidate count plus validation success, negative, timeout,
-  cancellation, and failure counts;
-- start/end timestamps and whether cancellation was observed.
+A `ScheduledWatchedFolderScanResult` binds that evidence to:
 
-Only the scheduler that owns the matching root generation can accept a result.
-The topology projector revalidates source generation and canonical topology
-revision before producing field-scoped patches. MainActor revalidates both
-before applying the mutation. Recovery owners acknowledge the repair generation
-only after their canonical effect commits. These repeated checks are
-intentional: queueing and concurrent user mutation can make work stale at every
-boundary.
+- exact `FSEventRegistrationToken` carried by the root descriptor;
+- checked per-root scan-run generation;
+- exhaustive scan cause, with repair generation and non-empty obligations only
+  in the repair case;
+- queue wait, follow-up, and stale-scheduling metrics.
+
+Only the scheduler that owns the exact current `FSEventRegistrationToken` and
+checked scan-run generation can accept a result. W5 constructs one typed
+`TopologyProjectionRequest` that atomically binds the accepted scheduled result
+to the projector mirror's canonical base revision. The topology projector
+revalidates that exact registration token, scan-run generation, and base
+revision before deriving removals or producing field-scoped patches. Only a
+complete authoritative current inventory can authorize that derivation;
+partial/stale evidence carries no absence authority. MainActor revalidates the
+registration/source generation plus base revision before applying the mutation.
+Recovery owners acknowledge the repair generation only after their canonical
+effect commits. These repeated checks are intentional: queueing and concurrent
+user mutation can make work stale at every boundary.
 
 ### MainActor Last-Mile Apply Contract
 
@@ -1432,14 +1473,14 @@ globally.
 | `FilesystemObservationSlotRegistry` | fixed slot pool, exact UUIDv7 binding currentness, replacement reserve/deferred fairness, fence lifecycle, retained retirement receipt and context-release acknowledgement | native callback capture, generic gather internals, semantic repair |
 | `FilesystemObservationFleetLifecycle` | whole-fleet shutdown identity, typed completed/incomplete result, non-evictable in-memory shutdown-debt snapshot, deterministic resume coordination | duplicate payload custody, persistence, ordinary per-source replacement |
 | `FilesystemSourceGate` | semantic repair debt, currentness, and participant acknowledgements | generic mailbox drain or UI state |
-| `WatchedFolderScanScheduler` | single-flight, dirty collapse, fairness, generations | scan implementation or canonical atoms |
-| `RepoScanner` | bounded traversal and repository validation result | scheduling, deletion policy, state apply |
+| `WatchedFolderScanScheduler` | single-flight, dirty collapse, fairness, exact request/run-generation binding, scheduling metrics | scan implementation, removal derivation, or canonical atoms |
+| `RepoScanner` | exhaustive bounded traversal and repository-validation evidence | source/root authority, scheduling, prior topology, removal derivation, state apply |
 | `FilesystemRootIndexSnapshot` | topology-updated canonical ownership lookup | global fanout or pane projection |
 | `FilesystemActor` | sole fleet mailbox drain, bounded semantic transfer, fence completion, SourceGate acceptance, filesystem-domain reduction/orchestration, and fact production | native stream/control-block lifecycle, MainActor mutation |
 | `FilesystemProjectionIndex` | pane/worktree projection and stale rejection | source admission or UI ownership |
 | content-repair projector | bounded serial consumer delivery, resumable acknowledgement/forwarding journal, and bounded exact replay | consumer membership or temporal eligibility, full-tree path enumeration, Git snapshots, visual rendering |
 | `WorktreeContentRepairConsumerRegistry` | generation-bearing consumer registration, captured repair lifecycle and temporal eligibility, acknowledgement/retry transfer, and exact source-registration retirement receipt | observation-slot binding ownership, live UI discovery, content rebuilding, consumer delivery |
-| topology projector | immutable discovery-to-mutation diff | canonical observable state |
+| topology projector | current-generation/base identity joins, removal derivation, and immutable discovery-to-mutation diff | traversal, scheduling, or canonical observable state |
 | domain MainActor appliers | field-scoped canonical mutations and typed post-effects | backlog, projection, I/O, serialization |
 | `WorkspacePersistenceRevisionOwner` + `WorkspacePersistenceCoordinator` | one write sequence, changed sets, paged checkpoints, stale-write rejection | SQLite schema, canonical UI mutation |
 | `RuntimeFactBus` | topic-aware semantic replay/fanout and diagnostics | raw samples, domain joins, UI work |
@@ -1455,9 +1496,15 @@ globally.
 - Ordinary changed-path hints and coarse worktree-content invalidations are
   distinct types; a discontinuity cannot be encoded as an empty/sentinel path
   batch.
-- Every scan and projection request/result carries root/topology generation.
+- Every scheduled scan and projection request/result carries root/topology
+  generation; raw scanner evidence cannot carry or select root authority.
+- A scan request obtains authority only from its root descriptor's exact
+  `FSEventRegistrationToken`; its exhaustive cause union cannot represent a
+  missing repair generation or an empty repair obligation.
 - Every topology projection carries canonical base revision and field ownership.
-- Partial and complete scan results are distinct exhaustive cases.
+- Partial and complete scanner results are distinct associated-value cases;
+  invalid completion/payload combinations are unrepresentable.
+- Scanner evidence cannot contain removal candidates or authorize absence.
 - MainActor apply APIs accept typed mutation batches, not raw envelopes.
 - Event subscriptions require explicit topics and `BusSubscriberPolicy`.
 - Repair acknowledgement is typed by source kind, generation, and recovery owner.
@@ -1725,6 +1772,8 @@ scope, and clearing repair debt. Only the typed owner and current generation/
 revision contracts may authorize those effects.
 
 - Canonical host-owned root identity decides attribution.
+- Scanner paths, `.git` candidates, and validation responses are evidence only;
+  they cannot select source/root authority or authorize absence/removal.
 - `.gitignore` is a projection policy, not an authorization boundary.
 - A failed or partial scan cannot destructively establish absence.
 - Local canonical roots are initially authoritative. Non-local/removable/

@@ -310,6 +310,10 @@ W2a completion proves mechanics only. W2b is the production repair/admission gat
 
 Requirements: WS1–WS9.
 
+Depends on W4a's source-authorized `RegisteredRootDescriptor` construction
+contract. W3 does not accept a raw `URL` as scheduler authority and does not
+wait for W4b's persistent lookup index.
+
 ### Production changes
 
 Add:
@@ -320,9 +324,28 @@ Add:
   - One immediate follow-up maximum.
   - Explicit global concurrency and oldest-ready/fair scheduling.
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/WatchedFolderScanResult.swift`
-  - Normative `WatchedFolderScanRequest`, `WatchedFolderScanTrigger`, `ScanCompletionClass`, `ScanFailureReason`, `ScanResultCounts`, and `WatchedFolderScanResult`.
-  - `ScanCompletionClass` is exactly `completeAuthoritative`, `partial`, `unavailable`, `cancelled`, or `failed`; detailed traversal/validation/permission/root reasons remain exhaustive in `failures` and counts.
-  - Counts: directories, candidates, validation success/negative/timeout/cancel/failure, queue wait, service, stale drops, follow-ups.
+  - Normative `WatchedFolderScanRequest`, strict `WatchedFolderScanCause`,
+    non-empty `WatchedFolderRepairObligation`,
+    `ScheduledWatchedFolderScanResult`, and
+    `WatchedFolderScanSchedulingMetrics`.
+  - The request obtains authority only from one `RegisteredRootDescriptor`
+    carrying the exact `FSEventRegistrationToken`; it does not duplicate token
+    fields. The cause union represents initial, callback, manual, fallback, or
+    repair with exact generation and non-empty obligations, never nil or
+    correlated independent fields.
+  - Bind that exact registration token and a checked per-root `UInt64` scan-run
+    generation to scanner evidence. UUIDv7 source identity stays opaque and
+    never determines ordering; the scanner mints no authority.
+  - Scheduling metrics own queue wait, stale drops, and follow-ups.
+- `Sources/AgentStudio/Infrastructure/RepoScannerResult.swift`
+  - Normative strict `RepoScannerResult` associated-value union with exactly
+    `completeAuthoritative`, `partial`, `unavailable`, `cancelled`, and `failed`
+    cases plus case-specific payloads, exhaustive `ScanFailureReason`, and
+    traversal/validation counts.
+  - Counts own directories, candidates, validation
+    success/authoritative-negative/timeout/cancel/failure, and scanner service.
+  - No correlated optionals, source/root authority, scheduler metrics, prior
+    topology, or removal candidates.
 
 Modify:
 
@@ -331,9 +354,15 @@ Modify:
   - Initial, callback, manual, fallback, and repair triggers use the same scheduler.
 - `Sources/AgentStudio/Infrastructure/RepoScanner.swift`
   - Replace `try?` suppression that converts traversal/metadata errors into absence-capable results.
-  - Return the exhaustive `WatchedFolderScanResult` with authoritative negative distinct from failure.
+  - Return only exhaustive `RepoScannerResult` traversal/validation evidence,
+    with authoritative negative distinct from timeout/cancellation/failure.
 
-Only `completeAuthoritative` for the same current root generation may produce removal candidates. Partial results may add verified positives and must retain dirty/repair state.
+The scheduler accepts a completion only for the exact current
+`FSEventRegistrationToken` and checked scan-run generation. It never derives
+removal candidates. Partial results may add verified positives and must retain
+dirty/repair state. In the target/post-W5 architecture, W5 alone derives
+removal candidates from `completeAuthoritative` inventory after exact token,
+scan-run, and canonical-base checks.
 
 ### Test proof
 
@@ -345,17 +374,51 @@ Create/modify:
 - `FilesystemActorShellGitIntegrationTests.swift`
 - `WatchedFolderScanRecoveryIntegrationTests.swift`
 
-Use real temporary filesystem/Git fixtures for the integration layer. Cases: permission denial, unreadable child, validation timeout/failure, cancellation, missing/replaced root, malformed `.git`, symlink loop, hot/cold folder fairness, trigger during running scan.
+Use real temporary filesystem/Git fixtures for the integration layer. Scanner
+cases: permission denial, unreadable child, validation timeout/failure,
+cancellation, missing/replaced root, malformed `.git`, symlink loop, and exact
+completion/count classification. Scheduler cases: hot/cold folder fairness,
+one-running, trigger during running scan, newest-dirty collapse, exact-current
+generation rejection, and separated queue/service/follow-up metrics.
 
 Independent oracle: literal generated directory/repository manifest. Do not derive expected absence from scanner output.
 
-RED/GREEN: required for false removal caused by suppressed traversal/validation error and for starvation/running-plus-dirty behavior.
+RED/GREEN: required for suppressed traversal/validation errors producing a
+partial non-authoritative result that cannot express absence, and for
+starvation/running-plus-dirty behavior. The W3 `FilesystemActor` integration
+also proves that a partial/stale result cannot remove its prior observed group
+and retains dirty/repair state. Until W5, that actor retains only the legacy
+observed-group comparison and gates destructive URL emission on complete-current
+scanner/scheduler evidence; it does not construct canonical identity removals.
+W5 hard-cuts that transitional comparison and re-proves the invariant at the
+final topology-projector owner against canonical truth. W3 does not move
+removal derivation into the scanner or scheduler.
 
 Split trigger: the validation provider cannot distinguish authoritative negative from timeout/failure.
 
-## 6. Task W4 — Persistent Root Index And Batched Source Configuration
+## 6. Task W4 — Source-Authorized Root Contract, Persistent Index, And Batched Configuration
 
 Requirements: FI1–FI7.
+
+### W4a — Source-authorized root descriptor prerequisite
+
+Add:
+
+- `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemSourceConfiguration.swift`
+  - Normative source-owned `RegisteredRootDescriptor` construction from
+    host-authorized input. The descriptor carries one exact
+    `FSEventRegistrationToken` as its sole source/root/registration authority.
+  - Scanner paths, Git metadata, and scan output cannot construct, select, or
+    widen this authority.
+- `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemPathCanonicalizer.swift`
+  - Source-verified volume/case/Unicode/component policy used to construct the
+    descriptor. No per-event canonicalization or root lookup lands in W4a.
+
+W4a is the small prerequisite for W3 request authority. Its focused proof
+rejects raw, relative, outside-root, mismatched-generation, and scanner-derived
+construction attempts.
+
+### W4b — Persistent root index and batched source configuration
 
 ### Production changes
 
@@ -364,11 +427,11 @@ Add:
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemRootIndexSnapshot.swift`
   - Immutable, generation-bearing path-component index with deepest canonical match.
   - Build from user-authorized canonical roots when topology changes.
-- `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemSourceConfiguration.swift`
+- Extend `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemSourceConfiguration.swift`
   - Normative `FilesystemSourceConfigurationBatch` and `FilesystemSourceConfigurationReceipt` for one typed register/unregister/activity/filter change.
   - Canonicalize roots once; preserve lexical/resolved forms only as the accepted security policy permits.
-- `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemPathCanonicalizer.swift`
-  - Source-verified volume/case/Unicode/component policy shared by `RegisteredRootDescriptor` construction and lookup.
+- Extend `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemPathCanonicalizer.swift`
+  - Share the W4a descriptor policy with immutable index lookup.
 
 Modify:
 
@@ -436,9 +499,20 @@ Add:
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/WorkspaceTopologyProjectionMirror.swift`
   - Off-main immutable mirror bootstrapped/recovered from revisioned pages.
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemTopologyProjector.swift`
-  - Resolve identities, joins, worktree reconciliation, removals, pane/cache patches, and downstream effects off-main.
+  - Define `TopologyProjectionRequest` as the sole W5 binding of one accepted
+    `ScheduledWatchedFolderScanResult` to the projector mirror's canonical base
+    revision.
+  - Accept exact current `TopologyProjectionRequest` values; resolve
+    identities, joins, worktree reconciliation, pane/cache patches, and
+    downstream effects off-main.
+  - Derive removals only from `completeAuthoritative` inventory after exact
+    `FSEventRegistrationToken`, checked scan-run generation, and compatible
+    mirror/base-revision checks.
 
-W5a modifies no atom. It proves mirror bootstrap/contiguous update/gap recovery, field ownership, identity joins, stale scan rejection, and literal topology diff output against an independent model.
+W5a modifies no atom. It proves mirror bootstrap/contiguous update/gap recovery,
+field ownership, identity joins, stale scan rejection, complete-current removal
+derivation, partial/stale no-removal with retained non-current debt, and literal
+topology diff output against an independent generated manifest.
 
 The W5a integration test uses the real `WorkspaceTopologyProjectionMirror`, W4.5 pager/lease, and contiguous `TopologyProjectionUpdate` stream. It proves pre-source-admission bootstrap, post-base replay, missing-update gap rejection, and bounded rebootstrap; W4.5's test journal fixture is not this proof.
 
@@ -809,8 +883,9 @@ shared S1 admission
   -> W2a fixed-slot substrate slices
   -> G2 + legacy structural proof -> W1b dormant-ready
   -> F3 + WF-C participant registry/projector -> W2a mechanics-complete
-  -> W3 scan scheduler/result
-  -> W4 root index/config
+  -> W4a source-authorized root descriptor
+       +-> W3 scan scheduler/exhaustive scanner result
+       +-> W4b root index/batched config
   -> W4.5 sole revision owner + fixed-revision pager
   -> W5 topology mirror/projector/apply --> W7a-c persistence protocol/migration
                  |                              -> W8 compaction/checkpoint proof
@@ -825,7 +900,16 @@ shared S1 admission
   -> W12 watched workload contribution to combined IG2
 ```
 
-W3 and W4 may develop in parallel after the isolated W1b/W2a seams stabilize. W7a–c/W8, W9, and W10 may develop in parallel after the `TopologyApplyReceipt` contract stabilizes, but W7d waits for W8 and W2b waits for W5/W9/W10. W12 depends on W2b, IG1, S6, and CG1 and contributes watched proof to IG2; it does not own or precede IG2. All edits to `FilesystemActor.swift`, `WorkspaceCacheCoordinator.swift`, `WorkspaceSurfaceCoordinator*.swift`, canonical atoms, datastore integration, `BridgePaneController.swift`, and `.mise.toml` use one integration owner per gate.
+W4a lands first so neither scanner nor scheduler accepts raw path authority. W3
+and W4b may then develop in parallel after the isolated W1b/W2a seams
+stabilize. W7a–c/W8, W9, and W10 may develop in parallel after the
+`TopologyApplyReceipt` contract stabilizes, but W7d waits for W8 and W2b waits
+for W5/W9/W10. W12 depends on W2b, IG1, S6, and CG1 and contributes watched
+proof to IG2; it does not own or precede IG2. All edits to
+`FilesystemActor.swift`, `WorkspaceCacheCoordinator.swift`,
+`WorkspaceSurfaceCoordinator*.swift`, canonical atoms, datastore integration,
+`BridgePaneController.swift`, and `.mise.toml` use one integration owner per
+gate.
 
 ## 16. Rollback And Blocking Gates
 
