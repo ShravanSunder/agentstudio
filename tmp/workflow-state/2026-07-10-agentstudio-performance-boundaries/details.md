@@ -661,3 +661,37 @@ registered-worktree repair integration against the frozen SourceGate API, then
 the atomic W2b production cut. No product-performance claim is made before W2b
 and the final Victoria, authenticated exact-PID IPC, large-root, native UI, and
 human interaction-feel proof loop.
+
+## 2026-07-15 WF-C registered-worktree integration checkpoint
+
+The isolated WF-C composition proof is frozen and committed at `499adefa`.
+Two deterministic integration tests compose the real mutable
+`FilesystemSourceGate`, real `WorktreeContentRepairConsumerRegistry`, and real
+`FilesystemContentRepairProjector`. The participant oracle is derived
+independently from registered consumer tokens and then cross-checks C1's
+captured participant set.
+
+Fresh parent proof:
+
+- expected RED: the exact integration filter discovered zero tests and zero
+  suites before the files existed;
+- focused integration: 2 tests, 1 suite, exit 0;
+- focused projector: 24 tests, 1 suite, exit 0;
+- focused registry: 25 tests, 1 suite, exit 0;
+- `mise run lint`: swift-format OK, SwiftLint 0/1,562, architecture lint OK,
+  31 mutation rows restored exactly, release scripts passed, exit 0;
+- the positive path mixes `rebuiltCurrent`, exact retained retry, and
+  `notApplicableNoRetainedState`; C2 delivery is serial and exact;
+- SourceGate remains awaiting Git plus pane projection after content repair,
+  remains awaiting pane projection after Git, and becomes healthy only after
+  the pane acknowledgement;
+- the negative path routes consumer rejection through C2 into the real
+  SourceGate and retains the exact repair generation as dirty debt;
+- both new files remain below 600 lines and use UUIDv7 identities with checked
+  numeric ordering only.
+
+Continue `shravan-dev-workflow:implementation-execute-plan` at the combined
+pre-W2b mechanics gate, then the W2b atomic production cut. Production remains
+wholly legacy and no product-performance claim is made until W2b plus the final
+Victoria, authenticated exact-PID IPC, large-root, native UI, and human-feel
+proof loop.
