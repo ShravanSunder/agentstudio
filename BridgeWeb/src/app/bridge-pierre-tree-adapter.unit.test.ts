@@ -170,53 +170,7 @@ describe('Bridge Pierre tree adapter', () => {
 			'button[data-item-type="file"][data-item-path],[data-type="item"][data-item-type="file"][data-item-path]',
 		);
 	});
-
-	test('uses the bounded mounted row window while the scroll viewport geometry is unavailable', () => {
-		const mountedRows = [
-			new RecordingPierreFileRowElement('Sources/App/First.swift'),
-			new RecordingPierreFileRowElement('Sources/App/Second.swift'),
-		];
-		const model = fileTreeModelWithGeometry({
-			mountedRows,
-			scrollOwnerBounds: boundingRect({ height: 0, top: 0 }),
-		});
-
-		expect(visiblePierreFileRowElementsForModel(model)).toEqual(mountedRows);
-	});
-
-	test('uses the bounded mounted row window while every mounted row geometry is unavailable', () => {
-		const mountedRows = [
-			new RecordingPierreFileRowElement(
-				'Sources/App/First.swift',
-				boundingRect({ height: 0, top: 0 }),
-			),
-			new RecordingPierreFileRowElement(
-				'Sources/App/Second.swift',
-				boundingRect({ height: 0, top: 0 }),
-			),
-		];
-		const model = fileTreeModelWithGeometry({
-			mountedRows,
-			scrollOwnerBounds: boundingRect({ height: 240, top: 100 }),
-		});
-
-		expect(visiblePierreFileRowElementsForModel(model)).toEqual(mountedRows);
-	});
 });
-
-function fileTreeModelWithGeometry(props: {
-	readonly mountedRows: readonly RecordingPierreFileRowElement[];
-	readonly scrollOwnerBounds: DOMRect;
-}): BridgePierreTreeContainerModel {
-	const scrollOwner = new RecordingScrollOwner(props.scrollOwnerBounds);
-	const shadowRoot = {
-		querySelector: (): BridgePierreTreeScrollOwner => scrollOwner,
-		querySelectorAll: (): Iterable<RecordingPierreFileRowElement> => props.mountedRows,
-	};
-	return {
-		getFileTreeContainer: () => ({ ...shadowRoot, shadowRoot }),
-	};
-}
 
 class RecordingDirectoryHandle implements BridgePierreTreeDirectoryHandle {
 	expandCount = 0;

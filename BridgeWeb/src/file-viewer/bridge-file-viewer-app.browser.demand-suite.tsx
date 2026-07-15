@@ -86,14 +86,16 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const dispatchedMessages: BridgeWorkerMainToServerMessage[] = [];
 
 		render(
-			<BridgeFileViewerApp
-				fileProductSession={{
-					onWorkerCommand: (message): void => {
-						dispatchedMessages.push(message);
-					},
-				}}
-				initialMetadataEvents={makeFileMetadataEvents(firstDescriptor, secondDescriptor)}
-			/>,
+			<div style={{ height: '720px', overflow: 'hidden', width: '1280px' }}>
+				<BridgeFileViewerApp
+					fileProductSession={{
+						onWorkerCommand: (message): void => {
+							dispatchedMessages.push(message);
+						},
+					}}
+					initialMetadataEvents={makeFileMetadataEvents(firstDescriptor, secondDescriptor)}
+				/>
+			</div>,
 		);
 
 		await waitForMetadataTreeRowCount(2);
@@ -136,14 +138,16 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const dispatchedMessages: BridgeWorkerMainToServerMessage[] = [];
 
 		render(
-			<BridgeFileViewerApp
-				fileProductSession={{
-					onWorkerCommand: (message): void => {
-						dispatchedMessages.push(message);
-					},
-				}}
-				initialMetadataEvents={makeFileMetadataEvents(...descriptors)}
-			/>,
+			<div style={{ height: '720px', overflow: 'hidden', width: '1280px' }}>
+				<BridgeFileViewerApp
+					fileProductSession={{
+						onWorkerCommand: (message): void => {
+							dispatchedMessages.push(message);
+						},
+					}}
+					initialMetadataEvents={makeFileMetadataEvents(...descriptors)}
+				/>
+			</div>,
 		);
 
 		await waitForMetadataTreeRowCount(80);

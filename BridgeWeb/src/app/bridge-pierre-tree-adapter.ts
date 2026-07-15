@@ -174,32 +174,19 @@ export function visiblePierreFileRowElementsForModel(
 	if (scrollOwner === null) {
 		return [];
 	}
-	const mountedRows = mountedPierreFileRowElementsForModel(model);
 	const viewportBounds = scrollOwner.getBoundingClientRect();
-	if (!hasUsableVerticalBounds(viewportBounds)) {
-		return mountedRows;
+	if (viewportBounds.bottom <= viewportBounds.top) {
+		return [];
 	}
-	const mountedRowsWithGeometry = mountedRows.flatMap((rowElement) => {
+	return mountedPierreFileRowElementsForModel(model).filter((rowElement): boolean => {
 		const rowBounds = rowElement.getBoundingClientRect?.();
-		return rowBounds !== undefined && hasUsableVerticalBounds(rowBounds)
-			? [{ rowBounds, rowElement }]
-			: [];
+		return (
+			rowBounds !== undefined &&
+			rowBounds.bottom > rowBounds.top &&
+			rowBounds.bottom > viewportBounds.top &&
+			rowBounds.top < viewportBounds.bottom
+		);
 	});
-	if (mountedRowsWithGeometry.length === 0) {
-		return mountedRows;
-	}
-	return mountedRowsWithGeometry
-		.filter(
-			({ rowBounds }): boolean =>
-				rowBounds.bottom > viewportBounds.top && rowBounds.top < viewportBounds.bottom,
-		)
-		.map(({ rowElement }): BridgePierreFileRowElement => rowElement);
-}
-
-function hasUsableVerticalBounds(bounds: Pick<DOMRect, 'bottom' | 'top'>): boolean {
-	return (
-		Number.isFinite(bounds.top) && Number.isFinite(bounds.bottom) && bounds.bottom > bounds.top
-	);
 }
 
 export function pierreFilePathFromTreeEvent(event: BridgePierreTreePathEvent): string | null {

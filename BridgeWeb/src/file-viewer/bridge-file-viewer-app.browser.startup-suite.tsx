@@ -730,13 +730,16 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await import('./bridge-file-viewer-shell.js');
 		await act(async (): Promise<void> => {
 			render(
-				<BridgeFileViewerApp
-					initialMetadataEvents={makeFileMetadataEvents(descriptor)}
-					telemetryRecorder={makeTestTelemetryRecorder(telemetrySamples)}
-					fileProductSession={{
-						readContent: async () => makeFileContent('export const scrollVisibleDemand = true;\n'),
-					}}
-				/>,
+				<div style={{ height: '720px', overflow: 'hidden', width: '1280px' }}>
+					<BridgeFileViewerApp
+						initialMetadataEvents={makeFileMetadataEvents(descriptor)}
+						telemetryRecorder={makeTestTelemetryRecorder(telemetrySamples)}
+						fileProductSession={{
+							readContent: async () =>
+								makeFileContent('export const scrollVisibleDemand = true;\n'),
+						}}
+					/>
+				</div>,
 			);
 			await Promise.resolve();
 		});
