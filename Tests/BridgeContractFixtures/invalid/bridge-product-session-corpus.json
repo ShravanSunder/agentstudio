@@ -566,12 +566,169 @@
       }
     },
     {
-      "name": "content data offset exceeds the product byte ceiling",
+      "name": "File content request maximum must equal its declaration",
+      "contract": "contentRequest",
+      "value": {
+        "kind": "content.open",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 2,
+        "workerInstanceId": "worker-instance-1",
+        "contentRequestId": "content-request-1",
+        "leaseId": "lease-1",
+        "contentKind": "file.content",
+        "descriptor": {
+          "contentKind": "file.content",
+          "declaredByteLength": 3,
+          "descriptorId": "file-descriptor-1",
+          "encoding": "utf-8",
+          "expectedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+          "fileId": "file-1",
+          "maximumBytes": 4,
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          },
+          "window": {
+            "kind": "prefix",
+            "maximumBytes": 4,
+            "maximumLines": 10000,
+            "startByte": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "File content request maximum exceeds the u32 stream range",
+      "contract": "contentRequest",
+      "value": {
+        "kind": "content.open",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 2,
+        "workerInstanceId": "worker-instance-1",
+        "contentRequestId": "content-request-1",
+        "leaseId": "lease-1",
+        "contentKind": "file.content",
+        "descriptor": {
+          "contentKind": "file.content",
+          "declaredByteLength": 4294967296,
+          "descriptorId": "file-descriptor-1",
+          "encoding": "utf-8",
+          "expectedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+          "fileId": "file-1",
+          "maximumBytes": 4294967296,
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          },
+          "window": {
+            "kind": "prefix",
+            "maximumBytes": 4294967296,
+            "maximumLines": 10000,
+            "startByte": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "content data offset exceeds the u32 stream range",
       "contract": "contentHeader",
       "value": {
         "kind": "content.data",
         "contentSequence": 1,
-        "offsetBytes": 2097153
+        "offsetBytes": 4294967296
+      }
+    },
+    {
+      "name": "File content acceptance maximum must equal its declaration",
+      "contract": "contentHeader",
+      "value": {
+        "kind": "content.accepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 2,
+        "workerInstanceId": "worker-instance-1",
+        "contentRequestId": "content-request-1",
+        "leaseId": "lease-1",
+        "contentSequence": 0,
+        "declaredByteLength": 3,
+        "expectedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "maximumBytes": 4,
+        "identity": {
+          "contentKind": "file.content",
+          "descriptorId": "file-descriptor-1",
+          "fileId": "file-1",
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          },
+          "window": {
+            "kind": "prefix",
+            "maximumBytes": 4,
+            "maximumLines": 10000,
+            "startByte": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "content acceptance maximum exceeds the u32 stream range",
+      "contract": "contentHeader",
+      "value": {
+        "kind": "content.accepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 2,
+        "workerInstanceId": "worker-instance-1",
+        "contentRequestId": "content-request-1",
+        "leaseId": "lease-1",
+        "contentSequence": 0,
+        "declaredByteLength": 4294967296,
+        "expectedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "maximumBytes": 4294967296,
+        "identity": {
+          "contentKind": "file.content",
+          "descriptorId": "file-descriptor-1",
+          "fileId": "file-1",
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          },
+          "window": {
+            "kind": "prefix",
+            "maximumBytes": 4294967296,
+            "maximumLines": 10000,
+            "startByte": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "content end observed length exceeds the u32 stream range",
+      "contract": "contentHeader",
+      "value": {
+        "kind": "content.end",
+        "contentSequence": 1,
+        "endOfSource": true,
+        "observedByteLength": 4294967296,
+        "observedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
       }
     },
     {

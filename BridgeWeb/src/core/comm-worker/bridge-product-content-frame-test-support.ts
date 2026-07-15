@@ -2,6 +2,7 @@ import type {
 	BridgeProductContentFrame,
 	BridgeProductContentRequestFor,
 	BridgeProductFileContentIdentity,
+	BridgeProductReviewContentIdentity,
 } from './bridge-product-content-contracts.js';
 
 export const abcSha256 = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
@@ -24,6 +25,14 @@ type BridgeProductFileContentAcceptedFrame = {
 	readonly payload: Uint8Array;
 };
 
+type BridgeProductReviewContentAcceptedFrame = {
+	readonly header: Extract<
+		BridgeProductContentFrame['header'],
+		{ readonly kind: 'content.accepted' }
+	> & { readonly identity: BridgeProductReviewContentIdentity };
+	readonly payload: Uint8Array;
+};
+
 const fileContentIdentity = {
 	contentKind: 'file.content',
 	descriptorId: 'file-descriptor-1',
@@ -36,7 +45,26 @@ const fileContentIdentity = {
 		subscriptionGeneration: 11,
 		worktreeId: '00000000-0000-4000-8000-000000000002',
 	},
-	window: { kind: 'prefix', maximumBytes: 1024, maximumLines: 10_000, startByte: 0 },
+	window: { kind: 'prefix', maximumBytes: 3, maximumLines: 10_000, startByte: 0 },
+} as const;
+
+const reviewContentIdentity = {
+	contentDigest: {
+		algorithm: 'sha256',
+		authority: 'authoritative',
+		value: abcSha256,
+	},
+	contentKind: 'review.content',
+	descriptorId: 'review-descriptor-1',
+	endpointId: 'review-endpoint-1',
+	handleId: 'review-handle-1',
+	itemId: 'review-item-1',
+	packageId: 'review-package-1',
+	reviewGeneration: 7,
+	role: 'head',
+	sourceIdentity: 'review-source-1',
+	wholeByteLength: 12,
+	window: { kind: 'byteRange', maximumBytes: 3, startByte: 0 },
 } as const;
 
 export function contentRequest(): BridgeProductContentRequestFor<'file.content'> {
@@ -105,7 +133,7 @@ export function contentAcceptedFrame(): BridgeProductFileContentAcceptedFrame {
 			identity: fileContentIdentity,
 			kind: 'content.accepted',
 			leaseId: 'lease-1',
-			maximumBytes: 1024,
+			maximumBytes: 3,
 			paneSessionId: 'pane-session-1',
 			contentRequestId: 'content-request-1',
 			wireVersion: 2,
@@ -132,6 +160,49 @@ export function contentAcceptedFrameForByteCount(
 				window: { ...acceptedFrame.header.identity.window, maximumBytes },
 			},
 			maximumBytes,
+		},
+		payload: new Uint8Array(),
+	};
+}
+
+export function reviewContentRequest(): BridgeProductContentRequestFor<'review.content'> {
+	return {
+		contentKind: 'review.content',
+		contentRequestId: 'review-content-request-1',
+		descriptor: {
+			...reviewContentIdentity,
+			declaredByteLength: 3,
+			encoding: 'utf-8',
+			expectedSha256: abcSha256,
+			isBinary: false,
+			language: 'text',
+			maximumBytes: reviewContentIdentity.window.maximumBytes,
+			mimeType: 'text/plain',
+		},
+		kind: 'content.open',
+		leaseId: 'review-lease-1',
+		paneSessionId: 'pane-session-1',
+		wireVersion: 2,
+		workerDerivationEpoch: 2,
+		workerInstanceId: 'worker-instance-1',
+	};
+}
+
+export function reviewContentAcceptedFrame(): BridgeProductReviewContentAcceptedFrame {
+	return {
+		header: {
+			contentRequestId: 'review-content-request-1',
+			contentSequence: 0,
+			declaredByteLength: 3,
+			expectedSha256: abcSha256,
+			identity: reviewContentIdentity,
+			kind: 'content.accepted',
+			leaseId: 'review-lease-1',
+			maximumBytes: reviewContentIdentity.window.maximumBytes,
+			paneSessionId: 'pane-session-1',
+			wireVersion: 2,
+			workerDerivationEpoch: 2,
+			workerInstanceId: 'worker-instance-1',
 		},
 		payload: new Uint8Array(),
 	};

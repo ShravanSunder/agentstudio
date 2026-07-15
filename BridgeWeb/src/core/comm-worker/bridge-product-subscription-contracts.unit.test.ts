@@ -37,11 +37,11 @@ const contentDescriptor = {
 	encoding: 'utf-8',
 	expectedSha256: 'a'.repeat(64),
 	fileId: 'file-1',
-	maximumBytes: 2 * 1024 * 1024,
+	maximumBytes: 120,
 	source,
 	window: {
 		kind: 'prefix',
-		maximumBytes: 2 * 1024 * 1024,
+		maximumBytes: 120,
 		maximumLines: 10_000,
 		startByte: 0,
 	},
@@ -238,6 +238,11 @@ describe('Bridge product File metadata event contract', () => {
 				contentDescriptor: {
 					...contentDescriptor,
 					declaredByteLength: 2 * 1024 * 1024 - 1,
+					maximumBytes: 2 * 1024 * 1024 - 1,
+					window: {
+						...contentDescriptor.window,
+						maximumBytes: 2 * 1024 * 1024 - 1,
+					},
 				},
 			},
 			endsMidLine: true,
@@ -253,7 +258,12 @@ describe('Bridge product File metadata event contract', () => {
 			...descriptorReady,
 			availability: {
 				availabilityKind: 'available',
-				contentDescriptor: { ...contentDescriptor, declaredByteLength: 100_000 },
+				contentDescriptor: {
+					...contentDescriptor,
+					declaredByteLength: 100_000,
+					maximumBytes: 100_000,
+					window: { ...contentDescriptor.window, maximumBytes: 100_000 },
+				},
 			},
 			endsMidLine: false,
 			endsWithNewline: true,

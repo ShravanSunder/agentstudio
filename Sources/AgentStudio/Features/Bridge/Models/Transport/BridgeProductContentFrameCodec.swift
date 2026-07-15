@@ -314,6 +314,11 @@ final class BridgeProductContentStreamValidator {
         header: BridgeProductContentEndHeader,
         acceptedHeader: BridgeProductContentAcceptedHeader
     ) throws -> BridgeProductContentTerminalResult {
+        if acceptedHeader.identity.contentKind == .fileContent, !header.endOfSource {
+            throw BridgeProductFrameCodecError.invalidFrame(
+                "Bridge product File content terminal must reach the end of source."
+            )
+        }
         guard header.observedByteLength == observedByteLength else {
             throw BridgeProductFrameCodecError.invalidFrame(
                 "Bridge product content end length does not match received bytes."

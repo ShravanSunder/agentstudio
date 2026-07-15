@@ -31,7 +31,7 @@ function sha256Hex(bytes: Uint8Array): string {
 function acceptedDataEndWire(payload: Uint8Array): Uint8Array {
 	const accepted = contentAcceptedFrameForByteCount(
 		payload.byteLength,
-		2 * 1024 * 1024,
+		payload.byteLength,
 		sha256Hex(payload),
 	);
 	const end = {
@@ -72,7 +72,7 @@ describe('Bridge product content stream decoder', () => {
 		const request = contentRequest();
 		const accepted = contentAcceptedFrameForByteCount(
 			payload.byteLength,
-			2 * 1024 * 1024,
+			payload.byteLength,
 			sha256Hex(payload),
 		);
 		const wireBytes = acceptedDataEndWire(payload);
@@ -95,7 +95,10 @@ describe('Bridge product content stream decoder', () => {
 		const exactPayload = new Uint8Array(BRIDGE_PRODUCT_MAXIMUM_CONTENT_DATA_PAYLOAD_BYTES).fill(
 			0x61,
 		);
-		const accepted = contentAcceptedFrameForByteCount(exactPayload.byteLength, 2 * 1024 * 1024);
+		const accepted = contentAcceptedFrameForByteCount(
+			exactPayload.byteLength,
+			exactPayload.byteLength,
+		);
 		const acceptedWire = encodeMinimalControlFrame(0x01, 0, contentAcceptedControlBody(accepted));
 		const exactDecoder = new BridgeProductContentStreamDecoder(contentRequestForAccepted(accepted));
 
@@ -203,7 +206,7 @@ describe('Bridge product content stream decoder', () => {
 		).rejects.toThrow(/issued request|match|correlation/iu);
 		expect(mismatchDecoder.retainedByteCount).toBe(0);
 
-		const terminalAccepted = contentAcceptedFrameForByteCount(3, 2 * 1024 * 1024);
+		const terminalAccepted = contentAcceptedFrameForByteCount(3, 3);
 		const terminalDecoder = new BridgeProductContentStreamDecoder(
 			contentRequestForAccepted(terminalAccepted),
 		);

@@ -239,7 +239,7 @@ struct BridgeProductContentFrameCodecTests {
         let maximumPayload = Data(repeating: 0xa5, count: 128 * 1024)
         let largeObjects = try contentHeaderObjects(
             declaredByteLength: maximumPayload.count,
-            maximumBytes: BridgeProductWireContract.maximumContentBytes
+            maximumBytes: maximumPayload.count
         )
         var maximumWire = try minimalControlFrame(
             tag: 0x01,
@@ -276,7 +276,7 @@ struct BridgeProductContentFrameCodecTests {
         let oversizedPayload = Data(repeating: 0x62, count: maximumPayload.count + 1)
         let maximumObjects = try contentHeaderObjects(
             declaredByteLength: maximumPayload.count,
-            maximumBytes: BridgeProductWireContract.maximumContentBytes
+            maximumBytes: maximumPayload.count
         )
         #expect(throws: Never.self) {
             _ = try BridgeProductContentFrameCodec.encode(
@@ -363,7 +363,7 @@ struct BridgeProductContentFrameCodecTests {
         let totalByteCount = maximumPayload.count + finalPayload.count
         let objects = try contentHeaderObjects(
             declaredByteLength: totalByteCount,
-            maximumBytes: BridgeProductWireContract.maximumContentBytes
+            maximumBytes: totalByteCount
         )
         var wire = try minimalControlFrame(
             tag: 0x01,
@@ -431,7 +431,7 @@ struct BridgeProductContentFrameCodecTests {
     func contentDecoderRejectsOneByteTerminalTails() throws {
         let objects = try contentHeaderObjects(
             declaredByteLength: 0,
-            maximumBytes: BridgeProductWireContract.maximumContentBytes
+            maximumBytes: 0
         )
         let accepted = try minimalControlFrame(
             tag: 0x01,
@@ -667,26 +667,26 @@ struct BridgeProductContentFrameCodecTests {
 
         var declaredLimitObject = acceptedObject
         declaredLimitObject["declaredByteLength"] = 2
-        declaredLimitObject["maximumBytes"] = 4
+        declaredLimitObject["maximumBytes"] = 2
         var declaredLimitIdentity = try #require(declaredLimitObject["identity"] as? [String: Any])
         var declaredLimitWindow = try #require(declaredLimitIdentity["window"] as? [String: Any])
-        declaredLimitWindow["maximumBytes"] = 4
+        declaredLimitWindow["maximumBytes"] = 2
         declaredLimitIdentity["window"] = declaredLimitWindow
         declaredLimitObject["identity"] = declaredLimitIdentity
         var declaredLimitDataObject = dataObject
         if declaredLimitDataObject["identity"] != nil {
-            try updateIdentityMaximumBytes(4, in: &declaredLimitDataObject)
+            try updateIdentityMaximumBytes(2, in: &declaredLimitDataObject)
         }
         var declaredLimitRequestObject = try fixtureContentRequestObject()
         var declaredLimitDescriptor = try #require(
             declaredLimitRequestObject["descriptor"] as? [String: Any]
         )
         declaredLimitDescriptor["declaredByteLength"] = 2
-        declaredLimitDescriptor["maximumBytes"] = 4
+        declaredLimitDescriptor["maximumBytes"] = 2
         var declaredLimitRequestWindow = try #require(
             declaredLimitDescriptor["window"] as? [String: Any]
         )
-        declaredLimitRequestWindow["maximumBytes"] = 4
+        declaredLimitRequestWindow["maximumBytes"] = 2
         declaredLimitDescriptor["window"] = declaredLimitRequestWindow
         declaredLimitRequestObject["descriptor"] = declaredLimitDescriptor
         try expectValidatorRejects(

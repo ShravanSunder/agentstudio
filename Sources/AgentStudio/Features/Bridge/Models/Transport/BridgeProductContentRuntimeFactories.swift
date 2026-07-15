@@ -32,7 +32,7 @@ extension BridgeProductContentDataHeader {
         )
         try BridgeProductContractDecoding.validateMaximum(
             offsetBytes,
-            maximum: BridgeProductWireContract.maximumContentBytes,
+            maximum: BridgeProductWireContract.maximumContentStreamBytes,
             name: "offsetBytes",
             codingPath: []
         )
@@ -56,7 +56,7 @@ extension BridgeProductContentEndHeader {
         )
         try BridgeProductContractDecoding.validateMaximum(
             observedByteLength,
-            maximum: BridgeProductWireContract.maximumContentBytes,
+            maximum: BridgeProductWireContract.maximumContentStreamBytes,
             name: "observedByteLength",
             codingPath: []
         )

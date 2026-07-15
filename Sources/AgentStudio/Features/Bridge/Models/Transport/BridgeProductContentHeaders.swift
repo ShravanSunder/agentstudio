@@ -157,7 +157,7 @@ struct BridgeProductContentAcceptedHeader: Codable, Equatable, Sendable {
             )
             try BridgeProductContractDecoding.validateMaximum(
                 declaredByteLength,
-                maximum: BridgeProductWireContract.maximumContentBytes,
+                maximum: BridgeProductWireContract.maximumContentStreamBytes,
                 name: "declaredByteLength",
                 codingPath: codingPath
             )
@@ -165,25 +165,38 @@ struct BridgeProductContentAcceptedHeader: Codable, Equatable, Sendable {
         if let expectedSha256 {
             try BridgeProductContractDecoding.validateSHA256(expectedSha256, codingPath: codingPath)
         }
-        try BridgeProductContractDecoding.validatePositive(
+        try BridgeProductContractDecoding.validateNonnegative(
             maximumBytes,
             name: "maximumBytes",
             codingPath: codingPath
         )
         try BridgeProductContractDecoding.validateMaximum(
             maximumBytes,
-            maximum: BridgeProductWireContract.maximumContentBytes,
+            maximum: BridgeProductWireContract.maximumContentStreamBytes,
             name: "maximumBytes",
             codingPath: codingPath
         )
-        guard declaredByteLength.map({ $0 <= maximumBytes }) ?? true,
-            case .fileContent(let fileIdentity) = identity,
-            fileIdentity.window.maximumBytes == maximumBytes
-        else {
+        guard identity.maximumBytes == maximumBytes else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Bridge product accepted content bounds are inconsistent",
                 codingPath: codingPath
             )
+        }
+        switch identity {
+        case .fileContent:
+            guard declaredByteLength == maximumBytes else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Bridge product accepted File maximum must equal its declared length",
+                    codingPath: codingPath
+                )
+            }
+        case .reviewContent:
+            guard declaredByteLength.map({ $0 <= maximumBytes }) ?? true else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Bridge product accepted Review declaration exceeds its range maximum",
+                    codingPath: codingPath
+                )
+            }
         }
     }
 }
@@ -221,7 +234,7 @@ struct BridgeProductContentDataHeader: Codable, Equatable, Sendable {
         )
         try BridgeProductContractDecoding.validateMaximum(
             offsetBytes,
-            maximum: BridgeProductWireContract.maximumContentBytes,
+            maximum: BridgeProductWireContract.maximumContentStreamBytes,
             name: "offsetBytes",
             codingPath: decoder.codingPath
         )
@@ -274,7 +287,7 @@ struct BridgeProductContentEndHeader: Codable, Equatable, Sendable {
         )
         try BridgeProductContractDecoding.validateMaximum(
             observedByteLength,
-            maximum: BridgeProductWireContract.maximumContentBytes,
+            maximum: BridgeProductWireContract.maximumContentStreamBytes,
             name: "observedByteLength",
             codingPath: decoder.codingPath
         )

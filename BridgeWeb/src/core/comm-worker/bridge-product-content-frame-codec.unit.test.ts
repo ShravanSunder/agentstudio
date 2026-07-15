@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { describe, expect, test, vi } from 'vitest';
 
 import type { BridgeProductContentFrame } from './bridge-product-content-contracts.js';
@@ -23,6 +25,8 @@ import {
 	encodeMinimalDataFrame,
 	parseMinimalControlBody,
 	readUint32BigEndian,
+	reviewContentAcceptedFrame,
+	reviewContentRequest,
 } from './bridge-product-content-frame-test-support.js';
 import { BRIDGE_PRODUCT_MAXIMUM_CONTENT_DATA_PAYLOAD_BYTES } from './bridge-product-contract-primitives.js';
 
@@ -82,6 +86,96 @@ describe('Bridge product content frame encoder and validator', () => {
 			expect(readUint32BigEndian(dataFrame, 9)).toBe(index * payloadByteCount);
 			expect(dataFrame.byteLength).toBe(4 + 1 + 4 + 4 + payloadByteCount);
 		}
+	});
+
+	test('admits empty File content with an exact zero-byte maximum and terminal', async () => {
+		const emptyBytes = new Uint8Array();
+		const emptySha256 = createHash('sha256').update(emptyBytes).digest('hex');
+		const accepted = contentAcceptedFrameForByteCount(0, 0, emptySha256);
+		const request = contentRequestForAccepted(accepted);
+		const validator = new BridgeProductContentStreamValidator(request);
+
+		expect(await validator.accept(accepted)).toBeNull();
+		const endFrame = {
+			...contentEndFrameForByteCount(1, 0),
+			header: {
+				...contentEndFrameForByteCount(1, 0).header,
+				observedSha256: emptySha256,
+			},
+		} satisfies BridgeProductContentFrame;
+		const terminal = await validator.accept(endFrame);
+		validator.finish();
+
+		expect(terminal).toEqual({
+			bytes: emptyBytes.buffer,
+			contentKind: 'file.content',
+			descriptorId: 'file-descriptor-1',
+			endOfSource: true,
+			kind: 'complete',
+			observedSha256: emptySha256,
+		});
+	});
+
+	test('admits complete File content beyond the legacy prefix through seventeen data frames', async () => {
+		const dataFrameByteCount = BRIDGE_PRODUCT_MAXIMUM_CONTENT_DATA_PAYLOAD_BYTES;
+		const legacyPrefixByteCount = 2 * 1024 * 1024;
+		const finalDataFrameByteCount = 65;
+		const sourceBytes = new Uint8Array(legacyPrefixByteCount + finalDataFrameByteCount);
+		sourceBytes.fill(0x61, 0, legacyPrefixByteCount);
+		sourceBytes.fill(0x62, legacyPrefixByteCount);
+		const sourceSha256 = createHash('sha256').update(sourceBytes).digest('hex');
+		const accepted = contentAcceptedFrameForByteCount(
+			sourceBytes.byteLength,
+			sourceBytes.byteLength,
+			sourceSha256,
+		);
+		const request = contentRequestForAccepted(accepted);
+		const encoder = new BridgeProductContentFrameEncoder(request);
+		const validator = new BridgeProductContentStreamValidator(request);
+		const encodedFrames = [encoder.encode(accepted)];
+		expect(await validator.accept(accepted)).toBeNull();
+
+		for (let dataFrameIndex = 0; dataFrameIndex < 17; dataFrameIndex += 1) {
+			const offsetBytes = dataFrameIndex * dataFrameByteCount;
+			const payload = sourceBytes.slice(
+				offsetBytes,
+				Math.min(offsetBytes + dataFrameByteCount, sourceBytes.byteLength),
+			);
+			const frame = contentDataFrameForPayload(dataFrameIndex + 1, offsetBytes, payload);
+			encodedFrames.push(encoder.encode(frame));
+			// oxlint-disable-next-line no-await-in-loop -- Stream validation is sequence-ordered.
+			expect(await validator.accept(frame)).toBeNull();
+		}
+
+		const endFrame = {
+			...contentEndFrameForByteCount(18, sourceBytes.byteLength),
+			header: {
+				...contentEndFrameForByteCount(18, sourceBytes.byteLength).header,
+				observedSha256: sourceSha256,
+			},
+		} satisfies BridgeProductContentFrame;
+		encodedFrames.push(encoder.encode(endFrame));
+		const terminal = await validator.accept(endFrame);
+		encoder.finish();
+		validator.finish();
+
+		expect(sourceBytes.byteLength).toBe(2_097_217);
+		expect(encodedFrames).toHaveLength(19);
+		const finalDataFrame = encodedFrames[17];
+		if (finalDataFrame === undefined) {
+			throw new Error('Complete File contract omitted its seventeenth data frame.');
+		}
+		expect(readUint32BigEndian(finalDataFrame, 5)).toBe(17);
+		expect(readUint32BigEndian(finalDataFrame, 9)).toBe(legacyPrefixByteCount);
+		expect(finalDataFrame).toHaveLength(4 + 1 + 4 + 4 + finalDataFrameByteCount);
+		expect(terminal).toEqual({
+			bytes: sourceBytes.buffer,
+			contentKind: 'file.content',
+			descriptorId: 'file-descriptor-1',
+			endOfSource: true,
+			kind: 'complete',
+			observedSha256: sourceSha256,
+		});
 	});
 
 	test('stateful producer binds one response and poisons atomically on misuse', () => {
@@ -184,9 +278,22 @@ describe('Bridge product content frame encoder and validator', () => {
 		await expect(validator.accept(contentDataFrame())).rejects.toThrow(/terminal/iu);
 	});
 
-	test('preserves explicit non-final source state for an exact-sized range', async () => {
+	test('rejects a non-final terminal for complete File content', async () => {
 		const validator = new BridgeProductContentStreamValidator(contentRequest());
 		await validator.accept(contentAcceptedFrame());
+		await validator.accept(contentDataFrame());
+
+		await expect(
+			validator.accept({
+				...contentEndFrame(),
+				header: { ...contentEndFrame().header, endOfSource: false },
+			}),
+		).rejects.toThrow(/end of source|final/iu);
+	});
+
+	test('preserves a non-final terminal for an exact-sized Review range', async () => {
+		const validator = new BridgeProductContentStreamValidator(reviewContentRequest());
+		await validator.accept(reviewContentAcceptedFrame());
 		await validator.accept(contentDataFrame());
 
 		const completion = await validator.accept({
@@ -194,7 +301,11 @@ describe('Bridge product content frame encoder and validator', () => {
 			header: { ...contentEndFrame().header, endOfSource: false },
 		});
 
-		expect(completion).toMatchObject({ endOfSource: false, kind: 'complete' });
+		expect(completion).toMatchObject({
+			contentKind: 'review.content',
+			endOfSource: false,
+			kind: 'complete',
+		});
 	});
 
 	test('rejects gaps, wrong offsets, declared-length overruns, and digest conflicts', async () => {
@@ -219,13 +330,26 @@ describe('Bridge product content frame encoder and validator', () => {
 		const lengthRequest = contentRequest();
 		const lengthValidator = new BridgeProductContentStreamValidator({
 			...lengthRequest,
-			descriptor: { ...lengthRequest.descriptor, declaredByteLength: 2 },
+			descriptor: {
+				...lengthRequest.descriptor,
+				declaredByteLength: 2,
+				maximumBytes: 2,
+				window: { ...lengthRequest.descriptor.window, maximumBytes: 2 },
+			},
 		});
 		await lengthValidator.accept({
 			...contentAcceptedFrame(),
-			header: { ...contentAcceptedFrame().header, declaredByteLength: 2 },
+			header: {
+				...contentAcceptedFrame().header,
+				declaredByteLength: 2,
+				identity: {
+					...contentAcceptedFrame().header.identity,
+					window: { ...contentAcceptedFrame().header.identity.window, maximumBytes: 2 },
+				},
+				maximumBytes: 2,
+			},
 		});
-		await expect(lengthValidator.accept(contentDataFrame())).rejects.toThrow(/declared/iu);
+		await expect(lengthValidator.accept(contentDataFrame())).rejects.toThrow(/declared|maximum/iu);
 
 		const digestRequest = contentRequest();
 		const digestValidator = new BridgeProductContentStreamValidator({

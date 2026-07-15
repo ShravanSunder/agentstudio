@@ -5,7 +5,10 @@ import { Readable } from 'node:stream';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import { BRIDGE_PRODUCT_WIRE_VERSION } from '../../src/core/comm-worker/bridge-product-contract-primitives.js';
+import {
+	BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
+	BRIDGE_PRODUCT_WIRE_VERSION,
+} from '../../src/core/comm-worker/bridge-product-contract-primitives.js';
 import { BridgeProductMetadataFrameDecoder } from '../../src/core/comm-worker/bridge-product-metadata-frame-codec.js';
 import { bridgeProductReviewMetadataEventSchema } from '../../src/core/comm-worker/bridge-product-review-metadata-contracts.js';
 import {
@@ -45,6 +48,23 @@ describe('Bridge product dev pane carrier', () => {
 		carrier = null;
 		await closeServer(server);
 		server = null;
+	});
+
+	test('advertises the structural content stream bound instead of the legacy File prefix', () => {
+		// Arrange
+		carrier = createBridgeProductDevCarrier({
+			createReviewAdapter: (): BridgeProductDevReviewAdapterPort => fakeReviewAdapter(),
+			getFileProvider: async () => fakeFileProvider(),
+			getReviewSourceConfig: async () => ({ baseRef: 'HEAD', worktreeRoot: '/opaque' }),
+		});
+
+		// Act
+		const delivery = carrier.issueBootstrap({ reason: 'initial' });
+
+		// Assert
+		expect(delivery.bootstrap.policy.maximumContentBytes).toBe(
+			BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
+		);
 	});
 
 	test('multiplexes Review and File subscriptions while acknowledgements bypass control order', async () => {
@@ -694,21 +714,21 @@ function fakeFileProvider(): BridgeWorktreeDevProvider {
 					sequence: 0,
 					source,
 					streamId: 'worktree-file:dev-pane',
-						treeRows: [
-							{
-								changeStatus: 'modified',
-								depth: 1,
-								fileId: 'dev-file-id-1',
-								isDirectory: false,
-								lineCount: 2,
-								name: 'app.ts',
-								parentPath: 'src',
-								path: 'src/app.ts',
-								rowId: 'row:src/app.ts',
-								sizeBytes: 11,
-							},
-						],
-						treeSizeFacts: { extentKind: 'exactPathCount', pathCount: 1, rowHeightPixels: 24 },
+					treeRows: [
+						{
+							changeStatus: 'modified',
+							depth: 1,
+							fileId: 'dev-file-id-1',
+							isDirectory: false,
+							lineCount: 2,
+							name: 'app.ts',
+							parentPath: 'src',
+							path: 'src/app.ts',
+							rowId: 'row:src/app.ts',
+							sizeBytes: 11,
+						},
+					],
+					treeSizeFacts: { extentKind: 'exactPathCount', pathCount: 1, rowHeightPixels: 24 },
 				}),
 			],
 			provenance: {

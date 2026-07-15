@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import {
-	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
+	BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
 	BRIDGE_PRODUCT_WIRE_VERSION,
 	type BridgeProductAssert,
 	bridgeProductIdentifierSchema,
@@ -24,7 +24,7 @@ import {
 import { bridgeProductReviewContentRoleSchema } from './bridge-product-review-primitives.js';
 
 const bridgeProductDeclaredByteLengthSchema = bridgeProductNonnegativeSequenceSchema.max(
-	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
+	BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
 );
 const bridgeProductContentSequenceSchema = bridgeProductPositiveSequenceSchema.max(0xff_ff_ff_ff);
 
@@ -149,23 +149,27 @@ export const bridgeProductFileContentDescriptorSchema = z
 		encoding: z.literal('utf-8'),
 		expectedSha256: bridgeProductSha256Schema,
 		fileId: bridgeProductIdentifierSchema,
-		maximumBytes: bridgeProductPositiveSequenceSchema.max(BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES),
+		maximumBytes: bridgeProductNonnegativeSequenceSchema.max(
+			BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
+		),
 		source: bridgeProductFileSourceIdentitySchema,
 		window: z
 			.object({
 				kind: z.literal('prefix'),
-				maximumBytes: bridgeProductPositiveSequenceSchema.max(BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES),
-				maximumLines: bridgeProductPositiveSequenceSchema.max(10_000),
+				maximumBytes: bridgeProductNonnegativeSequenceSchema.max(
+					BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
+				),
+				maximumLines: bridgeProductNonnegativeSequenceSchema,
 				startByte: z.literal(0),
 			})
 			.strict(),
 	})
 	.strict()
 	.superRefine((descriptor, context): void => {
-		if (descriptor.declaredByteLength > descriptor.maximumBytes) {
+		if (descriptor.declaredByteLength !== descriptor.maximumBytes) {
 			context.addIssue({
 				code: 'custom',
-				message: 'File declared content length exceeds its maximum.',
+				message: 'File content maximum must equal its declared length.',
 				path: ['declaredByteLength'],
 			});
 		}
@@ -192,8 +196,10 @@ export const bridgeProductFileContentIdentitySchema = z
 		window: z
 			.object({
 				kind: z.literal('prefix'),
-				maximumBytes: bridgeProductPositiveSequenceSchema.max(BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES),
-				maximumLines: bridgeProductPositiveSequenceSchema.max(10_000),
+				maximumBytes: bridgeProductNonnegativeSequenceSchema.max(
+					BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
+				),
+				maximumLines: bridgeProductNonnegativeSequenceSchema,
 				startByte: z.literal(0),
 			})
 			.strict(),
@@ -365,7 +371,9 @@ export const bridgeProductContentAcceptedBodySchema = z
 		...bridgeProductContentAcceptedBodyShape,
 		declaredByteLength: bridgeProductDeclaredByteLengthSchema.nullable(),
 		expectedSha256: bridgeProductSha256Schema.nullable(),
-		maximumBytes: bridgeProductPositiveSequenceSchema.max(BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES),
+		maximumBytes: bridgeProductNonnegativeSequenceSchema.max(
+			BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
+		),
 	})
 	.strict()
 	.superRefine((header, context): void => {
@@ -376,10 +384,23 @@ export const bridgeProductContentAcceptedBodySchema = z
 				path: ['maximumBytes'],
 			});
 		}
-		if (header.declaredByteLength !== null && header.declaredByteLength > header.maximumBytes) {
+		if (
+			header.identity.contentKind === 'file.content' &&
+			header.declaredByteLength !== header.maximumBytes
+		) {
 			context.addIssue({
 				code: 'custom',
-				message: 'Accepted content declaration exceeds its maximum.',
+				message: 'Accepted File maximum must equal its declared length.',
+				path: ['declaredByteLength'],
+			});
+		} else if (
+			header.identity.contentKind === 'review.content' &&
+			header.declaredByteLength !== null &&
+			header.declaredByteLength > header.maximumBytes
+		) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Accepted Review declaration exceeds its range maximum.',
 				path: ['declaredByteLength'],
 			});
 		}
@@ -392,7 +413,9 @@ export const bridgeProductContentAcceptedHeaderSchema = z
 		declaredByteLength: bridgeProductDeclaredByteLengthSchema.nullable(),
 		expectedSha256: bridgeProductSha256Schema.nullable(),
 		kind: z.literal('content.accepted'),
-		maximumBytes: bridgeProductPositiveSequenceSchema.max(BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES),
+		maximumBytes: bridgeProductNonnegativeSequenceSchema.max(
+			BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
+		),
 	})
 	.strict()
 	.superRefine((header, context): void => {
@@ -403,10 +426,23 @@ export const bridgeProductContentAcceptedHeaderSchema = z
 				path: ['maximumBytes'],
 			});
 		}
-		if (header.declaredByteLength !== null && header.declaredByteLength > header.maximumBytes) {
+		if (
+			header.identity.contentKind === 'file.content' &&
+			header.declaredByteLength !== header.maximumBytes
+		) {
 			context.addIssue({
 				code: 'custom',
-				message: 'Accepted content declaration exceeds its maximum.',
+				message: 'Accepted File maximum must equal its declared length.',
+				path: ['declaredByteLength'],
+			});
+		} else if (
+			header.identity.contentKind === 'review.content' &&
+			header.declaredByteLength !== null &&
+			header.declaredByteLength > header.maximumBytes
+		) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Accepted Review declaration exceeds its range maximum.',
 				path: ['declaredByteLength'],
 			});
 		}
@@ -416,7 +452,9 @@ export const bridgeProductContentDataHeaderSchema = z
 	.object({
 		contentSequence: bridgeProductContentSequenceSchema,
 		kind: z.literal('content.data'),
-		offsetBytes: bridgeProductNonnegativeSequenceSchema.max(BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES),
+		offsetBytes: bridgeProductNonnegativeSequenceSchema.max(
+			BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
+		),
 	})
 	.strict();
 
@@ -424,7 +462,7 @@ export const bridgeProductContentEndBodySchema = z
 	.object({
 		endOfSource: z.boolean(),
 		observedByteLength: bridgeProductNonnegativeSequenceSchema.max(
-			BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
+			BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
 		),
 		observedSha256: bridgeProductSha256Schema,
 	})

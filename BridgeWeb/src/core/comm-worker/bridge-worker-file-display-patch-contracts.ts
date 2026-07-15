@@ -113,9 +113,7 @@ const bridgeWorkerFileItemDisplayPayloadShape = {
 	fileExtension: bridgeProductSafeMessageSchema.nullable(),
 	language: bridgeProductSafeMessageSchema.nullable(),
 	payloadByteCount: bridgeProductNonnegativeSequenceSchema,
-	payloadLineCount: bridgeProductNonnegativeSequenceSchema.max(
-		bridgeWorkerFileDisplayMaximumPayloadLineCount,
-	),
+	payloadLineCount: bridgeProductNonnegativeSequenceSchema,
 	rowId: bridgeProductIdentifierSchema,
 	sizeBytes: bridgeProductNonnegativeSequenceSchema,
 	totalLineCount: bridgeProductNonnegativeSequenceSchema.nullable(),

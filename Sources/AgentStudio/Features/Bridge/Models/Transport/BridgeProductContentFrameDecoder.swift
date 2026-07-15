@@ -333,7 +333,7 @@ final class BridgeProductContentFrameDecoder {
         guard offset.count == offset.capacity else { return }
 
         let offsetBytes = offset.readUInt32BigEndian(at: 0)
-        guard offsetBytes <= BridgeProductWireContract.maximumContentBytes else {
+        guard offsetBytes <= BridgeProductWireContract.maximumContentStreamBytes else {
             throw failure(
                 .framePayloadInvalid,
                 "Bridge product content data offset exceeds its product maximum."

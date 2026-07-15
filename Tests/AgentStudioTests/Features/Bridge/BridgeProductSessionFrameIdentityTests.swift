@@ -523,7 +523,7 @@ private func fileContentRequest(
             "encoding": "utf-8",
             "expectedSha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
             "fileId": "file-\(identitySuffix)",
-            "maximumBytes": 2097152,
+            "maximumBytes": 1,
             "source": {
               "repoId": "00000000-0000-4000-8000-000000000001",
               "rootRevisionToken": null,
@@ -534,7 +534,7 @@ private func fileContentRequest(
             },
             "window": {
               "kind": "prefix",
-              "maximumBytes": 2097152,
+              "maximumBytes": 1,
               "maximumLines": 10000,
               "startByte": 0
             }

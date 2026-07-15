@@ -33,6 +33,7 @@ enum BridgeProductWireContract {
     static let maximumContentDataPayloadBytes = 128 * 1024
     static let maximumQueuedStreamFrames = 64
     static let maximumQueuedStreamBytes = 4 * 1024 * 1024
+    static let maximumContentStreamBytes = Int(UInt32.max)
     static let maximumContentBytes = 2 * 1024 * 1024
     static let maximumContentLines = 10_000
     static let terminalFrameReserve = 1

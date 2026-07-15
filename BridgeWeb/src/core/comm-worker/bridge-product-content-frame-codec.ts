@@ -332,6 +332,9 @@ export class BridgeProductContentStreamValidator<
 		if (acceptedHeader === null) {
 			throw new Error('Bridge product content end arrived before acceptance.');
 		}
+		if (acceptedHeader.identity.contentKind === 'file.content' && !header.endOfSource) {
+			throw new Error('Bridge product File content terminal must reach the end of source.');
+		}
 		if (header.observedByteLength !== this.#observedByteLength) {
 			throw new Error('Bridge product content end length does not match received bytes.');
 		}

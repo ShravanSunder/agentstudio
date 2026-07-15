@@ -473,7 +473,7 @@ function fileContentDescriptor(descriptorId: string): BridgeProductFileContentDe
 		encoding: 'utf-8',
 		expectedSha256: abcSha256,
 		fileId: `file-${descriptorId}`,
-		maximumBytes: 2 * 1024 * 1024,
+		maximumBytes: 3,
 		source: {
 			repoId: '00000000-0000-4000-8000-000000000001',
 			rootRevisionToken: null,
@@ -482,7 +482,7 @@ function fileContentDescriptor(descriptorId: string): BridgeProductFileContentDe
 			subscriptionGeneration: 1,
 			worktreeId: '00000000-0000-4000-8000-000000000002',
 		},
-		window: { kind: 'prefix', maximumBytes: 2 * 1024 * 1024, maximumLines: 10_000, startByte: 0 },
+		window: { kind: 'prefix', maximumBytes: 3, maximumLines: 10_000, startByte: 0 },
 	} as const;
 }
 

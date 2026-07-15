@@ -291,8 +291,12 @@ struct BridgeProductFileDescriptorReadyPayload: Codable, Equatable, Sendable {
 
     private func validatePrefixFacts(codingPath: [any CodingKey]) throws {
         for (value, name, maximum) in [
-            (payloadByteCount, "payloadByteCount", BridgeProductWireContract.maximumContentBytes),
-            (payloadLineCount, "payloadLineCount", BridgeProductWireContract.maximumContentLines),
+            (
+                payloadByteCount,
+                "payloadByteCount",
+                BridgeProductWireContract.maximumContentStreamBytes
+            ),
+            (payloadLineCount, "payloadLineCount", BridgeProductWireContract.maximumSafeInteger),
         ] {
             try BridgeProductContractDecoding.validateNonnegative(
                 value,

@@ -54,25 +54,25 @@ struct BridgeProductFileContentWindow: Codable, Equatable, Sendable {
     }
 
     private func validate(codingPath: [any CodingKey]) throws {
-        try BridgeProductContractDecoding.validatePositive(
+        try BridgeProductContractDecoding.validateNonnegative(
             maximumBytes,
             name: "maximumBytes",
             codingPath: codingPath
         )
         try BridgeProductContractDecoding.validateMaximum(
             maximumBytes,
-            maximum: BridgeProductWireContract.maximumContentBytes,
+            maximum: BridgeProductWireContract.maximumContentStreamBytes,
             name: "maximumBytes",
             codingPath: codingPath
         )
-        try BridgeProductContractDecoding.validatePositive(
+        try BridgeProductContractDecoding.validateNonnegative(
             maximumLines,
             name: "maximumLines",
             codingPath: codingPath
         )
         try BridgeProductContractDecoding.validateMaximum(
             maximumLines,
-            maximum: BridgeProductWireContract.maximumContentLines,
+            maximum: BridgeProductWireContract.maximumSafeInteger,
             name: "maximumLines",
             codingPath: codingPath
         )
@@ -165,27 +165,27 @@ struct BridgeProductFileContentDescriptor: Codable, Equatable, Sendable {
         )
         try BridgeProductContractDecoding.validateMaximum(
             declaredByteLength,
-            maximum: BridgeProductWireContract.maximumContentBytes,
+            maximum: BridgeProductWireContract.maximumContentStreamBytes,
             name: "declaredByteLength",
             codingPath: codingPath
         )
         try BridgeProductContractDecoding.validateIdentifier(descriptorId, codingPath: codingPath)
         try BridgeProductContractDecoding.validateSHA256(expectedSha256, codingPath: codingPath)
         try BridgeProductContractDecoding.validateIdentifier(fileId, codingPath: codingPath)
-        try BridgeProductContractDecoding.validatePositive(
+        try BridgeProductContractDecoding.validateNonnegative(
             maximumBytes,
             name: "maximumBytes",
             codingPath: codingPath
         )
         try BridgeProductContractDecoding.validateMaximum(
             maximumBytes,
-            maximum: BridgeProductWireContract.maximumContentBytes,
+            maximum: BridgeProductWireContract.maximumContentStreamBytes,
             name: "maximumBytes",
             codingPath: codingPath
         )
-        guard declaredByteLength <= maximumBytes else {
+        guard declaredByteLength == maximumBytes else {
             throw BridgeProductContractDecoding.invalidValue(
-                "Bridge product declared content length exceeds its maximum",
+                "Bridge product File content maximum must equal its declared length",
                 codingPath: codingPath
             )
         }

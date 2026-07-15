@@ -146,7 +146,7 @@ describe('Bridge product content frame decoder', () => {
 		const payload = Uint8Array.from([
 			0x00, 0x00, 0x40, 0x01, 0x7b, 0x22, 0x78, 0x22, 0x3a, 0x31, 0x7d,
 		]);
-		const acceptedFrame = contentAcceptedFrameForByteCount(payload.byteLength, 1024);
+		const acceptedFrame = contentAcceptedFrameForByteCount(payload.byteLength, payload.byteLength);
 		const dataFrame = contentDataFrameForPayload(1, 0, payload);
 		const decoder = new BridgeProductContentFrameDecoder();
 
@@ -204,7 +204,7 @@ describe('Bridge product content frame decoder', () => {
 		const maximumPayload = new Uint8Array(128 * 1024).fill(0xa5);
 		const maximumAccepted = contentAcceptedFrameForByteCount(
 			maximumPayload.byteLength,
-			2 * 1024 * 1024,
+			maximumPayload.byteLength,
 		);
 		const maximumEnd = contentEndFrameForByteCount(2, maximumPayload.byteLength);
 		const maximumWireBytes = concatenateBytes(
@@ -246,7 +246,10 @@ describe('Bridge product content frame decoder', () => {
 	test('accepts exactly 128 KiB of raw data and rejects one byte more', () => {
 		const maximumPayload = new Uint8Array(128 * 1024).fill(0x61);
 		const oversizedPayload = new Uint8Array(maximumPayload.byteLength + 1).fill(0x62);
-		const accepted = contentAcceptedFrameForByteCount(maximumPayload.byteLength, 2 * 1024 * 1024);
+		const accepted = contentAcceptedFrameForByteCount(
+			maximumPayload.byteLength,
+			maximumPayload.byteLength,
+		);
 		const maximumFrame = contentDataFrameForPayload(1, 0, maximumPayload);
 		const oversizedFrame = contentDataFrameForPayload(1, 0, oversizedPayload);
 
@@ -291,7 +294,7 @@ describe('Bridge product content frame decoder', () => {
 		const maximumPayload = new Uint8Array(128 * 1024).fill(0x61);
 		const finalPayload = Uint8Array.from([97, 98, 99]);
 		const totalByteCount = maximumPayload.byteLength + finalPayload.byteLength;
-		const accepted = contentAcceptedFrameForByteCount(totalByteCount, 2 * 1024 * 1024);
+		const accepted = contentAcceptedFrameForByteCount(totalByteCount, totalByteCount);
 		const end = contentEndFrameForByteCount(3, totalByteCount);
 		const decoder = new BridgeProductContentFrameDecoder();
 

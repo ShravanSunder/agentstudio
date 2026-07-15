@@ -18,7 +18,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
     let terminalFrameReserve: Int
 
     static let productContract = Self(
-        maximumContentBytes: BridgeProductWireContract.maximumContentBytes,
+        maximumContentBytes: BridgeProductWireContract.maximumContentStreamBytes,
         maximumRequestBodyBytes: BridgeProductWireContract.maximumRequestBodyBytes,
         maximumMetadataFrameBytes: BridgeProductWireContract.maximumMetadataFrameBytes,
         maximumQueuedStreamBytes: BridgeProductWireContract.maximumQueuedStreamBytes,
@@ -58,7 +58,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
 
         try validate(
             maximumContentBytes,
-            maximum: BridgeProductWireContract.maximumContentBytes,
+            maximum: BridgeProductWireContract.maximumContentStreamBytes,
             name: "maximumContentBytes",
             codingPath: decoder.codingPath
         )

@@ -165,7 +165,7 @@ function fileContentRequest(
 			encoding: 'utf-8',
 			expectedSha256: createHash('sha256').update(bytes).digest('hex'),
 			fileId: 'file-1',
-			maximumBytes: 2 * 1024 * 1024,
+			maximumBytes: bytes.byteLength,
 			source: {
 				repoId: '00000000-0000-4000-8000-000000000001',
 				rootRevisionToken: null,
@@ -174,7 +174,12 @@ function fileContentRequest(
 				subscriptionGeneration: 1,
 				worktreeId: '00000000-0000-4000-8000-000000000002',
 			},
-			window: { kind: 'prefix', maximumBytes: 2 * 1024 * 1024, maximumLines: 10_000, startByte: 0 },
+			window: {
+				kind: 'prefix',
+				maximumBytes: bytes.byteLength,
+				maximumLines: 10_000,
+				startByte: 0,
+			},
 		},
 		kind: 'content.open',
 		leaseId,

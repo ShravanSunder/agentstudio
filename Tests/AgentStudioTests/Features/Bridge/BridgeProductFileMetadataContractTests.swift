@@ -388,11 +388,11 @@ struct BridgeProductFileMetadataContractTests {
             "encoding": "utf-8",
             "expectedSha256": String(repeating: "a", count: 64),
             "fileId": "file-1",
-            "maximumBytes": 2 * 1024 * 1024,
+            "maximumBytes": 120,
             "source": source,
             "window": [
                 "kind": "prefix",
-                "maximumBytes": 2 * 1024 * 1024,
+                "maximumBytes": 120,
                 "maximumLines": 10_000,
                 "startByte": 0,
             ],
@@ -404,6 +404,13 @@ struct BridgeProductFileMetadataContractTests {
         descriptor["declaredByteLength"] = 0
         descriptor["expectedSha256"] =
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        descriptor["maximumBytes"] = 0
+        descriptor["window"] = [
+            "kind": "prefix",
+            "maximumBytes": 0,
+            "maximumLines": 10_000,
+            "startByte": 0,
+        ]
         return descriptor
     }
 

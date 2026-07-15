@@ -666,7 +666,7 @@ private func paneOwnerContentRequest(
             "encoding": "utf-8",
             "expectedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
             "fileId": "file-\(identitySuffix)",
-            "maximumBytes": 2097152,
+            "maximumBytes": 3,
             "source": {
               "repoId": "00000000-0000-4000-8000-000000000001",
               "rootRevisionToken": null,
@@ -677,7 +677,7 @@ private func paneOwnerContentRequest(
             },
             "window": {
               "kind": "prefix",
-              "maximumBytes": 2097152,
+              "maximumBytes": 3,
               "maximumLines": 10000,
               "startByte": 0
             }

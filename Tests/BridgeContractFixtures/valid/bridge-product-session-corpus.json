@@ -868,7 +868,7 @@
         "encoding": "utf-8",
         "expectedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
         "fileId": "file-1",
-        "maximumBytes": 2097152,
+        "maximumBytes": 3,
         "source": {
           "repoId": "00000000-0000-4000-8000-000000000001",
           "rootRevisionToken": null,
@@ -879,7 +879,7 @@
         },
         "window": {
           "kind": "prefix",
-          "maximumBytes": 2097152,
+          "maximumBytes": 3,
           "maximumLines": 10000,
           "startByte": 0
         }
@@ -898,7 +898,7 @@
       "contentSequence": 0,
       "declaredByteLength": 3,
       "expectedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
-      "maximumBytes": 2097152,
+      "maximumBytes": 3,
       "identity": {
         "contentKind": "file.content",
         "descriptorId": "file-descriptor-1",
@@ -913,7 +913,7 @@
         },
         "window": {
           "kind": "prefix",
-          "maximumBytes": 2097152,
+          "maximumBytes": 3,
           "maximumLines": 10000,
           "startByte": 0
         }
@@ -955,11 +955,11 @@
       "encodedBase64": "AAAADAIAAAABAAAAAGFiYw=="
     },
     "contentStream": {
-      "acceptedBodyJSON": "{\"contentRequestId\":\"content-request-1\",\"identity\":{\"contentKind\":\"file.content\",\"descriptorId\":\"file-descriptor-1\",\"fileId\":\"file-1\",\"source\":{\"repoId\":\"00000000-0000-4000-8000-000000000001\",\"rootRevisionToken\":null,\"sourceCursor\":\"source-cursor-1\",\"sourceId\":\"source-1\",\"subscriptionGeneration\":11,\"worktreeId\":\"00000000-0000-4000-8000-000000000002\"},\"window\":{\"kind\":\"prefix\",\"maximumBytes\":2097152,\"maximumLines\":10000,\"startByte\":0}},\"leaseId\":\"lease-1\",\"paneSessionId\":\"pane-session-1\",\"wireVersion\":2,\"workerDerivationEpoch\":2,\"workerInstanceId\":\"worker-instance-1\",\"declaredByteLength\":3,\"expectedSha256\":\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\",\"maximumBytes\":2097152}",
+      "acceptedBodyJSON": "{\"contentRequestId\":\"content-request-1\",\"identity\":{\"contentKind\":\"file.content\",\"descriptorId\":\"file-descriptor-1\",\"fileId\":\"file-1\",\"source\":{\"repoId\":\"00000000-0000-4000-8000-000000000001\",\"rootRevisionToken\":null,\"sourceCursor\":\"source-cursor-1\",\"sourceId\":\"source-1\",\"subscriptionGeneration\":11,\"worktreeId\":\"00000000-0000-4000-8000-000000000002\"},\"window\":{\"kind\":\"prefix\",\"maximumBytes\":3,\"maximumLines\":10000,\"startByte\":0}},\"leaseId\":\"lease-1\",\"paneSessionId\":\"pane-session-1\",\"wireVersion\":2,\"workerDerivationEpoch\":2,\"workerInstanceId\":\"worker-instance-1\",\"declaredByteLength\":3,\"expectedSha256\":\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\",\"maximumBytes\":3}",
       "endBodyJSON": "{\"endOfSource\":true,\"observedByteLength\":3,\"observedSha256\":\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"}",
       "frameCount": 3,
-      "encodedByteLength": 864,
-      "encodedBase64": "AAACxAEAAAAAeyJjb250ZW50UmVxdWVzdElkIjoiY29udGVudC1yZXF1ZXN0LTEiLCJpZGVudGl0eSI6eyJjb250ZW50S2luZCI6ImZpbGUuY29udGVudCIsImRlc2NyaXB0b3JJZCI6ImZpbGUtZGVzY3JpcHRvci0xIiwiZmlsZUlkIjoiZmlsZS0xIiwic291cmNlIjp7InJlcG9JZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInJvb3RSZXZpc2lvblRva2VuIjpudWxsLCJzb3VyY2VDdXJzb3IiOiJzb3VyY2UtY3Vyc29yLTEiLCJzb3VyY2VJZCI6InNvdXJjZS0xIiwic3Vic2NyaXB0aW9uR2VuZXJhdGlvbiI6MTEsIndvcmt0cmVlSWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDIifSwid2luZG93Ijp7ImtpbmQiOiJwcmVmaXgiLCJtYXhpbXVtQnl0ZXMiOjIwOTcxNTIsIm1heGltdW1MaW5lcyI6MTAwMDAsInN0YXJ0Qnl0ZSI6MH19LCJsZWFzZUlkIjoibGVhc2UtMSIsInBhbmVTZXNzaW9uSWQiOiJwYW5lLXNlc3Npb24tMSIsIndpcmVWZXJzaW9uIjoyLCJ3b3JrZXJEZXJpdmF0aW9uRXBvY2giOjIsIndvcmtlckluc3RhbmNlSWQiOiJ3b3JrZXItaW5zdGFuY2UtMSIsImRlY2xhcmVkQnl0ZUxlbmd0aCI6MywiZXhwZWN0ZWRTaGEyNTYiOiJiYTc4MTZiZjhmMDFjZmVhNDE0MTQwZGU1ZGFlMjIyM2IwMDM2MWEzOTYxNzdhOWNiNDEwZmY2MWYyMDAxNWFkIiwibWF4aW11bUJ5dGVzIjoyMDk3MTUyfQAAAAwCAAAAAQAAAABhYmMAAACEAwAAAAJ7ImVuZE9mU291cmNlIjp0cnVlLCJvYnNlcnZlZEJ5dGVMZW5ndGgiOjMsIm9ic2VydmVkU2hhMjU2IjoiYmE3ODE2YmY4ZjAxY2ZlYTQxNDE0MGRlNWRhZTIyMjNiMDAzNjFhMzk2MTc3YTljYjQxMGZmNjFmMjAwMTVhZCJ9"
+      "encodedByteLength": 852,
+      "encodedBase64": "AAACuAEAAAAAeyJjb250ZW50UmVxdWVzdElkIjoiY29udGVudC1yZXF1ZXN0LTEiLCJpZGVudGl0eSI6eyJjb250ZW50S2luZCI6ImZpbGUuY29udGVudCIsImRlc2NyaXB0b3JJZCI6ImZpbGUtZGVzY3JpcHRvci0xIiwiZmlsZUlkIjoiZmlsZS0xIiwic291cmNlIjp7InJlcG9JZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInJvb3RSZXZpc2lvblRva2VuIjpudWxsLCJzb3VyY2VDdXJzb3IiOiJzb3VyY2UtY3Vyc29yLTEiLCJzb3VyY2VJZCI6InNvdXJjZS0xIiwic3Vic2NyaXB0aW9uR2VuZXJhdGlvbiI6MTEsIndvcmt0cmVlSWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDIifSwid2luZG93Ijp7ImtpbmQiOiJwcmVmaXgiLCJtYXhpbXVtQnl0ZXMiOjMsIm1heGltdW1MaW5lcyI6MTAwMDAsInN0YXJ0Qnl0ZSI6MH19LCJsZWFzZUlkIjoibGVhc2UtMSIsInBhbmVTZXNzaW9uSWQiOiJwYW5lLXNlc3Npb24tMSIsIndpcmVWZXJzaW9uIjoyLCJ3b3JrZXJEZXJpdmF0aW9uRXBvY2giOjIsIndvcmtlckluc3RhbmNlSWQiOiJ3b3JrZXItaW5zdGFuY2UtMSIsImRlY2xhcmVkQnl0ZUxlbmd0aCI6MywiZXhwZWN0ZWRTaGEyNTYiOiJiYTc4MTZiZjhmMDFjZmVhNDE0MTQwZGU1ZGFlMjIyM2IwMDM2MWEzOTYxNzdhOWNiNDEwZmY2MWYyMDAxNWFkIiwibWF4aW11bUJ5dGVzIjozfQAAAAwCAAAAAQAAAABhYmMAAACEAwAAAAJ7ImVuZE9mU291cmNlIjp0cnVlLCJvYnNlcnZlZEJ5dGVMZW5ndGgiOjMsIm9ic2VydmVkU2hhMjU2IjoiYmE3ODE2YmY4ZjAxY2ZlYTQxNDE0MGRlNWRhZTIyMjNiMDAzNjFhMzk2MTc3YTljYjQxMGZmNjFmMjAwMTVhZCJ9"
     }
   }
 }

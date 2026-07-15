@@ -8,7 +8,7 @@ import { bridgeProductContentIdentitySchema } from './bridge-product-content-con
 import {
 	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
 	BRIDGE_PRODUCT_MAXIMUM_ACTIVE_SUBSCRIPTION_COUNT,
-	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
+	BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
 	BRIDGE_PRODUCT_MAXIMUM_CONTROL_REQUEST_SEQUENCE,
 	BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
 	BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
@@ -466,7 +466,11 @@ const bridgeProductCapabilityBytesSchema = z
 
 export const bridgeProductBootstrapPolicySchema = z
 	.object({
-		maximumContentBytes: z.number().int().positive().max(BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES),
+		maximumContentBytes: z
+			.number()
+			.int()
+			.positive()
+			.max(BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES),
 		maximumRequestBodyBytes: z
 			.number()
 			.int()

@@ -7,7 +7,7 @@ import {
 } from '../../src/core/comm-worker/bridge-product-content-contracts.js';
 import {
 	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
-	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
+	BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
 	BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
 	BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
 	BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
@@ -290,7 +290,7 @@ export class BridgeProductDevCarrier {
 			kind: 'productSession.bootstrap',
 			paneSessionId,
 			policy: {
-				maximumContentBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
+				maximumContentBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
 				maximumMetadataFrameBytes: BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
 				maximumQueuedStreamBytes: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
 				maximumQueuedStreamFrames: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
