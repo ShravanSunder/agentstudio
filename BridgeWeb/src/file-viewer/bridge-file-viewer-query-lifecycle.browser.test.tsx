@@ -7,7 +7,7 @@ import type { BridgeWorkerMainToServerMessage } from '../core/comm-worker/bridge
 import { BridgeFileViewerBrowserHarnessApp } from './bridge-file-viewer-browser-test-app.js';
 import {
 	makeFileContent,
-	makeFileDescriptor,
+	makeFileDescriptorForContent,
 	makeFileMetadataEvents,
 } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
@@ -24,7 +24,9 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 
 	test('does not reschedule the unchanged query when content publications update the snapshot', async () => {
 		// Arrange
-		const descriptor = makeFileDescriptor({
+		const content = makeFileContent('export const queryLifecycle = "settled";\n');
+		const descriptor = await makeFileDescriptorForContent({
+			content,
 			contentHandle: 'query-lifecycle-content',
 			fileId: 'file-query-lifecycle',
 			path: 'src/query-lifecycle.ts',
@@ -39,8 +41,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 					onWorkerCommand: (message): void => {
 						dispatchedMessages.push(message);
 					},
-					readContent: async (): Promise<string> =>
-						makeFileContent('export const queryLifecycle = "settled";\n'),
+					readContent: async (): Promise<string> => content,
 				}}
 				initialMetadataEvents={makeFileMetadataEvents(descriptor)}
 			/>,
