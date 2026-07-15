@@ -632,3 +632,32 @@ Continue `shravan-dev-workflow:implementation-execute-plan` by integrating C2's
 reserved admission, eligibility/forwarding ports, and debt-safe retirement.
 Production remains wholly legacy until W2b, and all product-performance and
 real-app proof gates remain open.
+
+## 2026-07-15 WF-C C2 bounded content-repair projector checkpoint
+
+WF-C C2 is frozen and committed at `7cb48618`. The off-main projector owns
+bounded serial delivery, exact resumable acknowledgement forwarding, causal
+source retirement, and per-source bounded completion replay. C1 remains the
+sole lifecycle and currentness authority; C2 revalidates the exact activation
+immediately before every consumer effect and discards a superseded journal so
+the successor can progress.
+
+Fresh parent proof:
+
+- focused projector: 24 tests, 1 suite, exit 0;
+- focused registry: 25 tests, 1 suite, exit 0;
+- `mise run lint`: swift-format OK, SwiftLint 0/1,560, architecture lint OK,
+  31 mutation rows restored exactly, release scripts passed, exit 0;
+- strict scoped swift-format and SwiftLint: exit 0, 0 violations;
+- `git diff --cached --check`: exit 0 before commit;
+- C2 rejects brand-new forwarding while draining, distinguishes same-token
+  acknowledgement conflicts during processing, and preserves exact newer
+  replay after stale retirement attempts;
+- all C2 source and test files remain below 600 lines;
+- identity is UUIDv7 and ordering uses checked integer ordinals only.
+
+Continue `shravan-dev-workflow:implementation-execute-plan` at the isolated
+registered-worktree repair integration against the frozen SourceGate API, then
+the atomic W2b production cut. No product-performance claim is made before W2b
+and the final Victoria, authenticated exact-PID IPC, large-root, native UI, and
+human interaction-feel proof loop.
