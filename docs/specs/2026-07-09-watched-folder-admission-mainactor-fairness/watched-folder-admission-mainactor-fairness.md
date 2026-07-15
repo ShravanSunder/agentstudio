@@ -256,7 +256,9 @@ and overflow repair use the same per-folder scheduler and generation rules.
 
 WS4. One hot folder cannot starve other folders or interactive work. Scheduler
 fairness and concurrency must be explicit and measurable at both admission and
-actor/scan processing. The actor processes at most one calibrated
+actor/scan processing. The scan scheduler owns fair traversal turns; one
+`RepoScannerValidationExecutor` actor owns a bounded root-fair FIFO and an
+initial two physical read-validation slots. The actor processes at most one calibrated
 contribution/item/byte/service quantum for a ready root before requeueing a
 still-dirty root behind other ready roots. Attended-root priority may reduce
 latency but uses a finite `maximumAttendedPriorityBurst` policy value and cannot
@@ -273,6 +275,10 @@ WS5. `RepoScannerResult` is a strict discriminated union whose cases are
 Each case carries only its valid case-specific payload. Traversal, validation,
 permission, and root failure reasons remain exhaustive inside those payloads;
 correlated optionals or a separate completion field may not encode the union.
+Each resumable traversal quantum returns exactly `suspended`,
+`validationRequired(request)`, or `finished(result)` and never awaits Git while
+holding traversal credit. Request/session UUIDv7 values establish identity and
+currentness only; actor-owned FIFO state, never UUID ordering, establishes order.
 
 WS6. Repository/worktree removal may be inferred only by the topology projector
 from a `completeAuthoritative` inventory accepted for the exact current
@@ -283,6 +289,13 @@ classification/validation of every encountered `.git` candidate. A validation
 timeout or suppressed error makes the result partial. Partial, failed,
 cancelled, unavailable, stale, or base-incompatible results cannot establish
 absence and carry no removal authority.
+
+The validation executor admits one outstanding candidate per logical scan and
+bounds logical requests by `Q` and physical tasks by `V` (initially two). A
+timed-out/cancelled synchronous native validation retains its `draining` slot
+until actual exit; the slot is never synthetically reused. Saturation produces
+typed partial/dirty evidence while unrelated roots continue traversal. The first
+cut has no process isolation; persistent helpers require measured enduring debt.
 
 WS7. A partial scan may merge verified positive discoveries only if it cannot
 remove prior canonical truth and the resulting state remains marked dirty.
@@ -297,6 +310,17 @@ WS9. The scanner records candidate count plus validation success, negative,
 timeout, cancellation, and failure counts. A negative result is authoritative
 only when the validation provider explicitly established it, not when an error
 was converted to `nil`.
+
+Discovery validation receives a narrow read-only Git capability, never a full
+writer/remote client. It opens the exact candidate with
+`GIT_REPOSITORY_OPEN_NO_SEARCH`; may read identity, registration, lock state,
+and HEAD; and never creates/removes/waits on/holds lockfiles, writes an index, or
+mutates repo/worktree/common-directory content. Access-time updates are excluded
+from absolute immutability. Discovery cannot borrow status, network, lifecycle,
+or mutation capacity. Typed independently budgeted classes are discovery read,
+status read, network fetch/pull, worktree lifecycle/checkout, and other mutation.
+Current discovery/status defaults are two/one seconds; longer deadlines require
+measured calibration rather than inheriting a read budget.
 
 ### Root Ownership and Filesystem Projection
 
@@ -984,11 +1008,10 @@ compact receipt and its derived current-state mutation.
 
 #### Persistent root ownership index
 
-`FilesystemActor` owns one in-memory immutable
-`FilesystemRootIndexSnapshot` per accepted topology revision. The snapshot is a
-path-component radix trie, rebuilt off-main only when registered root identity
-changes and atomically swapped after generation validation. It is derived cache,
-never persisted watcher authority.
+`FilesystemActor` owns one immutable `FilesystemRootIndexSnapshot` per accepted
+topology revision. This path-component radix trie is rebuilt off-main only when
+registered root identity changes and atomically swapped after generation
+validation; it is derived cache, never persisted watcher authority.
 
 Each `RegisteredRootDescriptor` is constructed only by source configuration
 from host-authorized root input. It contains one exact
@@ -1002,11 +1025,10 @@ selects the deepest component-complete alias match. It does not lowercase every
 path, compare raw string prefixes, scan every root, or call
 `resolvingSymlinksInPath()` per event.
 
-Component comparison uses one `FilesystemPathCanonicalizer` with source-
-verified volume semantics; unknown/ambiguous case, Unicode, alias, symlink, or
-replacement identity rejects exact routing and creates repair debt rather than
-guessing. Every routed hint carries index and registration generation and is
-revalidated before destructive projection.
+One `FilesystemPathCanonicalizer` uses source-verified volume semantics;
+ambiguous case, Unicode, alias, symlink, or replacement identity creates repair
+debt rather than guessing. Routed hints carry index/registration generation and
+are revalidated before destructive projection.
 
 #### Scan scheduler and result
 
@@ -1023,10 +1045,10 @@ runningAndDirty(run generation, newest trigger + unioned repair obligations)
 Triggers merge by retaining the newest source/root generation and the union of
 unresolved repair obligations. A hot root's follow-up reenters the fair ready
 queue; it does not recursively retain a scan slot. Oldest-ready-root age and
-per-root repair age are bounded/observable. Scan traversal and Git validation
-run outside actor-isolated service and return as traversal-only evidence. The
-scheduler binds that evidence to the exact request and checked scan-run
-generation before forwarding it.
+per-root repair age are bounded/observable. Traversal runs outside actor-isolated
+service, returns before Git validation, and is re-admitted only after an exact
+current validation completion. The scheduler binds final evidence to the exact
+request and checked scan-run generation before forwarding it.
 
 ```swift
 struct WatchedFolderScanRequest: Sendable {
@@ -1047,6 +1069,12 @@ struct WatchedFolderRepairObligation: Sendable {
     let unresolved: NonEmptyWatchedFolderRepairObligations
 }
 
+enum RepoScannerTraversalQuantumOutcome: Sendable {
+    case suspended(RepoScannerQuantumUsage)
+    case validationRequired(RepoScannerValidationRequest)
+    case finished(RepoScannerResult)
+}
+
 enum RepoScannerResult: Sendable {
     case completeAuthoritative(CompleteRepoScan)
     case partial(PartialRepoScan)
@@ -1063,14 +1091,17 @@ struct ScheduledWatchedFolderScanResult: Sendable {
 }
 ```
 
-`RepoScanner` returns `RepoScannerResult` rather than collapsing traversal,
-stat, validation, timeout, cancellation, and permission failures into an empty
-array. Complete and partial payloads contain their valid positive inventory,
-structured reasons, counts, and traversal/validation service metrics; a
-validation provider's authoritative negative is distinct from timeout,
-cancellation, and failure. The scanner never receives prior topology and never
-constructs removal candidates. Partial positive discoveries may merge while
-repair debt remains; negative results do not delete last-known topology.
+One `RepoScannerValidationExecutor` actor owns a bounded root-fair FIFO, logical
+cap `Q`, and physical cap `V = 2`, with one outstanding candidate per logical
+scan. Timeout/cancellation ends logical waiting but leaves non-cooperative native
+work draining its slot until exit; both draining slots spawn no replacements.
+Saturation yields partial/dirty evidence without blocking unrelated traversal.
+The first cut has no helper process; sustained measured debt is its escalation.
+
+`RepoScanner` never receives prior topology or constructs removals. Its strict result
+preserves positives, failures, counts, and service metrics; authoritative negative
+remains distinct from timeout/cancellation/failure. Partial positives may merge
+while repair remains; negatives never delete last-known topology.
 
 #### Topology projection, apply, and currentness
 
@@ -1773,6 +1804,10 @@ Deterministic proof must cover:
 - single-flight and exactly one dirty follow-up under a trigger burst;
 - partial traversal, partial validation, timeout, cancellation,
   permission-denied, root-missing, and stale scan results;
+- validation queue saturation, root fairness, and draining-slot custody; exact
+  no-parent-search behavior; and a non-writable disposable repo/worktree whose
+  before/after manifest, transient write monitor, and pre-existing lock fixture
+  prove discovery creates no write or lock while tolerating access-time change;
 - no false removals from incomplete results;
 - canonical path containment across nested roots, relative paths, `..`,
   symlinks, case variation, and stale registrations;

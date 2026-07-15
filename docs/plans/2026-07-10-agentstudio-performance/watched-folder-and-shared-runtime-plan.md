@@ -26,7 +26,8 @@ Darwin callback
 | --- | --- |
 | `DarwinFSEventStreamClient` | retain vendor boundary; replace unbounded/unversioned capture with control block, observation, and mailbox |
 | `FilesystemActor` | retain domain actor; remove callback backlog, scan-loop, per-batch root rebuild, and global FS→Git responsibilities |
-| `RepoScanner` | retain traversal provider; return exhaustive completion/validation result rather than absence-capable best effort |
+| `RepoScanner` | retain resumable traversal provider; yield validation requests and return exhaustive evidence rather than awaiting Git or producing absence-capable best effort |
+| `RepoScannerValidationExecutor` | add one bounded actor with root-fair validation FIFO and two physical read-only native-task slots |
 | `FilesystemRootOwnership` | replace hot-path root scan with persistent immutable `FilesystemRootIndexSnapshot` |
 | `FilesystemProjectionIndex` | preserve as pane/worktree projection owner |
 | `WorkspaceCacheCoordinator` | stop receiving all global topics and stop building topology on MainActor; consume typed accepted effects only where still needed |
@@ -327,12 +328,12 @@ Add:
   - A suspended logical run requeues at the tail without changing its checked
     scan-run generation. A new generation is minted only for a new logical
     scan after final completion, cancellation, or replacement.
-  - Retain a concurrency credit from active quantum through pending and leased
-    final-result custody. Release the credit only after an identical final
-    result is acknowledged as transferred; retry re-presents the same result.
-    Therefore `active + pending + leased <= maximumConcurrentScans`, with at
-    most one leased result. A slow consumer reduces scanning throughput instead
-    of creating an unbounded inventory queue.
+  - A traversal credit covers one bounded synchronous traversal quantum only.
+    `validationRequired` releases it before enqueueing validation, so saturated
+    or draining Git work cannot stop unrelated-root traversal. Final-result
+    custody remains separately bounded and leased until an identical result is
+    acknowledged; a slow result consumer reduces finalization throughput
+    without creating an inventory queue.
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/WatchedFolderScanResult.swift`
   - Normative `WatchedFolderScanRequest`, strict `WatchedFolderScanCause`,
     non-empty `WatchedFolderRepairObligation`,
@@ -356,6 +357,43 @@ Add:
     success/authoritative-negative/timeout/cancel/failure, and scanner service.
   - No correlated optionals, source/root authority, scheduler metrics, prior
     topology, or removal candidates.
+- `Sources/AgentStudio/Infrastructure/RepoScannerValidationExecutor.swift`
+  - One actor owns a bounded root-fair FIFO, a compile-time logical queue cap
+    `Q`, and physical validation capacity `V`, initially two task slots.
+  - Permit at most one outstanding candidate per logical scanner session.
+    Select requests round-robin by canonical watched-root identity; UUIDv7
+    request/session IDs establish identity/currentness only and never ordering.
+  - A deadline or cancellation ends logical waiting but does not release a
+    physical slot still executing synchronous libgit2. Keep that slot in an
+    explicit `draining` state until the native call actually exits. When both
+    slots drain, reject/defer new requests as typed partial/dirty evidence; do
+    not create replacement tasks, grow the queue, or block unrelated traversal.
+  - Do not process-isolate the first cut. Add a telemetry-backed escalation
+    gate for persistent helpers only if sustained non-cooperative native-task
+    debt remains after the bounded executor lands.
+- `Sources/AgentStudio/Infrastructure/RepoScannerGitDiscoveryClient.swift`
+  - Expose only discovery identity/validation reads. Production construction
+    must not accept or retain `AgentStudioGitLocalClient`, a writer registry, or
+    any remote/network client.
+- `Sources/AgentStudio/Infrastructure/AppPolicies.swift`
+  - Add a strict Git operation-class/budget vocabulary for discovery read,
+    status read, network fetch/pull, worktree lifecycle/checkout, and other
+    mutations. Each class binds to its own executor/capacity/deadline type; no
+    generic optional timeout or shared slot pool represents the union. Preserve
+    the current compile-time discovery/status defaults of two seconds and one
+    second. Do not invent network/lifecycle/mutation values; calibrate and
+    freeze each separately when its executor is implemented.
+
+Land the matching `agentstudio-git` dependency change before production W3
+integration, then update `Package.swift`/`Package.resolved` to its immutable
+revision. The dependency adds a narrow discovery-read implementation that opens
+only the exact candidate with `GIT_REPOSITORY_OPEN_NO_SEARCH` and may read
+identity, worktree registration/lock state, and HEAD. It must never create,
+remove, wait on, or hold lockfiles; refresh/write an index; mutate repository,
+worktree, or common-directory content; or borrow writer/remote executors.
+Access-time changes caused by reads are excluded from the absolute immutability
+claim. Status, network, lifecycle/checkout, and mutation executors keep separate
+capacity and deadlines; discovery cannot borrow their slots.
 
 Modify:
 
@@ -370,9 +408,11 @@ Modify:
     `FileManager.DirectoryEnumerator`, accumulated evidence, traversal/error
     state, and cumulative active service duration behind synchronous protected
     state.
-  - `advanceOneQuantum` has a strict result union: `suspended(usage:)` or
-    `finished(RepoScannerResult)`. Suspension exposes usage only and never a
-    repository inventory. Only the scanner session constructs a final result.
+  - `advanceOneQuantum` has the strict union `suspended(usage:)`,
+    `validationRequired(request)`, or `finished(RepoScannerResult)`. A session
+    preserves one pending candidate across validation and resumes only from the
+    exact current request completion. Suspension exposes usage only and never
+    repository inventory; only the session constructs a final result.
   - Bound a quantum by calibrated positive item, path-byte, candidate, failure,
     and active-service limits. Reaching a quantum cap suspends the session;
     reaching an absolute scan/failure cap finishes with non-authoritative
@@ -383,17 +423,17 @@ Modify:
     not reuse callback, EventBus, replay, or envelope capacities as scan limits;
     calibration may change one pressure surface without coupling the others.
   - Hold the synchronous scanner-state lock only while advancing or reading the
-    enumerator/state. Never hold it across awaited Git validation. One strict
-    quantum lease prevents concurrent advancement of the same enumerator.
+    enumerator/state. Never await Git inside the quantum or under that lock. One
+    strict quantum lease prevents concurrent advancement of the same enumerator.
 
-The scheduler accepts a suspension or completion only from the exact session it
-created for the exact current `FSEventRegistrationToken` and checked scan-run
-generation; completion ingestion remains private. It never derives removal
-candidates. Partial results may add verified positives and must retain
-dirty/repair state. An ordinary trigger never erases a pending repair
-obligation. In the target/post-W5 architecture, W5 alone derives removal
-candidates from `completeAuthoritative` inventory after exact token, scan-run,
-and canonical-base checks.
+The scheduler accepts a suspension, validation request/completion, or final
+result only from the exact session it created for the exact current
+`FSEventRegistrationToken`, UUIDv7 session/request identity, and checked
+scan-run generation. Replacement, cancellation, and stale completion reject
+exactly without advancing another session. Completion ingestion remains
+private. The scheduler never derives removals. Partial positives retain
+dirty/repair state, and an ordinary trigger never erases repair. In the target
+architecture W5 alone derives removals from current complete evidence.
 
 Production integration prerequisite: before the scheduler can feed the legacy
 topology path, repair the current double-reconciliation regression at the
@@ -418,6 +458,8 @@ contracts and removes the identity-preserving merge from the atom.
 Create/modify:
 
 - `WatchedFolderScanSchedulerTests.swift`
+- `RepoScannerValidationExecutorTests.swift`
+- `RepoScannerGitDiscoveryReadOnlyIntegrationTests.swift`
 - `RepoScannerCompletenessTests.swift`
 - `FilesystemActorWatchedFolderTests.swift`
 - `FilesystemActorShellGitIntegrationTests.swift`
@@ -426,7 +468,11 @@ Create/modify:
 Use real temporary filesystem/Git fixtures for the integration layer. Scanner
 cases: permission denial, unreadable child, validation timeout/failure,
 cancellation, missing/replaced root, malformed `.git`, symlink loop, and exact
-completion/count classification. Scheduler cases: hot/cold folder fairness,
+completion/count classification. Executor cases: bounded `Q`/`V`, two physical
+slots, one outstanding candidate per session, root-fair FIFO selection, both
+slots draining, no synthetic reuse before actual exit, stale/replaced request
+rejection, saturation-to-partial conversion, and unrelated traversal progress.
+Scheduler cases: hot/cold folder fairness,
 one-running, trigger during running scan, newest-dirty collapse, exact-current
 generation rejection, cancellation-aware result leasing, all-waiter shutdown,
 and separated queue/service/follow-up metrics. Deterministic fairness proof uses
@@ -436,6 +482,16 @@ slow result consumer proves the final-result custody invariant, zero silent
 loss, bounded high-water, and resumed progress without sleeps.
 
 Independent oracle: literal generated directory/repository manifest. Do not derive expected absence from scanner output.
+
+Read-only discovery proof uses a disposable repository and linked worktree made
+non-writable after setup. Capture a metadata/content manifest before and after,
+monitor transient filesystem writes during validation, and prove a pre-existing
+lock fixture remains byte-identical. A nested-repository fixture proves exact
+candidate open with no parent search. The oracle permits access-time changes but
+rejects any created/removed/changed lockfile, index, ref, config, worktree
+registration, repository content, or common-directory content. Dependency-level
+tests exercise the concrete libgit2 implementation; AgentStudio integration
+tests prove only the narrow capability is constructible by `RepoScanner`.
 
 RED/GREEN: required for suppressed traversal/validation errors producing a
 partial non-authoritative result that cannot express absence, and for
@@ -461,7 +517,14 @@ index-generation advance. Repo Explorer's nontrapping duplicate handling is a
 fault-containment test, never the canonical invariant oracle. The scheduler
 remains dormant until this proof is GREEN.
 
-Split trigger: the validation provider cannot distinguish authoritative negative from timeout/failure.
+Telemetry records logical queue age/high-water, per-root wait, physical running
+and draining slots, deadline/cancellation outcome, native exit debt/age, and
+discovery operation class without raw paths or repository UUIDs.
+
+Split triggers: the validation provider cannot distinguish authoritative
+negative from timeout/failure; the narrow dependency implementation cannot
+prove exact no-search/read-only behavior; or bounded in-process draining debt
+prevents the accepted root-fair progress invariant under calibrated workloads.
 
 ## 6. Task W4 — Source-Authorized Root Contract, Persistent Index, And Batched Configuration
 
