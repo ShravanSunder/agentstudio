@@ -484,6 +484,17 @@ another. A page is acknowledged as transferred only after its Sendable values
 have entered the off-main accumulator; failure or cancellation aborts the lease
 and drains cleanup in bounded quanta.
 
+Boot restoration is a one-shot boundary before pager participation exists.
+Decoded workspace and topology values are validated and normalized off-main,
+then all canonical owners apply one prepared MainActor transaction and advance
+the shared revision exactly once. Only after that commit succeeds does the
+canonical factory construct and install the exact fourteen pager participants
+from restored membership. Rejected preparation or apply leaves every owner and
+revision unchanged and leaves factory construction unattempted. The boot path
+does not send insertions through unconfigured snapshot participants, and the
+product has no implicit post-install fleet-rehydration mode; later mutation uses
+normal revisioned participant changes or a separately specified rebuild.
+
 ### Event Admission, Scheduling, and Replay
 
 EV1. The global runtime EventBus carries semantic domain facts, not raw source

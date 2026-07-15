@@ -618,6 +618,16 @@ separate validated policy values. Transfer each page into the off-main
 accumulator before acknowledging `.transferred`, yield between capture turns,
 and close/abort plus drain retained cleanup custody on every exit path.
 
+Integrate boot hydration as a one-shot pre-participant phase: perform pure
+off-main decode/validation/normalization, apply the complete prepared value in
+one revision-owner transaction, then construct/install the exact fourteen
+participants from the committed canonical owners. A rejection advances zero
+revisions, mutates no owner, and leaves the factory unattempted. Do not
+preconstruct participants from default membership and do not route initial
+fleet insertions through unconfigured keyed participants. Repeated
+post-install fleet hydration is a typed rejection; ordinary revisioned changes
+and the later explicit gap-rebuild path own updates after installation.
+
 ### W4.5c — Lease stability and update-journal fixture proof
 
 Add `WorkspacePersistenceRevisionOwnerTests.swift`, `WorkspaceStateSnapshotLeaseTests.swift`, `WorkspacePersistencePageCaptureTests.swift`, and a test-only contiguous update-journal fixture. Retain emitted pages while mutating the same/new/removed keys; prove no moving-state reread or fleet COW detachment. Assert one revision-owner object identity across `AtomRegistry`, `WorkspaceStore`, and every outer transaction owner. Prove a multi-atom canonical transaction advances exactly once, passes the same revision to every keyed mutation, and a failed transaction advances zero times. Inventory proof compares page participants with `WorkspaceSQLiteSnapshot`, `RepositoryTopologySQLiteSnapshot`, and repository persistence records; transient zoom/presentation state is a required negative case. No temporary revision owner or full fleet snapshot is permitted.
