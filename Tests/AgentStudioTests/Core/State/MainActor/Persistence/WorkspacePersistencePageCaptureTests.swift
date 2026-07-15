@@ -487,36 +487,57 @@ struct WorkspacePersistencePageCaptureTests {
             PageCaptureNumericOwnerKey,
             PageCaptureNumericOwnerValue
         >()
-        let registrations:
-            [WorkspaceStateSnapshotPagerParticipant<
+        let textRegistration = requireConstructedParticipant(
+            WorkspaceStateSnapshotPagerParticipant<
                 PageCaptureTestParticipantID,
                 PageCaptureTestItem
-            >] = [
-                .typed(
-                    participantID: .alpha,
-                    keyedParticipant: textParticipant,
-                    orderedBaseKeys: { [textKey] },
-                    currentValue: { key in key == textKey ? .value(textValue) : .absent },
+            >.typed(
+                participantID: .alpha,
+                keyedParticipant: textParticipant,
+                membershipLimits: pageCaptureTestMembershipLimits,
+                orderedBaseKeys: { [textKey] },
+                currentValue: { key in key == textKey ? .value(textValue) : .absent },
+                projection: .init(
+                    itemIDForKey: { .text($0.rawValue) },
                     projectItem: { key, value in
                         WorkspaceStateSnapshotPagerTypedItem(
-                            item: .text(id: key.rawValue, payload: value.payload),
+                            item: .text(
+                                participantID: .alpha,
+                                id: key.rawValue,
+                                payload: value.payload
+                            ),
                             estimatedByteCount: key.rawValue.utf8.count + value.payload.utf8.count
                         )
                     }
-                ),
-                .typed(
-                    participantID: .beta,
-                    keyedParticipant: numericParticipant,
-                    orderedBaseKeys: { [numericKey] },
-                    currentValue: { key in key == numericKey ? .value(numericValue) : .absent },
+                )
+            )
+        )
+        let numericRegistration = requireConstructedParticipant(
+            WorkspaceStateSnapshotPagerParticipant<
+                PageCaptureTestParticipantID,
+                PageCaptureTestItem
+            >.typed(
+                participantID: .beta,
+                keyedParticipant: numericParticipant,
+                membershipLimits: pageCaptureTestMembershipLimits,
+                orderedBaseKeys: { [numericKey] },
+                currentValue: { key in key == numericKey ? .value(numericValue) : .absent },
+                projection: .init(
+                    itemIDForKey: { .number($0.rawValue) },
                     projectItem: { key, value in
                         WorkspaceStateSnapshotPagerTypedItem(
-                            item: .number(id: key.rawValue, value: value.value),
+                            item: .number(
+                                participantID: .beta,
+                                id: key.rawValue,
+                                value: value.value
+                            ),
                             estimatedByteCount: MemoryLayout<Int>.size * 2
                         )
                     }
-                ),
-            ]
+                )
+            )
+        )
+        let registrations = [textRegistration, numericRegistration]
         let revisionOwner = WorkspacePersistenceRevisionOwner()
         let workLedger = MainActorWorkLedger(clock: PageCaptureIncrementingClock())
         let pager = WorkspaceStateSnapshotPager(
@@ -545,10 +566,16 @@ struct WorkspacePersistencePageCaptureTests {
         // Assert
         #expect(textPage.participantID == .alpha)
         #expect(textPage.items.map(\.itemID) == [.text("readme")])
-        #expect(textPage.items.map(\.item) == [.text(id: "readme", payload: "contents")])
+        #expect(
+            textPage.items.map(\.item)
+                == [.text(participantID: .alpha, id: "readme", payload: "contents")]
+        )
         #expect(numericPage.participantID == .beta)
         #expect(numericPage.items.map(\.itemID) == [.number(42)])
-        #expect(numericPage.items.map(\.item) == [.number(id: 42, value: 9001)])
+        #expect(
+            numericPage.items.map(\.item)
+                == [.number(participantID: .beta, id: 42, value: 9001)]
+        )
     }
 
     @Test("all empty participants exhaust immediately and permit completed close")
@@ -608,7 +635,7 @@ struct WorkspacePersistencePageCaptureTests {
         #expect(record.domain == .persistence)
         #expect(record.operation == .persistencePageCapture)
         #expect(record.revision == .value(lease.baseRevision.rawValue))
-        #expect(record.counts == .init(input: 1, changedKey: 1))
+        #expect(record.counts == .init(input: 2, changedKey: 1))
         #expect(UUIDv7.isV7(record.workID.rawValue))
     }
 
@@ -651,7 +678,10 @@ struct WorkspacePersistencePageCaptureTests {
                     .init(
                         baseMembershipCount: 3,
                         copiedBaseValueCount: 1,
-                        retainedBaseValueCount: 0
+                        retainedBaseValueCount: 0,
+                        physicalSlotCount: 3,
+                        reusableSlotCount: 0,
+                        cleanupRetainedValueCount: 0
                     )
                 )
         )
@@ -742,10 +772,21 @@ struct WorkspacePersistencePageCaptureTests {
         failingParticipant.source.performWhenEstimatingByteCount {
             guard !injectedConflictingMark else { return }
             injectedConflictingMark = true
+            guard
+                case .item(_, _, let copyToken, _) =
+                    failingParticipant.keyedParticipant.inspectBaseSlot(
+                        lease: lease,
+                        slotCursor: 0,
+                        currentValue: failingParticipant.source.storedValue
+                    )
+            else {
+                Issue.record("expected base slot before conflicting mark")
+                return
+            }
             #expect(
                 failingParticipant.keyedParticipant.markBaseValueCopied(
                     lease: lease,
-                    key: .init("a"),
+                    copyToken: copyToken,
                     pageID: .make()
                 ) == .markedCopied
             )
@@ -766,7 +807,9 @@ struct WorkspacePersistencePageCaptureTests {
                     .participantCommitRejected(.baseValueCopiedByDifferentPage)
                 )
         )
-        #expect(failingParticipant.source.readKeys == [.init("a")])
+        // The conflict injector deliberately performs one second inspection to
+        // obtain the opaque token. The pager itself still reads the item once.
+        #expect(failingParticipant.source.readKeys == [.init("a"), .init("a")])
         #expect(failingParticipant.source.sizedKeys == [.init("a")])
         #expect(failingParticipant.keyedParticipant.diagnostics(for: lease) == .rejected(.noActiveLease))
         #expect(isOpened(successorOpen))
@@ -816,5 +859,56 @@ struct WorkspacePersistencePageCaptureTests {
         #expect(secondContinuation.participantInspectionCount == 1)
         #expect(exhaustion.pageCount == 1)
         #expect(exhaustion.itemCount == 1)
+    }
+
+    @Test("copied slot holes are skipped within the remaining scan quantum")
+    func copiedSlotHolesAreSkippedWithinRemainingScanQuantum() {
+        // Arrange
+        let participant = makeParticipant(
+            .alpha,
+            values: [
+                ("a", "one", 3),
+                ("b", "two", 3),
+                ("c", "three", 5),
+            ]
+        )
+        let fixture = makePagerFixture(participants: [participant])
+        let lease = requireOpenedLease(fixture.pager.openLease())
+        for slotCursor in 0..<2 {
+            guard
+                case .item(_, _, let copyToken, _) =
+                    participant.keyedParticipant.inspectBaseSlot(
+                        lease: lease,
+                        slotCursor: slotCursor,
+                        currentValue: participant.source.storedValue
+                    )
+            else {
+                Issue.record("expected base slot")
+                return
+            }
+            #expect(
+                participant.keyedParticipant.markBaseValueCopied(
+                    lease: lease,
+                    copyToken: copyToken,
+                    pageID: .make()
+                ) == .markedCopied
+            )
+        }
+
+        // Act
+        let page = requireCapturedPage(
+            takePage(
+                fixture.pager,
+                lease: lease,
+                limits: requireLimits(
+                    maximumItems: 1,
+                    maximumBytes: 16,
+                    maximumScannedItems: 3
+                )
+            )
+        )
+
+        // Assert
+        #expect(page.items.map(\.itemID) == [.text("c")])
     }
 }

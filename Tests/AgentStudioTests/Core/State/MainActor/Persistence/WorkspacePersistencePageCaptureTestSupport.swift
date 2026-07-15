@@ -1,7 +1,13 @@
 import Foundation
 import Synchronization
+import Testing
 
 @testable import AgentStudio
+
+let pageCaptureTestMembershipLimits = WorkspaceStateSnapshotMembershipLimits(
+    maximumKeyCount: 100_000,
+    maximumRawKeyBytes: 64 * 1024 * 1024
+)
 
 enum PageCaptureTestParticipantID: String, Equatable, Hashable, Sendable {
     case alpha
@@ -28,14 +34,21 @@ enum PageCaptureTestItemID: Equatable, Hashable, Sendable {
 }
 
 enum PageCaptureTestItem: Equatable, WorkspaceStateSnapshotIdentifiedItem {
-    case text(id: String, payload: String)
-    case number(id: Int, value: Int)
+    case text(participantID: PageCaptureTestParticipantID, id: String, payload: String)
+    case number(participantID: PageCaptureTestParticipantID, id: Int, value: Int)
+
+    var snapshotParticipantID: PageCaptureTestParticipantID {
+        switch self {
+        case .text(let participantID, _, _), .number(let participantID, _, _):
+            participantID
+        }
+    }
 
     var snapshotItemID: PageCaptureTestItemID {
         switch self {
-        case .text(let id, _):
+        case .text(_, let id, _):
             .text(id)
-        case .number(let id, _):
+        case .number(_, let id, _):
             .number(id)
         }
     }
@@ -193,26 +206,50 @@ func makeParticipant(
         PageCaptureTestKey,
         PageCaptureTestValue
     >()
-    let registration = WorkspaceStateSnapshotPagerParticipant<
-        PageCaptureTestParticipantID,
-        PageCaptureTestItem
-    >.typed(
-        participantID: participantID,
-        keyedParticipant: keyedParticipant,
-        orderedBaseKeys: { source.orderedKeys },
-        currentValue: { key in source.storedValue(for: key) },
-        projectItem: { key, value in
-            WorkspaceStateSnapshotPagerTypedItem(
-                item: .text(id: key.rawValue, payload: value.payload),
-                estimatedByteCount: source.byteCount(for: key, storedValue: .value(value))
+    let registration = requireConstructedParticipant(
+        WorkspaceStateSnapshotPagerParticipant<
+            PageCaptureTestParticipantID,
+            PageCaptureTestItem
+        >.typed(
+            participantID: participantID,
+            keyedParticipant: keyedParticipant,
+            membershipLimits: pageCaptureTestMembershipLimits,
+            orderedBaseKeys: { source.orderedKeys },
+            currentValue: { key in source.storedValue(for: key) },
+            projection: .init(
+                itemIDForKey: { .text($0.rawValue) },
+                projectItem: { key, value in
+                    WorkspaceStateSnapshotPagerTypedItem(
+                        item: .text(
+                            participantID: participantID,
+                            id: key.rawValue,
+                            payload: value.payload
+                        ),
+                        estimatedByteCount: source.byteCount(for: key, storedValue: .value(value))
+                    )
+                }
             )
-        }
-    )
+        ))
     return PageCaptureTestParticipantFixture(
         registration: registration,
         keyedParticipant: keyedParticipant,
         source: source
     )
+}
+
+@MainActor
+func requireConstructedParticipant<
+    ParticipantID: Hashable & Sendable,
+    Item: WorkspaceStateSnapshotIdentifiedItem
+>(
+    _ result: SnapshotPagerParticipantConstructionResult<ParticipantID, Item>
+) -> WorkspaceStateSnapshotPagerParticipant<ParticipantID, Item>
+where Item.SnapshotParticipantID == ParticipantID {
+    guard case .constructed(let participant) = result else {
+        Issue.record("expected constructed snapshot pager participant")
+        preconditionFailure("expected constructed snapshot pager participant")
+    }
+    return participant
 }
 
 @MainActor

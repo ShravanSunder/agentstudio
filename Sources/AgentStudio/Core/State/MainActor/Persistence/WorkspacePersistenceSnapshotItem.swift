@@ -137,6 +137,10 @@ enum WorkspacePersistenceSnapshotItem: Equatable, Sendable {
 }
 
 extension WorkspacePersistenceSnapshotItem: WorkspaceStateSnapshotIdentifiedItem {
+    var snapshotParticipantID: WorkspacePersistenceSnapshotParticipantID {
+        participantID
+    }
+
     var snapshotItemID: WorkspacePersistenceSnapshotItemID {
         itemID
     }

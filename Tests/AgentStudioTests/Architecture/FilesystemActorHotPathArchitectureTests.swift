@@ -52,8 +52,14 @@ struct FilesystemActorHotPathArchitectureTests {
         #expect(sdkGitProviderSource.contains("@concurrent\n    nonisolated private static func computeStatus"))
         assertNoProductionGitShellSignature(in: sdkGitProviderSource)
         assertNoProductionGitShellSignature(in: repoScannerSource)
-        #expect(repoScannerSource.contains("client.validateWorktree("))
-        #expect(repoScannerSource.contains("client.repositoryIdentity(for:"))
+        #expect(
+            repoScannerSource.contains(
+                "func discoveryOutcome(for url: URL) async -> GitRepositoryDiscoveryOutcome"
+            )
+        )
+        #expect(repoScannerSource.contains("case .validationRequired(let request):"))
+        #expect(repoScannerSource.contains("await discoveryProvider.discoveryOutcome("))
+        #expect(repoScannerSource.contains("session.consumeValidationCompletion("))
         #expect(filesystemGitPipelineSource.contains("AgentStudioGitWorkingTreeStatusProvider()"))
         try assertNoUnexpectedProductionGitShellSignatures(projectRoot: projectRoot)
     }

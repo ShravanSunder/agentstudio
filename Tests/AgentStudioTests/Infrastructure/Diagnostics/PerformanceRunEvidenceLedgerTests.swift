@@ -125,10 +125,9 @@ struct PerformanceRunEvidenceLedgerTests {
         }
         // Blocking barrier work must not inherit the async test's cooperative executor.
         // swiftlint:disable:next no_task_detached
-        let offerEntered = await Task.detached {
+        await Task.detached {
             sink.waitUntilOfferEntered()
         }.value
-        #expect(offerEntered)
 
         #expect(ledger.beginDrain(sink: sink) == .offersInFlight(count: 1))
 
@@ -214,9 +213,7 @@ private final class BarrierPerformanceProbeSink: PerformanceProbeDrainableSink, 
     func offer(_ record: PerformanceProbeRecord) -> PerformanceProbeOfferOutcome {
         onOffer()
         offerEntered.signal()
-        guard offerRelease.wait(timeout: .now() + 2) == .success else {
-            return .lost(.shutdown)
-        }
+        offerRelease.wait()
         lock.withLock {
             acceptedTotal += 1
             storedRecord = record
@@ -224,8 +221,8 @@ private final class BarrierPerformanceProbeSink: PerformanceProbeDrainableSink, 
         return .accepted
     }
 
-    func waitUntilOfferEntered() -> Bool {
-        offerEntered.wait(timeout: .now() + 2) == .success
+    func waitUntilOfferEntered() {
+        offerEntered.wait()
     }
 
     func releaseOffer() {

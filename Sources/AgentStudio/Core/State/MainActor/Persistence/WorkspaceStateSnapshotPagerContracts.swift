@@ -70,6 +70,7 @@ struct WorkspaceStateSnapshotPageLimits: Equatable, Sendable {
 
 enum WorkspaceStateSnapshotPagerOpenRejection: Equatable, Sendable {
     case activeLeaseExists(activeLeaseID: WorkspaceStateSnapshotLeaseID)
+    case cleanupPending
     case duplicateParticipantID
     case participantRejected(WorkspaceStateSnapshotParticipantRejection)
 }
@@ -90,18 +91,23 @@ enum WorkspaceStateSnapshotPagerCloseDisposition: Equatable, Sendable {
 }
 
 protocol WorkspaceStateSnapshotIdentifiedItem: Sendable {
+    associatedtype SnapshotParticipantID: Hashable, Sendable
     associatedtype SnapshotItemID: Hashable, Sendable
 
+    var snapshotParticipantID: SnapshotParticipantID { get }
     var snapshotItemID: SnapshotItemID { get }
 }
 
 struct WorkspaceStateSnapshotPageItem<
     ParticipantID: Hashable & Sendable,
     Item: WorkspaceStateSnapshotIdentifiedItem
->: Sendable {
-    let participantID: ParticipantID
+>: Sendable where Item.SnapshotParticipantID == ParticipantID {
     let item: Item
     let byteCount: Int
+
+    var participantID: ParticipantID {
+        item.snapshotParticipantID
+    }
 
     var itemID: Item.SnapshotItemID {
         item.snapshotItemID
@@ -114,7 +120,7 @@ where ParticipantID: Equatable, Item: Equatable {}
 struct WorkspaceStateSnapshotPage<
     ParticipantID: Hashable & Sendable,
     Item: WorkspaceStateSnapshotIdentifiedItem
->: Sendable {
+>: Sendable where Item.SnapshotParticipantID == ParticipantID {
     let pageID: WorkspaceStateSnapshotPageID
     let lease: WorkspaceStateSnapshotLease
     let participantID: ParticipantID
@@ -158,6 +164,16 @@ enum WorkspaceStateSnapshotPageTakeRejection<
         maximumBytes: Int
     )
     case invalidItemByteCount(participantID: ParticipantID, itemID: ItemID)
+    case itemParticipantMismatch(
+        expected: ParticipantID,
+        actual: ParticipantID,
+        itemID: ItemID
+    )
+    case itemIdentityMismatch(
+        participantID: ParticipantID,
+        expected: ItemID,
+        actual: ItemID
+    )
     case itemByteCountOverflow
     case scannedItemLimitReachedWithoutProgress
     case synchronousServiceLimitReachedWithoutProgress
@@ -171,10 +187,16 @@ enum WorkspaceStateSnapshotPageCaptureRequestResult: Sendable {
     case rejected(MainActorWorkInvalidity)
 }
 
+enum WorkspaceStateSnapshotPagerCleanupDrainResult: Equatable, Sendable {
+    case drained(releasedValueCount: Int, remainingValueCount: Int)
+    case complete
+    case rejected(WorkspaceStateSnapshotParticipantRejection)
+}
+
 enum WorkspaceStateSnapshotPageTakeResult<
     ParticipantID: Hashable & Sendable,
     Item: WorkspaceStateSnapshotIdentifiedItem
->: Sendable {
+>: Sendable where Item.SnapshotParticipantID == ParticipantID {
     case page(WorkspaceStateSnapshotPage<ParticipantID, Item>)
     case replayed(WorkspaceStateSnapshotPage<ParticipantID, Item>)
     case yielded(WorkspaceStateSnapshotPageProgressReceipt)
@@ -265,98 +287,105 @@ final class WorkspaceStateSnapshotPagerLeaseAuthority {
 }
 
 @MainActor
+struct WorkspaceStateSnapshotItemProjection<
+    OwnerKey: Sendable,
+    OwnerValue: Sendable,
+    Item: WorkspaceStateSnapshotIdentifiedItem
+> {
+    let itemIDForKey: (OwnerKey) -> Item.SnapshotItemID
+    let projectItem: (OwnerKey, OwnerValue) -> WorkspaceStateSnapshotPagerTypedItem<Item>
+}
+
+@MainActor
 struct WorkspaceStateSnapshotPagerParticipant<
     ParticipantID: Hashable & Sendable,
     Item: WorkspaceStateSnapshotIdentifiedItem
-> {
+> where Item.SnapshotParticipantID == ParticipantID {
     let participantID: ParticipantID
     private let openAction:
         (WorkspaceStateSnapshotLease, WorkspaceStateSnapshotMembershipLimits) ->
             WorkspaceStateSnapshotParticipantOpenResult
-    private let membershipCountAction: (WorkspaceStateSnapshotLease) -> WorkspaceStateSnapshotPagerMembershipCountResult
-    private let captureItemAction:
+    private let slotUpperBoundAction: (WorkspaceStateSnapshotLease) -> WorkspaceStateSnapshotPagerSlotUpperBoundResult
+    private let inspectBaseSlotAction:
         (WorkspaceStateSnapshotLease, Int) ->
-            WorkspaceStateSnapshotPagerItemCaptureResult<Item>
+            WorkspaceStateSnapshotPagerSlotInspectionResult<Item>
     private let markBaseValueCopiedAction:
-        (WorkspaceStateSnapshotLease, Int, WorkspaceStateSnapshotPageID) ->
+        (WorkspaceStateSnapshotLease, WorkspaceStateSnapshotBaseCopyToken, WorkspaceStateSnapshotPageID) ->
             WorkspaceStateSnapshotMarkCopiedResult
     private let closeAction: (WorkspaceStateSnapshotLease) -> WorkspaceStateSnapshotParticipantCloseResult
+    private let drainCleanupAction: (Int) -> WorkspaceStateSnapshotCleanupDrainResult
 
     static func typed<OwnerKey: Hashable & Sendable, OwnerValue: Sendable>(
         participantID: ParticipantID,
         keyedParticipant: WorkspaceStateSnapshotKeyedParticipant<OwnerKey, OwnerValue>,
+        membershipLimits: WorkspaceStateSnapshotMembershipLimits,
         orderedBaseKeys: @escaping () -> [OwnerKey],
         currentValue: @escaping (OwnerKey) -> WorkspaceStateSnapshotStoredValue<OwnerValue>,
-        projectItem:
-            @escaping (OwnerKey, OwnerValue) ->
-            WorkspaceStateSnapshotPagerTypedItem<Item>,
+        projection: WorkspaceStateSnapshotItemProjection<OwnerKey, OwnerValue, Item>,
         rawKeyByteCount: @escaping (OwnerKey) -> UInt64 = { _ in 1 }
-    ) -> Self {
-        Self(
-            participantID: participantID,
-            openAction: { lease, limits in
-                keyedParticipant.open(
-                    lease: lease,
-                    orderedBaseKeys: orderedBaseKeys(),
-                    limits: limits,
-                    rawByteCountForKey: rawKeyByteCount
-                )
-            },
-            membershipCountAction: { lease in
-                switch keyedParticipant.membership(for: lease) {
-                case .membership(let membership):
-                    .count(membership.count)
-                case .rejected(let rejection):
-                    .rejected(rejection)
-                }
-            },
-            captureItemAction: { lease, membershipOffset in
-                let membership: [OwnerKey]
-                switch keyedParticipant.membership(for: lease) {
-                case .membership(let activeMembership):
-                    membership = activeMembership
-                case .rejected(let rejection):
-                    return .rejected(rejection)
-                }
-                precondition(
-                    membership.indices.contains(membershipOffset),
-                    "snapshot pager membership offset must be in bounds"
-                )
-                let ownerKey = membership[membershipOffset]
-                let readResult = keyedParticipant.readBaseValue(
-                    lease: lease,
-                    key: ownerKey,
-                    currentValue: currentValue(ownerKey)
-                )
-                guard case .read(.value(let ownerValue)) = readResult else {
-                    guard case .rejected(let rejection) = readResult else {
-                        preconditionFailure("base membership values must be present")
+    ) -> SnapshotPagerParticipantConstructionResult<ParticipantID, Item> {
+        let initialMembership = orderedBaseKeys().map { ownerKey in
+            (key: ownerKey, rawKeyByteCount: rawKeyByteCount(ownerKey))
+        }
+        switch keyedParticipant.registerInitialMembership(
+            initialMembership,
+            limits: membershipLimits
+        ) {
+        case .registered:
+            break
+        case .rejected(let rejection):
+            return .rejected(rejection)
+        }
+        return .constructed(
+            Self(
+                participantID: participantID,
+                openAction: { lease, limits in
+                    keyedParticipant.open(
+                        lease: lease,
+                        limits: limits
+                    )
+                },
+                slotUpperBoundAction: { lease in
+                    switch keyedParticipant.baseSlotUpperBound(for: lease) {
+                    case .success(let slotUpperBound):
+                        .upperBound(slotUpperBound)
+                    case .failure(let rejection):
+                        .rejected(rejection)
                     }
-                    return .rejected(rejection)
+                },
+                inspectBaseSlotAction: { lease, slotCursor in
+                    switch keyedParticipant.inspectBaseSlot(
+                        lease: lease,
+                        slotCursor: slotCursor,
+                        currentValue: currentValue
+                    ) {
+                    case .item(let ownerKey, let ownerValue, let copyToken, let nextSlotCursor):
+                        .item(
+                            projection.projectItem(ownerKey, ownerValue),
+                            expectedItemID: projection.itemIDForKey(ownerKey),
+                            copyToken: copyToken,
+                            nextSlotCursor: nextSlotCursor
+                        )
+                    case .skipped(let nextSlotCursor):
+                        .skipped(nextSlotCursor: nextSlotCursor)
+                    case .exhausted:
+                        .exhausted
+                    case .rejected(let rejection):
+                        .rejected(rejection)
+                    }
+                },
+                markBaseValueCopiedAction: { lease, copyToken, pageID in
+                    keyedParticipant.markBaseValueCopied(
+                        lease: lease,
+                        copyToken: copyToken,
+                        pageID: pageID
+                    )
+                },
+                closeAction: { lease in keyedParticipant.close(lease: lease) },
+                drainCleanupAction: { maximumValues in
+                    keyedParticipant.drainCleanup(maximumValues: maximumValues)
                 }
-                let projectedItem = projectItem(ownerKey, ownerValue)
-                return .captured(projectedItem)
-            },
-            markBaseValueCopiedAction: { lease, membershipOffset, pageID in
-                let membership: [OwnerKey]
-                switch keyedParticipant.membership(for: lease) {
-                case .membership(let activeMembership):
-                    membership = activeMembership
-                case .rejected(let rejection):
-                    return .rejected(rejection)
-                }
-                precondition(
-                    membership.indices.contains(membershipOffset),
-                    "snapshot pager membership offset must be in bounds"
-                )
-                return keyedParticipant.markBaseValueCopied(
-                    lease: lease,
-                    key: membership[membershipOffset],
-                    pageID: pageID
-                )
-            },
-            closeAction: { lease in keyedParticipant.close(lease: lease) }
-        )
+            ))
     }
 
     func open(
@@ -366,25 +395,25 @@ struct WorkspaceStateSnapshotPagerParticipant<
         openAction(lease, limits)
     }
 
-    func membershipCount(
+    func slotUpperBound(
         for lease: WorkspaceStateSnapshotLease
-    ) -> WorkspaceStateSnapshotPagerMembershipCountResult {
-        membershipCountAction(lease)
+    ) -> WorkspaceStateSnapshotPagerSlotUpperBoundResult {
+        slotUpperBoundAction(lease)
     }
 
-    func captureItem(
+    func inspectBaseSlot(
         lease: WorkspaceStateSnapshotLease,
-        membershipOffset: Int
-    ) -> WorkspaceStateSnapshotPagerItemCaptureResult<Item> {
-        captureItemAction(lease, membershipOffset)
+        slotCursor: Int
+    ) -> WorkspaceStateSnapshotPagerSlotInspectionResult<Item> {
+        inspectBaseSlotAction(lease, slotCursor)
     }
 
     func markBaseValueCopied(
         lease: WorkspaceStateSnapshotLease,
-        membershipOffset: Int,
+        copyToken: WorkspaceStateSnapshotBaseCopyToken,
         pageID: WorkspaceStateSnapshotPageID
     ) -> WorkspaceStateSnapshotMarkCopiedResult {
-        markBaseValueCopiedAction(lease, membershipOffset, pageID)
+        markBaseValueCopiedAction(lease, copyToken, pageID)
     }
 
     func close(
@@ -392,17 +421,37 @@ struct WorkspaceStateSnapshotPagerParticipant<
     ) -> WorkspaceStateSnapshotParticipantCloseResult {
         closeAction(lease)
     }
+
+    func drainCleanup(maximumValues: Int) -> WorkspaceStateSnapshotCleanupDrainResult {
+        drainCleanupAction(maximumValues)
+    }
 }
 
-enum WorkspaceStateSnapshotPagerMembershipCountResult: Equatable, Sendable {
-    case count(Int)
+@MainActor
+enum SnapshotPagerParticipantConstructionResult<
+    ParticipantID: Hashable & Sendable,
+    Item: WorkspaceStateSnapshotIdentifiedItem
+> where Item.SnapshotParticipantID == ParticipantID {
+    case constructed(WorkspaceStateSnapshotPagerParticipant<ParticipantID, Item>)
     case rejected(WorkspaceStateSnapshotParticipantRejection)
 }
 
-enum WorkspaceStateSnapshotPagerItemCaptureResult<
+enum WorkspaceStateSnapshotPagerSlotUpperBoundResult: Equatable, Sendable {
+    case upperBound(Int)
+    case rejected(WorkspaceStateSnapshotParticipantRejection)
+}
+
+enum WorkspaceStateSnapshotPagerSlotInspectionResult<
     Item: WorkspaceStateSnapshotIdentifiedItem
 >: Sendable {
-    case captured(WorkspaceStateSnapshotPagerTypedItem<Item>)
+    case item(
+        WorkspaceStateSnapshotPagerTypedItem<Item>,
+        expectedItemID: Item.SnapshotItemID,
+        copyToken: WorkspaceStateSnapshotBaseCopyToken,
+        nextSlotCursor: Int
+    )
+    case skipped(nextSlotCursor: Int)
+    case exhausted
     case rejected(WorkspaceStateSnapshotParticipantRejection)
 }
 

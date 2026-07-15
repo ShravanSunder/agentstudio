@@ -1,68 +1,10 @@
 import Foundation
-import Synchronization
-
-private enum SnapshotPageCaptureClaimResult: Sendable {
-    case claimed(MainActorWorkTicket)
-    case alreadyClaimed
-}
-
-private final class WorkspaceStateSnapshotPageCaptureRequestCustody: Sendable {
-    private enum State: Sendable {
-        case pending(MainActorWorkTicket)
-        case claimed
-    }
-
-    let workLedger: MainActorWorkLedger
-    private let state: Mutex<State>
-
-    init(workLedger: MainActorWorkLedger, workTicket: MainActorWorkTicket) {
-        self.workLedger = workLedger
-        self.state = Mutex(.pending(workTicket))
-    }
-
-    deinit {
-        guard case .claimed(let ticket) = claim() else { return }
-        _ = workLedger.discard(ticket: ticket)
-    }
-
-    func claim() -> SnapshotPageCaptureClaimResult {
-        state.withLock { state in
-            switch state {
-            case .pending(let ticket):
-                state = .claimed
-                return .claimed(ticket)
-            case .claimed:
-                return .alreadyClaimed
-            }
-        }
-    }
-
-    func discard() -> MainActorWorkDiscardResult {
-        switch claim() {
-        case .claimed(let ticket):
-            return workLedger.discard(ticket: ticket)
-        case .alreadyClaimed:
-            return .rejected(.duplicateSettlement)
-        }
-    }
-}
-
-struct WorkspaceStateSnapshotPageCaptureRequest: Sendable {
-    fileprivate let pagerIdentity: WorkspaceStateSnapshotPagerIdentity
-    fileprivate let lease: WorkspaceStateSnapshotLease
-    fileprivate let limits: WorkspaceStateSnapshotPageLimits
-    fileprivate let custody: WorkspaceStateSnapshotPageCaptureRequestCustody
-
-    func discardBeforeExecution() -> MainActorWorkDiscardResult {
-        custody.discard()
-    }
-}
 
 @MainActor
 final class WorkspaceStateSnapshotPager<
     ParticipantID: Hashable & Sendable,
     Item: WorkspaceStateSnapshotIdentifiedItem
-> {
+> where Item.SnapshotParticipantID == ParticipantID {
     private struct ReadyState {
         let lease: WorkspaceStateSnapshotLease
         var participantIndex: Int
@@ -89,70 +31,125 @@ final class WorkspaceStateSnapshotPager<
     private enum CaptureResult {
         case page(
             WorkspaceStateSnapshotPage<ParticipantID, Item>,
+            participantInspectionCount: Int,
             scannedItemCount: Int
         )
-        case exhausted(scannedItemCount: Int)
+        case exhausted(participantInspectionCount: Int, scannedItemCount: Int)
         case yielded(
             participantIndex: Int,
+            slotCursor: Int,
             participantInspectionCount: Int,
             scannedItemCount: Int
         )
         case rejected(
             WorkspaceStateSnapshotPageTakeRejection<ParticipantID, Item.SnapshotItemID>,
+            participantInspectionCount: Int,
             scannedItemCount: Int
         )
 
         var measuredWork: MainActorMeasuredWork<Self> {
             switch self {
-            case .page(let page, let scannedItemCount):
+            case .page(let page, let participantInspectionCount, let scannedItemCount):
                 MainActorMeasuredWork(
                     value: self,
                     outcome: .succeeded,
                     counts: .init(
-                        input: UInt64(scannedItemCount),
+                        input: measuredInputCount(
+                            participantInspectionCount: participantInspectionCount,
+                            scannedItemCount: scannedItemCount
+                        ),
                         changedKey: UInt64(page.itemCount)
                     )
                 )
-            case .exhausted(let scannedItemCount):
-                MainActorMeasuredWork(
-                    value: self,
-                    outcome: .succeeded,
-                    counts: .init(input: UInt64(scannedItemCount), changedKey: 0)
-                )
-            case .yielded(_, let participantInspectionCount, let scannedItemCount):
+            case .exhausted(let participantInspectionCount, let scannedItemCount):
                 MainActorMeasuredWork(
                     value: self,
                     outcome: .succeeded,
                     counts: .init(
-                        input: UInt64(participantInspectionCount + scannedItemCount),
+                        input: measuredInputCount(
+                            participantInspectionCount: participantInspectionCount,
+                            scannedItemCount: scannedItemCount
+                        ),
                         changedKey: 0
                     )
                 )
-            case .rejected(_, let scannedItemCount):
+            case .yielded(_, _, let participantInspectionCount, let scannedItemCount):
+                MainActorMeasuredWork(
+                    value: self,
+                    outcome: .succeeded,
+                    counts: .init(
+                        input: measuredInputCount(
+                            participantInspectionCount: participantInspectionCount,
+                            scannedItemCount: scannedItemCount
+                        ),
+                        changedKey: 0
+                    )
+                )
+            case .rejected(_, let participantInspectionCount, let scannedItemCount):
                 MainActorMeasuredWork(
                     value: self,
                     outcome: .failed,
-                    counts: .init(input: UInt64(scannedItemCount), changedKey: 0)
+                    counts: .init(
+                        input: measuredInputCount(
+                            participantInspectionCount: participantInspectionCount,
+                            scannedItemCount: scannedItemCount
+                        ),
+                        changedKey: 0
+                    )
                 )
             }
+        }
+
+        private func measuredInputCount(
+            participantInspectionCount: Int,
+            scannedItemCount: Int
+        ) -> UInt64 {
+            precondition(participantInspectionCount >= 0 && scannedItemCount >= 0)
+            let sum = UInt64(participantInspectionCount).addingReportingOverflow(
+                UInt64(scannedItemCount)
+            )
+            precondition(!sum.overflow, "bounded snapshot work count must be representable")
+            return sum.partialValue
         }
     }
 
     private enum ParticipantCaptureResult {
-        case captured(
-            items: [CapturedItem],
-            byteCount: Int,
-            scannedItemCount: Int
-        )
+        case captured(ParticipantCapturePayload)
         case rejected(
             WorkspaceStateSnapshotPageTakeRejection<ParticipantID, Item.SnapshotItemID>,
             scannedItemCount: Int
         )
     }
 
+    private struct ParticipantCapturePayload {
+        let items: [CapturedItem]
+        let byteCount: Int
+        let scannedItemCount: Int
+        let nextSlotCursor: Int
+        let exhaustedParticipant: Bool
+    }
+
+    private struct ParticipantCaptureContext {
+        let participant: WorkspaceStateSnapshotPagerParticipant<ParticipantID, Item>
+        let slotUpperBound: Int
+        let slotCursor: Int
+        let lease: WorkspaceStateSnapshotLease
+        let limits: WorkspaceStateSnapshotPageLimits
+        let maximumScannedItems: Int
+        let startedAt: PerformanceMonotonicInstant
+    }
+
+    private enum ItemByteValidationResult {
+        case accepted(nextPageByteCount: Int)
+        case pageFull
+        case rejected(
+            WorkspaceStateSnapshotPageTakeRejection<ParticipantID, Item.SnapshotItemID>
+        )
+    }
+
     private struct CapturedItem {
         let pageItem: WorkspaceStateSnapshotPageItem<ParticipantID, Item>
-        let membershipOffset: Int
+        let copyToken: WorkspaceStateSnapshotBaseCopyToken
     }
 
     nonisolated let pagerIdentity: WorkspaceStateSnapshotPagerIdentity
@@ -216,6 +213,9 @@ final class WorkspaceStateSnapshotPager<
                 }
                 _ = leaseAuthority.release(lease)
                 guard case .rejected(let rejection) = openResult else { preconditionFailure() }
+                if rejection == .cleanupPending {
+                    return .rejected(.cleanupPending)
+                }
                 return .rejected(.participantRejected(rejection))
             }
             openedParticipants.append(participant)
@@ -429,6 +429,39 @@ final class WorkspaceStateSnapshotPager<
         }
     }
 
+    func drainCleanup(maximumValues: Int) -> WorkspaceStateSnapshotPagerCleanupDrainResult {
+        var remainingBudget = max(0, maximumValues)
+        var releasedValueCount = 0
+        var remainingValueCount = 0
+        for participant in participants {
+            switch participant.drainCleanup(maximumValues: remainingBudget) {
+            case .complete:
+                continue
+            case .drained(let released, let remaining):
+                guard released <= remainingBudget else {
+                    return .rejected(.cleanupValueReleaseExceedsBudget)
+                }
+                let releasedTotal = releasedValueCount.addingReportingOverflow(released)
+                let remainingTotal = remainingValueCount.addingReportingOverflow(remaining)
+                guard !releasedTotal.overflow, !remainingTotal.overflow else {
+                    return .rejected(.cleanupValueCountOverflow)
+                }
+                releasedValueCount = releasedTotal.partialValue
+                remainingValueCount = remainingTotal.partialValue
+                remainingBudget -= released
+            case .rejected(let rejection):
+                return .rejected(rejection)
+            }
+        }
+        if releasedValueCount == 0, remainingValueCount == 0 {
+            return .complete
+        }
+        return .drained(
+            releasedValueCount: releasedValueCount,
+            remainingValueCount: remainingValueCount
+        )
+    }
+
     private func capturePage(
         from ready: ReadyState,
         limits: WorkspaceStateSnapshotPageLimits
@@ -440,44 +473,36 @@ final class WorkspaceStateSnapshotPager<
         var participantInspectionCount = 0
 
         while participantIndex < participants.count {
-            if participantInspectionCount >= limits.maximumParticipantInspections {
-                return .yielded(
-                    participantIndex: participantIndex,
-                    participantInspectionCount: participantInspectionCount,
-                    scannedItemCount: scannedItemCount
-                )
-            }
-            if serviceLimitReached(
+            if let boundaryResult = captureBoundaryResult(
+                participantIndex: participantIndex,
+                slotCursor: membershipOffset,
+                participantInspectionCount: participantInspectionCount,
+                scannedItemCount: scannedItemCount,
                 startedAt: startedAt,
-                limit: limits.maximumSynchronousServiceNanoseconds
+                limits: limits
             ) {
-                guard participantInspectionCount > 0 else {
-                    return .rejected(
-                        .synchronousServiceLimitReachedWithoutProgress,
-                        scannedItemCount: scannedItemCount
-                    )
-                }
-                return .yielded(
-                    participantIndex: participantIndex,
-                    participantInspectionCount: participantInspectionCount,
-                    scannedItemCount: scannedItemCount
-                )
+                return boundaryResult
             }
             let participant = participants[participantIndex]
             participantInspectionCount += 1
-            let membershipCount: Int
-            switch participant.membershipCount(for: ready.lease) {
-            case .count(let activeMembershipCount):
-                membershipCount = activeMembershipCount
+            let slotUpperBound: Int
+            switch participant.slotUpperBound(for: ready.lease) {
+            case .upperBound(let activeSlotUpperBound):
+                slotUpperBound = activeSlotUpperBound
             case .rejected(let rejection):
-                return .rejected(.participantRejected(rejection), scannedItemCount: scannedItemCount)
+                return .rejected(
+                    .participantRejected(rejection),
+                    participantInspectionCount: participantInspectionCount,
+                    scannedItemCount: scannedItemCount
+                )
             }
-            if membershipOffset >= membershipCount {
+            if membershipOffset >= slotUpperBound {
                 participantIndex += 1
                 membershipOffset = 0
                 if participantInspectionCount >= limits.maximumParticipantInspections {
-                    return .yielded(
+                    return yieldedCapture(
                         participantIndex: participantIndex,
+                        slotCursor: membershipOffset,
                         participantInspectionCount: participantInspectionCount,
                         scannedItemCount: scannedItemCount
                     )
@@ -486,80 +511,80 @@ final class WorkspaceStateSnapshotPager<
             }
 
             let participantCapture = captureParticipantItems(
-                participant,
-                membershipCount: membershipCount,
-                membershipOffset: membershipOffset,
-                lease: ready.lease,
-                limits: limits,
-                startedAt: startedAt
+                ParticipantCaptureContext(
+                    participant: participant,
+                    slotUpperBound: slotUpperBound,
+                    slotCursor: membershipOffset,
+                    lease: ready.lease,
+                    limits: limits,
+                    maximumScannedItems: limits.maximumScannedItems - scannedItemCount,
+                    startedAt: startedAt
+                )
             )
-            guard
-                case .captured(let items, let pageBytes, let participantScannedItemCount) =
-                    participantCapture
-            else {
+            guard case .captured(let captured) = participantCapture else {
                 guard case .rejected(let rejection, let participantScannedItemCount) = participantCapture
                 else { preconditionFailure() }
-                return .rejected(rejection, scannedItemCount: scannedItemCount + participantScannedItemCount)
-            }
-            scannedItemCount += participantScannedItemCount
-            let pageID = WorkspaceStateSnapshotPageID.make()
-            if let rejection = markCapturedItemsCopied(
-                items,
-                by: participant,
-                lease: ready.lease,
-                pageID: pageID
-            ) {
                 return .rejected(
-                    .participantCommitRejected(rejection),
+                    rejection,
+                    participantInspectionCount: participantInspectionCount,
+                    scannedItemCount: scannedItemCount + participantScannedItemCount
+                )
+            }
+            scannedItemCount += captured.scannedItemCount
+            if captured.items.isEmpty {
+                if captured.exhaustedParticipant {
+                    participantIndex += 1
+                    membershipOffset = 0
+                    if participantIndex < participants.count,
+                        participantInspectionCount < limits.maximumParticipantInspections,
+                        scannedItemCount < limits.maximumScannedItems,
+                        !serviceLimitReached(
+                            startedAt: startedAt,
+                            limit: limits.maximumSynchronousServiceNanoseconds
+                        )
+                    {
+                        continue
+                    }
+                } else {
+                    membershipOffset = captured.nextSlotCursor
+                }
+                return yieldedCapture(
+                    participantIndex: participantIndex,
+                    slotCursor: membershipOffset,
+                    participantInspectionCount: participantInspectionCount,
                     scannedItemCount: scannedItemCount
                 )
             }
-
-            let pageItems = items.map(\.pageItem)
-            let nextOffset = membershipOffset + pageItems.count
-            let nextPosition =
-                nextOffset < membershipCount
-                ? (participantIndex: participantIndex, membershipOffset: nextOffset)
-                : (participantIndex: participantIndex + 1, membershipOffset: 0)
-            let page = WorkspaceStateSnapshotPage(
-                pageID: pageID,
+            return finishPageCapture(
+                captured: captured,
+                participant: participant,
+                participantIndex: participantIndex,
                 lease: ready.lease,
-                participantID: participant.participantID,
-                items: pageItems,
-                itemCount: pageItems.count,
-                byteCount: pageBytes,
-                nextParticipantIndex: nextPosition.participantIndex,
-                nextMembershipOffset: nextPosition.membershipOffset,
-                exhaustsLease: nextPosition.participantIndex == participants.count
+                participantInspectionCount: participantInspectionCount,
+                scannedItemCount: scannedItemCount
             )
-            return .page(page, scannedItemCount: scannedItemCount)
         }
-        return .exhausted(scannedItemCount: scannedItemCount)
+        return .exhausted(
+            participantInspectionCount: participantInspectionCount,
+            scannedItemCount: scannedItemCount
+        )
     }
 
     private func captureParticipantItems(
-        _ participant: WorkspaceStateSnapshotPagerParticipant<ParticipantID, Item>,
-        membershipCount: Int,
-        membershipOffset: Int,
-        lease: WorkspaceStateSnapshotLease,
-        limits: WorkspaceStateSnapshotPageLimits,
-        startedAt: PerformanceMonotonicInstant
+        _ context: ParticipantCaptureContext
     ) -> ParticipantCaptureResult {
         var items: [CapturedItem] = []
         var pageBytes = 0
         var scannedItemCount = 0
-        while membershipOffset + items.count < membershipCount {
-            if items.count >= limits.maximumItems {
-                break
-            }
-            if scannedItemCount >= limits.maximumScannedItems {
-                guard !items.isEmpty else {
-                    return .rejected(.scannedItemLimitReachedWithoutProgress, scannedItemCount: scannedItemCount)
-                }
-                break
-            }
-            if serviceLimitReached(startedAt: startedAt, limit: limits.maximumSynchronousServiceNanoseconds) {
-                guard !items.isEmpty else {
+        var nextSlotCursor = context.slotCursor
+        captureLoop: while nextSlotCursor < context.slotUpperBound {
+            guard items.count < context.limits.maximumItems else { break }
+            guard scannedItemCount < context.maximumScannedItems else { break }
+            if serviceLimitReached(
+                startedAt: context.startedAt,
+                limit: context.limits.maximumSynchronousServiceNanoseconds
+            ) {
+                guard !items.isEmpty || scannedItemCount > 0 else {
                     return .rejected(
                         .synchronousServiceLimitReachedWithoutProgress,
                         scannedItemCount: scannedItemCount
@@ -568,57 +593,248 @@ final class WorkspaceStateSnapshotPager<
                 break
             }
 
-            let itemMembershipOffset = membershipOffset + items.count
             scannedItemCount += 1
-            let captureResult = participant.captureItem(
-                lease: lease,
-                membershipOffset: itemMembershipOffset
+            let captureResult = context.participant.inspectBaseSlot(
+                lease: context.lease,
+                slotCursor: nextSlotCursor
             )
-            guard case .captured(let projectedItem) = captureResult else {
-                guard case .rejected(let rejection) = captureResult else { preconditionFailure() }
+            let projectedItem: WorkspaceStateSnapshotPagerTypedItem<Item>
+            let expectedItemID: Item.SnapshotItemID
+            let copyToken: WorkspaceStateSnapshotBaseCopyToken
+            let candidateNextSlotCursor: Int
+            switch captureResult {
+            case .item(let item, let expectedID, let token, let cursor):
+                projectedItem = item
+                expectedItemID = expectedID
+                copyToken = token
+                candidateNextSlotCursor = cursor
+            case .skipped(let cursor):
+                nextSlotCursor = cursor
+                continue
+            case .exhausted:
+                return .captured(
+                    ParticipantCapturePayload(
+                        items: items,
+                        byteCount: pageBytes,
+                        scannedItemCount: scannedItemCount,
+                        nextSlotCursor: context.slotUpperBound,
+                        exhaustedParticipant: true
+                    )
+                )
+            case .rejected(let rejection):
                 return .rejected(.participantRejected(rejection), scannedItemCount: scannedItemCount)
             }
             let item = projectedItem.item
             let itemID = item.snapshotItemID
+            if let identityRejection = validateProjectedItemIdentity(
+                item,
+                expectedItemID: expectedItemID,
+                participantID: context.participant.participantID
+            ) {
+                return .rejected(
+                    identityRejection,
+                    scannedItemCount: scannedItemCount
+                )
+            }
             let itemBytes = projectedItem.estimatedByteCount
-            guard itemBytes >= 0 else {
+            switch validateItemBytes(
+                itemBytes,
+                itemID: itemID,
+                participantID: context.participant.participantID,
+                pageByteCount: pageBytes,
+                maximumBytes: context.limits.maximumBytes
+            ) {
+            case .accepted(let nextPageByteCount):
+                pageBytes = nextPageByteCount
+            case .pageFull:
+                break captureLoop
+            case .rejected(let rejection):
                 return .rejected(
-                    .invalidItemByteCount(participantID: participant.participantID, itemID: itemID),
+                    rejection,
                     scannedItemCount: scannedItemCount
                 )
-            }
-            guard itemBytes <= limits.maximumBytes else {
-                return .rejected(
-                    .itemExceedsByteLimit(
-                        participantID: participant.participantID,
-                        itemID: itemID,
-                        itemBytes: itemBytes,
-                        maximumBytes: limits.maximumBytes
-                    ),
-                    scannedItemCount: scannedItemCount
-                )
-            }
-            let nextPageBytes = pageBytes.addingReportingOverflow(itemBytes)
-            guard !nextPageBytes.overflow else {
-                return .rejected(.itemByteCountOverflow, scannedItemCount: scannedItemCount)
-            }
-            if nextPageBytes.partialValue > limits.maximumBytes {
-                break
             }
             items.append(
                 CapturedItem(
                     pageItem: WorkspaceStateSnapshotPageItem(
-                        participantID: participant.participantID,
                         item: item,
                         byteCount: itemBytes
                     ),
-                    membershipOffset: itemMembershipOffset
+                    copyToken: copyToken
                 )
             )
-            pageBytes = nextPageBytes.partialValue
+            nextSlotCursor = candidateNextSlotCursor
         }
-        precondition(!items.isEmpty, "validated limits must produce a non-empty page")
-        return .captured(items: items, byteCount: pageBytes, scannedItemCount: scannedItemCount)
+        return completedParticipantCapture(
+            items: items,
+            pageBytes: pageBytes,
+            scannedItemCount: scannedItemCount,
+            nextSlotCursor: nextSlotCursor,
+            slotUpperBound: context.slotUpperBound
+        )
+    }
+
+    private func completedParticipantCapture(
+        items: [CapturedItem],
+        pageBytes: Int,
+        scannedItemCount: Int,
+        nextSlotCursor: Int,
+        slotUpperBound: Int
+    ) -> ParticipantCaptureResult {
+        .captured(
+            ParticipantCapturePayload(
+                items: items,
+                byteCount: pageBytes,
+                scannedItemCount: scannedItemCount,
+                nextSlotCursor: nextSlotCursor,
+                exhaustedParticipant: nextSlotCursor >= slotUpperBound
+            )
+        )
+    }
+}
+
+extension WorkspaceStateSnapshotPager {
+    private func validateItemBytes(
+        _ itemBytes: Int,
+        itemID: Item.SnapshotItemID,
+        participantID: ParticipantID,
+        pageByteCount: Int,
+        maximumBytes: Int
+    ) -> ItemByteValidationResult {
+        guard itemBytes >= 0 else {
+            return .rejected(
+                .invalidItemByteCount(participantID: participantID, itemID: itemID)
+            )
+        }
+        guard itemBytes <= maximumBytes else {
+            return .rejected(
+                .itemExceedsByteLimit(
+                    participantID: participantID,
+                    itemID: itemID,
+                    itemBytes: itemBytes,
+                    maximumBytes: maximumBytes
+                )
+            )
+        }
+        let nextPageBytes = pageByteCount.addingReportingOverflow(itemBytes)
+        guard !nextPageBytes.overflow else {
+            return .rejected(.itemByteCountOverflow)
+        }
+        guard nextPageBytes.partialValue <= maximumBytes else {
+            return .pageFull
+        }
+        return .accepted(nextPageByteCount: nextPageBytes.partialValue)
+    }
+
+    private func captureBoundaryResult(
+        participantIndex: Int,
+        slotCursor: Int,
+        participantInspectionCount: Int,
+        scannedItemCount: Int,
+        startedAt: PerformanceMonotonicInstant,
+        limits: WorkspaceStateSnapshotPageLimits
+    ) -> CaptureResult? {
+        if participantInspectionCount >= limits.maximumParticipantInspections {
+            return .yielded(
+                participantIndex: participantIndex,
+                slotCursor: slotCursor,
+                participantInspectionCount: participantInspectionCount,
+                scannedItemCount: scannedItemCount
+            )
+        }
+        guard
+            serviceLimitReached(
+                startedAt: startedAt,
+                limit: limits.maximumSynchronousServiceNanoseconds
+            )
+        else { return nil }
+        guard participantInspectionCount > 0 else {
+            return .rejected(
+                .synchronousServiceLimitReachedWithoutProgress,
+                participantInspectionCount: participantInspectionCount,
+                scannedItemCount: scannedItemCount
+            )
+        }
+        return .yielded(
+            participantIndex: participantIndex,
+            slotCursor: slotCursor,
+            participantInspectionCount: participantInspectionCount,
+            scannedItemCount: scannedItemCount
+        )
+    }
+
+    private func yieldedCapture(
+        participantIndex: Int,
+        slotCursor: Int,
+        participantInspectionCount: Int,
+        scannedItemCount: Int
+    ) -> CaptureResult {
+        .yielded(
+            participantIndex: participantIndex,
+            slotCursor: slotCursor,
+            participantInspectionCount: participantInspectionCount,
+            scannedItemCount: scannedItemCount
+        )
+    }
+
+    private func makePage(
+        captured: ParticipantCapturePayload,
+        participant: WorkspaceStateSnapshotPagerParticipant<ParticipantID, Item>,
+        participantIndex: Int,
+        lease: WorkspaceStateSnapshotLease,
+        pageID: WorkspaceStateSnapshotPageID
+    ) -> WorkspaceStateSnapshotPage<ParticipantID, Item> {
+        let pageItems = captured.items.map(\.pageItem)
+        let nextPosition =
+            !captured.exhaustedParticipant
+            ? (participantIndex: participantIndex, membershipOffset: captured.nextSlotCursor)
+            : (participantIndex: participantIndex + 1, membershipOffset: 0)
+        return WorkspaceStateSnapshotPage(
+            pageID: pageID,
+            lease: lease,
+            participantID: participant.participantID,
+            items: pageItems,
+            itemCount: pageItems.count,
+            byteCount: captured.byteCount,
+            nextParticipantIndex: nextPosition.participantIndex,
+            nextMembershipOffset: nextPosition.membershipOffset,
+            exhaustsLease: nextPosition.participantIndex == participants.count
+        )
+    }
+
+    private func finishPageCapture(
+        captured: ParticipantCapturePayload,
+        participant: WorkspaceStateSnapshotPagerParticipant<ParticipantID, Item>,
+        participantIndex: Int,
+        lease: WorkspaceStateSnapshotLease,
+        participantInspectionCount: Int,
+        scannedItemCount: Int
+    ) -> CaptureResult {
+        let pageID = WorkspaceStateSnapshotPageID.make()
+        if let rejection = markCapturedItemsCopied(
+            captured.items,
+            by: participant,
+            lease: lease,
+            pageID: pageID
+        ) {
+            return .rejected(
+                .participantCommitRejected(rejection),
+                participantInspectionCount: participantInspectionCount,
+                scannedItemCount: scannedItemCount
+            )
+        }
+        let page = makePage(
+            captured: captured,
+            participant: participant,
+            participantIndex: participantIndex,
+            lease: lease,
+            pageID: pageID
+        )
+        return .page(
+            page,
+            participantInspectionCount: participantInspectionCount,
+            scannedItemCount: scannedItemCount
+        )
     }
 
     private func markCapturedItemsCopied(
@@ -630,7 +846,7 @@ final class WorkspaceStateSnapshotPager<
         for item in items {
             let markResult = participant.markBaseValueCopied(
                 lease: lease,
-                membershipOffset: item.membershipOffset,
+                copyToken: item.copyToken,
                 pageID: pageID
             )
             guard markResult == .markedCopied else {
@@ -646,7 +862,7 @@ final class WorkspaceStateSnapshotPager<
         from ready: ReadyState
     ) -> WorkspaceStateSnapshotPageTakeResult<ParticipantID, Item> {
         switch capture {
-        case .page(let page, _):
+        case .page(let page, _, _):
             state = .outstanding(
                 OutstandingState(ready: ready, page: page, retryWasRequested: false)
             )
@@ -660,10 +876,10 @@ final class WorkspaceStateSnapshotPager<
             )
             state = .exhausted(ready, receipt)
             return .exhausted(receipt)
-        case .yielded(let participantIndex, let participantInspectionCount, _):
+        case .yielded(let participantIndex, let slotCursor, let participantInspectionCount, _):
             var advancedReady = ready
             advancedReady.participantIndex = participantIndex
-            advancedReady.membershipOffset = 0
+            advancedReady.membershipOffset = slotCursor
             state = .ready(advancedReady)
             return .yielded(
                 WorkspaceStateSnapshotPageProgressReceipt(
@@ -672,7 +888,7 @@ final class WorkspaceStateSnapshotPager<
                     participantInspectionCount: participantInspectionCount
                 )
             )
-        case .rejected(let rejection, _):
+        case .rejected(let rejection, _, _):
             if case .participantCommitRejected = rejection {
                 _ = finishClose(lease: ready.lease, disposition: .abort)
             }

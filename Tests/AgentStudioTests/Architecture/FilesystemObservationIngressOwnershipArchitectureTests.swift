@@ -23,7 +23,7 @@ struct FilesystemObservationIngressOwnershipArchitectureTests {
         // Act / Assert
         #expect(
             filesystemActorSource.contains(
-                "private let fseventStreamClient: any FSEventStreamClient"
+                "let fseventStreamClient: any FSEventStreamClient"
             )
         )
         #expect(

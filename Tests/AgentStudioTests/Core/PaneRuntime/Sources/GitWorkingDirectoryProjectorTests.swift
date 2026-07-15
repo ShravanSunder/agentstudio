@@ -1248,10 +1248,17 @@ struct GitWorkingDirectoryProjectorTests {
     func worktreeUnregistrationCancelsAndClearsState() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let gate = AsyncGate()
+        let cancellationReceipt = AsyncReceipt()
+        let providerReleaseReceipt = AsyncReceipt()
         let calls = CallCounter()
         let provider = StubGitWorkingTreeStatusProvider { _ in
             _ = await calls.increment()
-            await gate.waitUntilOpen()
+            await withTaskCancellationHandler {
+                await gate.waitUntilOpen()
+            } onCancel: {
+                Task { await cancellationReceipt.signal() }
+            }
+            await providerReleaseReceipt.signal()
             return GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(changed: 4, staged: 0, untracked: 1),
                 branch: "cleanup",
@@ -1283,10 +1290,9 @@ struct GitWorkingDirectoryProjectorTests {
         )
         await bus.post(makeFilesChangedEnvelope(seq: 3, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
 
+        await cancellationReceipt.wait()
         await gate.open()
-        for _ in 0..<300 {
-            await Task.yield()
-        }
+        await providerReleaseReceipt.wait()
 
         #expect(await calls.value() == 1)
         #expect(await observed.snapshotCount(for: worktreeId) == 0)
@@ -2022,6 +2028,28 @@ private actor AsyncGate {
     func open() {
         guard !isOpen else { return }
         isOpen = true
+        let continuations = waiters
+        waiters.removeAll(keepingCapacity: false)
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+}
+
+private actor AsyncReceipt {
+    private var wasSignaled = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !wasSignaled else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func signal() {
+        guard !wasSignaled else { return }
+        wasSignaled = true
         let continuations = waiters
         waiters.removeAll(keepingCapacity: false)
         for continuation in continuations {
