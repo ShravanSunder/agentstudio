@@ -141,31 +141,30 @@ final class WorkspaceCacheCoordinator {
             $0.repoPath.standardizedFileURL == normalizedRepoPath || $0.stableKey == incomingStableKey
         }
         let repoId: UUID
+        let shouldInitializeRepoEnrichment: Bool
         if let repo = existingRepo {
-            if repoCache.repoEnrichment(for: repo.id) == nil {
-                repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
-                if shouldRefreshTraceIdentity {
-                    refreshTraceIdentity()
-                }
-            }
-            if repositoryTopology.isRepoUnavailable(repo.id) {
-                _ = workspaceStore.mutationCoordinator.reassociateRepo(
-                    repo.id,
-                    to: normalizedRepoPath,
-                    discoveredWorktrees: repo.worktrees
-                )
-            }
             repoId = repo.id
+            shouldInitializeRepoEnrichment = repoCache.repoEnrichment(for: repo.id) == nil
         } else {
             let repo = repositoryTopology.addRepo(at: normalizedRepoPath)
-            repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
             repoId = repo.id
-            if shouldRefreshTraceIdentity {
-                refreshTraceIdentity()
-            }
+            shouldInitializeRepoEnrichment = true
         }
 
         guard case .scanned(let linkedPaths) = linkedWorktrees else {
+            if repositoryTopology.isRepoUnavailable(repoId),
+                let repo = repositoryTopology.repo(repoId)
+            {
+                let reassociation = workspaceStore.mutationCoordinator.reassociateRepo(
+                    repoId,
+                    to: normalizedRepoPath,
+                    discoveredWorktrees: repo.worktrees
+                )
+                guard case .accepted = reassociation else { return nil }
+            }
+            if shouldInitializeRepoEnrichment {
+                repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
+            }
             if shouldRefreshTraceIdentity {
                 refreshTraceIdentity()
             }
@@ -178,25 +177,31 @@ final class WorkspaceCacheCoordinator {
             return nil
         }
 
-        let discoveredWorktrees = Self.buildDiscoveredWorktreeList(
-            clonePath: normalizedRepoPath,
+        let delta: WorktreeTopologyDelta
+        switch applyScannedWorktreeDiscovery(
+            repo: repo,
+            normalizedRepoPath: normalizedRepoPath,
             linkedPaths: linkedPaths,
-            repoId: repo.id
-        )
-        let (mergedWorktrees, delta) = WorktreeReconciler.reconcile(
-            repoId: repo.id,
-            existing: repo.worktrees,
-            discovered: discoveredWorktrees,
-            traceId: eventId
-        )
+            eventId: eventId
+        ) {
+        case .accepted(let acceptedDelta):
+            delta = acceptedDelta
+        case .rejected(let rejection):
+            Self.logger.error(
+                "Rejecting scanned repo discovery for repoId=\(repo.id.uuidString, privacy: .public): \(String(describing: rejection), privacy: .public)"
+            )
+            return nil
+        }
         guard delta.didChange else {
+            if shouldInitializeRepoEnrichment {
+                repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
+            }
             if shouldRefreshTraceIdentity {
                 refreshTraceIdentity()
             }
             return nil
         }
 
-        repositoryTopology.reconcileDiscoveredWorktrees(repo.id, worktrees: mergedWorktrees)
         for entry in delta.removedWorktrees {
             repoCache.removeWorktree(entry.id)
         }
@@ -208,10 +213,62 @@ final class WorkspaceCacheCoordinator {
         if shouldApplyTopologyEffects {
             topologyEffectHandler?.topologyDidChange(delta)
         }
+        if shouldInitializeRepoEnrichment {
+            repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
+        }
         if shouldRefreshTraceIdentity {
             refreshTraceIdentity()
         }
         return delta
+    }
+
+    private enum ScannedWorktreeDiscoveryRejection {
+        case reconciliation(RepositoryWorktreeReconciliationRejection)
+        case reassociation(RepositoryReassociationRejection)
+    }
+
+    private enum ScannedWorktreeDiscoveryResult {
+        case accepted(WorktreeTopologyDelta)
+        case rejected(ScannedWorktreeDiscoveryRejection)
+    }
+
+    private func applyScannedWorktreeDiscovery(
+        repo: Repo,
+        normalizedRepoPath: URL,
+        linkedPaths: [URL],
+        eventId: UUID
+    ) -> ScannedWorktreeDiscoveryResult {
+        let repositoryTopology = workspaceStore.repositoryTopologyAtom
+        let scannedWorktrees = Self.buildDiscoveredWorktreeList(
+            clonePath: normalizedRepoPath,
+            linkedPaths: linkedPaths
+        )
+        if repositoryTopology.isRepoUnavailable(repo.id) {
+            let reassociation = workspaceStore.mutationCoordinator.reassociateRepo(
+                repo.id,
+                to: normalizedRepoPath,
+                scannedWorktrees: scannedWorktrees,
+                traceId: eventId
+            )
+            switch reassociation {
+            case .accepted(let acceptance):
+                return .accepted(acceptance.delta)
+            case .rejected(let rejection):
+                return .rejected(.reassociation(rejection))
+            }
+        }
+
+        let reconciliation = repositoryTopology.reconcileScannedWorktrees(
+            repo.id,
+            scannedWorktrees: scannedWorktrees,
+            traceId: eventId
+        )
+        switch reconciliation {
+        case .accepted(let acceptance):
+            return .accepted(acceptance.delta)
+        case .rejected(let rejection):
+            return .rejected(.reconciliation(rejection))
+        }
     }
 
     private func handleReposDiscovered(
@@ -289,8 +346,15 @@ final class WorkspaceCacheCoordinator {
                     isMainWorktree: false
                 )
             )
-            repositoryTopology.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
-            refreshTraceIdentity()
+            let reconciliation = repositoryTopology.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
+            switch reconciliation {
+            case .accepted:
+                refreshTraceIdentity()
+            case .rejected(let rejection):
+                Self.logger.error(
+                    "Rejecting worktree registration for repoId=\(repo.id.uuidString, privacy: .public): \(String(describing: rejection), privacy: .public)"
+                )
+            }
         }
     }
 
@@ -298,9 +362,16 @@ final class WorkspaceCacheCoordinator {
         let repositoryTopology = workspaceStore.repositoryTopologyAtom
         guard let repo = repositoryTopology.repos.first(where: { $0.id == repoId }) else { return }
         let worktrees = repo.worktrees.filter { $0.id != worktreeId }
-        repositoryTopology.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
-        repoCache.removeWorktree(worktreeId)
-        refreshTraceIdentity()
+        let reconciliation = repositoryTopology.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
+        switch reconciliation {
+        case .accepted:
+            repoCache.removeWorktree(worktreeId)
+            refreshTraceIdentity()
+        case .rejected(let rejection):
+            Self.logger.error(
+                "Rejecting worktree unregistration for repoId=\(repo.id.uuidString, privacy: .public): \(String(describing: rejection), privacy: .public)"
+            )
+        }
     }
 
     private func handleWorkspaceActivity(_ envelope: SystemEnvelope) {
@@ -468,15 +539,19 @@ final class WorkspaceCacheCoordinator {
         repoId: UUID,
         to newPath: URL,
         discoveredWorktrees: [Worktree]
-    ) -> Bool {
-        let updated = workspaceStore.mutationCoordinator.reassociateRepo(
+    ) -> RepositoryReassociationResult {
+        let result = workspaceStore.mutationCoordinator.reassociateRepo(
             repoId,
             to: newPath,
             discoveredWorktrees: discoveredWorktrees
         )
-        guard updated else { return false }
-        refreshTraceIdentity()
-        return true
+        switch result {
+        case .accepted:
+            refreshTraceIdentity()
+            return result
+        case .rejected:
+            return result
+        }
     }
 
     private func refreshTraceIdentity() {
@@ -501,28 +576,24 @@ final class WorkspaceCacheCoordinator {
 
     private static func buildDiscoveredWorktreeList(
         clonePath: URL,
-        linkedPaths: [URL],
-        repoId: UUID
-    ) -> [Worktree] {
+        linkedPaths: [URL]
+    ) -> RepositoryScannedWorktrees {
         let normalizedClonePath = clonePath.standardizedFileURL
         let normalizedLinkedPaths = Array(Set(linkedPaths.map(\.standardizedFileURL)))
             .filter { $0 != normalizedClonePath }
             .sorted(by: sortPaths)
 
-        let mainWorktree = Worktree(
-            repoId: repoId,
+        let mainWorktree = RepositoryScannedMainWorktree(
             name: normalizedClonePath.lastPathComponent,
-            path: normalizedClonePath,
-            isMainWorktree: true
+            path: normalizedClonePath
         )
         let linkedWorktrees = normalizedLinkedPaths.map { linkedPath in
-            Worktree(
-                repoId: repoId,
+            RepositoryScannedLinkedWorktree(
                 name: linkedPath.lastPathComponent,
                 path: linkedPath
             )
         }
-        return [mainWorktree] + linkedWorktrees
+        return RepositoryScannedWorktrees(main: mainWorktree, linked: linkedWorktrees)
     }
 
     private static func sortPaths(_ lhs: URL, _ rhs: URL) -> Bool {

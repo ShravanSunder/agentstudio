@@ -112,8 +112,9 @@ final class RepositoryTopologyAtom {
             return existing
         }
 
-        let repoId = UUID()
+        let repoId = UUIDv7.generate()
         let mainWorktree = Worktree(
+            id: UUIDv7.generate(),
             repoId: repoId,
             name: normalizedPath.lastPathComponent,
             path: normalizedPath,
@@ -186,62 +187,288 @@ final class RepositoryTopologyAtom {
     }
 
     @discardableResult
-    func reassociateRepo(_ repoId: UUID, to newPath: URL, discoveredWorktrees: [Worktree]) -> Set<UUID> {
-        guard let repoIndex = repos.firstIndex(where: { $0.id == repoId }) else { return [] }
-        repos[repoIndex].name = newPath.lastPathComponent
-        repos[repoIndex].repoPath = newPath
-        unavailableRepoIds.remove(repoId)
-        _ = mergeDiscoveredWorktrees(repoId, worktrees: discoveredWorktrees)
-        scheduleWorktreePathIndexRebuild()
-        return Set(repos[repoIndex].worktrees.map(\.id))
-    }
-
-    func reconcileDiscoveredWorktrees(_ repoId: UUID, worktrees: [Worktree]) {
-        guard mergeDiscoveredWorktrees(repoId, worktrees: worktrees) else { return }
-        scheduleWorktreePathIndexRebuild()
+    func reassociateRepo(
+        _ repoId: UUID,
+        to newPath: URL,
+        discoveredWorktrees: [Worktree]
+    ) -> RepositoryReassociationResult {
+        reassociateRepo(
+            repoId,
+            to: newPath,
+            candidates: discoveredWorktrees.map(WorktreeReconciliationCandidate.identified),
+            traceId: nil
+        )
     }
 
     @discardableResult
-    private func mergeDiscoveredWorktrees(_ repoId: UUID, worktrees: [Worktree]) -> Bool {
-        guard let index = repos.firstIndex(where: { $0.id == repoId }) else { return false }
-        let existing = repos[index].worktrees
+    func reassociateRepo(
+        _ repoId: UUID,
+        to newPath: URL,
+        scannedWorktrees: RepositoryScannedWorktrees,
+        traceId: UUID
+    ) -> RepositoryReassociationResult {
+        reassociateRepo(
+            repoId,
+            to: newPath,
+            candidates: [.scannedMain(scannedWorktrees.main)]
+                + scannedWorktrees.linked.map(WorktreeReconciliationCandidate.scannedLinked),
+            traceId: traceId
+        )
+    }
 
-        let existingByPath = Dictionary(existing.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
-        let existingMain = existing.first(where: \.isMainWorktree)
-        let existingByName = Dictionary(existing.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+    private func reassociateRepo(
+        _ repoId: UUID,
+        to newPath: URL,
+        candidates: [WorktreeReconciliationCandidate],
+        traceId: UUID?
+    ) -> RepositoryReassociationResult {
+        let normalizedPath = newPath.standardizedFileURL
+        let incomingStableKey = StableKey.fromPath(normalizedPath)
+        if repos.contains(where: { $0.id != repoId && $0.stableKey == incomingStableKey }) {
+            return .rejected(.duplicateRepositoryStableKey(incomingStableKey))
+        }
+        let preparation = prepareWorktreeReconciliation(
+            repoId,
+            candidates: candidates,
+            traceId: traceId
+        )
+        switch preparation {
+        case .rejected(let rejection):
+            return .rejected(.worktreeReconciliation(rejection))
+        case .prepared(let prepared):
+            repos[prepared.repoIndex].name = normalizedPath.lastPathComponent
+            repos[prepared.repoIndex].repoPath = normalizedPath
+            repos[prepared.repoIndex].worktrees = prepared.mergedWorktrees
+            unavailableRepoIds.remove(repoId)
+            scheduleWorktreePathIndexRebuild()
+            return .accepted(
+                .init(
+                    worktreeIds: Set(prepared.mergedWorktrees.map(\.id)),
+                    delta: prepared.delta
+                )
+            )
+        }
+    }
 
-        let merged = worktrees.map { discovered -> Worktree in
-            if let existing = existingByPath[discovered.path] {
-                var updated = existing
-                updated.name = discovered.name
-                return updated
+    @discardableResult
+    func reconcileScannedWorktrees(
+        _ repoId: UUID,
+        scannedWorktrees: RepositoryScannedWorktrees,
+        traceId: UUID
+    ) -> RepositoryWorktreeReconciliationResult {
+        reconcileWorktrees(
+            repoId,
+            candidates: [.scannedMain(scannedWorktrees.main)]
+                + scannedWorktrees.linked.map(WorktreeReconciliationCandidate.scannedLinked),
+            traceId: traceId
+        )
+    }
+
+    @discardableResult
+    func reconcileDiscoveredWorktrees(
+        _ repoId: UUID,
+        worktrees: [Worktree]
+    ) -> RepositoryWorktreeReconciliationResult {
+        reconcileWorktrees(
+            repoId,
+            candidates: worktrees.map(WorktreeReconciliationCandidate.identified),
+            traceId: nil
+        )
+    }
+
+    private enum WorktreeReconciliationCandidate {
+        case scannedMain(RepositoryScannedMainWorktree)
+        case scannedLinked(RepositoryScannedLinkedWorktree)
+        case identified(Worktree)
+
+        var name: String {
+            switch self {
+            case .scannedMain(let candidate): candidate.name
+            case .scannedLinked(let candidate): candidate.name
+            case .identified(let worktree): worktree.name
             }
-            if discovered.isMainWorktree, let existingMain {
-                return Worktree(
-                    id: existingMain.id,
-                    repoId: repoId,
-                    name: discovered.name,
-                    path: discovered.path,
-                    isMainWorktree: discovered.isMainWorktree,
-                    tags: existingMain.tags
-                )
-            }
-            if let matched = existingByName[discovered.name] {
-                return Worktree(
-                    id: matched.id,
-                    repoId: repoId,
-                    name: discovered.name,
-                    path: discovered.path,
-                    isMainWorktree: discovered.isMainWorktree,
-                    tags: matched.tags
-                )
-            }
-            return discovered
         }
 
-        guard merged != existing else { return false }
-        repos[index].worktrees = merged
-        return true
+        var path: URL {
+            switch self {
+            case .scannedMain(let candidate): candidate.path
+            case .scannedLinked(let candidate): candidate.path
+            case .identified(let worktree): worktree.path
+            }
+        }
+
+        var isMainWorktree: Bool {
+            switch self {
+            case .scannedMain: true
+            case .scannedLinked: false
+            case .identified(let worktree): worktree.isMainWorktree
+            }
+        }
+
+        func makeUnmatchedWorktree(repoId: UUID) -> Worktree {
+            switch self {
+            case .scannedMain(let candidate):
+                return Worktree(
+                    id: UUIDv7.generate(),
+                    repoId: repoId,
+                    name: candidate.name,
+                    path: candidate.path,
+                    isMainWorktree: true
+                )
+            case .scannedLinked(let candidate):
+                return Worktree(
+                    id: UUIDv7.generate(),
+                    repoId: repoId,
+                    name: candidate.name,
+                    path: candidate.path,
+                    isMainWorktree: false
+                )
+            case .identified(let worktree):
+                return worktree
+            }
+        }
+    }
+
+    private struct PreparedWorktreeReconciliation {
+        let repoIndex: Int
+        let mergedWorktrees: [Worktree]
+        let delta: WorktreeTopologyDelta
+    }
+
+    private enum WorktreeReconciliationPreparation {
+        case prepared(PreparedWorktreeReconciliation)
+        case rejected(RepositoryWorktreeReconciliationRejection)
+    }
+
+    private func reconcileWorktrees(
+        _ repoId: UUID,
+        candidates: [WorktreeReconciliationCandidate],
+        traceId: UUID?
+    ) -> RepositoryWorktreeReconciliationResult {
+        let preparation = prepareWorktreeReconciliation(
+            repoId,
+            candidates: candidates,
+            traceId: traceId
+        )
+        switch preparation {
+        case .rejected(let rejection):
+            return .rejected(rejection)
+        case .prepared(let prepared):
+            if prepared.delta.didChange {
+                repos[prepared.repoIndex].worktrees = prepared.mergedWorktrees
+                scheduleWorktreePathIndexRebuild()
+            }
+            return .accepted(.init(delta: prepared.delta))
+        }
+    }
+
+    private func prepareWorktreeReconciliation(
+        _ repoId: UUID,
+        candidates: [WorktreeReconciliationCandidate],
+        traceId: UUID?
+    ) -> WorktreeReconciliationPreparation {
+        guard let index = repos.firstIndex(where: { $0.id == repoId }) else {
+            return .rejected(.repoNotFound(repoId))
+        }
+        for candidate in candidates {
+            guard case .identified(let worktree) = candidate else { continue }
+            guard worktree.repoId == repoId else {
+                return .rejected(
+                    .worktreeRepoMismatch(
+                        worktreeId: worktree.id,
+                        expectedRepoId: repoId,
+                        actualRepoId: worktree.repoId
+                    )
+                )
+            }
+        }
+
+        let existing = repos[index].worktrees
+
+        let existingByPath = Dictionary(
+            existing.map { ($0.path.standardizedFileURL, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let existingMain = existing.first(where: \.isMainWorktree)
+        let existingByName = Dictionary(existing.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+        var consumedExistingIds = Set<UUID>()
+        var preservedWorktreeIds: [UUID] = []
+
+        let merged = candidates.map { candidate -> Worktree in
+            let matchedWorktree: Worktree?
+            if let pathMatch = existingByPath[candidate.path.standardizedFileURL],
+                !consumedExistingIds.contains(pathMatch.id)
+            {
+                matchedWorktree = pathMatch
+            } else if candidate.isMainWorktree,
+                let existingMain,
+                !consumedExistingIds.contains(existingMain.id)
+            {
+                matchedWorktree = existingMain
+            } else if let nameMatch = existingByName[candidate.name],
+                !consumedExistingIds.contains(nameMatch.id)
+            {
+                matchedWorktree = nameMatch
+            } else {
+                matchedWorktree = nil
+            }
+
+            if let matchedWorktree {
+                consumedExistingIds.insert(matchedWorktree.id)
+                preservedWorktreeIds.append(matchedWorktree.id)
+                return Worktree(
+                    id: matchedWorktree.id,
+                    repoId: repoId,
+                    name: candidate.name,
+                    path: candidate.path,
+                    isMainWorktree: candidate.isMainWorktree,
+                    tags: matchedWorktree.tags
+                )
+            }
+            return candidate.makeUnmatchedWorktree(repoId: repoId)
+        }
+
+        var seenWorktreeIds = Set<UUID>()
+        for worktree in repos.filter({ $0.id != repoId }).flatMap(\.worktrees) {
+            seenWorktreeIds.insert(worktree.id)
+        }
+        for worktree in merged where !seenWorktreeIds.insert(worktree.id).inserted {
+            return .rejected(.duplicateWorktreeId(worktree.id))
+        }
+
+        var seenStableKeys = Set<String>()
+        for worktree in repos.filter({ $0.id != repoId }).flatMap(\.worktrees) {
+            seenStableKeys.insert(worktree.stableKey)
+        }
+        for worktree in merged where !seenStableKeys.insert(worktree.stableKey).inserted {
+            return .rejected(.duplicateWorktreeStableKey(worktree.stableKey))
+        }
+
+        let preservedWorktreeIdSet = Set(preservedWorktreeIds)
+        let removedWorktrees =
+            existing
+            .filter { !preservedWorktreeIdSet.contains($0.id) }
+            .map { RemovedWorktreeEntry(id: $0.id, path: $0.path) }
+        let addedWorktreeIds =
+            merged
+            .filter { !preservedWorktreeIdSet.contains($0.id) }
+            .map(\.id)
+        let delta = WorktreeTopologyDelta(
+            repoId: repoId,
+            addedWorktreeIds: addedWorktreeIds,
+            removedWorktrees: removedWorktrees,
+            preservedWorktreeIds: preservedWorktreeIds,
+            didChange: merged != existing,
+            traceId: traceId
+        )
+
+        return .prepared(
+            .init(
+                repoIndex: index,
+                mergedWorktrees: merged,
+                delta: delta
+            )
+        )
     }
 
     private func scheduleWorktreePathIndexRebuild() {

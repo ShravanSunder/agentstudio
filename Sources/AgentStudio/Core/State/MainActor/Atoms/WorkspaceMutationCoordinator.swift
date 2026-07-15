@@ -169,15 +169,47 @@ final class WorkspaceMutationCoordinator {
     }
 
     @discardableResult
-    func reassociateRepo(_ repoId: UUID, to newPath: URL, discoveredWorktrees: [Worktree]) -> Bool {
-        let worktreeIds = repositoryTopologyAtom.reassociateRepo(
-            repoId,
-            to: newPath,
-            discoveredWorktrees: discoveredWorktrees
+    func reassociateRepo(
+        _ repoId: UUID,
+        to newPath: URL,
+        discoveredWorktrees: [Worktree]
+    ) -> RepositoryReassociationResult {
+        applyRepoReassociation(
+            repositoryTopologyAtom.reassociateRepo(
+                repoId,
+                to: newPath,
+                discoveredWorktrees: discoveredWorktrees
+            )
         )
-        guard !worktreeIds.isEmpty else { return false }
-        _ = restoreOrphanedPaneResidency(forWorktreeIds: worktreeIds)
-        return true
+    }
+
+    @discardableResult
+    func reassociateRepo(
+        _ repoId: UUID,
+        to newPath: URL,
+        scannedWorktrees: RepositoryScannedWorktrees,
+        traceId: UUID
+    ) -> RepositoryReassociationResult {
+        applyRepoReassociation(
+            repositoryTopologyAtom.reassociateRepo(
+                repoId,
+                to: newPath,
+                scannedWorktrees: scannedWorktrees,
+                traceId: traceId
+            )
+        )
+    }
+
+    private func applyRepoReassociation(
+        _ result: RepositoryReassociationResult
+    ) -> RepositoryReassociationResult {
+        switch result {
+        case .accepted(let acceptance):
+            _ = restoreOrphanedPaneResidency(forWorktreeIds: acceptance.worktreeIds)
+            return .accepted(acceptance)
+        case .rejected(let rejection):
+            return .rejected(rejection)
+        }
     }
 
     @discardableResult

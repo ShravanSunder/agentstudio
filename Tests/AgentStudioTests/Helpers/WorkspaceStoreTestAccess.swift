@@ -359,7 +359,11 @@ extension WorkspaceStore {
         paneAtom.orphanPanesForWorktree(worktreeId, path: path)
     }
     @discardableResult
-    func reassociateRepo(_ repoId: UUID, to newPath: URL, discoveredWorktrees: [Worktree]) -> Bool {
+    func reassociateRepo(
+        _ repoId: UUID,
+        to newPath: URL,
+        discoveredWorktrees: [Worktree]
+    ) -> RepositoryReassociationResult {
         mutationCoordinator.reassociateRepo(repoId, to: newPath, discoveredWorktrees: discoveredWorktrees)
     }
     func reconcileDiscoveredWorktrees(_ repoId: UUID, worktrees: [Worktree]) {
