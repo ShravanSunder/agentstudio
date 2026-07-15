@@ -474,6 +474,16 @@ revision-gap recovery. MainActor neither normalizes nor retains a fleet-wide
 copy-on-write snapshot merely because a datastore write is about to begin.
 SQLite schema and I/O ownership remain unchanged.
 
+The checkpoint pager captures at most 256 snapshot items in one MainActor page.
+This is a compile-time `AppPolicies.WorkspacePersistence` service quantum, not a
+fleet-size limit, source-capacity default, or reuse of the legacy 128-event or
+downstream 256-path transport constants. Raw-byte, scanned-item,
+participant-inspection, and synchronous-service limits remain separately typed
+policy values so pressure in one dimension cannot silently borrow capacity from
+another. A page is acknowledged as transferred only after its Sendable values
+have entered the off-main accumulator; failure or cancellation aborts the lease
+and drains cleanup in bounded quanta.
+
 ### Event Admission, Scheduling, and Replay
 
 EV1. The global runtime EventBus carries semantic domain facts, not raw source

@@ -610,6 +610,14 @@ Add `WorkspaceStateSnapshotLease.swift` and `WorkspaceStateSnapshotPager.swift`.
 
 Each owner exposes fixed-revision base membership/raw page reads and accepts an outer-transaction revision for keyed changes; it retains at most the first post-base value/tombstone for a changed key. MainActor page capture is bounded raw reading only and has one synchronous `MainActorWorkLedger` record. It performs no normalization/join/filter/serialization and never spans `await`.
 
+Set `AppPolicies.WorkspacePersistence.snapshotPageMaximumItems` to the
+compile-time value 256. This caps one MainActor capture page; it does not cap the
+workspace or borrow the legacy event/path transport constants. Keep raw-byte,
+scanned-item, participant-inspection, synchronous-service, and cleanup limits as
+separate validated policy values. Transfer each page into the off-main
+accumulator before acknowledging `.transferred`, yield between capture turns,
+and close/abort plus drain retained cleanup custody on every exit path.
+
 ### W4.5c — Lease stability and update-journal fixture proof
 
 Add `WorkspacePersistenceRevisionOwnerTests.swift`, `WorkspaceStateSnapshotLeaseTests.swift`, `WorkspacePersistencePageCaptureTests.swift`, and a test-only contiguous update-journal fixture. Retain emitted pages while mutating the same/new/removed keys; prove no moving-state reread or fleet COW detachment. Assert one revision-owner object identity across `AtomRegistry`, `WorkspaceStore`, and every outer transaction owner. Prove a multi-atom canonical transaction advances exactly once, passes the same revision to every keyed mutation, and a failed transaction advances zero times. Inventory proof compares page participants with `WorkspaceSQLiteSnapshot`, `RepositoryTopologySQLiteSnapshot`, and repository persistence records; transient zoom/presentation state is a required negative case. No temporary revision owner or full fleet snapshot is permitted.
