@@ -1,3 +1,5 @@
+import { act } from 'react';
+
 export function installBridgeViewerBrowserDomAPIs(): void {
 	if (!('ResizeObserver' in globalThis)) {
 		Object.assign(globalThis, { ResizeObserver: BridgeViewerTestResizeObserver });
@@ -227,14 +229,14 @@ export async function collapseBridgeViewerTreeFolder(path: string): Promise<HTML
 	if (folderButton.getAttribute('aria-expanded') !== 'true') {
 		return folderButton;
 	}
-	folderButton.click();
+	await actBridgeViewerTreeFolderClick(folderButton);
 	for (let attempt = 0; attempt < 180; attempt += 1) {
 		const currentFolderButton = findBridgeViewerTreeItemButtonForPathCandidates(path);
 		if (currentFolderButton?.getAttribute('aria-expanded') === 'false') {
 			return currentFolderButton;
 		}
 		// oxlint-disable-next-line no-await-in-loop -- Browser tree state changes need sequential frame observation.
-		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerActFrame();
 	}
 	throw new Error(`expected Bridge viewer tree folder to collapse for ${path}`);
 }
@@ -244,14 +246,14 @@ export async function expandBridgeViewerTreeFolder(path: string): Promise<HTMLBu
 	if (folderButton.getAttribute('aria-expanded') === 'true') {
 		return folderButton;
 	}
-	folderButton.click();
+	await actBridgeViewerTreeFolderClick(folderButton);
 	for (let attempt = 0; attempt < 180; attempt += 1) {
 		const currentFolderButton = findBridgeViewerTreeItemButtonForPathCandidates(path);
 		if (currentFolderButton?.getAttribute('aria-expanded') === 'true') {
 			return currentFolderButton;
 		}
 		// oxlint-disable-next-line no-await-in-loop -- Browser tree state changes need sequential frame observation.
-		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerActFrame();
 	}
 	throw new Error(`expected Bridge viewer tree folder to expand for ${path}`);
 }
@@ -370,6 +372,19 @@ async function waitForBridgeViewerTreeItemButtonForPathCandidates(
 	await Promise.resolve();
 	await waitForBridgeViewerAnimationFrame();
 	return await waitForBridgeViewerTreeItemButtonForPathCandidates(path, remainingAttempts - 1);
+}
+
+async function actBridgeViewerTreeFolderClick(folderButton: HTMLButtonElement): Promise<void> {
+	await act(async (): Promise<void> => {
+		folderButton.click();
+		await Promise.resolve();
+	});
+}
+
+async function waitForBridgeViewerActFrame(): Promise<void> {
+	await act(async (): Promise<void> => {
+		await waitForBridgeViewerAnimationFrame();
+	});
 }
 
 export function findBridgeViewerCodeScrollOwner(): HTMLElement | null {
