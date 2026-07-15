@@ -12,7 +12,9 @@ struct TerminalRestoreRuntimeTests {
             .appending(path: "agentstudio-restore-runtime-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: tempDir))
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let pane = store.createPane(
@@ -48,7 +50,9 @@ struct TerminalRestoreRuntimeTests {
             .appending(path: "agentstudio-restore-runtime-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: tempDir))
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let parentPane = store.createPane(
@@ -80,7 +84,9 @@ struct TerminalRestoreRuntimeTests {
 
     @Test
     func zmxSessionId_usesFloatingWorkingDirectory_whenCwdExists() {
-        let store = WorkspaceStore()
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+        )
         let launchDirectory = FileManager.default.homeDirectoryForCurrentUser.appending(path: "tmp")
         let pane = store.createPane(
             launchDirectory: launchDirectory,
@@ -109,7 +115,9 @@ struct TerminalRestoreRuntimeTests {
 
     @Test
     func zmxSessionId_fallsBackToHomeDirectory_forFloatingPaneWithoutCwd() {
-        let store = WorkspaceStore()
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+        )
         let pane = store.createPane(
             provider: .zmx
         )
@@ -148,7 +156,9 @@ struct TerminalRestoreRuntimeTests {
             try? FileManager.default.removeItem(at: tempDirB)
         }
 
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDirA))
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: tempDirA))
         let repoA = store.addRepo(at: tempDirA)
         let worktreeA = try #require(repoA.worktrees.first)
         let repoB = store.addRepo(at: tempDirB)
@@ -213,7 +223,9 @@ struct TerminalRestoreRuntimeTests {
             try? FileManager.default.removeItem(at: tempDir)
         }
 
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: tempDir))
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let pane = store.createPane(
@@ -258,7 +270,9 @@ struct TerminalRestoreRuntimeTests {
             try? FileManager.default.removeItem(at: tempDir)
         }
 
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: tempDir))
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let parentPane = store.createPane(
@@ -294,7 +308,9 @@ struct TerminalRestoreRuntimeTests {
 
     @Test
     func zmxAttachCommand_isNil_whenSessionRestoreIsDisabled() {
-        let store = WorkspaceStore()
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+        )
         let pane = store.createPane(
             launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
             provider: .zmx

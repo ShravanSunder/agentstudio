@@ -322,7 +322,9 @@ struct PrimarySidebarPipelineIntegrationTests {
             path: "primary-sidebar-pipeline-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         persistor.ensureDirectory()
-        return WorkspaceStore(persistor: persistor)
+        return WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
     }
 
     private func makePipelineActors(

@@ -14,6 +14,7 @@ struct TabDisplayDerivedTests {
     func placeholderTabName_fallsBackToDerivedWorktreeTitle() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
+                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
@@ -57,6 +58,7 @@ struct TabDisplayDerivedTests {
     func paneTitle_usesFolderOnlyWhenDetachedHead() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
+                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout

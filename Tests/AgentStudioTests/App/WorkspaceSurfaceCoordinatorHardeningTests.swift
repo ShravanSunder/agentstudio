@@ -28,7 +28,9 @@ struct WorkspaceSurfaceCoordinatorHardeningTests {
     ) -> Harness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-hardening-\(UUID().uuidString)")
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: tempDir))
         store.restore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)

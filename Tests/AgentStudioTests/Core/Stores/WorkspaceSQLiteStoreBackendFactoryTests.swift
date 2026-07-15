@@ -171,6 +171,7 @@ struct WorkspaceSQLiteStoreBackendFactoryTests {
 
         let backend = try #require(factory.makeBackend())
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: legacyPersistor,
             sqliteDatastore: workspaceSQLiteDatastore(from: backend),
             recoveryReporter: { event in recoveryEvents.append(event) }
@@ -283,6 +284,7 @@ struct WorkspaceSQLiteStoreBackendFactoryTests {
             createdAt: Date(timeIntervalSince1970: 1)
         )
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             persistor: WorkspacePersistor(workspacesDir: workspacesDirectory),
             sqliteDatastore: factory.makeDatastore(),

@@ -27,7 +27,9 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
     ) -> Harness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-undo-restore-\(UUID().uuidString)")
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: tempDir))
         store.restore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
@@ -158,6 +160,7 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         )
         var recoveryEvents: [PersistenceRecoveryEvent] = []
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             persistor: WorkspacePersistor(workspacesDir: tempDir),
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend),
@@ -196,6 +199,7 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
             }
         )
         let restoredStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
             ),

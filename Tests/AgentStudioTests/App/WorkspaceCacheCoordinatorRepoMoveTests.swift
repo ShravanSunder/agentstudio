@@ -11,7 +11,9 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
             path: "workspace-cache-coordinator-repo-move-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         persistor.ensureDirectory()
-        return WorkspaceStore(persistor: persistor)
+        return WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
     }
 
     @Test("repoRemoved marks panes orphaned and prunes cache while preserving canonical identities")

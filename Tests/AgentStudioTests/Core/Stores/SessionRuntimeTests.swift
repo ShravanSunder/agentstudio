@@ -133,7 +133,9 @@ final class SessionRuntimeTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "runtime-test-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(persistor: persistor)
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store.restore()
         let runtime = makeRuntime(store: store)
 
@@ -154,7 +156,9 @@ final class SessionRuntimeTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "runtime-test-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(persistor: persistor)
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store.restore()
         let runtime = makeRuntime(store: store)
 

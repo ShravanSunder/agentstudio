@@ -22,6 +22,7 @@ struct WorkspaceSQLiteStoreBridgeRepairTests {
         )
         var recoveryEvents: [PersistenceRecoveryEvent] = []
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -97,6 +98,7 @@ struct WorkspaceSQLiteStoreBridgeRepairTests {
         )
 
         let restoredStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
             ),
@@ -125,6 +127,7 @@ struct WorkspaceSQLiteStoreBridgeRepairTests {
         )
         var recoveryEvents: [PersistenceRecoveryEvent] = []
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -193,6 +196,7 @@ struct WorkspaceSQLiteStoreBridgeRepairTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_086)
         )
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -246,6 +250,7 @@ struct WorkspaceSQLiteStoreBridgeRepairTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_087)
         )
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -300,6 +305,7 @@ struct WorkspaceSQLiteStoreBridgeRepairTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_088)
         )
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -351,6 +357,7 @@ struct WorkspaceSQLiteStoreBridgeRepairTests {
         )
 
         let restoredStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
             ),

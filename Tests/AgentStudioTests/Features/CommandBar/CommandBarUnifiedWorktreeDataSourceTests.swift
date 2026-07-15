@@ -13,7 +13,9 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
     private let dispatcher = AppCommandDispatcher.shared
 
     private func makeStore() -> WorkspaceStore {
-        WorkspaceStore()
+        WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+        )
     }
 
     @Test

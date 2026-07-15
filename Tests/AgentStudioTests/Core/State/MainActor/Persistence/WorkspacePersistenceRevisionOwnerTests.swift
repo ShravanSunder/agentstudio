@@ -148,6 +148,29 @@ struct WorkspacePersistenceRevisionOwnerTests {
         #expect(firstRead.isUUIDv7)
         #expect(UUIDv7.isV7(firstRead.rawValue))
     }
+
+    @Test("process composition shares one persistence revision owner")
+    func processCompositionSharesOnePersistenceRevisionOwner() {
+        // Arrange
+        let atomRegistry = AtomRegistry()
+
+        // Act
+        let workspaceStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: atomRegistry.workspacePersistenceRevisionOwner,
+            mutationCoordinator: atomRegistry.workspaceMutationCoordinator
+        )
+
+        // Assert
+        #expect(
+            atomRegistry.workspaceMutationCoordinator.workspacePersistenceRevisionOwner
+                === atomRegistry.workspacePersistenceRevisionOwner
+        )
+        #expect(workspaceStore.workspacePersistenceRevisionOwner === atomRegistry.workspacePersistenceRevisionOwner)
+        #expect(
+            workspaceStore.mutationCoordinator.workspacePersistenceRevisionOwner
+                === atomRegistry.workspacePersistenceRevisionOwner
+        )
+    }
 }
 
 private enum FakePersistenceTransactionResult: Equatable {

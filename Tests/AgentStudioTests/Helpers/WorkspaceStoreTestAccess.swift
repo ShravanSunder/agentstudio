@@ -5,6 +5,7 @@ import Foundation
 @MainActor
 extension WorkspaceStore {
     convenience init(
+        workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner,
         catalogAtom: RepositoryTopologyAtom,
         graphAtom: WorkspacePaneAtom,
         interactionAtom: WorkspaceTabLayoutAtom,
@@ -13,6 +14,7 @@ extension WorkspaceStore {
         clock: any Clock<Duration> & Sendable = ContinuousClock()
     ) {
         self.init(
+            workspacePersistenceRevisionOwner: workspacePersistenceRevisionOwner,
             identityAtom: WorkspaceIdentityAtom(),
             windowMemoryAtom: WorkspaceWindowMemoryAtom(),
             repositoryTopologyAtom: catalogAtom,
@@ -21,6 +23,7 @@ extension WorkspaceStore {
             tabArrangementAtom: interactionAtom.arrangementAtom,
             tabLayoutAtom: interactionAtom,
             mutationCoordinator: WorkspaceMutationCoordinator(
+                workspacePersistenceRevisionOwner: workspacePersistenceRevisionOwner,
                 repositoryTopologyAtom: catalogAtom,
                 workspacePaneAtom: graphAtom,
                 workspaceTabShellAtom: interactionAtom.shellAtom,

@@ -31,6 +31,7 @@ struct WorkspaceSQLiteLegacyImportStatusTests {
             )
         }
         let firstBootStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend))
         await firstBootStore.restoreAsync()
         try await fixture.coreQueue.write { database in
@@ -46,6 +47,7 @@ struct WorkspaceSQLiteLegacyImportStatusTests {
         )
 
         let secondBootStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend))
         await secondBootStore.restoreAsync()
 
@@ -66,6 +68,7 @@ struct WorkspaceSQLiteLegacyImportStatusTests {
             persistor: persistor
         )
         let failedBootStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend))
         await failedBootStore.restoreAsync()
         try await fixture.coreQueue.write { database in
@@ -77,6 +80,7 @@ struct WorkspaceSQLiteLegacyImportStatusTests {
 
         let retryFixture = try makeLegacyStatusFixture(coreQueue: fixture.coreQueue)
         let retryBootStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: retryFixture.backend))
         await retryBootStore.restoreAsync()
 

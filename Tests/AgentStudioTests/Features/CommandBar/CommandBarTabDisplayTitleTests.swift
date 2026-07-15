@@ -12,7 +12,9 @@ struct CommandBarTabDisplayTitleTests {
 
     @Test
     func test_everythingScope_placeholderTabName_fallsBackToDerivedTitle() {
-        let store = WorkspaceStore()
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+        )
 
         let repo = store.addRepo(at: URL(filePath: "/tmp/commandbar-placeholder"))
         let worktree = Worktree(

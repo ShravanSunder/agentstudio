@@ -27,7 +27,9 @@ struct TerminalPaneMountViewExitBehaviorTests {
     private func makePaneTabControllerHarness() -> PaneTabControllerHarness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-terminal-exit-tests-\(UUID().uuidString)")
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: tempDir))
         store.restore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)

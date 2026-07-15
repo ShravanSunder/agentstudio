@@ -11,6 +11,7 @@ final class WorkspaceStoreDrawerTests {
 
     init() {
         store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
     }
@@ -881,7 +882,9 @@ final class WorkspaceStoreDrawerTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "drawer-persist-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store1 = WorkspaceStore(persistor: persistor)
+        let store1 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
 
         let pane = store1.createPane()
         let tab = Tab(paneId: pane.id)
@@ -891,7 +894,9 @@ final class WorkspaceStoreDrawerTests {
         store1.flush()
 
         // Restore into a new store
-        let store2 = WorkspaceStore(persistor: persistor)
+        let store2 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store2.restore()
 
         let restoredPane = store2.panes.values.first {

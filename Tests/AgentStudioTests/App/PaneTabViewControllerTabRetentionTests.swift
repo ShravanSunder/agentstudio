@@ -22,7 +22,9 @@ struct PaneTabViewControllerTabRetentionTests {
     private func makeHarness() -> Harness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-tab-retention-\(UUID().uuidString)")
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: tempDir))
         store.restore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)

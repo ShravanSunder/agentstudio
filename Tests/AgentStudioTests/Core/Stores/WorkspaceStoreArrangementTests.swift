@@ -11,6 +11,7 @@ final class WorkspaceStoreArrangementTests {
 
     init() {
         store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
     }
@@ -477,7 +478,9 @@ final class WorkspaceStoreArrangementTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "arr-persist-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store1 = WorkspaceStore(persistor: persistor)
+        let store1 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
 
         let pane1 = store1.createPane()
         let pane2 = store1.createPane()
@@ -496,7 +499,9 @@ final class WorkspaceStoreArrangementTests {
         store1.flush()
 
         // Restore into a new store
-        let store2 = WorkspaceStore(persistor: persistor)
+        let store2 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store2.restore()
 
         let restoredTab = store2.tabs.first!
@@ -515,7 +520,9 @@ final class WorkspaceStoreArrangementTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "arr-minimized-persist-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store1 = WorkspaceStore(persistor: persistor)
+        let store1 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
 
         let pane1 = store1.createPane()
         let pane2 = store1.createPane()
@@ -528,7 +535,9 @@ final class WorkspaceStoreArrangementTests {
         _ = store1.minimizePane(pane2.id, inTab: tab.id)
         store1.flush()
 
-        let store2 = WorkspaceStore(persistor: persistor)
+        let store2 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store2.restore()
 
         let restoredTab = try #require(store2.tabs.first)

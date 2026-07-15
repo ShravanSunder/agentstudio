@@ -13,7 +13,9 @@ struct CommandBarInboxCommandsTests {
     func inboxScopeEmptyWithoutCommands() {
         let items = CommandBarDataSource.items(
             scope: .inbox,
-            store: WorkspaceStore(),
+            store: WorkspaceStore(
+                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            ),
             repoCache: RepoCacheAtom(),
             dispatcher: .shared,
             notificationInboxCommands: nil
@@ -51,7 +53,9 @@ struct CommandBarInboxCommandsTests {
 
         let items = CommandBarDataSource.items(
             scope: .inbox,
-            store: WorkspaceStore(),
+            store: WorkspaceStore(
+                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            ),
             repoCache: RepoCacheAtom(),
             dispatcher: .shared,
             notificationInboxCommands: commands

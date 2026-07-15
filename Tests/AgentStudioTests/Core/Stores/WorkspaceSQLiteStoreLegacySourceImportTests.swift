@@ -64,6 +64,7 @@ struct WorkspaceSQLiteStoreLegacySourceImportTests {
             )
         )
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor,
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )

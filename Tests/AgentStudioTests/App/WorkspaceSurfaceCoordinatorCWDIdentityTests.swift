@@ -15,7 +15,9 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
     func surfaceCwdChangedUpdatesPaneWorktreeIdentity() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-surface-cwd-\(UUID().uuidString)")
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: tempDir))
         store.restore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
@@ -71,7 +73,9 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
     func surfaceCwdChangedClearsStaleWorktreeIdentityWhenCwdLeavesKnownWorktrees() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-surface-cwd-clears-\(UUID().uuidString)")
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: tempDir))
         store.restore()
         let surfaceManager = CWDIdentitySurfaceManager()
         let coordinator = makeTestWorkspaceSurfaceCoordinator(
@@ -122,7 +126,9 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-cwd-\(UUID().uuidString)")
         let bus = makeTestPaneRuntimeEventBus()
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: tempDir))
         store.restore()
         let coordinator = makeTestWorkspaceSurfaceCoordinator(
             store: store,
@@ -183,7 +189,9 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
     func surfaceCwdChangedEnrichesLiveFacetsWhilePreservingLaunchDirectory() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-floating-cwd-\(UUID().uuidString)")
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: tempDir))
         store.restore()
         let surfaceManager = CWDIdentitySurfaceManager()
         let coordinator = makeTestWorkspaceSurfaceCoordinator(

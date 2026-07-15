@@ -349,6 +349,7 @@ struct ZmxOrphanCleanupPlannerTests {
         )
         var recoveryEvents: [PersistenceRecoveryEvent] = []
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -449,6 +450,7 @@ struct ZmxOrphanCleanupPlannerTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_300)
         )
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -507,6 +509,7 @@ struct ZmxOrphanCleanupPlannerTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_350)
         )
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -571,6 +574,7 @@ struct ZmxOrphanCleanupPlannerTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_375)
         )
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -635,6 +639,7 @@ struct ZmxOrphanCleanupPlannerTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_400)
         )
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)

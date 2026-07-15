@@ -20,6 +20,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
             createdAt: createdAt
         )
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -105,6 +106,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_050)
         )
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -139,6 +141,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_075)
         )
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -221,6 +224,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_075)
         )
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -266,6 +270,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(tabGraph.tabs.single?.allPaneIds == [firstPane.id, arrangementOnlyPane.id])
 
         let restoredStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
             ),
@@ -289,6 +294,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_090)
         )
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -415,6 +421,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
             saveCoordinator: saveCoordinator
         )
         return WorkspaceStore(
+            workspacePersistenceRevisionOwner: atomRegistry.workspacePersistenceRevisionOwner,
             identityAtom: atomRegistry.workspaceIdentity,
             windowMemoryAtom: atomRegistry.workspaceWindowMemory,
             repositoryTopologyAtom: atomRegistry.workspaceRepositoryTopology,
@@ -536,6 +543,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
             )
         )
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend))
 
         await store.restoreAsync()
@@ -604,6 +612,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
             for: persistor.canonicalWorkspaceStatePath(for: newerWorkspaceId)
         )
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend))
 
         await store.restoreAsync()
@@ -660,6 +669,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
             for: persistor.canonicalWorkspaceStatePath(for: tieLoserWorkspaceId)
         )
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend))
 
         await store.restoreAsync()
@@ -709,6 +719,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         )
         var recoveryEvents: [PersistenceRecoveryEvent] = []
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor,
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend),
             recoveryReporter: { recoveryEvents.append($0) }
@@ -755,11 +766,13 @@ struct WorkspaceSQLiteStoreBridgeTests {
         )
 
         let failedBootStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: failingBackend))
         await failedBootStore.restoreAsync()
         #expect(try coreRepository.fetchWorkspace(id: failedWorkspaceId) != nil)
         #expect(try !coreRepository.hasCompletedWorkspaceSQLiteSnapshot(workspaceId: failedWorkspaceId))
         let retryBootStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: retryBackend))
         await retryBootStore.restoreAsync()
 
@@ -798,6 +811,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         }
         var recoveryEvents: [PersistenceRecoveryEvent] = []
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor,
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend),
             recoveryReporter: { event in recoveryEvents.append(event) }
@@ -841,6 +855,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         )
         var recoveryEvents: [PersistenceRecoveryEvent] = []
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor,
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend),
             recoveryReporter: { event in recoveryEvents.append(event) }

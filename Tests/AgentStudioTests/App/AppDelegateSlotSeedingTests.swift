@@ -13,7 +13,9 @@ struct AppDelegateSlotSeedingTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store1 = WorkspaceStore(persistor: persistor)
+        let store1 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store1.restore()
 
         let parentPane = store1.createPane(
@@ -25,7 +27,9 @@ struct AppDelegateSlotSeedingTests {
         let drawerPane = try #require(store1.addDrawerPane(to: parentPane.id))
         store1.flush()
 
-        let restoredStore = WorkspaceStore(persistor: persistor)
+        let restoredStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         restoredStore.restore()
 
         let appDelegate = AppDelegate()

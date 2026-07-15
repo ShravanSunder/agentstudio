@@ -1,5 +1,6 @@
 @MainActor
 final class AtomRegistry {
+    let workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner
     let activeWorkspaceSelection: ActiveWorkspaceSelectionAtom
     let workspaceIdentity: WorkspaceIdentityAtom
     let workspaceWindowMemory: WorkspaceWindowMemoryAtom
@@ -43,6 +44,7 @@ final class AtomRegistry {
     let welcome: WelcomeAtom
 
     init(
+        workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner = .init(),
         activeWorkspaceSelection: ActiveWorkspaceSelectionAtom = .init(),
         workspaceIdentity: WorkspaceIdentityAtom = .init(),
         workspaceWindowMemory: WorkspaceWindowMemoryAtom = .init(),
@@ -79,6 +81,7 @@ final class AtomRegistry {
         sessionRuntime: SessionRuntimeAtom = .init(),
         welcome: WelcomeAtom = .init()
     ) {
+        self.workspacePersistenceRevisionOwner = workspacePersistenceRevisionOwner
         self.activeWorkspaceSelection = activeWorkspaceSelection
         self.workspaceIdentity = workspaceIdentity
         self.workspaceWindowMemory = workspaceWindowMemory
@@ -118,11 +121,16 @@ final class AtomRegistry {
         self.workspaceMutationCoordinator =
             workspaceMutationCoordinator
             ?? WorkspaceMutationCoordinator(
+                workspacePersistenceRevisionOwner: workspacePersistenceRevisionOwner,
                 repositoryTopologyAtom: workspaceRepositoryTopology,
                 workspacePaneAtom: self.workspacePane,
                 workspaceTabShellAtom: self.workspaceTabShell,
                 workspaceTabArrangementAtom: self.workspaceTabArrangement
             )
+        precondition(
+            self.workspaceMutationCoordinator.workspacePersistenceRevisionOwner === workspacePersistenceRevisionOwner,
+            "workspace mutation coordinator must share AtomRegistry's persistence revision owner"
+        )
         self.windowLifecycle = windowLifecycle
         self.repoEnrichmentCache = repoEnrichmentCache
         self.recentWorkspaceTarget = recentWorkspaceTarget

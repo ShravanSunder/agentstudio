@@ -13,7 +13,9 @@ struct CommandBarResultSessionTests {
 
     @Test("result session owns item filtering, grouping, and selection")
     func resultSessionOwnsFilteringGroupingAndSelection() {
-        let store = WorkspaceStore()
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+        )
         let repoCache = RepoCacheAtom()
         let state = CommandBarState()
         state.show(prefix: ">")
@@ -59,7 +61,9 @@ struct CommandBarResultSessionTests {
         )
 
         let session = CommandBarResultSession(
-            store: WorkspaceStore(),
+            store: WorkspaceStore(
+                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            ),
             repoCache: RepoCacheAtom(),
             dispatcher: .shared
         )
@@ -72,7 +76,9 @@ struct CommandBarResultSessionTests {
 
     @Test("# root item snapshot is reused while only the query changes")
     func rootItemSnapshotIsReusedWhileOnlyQueryChanges() {
-        let store = WorkspaceStore()
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+        )
         let state = CommandBarState()
         state.show(prefix: "#")
 
@@ -94,7 +100,9 @@ struct CommandBarResultSessionTests {
 
     @Test("# root item snapshot rebuilds when observed topology changes")
     func rootItemSnapshotRebuildsWhenObservedTopologyChangesInSameMainActorTurn() {
-        let store = WorkspaceStore()
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+        )
         let state = CommandBarState()
         state.show(prefix: "#")
 
@@ -114,7 +122,9 @@ struct CommandBarResultSessionTests {
 
     @Test("# root item invalidation publishes an observable session change")
     func rootItemInvalidationPublishesObservableSessionChange() {
-        let store = WorkspaceStore()
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+        )
         let state = CommandBarState()
         state.show(prefix: "#")
         state.rawInput = "# repo"
@@ -145,7 +155,9 @@ struct CommandBarResultSessionTests {
         state.show(prefix: "#")
 
         let session = CommandBarResultSession(
-            store: WorkspaceStore(),
+            store: WorkspaceStore(
+                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            ),
             repoCache: RepoCacheAtom(),
             dispatcher: .shared
         )
@@ -160,7 +172,9 @@ struct CommandBarResultSessionTests {
 
     @Test("# root item observer ignores stale registrations from previous sessions")
     func rootItemObserverIgnoresStaleRegistrationsFromPreviousSessions() {
-        let store = WorkspaceStore()
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+        )
         let state = CommandBarState()
         state.show(prefix: "#")
 

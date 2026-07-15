@@ -17,7 +17,9 @@ final class WorkspaceStoreTests {
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "workspace-store-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        store = WorkspaceStore(persistor: persistor)
+        store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store.restore()
     }
 
@@ -64,6 +66,7 @@ final class WorkspaceStoreTests {
 
         let clock = TestPushClock()
         let restoredStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor,
             persistDebounceDuration: .milliseconds(1),
             clock: clock
@@ -95,6 +98,7 @@ final class WorkspaceStoreTests {
         try Data("{}".utf8).write(to: inboxURL, options: .atomic)
         var reportedRecovery: PersistenceRecoveryEvent?
         let restoredStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor,
             recoveryReporter: { reportedRecovery = $0 }
         )
@@ -207,6 +211,7 @@ final class WorkspaceStoreTests {
         try? Data("not-a-directory".utf8).write(to: blockedDirectoryURL, options: .atomic)
         var reportedRecovery: PersistenceRecoveryEvent?
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: WorkspacePersistor(workspacesDir: blockedDirectoryURL),
             recoveryReporter: { reportedRecovery = $0 }
         )
@@ -222,6 +227,7 @@ final class WorkspaceStoreTests {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let atoms = AtomRegistry()
         let scopedStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: atoms.workspacePersistenceRevisionOwner,
             catalogAtom: atoms.workspaceRepositoryTopology,
             graphAtom: atoms.workspacePane,
             interactionAtom: atoms.workspaceTabLayout,
@@ -241,7 +247,9 @@ final class WorkspaceStoreTests {
 
         #expect(scopedStore.flush())
 
-        let restoredStore = WorkspaceStore(persistor: persistor)
+        let restoredStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         restoredStore.restore()
         #expect(restoredStore.pane(pane.id)?.title == "Scoped")
     }
@@ -264,6 +272,7 @@ final class WorkspaceStoreTests {
         )
 
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             tabLayoutAtom: tabLayoutAtom,
             persistor: WorkspacePersistor(workspacesDir: tempDir)
         )
@@ -385,7 +394,9 @@ final class WorkspaceStoreTests {
         #expect(updated?.metadata.worktreeName == nil)
 
         #expect(store.flush())
-        let restoredStore = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        let restoredStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: tempDir))
         restoredStore.restore()
         let restoredPane = try #require(restoredStore.pane(pane.id))
         #expect(restoredPane.metadata.cwd == externalCwd)
@@ -1054,7 +1065,9 @@ final class WorkspaceStoreTests {
 
         // Act — create new store with same persistor
         let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
-        let store2 = WorkspaceStore(persistor: persistor2)
+        let store2 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor2)
         store2.restore()
 
         // Assert
@@ -1083,7 +1096,9 @@ final class WorkspaceStoreTests {
 
         // Act — restore from disk
         let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
-        let store2 = WorkspaceStore(persistor: persistor2)
+        let store2 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor2)
         store2.restore()
 
         // Assert — only persistent pane restored
@@ -1112,7 +1127,9 @@ final class WorkspaceStoreTests {
 
         // Act — restore from disk
         let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
-        let store2 = WorkspaceStore(persistor: persistor2)
+        let store2 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor2)
         store2.restore()
 
         // Assert — only persistent pane remains, no dangling temporary IDs in layouts
@@ -1136,7 +1153,9 @@ final class WorkspaceStoreTests {
 
         // Act
         let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
-        let store2 = WorkspaceStore(persistor: persistor2)
+        let store2 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor2)
         store2.restore()
 
         // Assert — tab fully pruned since all panes were temporary
@@ -1164,7 +1183,9 @@ final class WorkspaceStoreTests {
 
         // Act — restore
         let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
-        let store2 = WorkspaceStore(persistor: persistor2)
+        let store2 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor2)
         store2.restore()
 
         // Assert — temporary tab pruned, activeTabId points to surviving tab
@@ -1211,7 +1232,9 @@ final class WorkspaceStoreTests {
         store.flush()
 
         let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
-        let store2 = WorkspaceStore(persistor: persistor2)
+        let store2 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor2)
         store2.restore()
 
         // Assert — the orphaned pane (with non-existent worktreeId) is pruned;
@@ -1244,6 +1267,7 @@ final class WorkspaceStoreTests {
         // Arrange — use zero debounce to avoid wall-clock waits in tests
         let fastPersistor = WorkspacePersistor(workspacesDir: tempDir)
         let fastStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: fastPersistor,
             persistDebounceDuration: .zero
         )
@@ -1291,6 +1315,7 @@ final class WorkspaceStoreTests {
             createdAt: Date(timeIntervalSince1970: 1_700_010_000)
         )
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -1549,6 +1574,7 @@ final class WorkspaceStoreTests {
         let atoms = AtomRegistry()
         let clock = TestPushClock()
         let scopedStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: atoms.workspacePersistenceRevisionOwner,
             identityAtom: atoms.workspaceIdentity,
             windowMemoryAtom: atoms.workspaceWindowMemory,
             repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
@@ -1658,8 +1684,8 @@ final class WorkspaceStoreTests {
     func test_updateRepoWorktrees_preservesExistingIds() {
         // Arrange — add repo then seed initial worktrees
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/wt-test-repo"))
-        let wt1 = makeWorktree(name: "main", path: "/tmp/wt-test-repo/main")
-        let wt2 = makeWorktree(name: "feat", path: "/tmp/wt-test-repo/feat")
+        let wt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo/main")
+        let wt2 = makeWorktree(repoId: repo.id, name: "feat", path: "/tmp/wt-test-repo/feat")
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [wt1, wt2])
 
         let storedWt1Id = store.repos.first(where: { $0.id == repo.id })!.worktrees[0].id
@@ -1673,8 +1699,8 @@ final class WorkspaceStoreTests {
         )
 
         // Act — simulate refresh with fresh Worktree instances (new UUIDs, same paths)
-        let freshWt1 = makeWorktree(name: "main-updated", path: "/tmp/wt-test-repo/main")
-        let freshWt2 = makeWorktree(name: "feat-updated", path: "/tmp/wt-test-repo/feat")
+        let freshWt1 = makeWorktree(repoId: repo.id, name: "main-updated", path: "/tmp/wt-test-repo/main")
+        let freshWt2 = makeWorktree(repoId: repo.id, name: "feat-updated", path: "/tmp/wt-test-repo/feat")
         #expect(freshWt1.id != storedWt1Id, "precondition: fresh worktree has different UUID")
 
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [freshWt1, freshWt2])
@@ -1697,13 +1723,13 @@ final class WorkspaceStoreTests {
     func test_updateRepoWorktrees_addsNewWorktrees() {
         // Arrange
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/wt-test-repo2"))
-        let wt1 = makeWorktree(name: "main", path: "/tmp/wt-test-repo2/main")
+        let wt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo2/main")
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [wt1])
         let storedWt1Id = store.repos.first(where: { $0.id == repo.id })!.worktrees[0].id
 
         // Act — refresh adds a new worktree
-        let freshWt1 = makeWorktree(name: "main", path: "/tmp/wt-test-repo2/main")
-        let newWt = makeWorktree(name: "hotfix", path: "/tmp/wt-test-repo2/hotfix")
+        let freshWt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo2/main")
+        let newWt = makeWorktree(repoId: repo.id, name: "hotfix", path: "/tmp/wt-test-repo2/hotfix")
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [freshWt1, newWt])
 
         // Assert
@@ -1718,13 +1744,13 @@ final class WorkspaceStoreTests {
     func test_updateRepoWorktrees_removesDeletedWorktrees() {
         // Arrange
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/wt-test-repo3"))
-        let wt1 = makeWorktree(name: "main", path: "/tmp/wt-test-repo3/main")
-        let wt2 = makeWorktree(name: "feat", path: "/tmp/wt-test-repo3/feat")
+        let wt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo3/main")
+        let wt2 = makeWorktree(repoId: repo.id, name: "feat", path: "/tmp/wt-test-repo3/feat")
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [wt1, wt2])
         let storedWt1Id = store.repos.first(where: { $0.id == repo.id })!.worktrees[0].id
 
         // Act — refresh returns only wt1 (wt2 was deleted)
-        let freshWt1 = makeWorktree(name: "main", path: "/tmp/wt-test-repo3/main")
+        let freshWt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo3/main")
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [freshWt1])
 
         // Assert — only wt1 remains
@@ -1738,14 +1764,14 @@ final class WorkspaceStoreTests {
     func test_updateRepoWorktrees_noopWhenMergedResultUnchanged() {
         // Arrange
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/wt-test-repo4"))
-        let wt1 = makeWorktree(name: "main", path: "/tmp/wt-test-repo4/main")
-        let wt2 = makeWorktree(name: "feat", path: "/tmp/wt-test-repo4/feat")
+        let wt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo4/main")
+        let wt2 = makeWorktree(repoId: repo.id, name: "feat", path: "/tmp/wt-test-repo4/feat")
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [wt1, wt2])
         let before = store.repos.first(where: { $0.id == repo.id })!
 
         // Act — same effective data, but fresh worktree instances
-        let sameWt1 = makeWorktree(name: "main", path: "/tmp/wt-test-repo4/main")
-        let sameWt2 = makeWorktree(name: "feat", path: "/tmp/wt-test-repo4/feat")
+        let sameWt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo4/main")
+        let sameWt2 = makeWorktree(repoId: repo.id, name: "feat", path: "/tmp/wt-test-repo4/feat")
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [sameWt1, sameWt2])
         let after = store.repos.first(where: { $0.id == repo.id })!
 
@@ -1777,7 +1803,9 @@ final class WorkspaceStoreTests {
         try persistor.save(state)
 
         // Act
-        let store2 = WorkspaceStore(persistor: persistor)
+        let store2 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store2.restore()
 
         // Assert — activeArrangementId repaired to the default arrangement
@@ -1807,7 +1835,9 @@ final class WorkspaceStoreTests {
         try persistor.save(state)
 
         // Act
-        let store2 = WorkspaceStore(persistor: persistor)
+        let store2 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store2.restore()
 
         // Assert — activePaneId repaired to the first pane in layout
@@ -1831,7 +1861,9 @@ final class WorkspaceStoreTests {
         try persistor.save(state)
 
         // Act
-        let store2 = WorkspaceStore(persistor: persistor)
+        let store2 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store2.restore()
 
         // Assert — first arrangement promoted to default
@@ -1863,7 +1895,9 @@ final class WorkspaceStoreTests {
         try persistor.save(state)
 
         // Act
-        let store2 = WorkspaceStore(persistor: persistor)
+        let store2 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store2.restore()
 
         // Assert — panes list synced with layout
@@ -1896,7 +1930,9 @@ final class WorkspaceStoreTests {
         try persistor.save(state)
 
         // Act
-        let store2 = WorkspaceStore(persistor: persistor)
+        let store2 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store2.restore()
 
         // Assert — p2 should only appear in ONE tab (first wins)
@@ -1931,7 +1967,9 @@ final class WorkspaceStoreTests {
         try persistor.save(state)
 
         // Act
-        let store2 = WorkspaceStore(persistor: persistor)
+        let store2 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store2.restore()
 
         // Assert — if tab2 survives, its activePaneId should not be p2 (was removed)

@@ -253,6 +253,7 @@ struct GitTopologyPipelineHarness {
             .appending(path: "git-topology-harness-\(UUID().uuidString)")
         let bus = EventBus<RuntimeEnvelope>()
         let workspaceStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: WorkspacePersistor(workspacesDir: tempDir)
         )
         workspaceStore.restore()
@@ -357,6 +358,7 @@ struct GitEnrichmentPipelineHarness {
             .appending(path: "git-enrichment-harness-\(UUID().uuidString)")
         let bus = EventBus<RuntimeEnvelope>()
         let workspaceStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: WorkspacePersistor(workspacesDir: tempDir)
         )
         workspaceStore.restore()

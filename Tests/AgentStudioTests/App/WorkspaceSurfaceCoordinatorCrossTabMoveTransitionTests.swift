@@ -78,7 +78,9 @@ struct WorkspaceCrossTabMoveTransitionTests {
                 .appending(path: "agentstudio-cross-tab-move-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: tempDir) }
 
-            let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+            let store = WorkspaceStore(
+                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+                persistor: WorkspacePersistor(workspacesDir: tempDir))
             store.restore()
             let viewRegistry = ViewRegistry()
             let surfaceManager = CrossTabMoveSurfaceManager()
@@ -167,7 +169,9 @@ struct WorkspaceCrossTabMoveTransitionTests {
                 .appending(path: "agentstudio-cross-tab-drawer-move-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: tempDir) }
 
-            let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+            let store = WorkspaceStore(
+                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+                persistor: WorkspacePersistor(workspacesDir: tempDir))
             store.restore()
             let viewRegistry = ViewRegistry()
             let surfaceManager = CrossTabMoveSurfaceManager()

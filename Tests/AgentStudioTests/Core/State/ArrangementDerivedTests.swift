@@ -13,6 +13,7 @@ final class ArrangementDerivedTests {
     init() {
         registry = AtomRegistry()
         store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: registry.workspacePersistenceRevisionOwner,
             identityAtom: registry.workspaceIdentity,
             windowMemoryAtom: registry.workspaceWindowMemory,
             repositoryTopologyAtom: registry.workspaceRepositoryTopology,
@@ -214,6 +215,7 @@ final class ArrangementDerivedTests {
 
         let firstRegistry = AtomRegistry()
         let firstStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: firstRegistry.workspacePersistenceRevisionOwner,
             identityAtom: firstRegistry.workspaceIdentity,
             windowMemoryAtom: firstRegistry.workspaceWindowMemory,
             repositoryTopologyAtom: firstRegistry.workspaceRepositoryTopology,
@@ -243,6 +245,7 @@ final class ArrangementDerivedTests {
 
         let restoredRegistry = AtomRegistry()
         let restoredStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: restoredRegistry.workspacePersistenceRevisionOwner,
             identityAtom: restoredRegistry.workspaceIdentity,
             windowMemoryAtom: restoredRegistry.workspaceWindowMemory,
             repositoryTopologyAtom: restoredRegistry.workspaceRepositoryTopology,

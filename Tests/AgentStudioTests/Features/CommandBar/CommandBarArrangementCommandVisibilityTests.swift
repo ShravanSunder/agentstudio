@@ -14,7 +14,9 @@ struct CommandBarArrangementCommandVisibilityTests {
 
     @Test
     func commandsScope_hidesCycleArrangementWhenOnlyDefaultArrangementExists() {
-        let store = WorkspaceStore()
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+        )
         let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -33,7 +35,9 @@ struct CommandBarArrangementCommandVisibilityTests {
 
     @Test
     func commandsScope_showsArrangementCommandsWhenTabHasSavedArrangement() {
-        let store = WorkspaceStore()
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+        )
         let pane = store.createPane()
         var tab = Tab(paneId: pane.id)
         let savedArrangement = PaneArrangement(

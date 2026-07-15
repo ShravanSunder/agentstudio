@@ -33,7 +33,9 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-luna295-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(persistor: persistor)
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store.restore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)

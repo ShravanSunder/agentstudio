@@ -23,7 +23,9 @@ struct WorkspaceSurfaceCoordinatorTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(persistor: persistor)
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store.restore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
@@ -245,7 +247,9 @@ struct WorkspaceSurfaceCoordinatorTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-filesystem-lifecycle-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(persistor: persistor)
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store.restore()
         let paneFilesystemProjectionStore = PaneFilesystemProjectionAtom()
         let coordinator = WorkspaceSurfaceCoordinator(
@@ -290,7 +294,9 @@ struct WorkspaceSurfaceCoordinatorTests {
             .appending(path: "agentstudio-pane-filesystem-ignore-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: tempDir))
         store.restore()
         let coordinator = makeFilesystemSyncCoordinator(
             store: store,
@@ -466,7 +472,9 @@ struct WorkspaceSurfaceCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(persistor: persistor)
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store.restore()
 
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-roots-\(UUID().uuidString)"))
@@ -576,7 +584,9 @@ struct WorkspaceSurfaceCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(persistor: persistor)
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store.restore()
 
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-unavailable-\(UUID().uuidString)"))
@@ -615,7 +625,9 @@ struct WorkspaceSurfaceCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(persistor: persistor)
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store.restore()
 
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-converge-\(UUID().uuidString)"))
@@ -699,7 +711,9 @@ struct WorkspaceSurfaceCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(persistor: persistor)
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store.restore()
 
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-empty-delta-\(UUID().uuidString)"))

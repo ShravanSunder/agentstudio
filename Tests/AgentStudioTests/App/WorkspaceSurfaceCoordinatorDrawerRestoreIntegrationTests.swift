@@ -34,7 +34,9 @@ struct WorkspaceDrawerRestoreIntegrationTests {
     private func makeHarness() -> Harness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-drawer-restore-tests-\(UUID().uuidString)")
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: tempDir))
         store.restore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
@@ -176,6 +178,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         )
         var recoveryEvents: [PersistenceRecoveryEvent] = []
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             persistor: WorkspacePersistor(workspacesDir: tempDir),
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend),
@@ -226,6 +229,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             }
         )
         let restoredStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
             ),

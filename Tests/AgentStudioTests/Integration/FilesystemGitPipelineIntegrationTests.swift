@@ -33,7 +33,9 @@ struct FilesystemGitPipelineIntegrationTests {
         let workspaceDir = FileManager.default.temporaryDirectory
             .appending(path: "pipeline-store-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: workspaceDir) }
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: workspaceDir))
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: workspaceDir))
         store.restore()
         let repoCache = RepoCacheAtom()
         let cacheCoordinator = WorkspaceCacheCoordinator(
@@ -121,7 +123,9 @@ struct FilesystemGitPipelineIntegrationTests {
         let workspaceDir = FileManager.default.temporaryDirectory
             .appending(path: "pipeline-periodic-store-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: workspaceDir) }
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: workspaceDir))
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: workspaceDir))
         store.restore()
 
         let repoCache = RepoCacheAtom()
@@ -204,7 +208,9 @@ struct FilesystemGitPipelineIntegrationTests {
         let workspaceDir = FileManager.default.temporaryDirectory
             .appending(path: "pipeline-focus-store-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: workspaceDir) }
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: workspaceDir))
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: workspaceDir))
         store.restore()
 
         let repoCache = RepoCacheAtom()
@@ -296,7 +302,9 @@ struct FilesystemGitPipelineIntegrationTests {
         let workspaceDir = FileManager.default.temporaryDirectory
             .appending(path: "pipeline-origin-retry-store-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: workspaceDir) }
-        let workspaceStore = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: workspaceDir))
+        let workspaceStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: workspaceDir))
         workspaceStore.restore()
         let repo = workspaceStore.addRepo(at: rootPath)
         guard let worktreeId = repo.worktrees.first?.id else {

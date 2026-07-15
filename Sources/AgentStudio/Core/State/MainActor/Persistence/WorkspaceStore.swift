@@ -14,6 +14,7 @@ enum WorkspaceStoreError: Error {
 /// mutations live on the owning atoms or `WorkspaceMutationCoordinator`.
 @MainActor
 final class WorkspaceStore {
+    let workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner
     let identityAtom: WorkspaceIdentityAtom
     let windowMemoryAtom: WorkspaceWindowMemoryAtom
     let repositoryTopologyAtom: RepositoryTopologyAtom
@@ -43,6 +44,7 @@ final class WorkspaceStore {
     private(set) var isDirty: Bool = false
 
     init(
+        workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner,
         identityAtom: WorkspaceIdentityAtom = WorkspaceIdentityAtom(),
         windowMemoryAtom: WorkspaceWindowMemoryAtom = WorkspaceWindowMemoryAtom(),
         repositoryTopologyAtom: RepositoryTopologyAtom = RepositoryTopologyAtom(),
@@ -61,6 +63,7 @@ final class WorkspaceStore {
         clock: (any Clock<Duration> & Sendable)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
+        self.workspacePersistenceRevisionOwner = workspacePersistenceRevisionOwner
         let resolvedTabShellAtom = tabLayoutAtom?.shellAtom ?? tabShellAtom
         let resolvedTabArrangementAtom = tabLayoutAtom?.arrangementAtom ?? tabArrangementAtom
         let resolvedTabLayoutAtom =
@@ -92,11 +95,16 @@ final class WorkspaceStore {
         self.mutationCoordinator =
             mutationCoordinator
             ?? WorkspaceMutationCoordinator(
+                workspacePersistenceRevisionOwner: workspacePersistenceRevisionOwner,
                 repositoryTopologyAtom: repositoryTopologyAtom,
                 workspacePaneAtom: resolvedPaneAtom,
                 workspaceTabShellAtom: resolvedTabShellAtom,
                 workspaceTabArrangementAtom: resolvedTabArrangementAtom
             )
+        precondition(
+            self.mutationCoordinator.workspacePersistenceRevisionOwner === workspacePersistenceRevisionOwner,
+            "workspace store and mutation coordinator must share one persistence revision owner"
+        )
         let resolvedSQLiteSaveCoordinator =
             sqliteSaveCoordinator
             ?? sqliteDatastore.map { datastore in

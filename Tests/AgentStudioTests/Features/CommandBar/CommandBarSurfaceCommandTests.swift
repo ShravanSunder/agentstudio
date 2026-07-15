@@ -11,7 +11,9 @@ struct CommandBarSurfaceCommandTests {
 
     @Test("commands scope includes sidebar and drawer commands with shortcut labels")
     func commandsScopeIncludesSidebarAndDrawerCommandsWithShortcutLabels() {
-        let store = WorkspaceStore()
+        let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+        )
         let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)

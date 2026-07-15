@@ -12,7 +12,9 @@ final class WorkspaceCacheCoordinatorTests {
             path: "workspace-cache-coordinator-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         persistor.ensureDirectory()
-        return WorkspaceStore(persistor: persistor)
+        return WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
     }
 
     private func makeCoordinator(

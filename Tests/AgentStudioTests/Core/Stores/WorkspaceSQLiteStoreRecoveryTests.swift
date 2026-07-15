@@ -286,9 +286,11 @@ struct WorkspaceSQLiteStoreRecoveryTests {
         )
 
         let firstBootStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: failingBackend))
         await firstBootStore.restoreAsync()
         let secondBootStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: retryBackend))
         await secondBootStore.restoreAsync()
 
@@ -327,6 +329,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
             persistor: persistor
         )
         let firstBootStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: failingBackend))
         await firstBootStore.restoreAsync()
         let activeSelectionUpdatedAtBeforeRetry = try fetchActiveWorkspaceSelectionUpdatedAt(
@@ -334,6 +337,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
         )
 
         let secondBootStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: retryBackend))
         await secondBootStore.restoreAsync()
 
@@ -342,6 +346,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
         #expect(
             try fetchActiveWorkspaceSelectionUpdatedAt(in: fixture.coreQueue) == activeSelectionUpdatedAtBeforeRetry)
         let thirdBootStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: retryBackend))
         await thirdBootStore.restoreAsync()
         #expect(thirdBootStore.identityAtom.workspaceId == importedWorkspaceId)
@@ -376,6 +381,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
         )
 
         let firstBootStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: failingBackend))
         await firstBootStore.restoreAsync()
         try retryBackend.save(
@@ -389,6 +395,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
             )
         )
         let secondBootStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: retryBackend))
         await secondBootStore.restoreAsync()
 
@@ -425,6 +432,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
         )
 
         let store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: failingBackend))
         await store.restoreAsync()
 

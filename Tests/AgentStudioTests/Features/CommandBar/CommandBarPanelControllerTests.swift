@@ -26,7 +26,9 @@ struct CommandBarPanelControllerTests {
         commandBarSurface: CommandBarSurfaceAtom = CommandBarSurfaceAtom()
     ) -> CommandBarPanelController {
         CommandBarPanelController(
-            store: WorkspaceStore(),
+            store: WorkspaceStore(
+                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            ),
             repoCache: RepoCacheAtom(),
             dispatcher: .shared,
             commandBarSurface: commandBarSurface

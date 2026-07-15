@@ -12,6 +12,7 @@ final class PaneContentWiringTests {
     init() {
         installTestAtomRegistryIfNeeded()
         store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
     }
@@ -110,7 +111,9 @@ final class PaneContentWiringTests {
     func test_webviewPane_persistsAndRestores() {
         let persistDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         let persistor = WorkspacePersistor(workspacesDir: persistDir)
-        let store1 = WorkspaceStore(persistor: persistor)
+        let store1 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
 
         let pane = store1.createPane(
             content: .webview(WebviewState(url: URL(string: "https://round-trip.com")!, showNavigation: false)),
@@ -121,7 +124,9 @@ final class PaneContentWiringTests {
         store1.flush()
 
         // Restore into new store
-        let store2 = WorkspaceStore(persistor: persistor)
+        let store2 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store2.restore()
 
         let restored = store2.pane(pane.id)
@@ -140,7 +145,9 @@ final class PaneContentWiringTests {
     func test_codeViewerPane_persistsAndRestores() {
         let persistDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         let persistor = WorkspacePersistor(workspacesDir: persistDir)
-        let store1 = WorkspaceStore(persistor: persistor)
+        let store1 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
 
         let filePath = URL(fileURLWithPath: "/tmp/code.swift")
         let pane = store1.createPane(
@@ -151,7 +158,9 @@ final class PaneContentWiringTests {
         store1.appendTab(tab)
         store1.flush()
 
-        let store2 = WorkspaceStore(persistor: persistor)
+        let store2 = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store2.restore()
 
         let restored = store2.pane(pane.id)

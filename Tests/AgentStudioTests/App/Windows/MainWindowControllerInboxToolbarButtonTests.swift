@@ -137,6 +137,7 @@ private func withMainWindowControllerHarness<T>(
     let persistor = WorkspacePersistor(workspacesDir: tempDir)
     let atoms = AtomRegistry()
     let store = WorkspaceStore(
+        workspacePersistenceRevisionOwner: atoms.workspacePersistenceRevisionOwner,
         identityAtom: atoms.workspaceIdentity,
         windowMemoryAtom: atoms.workspaceWindowMemory,
         repositoryTopologyAtom: atoms.workspaceRepositoryTopology,

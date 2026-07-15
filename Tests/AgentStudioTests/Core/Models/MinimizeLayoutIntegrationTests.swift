@@ -11,6 +11,7 @@ final class MinimizeLayoutIntegrationTests {
 
     init() {
         store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
             ))

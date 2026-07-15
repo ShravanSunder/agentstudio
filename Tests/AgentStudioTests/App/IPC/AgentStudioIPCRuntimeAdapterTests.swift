@@ -477,7 +477,9 @@ private struct RuntimeAdapterHarness {
     ) {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-ipc-runtime-adapter-\(UUID().uuidString)")
-        workspaceStore = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        workspaceStore = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: WorkspacePersistor(workspacesDir: tempDir))
         runtimeRegistry = RuntimeRegistry()
         adapter = AgentStudioIPCRuntimeAdapter(
             workspaceStore: workspaceStore,

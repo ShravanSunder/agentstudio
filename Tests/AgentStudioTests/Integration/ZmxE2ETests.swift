@@ -291,6 +291,7 @@ extension E2ESerializedTests {
             )
             var recoveryEvents: [PersistenceRecoveryEvent] = []
             let store = WorkspaceStore(
+                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
                 identityAtom: identityAtom,
                 persistor: WorkspacePersistor(
                     workspacesDir: URL(filePath: harness.zmxDir).appending(path: "workspaces")

@@ -20,7 +20,9 @@ final class DrawerCommandIntegrationTests {
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "drawer-cmd-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        store = WorkspaceStore(persistor: persistor)
+        store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+            persistor: persistor)
         store.restore()
         viewRegistry = ViewRegistry()
         runtime = SessionRuntime(store: store)

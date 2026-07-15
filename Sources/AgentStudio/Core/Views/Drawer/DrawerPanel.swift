@@ -370,6 +370,7 @@ private struct DrawerSurfaceRegistrationModifier: ViewModifier {
                     closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
                     height: 200,
                     store: WorkspaceStore(
+                        workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
                         persistor: WorkspacePersistor(workspacesDir: FileManager.default.temporaryDirectory)),
                     repoCache: RepoCacheAtom(),
                     viewRegistry: ViewRegistry(),

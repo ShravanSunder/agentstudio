@@ -158,6 +158,7 @@ extension AppDelegate {
             }
         )
         store = WorkspaceStore(
+            workspacePersistenceRevisionOwner: atomStore.workspacePersistenceRevisionOwner,
             identityAtom: atomStore.workspaceIdentity,
             windowMemoryAtom: atomStore.workspaceWindowMemory,
             repositoryTopologyAtom: atomStore.workspaceRepositoryTopology,
