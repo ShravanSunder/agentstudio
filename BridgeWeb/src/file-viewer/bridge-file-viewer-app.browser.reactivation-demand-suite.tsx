@@ -516,19 +516,21 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const openedDescriptorIds: string[] = [];
 
 		render(
-			<BridgeFileViewerApp
-				codeViewWorkerPoolEnabled={false}
-				initialMetadataEvents={makeTreeRowsOnlyMetadataEvents()}
-				fileProductSession={{
-					readContent: async (props) => {
-						openedDescriptorIds.push(props.descriptor.descriptorId);
-						return makeFileContent('export const recentlyUpdatedMetadataOnly = true;\n');
-					},
-					onMetadataInterestUpdate: (request) => {
-						metadataInterestUpdates.push(request);
-					},
-				}}
-			/>,
+			<div style={{ height: '720px', overflow: 'hidden', width: '1280px' }}>
+				<BridgeFileViewerApp
+					codeViewWorkerPoolEnabled={false}
+					initialMetadataEvents={makeTreeRowsOnlyMetadataEvents()}
+					fileProductSession={{
+						readContent: async (props) => {
+							openedDescriptorIds.push(props.descriptor.descriptorId);
+							return makeFileContent('export const recentlyUpdatedMetadataOnly = true;\n');
+						},
+						onMetadataInterestUpdate: (request) => {
+							metadataInterestUpdates.push(request);
+						},
+					}}
+				/>
+			</div>,
 		);
 		await actFrame();
 		await waitForBridgeFileViewerWorkerMessageDrain();
@@ -593,7 +595,11 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			);
 		}
 
-		render(<ControlledFileViewer />);
+		render(
+			<div style={{ height: '720px', overflow: 'hidden', width: '1280px' }}>
+				<ControlledFileViewer />
+			</div>,
+		);
 		await actFrame();
 		await waitForBridgeFileViewerWorkerMessageDrain();
 
