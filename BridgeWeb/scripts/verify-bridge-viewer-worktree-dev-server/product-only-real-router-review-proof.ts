@@ -4,6 +4,20 @@ import type { Page } from 'playwright';
 import { errors } from 'playwright';
 
 import {
+	appendFirstSeenItemIds,
+	backfillFreshReviewTraversalGaps,
+	createFreshReviewTraversalCoverageObservation,
+	detectFreshReviewTraversalCrossedGap,
+	missingExpectedCatalogIndexes,
+	mountedHeaderOrderViolationForExpectedOrder as findMountedHeaderOrderViolation,
+	nextFreshReviewTraversalScrollTop as calculateNextFreshReviewTraversalScrollTop,
+	recordFreshReviewTraversalCatalogCoverage,
+	requireFreshReviewTraversalComplete,
+	settleFreshReviewTraversalAtBottom,
+	type FreshReviewTraversalCoverageObservation,
+	type FreshReviewTraversalGap,
+} from './fresh-review-traversal-gap-backfill.ts';
+import {
 	bridgeViewerProductOnlySelectors,
 	type BridgeViewerReviewFreshRouteProof,
 	type BridgeViewerReviewHydrationCoverage,
@@ -12,6 +26,11 @@ import {
 	type BridgeViewerReviewMountedHeaderOrderViolation,
 	type BridgeViewerReviewTreeSelectionProof,
 } from './product-only-real-router-contract.ts';
+
+export {
+	mountedHeaderOrderViolationForExpectedOrder,
+	nextFreshReviewTraversalScrollTop,
+} from './fresh-review-traversal-gap-backfill.ts';
 
 const productJourneyTimeoutMilliseconds = 120_000;
 const productCompositionSettleTimeoutMilliseconds = 10_000;
@@ -75,18 +94,15 @@ export async function proveFreshReviewRoute(props: {
 	);
 	const mountedHeaderOrderViolations: BridgeViewerReviewMountedHeaderOrderViolation[] = [];
 	const mountedHeaderOrderViolationSignatures = new Set<string>();
-	recordMountedHeaderOrderViolation({
+	const observedHeaderItemIds: string[] = [];
+	const observedHeaderItemIdSet = new Set<string>();
+	recordFreshReviewMountedHeaders({
 		expectedItemIndexById,
 		mountedItemIds: viewportState.mountedItemIds,
 		mountedHeaderOrderViolations,
 		mountedHeaderOrderViolationSignatures,
-	});
-	const observedHeaderItemIds: string[] = [];
-	const observedHeaderItemIdSet = new Set<string>();
-	appendFirstSeenItemIds({
-		itemIds: viewportState.mountedItemIds,
-		observedItemIds: observedHeaderItemIds,
-		observedItemIdSet: observedHeaderItemIdSet,
+		observedHeaderItemIds,
+		observedHeaderItemIdSet,
 	});
 	const initialVisibleItemIds = viewportState.visibleItems.map((item): string => item.itemId);
 	const hydrationMilestones: BridgeViewerReviewHydrationMilestone[] = [];
@@ -105,6 +121,28 @@ export async function proveFreshReviewRoute(props: {
 		label: 'initial',
 		visibleNonSelectedItemIds: initialHydrationWindow.visibleNonSelectedItemIds,
 	});
+	viewportState = await readFreshReviewViewportState(props.page);
+	recordFreshReviewMountedHeaders({
+		expectedItemIndexById,
+		mountedItemIds: viewportState.mountedItemIds,
+		mountedHeaderOrderViolations,
+		mountedHeaderOrderViolationSignatures,
+		observedHeaderItemIds,
+		observedHeaderItemIdSet,
+	});
+	const observedHeaderCatalogIndexes = new Set<number>();
+	const observedHydrationCatalogIndexes = new Set<number>();
+	let previousTraversalObservation = createFreshReviewTraversalCoverageObservation({
+		expectedItemIndexById,
+		hydrationWindow: initialHydrationWindow,
+		viewportState,
+	});
+	recordFreshReviewTraversalCatalogCoverage({
+		observation: previousTraversalObservation,
+		observedHeaderCatalogIndexes,
+		observedHydrationCatalogIndexes,
+	});
+	const pendingTraversalGaps: FreshReviewTraversalGap[] = [];
 
 	const pendingMilestones: Array<{
 		readonly label: BridgeViewerReviewHydrationMilestone['label'];
@@ -120,18 +158,16 @@ export async function proveFreshReviewRoute(props: {
 	];
 	let settledBottomTurnCount = 0;
 	const traversalStepBudget = Math.max(512, props.expectedItemIds.length * 4);
+	let fastTraversalSettledAtBottom = false;
 	for (let stepIndex = 0; stepIndex < traversalStepBudget; stepIndex += 1) {
 		viewportState = await readFreshReviewViewportState(props.page);
-		recordMountedHeaderOrderViolation({
+		recordFreshReviewMountedHeaders({
 			expectedItemIndexById,
 			mountedItemIds: viewportState.mountedItemIds,
 			mountedHeaderOrderViolations,
 			mountedHeaderOrderViolationSignatures,
-		});
-		appendFirstSeenItemIds({
-			itemIds: viewportState.mountedItemIds,
-			observedItemIds: observedHeaderItemIds,
-			observedItemIdSet: observedHeaderItemIdSet,
+			observedHeaderItemIds,
+			observedHeaderItemIdSet,
 		});
 		const settledHydrationWindow = await captureFreshReviewHydrationWindow({
 			excludedItemIds: [],
@@ -143,17 +179,32 @@ export async function proveFreshReviewRoute(props: {
 			window: settledHydrationWindow,
 		});
 		viewportState = await readFreshReviewViewportState(props.page);
-		recordMountedHeaderOrderViolation({
+		recordFreshReviewMountedHeaders({
 			expectedItemIndexById,
 			mountedItemIds: viewportState.mountedItemIds,
 			mountedHeaderOrderViolations,
 			mountedHeaderOrderViolationSignatures,
+			observedHeaderItemIds,
+			observedHeaderItemIdSet,
 		});
-		appendFirstSeenItemIds({
-			itemIds: viewportState.mountedItemIds,
-			observedItemIds: observedHeaderItemIds,
-			observedItemIdSet: observedHeaderItemIdSet,
+		const traversalObservation = createFreshReviewTraversalCoverageObservation({
+			expectedItemIndexById,
+			hydrationWindow: settledHydrationWindow,
+			viewportState,
 		});
+		recordFreshReviewTraversalCatalogCoverage({
+			observation: traversalObservation,
+			observedHeaderCatalogIndexes,
+			observedHydrationCatalogIndexes,
+		});
+		const crossedGap = detectFreshReviewTraversalCrossedGap({
+			nextObservation: traversalObservation,
+			observedHeaderCatalogIndexes,
+			observedHydrationCatalogIndexes,
+			previousObservation: previousTraversalObservation,
+		});
+		if (crossedGap !== null) pendingTraversalGaps.push(crossedGap);
+		previousTraversalObservation = traversalObservation;
 		while (
 			pendingMilestones.length > 0 &&
 			observedHeaderItemIds.length >= (pendingMilestones[0]?.minimumObservedItemCount ?? Infinity)
@@ -180,11 +231,70 @@ export async function proveFreshReviewRoute(props: {
 		);
 		if (viewportState.codeScroll.scrollTop >= maximumScrollTop - 1) {
 			settledBottomTurnCount += 1;
-			if (settledBottomTurnCount >= freshReviewSettledBottomTurnCount) break;
+			if (settledBottomTurnCount >= freshReviewSettledBottomTurnCount) {
+				fastTraversalSettledAtBottom = true;
+				break;
+			}
 		} else {
 			settledBottomTurnCount = 0;
 		}
 		await scrollFreshReviewCodeView({ page: props.page, state: viewportState });
+	}
+	if (!fastTraversalSettledAtBottom) {
+		throw new Error(
+			`REVIEW_FRESH_ROUTE_FAST_TRAVERSAL_BUDGET_EXHAUSTED ${JSON.stringify({ traversalStepBudget })}`,
+		);
+	}
+
+	const backfillStepBudget = Math.max(128, props.expectedItemIds.length * 2);
+	const readTraversalCodeScroll = async (): Promise<FreshReviewViewportState['codeScroll']> =>
+		(await readFreshReviewViewportState(props.page)).codeScroll;
+	const settleTraversalAtScrollTop = async (
+		nextScrollTop: number,
+	): Promise<FreshReviewTraversalCoverageObservation> => {
+		await scrollFreshReviewCodeViewToScrollTop({ nextScrollTop, page: props.page });
+		const settledHydrationWindow = await captureFreshReviewHydrationWindow({
+			excludedItemIds: [],
+			page: props.page,
+			selectedItemId: selectedItemIdAtStart,
+		});
+		recordFreshReviewHydrationCoverageWindow({
+			accumulator: hydrationCoverageAccumulator,
+			window: settledHydrationWindow,
+		});
+		viewportState = await readFreshReviewViewportState(props.page);
+		recordFreshReviewMountedHeaders({
+			expectedItemIndexById,
+			mountedItemIds: viewportState.mountedItemIds,
+			mountedHeaderOrderViolations,
+			mountedHeaderOrderViolationSignatures,
+			observedHeaderItemIds,
+			observedHeaderItemIdSet,
+		});
+		return createFreshReviewTraversalCoverageObservation({
+			expectedItemIndexById,
+			hydrationWindow: settledHydrationWindow,
+			viewportState,
+		});
+	};
+	const backfillResult = await backfillFreshReviewTraversalGaps({
+		backfillStepBudget,
+		observedHeaderCatalogIndexes,
+		observedHydrationCatalogIndexes,
+		pendingGaps: pendingTraversalGaps,
+		readCodeScroll: readTraversalCodeScroll,
+		settleAtScrollTop: settleTraversalAtScrollTop,
+	});
+
+	if (backfillResult.backfillStepsUsed > 0) {
+		settledBottomTurnCount = await settleFreshReviewTraversalAtBottom({
+			observedHeaderCatalogIndexes,
+			observedHydrationCatalogIndexes,
+			readCodeScroll: readTraversalCodeScroll,
+			requiredSettledBottomTurnCount: freshReviewSettledBottomTurnCount,
+			settleAtScrollTop: settleTraversalAtScrollTop,
+			settleStepBudget: traversalStepBudget,
+		});
 	}
 	for (const milestone of pendingMilestones) {
 		hydrationMilestones.push(
@@ -197,16 +307,35 @@ export async function proveFreshReviewRoute(props: {
 		);
 	}
 	viewportState = await readFreshReviewViewportState(props.page);
-	recordMountedHeaderOrderViolation({
+	recordFreshReviewMountedHeaders({
 		expectedItemIndexById,
 		mountedItemIds: viewportState.mountedItemIds,
 		mountedHeaderOrderViolations,
 		mountedHeaderOrderViolationSignatures,
+		observedHeaderItemIds,
+		observedHeaderItemIdSet,
 	});
-	appendFirstSeenItemIds({
-		itemIds: viewportState.mountedItemIds,
-		observedItemIds: observedHeaderItemIds,
-		observedItemIdSet: observedHeaderItemIdSet,
+	const selectedCatalogIndex =
+		selectedItemIdAtStart === null ? undefined : expectedItemIndexById.get(selectedItemIdAtStart);
+	const excludedHydrationCatalogIndexes =
+		selectedCatalogIndex === undefined ? new Set<number>() : new Set([selectedCatalogIndex]);
+	const missingHeaderCatalogIndexes = missingExpectedCatalogIndexes({
+		expectedItemCount: props.expectedItemIds.length,
+		observedCatalogIndexes: observedHeaderCatalogIndexes,
+	});
+	const missingHydrationCatalogIndexes = missingExpectedCatalogIndexes({
+		excludedCatalogIndexes: excludedHydrationCatalogIndexes,
+		expectedItemCount: props.expectedItemIds.length,
+		observedCatalogIndexes: observedHydrationCatalogIndexes,
+	});
+	requireFreshReviewTraversalComplete({
+		backfillStepBudget,
+		backfillStepsUsed: backfillResult.backfillStepsUsed,
+		missingHeaderCatalogIndexes,
+		missingHydrationCatalogIndexes,
+		pendingGapCount: backfillResult.pendingGaps.length,
+		requiredSettledBottomTurnCount: freshReviewSettledBottomTurnCount,
+		settledBottomTurnCount,
 	});
 	const identity = await readFreshReviewIdentitySnapshot(props.page);
 	return {
@@ -237,15 +366,12 @@ export async function proveReviewTreeSelection(props: {
 	const beforeSelection = await readFreshReviewViewportState(props.page);
 	const targetPath = await props.page.evaluate((selectors): string => {
 		const treeHost = document.querySelector(selectors.reviewTreeHost);
-		const rootFileRows = [...(treeHost?.shadowRoot?.querySelectorAll('[data-item-path]') ?? [])]
-			.filter((row): boolean => !row.hasAttribute('aria-expanded'))
-			.filter((row): boolean => {
-				const path = row.getAttribute('data-item-path');
-				return path !== null && !path.includes('/');
-			});
-		const targetRow = rootFileRows.at(-1);
+		const fileRows = [...(treeHost?.shadowRoot?.querySelectorAll('[data-item-path]') ?? [])].filter(
+			(row): boolean => !row.hasAttribute('aria-expanded'),
+		);
+		const targetRow = fileRows.at(-1);
 		if (!(targetRow instanceof HTMLElement)) {
-			throw new Error('REVIEW_TREE_SELECTION_ROOT_FILE_MISSING');
+			throw new Error('REVIEW_TREE_SELECTION_FILE_MISSING');
 		}
 		const path = targetRow.getAttribute('data-item-path');
 		if (path === null) throw new Error('REVIEW_TREE_SELECTION_TARGET_PATH_MISSING');
@@ -315,7 +441,7 @@ export async function proveReviewTreeSelection(props: {
 	return {
 		codeViewManifestItemCountAfterSelection: afterSelection.codeViewManifestItemCount,
 		codeViewManifestItemCountBeforeSelection: beforeSelection.codeViewManifestItemCount,
-		mountedHeaderOrderViolation: mountedHeaderOrderViolationForExpectedOrder({
+		mountedHeaderOrderViolation: findMountedHeaderOrderViolation({
 			expectedItemIndexById,
 			mountedItemIds: afterSelection.mountedItemIds,
 		}),
@@ -596,78 +722,65 @@ function freshReviewHydrationCoverage(props: {
 	};
 }
 
-function appendFirstSeenItemIds(props: {
-	readonly itemIds: readonly string[];
-	readonly observedItemIds: string[];
-	readonly observedItemIdSet: Set<string>;
-}): void {
-	for (const itemId of props.itemIds) {
-		if (props.observedItemIdSet.has(itemId)) continue;
-		props.observedItemIdSet.add(itemId);
-		props.observedItemIds.push(itemId);
-	}
-}
-
-export function mountedHeaderOrderViolationForExpectedOrder(props: {
+function recordFreshReviewMountedHeaders(props: {
 	readonly expectedItemIndexById: ReadonlyMap<string, number>;
-	readonly mountedItemIds: readonly string[];
-}): BridgeViewerReviewMountedHeaderOrderViolation | null {
-	const expectedItemIndexes = props.mountedItemIds.map(
-		(itemId): number | null => props.expectedItemIndexById.get(itemId) ?? null,
-	);
-	const preservesExpectedOrder = expectedItemIndexes.every(
-		(expectedItemIndex, mountedItemIndex): boolean => {
-			if (expectedItemIndex === null) return false;
-			if (mountedItemIndex === 0) return true;
-			const previousExpectedItemIndex = expectedItemIndexes[mountedItemIndex - 1];
-			return (
-				previousExpectedItemIndex !== undefined &&
-				previousExpectedItemIndex !== null &&
-				previousExpectedItemIndex < expectedItemIndex
-			);
-		},
-	);
-	return preservesExpectedOrder
-		? null
-		: { expectedItemIndexes, mountedItemIds: [...props.mountedItemIds] };
-}
-
-function recordMountedHeaderOrderViolation(props: {
-	readonly expectedItemIndexById: ReadonlyMap<string, number>;
-	readonly mountedItemIds: readonly string[];
 	readonly mountedHeaderOrderViolations: BridgeViewerReviewMountedHeaderOrderViolation[];
 	readonly mountedHeaderOrderViolationSignatures: Set<string>;
+	readonly mountedItemIds: readonly string[];
+	readonly observedHeaderItemIds: string[];
+	readonly observedHeaderItemIdSet: Set<string>;
 }): void {
-	const violation = mountedHeaderOrderViolationForExpectedOrder(props);
-	if (violation === null) return;
-	const signature = violation.mountedItemIds.join('\u0000');
-	if (props.mountedHeaderOrderViolationSignatures.has(signature)) return;
-	props.mountedHeaderOrderViolationSignatures.add(signature);
-	props.mountedHeaderOrderViolations.push(violation);
+	const violation = findMountedHeaderOrderViolation({
+		expectedItemIndexById: props.expectedItemIndexById,
+		mountedItemIds: props.mountedItemIds,
+	});
+	if (violation !== null) {
+		const signature = violation.mountedItemIds.join('\u0000');
+		if (!props.mountedHeaderOrderViolationSignatures.has(signature)) {
+			props.mountedHeaderOrderViolationSignatures.add(signature);
+			props.mountedHeaderOrderViolations.push(violation);
+		}
+	}
+	appendFirstSeenItemIds({
+		itemIds: props.mountedItemIds,
+		observedItemIds: props.observedHeaderItemIds,
+		observedItemIdSet: props.observedHeaderItemIdSet,
+	});
 }
 
 async function scrollFreshReviewCodeView(props: {
 	readonly page: Page;
 	readonly state: FreshReviewViewportState;
 }): Promise<void> {
-	const nextScrollTop = nextFreshReviewTraversalScrollTop({
+	const nextScrollTop = calculateNextFreshReviewTraversalScrollTop({
 		codeScroll: props.state.codeScroll,
 		visibleItems: props.state.visibleItems,
 	});
+	await scrollFreshReviewCodeViewToScrollTop({ nextScrollTop, page: props.page });
+}
+
+async function scrollFreshReviewCodeViewToScrollTop(props: {
+	readonly nextScrollTop: number;
+	readonly page: Page;
+}): Promise<void> {
 	await props.page.evaluate(
 		({ nextScrollTop, selector }): void => {
 			const codeScrollOwner = document.querySelector(selector);
 			if (!(codeScrollOwner instanceof HTMLElement)) return;
+			const scrollDelta = nextScrollTop - codeScrollOwner.scrollTop;
 			codeScrollOwner.dispatchEvent(
 				new WheelEvent('wheel', {
 					bubbles: true,
-					deltaY: Math.max(1, nextScrollTop - codeScrollOwner.scrollTop),
+					deltaY: scrollDelta === 0 ? 1 : scrollDelta,
 				}),
 			);
 			codeScrollOwner.scrollTop = Math.floor(nextScrollTop);
 			codeScrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
 		},
-		{ nextScrollTop, selector: bridgeViewerProductOnlySelectors.reviewCodeScrollOwner },
+		{
+			nextScrollTop: props.nextScrollTop,
+			selector: bridgeViewerProductOnlySelectors.reviewCodeScrollOwner,
+		},
 	);
 	await props.page.evaluate(
 		() =>
@@ -676,32 +789,6 @@ async function scrollFreshReviewCodeView(props: {
 					requestAnimationFrame((): void => resolve());
 				});
 			}),
-	);
-}
-
-export function nextFreshReviewTraversalScrollTop(props: {
-	readonly codeScroll: FreshReviewViewportState['codeScroll'];
-	readonly visibleItems: FreshReviewViewportState['visibleItems'];
-}): number {
-	const maximumScrollTop = Math.max(
-		0,
-		props.codeScroll.scrollHeight - props.codeScroll.clientHeight,
-	);
-	const viewportAdvance = Math.max(1, props.codeScroll.clientHeight * 0.8);
-	const finalVisibleHostBottomOffset = props.visibleItems.reduce(
-		(maximumBottomOffset, item): number =>
-			Number.isFinite(item.hostBottomOffset)
-				? Math.max(maximumBottomOffset, item.hostBottomOffset)
-				: maximumBottomOffset,
-		0,
-	);
-	const hydratedHostAdvance = Math.max(
-		0,
-		finalVisibleHostBottomOffset - props.codeScroll.clientHeight * 0.1,
-	);
-	return Math.min(
-		maximumScrollTop,
-		Math.floor(props.codeScroll.scrollTop + Math.max(viewportAdvance, hydratedHostAdvance)),
 	);
 }
 

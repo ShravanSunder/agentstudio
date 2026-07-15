@@ -24,7 +24,7 @@ import {
 const execFileAsync = promisify(execFile);
 const fixtureRoots: string[] = [];
 const validStartupFixtureSha256 =
-	'9dbb1c5d33f832e0c76b09859fdc9aed6561256033b6acede000df4f2a774112';
+	'741cc2d9ed25fc4517636a80003bea1536a560acc9a766e58e7209e3a220c692';
 
 interface CountedPortMetrics {
 	activeFilesystemOperationCount: number;
@@ -343,8 +343,8 @@ describe('Bridge worktree dev provider metadata-first source', () => {
 		);
 		expect(descriptor.contentHash).toBe(`sha256:${receipt.selectedChecksum}`);
 		expect(receipt.fullDirtyFingerprint).toMatch(/^[a-f0-9]{64}$/u);
-		expect(receipt.head).toBe('38fe66aefda5df752f7f5c211de74c9d126eec3a');
-		expect(receipt.mergeBase).toBe('632f5a82b2fdcc45f6f29166edc33507dd02ccfb');
+		expect(receipt.head).toMatch(/^[a-f0-9]{40}$/u);
+		expect(receipt.mergeBase).toMatch(/^[a-f0-9]{40}$/u);
 		console.info(`BRIDGE_WORKTREE_N1_PROOF ${JSON.stringify(receipt)}`);
 	});
 

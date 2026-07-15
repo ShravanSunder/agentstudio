@@ -1,84 +1,48 @@
+import { commands } from '@vitest/browser/context';
 import { expect } from 'vitest';
-import { z } from 'zod';
 
-const sourceCellKindSchema = z.enum(['deterministicFixture', 'liveGitWorktree']);
-const sourceCellSurfaceSchema = z.enum(['file', 'review']);
-const sourceCellTraversalPositionSchema = z.enum(['early', 'middle', 'final']);
+import {
+	bridgeProductSourceCellOracleSchema,
+	bridgeProductSourceCellPaintReportSchema,
+	type BridgeProductSourceCellSourceKind,
+} from './bridge-app-product-source-cell-contract.js';
 
-const sourceCellPaintCorrelationSchema = z
-	.object({
-		descriptorId: z.string().min(1),
-		disposition: z.literal('painted'),
-		itemId: z.string().min(1),
-		observedSha256: z.string().regex(/^[a-f0-9]{64}$/u),
-		position: sourceCellTraversalPositionSchema,
-		readableDomSelector: z.string().min(1),
-		requestId: z.string().min(1),
-		role: z.string().min(1),
-		semanticItemId: z.string().min(1),
-		sourceGeneration: z.number().int().nonnegative(),
-		sourceIdentity: z.string().min(1),
-		surface: sourceCellSurfaceSchema,
-	})
-	.strict();
+const sourceCellTestEntryByProject = {
+	'VB-deterministic-fixture': 'src/app/bridge-app-product-deterministic-fixture.browser.test.tsx',
+	'VB-real-worktree': 'src/app/bridge-app-product-real-worktree.browser.test.tsx',
+} as const;
 
-const sourceCellPaintReportSchema = z
-	.object({
-		bundledPierreVersion: z.string().min(1),
-		correlations: z.array(sourceCellPaintCorrelationSchema).min(4),
-		oracleUrl: z.string().min(1),
-		paneSessionId: z.string().min(1),
-		projectName: z.enum(['VB-deterministic-fixture', 'VB-real-worktree']),
-		runMarker: z.string().min(1),
-		sourceKind: sourceCellKindSchema,
-		workerInstanceId: z.string().min(1),
-	})
-	.strict();
-
-const sourceCellOracleEntrySchema = z
-	.object({
-		canaryText: z.string().min(1),
-		itemId: z.string().min(1),
-		role: z.string().min(1),
-		sha256: z.string().regex(/^[a-f0-9]{64}$/u),
-		sourceGeneration: z.number().int().nonnegative(),
-		sourceIdentity: z.string().min(1),
-		surface: sourceCellSurfaceSchema,
-	})
-	.strict();
-
-const sourceCellOracleSchema = z
-	.object({
-		entries: z.array(sourceCellOracleEntrySchema).min(4),
-		oracleKind: z.enum(['fixtureManifest', 'gitObjectDatabase']),
-		runMarker: z.string().min(1),
-		sourceKind: sourceCellKindSchema,
-	})
-	.strict();
-
-type SourceCellKind = z.infer<typeof sourceCellKindSchema>;
+declare module '@vitest/browser/context' {
+	interface BrowserCommands {
+		bridgeInstallSourceCellNetworkProbe: () => Promise<void>;
+		bridgeReadSourceCellNetworkFailures: () => Promise<readonly string[]>;
+		bridgeWriteSourceCellReport: (report: unknown) => Promise<string>;
+	}
+}
 
 export async function expectBridgeProductSourceCellCorrelation(props: {
 	readonly expectedOracleKind: 'fixtureManifest' | 'gitObjectDatabase';
 	readonly expectedProjectName: 'VB-deterministic-fixture' | 'VB-real-worktree';
-	readonly expectedSourceKind: SourceCellKind;
-}): Promise<void> {
-	const paintReport = sourceCellPaintReportSchema.parse(
-		(globalThis as { readonly __bridgeProductSourceCellReport?: unknown })
-			.__bridgeProductSourceCellReport,
+	readonly expectedSourceKind: BridgeProductSourceCellSourceKind;
+	readonly report?: unknown;
+}): Promise<string> {
+	const paintReport = bridgeProductSourceCellPaintReportSchema.parse(
+		props.report ?? Reflect.get(globalThis, '__bridgeProductSourceCellReport'),
 	);
 	expect(paintReport.projectName).toBe(props.expectedProjectName);
 	expect(paintReport.sourceKind).toBe(props.expectedSourceKind);
 	expect(paintReport.paneSessionId).not.toBe(paintReport.workerInstanceId);
+	expect(paintReport.testEntry).toBe(sourceCellTestEntryByProject[props.expectedProjectName]);
 
 	const oracleResponse = await fetch(paintReport.oracleUrl, {
 		cache: 'no-store',
 		headers: { Accept: 'application/json' },
 	});
 	expect(oracleResponse.ok, 'independent source oracle must be reachable').toBe(true);
-	const oracle = sourceCellOracleSchema.parse(await oracleResponse.json());
+	const oracle = bridgeProductSourceCellOracleSchema.parse(await oracleResponse.json());
 	expect(oracle.oracleKind).toBe(props.expectedOracleKind);
 	expect(oracle.runMarker).toBe(paintReport.runMarker);
+	expect(oracle.sourceChecksum).toBe(paintReport.sourceChecksum);
 	expect(oracle.sourceKind).toBe(props.expectedSourceKind);
 
 	const reviewPositions = new Set(
@@ -87,7 +51,7 @@ export async function expectBridgeProductSourceCellCorrelation(props: {
 			.map((correlation) => correlation.position),
 	);
 	expect(
-		[...reviewPositions].sort(),
+		[...reviewPositions].toSorted(),
 		'Review proof must traverse readable early, middle, and final items',
 	).toEqual(['early', 'final', 'middle']);
 	expect(
@@ -111,17 +75,17 @@ export async function expectBridgeProductSourceCellCorrelation(props: {
 		if (oracleEntry === undefined) continue;
 
 		expect(correlation.semanticItemId).toBe(correlation.itemId);
+		expect(correlation.readableDomItemId).toBe(correlation.itemId);
 		expect(correlation.sourceIdentity).toBe(oracleEntry.sourceIdentity);
 		expect(correlation.sourceGeneration).toBe(oracleEntry.sourceGeneration);
 		expect(correlation.observedSha256).toBe(oracleEntry.sha256);
 		expect(correlation.descriptorId).not.toBe(correlation.requestId);
+		expect(correlation.contentRequestId).toBe(correlation.requestId);
 		expect(correlation.disposition).toBe('painted');
-
-		const readableElement = document.querySelector(correlation.readableDomSelector);
-		expect(
-			readableElement,
-			`missing readable DOM for ${correlation.surface}:${correlation.itemId}:${correlation.role}`,
-		).not.toBeNull();
-		expect(readableElement?.textContent ?? '').toContain(oracleEntry.canaryText);
+		expect(correlation.readableText).toContain(oracleEntry.canaryText);
+		if (correlation.selectionState === 'selected') {
+			expect(correlation.selectedItemId).toBe(correlation.itemId);
+		}
 	}
+	return await commands.bridgeWriteSourceCellReport(paintReport);
 }

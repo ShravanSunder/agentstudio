@@ -1,6 +1,6 @@
 export const bridgeProductStartupFixtureIdentities = {
 	invalid: '78da34fabc8fdfeb2316df0b21e819691ea2bb4e861a74cbee3270231d6494c8',
-	valid: '9dbb1c5d33f832e0c76b09859fdc9aed6561256033b6acede000df4f2a774112',
+	valid: '741cc2d9ed25fc4517636a80003bea1536a560acc9a766e58e7209e3a220c692',
 } as const;
 
 export const bridgeViewerProductOnlySelectors = {
@@ -195,6 +195,7 @@ export interface BridgeViewerProductOnlyJourneyProof {
 		readonly atJourneyStart: number;
 	};
 	readonly failedResponses: readonly BridgeViewerFailedResponse[];
+	readonly fileAfterReviewFirstSwitch: BridgeViewerFileProductStateSnapshot;
 	readonly fileAfterFirstAcknowledgement: BridgeViewerFileProductStateSnapshot;
 	readonly fileAtCompletion: BridgeViewerFileProductStateSnapshot;
 	readonly legacyIntakeTranscript: readonly BridgeViewerLegacyIntakeTranscriptEntry[];
@@ -267,6 +268,15 @@ export function collectBridgeViewerProductOnlyContractViolations(
 		subscriptionKind: 'review.metadata',
 		violations,
 	});
+
+	if (!fileProductStateReady(proof.fileAfterReviewFirstSwitch)) {
+		violations.push({
+			actual: proof.fileAfterReviewFirstSwitch,
+			code: 'journey.review-first-file-switch-visible-readable',
+			expected:
+				'Review-first same-document activation paints nonempty File metadata and readable selected File content',
+		});
+	}
 
 	if (!observesCurrentWorktreeFileStart(proof)) {
 		violations.push({
@@ -528,7 +538,7 @@ function requireFreshReviewRoute(props: {
 		});
 	}
 	const mixedInitialDisclosure = props.proof.initialDirectoryDisclosure.filter(
-		(disclosure): boolean => disclosure.expanded !== 'false',
+		(disclosure): boolean => disclosure.expanded !== 'true',
 	);
 	if (
 		props.proof.initialDirectoryDisclosure.length === 0 ||
@@ -544,7 +554,7 @@ function requireFreshReviewRoute(props: {
 			},
 			code: 'REVIEW_FRESH_ROUTE_DISCLOSURE_MIXED',
 			expected:
-				'all mounted fresh-route directories start collapsed and CodeView-only scrolling leaves disclosure unchanged',
+				'all mounted fresh-route directories start expanded and CodeView-only scrolling leaves disclosure unchanged',
 		});
 	}
 	const failedHydrationMilestones = props.proof.hydrationMilestones.filter(

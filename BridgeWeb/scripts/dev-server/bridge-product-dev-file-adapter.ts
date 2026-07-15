@@ -5,10 +5,7 @@ import {
 	type BridgeProductFileContentDescriptor,
 	type BridgeProductFileContentIdentity,
 } from '../../src/core/comm-worker/bridge-product-content-contracts.js';
-import {
-	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
-	bridgeProductIdentifierSchema,
-} from '../../src/core/comm-worker/bridge-product-contract-primitives.js';
+import { bridgeProductIdentifierSchema } from '../../src/core/comm-worker/bridge-product-contract-primitives.js';
 import type { BridgeProductFileSourceIdentity } from '../../src/core/comm-worker/bridge-product-file-contracts.js';
 import {
 	BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_TREE_WINDOW_ROW_COUNT,
@@ -17,10 +14,6 @@ import {
 	type BridgeProductSubscriptionEvent,
 } from '../../src/core/comm-worker/bridge-product-subscription-contracts.js';
 import type { BridgeProductDevContentPayload } from './bridge-product-dev-content-producer.js';
-import {
-	deriveBridgeProductDevFilePrefix,
-	type BridgeProductDevFilePrefix,
-} from './bridge-product-dev-file-prefix.js';
 import type {
 	WorktreeFileDescriptor,
 	WorktreeTreeRowMetadata,
@@ -29,7 +22,6 @@ import type { BridgeWorktreeDevProvider } from './bridge-worktree-dev-provider.j
 
 const bridgeProductDevRepoId = '00000000-0000-4000-8000-000000000001';
 const bridgeProductDevWorktreeId = '00000000-0000-4000-8000-000000000002';
-export const BRIDGE_PRODUCT_DEV_FILE_MAXIMUM_LINES = 10_000;
 
 type BridgeProductFileEvent = BridgeProductSubscriptionEvent<'file.metadata'>;
 type BridgeProductFileDescriptorReadyEvent = Extract<
@@ -212,46 +204,43 @@ export class BridgeProductDevFileAdapter {
 			});
 		}
 		const sourceBytes = new TextEncoder().encode(contentText);
-		const prefix = deriveBridgeProductDevFilePrefix(sourceBytes, {
-			maximumBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
-			maximumLines: BRIDGE_PRODUCT_DEV_FILE_MAXIMUM_LINES,
-		});
-		return this.#availableDescriptorEvent({ descriptor, prefix, source, sourceBytes });
+		return this.#availableDescriptorEvent({ descriptor, source, sourceBytes });
 	}
 
 	#availableDescriptorEvent(props: {
 		readonly descriptor: WorktreeFileDescriptor;
-		readonly prefix: BridgeProductDevFilePrefix;
 		readonly source: BridgeProductFileSourceIdentity;
 		readonly sourceBytes: Uint8Array;
 	}): BridgeProductFileDescriptorReadyEvent {
+		const payloadLineCount = completeUTF8LogicalLineCount(props.sourceBytes);
+		const expectedSha256 = createHash('sha256').update(props.sourceBytes).digest('hex');
 		const contentDescriptor: BridgeProductFileContentDescriptor = {
 			contentKind: 'file.content',
-			declaredByteLength: props.prefix.bytes.byteLength,
+			declaredByteLength: props.sourceBytes.byteLength,
 			descriptorId: props.descriptor.contentHandle,
 			encoding: 'utf-8',
-			expectedSha256: props.prefix.sha256,
+			expectedSha256,
 			fileId: props.descriptor.fileId,
-			maximumBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
+			maximumBytes: props.sourceBytes.byteLength,
 			source: props.source,
 			window: {
 				kind: 'prefix',
-				maximumBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
-				maximumLines: BRIDGE_PRODUCT_DEV_FILE_MAXIMUM_LINES,
+				maximumBytes: props.sourceBytes.byteLength,
+				maximumLines: payloadLineCount,
 				startByte: 0,
 			},
 		};
 		this.#contentByDescriptorId.set(contentDescriptor.descriptorId, {
-			bytes: props.prefix.bytes,
+			bytes: props.sourceBytes,
 			descriptor: contentDescriptor,
-			endOfSource: props.prefix.didReachEnd,
+			endOfSource: true,
 			identity: bridgeProductContentIdentityFromDescriptor(contentDescriptor),
 		});
 		return parseFileDescriptorReadyEvent({
 			availability: { availabilityKind: 'available', contentDescriptor },
 			encoding: 'utf-8',
-			endsMidLine: props.prefix.endsMidLine,
-			endsWithNewline: props.prefix.endsWithNewline,
+			endsMidLine: false,
+			endsWithNewline: props.sourceBytes.at(-1) === 0x0a,
 			estimatedContentHeightPixels: null,
 			eventKind: 'file.descriptorReady',
 			fileExtension: props.descriptor.fileExtension ?? null,
@@ -259,16 +248,24 @@ export class BridgeProductDevFileAdapter {
 			language: props.descriptor.language ?? null,
 			modifiedAtUnixMilliseconds: props.descriptor.modifiedAtUnixMilliseconds ?? null,
 			path: props.descriptor.path,
-			payloadByteCount: props.prefix.bytes.byteLength,
-			payloadLineCount: props.prefix.payloadLineCount,
+			payloadByteCount: props.sourceBytes.byteLength,
+			payloadLineCount,
 			rowId: productRowId(props.descriptor.path),
 			sizeBytes: props.sourceBytes.byteLength,
 			source: props.source,
-			totalLineCount: props.prefix.didReachEnd ? props.prefix.payloadLineCount : null,
-			truncationKind: props.prefix.truncationKind,
-			virtualizedExtentKind: props.prefix.didReachEnd ? 'exactLineCount' : 'previewBounded',
+			totalLineCount: payloadLineCount,
+			truncationKind: 'none',
+			virtualizedExtentKind: 'exactLineCount',
 		});
 	}
+}
+
+function completeUTF8LogicalLineCount(sourceBytes: Uint8Array): number {
+	let lineFeedCount = 0;
+	for (const byte of sourceBytes) {
+		if (byte === 0x0a) lineFeedCount += 1;
+	}
+	return lineFeedCount + (sourceBytes.byteLength > 0 && sourceBytes.at(-1) !== 0x0a ? 1 : 0);
 }
 
 function unavailableDescriptorEventForKnownFile(props: {

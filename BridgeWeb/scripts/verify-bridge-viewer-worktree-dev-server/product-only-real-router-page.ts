@@ -157,6 +157,12 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 			expectedItemIds: props.expectedReviewItemIds,
 			page,
 		});
+		await page.locator(bridgeViewerProductOnlySelectors.activeFileContextButton).click({
+			timeout: productJourneyTimeoutMilliseconds,
+		});
+		await waitForViewerMode(page, 'file');
+		await waitForFileProductTerminalState(page);
+		const fileAfterReviewFirstSwitch = await readFileProductState(page);
 
 		pageUrl.searchParams.set('viewer', 'file');
 		const firstAcknowledgementResponse = page.waitForResponse(
@@ -223,6 +229,7 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 				atJourneyStart: journeyDocumentGenerationAtStart,
 			},
 			failedResponses,
+			fileAfterReviewFirstSwitch,
 			fileAfterFirstAcknowledgement,
 			fileAtCompletion: await readFileProductState(page),
 			legacyIntakeTranscript: await readLegacyIntakeTranscript(page),

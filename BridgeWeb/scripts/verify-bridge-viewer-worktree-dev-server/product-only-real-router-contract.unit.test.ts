@@ -139,6 +139,23 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 		expect(violationCodes).toContain('journey.file-return-stable-visible-readable');
 	});
 
+	test('rejects an empty File surface after a Review-first same-document switch', () => {
+		// Arrange
+		const passingProof = makePassingProductOnlyProof();
+		const proof: BridgeViewerProductOnlyJourneyProof = {
+			...passingProof,
+			fileAfterReviewFirstSwitch: fileState(false),
+		};
+
+		// Act
+		const violationCodes = collectBridgeViewerProductOnlyContractViolations(proof).map(
+			(violation) => violation.code,
+		);
+
+		// Assert
+		expect(violationCodes).toContain('journey.review-first-file-switch-visible-readable');
+	});
+
 	test('rejects ordinary product requests issued by the main window', () => {
 		// Arrange
 		const proof: BridgeViewerProductOnlyJourneyProof = {
@@ -379,12 +396,12 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 		expect(violationCodes).toContain('REVIEW_TREE_SELECTION_CONTENT_MISSING');
 	});
 
-	test('rejects mixed fresh disclosure independently of continuous Review membership', () => {
+		test('rejects mixed fresh disclosure independently of continuous Review membership', () => {
 		// Arrange
 		const passingProof = makePassingProductOnlyProof();
-		const mixedDisclosure = [
-			...passingProof.reviewFreshRoute.initialDirectoryDisclosure,
-			{ expanded: 'true', path: 'Sources/AgentStudio' },
+			const mixedDisclosure = [
+				...passingProof.reviewFreshRoute.initialDirectoryDisclosure,
+				{ expanded: 'false', path: 'Sources/AgentStudio' },
 		];
 		const proof: BridgeViewerProductOnlyJourneyProof = {
 			...passingProof,
@@ -478,10 +495,10 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 		]);
 
 		// Act
-		const browserConfigUsesInstalledChrome =
-			/instances:\s*\[\{\s*browser:\s*'chromium',\s*launch:\s*\{\s*channel:\s*'chrome'\s*\}\s*\}\]/u.test(
-				browserConfigSource,
-			);
+			const browserConfigUsesInstalledChrome =
+				/instances:\s*\[\s*\{\s*browser:\s*'chromium',\s*launch:\s*\{\s*channel:\s*'chrome',?\s*\},?\s*\},?\s*\]/u.test(
+					browserConfigSource,
+				);
 		const realRouterUsesInstalledChrome =
 			/chromium\.launch\(\{\s*channel:\s*'chrome',\s*headless:\s*true\s*\}\)/u.test(
 				realRouterPageSource,
@@ -505,7 +522,7 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 		// Act
 		const reviewClickIndex = source.indexOf('activeReviewContextButton).click');
 		const reviewCaptureIndex = source.indexOf('const reviewAtCompletion');
-		const fileReturnClickIndex = source.indexOf('activeFileContextButton).click');
+		const fileReturnClickIndex = source.lastIndexOf('activeFileContextButton).click');
 		const fileReturnCaptureIndex = source.indexOf(
 			'fileAtCompletion: await readFileProductState(page)',
 		);
@@ -522,9 +539,11 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 			source.indexOf("pageUrl.searchParams.set('viewer', 'file')"),
 		);
 		expect(source).toContain('proveFreshReviewRoute');
+		expect(source).toContain('const fileAfterReviewFirstSwitch = await readFileProductState(page)');
 		expect(reviewProofSource).toContain('REVIEW_FRESH_ROUTE_CODE_SCROLL_OWNER_MISSING');
 		expect(reviewProofSource).toContain("'diffs-container'");
 		expect(reviewProofSource).toContain('function bridgeReviewHostElement');
+		expect(reviewProofSource).not.toContain("return path !== null && !path.includes('/')");
 		expect(reviewProofSource).not.toContain('contentStates[headerIndex]');
 	});
 });
@@ -552,6 +571,7 @@ function makePassingProductOnlyProof(
 		consoleErrors: [],
 		documentGeneration: { atJourneyCompletion: 1, atJourneyStart: 1 },
 		failedResponses: [],
+		fileAfterReviewFirstSwitch: fileState(fileReady),
 		fileAfterFirstAcknowledgement: fileState(fileReady),
 		fileAtCompletion: fileState(fileReady),
 		legacyIntakeTranscript: legacyTraffic
@@ -588,7 +608,7 @@ function makePassingProductOnlyProof(
 			codeViewManifestItemCount: 4,
 			completedScroll: { clientHeight: 900, scrollHeight: 1_800, scrollTop: 900 },
 			expectedItemIds: ['review-item-1', 'review-item-2', 'review-item-3', 'review-item-4'],
-			finalDirectoryDisclosure: [{ expanded: 'false', path: 'Sources' }],
+			finalDirectoryDisclosure: [{ expanded: 'true', path: 'Sources' }],
 			hydrationCoverage: {
 				missingHydratedVisibleWindows: [],
 				observedHydratedNonSelectedItemIds: ['review-item-2', 'review-item-3', 'review-item-4'],
@@ -601,7 +621,7 @@ function makePassingProductOnlyProof(
 					visibleNonSelectedItemIds: ['review-item-2'],
 				}),
 			),
-			initialDirectoryDisclosure: [{ expanded: 'false', path: 'Sources' }],
+			initialDirectoryDisclosure: [{ expanded: 'true', path: 'Sources' }],
 			metadataItemCount: 4,
 			mountedHeaderOrderViolations: [],
 			observedHeaderItemIds: ['review-item-1', 'review-item-2', 'review-item-3', 'review-item-4'],
