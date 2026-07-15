@@ -15,6 +15,7 @@ import { makeFileContent } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
 	fileNavigationCommandForPath,
 	makeFileDescriptor,
+	makeFileDescriptorForContent,
 	makeDescriptorReadyMetadataEvents,
 	makeFileMetadataEvents,
 	makeSourceIdentity,
@@ -54,7 +55,11 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('recovers a slow foreground navigation open after Files reactivates', async () => {
-		const slowDescriptor = makeFileDescriptor({
+		const loadedWhileInactiveContent = makeFileContent(
+			'export const loadedWhileInactive = true;\n',
+		);
+		const slowDescriptor = await makeFileDescriptorForContent({
+			content: loadedWhileInactiveContent,
 			contentHandle: 'inactive-open-content',
 			fileId: 'file-inactive-open',
 			path: 'src/inactive-open.ts',
@@ -104,7 +109,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await actUpdate(requireDeactivateFiles(deactivateFiles));
 		await waitForFileViewerActiveState('false');
 		await actUpdate((): void => {
-			firstDeferredContent.resolve(makeFileContent('export const loadedWhileInactive = true;\n'));
+			firstDeferredContent.resolve(loadedWhileInactiveContent);
 		});
 		await actFrame();
 		await actFrame();
@@ -369,6 +374,15 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		let metadataSubscriptionOpenCount = 0;
 		const openedDescriptorIds: string[] = [];
 		const reactivatedContent = makeDeferredContent();
+		const reactivatedContentBody = makeFileContent(
+			'export const reactivatedPreservedFile = true;\n',
+		);
+		const reactivatedDescriptor = await makeFileDescriptorForContent({
+			content: reactivatedContentBody,
+			contentHandle: 'content-1',
+			fileId: 'file-1',
+			path: 'src/file-1.ts',
+		});
 
 		function ControlledFileViewer(): ReactElement {
 			const [isActive, setIsActive] = useState(true);
@@ -381,13 +395,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			return (
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
-					initialMetadataEvents={makeFileMetadataEvents(
-						makeFileDescriptor({
-							contentHandle: 'content-1',
-							fileId: 'file-1',
-							path: 'src/file-1.ts',
-						}),
-					)}
+					initialMetadataEvents={makeFileMetadataEvents(reactivatedDescriptor)}
 					isActive={isActive}
 					fileProductSession={{
 						readContent: (props) => {
@@ -427,9 +435,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			openedDescriptorIds: openedDescriptorIds,
 		});
 		await actUpdate((): void => {
-			reactivatedContent.resolve(
-				makeFileContent('export const reactivatedPreservedFile = true;\n'),
-			);
+			reactivatedContent.resolve(reactivatedContentBody);
 		});
 
 		await waitForOpenFileState('ready');
