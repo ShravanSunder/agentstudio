@@ -92,8 +92,8 @@ The executor records fresh evidence at G0, but these are the known RED facts:
    permanent regression currently proves the failure.
 4. Vite and Swift File paths still contain prefix/preview semantics, including a
    Vite 10,000-line contract.
-5. deterministic and real-worktree Vite do not exist as two explicit Vitest
-   Browser cells through one product path.
+5. one dedicated Vite E2E configuration does not yet exercise deterministic
+   and disposable live-worktree scenarios through one product path.
 6. current browser/native proof can pass on `ready`, counts, or markers without
    correlating source bytes to readable DOM and disposition.
 7. Review update/select may publish the same job twice.
@@ -258,7 +258,7 @@ Tasks:
    subsequent sub-slice before dispatch;
 4. prove the permanent witnesses fail for flat Review, selected-only CodeView,
    missing hierarchy/continuous traversal, duplicate Review publication, File
-   prefix/deep-scroll, absent real-worktree Vitest cell, shallow correlation,
+   prefix/deep-scroll, absent dedicated Vite product E2E, shallow correlation,
    shallow packaged journey, static hard cut, typecheck and build; and
 5. preserve unrelated dirty paths; no broad restore/checkout/reset/clean.
 
@@ -282,8 +282,8 @@ expected failure phrase and exit code before production edits:
 | duplicate Review update/select publication | `BridgeWeb/src/core/comm-worker/bridge-comm-worker-review-preparation.unit.test.ts` | `pnpm -C BridgeWeb exec vitest run <path> -t "coalesces update and select"` |
 | complete File bytes beyond 2 MiB/10,000 lines | `BridgeWeb/src/core/comm-worker/bridge-file-complete-content.unit.test.ts` and `Tests/AgentStudioTests/Features/Bridge/BridgeFileCompleteContentTests.swift` | focused Vitest path plus `mise run test-fast -- --filter BridgeFileCompleteContentTests` |
 | File tree/content disappearance after sustained deep scroll | `BridgeWeb/src/file-viewer/bridge-file-viewer-app.deep-scroll.browser.test.tsx` | focused Browser command for that exact file |
-| deterministic source-to-readable-DOM/disposition correlation | `BridgeWeb/src/app/bridge-app-product-deterministic-fixture.browser.test.tsx` | Browser project `VB-deterministic-fixture` with that exact file |
-| absent real-worktree Vitest product cell and live-git oracle | `BridgeWeb/src/app/bridge-app-product-real-worktree.browser.test.tsx` | Browser project `VB-real-worktree` with that exact file |
+| deterministic source-to-readable-DOM/disposition correlation | existing focused Browser integration tests | current `integration-browser` project with deterministic File/Review fixtures |
+| absent dedicated Vite product E2E and live-git oracle | future `BridgeWeb/tests/e2e/bridge-viewer-vite-product.e2e.test.tsx` | future `BridgeWeb/vitest.e2e.config.ts`; absence is the intentional RED until the post-Swift E2E slice |
 | shallow packaged Swift journey | `Tests/AgentStudioTests/Features/Bridge/BridgeProductRealGitFileAndReviewWebKitTests.swift` | `mise run test-webkit -- --filter BridgeProductRealGitFileAndReviewWebKitTests` |
 | surviving legacy owners/carriers | TS `bridge-hard-cut-static-negative.source-structure.unit.test.ts` plus Swift `BridgeHardCutStaticNegativeTests.swift` and `BridgeProductBootstrapHardCutContractTests.swift` | focused Vitest paths plus `mise run test-fast -- --filter BridgeHardCutStaticNegativeTests` and `mise run test-fast -- --filter BridgeProductBootstrapHardCutContractTests` |
 | TypeScript and packaged BridgeWeb failures | `BridgeWeb/package.json` scripts | `pnpm -C BridgeWeb run check` and `pnpm -C BridgeWeb run build` |
@@ -418,10 +418,10 @@ Primary write manifest:
   session,subscription-handler,review-adapter,file-adapter}.ts` and tests;
 - deterministic source support in `review-viewer/test-support/**` and
   `file-viewer/bridge-file-viewer-browser-test-*.ts*`;
-- `BridgeWeb/src/app/bridge-app-product-deterministic-fixture.browser.test.tsx`;
-- parent-owned `BridgeWeb/vitest.browser.config.ts`,
-  `BridgeWeb/tests/bridge-viewer-source-cell-reporter.ts`, and package scripts
-  required to create the named Browser projects and per-cell reports.
+- existing deterministic File/Review Browser fixtures and tests under the
+  ordinary `integration-browser` project; and
+- parent-owned `BridgeWeb/vitest.browser.config.ts` plus package scripts for
+  the ordinary unit/integration/component Browser layer only.
 
 Actions:
 
@@ -563,15 +563,20 @@ readable final DOM checksum, with both scroll surfaces continuously painted.
 
 Real-worktree and Swift provider work is excluded here and belongs to S6b/S6c.
 
-### J2 — `VB-deterministic-fixture`
+### J2 — Deterministic Browser Lower Proof
 
-Run lower proof for S1-S6a, then the explicit deterministic Vitest Browser cell.
-It must prove hierarchy, search/facets/reveal/collapse, continuous Review early/
-middle/final source, complete File final source, worker identity, readable DOM,
-dispositions and no test-only viewer. Bind the report to fixture checksums,
-source generation, worker instance and bundled Pierre version.
+Run lower proof for S1-S6a through the existing focused Browser integration
+tests. They must prove hierarchy, search/facets/reveal/collapse, continuous
+Review early/middle/final source, complete File final source, worker identity,
+readable DOM, dispositions and no test-only viewer. This is fast deterministic
+product proof, not a second Vite E2E system.
 
-### S6b — Real-Worktree Vite And `VB-real-worktree`
+### S6b — Dedicated Vite Product E2E After Packaged Swift
+
+Execution order: S6b is intentionally deferred until S6c, S7 and J4 have
+proven the Swift provider and packaged WKWebView path. Its numbering preserves
+the source-contract ownership map; it is not permission to block Swift on test
+framework construction.
 
 Primary write manifest:
 
@@ -580,27 +585,35 @@ Primary write manifest:
 - `bridge-worktree-dev-provider.ts` and provider integration/stability tests;
 - Vite product session/carrier/http/adapter modules only where the frozen source
   contract requires them;
-- `verify-bridge-viewer-worktree-dev-server/{worktree-data,review-routes,
-  review-selection,content-state,route-probes}.ts` as support evidence; and
-- `BridgeWeb/src/app/bridge-app-product-real-worktree.browser.test.tsx` and its
-  distinct `VB-real-worktree` Vitest Browser project/harness.
+- `BridgeWeb/vitest.e2e.config.ts`; and
+- `BridgeWeb/tests/e2e/bridge-viewer-vite-product.e2e.test.tsx` plus the smallest
+  fixture/helper files justified by the completed packaged journey.
 
 Actions:
 
+- own exactly one Vite E2E system with deterministic and disposable
+  live-worktree scenarios; do not create parallel source-cell, reporter, Node
+  verifier, or named-project frameworks;
+- start the normal Vite product backend and mount the real product UI;
 - preserve lexical plus `realpath` containment immediately before every byte
   read;
 - emit canonical facts, never projected flat rows;
-- mutate a per-run temporary git worktree canary and correlate selected item ->
+- mutate a per-run disposable git repository canary and correlate selected item ->
   descriptor -> role -> request -> live bytes -> semantic item -> readable DOM
   -> painted disposition; and
-- reject stale route/source reuse.
+- reject stale route/source reuse;
+- observe the actual worker/main painted-disposition receipt rather than writing
+  a literal `painted` result in the harness; and
+- absorb only useful assertions from the Node development verifier, then retire
+  it as an E2E authority so Vite has one permanent E2E owner.
 
-RED: the real-worktree Vitest cell is absent and current Node verifier can pass
-without painted source correctness.
+RED: `BridgeWeb/vitest.e2e.config.ts` and the dedicated product E2E are absent;
+the diagnostic Node verifier can pass without painted source correctness.
 
-Green checkpoint: `VB-real-worktree` passes the same File/Review assertions as
-J2 with an independent live-git oracle. The Node verifier may support but never
-substitute.
+Green checkpoint: one dedicated Vite E2E configuration passes deterministic and
+disposable live-worktree File/Review scenarios with an independent live-git
+oracle. The Node verifier may support migration but cannot remain a second E2E
+authority.
 
 ### S6c — Swift Provider, Containment And Packaged Source Correlation
 
@@ -640,9 +653,10 @@ Join owner: parent owns shared corpus, product DTO/version and packaged harness.
 
 ### J3 — Provider Parity Join
 
-Both Vitest Browser cells are green, Swift headless/provider tests consume the
-same corpus/contract, and source facts are semantically identical. A provider-
-owned tree/projection, main fetch or test-only viewer fails the join.
+The post-J4 dedicated Vite E2E scenarios are green, Swift headless/provider and
+packaged tests consume the same corpus/contract, and source facts are
+semantically identical. A provider-owned tree/projection, main fetch,
+test-only viewer or second Vite E2E authority fails the join.
 
 ### S7 — Reset, Reconnect, Cancellation And Pane Isolation
 
@@ -773,9 +787,10 @@ Actions:
 RED: every named surviving flat import, extra worker, legacy carrier, main
 Zustand product owner, prefix contract or Pierre diff fails a static gate.
 
-J6 Green: repeat static, type/lint/unit/integration, both Vitest Browser cells,
-packaged WKWebView, telemetry and required performance cells on the post-deletion
-candidate. Pre-deletion proof is insufficient.
+J6 Green: repeat static, type/lint/unit/integration, focused deterministic
+Browser, dedicated Vite E2E, packaged WKWebView, telemetry and required
+performance cells on the post-deletion candidate. Pre-deletion proof is
+insufficient.
 
 ### S9b — Implementation Review, Remediation, CI And PR Readiness
 
@@ -800,18 +815,20 @@ finding returns to its owning slice and reopens its proof.
 G0 -> S1a -> S2a -> S2b -> S1b/J1 -> S6a
                                       |
                                       +-- S3 -> S4a -> S4b --+
-                                      +-- S5 -----------------+-> J2 deterministic
+                                      +-- S5 -----------------+-> J2 deterministic lower proof
                                       +-- S8a ----------------+       |
-                                                                    +-- S6b -> VB real ------+
-                                                                    +-- S6c -> Swift headless +-> J3
-                                                                                               |
-                                                                    S7 TS/Swift lifecycle -> J4 packaged
-                                                                                               |
-                                                                    S8b correctness/perf -> J5
-                                                                                               |
-                                                                    S9a deletion/re-proof -> J6
-                                                                                               |
-                                                                    S9b review/CI/PR -> PR ready, unmerged
+                                                                    +-- S6c -> Swift headless
+                                                                    +-- S7 TS/Swift lifecycle
+                                                                                 |
+                                                                                 +-> J4 packaged Swift
+                                                                                           |
+                                                                                           +-> S6b dedicated Vite E2E -> J3 parity
+                                                                                                                     |
+                                                                                           S8b correctness/perf -> J5
+                                                                                                                     |
+                                                                                           S9a deletion/re-proof -> J6
+                                                                                                                     |
+                                                                                           S9b review/CI/PR -> PR ready, unmerged
 ```
 
 S8a intentionally starts after S6a: telemetry semantics are product-disjoint,
@@ -847,7 +864,7 @@ performs the join.
 | all 43 recovery paths handled without obsolete authority | migration recovery set | S1a/S1b | manifest/static/unit/component/Browser | parent diff audit plus recovered tests | HEAD `38fe66a`, execution-start status | required |
 | still-present `review-viewer/trees/` is preserved and used rather than replaced | product recovery contract | S1a/S1b/S3 | source-structure, component Browser, final product cells | parent diff audit plus hierarchical tree interaction proof | current tree component identity and final diff | required |
 | exactly one recovered Review shell/emitter, no fallback | migration single-shell contract | S1b/S9a | lifecycle unit, component Browser, import scan | parent-run composition proof | pane, HMR/source/restart identity | required |
-| hierarchical Review, modes, search/facets, reveal/collapse/selection | product contract, R41-R46, R61 | S3 | projection unit, worker integration, `VB-deterministic-fixture` | 3,420-file nested fixture and keyed invalidation counters | fixture checksum, source generation, projection/UI revision | required |
+| hierarchical Review, modes, search/facets, reveal/collapse/selection | product contract, R41-R46, R61 | S3 | projection unit, worker integration, focused deterministic Browser tests | 3,420-file nested fixture and keyed invalidation counters | fixture checksum, source generation, projection/UI revision | required |
 | fresh/reset File and Review trees are fully expanded; same-source appends preserve manual collapse | product contract, R41-R46 | J1/S3/S5 | controller unit plus production Browser source-reset and streamed-append witnesses | live Pierre `aria-expanded` rows before/after reset, collapse and append | source identity, generation, tree model identity | required |
 | FE selection and viewport invalidation is O(selected + visible delta) | R45 | S3/S4b | keyed-store unit, subscriber/touched-key integration, large Browser fixture | subscriber and invalidated-key counters | fixture checksum, source generation, display revision | required |
 | ready-to-visible work uses one AppPolicies-mirrored frame pump with fairness | R46 | S4b | policy unit, frame/yield integration, Browser liveness and long-task proof | symbolic policy references, applied-unit/deferred-progress counters | policy version, viewport, run marker | required |
@@ -855,7 +872,7 @@ performs the join.
 | retained same-identity Pierre membership reconciles to the complete authoritative order without O(package) steady-state scans | Review contract, R44/R45/R52/R57 | S4b | 3,420-item bounded-lookup metadata unit plus production Browser retained-instance witness | <=12 public item/geometry reads for one healthy delta; actual live Pierre header ids in authoritative order, not React input counts | source/manifest identity, mounted CodeView policy epoch, Pierre version | required |
 | markdown is sanitized immediately before HTML insertion and hostile script/network/interactive content is denied | R59 security | S4b | sanitizer unit, hostile markdown integration, Browser insertion proof | hostile corpus plus inspected readable DOM | corpus digest, sanitizer version, run marker | required |
 | complete File text; typed terminals; no cap/padding; deep scroll stable | File contract, R44, R47, R57, R61, R65 | S5 | decode/unit, stream integration, deterministic Browser deep-scroll | independent complete source checksum and final readable DOM | selected path/file, source generation, semantic id | required |
-| deterministic Vite and real-worktree Vite are one source contract but separate Browser cells | backend parity, R48-R50/R62 | S6a/S6b | provider integration plus two Vitest Browser cells | `VB-deterministic-fixture`, `VB-real-worktree` | per-run fixture or live-git canary, process/source id | required |
+| deterministic and disposable live-worktree Vite scenarios share one source contract and one dedicated E2E configuration | backend parity, R48-R50/R62 | S6a/S6b | provider integration plus post-J4 Vite product E2E | `BridgeWeb/vitest.e2e.config.ts` and one product E2E suite | per-run fixture/live-git canary, process/source id | required |
 | all product/main-worker schemas are closed and TS/Swift reject the same hostile variants | R50 | S2a/S6c | contract unit/type, byte-identical hostile corpus in both runtimes | parser rejection matrix for unknown/extra/missing/version/bounds/stale cases | corpus digest and current wire version | required |
 | transferred buffers and the cloned complete-Pierre-item class have distinct declared ownership modes | R53 | S2a/S4a | contract unit, transfer-list Browser, packaged/benchmark ownership evidence | declared field paths, detachment, clone/transfer duration and duplicate lifetime | wire version, message class, Pierre version | required |
 | worker hot actions stay O(delta), <=8 ms per slice and distinct from R60 preparation slices | R58 | S3/S4a/S8a | normalized-store unit, touched-key integration, handler histograms/long-task counters | per-action touched keys, queue wait and handler duration | worker instance, policy version, command class | required |
@@ -889,20 +906,22 @@ repo-owned commands below.
 - Shared fixture parity:
   `bash scripts/bridge-web-sync-fixtures.sh --check`
 
-### Deterministic and real-worktree browser gates
+### Deterministic Browser and post-Swift Vite E2E gates
 
-- `pnpm -C BridgeWeb exec vitest --config vitest.browser.config.ts run --project VB-deterministic-fixture`
-- `pnpm -C BridgeWeb exec vitest --config vitest.browser.config.ts run --project VB-real-worktree`
-- `pnpm -C BridgeWeb run test:browser` runs both named projects and fails if
-  either project or its report is absent;
-- `BridgeWeb/tests/bridge-viewer-source-cell-reporter.ts` writes one immutable
-  report per project at
-  `tmp/bridge-viewer-proof/<run-marker>/<project-name>/report.json`;
-- each report carries project name, exact test entry, source kind/checksum or
+- focused deterministic proof stays under the ordinary
+  `vitest.browser.config.ts` `integration-browser` project;
+- after S6c/S7/J4, `pnpm -C BridgeWeb exec vitest --config vitest.e2e.config.ts run`
+  runs the single dedicated Vite product E2E system;
+- that E2E owns deterministic and disposable live-worktree scenarios, binds
+  evidence to per-run fixture/live-git canaries and source/worker/process
+  identity, and observes the actual painted disposition; and
+- the Node development verifier remains diagnostic until useful assertions are
+  absorbed, then ceases to be an E2E authority;
+- dedicated E2E evidence carries exact test entry, scenario kind/checksum or
   live-git canary, source generation, process/provider identity, pane/worker
   instance, bundled Pierre version, readable-DOM oracle and dispositions;
-- J2/J3/J6/S9b reject a merged report or one cell's artifact substituted for the
-  other;
+- J2/J3/J6/S9b reject diagnostic artifacts substituted for focused Browser,
+  dedicated Vite E2E, or packaged evidence;
 - `pnpm -C BridgeWeb run test:dev-server` and
   `pnpm -C BridgeWeb run test:dev-server:worktree` are support evidence only.
 
@@ -937,8 +956,9 @@ per-launch and pooled percentiles, maximum launch percentile and failure counts.
 - `pnpm -C BridgeWeb run test`
 - `mise run lint`
 - `mise run test`
-- repeat both Vitest Browser cells, `WK-packaged-current-worktree`, S8b and all
-  affected lower proof after implementation-review remediation;
+- repeat focused deterministic Browser proof, the dedicated Vite E2E,
+  `WK-packaged-current-worktree`, S8b and all affected lower proof after
+  implementation-review remediation;
 - run CI and inspect PR checks, comments, unresolved threads and mergeability at
   the exact final head SHA.
 

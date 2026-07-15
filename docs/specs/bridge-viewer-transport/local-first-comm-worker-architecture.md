@@ -162,9 +162,12 @@ Backend parity is normative:
   sufficient for the comm worker to derive the same hierarchy and ordered
   projection. A depth-zero/flat display adapter or provider-owned projected
   tree is not backend parity;
-- Vitest Browser exercises BOTH through the same pane comm worker, restored
-  React components, tree, selection, hydration, continuous CodeView, and paint
+- one dedicated Vite E2E configuration exercises deterministic and disposable
+  live-worktree scenarios through the same pane comm worker, restored React
+  components, tree, selection, hydration, continuous CodeView, and actual paint
   disposition path;
+- ordinary Vitest unit/integration projects and the Node development verifier
+  may support that E2E, but neither is a second Vite E2E authority;
 - packaged WKWebView exercises the same product contract through the Swift
   `agentstudio-git` provider; and
 - no backend may mount a test/dev-only viewer, bypass the comm worker, or use a

@@ -84,14 +84,6 @@ export interface BridgeProductDevCarrierProps {
 	readonly getReviewSourceConfig: (
 		requestUrl: string | null,
 	) => Promise<Pick<BridgeWorktreeDevProviderConfig, 'baseRef' | 'worktreeRoot'>>;
-	readonly onContentLoaded?:
-		| ((observation: BridgeProductDevContentLoadObservation) => void)
-		| undefined;
-}
-
-export interface BridgeProductDevContentLoadObservation {
-	readonly content: BridgeProductDevContentPayload;
-	readonly request: BridgeProductContentRequest;
 }
 
 export interface BridgeProductDevCarrierRequestProps {
@@ -112,7 +104,6 @@ export interface BridgeProductDevCarrierSnapshot {
 export class BridgeProductDevCarrier {
 	readonly #getFileProvider: BridgeProductDevCarrierProps['getFileProvider'];
 	readonly #getReviewSourceConfig: BridgeProductDevCarrierProps['getReviewSourceConfig'];
-	readonly #onContentLoaded: BridgeProductDevCarrierProps['onContentLoaded'];
 	readonly #createReviewAdapter: NonNullable<BridgeProductDevCarrierProps['createReviewAdapter']>;
 	readonly #pendingBootstrapsByCapability = new Map<string, BridgeProductSessionBootstrap>();
 	readonly #sessionsByCapability = new Map<string, BridgeProductDevSession>();
@@ -121,7 +112,6 @@ export class BridgeProductDevCarrier {
 	constructor(props: BridgeProductDevCarrierProps) {
 		this.#getFileProvider = props.getFileProvider;
 		this.#getReviewSourceConfig = props.getReviewSourceConfig;
-		this.#onContentLoaded = props.onContentLoaded;
 		this.#createReviewAdapter =
 			props.createReviewAdapter ??
 			((config): BridgeProductDevReviewAdapter => new BridgeProductDevReviewAdapter(config));
@@ -236,7 +226,6 @@ export class BridgeProductDevCarrier {
 				writeBridgeProductDevError(props.response, 404, 'Unknown content descriptor');
 				return;
 			}
-			this.#onContentLoaded?.({ content, request });
 			props.response.statusCode = 200;
 			props.response.setHeader('Content-Type', 'application/octet-stream');
 			const producer = new BridgeProductDevContentProducer({ request, response: props.response });
