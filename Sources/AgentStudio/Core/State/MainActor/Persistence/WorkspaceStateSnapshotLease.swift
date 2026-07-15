@@ -20,12 +20,211 @@ struct WorkspaceStateSnapshotBaseCopyToken: Hashable, Sendable {
     fileprivate let slotGeneration: UInt64
 }
 
+extension WorkspaceStateSnapshotKeyedParticipant {
+    func prepare(
+        _ mutations: [WorkspaceStateSnapshotParticipantMutation<Key, Value>],
+        for preparation: WorkspacePersistenceTransactionPreparation,
+        revisionOwner: WorkspacePersistenceRevisionOwner
+    ) -> WorkspaceStateSnapshotParticipantPreparationResult {
+        guard preparationCustody.isAvailable else {
+            return .rejected(.participant(.participantReserved))
+        }
+        var projectedMembership = makeProjectedMembership()
+        if let rejection = SnapshotParticipantMutationPlanner.validate(
+            mutations,
+            limits: configuredMembershipLimits,
+            projectedMembership: &projectedMembership,
+            validateValueReplacement: { [self] key, value in
+                validateValueReplacement(key: key, currentValue: value, transaction: preparation.transaction)
+            },
+            removalValidator: { [self] removal in
+                validateRemovalProjection(removal, transaction: preparation.transaction)
+            }
+        ) {
+            return .rejected(.participant(rejection))
+        }
+        let reservation = SnapshotParticipantPreparationCustody.Reservation.make(
+            transaction: preparation.transaction
+        )
+        let registration = revisionOwner.registerPreparedParticipantMutation(
+            participant: self,
+            preparation: preparation,
+            apply: { [self] in
+                consumePreparedReservation(
+                    reservation,
+                    mutations: mutations,
+                    revisionOwner: revisionOwner
+                )
+            },
+            cancel: { [self] in
+                cancelPreparedReservation(reservation)
+            }
+        )
+        switch registration {
+        case .registered:
+            preparationCustody.reserve(reservation)
+            return .prepared
+        case .rejected(let rejection):
+            return .rejected(.registration(rejection))
+        }
+    }
+
+    private func consumePreparedReservation(
+        _ reservation: SnapshotParticipantPreparationCustody.Reservation,
+        mutations: [WorkspaceStateSnapshotParticipantMutation<Key, Value>],
+        revisionOwner: WorkspacePersistenceRevisionOwner
+    ) {
+        preparationCustody.beginApplying(reservation)
+        applyPreparedMutations(
+            mutations,
+            transaction: reservation.transaction,
+            revisionOwner: revisionOwner
+        )
+        preparationCustody.completeApplying(reservation)
+    }
+
+    private func cancelPreparedReservation(
+        _ reservation: SnapshotParticipantPreparationCustody.Reservation
+    ) {
+        preparationCustody.cancel(reservation)
+    }
+
+    private func makeProjectedMembership() -> SnapshotProjectedMembership<Key> {
+        SnapshotProjectedMembership(
+            keyCount: UInt64(currentKeyCount),
+            totalRawKeyByteCount: currentRawKeyByteCount,
+            physicalSlotCount: UInt64(slots.count),
+            reusableSlotCount: UInt64(reusableSlotIndices.count),
+            baselineRawKeyByteCount: { [self] key in
+                guard let slotIndex = currentSlotIndexByKey[key] else { return nil }
+                guard case .live(let liveSlot) = slots[slotIndex].state else {
+                    preconditionFailure("current snapshot membership points at a non-live slot")
+                }
+                return liveSlot.rawKeyByteCount
+            }
+        )
+    }
+
+    private func validateValueReplacement(
+        key: Key,
+        currentValue: WorkspaceStateSnapshotStoredValue<Value>,
+        transaction: WorkspacePersistenceTransaction
+    ) -> WorkspaceStateSnapshotParticipantRejection? {
+        guard case .active(let activeLease) = leaseState else { return nil }
+        guard transaction.processGeneration == activeLease.lease.processGeneration else {
+            return .foreignProcessGeneration
+        }
+        guard transaction.proposedRevision > activeLease.lease.baseRevision else {
+            return .transactionDoesNotFollowBaseRevision
+        }
+        guard let slotIndex = currentSlotIndexByKey[key], case .live(let liveSlot) = slots[slotIndex].state else {
+            return nil
+        }
+        guard liveSlot.insertedRevision <= activeLease.lease.baseRevision,
+            liveSlot.copiedMarker?.leaseID != activeLease.lease.leaseID,
+            liveSlot.retainedValue == nil
+        else { return nil }
+        guard case .value = currentValue else { return .baseMembershipValueMissing }
+        return nil
+    }
+
+    private func validateRemovalProjection(
+        _ removal: WorkspaceStateSnapshotMembershipRemoval<Key, Value>,
+        transaction: WorkspacePersistenceTransaction
+    ) -> Result<SnapshotRemovalProjection, WorkspaceStateSnapshotParticipantRejection> {
+        guard let slotIndex = currentSlotIndexByKey[removal.key], case .live(let liveSlot) = slots[slotIndex].state
+        else { return .failure(.currentKeyMissing) }
+        if case .active(let activeLease) = leaseState {
+            if transaction.processGeneration != activeLease.lease.processGeneration {
+                return .failure(.foreignProcessGeneration)
+            }
+            if transaction.proposedRevision <= activeLease.lease.baseRevision {
+                return .failure(.transactionDoesNotFollowBaseRevision)
+            }
+            if liveSlot.insertedRevision <= activeLease.lease.baseRevision,
+                liveSlot.copiedMarker?.leaseID != activeLease.lease.leaseID,
+                liveSlot.retainedValue == nil,
+                case .absent = removal.currentValue
+            {
+                return .failure(.baseMembershipValueMissing)
+            }
+        }
+        let makesSlotReusable: Bool
+        if case .active(let activeLease) = leaseState {
+            makesSlotReusable =
+                liveSlot.insertedRevision > activeLease.lease.baseRevision
+                || liveSlot.copiedMarker?.leaseID == activeLease.lease.leaseID
+        } else {
+            makesSlotReusable = true
+        }
+        return .success(SnapshotRemovalProjection(makesSlotReusable: makesSlotReusable))
+    }
+
+    private func applyPreparedMutations(
+        _ mutations: [WorkspaceStateSnapshotParticipantMutation<Key, Value>],
+        transaction: WorkspacePersistenceTransaction,
+        revisionOwner: WorkspacePersistenceRevisionOwner
+    ) {
+        for mutation in mutations {
+            switch mutation {
+            case .replaceValue(let key, let currentValue):
+                let result = recordWillChange(
+                    key: key,
+                    currentValue: currentValue,
+                    transaction: transaction,
+                    revisionOwner: revisionOwner
+                )
+                if case .rejected = result {
+                    preconditionFailure("prepared value replacement became invalid during commit")
+                }
+            case .insert(let insertion):
+                precondition(
+                    recordInserted(
+                        key: insertion.key,
+                        rawKeyByteCount: insertion.rawKeyByteCount,
+                        transaction: transaction,
+                        revisionOwner: revisionOwner
+                    ) == .inserted,
+                    "prepared insertion became invalid during commit"
+                )
+            case .remove(let removal):
+                precondition(
+                    recordRemoved(
+                        key: removal.key,
+                        currentValue: removal.currentValue,
+                        transaction: transaction,
+                        revisionOwner: revisionOwner
+                    ) == .removed,
+                    "prepared removal became invalid during commit"
+                )
+            case .replaceMembership(let removal, let insertion):
+                precondition(
+                    recordRemoved(
+                        key: removal.key,
+                        currentValue: removal.currentValue,
+                        transaction: transaction,
+                        revisionOwner: revisionOwner
+                    ) == .removed,
+                    "prepared replacement removal became invalid during commit"
+                )
+                precondition(
+                    recordInserted(
+                        key: insertion.key,
+                        rawKeyByteCount: insertion.rawKeyByteCount,
+                        transaction: transaction,
+                        revisionOwner: revisionOwner
+                    ) == .inserted,
+                    "prepared replacement insertion became invalid during commit"
+                )
+            }
+        }
+    }
+}
+
 /// Owner-local fixed-base retention for one typed persistence key space.
 ///
-/// This primitive owns a stable physical key index plus the first pre-change
-/// value for base slots that have not yet been copied into an immutable page.
-/// Lease opening captures counters and a slot upper bound only; it never walks
-/// or retains an atom's fleet value collection.
+/// This primitive owns a stable physical key index and first pre-change value
+/// for base slots not yet copied into an immutable page.
 @MainActor
 final class WorkspaceStateSnapshotKeyedParticipant<
     Key: Hashable & Sendable,
@@ -152,11 +351,13 @@ final class WorkspaceStateSnapshotKeyedParticipant<
     private var configuredMembershipLimits: WorkspaceStateSnapshotMembershipLimits?
     private var leaseState: LeaseState = .idle
     private var leaseOpenWorkCounter = LeaseOpenWorkCounter()
+    private let preparationCustody = SnapshotParticipantPreparationCustody()
     private let participantIdentity = WorkspaceStateSnapshotBaseCopyToken.ParticipantIdentity.make()
 
     func configureMembershipLimits(
         _ limits: WorkspaceStateSnapshotMembershipLimits
     ) -> SnapshotMembershipConfigurationResult {
+        guard preparationCustody.permitsParticipantMutation else { return .rejected(.participantReserved) }
         switch leaseState {
         case .idle:
             break
@@ -195,6 +396,7 @@ final class WorkspaceStateSnapshotKeyedParticipant<
         _ entries: [(key: Key, rawKeyByteCount: UInt64)],
         limits: WorkspaceStateSnapshotMembershipLimits
     ) -> WorkspaceStateSnapshotMembershipRegistrationResult {
+        guard preparationCustody.permitsParticipantMutation else { return .rejected(.participantReserved) }
         switch leaseState {
         case .idle:
             break
@@ -246,6 +448,7 @@ final class WorkspaceStateSnapshotKeyedParticipant<
         lease: WorkspaceStateSnapshotLease,
         limits: WorkspaceStateSnapshotMembershipLimits
     ) -> WorkspaceStateSnapshotParticipantOpenResult {
+        guard preparationCustody.permitsParticipantMutation else { return .rejected(.participantReserved) }
         switch leaseState {
         case .active:
             return .rejected(.activeLeaseExists)
@@ -284,12 +487,17 @@ final class WorkspaceStateSnapshotKeyedParticipant<
         leaseOpenWorkCounter.diagnostics
     }
 
+    func preparationDiagnostics() -> WorkspaceSnapshotPreparationDiagnostics {
+        preparationCustody.diagnostics
+    }
+
     func recordWillChange(
         key: Key,
         currentValue: @autoclosure () -> WorkspaceStateSnapshotStoredValue<Value>,
         transaction: WorkspacePersistenceTransaction,
         revisionOwner: WorkspacePersistenceRevisionOwner
     ) -> WorkspaceStateSnapshotMutationResult {
+        guard preparationCustody.permitsParticipantMutation else { return .rejected(.participantReserved) }
         guard validateActiveTransaction(transaction, revisionOwner: revisionOwner) else {
             return .rejected(.transactionNotActive)
         }
@@ -342,6 +550,7 @@ final class WorkspaceStateSnapshotKeyedParticipant<
         transaction: WorkspacePersistenceTransaction,
         revisionOwner: WorkspacePersistenceRevisionOwner
     ) -> WorkspaceStateSnapshotMembershipMutationResult {
+        guard preparationCustody.permitsParticipantMutation else { return .rejected(.participantReserved) }
         guard validateActiveTransaction(transaction, revisionOwner: revisionOwner) else {
             return .rejected(.transactionNotActive)
         }
@@ -387,6 +596,7 @@ final class WorkspaceStateSnapshotKeyedParticipant<
         transaction: WorkspacePersistenceTransaction,
         revisionOwner: WorkspacePersistenceRevisionOwner
     ) -> WorkspaceStateSnapshotMembershipMutationResult {
+        guard preparationCustody.permitsParticipantMutation else { return .rejected(.participantReserved) }
         guard validateActiveTransaction(transaction, revisionOwner: revisionOwner) else {
             return .rejected(.transactionNotActive)
         }
@@ -535,6 +745,7 @@ final class WorkspaceStateSnapshotKeyedParticipant<
         copyToken: WorkspaceStateSnapshotBaseCopyToken,
         pageID: WorkspaceStateSnapshotPageID
     ) -> WorkspaceStateSnapshotMarkCopiedResult {
+        guard preparationCustody.permitsParticipantMutation else { return .rejected(.participantReserved) }
         guard case .active(var activeLease) = leaseState else {
             return .rejected(.noActiveLease)
         }
@@ -616,6 +827,7 @@ final class WorkspaceStateSnapshotKeyedParticipant<
     func close(
         lease: WorkspaceStateSnapshotLease
     ) -> WorkspaceStateSnapshotParticipantCloseResult {
+        guard preparationCustody.permitsParticipantMutation else { return .rejected(.participantReserved) }
         guard case .active(let activeLease) = leaseState else {
             return .rejected(.noActiveLease)
         }
@@ -647,6 +859,7 @@ final class WorkspaceStateSnapshotKeyedParticipant<
     }
 
     func drainCleanup(maximumValues: Int) -> WorkspaceStateSnapshotCleanupDrainResult {
+        guard preparationCustody.permitsParticipantMutation else { return .rejected(.participantReserved) }
         guard case .cleanup(var cleanup) = leaseState else { return .complete }
         guard maximumValues > 0 else {
             return .drained(

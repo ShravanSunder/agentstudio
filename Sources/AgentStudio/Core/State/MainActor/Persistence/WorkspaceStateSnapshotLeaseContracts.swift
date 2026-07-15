@@ -72,12 +72,14 @@ enum WorkspaceStateSnapshotParticipantRejection: Error, Equatable, Sendable {
     case baseValueCopiedByDifferentPage
     case duplicateBaseMembershipKey
     case duplicateCurrentKey
+    case duplicatePreparedMutationKey
     case foreignLease
     case foreignProcessGeneration
     case keyNotInBaseMembership
     case membershipLimitsUnavailable
     case membershipLimitsMismatch
     case physicalSlotCapacityExceeded
+    case participantReserved
     case currentKeyMissing
     case noActiveLease
     case transactionNotActive
@@ -109,6 +111,48 @@ enum WorkspaceStateSnapshotMembershipMutationResult: Equatable, Sendable {
     case inserted
     case removed
     case rejected(WorkspaceStateSnapshotParticipantRejection)
+}
+
+struct WorkspaceStateSnapshotMembershipInsertion<Key: Hashable & Sendable>: Sendable {
+    let key: Key
+    let rawKeyByteCount: UInt64
+}
+
+struct WorkspaceStateSnapshotMembershipRemoval<Key: Hashable & Sendable, Value: Sendable>: Sendable {
+    let key: Key
+    let currentValue: WorkspaceStateSnapshotStoredValue<Value>
+}
+
+enum WorkspaceStateSnapshotParticipantMutation<Key: Hashable & Sendable, Value: Sendable>: Sendable {
+    case replaceValue(key: Key, currentValue: WorkspaceStateSnapshotStoredValue<Value>)
+    case insert(WorkspaceStateSnapshotMembershipInsertion<Key>)
+    case remove(WorkspaceStateSnapshotMembershipRemoval<Key, Value>)
+    case replaceMembership(
+        removing: WorkspaceStateSnapshotMembershipRemoval<Key, Value>,
+        inserting: WorkspaceStateSnapshotMembershipInsertion<Key>
+    )
+}
+
+enum WorkspaceStateSnapshotParticipantPreparationResult: Equatable, Sendable {
+    case prepared
+    case rejected(WorkspaceSnapshotPreparationRejection)
+}
+
+enum WorkspaceSnapshotPreparationRejection: Equatable, Sendable {
+    case participant(WorkspaceStateSnapshotParticipantRejection)
+    case registration(WorkspaceParticipantRegistrationRejection)
+}
+
+enum WorkspaceSnapshotReservationStatus: Equatable, Sendable {
+    case available
+    case reserved
+    case applying
+}
+
+struct WorkspaceSnapshotPreparationDiagnostics: Equatable, Sendable {
+    let status: WorkspaceSnapshotReservationStatus
+    let appliedReservationCount: UInt64
+    let cancelledReservationCount: UInt64
 }
 
 enum WorkspaceStateSnapshotMembershipResult<Key: Hashable & Sendable>: Sendable {

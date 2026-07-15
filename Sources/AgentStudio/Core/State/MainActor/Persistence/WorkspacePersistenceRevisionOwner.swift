@@ -50,16 +50,70 @@ struct WorkspacePersistenceTransaction: Hashable, Sendable {
 
 struct WorkspacePersistenceTransactionPreparation: Sendable {
     let transaction: WorkspacePersistenceTransaction
-
-    fileprivate init(transaction: WorkspacePersistenceTransaction) {
-        self.transaction = transaction
-    }
+    fileprivate let participantMutations: WorkspacePreparedParticipantCustody
 
     func commit<TransactionResult>(
         _ body: @escaping @MainActor () -> TransactionResult
     ) -> WorkspacePersistencePreparedMutation<TransactionResult> {
         WorkspacePersistencePreparedMutation(body: body)
     }
+}
+
+@MainActor
+private final class WorkspacePreparedParticipantCustody {
+    private struct Entry {
+        let apply: @MainActor () -> Void
+        let cancel: @MainActor () -> Void
+    }
+
+    private enum State {
+        case collecting(participantIdentities: Set<ObjectIdentifier>, entries: [Entry])
+        case consumed
+    }
+
+    private var state: State = .collecting(participantIdentities: [], entries: [])
+
+    func append(
+        participant: AnyObject,
+        apply: @escaping @MainActor () -> Void,
+        cancel: @escaping @MainActor () -> Void
+    ) -> WorkspaceParticipantRegistration {
+        guard case .collecting(var participantIdentities, var entries) = state else {
+            return .rejected(.transactionNotPreparing)
+        }
+        guard participantIdentities.insert(ObjectIdentifier(participant)).inserted else {
+            return .rejected(.participantAlreadyPrepared)
+        }
+        entries.append(Entry(apply: apply, cancel: cancel))
+        state = .collecting(participantIdentities: participantIdentities, entries: entries)
+        return .registered
+    }
+
+    func applyAll() {
+        guard case .collecting(_, let entries) = state else {
+            preconditionFailure("prepared participant custody was consumed more than once")
+        }
+        state = .consumed
+        for entry in entries { entry.apply() }
+    }
+
+    func cancelIfCollecting() {
+        guard case .collecting(_, let entries) = state else { return }
+        state = .consumed
+        for entry in entries { entry.cancel() }
+    }
+}
+
+enum WorkspaceParticipantRegistration: Equatable, Sendable {
+    case registered
+    case rejected(WorkspaceParticipantRegistrationRejection)
+}
+
+enum WorkspaceParticipantRegistrationRejection: Equatable, Sendable {
+    case participantAlreadyPrepared
+    case preparationCustodyMismatch
+    case transactionNotPreparing
+    case transactionMismatch
 }
 
 struct WorkspacePersistencePreparedMutation<TransactionResult> {
@@ -93,7 +147,10 @@ enum WorkspacePersistenceActiveTransactionRejection: Equatable, Sendable {
 final class WorkspacePersistenceRevisionOwner {
     private enum State {
         case idle
-        case preparing(WorkspacePersistenceTransaction)
+        case preparing(
+            WorkspacePersistenceTransaction,
+            WorkspacePreparedParticipantCustody
+        )
         case committing(WorkspacePersistenceTransaction)
     }
 
@@ -119,14 +176,42 @@ final class WorkspacePersistenceRevisionOwner {
             expectedPreviousRevision: committedRevision,
             proposedRevision: committedRevision.next()
         )
-        state = .preparing(transaction)
-        defer { state = .idle }
+        let participantMutations = WorkspacePreparedParticipantCustody()
+        state = .preparing(transaction, participantMutations)
+        defer {
+            participantMutations.cancelIfCollecting()
+            state = .idle
+        }
 
-        let preparedMutation = try prepare(WorkspacePersistenceTransactionPreparation(transaction: transaction))
+        let preparedMutation = try prepare(
+            WorkspacePersistenceTransactionPreparation(
+                transaction: transaction,
+                participantMutations: participantMutations
+            )
+        )
         state = .committing(transaction)
+        participantMutations.applyAll()
         let result = preparedMutation.body()
         committedRevision = transaction.proposedRevision
         return result
+    }
+
+    func registerPreparedParticipantMutation(
+        participant: AnyObject,
+        preparation: WorkspacePersistenceTransactionPreparation,
+        apply: @escaping @MainActor () -> Void,
+        cancel: @escaping @MainActor () -> Void
+    ) -> WorkspaceParticipantRegistration {
+        guard case .preparing(let activeTransaction, let activeParticipantMutations) = state else {
+            return .rejected(.transactionNotPreparing)
+        }
+        guard activeTransaction == preparation.transaction else {
+            return .rejected(.transactionMismatch)
+        }
+        guard activeParticipantMutations === preparation.participantMutations else {
+            return .rejected(.preparationCustodyMismatch)
+        }
+        return preparation.participantMutations.append(participant: participant, apply: apply, cancel: cancel)
     }
 
     func validateActiveCommit(

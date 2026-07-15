@@ -5,7 +5,414 @@ import Testing
 
 @MainActor
 @Suite(.serialized)
-struct WorkspaceStateSnapshotMembershipLifecycleTests {
+struct WorkspaceStateSnapshotMembershipLifecycleTests {}
+
+extension WorkspaceStateSnapshotMembershipLifecycleTests {
+    @Test("later participant rejection leaves every prepared participant and canonical value untouched")
+    func laterParticipantRejectionLeavesPreparedStateUntouched() {
+        // Arrange
+        let revisionOwner = WorkspacePersistenceRevisionOwner()
+        let firstKey = UUIDv7.generate()
+        let secondKey = UUIDv7.generate()
+        let firstParticipant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
+        let secondParticipant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
+        let limits = WorkspaceStateSnapshotMembershipLimits(maximumKeyCount: 1, maximumRawKeyBytes: 16)
+        #expect(firstParticipant.registerInitialKey(firstKey, rawKeyByteCount: 16, limits: limits) == .registered)
+        #expect(secondParticipant.registerInitialKey(secondKey, rawKeyByteCount: 16, limits: limits) == .registered)
+        let firstLease = WorkspaceStateSnapshotLease.open(pagerIdentity: .make(), revisionOwner: revisionOwner)
+        let secondLease = WorkspaceStateSnapshotLease.open(pagerIdentity: .make(), revisionOwner: revisionOwner)
+        #expect(firstParticipant.open(lease: firstLease, limits: limits) == .opened(baseMembershipCount: 1))
+        #expect(secondParticipant.open(lease: secondLease, limits: limits) == .opened(baseMembershipCount: 1))
+        var canonicalValue = "before"
+
+        // Act
+        #expect(throws: PreparedParticipantTestError.rejected) {
+            let _: Void = try revisionOwner.performSynchronousTransaction { preparation in
+                guard
+                    firstParticipant.prepare(
+                        [.replaceValue(key: firstKey, currentValue: .value("before"))],
+                        for: preparation,
+                        revisionOwner: revisionOwner
+                    ) == .prepared
+                else { throw PreparedParticipantTestError.unexpectedPreparationFailure }
+                guard
+                    secondParticipant.prepare(
+                        [.remove(.init(key: secondKey, currentValue: .absent))],
+                        for: preparation,
+                        revisionOwner: revisionOwner
+                    ) == .prepared
+                else { throw PreparedParticipantTestError.rejected }
+                return preparation.commit { canonicalValue = "after" }
+            }
+        }
+
+        // Assert
+        #expect(canonicalValue == "before")
+        #expect(revisionOwner.committedRevision == .zero)
+        #expect(
+            firstParticipant.diagnostics(for: firstLease)
+                == .diagnostics(
+                    diagnostics(
+                        baseMembershipCount: 1,
+                        copiedBaseValueCount: 0,
+                        retainedBaseValueCount: 0,
+                        physicalSlotCount: 1,
+                        reusableSlotCount: 0
+                    )
+                )
+        )
+        #expect(
+            isItemInspection(
+                firstParticipant.inspectBaseSlot(lease: firstLease, slotCursor: 0) { _ in .value("before") }
+            )
+        )
+        #expect(
+            isItemInspection(
+                secondParticipant.inspectBaseSlot(lease: secondLease, slotCursor: 0) { _ in .value("second") }
+            )
+        )
+    }
+
+    @Test("atomic membership replacement succeeds at the configured one-key limit")
+    func atomicMembershipReplacementSucceedsAtOneKeyLimit() throws {
+        // Arrange
+        let revisionOwner = WorkspacePersistenceRevisionOwner()
+        let originalKey = UUIDv7.generate()
+        let replacementKey = UUIDv7.generate()
+        let participant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
+        let limits = WorkspaceStateSnapshotMembershipLimits(maximumKeyCount: 1, maximumRawKeyBytes: 16)
+        #expect(participant.registerInitialKey(originalKey, rawKeyByteCount: 16, limits: limits) == .registered)
+        let lease = WorkspaceStateSnapshotLease.open(pagerIdentity: .make(), revisionOwner: revisionOwner)
+        #expect(participant.open(lease: lease, limits: limits) == .opened(baseMembershipCount: 1))
+
+        // Act
+        try revisionOwner.performSynchronousTransaction { preparation in
+            #expect(
+                participant.prepare(
+                    [
+                        .replaceMembership(
+                            removing: .init(key: originalKey, currentValue: .value("original")),
+                            inserting: .init(key: replacementKey, rawKeyByteCount: 16)
+                        )
+                    ],
+                    for: preparation,
+                    revisionOwner: revisionOwner
+                ) == .prepared
+            )
+            return preparation.commit {}
+        }
+
+        // Assert
+        #expect(revisionOwner.committedRevision.rawValue == 1)
+        #expect(
+            participant.diagnostics(for: lease)
+                == .diagnostics(
+                    diagnostics(
+                        baseMembershipCount: 1,
+                        copiedBaseValueCount: 0,
+                        retainedBaseValueCount: 1,
+                        physicalSlotCount: 2,
+                        reusableSlotCount: 0
+                    )
+                )
+        )
+        let baseItem = requireInspectedItem(
+            participant.inspectBaseSlot(lease: lease, slotCursor: 0) { _ in .value("replacement") }
+        )
+        #expect(baseItem.key == originalKey)
+        #expect(baseItem.value == "original")
+        let replacementRemoval = try performMembershipMutation(with: revisionOwner) { transaction in
+            participant.recordRemoved(
+                key: replacementKey,
+                currentValue: .value("replacement"),
+                transaction: transaction,
+                revisionOwner: revisionOwner
+            )
+        }
+        #expect(replacementRemoval == .removed)
+    }
+
+    @Test("stale and duplicate participant preparations are rejected before commit custody")
+    func staleAndDuplicatePreparationsAreRejectedBeforeCommitCustody() throws {
+        // Arrange
+        let revisionOwner = WorkspacePersistenceRevisionOwner()
+        let participant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
+        var stalePreparation: WorkspacePersistenceTransactionPreparation?
+
+        // Act
+        try revisionOwner.performSynchronousTransaction { preparation in
+            stalePreparation = preparation
+            #expect(participant.prepare([], for: preparation, revisionOwner: revisionOwner) == .prepared)
+            #expect(
+                participant.prepare([], for: preparation, revisionOwner: revisionOwner)
+                    == .rejected(.participant(.participantReserved))
+            )
+            return preparation.commit {}
+        }
+        guard let stalePreparation else {
+            Issue.record("expected transaction preparation custody")
+            return
+        }
+        let staleResult = participant.prepare([], for: stalePreparation, revisionOwner: revisionOwner)
+
+        // Assert
+        #expect(staleResult == .rejected(.registration(.transactionNotPreparing)))
+        #expect(revisionOwner.committedRevision.rawValue == 1)
+    }
+
+    @Test("foreign preparation custody is rejected even when transaction values match")
+    func foreignPreparationCustodyIsRejectedForMatchingTransactionValues() throws {
+        // Arrange
+        let sharedProcessGeneration = WorkspacePersistenceProcessGeneration.make()
+        let firstRevisionOwner = WorkspacePersistenceRevisionOwner(processGeneration: sharedProcessGeneration)
+        let secondRevisionOwner = WorkspacePersistenceRevisionOwner(processGeneration: sharedProcessGeneration)
+        let participant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
+        var foreignPreparationResult: WorkspaceStateSnapshotParticipantPreparationResult?
+
+        // Act
+        try firstRevisionOwner.performSynchronousTransaction { firstPreparation in
+            try secondRevisionOwner.performSynchronousTransaction { secondPreparation in
+                #expect(firstPreparation.transaction == secondPreparation.transaction)
+                foreignPreparationResult = participant.prepare(
+                    [],
+                    for: firstPreparation,
+                    revisionOwner: secondRevisionOwner
+                )
+                return secondPreparation.commit {}
+            }
+            return firstPreparation.commit {}
+        }
+
+        // Assert
+        #expect(foreignPreparationResult == .rejected(.registration(.preparationCustodyMismatch)))
+        #expect(firstRevisionOwner.committedRevision.rawValue == 1)
+        #expect(secondRevisionOwner.committedRevision.rawValue == 1)
+    }
+
+    @Test("prepared participant mutations apply once before the canonical commit body")
+    func preparedParticipantMutationsApplyBeforeCanonicalBody() throws {
+        // Arrange
+        let revisionOwner = WorkspacePersistenceRevisionOwner()
+        let key = UUIDv7.generate()
+        let participant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
+        let limits = WorkspaceStateSnapshotMembershipLimits(maximumKeyCount: 1, maximumRawKeyBytes: 16)
+        #expect(participant.registerInitialKey(key, rawKeyByteCount: 16, limits: limits) == .registered)
+        let lease = WorkspaceStateSnapshotLease.open(pagerIdentity: .make(), revisionOwner: revisionOwner)
+        #expect(participant.open(lease: lease, limits: limits) == .opened(baseMembershipCount: 1))
+        var retainedCountObservedByCanonicalBody: Int?
+        var preparationDiagnosticsObservedByCanonicalBody: WorkspaceSnapshotPreparationDiagnostics?
+
+        // Act
+        try revisionOwner.performSynchronousTransaction { preparation in
+            #expect(
+                participant.prepare(
+                    [.replaceValue(key: key, currentValue: .value("before"))],
+                    for: preparation,
+                    revisionOwner: revisionOwner
+                ) == .prepared
+            )
+            return preparation.commit {
+                guard case .diagnostics(let participantDiagnostics) = participant.diagnostics(for: lease) else {
+                    Issue.record("expected active participant diagnostics")
+                    return
+                }
+                retainedCountObservedByCanonicalBody = participantDiagnostics.retainedBaseValueCount
+                preparationDiagnosticsObservedByCanonicalBody = participant.preparationDiagnostics()
+            }
+        }
+
+        // Assert
+        #expect(retainedCountObservedByCanonicalBody == 1)
+        #expect(
+            preparationDiagnosticsObservedByCanonicalBody
+                == WorkspaceSnapshotPreparationDiagnostics(
+                    status: .available,
+                    appliedReservationCount: 1,
+                    cancelledReservationCount: 0
+                )
+        )
+        #expect(revisionOwner.committedRevision.rawValue == 1)
+    }
+
+    @Test("prepared reservation rejects same-closure participant mutation")
+    func preparedReservationRejectsSameClosureMutation() throws {
+        // Arrange
+        let revisionOwner = WorkspacePersistenceRevisionOwner()
+        let participant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
+        let limits = WorkspaceStateSnapshotMembershipLimits(maximumKeyCount: 2, maximumRawKeyBytes: 32)
+        let preparedKey = UUIDv7.generate()
+        let interveningKey = UUIDv7.generate()
+        #expect(participant.configureMembershipLimits(limits) == .configured)
+
+        // Act
+        try revisionOwner.performSynchronousTransaction { preparation in
+            #expect(
+                participant.prepare(
+                    [.insert(.init(key: preparedKey, rawKeyByteCount: 16))],
+                    for: preparation,
+                    revisionOwner: revisionOwner
+                ) == .prepared
+            )
+            #expect(
+                participant.registerInitialKey(interveningKey, rawKeyByteCount: 16, limits: limits)
+                    == .rejected(.participantReserved)
+            )
+            #expect(
+                participant.recordInserted(
+                    key: interveningKey,
+                    rawKeyByteCount: 16,
+                    transaction: preparation.transaction,
+                    revisionOwner: revisionOwner
+                ) == .rejected(.participantReserved)
+            )
+            return preparation.commit {}
+        }
+
+        // Assert
+        #expect(
+            participant.preparationDiagnostics()
+                == WorkspaceSnapshotPreparationDiagnostics(
+                    status: .available,
+                    appliedReservationCount: 1,
+                    cancelledReservationCount: 0
+                )
+        )
+    }
+
+    @Test("throwing preparation cancels reservation and permits exact retry")
+    func throwingPreparationCancelsReservationAndPermitsRetry() throws {
+        // Arrange
+        let revisionOwner = WorkspacePersistenceRevisionOwner()
+        let participant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
+        let limits = WorkspaceStateSnapshotMembershipLimits(maximumKeyCount: 1, maximumRawKeyBytes: 16)
+        let key = UUIDv7.generate()
+        #expect(participant.configureMembershipLimits(limits) == .configured)
+
+        // Act
+        #expect(throws: PreparedParticipantTestError.rejected) {
+            let _: Void = try revisionOwner.performSynchronousTransaction { preparation in
+                guard
+                    participant.prepare(
+                        [.insert(.init(key: key, rawKeyByteCount: 16))],
+                        for: preparation,
+                        revisionOwner: revisionOwner
+                    ) == .prepared
+                else { throw PreparedParticipantTestError.unexpectedPreparationFailure }
+                #expect(participant.preparationDiagnostics().status == .reserved)
+                throw PreparedParticipantTestError.rejected
+            }
+        }
+        let afterCancellation = participant.preparationDiagnostics()
+        try revisionOwner.performSynchronousTransaction { preparation in
+            #expect(
+                participant.prepare(
+                    [.insert(.init(key: key, rawKeyByteCount: 16))],
+                    for: preparation,
+                    revisionOwner: revisionOwner
+                ) == .prepared
+            )
+            return preparation.commit {}
+        }
+
+        // Assert
+        #expect(
+            afterCancellation
+                == WorkspaceSnapshotPreparationDiagnostics(
+                    status: .available,
+                    appliedReservationCount: 0,
+                    cancelledReservationCount: 1
+                )
+        )
+        #expect(
+            participant.preparationDiagnostics()
+                == WorkspaceSnapshotPreparationDiagnostics(
+                    status: .available,
+                    appliedReservationCount: 1,
+                    cancelledReservationCount: 1
+                )
+        )
+        #expect(revisionOwner.committedRevision.rawValue == 1)
+    }
+
+    @Test("reserved participant fleet cannot partially invalidate before apply")
+    func reservedParticipantFleetCannotPartiallyInvalidateBeforeApply() throws {
+        // Arrange
+        let revisionOwner = WorkspacePersistenceRevisionOwner()
+        let firstParticipant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
+        let secondParticipant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
+        let limits = WorkspaceStateSnapshotMembershipLimits(maximumKeyCount: 1, maximumRawKeyBytes: 16)
+        let firstKey = UUIDv7.generate()
+        let secondKey = UUIDv7.generate()
+        #expect(firstParticipant.configureMembershipLimits(limits) == .configured)
+        #expect(secondParticipant.configureMembershipLimits(limits) == .configured)
+        var bodyObservedBothApplied = false
+
+        // Act
+        try revisionOwner.performSynchronousTransaction { preparation in
+            #expect(
+                firstParticipant.prepare(
+                    [.insert(.init(key: firstKey, rawKeyByteCount: 16))],
+                    for: preparation,
+                    revisionOwner: revisionOwner
+                ) == .prepared
+            )
+            #expect(
+                secondParticipant.prepare(
+                    [.insert(.init(key: secondKey, rawKeyByteCount: 16))],
+                    for: preparation,
+                    revisionOwner: revisionOwner
+                ) == .prepared
+            )
+            #expect(secondParticipant.configureMembershipLimits(limits) == .rejected(.participantReserved))
+            return preparation.commit {
+                bodyObservedBothApplied =
+                    firstParticipant.preparationDiagnostics().appliedReservationCount == 1
+                    && secondParticipant.preparationDiagnostics().appliedReservationCount == 1
+            }
+        }
+
+        // Assert
+        #expect(bodyObservedBothApplied)
+        #expect(firstParticipant.preparationDiagnostics().status == .available)
+        #expect(secondParticipant.preparationDiagnostics().status == .available)
+    }
+
+    @Test("rejected prepared batch applies no earlier operation")
+    func rejectedPreparedBatchAppliesNoEarlierOperation() {
+        // Arrange
+        let revisionOwner = WorkspacePersistenceRevisionOwner()
+        let participant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
+        let limits = WorkspaceStateSnapshotMembershipLimits(maximumKeyCount: 1, maximumRawKeyBytes: 16)
+        #expect(participant.configureMembershipLimits(limits) == .configured)
+        let firstKey = UUIDv7.generate()
+        let secondKey = UUIDv7.generate()
+
+        // Act
+        #expect(throws: PreparedParticipantTestError.rejected) {
+            try revisionOwner.performSynchronousTransaction { preparation in
+                guard
+                    participant.prepare(
+                        [
+                            .insert(.init(key: firstKey, rawKeyByteCount: 8)),
+                            .insert(.init(key: secondKey, rawKeyByteCount: 8)),
+                        ],
+                        for: preparation,
+                        revisionOwner: revisionOwner
+                    ) == .prepared
+                else { throw PreparedParticipantTestError.rejected }
+                return preparation.commit {}
+            }
+        }
+
+        // Assert
+        #expect(revisionOwner.committedRevision == .zero)
+        #expect(
+            participant.registerInitialKey(firstKey, rawKeyByteCount: 8, limits: limits) == .registered
+        )
+    }
+}
+
+extension WorkspaceStateSnapshotMembershipLifecycleTests {
     @Test("failed removal retention preserves current membership")
     func failedRemovalRetentionPreservesCurrentMembership() throws {
         // Arrange
@@ -584,4 +991,9 @@ struct WorkspaceStateSnapshotMembershipLifecycleTests {
             cleanupRetainedValueCount: 0
         )
     }
+}
+
+private enum PreparedParticipantTestError: Error, Equatable {
+    case rejected
+    case unexpectedPreparationFailure
 }
