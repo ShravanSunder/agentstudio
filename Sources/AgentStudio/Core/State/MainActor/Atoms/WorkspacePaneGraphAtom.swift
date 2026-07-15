@@ -4,7 +4,7 @@ import os.log
 
 private let workspacePaneLogger = Logger(subsystem: "com.agentstudio", category: "WorkspacePaneGraphAtom")
 
-struct DrawerGraphState: Hashable {
+struct DrawerGraphState: Hashable, Sendable {
     let drawerId: UUID
     let parentPaneId: UUID
     var paneIds: [UUID]
@@ -24,7 +24,7 @@ struct DrawerGraphState: Hashable {
     }
 }
 
-enum PaneGraphKind: Hashable {
+enum PaneGraphKind: Hashable, Sendable {
     case layout(drawer: DrawerGraphState)
     case drawerChild(parentPaneId: UUID)
 
@@ -119,7 +119,7 @@ struct PaneGraphMetadata: Hashable, Sendable {
 /// content, residency, durable metadata, drawer identity, and drawer
 /// membership. It intentionally excludes drawer expansion and display/cache
 /// facets, which are composed by cursor and derived read models.
-struct PaneGraphState: Identifiable, Hashable {
+struct PaneGraphState: Identifiable, Hashable, Sendable {
     let id: UUID
     var content: PaneContent
     var metadata: PaneGraphMetadata

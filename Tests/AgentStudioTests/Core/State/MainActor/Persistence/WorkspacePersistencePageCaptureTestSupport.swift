@@ -22,6 +22,41 @@ struct PageCaptureTestValue: Equatable, Sendable {
     let byteCount: Int
 }
 
+enum PageCaptureTestItemID: Equatable, Hashable, Sendable {
+    case text(String)
+    case number(Int)
+}
+
+enum PageCaptureTestItem: Equatable, WorkspaceStateSnapshotIdentifiedItem {
+    case text(id: String, payload: String)
+    case number(id: Int, value: Int)
+
+    var snapshotItemID: PageCaptureTestItemID {
+        switch self {
+        case .text(let id, _):
+            .text(id)
+        case .number(let id, _):
+            .number(id)
+        }
+    }
+}
+
+struct PageCaptureTextOwnerKey: Equatable, Hashable, Sendable {
+    let rawValue: String
+}
+
+struct PageCaptureTextOwnerValue: Equatable, Sendable {
+    let payload: String
+}
+
+struct PageCaptureNumericOwnerKey: Equatable, Hashable, Sendable {
+    let rawValue: Int
+}
+
+struct PageCaptureNumericOwnerValue: Equatable, Sendable {
+    let value: Int
+}
+
 @MainActor
 final class PageCaptureTestSource {
     private(set) var orderedKeys: [PageCaptureTestKey]
@@ -75,8 +110,7 @@ struct PageCaptureTestParticipantFixture {
     let registration:
         WorkspaceStateSnapshotPagerParticipant<
             PageCaptureTestParticipantID,
-            PageCaptureTestKey,
-            PageCaptureTestValue
+            PageCaptureTestItem
         >
     let keyedParticipant:
         WorkspaceStateSnapshotKeyedParticipant<
@@ -91,8 +125,7 @@ struct PageCapturePagerFixture {
     let pager:
         WorkspaceStateSnapshotPager<
             PageCaptureTestParticipantID,
-            PageCaptureTestKey,
-            PageCaptureTestValue
+            PageCaptureTestItem
         >
     let workRecords: PageCaptureWorkRecordRecorder
     let workInvalidities: PageCaptureWorkInvalidityRecorder
@@ -160,13 +193,19 @@ func makeParticipant(
         PageCaptureTestKey,
         PageCaptureTestValue
     >()
-    let registration = WorkspaceStateSnapshotPagerParticipant(
+    let registration = WorkspaceStateSnapshotPagerParticipant<
+        PageCaptureTestParticipantID,
+        PageCaptureTestItem
+    >.typed(
         participantID: participantID,
         keyedParticipant: keyedParticipant,
         orderedBaseKeys: { source.orderedKeys },
         currentValue: { key in source.storedValue(for: key) },
-        estimatedByteCount: { key, storedValue in
-            source.byteCount(for: key, storedValue: storedValue)
+        projectItem: { key, value in
+            WorkspaceStateSnapshotPagerTypedItem(
+                item: .text(id: key.rawValue, payload: value.payload),
+                estimatedByteCount: source.byteCount(for: key, storedValue: .value(value))
+            )
         }
     )
     return PageCaptureTestParticipantFixture(
@@ -233,15 +272,13 @@ func requireLimits(
 func takePage(
     _ pager: WorkspaceStateSnapshotPager<
         PageCaptureTestParticipantID,
-        PageCaptureTestKey,
-        PageCaptureTestValue
+        PageCaptureTestItem
     >,
     lease: WorkspaceStateSnapshotLease,
     limits: WorkspaceStateSnapshotPageLimits
 ) -> WorkspaceStateSnapshotPageTakeResult<
     PageCaptureTestParticipantID,
-    PageCaptureTestKey,
-    PageCaptureTestValue
+    PageCaptureTestItem
 > {
     let requestResult = pager.makePageCaptureRequest(lease: lease, limits: limits)
     guard case .requested(let request) = requestResult else {
@@ -253,8 +290,7 @@ func takePage(
 nonisolated func makeAndAbandonPageCaptureRequest(
     pager: WorkspaceStateSnapshotPager<
         PageCaptureTestParticipantID,
-        PageCaptureTestKey,
-        PageCaptureTestValue
+        PageCaptureTestItem
     >,
     lease: WorkspaceStateSnapshotLease,
     limits: WorkspaceStateSnapshotPageLimits
@@ -280,13 +316,11 @@ func isOpened(_ result: WorkspaceStateSnapshotPagerOpenResult) -> Bool {
 func requireCapturedPage(
     _ result: WorkspaceStateSnapshotPageTakeResult<
         PageCaptureTestParticipantID,
-        PageCaptureTestKey,
-        PageCaptureTestValue
+        PageCaptureTestItem
     >
 ) -> WorkspaceStateSnapshotPage<
     PageCaptureTestParticipantID,
-    PageCaptureTestKey,
-    PageCaptureTestValue
+    PageCaptureTestItem
 > {
     guard case .page(let page) = result else {
         preconditionFailure("expected newly captured snapshot page")
@@ -297,13 +331,11 @@ func requireCapturedPage(
 func requireReplayedPage(
     _ result: WorkspaceStateSnapshotPageTakeResult<
         PageCaptureTestParticipantID,
-        PageCaptureTestKey,
-        PageCaptureTestValue
+        PageCaptureTestItem
     >
 ) -> WorkspaceStateSnapshotPage<
     PageCaptureTestParticipantID,
-    PageCaptureTestKey,
-    PageCaptureTestValue
+    PageCaptureTestItem
 > {
     guard case .replayed(let page) = result else {
         preconditionFailure("expected retained snapshot page replay")
@@ -314,8 +346,7 @@ func requireReplayedPage(
 func isCapturedPage(
     _ result: WorkspaceStateSnapshotPageTakeResult<
         PageCaptureTestParticipantID,
-        PageCaptureTestKey,
-        PageCaptureTestValue
+        PageCaptureTestItem
     >
 ) -> Bool {
     guard case .page = result else { return false }
@@ -325,8 +356,7 @@ func isCapturedPage(
 func requireExhaustion(
     _ result: WorkspaceStateSnapshotPageTakeResult<
         PageCaptureTestParticipantID,
-        PageCaptureTestKey,
-        PageCaptureTestValue
+        PageCaptureTestItem
     >
 ) -> WorkspaceStateSnapshotExhaustionReceipt {
     guard case .exhausted(let receipt) = result else {
@@ -338,8 +368,7 @@ func requireExhaustion(
 func requireYieldedProgress(
     _ result: WorkspaceStateSnapshotPageTakeResult<
         PageCaptureTestParticipantID,
-        PageCaptureTestKey,
-        PageCaptureTestValue
+        PageCaptureTestItem
     >
 ) -> WorkspaceStateSnapshotPageProgressReceipt {
     guard case .yielded(let receipt) = result else {

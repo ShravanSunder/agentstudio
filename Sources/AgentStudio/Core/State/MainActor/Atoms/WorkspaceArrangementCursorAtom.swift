@@ -1,16 +1,16 @@
 import Foundation
 import Observation
 
-struct ArrangementDrawerCursorKey: Hashable {
+struct ArrangementDrawerCursorKey: Hashable, Sendable {
     let arrangementId: UUID
     let drawerId: UUID
 }
 
-struct ArrangementPaneCursorState: Equatable, Hashable {
+struct ArrangementPaneCursorState: Equatable, Hashable, Sendable {
     var activePaneId: UUID?
 }
 
-struct ArrangementDrawerCursorState: Equatable, Hashable {
+struct ArrangementDrawerCursorState: Equatable, Hashable, Sendable {
     var activeChildId: UUID?
 }
 

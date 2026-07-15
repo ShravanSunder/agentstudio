@@ -75,7 +75,7 @@ struct WorkspacePersistencePageCaptureTests {
         let foreignResult = secondFixture.pager.takePage(foreignRequest)
 
         // Assert
-        #expect(page.items.map(\.key) == [.init("a")])
+        #expect(page.items.map(\.itemID) == [.text("a")])
         #expect(copiedDiscard == .rejected(.duplicateSettlement))
         #expect(foreignResult == .rejected(.foreignPager))
         #expect(firstFixture.workLedger.pendingWorkCount() == 0)
@@ -106,7 +106,7 @@ struct WorkspacePersistencePageCaptureTests {
         let page = requireCapturedPage(pager.takePage(request))
 
         // Assert
-        #expect(page.items.map(\.key) == [.init("a")])
+        #expect(page.items.map(\.itemID) == [.text("a")])
         #expect(fixture.workRecords.records.count == 1)
         #expect(fixture.workRecords.records[0].queueAgeNanoseconds == 150)
         #expect(fixture.workRecords.records[0].synchronousServiceNanoseconds == 50)
@@ -218,8 +218,8 @@ struct WorkspacePersistencePageCaptureTests {
         #expect(retryAcknowledgement == .queuedForRetry(pageID: firstPage.pageID))
         #expect(replayedPage == firstPage)
         #expect(transferAcknowledgement == .acknowledged(pageID: firstPage.pageID))
-        #expect(firstPage.items.map(\.key) == [.init("a")])
-        #expect(secondPage.items.map(\.key) == [.init("b")])
+        #expect(firstPage.items.map(\.itemID) == [.text("a")])
+        #expect(secondPage.items.map(\.itemID) == [.text("b")])
     }
 
     @Test("duplicate and stale acknowledgements cannot disturb newer page custody")
@@ -401,12 +401,12 @@ struct WorkspacePersistencePageCaptureTests {
         )
 
         // Assert
-        #expect(itemPage.items.map(\.key) == [.init("a"), .init("b")])
+        #expect(itemPage.items.map(\.itemID) == [.text("a"), .text("b")])
         #expect(itemPage.itemCount == 2)
-        #expect(bytePage.items.map(\.key) == [.init("a"), .init("b")])
+        #expect(bytePage.items.map(\.itemID) == [.text("a"), .text("b")])
         #expect(bytePage.byteCount == 8)
-        #expect(itemRemainder.items.map(\.key) == [.init("c")])
-        #expect(byteRemainder.items.map(\.key) == [.init("c")])
+        #expect(itemRemainder.items.map(\.itemID) == [.text("c")])
+        #expect(byteRemainder.items.map(\.itemID) == [.text("c")])
     }
 
     @Test("oversized item rejection is side effect free")
@@ -433,7 +433,7 @@ struct WorkspacePersistencePageCaptureTests {
                 == .rejected(
                     .itemExceedsByteLimit(
                         participantID: .alpha,
-                        key: .init("a"),
+                        itemID: .text("a"),
                         itemBytes: 17,
                         maximumBytes: 16
                     )
@@ -441,7 +441,7 @@ struct WorkspacePersistencePageCaptureTests {
         )
         #expect(recordCountAfterRejection == recordCountBeforeRejection + 1)
         #expect(fixture.workRecords.records.count == recordCountAfterRejection + 1)
-        #expect(acceptedPage.items.map(\.key) == [.init("a")])
+        #expect(acceptedPage.items.map(\.itemID) == [.text("a")])
         #expect(acceptedPage.byteCount == 17)
     }
 
@@ -470,6 +470,85 @@ struct WorkspacePersistencePageCaptureTests {
         // Assert
         #expect(firstPage.participantID == .beta)
         #expect(secondPage.participantID == .alpha)
+    }
+
+    @Test("typed participant factories preserve heterogeneous owner key and value pairs")
+    func typedParticipantFactoriesPreserveHeterogeneousOwnerKeyAndValuePairs() {
+        // Arrange
+        let textKey = PageCaptureTextOwnerKey(rawValue: "readme")
+        let textValue = PageCaptureTextOwnerValue(payload: "contents")
+        let numericKey = PageCaptureNumericOwnerKey(rawValue: 42)
+        let numericValue = PageCaptureNumericOwnerValue(value: 9001)
+        let textParticipant = WorkspaceStateSnapshotKeyedParticipant<
+            PageCaptureTextOwnerKey,
+            PageCaptureTextOwnerValue
+        >()
+        let numericParticipant = WorkspaceStateSnapshotKeyedParticipant<
+            PageCaptureNumericOwnerKey,
+            PageCaptureNumericOwnerValue
+        >()
+        let registrations:
+            [WorkspaceStateSnapshotPagerParticipant<
+                PageCaptureTestParticipantID,
+                PageCaptureTestItem
+            >] = [
+                .typed(
+                    participantID: .alpha,
+                    keyedParticipant: textParticipant,
+                    orderedBaseKeys: { [textKey] },
+                    currentValue: { key in key == textKey ? .value(textValue) : .absent },
+                    projectItem: { key, value in
+                        WorkspaceStateSnapshotPagerTypedItem(
+                            item: .text(id: key.rawValue, payload: value.payload),
+                            estimatedByteCount: key.rawValue.utf8.count + value.payload.utf8.count
+                        )
+                    }
+                ),
+                .typed(
+                    participantID: .beta,
+                    keyedParticipant: numericParticipant,
+                    orderedBaseKeys: { [numericKey] },
+                    currentValue: { key in key == numericKey ? .value(numericValue) : .absent },
+                    projectItem: { key, value in
+                        WorkspaceStateSnapshotPagerTypedItem(
+                            item: .number(id: key.rawValue, value: value.value),
+                            estimatedByteCount: MemoryLayout<Int>.size * 2
+                        )
+                    }
+                ),
+            ]
+        let revisionOwner = WorkspacePersistenceRevisionOwner()
+        let workLedger = MainActorWorkLedger(clock: PageCaptureIncrementingClock())
+        let pager = WorkspaceStateSnapshotPager(
+            pagerIdentity: .make(),
+            revisionOwner: revisionOwner,
+            leaseAuthority: WorkspaceStateSnapshotPagerLeaseAuthority(
+                revisionOwner: revisionOwner
+            ),
+            participants: registrations,
+            workLedger: workLedger,
+            workRecordObserver: { _ in },
+            workInvalidityObserver: { _ in }
+        )
+        let lease = requireOpenedLease(pager.openLease())
+        let limits = requireLimits(maximumItems: 1, maximumBytes: 64)
+
+        // Act
+        let textPage = requireCapturedPage(takePage(pager, lease: lease, limits: limits))
+        _ = pager.acknowledgePage(
+            lease,
+            pageID: textPage.pageID,
+            disposition: .transferred
+        )
+        let numericPage = requireCapturedPage(takePage(pager, lease: lease, limits: limits))
+
+        // Assert
+        #expect(textPage.participantID == .alpha)
+        #expect(textPage.items.map(\.itemID) == [.text("readme")])
+        #expect(textPage.items.map(\.item) == [.text(id: "readme", payload: "contents")])
+        #expect(numericPage.participantID == .beta)
+        #expect(numericPage.items.map(\.itemID) == [.number(42)])
+        #expect(numericPage.items.map(\.item) == [.number(id: 42, value: 9001)])
     }
 
     @Test("all empty participants exhaust immediately and permit completed close")
@@ -561,7 +640,7 @@ struct WorkspacePersistencePageCaptureTests {
         let secondPage = requireCapturedPage(takePage(fixture.pager, lease: lease, limits: limits))
 
         // Assert
-        #expect(firstPage.items.map(\.key) == [.init("a")])
+        #expect(firstPage.items.map(\.itemID) == [.text("a")])
         #expect(readKeysAfterFirstPage == [.init("a")])
         #expect(sizedKeysAfterFirstPage == [.init("a")])
         #expect(participant.source.readKeys == [.init("a"), .init("b")])
@@ -576,7 +655,7 @@ struct WorkspacePersistencePageCaptureTests {
                     )
                 )
         )
-        #expect(secondPage.items.map(\.key) == [.init("b")])
+        #expect(secondPage.items.map(\.itemID) == [.text("b")])
     }
 
     @Test("service limit before progress records failure and preserves the first key")
@@ -610,7 +689,7 @@ struct WorkspacePersistencePageCaptureTests {
         #expect(sizedKeysAfterLimitedAttempt.isEmpty)
         #expect(participant.source.readKeys == [.init("a")])
         #expect(participant.source.sizedKeys == [.init("a")])
-        #expect(recoveredPage.items.map(\.key) == [.init("a")])
+        #expect(recoveredPage.items.map(\.itemID) == [.text("a")])
     }
 
     @Test("post-body ledger reversal preserves immutable page custody without a record")

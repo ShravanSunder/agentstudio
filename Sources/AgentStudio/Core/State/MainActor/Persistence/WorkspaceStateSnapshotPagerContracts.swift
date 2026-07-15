@@ -89,29 +89,36 @@ enum WorkspaceStateSnapshotPagerCloseDisposition: Equatable, Sendable {
     case abort
 }
 
+protocol WorkspaceStateSnapshotIdentifiedItem: Sendable {
+    associatedtype SnapshotItemID: Hashable, Sendable
+
+    var snapshotItemID: SnapshotItemID { get }
+}
+
 struct WorkspaceStateSnapshotPageItem<
     ParticipantID: Hashable & Sendable,
-    Key: Hashable & Sendable,
-    Value: Sendable
+    Item: WorkspaceStateSnapshotIdentifiedItem
 >: Sendable {
     let participantID: ParticipantID
-    let key: Key
-    let storedValue: WorkspaceStateSnapshotStoredValue<Value>
+    let item: Item
     let byteCount: Int
+
+    var itemID: Item.SnapshotItemID {
+        item.snapshotItemID
+    }
 }
 
 extension WorkspaceStateSnapshotPageItem: Equatable
-where ParticipantID: Equatable, Key: Equatable, Value: Equatable {}
+where ParticipantID: Equatable, Item: Equatable {}
 
 struct WorkspaceStateSnapshotPage<
     ParticipantID: Hashable & Sendable,
-    Key: Hashable & Sendable,
-    Value: Sendable
+    Item: WorkspaceStateSnapshotIdentifiedItem
 >: Sendable {
     let pageID: WorkspaceStateSnapshotPageID
     let lease: WorkspaceStateSnapshotLease
     let participantID: ParticipantID
-    let items: [WorkspaceStateSnapshotPageItem<ParticipantID, Key, Value>]
+    let items: [WorkspaceStateSnapshotPageItem<ParticipantID, Item>]
     let itemCount: Int
     let byteCount: Int
 
@@ -121,7 +128,7 @@ struct WorkspaceStateSnapshotPage<
 }
 
 extension WorkspaceStateSnapshotPage: Equatable
-where ParticipantID: Equatable, Key: Equatable, Value: Equatable {}
+where ParticipantID: Equatable, Item: Equatable {}
 
 struct WorkspaceStateSnapshotExhaustionReceipt: Equatable, Sendable {
     let lease: WorkspaceStateSnapshotLease
@@ -138,7 +145,7 @@ struct WorkspaceStateSnapshotPageProgressReceipt: Equatable, Sendable {
 
 enum WorkspaceStateSnapshotPageTakeRejection<
     ParticipantID: Hashable & Sendable,
-    Key: Hashable & Sendable
+    ItemID: Hashable & Sendable
 >: Equatable, Sendable {
     case foreignPager
     case noActiveLease
@@ -146,11 +153,11 @@ enum WorkspaceStateSnapshotPageTakeRejection<
     case pageAlreadyOutstanding(pageID: WorkspaceStateSnapshotPageID)
     case itemExceedsByteLimit(
         participantID: ParticipantID,
-        key: Key,
+        itemID: ItemID,
         itemBytes: Int,
         maximumBytes: Int
     )
-    case invalidItemByteCount(participantID: ParticipantID, key: Key)
+    case invalidItemByteCount(participantID: ParticipantID, itemID: ItemID)
     case itemByteCountOverflow
     case scannedItemLimitReachedWithoutProgress
     case synchronousServiceLimitReachedWithoutProgress
@@ -166,18 +173,17 @@ enum WorkspaceStateSnapshotPageCaptureRequestResult: Sendable {
 
 enum WorkspaceStateSnapshotPageTakeResult<
     ParticipantID: Hashable & Sendable,
-    Key: Hashable & Sendable,
-    Value: Sendable
+    Item: WorkspaceStateSnapshotIdentifiedItem
 >: Sendable {
-    case page(WorkspaceStateSnapshotPage<ParticipantID, Key, Value>)
-    case replayed(WorkspaceStateSnapshotPage<ParticipantID, Key, Value>)
+    case page(WorkspaceStateSnapshotPage<ParticipantID, Item>)
+    case replayed(WorkspaceStateSnapshotPage<ParticipantID, Item>)
     case yielded(WorkspaceStateSnapshotPageProgressReceipt)
     case exhausted(WorkspaceStateSnapshotExhaustionReceipt)
-    case rejected(WorkspaceStateSnapshotPageTakeRejection<ParticipantID, Key>)
+    case rejected(WorkspaceStateSnapshotPageTakeRejection<ParticipantID, Item.SnapshotItemID>)
 }
 
 extension WorkspaceStateSnapshotPageTakeResult: Equatable
-where ParticipantID: Equatable, Key: Equatable, Value: Equatable {}
+where ParticipantID: Equatable, Item: Equatable {}
 
 enum WorkspaceStateSnapshotPageAcknowledgementRejection: Equatable, Sendable {
     case noActiveLease
@@ -261,33 +267,148 @@ final class WorkspaceStateSnapshotPagerLeaseAuthority {
 @MainActor
 struct WorkspaceStateSnapshotPagerParticipant<
     ParticipantID: Hashable & Sendable,
-    Key: Hashable & Sendable,
-    Value: Sendable
+    Item: WorkspaceStateSnapshotIdentifiedItem
 > {
     let participantID: ParticipantID
-    let keyedParticipant: WorkspaceStateSnapshotKeyedParticipant<Key, Value>
-    let orderedBaseKeys: () -> [Key]
-    let currentValue: (Key) -> WorkspaceStateSnapshotStoredValue<Value>
-    let estimatedByteCount: (Key, WorkspaceStateSnapshotStoredValue<Value>) -> Int
-    let rawKeyByteCount: (Key) -> UInt64
+    private let openAction:
+        (WorkspaceStateSnapshotLease, WorkspaceStateSnapshotMembershipLimits) ->
+            WorkspaceStateSnapshotParticipantOpenResult
+    private let membershipCountAction: (WorkspaceStateSnapshotLease) -> WorkspaceStateSnapshotPagerMembershipCountResult
+    private let captureItemAction:
+        (WorkspaceStateSnapshotLease, Int) ->
+            WorkspaceStateSnapshotPagerItemCaptureResult<Item>
+    private let markBaseValueCopiedAction:
+        (WorkspaceStateSnapshotLease, Int, WorkspaceStateSnapshotPageID) ->
+            WorkspaceStateSnapshotMarkCopiedResult
+    private let closeAction: (WorkspaceStateSnapshotLease) -> WorkspaceStateSnapshotParticipantCloseResult
 
-    init(
+    static func typed<OwnerKey: Hashable & Sendable, OwnerValue: Sendable>(
         participantID: ParticipantID,
-        keyedParticipant: WorkspaceStateSnapshotKeyedParticipant<Key, Value>,
-        orderedBaseKeys: @escaping () -> [Key],
-        currentValue: @escaping (Key) -> WorkspaceStateSnapshotStoredValue<Value>,
-        estimatedByteCount:
-            @escaping (
-                Key,
-                WorkspaceStateSnapshotStoredValue<Value>
-            ) -> Int,
-        rawKeyByteCount: @escaping (Key) -> UInt64 = { _ in 1 }
-    ) {
-        self.participantID = participantID
-        self.keyedParticipant = keyedParticipant
-        self.orderedBaseKeys = orderedBaseKeys
-        self.currentValue = currentValue
-        self.estimatedByteCount = estimatedByteCount
-        self.rawKeyByteCount = rawKeyByteCount
+        keyedParticipant: WorkspaceStateSnapshotKeyedParticipant<OwnerKey, OwnerValue>,
+        orderedBaseKeys: @escaping () -> [OwnerKey],
+        currentValue: @escaping (OwnerKey) -> WorkspaceStateSnapshotStoredValue<OwnerValue>,
+        projectItem:
+            @escaping (OwnerKey, OwnerValue) ->
+            WorkspaceStateSnapshotPagerTypedItem<Item>,
+        rawKeyByteCount: @escaping (OwnerKey) -> UInt64 = { _ in 1 }
+    ) -> Self {
+        Self(
+            participantID: participantID,
+            openAction: { lease, limits in
+                keyedParticipant.open(
+                    lease: lease,
+                    orderedBaseKeys: orderedBaseKeys(),
+                    limits: limits,
+                    rawByteCountForKey: rawKeyByteCount
+                )
+            },
+            membershipCountAction: { lease in
+                switch keyedParticipant.membership(for: lease) {
+                case .membership(let membership):
+                    .count(membership.count)
+                case .rejected(let rejection):
+                    .rejected(rejection)
+                }
+            },
+            captureItemAction: { lease, membershipOffset in
+                let membership: [OwnerKey]
+                switch keyedParticipant.membership(for: lease) {
+                case .membership(let activeMembership):
+                    membership = activeMembership
+                case .rejected(let rejection):
+                    return .rejected(rejection)
+                }
+                precondition(
+                    membership.indices.contains(membershipOffset),
+                    "snapshot pager membership offset must be in bounds"
+                )
+                let ownerKey = membership[membershipOffset]
+                let readResult = keyedParticipant.readBaseValue(
+                    lease: lease,
+                    key: ownerKey,
+                    currentValue: currentValue(ownerKey)
+                )
+                guard case .read(.value(let ownerValue)) = readResult else {
+                    guard case .rejected(let rejection) = readResult else {
+                        preconditionFailure("base membership values must be present")
+                    }
+                    return .rejected(rejection)
+                }
+                let projectedItem = projectItem(ownerKey, ownerValue)
+                return .captured(projectedItem)
+            },
+            markBaseValueCopiedAction: { lease, membershipOffset, pageID in
+                let membership: [OwnerKey]
+                switch keyedParticipant.membership(for: lease) {
+                case .membership(let activeMembership):
+                    membership = activeMembership
+                case .rejected(let rejection):
+                    return .rejected(rejection)
+                }
+                precondition(
+                    membership.indices.contains(membershipOffset),
+                    "snapshot pager membership offset must be in bounds"
+                )
+                return keyedParticipant.markBaseValueCopied(
+                    lease: lease,
+                    key: membership[membershipOffset],
+                    pageID: pageID
+                )
+            },
+            closeAction: { lease in keyedParticipant.close(lease: lease) }
+        )
     }
+
+    func open(
+        lease: WorkspaceStateSnapshotLease,
+        limits: WorkspaceStateSnapshotMembershipLimits
+    ) -> WorkspaceStateSnapshotParticipantOpenResult {
+        openAction(lease, limits)
+    }
+
+    func membershipCount(
+        for lease: WorkspaceStateSnapshotLease
+    ) -> WorkspaceStateSnapshotPagerMembershipCountResult {
+        membershipCountAction(lease)
+    }
+
+    func captureItem(
+        lease: WorkspaceStateSnapshotLease,
+        membershipOffset: Int
+    ) -> WorkspaceStateSnapshotPagerItemCaptureResult<Item> {
+        captureItemAction(lease, membershipOffset)
+    }
+
+    func markBaseValueCopied(
+        lease: WorkspaceStateSnapshotLease,
+        membershipOffset: Int,
+        pageID: WorkspaceStateSnapshotPageID
+    ) -> WorkspaceStateSnapshotMarkCopiedResult {
+        markBaseValueCopiedAction(lease, membershipOffset, pageID)
+    }
+
+    func close(
+        lease: WorkspaceStateSnapshotLease
+    ) -> WorkspaceStateSnapshotParticipantCloseResult {
+        closeAction(lease)
+    }
+}
+
+enum WorkspaceStateSnapshotPagerMembershipCountResult: Equatable, Sendable {
+    case count(Int)
+    case rejected(WorkspaceStateSnapshotParticipantRejection)
+}
+
+enum WorkspaceStateSnapshotPagerItemCaptureResult<
+    Item: WorkspaceStateSnapshotIdentifiedItem
+>: Sendable {
+    case captured(WorkspaceStateSnapshotPagerTypedItem<Item>)
+    case rejected(WorkspaceStateSnapshotParticipantRejection)
+}
+
+struct WorkspaceStateSnapshotPagerTypedItem<
+    Item: WorkspaceStateSnapshotIdentifiedItem
+>: Sendable {
+    let item: Item
+    let estimatedByteCount: Int
 }

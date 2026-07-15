@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-struct DrawerViewGraphState: Equatable, Hashable {
+struct DrawerViewGraphState: Equatable, Hashable, Sendable {
     var layout: DrawerGridLayout
     var minimizedPaneIds: Set<UUID>
 
@@ -15,7 +15,7 @@ struct DrawerViewGraphState: Equatable, Hashable {
     }
 }
 
-struct PaneArrangementGraphState: Equatable, Hashable, Identifiable {
+struct PaneArrangementGraphState: Equatable, Hashable, Identifiable, Sendable {
     let id: UUID
     var name: String
     var isDefault: Bool
@@ -55,7 +55,7 @@ struct PaneArrangementGraphState: Equatable, Hashable, Identifiable {
     }
 }
 
-struct TabGraphState: Equatable, Hashable {
+struct TabGraphState: Equatable, Hashable, Sendable {
     let tabId: UUID
     var allPaneIds: [UUID]
     var arrangements: [PaneArrangementGraphState]

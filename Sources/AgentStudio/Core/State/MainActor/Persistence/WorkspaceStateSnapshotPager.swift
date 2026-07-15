@@ -61,8 +61,7 @@ struct WorkspaceStateSnapshotPageCaptureRequest: Sendable {
 @MainActor
 final class WorkspaceStateSnapshotPager<
     ParticipantID: Hashable & Sendable,
-    Key: Hashable & Sendable,
-    Value: Sendable
+    Item: WorkspaceStateSnapshotIdentifiedItem
 > {
     private struct ReadyState {
         let lease: WorkspaceStateSnapshotLease
@@ -76,7 +75,7 @@ final class WorkspaceStateSnapshotPager<
 
     private struct OutstandingState {
         var ready: ReadyState
-        let page: WorkspaceStateSnapshotPage<ParticipantID, Key, Value>
+        let page: WorkspaceStateSnapshotPage<ParticipantID, Item>
         var retryWasRequested: Bool
     }
 
@@ -89,7 +88,7 @@ final class WorkspaceStateSnapshotPager<
 
     private enum CaptureResult {
         case page(
-            WorkspaceStateSnapshotPage<ParticipantID, Key, Value>,
+            WorkspaceStateSnapshotPage<ParticipantID, Item>,
             scannedItemCount: Int
         )
         case exhausted(scannedItemCount: Int)
@@ -99,7 +98,7 @@ final class WorkspaceStateSnapshotPager<
             scannedItemCount: Int
         )
         case rejected(
-            WorkspaceStateSnapshotPageTakeRejection<ParticipantID, Key>,
+            WorkspaceStateSnapshotPageTakeRejection<ParticipantID, Item.SnapshotItemID>,
             scannedItemCount: Int
         )
 
@@ -141,21 +140,26 @@ final class WorkspaceStateSnapshotPager<
 
     private enum ParticipantCaptureResult {
         case captured(
-            items: [WorkspaceStateSnapshotPageItem<ParticipantID, Key, Value>],
+            items: [CapturedItem],
             byteCount: Int,
             scannedItemCount: Int
         )
         case rejected(
-            WorkspaceStateSnapshotPageTakeRejection<ParticipantID, Key>,
+            WorkspaceStateSnapshotPageTakeRejection<ParticipantID, Item.SnapshotItemID>,
             scannedItemCount: Int
         )
+    }
+
+    private struct CapturedItem {
+        let pageItem: WorkspaceStateSnapshotPageItem<ParticipantID, Item>
+        let membershipOffset: Int
     }
 
     nonisolated let pagerIdentity: WorkspaceStateSnapshotPagerIdentity
 
     private let revisionOwner: WorkspacePersistenceRevisionOwner
     private let leaseAuthority: WorkspaceStateSnapshotPagerLeaseAuthority
-    private let participants: [WorkspaceStateSnapshotPagerParticipant<ParticipantID, Key, Value>]
+    private let participants: [WorkspaceStateSnapshotPagerParticipant<ParticipantID, Item>]
     private let membershipLimits: WorkspaceStateSnapshotMembershipLimits
     nonisolated private let workLedger: MainActorWorkLedger
     private let workRecordObserver: (MainActorWorkRecord) -> Void
@@ -167,7 +171,7 @@ final class WorkspaceStateSnapshotPager<
         pagerIdentity: WorkspaceStateSnapshotPagerIdentity,
         revisionOwner: WorkspacePersistenceRevisionOwner,
         leaseAuthority: WorkspaceStateSnapshotPagerLeaseAuthority,
-        participants: [WorkspaceStateSnapshotPagerParticipant<ParticipantID, Key, Value>],
+        participants: [WorkspaceStateSnapshotPagerParticipant<ParticipantID, Item>],
         membershipLimits: WorkspaceStateSnapshotMembershipLimits = .init(
             maximumKeyCount: 100_000,
             maximumRawKeyBytes: 64 * 1024 * 1024
@@ -203,17 +207,12 @@ final class WorkspaceStateSnapshotPager<
         )
         guard case .opened(let lease) = authorityResult else { return authorityResult }
 
-        var openedParticipants: [WorkspaceStateSnapshotPagerParticipant<ParticipantID, Key, Value>] = []
+        var openedParticipants: [WorkspaceStateSnapshotPagerParticipant<ParticipantID, Item>] = []
         for participant in participants {
-            let openResult = participant.keyedParticipant.open(
-                lease: lease,
-                orderedBaseKeys: participant.orderedBaseKeys(),
-                limits: membershipLimits,
-                rawByteCountForKey: participant.rawKeyByteCount
-            )
+            let openResult = participant.open(lease: lease, limits: membershipLimits)
             guard case .opened = openResult else {
                 for openedParticipant in openedParticipants {
-                    _ = openedParticipant.keyedParticipant.close(lease: lease)
+                    _ = openedParticipant.close(lease: lease)
                 }
                 _ = leaseAuthority.release(lease)
                 guard case .rejected(let rejection) = openResult else { preconditionFailure() }
@@ -264,7 +263,7 @@ final class WorkspaceStateSnapshotPager<
 
     func takePage(
         _ request: WorkspaceStateSnapshotPageCaptureRequest
-    ) -> WorkspaceStateSnapshotPageTakeResult<ParticipantID, Key, Value> {
+    ) -> WorkspaceStateSnapshotPageTakeResult<ParticipantID, Item> {
         guard request.pagerIdentity == pagerIdentity, request.custody.workLedger === workLedger else {
             switch request.discardBeforeExecution() {
             case .discarded:
@@ -329,8 +328,8 @@ final class WorkspaceStateSnapshotPager<
 
     private func discard(
         _ ticket: MainActorWorkTicket,
-        returning rejection: WorkspaceStateSnapshotPageTakeRejection<ParticipantID, Key>
-    ) -> WorkspaceStateSnapshotPageTakeResult<ParticipantID, Key, Value> {
+        returning rejection: WorkspaceStateSnapshotPageTakeRejection<ParticipantID, Item.SnapshotItemID>
+    ) -> WorkspaceStateSnapshotPageTakeResult<ParticipantID, Item> {
         switch workLedger.discard(ticket: ticket) {
         case .discarded:
             return .rejected(rejection)
@@ -466,10 +465,14 @@ final class WorkspaceStateSnapshotPager<
             }
             let participant = participants[participantIndex]
             participantInspectionCount += 1
-            guard case .membership(let membership) = participant.keyedParticipant.membership(for: ready.lease) else {
-                return .rejected(.participantRejected(.foreignLease), scannedItemCount: scannedItemCount)
+            let membershipCount: Int
+            switch participant.membershipCount(for: ready.lease) {
+            case .count(let activeMembershipCount):
+                membershipCount = activeMembershipCount
+            case .rejected(let rejection):
+                return .rejected(.participantRejected(rejection), scannedItemCount: scannedItemCount)
             }
-            if membershipOffset >= membership.count {
+            if membershipOffset >= membershipCount {
                 participantIndex += 1
                 membershipOffset = 0
                 if participantInspectionCount >= limits.maximumParticipantInspections {
@@ -484,7 +487,7 @@ final class WorkspaceStateSnapshotPager<
 
             let participantCapture = captureParticipantItems(
                 participant,
-                membership: membership,
+                membershipCount: membershipCount,
                 membershipOffset: membershipOffset,
                 lease: ready.lease,
                 limits: limits,
@@ -500,32 +503,30 @@ final class WorkspaceStateSnapshotPager<
             }
             scannedItemCount += participantScannedItemCount
             let pageID = WorkspaceStateSnapshotPageID.make()
-            for item in items {
-                let markResult = participant.keyedParticipant.markBaseValueCopied(
-                    lease: ready.lease,
-                    key: item.key,
-                    pageID: pageID
+            if let rejection = markCapturedItemsCopied(
+                items,
+                by: participant,
+                lease: ready.lease,
+                pageID: pageID
+            ) {
+                return .rejected(
+                    .participantCommitRejected(rejection),
+                    scannedItemCount: scannedItemCount
                 )
-                guard markResult == .markedCopied else {
-                    guard case .rejected(let rejection) = markResult else { preconditionFailure() }
-                    return .rejected(
-                        .participantCommitRejected(rejection),
-                        scannedItemCount: scannedItemCount
-                    )
-                }
             }
 
-            let nextOffset = membershipOffset + items.count
+            let pageItems = items.map(\.pageItem)
+            let nextOffset = membershipOffset + pageItems.count
             let nextPosition =
-                nextOffset < membership.count
+                nextOffset < membershipCount
                 ? (participantIndex: participantIndex, membershipOffset: nextOffset)
                 : (participantIndex: participantIndex + 1, membershipOffset: 0)
             let page = WorkspaceStateSnapshotPage(
                 pageID: pageID,
                 lease: ready.lease,
                 participantID: participant.participantID,
-                items: items,
-                itemCount: items.count,
+                items: pageItems,
+                itemCount: pageItems.count,
                 byteCount: pageBytes,
                 nextParticipantIndex: nextPosition.participantIndex,
                 nextMembershipOffset: nextPosition.membershipOffset,
@@ -537,17 +538,17 @@ final class WorkspaceStateSnapshotPager<
     }
 
     private func captureParticipantItems(
-        _ participant: WorkspaceStateSnapshotPagerParticipant<ParticipantID, Key, Value>,
-        membership: [Key],
+        _ participant: WorkspaceStateSnapshotPagerParticipant<ParticipantID, Item>,
+        membershipCount: Int,
         membershipOffset: Int,
         lease: WorkspaceStateSnapshotLease,
         limits: WorkspaceStateSnapshotPageLimits,
         startedAt: PerformanceMonotonicInstant
     ) -> ParticipantCaptureResult {
-        var items: [WorkspaceStateSnapshotPageItem<ParticipantID, Key, Value>] = []
+        var items: [CapturedItem] = []
         var pageBytes = 0
         var scannedItemCount = 0
-        while membershipOffset + items.count < membership.count {
+        while membershipOffset + items.count < membershipCount {
             if items.count >= limits.maximumItems {
                 break
             }
@@ -567,21 +568,22 @@ final class WorkspaceStateSnapshotPager<
                 break
             }
 
-            let key = membership[membershipOffset + items.count]
+            let itemMembershipOffset = membershipOffset + items.count
             scannedItemCount += 1
-            let readResult = participant.keyedParticipant.readBaseValue(
+            let captureResult = participant.captureItem(
                 lease: lease,
-                key: key,
-                currentValue: participant.currentValue(key)
+                membershipOffset: itemMembershipOffset
             )
-            guard case .read(let storedValue) = readResult else {
-                guard case .rejected(let rejection) = readResult else { preconditionFailure() }
+            guard case .captured(let projectedItem) = captureResult else {
+                guard case .rejected(let rejection) = captureResult else { preconditionFailure() }
                 return .rejected(.participantRejected(rejection), scannedItemCount: scannedItemCount)
             }
-            let itemBytes = participant.estimatedByteCount(key, storedValue)
+            let item = projectedItem.item
+            let itemID = item.snapshotItemID
+            let itemBytes = projectedItem.estimatedByteCount
             guard itemBytes >= 0 else {
                 return .rejected(
-                    .invalidItemByteCount(participantID: participant.participantID, key: key),
+                    .invalidItemByteCount(participantID: participant.participantID, itemID: itemID),
                     scannedItemCount: scannedItemCount
                 )
             }
@@ -589,7 +591,7 @@ final class WorkspaceStateSnapshotPager<
                 return .rejected(
                     .itemExceedsByteLimit(
                         participantID: participant.participantID,
-                        key: key,
+                        itemID: itemID,
                         itemBytes: itemBytes,
                         maximumBytes: limits.maximumBytes
                     ),
@@ -604,11 +606,13 @@ final class WorkspaceStateSnapshotPager<
                 break
             }
             items.append(
-                WorkspaceStateSnapshotPageItem(
-                    participantID: participant.participantID,
-                    key: key,
-                    storedValue: storedValue,
-                    byteCount: itemBytes
+                CapturedItem(
+                    pageItem: WorkspaceStateSnapshotPageItem(
+                        participantID: participant.participantID,
+                        item: item,
+                        byteCount: itemBytes
+                    ),
+                    membershipOffset: itemMembershipOffset
                 )
             )
             pageBytes = nextPageBytes.partialValue
@@ -617,10 +621,30 @@ final class WorkspaceStateSnapshotPager<
         return .captured(items: items, byteCount: pageBytes, scannedItemCount: scannedItemCount)
     }
 
+    private func markCapturedItemsCopied(
+        _ items: [CapturedItem],
+        by participant: WorkspaceStateSnapshotPagerParticipant<ParticipantID, Item>,
+        lease: WorkspaceStateSnapshotLease,
+        pageID: WorkspaceStateSnapshotPageID
+    ) -> WorkspaceStateSnapshotParticipantRejection? {
+        for item in items {
+            let markResult = participant.markBaseValueCopied(
+                lease: lease,
+                membershipOffset: item.membershipOffset,
+                pageID: pageID
+            )
+            guard markResult == .markedCopied else {
+                guard case .rejected(let rejection) = markResult else { preconditionFailure() }
+                return rejection
+            }
+        }
+        return nil
+    }
+
     private func apply(
         _ capture: CaptureResult,
         from ready: ReadyState
-    ) -> WorkspaceStateSnapshotPageTakeResult<ParticipantID, Key, Value> {
+    ) -> WorkspaceStateSnapshotPageTakeResult<ParticipantID, Item> {
         switch capture {
         case .page(let page, _):
             state = .outstanding(
@@ -669,7 +693,7 @@ final class WorkspaceStateSnapshotPager<
         var releasedMembershipCount = 0
         var releasedRetainedBaseValueCount = 0
         for participant in participants {
-            let closeResult = participant.keyedParticipant.close(lease: lease)
+            let closeResult = participant.close(lease: lease)
             guard case .closed(let receipt) = closeResult else {
                 guard case .rejected(let rejection) = closeResult else { preconditionFailure() }
                 return .rejected(.participantRejected(rejection))
