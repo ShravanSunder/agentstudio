@@ -104,6 +104,150 @@ struct MainActorWorkLedgerTests {
         #expect(bodyCount == 1)
     }
 
+    @MainActor
+    @Test
+    func measuredSettlementRecordsBodyCountsAndOutcome() {
+        let ledger = MainActorWorkLedger(clock: ScriptedPerformanceClock([100, 125, 140]))
+        let ticket = requireTicket(
+            ledger.enqueue(
+                domain: .persistence,
+                operation: .persistencePageCapture,
+                counts: .init(input: 999, changedKey: 999)
+            ))
+
+        let execution = ledger.withMeasuredMainActorWork(ticket: ticket) {
+            MainActorMeasuredWork(
+                value: "page",
+                outcome: .succeeded,
+                counts: .init(input: 17, changedKey: 4)
+            )
+        }
+
+        guard case .completed(let value, let record) = execution else {
+            Issue.record("expected measured completion")
+            return
+        }
+        #expect(value == "page")
+        #expect(record.counts == .init(input: 17, changedKey: 4))
+        #expect(record.outcome == .succeeded)
+        #expect(record.queueAgeNanoseconds == 25)
+        #expect(record.synchronousServiceNanoseconds == 15)
+    }
+
+    @MainActor
+    @Test
+    func measuredSettlementRejectsBeforeExecutionForForeignTicket() {
+        let firstLedger = MainActorWorkLedger(clock: ScriptedPerformanceClock([1]))
+        let secondLedger = MainActorWorkLedger(clock: ScriptedPerformanceClock([]))
+        let ticket = requireTicket(
+            firstLedger.enqueue(domain: .persistence, operation: .persistencePageCapture))
+        var bodyCount = 0
+
+        let execution = secondLedger.withMeasuredMainActorWork(ticket: ticket) {
+            bodyCount += 1
+            return MainActorMeasuredWork(
+                value: "should-not-execute",
+                outcome: .failed,
+                counts: .init(input: 1, changedKey: 1)
+            )
+        }
+
+        guard case .rejectedBeforeExecution(.foreignTicket) = execution else {
+            Issue.record("expected foreign ticket rejection before execution")
+            return
+        }
+        #expect(bodyCount == 0)
+    }
+
+    @MainActor
+    @Test
+    func measuredSettlementRejectsQueueClockReversalWithoutExecutingBody() {
+        let ledger = MainActorWorkLedger(clock: ScriptedPerformanceClock([20, 10]))
+        let ticket = requireTicket(
+            ledger.enqueue(domain: .persistence, operation: .persistencePageCapture))
+        var bodyCount = 0
+
+        let execution = ledger.withMeasuredMainActorWork(ticket: ticket) {
+            bodyCount += 1
+            return MainActorMeasuredWork(
+                value: "should-not-execute",
+                outcome: .failed,
+                counts: .init(input: 1, changedKey: 1)
+            )
+        }
+
+        guard case .rejectedBeforeExecution(.clockReversal(.enqueueToStart)) = execution else {
+            Issue.record("expected queue clock reversal before execution")
+            return
+        }
+        #expect(bodyCount == 0)
+    }
+
+    @MainActor
+    @Test
+    func measuredSettlementPreservesValueWhenServiceClockReverses() {
+        let ledger = MainActorWorkLedger(clock: ScriptedPerformanceClock([10, 20, 15]))
+        let ticket = requireTicket(
+            ledger.enqueue(domain: .persistence, operation: .persistencePageCapture))
+        var bodyCount = 0
+
+        let execution = ledger.withMeasuredMainActorWork(ticket: ticket) {
+            bodyCount += 1
+            return MainActorMeasuredWork(
+                value: "retained-page",
+                outcome: .succeeded,
+                counts: .init(input: 12, changedKey: 3)
+            )
+        }
+
+        guard
+            case .completedWithoutRecord(
+                let value,
+                invalidity: .clockReversal(.startToSynchronousEnd)
+            ) = execution
+        else {
+            Issue.record("expected completed value with recording invalidity")
+            return
+        }
+        #expect(value == "retained-page")
+        #expect(bodyCount == 1)
+    }
+
+    @MainActor
+    @Test
+    func measuredSettlementRejectsDuplicateWithoutExecutingBody() {
+        let ledger = MainActorWorkLedger(clock: ScriptedPerformanceClock([10, 20, 30]))
+        let ticket = requireTicket(
+            ledger.enqueue(domain: .persistence, operation: .persistencePageCapture))
+        let first = ledger.withMeasuredMainActorWork(ticket: ticket) {
+            MainActorMeasuredWork(
+                value: "first-page",
+                outcome: .succeeded,
+                counts: .init(input: 1, changedKey: 1)
+            )
+        }
+        guard case .completed = first else {
+            Issue.record("expected first measured completion")
+            return
+        }
+        var duplicateBodyCount = 0
+
+        let duplicate = ledger.withMeasuredMainActorWork(ticket: ticket) {
+            duplicateBodyCount += 1
+            return MainActorMeasuredWork(
+                value: "duplicate-page",
+                outcome: .succeeded,
+                counts: .init(input: 1, changedKey: 1)
+            )
+        }
+
+        guard case .rejectedBeforeExecution(.duplicateSettlement) = duplicate else {
+            Issue.record("expected duplicate rejection before execution")
+            return
+        }
+        #expect(duplicateBodyCount == 0)
+    }
+
     private func requireTicket(_ result: MainActorWorkEnqueueResult) -> MainActorWorkTicket {
         guard case .enqueued(let ticket) = result else {
             preconditionFailure("expected ticket")

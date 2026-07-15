@@ -117,9 +117,26 @@ enum MainActorWorkEnqueueResult: Equatable, Sendable {
     case rejected(MainActorWorkInvalidity)
 }
 
+enum MainActorWorkDiscardResult: Equatable, Sendable {
+    case discarded
+    case rejected(MainActorWorkInvalidity)
+}
+
 enum MainActorWorkExecution<Value> {
     case completed(value: Value, record: MainActorWorkRecord)
     case rejected(MainActorWorkInvalidity)
+}
+
+struct MainActorMeasuredWork<Value> {
+    let value: Value
+    let outcome: MainActorWorkOutcome
+    let counts: MainActorWorkCounts
+}
+
+enum MainActorMeasuredWorkExecution<Value> {
+    case completed(value: Value, record: MainActorWorkRecord)
+    case completedWithoutRecord(value: Value, invalidity: MainActorWorkInvalidity)
+    case rejectedBeforeExecution(MainActorWorkInvalidity)
 }
 
 final class MainActorWorkLedger: @unchecked Sendable {
@@ -182,19 +199,26 @@ final class MainActorWorkLedger: @unchecked Sendable {
         }
     }
 
+    func discard(ticket: MainActorWorkTicket) -> MainActorWorkDiscardResult {
+        switch beginSettlement(ticket: ticket) {
+        case .pending:
+            return .discarded
+        case .rejected(let invalidity):
+            return .rejected(invalidity)
+        }
+    }
+
+    func pendingWorkCount() -> Int {
+        lock.withLock { pendingByWorkID.count }
+    }
+
     @MainActor
     func withMainActorWork<Value>(
         ticket: MainActorWorkTicket,
         outcome: MainActorWorkOutcome,
         body: () -> Value
     ) -> MainActorWorkExecution<Value> {
-        let startResult: StartResult = lock.withLock {
-            guard ticket.ledgerID == ledgerID else { return .rejected(.foreignTicket) }
-            guard let pending = pendingByWorkID.removeValue(forKey: ticket.workID) else {
-                return .rejected(.duplicateSettlement)
-            }
-            return .pending(pending)
-        }
+        let startResult = beginSettlement(ticket: ticket)
         guard case .pending(let pending) = startResult else {
             guard case .rejected(let invalidity) = startResult else { preconditionFailure() }
             return .rejected(invalidity)
@@ -225,6 +249,74 @@ final class MainActorWorkLedger: @unchecked Sendable {
                 counts: pending.counts,
                 outcome: outcome
             )
+        )
+    }
+
+    @MainActor
+    func withMeasuredMainActorWork<Value>(
+        ticket: MainActorWorkTicket,
+        body: () -> MainActorMeasuredWork<Value>
+    ) -> MainActorMeasuredWorkExecution<Value> {
+        let startResult = beginSettlement(ticket: ticket)
+        guard case .pending(let pending) = startResult else {
+            guard case .rejected(let invalidity) = startResult else { preconditionFailure() }
+            return .rejectedBeforeExecution(invalidity)
+        }
+
+        let startedAt = clock.now()
+        guard startedAt >= pending.enqueuedAt else {
+            return .rejectedBeforeExecution(.clockReversal(.enqueueToStart))
+        }
+        let measuredWork = body()
+        let endedAt = clock.now()
+        guard endedAt >= startedAt else {
+            return .completedWithoutRecord(
+                value: measuredWork.value,
+                invalidity: .clockReversal(.startToSynchronousEnd)
+            )
+        }
+        return .completed(
+            value: measuredWork.value,
+            record: makeRecord(
+                pending: pending,
+                startedAt: startedAt,
+                endedAt: endedAt,
+                counts: measuredWork.counts,
+                outcome: measuredWork.outcome
+            )
+        )
+    }
+
+    private func beginSettlement(ticket: MainActorWorkTicket) -> StartResult {
+        lock.withLock {
+            guard ticket.ledgerID == ledgerID else { return .rejected(.foreignTicket) }
+            guard let pending = pendingByWorkID.removeValue(forKey: ticket.workID) else {
+                return .rejected(.duplicateSettlement)
+            }
+            return .pending(pending)
+        }
+    }
+
+    private func makeRecord(
+        pending: PendingWork,
+        startedAt: PerformanceMonotonicInstant,
+        endedAt: PerformanceMonotonicInstant,
+        counts: MainActorWorkCounts,
+        outcome: MainActorWorkOutcome
+    ) -> MainActorWorkRecord {
+        MainActorWorkRecord(
+            version: .v1,
+            workID: pending.workID,
+            parent: pending.parent,
+            run: pending.run,
+            domain: pending.domain,
+            operation: pending.operation,
+            revision: pending.revision,
+            sequence: pending.sequence,
+            queueAgeNanoseconds: startedAt.uptimeNanoseconds - pending.enqueuedAt.uptimeNanoseconds,
+            synchronousServiceNanoseconds: endedAt.uptimeNanoseconds - startedAt.uptimeNanoseconds,
+            counts: counts,
+            outcome: outcome
         )
     }
 }

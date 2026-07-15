@@ -16,6 +16,18 @@ struct WorkspaceStateSnapshotLeaseID: Hashable, Sendable {
     }
 }
 
+struct WorkspaceStateSnapshotPageID: Hashable, Sendable {
+    let rawValue: UUID
+
+    private init(rawValue: UUID) {
+        self.rawValue = rawValue
+    }
+
+    static func make() -> Self {
+        Self(rawValue: UUIDv7.generate())
+    }
+}
+
 struct WorkspaceStateSnapshotLease: Hashable, Sendable {
     let pagerIdentity: WorkspaceStateSnapshotPagerIdentity
     let leaseID: WorkspaceStateSnapshotLeaseID
@@ -49,8 +61,12 @@ extension WorkspaceStateSnapshotStoredValue: Equatable where Value: Equatable {}
 
 enum WorkspaceStateSnapshotParticipantRejection: Equatable, Sendable {
     case activeLeaseExists
-    case baseKeyAlreadyMaterialized
+    case baseKeyAlreadyCopied
+    case baseMembershipKeyCountCapacityExceeded
+    case baseMembershipRawByteCapacityExceeded
+    case baseMembershipRawByteCountOverflow
     case baseMembershipValueMissing
+    case baseValueCopiedByDifferentPage
     case duplicateBaseMembershipKey
     case foreignLease
     case foreignProcessGeneration
@@ -58,6 +74,11 @@ enum WorkspaceStateSnapshotParticipantRejection: Equatable, Sendable {
     case noActiveLease
     case transactionNotActive
     case transactionDoesNotFollowBaseRevision
+}
+
+struct WorkspaceStateSnapshotMembershipLimits: Equatable, Sendable {
+    let maximumKeyCount: UInt64
+    let maximumRawKeyBytes: UInt64
 }
 
 enum WorkspaceStateSnapshotParticipantOpenResult: Equatable, Sendable {
@@ -75,21 +96,27 @@ extension WorkspaceStateSnapshotMembershipResult: Equatable where Key: Equatable
 enum WorkspaceStateSnapshotMutationResult: Equatable, Sendable {
     case retainedFirstBaseValue
     case baseValueAlreadyRetained
-    case baseValueAlreadyMaterialized
+    case baseValueAlreadyCopied
     case postBaseKeyExcluded
     case rejected(WorkspaceStateSnapshotParticipantRejection)
 }
 
-enum WorkspaceStateSnapshotMaterializationResult<Value: Sendable>: Sendable {
-    case materialized(WorkspaceStateSnapshotStoredValue<Value>)
+enum WorkspaceStateSnapshotBaseValueReadResult<Value: Sendable>: Sendable {
+    case read(WorkspaceStateSnapshotStoredValue<Value>)
     case rejected(WorkspaceStateSnapshotParticipantRejection)
 }
 
-extension WorkspaceStateSnapshotMaterializationResult: Equatable where Value: Equatable {}
+extension WorkspaceStateSnapshotBaseValueReadResult: Equatable where Value: Equatable {}
+
+enum WorkspaceStateSnapshotMarkCopiedResult: Equatable, Sendable {
+    case markedCopied
+    case alreadyMarkedCopied
+    case rejected(WorkspaceStateSnapshotParticipantRejection)
+}
 
 struct WorkspaceStateSnapshotParticipantDiagnostics: Equatable, Sendable {
     let baseMembershipCount: Int
-    let materializedCount: Int
+    let copiedBaseValueCount: Int
     let retainedBaseValueCount: Int
 }
 
@@ -122,15 +149,17 @@ final class WorkspaceStateSnapshotKeyedParticipant<
         let lease: WorkspaceStateSnapshotLease
         let orderedBaseKeys: [Key]
         let baseKeySet: Set<Key>
-        var materializedKeys: Set<Key>
-        var retainedBaseValues: [Key: WorkspaceStateSnapshotStoredValue<Value>]
+        var copiedPageIDsByKey: [Key: WorkspaceStateSnapshotPageID]
+        var retainedBaseValues: [Key: Value]
     }
 
     private var activeLease: ActiveLease?
 
     func open<BaseKeys: Sequence>(
         lease: WorkspaceStateSnapshotLease,
-        orderedBaseKeys: BaseKeys
+        orderedBaseKeys: BaseKeys,
+        limits: WorkspaceStateSnapshotMembershipLimits,
+        rawByteCountForKey: (Key) -> UInt64
     ) -> WorkspaceStateSnapshotParticipantOpenResult where BaseKeys.Element == Key {
         guard activeLease == nil else {
             return .rejected(.activeLeaseExists)
@@ -140,18 +169,30 @@ final class WorkspaceStateSnapshotKeyedParticipant<
         // the caller's copy-on-write backing storage.
         var copiedKeys: [Key] = []
         var copiedKeySet = Set<Key>()
+        var copiedRawByteCount: UInt64 = 0
         for key in orderedBaseKeys {
+            guard UInt64(copiedKeys.count) < limits.maximumKeyCount else {
+                return .rejected(.baseMembershipKeyCountCapacityExceeded)
+            }
             guard copiedKeySet.insert(key).inserted else {
                 return .rejected(.duplicateBaseMembershipKey)
             }
+            let nextRawByteCount = copiedRawByteCount.addingReportingOverflow(rawByteCountForKey(key))
+            guard !nextRawByteCount.overflow else {
+                return .rejected(.baseMembershipRawByteCountOverflow)
+            }
+            guard nextRawByteCount.partialValue <= limits.maximumRawKeyBytes else {
+                return .rejected(.baseMembershipRawByteCapacityExceeded)
+            }
             copiedKeys.append(key)
+            copiedRawByteCount = nextRawByteCount.partialValue
         }
 
         activeLease = ActiveLease(
             lease: lease,
             orderedBaseKeys: copiedKeys,
             baseKeySet: copiedKeySet,
-            materializedKeys: [],
+            copiedPageIDsByKey: [:],
             retainedBaseValues: [:]
         )
         return .opened(baseMembershipCount: copiedKeys.count)
@@ -197,14 +238,13 @@ final class WorkspaceStateSnapshotKeyedParticipant<
         guard activeLease.baseKeySet.contains(key) else {
             return .postBaseKeyExcluded
         }
-        guard !activeLease.materializedKeys.contains(key) else {
-            return .baseValueAlreadyMaterialized
+        guard activeLease.copiedPageIDsByKey[key] == nil else {
+            return .baseValueAlreadyCopied
         }
         guard activeLease.retainedBaseValues[key] == nil else {
             return .baseValueAlreadyRetained
         }
-        let retainedBaseValue = currentValue()
-        guard case .value = retainedBaseValue else {
+        guard case .value(let retainedBaseValue) = currentValue() else {
             return .rejected(.baseMembershipValueMissing)
         }
 
@@ -213,11 +253,37 @@ final class WorkspaceStateSnapshotKeyedParticipant<
         return .retainedFirstBaseValue
     }
 
-    func materializeBaseValue(
+    func readBaseValue(
         lease: WorkspaceStateSnapshotLease,
         key: Key,
         currentValue: @autoclosure () -> WorkspaceStateSnapshotStoredValue<Value>
-    ) -> WorkspaceStateSnapshotMaterializationResult<Value> {
+    ) -> WorkspaceStateSnapshotBaseValueReadResult<Value> {
+        guard let activeLease else {
+            return .rejected(.noActiveLease)
+        }
+        guard activeLease.lease == lease else {
+            return .rejected(.foreignLease)
+        }
+        guard activeLease.baseKeySet.contains(key) else {
+            return .rejected(.keyNotInBaseMembership)
+        }
+        guard activeLease.copiedPageIDsByKey[key] == nil else {
+            return .rejected(.baseKeyAlreadyCopied)
+        }
+        if let retainedBaseValue = activeLease.retainedBaseValues[key] {
+            return .read(.value(retainedBaseValue))
+        }
+        guard case .value(let baseValue) = currentValue() else {
+            return .rejected(.baseMembershipValueMissing)
+        }
+        return .read(.value(baseValue))
+    }
+
+    func markBaseValueCopied(
+        lease: WorkspaceStateSnapshotLease,
+        key: Key,
+        pageID: WorkspaceStateSnapshotPageID
+    ) -> WorkspaceStateSnapshotMarkCopiedResult {
         guard var activeLease else {
             return .rejected(.noActiveLease)
         }
@@ -227,13 +293,17 @@ final class WorkspaceStateSnapshotKeyedParticipant<
         guard activeLease.baseKeySet.contains(key) else {
             return .rejected(.keyNotInBaseMembership)
         }
-        guard activeLease.materializedKeys.insert(key).inserted else {
-            return .rejected(.baseKeyAlreadyMaterialized)
+        if let copiedPageID = activeLease.copiedPageIDsByKey[key] {
+            guard copiedPageID == pageID else {
+                return .rejected(.baseValueCopiedByDifferentPage)
+            }
+            return .alreadyMarkedCopied
         }
 
-        let baseValue = activeLease.retainedBaseValues.removeValue(forKey: key) ?? currentValue()
+        activeLease.copiedPageIDsByKey[key] = pageID
+        activeLease.retainedBaseValues.removeValue(forKey: key)
         self.activeLease = activeLease
-        return .materialized(baseValue)
+        return .markedCopied
     }
 
     func diagnostics(
@@ -248,7 +318,7 @@ final class WorkspaceStateSnapshotKeyedParticipant<
         return .diagnostics(
             WorkspaceStateSnapshotParticipantDiagnostics(
                 baseMembershipCount: activeLease.orderedBaseKeys.count,
-                materializedCount: activeLease.materializedKeys.count,
+                copiedBaseValueCount: activeLease.copiedPageIDsByKey.count,
                 retainedBaseValueCount: activeLease.retainedBaseValues.count
             )
         )

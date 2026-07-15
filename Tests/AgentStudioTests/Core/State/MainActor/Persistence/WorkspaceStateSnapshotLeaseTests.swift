@@ -20,7 +20,8 @@ struct WorkspaceStateSnapshotLeaseTests {
         let participant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
 
         // Act
-        let openResult = participant.open(
+        let openResult = openParticipant(
+            participant,
             lease: lease,
             orderedBaseKeys: [firstKey, secondKey]
         )
@@ -57,8 +58,8 @@ struct WorkspaceStateSnapshotLeaseTests {
         let participant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
 
         // Act
-        let firstOpen = participant.open(lease: firstLease, orderedBaseKeys: [key])
-        let secondOpen = participant.open(lease: secondLease, orderedBaseKeys: [key])
+        let firstOpen = openParticipant(participant, lease: firstLease, orderedBaseKeys: [key])
+        let secondOpen = openParticipant(participant, lease: secondLease, orderedBaseKeys: [key])
         let foreignMembership = participant.membership(for: secondLease)
 
         // Assert
@@ -77,7 +78,7 @@ struct WorkspaceStateSnapshotLeaseTests {
         )
         let key = UUIDv7.generate()
         let participant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
-        #expect(participant.open(lease: lease, orderedBaseKeys: [key]) == .opened(baseMembershipCount: 1))
+        #expect(openParticipant(participant, lease: lease, orderedBaseKeys: [key]) == .opened(baseMembershipCount: 1))
 
         // Act
         let firstMutation = performMutation(
@@ -94,25 +95,43 @@ struct WorkspaceStateSnapshotLeaseTests {
             key: key,
             currentValue: .value("intermediate")
         )
-        let materialization = participant.materializeBaseValue(
+        let firstRead = participant.readBaseValue(
             lease: lease,
             key: key,
             currentValue: .value("latest")
+        )
+        let secondRead = participant.readBaseValue(
+            lease: lease,
+            key: key,
+            currentValue: .value("newest")
+        )
+        let retainedBeforeCopy = participant.diagnostics(for: lease)
+        let markResult = participant.markBaseValueCopied(
+            lease: lease,
+            key: key,
+            pageID: .make()
         )
 
         // Assert
         #expect(firstMutation == .retainedFirstBaseValue)
         #expect(secondMutation == .baseValueAlreadyRetained)
-        #expect(materialization == .materialized(.value("base")))
+        #expect(firstRead == .read(.value("base")))
+        #expect(secondRead == .read(.value("base")))
+        #expect(
+            retainedBeforeCopy
+                == .diagnostics(
+                    .init(baseMembershipCount: 1, copiedBaseValueCount: 0, retainedBaseValueCount: 1)
+                ))
+        #expect(markResult == .markedCopied)
         #expect(
             participant.diagnostics(for: lease)
                 == .diagnostics(
-                    .init(baseMembershipCount: 1, materializedCount: 1, retainedBaseValueCount: 0)
+                    .init(baseMembershipCount: 1, copiedBaseValueCount: 1, retainedBaseValueCount: 0)
                 ))
     }
 
-    @Test("removed and re-added base key materializes its original value")
-    func removedAndReaddedBaseKeyMaterializesItsOriginalValue() {
+    @Test("removed and re-added base key reads its retained original value")
+    func removedAndReaddedBaseKeyReadsItsRetainedOriginalValue() {
         // Arrange
         let revisionOwner = WorkspacePersistenceRevisionOwner()
         let lease = WorkspaceStateSnapshotLease.open(
@@ -121,7 +140,7 @@ struct WorkspaceStateSnapshotLeaseTests {
         )
         let key = UUIDv7.generate()
         let participant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
-        #expect(participant.open(lease: lease, orderedBaseKeys: [key]) == .opened(baseMembershipCount: 1))
+        #expect(openParticipant(participant, lease: lease, orderedBaseKeys: [key]) == .opened(baseMembershipCount: 1))
 
         // Act
         let removal = performMutation(
@@ -138,20 +157,20 @@ struct WorkspaceStateSnapshotLeaseTests {
             key: key,
             currentValue: .absent
         )
-        let materialization = participant.materializeBaseValue(
+        let baseRead = participant.readBaseValue(
             lease: lease,
             key: key,
-            currentValue: .value("readded")
+            currentValue: .absent
         )
 
         // Assert
         #expect(removal == .retainedFirstBaseValue)
         #expect(readdition == .baseValueAlreadyRetained)
-        #expect(materialization == .materialized(.value("base")))
+        #expect(baseRead == .read(.value("base")))
     }
 
-    @Test("materialized base key needs no later retention")
-    func materializedBaseKeyNeedsNoLaterRetention() {
+    @Test("copied base key needs no later retention and only the exact page can replay its mark")
+    func copiedBaseKeyNeedsNoLaterRetentionAndOnlyExactPageCanReplayMark() {
         // Arrange
         let revisionOwner = WorkspacePersistenceRevisionOwner()
         let lease = WorkspaceStateSnapshotLease.open(
@@ -160,13 +179,22 @@ struct WorkspaceStateSnapshotLeaseTests {
         )
         let key = UUIDv7.generate()
         let participant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
-        #expect(participant.open(lease: lease, orderedBaseKeys: [key]) == .opened(baseMembershipCount: 1))
+        #expect(openParticipant(participant, lease: lease, orderedBaseKeys: [key]) == .opened(baseMembershipCount: 1))
+        let pageID = WorkspaceStateSnapshotPageID.make()
+        let differentPageID = WorkspaceStateSnapshotPageID.make()
         #expect(
-            participant.materializeBaseValue(
+            participant.readBaseValue(
                 lease: lease,
                 key: key,
                 currentValue: .value("base")
-            ) == .materialized(.value("base"))
+            ) == .read(.value("base"))
+        )
+        let firstMark = participant.markBaseValueCopied(lease: lease, key: key, pageID: pageID)
+        let replayedMark = participant.markBaseValueCopied(lease: lease, key: key, pageID: pageID)
+        let differentPageMark = participant.markBaseValueCopied(
+            lease: lease,
+            key: key,
+            pageID: differentPageID
         )
 
         // Act
@@ -179,11 +207,15 @@ struct WorkspaceStateSnapshotLeaseTests {
         )
 
         // Assert
-        #expect(mutation == .baseValueAlreadyMaterialized)
+        #expect(UUIDv7.isV7(pageID.rawValue))
+        #expect(firstMark == .markedCopied)
+        #expect(replayedMark == .alreadyMarkedCopied)
+        #expect(differentPageMark == .rejected(.baseValueCopiedByDifferentPage))
+        #expect(mutation == .baseValueAlreadyCopied)
         #expect(
             participant.diagnostics(for: lease)
                 == .diagnostics(
-                    .init(baseMembershipCount: 1, materializedCount: 1, retainedBaseValueCount: 0)
+                    .init(baseMembershipCount: 1, copiedBaseValueCount: 1, retainedBaseValueCount: 0)
                 ))
     }
 
@@ -203,7 +235,7 @@ struct WorkspaceStateSnapshotLeaseTests {
         )
         let key = UUIDv7.generate()
         let participant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
-        #expect(participant.open(lease: lease, orderedBaseKeys: [key]) == .opened(baseMembershipCount: 1))
+        #expect(openParticipant(participant, lease: lease, orderedBaseKeys: [key]) == .opened(baseMembershipCount: 1))
 
         // Act
         let staleTransactionResult = participant.recordWillChange(
@@ -236,7 +268,7 @@ struct WorkspaceStateSnapshotLeaseTests {
         )
         let key = UUIDv7.generate()
         let participant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
-        #expect(participant.open(lease: lease, orderedBaseKeys: [key]) == .opened(baseMembershipCount: 1))
+        #expect(openParticipant(participant, lease: lease, orderedBaseKeys: [key]) == .opened(baseMembershipCount: 1))
 
         // Act
         let mutation = performMutation(
@@ -246,13 +278,19 @@ struct WorkspaceStateSnapshotLeaseTests {
             key: key,
             currentValue: .absent
         )
+        let read = participant.readBaseValue(
+            lease: lease,
+            key: key,
+            currentValue: .absent
+        )
 
         // Assert
         #expect(mutation == .rejected(.baseMembershipValueMissing))
+        #expect(read == .rejected(.baseMembershipValueMissing))
         #expect(
             participant.diagnostics(for: lease)
                 == .diagnostics(
-                    .init(baseMembershipCount: 1, materializedCount: 0, retainedBaseValueCount: 0)
+                    .init(baseMembershipCount: 1, copiedBaseValueCount: 0, retainedBaseValueCount: 0)
                 ))
     }
 
@@ -266,7 +304,7 @@ struct WorkspaceStateSnapshotLeaseTests {
         )
         let key = UUIDv7.generate()
         let participant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
-        #expect(participant.open(lease: lease, orderedBaseKeys: [key]) == .opened(baseMembershipCount: 1))
+        #expect(openParticipant(participant, lease: lease, orderedBaseKeys: [key]) == .opened(baseMembershipCount: 1))
         var capturedTransaction: WorkspacePersistenceTransaction?
         var preparationResult: WorkspaceStateSnapshotMutationResult?
 
@@ -323,9 +361,10 @@ struct WorkspaceStateSnapshotLeaseTests {
         let duplicateParticipant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
 
         // Act
-        let openResult = participant.open(lease: lease, orderedBaseKeys: sourceKeys)
+        let openResult = openParticipant(participant, lease: lease, orderedBaseKeys: sourceKeys)
         sourceKeys.append(secondKey)
-        let duplicateOpenResult = duplicateParticipant.open(
+        let duplicateOpenResult = openParticipant(
+            duplicateParticipant,
             lease: duplicateLease,
             orderedBaseKeys: [firstKey, firstKey]
         )
@@ -335,6 +374,69 @@ struct WorkspaceStateSnapshotLeaseTests {
         #expect(participant.membership(for: lease) == .membership([firstKey]))
         #expect(duplicateOpenResult == .rejected(.duplicateBaseMembershipKey))
         #expect(duplicateParticipant.diagnostics(for: duplicateLease) == .rejected(.noActiveLease))
+    }
+
+    @Test("membership key-count and raw-byte capacity failures install no lease state")
+    func membershipCapacityFailuresInstallNoLeaseState() {
+        // Arrange
+        let revisionOwner = WorkspacePersistenceRevisionOwner()
+        let keyCountLease = WorkspaceStateSnapshotLease.open(
+            pagerIdentity: .make(),
+            revisionOwner: revisionOwner
+        )
+        let byteCountLease = WorkspaceStateSnapshotLease.open(
+            pagerIdentity: .make(),
+            revisionOwner: revisionOwner
+        )
+        let firstKey = UUIDv7.generate()
+        let secondKey = UUIDv7.generate()
+        let keyCountParticipant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
+        let byteCountParticipant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
+
+        // Act
+        let keyCountResult = keyCountParticipant.open(
+            lease: keyCountLease,
+            orderedBaseKeys: [firstKey, secondKey],
+            limits: .init(maximumKeyCount: 1, maximumRawKeyBytes: 100),
+            rawByteCountForKey: { _ in 1 }
+        )
+        let byteCountResult = byteCountParticipant.open(
+            lease: byteCountLease,
+            orderedBaseKeys: [firstKey],
+            limits: .init(maximumKeyCount: 1, maximumRawKeyBytes: 4),
+            rawByteCountForKey: { _ in 5 }
+        )
+
+        // Assert
+        #expect(keyCountResult == .rejected(.baseMembershipKeyCountCapacityExceeded))
+        #expect(byteCountResult == .rejected(.baseMembershipRawByteCapacityExceeded))
+        #expect(keyCountParticipant.diagnostics(for: keyCountLease) == .rejected(.noActiveLease))
+        #expect(byteCountParticipant.diagnostics(for: byteCountLease) == .rejected(.noActiveLease))
+    }
+
+    @Test("membership raw-byte overflow installs no lease state")
+    func membershipRawByteOverflowInstallsNoLeaseState() {
+        // Arrange
+        let revisionOwner = WorkspacePersistenceRevisionOwner()
+        let lease = WorkspaceStateSnapshotLease.open(
+            pagerIdentity: .make(),
+            revisionOwner: revisionOwner
+        )
+        let firstKey = UUIDv7.generate()
+        let secondKey = UUIDv7.generate()
+        let participant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
+
+        // Act
+        let result = participant.open(
+            lease: lease,
+            orderedBaseKeys: [firstKey, secondKey],
+            limits: .init(maximumKeyCount: 2, maximumRawKeyBytes: .max),
+            rawByteCountForKey: { key in key == firstKey ? .max : 1 }
+        )
+
+        // Assert
+        #expect(result == .rejected(.baseMembershipRawByteCountOverflow))
+        #expect(participant.diagnostics(for: lease) == .rejected(.noActiveLease))
     }
 
     @Test("current value is evaluated only when first base retention needs it")
@@ -350,17 +452,25 @@ struct WorkspaceStateSnapshotLeaseTests {
         let postBaseKey = UUIDv7.generate()
         let participant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
         #expect(
-            participant.open(
+            openParticipant(
+                participant,
                 lease: lease,
                 orderedBaseKeys: [retainedKey, materializedKey]
             ) == .opened(baseMembershipCount: 2)
         )
         #expect(
-            participant.materializeBaseValue(
+            participant.readBaseValue(
                 lease: lease,
                 key: materializedKey,
                 currentValue: .value("materialized")
-            ) == .materialized(.value("materialized"))
+            ) == .read(.value("materialized"))
+        )
+        #expect(
+            participant.markBaseValueCopied(
+                lease: lease,
+                key: materializedKey,
+                pageID: .make()
+            ) == .markedCopied
         )
         var evaluationCount = 0
 
@@ -409,7 +519,7 @@ struct WorkspaceStateSnapshotLeaseTests {
             results == [
                 .retainedFirstBaseValue,
                 .baseValueAlreadyRetained,
-                .baseValueAlreadyMaterialized,
+                .baseValueAlreadyCopied,
                 .postBaseKeyExcluded,
             ]
         )
@@ -426,7 +536,7 @@ struct WorkspaceStateSnapshotLeaseTests {
         )
         let key = UUIDv7.generate()
         let participant = WorkspaceStateSnapshotKeyedParticipant<UUID, String>()
-        #expect(participant.open(lease: lease, orderedBaseKeys: [key]) == .opened(baseMembershipCount: 1))
+        #expect(openParticipant(participant, lease: lease, orderedBaseKeys: [key]) == .opened(baseMembershipCount: 1))
         #expect(
             performMutation(
                 with: revisionOwner,
@@ -473,5 +583,18 @@ struct WorkspaceStateSnapshotLeaseTests {
             Issue.record("unexpected transaction failure: \(error)")
             return .rejected(.noActiveLease)
         }
+    }
+
+    private func openParticipant<Key: Hashable & Sendable, Value: Sendable>(
+        _ participant: WorkspaceStateSnapshotKeyedParticipant<Key, Value>,
+        lease: WorkspaceStateSnapshotLease,
+        orderedBaseKeys: [Key]
+    ) -> WorkspaceStateSnapshotParticipantOpenResult {
+        participant.open(
+            lease: lease,
+            orderedBaseKeys: orderedBaseKeys,
+            limits: .init(maximumKeyCount: 100, maximumRawKeyBytes: 10_000),
+            rawByteCountForKey: { _ in 1 }
+        )
     }
 }
