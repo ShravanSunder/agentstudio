@@ -61,8 +61,12 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 			})
 			.not.toBeNull();
 		await expect.poll(() => harness.pierreTreePath('Sources')).not.toBeNull();
-		expect(harness.pierreTreePath('Sources/RecoveryGroup01')).toBeNull();
-		expect(harness.pierreTreePath(files[0]?.path ?? '')).toBeNull();
+		await expect.poll(() => harness.pierreTreePath('Sources/RecoveryGroup01')).not.toBeNull();
+		await expect.poll(() => harness.pierreTreePath(files[0]?.path ?? '')).not.toBeNull();
+		expect(harness.expandedTreePaths().toSorted()).toEqual(expectedExpandedRecoveryTreePaths());
+		for (const directoryPath of expectedExpandedRecoveryTreePaths()) {
+			expect(harness.pierreTreePath(directoryPath)?.getAttribute('aria-expanded')).toBe('true');
+		}
 	});
 
 	test('opens and updates recovered Review tree search synchronously', async () => {
@@ -149,15 +153,13 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		await expect.poll(() => harness.pierreTreePath(targetFile.path)).not.toBeNull();
 		const targetRow = harness.pierreTreePath(targetFile.path);
 		expect(targetRow?.hasAttribute('data-item-selected')).toBe(true);
-		expect(harness.expandedTreePaths().toSorted()).toEqual(
-			['Sources', 'Sources/RecoveryGroup02'].toSorted(),
-		);
+		expect(harness.expandedTreePaths().toSorted()).toEqual(expectedExpandedRecoveryTreePaths());
 		expect(harness.pierreTreePath('Sources/RecoveryGroup01')?.getAttribute('aria-expanded')).toBe(
-			'false',
+			'true',
 		);
 	});
 
-	test('does not replay an old selection reveal after a fresh Review epoch starts collapsed', async () => {
+	test('resets a fresh Review epoch fully expanded without replaying an old selection reveal', async () => {
 		// Arrange
 		const files = makeBridgeReviewRecoveryWitnessFiles({
 			count: 6,
@@ -171,20 +173,19 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		});
 		await harness.publishDisplay();
 		await expect.poll(() => harness.pierreTreePath(targetFile.path)).not.toBeNull();
-		expect(harness.expandedTreePaths().toSorted()).toEqual(
-			['Sources', 'Sources/RecoveryGroup02'].toSorted(),
-		);
+		expect(harness.expandedTreePaths().toSorted()).toEqual(expectedExpandedRecoveryTreePaths());
+		const initialSelectionScrollCount = harness.selectionScrollToPathSampleCount();
 
 		// Act
 		await harness.publishDisplayAtEpoch(2);
 
 		// Assert
 		expect(
-			harness.expandedTreePaths(),
+			harness.expandedTreePaths().toSorted(),
 			'Fresh Review epochs must not replay a stale selection-reveal request from the prior tree.',
-		).toEqual([]);
-		expect(harness.pierreTreePath('Sources')?.getAttribute('aria-expanded')).toBe('false');
-		expect(harness.pierreTreePath(targetFile.path)).toBeNull();
+		).toEqual(expectedExpandedRecoveryTreePaths());
+		expect(harness.pierreTreePath('Sources')?.getAttribute('aria-expanded')).toBe('true');
+		expect(harness.selectionScrollToPathSampleCount()).toBe(initialSelectionScrollCount);
 	});
 
 	test('does not replay an old selection reveal after a same-generation Review package replacement', async () => {
@@ -202,20 +203,19 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		});
 		await harness.publishDisplay();
 		await expect.poll(() => harness.pierreTreePath(targetFile.path)).not.toBeNull();
-		expect(harness.expandedTreePaths().toSorted()).toEqual(
-			['Sources', 'Sources/RecoveryGroup02'].toSorted(),
-		);
+		expect(harness.expandedTreePaths().toSorted()).toEqual(expectedExpandedRecoveryTreePaths());
+		const initialSelectionScrollCount = harness.selectionScrollToPathSampleCount();
 
 		// Act: replace the package at the same worker generation without issuing new navigation.
 		await harness.publishDisplayAtPackageIdentity('review-recovery-replacement-window');
 
 		// Assert
 		expect(
-			harness.expandedTreePaths(),
-			'REVIEW_STALE_PACKAGE_REVEAL: a prior package reveal must not reopen a replacement package that starts collapsed.',
-		).toEqual([]);
-		expect(harness.pierreTreePath('Sources')?.getAttribute('aria-expanded')).toBe('false');
-		expect(harness.pierreTreePath(targetFile.path)).toBeNull();
+			harness.expandedTreePaths().toSorted(),
+			'REVIEW_STALE_PACKAGE_REVEAL: a prior package reveal must not reselect an item after replacement.',
+		).toEqual(expectedExpandedRecoveryTreePaths());
+		expect(harness.pierreTreePath('Sources')?.getAttribute('aria-expanded')).toBe('true');
+		expect(harness.selectionScrollToPathSampleCount()).toBe(initialSelectionScrollCount);
 	});
 
 	test('defers an inactive ready presentation and resets it after a fallback state', async () => {
@@ -317,14 +317,6 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		await expect.poll(() => harness.selectedItemCommandCount()).toBe(1);
 		await expect.poll(() => harness.markFileViewedCommandCount()).toBe(1);
 		await expect.poll(() => harness.pierreTreePath('Sources/RecoveryGroup01')).not.toBeNull();
-		const groupRow = harness.pierreTreePath('Sources/RecoveryGroup01');
-		if (!(groupRow instanceof HTMLElement)) {
-			throw new Error('J1 REVIEW POST-PAINT GROUP ROW MISSING');
-		}
-		await act(async (): Promise<void> => {
-			groupRow.click();
-			await Promise.resolve();
-		});
 		const targetFile = files[1];
 		if (targetFile === undefined) throw new Error('J1 REVIEW POST-PAINT FIXTURE MISSING');
 		const targetRow = harness.pierreTreePath(targetFile.path);
@@ -463,7 +455,7 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		await harness.publishDisplayInTwoBatches(1);
 		await expect.poll(() => harness.selectedItemCommandCount()).toBe(1);
 		await expect.poll(() => harness.pierreTreePath('Sources/RecoveryGroup01')).not.toBeNull();
-		expect(harness.pierreTreePath(files[0]?.path ?? '')).toBeNull();
+		expect(harness.pierreTreePath(files[0]?.path ?? '')).not.toBeNull();
 		await harness.publishCompleteContent();
 		await expect
 			.element(harness.renderResult.getByTestId('review-viewer-shell'))
@@ -476,7 +468,7 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		expect(harness.selectedItemCommandCount()).toBe(1);
 	});
 
-	test('keeps real Pierre tree disclosure collapsed when streamed metadata adds sibling directories', async () => {
+	test('opens streamed directories while preserving an explicit manual collapse', async () => {
 		// Arrange
 		const files = makeBridgeReviewRecoveryWitnessFiles({
 			count: 6,
@@ -486,8 +478,19 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		const harness = renderBridgeReviewRecoveryWitness(files);
 
 		// Act
-		await harness.publishDisplayInTwoBatches(1);
-		await advanceBridgeReviewRecoveryWitnessFrames(4);
+		await harness.publishDisplayPrefix(3);
+		const firstGroupDirectory = harness.pierreTreePath('Sources/RecoveryGroup01');
+		if (!(firstGroupDirectory instanceof HTMLElement)) {
+			throw new Error('J1 REVIEW DISCLOSURE FIXTURE MISSING');
+		}
+		await act(async (): Promise<void> => {
+			firstGroupDirectory.click();
+			await Promise.resolve();
+		});
+		await advanceBridgeReviewRecoveryWitnessFrames(2);
+		expect(firstGroupDirectory.getAttribute('aria-expanded')).toBe('false');
+
+		await harness.publishDisplayAppendFrom(3);
 
 		// Assert
 		const sourceDirectory = harness.pierreTreePath('Sources');
@@ -495,16 +498,21 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 			sourceDirectory,
 			'J1 REVIEW DISCLOSURE DRIFT: streamed sibling metadata must retain the explicit root directory instead of a stale flattened prefix.',
 		).not.toBeNull();
-		expect(sourceDirectory?.getAttribute('aria-expanded')).toBe('false');
-		expect(harness.pierreTreePath('Sources/RecoveryGroup01')).toBeNull();
-		expect(harness.pierreTreePath('Sources/RecoveryGroup02')).toBeNull();
-		for (const directoryRow of harness
-			.pierreTreeHost()
-			?.shadowRoot?.querySelectorAll('[data-item-path][aria-expanded]') ?? []) {
-			expect(directoryRow.getAttribute('aria-expanded')).toBe('false');
-		}
+		expect(sourceDirectory?.getAttribute('aria-expanded')).toBe('true');
+		expect(harness.pierreTreePath('Sources/RecoveryGroup01')?.getAttribute('aria-expanded')).toBe(
+			'false',
+		);
+		expect(harness.pierreTreePath(files[0]?.path ?? '')).toBeNull();
+		expect(harness.pierreTreePath('Sources/RecoveryGroup02')?.getAttribute('aria-expanded')).toBe(
+			'true',
+		);
+		expect(harness.pierreTreePath(files[5]?.path ?? '')).not.toBeNull();
 	});
 });
+
+function expectedExpandedRecoveryTreePaths(): readonly string[] {
+	return ['Sources', 'Sources/RecoveryGroup01', 'Sources/RecoveryGroup02'];
+}
 
 function ReviewBoundaryActivationProbe(props: {
 	readonly readyPresentation: BridgeReviewViewerPresentationState;

@@ -20,6 +20,12 @@ transport hard cut:
   multi-file Pierre CodeView with search, composed facets, projection modes,
   reveal, selection, directory/file/hunk collapse, hunk expansion, sanitized
   markdown, and selected/visible complete-item hydration.
+- File and Review trees start fully expanded on every fresh/source-reset source;
+  same-source appends preserve a user's manual collapse and open newly streamed
+  directories.
+- a retained same-identity Pierre `CodeView` is reconciled to the complete
+  authoritative ordered manifest even if its live membership was reduced to a
+  selected-only subset.
 - one pane comm worker owns accepted metadata/projection/selection, protocol,
   freshness, demand, complete-item cache/residency, retry and availability;
   React owns only synchronous UI intent/ephemera and bounded display copies.
@@ -389,6 +395,9 @@ Actions:
   selectors;
 - keep local selection/disclosure/search/focus synchronous, sending typed intents
   after local paint;
+- mount fresh and replacement Review sources fully expanded, preserve manual
+  collapse across same-source appends, and prove stale reveal is not replayed
+  independently of disclosure state;
 - make the temporary composition target a closed build-time/props choice with no
   automatic fallback or runtime retargeting; and
 - mount only the recovered target at J1 while keeping the flat source compiled
@@ -449,6 +458,8 @@ Actions:
   language facets; and
 - keep tree disclosure, pending selection and draft query local while worker
   accepts/supersedes intent revisions.
+- reset fresh/replacement trees to fully expanded, while same-source streamed
+  metadata preserves manual collapse and opens new directory rows.
 
 RED: the 3,420-file nested fixture fails against depth-zero rows, stale
 projection overwrite and duplicate update/select publication.
@@ -508,6 +519,10 @@ Actions:
 
 - seed one ordered continuous CodeView and reconcile only through public Pierre
   APIs under Section 5.3;
+- validate steady-state live membership with changed-item neighborhoods and
+  stable first/final sentinels, keeping public Pierre reads O(selected + visible
+  delta); use one exact authoritative replacement for policy adoption or a
+  detected mismatch;
 - preserve independent tree/CodeView scrolling, selected reveal, file/hunk
   collapse, supported hunk expansion and sanitized markdown;
 - keep prior readable content until replacement paints; and
@@ -609,7 +624,9 @@ Actions:
 - preserve capability-before-body and bounded strict framing;
 - enforce lexical and resolved containment before every File/Review byte read,
   including fallback paths;
-- use `agentstudio-git` for production facts/content; and
+- use `agentstudio-git` for production facts/content;
+- reject production CLI `git`/Worktrunk ownership; TypeScript CLI `git` remains
+  limited to explicitly scoped Vite development and test-fixture utilities; and
 - strengthen packaged proof from readiness/counts to source checksum/readable
   DOM/disposition correlation.
 
@@ -831,16 +848,18 @@ performs the join.
 | still-present `review-viewer/trees/` is preserved and used rather than replaced | product recovery contract | S1a/S1b/S3 | source-structure, component Browser, final product cells | parent diff audit plus hierarchical tree interaction proof | current tree component identity and final diff | required |
 | exactly one recovered Review shell/emitter, no fallback | migration single-shell contract | S1b/S9a | lifecycle unit, component Browser, import scan | parent-run composition proof | pane, HMR/source/restart identity | required |
 | hierarchical Review, modes, search/facets, reveal/collapse/selection | product contract, R41-R46, R61 | S3 | projection unit, worker integration, `VB-deterministic-fixture` | 3,420-file nested fixture and keyed invalidation counters | fixture checksum, source generation, projection/UI revision | required |
+| fresh/reset File and Review trees are fully expanded; same-source appends preserve manual collapse | product contract, R41-R46 | J1/S3/S5 | controller unit plus production Browser source-reset and streamed-append witnesses | live Pierre `aria-expanded` rows before/after reset, collapse and append | source identity, generation, tree model identity | required |
 | FE selection and viewport invalidation is O(selected + visible delta) | R45 | S3/S4b | keyed-store unit, subscriber/touched-key integration, large Browser fixture | subscriber and invalidated-key counters | fixture checksum, source generation, display revision | required |
 | ready-to-visible work uses one AppPolicies-mirrored frame pump with fairness | R46 | S4b | policy unit, frame/yield integration, Browser liveness and long-task proof | symbolic policy references, applied-unit/deferred-progress counters | policy version, viewport, run marker | required |
 | continuous multi-file Review with complete items, hunk/markdown/anchors | R44, R52, R57, R60-R63 | S4a/S4b | state unit, hostile worker, Browser large/scroll/virtualizer/markdown | readable early/middle/final DOM and disposition oracle | semantic/render/publication/attempt ids, Pierre version | required |
+| retained same-identity Pierre membership reconciles to the complete authoritative order without O(package) steady-state scans | Review contract, R44/R45/R52/R57 | S4b | 3,420-item bounded-lookup metadata unit plus production Browser retained-instance witness | <=12 public item/geometry reads for one healthy delta; actual live Pierre header ids in authoritative order, not React input counts | source/manifest identity, mounted CodeView policy epoch, Pierre version | required |
 | markdown is sanitized immediately before HTML insertion and hostile script/network/interactive content is denied | R59 security | S4b | sanitizer unit, hostile markdown integration, Browser insertion proof | hostile corpus plus inspected readable DOM | corpus digest, sanitizer version, run marker | required |
 | complete File text; typed terminals; no cap/padding; deep scroll stable | File contract, R44, R47, R57, R61, R65 | S5 | decode/unit, stream integration, deterministic Browser deep-scroll | independent complete source checksum and final readable DOM | selected path/file, source generation, semantic id | required |
 | deterministic Vite and real-worktree Vite are one source contract but separate Browser cells | backend parity, R48-R50/R62 | S6a/S6b | provider integration plus two Vitest Browser cells | `VB-deterministic-fixture`, `VB-real-worktree` | per-run fixture or live-git canary, process/source id | required |
 | all product/main-worker schemas are closed and TS/Swift reject the same hostile variants | R50 | S2a/S6c | contract unit/type, byte-identical hostile corpus in both runtimes | parser rejection matrix for unknown/extra/missing/version/bounds/stale cases | corpus digest and current wire version | required |
 | transferred buffers and the cloned complete-Pierre-item class have distinct declared ownership modes | R53 | S2a/S4a | contract unit, transfer-list Browser, packaged/benchmark ownership evidence | declared field paths, detachment, clone/transfer duration and duplicate lifetime | wire version, message class, Pierre version | required |
 | worker hot actions stay O(delta), <=8 ms per slice and distinct from R60 preparation slices | R58 | S3/S4a/S8a | normalized-store unit, touched-key integration, handler histograms/long-task counters | per-action touched keys, queue wait and handler duration | worker instance, policy version, command class | required |
-| Swift `agentstudio-git`, capable direct worker streams and packaged paint | R48-R50, R59, R64-R65 | S6c/J4 | Swift unit/integration, packaged WKWebView E2E | source bytes -> readable DOM/disposition trace | bundle/PID/marker/temp repo/source generation | required |
+| Swift `agentstudio-git` is the exclusive production git backend; capable direct worker streams and packaged paint | R48-R50, R59, R64-R65 | S6c/J4 | Swift unit/integration, production subprocess static negative, packaged WKWebView E2E | source bytes -> readable DOM/disposition trace plus zero production CLI-git/Worktrunk owners | bundle/PID/marker/temp repo/source generation | required |
 | lexical and symlink-resolved containment before every read; capability before body | R59/R64 security | S6a-S6c | byte-identical hostile TS/Swift corpus and zero-read admission test | parent-run provider/scheme tests | corpus digest and current source paths | required |
 | reset/reconnect/restart/HMR/mode and two-pane isolation reach zero residue | R42, R49, R63-R65 | S7 | state unit, hostile integration, Browser, packaged two-pane | barrier/publication/residue trace | worker instance, stream/subscription, pane and bundle id | required |
 | telemetry off/on/failure is disjoint, exact and product-fail-open | R43, R62, R66 | S8a/J4 | telemetry unit/hostile, Browser/packaged parity, Victoria | exact credits/loss/gap/drain/proof eligibility | telemetry session/producer/batch, run marker | required |

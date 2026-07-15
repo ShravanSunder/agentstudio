@@ -6,7 +6,10 @@ import { cleanup, render } from 'vitest-browser-react';
 import '../app/bridge-app.css';
 import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
-import { requireBridgeViewerHTMLElement } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
+import {
+	requireBridgeViewerHTMLElement,
+	waitForBridgeViewerTreeItemButton,
+} from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { BridgeFileViewerBrowserHarnessApp as BridgeFileViewerApp } from './bridge-file-viewer-browser-test-app.js';
 import type { FileMetadataInterestUpdate } from './bridge-file-viewer-browser-test-fixtures.js';
 import { makeFileContent } from './bridge-file-viewer-browser-test-fixtures.js';
@@ -37,6 +40,7 @@ import {
 	requireMetadataPublisher,
 	visibleCodeText,
 	waitForFileViewerActiveState,
+	waitForBridgeFileViewerWorkerMessageDrain,
 	waitForMetadataPublisher,
 	waitForOpenFileBodyPreview,
 	waitForOpenFileState,
@@ -49,6 +53,77 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await settleBridgeFileViewerBrowserUpdates();
 		await actUpdate(cleanup);
 		document.body.replaceChildren();
+	});
+
+	test('starts fresh and replacement File sources fully expanded', async () => {
+		const initialDescriptors = [
+			makeFileDescriptor({
+				fileId: 'file-initial-old',
+				path: 'src/old/initial.ts',
+			}),
+			makeFileDescriptor({
+				fileId: 'file-initial-other',
+				path: 'src/other/initial.ts',
+			}),
+		] as const;
+		const replacementSourceIdentity = makeSourceIdentity({
+			sourceCursor: 'cursor-expanded-replacement',
+			subscriptionGeneration: 2,
+		});
+		const replacementDescriptors = [
+			makeFileDescriptor({
+				fileId: 'file-replacement-old',
+				generation: 2,
+				path: 'src/old/replacement.ts',
+				sourceIdentity: replacementSourceIdentity,
+			}),
+			makeFileDescriptor({
+				fileId: 'file-replacement-new',
+				generation: 2,
+				path: 'src/new/replacement.ts',
+				sourceIdentity: replacementSourceIdentity,
+			}),
+		] as const;
+		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
+
+		render(
+			<BridgeFileViewerApp
+				initialMetadataEvents={makeFileMetadataEvents(...initialDescriptors)}
+				fileProductSession={{
+					onMetadataSubscription: (handler): (() => void) => {
+						publishMetadataEvents = handler;
+						return (): void => {
+							publishMetadataEvents = null;
+						};
+					},
+				}}
+			/>,
+		);
+
+		await waitForBridgeViewerTreeItemButton('src/old/initial.ts');
+		await waitForBridgeFileViewerWorkerMessageDrain();
+		expect(fileTreeDisclosureRow('src')?.getAttribute('aria-expanded')).toBe('true');
+		expect(fileTreeDisclosureRow('src/old')?.getAttribute('aria-expanded')).toBe('true');
+		expect(fileTreeDisclosureRow('src/other')?.getAttribute('aria-expanded')).toBe('true');
+		const sourceDirectory = fileTreeDisclosureRow('src/old');
+		if (sourceDirectory === null) throw new Error('FILE EXPANSION SOURCE DIRECTORY MISSING');
+		await actUpdate((): void => {
+			sourceDirectory.click();
+		});
+		await actFrame();
+		expect(fileTreeDisclosureRow('src/old')?.getAttribute('aria-expanded')).toBe('false');
+
+		await actUpdate((): void => {
+			requireMetadataPublisher(publishMetadataEvents)(
+				makeSourceReplacementMetadataEvents(...replacementDescriptors),
+			);
+		});
+		await waitForBridgeViewerTreeItemButton('src/new/replacement.ts');
+		await waitForBridgeFileViewerWorkerMessageDrain();
+
+		expect(fileTreeDisclosureRow('src')?.getAttribute('aria-expanded')).toBe('true');
+		expect(fileTreeDisclosureRow('src/old')?.getAttribute('aria-expanded')).toBe('true');
+		expect(fileTreeDisclosureRow('src/new')?.getAttribute('aria-expanded')).toBe('true');
 	});
 
 	test('does not open unselected content after a worker source replacement', async () => {
@@ -919,3 +994,11 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(finalInterestUpdate?.pathScope).toEqual([]);
 	});
 });
+
+function fileTreeDisclosureRow(path: string): HTMLButtonElement | null {
+	const fileTreeContainer = document.querySelector('file-tree-container');
+	const row = fileTreeContainer?.shadowRoot?.querySelector(
+		`button[data-item-path="${CSS.escape(`${path}/`)}"][aria-expanded]`,
+	);
+	return row instanceof HTMLButtonElement ? row : null;
+}

@@ -1,4 +1,4 @@
-import type { FileTreeBatchOperation } from '@pierre/trees';
+import type { FileTreeBatchOperation, FileTreeDirectoryHandle } from '@pierre/trees';
 import { describe, expect, test } from 'vitest';
 
 import type { BridgeMainFileTreePatchStreamEntry } from '../core/comm-worker/bridge-main-file-display-patch-applier.js';
@@ -92,7 +92,10 @@ describe('Bridge File viewer tree patch coordinator', () => {
 	});
 
 	test('holds replacement reset until commit while an explicit clear empties the stable model', () => {
-		const active = createRecordingTreeModel(['Sources/Current.swift']);
+		const active = createRecordingTreeModel(
+			['Sources/Current.swift'],
+			['Sources', 'Sources/Replacement'],
+		);
 		const coordinator = createBridgeFileViewerTreePatchCoordinator({
 			initialPaths: active.paths,
 			model: active.model,
@@ -111,6 +114,7 @@ describe('Bridge File viewer tree patch coordinator', () => {
 		coordinator.applyEntry({ cursor: 3, kind: 'replacementCommit' });
 		expect(active.paths).toEqual(['Sources/Replacement.swift']);
 		expect(active.resetCalls).toEqual([]);
+		expect(active.expandedPaths).toEqual(['Sources']);
 
 		coordinator.applyEntry({ cursor: 4, kind: 'clear' });
 		expect(active.paths).toEqual([]);
@@ -174,17 +178,24 @@ describe('Bridge File viewer tree patch coordinator', () => {
 
 interface RecordingTreeModel {
 	readonly batchCalls: readonly (readonly FileTreeBatchOperation[])[];
+	readonly expandedPaths: readonly string[];
 	readonly model: BridgeFileViewerPatchableTreeModel;
 	readonly paths: readonly string[];
 	readonly resetCalls: readonly (readonly string[])[];
 }
 
-function createRecordingTreeModel(initialPaths: readonly string[] = []): RecordingTreeModel {
+function createRecordingTreeModel(
+	initialPaths: readonly string[] = [],
+	directoryPaths: readonly string[] = [],
+): RecordingTreeModel {
 	let paths = [...initialPaths];
 	const batchCalls: (readonly FileTreeBatchOperation[])[] = [];
+	const expandedPaths: string[] = [];
 	const resetCalls: (readonly string[])[] = [];
+	const directoryPathSet = new Set(directoryPaths);
 	return {
 		batchCalls,
+		expandedPaths,
 		model: {
 			batch(operations): void {
 				batchCalls.push([...operations]);
@@ -202,6 +213,10 @@ function createRecordingTreeModel(initialPaths: readonly string[] = []): Recordi
 					}
 				}
 			},
+			getItem(path): FileTreeDirectoryHandle | null {
+				if (!directoryPathSet.has(path)) return null;
+				return makeRecordingDirectoryHandle(path, expandedPaths);
+			},
 			resetPaths(nextPaths): void {
 				paths = [...nextPaths];
 				resetCalls.push([...nextPaths]);
@@ -211,6 +226,28 @@ function createRecordingTreeModel(initialPaths: readonly string[] = []): Recordi
 			return paths;
 		},
 		resetCalls,
+	};
+}
+
+function makeRecordingDirectoryHandle(
+	path: string,
+	expandedPaths: string[],
+): FileTreeDirectoryHandle {
+	return {
+		collapse: (): void => {},
+		deselect: (): void => {},
+		expand: (): void => {
+			expandedPaths.push(path);
+		},
+		focus: (): void => {},
+		getPath: (): string => path,
+		isDirectory: (): true => true,
+		isExpanded: (): boolean => true,
+		isFocused: (): boolean => false,
+		isSelected: (): boolean => false,
+		select: (): void => {},
+		toggle: (): void => {},
+		toggleSelect: (): void => {},
 	};
 }
 

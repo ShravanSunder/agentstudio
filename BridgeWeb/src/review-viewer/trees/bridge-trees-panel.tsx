@@ -129,7 +129,7 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 	const { model } = useFileTree({
 		paths: initialSourceRef.current.orderedPaths,
 		preparedInput: initialSourceRef.current.preparedInput,
-		initialExpansion: 'closed',
+		initialExpansion: 'open',
 		initialExpandedPaths: initialSourceRef.current.initialExpandedPaths,
 		gitStatus: initialSourceRef.current.gitStatusEntries,
 		sort: preserveInputOrderSort,

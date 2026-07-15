@@ -16,6 +16,7 @@ import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer
 import {
 	BridgeTreesController,
 	createBridgeTreesSource,
+	expandedDirectoryPathsForBridgeTreePaths,
 	planBridgeTreesUpdate,
 	type BridgeTreesModel,
 } from './bridge-trees-controller.js';
@@ -42,7 +43,14 @@ describe('Bridge Trees controller', () => {
 			'Tests/App/ViewTests.swift',
 		]);
 		expect(new Set(source.orderedPaths).size).toBe(source.orderedPaths.length);
-		expect(source.initialExpandedPaths).toEqual([]);
+		expect(source.initialExpandedPaths).toEqual([
+			'docs',
+			'docs/plans',
+			'Sources',
+			'Sources/App',
+			'Tests',
+			'Tests/App',
+		]);
 		expect(source.gitStatusEntries).toEqual([
 			{ path: 'docs/plans/2026-bridge-plan.md', status: 'modified' },
 			{ path: 'Sources/App/Core.swift', status: 'modified' },
@@ -126,7 +134,7 @@ describe('Bridge Trees controller', () => {
 		});
 	});
 
-	test('starts large Review trees collapsed', () => {
+	test('starts large Review trees with every directory expanded', () => {
 		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
 		const projection = buildBridgeReviewProjection({
 			reviewPackage: fixture.reviewPackage,
@@ -139,10 +147,11 @@ describe('Bridge Trees controller', () => {
 		});
 
 		expect(source.orderedPaths).toHaveLength(fixture.metadata.pathCount);
-		expect(source.initialExpandedPaths).toEqual([]);
+		expect(source.initialExpandedPaths.length).toBeGreaterThan(0);
+		expect(source.initialExpandedPaths).toContain('Sources');
 	});
 
-	test('starts a fresh Review tree collapsed instead of expanding a path-order prefix', () => {
+	test('starts a fresh Review tree with every directory expanded', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -154,7 +163,14 @@ describe('Bridge Trees controller', () => {
 			projection,
 		});
 
-		expect(source.initialExpandedPaths).toEqual([]);
+		expect(source.initialExpandedPaths).toEqual([
+			'docs',
+			'docs/plans',
+			'Sources',
+			'Sources/App',
+			'Tests',
+			'Tests/App',
+		]);
 	});
 
 	test('plans reset append and status-only mutations without rebuilding for status changes', () => {
@@ -232,7 +248,7 @@ describe('Bridge Trees controller', () => {
 		expect(planBridgeTreesUpdate({ previous: previousSource, next: nextSource })).toEqual({
 			kind: 'reset',
 		});
-		expect(nextSource.initialExpandedPaths).toEqual([]);
+		expect(nextSource.initialExpandedPaths).toEqual(['Sources', 'Sources/Feature']);
 	});
 
 	test('resets retained Pierre disclosure when the initial disclosure policy changes', () => {
@@ -254,7 +270,7 @@ describe('Bridge Trees controller', () => {
 
 		// Assert
 		expect(updatePlan).toEqual({ kind: 'reset' });
-		expect(nextSource.initialExpandedPaths).toEqual([]);
+		expect(nextSource.initialExpandedPaths).toEqual(['Sources', 'Sources/Feature']);
 	});
 
 	test('plans the medium streaming delta as an append-only tree mutation', () => {
@@ -805,6 +821,7 @@ function makeSource(
 	return {
 		...createBridgeTreesSource({ reviewPackage, projection }),
 		orderedPaths: props.orderedPaths,
+		initialExpandedPaths: expandedDirectoryPathsForBridgeTreePaths(props.orderedPaths),
 		gitStatusEntries: props.gitStatusEntries,
 		primaryItemIdByTreePath: props.primaryItemIdByTreePath ?? {},
 		projectionId: props.projectionId ?? projection.projectionId,

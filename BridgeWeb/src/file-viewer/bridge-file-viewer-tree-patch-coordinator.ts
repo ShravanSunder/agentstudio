@@ -1,9 +1,10 @@
-import type { FileTreeBatchOperation } from '@pierre/trees';
+import type { FileTreeBatchOperation, FileTreeItemHandle } from '@pierre/trees';
 
 import type { BridgeMainFileTreePatchStreamEntry } from '../core/comm-worker/bridge-main-file-display-patch-applier.js';
 
 export interface BridgeFileViewerPatchableTreeModel {
 	readonly batch: (operations: readonly FileTreeBatchOperation[]) => void;
+	readonly getItem: (path: string) => FileTreeItemHandle | null;
 	readonly resetPaths: (paths: readonly string[]) => void;
 }
 
@@ -64,6 +65,7 @@ export function createBridgeFileViewerTreePatchCoordinator(props: {
 						model: props.model,
 						nextPaths: replacementPaths,
 					});
+					expandAllDirectoriesForSourceReset(props.model, committedPaths);
 					replacementResetPending = false;
 					replacementPublishesIncrementally = false;
 					replacementPaths = null;
@@ -104,6 +106,27 @@ export function createBridgeFileViewerTreePatchCoordinator(props: {
 			}
 		},
 	};
+}
+
+function expandAllDirectoriesForSourceReset(
+	model: BridgeFileViewerPatchableTreeModel,
+	paths: ReadonlySet<string>,
+): void {
+	const directoryCandidates = new Set<string>();
+	for (const path of paths) {
+		const pathSegments = path
+			.replace(/\/$/u, '')
+			.split('/')
+			.filter((segment): boolean => segment.length > 0);
+		for (let segmentCount = 1; segmentCount <= pathSegments.length; segmentCount += 1) {
+			directoryCandidates.add(pathSegments.slice(0, segmentCount).join('/'));
+		}
+	}
+	for (const directoryPath of directoryCandidates) {
+		const item = model.getItem(directoryPath);
+		if (item === null || !('expand' in item)) continue;
+		item.expand();
+	}
 }
 
 function replaceCommittedPaths(props: {

@@ -88,6 +88,9 @@ proof strength; it does not silently delete a user journey.
 Review MUST:
 
 - support the 3,420+ file and 100,000-line selected-diff fixture floor;
+- start every fresh or source-reset tree with every authoritative directory
+  expanded; preserve a user's later collapse across same-source metadata
+  appends, while newly streamed directories start expanded;
 - preserve deep tree navigation, search, filter/facets, reveal, selection,
   collapse/expand, hunk expansion, added/modified/deleted/renamed files, and
   sanitized markdown presentation;
@@ -95,6 +98,13 @@ Review MUST:
 - use one continuous multi-file Pierre `CodeView` whose ordered projected items
   remain truthfully traversable while selected/visible items hydrate as complete
   supported Pierre items;
+- reconcile that mounted Pierre `CodeView` back to the complete authoritative
+  order when a same-identity retained instance exposes only a selected-item
+  subset; React input counts are not proof of live Pierre membership;
+- keep steady-state membership validation O(selected + visible delta) by
+  checking changed items, their authoritative neighbors and stable boundary
+  sentinels; an exact authoritative `setItems` is reserved for a detected
+  mismatch or one mounted-instance reconciliation-policy adoption;
 - keep directories, disclosure, search, composed facets, reveal, synchronized
   selection, file/hunk collapse, and early/middle/final real content coherent;
   and
@@ -105,6 +115,9 @@ File View MUST:
 
 - support streamed tree metadata, search/filter, selection, refresh, stale
   repair, and explicit binary/unavailable states;
+- start every fresh or source-reset tree with every authoritative directory
+  expanded, without remounting the tree or losing its scroll owner; later user
+  collapse remains local until another source reset;
 - stream, decode, and assemble the complete selected text file off-main;
 - supply one complete supported Pierre item for that selected file, with no
   permanent 2 MiB/10,000-line prefix contract; and
@@ -339,7 +352,7 @@ Extended truth ownership:
 | accepted `activeSurface` | comm worker | ranked demand/protocol contexts; FE display copy | worker accepts current surface intent | demote/abort inactive foreground and echo repair | only accepted surface has foreground authority |
 | `reviewProjectionMode` | comm-worker Review projection state | FE mode control/display slice | worker accepts normal/guided/plans-specs intent | deterministic re-projection; never changes active surface or `workerDerivationEpoch` | retained while File is active |
 | `viewport` / rendered range | FE virtualizer slice | comm worker reconciler | rAF/idle-coalesced viewport publication | next viewport fact supersedes; worker re-derives | inactive viewport may be retained but does not create foreground demand |
-| `expanded` / collapsed rows | FE local slice | comm worker for visible derivation | user toggle writes local UI fact | source reset drops invalid row ids; worker publishes availability repairs | retained per viewer unless source reset invalidates ids |
+| `expanded` / collapsed rows | FE local slice | comm worker for visible derivation | fresh/source-reset trees expand every authoritative directory; user toggle writes local UI fact; same-source appends preserve retained collapse and open new directories | source reset clears prior disclosure intent, expands the replacement source and drops invalid row ids; worker publishes availability repairs | retained per viewer until source reset; never inferred from selected-item reveal |
 | viewed marks | Swift/native viewed-file command authority | FE render slices, comm worker ack tracking | FE sends write intent through worker to Swift | Swift ack or retry/unhealthy; worker emits ack health slice | inactive mode may queue intent only through worker, never direct native write |
 | diff status | Swift/native push plane | FE render slices, comm worker health | native status push through worker | failed push clears dedupe and re-emits or marks unhealthy | retained as last known health; stale status marked explicitly |
 | command acks | comm worker | FE health/render slices, Swift request handlers | worker correlates requests/intents to Swift responses | timeout/backoff/retry or unhealthy | inactive acks may settle but cannot update active selection/content |
@@ -763,6 +776,10 @@ Deterministic Vitest fixtures and the real-worktree Vite provider feed the same
 comm-worker protocol in browser proof; the packaged Swift provider feeds the
 same contract using `agentstudio-git`. Provider-specific source acquisition may
 not create a second viewer, adapter, projection owner, or hydration path.
+`agentstudio-git` is the exclusive production git backend for the Swift/native
+Bridge path. TypeScript may invoke CLI `git` only inside explicitly scoped Vite
+development or test-fixture utilities; CLI `git` and Worktrunk are forbidden in
+production Bridge protocol, source-adapter, and content plumbing.
 
 Direct worker streamed responses are the decided Swift product mechanism.
 `WKScriptMessage`, `callJavaScript`, DOM-event intake, page-owned scheme relay,
@@ -1828,7 +1845,7 @@ main/FE -> Pierre worker     public Pierre API compute/apply boundary
 | scroll momentum | user/FE/Pierre | one rAF-coalesced FE -> comm worker viewport fact per frame while moving; main -> Pierre worker through Pierre API only | Pierre scrolls existing DOM immediately; incoming slices that affect viewport are HELD while momentum continues | R41, R45, R46, R48, R49, R51 |
 | scroll settle | FE/Pierre | FE -> comm worker settled viewport fact; later comm worker -> FE affected slice updates; main -> Pierre worker through Pierre API only | settle frame keeps existing DOM; HELD slices apply by rank after settle inside frame budget | R41, R45, R46, R48, R49, R51 |
 | hover | user/FE | 0 before hover paint; later FE -> comm worker hover fact if it changes demand | frame-1 paints local hover/focus chrome only; content demand is speculative and cannot block hover | R41, R42, R45, R49 |
-| expand/collapse | user/FE | 0 before toggle paint; later FE -> comm worker expanded/collapsed fact | frame-1 paints local tree shape and placeholders from slices; comm worker repairs invalid ids or supplies content deltas later | R41, R42, R45, R46, R49 |
+| expand/collapse | source reset or user/FE | source reset expands the complete authoritative tree locally; user toggle crosses 0 boundaries before paint, then FE -> comm worker publishes the expanded/collapsed fact | fresh/reset source paints fully expanded; later manual collapse paints in frame 1 and survives same-source appends; comm worker repairs invalid ids or supplies content deltas later | R41, R42, R45, R46, R49 |
 | hunk expansion | user/FE/Pierre supported hunk control | complete full-source item expands through Pierre's supported item/render behavior; patch-derived partial item reports typed expansion unavailable when required source roles are absent | affordance paints locally; expansion is source-backed with stable anchor, never blank filler or a missing-window protocol | R42, R46, R57, R61, R63 |
 | surface switch | user/FE app shell | 0 before shell paint; later FE -> comm worker `activeSurfaceUiIntent` with UI revision | frame-1 paints retained local shell; worker accepts `activeSurface`, demotes inactive foreground, and repairs later | R41, R42, R45, R49 |
 | tab/worktree switch | user/FE app shell | 0 before shell paint; later FE -> comm worker selected context fact and comm worker -> Swift product-stream subscribe/reopen if needed | frame-1 paints retained local shell or honest loading; no visible old-worktree content after identity change | R41, R42, R45, R48, R49 |

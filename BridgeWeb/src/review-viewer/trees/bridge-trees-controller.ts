@@ -72,7 +72,7 @@ export interface BridgeTreesControllerProps {
 	readonly telemetryTraceContext?: BridgeTraceContext | null | undefined;
 }
 
-export const bridgeTreesDisclosurePolicyIdentity = 'fresh-collapsed-v1';
+export const bridgeTreesDisclosurePolicyIdentity = 'fresh-fully-expanded-v1';
 
 export function createBridgeTreesSource(props: CreateBridgeTreesSourceProps): BridgeTreesSource {
 	const treeRowsSource = reviewTreeRowsSourceForProjection({
@@ -83,6 +83,7 @@ export function createBridgeTreesSource(props: CreateBridgeTreesSourceProps): Br
 		treeRowsSource === null ? props.projection.orderedPaths : treeRowsSource.orderedPaths;
 	const preparedInput = prepareBridgeTreeInput(sourcePaths);
 	const treePaths = preparedInput.paths;
+	const initialExpandedPaths = expandedDirectoryPathsForBridgeTreePaths(treePaths);
 	const primaryItemIdByTreePath =
 		treeRowsSource === null
 			? props.projection.primaryItemIdByTreePath
@@ -101,7 +102,7 @@ export function createBridgeTreesSource(props: CreateBridgeTreesSourceProps): Br
 		projectionId: props.projection.projectionId,
 		orderedPaths: treePaths,
 		preparedInput,
-		initialExpandedPaths: [],
+		initialExpandedPaths,
 		gitStatusEntries,
 		primaryItemIdByTreePath,
 		gitStatusSignature: gitStatusSignature(gitStatusEntries),
@@ -150,6 +151,23 @@ function bridgeTreePathForReviewRow(row: ReviewTreeRowMetadata): string {
 
 export function prepareBridgeTreeInput(paths: readonly string[]): FileTreePreparedInput {
 	return prepareFileTreeInput(paths);
+}
+
+export function expandedDirectoryPathsForBridgeTreePaths(
+	paths: readonly string[],
+): readonly string[] {
+	const expandedDirectoryPaths = new Set<string>();
+	for (const path of paths) {
+		const normalizedPath = path.endsWith('/') ? path.slice(0, -1) : path;
+		const pathSegments = normalizedPath.split('/').filter((segment): boolean => segment.length > 0);
+		const directorySegmentCount = path.endsWith('/')
+			? pathSegments.length
+			: Math.max(pathSegments.length - 1, 0);
+		for (let segmentCount = 1; segmentCount <= directorySegmentCount; segmentCount += 1) {
+			expandedDirectoryPaths.add(pathSegments.slice(0, segmentCount).join('/'));
+		}
+	}
+	return [...expandedDirectoryPaths];
 }
 
 export function planBridgeTreesUpdate(props: PlanBridgeTreesUpdateProps): BridgeTreesUpdatePlan {

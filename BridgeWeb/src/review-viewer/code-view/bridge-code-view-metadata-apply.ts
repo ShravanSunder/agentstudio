@@ -46,18 +46,24 @@ export type BridgeCodeViewManifestReconciliationPlan =
 export interface PlanBridgeCodeViewManifestReconciliationProps {
 	readonly authoritativeItems: readonly BridgeCodeViewItem[];
 	readonly currentItems: readonly BridgeCodeViewItem[];
+	readonly forceAuthoritativeReplacement?: boolean;
 	readonly getCurrentItem: (itemId: string) => CodeViewItem | undefined;
+	readonly getCurrentItemTop?: (itemId: string) => number | undefined;
 }
 
 export interface RunBridgeCodeViewMetadataReconciliationInChunksProps extends RunBridgeCodeViewMetadataApplyInChunksProps {
 	readonly currentItems: readonly BridgeCodeViewItem[];
+	readonly forceAuthoritativeReplacement?: boolean;
 	readonly getCurrentItem: (itemId: string) => CodeViewItem | undefined;
+	readonly getCurrentItemTop?: (itemId: string) => number | undefined;
 	readonly isTaskStale: () => boolean;
 }
 
 export interface BridgeCodeViewManifestReconciliationDecisionProps {
-	readonly authoritativeItemIds: ReadonlySet<string>;
+	readonly authoritativeIndexByItemId: ReadonlyMap<string, number>;
+	readonly authoritativeItemIds: readonly string[];
 	readonly getCurrentItem: (itemId: string) => CodeViewItem | undefined;
+	readonly getCurrentItemTop?: (itemId: string) => number | undefined;
 	readonly manifestChanged: boolean;
 	readonly metadataDeltaItems: readonly BridgeCodeViewItem[];
 	readonly sourceReset: boolean;
@@ -66,22 +72,50 @@ export interface BridgeCodeViewManifestReconciliationDecisionProps {
 export function bridgeCodeViewMetadataRequiresManifestReconciliation(
 	props: BridgeCodeViewManifestReconciliationDecisionProps,
 ): boolean {
-	return (
-		props.sourceReset ||
-		props.manifestChanged ||
-		props.metadataDeltaItems.some(
-			(item): boolean =>
-				props.authoritativeItemIds.has(item.id) && props.getCurrentItem(item.id) === undefined,
-		)
-	);
+	if (props.sourceReset || props.manifestChanged) {
+		return true;
+	}
+	for (const metadataDeltaItem of props.metadataDeltaItems) {
+		const authoritativeIndex = props.authoritativeIndexByItemId.get(metadataDeltaItem.id);
+		if (authoritativeIndex === undefined) {
+			continue;
+		}
+		if (
+			liveBridgeCodeViewManifestNeighborhoodDiffers({
+				authoritativeIndex,
+				authoritativeItemIds: props.authoritativeItemIds,
+				getCurrentItem: props.getCurrentItem,
+				...(props.getCurrentItemTop === undefined
+					? {}
+					: { getCurrentItemTop: props.getCurrentItemTop }),
+			})
+		) {
+			return true;
+		}
+	}
+	return false;
 }
 
 export function planBridgeCodeViewManifestReconciliation(
 	props: PlanBridgeCodeViewManifestReconciliationProps,
 ): BridgeCodeViewManifestReconciliationPlan {
+	if (props.forceAuthoritativeReplacement === true) {
+		return { items: props.authoritativeItems, kind: 'replace' };
+	}
+	if (
+		liveBridgeCodeViewManifestDiffers({
+			authoritativeItemIds: props.authoritativeItems.map((item): string => item.id),
+			getCurrentItem: props.getCurrentItem,
+			...(props.getCurrentItemTop === undefined
+				? {}
+				: { getCurrentItemTop: props.getCurrentItemTop }),
+		})
+	) {
+		return { items: props.authoritativeItems, kind: 'replace' };
+	}
 	for (const authoritativeItem of props.authoritativeItems) {
 		const liveItem = props.getCurrentItem(authoritativeItem.id);
-		if (liveItem === undefined || liveItem.type !== authoritativeItem.type) {
+		if (liveItem?.type !== authoritativeItem.type) {
 			return { items: props.authoritativeItems, kind: 'replace' };
 		}
 	}
@@ -116,7 +150,13 @@ export function runBridgeCodeViewMetadataReconciliationInChunks(
 	const reconciliationPlan = planBridgeCodeViewManifestReconciliation({
 		authoritativeItems: props.items,
 		currentItems: props.currentItems,
+		...(props.forceAuthoritativeReplacement === undefined
+			? {}
+			: { forceAuthoritativeReplacement: props.forceAuthoritativeReplacement }),
 		getCurrentItem: props.getCurrentItem,
+		...(props.getCurrentItemTop === undefined
+			? {}
+			: { getCurrentItemTop: props.getCurrentItemTop }),
 	});
 	if (reconciliationPlan.kind !== 'replace') {
 		runBridgeCodeViewMetadataApplyInChunks(props);
@@ -129,6 +169,63 @@ export function runBridgeCodeViewMetadataReconciliationInChunks(
 		props.setItems(reconciliationPlan.items);
 		props.onComplete();
 	});
+}
+
+function liveBridgeCodeViewManifestNeighborhoodDiffers(props: {
+	readonly authoritativeIndex: number;
+	readonly authoritativeItemIds: readonly string[];
+	readonly getCurrentItem: (itemId: string) => CodeViewItem | undefined;
+	readonly getCurrentItemTop?: (itemId: string) => number | undefined;
+}): boolean {
+	const finalIndex = props.authoritativeItemIds.length - 1;
+	const probeIndexes = new Set([
+		0,
+		props.authoritativeIndex - 1,
+		props.authoritativeIndex,
+		props.authoritativeIndex + 1,
+		finalIndex,
+	]);
+	let previousItemTop: number | null = null;
+	for (const probeIndex of [...probeIndexes].toSorted((left, right): number => left - right)) {
+		if (probeIndex < 0 || probeIndex > finalIndex) {
+			continue;
+		}
+		const itemId = props.authoritativeItemIds[probeIndex];
+		if (itemId === undefined || props.getCurrentItem(itemId) === undefined) {
+			return true;
+		}
+		if (props.getCurrentItemTop === undefined) {
+			continue;
+		}
+		const itemTop = props.getCurrentItemTop(itemId);
+		if (itemTop === undefined || (previousItemTop !== null && itemTop <= previousItemTop)) {
+			return true;
+		}
+		previousItemTop = itemTop;
+	}
+	return false;
+}
+
+function liveBridgeCodeViewManifestDiffers(props: {
+	readonly authoritativeItemIds: readonly string[];
+	readonly getCurrentItem: (itemId: string) => CodeViewItem | undefined;
+	readonly getCurrentItemTop?: (itemId: string) => number | undefined;
+}): boolean {
+	let previousItemTop: number | null = null;
+	for (const itemId of props.authoritativeItemIds) {
+		if (props.getCurrentItem(itemId) === undefined) {
+			return true;
+		}
+		if (props.getCurrentItemTop === undefined) {
+			continue;
+		}
+		const itemTop = props.getCurrentItemTop(itemId);
+		if (itemTop === undefined || (previousItemTop !== null && itemTop <= previousItemTop)) {
+			return true;
+		}
+		previousItemTop = itemTop;
+	}
+	return false;
 }
 
 export function runBridgeCodeViewMetadataApplyInChunks(

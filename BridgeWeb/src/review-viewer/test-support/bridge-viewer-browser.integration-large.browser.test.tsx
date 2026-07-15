@@ -1,3 +1,4 @@
+import { CodeView, type CodeViewItem } from '@pierre/diffs';
 import { act } from 'react';
 import { afterEach, describe, expect, test } from 'vitest';
 import { cleanup } from 'vitest-browser-react';
@@ -238,8 +239,11 @@ describe('Bridge Review continuous large-document Browser witness', () => {
 		const scrollOwner = harness.codeScrollOwner();
 		if (scrollOwner === null)
 			throw new Error('Retained Review witness has no CodeView scroll owner.');
-		scrollOwner.scrollTop = 0;
-		scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+		await act(async (): Promise<void> => {
+			scrollOwner.scrollTop = 0;
+			scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+			await Promise.resolve();
+		});
 		await advanceBridgeReviewRecoveryWitnessFrames(3);
 
 		// Assert: the old selected item is retained as content, not retained as rank zero.
@@ -286,7 +290,9 @@ describe('Bridge Review continuous large-document Browser witness', () => {
 		const selectedFile = files[Math.floor(files.length / 2)];
 		const finalFile = files.at(-1);
 		if (retainedFile === undefined || selectedFile === undefined || finalFile === undefined) {
-			throw new Error('Selected-loading reconcile witness requires first, middle, and final files.');
+			throw new Error(
+				'Selected-loading reconcile witness requires first, middle, and final files.',
+			);
 		}
 		const harness = renderBridgeReviewRecoveryWitness(files);
 		await harness.publishRetainedSelectedOnlyDisplay(0);
@@ -328,6 +334,130 @@ describe('Bridge Review continuous large-document Browser witness', () => {
 		expect(scan.blankPaintSampleCount).toBe(0);
 	});
 
+	test('repairs same-identity Pierre membership when the retained selected item hydrates', async () => {
+		// Arrange: keep the authoritative source, projection, manifest, and React initialItems stable.
+		// Capture only the public Pierre instance and then reproduce the live selected-only corruption.
+		const files = makeBridgeReviewRecoveryWitnessFiles({
+			count: 24,
+			lineCount: 8,
+			markerPrefix: 'SAME_IDENTITY_MEMBERSHIP',
+		});
+		const firstFile = files[0];
+		const middleFile = files[Math.floor(files.length / 2)];
+		const selectedFile = files[Math.floor(files.length / 3)];
+		const finalFile = files.at(-1);
+		if (
+			firstFile === undefined ||
+			middleFile === undefined ||
+			selectedFile === undefined ||
+			finalFile === undefined
+		) {
+			throw new Error(
+				'Same-identity membership witness requires first, middle, selected, and final files.',
+			);
+		}
+		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
+		const originalSetup = CodeView.prototype.setup;
+		const mountedCodeViewCapture: { current: CodeView | null } = { current: null };
+		CodeView.prototype.setup = function captureMountedCodeView(root: HTMLElement): void {
+			mountedCodeViewCapture.current = this;
+			originalSetup.call(this, root);
+		};
+		const harness = renderBridgeReviewRecoveryWitness(files, {
+			navigationCommand: {
+				commandId: 'same-identity-selected-loading',
+				commandKind: 'activateTarget',
+				context: 'review',
+				restoreMemory: false,
+				source: { sourceId: 'review-fixture', sourceKind: 'fixture' },
+				target: {
+					comparisonId: 'review-comparison',
+					reviewItemId: selectedFile.itemId,
+					targetKind: 'diff',
+				},
+			},
+		});
+		try {
+			await harness.publishDisplay();
+			await expect.poll(() => harness.selectedItemCommandCount()).toBe(1);
+			await expect
+				.element(harness.renderResult.getByTestId('bridge-code-view-panel'))
+				.toHaveAttribute('data-code-view-item-count', String(files.length));
+			await advanceBridgeReviewRecoveryWitnessFrames(8);
+		} finally {
+			CodeView.prototype.setup = originalSetup;
+		}
+		const liveCodeView = mountedCodeViewCapture.current;
+		if (liveCodeView === null) {
+			throw new Error('Same-identity witness did not capture the mounted public Pierre CodeView.');
+		}
+		const retainedSelectedItem: CodeViewItem | undefined = liveCodeView.getItem(
+			selectedFile.itemId,
+		);
+		if (retainedSelectedItem === undefined) {
+			throw new Error(
+				'Same-identity witness did not find the selected item in the mounted CodeView.',
+			);
+		}
+		expect(files.every((file): boolean => liveCodeView.getItem(file.itemId) !== undefined)).toBe(
+			true,
+		);
+
+		// Act: corrupt only live Pierre membership, then hydrate that already-present selected item.
+		await act(async (): Promise<void> => {
+			liveCodeView.setItems([retainedSelectedItem]);
+			await Promise.resolve();
+		});
+		expect(liveCodeView.getItem(firstFile.itemId)).toBeUndefined();
+		await harness.publishFileContentForItemId(selectedFile.itemId);
+
+		// Assert: public membership and geometry recover the complete authoritative order before body
+		// hydration, then viewport demand can reach real first/middle/selected/final content.
+		const recoveredItemTops = files.map((file): number | undefined =>
+			liveCodeView.getTopForItem(file.itemId),
+		);
+		expect(
+			recoveredItemTops.every((top): top is number => top !== undefined),
+			`REVIEW_SAME_IDENTITY_MEMBERSHIP_RED: ${JSON.stringify({ recoveredItemTops })}`,
+		).toBe(true);
+		expect(
+			recoveredItemTops.every(
+				(top, index): boolean =>
+					index === 0 || top === undefined || top > (recoveredItemTops[index - 1] ?? -1),
+			),
+			`REVIEW_SAME_IDENTITY_ORDER_RED: ${JSON.stringify({ recoveredItemTops })}`,
+		).toBe(true);
+		const scrollOwner = harness.codeScrollOwner();
+		if (scrollOwner === null) {
+			throw new Error('Same-identity membership witness has no CodeView scroll owner.');
+		}
+		const scan = await scanBridgeReviewRecoveryWitnessDocument({
+			markers: [
+				firstFile.contentMarker,
+				middleFile.contentMarker,
+				selectedFile.contentMarker,
+				finalFile.contentMarker,
+			],
+			markerItemIds: [firstFile.itemId, middleFile.itemId, selectedFile.itemId, finalFile.itemId],
+			orderedItemIds: files.map((file): string => file.itemId),
+			publishDemandedContent: harness.publishDemandedContent,
+			sampleCount: files.length,
+			scrollStrategy: 'viewportStep',
+			scrollOwner,
+			visibleCodeText: harness.visibleCodeText,
+			visibleItemIds: harness.renderedCodeViewItemIds,
+		});
+		expect(scan.blankPaintSampleCount).toBe(0);
+		expect(scan.observedMarkers).toEqual(
+			new Set([
+				firstFile.contentMarker,
+				middleFile.contentMarker,
+				selectedFile.contentMarker,
+				finalFile.contentMarker,
+			]),
+		);
+	});
+
 	test('keeps a far tree selection landed when late hydration follows an older CodeView scroll', async () => {
 		// Arrange: keep the target's ancestors open before starting the older CodeView scroll.
 		const files = makeBridgeReviewRecoveryWitnessFiles({
@@ -344,20 +474,12 @@ describe('Bridge Review continuous large-document Browser witness', () => {
 		await expect.poll(() => harness.selectedItemCommandCount()).toBe(1);
 		await harness.publishDemandedContent();
 		await advanceBridgeReviewRecoveryWitnessFrames(3);
-		await act(async (): Promise<void> => {
-			harness.pierreTreePath('Sources')?.click();
-			await Promise.resolve();
+		await ensureBridgeReviewTreeDirectoryExpanded({ harness, path: 'Sources' });
+		await ensureBridgeReviewTreeDirectoryExpanded({
+			harness,
+			path: 'Sources/RecoveryGroup02',
 		});
-		await advanceBridgeReviewRecoveryWitnessFrames(2);
-		await act(async (): Promise<void> => {
-			harness.pierreTreePath('Sources/RecoveryGroup02')?.click();
-			await Promise.resolve();
-		});
-		await advanceBridgeReviewRecoveryWitnessFrames(2);
-		const targetTreeRow = harness.pierreTreePath(targetFile.path);
-		if (targetTreeRow === null) {
-			throw new Error(`Active-scroll selection tree target is missing: ${targetFile.path}`);
-		}
+		const targetTreeRow = await harness.scrollTreePathIntoView(targetFile.path);
 		const scrollOwner = harness.codeScrollOwner();
 		if (scrollOwner === null) {
 			throw new Error('Active-scroll selection witness has no CodeView scroll owner.');
@@ -408,11 +530,11 @@ describe('Bridge Review continuous large-document Browser witness', () => {
 		);
 	});
 
-		test('keeps a newer user scroll authoritative when selected content hydrates', async () => {
-			// Arrange: selection has already revealed a far loading header.
-			const { harness, scrollOwner, targetFile } =
-				await renderBridgeReviewPendingHydrationSelection('NEWER_USER_SCROLL');
-			expect(scrollOwner.scrollTop).toBeGreaterThan(scrollOwner.clientHeight);
+	test('keeps a newer user scroll authoritative when selected content hydrates', async () => {
+		// Arrange: selection has already revealed a far loading header.
+		const { harness, scrollOwner, targetFile } =
+			await renderBridgeReviewPendingHydrationSelection('NEWER_USER_SCROLL');
+		expect(scrollOwner.scrollTop).toBeGreaterThan(scrollOwner.clientHeight);
 
 		// Act: a newer captured wheel intent moves away before the selected body arrives.
 		await act(async (): Promise<void> => {
@@ -422,13 +544,13 @@ describe('Bridge Review continuous large-document Browser witness', () => {
 					deltaY: -Math.max(1, scrollOwner.scrollTop),
 				}),
 			);
-				scrollOwner.scrollTop = 0;
-				scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
-				await Promise.resolve();
-			});
-			await harness.publishContentForItemIds([targetFile.itemId]);
+			scrollOwner.scrollTop = 0;
+			scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+			await Promise.resolve();
+		});
+		await harness.publishContentForItemIds([targetFile.itemId]);
 
-			// Assert: hydration does not override the newer user-authored viewport.
+		// Assert: hydration does not override the newer user-authored viewport.
 		const codePanel = harness.renderResult.container.querySelector(
 			'[data-testid="bridge-code-view-panel"]',
 		);
@@ -445,13 +567,13 @@ describe('Bridge Review continuous large-document Browser witness', () => {
 
 		// Act: Pierre reports a programmatic scroll without a captured wheel/touch/pointer intent.
 		await act(async (): Promise<void> => {
-				scrollOwner.scrollTop = 0;
-				scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
-				await Promise.resolve();
-			});
-			await harness.publishContentForItemIds([targetFile.itemId]);
+			scrollOwner.scrollTop = 0;
+			scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+			await Promise.resolve();
+		});
+		await harness.publishContentForItemIds([targetFile.itemId]);
 
-			// Assert: the selected hydration correction remains live and returns to the target.
+		// Assert: the selected hydration correction remains live and returns to the target.
 		const targetPaint = harness
 			.paintedCodeViewItems()
 			.find((paintedItem) => paintedItem.itemId === targetFile.itemId);
@@ -572,42 +694,44 @@ async function renderBridgeReviewPendingHydrationSelection(markerPrefix: string)
 	await expect.poll(() => harness.selectedItemCommandCount()).toBe(1);
 	await advanceBridgeReviewRecoveryWitnessFrames(12);
 	const targetDirectoryPath = targetFile.path.split('/').slice(0, -1).join('/');
-	await act(async (): Promise<void> => {
-		harness.pierreTreePath('Sources')?.click();
-		await Promise.resolve();
-	});
-	await advanceBridgeReviewRecoveryWitnessFrames(2);
-	await act(async (): Promise<void> => {
-		harness.pierreTreePath(targetDirectoryPath)?.click();
-		await Promise.resolve();
-	});
-	await advanceBridgeReviewRecoveryWitnessFrames(2);
-	const targetTreeRow = harness.pierreTreePath(targetFile.path);
-	if (targetTreeRow === null) {
-		throw new Error(`Pending-hydration selection tree target is missing: ${targetFile.path}`);
-	}
+	await ensureBridgeReviewTreeDirectoryExpanded({ harness, path: 'Sources' });
+	await ensureBridgeReviewTreeDirectoryExpanded({ harness, path: targetDirectoryPath });
+	const targetTreeRow = await harness.scrollTreePathIntoView(targetFile.path);
 	await act(async (): Promise<void> => {
 		targetTreeRow.click();
 		await Promise.resolve();
 	});
-		await advanceBridgeReviewRecoveryWitnessUntil({
-			failureMessage: 'Pending-hydration selection did not commit and land within six frames.',
-			isSatisfied: (): boolean => {
-				const selectedScrollOwner = harness.codeScrollOwner();
-				return (
-					harness.selectedItemCommandCount() === 2 &&
-					selectedScrollOwner !== null &&
-					selectedScrollOwner.scrollTop > selectedScrollOwner.clientHeight
-				);
-			},
-			maximumFrameCount: 6,
-		});
-		await advanceBridgeReviewRecoveryWitnessFrames(3);
-		const scrollOwner = harness.codeScrollOwner();
+	await advanceBridgeReviewRecoveryWitnessUntil({
+		failureMessage: 'Pending-hydration selection did not commit and land within six frames.',
+		isSatisfied: (): boolean => {
+			const selectedScrollOwner = harness.codeScrollOwner();
+			return (
+				harness.selectedItemCommandCount() === 2 &&
+				selectedScrollOwner !== null &&
+				selectedScrollOwner.scrollTop > selectedScrollOwner.clientHeight
+			);
+		},
+		maximumFrameCount: 6,
+	});
+	await advanceBridgeReviewRecoveryWitnessFrames(3);
+	const scrollOwner = harness.codeScrollOwner();
 	if (scrollOwner === null) {
 		throw new Error('Pending-hydration selection witness has no CodeView scroll owner.');
 	}
-		return { harness, scrollOwner, targetFile };
+	return { harness, scrollOwner, targetFile };
+}
+
+async function ensureBridgeReviewTreeDirectoryExpanded(props: {
+	readonly harness: ReturnType<typeof renderBridgeReviewRecoveryWitness>;
+	readonly path: string;
+}): Promise<void> {
+	const directoryRow = await props.harness.scrollTreePathIntoView(props.path);
+	if (directoryRow.getAttribute('aria-expanded') !== 'false') return;
+	await act(async (): Promise<void> => {
+		directoryRow.click();
+		await Promise.resolve();
+	});
+	await advanceBridgeReviewRecoveryWitnessFrames(2);
 }
 
 async function advanceBridgeReviewRecoveryWitnessUntil(props: {

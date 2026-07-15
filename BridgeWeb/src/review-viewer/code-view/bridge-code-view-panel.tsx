@@ -88,6 +88,15 @@ export type {
 } from './bridge-code-view-panel-types.js';
 export type { BridgeCodeViewScrollToItemOptions } from './bridge-code-view-panel-types.js';
 
+const bridgeCodeViewExactManifestPolicyVersion = 'complete-authoritative-manifest-v1';
+
+interface BridgeCodeViewExactManifestPolicyReceipt {
+	readonly initialItems: readonly BridgeCodeViewItem[];
+	readonly mountVersion: number;
+	readonly policyVersion: string;
+	readonly sourceKey: string;
+}
+
 export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactElement {
 	const sourceKey = makeBridgeCodeViewSourceKey(props);
 	const selectedDisplayPath =
@@ -129,6 +138,9 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const lastMetadataApplySourceKeyRef = useRef<string | null>(null);
 	const lastMetadataApplyMountVersionRef = useRef<number | null>(null);
 	const lastMetadataManifestItemsRef = useRef<readonly BridgeCodeViewItem[] | null>(null);
+	const exactManifestPolicyReceiptRef = useRef<BridgeCodeViewExactManifestPolicyReceipt | null>(
+		null,
+	);
 	const recentInstantSelectionRevealRef = useRef<BridgeCodeViewInstantRevealRearmCandidate | null>(
 		null,
 	);
@@ -509,7 +521,12 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		});
 	}, [initialItemsSelector, props.projection, props.reviewPackage, sourceKey]);
 	const authoritativeItemIds = useMemo(
-		(): ReadonlySet<string> => new Set(initialItems.map((item): string => item.id)),
+		(): readonly string[] => initialItems.map((item): string => item.id),
+		[initialItems],
+	);
+	const authoritativeIndexByItemId = useMemo(
+		(): ReadonlyMap<string, number> =>
+			new Map(initialItems.map((item, index): readonly [string, number] => [item.id, index])),
 		[initialItems],
 	);
 	const metadataDeltaItems = useMemo((): readonly BridgeCodeViewItem[] => {
@@ -547,6 +564,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		lastMetadataApplySourceKeyRef.current = null;
 		lastMetadataApplyMountVersionRef.current = null;
 		lastMetadataManifestItemsRef.current = null;
+		exactManifestPolicyReceiptRef.current = null;
 		pendingPreHydrationSelectionScrollKeyRef.current = null;
 		pendingSelectionRevealBehaviorRef.current = null;
 		pendingSmoothSelectionScrollKeyRef.current = null;
@@ -573,13 +591,26 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			lastMetadataApplySourceKeyRef.current !== sourceKey ||
 			lastMetadataApplyMountVersionRef.current !== codeViewMountVersion;
 		const manifestChanged = lastMetadataManifestItemsRef.current !== initialItems;
-		const requiresManifestReconciliation = bridgeCodeViewMetadataRequiresManifestReconciliation({
-			authoritativeItemIds,
-			getCurrentItem: (itemId: string): CodeViewItem | undefined => codeViewHandle.getItem(itemId),
-			manifestChanged,
-			metadataDeltaItems,
-			sourceReset,
-		});
+		const exactManifestPolicyReceipt = exactManifestPolicyReceiptRef.current;
+		const forceAuthoritativeReplacement =
+			exactManifestPolicyReceipt === null ||
+			exactManifestPolicyReceipt.initialItems !== initialItems ||
+			exactManifestPolicyReceipt.mountVersion !== codeViewMountVersion ||
+			exactManifestPolicyReceipt.policyVersion !== bridgeCodeViewExactManifestPolicyVersion ||
+			exactManifestPolicyReceipt.sourceKey !== sourceKey;
+		const requiresManifestReconciliation =
+			forceAuthoritativeReplacement ||
+			bridgeCodeViewMetadataRequiresManifestReconciliation({
+				authoritativeIndexByItemId,
+				authoritativeItemIds,
+				getCurrentItem: (itemId: string): CodeViewItem | undefined =>
+					codeViewHandle.getItem(itemId),
+				getCurrentItemTop: (itemId: string): number | undefined =>
+					codeViewInstance.getTopForItem(itemId),
+				manifestChanged,
+				metadataDeltaItems,
+				sourceReset,
+			});
 		const taskGeneration = metadataApplyTaskGenerationRef.current + 1;
 		metadataApplyTaskGenerationRef.current = taskGeneration;
 		if (pendingMetadataApplyFrameRef.current !== null) {
@@ -663,6 +694,12 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				lastMetadataApplySourceKeyRef.current = sourceKey;
 				lastMetadataApplyMountVersionRef.current = codeViewMountVersion;
 				lastMetadataManifestItemsRef.current = initialItems;
+				exactManifestPolicyReceiptRef.current = {
+					initialItems,
+					mountVersion: codeViewMountVersion,
+					policyVersion: bridgeCodeViewExactManifestPolicyVersion,
+					sourceKey,
+				};
 				const selectedItemId = selectedItemIdForMetadataReconcileRef.current;
 				if (selectedItemId !== null) {
 					const selectionScrollKey = `${sourceKey}:${codeViewMountVersion}:${selectedItemId}`;
@@ -749,7 +786,9 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			runBridgeCodeViewMetadataReconciliationInChunks({
 				...metadataApplyProps,
 				currentItems: currentCodeViewItemsRef.current,
+				forceAuthoritativeReplacement,
 				getCurrentItem: (itemId) => codeViewHandle.getItem(itemId),
+				getCurrentItemTop: (itemId) => codeViewInstance.getTopForItem(itemId),
 				isTaskStale: (): boolean => metadataApplyTaskGenerationRef.current !== taskGeneration,
 			});
 		} else {
@@ -763,6 +802,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			}
 		};
 	}, [
+		authoritativeIndexByItemId,
 		authoritativeItemIds,
 		codeViewMountVersion,
 		initialItems,

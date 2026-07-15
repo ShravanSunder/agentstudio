@@ -212,7 +212,8 @@ describe('BridgeCodeViewPanel reconcile apply path', () => {
 
 		// Act
 		const requiresManifestReconciliation = bridgeCodeViewMetadataRequiresManifestReconciliation({
-			authoritativeItemIds: new Set(authoritativeItems.map((item): string => item.id)),
+			authoritativeIndexByItemId: indexBridgeCodeViewItemsById(authoritativeItems),
+			authoritativeItemIds: authoritativeItems.map((item): string => item.id),
 			getCurrentItem: (itemId: string): BridgeCodeViewItem | undefined =>
 				itemId === retainedSelectedItem.id ? retainedSelectedItem : undefined,
 			manifestChanged: false,
@@ -225,6 +226,121 @@ describe('BridgeCodeViewPanel reconcile apply path', () => {
 			requiresManifestReconciliation,
 			'REVIEW_SAME_MANIFEST_APPEND: a missing live Pierre item must trigger one ordered manifest replacement before the delta can append.',
 		).toBe(true);
+	});
+
+	test('routes an already-present selected delta through reconciliation when other manifest items are missing', () => {
+		// Arrange: React tracks the complete authoritative order, while live Pierre retained only
+		// the selected loading item. The next selected delta is present, but the document is not.
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { facets: [], mode: { kind: 'normalReview' } },
+		});
+		const authoritativeItems = createBridgeCodeViewInitialItemsForPanel({
+			projection,
+			reviewPackage,
+		});
+		const retainedSelectedItem = authoritativeItems[2];
+		if (retainedSelectedItem === undefined) {
+			throw new Error('expected retained selected Review item');
+		}
+
+		// Act
+		const requiresManifestReconciliation = bridgeCodeViewMetadataRequiresManifestReconciliation({
+			authoritativeIndexByItemId: indexBridgeCodeViewItemsById(authoritativeItems),
+			authoritativeItemIds: authoritativeItems.map((item): string => item.id),
+			getCurrentItem: (itemId: string): BridgeCodeViewItem | undefined =>
+				itemId === retainedSelectedItem.id ? retainedSelectedItem : undefined,
+			manifestChanged: false,
+			metadataDeltaItems: [retainedSelectedItem],
+			sourceReset: false,
+		});
+
+		// Assert
+		expect(
+			requiresManifestReconciliation,
+			'REVIEW_SAME_IDENTITY_SELECTED_DELTA: one present selected item cannot prove complete live membership.',
+		).toBe(true);
+	});
+
+	test('keeps a complete ordered live manifest on the metadata-only apply path', () => {
+		// Arrange
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { facets: [], mode: { kind: 'normalReview' } },
+		});
+		const authoritativeItems = createBridgeCodeViewInitialItemsForPanel({
+			projection,
+			reviewPackage,
+		});
+		const selectedItem = authoritativeItems[1];
+		if (selectedItem === undefined) {
+			throw new Error('expected selected Review item');
+		}
+		const itemById = new Map(authoritativeItems.map((item) => [item.id, item]));
+		const itemTopById = new Map(
+			authoritativeItems.map((item, index): readonly [string, number] => [item.id, index * 100]),
+		);
+
+		// Act
+		const requiresManifestReconciliation = bridgeCodeViewMetadataRequiresManifestReconciliation({
+			authoritativeIndexByItemId: indexBridgeCodeViewItemsById(authoritativeItems),
+			authoritativeItemIds: authoritativeItems.map((item): string => item.id),
+			getCurrentItem: (itemId: string): BridgeCodeViewItem | undefined => itemById.get(itemId),
+			getCurrentItemTop: (itemId: string): number | undefined => itemTopById.get(itemId),
+			manifestChanged: false,
+			metadataDeltaItems: [selectedItem],
+			sourceReset: false,
+		});
+
+		// Assert
+		expect(requiresManifestReconciliation).toBe(false);
+	});
+
+	test('replaces a complete live manifest whose public item geometry is out of order', () => {
+		// Arrange
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { facets: [], mode: { kind: 'normalReview' } },
+		});
+		const authoritativeItems = createBridgeCodeViewInitialItemsForPanel({
+			projection,
+			reviewPackage,
+		});
+		const selectedItem = authoritativeItems[1];
+		if (selectedItem === undefined) {
+			throw new Error('expected selected Review item');
+		}
+		const itemById = new Map(authoritativeItems.map((item) => [item.id, item]));
+		const reversedItemTopById = new Map(
+			authoritativeItems.map((item, index): readonly [string, number] => [
+				item.id,
+				(authoritativeItems.length - index) * 100,
+			]),
+		);
+
+		// Act
+		const requiresManifestReconciliation = bridgeCodeViewMetadataRequiresManifestReconciliation({
+			authoritativeIndexByItemId: indexBridgeCodeViewItemsById(authoritativeItems),
+			authoritativeItemIds: authoritativeItems.map((item): string => item.id),
+			getCurrentItem: (itemId: string): BridgeCodeViewItem | undefined => itemById.get(itemId),
+			getCurrentItemTop: (itemId: string): number | undefined => reversedItemTopById.get(itemId),
+			manifestChanged: false,
+			metadataDeltaItems: [selectedItem],
+			sourceReset: false,
+		});
+		const plan = planBridgeCodeViewManifestReconciliation({
+			authoritativeItems,
+			currentItems: authoritativeItems,
+			getCurrentItem: (itemId: string): BridgeCodeViewItem | undefined => itemById.get(itemId),
+			getCurrentItemTop: (itemId: string): number | undefined => reversedItemTopById.get(itemId),
+		});
+
+		// Assert
+		expect(requiresManifestReconciliation).toBe(true);
+		expect(plan).toEqual({ items: authoritativeItems, kind: 'replace' });
 	});
 
 	test('recovers the complete manifest before applying selected loading without a presentation', () => {
@@ -256,7 +372,8 @@ describe('BridgeCodeViewPanel reconcile apply path', () => {
 
 		// Act
 		const requiresManifestReconciliation = bridgeCodeViewMetadataRequiresManifestReconciliation({
-			authoritativeItemIds: new Set(authoritativeItems.map((item): string => item.id)),
+			authoritativeIndexByItemId: indexBridgeCodeViewItemsById(authoritativeItems),
+			authoritativeItemIds: authoritativeItems.map((item): string => item.id),
 			getCurrentItem: (itemId: string): BridgeCodeViewItem | undefined =>
 				itemId === retainedItem.id ? retainedItem : undefined,
 			manifestChanged: false,
@@ -285,7 +402,8 @@ describe('BridgeCodeViewPanel reconcile apply path', () => {
 
 		// Act
 		const requiresManifestReconciliation = bridgeCodeViewMetadataRequiresManifestReconciliation({
-			authoritativeItemIds: new Set(['source-high']),
+			authoritativeIndexByItemId: new Map([['source-high', 0]]),
+			authoritativeItemIds: ['source-high'],
 			getCurrentItem: (): BridgeCodeViewItem | undefined => undefined,
 			manifestChanged: false,
 			metadataDeltaItems: [outsideProjectionItem],
@@ -294,6 +412,87 @@ describe('BridgeCodeViewPanel reconcile apply path', () => {
 
 		// Assert
 		expect(requiresManifestReconciliation).toBe(false);
+	});
+
+	test('keeps one healthy metadata delta bounded for a 3,420-item live manifest', () => {
+		// Arrange
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { facets: [], mode: { kind: 'normalReview' } },
+		});
+		const templateItem = createBridgeCodeViewInitialItemsForPanel({
+			projection,
+			reviewPackage,
+		})[0];
+		if (templateItem === undefined) {
+			throw new Error('expected a template Review item');
+		}
+		const authoritativeItems = Array.from(
+			{ length: 3_420 },
+			(_, index): BridgeCodeViewItem => ({
+				...templateItem,
+				id: `bounded-manifest-${String(index).padStart(4, '0')}`,
+			}),
+		);
+		const itemById = new Map(authoritativeItems.map((item) => [item.id, item]));
+		const itemTopById = new Map(
+			authoritativeItems.map((item, index): readonly [string, number] => [item.id, index * 100]),
+		);
+		const selectedItem = authoritativeItems[1_710];
+		if (selectedItem === undefined) {
+			throw new Error('expected a middle Review item');
+		}
+		let getCurrentItemCallCount = 0;
+		let getCurrentItemTopCallCount = 0;
+
+		// Act
+		const requiresManifestReconciliation = bridgeCodeViewMetadataRequiresManifestReconciliation({
+			authoritativeIndexByItemId: indexBridgeCodeViewItemsById(authoritativeItems),
+			authoritativeItemIds: authoritativeItems.map((item): string => item.id),
+			getCurrentItem: (itemId: string): BridgeCodeViewItem | undefined => {
+				getCurrentItemCallCount += 1;
+				return itemById.get(itemId);
+			},
+			getCurrentItemTop: (itemId: string): number | undefined => {
+				getCurrentItemTopCallCount += 1;
+				return itemTopById.get(itemId);
+			},
+			manifestChanged: false,
+			metadataDeltaItems: [selectedItem],
+			sourceReset: false,
+		});
+
+		// Assert
+		expect(requiresManifestReconciliation).toBe(false);
+		expect(getCurrentItemCallCount).toBeLessThanOrEqual(12);
+		expect(getCurrentItemTopCallCount).toBeLessThanOrEqual(12);
+	});
+
+	test('forces one exact authoritative replacement when a retained policy epoch may contain extras', () => {
+		// Arrange: public item lookup can prove known authoritative IDs but cannot enumerate an
+		// unknown retained extra. Policy adoption therefore requires one exact setItems call.
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { facets: [], mode: { kind: 'normalReview' } },
+		});
+		const authoritativeItems = createBridgeCodeViewInitialItemsForPanel({
+			projection,
+			reviewPackage,
+		});
+		const itemById = new Map(authoritativeItems.map((item) => [item.id, item]));
+
+		// Act
+		const reconciliationPlan = planBridgeCodeViewManifestReconciliation({
+			authoritativeItems,
+			currentItems: authoritativeItems,
+			forceAuthoritativeReplacement: true,
+			getCurrentItem: (itemId: string): BridgeCodeViewItem | undefined => itemById.get(itemId),
+		});
+
+		// Assert
+		expect(reconciliationPlan).toEqual({ items: authoritativeItems, kind: 'replace' });
 	});
 
 	test('reconciles selected presentation loading deltas over hydrated selected item', () => {
@@ -422,6 +621,12 @@ describe('BridgeCodeViewPanel reconcile apply path', () => {
 		});
 	});
 });
+
+function indexBridgeCodeViewItemsById(
+	items: readonly BridgeCodeViewItem[],
+): ReadonlyMap<string, number> {
+	return new Map(items.map((item, index): readonly [string, number] => [item.id, index]));
+}
 
 function applyMetadataWithCurrentItem(props: {
 	readonly currentItem: BridgeCodeViewItem;

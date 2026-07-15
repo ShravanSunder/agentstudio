@@ -63,7 +63,7 @@ describe('Bridge Review real-product continuous hydration', () => {
 	});
 
 	realViteProductTest(
-		'publishes the full manifest collapsed and hydrates from CodeView scrolling without tree clicks',
+		'publishes the full manifest expanded and hydrates from CodeView scrolling without tree clicks',
 		async () => {
 			// Arrange: use the same production carrier, pane worker, route, and source as the Vite app.
 			await ensureBridgeCodeViewThemeResolved();
@@ -109,8 +109,8 @@ describe('Bridge Review real-product continuous hydration', () => {
 			for (const [directoryPath, expandedState] of Object.entries(initialDisclosure)) {
 				expect(
 					expandedState,
-					`REVIEW_REAL_PRODUCT_INITIAL_DISCLOSURE_RED: ${directoryPath} was expanded in the first complete tree frame.`,
-				).toBe('false');
+					`REVIEW_REAL_PRODUCT_INITIAL_DISCLOSURE_RED: ${directoryPath} was collapsed in the first complete tree frame.`,
+				).toBe('true');
 			}
 			const selectedItemId = codePanel.getAttribute('data-selected-item-id');
 			expect(selectedItemId).not.toBeNull();
