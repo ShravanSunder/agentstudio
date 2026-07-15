@@ -9,7 +9,7 @@ struct WatchedPath: Codable, Identifiable, Hashable, Sendable {
 
     var stableKey: String { StableKey.fromPath(path) }
 
-    init(id: UUID = UUID(), path: URL, addedAt: Date = Date()) {
+    init(id: UUID = UUIDv7.generate(), path: URL, addedAt: Date = Date()) {
         self.id = id
         self.path = path
         self.addedAt = addedAt

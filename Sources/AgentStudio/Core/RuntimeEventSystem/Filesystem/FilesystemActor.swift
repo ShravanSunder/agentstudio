@@ -67,22 +67,20 @@ actor FilesystemActor {
         }
     }
 
-    private let runtimeBus: EventBus<RuntimeEnvelope>
-    private let fseventStreamClient: any FSEventStreamClient
-    private let envelopeClock = ContinuousClock()
+    let runtimeBus: EventBus<RuntimeEnvelope>
+    let fseventStreamClient: any FSEventStreamClient
+    let envelopeClock = ContinuousClock()
     private let schedulingClock: SchedulingClock
-    private let groupedWatchedFolderScanner: @Sendable (URL) async -> [RepoScanner.RepoScanGroup]
+    let watchedFolderScanScheduler: WatchedFolderScanScheduler
     private let debounceWindow: Duration
     private let maxFlushLatency: Duration
 
     private var roots: [UUID: RootState] = [:]
     private var pendingChangesByWorktreeId: [UUID: PendingWorktreeChanges] = [:]
     private var activePaneWorktreeId: UUID?
-    private var nextEnvelopeSequence: UInt64 = 0
+    var nextEnvelopeSequence: UInt64 = 0
 
-    private var watchedFolderIds: [URL: UUID] = [:]
-    private var watchedFolderRepoGroupsByRoot: [URL: [RepoScanner.RepoScanGroup]] = [:]
-    private var fallbackRescanTask: Task<Void, Never>?
+    var watchedFolderScanState = FilesystemWatchedFolderScanState()
 
     private var ingressTask: Task<Void, Never>?
     private var drainTask: Task<Void, Never>?
@@ -91,15 +89,13 @@ actor FilesystemActor {
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
-        groupedWatchedFolderScanner: @escaping @Sendable (URL) async -> [RepoScanner.RepoScanGroup] = {
-            await RepoScanner().scanForGitReposGrouped(in: $0)
-        },
+        watchedFolderScanScheduler: WatchedFolderScanScheduler = .production(),
         debounceWindow: Duration = .milliseconds(500),
         maxFlushLatency: Duration = .seconds(2)
     ) {
         self.runtimeBus = bus
         self.fseventStreamClient = fseventStreamClient
-        self.groupedWatchedFolderScanner = groupedWatchedFolderScanner
+        self.watchedFolderScanScheduler = watchedFolderScanScheduler
         schedulingClock = .continuous()
         self.debounceWindow = debounceWindow
         self.maxFlushLatency = maxFlushLatency
@@ -108,16 +104,14 @@ actor FilesystemActor {
     init<C: Clock>(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
-        groupedWatchedFolderScanner: @escaping @Sendable (URL) async -> [RepoScanner.RepoScanGroup] = {
-            await RepoScanner().scanForGitReposGrouped(in: $0)
-        },
+        watchedFolderScanScheduler: WatchedFolderScanScheduler = .production(),
         sleepClock: C,
         debounceWindow: Duration = .milliseconds(500),
         maxFlushLatency: Duration = .seconds(2)
     ) where C.Duration == Duration, C: Sendable {
         self.runtimeBus = bus
         self.fseventStreamClient = fseventStreamClient
-        self.groupedWatchedFolderScanner = groupedWatchedFolderScanner
+        self.watchedFolderScanScheduler = watchedFolderScanScheduler
         schedulingClock = .make(clock: sleepClock)
         self.debounceWindow = debounceWindow
         self.maxFlushLatency = maxFlushLatency
@@ -126,6 +120,9 @@ actor FilesystemActor {
     isolated deinit {
         ingressTask?.cancel()
         drainTask?.cancel()
+        watchedFolderScanState.resultDrainState.task?.cancel()
+        watchedFolderScanState.fallbackTask?.cancel()
+        watchedFolderScanState.manualRefreshState.task?.cancel()
         if !hasShutdown {
             Self.logger.warning("FilesystemActor deinitialized without explicit shutdown()")
         }
@@ -220,16 +217,25 @@ actor FilesystemActor {
     }
 
     func shutdown() async {
+        guard !hasShutdown else { return }
+        watchedFolderScanState.isShuttingDown = true
         let activeIngressTask = ingressTask
         let activeDrainTask = drainTask
-        let activeFallbackTask = fallbackRescanTask
+        let activeWatchedFolderResultDrainTask = watchedFolderScanState.resultDrainState.task
+        let activeFallbackTask = watchedFolderScanState.fallbackTask
+        let activeManualWatchedFolderRefreshTask = watchedFolderScanState.manualRefreshState.task
 
         ingressTask?.cancel()
         ingressTask = nil
         drainTask?.cancel()
         drainTask = nil
-        fallbackRescanTask?.cancel()
-        fallbackRescanTask = nil
+        watchedFolderScanState.fallbackTask?.cancel()
+        watchedFolderScanState.fallbackTask = nil
+        cancelManualWatchedFolderRefreshForShutdown()
+
+        // Keep the sole result consumer alive while scheduler shutdown drains
+        // running, pending, and leased result custody.
+        await watchedFolderScanScheduler.shutdown()
 
         if let activeIngressTask {
             await activeIngressTask.value
@@ -237,14 +243,21 @@ actor FilesystemActor {
         if let activeDrainTask {
             await activeDrainTask.value
         }
+        if let activeWatchedFolderResultDrainTask {
+            await activeWatchedFolderResultDrainTask.value
+        }
+        watchedFolderScanState.resultDrainState = .idle
         if let activeFallbackTask {
             await activeFallbackTask.value
+        }
+        if let activeManualWatchedFolderRefreshTask {
+            _ = await activeManualWatchedFolderRefreshTask.value
         }
 
         roots.removeAll(keepingCapacity: false)
         pendingChangesByWorktreeId.removeAll(keepingCapacity: false)
-        watchedFolderIds.removeAll(keepingCapacity: false)
-        watchedFolderRepoGroupsByRoot.removeAll(keepingCapacity: false)
+        watchedFolderScanState = FilesystemWatchedFolderScanState()
+        watchedFolderScanState.isShuttingDown = true
         activePaneWorktreeId = nil
         fseventStreamClient.shutdown()
         hasShutdown = true
@@ -303,7 +316,7 @@ actor FilesystemActor {
         scheduleDrainIfNeeded()
     }
 
-    private func startIngressTaskIfNeeded() {
+    func startIngressTaskIfNeeded() {
         guard ingressTask == nil else { return }
         let stream = fseventStreamClient.events()
         ingressTask = Task { [weak self] in
@@ -608,147 +621,6 @@ actor FilesystemActor {
 
     // MARK: - Watched Folder Scanning
 
-    func updateWatchedFolders(_ paths: [URL]) async {
-        _ = await refreshWatchedFolders(paths)
-    }
-
-    func refreshWatchedFolders(_ paths: [URL]) async -> WatchedFolderRefreshSummary {
-        startIngressTaskIfNeeded()
-
-        let newPaths = Set(paths.map { $0.standardizedFileURL })
-        let oldPaths = Set(watchedFolderIds.keys)
-        var removedClonePaths = Set<URL>()
-
-        for removed in oldPaths.subtracting(newPaths) {
-            if let syntheticId = watchedFolderIds.removeValue(forKey: removed) {
-                fseventStreamClient.unregister(worktreeId: syntheticId)
-            }
-            if let removedGroups = watchedFolderRepoGroupsByRoot.removeValue(forKey: removed) {
-                removedClonePaths.formUnion(removedGroups.map(\.clonePath))
-            }
-        }
-
-        for added in newPaths.subtracting(oldPaths) {
-            let syntheticId = UUID()
-            watchedFolderIds[added] = syntheticId
-            fseventStreamClient.register(worktreeId: syntheticId, repoId: syntheticId, rootPath: added)
-        }
-
-        let rescanResult = await rescanAllWatchedFolders()
-        removedClonePaths.formUnion(rescanResult.removedClonePaths)
-        await emitRemovedClones(noLongerReferencedByAnyWatchedFolder: removedClonePaths)
-        startFallbackRescan()
-        return rescanResult.summary
-    }
-
-    private func isWatchedFolderBatch(_ worktreeId: UUID) -> Bool {
-        watchedFolderIds.values.contains(worktreeId)
-    }
-
-    private func handleWatchedFolderFSEvent(_ batch: FSEventBatch) async {
-        let hasGitChange = batch.paths.contains { path in
-            path.contains("/.git/") || path.hasSuffix("/.git")
-        }
-        guard hasGitChange else { return }
-
-        guard let folderPath = watchedFolderIds.first(where: { $0.value == batch.worktreeId })?.key else {
-            return
-        }
-
-        let result = await refreshWatchedFolder(folderPath)
-        await emitRemovedClones(noLongerReferencedByAnyWatchedFolder: result.removedClonePaths)
-    }
-
-    /// Blocking filesystem scan — MUST run off the actor's executor.
-    /// Under SE-0461, plain nonisolated async inherits actor isolation.
-    /// @concurrent ensures this escapes to the global executor.
-    @concurrent nonisolated private static func scanFolder(
-        _ folderPath: URL,
-        using watchedFolderScanner: @escaping @Sendable (URL) async -> [RepoScanner.RepoScanGroup]
-    ) async -> [RepoScanner.RepoScanGroup] {
-        await watchedFolderScanner(folderPath)
-    }
-
-    private struct WatchedFolderRefreshScanResult {
-        let summary: WatchedFolderRefreshSummary
-        let removedClonePaths: Set<URL>
-    }
-
-    private func rescanAllWatchedFolders() async -> WatchedFolderRefreshScanResult {
-        var removedClonePaths = Set<URL>()
-        var repoPathsByWatchedFolder: [URL: [URL]] = [:]
-        for (folderPath, _) in watchedFolderIds {
-            let refreshResult = await refreshWatchedFolder(folderPath)
-            repoPathsByWatchedFolder[folderPath] = refreshResult.repoPaths
-            removedClonePaths.formUnion(refreshResult.removedClonePaths)
-        }
-        return WatchedFolderRefreshScanResult(
-            summary: WatchedFolderRefreshSummary(repoPathsByWatchedFolder: repoPathsByWatchedFolder),
-            removedClonePaths: removedClonePaths
-        )
-    }
-
-    private struct WatchedFolderRefreshResult {
-        let repoPaths: [URL]
-        let removedClonePaths: Set<URL>
-    }
-
-    private func refreshWatchedFolder(_ folderPath: URL) async -> WatchedFolderRefreshResult {
-        let currentRepoGroups = Self.normalizeRepoScanGroups(
-            await Self.scanFolder(folderPath, using: groupedWatchedFolderScanner)
-        )
-        let previousRepoGroups = watchedFolderRepoGroupsByRoot[folderPath, default: []]
-        let currentRepoGroupsByClonePath: [URL: RepoScanner.RepoScanGroup] = Dictionary(
-            uniqueKeysWithValues: currentRepoGroups.map { ($0.clonePath, $0) }
-        )
-        let previousRepoGroupsByClonePath: [URL: RepoScanner.RepoScanGroup] = Dictionary(
-            uniqueKeysWithValues: previousRepoGroups.map { ($0.clonePath, $0) }
-        )
-
-        let currentClonePaths = Set(currentRepoGroupsByClonePath.keys)
-        let previousClonePaths = Set(previousRepoGroupsByClonePath.keys)
-
-        let addedRepoPaths = currentClonePaths.subtracting(previousClonePaths)
-            .sorted(by: Self.sortByPath)
-        let changedRepoPaths = currentClonePaths.intersection(previousClonePaths)
-            .sorted(by: Self.sortByPath)
-        let removedClonePaths = previousClonePaths.subtracting(currentClonePaths)
-
-        watchedFolderRepoGroupsByRoot[folderPath] = currentRepoGroups
-
-        var discoveredRepositories: [DiscoveredRepoTopologyInfo] = []
-        for repoPath in addedRepoPaths {
-            guard let group = currentRepoGroupsByClonePath[repoPath] else { continue }
-            discoveredRepositories.append(
-                DiscoveredRepoTopologyInfo(
-                    repoPath: repoPath,
-                    linkedWorktrees: .scanned(group.linkedWorktreePaths)
-                )
-            )
-        }
-
-        for repoPath in changedRepoPaths {
-            guard let currentGroup = currentRepoGroupsByClonePath[repoPath],
-                let previousGroup = previousRepoGroupsByClonePath[repoPath]
-            else {
-                continue
-            }
-            guard currentGroup.linkedWorktreePaths != previousGroup.linkedWorktreePaths else { continue }
-            discoveredRepositories.append(
-                DiscoveredRepoTopologyInfo(
-                    repoPath: repoPath,
-                    linkedWorktrees: .scanned(currentGroup.linkedWorktreePaths)
-                )
-            )
-        }
-        await emitReposDiscovered(parentPath: folderPath, repositories: discoveredRepositories)
-
-        return WatchedFolderRefreshResult(
-            repoPaths: currentRepoGroups.map(\.clonePath).sorted(by: Self.sortByPath),
-            removedClonePaths: removedClonePaths
-        )
-    }
-
     private func emitRepoDiscovered(
         repoPath: URL,
         parentPath: URL,
@@ -777,7 +649,7 @@ actor FilesystemActor {
         }
     }
 
-    private func emitReposDiscovered(
+    func emitReposDiscovered(
         parentPath: URL,
         repositories: [DiscoveredRepoTopologyInfo]
     ) async {
@@ -804,7 +676,7 @@ actor FilesystemActor {
         }
     }
 
-    private func emitRemovedClones(noLongerReferencedByAnyWatchedFolder clonePaths: Set<URL>) async {
+    func emitRemovedClones(noLongerReferencedByAnyWatchedFolder clonePaths: Set<URL>) async {
         for repoPath in clonePaths.sorted(by: Self.sortByPath) {
             guard !isReferencedByAnyWatchedFolder(repoPath) else { continue }
             await emitRepoRemoved(repoPath: repoPath)
@@ -829,13 +701,13 @@ actor FilesystemActor {
         }
     }
 
-    private func isReferencedByAnyWatchedFolder(_ repoPath: URL) -> Bool {
-        watchedFolderRepoGroupsByRoot.values.contains { repoGroups in
-            repoGroups.contains { $0.clonePath == repoPath }
+    func isReferencedByAnyWatchedFolder(_ repoPath: URL) -> Bool {
+        watchedFolderScanState.inventoryBySourceID.values.contains { inventory in
+            inventory.repoGroups.contains { $0.clonePath == repoPath }
         }
     }
 
-    private static func normalizeRepoScanGroups(
+    static func normalizeRepoScanGroups(
         _ groups: [RepoScanner.RepoScanGroup]
     ) -> [RepoScanner.RepoScanGroup] {
         groups
@@ -850,36 +722,19 @@ actor FilesystemActor {
             .sorted(by: Self.sortByClonePath)
     }
 
-    private static func sortByClonePath(
+    static func sortByClonePath(
         _ lhs: RepoScanner.RepoScanGroup,
         _ rhs: RepoScanner.RepoScanGroup
     ) -> Bool {
         sortByPath(lhs.clonePath, rhs.clonePath)
     }
 
-    private static func sortByPath(_ lhs: URL, _ rhs: URL) -> Bool {
+    static func sortByPath(_ lhs: URL, _ rhs: URL) -> Bool {
         lhs.path.localizedCaseInsensitiveCompare(rhs.path) == .orderedAscending
     }
 
     private static func sortWorktreeIds(_ lhs: UUID, _ rhs: UUID) -> Bool {
         lhs.uuidString < rhs.uuidString
-    }
-
-    private func startFallbackRescan() {
-        fallbackRescanTask?.cancel()
-        guard !watchedFolderIds.isEmpty else { return }
-        let schedulingClock = self.schedulingClock
-        fallbackRescanTask = Task { [weak self, schedulingClock] in
-            while !Task.isCancelled {
-                try? await schedulingClock.sleep(.seconds(300))
-                guard !Task.isCancelled else { break }
-                guard let self else { break }
-                let rescanResult = await self.rescanAllWatchedFolders()
-                await self.emitRemovedClones(
-                    noLongerReferencedByAnyWatchedFolder: rescanResult.removedClonePaths
-                )
-            }
-        }
     }
 
     // MARK: - Git Event Projection

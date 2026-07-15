@@ -90,6 +90,11 @@ enum AppPolicies {
         }
     }
 
+    enum WatchedFolderScanning {
+        static let maximumConcurrentTraversalQuanta: Int = 2
+        static let fallbackCadence: Duration = .seconds(300)
+    }
+
     enum ZmxStartup {
         static let reconciliationTimeout: Duration = .seconds(3)
     }

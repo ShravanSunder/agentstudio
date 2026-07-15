@@ -521,7 +521,7 @@ extension AppDelegate {
 
         if !watchedPaths.isEmpty {
             await coordinator.syncScope(
-                .updateWatchedFolders(paths: watchedPaths.map(\.path))
+                .updateWatchedFolders(watchedPaths: watchedPaths)
             )
         }
     }

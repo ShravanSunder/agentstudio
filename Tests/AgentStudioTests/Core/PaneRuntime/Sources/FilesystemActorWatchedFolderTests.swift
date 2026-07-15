@@ -5,670 +5,756 @@ import Testing
 
 @Suite("FilesystemActor Watched Folders")
 struct FilesystemActorWatchedFolderTests {
-    @Test("refreshWatchedFolders uses real grouped repo scanner for clone and linked worktree")
-    func refreshWatchedFoldersUsesRealGroupedRepoScannerForCloneAndLinkedWorktree() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let fsClient = ControllableFSEventStreamClient()
-        let actor = FilesystemActor(
-            bus: bus,
-            fseventStreamClient: fsClient,
-            groupedWatchedFolderScanner: { await RepoScanner().scanForGitReposGrouped(in: $0) },
-            debounceWindow: .zero,
-            maxFlushLatency: .zero
-        )
-        let watchedFolder = FileManager.default.temporaryDirectory
-            .appending(path: "watched-real-scan-\(UUID().uuidString)")
-        let repoPath = watchedFolder.appending(path: "app")
-        let linkedWorktreePath = watchedFolder.appending(path: "app-feature")
-        try FileManager.default.createDirectory(at: repoPath, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: watchedFolder) }
-
-        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["init"])
-        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["config", "user.email", "luna-tests@example.com"])
-        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["config", "user.name", "Luna Tests"])
-        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["config", "commit.gpgsign", "false"])
-        try "main\n".write(to: repoPath.appending(path: "README.md"), atomically: true, encoding: .utf8)
-        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["add", "README.md"])
-        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["commit", "-m", "Seed real grouped scan"])
-        try FilesystemTestGitRepo.runGit(
-            at: repoPath,
-            args: ["worktree", "add", "-b", "feature/real-scan", linkedWorktreePath.path]
+    @Test("binding result-drain state retains awaitable shutdown custody")
+    func bindingResultDrainStateRetainsAwaitableShutdownCustody() async throws {
+        let gate = ResultDrainTaskGate()
+        let bindingTask = Task {
+            await gate.pauseUntilReleased()
+        }
+        let state = FilesystemWatchedFolderResultDrainState.bindingConsumer(
+            id: UUIDv7.generate(),
+            task: bindingTask
         )
 
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let summary = await actor.refreshWatchedFolders([watchedFolder])
-        let events = await drainTopologyEvents(from: stream, settleTurns: 150)
+        await gate.waitUntilEntered()
+        let shutdownCustodyTask = try #require(state.task)
+        let completionProbe = ResultDrainTaskCompletionProbe()
+        let shutdownWait = Task {
+            await shutdownCustodyTask.value
+            await completionProbe.recordCompletion()
+        }
 
-        #expect(summary.repoPaths(in: watchedFolder) == [repoPath.standardizedFileURL])
-        #expect(
-            events.discovered == [
-                RepoDiscoveryEvent(
-                    repoPath: repoPath.standardizedFileURL,
-                    linkedWorktrees: .scanned([linkedWorktreePath.standardizedFileURL])
-                )
-            ])
-        #expect(events.removed.isEmpty)
+        await boundedYields()
+        #expect(await completionProbe.isComplete == false)
 
-        await actor.shutdown()
+        await gate.release()
+        await shutdownWait.value
+        #expect(await completionProbe.isComplete)
     }
 
-    @Test("refreshWatchedFolders keeps repos discovered through symlinked watched folder")
-    func refreshWatchedFoldersKeepsReposDiscoveredThroughSymlinkedWatchedFolder() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let fsClient = ControllableFSEventStreamClient()
-        let actor = FilesystemActor(
-            bus: bus,
-            fseventStreamClient: fsClient,
-            groupedWatchedFolderScanner: { await RepoScanner().scanForGitReposGrouped(in: $0) },
-            debounceWindow: .zero,
-            maxFlushLatency: .zero
+    @Test("running result-drain state retains awaitable shutdown custody")
+    func runningResultDrainStateRetainsAwaitableShutdownCustody() async throws {
+        let gate = ResultDrainTaskGate()
+        let runningTask = Task {
+            await gate.pauseUntilReleased()
+        }
+        let state = FilesystemWatchedFolderResultDrainState.running(
+            id: UUIDv7.generate(),
+            task: runningTask
         )
-        let tmp = FileManager.default.temporaryDirectory
-            .appending(path: "watched-symlink-scan-\(UUID().uuidString)")
-        let realRoot = tmp.appending(path: "real")
-        let linkedRoot = tmp.appending(path: "linked")
-        let repoPath = realRoot.appending(path: "app")
-        try FileManager.default.createDirectory(at: repoPath, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmp) }
 
-        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["init"])
-        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["config", "user.email", "luna-tests@example.com"])
-        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["config", "user.name", "Luna Tests"])
-        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["config", "commit.gpgsign", "false"])
-        try FileManager.default.createSymbolicLink(atPath: linkedRoot.path, withDestinationPath: realRoot.path)
+        await gate.waitUntilEntered()
+        let shutdownCustodyTask = try #require(state.task)
+        let completionProbe = ResultDrainTaskCompletionProbe()
+        let shutdownWait = Task {
+            await shutdownCustodyTask.value
+            await completionProbe.recordCompletion()
+        }
 
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let summary = await actor.refreshWatchedFolders([linkedRoot])
-        let events = await drainTopologyEvents(from: stream, settleTurns: 150)
+        await boundedYields()
+        #expect(await completionProbe.isComplete == false)
 
-        #expect(summary.repoPaths(in: linkedRoot).map(canonicalPath(_:)) == [canonicalPath(repoPath)])
-        #expect(events.discovered.map { canonicalPath($0.repoPath) } == [canonicalPath(repoPath)])
-        #expect(events.removed.isEmpty)
-
-        await actor.shutdown()
+        await gate.release()
+        await shutdownWait.value
+        #expect(await completionProbe.isComplete)
     }
 
-    @Test("refreshWatchedFolders emits scanner-backed discovered events for new clones")
-    func refreshWatchedFoldersEmitsScannerBackedDiscoveredEventsForNewClones() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let fsClient = ControllableFSEventStreamClient()
-        let scanner = ControllableWatchedFolderScanner()
-        let actor = FilesystemActor(
-            bus: bus,
-            fseventStreamClient: fsClient,
-            groupedWatchedFolderScanner: scanner.scan,
-            debounceWindow: .zero,
-            maxFlushLatency: .zero
+    @Test("manual refresh waits for the exact covered result")
+    func manualRefreshWaitsForExactCoveredResult() async throws {
+        let fixture = try await WatchedFolderActorFixture()
+        defer { fixture.removeTemporaryRoot() }
+
+        let repoFromInitialDemand = fixture.watchedFolder.appending(path: "initial-repo")
+        let repoFromManualDemand = fixture.watchedFolder.appending(path: "manual-repo")
+        let initialRefresh = Task {
+            await fixture.actor.refreshWatchedFolders([fixture.watchedPath])
+        }
+        let initialStart = await fixture.scanner.nextStart()
+        let callbackRoutingID = try #require(fixture.fseventClient.registeredWorktreeIds.first)
+        #expect(initialStart.request.cause == .initialAdd)
+        #expect(initialStart.request.sourceID.rootID == fixture.watchedPath.id)
+        #expect(initialStart.request.sourceID.kind == .watchedParentMembership)
+        #expect(callbackRoutingID != fixture.watchedPath.id)
+        await fixture.scanner.finish(initialStart, with: completeResult(entries: []))
+        _ = await initialRefresh.value
+
+        fixture.fseventClient.send(
+            FSEventBatch(
+                worktreeId: callbackRoutingID,
+                paths: [fixture.watchedFolder.appending(path: "repo/.git/HEAD").path]
+            )
         )
+        let callbackStart = await fixture.scanner.nextStart()
+        #expect(callbackStart.request.cause == .callback)
 
-        let watchedFolder = URL(fileURLWithPath: "/tmp/watched-summary-\(UUID().uuidString)")
-        let repoA = watchedFolder.appending(path: "app")
-        let repoB = watchedFolder.appending(path: "tool")
-        let repoC = watchedFolder.appending(path: "docs")
-        let repoALinkedWorktree = watchedFolder.appending(path: "app-linked")
-        let repoBLinkedWorktree = watchedFolder.appending(path: "tool-linked")
-        let repoCLinkedWorktree = watchedFolder.appending(path: "docs-linked")
+        let refresh = Task {
+            await fixture.actor.refreshWatchedFolders([fixture.watchedPath])
+        }
+        await fixture.scanner.finish(
+            callbackStart,
+            with: completeResult(entries: [cloneEntry(repoFromInitialDemand)])
+        )
+        let exactManualStart = await fixture.scanner.nextStart()
+        #expect(exactManualStart.request.cause == .manual)
 
-        scanner.setGroupedResults([
-            watchedFolder: [
-                RepoScanner.RepoScanGroup(
-                    clonePath: repoA,
-                    linkedWorktreePaths: [repoALinkedWorktree]
-                ),
-                RepoScanner.RepoScanGroup(
-                    clonePath: repoB,
-                    linkedWorktreePaths: [repoBLinkedWorktree]
-                ),
-            ]
-        ])
-        let initialStream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let initialSummary = await actor.refreshWatchedFolders([watchedFolder])
-        let initialEvents = await drainTopologyEvents(from: initialStream, settleTurns: 50)
+        let completionProbe = RefreshCompletionProbe()
+        let observedRefresh = Task {
+            let summary = await refresh.value
+            await completionProbe.record(summary)
+        }
+        await boundedYields()
+        #expect(await completionProbe.summary() == nil)
 
-        #expect(
-            Set(initialSummary.repoPaths(in: watchedFolder))
-                == Set([repoA.standardizedFileURL, repoB.standardizedFileURL]))
-        #expect(
-            initialEvents.sortedByRepoPath == [
-                RepoDiscoveryEvent(
-                    repoPath: repoA.standardizedFileURL,
-                    linkedWorktrees: .scanned([repoALinkedWorktree.standardizedFileURL])
-                ),
-                RepoDiscoveryEvent(
-                    repoPath: repoB.standardizedFileURL,
-                    linkedWorktrees: .scanned([repoBLinkedWorktree.standardizedFileURL])
-                ),
-            ])
-        #expect(initialEvents.removed.isEmpty)
-
-        let repeatStream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let repeatSummary = await actor.refreshWatchedFolders([watchedFolder])
-        let repeatEvents = await drainTopologyEvents(from: repeatStream, settleTurns: 50)
+        await fixture.scanner.finish(
+            exactManualStart,
+            with: completeResult(entries: [cloneEntry(repoFromManualDemand)])
+        )
+        await observedRefresh.value
 
         #expect(
-            Set(repeatSummary.repoPaths(in: watchedFolder))
-                == Set([repoA.standardizedFileURL, repoB.standardizedFileURL]))
-        #expect(repeatEvents.discovered.isEmpty)
-        #expect(repeatEvents.removed.isEmpty)
-
-        scanner.setGroupedResults([
-            watchedFolder: [
-                RepoScanner.RepoScanGroup(
-                    clonePath: repoA,
-                    linkedWorktreePaths: [repoALinkedWorktree]
-                ),
-                RepoScanner.RepoScanGroup(
-                    clonePath: repoB,
-                    linkedWorktreePaths: [repoBLinkedWorktree]
-                ),
-                RepoScanner.RepoScanGroup(
-                    clonePath: repoC,
-                    linkedWorktreePaths: [repoCLinkedWorktree]
-                ),
-            ]
-        ])
-        let newCloneStream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let newCloneSummary = await actor.refreshWatchedFolders([watchedFolder])
-        let newCloneEvents = await drainTopologyEvents(from: newCloneStream, settleTurns: 50)
-
-        #expect(
-            Set(newCloneSummary.repoPaths(in: watchedFolder))
-                == Set([repoA.standardizedFileURL, repoB.standardizedFileURL, repoC.standardizedFileURL]))
-        #expect(
-            newCloneEvents.discovered == [
-                RepoDiscoveryEvent(
-                    repoPath: repoC.standardizedFileURL,
-                    linkedWorktrees: .scanned([repoCLinkedWorktree.standardizedFileURL])
-                )
-            ])
-        #expect(newCloneEvents.removed.isEmpty)
-
-        await actor.shutdown()
+            await completionProbe.summary()?.repoPaths(in: fixture.watchedFolder)
+                == [canonicalURL(repoFromManualDemand)]
+        )
+        await fixture.actor.shutdown()
     }
 
-    @Test("refreshWatchedFolders re-emits repoDiscovered when linked worktree list changes")
-    func refreshWatchedFoldersReEmitsRepoDiscoveredWhenLinkedWorktreeListChanges() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let fsClient = ControllableFSEventStreamClient()
-        let scanner = ControllableWatchedFolderScanner()
-        let actor = FilesystemActor(
-            bus: bus,
-            fseventStreamClient: fsClient,
-            groupedWatchedFolderScanner: scanner.scan,
-            debounceWindow: .zero,
-            maxFlushLatency: .zero
+    @Test("partial and cancelled results merge positives without removing prior inventory")
+    func partialAndCancelledResultsAreAdditive() async throws {
+        let fixture = try await WatchedFolderActorFixture()
+        defer { fixture.removeTemporaryRoot() }
+
+        let clone = fixture.watchedFolder.appending(path: "app")
+        let retainedClone = fixture.watchedFolder.appending(path: "retained")
+        let linkedA = fixture.watchedFolder.appending(path: "app-a")
+        let linkedB = fixture.watchedFolder.appending(path: "app-b")
+        let linkedC = fixture.watchedFolder.appending(path: "app-c")
+        _ = await fixture.performInitialRefresh(
+            result: completeResult(entries: [
+                cloneEntry(clone),
+                linkedEntry(linkedA, parentClone: clone),
+                cloneEntry(retainedClone),
+            ])
         )
 
-        let watchedFolder = URL(fileURLWithPath: "/tmp/watched-linked-\(UUID().uuidString)")
-        let repoPath = watchedFolder.appending(path: "app")
-        let linkedA = watchedFolder.appending(path: "app-linked-a")
-        let linkedB = watchedFolder.appending(path: "app-linked-b")
-
-        scanner.setGroupedResults([
-            watchedFolder: [
-                RepoScanner.RepoScanGroup(clonePath: repoPath, linkedWorktreePaths: [linkedA])
-            ]
-        ])
-        _ = await actor.refreshWatchedFolders([watchedFolder])
-
-        scanner.setGroupedResults([
-            watchedFolder: [
-                RepoScanner.RepoScanGroup(
-                    clonePath: repoPath,
-                    linkedWorktreePaths: [linkedA, linkedB]
-                )
-            ]
-        ])
-        let reemitStream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let reemitSummary = await actor.refreshWatchedFolders([watchedFolder])
-        let reemitEvents = await drainTopologyEvents(from: reemitStream, settleTurns: 50)
-
-        #expect(Set(reemitSummary.repoPaths(in: watchedFolder)) == Set([repoPath.standardizedFileURL]))
+        let partialSummary = await fixture.performRefresh(
+            result: partialResult(entries: [
+                cloneEntry(clone),
+                linkedEntry(linkedB, parentClone: clone),
+            ])
+        )
         #expect(
-            reemitEvents.discovered == [
+            Set(partialSummary.repoPaths(in: fixture.watchedFolder))
+                == Set([canonicalURL(clone), canonicalURL(retainedClone)])
+        )
+
+        let cancelledSummary = await fixture.performRefresh(
+            result: cancelledResult(entries: [
+                cloneEntry(clone),
+                linkedEntry(linkedC, parentClone: clone),
+            ])
+        )
+        #expect(
+            Set(cancelledSummary.repoPaths(in: fixture.watchedFolder))
+                == Set([canonicalURL(clone), canonicalURL(retainedClone)])
+        )
+
+        let events = await fixture.topologyEvents()
+        #expect(
+            events.discovered.contains(
                 RepoDiscoveryEvent(
-                    repoPath: repoPath.standardizedFileURL,
+                    repoPath: canonicalURL(clone),
                     linkedWorktrees: .scanned([
-                        linkedA.standardizedFileURL,
-                        linkedB.standardizedFileURL,
+                        canonicalURL(linkedA),
+                        canonicalURL(linkedB),
+                        canonicalURL(linkedC),
                     ])
                 )
-            ])
-        #expect(reemitEvents.removed.isEmpty)
-
-        await actor.shutdown()
-    }
-
-    @Test("FSEvent-triggered rescan emits repoRemoved when clone disappears")
-    func fseventTriggeredRescanEmitsRepoRemoved() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let fsClient = ControllableFSEventStreamClient()
-        let scanner = ControllableWatchedFolderScanner()
-        let actor = FilesystemActor(
-            bus: bus,
-            fseventStreamClient: fsClient,
-            groupedWatchedFolderScanner: scanner.scan,
-            debounceWindow: .zero,
-            maxFlushLatency: .zero
-        )
-
-        let watchedFolder = URL(fileURLWithPath: "/tmp/watched-fsevent-remove-\(UUID().uuidString)")
-        let repoPath = watchedFolder.appending(path: "app")
-        scanner.setGroupedResults([
-            watchedFolder: [RepoScanner.RepoScanGroup(clonePath: repoPath, linkedWorktreePaths: [])]
-        ])
-        _ = await actor.refreshWatchedFolders([watchedFolder])
-
-        let syntheticId = try #require(fsClient.registeredWorktreeIds.first)
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-
-        scanner.setGroupedResults([watchedFolder: []])
-        fsClient.send(
-            FSEventBatch(
-                worktreeId: syntheticId,
-                paths: ["\(repoPath.path)/.git/HEAD"]
             )
-        )
-
-        let events = await drainTopologyEvents(from: stream, settleTurns: 150)
-        #expect(events.discovered.isEmpty)
-        #expect(events.removed == Set([repoPath.standardizedFileURL]))
-
-        await actor.shutdown()
-    }
-
-    @Test("FSEvent-triggered rescan emits updated scanned linked worktrees when a worktree appears")
-    func fseventTriggeredRescanEmitsUpdatedLinkedWorktrees() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let fsClient = ControllableFSEventStreamClient()
-        let scanner = ControllableWatchedFolderScanner()
-        let actor = FilesystemActor(
-            bus: bus,
-            fseventStreamClient: fsClient,
-            groupedWatchedFolderScanner: scanner.scan,
-            debounceWindow: .zero,
-            maxFlushLatency: .zero
-        )
-
-        let watchedFolder = URL(fileURLWithPath: "/tmp/watched-fsevent-add-\(UUID().uuidString)")
-        let repoPath = watchedFolder.appending(path: "app")
-        let linkedPath = watchedFolder.appending(path: "app-feature")
-        scanner.setGroupedResults([
-            watchedFolder: [RepoScanner.RepoScanGroup(clonePath: repoPath, linkedWorktreePaths: [])]
-        ])
-        _ = await actor.refreshWatchedFolders([watchedFolder])
-
-        let syntheticId = try #require(fsClient.registeredWorktreeIds.first)
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-
-        scanner.setGroupedResults([
-            watchedFolder: [
-                RepoScanner.RepoScanGroup(clonePath: repoPath, linkedWorktreePaths: [linkedPath])
-            ]
-        ])
-        fsClient.send(
-            FSEventBatch(
-                worktreeId: syntheticId,
-                paths: ["\(repoPath.path)/.git/worktrees/feature/HEAD"]
-            )
-        )
-
-        let events = await drainTopologyEvents(from: stream, settleTurns: 150)
-        #expect(
-            events.discovered == [
-                RepoDiscoveryEvent(
-                    repoPath: repoPath.standardizedFileURL,
-                    linkedWorktrees: .scanned([linkedPath.standardizedFileURL])
-                )
-            ]
         )
         #expect(events.removed.isEmpty)
-
-        await actor.shutdown()
+        await fixture.actor.shutdown()
     }
 
-    @Test("periodic fallback rescan emits repoRemoved after clock advances")
-    func periodicFallbackRescanEmitsRepoRemoved() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let fsClient = ControllableFSEventStreamClient()
-        let scanner = ControllableWatchedFolderScanner()
-        let clock = TestPushClock()
-        let actor = FilesystemActor(
-            bus: bus,
-            fseventStreamClient: fsClient,
-            groupedWatchedFolderScanner: scanner.scan,
-            sleepClock: clock,
-            debounceWindow: .zero,
-            maxFlushLatency: .zero
+    @Test("concurrent manual refreshes serialize into distinct tracked scans")
+    func concurrentManualRefreshesSerialize() async throws {
+        let fixture = try await WatchedFolderActorFixture()
+        defer { fixture.removeTemporaryRoot() }
+        _ = await fixture.performInitialRefresh(result: completeResult(entries: []))
+
+        let firstRefresh = Task {
+            await fixture.actor.refreshWatchedFolders([fixture.watchedPath])
+        }
+        let firstManualStart = await fixture.scanner.nextStart()
+        #expect(firstManualStart.request.cause == .manual)
+
+        let secondRefreshProbe = RefreshCompletionProbe()
+        let secondRefresh = Task {
+            let summary = await fixture.actor.refreshWatchedFolders([fixture.watchedPath])
+            await secondRefreshProbe.record(summary)
+        }
+        await boundedYields()
+        #expect(await fixture.scanner.startedQuantumCount() == 2)
+
+        await fixture.scanner.finish(firstManualStart, with: completeResult(entries: []))
+        _ = await firstRefresh.value
+        let secondManualStart = await fixture.scanner.nextStart()
+        #expect(secondManualStart.request.cause == .manual)
+        #expect(await secondRefreshProbe.summary() == nil)
+
+        await fixture.scanner.finish(secondManualStart, with: completeResult(entries: []))
+        await secondRefresh.value
+        #expect(await secondRefreshProbe.summary() != nil)
+        await fixture.actor.shutdown()
+    }
+
+    @Test("exact complete result removes absent clones")
+    func exactCompleteResultRemovesAbsentClones() async throws {
+        let fixture = try await WatchedFolderActorFixture()
+        defer { fixture.removeTemporaryRoot() }
+
+        let removedClone = fixture.watchedFolder.appending(path: "removed")
+        let retainedClone = fixture.watchedFolder.appending(path: "retained")
+        _ = await fixture.performInitialRefresh(
+            result: completeResult(entries: [
+                cloneEntry(removedClone),
+                cloneEntry(retainedClone),
+            ])
         )
+        await fixture.resetTopologyEventRecording()
 
-        let watchedFolder = URL(fileURLWithPath: "/tmp/watched-periodic-remove-\(UUID().uuidString)")
-        let repoPath = watchedFolder.appending(path: "app")
-        scanner.setGroupedResults([
-            watchedFolder: [RepoScanner.RepoScanGroup(clonePath: repoPath, linkedWorktreePaths: [])]
-        ])
-        _ = await actor.refreshWatchedFolders([watchedFolder])
+        let summary = await fixture.performRefresh(
+            result: completeResult(entries: [cloneEntry(retainedClone)])
+        )
+        let events = await fixture.topologyEvents()
 
-        await clock.waitForPendingSleepCount(atLeast: 1)
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-
-        scanner.setGroupedResults([watchedFolder: []])
-        clock.advance(by: .seconds(300))
-
-        let events = await drainTopologyEvents(from: stream, settleTurns: 150)
+        #expect(summary.repoPaths(in: fixture.watchedFolder) == [canonicalURL(retainedClone)])
         #expect(events.discovered.isEmpty)
-        #expect(events.removed == Set([repoPath.standardizedFileURL]))
-
-        await actor.shutdown()
+        #expect(events.removed == Set([canonicalURL(removedClone)]))
+        await fixture.actor.shutdown()
     }
 
-    @Test("refreshWatchedFolders preserves global remove dedup across watched folders")
-    func refreshWatchedFoldersPreservesGlobalRemoveDedupAcrossWatchedFolders() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let fsClient = ControllableFSEventStreamClient()
-        let scanner = ControllableWatchedFolderScanner()
-        let actor = FilesystemActor(
-            bus: bus,
-            fseventStreamClient: fsClient,
-            groupedWatchedFolderScanner: scanner.scan,
-            debounceWindow: .zero,
-            maxFlushLatency: .zero
-        )
+    @Test("shutdown resumes a manual refresh with a pending scan result")
+    func shutdownResumesPendingManualRefresh() async throws {
+        let fixture = try await WatchedFolderActorFixture()
+        defer { fixture.removeTemporaryRoot() }
+        _ = await fixture.performInitialRefresh(result: completeResult(entries: []))
 
-        let sharedParentFolder = URL(fileURLWithPath: "/tmp/watched-parent-\(UUID().uuidString)")
-        let nestedWatchedFolder = sharedParentFolder.appending(path: "team")
-        let sharedRepo = nestedWatchedFolder.appending(path: "app")
+        let refresh = Task {
+            await fixture.actor.refreshWatchedFolders([fixture.watchedPath])
+        }
+        let pendingManualStart = await fixture.scanner.nextStart()
+        #expect(pendingManualStart.request.cause == .manual)
 
-        scanner.setResults([
-            sharedParentFolder: [sharedRepo],
-            nestedWatchedFolder: [sharedRepo],
-        ])
-        _ = await actor.refreshWatchedFolders([sharedParentFolder, nestedWatchedFolder])
+        await fixture.actor.shutdown()
+        let summary = await refresh.value
 
-        scanner.setResults([
-            sharedParentFolder: [],
-            nestedWatchedFolder: [sharedRepo],
-        ])
-        let stillPresentStream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        _ = await actor.refreshWatchedFolders([sharedParentFolder, nestedWatchedFolder])
-        let stillPresentEvents = await drainTopologyEvents(from: stillPresentStream, settleTurns: 50)
-
-        #expect(stillPresentEvents.discovered.isEmpty)
-        #expect(stillPresentEvents.removed.isEmpty)
-
-        scanner.setResults([
-            sharedParentFolder: [],
-            nestedWatchedFolder: [],
-        ])
-        let removedEverywhereStream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        _ = await actor.refreshWatchedFolders([sharedParentFolder, nestedWatchedFolder])
-        let removedEverywhereEvents = await drainTopologyEvents(
-            from: removedEverywhereStream,
-            settleTurns: 50
-        )
-
-        #expect(removedEverywhereEvents.discovered.isEmpty)
-        #expect(removedEverywhereEvents.removed == Set([sharedRepo.standardizedFileURL]))
-
-        await actor.shutdown()
+        #expect(summary.repoPaths(in: fixture.watchedFolder).isEmpty)
     }
 
-    // MARK: - Trigger Matching
+    @Test("unavailable and failed results preserve prior inventory")
+    func unavailableAndFailedResultsPreservePriorInventory() async throws {
+        let fixture = try await WatchedFolderActorFixture()
+        defer { fixture.removeTemporaryRoot() }
 
-    @Test("git directory changes trigger rescan, dotfiles like .gitignore do not")
-    func gitTriggerMatchesOnlyGitDirectory() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let fsClient = ControllableFSEventStreamClient()
-        let actor = FilesystemActor(
-            bus: bus,
-            fseventStreamClient: fsClient,
-            debounceWindow: .zero,
-            maxFlushLatency: .zero
+        let clone = fixture.watchedFolder.appending(path: "preserved")
+        _ = await fixture.performInitialRefresh(
+            result: completeResult(entries: [cloneEntry(clone)])
         )
+        await fixture.resetTopologyEventRecording()
 
-        let watchedFolder = URL(fileURLWithPath: "/tmp/watched-trigger-\(UUID().uuidString)")
-        _ = await actor.refreshWatchedFolders([watchedFolder])
+        let unavailableSummary = await fixture.performRefresh(result: unavailableResult())
+        let failedSummary = await fixture.performRefresh(result: failedResult())
+        let events = await fixture.topologyEvents()
 
-        let syntheticId = fsClient.registeredWorktreeIds.first!
+        #expect(unavailableSummary.repoPaths(in: fixture.watchedFolder) == [canonicalURL(clone)])
+        #expect(failedSummary.repoPaths(in: fixture.watchedFolder) == [canonicalURL(clone)])
+        #expect(events.discovered.isEmpty)
+        #expect(events.removed.isEmpty)
+        await fixture.actor.shutdown()
+    }
 
-        // Subscribe after initial rescan to get a clean baseline
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
+    @Test("only git topology callbacks submit a follow-up scan")
+    func onlyGitTopologyCallbacksSubmitFollowUpScan() async throws {
+        let fixture = try await WatchedFolderActorFixture()
+        defer { fixture.removeTemporaryRoot() }
+        _ = await fixture.performInitialRefresh(result: completeResult(entries: []))
 
-        // Send a batch with only .gitignore and .github paths — should NOT trigger rescan
-        fsClient.send(
+        let callbackRoutingID = try #require(fixture.fseventClient.registeredWorktreeIds.first)
+        let scanCountBeforeCallbacks = await fixture.scanner.startedQuantumCount()
+        fixture.fseventClient.send(
             FSEventBatch(
-                worktreeId: syntheticId,
-                paths: [
-                    "\(watchedFolder.path)/myrepo/.gitignore",
-                    "\(watchedFolder.path)/myrepo/.github/workflows/ci.yml",
-                    "\(watchedFolder.path)/myrepo/.gitattributes",
-                ]
-            ))
-
-        // Drain bus — no .repoDiscovered should appear from the non-.git batch
-        let eventsAfterNonGitBatch = await drainTopologyEvents(from: stream, settleTurns: 150)
-        #expect(
-            eventsAfterNonGitBatch.discovered.isEmpty && eventsAfterNonGitBatch.removed.isEmpty,
-            ".gitignore/.github paths should not trigger watched folder rescan"
+                worktreeId: callbackRoutingID,
+                paths: [fixture.watchedFolder.appending(path: "repo/.gitignore").path]
+            )
         )
+        await boundedYields()
+        #expect(await fixture.scanner.startedQuantumCount() == scanCountBeforeCallbacks)
 
-        // Now send a batch with an actual .git/ path — SHOULD trigger handler
-        // (RepoScanner won't find real repos at /tmp paths, so no events emitted,
-        // but the handler is entered without crashing)
-        fsClient.send(
+        fixture.fseventClient.send(
             FSEventBatch(
-                worktreeId: syntheticId,
-                paths: [
-                    "\(watchedFolder.path)/newrepo/.git/HEAD"
-                ]
-            ))
-
-        await actor.shutdown()
-    }
-
-    // MARK: - Ingress Branching
-
-    @Test("watched folder FSEvents do not enter worktree ingress path")
-    func watchedFolderEventsDoNotEnterWorktreeIngress() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let fsClient = ControllableFSEventStreamClient()
-        let actor = FilesystemActor(
-            bus: bus,
-            fseventStreamClient: fsClient,
-            debounceWindow: .zero,
-            maxFlushLatency: .zero
+                worktreeId: callbackRoutingID,
+                paths: [fixture.watchedFolder.appending(path: "repo/.git/HEAD").path]
+            )
         )
-
-        // Register a real worktree AND a watched folder
-        let worktreeId = UUID()
-        let repoId = UUID()
-        let worktreePath = URL(fileURLWithPath: "/tmp/real-wt-\(UUID().uuidString)")
-        await actor.register(worktreeId: worktreeId, repoId: repoId, rootPath: worktreePath)
-
-        let watchedFolder = URL(fileURLWithPath: "/tmp/watched-ingress-\(UUID().uuidString)")
-        _ = await actor.refreshWatchedFolders([watchedFolder])
-
-        let syntheticId = fsClient.registeredWorktreeIds.last!
-
-        // Subscribe after setup
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-
-        // Send a batch to the watched folder synthetic ID with a .git/ path
-        fsClient.send(
-            FSEventBatch(
-                worktreeId: syntheticId,
-                paths: ["\(watchedFolder.path)/cloned-repo/.git/HEAD"]
-            ))
-
-        // Drain bus: no worktree envelopes for the syntheticId should exist
-        var sawWorktreeEnvelopeForSyntheticId = false
-        let events = await drainAllEnvelopes(from: stream, settleTurns: 150)
-        for envelope in events {
-            if case .worktree(let wt) = envelope, wt.worktreeId == syntheticId {
-                sawWorktreeEnvelopeForSyntheticId = true
-            }
-        }
-
-        #expect(!sawWorktreeEnvelopeForSyntheticId, "Watched folder events must not enter worktree ingress")
-
-        await actor.shutdown()
+        let callbackStart = await fixture.scanner.nextStart()
+        #expect(callbackStart.request.cause == .callback)
+        #expect(callbackStart.request.sourceID.rootID == fixture.watchedPath.id)
+        await fixture.scanner.finish(callbackStart, with: completeResult(entries: []))
+        try await fixture.waitForStartedQuantumCount(scanCountBeforeCallbacks + 1)
+        await fixture.actor.shutdown()
     }
 
-    // MARK: - Update Lifecycle
+    @Test("removing a watched path retires scheduler registration and callback routing")
+    func removalRetiresSchedulerRegistrationAndCallbackRouting() async throws {
+        let fixture = try await WatchedFolderActorFixture()
+        defer { fixture.removeTemporaryRoot() }
+        let clone = fixture.watchedFolder.appending(path: "removed-with-root")
 
-    @Test("updateWatchedFolders registers and unregisters FSEvent streams correctly")
-    func updateWatchedFoldersLifecycle() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let fsClient = ControllableFSEventStreamClient()
-        let actor = FilesystemActor(
-            bus: bus,
-            fseventStreamClient: fsClient,
-            debounceWindow: .zero,
-            maxFlushLatency: .zero
+        let initialRequest = await fixture.performInitialRefreshReturningRequest(
+            result: completeResult(entries: [cloneEntry(clone)])
         )
+        let callbackRoutingID = try #require(fixture.fseventClient.registeredWorktreeIds.first)
+        await fixture.resetTopologyEventRecording()
 
-        let folder1 = URL(fileURLWithPath: "/tmp/watch-lc-1-\(UUID().uuidString)")
-        let folder2 = URL(fileURLWithPath: "/tmp/watch-lc-2-\(UUID().uuidString)")
+        let summary = await fixture.actor.refreshWatchedFolders([])
+        let events = await fixture.topologyEvents()
+        let staleSubmission = await fixture.scheduler.submit(initialRequest)
 
-        // Register two folders
-        _ = await actor.refreshWatchedFolders([folder1, folder2])
-        #expect(fsClient.registeredWorktreeIds.count == 2)
-
-        // Update to only folder2 — folder1 should be unregistered
-        _ = await actor.refreshWatchedFolders([folder2])
-        #expect(fsClient.registeredWorktreeIds.count == 2)  // total registrations unchanged
-        #expect(fsClient.unregisteredWorktreeIds.count == 1)
-
-        // Update to empty — all unregistered
-        _ = await actor.refreshWatchedFolders([])
-        #expect(fsClient.unregisteredWorktreeIds.count == 2)  // folder2 now also unregistered
-
-        await actor.shutdown()
-    }
-
-    // MARK: - Helpers
-
-    private struct RepoDiscoveryEvent: Equatable {
-        let repoPath: URL
-        let linkedWorktrees: LinkedWorktreeInfo
-    }
-
-    private struct TopologyEventSet: Equatable {
-        var discovered: [RepoDiscoveryEvent] = []
-        var removed: Set<URL> = []
-
-        var sortedByRepoPath: [RepoDiscoveryEvent] {
-            discovered.sorted {
-                $0.repoPath.path.localizedCaseInsensitiveCompare($1.repoPath.path) == .orderedAscending
-            }
+        #expect(summary.repoPathsByWatchedFolder.isEmpty)
+        #expect(fixture.fseventClient.unregisteredWorktreeIds == [callbackRoutingID])
+        #expect(events.removed == Set([canonicalURL(clone)]))
+        guard case .rejected(.staleRegistration) = staleSubmission else {
+            Issue.record("retired watched-folder registration accepted a stale scan request")
+            await fixture.actor.shutdown()
+            return
         }
-    }
-
-    private func drainTopologyEvents<Events: AsyncSequence & Sendable>(
-        from stream: Events,
-        settleTurns: Int
-    ) async -> TopologyEventSet where Events.Element == RuntimeEnvelope {
-        var events = TopologyEventSet()
-        let envelopes = await drainAllEnvelopes(from: stream, settleTurns: settleTurns)
-        for envelope in envelopes {
-            if case .system(let sys) = envelope,
-                case .topology(let topology) = sys.event
-            {
-                switch topology {
-                case .repoDiscovered(let repoPath, _, let linkedWorktrees):
-                    events.discovered.append(
-                        RepoDiscoveryEvent(
-                            repoPath: repoPath.standardizedFileURL,
-                            linkedWorktrees: linkedWorktrees
-                        ))
-                case .reposDiscovered(_, let repositories):
-                    for repository in repositories {
-                        events.discovered.append(
-                            RepoDiscoveryEvent(
-                                repoPath: repository.repoPath.standardizedFileURL,
-                                linkedWorktrees: repository.linkedWorktrees
-                            ))
-                    }
-                case .repoRemoved(let repoPath):
-                    events.removed.insert(repoPath.standardizedFileURL)
-                case .worktreeRegistered, .worktreeUnregistered:
-                    break
-                }
-            }
-        }
-        return events
-    }
-
-    private func drainAllEnvelopes<Events: AsyncSequence & Sendable>(
-        from stream: Events,
-        settleTurns: Int
-    ) async -> [RuntimeEnvelope] where Events.Element == RuntimeEnvelope {
-        let collectTask = Task {
-            var results: [RuntimeEnvelope] = []
-            do {
-                for try await envelope in stream {
-                    results.append(envelope)
-                }
-            } catch {
-                Issue.record("Unexpected throwing event stream: \(error)")
-            }
-            return results
-        }
-        for _ in 0..<settleTurns {
-            await Task.yield()
-        }
-        collectTask.cancel()
-        return await collectTask.value
-    }
-
-    private func canonicalPath(_ url: URL) -> String {
-        url.standardizedFileURL.resolvingSymlinksInPath().path
+        await fixture.actor.shutdown()
     }
 }
 
-final class ControllableWatchedFolderScanner: @unchecked Sendable {
-    private let lock = NSLock()
-    private var resultsByRoot: [URL: [RepoScanner.RepoScanGroup]] = [:]
+private actor ResultDrainTaskGate {
+    private enum State {
+        case awaitingEntry(entryWaiters: [CheckedContinuation<Void, Never>])
+        case entered(releaseWaiters: [CheckedContinuation<Void, Never>])
+        case released
+    }
 
-    func setResults(_ resultsByRoot: [URL: [URL]]) {
-        setGroupedResults(
-            Dictionary(
-                uniqueKeysWithValues: resultsByRoot.map { key, value in
-                    (
-                        key,
-                        value.map {
-                            RepoScanner.RepoScanGroup(
-                                clonePath: $0,
-                                linkedWorktreePaths: []
-                            )
-                        }
-                    )
-                }
-            )
+    private var state = State.awaitingEntry(entryWaiters: [])
+
+    func pauseUntilReleased() async {
+        let entryWaiters: [CheckedContinuation<Void, Never>]
+        switch state {
+        case .awaitingEntry(let retainedEntryWaiters):
+            entryWaiters = retainedEntryWaiters
+            state = .entered(releaseWaiters: [])
+        case .entered, .released:
+            preconditionFailure("result-drain task gate supports exactly one entry")
+        }
+        for entryWaiter in entryWaiters {
+            entryWaiter.resume()
+        }
+
+        await withCheckedContinuation { continuation in
+            switch state {
+            case .awaitingEntry:
+                preconditionFailure("result-drain task gate must enter before waiting for release")
+            case .entered(var releaseWaiters):
+                releaseWaiters.append(continuation)
+                state = .entered(releaseWaiters: releaseWaiters)
+            case .released:
+                continuation.resume()
+            }
+        }
+    }
+
+    func waitUntilEntered() async {
+        await withCheckedContinuation { continuation in
+            switch state {
+            case .awaitingEntry(var entryWaiters):
+                entryWaiters.append(continuation)
+                state = .awaitingEntry(entryWaiters: entryWaiters)
+            case .entered, .released:
+                continuation.resume()
+            }
+        }
+    }
+
+    func release() {
+        switch state {
+        case .awaitingEntry:
+            preconditionFailure("result-drain task gate cannot release before entry")
+        case .entered(let releaseWaiters):
+            state = .released
+            for releaseWaiter in releaseWaiters {
+                releaseWaiter.resume()
+            }
+        case .released:
+            return
+        }
+    }
+}
+
+private actor ResultDrainTaskCompletionProbe {
+    private enum State {
+        case pending
+        case complete
+    }
+
+    private var state = State.pending
+
+    var isComplete: Bool {
+        switch state {
+        case .pending:
+            false
+        case .complete:
+            true
+        }
+    }
+
+    func recordCompletion() {
+        state = .complete
+    }
+}
+
+private actor ControlledActorWatchedFolderScanner {
+    struct Start: Sendable {
+        let request: WatchedFolderScanRequest
+        let scanRunGeneration: UInt64
+    }
+
+    private struct ActiveQuantum {
+        let continuation: CheckedContinuation<RepoScannerQuantumOutcome, Never>
+    }
+
+    private var activeBySourceID: [FilesystemSourceID: ActiveQuantum] = [:]
+    private var bufferedStarts: [Start] = []
+    private var startWaiters: [CheckedContinuation<Start, Never>] = []
+    private var totalStarted = 0
+
+    func makeSession(
+        request: WatchedFolderScanRequest,
+        scanRunGeneration: UInt64
+    ) -> WatchedFolderScannerSessionPort {
+        WatchedFolderScannerSessionPort(
+            id: RepoScannerSessionID(rawValue: UUIDv7.generate()),
+            advanceOneQuantum: {
+                await self.advance(request: request, scanRunGeneration: scanRunGeneration)
+            },
+            cancel: {
+                Task { await self.cancel(sourceID: request.sourceID) }
+                return .cancellationRequested
+            },
+            consumeValidationCompletion: { _ in .rejected(.sessionFinished) }
         )
     }
 
-    func setGroupedResults(_ resultsByRoot: [URL: [RepoScanner.RepoScanGroup]]) {
-        lock.withLock {
-            self.resultsByRoot = Dictionary(
-                uniqueKeysWithValues: resultsByRoot.map { key, value in
-                    (
-                        key.standardizedFileURL,
-                        value.map { group in
-                            RepoScanner.RepoScanGroup(
-                                clonePath: group.clonePath.standardizedFileURL,
-                                linkedWorktreePaths: group.linkedWorktreePaths.map(\.standardizedFileURL)
-                            )
-                        }
-                    )
+    func nextStart() async -> Start {
+        if !bufferedStarts.isEmpty { return bufferedStarts.removeFirst() }
+        return await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func finish(_ start: Start, with result: RepoScannerResult) {
+        guard let active = activeBySourceID.removeValue(forKey: start.request.sourceID) else {
+            Issue.record("expected an active watched-folder scanner quantum")
+            return
+        }
+        active.continuation.resume(returning: .finished(result))
+    }
+
+    func startedQuantumCount() -> Int { totalStarted }
+
+    private func advance(
+        request: WatchedFolderScanRequest,
+        scanRunGeneration: UInt64
+    ) async -> RepoScannerQuantumOutcome {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                let start = Start(request: request, scanRunGeneration: scanRunGeneration)
+                activeBySourceID[request.sourceID] = ActiveQuantum(continuation: continuation)
+                totalStarted += 1
+                if startWaiters.isEmpty {
+                    bufferedStarts.append(start)
+                } else {
+                    startWaiters.removeFirst().resume(returning: start)
                 }
-            )
+            }
+        } onCancel: {
+            Task { await self.cancel(sourceID: request.sourceID) }
         }
     }
 
-    func scan(_ root: URL) async -> [RepoScanner.RepoScanGroup] {
-        lock.withLock {
-            resultsByRoot[root.standardizedFileURL, default: []]
+    private func cancel(sourceID: FilesystemSourceID) {
+        guard let active = activeBySourceID.removeValue(forKey: sourceID) else { return }
+        active.continuation.resume(returning: .finished(cancelledResult(entries: [])))
+    }
+}
+
+private struct WatchedFolderActorFixture {
+    let scanner = ControlledActorWatchedFolderScanner()
+    let bus = EventBus<RuntimeEnvelope>()
+    let fseventClient = ControllableFSEventStreamClient()
+    let watchedFolder: URL
+    let watchedPath: WatchedPath
+    let scheduler: WatchedFolderScanScheduler
+    let actor: FilesystemActor
+
+    private let eventRecorder: TopologyEventRecorder
+    private let eventCollectionTask: Task<Void, Never>
+
+    init() async throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appending(path: "filesystem-actor-watched-folder-\(UUIDv7.generate())")
+        let watchedFolder = URL(fileURLWithPath: temporaryRoot.path)
+        try FileManager.default.createDirectory(at: watchedFolder, withIntermediateDirectories: true)
+        let watchedPath = WatchedPath(path: watchedFolder)
+        let scanner = self.scanner
+        let scheduler = try WatchedFolderScanScheduler(
+            maximumConcurrentScans: 1,
+            now: { .zero },
+            validationExecutor: RepoScannerValidationExecutor(
+                validationClient: ActorUnusedValidationClient()
+            ),
+            sessionFactory: { request, generation in
+                await scanner.makeSession(request: request, scanRunGeneration: generation)
+            }
+        )
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: fseventClient,
+            watchedFolderScanScheduler: scheduler,
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+        let eventRecorder = TopologyEventRecorder()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
+
+        self.watchedFolder = watchedFolder
+        self.watchedPath = watchedPath
+        self.scheduler = scheduler
+        self.actor = actor
+        self.eventRecorder = eventRecorder
+        eventCollectionTask = Task {
+            for await envelope in stream {
+                await eventRecorder.record(envelope)
+            }
         }
     }
+
+    func performInitialRefresh(result: RepoScannerResult) async -> WatchedFolderRefreshSummary {
+        let (_, summary) = await runInitialRefresh(result: result)
+        return summary
+    }
+
+    func performInitialRefreshReturningRequest(
+        result: RepoScannerResult
+    ) async -> WatchedFolderScanRequest {
+        let (request, _) = await runInitialRefresh(result: result)
+        return request
+    }
+
+    private func runInitialRefresh(
+        result: RepoScannerResult
+    ) async -> (WatchedFolderScanRequest, WatchedFolderRefreshSummary) {
+        let refresh = Task { await actor.refreshWatchedFolders([watchedPath]) }
+        let initialStart = await scanner.nextStart()
+        await scanner.finish(initialStart, with: result)
+        return (initialStart.request, await refresh.value)
+    }
+
+    func performRefresh(result: RepoScannerResult) async -> WatchedFolderRefreshSummary {
+        let refresh = Task { await actor.refreshWatchedFolders([watchedPath]) }
+        let start = await scanner.nextStart()
+        await scanner.finish(start, with: result)
+        return await refresh.value
+    }
+
+    func resetTopologyEventRecording() async {
+        await boundedYields()
+        await eventRecorder.reset()
+    }
+
+    func topologyEvents() async -> TopologyEventSet {
+        await boundedYields()
+        return await eventRecorder.snapshot()
+    }
+
+    func waitForStartedQuantumCount(_ expectedCount: Int) async throws {
+        for _ in 0..<10_000 {
+            if await scanner.startedQuantumCount() == expectedCount { return }
+            await Task.yield()
+        }
+        Issue.record("scanner did not reach expected quantum count \(expectedCount)")
+        throw WatchedFolderActorTestError.expectedScannerProgress
+    }
+
+    func removeTemporaryRoot() {
+        eventCollectionTask.cancel()
+        try? FileManager.default.removeItem(at: watchedFolder)
+    }
+}
+
+private actor RefreshCompletionProbe {
+    private var recordedSummary: WatchedFolderRefreshSummary?
+
+    func record(_ summary: WatchedFolderRefreshSummary) {
+        recordedSummary = summary
+    }
+
+    func summary() -> WatchedFolderRefreshSummary? { recordedSummary }
+}
+
+private struct RepoDiscoveryEvent: Equatable {
+    let repoPath: URL
+    let linkedWorktrees: LinkedWorktreeInfo
+}
+
+private struct TopologyEventSet: Equatable {
+    var discovered: [RepoDiscoveryEvent] = []
+    var removed: Set<URL> = []
+}
+
+private actor TopologyEventRecorder {
+    private var events = TopologyEventSet()
+
+    func record(_ envelope: RuntimeEnvelope) {
+        guard case .system(let systemEnvelope) = envelope,
+            case .topology(let topologyEvent) = systemEnvelope.event
+        else { return }
+        switch topologyEvent {
+        case .repoDiscovered(let repoPath, _, let linkedWorktrees):
+            events.discovered.append(
+                RepoDiscoveryEvent(
+                    repoPath: repoPath.standardizedFileURL,
+                    linkedWorktrees: linkedWorktrees
+                )
+            )
+        case .reposDiscovered(_, let repositories):
+            events.discovered.append(
+                contentsOf: repositories.map {
+                    RepoDiscoveryEvent(
+                        repoPath: $0.repoPath.standardizedFileURL,
+                        linkedWorktrees: $0.linkedWorktrees
+                    )
+                }
+            )
+        case .repoRemoved(let repoPath):
+            events.removed.insert(repoPath.standardizedFileURL)
+        case .worktreeRegistered, .worktreeUnregistered:
+            break
+        }
+    }
+
+    func reset() { events = TopologyEventSet() }
+    func snapshot() -> TopologyEventSet { events }
+}
+
+private struct ActorUnusedValidationClient: RepoDiscoveryReadClient {
+    func validateDiscoveryCandidate(at candidateURL: URL) async -> GitRepositoryDiscoveryOutcome {
+        .failure(.serviceFailed(detail: "unexpected actor test validation request"))
+    }
+}
+
+private func cloneEntry(_ path: URL) -> RepoScanner.ResolvedGitEntry {
+    RepoScanner.ResolvedGitEntry(
+        path: path,
+        kind: .cloneRoot,
+        repositoryKey: path.standardizedFileURL.path
+    )
+}
+
+private func canonicalURL(_ path: URL) -> URL {
+    RepoScanner.canonicalURL(path)
+}
+
+private func linkedEntry(
+    _ path: URL,
+    parentClone: URL
+) -> RepoScanner.ResolvedGitEntry {
+    RepoScanner.ResolvedGitEntry(
+        path: path,
+        kind: .linkedWorktree(parentClonePath: parentClone),
+        repositoryKey: parentClone.standardizedFileURL.path
+    )
+}
+
+private func completeResult(entries: [RepoScanner.ResolvedGitEntry]) -> RepoScannerResult {
+    .completeAuthoritative(
+        CompleteRepoScan(
+            verifiedEntries: entries,
+            counts: scannerCounts(successCount: entries.count),
+            serviceMetrics: .zero
+        )
+    )
+}
+
+private func partialResult(entries: [RepoScanner.ResolvedGitEntry]) -> RepoScannerResult {
+    .partial(
+        PartialRepoScan(
+            verifiedEntries: entries,
+            failures: NonEmptyScanFailures(
+                first: .scannerServiceFailed(detail: "controlled partial result"),
+                remaining: []
+            ),
+            counts: scannerCounts(successCount: entries.count, failureCount: 1),
+            serviceMetrics: .zero
+        )
+    )
+}
+
+private func cancelledResult(entries: [RepoScanner.ResolvedGitEntry]) -> RepoScannerResult {
+    .cancelled(
+        CancelledRepoScan(
+            verifiedEntries: entries,
+            counts: scannerCounts(successCount: entries.count),
+            serviceMetrics: .zero
+        )
+    )
+}
+
+private func unavailableResult() -> RepoScannerResult {
+    .unavailable(
+        UnavailableRepoScan(
+            reason: .rootTraversalUnavailable(detail: "controlled unavailable result"),
+            counts: scannerCounts(),
+            serviceMetrics: .zero
+        )
+    )
+}
+
+private func failedResult() -> RepoScannerResult {
+    .failed(
+        FailedRepoScan(
+            reason: .scannerServiceFailed(detail: "controlled failed result"),
+            counts: scannerCounts(failureCount: 1),
+            serviceMetrics: .zero
+        )
+    )
+}
+
+private func scannerCounts(
+    successCount: Int = 0,
+    failureCount: Int = 0
+) -> RepoScannerEvidenceCounts {
+    RepoScannerEvidenceCounts(
+        directoryVisitCount: 0,
+        directoryTraversalFailureCount: 0,
+        entryMetadataFailureCount: 0,
+        gitCandidateCount: successCount,
+        validationSuccessCount: successCount,
+        validationAuthoritativeNegativeCount: 0,
+        validationTimeoutCount: 0,
+        validationCancellationCount: 0,
+        validationFailureCount: failureCount,
+        scannerServiceInvocationCount: 1
+    )
+}
+
+private func boundedYields() async {
+    for _ in 0..<200 {
+        await Task.yield()
+    }
+}
+
+private enum WatchedFolderActorTestError: Error {
+    case expectedScannerProgress
 }

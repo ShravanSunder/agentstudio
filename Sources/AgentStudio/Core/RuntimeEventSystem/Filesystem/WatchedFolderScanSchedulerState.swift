@@ -1,11 +1,30 @@
 import Foundation
 
 extension WatchedFolderScanScheduler {
-    struct QueuedNewScan: Sendable {
+    struct PendingDemand: Sendable {
         let request: WatchedFolderScanRequest
+        let coverage: WatchedFolderScanDemandCoverage
+
+        func merged(with newest: Self) -> Self {
+            precondition(request.sourceID == newest.request.sourceID)
+            let mergedRequest = request.mergingPendingRequest(with: newest.request)
+            guard coverage.registration == newest.coverage.registration else {
+                return Self(request: mergedRequest, coverage: newest.coverage)
+            }
+            let highestCoverage =
+                coverage.throughDemandGeneration >= newest.coverage.throughDemandGeneration
+                ? coverage : newest.coverage
+            return Self(request: mergedRequest, coverage: highestCoverage)
+        }
+    }
+
+    struct QueuedNewScan: Sendable {
+        let demand: PendingDemand
         let fifoOrdinal: UInt64
         let readyAt: Duration
         let startedFromDirtyFollowUp: Bool
+
+        var request: WatchedFolderScanRequest { demand.request }
     }
 
     struct LogicalScan: Sendable {
@@ -76,15 +95,15 @@ extension WatchedFolderScanScheduler {
     enum RootSchedulingState: Sendable {
         case queuedNew(QueuedNewScan)
         case queuedSuspended(QueuedSuspendedScan)
-        case queuedSuspendedAndDirty(QueuedSuspendedScan, WatchedFolderScanRequest)
+        case queuedSuspendedAndDirty(QueuedSuspendedScan, PendingDemand)
         case running(RunningQuantum)
-        case runningAndDirty(RunningQuantum, WatchedFolderScanRequest)
+        case runningAndDirty(RunningQuantum, PendingDemand)
         case awaitingValidation(AwaitingValidation)
-        case awaitingValidationAndDirty(AwaitingValidation, WatchedFolderScanRequest)
+        case awaitingValidationAndDirty(AwaitingValidation, PendingDemand)
         case pendingResult(PendingResult)
-        case pendingResultAndDirty(PendingResult, WatchedFolderScanRequest)
+        case pendingResultAndDirty(PendingResult, PendingDemand)
         case leasedResult(LeasedResult)
-        case leasedResultAndDirty(LeasedResult, WatchedFolderScanRequest)
+        case leasedResultAndDirty(LeasedResult, PendingDemand)
     }
 
     struct StaleDropCounts: Sendable {
@@ -281,6 +300,32 @@ extension WatchedFolderScanScheduler {
         private func saturatingIncrement(_ value: UInt64) -> UInt64 {
             let (incremented, overflow) = value.addingReportingOverflow(1)
             return overflow ? UInt64.max : incremented
+        }
+    }
+}
+
+extension WatchedFolderScanRequest {
+    fileprivate func mergingPendingRequest(with newest: Self) -> Self {
+        guard canonicalRoot.registration == newest.canonicalRoot.registration else {
+            return newest
+        }
+        switch (cause, newest.cause) {
+        case (.repair(let existingRepair), .repair(let newestRepair))
+        where existingRepair.generation == newestRepair.generation:
+            return Self(
+                canonicalRoot: newest.canonicalRoot,
+                cause: .repair(
+                    WatchedFolderRepairObligation(
+                        generation: newestRepair.generation,
+                        unresolved: existingRepair.unresolved.union(newestRepair.unresolved)
+                    )
+                )
+            )
+        case (.repair, .initialAdd), (.repair, .callback), (.repair, .manual),
+            (.repair, .fallback):
+            return Self(canonicalRoot: newest.canonicalRoot, cause: cause)
+        default:
+            return newest
         }
     }
 }

@@ -830,7 +830,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
 
             let refreshSummary = await self.watchedFolderCommands.refreshWatchedFolders(
-                self.store.repositoryTopologyAtom.watchedPaths.map(\.path)
+                self.store.repositoryTopologyAtom.watchedPaths
             )
 
             let repoPaths = refreshSummary.repoPaths(in: rootURL)

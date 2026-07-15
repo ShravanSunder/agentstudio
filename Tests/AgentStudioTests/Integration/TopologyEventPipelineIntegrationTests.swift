@@ -29,13 +29,14 @@ struct TopologyEventPipelineIntegrationTests {
         await withTopologyHarness { harness in
             await settleTopologyHarness(harness)
 
-            let watchedFolder = URL(fileURLWithPath: "/tmp/topology-watched-\(UUID().uuidString)")
+            let watchedFolder = harness.tempDir.appending(path: "topology-watched-\(UUID().uuidString)")
             let clonePath = watchedFolder.appending(path: "agent-studio")
             let featurePath = watchedFolder.appending(path: "agent-studio-feature")
             let hotfixPath = watchedFolder.appending(path: "agent-studio-hotfix")
+            let watchedPath = WatchedPath(path: watchedFolder)
 
-            harness.scanner.setResults([
-                watchedFolder: [
+            harness.scanResults.setResults([
+                watchedPath: [
                     RepoScanner.RepoScanGroup(
                         clonePath: clonePath,
                         linkedWorktreePaths: [featurePath, hotfixPath]
@@ -43,7 +44,16 @@ struct TopologyEventPipelineIntegrationTests {
                 ]
             ])
 
-            _ = await harness.refreshWatchedFolders([watchedFolder])
+            let summary = await harness.refreshWatchedFolders([watchedPath])
+            let scanState = await harness.discoveryActor.watchedFolderScanState
+            #expect(scanState.registrationsBySourceID.count == 1)
+            #expect(scanState.latestDemandCoverageBySourceID.count == 1)
+            #expect(scanState.appliedDemandCoverageBySourceID.count == 1)
+            #expect(
+                scanState.inventoryBySourceID.values.first?.repoGroups.map(\.clonePath)
+                    == [clonePath]
+            )
+            #expect(summary.repoPaths(in: watchedFolder) == [clonePath])
 
             await assertEventuallyMain("store should converge to one repo family") {
                 guard harness.workspaceStore.repos.count == 1 else { return false }
@@ -64,20 +74,21 @@ struct TopologyEventPipelineIntegrationTests {
         await withTopologyHarness { harness in
             await settleTopologyHarness(harness)
 
-            let watchedFolder = URL(fileURLWithPath: "/tmp/topology-remove-\(UUID().uuidString)")
+            let watchedFolder = harness.tempDir.appending(path: "topology-remove-\(UUID().uuidString)")
             let clonePath = watchedFolder.appending(path: "agent-studio")
             let keepPath = watchedFolder.appending(path: "agent-studio-feature")
             let removePath = watchedFolder.appending(path: "agent-studio-hotfix")
+            let watchedPath = WatchedPath(path: watchedFolder)
 
-            harness.scanner.setResults([
-                watchedFolder: [
+            harness.scanResults.setResults([
+                watchedPath: [
                     RepoScanner.RepoScanGroup(
                         clonePath: clonePath,
                         linkedWorktreePaths: [keepPath, removePath]
                     )
                 ]
             ])
-            _ = await harness.refreshWatchedFolders([watchedFolder])
+            _ = await harness.refreshWatchedFolders([watchedPath])
 
             await assertEventuallyMain("initial family should exist") {
                 harness.workspaceStore.repos.first?.worktrees.count == 3
@@ -113,15 +124,15 @@ struct TopologyEventPipelineIntegrationTests {
 
             let baselineSnapshot = await harness.filesystemSnapshot()
 
-            harness.scanner.setResults([
-                watchedFolder: [
+            harness.scanResults.setResults([
+                watchedPath: [
                     RepoScanner.RepoScanGroup(
                         clonePath: clonePath,
                         linkedWorktreePaths: [keepPath]
                     )
                 ]
             ])
-            _ = await harness.refreshWatchedFolders([watchedFolder])
+            _ = await harness.refreshWatchedFolders([watchedPath])
 
             await assertEventuallyMain("removed worktree should leave canonical store") {
                 let currentPaths = Set(harness.workspaceStore.repos.first?.worktrees.map(\.path) ?? [])
@@ -217,18 +228,21 @@ struct TopologyEventPipelineIntegrationTests {
             let subscriber = await harness.bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
             let recorder = RecordingSubscriber(stream: subscriber)
 
-            let watchedFolder = URL(fileURLWithPath: "/tmp/topology-fsevent-remove-\(UUID().uuidString)")
+            let watchedFolder = harness.tempDir.appending(
+                path: "topology-fsevent-remove-\(UUID().uuidString)"
+            )
             let clonePath = watchedFolder.appending(path: "agent-studio")
-            harness.scanner.setResults([
-                watchedFolder: [
+            let watchedPath = WatchedPath(path: watchedFolder)
+            harness.scanResults.setResults([
+                watchedPath: [
                     RepoScanner.RepoScanGroup(clonePath: clonePath, linkedWorktreePaths: [])
                 ]
             ])
-            _ = await harness.refreshWatchedFolders([watchedFolder])
+            _ = await harness.refreshWatchedFolders([watchedPath])
 
             let syntheticId = try #require(harness.fseventClient.registeredWorktreeIds.first)
 
-            harness.scanner.setResults([watchedFolder: []])
+            harness.scanResults.setResults([watchedPath: []])
             harness.fseventClient.send(
                 FSEventBatch(
                     worktreeId: syntheticId,
@@ -261,25 +275,28 @@ struct TopologyEventPipelineIntegrationTests {
         try await withTopologyHarness { harness in
             await settleTopologyHarness(harness)
 
-            let watchedFolder = URL(fileURLWithPath: "/tmp/topology-fsevent-add-\(UUID().uuidString)")
+            let watchedFolder = harness.tempDir.appending(
+                path: "topology-fsevent-add-\(UUID().uuidString)"
+            )
             let clonePath = watchedFolder.appending(path: "agent-studio")
             let initialLinked = watchedFolder.appending(path: "agent-studio-feature-a")
             let addedLinked = watchedFolder.appending(path: "agent-studio-feature-b")
+            let watchedPath = WatchedPath(path: watchedFolder)
 
-            harness.scanner.setResults([
-                watchedFolder: [
+            harness.scanResults.setResults([
+                watchedPath: [
                     RepoScanner.RepoScanGroup(
                         clonePath: clonePath,
                         linkedWorktreePaths: [initialLinked]
                     )
                 ]
             ])
-            _ = await harness.refreshWatchedFolders([watchedFolder])
+            _ = await harness.refreshWatchedFolders([watchedPath])
 
             let syntheticId = try #require(harness.fseventClient.registeredWorktreeIds.first)
 
-            harness.scanner.setResults([
-                watchedFolder: [
+            harness.scanResults.setResults([
+                watchedPath: [
                     RepoScanner.RepoScanGroup(
                         clonePath: clonePath,
                         linkedWorktreePaths: [initialLinked, addedLinked]
@@ -313,22 +330,25 @@ struct TopologyEventPipelineIntegrationTests {
             let subscriber = await harness.bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
             let recorder = RecordingSubscriber(stream: subscriber)
 
-            let folderA = URL(fileURLWithPath: "/tmp/topology-dedup-a-\(UUID().uuidString)")
-            let folderB = URL(fileURLWithPath: "/tmp/topology-dedup-b-\(UUID().uuidString)")
-            let sharedClone = URL(fileURLWithPath: "/tmp/topology-shared-clone-\(UUID().uuidString)")
+            let folderA = harness.tempDir.appending(path: "topology-dedup-a-\(UUID().uuidString)")
+            let folderB = harness.tempDir.appending(path: "topology-dedup-b-\(UUID().uuidString)")
+            let sharedClone = harness.tempDir.appending(
+                path: "topology-shared-clone-\(UUID().uuidString)"
+            )
+            let watchedPaths = [WatchedPath(path: folderA), WatchedPath(path: folderB)]
 
-            harness.scanner.setResults([
-                folderA: [RepoScanner.RepoScanGroup(clonePath: sharedClone, linkedWorktreePaths: [])],
-                folderB: [RepoScanner.RepoScanGroup(clonePath: sharedClone, linkedWorktreePaths: [])],
+            harness.scanResults.setResults([
+                watchedPaths[0]: [RepoScanner.RepoScanGroup(clonePath: sharedClone, linkedWorktreePaths: [])],
+                watchedPaths[1]: [RepoScanner.RepoScanGroup(clonePath: sharedClone, linkedWorktreePaths: [])],
             ])
-            _ = await harness.refreshWatchedFolders([folderA, folderB])
+            _ = await harness.refreshWatchedFolders(watchedPaths)
             let initialEventCount = await recorder.snapshot().count
 
-            harness.scanner.setResults([
-                folderA: [],
-                folderB: [RepoScanner.RepoScanGroup(clonePath: sharedClone, linkedWorktreePaths: [])],
+            harness.scanResults.setResults([
+                watchedPaths[0]: [],
+                watchedPaths[1]: [RepoScanner.RepoScanGroup(clonePath: sharedClone, linkedWorktreePaths: [])],
             ])
-            _ = await harness.refreshWatchedFolders([folderA, folderB])
+            _ = await harness.refreshWatchedFolders(watchedPaths)
 
             for _ in 0..<50 {
                 await Task.yield()
@@ -353,20 +373,21 @@ struct TopologyEventPipelineIntegrationTests {
         await withTopologyHarness { harness in
             await settleTopologyHarness(harness)
 
-            let watchedFolder = URL(fileURLWithPath: "/tmp/topology-empty-\(UUID().uuidString)")
+            let watchedFolder = harness.tempDir.appending(path: "topology-empty-\(UUID().uuidString)")
             let clonePath = watchedFolder.appending(path: "agent-studio")
             let featurePath = watchedFolder.appending(path: "agent-studio-feature")
             let hotfixPath = watchedFolder.appending(path: "agent-studio-hotfix")
+            let watchedPath = WatchedPath(path: watchedFolder)
 
-            harness.scanner.setResults([
-                watchedFolder: [
+            harness.scanResults.setResults([
+                watchedPath: [
                     RepoScanner.RepoScanGroup(
                         clonePath: clonePath,
                         linkedWorktreePaths: [featurePath, hotfixPath]
                     )
                 ]
             ])
-            _ = await harness.refreshWatchedFolders([watchedFolder])
+            _ = await harness.refreshWatchedFolders([watchedPath])
 
             await assertEventuallyMain("initial linked family should exist") {
                 guard harness.workspaceStore.repos.count == 1 else { return false }
@@ -374,15 +395,15 @@ struct TopologyEventPipelineIntegrationTests {
                     == Set([clonePath, featurePath, hotfixPath])
             }
 
-            harness.scanner.setResults([
-                watchedFolder: [
+            harness.scanResults.setResults([
+                watchedPath: [
                     RepoScanner.RepoScanGroup(
                         clonePath: clonePath,
                         linkedWorktreePaths: []
                     )
                 ]
             ])
-            _ = await harness.refreshWatchedFolders([watchedFolder])
+            _ = await harness.refreshWatchedFolders([watchedPath])
 
             await assertEventuallyMain("authoritative empty scan should converge to main-only") {
                 harness.workspaceStore.repos.count == 1

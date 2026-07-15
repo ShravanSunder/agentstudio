@@ -305,7 +305,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
     // MARK: - Watched Folder Scope Change
 
     @Test
-    func scopeSync_updateWatchedFolders_forwardsToHandler() async {
+    func scopeSync_updateWatchedFolders_forwardsExactModelsToHandler() async throws {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
         let recordedScopeChanges = RecordedScopeChanges()
@@ -318,15 +318,17 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             }
         )
 
-        await coordinator.syncScope(
-            .updateWatchedFolders(paths: [URL(fileURLWithPath: "/projects")])
+        let watchedPath = WatchedPath(
+            id: try #require(UUID(uuidString: "3AB7C03F-162A-416A-A40B-D7DE72C48670")),
+            path: URL(fileURLWithPath: "/projects"),
+            addedAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
+        await coordinator.syncScope(.updateWatchedFolders(watchedPaths: [watchedPath]))
 
         let changes = await recordedScopeChanges.values
         #expect(changes.count == 1)
-        if case .updateWatchedFolders(let paths) = changes.first {
-            #expect(paths.count == 1)
-            #expect(paths[0].path == "/projects")
+        if case .updateWatchedFolders(let watchedPaths) = changes.first {
+            #expect(watchedPaths == [watchedPath])
         } else {
             Issue.record("Expected updateWatchedFolders scope change")
         }

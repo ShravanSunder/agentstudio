@@ -1,5 +1,6 @@
 import Foundation
 import GhosttyKit
+import Testing
 
 @testable import AgentStudio
 
@@ -112,17 +113,17 @@ struct FilesystemSourceHarnessSnapshot: Sendable {
     let unregisterLog: [UUID]
 }
 
-final class ControllableGroupedWatchedFolderScanner: @unchecked Sendable {
+final class ControllableWatchedFolderScanSchedulerResults: @unchecked Sendable {
     private let lock = NSLock()
-    private var resultsByRoot: [URL: [RepoScanner.RepoScanGroup]] = [:]
+    private var resultsByWatchedPathID: [UUID: [RepoScanner.RepoScanGroup]] = [:]
 
-    func setResults(_ resultsByRoot: [URL: [RepoScanner.RepoScanGroup]]) {
+    func setResults(_ resultsByWatchedPath: [WatchedPath: [RepoScanner.RepoScanGroup]]) {
         lock.withLock {
-            self.resultsByRoot = Dictionary(
-                uniqueKeysWithValues: resultsByRoot.map { key, value in
+            resultsByWatchedPathID = Dictionary(
+                uniqueKeysWithValues: resultsByWatchedPath.map { watchedPath, groups in
                     (
-                        key.standardizedFileURL,
-                        value.map { group in
+                        watchedPath.id,
+                        groups.map { group in
                             RepoScanner.RepoScanGroup(
                                 clonePath: group.clonePath.standardizedFileURL,
                                 linkedWorktreePaths: group.linkedWorktreePaths.map(\.standardizedFileURL)
@@ -134,10 +135,103 @@ final class ControllableGroupedWatchedFolderScanner: @unchecked Sendable {
         }
     }
 
-    func scan(_ root: URL) async -> [RepoScanner.RepoScanGroup] {
-        lock.withLock {
-            resultsByRoot[root.standardizedFileURL, default: []]
+    func makeScheduler() -> WatchedFolderScanScheduler {
+        do {
+            return try WatchedFolderScanScheduler(
+                maximumConcurrentScans: 1,
+                now: { .zero },
+                validationExecutor: RepoScannerValidationExecutor(
+                    validationClient: HarnessUnusedRepoDiscoveryReadClient()
+                ),
+                sessionFactory: { request, _ in
+                    self.makeSession(for: request)
+                }
+            )
+        } catch {
+            preconditionFailure("invalid topology harness scheduler configuration: \(error)")
         }
+    }
+
+    private func makeSession(
+        for request: WatchedFolderScanRequest
+    ) -> WatchedFolderScannerSessionPort {
+        let result = authoritativeResult(for: request.sourceID.rootID)
+        return WatchedFolderScannerSessionPort(
+            id: RepoScannerSessionID(rawValue: UUIDv7.generate()),
+            advanceOneQuantum: { .finished(result) },
+            cancel: { .alreadyFinished },
+            consumeValidationCompletion: { _ in .rejected(.sessionFinished) }
+        )
+    }
+
+    private func authoritativeResult(for watchedPathID: UUID) -> RepoScannerResult {
+        guard let groups = lock.withLock({ resultsByWatchedPathID[watchedPathID] }) else {
+            Issue.record(
+                "topology harness has no configured result for watched path \(watchedPathID)"
+            )
+            return .failed(
+                FailedRepoScan(
+                    reason: .scannerServiceFailed(
+                        detail: "missing controlled watched-folder result"
+                    ),
+                    counts: RepoScannerEvidenceCounts(
+                        directoryVisitCount: 0,
+                        directoryTraversalFailureCount: 0,
+                        entryMetadataFailureCount: 0,
+                        gitCandidateCount: 0,
+                        validationSuccessCount: 0,
+                        validationAuthoritativeNegativeCount: 0,
+                        validationTimeoutCount: 0,
+                        validationCancellationCount: 0,
+                        validationFailureCount: 1,
+                        scannerServiceInvocationCount: 1
+                    ),
+                    serviceMetrics: .zero
+                )
+            )
+        }
+        let verifiedEntries = groups.flatMap { group in
+            let repositoryKey = group.clonePath.standardizedFileURL.path
+            return [
+                RepoScanner.ResolvedGitEntry(
+                    path: group.clonePath,
+                    kind: .cloneRoot,
+                    repositoryKey: repositoryKey
+                )
+            ]
+                + group.linkedWorktreePaths.map { linkedWorktreePath in
+                    RepoScanner.ResolvedGitEntry(
+                        path: linkedWorktreePath,
+                        kind: .linkedWorktree(parentClonePath: group.clonePath),
+                        repositoryKey: repositoryKey
+                    )
+                }
+        }
+        return .completeAuthoritative(
+            CompleteRepoScan(
+                verifiedEntries: verifiedEntries,
+                counts: RepoScannerEvidenceCounts(
+                    directoryVisitCount: 0,
+                    directoryTraversalFailureCount: 0,
+                    entryMetadataFailureCount: 0,
+                    gitCandidateCount: verifiedEntries.count,
+                    validationSuccessCount: verifiedEntries.count,
+                    validationAuthoritativeNegativeCount: 0,
+                    validationTimeoutCount: 0,
+                    validationCancellationCount: 0,
+                    validationFailureCount: 0,
+                    scannerServiceInvocationCount: 1
+                ),
+                serviceMetrics: .zero
+            )
+        )
+    }
+
+}
+
+private struct HarnessUnusedRepoDiscoveryReadClient: RepoDiscoveryReadClient {
+    func validateDiscoveryCandidate(at candidateURL: URL) async -> GitRepositoryDiscoveryOutcome {
+        .failure(.serviceFailed(detail: "unexpected harness validation request for \(candidateURL.path)"))
     }
 }
 
@@ -149,7 +243,7 @@ struct GitTopologyPipelineHarness {
     let coordinator: WorkspaceCacheCoordinator
     let workspaceSurfaceCoordinator: WorkspaceSurfaceCoordinator
     let discoveryActor: FilesystemActor
-    let scanner: ControllableGroupedWatchedFolderScanner
+    let scanResults: ControllableWatchedFolderScanSchedulerResults
     let fseventClient: ControllableFSEventStreamClient
     let filesystemSource: RecordingFilesystemSourceHarness
     let tempDir: URL
@@ -163,12 +257,12 @@ struct GitTopologyPipelineHarness {
         )
         workspaceStore.restore()
         let repoCache = RepoCacheAtom()
-        let scanner = ControllableGroupedWatchedFolderScanner()
+        let scanResults = ControllableWatchedFolderScanSchedulerResults()
         let fseventClient = ControllableFSEventStreamClient()
         let discoveryActor = FilesystemActor(
             bus: bus,
             fseventStreamClient: fseventClient,
-            groupedWatchedFolderScanner: scanner.scan,
+            watchedFolderScanScheduler: scanResults.makeScheduler(),
             debounceWindow: .zero,
             maxFlushLatency: .zero
         )
@@ -200,7 +294,7 @@ struct GitTopologyPipelineHarness {
             coordinator: coordinator,
             workspaceSurfaceCoordinator: workspaceSurfaceCoordinator,
             discoveryActor: discoveryActor,
-            scanner: scanner,
+            scanResults: scanResults,
             fseventClient: fseventClient,
             filesystemSource: filesystemSource,
             tempDir: tempDir
@@ -215,8 +309,20 @@ struct GitTopologyPipelineHarness {
     }
 
     @discardableResult
-    func refreshWatchedFolders(_ paths: [URL]) async -> WatchedFolderRefreshSummary {
-        await discoveryActor.refreshWatchedFolders(paths)
+    func refreshWatchedFolders(_ watchedPaths: [WatchedPath]) async -> WatchedFolderRefreshSummary {
+        for watchedPath in watchedPaths {
+            do {
+                try FileManager.default.createDirectory(
+                    at: watchedPath.path,
+                    withIntermediateDirectories: true
+                )
+            } catch {
+                preconditionFailure(
+                    "topology harness could not create watched root \(watchedPath.path.path): \(error)"
+                )
+            }
+        }
+        return await discoveryActor.refreshWatchedFolders(watchedPaths)
     }
 
     func postTopology(_ event: TopologyEvent, source: SystemSource = .builtin(.filesystemWatcher)) async {

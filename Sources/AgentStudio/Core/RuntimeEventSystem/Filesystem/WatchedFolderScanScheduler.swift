@@ -14,6 +14,8 @@ actor WatchedFolderScanScheduler {
     var stateBySourceID = SchedulingStateStore()
     private var quantumTasksBySourceID: [FilesystemSourceID: Task<Void, Never>] = [:]
     var scanRunGenerationBySourceID: [FilesystemSourceID: UInt64]
+    private var demandGenerationBySourceID: [FilesystemSourceID: WatchedFolderScanDemandGeneration]
+    private var activeDemandCoverageBySourceID: [FilesystemSourceID: WatchedFolderScanDemandCoverage] = [:]
     private var staleDropsBySourceID: [FilesystemSourceID: StaleDropCounts] = [:]
     private var nextFIFOOrdinal: UInt64 = 0
     private var nextCompletionOrdinal: UInt64 = 0
@@ -27,6 +29,7 @@ actor WatchedFolderScanScheduler {
     init(
         maximumConcurrentScans: Int,
         initialScanRunGenerations: [FilesystemSourceID: UInt64] = [:],
+        initialDemandGenerations: [FilesystemSourceID: WatchedFolderScanDemandGeneration] = [:],
         now: @escaping @Sendable () -> Duration,
         validationExecutor: RepoScannerValidationExecutor,
         sessionFactory: @escaping SessionFactory
@@ -38,14 +41,26 @@ actor WatchedFolderScanScheduler {
         }
         self.maximumConcurrentScans = maximumConcurrentScans
         self.scanRunGenerationBySourceID = initialScanRunGenerations
+        self.demandGenerationBySourceID = initialDemandGenerations
         self.now = now
         self.validationExecutor = validationExecutor
         self.sessionFactory = sessionFactory
     }
 
-    func submit(_ request: WatchedFolderScanRequest) async -> WatchedFolderScanSubmissionResult {
+    func submit(
+        _ request: WatchedFolderScanRequest,
+        intent: WatchedFolderScanSubmissionIntent = .untracked
+    ) async -> WatchedFolderScanSubmissionResult {
         guard !isShuttingDown, !isShutDown else {
             return .rejected(.schedulerShutDown)
+        }
+        let previousDemandGeneration =
+            demandGenerationBySourceID[request.sourceID]
+            ?? WatchedFolderScanDemandGeneration(rawValue: 0)
+        let (nextDemandGenerationRawValue, demandGenerationOverflow) =
+            previousDemandGeneration.rawValue.addingReportingOverflow(1)
+        guard !demandGenerationOverflow else {
+            return .rejected(.demandGenerationExhausted(request.sourceID))
         }
         switch admitRegistration(request.canonicalRoot) {
         case .accepted:
@@ -54,86 +69,135 @@ actor WatchedFolderScanScheduler {
             return .rejected(rejection)
         }
 
-        let preliminaryAcceptance: WatchedFolderScanSubmissionAcceptance
-        switch stateBySourceID[request.sourceID] {
-        case nil:
-            stateBySourceID[request.sourceID] = .queuedNew(makeQueuedNewScan(request))
-            preliminaryAcceptance = .queued
-        case .queuedNew(let queued):
-            stateBySourceID[request.sourceID] = .queuedNew(
-                QueuedNewScan(
-                    request: mergePendingRequest(existing: queued.request, newest: request),
-                    fifoOrdinal: queued.fifoOrdinal,
-                    readyAt: queued.readyAt,
-                    startedFromDirtyFollowUp: queued.startedFromDirtyFollowUp
-                )
-            )
-            preliminaryAcceptance = .replacedQueued
-        case .queuedSuspended(let queued):
-            stateBySourceID[request.sourceID] = .queuedSuspendedAndDirty(queued, request)
-            preliminaryAcceptance = .markedRunningDirty
-        case .queuedSuspendedAndDirty(let queued, let dirty):
-            stateBySourceID[request.sourceID] = .queuedSuspendedAndDirty(
-                queued,
-                mergePendingRequest(existing: dirty, newest: request)
-            )
-            preliminaryAcceptance = .markedRunningDirty
-        case .running(let running):
-            stateBySourceID[request.sourceID] = .runningAndDirty(running, request)
-            preliminaryAcceptance = .markedRunningDirty
-        case .runningAndDirty(let running, let dirty):
-            stateBySourceID[request.sourceID] = .runningAndDirty(
-                running,
-                mergePendingRequest(existing: dirty, newest: request)
-            )
-            preliminaryAcceptance = .markedRunningDirty
-        case .awaitingValidation(let awaiting):
-            stateBySourceID[request.sourceID] = .awaitingValidationAndDirty(awaiting, request)
-            if awaiting.logicalScan.request.canonicalRoot.registration
-                != request.canonicalRoot.registration
-            {
-                await cancelAwaitingValidation(awaiting)
-            }
-            preliminaryAcceptance = .markedRunningDirty
-        case .awaitingValidationAndDirty(let awaiting, let dirty):
-            stateBySourceID[request.sourceID] = .awaitingValidationAndDirty(
-                awaiting,
-                mergePendingRequest(existing: dirty, newest: request)
-            )
-            if awaiting.logicalScan.request.canonicalRoot.registration
-                != request.canonicalRoot.registration
-            {
-                await cancelAwaitingValidation(awaiting)
-            }
-            preliminaryAcceptance = .markedRunningDirty
-        case .pendingResult(let pending):
-            stateBySourceID[request.sourceID] = .pendingResultAndDirty(pending, request)
-            preliminaryAcceptance = .markedResultDirty
-        case .pendingResultAndDirty(let pending, let dirty):
-            stateBySourceID[request.sourceID] = .pendingResultAndDirty(
-                pending,
-                mergePendingRequest(existing: dirty, newest: request)
-            )
-            preliminaryAcceptance = .markedResultDirty
-        case .leasedResult(let leased):
-            stateBySourceID[request.sourceID] = .leasedResultAndDirty(leased, request)
-            preliminaryAcceptance = .markedResultDirty
-        case .leasedResultAndDirty(let leased, let dirty):
-            stateBySourceID[request.sourceID] = .leasedResultAndDirty(
-                leased,
-                mergePendingRequest(existing: dirty, newest: request)
-            )
-            preliminaryAcceptance = .markedResultDirty
-        }
+        let nextDemandGeneration = WatchedFolderScanDemandGeneration(
+            rawValue: nextDemandGenerationRawValue
+        )
+        let demandCoverage = WatchedFolderScanDemandCoverage(
+            registration: request.canonicalRoot.registration,
+            throughDemandGeneration: nextDemandGeneration
+        )
+        let admittedDemand = PendingDemand(request: request, coverage: demandCoverage)
+        demandGenerationBySourceID[request.sourceID] = nextDemandGeneration
+
+        let preliminaryDisposition = await admitDemandIntoSchedulingState(admittedDemand)
 
         let dispatch = dispatchReadyQuanta()
         if let rejection = dispatch.exhaustedBySourceID[request.sourceID] {
             return .rejected(rejection)
         }
         if dispatch.startedSourceIDs.contains(request.sourceID) {
-            return .accepted(.started)
+            return acceptedSubmission(
+                intent: intent,
+                coverage: demandCoverage,
+                disposition: .started
+            )
         }
-        return .accepted(preliminaryAcceptance)
+        return acceptedSubmission(
+            intent: intent,
+            coverage: demandCoverage,
+            disposition: preliminaryDisposition
+        )
+    }
+
+    private func admitDemandIntoSchedulingState(
+        _ admittedDemand: PendingDemand
+    ) async -> WatchedFolderScanSubmissionDisposition {
+        let request = admittedDemand.request
+        switch stateBySourceID[request.sourceID] {
+        case nil:
+            stateBySourceID[request.sourceID] = .queuedNew(makeQueuedNewScan(admittedDemand))
+            return .queued
+        case .queuedNew(let queued):
+            stateBySourceID[request.sourceID] = .queuedNew(
+                QueuedNewScan(
+                    demand: queued.demand.merged(with: admittedDemand),
+                    fifoOrdinal: queued.fifoOrdinal,
+                    readyAt: queued.readyAt,
+                    startedFromDirtyFollowUp: queued.startedFromDirtyFollowUp
+                )
+            )
+            return .replacedQueued
+        case .queuedSuspended(let queued):
+            stateBySourceID[request.sourceID] = .queuedSuspendedAndDirty(queued, admittedDemand)
+            return .markedRunningDirty
+        case .queuedSuspendedAndDirty(let queued, let dirty):
+            stateBySourceID[request.sourceID] = .queuedSuspendedAndDirty(
+                queued,
+                dirty.merged(with: admittedDemand)
+            )
+            return .markedRunningDirty
+        case .running(let running):
+            stateBySourceID[request.sourceID] = .runningAndDirty(running, admittedDemand)
+            return .markedRunningDirty
+        case .runningAndDirty(let running, let dirty):
+            stateBySourceID[request.sourceID] = .runningAndDirty(
+                running,
+                dirty.merged(with: admittedDemand)
+            )
+            return .markedRunningDirty
+        case .awaitingValidation(let awaiting):
+            stateBySourceID[request.sourceID] = .awaitingValidationAndDirty(
+                awaiting,
+                admittedDemand
+            )
+            if awaiting.logicalScan.request.canonicalRoot.registration
+                != request.canonicalRoot.registration
+            {
+                await cancelAwaitingValidation(awaiting)
+            }
+            return .markedRunningDirty
+        case .awaitingValidationAndDirty(let awaiting, let dirty):
+            stateBySourceID[request.sourceID] = .awaitingValidationAndDirty(
+                awaiting,
+                dirty.merged(with: admittedDemand)
+            )
+            if awaiting.logicalScan.request.canonicalRoot.registration
+                != request.canonicalRoot.registration
+            {
+                await cancelAwaitingValidation(awaiting)
+            }
+            return .markedRunningDirty
+        case .pendingResult(let pending):
+            stateBySourceID[request.sourceID] = .pendingResultAndDirty(pending, admittedDemand)
+            return .markedResultDirty
+        case .pendingResultAndDirty(let pending, let dirty):
+            stateBySourceID[request.sourceID] = .pendingResultAndDirty(
+                pending,
+                dirty.merged(with: admittedDemand)
+            )
+            return .markedResultDirty
+        case .leasedResult(let leased):
+            stateBySourceID[request.sourceID] = .leasedResultAndDirty(leased, admittedDemand)
+            return .markedResultDirty
+        case .leasedResultAndDirty(let leased, let dirty):
+            stateBySourceID[request.sourceID] = .leasedResultAndDirty(
+                leased,
+                dirty.merged(with: admittedDemand)
+            )
+            return .markedResultDirty
+        }
+    }
+
+    private func acceptedSubmission(
+        intent: WatchedFolderScanSubmissionIntent,
+        coverage: WatchedFolderScanDemandCoverage,
+        disposition: WatchedFolderScanSubmissionDisposition
+    ) -> WatchedFolderScanSubmissionResult {
+        switch intent {
+        case .tracked:
+            return .accepted(
+                .tracked(
+                    receipt: WatchedFolderScanDemandReceipt(
+                        id: .make(),
+                        registration: coverage.registration,
+                        demandGeneration: coverage.throughDemandGeneration
+                    ),
+                    disposition: disposition
+                )
+            )
+        case .untracked:
+            return .accepted(.untracked(coverage: coverage, disposition: disposition))
+        }
     }
 }
 
@@ -413,12 +477,14 @@ extension WatchedFolderScanScheduler {
         quantumTasksBySourceID.removeValue(forKey: completion.sourceID)
         if isShuttingDown {
             _ = completion.session.cancel()
+            activeDemandCoverageBySourceID.removeValue(forKey: completion.sourceID)
             stateBySourceID.removeValue(forKey: completion.sourceID)
             finalizeShutdownIfDrained()
             return
         }
         guard currentRootBySourceID[completion.sourceID]?.registration == completion.registration else {
             _ = completion.session.cancel()
+            activeDemandCoverageBySourceID.removeValue(forKey: completion.sourceID)
             recordStaleRegistrationDrop(sourceID: completion.sourceID)
             preserveDirtyAfterStaleCompletion(sourceID: completion.sourceID, state: state)
             _ = dispatchReadyQuanta()
@@ -473,12 +539,12 @@ extension WatchedFolderScanScheduler {
         running: RunningQuantum,
         state: RootSchedulingState
     ) {
-        let dirtyRequest: WatchedFolderScanRequest?
+        let dirtyDemand: PendingDemand?
         switch state {
         case .running:
-            dirtyRequest = nil
+            dirtyDemand = nil
         case .runningAndDirty(_, let dirty):
-            dirtyRequest = dirty
+            dirtyDemand = dirty
         default:
             preconditionFailure("finished quantum requires a running root state")
         }
@@ -486,7 +552,7 @@ extension WatchedFolderScanScheduler {
             staleDropsBySourceID.removeValue(forKey: running.request.sourceID)
             ?? StaleDropCounts()
         let followUpEvidence: WatchedFolderScanFollowUpEvidence
-        if dirtyRequest != nil {
+        if dirtyDemand != nil {
             followUpEvidence = .dirtyFollowUpQueued
         } else if running.startedFromDirtyFollowUp {
             followUpEvidence = .startedFromDirtyFollowUp
@@ -497,6 +563,7 @@ extension WatchedFolderScanScheduler {
             result: ScheduledWatchedFolderScanResult(
                 resultID: .make(),
                 request: running.request,
+                demandCoverage: takeActiveDemandCoverage(for: running),
                 scanRunGeneration: running.scanRunGeneration,
                 scannerResult: scannerResult,
                 schedulingMetrics: WatchedFolderScanSchedulingMetrics(
@@ -509,10 +576,10 @@ extension WatchedFolderScanScheduler {
             ),
             completionOrdinal: takeCompletionOrdinal()
         )
-        if let dirtyRequest {
+        if let dirtyDemand {
             stateBySourceID[running.request.sourceID] = .pendingResultAndDirty(
                 pending,
-                dirtyRequest
+                dirtyDemand
             )
         } else {
             stateBySourceID[running.request.sourceID] = .pendingResult(pending)
@@ -538,6 +605,7 @@ extension WatchedFolderScanScheduler {
                     continue
                 }
                 scanRunGenerationBySourceID[sourceID] = generation
+                activeDemandCoverageBySourceID[sourceID] = newScan.demand.coverage
                 running = RunningQuantum(
                     request: newScan.request,
                     scanRunGeneration: generation,
@@ -560,7 +628,7 @@ extension WatchedFolderScanScheduler {
                     startedFromDirtyFollowUp: logical.startedFromDirtyFollowUp
                 )
             }
-            let dirty = dirtyRequest(from: stateBySourceID[sourceID])
+            let dirty = dirtyDemand(from: stateBySourceID[sourceID])
             if let dirty {
                 stateBySourceID[sourceID] = .runningAndDirty(running, dirty)
             } else {
@@ -600,34 +668,18 @@ extension WatchedFolderScanScheduler {
         quantumTasksBySourceID[running.request.sourceID] = task
     }
 
-    private func mergePendingRequest(
-        existing: WatchedFolderScanRequest,
-        newest: WatchedFolderScanRequest
-    ) -> WatchedFolderScanRequest {
-        guard existing.canonicalRoot.registration == newest.canonicalRoot.registration else {
-            return newest
+    private func takeActiveDemandCoverage(
+        for running: RunningQuantum
+    ) -> WatchedFolderScanDemandCoverage {
+        guard
+            let coverage = activeDemandCoverageBySourceID.removeValue(
+                forKey: running.request.sourceID
+            ),
+            coverage.registration == running.request.canonicalRoot.registration
+        else {
+            preconditionFailure("a finished logical scan must retain exact demand coverage")
         }
-        switch (existing.cause, newest.cause) {
-        case (.repair(let existingRepair), .repair(let newestRepair))
-        where existingRepair.generation == newestRepair.generation:
-            return WatchedFolderScanRequest(
-                canonicalRoot: newest.canonicalRoot,
-                cause: .repair(
-                    WatchedFolderRepairObligation(
-                        generation: newestRepair.generation,
-                        unresolved: existingRepair.unresolved.union(newestRepair.unresolved)
-                    )
-                )
-            )
-        case (.repair, .initialAdd), (.repair, .callback), (.repair, .manual),
-            (.repair, .fallback):
-            return WatchedFolderScanRequest(
-                canonicalRoot: newest.canonicalRoot,
-                cause: existing.cause
-            )
-        default:
-            return newest
-        }
+        return coverage
     }
 
     private func admitRegistration(
@@ -720,11 +772,12 @@ extension WatchedFolderScanScheduler {
     }
 
     private func discardStalePendingResult(sourceID: FilesystemSourceID) {
-        let dirty = dirtyRequest(from: stateBySourceID[sourceID])
+        let dirty = dirtyDemand(from: stateBySourceID[sourceID])
         stateBySourceID.removeValue(forKey: sourceID)
         recordStaleRegistrationDrop(sourceID: sourceID)
         if let dirty,
-            currentRootBySourceID[sourceID]?.registration == dirty.canonicalRoot.registration
+            currentRootBySourceID[sourceID]?.registration
+                == dirty.request.canonicalRoot.registration
         {
             stateBySourceID[sourceID] = .queuedNew(
                 makeQueuedNewScan(dirty, startedFromDirtyFollowUp: true)
@@ -734,7 +787,7 @@ extension WatchedFolderScanScheduler {
     }
 
     private func restorePendingResult(
-        _ located: (sourceID: FilesystemSourceID, leased: LeasedResult, dirty: WatchedFolderScanRequest?)
+        _ located: (sourceID: FilesystemSourceID, leased: LeasedResult, dirty: PendingDemand?)
     ) {
         if let dirty = located.dirty {
             stateBySourceID[located.sourceID] = .pendingResultAndDirty(located.leased.pending, dirty)
@@ -744,11 +797,12 @@ extension WatchedFolderScanScheduler {
     }
 
     private func finishTransferredResult(
-        _ located: (sourceID: FilesystemSourceID, leased: LeasedResult, dirty: WatchedFolderScanRequest?)
+        _ located: (sourceID: FilesystemSourceID, leased: LeasedResult, dirty: PendingDemand?)
     ) {
         stateBySourceID.removeValue(forKey: located.sourceID)
         if !isShuttingDown, let dirty = located.dirty,
-            currentRootBySourceID[located.sourceID]?.registration == dirty.canonicalRoot.registration
+            currentRootBySourceID[located.sourceID]?.registration
+                == dirty.request.canonicalRoot.registration
         {
             stateBySourceID[located.sourceID] = .queuedNew(
                 makeQueuedNewScan(dirty, startedFromDirtyFollowUp: true)
@@ -792,8 +846,9 @@ extension WatchedFolderScanScheduler {
         sourceID: FilesystemSourceID,
         state: RootSchedulingState
     ) {
-        guard let dirty = dirtyRequest(from: state),
-            currentRootBySourceID[sourceID]?.registration == dirty.canonicalRoot.registration
+        guard let dirty = dirtyDemand(from: state),
+            currentRootBySourceID[sourceID]?.registration
+                == dirty.request.canonicalRoot.registration
         else {
             stateBySourceID.removeValue(forKey: sourceID)
             return
@@ -802,11 +857,11 @@ extension WatchedFolderScanScheduler {
     }
 
     private func makeQueuedNewScan(
-        _ request: WatchedFolderScanRequest,
+        _ demand: PendingDemand,
         startedFromDirtyFollowUp: Bool = false
     ) -> QueuedNewScan {
         QueuedNewScan(
-            request: request,
+            demand: demand,
             fifoOrdinal: takeFIFOOrdinal(),
             readyAt: now(),
             startedFromDirtyFollowUp: startedFromDirtyFollowUp
@@ -837,7 +892,7 @@ extension WatchedFolderScanScheduler {
         }
     }
 
-    private func dirtyRequest(from state: RootSchedulingState?) -> WatchedFolderScanRequest? {
+    private func dirtyDemand(from state: RootSchedulingState?) -> PendingDemand? {
         switch state {
         case .queuedSuspendedAndDirty(_, let dirty), .runningAndDirty(_, let dirty),
             .awaitingValidationAndDirty(_, let dirty), .pendingResultAndDirty(_, let dirty),
@@ -855,7 +910,7 @@ extension WatchedFolderScanScheduler {
     private func locateLeasedResult() -> (
         sourceID: FilesystemSourceID,
         leased: LeasedResult,
-        dirty: WatchedFolderScanRequest?
+        dirty: PendingDemand?
     )? {
         for (sourceID, state) in stateBySourceID {
             switch state {

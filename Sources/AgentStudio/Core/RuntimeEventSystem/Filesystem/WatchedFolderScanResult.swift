@@ -48,6 +48,7 @@ struct WatchedFolderScannerSessionPort: Sendable {
 struct ScheduledWatchedFolderScanResult: Equatable, Sendable {
     let resultID: WatchedFolderScanResultID
     let request: WatchedFolderScanRequest
+    let demandCoverage: WatchedFolderScanDemandCoverage
     let scanRunGeneration: UInt64
     let scannerResult: RepoScannerResult
     let schedulingMetrics: WatchedFolderScanSchedulingMetrics
@@ -154,12 +155,84 @@ enum WatchedFolderScanResultLeaseResolutionRejection: Equatable, Sendable {
     )
 }
 
-enum WatchedFolderScanSubmissionAcceptance: Equatable, Sendable {
+struct WatchedFolderScanDemandGeneration: Comparable, Hashable, Sendable {
+    let rawValue: UInt64
+
+    static func < (lhs: Self, rhs: Self) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+}
+
+struct WatchedFolderScanDemandID: Hashable, Sendable {
+    let rawValue: UUID
+
+    static func make() -> Self {
+        Self(rawValue: UUIDv7.generate())
+    }
+}
+
+struct WatchedFolderScanDemandCoverage: Equatable, Sendable {
+    let registration: FSEventRegistrationToken
+    let throughDemandGeneration: WatchedFolderScanDemandGeneration
+
+    func covers(_ demandedCoverage: Self) -> Bool {
+        registration == demandedCoverage.registration
+            && throughDemandGeneration >= demandedCoverage.throughDemandGeneration
+    }
+
+    func covers(_ receipt: WatchedFolderScanDemandReceipt) -> Bool {
+        covers(receipt.coverage)
+    }
+}
+
+struct WatchedFolderScanDemandReceipt: Equatable, Sendable {
+    let id: WatchedFolderScanDemandID
+    let registration: FSEventRegistrationToken
+    let demandGeneration: WatchedFolderScanDemandGeneration
+
+    var coverage: WatchedFolderScanDemandCoverage {
+        WatchedFolderScanDemandCoverage(
+            registration: registration,
+            throughDemandGeneration: demandGeneration
+        )
+    }
+}
+
+enum WatchedFolderScanSubmissionIntent: Equatable, Sendable {
+    case tracked
+    case untracked
+}
+
+enum WatchedFolderScanSubmissionDisposition: Equatable, Sendable {
     case started
     case queued
     case replacedQueued
     case markedRunningDirty
     case markedResultDirty
+}
+
+enum WatchedFolderScanSubmissionAcceptance: Equatable, Sendable {
+    case tracked(
+        receipt: WatchedFolderScanDemandReceipt,
+        disposition: WatchedFolderScanSubmissionDisposition
+    )
+    case untracked(
+        coverage: WatchedFolderScanDemandCoverage,
+        disposition: WatchedFolderScanSubmissionDisposition
+    )
+
+    var coverage: WatchedFolderScanDemandCoverage {
+        switch self {
+        case .tracked(let receipt, _): receipt.coverage
+        case .untracked(let coverage, _): coverage
+        }
+    }
+
+    var disposition: WatchedFolderScanSubmissionDisposition {
+        switch self {
+        case .tracked(_, let disposition), .untracked(_, let disposition): disposition
+        }
+    }
 }
 
 enum WatchedFolderScanSubmissionRejection: Equatable, Sendable {
@@ -169,6 +242,7 @@ enum WatchedFolderScanSubmissionRejection: Equatable, Sendable {
         current: FSEventRegistrationToken
     )
     case registrationDescriptorMismatch(FSEventRegistrationToken)
+    case demandGenerationExhausted(FilesystemSourceID)
     case scanRunGenerationExhausted(FilesystemSourceID)
 }
 

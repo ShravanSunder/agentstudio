@@ -5,6 +5,174 @@ import Testing
 
 @Suite("Watched-folder scan scheduler")
 struct WatchedFolderScanSchedulerTests {
+    @Test("queued collapse retains exact coverage through the newest demand")
+    func queuedCollapseRetainsNewestDemandCoverage() async throws {
+        let fixture = try SchedulerFixture(maximumConcurrentScans: 1)
+        let blocker = try fixture.makeRequest(name: "coverage-blocker")
+        let queued = try fixture.makeRequest(name: "coverage-queued", cause: .initialAdd)
+
+        _ = await fixture.scheduler.submit(blocker)
+        let blockerStart = await fixture.scanner.nextStart()
+        let initialReceipt = try trackedReceipt(
+            from: await fixture.scheduler.submit(queued, intent: .tracked)
+        )
+        let callbackReceipt = try trackedReceipt(
+            from: await fixture.scheduler.submit(
+                WatchedFolderScanRequest(
+                    canonicalRoot: queued.canonicalRoot,
+                    cause: .callback
+                ),
+                intent: .tracked
+            )
+        )
+        let manualReceipt = try trackedReceipt(
+            from: await fixture.scheduler.submit(
+                WatchedFolderScanRequest(
+                    canonicalRoot: queued.canonicalRoot,
+                    cause: .manual
+                ),
+                intent: .tracked
+            )
+        )
+
+        await fixture.scanner.finish(blockerStart, with: completeResult())
+        #expect(await fixture.transfer(try await fixture.nextLease()) == .transferred)
+        let queuedStart = await fixture.scanner.nextStart()
+        await fixture.scanner.finish(queuedStart, with: completeResult())
+        let result = try await fixture.nextLease()
+
+        #expect(result.result.demandCoverage.covers(initialReceipt))
+        #expect(result.result.demandCoverage.covers(callbackReceipt))
+        #expect(result.result.demandCoverage.covers(manualReceipt))
+        #expect(
+            result.result.demandCoverage.throughDemandGeneration
+                == manualReceipt.demandGeneration
+        )
+        #expect(await fixture.transfer(result) == .transferred)
+        await fixture.scheduler.shutdown()
+    }
+
+    @Test("tracked demand while running is covered only by the dirty follow-up")
+    func runningTrackedDemandRequiresDirtyFollowUpCoverage() async throws {
+        let fixture = try SchedulerFixture(maximumConcurrentScans: 1)
+        let initial = try fixture.makeRequest(name: "running-coverage", cause: .initialAdd)
+        _ = try trackedReceipt(
+            from: await fixture.scheduler.submit(initial, intent: .tracked)
+        )
+        let initialStart = await fixture.scanner.nextStart()
+        let manualReceipt = try trackedReceipt(
+            from: await fixture.scheduler.submit(
+                WatchedFolderScanRequest(
+                    canonicalRoot: initial.canonicalRoot,
+                    cause: .manual
+                ),
+                intent: .tracked
+            )
+        )
+
+        await fixture.scanner.finish(initialStart, with: completeResult())
+        let initialResult = try await fixture.nextLease()
+        #expect(!initialResult.result.demandCoverage.covers(manualReceipt))
+        #expect(await fixture.transfer(initialResult) == .transferred)
+
+        let followUpStart = await fixture.scanner.nextStart()
+        await fixture.scanner.finish(followUpStart, with: completeResult())
+        let followUpResult = try await fixture.nextLease()
+        #expect(followUpResult.result.demandCoverage.covers(manualReceipt))
+        #expect(await fixture.transfer(followUpResult) == .transferred)
+        await fixture.scheduler.shutdown()
+    }
+
+    @Test("replacement registration cannot satisfy an old demand receipt")
+    func replacementRegistrationCannotSatisfyOldReceipt() async throws {
+        let fixture = try SchedulerFixture(maximumConcurrentScans: 1)
+        let original = try fixture.makeRequest(name: "receipt-root", registrationGeneration: 1)
+        let replacement = try fixture.makeRequest(
+            name: "receipt-root",
+            sourceID: original.sourceID,
+            registrationGeneration: 2
+        )
+        let originalReceipt = try trackedReceipt(
+            from: await fixture.scheduler.submit(original, intent: .tracked)
+        )
+        let originalStart = await fixture.scanner.nextStart()
+        let replacementReceipt = try trackedReceipt(
+            from: await fixture.scheduler.submit(replacement, intent: .tracked)
+        )
+
+        await fixture.scanner.finish(originalStart, with: completeResult())
+        let replacementStart = await fixture.scanner.nextStart()
+        await fixture.scanner.finish(replacementStart, with: completeResult())
+        let replacementResult = try await fixture.nextLease()
+
+        #expect(!replacementResult.result.demandCoverage.covers(originalReceipt))
+        #expect(replacementResult.result.demandCoverage.covers(replacementReceipt))
+        #expect(await fixture.transfer(replacementResult) == .transferred)
+        await fixture.scheduler.shutdown()
+    }
+
+    @Test("demand generation exhaustion rejects without admission or mutation")
+    func demandGenerationExhaustionDoesNotMutateState() async throws {
+        let root = try SchedulerFixture.makeRoot(name: "demand-exhausted")
+        let fixture = try SchedulerFixture(
+            maximumConcurrentScans: 1,
+            initialDemandGenerations: [
+                root.sourceID: WatchedFolderScanDemandGeneration(rawValue: UInt64.max)
+            ]
+        )
+        let before = await fixture.scheduler.stateSnapshot()
+        let request = WatchedFolderScanRequest(canonicalRoot: root, cause: .manual)
+
+        #expect(
+            await fixture.scheduler.submit(request, intent: .tracked)
+                == .rejected(.demandGenerationExhausted(root.sourceID))
+        )
+        #expect(await fixture.scheduler.stateSnapshot() == before)
+        #expect(await fixture.scheduler.currentRootBySourceID[root.sourceID] == nil)
+        #expect(await fixture.scanner.startedQuantumCount() == 0)
+        await fixture.scheduler.shutdown()
+    }
+
+    @Test("tracked demand receipt identity is UUIDv7")
+    func trackedDemandReceiptUsesUUIDv7() async throws {
+        let fixture = try SchedulerFixture(maximumConcurrentScans: 1)
+        let request = try fixture.makeRequest(name: "receipt-identity")
+
+        let receipt = try trackedReceipt(
+            from: await fixture.scheduler.submit(request, intent: .tracked)
+        )
+
+        #expect(UUIDv7.isV7(receipt.id.rawValue))
+        let start = await fixture.scanner.nextStart()
+        await fixture.scanner.finish(start, with: completeResult())
+        #expect(await fixture.transfer(try await fixture.nextLease()) == .transferred)
+        await fixture.scheduler.shutdown()
+    }
+
+    @Test("untracked submission returns exact admitted coverage without a query")
+    func untrackedSubmissionReturnsExactCoverage() async throws {
+        let fixture = try SchedulerFixture(maximumConcurrentScans: 1)
+        let request = try fixture.makeRequest(name: "untracked-coverage")
+
+        let submission = await fixture.scheduler.submit(request, intent: .untracked)
+        guard case .accepted(let acceptance) = submission else {
+            Issue.record("expected an accepted untracked watched-folder scan demand")
+            throw SchedulerTestError.expectedUntrackedAcceptance
+        }
+        guard case .untracked(let admittedCoverage, .started) = acceptance else {
+            Issue.record("expected exact untracked coverage and started disposition")
+            throw SchedulerTestError.expectedUntrackedAcceptance
+        }
+        let start = await fixture.scanner.nextStart()
+        await fixture.scanner.finish(start, with: completeResult())
+        let result = try await fixture.nextLease()
+
+        #expect(acceptance.coverage == admittedCoverage)
+        #expect(result.result.demandCoverage.covers(admittedCoverage))
+        #expect(await fixture.transfer(result) == .transferred)
+        await fixture.scheduler.shutdown()
+    }
+
     @Test("terminal-result custody bounds scanning until transfer")
     func terminalResultCustodyBoundsScanning() async throws {
         let fixture = try SchedulerFixture(maximumConcurrentScans: 2)
@@ -480,13 +648,15 @@ private struct SchedulerFixture {
 
     init(
         maximumConcurrentScans: Int,
-        initialRunGenerations: [FilesystemSourceID: UInt64] = [:]
+        initialRunGenerations: [FilesystemSourceID: UInt64] = [:],
+        initialDemandGenerations: [FilesystemSourceID: WatchedFolderScanDemandGeneration] = [:]
     ) throws {
         let scanner = self.scanner
         let clock = self.clock
         scheduler = try WatchedFolderScanScheduler(
             maximumConcurrentScans: maximumConcurrentScans,
             initialScanRunGenerations: initialRunGenerations,
+            initialDemandGenerations: initialDemandGenerations,
             now: clock.now,
             validationExecutor: RepoScannerValidationExecutor(
                 validationClient: SchedulerUnusedValidationClient()
@@ -653,5 +823,17 @@ private func makeRepairParticipant() -> FilesystemRepairParticipantToken {
 
 private enum SchedulerTestError: Error {
     case expectedLease
+    case expectedTrackedReceipt
+    case expectedUntrackedAcceptance
     case expectedState
+}
+
+private func trackedReceipt(
+    from result: WatchedFolderScanSubmissionResult
+) throws -> WatchedFolderScanDemandReceipt {
+    guard case .accepted(.tracked(let receipt, _)) = result else {
+        Issue.record("expected an accepted tracked watched-folder scan demand")
+        throw SchedulerTestError.expectedTrackedReceipt
+    }
+    return receipt
 }
