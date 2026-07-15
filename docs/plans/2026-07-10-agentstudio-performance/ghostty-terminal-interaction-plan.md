@@ -17,7 +17,7 @@ Accepted candidate: `7e02af87980bfdaad6d393b985d35c917476878e`
 
 ## 1. Outcome
 
-Implement CB1–CB7, GT1–GT8, GA1–GA10, TS1–TS9, AI1–AI10, SC1–SC8, SF1–SF11, and GV1–GV8 without moving ordinary AppKit input behind an actor or taking ownership of Ghostty's VT/render loop.
+Implement CB1–CB7, GT1–GT8, GA1–GA10, TS1–TS9, AI1–AI10, SC1–SC8, SF1–SF17, and GV1–GV8 without moving ordinary AppKit input behind an actor or taking ownership of Ghostty's VT/render loop.
 
 The final path is:
 
@@ -530,6 +530,84 @@ Cases: narrow/zero/finite sizes, Retina scale, split resize, reparent, alternate
 
 Oracle: literal pixel geometry and fake libghostty call ledger plus native visible echo/caret/focus/reveal. Existing “always refresh” expectation becomes RED for SF4; GREEN refreshes only for changed geometry or named redraw.
 
+## 12.5. Task T10.5 — Prioritized Startup Terminal Activation
+
+Requirements: SF12–SF17 and the parent startup-lane contract. Depends on the
+accepted composition boundary from W4.5 and may proceed independently of W5
+topology hydration.
+
+### Production changes
+
+Add `TerminalActivationScheduler` as the off-main owner of immutable
+`TerminalActivationInput`, per-pane/runtime-generation activation state,
+priority, hidden live-session inventory, retry, cancellation, and bounded
+MainActor admission. Its public state is a strict discriminated union:
+`queued(priority:)`, `attaching`, `ready(surfaceID:)`, `dormant(reason:)`,
+`failedTerminal(failure:retry:)`, and `cancelledReplaced(replacement:)`;
+correlated optionals are forbidden.
+
+Freeze one `TerminalRestorableCohort` per accepted composition generation. One
+fleet scheduler owns that cohort and a compile-time-bounded activation slot
+pool; it must not create one unstructured task or actor per pane. Visible work
+can begin before inventory. Inventory success classifies every hidden member as
+live or missing; inventory failure assigns each unresolved hidden member an
+explicit retryable `failedTerminal(.inventoryUnavailable)` outcome. The
+aggregate receipt completes only after every cohort member has exactly one
+`ready`, `dormant`, `failedTerminal`, or `cancelledReplaced` outcome.
+
+Modify:
+
+- `AppDelegate+WorkspaceBoot.swift` to construct terminal runtime owners as
+  soon as composition commits and to launch repository/filesystem services on
+  the independent external lane;
+- `AppDelegate.swift` and `AppDelegate+LaunchRestore.swift` to publish distinct
+  `windowReady`, `typingReady`, and `allRestorableTerminalsReady` milestones;
+- `WorkspaceSurfaceCoordinator+ViewLifecycle.swift` to remove the global
+  `await hiddenLiveSessionIds()` before visible restoration and replace the
+  serial all-pane MainActor loop with bounded scheduler admissions;
+- `TerminalRestoreScheduler.swift` and `TerminalRestoreRuntime.swift` to make
+  active/visible ordering immutable input, discover hidden live sessions
+  off-main, and retain missing hidden sessions as dormant until selection;
+- `SessionRuntimeAtom`, `ViewRegistry`, and IPC `attachReady` projection to
+  consume current-generation activation states without mutating canonical
+  panes or consulting repository topology.
+
+Surface creation, zmx command attachment, AppKit mounting, and focus stay on
+MainActor. One admitted turn performs at most the calibrated terminal-activation
+service quantum, records queue/service time, then yields and re-evaluates
+priority. Active visible work preempts not-yet-admitted background work; no
+accepted attach is duplicated for one runtime generation. Once foreground is
+ready, `AppPolicies`' calibrated maximum foreground burst reserves recurring
+background progress under sustained selection promotion; closing or replacing a
+generation is the only way an eligible member exits without a terminal outcome.
+
+### Test proof
+
+Add `TerminalActivationSchedulerTests.swift`,
+`TerminalStartupActivationIntegrationTests.swift`, and readiness/IPC tests.
+Use injected continuations rather than sleeps to hold hidden-session inventory
+and repository startup indefinitely while proving the active pane reaches
+`typingReady`. Cover multiple visible panes, expanded drawers, hidden live zmx,
+hidden missing zmx, selection promotion, failure/retry, cancellation,
+close/recreate generation replacement, inventory failure, and 0/1/100/300-pane
+cohorts. Record maximum simultaneous scheduler operations and prove it never
+exceeds the compile-time slot limit. Under sustained selection promotion, every
+eligible current-generation background member reaches an aggregate outcome
+within the calibrated progress bound without delaying active typing.
+
+The independent oracle records composition acceptance, activation offers,
+MainActor admissions, surface create/attach/mount/focus calls, state
+transitions, and readiness milestones. It proves active-before-hidden order,
+exactly one current-generation ready transition, no topology lookup or pane
+residency/tab mutation, bounded fleet concurrency, no task-per-pane fanout,
+complete aggregate outcomes, and bounded MainActor work per turn. Victoria/native
+proof measures composition-to-window, composition-to-typing, and
+composition-to-all-restorable latency plus input-to-visible feedback during
+background attachment.
+
+RED/GREEN: required. The current pre-visible hidden inventory await and serial
+all-pane restore are the RED behavior.
+
 ## 13. Task T11 — Explicit Surface/App Destruction
 
 Requirements: SF9–SF10; completes T2/T4 lifecycle and depends on T4, T8, and T9 production revocation/completion seams.
@@ -668,6 +746,7 @@ No test is deleted without replacement, redundancy, or dead-contract proof.
 | reports are current-principal scoped | T8 | authenticated JSON-RPC | server generation registry + receipt/state | unit + real Unix socket; fresh socket/runtime | required |
 | secure input is app-global/fail-closed | T9 | owner transition API/OS adapter | state table + real OS query + canary scan | unit + native/OTLP integration; exact PID/run | required |
 | input/geometry/visibility stay direct/current | T10 | AppKit-to-Ghostty calls and geometry owner | call ledger + PID-visible behavior | unit + native E2E; display capability manifest | required |
+| active terminal readiness is independent and prioritized | T10.5 | composition receipt, activation scheduler, readiness milestones | delayed hidden-inventory/repository fakes + literal attach ledger | unit + integration + Victoria/native E2E; exact PID/run | required |
 | free occurs only after quiescence | T11 | lifetime owner | vendor completion + leases/publications | pinned/candidate stress; vendor identity | required |
 | candidate benefit is attributable | T1/T12 | immutable build/matrix report | action/header/resource/probe manifests + workload oracles | build + E2E; exact digests | required |
 | memory does not regress | T12 | fill/quiesce/clear/prune workload | stable bounded platform samples | performance E2E; corpus/build/hardware | required |
@@ -688,8 +767,9 @@ shared admission/ledger
                          -> T8 agent reports
                     -> T9 secure input
        +-> T10 geometry/visibility
+              -> T10.5 prioritized startup terminal activation
   -> T11 atomic callback/completion/revocation/destruction integration
-       (requires T4, T8, T9, and T10 seams)
+       (requires T4, T8, T9, T10, and T10.5 seams)
   -> terminal cutover-ready endpoint assembly
   -> shared IG1 global bus hard cut
   -> shared S6 + CG1 human-approved immutable calibration digest
@@ -698,7 +778,7 @@ shared admission/ledger
   -> IG2 combined cross-pressure proof
 ```
 
-T3, T4, and initial T10 owner files may develop in parallel after T2 interfaces stabilize. T7, T8, and T9 may develop in parallel after T6/T5 contracts stabilize. T12 contributes the terminal/vendor cells and accepted candidate artifact to DQ1 and IG2; it does not own either shared decision. Existing edits to `GhosttyCallbackRouter.swift`, `GhosttyAppHandle.swift`, `GhosttySurfaceView.swift`, `SurfaceManager.swift`, `GhosttyActionRouter.swift`, `TerminalRuntime.swift`, `RuntimeRegistry.swift`, IPC server/auth files, `AgentStudioOTLPTraceProjection.swift`, `.mise.toml`, and the vendor pointer use one integration owner per gate.
+T3, T4, and initial T10 owner files may develop in parallel after T2 interfaces stabilize. T10.5 depends on accepted composition but not topology hydration. T7, T8, and T9 may develop in parallel after T6/T5 contracts stabilize. T12 contributes the terminal/vendor cells and accepted candidate artifact to DQ1 and IG2; it does not own either shared decision. Existing edits to `GhosttyCallbackRouter.swift`, `GhosttyAppHandle.swift`, `GhosttySurfaceView.swift`, `SurfaceManager.swift`, `GhosttyActionRouter.swift`, `TerminalRuntime.swift`, `RuntimeRegistry.swift`, IPC server/auth files, `AgentStudioOTLPTraceProjection.swift`, `.mise.toml`, and the vendor pointer use one integration owner per gate.
 
 ## 18. Validation Commands
 
@@ -713,6 +793,7 @@ mise run test -- --filter 'TerminalActivity'
 mise run test -- --filter 'AgentStudioIPCAgent'
 mise run test -- --filter 'SecureInputOwner'
 mise run test -- --filter 'GhosttySurface'
+mise run test -- --filter 'TerminalStartupActivation'
 mise run test -- --filter 'GhosttyResources'
 ```
 

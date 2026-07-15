@@ -446,7 +446,7 @@ ownership before assignment, uses UUIDv7 for newly issued identities without
 using UUID ordering as authority, and leaves live state unchanged on rejection.
 Reassociation prepares and validates repo metadata, availability, and worktrees
 before one commit; rejection also preserves path-index generation and produces
-no pane/cache/persistence/trace effect, while acceptance schedules no duplicate
+no cache/persistence/trace effect and no pane lifecycle mutation, while acceptance schedules no duplicate
 index rebuild. `WorkspaceCacheCoordinator` exhaustively handles rejection and
 must not interpret persistence failure as mutation rejection or recovery. This
 is an immediate correctness guard for the pre-W5 product path; W5 later replaces
@@ -618,19 +618,68 @@ separate validated policy values. Transfer each page into the off-main
 accumulator before acknowledging `.transferred`, yield between capture turns,
 and close/abort plus drain retained cleanup custody on every exit path.
 
-Integrate boot hydration as a one-shot pre-participant phase: perform pure
-off-main decode/validation/normalization, apply the complete prepared value in
-one revision-owner transaction, then construct/install the exact fourteen
-participants from the committed canonical owners. A rejection advances zero
-revisions, mutates no owner, and leaves the factory unattempted. Do not
-preconstruct participants from default membership and do not route initial
-fleet insertions through unconfigured keyed participants. Repeated
-post-install fleet hydration is a typed rejection; ordinary revisioned changes
-and the later explicit gap-rebuild path own updates after installation.
+Integrate two boot hydration domains before participant installation:
+
+- `WorkspaceCompositionPreparer` decodes, validates, and deterministically
+  repairs identity/window, pane/drawer, tab/arrangement, and local cursor state
+  off-main. `WorkspacePreparedCompositionApplier` installs it in one bounded
+  MainActor transaction and returns the terminal activation input.
+- topology decode/normalization feeds the W5 topology projector/applier lane
+  independently. It may retain last-known/non-current state but never blocks
+  composition, window presentation, or terminal activation.
+
+Construct/install each domain's participants only after that domain commits.
+A shared checkpoint revision coordinates persistence only; it does not create a
+shared validation/apply owner. Rejection advances zero revisions and mutates no
+owner in that domain. Do not preconstruct participants from default membership
+or route initial fleet insertions through unconfigured participants.
+
+Replace the current WIP `WorkspaceHydrationPreparation.swift` legacy/source
+union and `WorkspacePreparedHydrationApplier.swift` combined applier rather than
+extending them: the SQLite reader produces separate opaque prepared composition
+and topology inputs, off-main preparation owns all O(N) validation, and each
+MainActor applier performs only prevalidated bounded installation. Remove the
+second MainActor validation pass.
+
+The real participant factory has heterogeneous membership/byte limits. Store
+validated limits on each participant and let the pager request that
+participant's limits; keep the pager turn/service quantum as a distinct global
+policy. Do not pass one global membership limit to all participants or weaken
+`.membershipLimitsMismatch`. Integration proof opens and pages the complete
+production participant inventory, including empty and maximum-sized owners.
 
 ### W4.5c — Lease stability and update-journal fixture proof
 
 Add `WorkspacePersistenceRevisionOwnerTests.swift`, `WorkspaceStateSnapshotLeaseTests.swift`, `WorkspacePersistencePageCaptureTests.swift`, and a test-only contiguous update-journal fixture. Retain emitted pages while mutating the same/new/removed keys; prove no moving-state reread or fleet COW detachment. Assert one revision-owner object identity across `AtomRegistry`, `WorkspaceStore`, and every outer transaction owner. Prove a multi-atom canonical transaction advances exactly once, passes the same revision to every keyed mutation, and a failed transaction advances zero times. Inventory proof compares page participants with `WorkspaceSQLiteSnapshot`, `RepositoryTopologySQLiteSnapshot`, and repository persistence records; transient zoom/presentation state is a required negative case. No temporary revision owner or full fleet snapshot is permitted.
+
+Add focused prepared-composition and prepared-topology tests proving O(N)
+validation happens before MainActor apply, rejection leaves its domain
+byte-for-byte unchanged, composition acceptance unlocks terminal activation
+while topology preparation is suspended, and real heterogeneous participant
+limits page without mismatch or a test-only bypass.
+
+### W4.5d — Atomic hydration-owner hard cut
+
+Replace, in one production integration diff,
+`Core/State/MainActor/Persistence/WorkspaceHydrationPreparation.swift`,
+`Core/State/MainActor/Persistence/WorkspacePreparedHydrationApplier.swift`, and
+their boot call sites. Delete the combined source/legacy preparation result and
+combined applier; do not leave a compatibility wrapper or second boot route.
+Install the two domain-specific paths instead:
+
+- `WorkspaceCompositionPreparer` and
+  `WorkspacePreparedCompositionApplier` exclusively prepare/apply composition
+  and install only composition participants after acceptance;
+- the SQLite topology input enters the W5 projector/applier exclusively and
+  installs only topology participants after topology acceptance.
+
+The cut removes every owner capable of validating or applying both domains.
+Structural negative proof inventories the production boot graph and fails when
+one declaration, result type, applier, or call path can validate/apply both
+composition and topology. Integration proof holds topology preparation
+indefinitely while composition installs, the window becomes ready, and terminal
+activation begins; the inverse delay cannot expose partially installed topology
+or mutate composition.
 
 ## 7. Task W5 — Off-Main Topology Projection And One MainActor Apply
 
@@ -651,11 +700,17 @@ Add:
     `ScheduledWatchedFolderScanResult` to the projector mirror's canonical base
     revision.
   - Accept exact current `TopologyProjectionRequest` values; resolve
-    identities, joins, worktree reconciliation, pane/cache patches, and
-    downstream effects off-main.
+    identities, joins, worktree reconciliation, cache patches, affected
+    pane-location keys, and downstream effects off-main.
   - Derive removals only from `completeAuthoritative` inventory after exact
     `FSEventRegistrationToken`, checked scan-run generation, and compatible
     mirror/base-revision checks.
+- `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/PaneLocationProjectionActor.swift`
+  - Consume compact pane-CWD revisions plus accepted topology/path-index
+    revisions and produce only changed pane-location projections.
+  - Use an exhaustive `PaneLocationProjection` union for `noKnownRepository`,
+    `matched`, and `nonCurrentLastKnown`; never correlated optional repo/worktree
+    IDs and never pane residency/tab/lifetime mutations.
 
 W5a modifies no atom. It proves mirror bootstrap/contiguous update/gap recovery,
 field ownership, identity joins, stale scan rejection, complete-current removal
@@ -688,18 +743,21 @@ Add:
 Modify:
 
 - `WorkspaceCacheCoordinator.swift` to stop performing topology joins/mutations from broad bus delivery.
-- `RepositoryTopologyAtom.swift`, `WorkspacePaneGraphAtom.swift`, and relevant cache atoms to expose small keyed batch mutation internals used only by `WorkspaceTopologyApplier`.
+- `RepositoryTopologyAtom.swift` and relevant cache/currentness atoms to expose small keyed batch mutation internals used only by `WorkspaceTopologyApplier`; the topology applier receives no pane-graph mutation capability.
 - `WorkspaceSurfaceCoordinator+FilesystemSource.swift` to capture one compact source snapshot, invoke projector, apply one batch, then dispatch accepted effects.
+- `WorkspaceSurfaceCoordinator.swift` CWD routing to update CWD once and offer
+  a compact pane-CWD revision to `PaneLocationProjectionActor`, without a
+  MainActor topology lookup.
 - `FilesystemProjectionIndex.swift` only where the accepted effect/currentness API changes; preserve its filtering/index ownership.
 - `AtomRegistry.swift`, `Features/RepoExplorer/Models/RepoExplorerSnapshot.swift`, `Features/RepoExplorer/Models/RepoExplorerProjection.swift`, and `Features/RepoExplorer/RepoExplorerView.swift` to expose and visibly distinguish watched-root currentness without deriving it in `body`.
 
-`TopologyApplyBatch` contains field-scoped patches, exhaustive watched-root currentness transitions, and cache/orphan/reassociation effects. It never carries a fleet replacement. MainActor apply performs no path, regex, JSON, scan, Git, Bridge package, persistence normalization, or same-bus repost work. Last-known topology remains usable, but the Repo Explorer read model must not render `repairing`, `nonCurrentRetrying`, `repairFailed`, or `unavailable` indistinguishably from `current`.
+`TopologyApplyBatch` contains field-scoped patches, exhaustive watched-root currentness transitions, cache effects, and affected derived pane-location keys. It never carries pane residency/tab mutations or a fleet replacement. MainActor apply performs no path, regex, JSON, scan, Git, Bridge package, persistence normalization, or same-bus repost work. Last-known topology remains usable, but the Repo Explorer read model must not render `repairing`, `nonCurrentRetrying`, `repairFailed`, or `unavailable` indistinguishably from `current`.
 
 Before mutating any atom, `WorkspaceTopologyApplier` validates global repo and
 worktree UUID/stable-key uniqueness and the one-to-one identity-consumption
 ledger produced by the projector. Duplicate identity is an exhaustive typed
 rejection case: it publishes no atom revision, persistence revision, EventBus
-fact, cache/pane effect, or repair acknowledgement. `RepositoryTopologyAtom`
+fact, cache/location effect, or repair acknowledgement. `RepositoryTopologyAtom`
 must not retain an independent identity-preserving merge after this cutover.
 Persistence retains its duplicate checks as defense in depth, and Repo Explorer
 may use nontrapping defensive indexing only for fault containment; neither may
@@ -707,7 +765,7 @@ mask a rejected canonical transaction or count as the invariant proof.
 
 Every accepted canonical transaction creates exactly one normative compact `TopologyProjectionUpdate` and one causally complete `WorkspacePersistenceChangeSet` carrying that same revision; atoms never allocate their own revisions. The mirror advances only across contiguous accepted revisions. A gap marks it non-current and reboots through the versioned pager plus post-base update journal.
 
-Instrument the apply with `MainActorWorkLedger`; include input/changed-key count and revision, and no `await` inside the span. W5b has its own RED/GREEN for atomic stale-base rejection, pane/cache/orphan effects, observation/trace contraction, and fixed-changed-key scaling; W5a proof is not a substitute.
+Instrument the apply with `MainActorWorkLedger`; include input/changed-key count and revision, and no `await` inside the span. W5b has its own RED/GREEN for atomic stale-base rejection, cache/location effects, zero pane-lifecycle mutation, observation/trace contraction, and fixed-changed-key scaling; W5a proof is not a substitute.
 
 ### Test proof
 
@@ -724,11 +782,11 @@ Extend:
 - `WorkspaceCacheCoordinatorIntegrationTests.swift`
 - `RepositoryTopologyAtomTests.swift`
 - `TopologyEventPipelineIntegrationTests.swift`
-- pane boundary/reassociation tests
+- pane-location projection invalidation tests and negative pane-residency/tab-mutation tests
 - `FilesystemProjectionIndexTests.swift`
 - `RepoExplorerReadModelTests.swift` and `RepoExplorerViewTests.swift` for visible currentness states
 
-Invariants: stale base has no partial mutation or revision advance; one multi-atom apply advances the revision owner exactly once; every participating atom receives the same accepted revision; discovery-owned and user-owned fields merge only per spec; cache cleanup and orphaning are atomic with topology; at most one observation invalidation and trace refresh; accepted effect record exhaustively names source/Git/projection/Forge/persistence/trace/repair follow-ups and watched-root currentness. A non-current root retains last-known state but has a distinguishable Repo Explorer presentation.
+Invariants: stale base has no partial mutation or revision advance; one topology apply advances the revision owner exactly once; discovery-owned and user-owned fields merge only per spec; cache cleanup and location invalidation are atomic with topology; pane residency/tab membership and terminal lifecycle are byte-for-byte unchanged; at most one observation invalidation and trace refresh; accepted effect record exhaustively names source/Git/location/Forge/persistence/trace/repair follow-ups and watched-root currentness. A non-current root retains last-known state but has a distinguishable Repo Explorer presentation.
 
 Add a RED regression for the historical double reconciliation: guarded
 projector output `[X, Y]` entering the canonical apply path must remain `[X, Y]`.
@@ -737,7 +795,7 @@ duplicate stable keys, and one existing identity claimed by path and name.
 Every rejection proves byte-for-byte unchanged live topology, unchanged atom
 and persistence revisions, zero autosave attempt, and zero downstream effects.
 
-Oracle: independent literal topology/pane/cache map. For 10/100/300 fleets with the same changed keys, MainActor service must remain within the calibrated fixed-change envelope.
+Oracle: independent literal topology/cache/location map plus unchanged composition snapshot. For 10/100/300 fleets with the same changed keys, MainActor service must remain within the calibrated fixed-change envelope.
 
 RED/GREEN: required, including `unavailable`/repair-failure transitions that retain last-known topology while changing the canonical currentness read model and visible Repo Explorer presentation. Split if a merge conflict cannot be resolved off-main; reject/reproject rather than broadening MainActor logic.
 
@@ -775,7 +833,8 @@ RED/GREEN: current legacy posts and ignored-topic deliveries form RED in the iso
 
 ## 9. Task W7 — Sole Persistence Revision Owner And Writer
 
-Requirements: TA10–TA11 and normative persistence contract.
+Requirements: TA10–TA11, the split startup domains, the legacy-JSON hard cut,
+and the normative persistence contract.
 
 This task is an ordered hard-cut sequence rather than one broad checkpoint.
 
@@ -785,12 +844,12 @@ Inventory every mutating `WorkspaceSQLiteDatastore` API and production caller. T
 
 - `WorkspaceSQLiteSaveCoordinator.swift`
 - `RepositoryTopologyStore.swift`
-- `WorkspaceStore.swift` and `WorkspaceStore+LegacySQLiteImport.swift`
+- `WorkspaceStore.swift` and the legacy `WorkspaceStore+LegacySQLiteImport.swift`
 - `RepoCacheStore.swift`
 - `UIStateStore.swift`
 - `SidebarCacheStore.swift`
 - `Features/InboxNotification/State/MainActor/Persistence/InboxNotificationSQLiteDatastoreAdapter.swift`
-- `App/Boot/WorkspaceLegacyArchiveCoordinator.swift`
+- legacy `App/Boot/WorkspaceLegacyArchiveCoordinator.swift`
 - active workspace selection, import/archive status, and any other call found by the source inventory
 
 Classify each write as canonical revisioned change, checkpoint/import, local coalesced autosave, or operational status. `WorkspacePersistenceCoordinator` is the sole product caller for all four classes; only canonical workspace mutations consume the canonical persistence revision stream. Read-only restore/status queries remain direct only when the inventory table explicitly marks them read-only.
@@ -829,13 +888,40 @@ Prepare modifications for all W7a callers and exercise them through isolated cut
 
 Operational import/archive/status and local-feature requests enter the same arbiter but do not pretend to be canonical entity revisions. Their ordering and failure receipts remain typed and are covered by the sole-caller inventory.
 
+This preparation also hard-cuts the obsolete JSON workspace path. Delete
+`WorkspaceStore+LegacySQLiteImport.swift`, `WorkspaceLegacyArchiveCoordinator`,
+legacy workspace/cache/UI/sidebar/inbox import decisions and status APIs, their
+DTOs/decoders, `WorkspacePersistor` boot plumbing, and the
+`legacy_workspace_import_status` schema/API surface. Preserve current
+`preferences.global.json`, per-workspace settings JSON plus backup, runtime
+diagnostic/checkpoint JSON, SQLite corruption recovery, and GRDB schema
+migrations. Add a forward SQLite migration that removes durable pane
+`repoId`/`worktreeId` facets and repository-coupled orphan residency storage;
+the migration preserves panes, terminal zmx anchors, CWD, tabs, and layouts.
+
+Modify `Pane.swift`, pane metadata/facet types,
+`WorkspacePaneGraphAtom.swift`, `SessionResidency.swift`, pane SQLite row
+mapping, and topology-removal coordination in the same hard cut: remove durable
+`repoId`/`worktreeId`, the convenience accessors, `WorktreeUnavailableReason`,
+and `.orphaned`; CWD changes never synchronously query topology or write derived
+repository identity. Replace UI readers with the W5 derived location
+projection. Repository removal tests prove panes, tabs, zmx anchors, and
+residency remain unchanged.
+
+Split steady-state requests structurally: `WorkspaceCompositionChangeSet`
+carries pane/tab/window/cursor changes, while `WorkspaceTopologyChangeSet`
+carries repository/worktree/watched-root changes. A coordinated checkpoint may
+contain both at one fixed persistence revision, but neither request type may
+construct or validate the other domain.
+
 W7b/W7c do not change production construction or caller selection. Before W7d, every production write remains on the one complete legacy path and the new coordinator assembly is reachable only from focused tests. There is no feature flag, dual publication, or piecemeal caller migration.
 
 ### W7d — Atomic sole-writer cut
 
 Depends on W8a–W8c proving checkpoint compaction/commit/starvation over the W4.5 pager. In one production integration diff, drain/cancel old scheduled saves, fence their process generation, switch every W7a caller to its W7c typed request endpoint, install `WorkspacePersistenceCoordinator`, remove/absorb `WorkspaceSQLiteSaveCoordinator` and every direct write path, and only then enable the direct-writer architecture rule. No intermediate product state has two writers, and the sole-writer cut cannot land before checkpoint recovery is operational.
 
-No SQLite migration/schema redesign is authorized. A stale full/checkpoint write must be rejected before replacement.
+Only the forward hard-cut migration named in W7c is authorized. A stale
+full/checkpoint write must be rejected before replacement.
 
 ### Test proof
 
@@ -855,6 +941,12 @@ Extend:
 - `WorkspacePersistenceTransformerTests.swift`
 
 Cases: stale checkpoint after newer change set, revision gap, process-generation mismatch, repeated same-key change, create/remove net-zero, tombstone until acknowledgement, core/local failure and retry, cancellation/shutdown.
+
+Add migration and negative-architecture proof: existing SQLite composition
+opens with pane/tab/zmx/CWD identity preserved and topology facets removed;
+startup contains no legacy JSON import/archive branch; topology persistence
+cannot submit pane/tab changes and composition persistence cannot submit
+repository/worktree changes.
 
 Independent oracle: query/reload SQLite through fresh repository/datastore read APIs and compare with a literal final entity map.
 

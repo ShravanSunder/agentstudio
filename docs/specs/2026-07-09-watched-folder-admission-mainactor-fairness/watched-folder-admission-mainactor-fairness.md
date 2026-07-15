@@ -450,29 +450,27 @@ the domain supports it; UUIDv7 remains opaque identity, never revision or
 ordering authority. Repo Explorer duplicate handling may be nontrapping fault
 containment, but it cannot make duplicate canonical identity acceptable.
 
-TA10. Cache cleanup and pane orphaning/reassociation patches join the canonical
-topology patch in one bounded MainActor transaction. A successful transaction
+TA10. Cache cleanup and pane-location projection invalidation join the canonical
+topology patch in one bounded MainActor transaction. Pane location is derived
+from current CWD plus an accepted topology/path-index revision; repository or
+worktree identity is not durable pane ownership. A successful transaction
 returns a typed accepted-revision effect record for filesystem root/activity
-resync, Git baseline, pane/filesystem projection, Forge scope, persistence,
-trace identity, and repair acknowledgements. Downstream failure preserves the
-matching repair obligation only for owners named by the source-kind matrix;
-independent enrichment/durability/telemetry owners retain their own retry state.
+resync, Git baseline, pane-location recomputation, Forge scope, topology
+persistence, trace identity, and repair acknowledgements.
 
-Repository reassociation is one typed atomic transaction over repository name,
-path, availability, worktrees, and path-index generation. It first prepares and
-validates the complete candidate, then commits those fields and its ordered
-effects together. A rejection preserves every field byte-for-byte, restores no
-pane residency, schedules no persistence/effect work, and does not advance or
-schedule the path-index generation. Acceptance schedules exactly one logical
-path-index rebuild/generation advance for the transaction, not one for metadata
-and another for worktrees.
+Repository removal or reassociation never changes pane residency, closes or
+kills a terminal, changes tab membership, rewrites composition, or blocks
+startup interaction readiness. A rejection preserves every topology/cache
+field byte-for-byte, schedules no persistence/effect work, and does not advance
+the path-index generation. Acceptance schedules exactly one logical path-index
+generation advance and invalidates only affected derived pane-location keys.
 
 TA11. Ordinary topology persistence receives only the revisioned changed-key
 record produced by the accepted topology transaction. Full state is available
 only through the bounded paged checkpoint contract for boot, import, export, or
 revision-gap recovery. MainActor neither normalizes nor retains a fleet-wide
 copy-on-write snapshot merely because a datastore write is about to begin.
-SQLite schema and I/O ownership remain unchanged.
+Datastore transaction/I/O ownership remains unchanged; schema changes are limited to the named forward hard cut.
 
 The checkpoint pager captures at most 256 snapshot items in one MainActor page.
 This is a compile-time `AppPolicies.WorkspacePersistence` service quantum, not a
@@ -484,16 +482,21 @@ another. A page is acknowledged as transferred only after its Sendable values
 have entered the off-main accumulator; failure or cancellation aborts the lease
 and drains cleanup in bounded quanta.
 
-Boot restoration is a one-shot boundary before pager participation exists.
-Decoded workspace and topology values are validated and normalized off-main,
-then all canonical owners apply one prepared MainActor transaction and advance
-the shared revision exactly once. Only after that commit succeeds does the
-canonical factory construct and install the exact fourteen pager participants
-from restored membership. Rejected preparation or apply leaves every owner and
-revision unchanged and leaves factory construction unattempted. The boot path
-does not send insertions through unconfigured snapshot participants, and the
-product has no implicit post-install fleet-rehydration mode; later mutation uses
-normal revisioned participant changes or a separately specified rebuild.
+Boot restoration has two validation/apply domains before pager participation.
+Composition preparation owns workspace identity, panes/drawers, tab shells and
+graphs, local cursors, and window/sidebar memory; it validates and repairs
+off-main, then installs one bounded MainActor composition transaction before
+window and terminal activation. Repository topology preparation and apply use
+the topology actor/applier lane independently and never block composition or
+terminal readiness. A shared checkpoint revision may coordinate storage, but
+it does not create a shared hydration owner or permit topology to mutate panes.
+
+Only after each domain commit succeeds does the canonical factory install that
+domain's participants from committed membership. Rejected composition leaves
+composition owners/revision unchanged and presents explicit recovery; rejected
+topology retains last-known/non-current topology without blocking the window.
+The product has no implicit post-install fleet-rehydration mode; later mutation
+uses normal revisioned domain changes or an explicit gap rebuild.
 
 ### Event Admission, Scheduling, and Replay
 
@@ -1130,18 +1133,18 @@ while repair remains; negatives never delete last-known topology.
 `TopologyProjectionRequest` values that bind one scheduled result to the
 current immutable topology/field-ownership mirror and canonical base revision;
 it performs
-normalization, repository/worktree joins, pane/cache reconciliation,
+normalization, repository/worktree joins, cache reconciliation,
 removal-candidate derivation, and stale-result rejection off-main. It may derive
 removals only from `completeAuthoritative` inventory after exact current
 `FSEventRegistrationToken`, checked scan-run generation, and compatible
 mirror/base-revision checks. It produces one
-`TopologyApplyBatch` with field-scoped inserts/updates/removals, pane/cache
-patches, currentness, and ordered post-apply effects.
+`TopologyApplyBatch` with field-scoped inserts/updates/removals, cache patches,
+affected pane-location keys, currentness, and ordered post-apply effects.
 
 The projector owns `WorkspaceTopologyProjectionMirror`, a rebuildable off-main
 mirror of the discovery-owned repository/worktree fields, user-owned field
-markers, pane associations required for orphan/reassociation, and canonical
-revision. It is seeded before source admission from
+markers, path-index generation, and canonical revision. It contains no pane
+residency or tab membership. It is seeded before source admission from
 `WorkspaceStateSnapshotPager`, not from a retained fleet-wide copy-on-write
 dictionary. The pager acquires one `WorkspaceStateSnapshotLease` at a canonical
 base revision and reads that lease's stable indexed membership and raw values in
@@ -1242,9 +1245,11 @@ struct WorkspacePersistenceChangeSet: Sendable {
 }
 ```
 
-`TopologyApplyReceipt` obtains the next persistence revision and constructs this
-causally complete change set from the same accepted mutation; it never rereads
-the fleet to discover changes. `WorkspacePersistenceCoordinator` validates
+`TopologyApplyReceipt` obtains the next persistence revision and constructs the
+repository/worktree portion of this causally complete change set from the same
+accepted mutation; it never rereads the fleet to discover changes. Pane/tab
+changes originate only from composition owners through a separate typed request.
+`WorkspacePersistenceCoordinator` validates
 process generation/revision order, coalesces only when final-state equivalence
 is proven, retains tombstones until acknowledgement, and asks
 `WorkspaceSQLiteDatastore` to apply one atomic transaction. Every ordinary
@@ -1292,8 +1297,8 @@ dirty follow-up are bounded/observable. Boot, import,
 export, non-topology coalesced autosave, and gap recovery may use checkpoints.
 Ordinary topology changes may not construct a full MainActor snapshot. The
 process-local revision protects queued writes; restart has no surviving stale
-task and seeds a new process generation from the persisted database. SQLite
-schema, transaction, and datastore ownership otherwise remain unchanged.
+task and seeds a new process generation from the persisted database. Datastore
+transaction/I/O ownership otherwise remains unchanged; no schema change beyond the named forward hard cut is authorized.
 
 #### Bridge containment owner
 
@@ -1525,7 +1530,7 @@ fields from user-owned tags and concurrent availability/cache facts. A stale
 base revision either reprojects or applies only a proven conflict-free patch.
 
 The post-apply result names the accepted revision and changed IDs plus required
-cache cleanup, pane orphaning, filesystem root/activity resync, Forge scope,
+cache cleanup, affected pane-location recomputation, filesystem root/activity resync, Forge scope,
 persistence, trace-identity, and repair acknowledgements. One sequencing owner
 applies those effects in the declared order; failures remain observable and do
 not falsely clear correctness-bearing repair debt.
@@ -1535,9 +1540,9 @@ The declared dependency order is:
 1. Revalidate source generation and canonical base revision. Rejection exposes
    no partial mutation and schedules reprojection while repair debt remains.
 2. In one bounded MainActor transaction, apply discovery-owned topology patches,
-   remove invalid cache entries, apply pane orphaning/reassociation patches, and
-   publish the new canonical topology revision. Observers cannot see a removed
-   worktree while a pane still canonically references it.
+   remove invalid cache entries, publish affected pane-location keys, and
+   publish the new canonical topology revision. Canonical panes contain no
+   repository/worktree reference requiring topology-driven repair.
 3. Return an immutable accepted-revision effect record. Filesystem source/root
    registration, Git baseline, and pane/filesystem projection consume only this
    accepted record and reject a superseded revision.
@@ -1570,8 +1575,8 @@ bytes/entities, first subsequent mutation service/allocation, off-main
 checkpoint/change-set preparation, revision gaps, retries, and datastore
 service separately.
 
-This contract changes steady-state handoff and checkpoint preparation, not the
-SQLite schema or datastore transaction/I/O owner.
+This contract preserves the datastore transaction/I/O owner and authorizes only
+the named forward SQLite hard cut of legacy import and topology-derived pane state.
 
 ### Event Topic and Recovery Contract
 
@@ -1889,14 +1894,14 @@ process can generate adversarial event rates, path shapes, repository trees,
 symlink changes, and transient access failures.
 
 Assets are canonical repository/worktree identity, user-owned tags and
-availability, watcher authority, pane/worktree association, filesystem and
+availability, watcher authority, derived pane-location accuracy, filesystem and
 Forge scope, interaction availability, and trustworthy local proof. Entry
 points are FSEvent callbacks/flags, scanned directory entries, `.git` files and
 metadata, validation responses, persisted watched roots, repair
 acknowledgements, and generated workload fixtures.
 
 Privileged effects include establishing absence, removing or marking topology
-unavailable, registering a watcher, orphaning a pane, changing filesystem/Forge
+unavailable, registering a watcher, invalidating derived pane location, changing filesystem/Forge
 scope, and clearing repair debt. Only the typed owner and current generation/
 revision contracts may authorize those effects.
 
@@ -1917,41 +1922,18 @@ revision contracts may authorize those effects.
   event pipeline.
 
 ## Alternatives and Tradeoffs
-
-### Minimal: keep current topology and add only scan debounce
-
-Gain: small diff and fast delivery.
-
-Cost: leaves unbounded callback admission, lost overflow flags, partial-scan
-false-removal risk, per-batch root-index rebuild, quadratic MainActor import,
-topicless fanout, and opaque MainActor scheduling. Rejected because it cannot
-satisfy correctness or interaction requirements.
-
-### Clean boundary: separate buses and owners for every domain
-
-Gain: strongest type separation and independent backpressure.
-
-Cost: broad migration, duplicated transport mechanics, and potential ordering
-complexity before measured need. Deferred as the default shape; typed topics
-and pressure contracts provide most of the separability without requiring a
-bus per event family.
-
-### Pragmatic selected direction
-
-Keep current proven projection/datastore actors and explicit subscriber
-policies. Add the bounded loss-aware mailbox, dedicated fair scan actor,
-persistent path-component root index, immutable revisioned topology projector,
-field-scoped `WorkspaceTopologyApplier`, revisioned change-set/checkpoint
-persistence, accumulated FS-to-Git mailbox, topic-aware fact fanout, and
-`BridgeRefreshCoordinator`. This is a hard semantic cutover at each touched
-boundary; no old/new dual event path remains indefinitely.
-
-Tradeoff: more explicit types and generations. The added ceremony is accepted
-because it makes overflow correctness, stale rejection, queue ownership, and
-MainActor work reviewable and independently testable.
-
+The minimal debounce-only option has the smallest diff but leaves callback
+admission, partial-scan removal, root-index rebuild, MainActor import, fanout,
+and persistence amplification unresolved; it is rejected. A bus per domain
+maximizes isolation but duplicates transport and ordering mechanics before
+measured need; it is deferred.
+The selected direction keeps proven projection/datastore actors while adding
+bounded admission, fair scanning, a persistent root index, revisioned topology
+projection/apply, split-domain persistence requests, accumulated FS-to-Git
+invalidation, typed fact topics, and bounded Bridge refresh. It costs more
+explicit types/generations in exchange for reviewable overflow, stale rejection,
+ownership, and MainActor work, with no indefinite dual path.
 ## Non-Goals
-
 - No implementation sequence, task graph, or exact validation command list.
 - No claim that static analysis proves the dominant live hotspot.
 - No actor-per-pane migration.
@@ -1959,14 +1941,12 @@ MainActor work reviewable and independently testable.
 - No Git status provider rewrite or return to shell Git.
 - No full Bridge package/React redesign in this spec.
 - No native sidebar visual redesign.
-- No SQLite schema or datastore-actor redesign. Bounded paged raw-state capture,
-  the global persistence revision arbiter, and off-main preparation remain in
-  scope; retained fleet-wide MainActor snapshots do not.
+- No datastore-actor redesign beyond the accepted forward hard-cut migration
+  removing legacy-import state and topology-derived pane fields. Bounded paged
+  capture, the revision arbiter, and off-main preparation remain in scope.
 - No new watcher authority outside persisted user-selected roots.
 - No copied Ghostty buffer sizes, spin constants, or gather timings.
-
 ## Slice Routing Map
-
 These are separable ownership contracts, not implementation phases:
 
 | Slice | Maintained contract |
@@ -1984,7 +1964,6 @@ These are separable ownership contracts, not implementation phases:
 
 The Ghostty callback, terminal sample, agent-state, geometry, and presentation
 contracts are owned by the companion terminal-interaction spec.
-
 ## Calibration And Revisit Gates
 
 The architecture is closed. These remaining values are calibrated before

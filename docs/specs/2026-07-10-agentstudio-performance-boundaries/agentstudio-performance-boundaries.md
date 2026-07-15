@@ -1,7 +1,7 @@
 # AgentStudio Performance Boundaries
 
 Date: 2026-07-10
-Status: accepted technical contract after focused latest-overload recheck
+Status: accepted technical contract; startup-lane boundary revised 2026-07-15
 Scope: parent pre-plan contract for filesystem pressure and terminal interaction
 Baseline: `ghostty-performance` at `cd47c511`
 
@@ -41,6 +41,12 @@ interactive input
   -> direct synchronous libghostty call
   -> Ghostty-owned PTY / VT / renderer work
   -> measured response / frame-layer-publication seam + native visible proof
+
+startup
+  -> off-main composition preparation and structural repair
+  -> one atomic MainActor composition install
+  -> immediate prioritized terminal activation
+  -> independent non-blocking repository/filesystem reconciliation
 ```
 
 Actor isolation is necessary for data-race safety but insufficient for
@@ -73,6 +79,25 @@ Ghostty host boundary
   owns: callback lifetime, tick/action admission, surface host truth
   exposes: pane-local samples, snapshots, targeted intents, semantic facts
   does not own: VT parsing, Metal rendering, global raw-event processing
+
+startup composition boundary
+  owns: workspace identity, pane descriptors, drawers, tab containers,
+        arrangements/layouts, local cursors, and window/sidebar UI memory
+  exposes: one accepted composition revision and terminal activation input
+  does not own: Ghostty readiness, repository topology, Git, or path matching
+
+terminal activation boundary
+  owns: prioritized surface creation, zmx attachment, host mounting, focus,
+        per-pane runtime readiness, retry, and cancellation
+  exposes: active-terminal typing readiness and all-restorable readiness
+  does not own: canonical pane structure or repository availability
+
+external reconciliation boundary
+  owns: watched roots, filesystem discovery, repository/worktree topology,
+        Git currentness, and CWD-derived pane location projection
+  exposes: compact topology and display-context mutations
+  does not own: pane residency, tab membership, terminal lifetime, or startup
+        interaction readiness
 
 shared performance harness
   owns: one run identity, clocks/correlation, scenario manifest, evidence
@@ -1503,6 +1528,64 @@ gap is evidence of starvation, not proof that the immediately preceding named
 operation caused it. Stack samples/signposts and work-item spans provide causal
 attribution.
 
+### Startup Composition, Terminal Activation, And External Reconciliation
+
+Startup has three independently owned readiness lanes. Composition is prepared,
+validated, and deterministically repaired off-main, then installed in one
+bounded MainActor transaction. The prepared composition includes pane identity,
+content/provider, frozen zmx anchor, launch configuration, drawer/tab/layout
+membership, local cursors, and window/sidebar presentation state. It excludes
+repository/worktree identity, Git state, filesystem currentness, and derived
+pane location context.
+
+Canonical `Pane` exposes no `repoId` or `worktreeId` facet/accessor.
+`SessionResidency` contains only repository-independent process/UI lifecycle
+states; repository or worktree unavailability is never a residency case.
+
+An accepted composition transaction emits one immutable
+`TerminalActivationInput`. The terminal activation owner immediately schedules
+restorable terminal panes by strict priority: active visible terminals, other
+visible/expanded-drawer terminals, then hidden terminals with an already-live
+zmx session. Active attachment never awaits hidden-session discovery. A hidden
+pane with no live zmx session remains valid composition but dormant until user
+selection; startup does not silently create a new hidden shell.
+
+Nonterminal restoration has a separate `ViewCompositionRestoreOwner`. It owns
+visible-first construction and MainActor mounting for webview, code-viewer,
+Bridge, and other nonterminal content; it does not create, attach, or classify
+terminal runtimes. The prepared composition exposes an exhaustive content union,
+so each pane is routed to exactly one restoration owner and can mount at most
+once for a composition generation. Expanded-drawer panes are visible priority.
+Background nonterminal mounting does not delay active-content readiness.
+
+`windowReady`, `activeContentReady`, `typingReady`,
+`visibleContentSettled`, and `allRestorableTerminalsReady` are distinct
+current-generation milestones. `windowReady` requires accepted composition and
+the workspace shell; an empty workspace reaches `activeContentReady` when its
+empty state is installed. An active nonterminal pane reaches
+`activeContentReady` when its current-generation view mounts. For an active
+terminal pane, `typingReady` implies `activeContentReady` and requires surface
+creation, attachment, mount, focus, and runtime readiness. Mixed workspaces gate
+active readiness only on the active pane. `visibleContentSettled` covers every
+visible main/expanded-drawer pane reaching its content-specific ready, dormant,
+or failed outcome; it does not gate active interaction. Terminal background
+attachment gates neither window nor active-content readiness. Surface creation
+and AppKit mounting remain MainActor-owned, but schedulers, inventory,
+prioritization, retry, and currentness bookkeeping execute outside MainActor and
+admit only bounded service quanta back to it.
+
+Repository/filesystem startup is a separate non-blocking lane. Persisted
+topology may provide last-known display state, but discovery, Git validation,
+watched-root registration, and CWD-to-topology matching never gate window or
+terminal readiness. Repository removal invalidates and recomputes derived pane
+location projection only; it never changes pane residency, tab membership,
+terminal lifecycle, or zmx attachment.
+
+Coordinated SQLite checkpoints may share one persistence revision, but that
+storage transaction does not merge composition and topology validation,
+hydration, mutation, or runtime ownership. Steady-state composition and topology
+writes enter the persistence coordinator as separate typed change sets.
+
 ### Atoms And Observables
 
 Atoms and observables are canonical state sinks and UI read surfaces. They do
@@ -1689,6 +1772,7 @@ confounded causal claim.
 | semantic topic transport | parent + watched-folder child | structural policy, queue admission, lag/recovery proof |
 | Ghostty tick/action admission | terminal child | state/origin tables, races, sustained producer pressure |
 | terminal sample contraction/activity parity | terminal child | sequence oracle, bounded flood, semantic parity |
+| startup composition and terminal readiness | parent + terminal child | rejected/repaired/prepared composition states; active-before-hidden attachment; bounded MainActor activation service; distinct window/typing/all-restorable milestones; delayed repository-lane injection |
 | secure input/screen boundary | terminal child | owner-state races, denied capture, export canaries |
 | combined typing/cursor symptom | shared harness | correlated watched-pressure, input-to-frame-layer-publication tails, and native visible outcomes |
 
@@ -1770,8 +1854,8 @@ Entry points and adversaries:
 - stale callbacks, registrations, sessions, and queued generations;
 - instrumentation overload that hides the measured incident.
 
-Privileged effects include topology removal, watcher registration, pane
-orphaning, filesystem/Forge scope, clipboard/secure-input changes, screen reads,
+Privileged effects include topology removal, watcher registration, pane-location
+projection invalidation, filesystem/Forge scope, clipboard/secure-input changes, screen reads,
 notifications, open-URL requests, and workspace commands. Untrusted input may
 request or inform these effects only through the typed owner and authorization
 contract named by its child spec.
@@ -1783,7 +1867,8 @@ contract named by its child spec.
 - No claim that static code shape establishes the runtime-dominant hotspot.
 - No host-owned VT parser, renderer, or frame loop.
 - No claim that layer publication is physical display scanout.
-- No new persistence schema requirement; snapshot preparation remains in scope.
+- No legacy JSON compatibility path. Forward SQLite migrations may remove
+  topology-derived pane facets and repository-coupled residency encodings.
 - No default-on screen capture or agent authority inferred from terminal data.
 - No permanent old/new compatibility pipelines.
 

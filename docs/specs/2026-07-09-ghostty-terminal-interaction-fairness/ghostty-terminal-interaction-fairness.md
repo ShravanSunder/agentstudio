@@ -58,6 +58,8 @@ and names its distance from physical scanout:
   Unicode, and CSI, with separate native proof that the result becomes visible;
 - hidden/minimized surface CPU and reveal freshness;
 - terminal memory after scrollback fill, idle, prune, and clear.
+- cold launch to active-terminal typing readiness, plus bounded completion of
+  every restorable background terminal without waiting for repository startup.
 
 Key-to-echo is not meaningful for secure input, disabled local echo, remote
 latency, or an application that intentionally withholds output. The benchmark
@@ -590,6 +592,47 @@ compressed/page-return measures supported by the selected platform. Absolute
 and control-relative ceilings are human-approved before candidate acceptance;
 a single unqualified RSS snapshot or wall-clock sleep is not proof.
 
+SF12. Accepted workspace composition, not repository topology, unlocks terminal
+activation. Its immutable input contains pane UUIDv7 identity, terminal
+provider, frozen zmx session anchor, launch configuration, visibility priority,
+and host-placement identity. It contains no repository/worktree ownership.
+
+SF13. Composition acceptance freezes one `TerminalRestorableCohort` for its
+generation. Terminal activation uses exhaustive priority: active visible, other
+visible/expanded drawer, then hidden panes with already-live zmx sessions. The
+active set begins before hidden-session discovery completes. Inventory classifies
+every hidden cohort member as live, missing, or inventory-failed; missing hidden
+zmx sessions remain dormant until selection and are not silently recreated.
+
+SF14. `windowReady`, `typingReady`, and `allRestorableTerminalsReady` are
+distinct current-generation milestones. Typing readiness requires active
+surface creation, zmx attachment where applicable, host mounting, focus, and
+current-generation runtime readiness; background completion cannot gate it.
+`allRestorableTerminalsReady` is an aggregate-settled milestone, not an all-
+success claim: every member of the frozen cohort has reached exactly one terminal
+outcome—`ready`, `dormant`, `failedTerminal`, or `cancelledReplaced`. Failures
+remain explicit in the aggregate receipt.
+
+SF15. Scheduling, live-session inventory, prioritization, retry, and state
+transition computation execute off-main in one fleet scheduler with bounded
+in-flight operations; there is no task-per-pane or actor-per-pane fanout.
+Ghostty surface creation, AppKit host mounting, and focus remain MainActor-owned
+through a bounded service quantum that yields between panes and rechecks priority
+before each admission. After foreground readiness, sustained foreground
+promotion cannot starve the background cohort: the scheduler admits background
+progress within the calibrated maximum foreground burst unless that member is
+closed or replaced.
+
+SF16. Attach progress is runtime state, not canonical `Pane` mutation. The
+runtime owner exposes a strict union for queued, attaching, ready, dormant,
+failed-terminal/retryable, and cancelled/replaced states keyed by pane/runtime
+generation. Hidden-inventory failure produces an explicit retryable
+`failedTerminal` outcome and never blocks foreground readiness.
+
+SF17. CWD/title/activity updates may follow attachment through their typed
+lanes. Repository matching is a derived external projection and cannot delay,
+cancel, or destroy a terminal runtime.
+
 ### Ghostty Version Cutover
 
 GV1. Header, static library/XCFramework, resources, Swift compile, and action-tag
@@ -671,6 +714,15 @@ MainActor ghostty_app_tick
 Ghostty renderer threads
   own: VT/render state, Metal draw, IOSurface presentation, display link
   host supplies: correct geometry, occlusion, focus, display ID, lifetime
+
+accepted composition
+  -> TerminalActivationScheduler (off-main priority/currentness)
+  -> bounded MainActor surface create/attach/mount/focus
+  -> active typing-ready milestone
+  -> cooperative background-restorable completion
+
+repository/filesystem/Git startup
+  -> independent actors and derived pane-location projection only
 ```
 
 ### Normative Terminal Types And Hard Cutover
@@ -1639,7 +1691,7 @@ timing alone—establishes precision latency.
 | TS1-TS9 | signal planes and content disposition | type/architecture enforcement plus bounded flood and export canaries | signal planes |
 | AI1-AI10 | activity parity, provenance, report API, lease, server generation | injected-clock sequence oracle plus IPC ordering/revoke/replace integration | activity intelligence and agent reports |
 | SC1-SC8 | future screen boundary and global secure-input owner | exhaustive owner-state races, baseline capture denial, and real Carbon transition smoke | secure input; future capture constraints |
-| SF1-SF11 | direct input, geometry, visibility, display, teardown, and scrollback memory | geometry/visibility/lifetime tests, native interaction diagnostics, and count-driven memory gate | surface host |
+| SF1-SF17 | direct input, startup activation, geometry, visibility, display, teardown, and scrollback memory | priority/readiness tests, delayed repository/hidden-inventory integration, geometry/visibility/lifetime tests, native interaction diagnostics, and count-driven memory gate | surface host and terminal activation |
 | GV1-GV8 | atomic vendor cutover, attribution identity, measurement isolation | build-manifest/delta/negative-product checks, throughput and core factorial report | Ghostty cutover and shared harness |
 
 ## Security and Trust Context

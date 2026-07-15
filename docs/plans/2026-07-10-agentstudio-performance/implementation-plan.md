@@ -44,7 +44,10 @@ Implement the accepted performance boundary contracts without asking the executo
 2. keep one typed global `RuntimeFactBus` for semantic product facts;
 3. move fleet/source/state-machine work off MainActor and retain typed, bounded MainActor apply owners;
 4. preserve exact lifecycle, repair, user-intent, persistence, and security semantics under overload and teardown;
-5. prove typing, cursor, TUI mouse, focus, reveal, terminal throughput, filesystem recovery, MainActor fairness, and scrollback memory with correlated current-run evidence.
+5. separate blocking composition, prioritized terminal activation, and
+   non-blocking repository reconciliation so repository startup cannot gate an
+   active pane becoming typing-ready;
+6. prove typing, cursor, TUI mouse, focus, reveal, terminal throughput, filesystem recovery, MainActor fairness, and scrollback memory with correlated current-run evidence.
 
 This plan operationalizes the accepted design. It does not reopen mailbox families, bus count, source repair semantics, persistence ownership, terminal signal planes, Ghostty host ownership, screen-capture scope, or Bridge deep-render scope.
 
@@ -54,13 +57,13 @@ The planning run read the complete accepted artifacts:
 
 | Source | Lines | Contract used by this plan |
 | --- | ---: | --- |
-| `docs/specs/2026-07-10-agentstudio-performance-boundaries/agentstudio-performance-boundaries.md` | 1,698 | shared primitives, focused D/R/C physical-custody amendment, fact transport, MainActor ledger, harness, scope |
-| `docs/specs/2026-07-09-watched-folder-admission-mainactor-fairness/watched-folder-admission-mainactor-fairness.md` | 1,785 | WF/WS/FI/TA/EV/BR requirements, accepted fixed-slot summary, and proof |
+| `docs/specs/2026-07-10-agentstudio-performance-boundaries/agentstudio-performance-boundaries.md` | 1,930 | shared primitives, startup-lane separation, fact transport, MainActor ledger, harness, scope |
+| `docs/specs/2026-07-09-watched-folder-admission-mainactor-fairness/watched-folder-admission-mainactor-fairness.md` | 1,999 | WF/WS/FI/TA/EV/BR requirements, split composition/topology hydration, and proof |
 | `docs/specs/2026-07-09-watched-folder-admission-mainactor-fairness/filesystem-observation-admission-lifecycle.md` | 713 | fixed fleet slots, callback authority, replacement, FIFO retirement, replay, native release, and shutdown debt |
-| `docs/specs/2026-07-09-ghostty-terminal-interaction-fairness/ghostty-terminal-interaction-fairness.md` | 1,784 | CB/GT/GA/TS/AI/SC/SF/GV requirements and proof |
+| `docs/specs/2026-07-09-ghostty-terminal-interaction-fairness/ghostty-terminal-interaction-fairness.md` | 1,868 | CB/GT/GA/TS/AI/SC/SF/GV requirements, prioritized terminal activation, and proof |
 | `docs/specs/2026-07-09-ghostty-terminal-interaction-fairness/ghostty-action-admission-manifest.md` | 186 | exhaustive action disposition and mechanical coverage |
 
-Live repo anchors were rechecked at `c9f553e1`: the existing global `PaneRuntimeEventBus`, outbound `PaneRuntimeEventChannel`, MainActor `NotificationReducer`, FSEvent callback/source actor, topology/cache/persistence owners, Bridge filesystem refresh path, Ghostty callbacks/action router/surface host, IPC registry/authentication, performance recorder, shared runner, and SwiftSyntax architecture linter.
+Live repo anchors were rechecked at `0fd9a080`: the existing global `PaneRuntimeEventBus`, outbound `PaneRuntimeEventChannel`, MainActor `NotificationReducer`, FSEvent callback/source actor, topology/cache/persistence owners, Bridge filesystem refresh path, Ghostty callbacks/action router/surface host, IPC registry/authentication, performance recorder, shared runner, and SwiftSyntax architecture linter.
 
 ## 3. Scope And Non-Goals
 
@@ -68,7 +71,9 @@ Live repo anchors were rechecked at `c9f553e1`: the existing global `PaneRuntime
 
 - Shared admission mechanics, typed fact transport, topic filtering/recovery, MainActor work attribution, architecture enforcement, and the shared performance workload.
 - Watched-folder callback admission, repair, fair scanning, root indexing, topology projection/apply, persistence handoff, filesystem-to-Git invalidation, and bounded Bridge filesystem refresh/currentness.
-- Ghostty callback lifetime, tick admission, action/user-intent admission, terminal signal hard cut, activity/notification parity, agent-report IPC, secure input, surface geometry/visibility/lifetime, atomic vendor cutover, and performance proof.
+- Split composition/topology hydration, legacy workspace JSON hard cut, and
+  domain-separated steady-state persistence requests.
+- Ghostty callback lifetime, tick admission, action/user-intent admission, terminal signal hard cut, activity/notification parity, agent-report IPC, secure input, prioritized startup activation, surface geometry/visibility/lifetime, atomic vendor cutover, and performance proof.
 
 ### Out of scope
 
@@ -76,7 +81,8 @@ Live repo anchors were rechecked at `c9f553e1`: the existing global `PaneRuntime
 - Full Bridge mutation journal, normalized React store, memoization, or list/content virtualization.
 - A host-owned VT parser, renderer, or frame loop.
 - Actor-per-terminal-pane or several product-global event buses.
-- New persistence schema or long-lived old/new compatibility pipelines.
+- Persistence redesign beyond the accepted forward migration removing legacy
+  import state and topology-derived pane facets; no long-lived compatibility pipeline.
 - Rewriting already-lazy SwiftUI lists without a measured violation.
 
 ## 4. Shared Implementation Rules
@@ -231,13 +237,33 @@ exact-latency series or exact-valued log field.
 
 After S1 interfaces stabilize, execute the watched and terminal plans in parallel using disjoint files. After S2 stabilizes, domain lanes may build and test cutover-ready `RuntimeFactBus` endpoints in isolated assemblies, but production global wiring stays entirely legacy until IG1. S3 must exist before acceptance-grade measurements.
 
-- Watched pre-IG1 preparation/cuts: W1a, W2a, dormant W1b, W3–W10, atomic W2b, and atomic W7d. W1b's native observation adapter remains isolated from the complete legacy `FSEventStreamClient -> FSEventBatch -> FilesystemActor` production path; W2b replaces that protocol/composition and deletes the legacy batch path atomically. W11/W12 are post-IG1.
+- Watched pre-IG1 preparation/cuts: W1a, W2a, dormant W1b, W3–W10, split-domain W4.5 hydration, atomic W2b, and atomic W7d including the legacy JSON/schema hard cut. W1b's native observation adapter remains isolated from the complete legacy `FSEventStreamClient -> FSEventBatch -> FilesystemActor` production path; W2b replaces that protocol/composition and deletes the legacy batch path atomically. W11/W12 are post-IG1.
 - The focused W1b/W2 child plan supersedes the older registration-keyed/raw-
   port/per-generation-seal task vocabulary. W1b dormant readiness includes the
   isolated actor/SourceGate transfer and real native lifetime proof; W2a
   mechanics completion includes fixed-slot replacement/currentness and repair-
   participant protocol mechanics. W2b remains the sole production cut.
-- Terminal pre-IG1 preparation/cuts: T1–T11. T12 is post-IG1 and post-CG1.
+- Terminal pre-IG1 preparation/cuts: T1–T11 including T10.5 prioritized
+  startup activation. T12 is post-IG1 and post-CG1.
+
+### Shared lane S3.5 — Visible-First View Composition Restore
+
+Depends on accepted W4.5 composition and coordinates with T10.5 without owning
+terminal runtime activation. Add `ViewCompositionRestoreOwner` as the bounded
+visible-first owner for webview, code-viewer, Bridge, and other nonterminal pane
+content. Replace the generic serial `restoreAllViews` loop with an exhaustive
+prepared-content dispatch: terminal cases go only to T10.5; nonterminal cases go
+only to this owner; the empty-workspace case installs the shell empty state.
+Expanded-drawer panes are visible priority, and each pane may mount exactly once
+per composition generation.
+
+Modify `WorkspaceSurfaceCoordinator+ViewLifecycle.swift`, launch restore call
+sites, `ViewRegistry`, and focused launch-restore tests. Prove active
+nonterminal, active terminal, mixed terminal/nonterminal, empty workspace, and
+expanded-drawer behavior. `activeContentReady` gates only the active pane;
+`visibleContentSettled` reports all visible content-specific outcomes without
+delaying active readiness. Use bounded fleet scheduling and bounded MainActor
+mount quanta; no task-per-pane fanout.
 
 ### Shared lane S4 — Nonterminal And App Event Migration
 
@@ -477,8 +503,9 @@ G0 baseline/spec/repo identity
                                                       |   |     |
       +-- watched pre-cut: W1a/W2a/W1b, W3-W10, W2b --+---+-----+
       |   including W4.5, W7d, and complete repair owners       |
-      +-- terminal pre-cut: T1-T11 -----------------------------+
+      +-- terminal pre-cut: T1-T11 incl. T10.5 activation -----+
       |   T11 keeps the complete legacy downstream route        |
+      +-- S3.5 nonterminal visible-first view restore ----------+
       +-- S4a-S4e cutover-ready endpoints ----------------------+
                                                                   |
                    IG1 one atomic global transport hard cut
@@ -515,8 +542,11 @@ The executor may allocate these disjoint initial lanes:
 | D | FSEvent callback/source/mailbox and tests | `FilesystemActor.swift` |
 | E | scan scheduler/result/root index and tests | `FilesystemActor.swift`, `RepoScanner.swift` |
 | F | persistence types/pager/coordinator and tests | canonical atoms/datastore owners |
+| F2 | composition preparation/apply and topology-hydration separation tests | boot composition roots and persistence hard cut |
 | G | Ghostty callback control blocks/tick gate and tests | app/surface lifecycle files |
 | H | terminal activity mailbox/projector and tests | terminal/inbox boot and router |
+| H2 | terminal activation scheduler/readiness tests | AppDelegate launch restore, view lifecycle, SurfaceManager |
+| H3 | nonterminal view-composition restore owner/readiness tests | launch restore, view lifecycle, ViewRegistry |
 | I | IPC report contracts/contribution and tests | authentication/server/runtime adapter |
 | J | Bridge refresh request/coordinator/currentness and tests | coordinator/controller/WebKit surface |
 | K | harness/evidence types/verifier tests | `.mise.toml`, shared runner integration |
@@ -535,6 +565,7 @@ High-conflict files are single-owner at each gate: `WorkspaceSurfaceCoordinator.
 | admission is bounded before per-sample task allocation | parent shared interfaces | S1; W1–W2; T3/T6/T7 | strict discriminated public/private type states; typed producer/consumer ports, nonempty gather/latest/fact drains, latest `D/R/C` offer/take/cleanup, journal physical snapshots/readers; compiler-negative former-construction fixtures plus literal custody/counter/currentness histories | compile/static, unit, and in-process integration, then product pressure integration in later lanes; current source manifest/HEAD/run | required; S1 fails type-state, component-pressure, final-batch wake, retry/currentness, metadata-root, snapshot-reader, private-owner, and graph-lint REDs before GREEN |
 | one global semantic fact bus filters before queue/replay | parent fact taxonomy; EV1–EV11 | S2/S4/IG1 | `RuntimeFactBus.subscribe/post`; independent topic/replay table and structural source inventory | unit + integration + architecture lint; current source tree | required; IG1 atomic |
 | MainActor attribution and availability are causal and bounded | parent MainActor last mile; TA8 | S3, every applier, DQ1 | `MainActorWorkLedger`; independent heartbeat plus interaction stages | unit + Victoria observability + native E2E; current PID/run/build/root manifest | required; queue/service/liveness/interaction gates all pass |
+| composition, content mounting, terminal activation, and repository startup are independent | parent startup-lane contract; SF12–SF17 | W4.5/W5/W7; S3.5/T10.5 | prepared/repaired/rejected composition result, exhaustive content dispatch, mount/activation ledgers, delayed topology/hidden-inventory controls, unchanged composition snapshot | unit + SQLite/runtime integration + Victoria/native E2E; current PID/run/build | required; active terminal/nonterminal readiness and empty shell precede delayed external lanes; each pane mounts once |
 | watched loss never authorizes false removal | WF/WS/FI | W1–W5 | callback/source-gate/scheduler/topology applier; literal filesystem manifest | unit + real filesystem/Git integration + workload | required; split callback, scan, apply |
 | watched roots never falsely present last-known state as current | watched currentness contract | W5b/W11/DQ1 | `WatchedFolderCurrentnessAtom` + Repo Explorer currentness read model | unit + integration + PID-targeted native visibility; current source/run/root generation | required; last-known content remains usable but visibly non-current |
 | stale persistence cannot overwrite newer topology | TA10–TA11 | W7/W8 | coordinator/datastore receipts; repository reads compared to literal final map | unit + real SQLite integration + workload | required; sole-writer cut atomic |
@@ -544,13 +575,22 @@ High-conflict files are single-owner at each gate: `WorkspaceSurfaceCoordinator.
 | terminal samples cannot evict exact facts or reach global bus | TS/AI | T6/T7/IG1 | presentation/activity mailboxes and fact owner; semantic parity oracle | unit + bounded flood + inbox integration | required; no dual terminal pipeline |
 | pane agent reports cannot outlive runtime authority | AI3–AI10 | T8 | authenticated Unix socket and server generation registry; accepted receipts/current generation | unit + real IPC integration | required; runtime generation first |
 | secure input is app-global and capture fails closed | SC1–SC8 | T9 | `SecureInputOwner`; injected error table plus OS secure-input query | unit + native integration + export canaries | required; screen capture remains absent |
-| input/geometry/visibility/reveal remain correct | SF1–SF11 | T10–T12 | AppKit/Ghostty host seams; causal layer/cursor marks plus PID-targeted visible behavior | unit + integration + native E2E | required; callback and host edits serialize |
+| input/startup/geometry/visibility/reveal remain correct | SF1–SF17 | T10–T12 | AppKit/Ghostty host seams, activation ledger, and readiness milestones; causal layer/cursor marks plus PID-targeted visible behavior | unit + integration + native E2E | required; callback and host edits serialize |
 | vendor benefit is independently attributable | GV1–GV8 | T1/T12 | immutable build/probe/adaptation manifests; factorial controls | build integration + native/perf E2E | required; exact candidate only |
 | combined pressure no longer stalls typing/cursor | parent scenario matrix | S6/IG2 | standard debug runner + Victoria metrics + PID-targeted UI; correlated stage ledger | observability/native E2E; exact app PID/run/vendor | required; final acceptance gate |
 | actual development roots remain usable and stable | user environment qualification; PF/interaction contracts | S6e/DQ1 | authorized-root aliases + sentinel-contained churn; Victoria comparison plus source/topology/SQLite/currentness oracle | local qualification E2E; current root/build/run manifests | required locally; not a portable CI oracle |
 | performance boundaries remain mechanically visible to future agents | parent enforcement/maintainability contract | S5/S6f | two SwiftSyntax rules, rule inventory, good/bad fixtures, AGENTS-linked runbook | compile/static + docs link checks; current source tree | required; runtime proof still mandatory |
 
 Each detailed child task expands these rows with the test boundary, invalid states, IO cases, and exact files.
+
+Accepted specification SHA256 values for this implementation-plan revision:
+
+| Artifact | SHA256 |
+| --- | --- |
+| `agentstudio-performance-boundaries.md` | `4c04a2bf2981c305881e60c5e51cbcdf9349cffc9a74ef97bab150461e416f4d` |
+| `watched-folder-admission-mainactor-fairness.md` | `cdc5bef76f803d1a2c6cc7d8f4c0f12e98b22a844148dff56acbc1e4bd0cf0ce` |
+| `ghostty-terminal-interaction-fairness.md` | `1f2e8c986e8d83f8add9f491acc120e9ad236c2aa7cf8c599d0720681ff1a082` |
+| `ghostty-action-admission-manifest.md` | `68f81a879119f331291f2fa66dd1442a07a20494caa70b4b80c702c69169c5fa` |
 
 ## 9. Validation Gates
 
