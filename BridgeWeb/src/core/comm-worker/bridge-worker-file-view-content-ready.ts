@@ -122,23 +122,18 @@ function planBridgeWorkerFileViewPierreRenderJob(
 	if (contentHash === undefined) {
 		return null;
 	}
-	const window = renderWindowForFileViewResource({
-		budget: props.budget,
-		metadata: props.metadata,
-		resource: props.resource,
-	});
-	const windowedText = windowTextForBridgeWorkerCodeView({
-		maxLines: window.endLine,
-		text: props.resource.text,
-	});
-	if (bridgeWorkerStringByteLength(windowedText) > props.budget.maxBytes) {
-		return null;
-	}
+	const window = completeRenderWindowForFileViewResource(props.metadata);
+	const completeText = props.resource.text;
 	const language = languageForFileViewRenderJob({
 		metadata: props.metadata,
 		resource: props.resource,
 	});
 	const contentCacheKey = props.metadata.cacheKey;
+	const publicationCapacity = completeFilePublicationCapacity({
+		budgetClassName: props.budget.className,
+		completeText,
+		window,
+	});
 
 	return buildBridgeWorkerPierreRenderJob({
 		itemId: props.metadata.itemId,
@@ -155,7 +150,7 @@ function planBridgeWorkerFileViewPierreRenderJob(
 				type: 'file',
 				file: {
 					name: props.metadata.path,
-					contents: windowedText,
+					contents: completeText,
 					cacheKey: contentCacheKey,
 					...(optionalPierreHighlightLanguage(language) === undefined
 						? {}
@@ -164,45 +159,80 @@ function planBridgeWorkerFileViewPierreRenderJob(
 				bridgeMetadata: {
 					itemId: props.metadata.itemId,
 					displayPath: props.metadata.path,
-					contentState:
-						props.metadata.truncationKind !== 'none' || window.endLine < window.totalLineCount
-							? 'windowed'
-							: 'hydrated',
+					contentState: 'hydrated',
 					contentRoles: ['file'],
 					cacheKey: contentCacheKey,
 					lineCount: props.metadata.payloadLineCount,
 				},
 			},
 		},
-		budget: props.budget,
+		budget: publicationCapacity,
 	});
 }
 
 function fileViewResourceMatchesMetadata(
 	props: PrepareBridgeWorkerFileViewContentReadyEventsProps,
 ): boolean {
+	const completeTextSemantics = deriveCompleteFileTextSemantics(props.resource.textBytes);
 	return (
 		props.metadata.canFetchContent &&
 		!props.metadata.isBinary &&
+		props.metadata.encoding === 'utf-8' &&
+		!props.metadata.endsMidLine &&
+		props.metadata.endsWithNewline === completeTextSemantics.endsWithNewline &&
+		props.metadata.truncationKind === 'none' &&
+		props.metadata.virtualizedExtentKind === 'exactLineCount' &&
+		props.metadata.payloadLineCount === completeTextSemantics.lineCount &&
+		props.metadata.totalLineCount === props.metadata.payloadLineCount &&
 		props.resource.itemId === props.metadata.itemId &&
 		props.resource.path === props.metadata.path &&
 		props.resource.descriptorId === props.metadata.descriptorId &&
 		props.resource.contentHash === props.metadata.contentHash &&
 		props.resource.language === props.metadata.language &&
-		props.resource.sizeBytes === props.metadata.sizeBytes
+		props.resource.sizeBytes === props.metadata.sizeBytes &&
+		props.resource.byteLength === props.metadata.payloadByteCount &&
+		props.resource.textBytes.byteLength === props.resource.byteLength
 	);
 }
 
-function renderWindowForFileViewResource(props: {
-	readonly budget: BridgeWorkerPierreRenderBudget;
-	readonly metadata: BridgeWorkerFileViewContentMetadata;
-	readonly resource: BridgeWorkerFetchedFileViewContentResource;
-}): BridgeWorkerPierreRenderWindow {
-	const totalLineCount = props.metadata.payloadLineCount;
+interface CompleteFileTextSemantics {
+	readonly endsWithNewline: boolean;
+	readonly lineCount: number;
+}
+
+function deriveCompleteFileTextSemantics(textBytes: ArrayBuffer): CompleteFileTextSemantics {
+	const bytes = new Uint8Array(textBytes);
+	let lineFeedCount = 0;
+	for (const byte of bytes) {
+		if (byte === 0x0a) lineFeedCount += 1;
+	}
+	const endsWithNewline = bytes.byteLength > 0 && bytes.at(-1) === 0x0a;
+	return {
+		endsWithNewline,
+		lineCount: lineFeedCount + (bytes.byteLength > 0 && !endsWithNewline ? 1 : 0),
+	};
+}
+
+function completeRenderWindowForFileViewResource(
+	metadata: BridgeWorkerFileViewContentMetadata,
+): BridgeWorkerPierreRenderWindow {
+	const totalLineCount = metadata.payloadLineCount;
 	return {
 		startLine: 1,
-		endLine: Math.min(totalLineCount, props.budget.maxWindowLines),
+		endLine: totalLineCount,
 		totalLineCount,
+	};
+}
+
+function completeFilePublicationCapacity(props: {
+	readonly budgetClassName: BridgeWorkerPierreRenderBudget['className'];
+	readonly completeText: string;
+	readonly window: BridgeWorkerPierreRenderWindow;
+}): BridgeWorkerPierreRenderBudget {
+	return {
+		className: props.budgetClassName,
+		maxBytes: bridgeWorkerStringByteLength(props.completeText),
+		maxWindowLines: Math.max(0, props.window.endLine - props.window.startLine + 1),
 	};
 }
 
@@ -227,22 +257,6 @@ function transferFieldsForBridgeWorkerPierreRenderPayload(
 			mode: 'clone',
 		},
 	];
-}
-
-function windowTextForBridgeWorkerCodeView(props: {
-	readonly maxLines: number;
-	readonly text: string;
-}): string {
-	const maxLines = Math.max(1, Math.floor(props.maxLines));
-	let currentIndex = 0;
-	for (let lineIndex = 0; lineIndex < maxLines; lineIndex += 1) {
-		const newlineIndex = props.text.indexOf('\n', currentIndex);
-		if (newlineIndex === -1) {
-			return props.text;
-		}
-		currentIndex = newlineIndex + 1;
-	}
-	return props.text.slice(0, currentIndex);
 }
 
 function normalizedLanguageOrNull(language: string | null | undefined): string | null {

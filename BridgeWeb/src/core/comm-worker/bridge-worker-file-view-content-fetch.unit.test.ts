@@ -39,7 +39,7 @@ describe('Bridge worker File View content fetch', () => {
 
 		// Act
 		const result = await fetchBridgeWorkerFileViewContentResource({
-			contentRequest: makeContentRequest(),
+			contentRequest: makeContentRequest(originalBytes.byteLength),
 			openContent: completedByteContentOpen(originalBytes),
 		});
 
@@ -100,16 +100,16 @@ describe('Bridge worker File View content fetch', () => {
 	});
 });
 
-function makeContentRequest(): BridgeCommWorkerFileViewContentRequest {
+function makeContentRequest(byteLength = 17): BridgeCommWorkerFileViewContentRequest {
 	return {
 		contentDescriptor: {
 			contentKind: 'file.content',
-			declaredByteLength: 17,
+			declaredByteLength: byteLength,
 			descriptorId: 'descriptor-file-1',
 			encoding: 'utf-8',
 			expectedSha256: 'a'.repeat(64),
 			fileId: 'file-1',
-			maximumBytes: 2 * 1024 * 1024,
+			maximumBytes: byteLength,
 			source: {
 				repoId: '00000000-0000-4000-8000-000000000001',
 				rootRevisionToken: 'root-revision-1',
@@ -120,7 +120,7 @@ function makeContentRequest(): BridgeCommWorkerFileViewContentRequest {
 			},
 			window: {
 				kind: 'prefix',
-				maximumBytes: 2 * 1024 * 1024,
+				maximumBytes: byteLength,
 				maximumLines: 10_000,
 				startByte: 0,
 			},
@@ -128,7 +128,7 @@ function makeContentRequest(): BridgeCommWorkerFileViewContentRequest {
 		itemId: 'file-1',
 		language: 'swift',
 		path: 'Sources/App/FileView.swift',
-		sizeBytes: 17,
+		sizeBytes: byteLength,
 	};
 }
 

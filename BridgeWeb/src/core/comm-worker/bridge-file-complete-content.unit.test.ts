@@ -3,7 +3,28 @@ import { createHash } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import { deriveBridgeProductDevFilePrefix } from '../../../scripts/dev-server/bridge-product-dev-file-prefix.js';
-import { BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES } from './bridge-product-contract-primitives.js';
+import {
+	bridgeProductContentIdentityFromDescriptor,
+	bridgeProductContentRequestSchema,
+	type BridgeProductContentFrameFor,
+	type BridgeProductContentTerminal,
+	type BridgeProductFileContentDescriptor,
+} from './bridge-product-content-contracts.js';
+import {
+	concatenateBytes,
+	encodeMinimalControlFrame,
+	encodeMinimalDataFrame,
+} from './bridge-product-content-frame-test-support.js';
+import { BridgeProductContentStreamDecoder } from './bridge-product-content-stream-decoder.js';
+import {
+	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
+	BRIDGE_PRODUCT_MAXIMUM_CONTENT_DATA_PAYLOAD_BYTES,
+	BRIDGE_PRODUCT_WIRE_VERSION,
+} from './bridge-product-contract-primitives.js';
+import {
+	fetchBridgeWorkerFileViewContentResource,
+	type BridgeWorkerFileViewContentOpen,
+} from './bridge-worker-file-view-content-fetch.js';
 import { prepareBridgeWorkerFileViewContentRenderJobEvent } from './bridge-worker-file-view-content-ready.js';
 
 const CURRENT_FILE_MAXIMUM_LINES = 10_000;
@@ -18,7 +39,7 @@ const encoder = new TextEncoder();
 const strictDecoder = new TextDecoder('utf-8', { fatal: true });
 
 describe('Bridge File complete content', () => {
-	test('publishes exact complete text beyond both legacy File prefix limits', () => {
+	test('assembles fragmented complete text and publishes beyond both legacy File prefix limits', async () => {
 		// Arrange
 		const sourceText = makeCompleteFileSourceText();
 		const sourceBytes = encoder.encode(sourceText);
@@ -39,7 +60,24 @@ describe('Bridge File complete content', () => {
 			maximumBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
 			maximumLines: CURRENT_FILE_MAXIMUM_LINES,
 		});
-		const currentPrefixText = strictDecoder.decode(currentPrefix.bytes);
+		expect(currentPrefix.didReachEnd).toBe(false);
+		expect(currentPrefix.bytes.byteLength).toBe(BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES);
+		expect(currentPrefix.sha256).not.toBe(sourceSHA256);
+		const contentDescriptor = makeCompleteFileContentDescriptor({
+			byteLength: sourceBytes.byteLength,
+			lineCount: sourceLineCount,
+			sha256: sourceSHA256,
+		});
+		const resource = await fetchBridgeWorkerFileViewContentResource({
+			contentRequest: {
+				contentDescriptor,
+				itemId: 'complete-file-1',
+				language: 'text',
+				path: 'Sources/CompleteFile.txt',
+				sizeBytes: sourceBytes.byteLength,
+			},
+			openContent: fragmentedCompleteContentOpen(sourceBytes),
+		});
 
 		// Act
 		const publication = prepareBridgeWorkerFileViewContentRenderJobEvent({
@@ -54,36 +92,23 @@ describe('Bridge File complete content', () => {
 				itemId: 'complete-file-1',
 				path: 'Sources/CompleteFile.txt',
 				language: 'text',
-				cacheKey: `complete-file:${currentPrefix.sha256}`,
+				cacheKey: `complete-file:${sourceSHA256}`,
 				sizeBytes: sourceBytes.byteLength,
 				descriptorId: 'complete-file-descriptor-1',
-				contentHash: currentPrefix.sha256,
+				contentHash: sourceSHA256,
 				encoding: 'utf-8',
-				endsMidLine: currentPrefix.endsMidLine,
-				endsWithNewline: currentPrefix.endsWithNewline,
-				virtualizedExtentKind: currentPrefix.didReachEnd ? 'exactLineCount' : 'previewBounded',
-				payloadByteCount: currentPrefix.bytes.byteLength,
-				payloadLineCount: currentPrefix.payloadLineCount,
-				totalLineCount: currentPrefix.didReachEnd ? currentPrefix.payloadLineCount : null,
-				truncationKind: currentPrefix.truncationKind,
-				isBinary: currentPrefix.isBinary,
+				endsMidLine: false,
+				endsWithNewline: false,
+				virtualizedExtentKind: 'exactLineCount',
+				payloadByteCount: sourceBytes.byteLength,
+				payloadLineCount: sourceLineCount,
+				totalLineCount: sourceLineCount,
+				truncationKind: 'none',
+				isBinary: false,
 				canFetchContent: true,
 			},
 			publicationSequence: 1,
-			resource: {
-				byteLength: currentPrefix.bytes.byteLength,
-				contentHash: currentPrefix.sha256,
-				contentHashAlgorithm: 'sha256',
-				descriptorId: 'complete-file-descriptor-1',
-				itemId: 'complete-file-1',
-				language: 'text',
-				maxBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
-				path: 'Sources/CompleteFile.txt',
-				resourceKind: 'file.content',
-				sizeBytes: sourceBytes.byteLength,
-				text: currentPrefixText,
-				textBytes: Uint8Array.from(currentPrefix.bytes).buffer,
-			},
+			resource,
 			workerDerivationEpoch: 1,
 		});
 		if (publication === null || publication.message.job.payload.kind !== 'codeViewFileItem') {
@@ -93,6 +118,17 @@ describe('Bridge File complete content', () => {
 		const assembledBytes = encoder.encode(assembledText);
 
 		// Assert
+		expect(publication.message.job.window).toEqual({
+			startLine: 1,
+			endLine: COMPLETE_FILE_SOURCE_LINE_COUNT,
+			totalLineCount: COMPLETE_FILE_SOURCE_LINE_COUNT,
+		});
+		expect(publication.message.job.budget).toEqual({
+			className: 'interactive',
+			maxBytes: COMPLETE_FILE_SOURCE_BYTE_COUNT,
+			maxWindowLines: COMPLETE_FILE_SOURCE_LINE_COUNT,
+		});
+		expect(publication.message.job.payload.item.bridgeMetadata.contentState).toBe('hydrated');
 		expect(
 			{
 				byteCount: assembledBytes.byteLength,
@@ -109,6 +145,147 @@ describe('Bridge File complete content', () => {
 		});
 	});
 });
+
+function makeCompleteFileContentDescriptor(props: {
+	readonly byteLength: number;
+	readonly lineCount: number;
+	readonly sha256: string;
+}): BridgeProductFileContentDescriptor {
+	return {
+		contentKind: 'file.content',
+		declaredByteLength: props.byteLength,
+		descriptorId: 'complete-file-descriptor-1',
+		encoding: 'utf-8',
+		expectedSha256: props.sha256,
+		fileId: 'complete-file-1',
+		maximumBytes: props.byteLength,
+		source: {
+			repoId: '00000000-0000-4000-8000-000000000001',
+			rootRevisionToken: 'complete-file-root-revision',
+			sourceCursor: 'complete-file-source-cursor',
+			sourceId: 'complete-file-source',
+			subscriptionGeneration: 1,
+			worktreeId: '00000000-0000-4000-8000-000000000002',
+		},
+		window: {
+			kind: 'prefix',
+			maximumBytes: props.byteLength,
+			maximumLines: props.lineCount,
+			startByte: 0,
+		},
+	};
+}
+
+function fragmentedCompleteContentOpen(sourceBytes: Uint8Array): BridgeWorkerFileViewContentOpen {
+	return (descriptor) => {
+		const decodedStream = decodeFragmentedCompleteContent({ descriptor, sourceBytes });
+		return {
+			contentKind: 'file.content',
+			contentRequestId: 'complete-file-content-request',
+			frames: decodedCompleteContentFrames(decodedStream),
+			terminal: decodedStream.then(({ terminal }) => terminal),
+		};
+	};
+}
+
+interface DecodedCompleteContent {
+	readonly frames: readonly BridgeProductContentFrameFor<'file.content'>[];
+	readonly terminal: BridgeProductContentTerminal<'file.content'>;
+}
+
+async function decodeFragmentedCompleteContent(props: {
+	readonly descriptor: BridgeProductFileContentDescriptor;
+	readonly sourceBytes: Uint8Array;
+}): Promise<DecodedCompleteContent> {
+	const request = bridgeProductContentRequestSchema.parse({
+		contentKind: 'file.content',
+		contentRequestId: 'complete-file-content-request',
+		descriptor: props.descriptor,
+		kind: 'content.open',
+		leaseId: 'complete-file-lease',
+		paneSessionId: 'complete-file-pane-session',
+		wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
+		workerDerivationEpoch: 1,
+		workerInstanceId: 'complete-file-worker-instance',
+	});
+	if (request.contentKind !== 'file.content') {
+		throw new Error('Complete File fixture decoded a non-File content request.');
+	}
+	const acceptedBody = {
+		contentRequestId: request.contentRequestId,
+		declaredByteLength: props.descriptor.declaredByteLength,
+		expectedSha256: props.descriptor.expectedSha256,
+		identity: bridgeProductContentIdentityFromDescriptor(props.descriptor),
+		leaseId: request.leaseId,
+		maximumBytes: props.descriptor.maximumBytes,
+		paneSessionId: request.paneSessionId,
+		wireVersion: request.wireVersion,
+		workerDerivationEpoch: request.workerDerivationEpoch,
+		workerInstanceId: request.workerInstanceId,
+	};
+	const encodedFrames: Uint8Array[] = [encodeMinimalControlFrame(0x01, 0, acceptedBody)];
+	let contentSequence = 1;
+	for (
+		let offsetBytes = 0;
+		offsetBytes < props.sourceBytes.byteLength;
+		offsetBytes += BRIDGE_PRODUCT_MAXIMUM_CONTENT_DATA_PAYLOAD_BYTES
+	) {
+		encodedFrames.push(
+			encodeMinimalDataFrame(
+				contentSequence,
+				offsetBytes,
+				props.sourceBytes.subarray(
+					offsetBytes,
+					offsetBytes + BRIDGE_PRODUCT_MAXIMUM_CONTENT_DATA_PAYLOAD_BYTES,
+				),
+			),
+		);
+		contentSequence += 1;
+	}
+	encodedFrames.push(
+		encodeMinimalControlFrame(0x03, contentSequence, {
+			endOfSource: true,
+			observedByteLength: props.sourceBytes.byteLength,
+			observedSha256: props.descriptor.expectedSha256,
+		}),
+	);
+
+	const wireBytes = concatenateBytes(...encodedFrames);
+	const decoder = new BridgeProductContentStreamDecoder(request);
+	const decodedFrames: BridgeProductContentFrameFor<'file.content'>[] = [];
+	let terminal: BridgeProductContentTerminal<'file.content'> | null = null;
+	const fragmentByteLengths = [4093, 8191, 257, 32_768] as const;
+	let fragmentIndex = 0;
+	let wireOffset = 0;
+	while (wireOffset < wireBytes.byteLength) {
+		const fragmentByteLength = fragmentByteLengths[fragmentIndex % fragmentByteLengths.length];
+		if (fragmentByteLength === undefined) {
+			throw new Error('Complete File fragmentation fixture lost its fragment length.');
+		}
+		// eslint-disable-next-line no-await-in-loop -- Fragment decoding is intentionally ordered.
+		const result = await decoder.push(
+			wireBytes.subarray(wireOffset, wireOffset + fragmentByteLength),
+		);
+		decodedFrames.push(...result.frames);
+		terminal = result.terminal ?? terminal;
+		wireOffset += fragmentByteLength;
+		fragmentIndex += 1;
+	}
+	decoder.finish();
+	if (terminal === null) {
+		throw new Error('Complete File fragmentation fixture produced no terminal.');
+	}
+	return { frames: decodedFrames, terminal };
+}
+
+async function* decodedCompleteContentFrames(
+	decodedStream: Promise<DecodedCompleteContent>,
+): AsyncIterable<BridgeProductContentFrameFor<'file.content'>> {
+	const decoded = await decodedStream;
+	for (const frame of decoded.frames) {
+		yield frame;
+	}
+}
 
 function makeCompleteFileSourceText(): string {
 	const boundaryLineByteCount =

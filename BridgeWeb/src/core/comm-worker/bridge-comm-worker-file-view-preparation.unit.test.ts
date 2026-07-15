@@ -127,7 +127,7 @@ describe('Bridge comm worker File View preparation', () => {
 			maxSliceMs: 5,
 			now: () => 0,
 		});
-		const store = createSelectedFileViewPreparationStore();
+		const store = createSelectedFileViewPreparationStore('file body\nsecond line\n');
 		store.actions.applySelectedFact({ epoch: 7, itemId: 'file-1' });
 		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
 
@@ -168,14 +168,15 @@ describe('Bridge comm worker File View preparation', () => {
 				renderKind: 'fileText',
 				contentCacheKey: 'file-view:metadata-cache:file-1',
 				bridgeDemandRank: { lane: 'selected', priority: 3 },
-				window: { startLine: 1, endLine: 1, totalLineCount: 1 },
+				window: { startLine: 1, endLine: 2, totalLineCount: 2 },
+				budget: { className: 'interactive', maxBytes: 22, maxWindowLines: 2 },
 				payload: {
 					kind: 'codeViewFileItem',
 					item: {
 						id: 'file:file-1',
 						file: {
 							name: 'Sources/App/FileView.swift',
-							contents: 'file body\n',
+							contents: 'file body\nsecond line\n',
 							cacheKey: 'file-view:metadata-cache:file-1',
 							lang: 'swift',
 						},
@@ -185,7 +186,7 @@ describe('Bridge comm worker File View preparation', () => {
 							contentState: 'hydrated',
 							contentRoles: ['file'],
 							cacheKey: 'file-view:metadata-cache:file-1',
-							lineCount: 1,
+							lineCount: 2,
 						},
 					},
 				},
@@ -463,30 +464,35 @@ function createDeferredContentOpen(text: string): DeferredContentOpen {
 	};
 }
 
-function createSelectedFileViewPreparationStore(): BridgeCommWorkerStore {
+function createSelectedFileViewPreparationStore(text = 'file body\n'): BridgeCommWorkerStore {
 	return createBridgeCommWorkerStore({
-		contentItems: [makeWorkerFileViewContentMetadata('file-1')],
+		contentItems: [makeWorkerFileViewContentMetadata('file-1', text)],
 		rows: [{ id: 'file-1', parentId: null, index: 0 }],
 	});
 }
 
-function makeWorkerFileViewContentMetadata(itemId: string): BridgeWorkerFileViewContentMetadata {
+function makeWorkerFileViewContentMetadata(
+	itemId: string,
+	text = 'file body\n',
+): BridgeWorkerFileViewContentMetadata {
+	const payloadByteCount = new TextEncoder().encode(text).byteLength;
+	const payloadLineCount = exactTextLineCount(text);
 	return {
 		metadataKind: 'fileView',
 		itemId,
 		path: 'Sources/App/FileView.swift',
 		language: 'swift',
 		cacheKey: `file-view:metadata-cache:${itemId}`,
-		sizeBytes: 128,
+		sizeBytes: payloadByteCount,
 		descriptorId: `descriptor-${itemId}`,
 		contentHash: 'a'.repeat(64),
 		encoding: 'utf-8',
 		endsMidLine: false,
-		endsWithNewline: true,
+		endsWithNewline: text.endsWith('\n'),
 		virtualizedExtentKind: 'exactLineCount',
-		payloadByteCount: 128,
-		payloadLineCount: 1,
-		totalLineCount: 1,
+		payloadByteCount,
+		payloadLineCount,
+		totalLineCount: payloadLineCount,
 		truncationKind: 'none',
 		isBinary: false,
 		canFetchContent: true,
@@ -499,6 +505,7 @@ function makeContentRequest(
 ): BridgeCommWorkerFileViewContentRequest {
 	const descriptorId = `descriptor-${itemId}`;
 	const encodedBytes = new TextEncoder().encode(text);
+	const payloadLineCount = exactTextLineCount(text);
 	const request: BridgeCommWorkerFileViewContentRequest = {
 		contentDescriptor: {
 			contentKind: 'file.content',
@@ -507,7 +514,7 @@ function makeContentRequest(
 			encoding: 'utf-8',
 			expectedSha256: 'a'.repeat(64),
 			fileId: itemId,
-			maximumBytes: 4096,
+			maximumBytes: encodedBytes.byteLength,
 			source: {
 				repoId: '00000000-0000-4000-8000-000000000001',
 				rootRevisionToken: `root-revision-${itemId}`,
@@ -518,18 +525,24 @@ function makeContentRequest(
 			},
 			window: {
 				kind: 'prefix',
-				maximumBytes: 4096,
-				maximumLines: 10_000,
+				maximumBytes: encodedBytes.byteLength,
+				maximumLines: payloadLineCount,
 				startByte: 0,
 			},
 		},
 		itemId,
 		path: 'Sources/App/FileView.swift',
 		language: 'swift',
-		sizeBytes: 128,
+		sizeBytes: encodedBytes.byteLength,
 	};
 	contentTextByDescriptorId.set(descriptorId, text);
 	return request;
+}
+
+function exactTextLineCount(text: string): number {
+	if (text.length === 0) return 0;
+	const newlineCount = text.split('\n').length - 1;
+	return text.endsWith('\n') ? newlineCount : newlineCount + 1;
 }
 
 function contentTextForDescriptor(descriptor: { readonly descriptorId: string }): string {

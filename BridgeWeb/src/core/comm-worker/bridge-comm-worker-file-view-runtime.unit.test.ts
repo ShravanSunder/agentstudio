@@ -123,11 +123,18 @@ describe('Bridge comm worker File View runtime', () => {
 		});
 	});
 
-	test('publishes the full selected File View safety window inside 2 MiB and 10k lines', async () => {
+	test('publishes the complete selected File View source beyond the caller render window', async () => {
 		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
 		const longFileText = makeNumberedFileText(450);
+		const longFileByteLength = new TextEncoder().encode(longFileText).byteLength;
 		const store = createBridgeCommWorkerStore({
-			contentItems: [makeWorkerFileViewContentMetadata('file-1', { payloadLineCount: 450 })],
+			contentItems: [
+				makeWorkerFileViewContentMetadata('file-1', {
+					endsWithNewline: false,
+					payloadLineCount: 450,
+					sizeBytes: longFileByteLength,
+				}),
+			],
 			rows: [{ id: 'file-1', parentId: null, index: 0 }],
 		});
 		store.actions.applySelectedFact({ epoch: 7, itemId: 'file-1' });
@@ -161,9 +168,10 @@ describe('Bridge comm worker File View runtime', () => {
 			endLine: 450,
 			totalLineCount: 450,
 		});
-		expect(pierreJobMessage.job.budget).toMatchObject({
-			maxBytes: 2 * 1024 * 1024,
-			maxWindowLines: 10_000,
+		expect(pierreJobMessage.job.budget).toEqual({
+			className: 'interactive',
+			maxBytes: longFileByteLength,
+			maxWindowLines: 450,
 		});
 		expect(pierreJobMessage.job.windowLineCount).toBe(450);
 		expect(pierreJobMessage.job.payload.kind).toBe('codeViewFileItem');
@@ -178,15 +186,15 @@ describe('Bridge comm worker File View runtime', () => {
 		});
 	});
 
-	test('publishes selected File View content above the old 512KiB ceiling inside the 2MiB window', async () => {
+	test('publishes selected File View content above the old 512 KiB ceiling as one complete item', async () => {
 		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
 		const denseFileText = makeDenseNumberedFileText({ lineCount: 6_000, linePayloadLength: 90 });
 		const denseFileByteLength = new TextEncoder().encode(denseFileText).byteLength;
 		expect(denseFileByteLength).toBeGreaterThan(512 * 1024);
-		expect(denseFileByteLength).toBeLessThan(2 * 1024 * 1024);
 		const store = createBridgeCommWorkerStore({
 			contentItems: [
 				makeWorkerFileViewContentMetadata('file-1', {
+					endsWithNewline: false,
 					payloadLineCount: 6_000,
 					sizeBytes: denseFileByteLength,
 				}),
@@ -199,12 +207,7 @@ describe('Bridge comm worker File View runtime', () => {
 		await dispatchSelectedBridgeWorkerFileViewContentReady({
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: bridgeWorkerPierreRenderPolicy.fileViewSelectedRenderBudget,
-			contentRequests: [
-				makeContentRequest(denseFileText, {
-					maxBytes: bridgeWorkerPierreRenderPolicy.fileViewSelectedRenderBudget.maxBytes,
-					sizeBytes: denseFileByteLength,
-				}),
-			],
+			contentRequests: [makeContentRequest(denseFileText)],
 			epoch: 7,
 			itemId: 'file-1',
 			openContent: registeredContentOpen(),
@@ -225,13 +228,17 @@ describe('Bridge comm worker File View runtime', () => {
 			endLine: 6_000,
 			totalLineCount: 6_000,
 		});
+		expect(pierreJobMessage.job.budget).toEqual({
+			className: 'interactive',
+			maxBytes: denseFileByteLength,
+			maxWindowLines: 6_000,
+		});
 		expect(pierreJobMessage.job.payloadByteLength).toBeGreaterThan(512 * 1024);
-		expect(pierreJobMessage.job.payloadByteLength).toBeLessThanOrEqual(2 * 1024 * 1024);
 		expect(pierreJobMessage.job.payload.kind).toBe('codeViewFileItem');
 		if (pierreJobMessage.job.payload.kind !== 'codeViewFileItem') {
 			throw new Error('Expected selected dense File View content to publish a File View payload.');
 		}
-		expect(pierreJobMessage.job.payload.item.file.contents).toContain('line-006000');
+		expect(pierreJobMessage.job.payload.item.file.contents).toBe(denseFileText);
 		expect(pierreJobMessage.job.payload.item.bridgeMetadata).toMatchObject({
 			contentState: 'hydrated',
 			lineCount: 6_000,
@@ -436,11 +443,7 @@ describe('Bridge comm worker File View runtime', () => {
 
 		await dispatchSelectedBridgeWorkerFileViewContentReady({
 			...makeDispatchProps({
-				contentRequests: [
-					makeContentRequest('hashless content cannot become ready\n', {
-						omitContentHash: true,
-					}),
-				],
+				contentRequests: [makeContentRequest('hashless content cannot become ready\n')],
 				openContent: registeredContentOpen(),
 				postedMessages,
 				store,
@@ -554,6 +557,7 @@ function createSelectedFileViewRuntimeStore(): BridgeCommWorkerStore {
 function makeWorkerFileViewContentMetadata(
 	itemId: string,
 	props: {
+		readonly endsWithNewline?: boolean;
 		readonly omitContentHash?: boolean;
 		readonly payloadLineCount?: number;
 		readonly sizeBytes?: number;
@@ -565,14 +569,14 @@ function makeWorkerFileViewContentMetadata(
 		path: 'Sources/App/FileView.swift',
 		language: 'swift',
 		cacheKey: `file-view:metadata-cache:${itemId}`,
-		sizeBytes: props.sizeBytes ?? 128,
+		sizeBytes: props.sizeBytes ?? 10,
 		descriptorId: `descriptor-${itemId}`,
 		...(props.omitContentHash === true ? {} : { contentHash: 'a'.repeat(64) }),
 		encoding: 'utf-8',
 		endsMidLine: false,
-		endsWithNewline: true,
+		endsWithNewline: props.endsWithNewline ?? true,
 		virtualizedExtentKind: 'exactLineCount',
-		payloadByteCount: props.sizeBytes ?? 128,
+		payloadByteCount: props.sizeBytes ?? 10,
 		payloadLineCount: props.payloadLineCount ?? 1,
 		totalLineCount: props.payloadLineCount ?? 1,
 		truncationKind: 'none',
@@ -597,16 +601,8 @@ function makeWorkerReviewContentMetadata(itemId: string): BridgeWorkerReviewCont
 	};
 }
 
-function makeContentRequest(
-	text: string,
-	props: {
-		readonly maxBytes?: number;
-		readonly omitContentHash?: boolean;
-		readonly sizeBytes?: number;
-	} = {},
-): BridgeCommWorkerFileViewContentRequest {
+function makeContentRequest(text: string): BridgeCommWorkerFileViewContentRequest {
 	const encodedBytes = new TextEncoder().encode(text);
-	const maximumBytes = props.maxBytes ?? 4096;
 	const request: BridgeCommWorkerFileViewContentRequest = {
 		contentDescriptor: {
 			contentKind: 'file.content',
@@ -615,7 +611,7 @@ function makeContentRequest(
 			encoding: 'utf-8',
 			expectedSha256: 'a'.repeat(64),
 			fileId: 'file-1',
-			maximumBytes,
+			maximumBytes: encodedBytes.byteLength,
 			source: {
 				repoId: '00000000-0000-4000-8000-000000000001',
 				rootRevisionToken: 'root-revision-file-1',
@@ -626,18 +622,24 @@ function makeContentRequest(
 			},
 			window: {
 				kind: 'prefix',
-				maximumBytes,
-				maximumLines: 10_000,
+				maximumBytes: encodedBytes.byteLength,
+				maximumLines: exactTextLineCount(text),
 				startByte: 0,
 			},
 		},
 		itemId: 'file-1',
 		path: 'Sources/App/FileView.swift',
 		language: 'swift',
-		sizeBytes: props.sizeBytes ?? 128,
+		sizeBytes: encodedBytes.byteLength,
 	};
 	contentTextByDescriptorId.set(request.contentDescriptor.descriptorId, text);
 	return request;
+}
+
+function exactTextLineCount(text: string): number {
+	if (text.length === 0) return 0;
+	const newlineCount = text.split('\n').length - 1;
+	return text.endsWith('\n') ? newlineCount : newlineCount + 1;
 }
 
 function registeredContentOpen(

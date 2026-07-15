@@ -178,7 +178,7 @@ describe('Bridge worker File View content ready', () => {
 		);
 	});
 
-	test('windows oversized File View text before preparing CodeView payloads', () => {
+	test('publishes complete File View text beyond the caller render window', () => {
 		const result = prepareBridgeWorkerFileViewContentRenderJobEvent({
 			bridgeDemandRank: { lane: 'visible', priority: 10 },
 			budget: {
@@ -199,24 +199,29 @@ describe('Bridge worker File View content ready', () => {
 
 		expect(result?.message.job.window).toEqual({
 			startLine: 1,
-			endLine: 2,
+			endLine: 4,
 			totalLineCount: 4,
+		});
+		expect(result?.message.job.budget).toEqual({
+			className: 'visible',
+			maxBytes: 19,
+			maxWindowLines: 4,
 		});
 		expect(result?.message.job.payload).toMatchObject({
 			kind: 'codeViewFileItem',
 			item: {
 				file: {
-					contents: 'one\ntwo\n',
+					contents: 'one\ntwo\nthree\nfour\n',
 				},
 				bridgeMetadata: {
-					contentState: 'windowed',
+					contentState: 'hydrated',
 					lineCount: 4,
 				},
 			},
 		});
 	});
 
-	test('publishes only truthful File View prefix bytes without synthetic height padding', () => {
+	test('publishes every assembled File View byte without synthetic height padding', () => {
 		const result = prepareBridgeWorkerFileViewContentRenderJobEvent({
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: {
@@ -240,17 +245,15 @@ describe('Bridge worker File View content ready', () => {
 			throw new Error('expected File View payload');
 		}
 		const contents = result.message.job.payload.item.file.contents;
-		expect(contents).toContain('one\ntwo\n');
-		expect(contents).not.toContain('three');
-		expect(contents).toBe('one\ntwo\n');
-		expect(renderedLineCountForText(contents)).toBe(2);
+		expect(contents).toBe('one\ntwo\nthree\nfour\nfive\n');
+		expect(renderedLineCountForText(contents)).toBe(5);
 		expect(result.message.job.payload.item.bridgeMetadata).toMatchObject({
-			contentState: 'windowed',
+			contentState: 'hydrated',
 			lineCount: 5,
 		});
 	});
 
-	test('keeps File View windowed payload byte budget bound to the rendered window', () => {
+	test('derives complete File publication capacity instead of applying a render byte cap', () => {
 		const result = prepareBridgeWorkerFileViewContentRenderJobEvent({
 			bridgeDemandRank: { lane: 'visible', priority: 10 },
 			budget: {
@@ -260,7 +263,7 @@ describe('Bridge worker File View content ready', () => {
 			},
 			metadata: makeWorkerFileViewContentMetadata({
 				payloadByteCount: 24,
-				payloadLineCount: 10_000,
+				payloadLineCount: 5,
 			}),
 			publicationSequence: 23,
 			resource: makeFetchedFileViewContentResource({
@@ -272,24 +275,113 @@ describe('Bridge worker File View content ready', () => {
 		expect(result).not.toBeNull();
 		expect(result?.message.job.window).toEqual({
 			startLine: 1,
-			endLine: 2,
-			totalLineCount: 10_000,
+			endLine: 5,
+			totalLineCount: 5,
 		});
 		expect(result?.message.job.payload.kind).toBe('codeViewFileItem');
 		if (result?.message.job.payload.kind !== 'codeViewFileItem') {
 			throw new Error('expected File View payload');
 		}
 		const contents = result.message.job.payload.item.file.contents;
-		expect(new TextEncoder().encode(contents).byteLength).toBeLessThanOrEqual(64);
-		expect(contents).toContain('one\ntwo\n');
-		expect(contents).not.toContain('three');
+		expect(contents).toBe('one\ntwo\nthree\nfour\nfive\n');
+		expect(result.message.job.budget).toEqual({
+			className: 'visible',
+			maxBytes: 24,
+			maxWindowLines: 5,
+		});
 		expect(result.message.job.payload.item.bridgeMetadata).toMatchObject({
-			contentState: 'windowed',
-			lineCount: 10_000,
+			contentState: 'hydrated',
+			lineCount: 5,
 		});
 	});
 
-	test('keeps a complete line-limited File prefix windowed instead of hydrated', () => {
+	test.each([
+		{ expectedEndsWithNewline: false, expectedLineCount: 0, name: 'empty', text: '' },
+		{ expectedEndsWithNewline: true, expectedLineCount: 1, name: 'trailing LF', text: 'a\n' },
+		{
+			expectedEndsWithNewline: false,
+			expectedLineCount: 2,
+			name: 'CRLF',
+			text: 'alpha\r\nbeta',
+		},
+		{
+			expectedEndsWithNewline: true,
+			expectedLineCount: 1,
+			name: 'multibyte',
+			text: 'λ😀\n',
+		},
+	])(
+		'publishes canonical $name complete-text line semantics',
+		({ expectedEndsWithNewline, expectedLineCount, name, text }) => {
+			const payloadByteCount = new TextEncoder().encode(text).byteLength;
+			const result = prepareBridgeWorkerFileViewContentRenderJobEvent({
+				bridgeDemandRank: { lane: 'selected', priority: 0 },
+				budget: {
+					className: 'interactive',
+					maxBytes: 1,
+					maxWindowLines: 1,
+				},
+				metadata: makeWorkerFileViewContentMetadata({
+					endsWithNewline: expectedEndsWithNewline,
+					payloadByteCount,
+					payloadLineCount: expectedLineCount,
+				}),
+				publicationSequence: 23,
+				resource: makeFetchedFileViewContentResource({ text }),
+				workerDerivationEpoch: 17,
+			});
+
+			expect(result?.message.job.window).toEqual({
+				startLine: 1,
+				endLine: expectedLineCount,
+				totalLineCount: expectedLineCount,
+			});
+			if (result?.message.job.payload.kind !== 'codeViewFileItem') {
+				throw new Error(`expected ${name} complete File View payload`);
+			}
+			expect(result.message.job.payload.item.file.contents).toBe(text);
+			expect(result.message.job.payload.item.bridgeMetadata).toMatchObject({
+				contentState: 'hydrated',
+				lineCount: expectedLineCount,
+			});
+		},
+	);
+
+	test.each([
+		{
+			metadata: makeWorkerFileViewContentMetadata({
+				endsWithNewline: true,
+				payloadByteCount: 2,
+				payloadLineCount: 2,
+			}),
+			name: 'line count',
+		},
+		{
+			metadata: makeWorkerFileViewContentMetadata({
+				endsWithNewline: false,
+				payloadByteCount: 2,
+				payloadLineCount: 1,
+			}),
+			name: 'trailing newline',
+		},
+	])('rejects complete text with mismatched metadata $name', ({ metadata }) => {
+		const result = prepareBridgeWorkerFileViewContentRenderJobEvent({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 2,
+				maxWindowLines: 2,
+			},
+			metadata,
+			publicationSequence: 23,
+			resource: makeFetchedFileViewContentResource({ text: 'a\n' }),
+			workerDerivationEpoch: 17,
+		});
+
+		expect(result).toBeNull();
+	});
+
+	test('rejects incomplete line-limited metadata instead of publishing it as ready', () => {
 		const text = `${Array.from({ length: 10_000 }, () => 'x').join('\n')}\n`;
 		const payloadByteCount = new TextEncoder().encode(text).byteLength;
 		const sourceByteCount = payloadByteCount + 100;
@@ -312,15 +404,7 @@ describe('Bridge worker File View content ready', () => {
 			workerDerivationEpoch: 17,
 		});
 
-		expect(result?.message.job.window).toEqual({
-			startLine: 1,
-			endLine: 10_000,
-			totalLineCount: 10_000,
-		});
-		expect(result?.message.job.payload).toMatchObject({
-			kind: 'codeViewFileItem',
-			item: { bridgeMetadata: { contentState: 'windowed', lineCount: 10_000 } },
-		});
+		expect(result).toBeNull();
 	});
 
 	test('does not prepare ready jobs when File View content lacks a trustworthy hash', () => {
@@ -399,6 +483,7 @@ function makeWorkerFileViewContentMetadata(
 	props: {
 		readonly canFetchContent?: boolean;
 		readonly contentHash?: string | undefined;
+		readonly endsWithNewline?: boolean;
 		readonly isBinary?: boolean;
 		readonly omitContentHash?: boolean;
 		readonly payloadByteCount?: number;
@@ -425,7 +510,7 @@ function makeWorkerFileViewContentMetadata(
 		...(props.omitContentHash === true ? {} : { contentHash }),
 		encoding: props.isBinary === true ? null : 'utf-8',
 		endsMidLine: false,
-		endsWithNewline: true,
+		endsWithNewline: props.endsWithNewline ?? true,
 		virtualizedExtentKind: 'exactLineCount',
 		payloadByteCount,
 		payloadLineCount,
@@ -454,7 +539,7 @@ function makeFetchedFileViewContentResource(props: {
 		contentHashAlgorithm: 'sha256',
 		language: 'swift',
 		sizeBytes: props.sizeBytes ?? textBytes.byteLength,
-		maxBytes: 4096,
+		maxBytes: textBytes.byteLength,
 		byteLength: textBytes.byteLength,
 		text: props.text,
 		textBytes,
