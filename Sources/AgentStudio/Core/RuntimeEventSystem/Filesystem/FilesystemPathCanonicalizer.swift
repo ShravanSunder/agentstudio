@@ -64,21 +64,20 @@ struct FilesystemPathCanonicalizer: Sendable {
 
         let standardizedBoundary = authorizedBoundary.standardizedFileURL
         let standardizedRoot = registeredRoot.standardizedFileURL
-        guard
-            Self.contains(
-                parent: Self.components(of: standardizedBoundary),
-                child: Self.components(of: standardizedRoot),
-                casePolicy: .caseSensitive
-            )
-        else {
-            throw FilesystemSourceConfigurationError.registeredRootOutsideAuthorizedBoundary
-        }
-
         let resolvedBoundary = standardizedBoundary.resolvingSymlinksInPath()
         let resolvedRoot = standardizedRoot.resolvingSymlinksInPath()
         let boundarySemantics = try inspectVolumeSemantics(at: resolvedBoundary)
         let rootSemantics = try inspectVolumeSemantics(at: resolvedRoot)
-        guard boundarySemantics.identity == rootSemantics.identity else {
+        guard boundarySemantics == rootSemantics else {
+            throw FilesystemSourceConfigurationError.registeredRootOutsideAuthorizedBoundary
+        }
+        guard
+            Self.contains(
+                parent: Self.components(of: standardizedBoundary),
+                child: Self.components(of: standardizedRoot),
+                casePolicy: rootSemantics.casePolicy
+            )
+        else {
             throw FilesystemSourceConfigurationError.registeredRootOutsideAuthorizedBoundary
         }
         guard

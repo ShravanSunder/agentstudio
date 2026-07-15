@@ -31,6 +31,40 @@ struct FilesystemSourceConfigurationTests {
         #expect(descriptor.volumeSemantics.componentPolicy == .absolutePOSIX)
     }
 
+    @Test("case-insensitive volume admits case-varied lexical containment")
+    func caseInsensitiveVolumeAdmitsCaseVariedLexicalContainment() throws {
+        let fixture = try RootAuthorityFixture()
+        defer { fixture.remove() }
+        let baselineDescriptor = try FilesystemSourceConfiguration.registerRoot(
+            from: .hostAuthorized(
+                FilesystemHostAuthorizedRootInput(
+                    registration: fixture.registration,
+                    authorizedBoundary: fixture.authorizedBoundary,
+                    registeredRoot: fixture.canonicalRoot
+                )
+            )
+        )
+        guard baselineDescriptor.volumeSemantics.casePolicy == .caseInsensitive else {
+            return
+        }
+        let caseVariedRoot = fixture.fixtureRoot
+            .appending(path: "AUTHORIZED")
+            .appending(path: "CANONICAL")
+
+        let descriptor = try FilesystemSourceConfiguration.registerRoot(
+            from: .hostAuthorized(
+                FilesystemHostAuthorizedRootInput(
+                    registration: fixture.registration,
+                    authorizedBoundary: fixture.authorizedBoundary,
+                    registeredRoot: caseVariedRoot
+                )
+            )
+        )
+
+        #expect(descriptor.registration == fixture.registration)
+        #expect(descriptor.volumeSemantics == baselineDescriptor.volumeSemantics)
+    }
+
     @Test("untrusted evidence cannot construct root authority")
     func untrustedEvidenceCannotConstructAuthority() {
         let rawEvidence = FilesystemUntrustedRootEvidence(path: "/tmp/raw")
