@@ -14,6 +14,7 @@ struct RepoDiscoveryValidationRequestID: Hashable, Sendable {
 struct RepoDiscoveryValidationRequest: Equatable, Sendable {
     let requestID: RepoDiscoveryValidationRequestID
     let scannerSessionID: RepoScannerSessionID
+    let scanRunGeneration: UInt64
     let authorizedRoot: RegisteredRootDescriptor
     let candidateURL: URL
 }
@@ -95,6 +96,7 @@ enum RepoDiscoveryValidationAdmissionRejection: Equatable, Sendable {
     case scannerSessionAlreadyOutstanding(RepoScannerSessionID)
     case sourceAlreadyOutstanding(FilesystemSourceID)
     case logicalCapacityReached(maximum: Int)
+    case allPhysicalJobsDraining(count: Int)
     case shutdown
 }
 
@@ -106,10 +108,12 @@ enum RepoDiscoveryValidationAdmissionResult: Equatable, Sendable {
 struct FinishedRepoDiscoveryValidation: Equatable, Sendable {
     let request: RepoDiscoveryValidationRequest
     let outcome: GitRepositoryDiscoveryOutcome
+    let validationServiceDuration: Duration
 }
 
 struct TimedOutRepoDiscoveryValidation: Equatable, Sendable {
     let request: RepoDiscoveryValidationRequest
+    let validationServiceDuration: Duration
 }
 
 enum RepoDiscoveryValidationCancellationCause: Equatable, Sendable {
@@ -120,6 +124,7 @@ enum RepoDiscoveryValidationCancellationCause: Equatable, Sendable {
 struct CancelledRepoDiscoveryValidation: Equatable, Sendable {
     let request: RepoDiscoveryValidationRequest
     let cause: RepoDiscoveryValidationCancellationCause
+    let validationServiceDuration: Duration
 }
 
 enum RepoDiscoveryValidationCompletion: Equatable, Sendable {
@@ -228,7 +233,17 @@ actor RepoScannerValidationExecutor {
     private struct PhysicalJob: Sendable {
         let jobID: PhysicalJobID
         let request: RepoDiscoveryValidationRequest
+        let serviceStartedAt: Duration
         var phase: PhysicalJobPhase
+
+        var isDraining: Bool {
+            switch phase {
+            case .running:
+                false
+            case .drainingAfterTimeout, .drainingAfterCancellation:
+                true
+            }
+        }
     }
 
     private enum LogicalRequestPhase: Sendable {
@@ -250,6 +265,7 @@ actor RepoScannerValidationExecutor {
     private let validationClient: any RepoDiscoveryReadClient
     private let deadlineScheduler: any RepoDiscoveryDeadlineScheduler
     private let budget: RepoDiscoveryValidationBudget
+    private let now: @Sendable () -> Duration
     private var acceptingAdmissions = true
     private var readySourceRing: [FilesystemSourceID] = []
     private var queuedRequestBySource: [FilesystemSourceID: RepoDiscoveryValidationRequest] = [:]
@@ -270,11 +286,13 @@ actor RepoScannerValidationExecutor {
     init(
         validationClient: any RepoDiscoveryReadClient,
         deadlineScheduler: any RepoDiscoveryDeadlineScheduler = DispatchRepoDiscoveryDeadlineScheduler(),
-        budget: RepoDiscoveryValidationBudget = .productionDefault
+        budget: RepoDiscoveryValidationBudget = .productionDefault,
+        now: @escaping @Sendable () -> Duration = RepoDiscoveryValidationClock.productionNow()
     ) throws {
         self.validationClient = validationClient
         self.deadlineScheduler = deadlineScheduler
         self.budget = budget
+        self.now = now
     }
 
     func submit(_ request: RepoDiscoveryValidationRequest) -> RepoDiscoveryValidationAdmissionResult {
@@ -291,6 +309,11 @@ actor RepoScannerValidationExecutor {
         }
         guard logicalRequests.count < budget.maximumQueuedRequests else {
             return .rejected(.logicalCapacityReached(maximum: budget.maximumQueuedRequests))
+        }
+        if physicalJobs.count == budget.maximumPhysicalJobs,
+            physicalJobs.values.allSatisfy(\.isDraining)
+        {
+            return .rejected(.allPhysicalJobsDraining(count: physicalJobs.count))
         }
 
         outstandingSessions.insert(request.scannerSessionID)
@@ -375,14 +398,50 @@ extension RepoScannerValidationExecutor {
         let deadline = deadlineScheduler.scheduleDeadline(after: budget.logicalDeadline) {
             Task { await self.logicalDeadlineReached(jobID: jobID) }
         }
-        physicalJobs[jobID] = PhysicalJob(jobID: jobID, request: request, phase: .running(deadline))
+        physicalJobs[jobID] = PhysicalJob(
+            jobID: jobID,
+            request: request,
+            serviceStartedAt: now(),
+            phase: .running(deadline)
+        )
         requestToPhysicalJob[request.requestID] = jobID
         logicalRequests[request.requestID]?.phase = .running(jobID)
         let validationClient = validationClient
         // Detached by design: a synchronous native read must not inherit executor actor isolation.
         // swiftlint:disable:next no_task_detached
         Task.detached(priority: .utility) {
-            let outcome = await validationClient.validateDiscoveryCandidate(at: request.candidateURL)
+            let outcome: GitRepositoryDiscoveryOutcome
+            switch FilesystemPathCanonicalizer().classifyDiscoveryCandidate(
+                request.candidateURL,
+                within: request.authorizedRoot
+            ) {
+            case .contained(let candidate):
+                let nativeOutcome = await validationClient.validateDiscoveryCandidate(
+                    at: candidate.canonicalURL
+                )
+                switch nativeOutcome {
+                case .validated(let entry):
+                    switch FilesystemPathCanonicalizer().classifyDiscoveryCandidate(
+                        entry.path,
+                        within: request.authorizedRoot
+                    ) {
+                    case .contained(let validatedCandidate):
+                        outcome = .validated(
+                            RepoScanner.ResolvedGitEntry(
+                                path: validatedCandidate.canonicalURL,
+                                kind: entry.kind,
+                                repositoryKey: entry.repositoryKey
+                            )
+                        )
+                    case .rejected(let rejection):
+                        outcome = .failure(.candidateAdmissionRejected(rejection))
+                    }
+                case .authoritativeNegative, .timeout, .cancelled, .failure:
+                    outcome = nativeOutcome
+                }
+            case .rejected(let rejection):
+                outcome = .failure(.candidateAdmissionRejected(rejection))
+            }
             await self.nativeValidationReturned(jobID: jobID, outcome: outcome)
         }
     }
@@ -393,7 +452,12 @@ extension RepoScannerValidationExecutor {
         job.phase = .drainingAfterTimeout
         physicalJobs[jobID] = job
         markLogicalCompletion(
-            .timedOut(TimedOutRepoDiscoveryValidation(request: job.request))
+            .timedOut(
+                TimedOutRepoDiscoveryValidation(
+                    request: job.request,
+                    validationServiceDuration: now() - job.serviceStartedAt
+                )
+            )
         )
     }
 
@@ -411,7 +475,13 @@ extension RepoScannerValidationExecutor {
             deadline.cancel()
             if logicalRequestCanComplete(job.request.requestID) {
                 markLogicalCompletion(
-                    .finished(FinishedRepoDiscoveryValidation(request: job.request, outcome: outcome))
+                    .finished(
+                        FinishedRepoDiscoveryValidation(
+                            request: job.request,
+                            outcome: outcome,
+                            validationServiceDuration: now() - job.serviceStartedAt
+                        )
+                    )
                 )
             }
         case .drainingAfterTimeout, .drainingAfterCancellation:
@@ -437,7 +507,13 @@ extension RepoScannerValidationExecutor {
             queuedRequestBySource.removeValue(forKey: sourceID)
             readySourceRing.removeAll { $0 == sourceID }
             markLogicalCompletion(
-                .cancelled(CancelledRepoDiscoveryValidation(request: logical.request, cause: cause))
+                .cancelled(
+                    CancelledRepoDiscoveryValidation(
+                        request: logical.request,
+                        cause: cause,
+                        validationServiceDuration: .zero
+                    )
+                )
             )
             return .cancelled(.queued)
         case .running(let jobID):
@@ -448,7 +524,13 @@ extension RepoScannerValidationExecutor {
             job.phase = .drainingAfterCancellation
             physicalJobs[jobID] = job
             markLogicalCompletion(
-                .cancelled(CancelledRepoDiscoveryValidation(request: logical.request, cause: cause))
+                .cancelled(
+                    CancelledRepoDiscoveryValidation(
+                        request: logical.request,
+                        cause: cause,
+                        validationServiceDuration: now() - job.serviceStartedAt
+                    )
+                )
             )
             return .cancelled(.running)
         }
@@ -545,6 +627,14 @@ extension RepoDiscoveryValidationCompletion {
         case .timedOut(let value): value.request
         case .cancelled(let value): value.request
         }
+    }
+}
+
+enum RepoDiscoveryValidationClock {
+    static func productionNow() -> @Sendable () -> Duration {
+        let clock = ContinuousClock()
+        let origin = clock.now
+        return { origin.duration(to: clock.now) }
     }
 }
 

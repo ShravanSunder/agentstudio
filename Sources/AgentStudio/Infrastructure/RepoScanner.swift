@@ -1,4 +1,3 @@
-import AgentStudioGit
 import Foundation
 
 /// Scans a directory tree for git repositories up to a configurable depth.
@@ -20,150 +19,56 @@ struct RepoScanner {
     }
 
     protocol GitRepositoryDiscoveryProvider: Sendable {
-        func resolvedStandaloneWorkingTree(at url: URL) async -> ResolvedGitEntry?
-    }
-
-    struct AgentStudioGitRepositoryDiscoveryProvider: GitRepositoryDiscoveryProvider {
-        static let defaultTimeout: Duration = AppPolicies.GitRefresh.defaultDiscoveryReadTimeout
-
-        private let client: any AgentStudioGit.AgentStudioGitLocalClient
-        private let timeout: Duration
-
-        init(
-            client: any AgentStudioGit.AgentStudioGitLocalClient = AgentStudioGit.LibGit2AgentStudioGitLocalClient(),
-            timeout: Duration = Self.defaultTimeout
-        ) {
-            self.client = client
-            self.timeout = timeout
-        }
-
-        func resolvedStandaloneWorkingTree(at url: URL) async -> ResolvedGitEntry? {
-            do {
-                return try await Self.withTimeout(timeout) {
-                    let validation = try await client.validateWorktree(
-                        AgentStudioGit.GitValidateWorktreeRequest(worktreePath: url)
-                    )
-                    guard validation.isValid, let snapshot = validation.snapshot else { return nil }
-                    let identity = try await client.repositoryIdentity(for: url)
-                    return Self.resolvedEntry(
-                        scannedPath: url,
-                        validationSnapshot: snapshot,
-                        repositoryIdentity: identity
-                    )
-                }
-            } catch {
-                return nil
-            }
-        }
-
-        private static func withTimeout<ReturnValue: Sendable>(
-            _ timeout: Duration,
-            operation: @Sendable @escaping () async throws -> ReturnValue
-        ) async throws -> ReturnValue {
-            try await withThrowingTaskGroup(of: ReturnValue.self) { group in
-                group.addTask {
-                    try await operation()
-                }
-                group.addTask {
-                    try await Task.sleep(nanoseconds: timeout.nanosecondsForTaskSleep)
-                    throw RepoScannerDiscoveryTimeoutError.timedOut
-                }
-
-                let firstResult: Result<ReturnValue, Error>
-                do {
-                    guard let result = try await group.next() else {
-                        throw RepoScannerDiscoveryTimeoutError.timedOut
-                    }
-                    firstResult = .success(result)
-                } catch {
-                    firstResult = .failure(error)
-                }
-
-                group.cancelAll()
-                while true {
-                    do {
-                        guard try await group.next() != nil else { break }
-                    } catch {
-                        continue
-                    }
-                }
-
-                switch firstResult {
-                case .success(let value):
-                    return value
-                case .failure(let error):
-                    throw error
-                }
-            }
-        }
-
-        private static func resolvedEntry(
-            scannedPath: URL,
-            validationSnapshot: AgentStudioGit.GitWorktreeSnapshot,
-            repositoryIdentity: AgentStudioGit.GitRepositoryIdentity
-        ) -> ResolvedGitEntry? {
-            let scannedCanonicalPath = canonicalPath(scannedPath)
-            let repositoryKey = validationSnapshot.repositoryID.rawValue
-
-            guard samePath(validationSnapshot.canonicalPath, scannedCanonicalPath),
-                !isSubmoduleGitDirectory(validationSnapshot.gitDirectory)
-            else {
-                return nil
-            }
-
-            if validationSnapshot.isMainWorktree {
-                if let mainWorktreePath = repositoryIdentity.mainWorktreePath,
-                    !samePath(mainWorktreePath, scannedCanonicalPath)
-                {
-                    return nil
-                }
-                return ResolvedGitEntry(
-                    path: canonicalPath(validationSnapshot.canonicalPath),
-                    kind: .cloneRoot,
-                    repositoryKey: repositoryKey
-                )
-            }
-
-            let parentClonePath =
-                repositoryIdentity.mainWorktreePath
-                ?? fallbackParentClonePath(repositoryID: validationSnapshot.repositoryID)
-                ?? repositoryIdentity.canonicalCommonDirectory
-            return ResolvedGitEntry(
-                path: canonicalPath(validationSnapshot.canonicalPath),
-                kind: .linkedWorktree(parentClonePath: canonicalPath(parentClonePath)),
-                repositoryKey: repositoryKey
-            )
-        }
-
-        private static func samePath(_ lhs: URL, _ rhs: URL) -> Bool {
-            canonicalPath(lhs).path == canonicalPath(rhs).path
-        }
-
-        private static func canonicalPath(_ url: URL) -> URL {
-            url.standardizedFileURL.resolvingSymlinksInPath()
-        }
-
-        private static func isSubmoduleGitDirectory(_ gitDirectory: URL) -> Bool {
-            canonicalPath(gitDirectory).path.contains("/.git/modules/")
-        }
-
-        private static func fallbackParentClonePath(repositoryID: AgentStudioGit.GitRepositoryID) -> URL? {
-            let commonPrefix = "common:"
-            guard repositoryID.rawValue.hasPrefix(commonPrefix) else { return nil }
-            let commonPath = String(repositoryID.rawValue.dropFirst(commonPrefix.count))
-            guard !commonPath.isEmpty else { return nil }
-            return URL(fileURLWithPath: commonPath)
-        }
-    }
-
-    private enum RepoScannerDiscoveryTimeoutError: Error {
-        case timedOut
+        func discoveryOutcome(for url: URL) async -> GitRepositoryDiscoveryOutcome
     }
 
     /// Default scan depth for parent folder discovery.
     /// Depth 4 supports layouts like ~/projects/org/suborg/repo/.git.
     /// Scanning stops at the first .git boundary (no deeper).
     static let defaultMaxDepth = 4
+
+    func scan(
+        in rootURL: URL,
+        maxDepth: Int = Self.defaultMaxDepth,
+        discoveryProvider: any GitRepositoryDiscoveryProvider = AgentStudioGitRepositoryDiscoveryProvider()
+    ) async -> RepoScannerResult {
+        let session = makeSession(
+            in: rootURL,
+            maxDepth: maxDepth
+        )
+        while true {
+            switch await session.advanceOneQuantum() {
+            case .suspended:
+                continue
+            case .validationRequired(let request):
+                let validationClock = ContinuousClock()
+                let validationStartedAt = validationClock.now
+                let discoveryOutcome: GitRepositoryDiscoveryOutcome
+                if Task.isCancelled {
+                    discoveryOutcome = .cancelled
+                } else {
+                    discoveryOutcome = await discoveryProvider.discoveryOutcome(
+                        for: request.candidateURL
+                    )
+                }
+                let consumption = session.consumeValidationCompletion(
+                    RepoScannerValidationCompletion(
+                        request: request,
+                        outcome: discoveryOutcome,
+                        validationServiceDuration: validationStartedAt.duration(
+                            to: validationClock.now
+                        )
+                    )
+                )
+                guard consumption == .consumed else {
+                    _ = session.cancel()
+                    continue
+                }
+            case .finished(let result):
+                return result
+            }
+        }
+    }
 
     /// Scans `rootURL` for directories containing a `.git` subdirectory.
     /// Stops descending into a directory once a `.git` is found (no nested repos).
@@ -173,17 +78,15 @@ struct RepoScanner {
         maxDepth: Int = Self.defaultMaxDepth,
         discoveryProvider: any GitRepositoryDiscoveryProvider = AgentStudioGitRepositoryDiscoveryProvider()
     ) async -> [URL] {
-        var repos: [URL] = []
-        await scanDirectory(
-            Self.canonicalURL(rootURL),
-            currentDepth: 0,
-            maxDepth: maxDepth,
-            discoveryProvider: discoveryProvider,
-            results: &repos
-        )
-        return repos.sorted {
-            $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent)
-                == .orderedAscending
+        switch await scan(in: rootURL, maxDepth: maxDepth, discoveryProvider: discoveryProvider) {
+        case .completeAuthoritative(let completeScan):
+            return completeScan.verifiedEntries.map(\.path)
+        case .partial(let partialScan):
+            return partialScan.verifiedEntries.map(\.path)
+        case .cancelled(let cancelledScan):
+            return cancelledScan.verifiedEntries.map(\.path)
+        case .unavailable, .failed:
+            return []
         }
     }
 
@@ -192,102 +95,18 @@ struct RepoScanner {
         maxDepth: Int = Self.defaultMaxDepth,
         discoveryProvider: any GitRepositoryDiscoveryProvider = AgentStudioGitRepositoryDiscoveryProvider()
     ) async -> [RepoScanGroup] {
-        var classifiedPaths: [ResolvedGitEntry] = []
-        await scanDirectory(
-            Self.canonicalURL(rootURL),
-            currentDepth: 0,
-            maxDepth: maxDepth,
-            discoveryProvider: discoveryProvider,
-            classifiedResults: &classifiedPaths
-        )
-        return Self.groupResolvedEntries(classifiedPaths)
-    }
-
-    private func scanDirectory(
-        _ url: URL,
-        currentDepth: Int,
-        maxDepth: Int,
-        discoveryProvider: any GitRepositoryDiscoveryProvider,
-        results: inout [URL]
-    ) async {
-        guard currentDepth <= maxDepth else { return }
-
-        let fm = FileManager.default
-        // .git is always a hard boundary: classify this path, then stop.
-        if Self.classifyGitEntry(at: url) != nil {
-            if let resolvedEntry = await discoveryProvider.resolvedStandaloneWorkingTree(at: url) {
-                results.append(resolvedEntry.path)
-            }
-            return
+        let verifiedEntries: [ResolvedGitEntry]
+        switch await scan(in: rootURL, maxDepth: maxDepth, discoveryProvider: discoveryProvider) {
+        case .completeAuthoritative(let completeScan):
+            verifiedEntries = completeScan.verifiedEntries
+        case .partial(let partialScan):
+            verifiedEntries = partialScan.verifiedEntries
+        case .cancelled(let cancelledScan):
+            verifiedEntries = cancelledScan.verifiedEntries
+        case .unavailable, .failed:
+            verifiedEntries = []
         }
-
-        // Otherwise, scan subdirectories
-        guard
-            let contents = try? fm.contentsOfDirectory(
-                at: url,
-                includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
-                options: [.skipsHiddenFiles]
-            )
-        else { return }
-
-        for item in contents {
-            guard
-                let values = try? item.resourceValues(
-                    forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
-                values.isDirectory == true,
-                values.isSymbolicLink != true
-            else { continue }
-
-            await scanDirectory(
-                item,
-                currentDepth: currentDepth + 1,
-                maxDepth: maxDepth,
-                discoveryProvider: discoveryProvider,
-                results: &results
-            )
-        }
-    }
-
-    private func scanDirectory(
-        _ url: URL,
-        currentDepth: Int,
-        maxDepth: Int,
-        discoveryProvider: any GitRepositoryDiscoveryProvider,
-        classifiedResults: inout [ResolvedGitEntry]
-    ) async {
-        guard currentDepth <= maxDepth else { return }
-
-        let fileManager = FileManager.default
-        if Self.classifyGitEntry(at: url) != nil {
-            if let resolvedEntry = await discoveryProvider.resolvedStandaloneWorkingTree(at: url) {
-                classifiedResults.append(resolvedEntry)
-            }
-            return
-        }
-
-        guard
-            let contents = try? fileManager.contentsOfDirectory(
-                at: url,
-                includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
-                options: [.skipsHiddenFiles]
-            )
-        else { return }
-
-        for item in contents {
-            guard
-                let values = try? item.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
-                values.isDirectory == true,
-                values.isSymbolicLink != true
-            else { continue }
-
-            await scanDirectory(
-                item,
-                currentDepth: currentDepth + 1,
-                maxDepth: maxDepth,
-                discoveryProvider: discoveryProvider,
-                classifiedResults: &classifiedResults
-            )
-        }
+        return Self.groupResolvedEntries(verifiedEntries)
     }
 
     static func classifyGitEntry(at url: URL) -> GitEntryKind? {
@@ -401,7 +220,7 @@ struct RepoScanner {
             }
     }
 
-    private static func canonicalURL(_ url: URL) -> URL {
+    static func canonicalURL(_ url: URL) -> URL {
         URL(fileURLWithPath: canonicalPathKey(url))
     }
 
@@ -444,5 +263,64 @@ struct RepoScanner {
         }
         guard let worktreeURL else { return nil }
         return worktreeURL.appending(path: gitDirPathString).standardizedFileURL
+    }
+}
+
+extension RepoScanner {
+    func makeSession(
+        in rootURL: URL,
+        maxDepth: Int = Self.defaultMaxDepth,
+        quantumBudget: RepoScannerQuantumBudget = .productionDefault,
+        capacity: RepoScannerSessionCapacity = .productionDefault
+    ) -> RepoScannerSessionPort {
+        let storage = RepoScannerTraversalSession(
+            rootURL: Self.canonicalURL(rootURL),
+            maxDepth: maxDepth,
+            quantumBudget: quantumBudget,
+            capacity: capacity
+        )
+        return RepoScannerSessionPort(
+            id: storage.id,
+            advanceOperation: storage.advanceOneQuantum,
+            validationCompletionOperation: storage.consumeValidationCompletion,
+            cancellationOperation: storage.cancel
+        )
+    }
+}
+
+struct RepoScannerSessionPort: Sendable {
+    let id: RepoScannerSessionID
+
+    private let advanceOperation: @Sendable () async -> RepoScannerQuantumOutcome
+    private let validationCompletionOperation:
+        @Sendable (RepoScannerValidationCompletion) -> RepoScannerValidationCompletionConsumptionResult
+    private let cancellationOperation: @Sendable () -> RepoScannerSessionCancellationResult
+
+    fileprivate init(
+        id: RepoScannerSessionID,
+        advanceOperation: @escaping @Sendable () async -> RepoScannerQuantumOutcome,
+        validationCompletionOperation:
+            @escaping @Sendable (RepoScannerValidationCompletion) ->
+            RepoScannerValidationCompletionConsumptionResult,
+        cancellationOperation: @escaping @Sendable () -> RepoScannerSessionCancellationResult
+    ) {
+        self.id = id
+        self.advanceOperation = advanceOperation
+        self.validationCompletionOperation = validationCompletionOperation
+        self.cancellationOperation = cancellationOperation
+    }
+
+    func advanceOneQuantum() async -> RepoScannerQuantumOutcome {
+        await advanceOperation()
+    }
+
+    func consumeValidationCompletion(
+        _ completion: RepoScannerValidationCompletion
+    ) -> RepoScannerValidationCompletionConsumptionResult {
+        validationCompletionOperation(completion)
+    }
+
+    func cancel() -> RepoScannerSessionCancellationResult {
+        cancellationOperation()
     }
 }

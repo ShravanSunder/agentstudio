@@ -5,6 +5,150 @@ import Testing
 
 @Suite("Repo scanner discovery validation executor")
 struct RepoScannerValidationExecutorTests {
+    @Test("validation service duration excludes executor queue wait and native drain")
+    func validationServiceDurationOwnsOnlyPhysicalLogicalService() async throws {
+        // Arrange
+        let roots = try AuthorizedValidationRoots()
+        defer { roots.remove() }
+        let client = ControlledRepoDiscoveryReadClient()
+        let deadlines = ManualRepoDiscoveryDeadlineScheduler()
+        let clock = ValidationExecutorTestClock()
+        let executor = try makeExecutor(
+            client: client,
+            deadlines: deadlines,
+            physical: 1,
+            logical: 4,
+            now: clock.now
+        )
+        let running = try roots.request(name: "running", candidate: "running-repo")
+        let queued = try roots.request(name: "queued", candidate: "queued-repo")
+        _ = await executor.submit(running)
+        _ = await executor.submit(queued)
+        await client.waitUntilStarted(candidateURL: running.candidateURL)
+
+        // Act / Assert: queued cancellation never owned a physical slot.
+        clock.advance(by: .milliseconds(40))
+        _ = await executor.cancel(requestID: queued.requestID)
+        #expect(
+            await executor.nextCompletion()
+                == .completed(
+                    .cancelled(
+                        .init(
+                            request: queued,
+                            cause: .explicitRequest,
+                            validationServiceDuration: .zero
+                        )
+                    )
+                )
+        )
+
+        // Act / Assert: finished service begins at physical-slot start.
+        clock.advance(by: .milliseconds(2))
+        await client.release(candidateURL: running.candidateURL, outcome: authoritativeNegative)
+        #expect(
+            await executor.nextCompletion()
+                == .completed(
+                    .finished(
+                        .init(
+                            request: running,
+                            outcome: authoritativeNegative,
+                            validationServiceDuration: .milliseconds(42)
+                        )
+                    )
+                )
+        )
+
+        // Act / Assert: timeout stops service timing at logical completion, not native return.
+        let timedOut = try roots.followUpRequest(for: running, candidate: "timed-out-repo")
+        _ = await executor.submit(timedOut)
+        await client.waitUntilStarted(candidateURL: timedOut.candidateURL)
+        await deadlines.waitUntilScheduledCount(1)
+        clock.advance(by: .milliseconds(3))
+        deadlines.fireDeadline(at: 0)
+        #expect(
+            await executor.nextCompletion()
+                == .completed(
+                    .timedOut(
+                        .init(
+                            request: timedOut,
+                            validationServiceDuration: .milliseconds(3)
+                        )
+                    )
+                )
+        )
+        clock.advance(by: .seconds(1))
+        await client.release(candidateURL: timedOut.candidateURL, outcome: authoritativeNegative)
+        await client.waitUntilReturnedCount(2)
+        #expect(await executor.snapshot().lateNativeReturnCount == 1)
+
+    }
+
+    @Test("queued wait is excluded and running cancellation ends validation service")
+    func queuedWaitAndRunningCancellationServiceDurations() async throws {
+        // Arrange
+        let roots = try AuthorizedValidationRoots()
+        defer { roots.remove() }
+        let client = ControlledRepoDiscoveryReadClient()
+        let clock = ValidationExecutorTestClock()
+        let executor = try makeExecutor(client: client, physical: 1, logical: 4, now: clock.now)
+        let occupyingSlot = try roots.request(name: "occupying", candidate: "occupying-repo")
+        let queuedThenFinished = try roots.request(name: "queued", candidate: "queued-repo")
+        _ = await executor.submit(occupyingSlot)
+        await client.waitUntilStarted(candidateURL: occupyingSlot.candidateURL)
+        _ = await executor.submit(queuedThenFinished)
+
+        // Act / Assert: time spent queued before a physical slot starts is excluded.
+        clock.advance(by: .seconds(4))
+        await client.release(candidateURL: occupyingSlot.candidateURL, outcome: authoritativeNegative)
+        _ = await executor.nextCompletion()
+        await client.waitUntilStarted(candidateURL: queuedThenFinished.candidateURL)
+        clock.advance(by: .milliseconds(5))
+        await client.release(candidateURL: queuedThenFinished.candidateURL, outcome: authoritativeNegative)
+        #expect(
+            await executor.nextCompletion()
+                == .completed(
+                    .finished(
+                        .init(
+                            request: queuedThenFinished,
+                            outcome: authoritativeNegative,
+                            validationServiceDuration: .milliseconds(5)
+                        )
+                    )
+                )
+        )
+
+        // Act / Assert: running cancellation records service through cancellation only.
+        let runningThenCancelled = try roots.followUpRequest(
+            for: queuedThenFinished,
+            candidate: "running-then-cancelled-repo"
+        )
+        _ = await executor.submit(runningThenCancelled)
+        await client.waitUntilStarted(candidateURL: runningThenCancelled.candidateURL)
+        clock.advance(by: .milliseconds(7))
+        #expect(
+            await executor.cancel(requestID: runningThenCancelled.requestID)
+                == .cancelled(.running)
+        )
+        #expect(
+            await executor.nextCompletion()
+                == .completed(
+                    .cancelled(
+                        .init(
+                            request: runningThenCancelled,
+                            cause: .explicitRequest,
+                            validationServiceDuration: .milliseconds(7)
+                        )
+                    )
+                )
+        )
+        clock.advance(by: .seconds(1))
+        await client.release(
+            candidateURL: runningThenCancelled.candidateURL,
+            outcome: authoritativeNegative
+        )
+        await client.waitUntilReturnedCount(3)
+    }
+
     @Test("timeout completion retires logical custody but retains native slot")
     func timeoutRetiresLogicalCustodyButRetainsNativeSlot() async throws {
         // Arrange
@@ -23,12 +167,19 @@ struct RepoScannerValidationExecutorTests {
         await client.waitUntilStarted(candidateURL: second.candidateURL)
         await deadlines.waitUntilScheduledCount(2)
         deadlines.fireDeadline(at: 0)
-        #expect(await executor.nextCompletion() == .completed(.timedOut(.init(request: first))))
+        #expect(
+            await executor.nextCompletion()
+                == .completed(
+                    .timedOut(.init(request: first, validationServiceDuration: .zero))
+                )
+        )
 
-        let followUp = roots.followUpRequest(for: first, candidate: "one-follow-up")
+        let followUp = try roots.followUpRequest(for: first, candidate: "one-follow-up")
         #expect(await executor.submit(followUp) == .accepted(.queued))
         deadlines.fireDeadline(at: 0)
-        #expect(await client.startedCandidates() == [first.candidateURL, second.candidateURL])
+        #expect(
+            await client.hasStartedExactly([first.candidateURL, second.candidateURL])
+        )
 
         await client.release(candidateURL: first.candidateURL, outcome: authoritativeNegative)
         await client.waitUntilStarted(candidateURL: followUp.candidateURL)
@@ -39,11 +190,24 @@ struct RepoScannerValidationExecutorTests {
                 == [first.candidateURL, second.candidateURL, followUp.candidateURL]
         )
         await client.release(candidateURL: second.candidateURL, outcome: authoritativeNegative)
-        #expect(await executor.nextCompletion() == .completed(.timedOut(.init(request: second))))
+        #expect(
+            await executor.nextCompletion()
+                == .completed(
+                    .timedOut(.init(request: second, validationServiceDuration: .zero))
+                )
+        )
         await client.release(candidateURL: followUp.candidateURL, outcome: authoritativeNegative)
         #expect(
             await executor.nextCompletion()
-                == .completed(.finished(.init(request: followUp, outcome: authoritativeNegative)))
+                == .completed(
+                    .finished(
+                        .init(
+                            request: followUp,
+                            outcome: authoritativeNegative,
+                            validationServiceDuration: .zero
+                        )
+                    )
+                )
         )
         #expect(await executor.snapshot().lateNativeReturnCount == 2)
     }
@@ -67,7 +231,15 @@ struct RepoScannerValidationExecutorTests {
         #expect(cancellation == .cancelled(.queued))
         #expect(
             await executor.nextCompletion()
-                == .completed(.cancelled(.init(request: queued, cause: .explicitRequest)))
+                == .completed(
+                    .cancelled(
+                        .init(
+                            request: queued,
+                            cause: .explicitRequest,
+                            validationServiceDuration: .zero
+                        )
+                    )
+                )
         )
         #expect(await executor.cancel(requestID: queued.requestID) == .alreadyCompleted)
         await client.waitUntilStarted(candidateURL: running.candidateURL)
@@ -99,17 +271,74 @@ struct RepoScannerValidationExecutorTests {
         _ = await executor.nextCompletion()
 
         // Assert
-        #expect(await client.startedCandidates() == [first.candidateURL, second.candidateURL])
+        #expect(
+            await client.hasStartedExactly([first.candidateURL, second.candidateURL])
+        )
         await client.release(candidateURL: first.candidateURL, outcome: authoritativeNegative)
         await client.waitUntilStarted(candidateURL: third.candidateURL)
         await client.release(candidateURL: second.candidateURL, outcome: authoritativeNegative)
         await client.release(candidateURL: third.candidateURL, outcome: authoritativeNegative)
         #expect(
             await executor.nextCompletion()
-                == .completed(.finished(.init(request: third, outcome: authoritativeNegative)))
+                == .completed(
+                    .finished(
+                        .init(
+                            request: third,
+                            outcome: authoritativeNegative,
+                            validationServiceDuration: .zero
+                        )
+                    )
+                )
         )
+        await client.waitUntilReturnedCount(3)
         #expect(await executor.snapshot().lateNativeReturnCount == 2)
         #expect(await executor.snapshot().semanticCompletionCount == 3)
+    }
+
+    @Test("all draining physical slots reject new logical custody")
+    func allDrainingPhysicalSlotsRejectNewLogicalCustody() async throws {
+        // Arrange
+        let roots = try AuthorizedValidationRoots()
+        defer { roots.remove() }
+        let client = ControlledRepoDiscoveryReadClient()
+        let deadlines = ManualRepoDiscoveryDeadlineScheduler()
+        let executor = try makeExecutor(client: client, deadlines: deadlines, physical: 2, logical: 8)
+        let first = try roots.request(name: "one", candidate: "one-repo")
+        let second = try roots.request(name: "two", candidate: "two-repo")
+        let rejected = try roots.request(name: "three", candidate: "three-repo")
+        #expect(await executor.submit(first) == .accepted(.started))
+        #expect(await executor.submit(second) == .accepted(.started))
+        await client.waitUntilStarted(candidateURL: first.candidateURL)
+        await client.waitUntilStarted(candidateURL: second.candidateURL)
+        await deadlines.waitUntilScheduledCount(2)
+
+        // Act
+        deadlines.fireDeadline(at: 0)
+        deadlines.fireDeadline(at: 0)
+        _ = await executor.nextCompletion()
+        _ = await executor.nextCompletion()
+        let beforeAdmission = await executor.snapshot()
+        let admission = await executor.submit(rejected)
+        let afterAdmission = await executor.snapshot()
+
+        // Assert
+        #expect(admission == .rejected(.allPhysicalJobsDraining(count: 2)))
+        #expect(beforeAdmission.physicalJobCount == 2)
+        #expect(beforeAdmission.drainingPhysicalJobCount == 2)
+        #expect(beforeAdmission.queuedRequestCount == 0)
+        #expect(beforeAdmission.logicalRequestCount == 0)
+        #expect(afterAdmission == beforeAdmission)
+        #expect(
+            await client.hasStartedExactly([first.candidateURL, second.candidateURL])
+        )
+
+        await client.release(candidateURL: first.candidateURL, outcome: authoritativeNegative)
+        await client.release(candidateURL: second.candidateURL, outcome: authoritativeNegative)
+        await client.waitUntilReturnedCount(2)
+        await executor.waitUntilPhysicalJobCount(0)
+        #expect(
+            await client.hasStartedExactly([first.candidateURL, second.candidateURL])
+        )
     }
 
     @Test("shutdown seals admission cancels logical work and reports native debt")
@@ -147,7 +376,9 @@ struct RepoScannerValidationExecutorTests {
             await executor.nextCompletion()
                 == .shutdown(.drainingPhysicalJobs(count: 2))
         )
-        #expect(await client.startedCandidates() == [first.candidateURL, second.candidateURL])
+        #expect(
+            await client.hasStartedExactly([first.candidateURL, second.candidateURL])
+        )
         await client.release(candidateURL: first.candidateURL, outcome: authoritativeNegative)
         await client.release(candidateURL: second.candidateURL, outcome: authoritativeNegative)
         await client.waitUntilReturnedCount(2)
@@ -195,18 +426,21 @@ struct RepoScannerValidationExecutorTests {
         let duplicateRequest = RepoDiscoveryValidationRequest(
             requestID: first.requestID,
             scannerSessionID: otherRoot.scannerSessionID,
+            scanRunGeneration: otherRoot.scanRunGeneration,
             authorizedRoot: otherRoot.authorizedRoot,
             candidateURL: otherRoot.candidateURL
         )
         let duplicateSession = RepoDiscoveryValidationRequest(
             requestID: .make(),
             scannerSessionID: first.scannerSessionID,
+            scanRunGeneration: otherRoot.scanRunGeneration,
             authorizedRoot: otherRoot.authorizedRoot,
             candidateURL: otherRoot.candidateURL
         )
         let duplicateSource = RepoDiscoveryValidationRequest(
             requestID: .make(),
             scannerSessionID: otherRoot.scannerSessionID,
+            scanRunGeneration: otherRoot.scanRunGeneration,
             authorizedRoot: first.authorizedRoot,
             candidateURL: otherRoot.candidateURL
         )
@@ -225,6 +459,74 @@ struct RepoScannerValidationExecutorTests {
         #expect(first.requestID.isUUIDv7)
         await finish(first, client: client, executor: executor)
     }
+
+    @Test("candidate outside the authorized root fails without invoking discovery reads")
+    func candidateOutsideAuthorizedRootDoesNotInvokeDiscoveryReads() async throws {
+        // Arrange
+        let roots = try AuthorizedValidationRoots()
+        defer { roots.remove() }
+        let client = ControlledRepoDiscoveryReadClient()
+        let executor = try makeExecutor(client: client, physical: 1, logical: 8)
+        let request = try roots.requestOutsideRoot(name: "root", candidate: "sibling-repo")
+
+        // Act
+        #expect(await executor.submit(request) == .accepted(.started))
+        let completion = await executor.nextCompletion()
+
+        // Assert
+        #expect(
+            completion
+                == .completed(
+                    .finished(
+                        .init(
+                            request: request,
+                            outcome: .failure(.candidateAdmissionRejected(.outsideRegisteredRoot)),
+                            validationServiceDuration: .zero
+                        )
+                    )
+                )
+        )
+        #expect(await client.startedCandidates().isEmpty)
+        #expect(await executor.snapshot().physicalJobCount == 0)
+    }
+
+    @Test("validated entry is rechecked against root authority after discovery returns")
+    func validatedEntryOutsideAuthorizedRootIsRejected() async throws {
+        // Arrange
+        let roots = try AuthorizedValidationRoots()
+        defer { roots.remove() }
+        let client = ControlledRepoDiscoveryReadClient()
+        let executor = try makeExecutor(client: client, physical: 1, logical: 8)
+        let request = try roots.request(name: "root", candidate: "candidate")
+        let outsideURL = try roots.makeCandidateOutsideRoot(name: "outside-result")
+        let outsideEntry = RepoScanner.ResolvedGitEntry(
+            path: outsideURL,
+            kind: .cloneRoot,
+            repositoryKey: "outside-repository"
+        )
+        #expect(await executor.submit(request) == .accepted(.started))
+        await client.waitUntilStarted(candidateURL: request.candidateURL)
+
+        // Act
+        await client.release(candidateURL: request.candidateURL, outcome: .validated(outsideEntry))
+        let completion = await executor.nextCompletion()
+
+        // Assert
+        #expect(
+            completion
+                == .completed(
+                    .finished(
+                        .init(
+                            request: request,
+                            outcome: .failure(.candidateAdmissionRejected(.outsideRegisteredRoot)),
+                            validationServiceDuration: .zero
+                        )
+                    )
+                )
+        )
+        #expect(await client.startedCandidates() == [request.candidateURL])
+        #expect(await executor.snapshot().physicalJobCount == 0)
+    }
 }
 
 private let authoritativeNegative = GitRepositoryDiscoveryOutcome.authoritativeNegative(
@@ -235,7 +537,8 @@ private func makeExecutor(
     client: ControlledRepoDiscoveryReadClient,
     deadlines: ManualRepoDiscoveryDeadlineScheduler = ManualRepoDiscoveryDeadlineScheduler(),
     physical: Int,
-    logical: Int
+    logical: Int,
+    now: @escaping @Sendable () -> Duration = { .zero }
 ) throws -> RepoScannerValidationExecutor {
     try RepoScannerValidationExecutor(
         validationClient: client,
@@ -245,8 +548,22 @@ private func makeExecutor(
             maximumPhysicalJobs: physical,
             maximumQueuedRequests: logical,
             maximumQueuedRequestsPerRoot: 1
-        )
+        ),
+        now: now
     )
+}
+
+private final class ValidationExecutorTestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var elapsed = Duration.zero
+
+    func now() -> Duration {
+        lock.withLock { elapsed }
+    }
+
+    func advance(by duration: Duration) {
+        lock.withLock { elapsed += duration }
+    }
 }
 
 private func finish(
@@ -264,7 +581,7 @@ private final class AuthorizedValidationRoots {
 
     init() throws {
         baseURL = FileManager.default.temporaryDirectory.appending(
-            path: "repo-validation-(UUIDv7.generate())",
+            path: "repo-validation-\(UUIDv7.generate())",
             directoryHint: .isDirectory
         )
         try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
@@ -290,23 +607,51 @@ private final class AuthorizedValidationRoots {
                 )
             )
         )
+        let candidateURL = rootURL.appending(path: candidate, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: candidateURL, withIntermediateDirectories: true)
         return RepoDiscoveryValidationRequest(
             requestID: .make(),
             scannerSessionID: RepoScannerSessionID(rawValue: UUIDv7.generate()),
+            scanRunGeneration: 1,
             authorizedRoot: descriptor,
-            candidateURL: URL(fileURLWithPath: "/tmp/\(candidate)")
+            candidateURL: candidateURL
         )
+    }
+
+    func requestOutsideRoot(name: String, candidate: String) throws
+        -> RepoDiscoveryValidationRequest
+    {
+        let containedRequest = try request(name: name, candidate: candidate)
+        let siblingURL = try makeCandidateOutsideRoot(name: "\(name)-sibling-\(candidate)")
+        return RepoDiscoveryValidationRequest(
+            requestID: containedRequest.requestID,
+            scannerSessionID: containedRequest.scannerSessionID,
+            scanRunGeneration: containedRequest.scanRunGeneration,
+            authorizedRoot: containedRequest.authorizedRoot,
+            candidateURL: siblingURL
+        )
+    }
+
+    func makeCandidateOutsideRoot(name: String) throws -> URL {
+        let candidateURL = baseURL.appending(path: name, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: candidateURL, withIntermediateDirectories: true)
+        return candidateURL
     }
 
     func followUpRequest(
         for request: RepoDiscoveryValidationRequest,
         candidate: String
-    ) -> RepoDiscoveryValidationRequest {
-        RepoDiscoveryValidationRequest(
+    ) throws -> RepoDiscoveryValidationRequest {
+        let candidateURL = URL(
+            fileURLWithPath: request.authorizedRoot.aliases.onceResolvedCanonical.path
+        ).appending(path: candidate, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: candidateURL, withIntermediateDirectories: true)
+        return RepoDiscoveryValidationRequest(
             requestID: .make(),
             scannerSessionID: request.scannerSessionID,
+            scanRunGeneration: request.scanRunGeneration,
             authorizedRoot: request.authorizedRoot,
-            candidateURL: URL(fileURLWithPath: "/tmp/\(candidate)")
+            candidateURL: candidateURL
         )
     }
 
@@ -346,6 +691,10 @@ private actor ControlledRepoDiscoveryReadClient: RepoDiscoveryReadClient {
     }
 
     func startedCandidates() -> [URL] { started }
+
+    func hasStartedExactly(_ candidates: [URL]) -> Bool {
+        started.count == candidates.count && Set(started) == Set(candidates)
+    }
 
     func waitUntilReturnedCount(_ count: Int) async {
         guard returnedCount < count else { return }

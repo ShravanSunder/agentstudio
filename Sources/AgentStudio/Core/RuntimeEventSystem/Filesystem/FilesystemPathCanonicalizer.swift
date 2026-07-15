@@ -50,6 +50,23 @@ struct FilesystemCanonicalizedAuthorizedRoot: Hashable, Sendable {
     let volumeSemantics: FilesystemVolumeSemantics
 }
 
+struct FilesystemContainedDiscoveryCandidate: Hashable, Sendable {
+    let canonicalURL: URL
+    let canonicalAlias: FilesystemCanonicalPathAlias
+}
+
+enum FilesystemDiscoveryCandidateRejection: Hashable, Sendable {
+    case notAbsoluteFileURL
+    case unavailable
+    case volumeSemanticsMismatch
+    case outsideRegisteredRoot
+}
+
+enum FilesystemDiscoveryCandidateClassification: Hashable, Sendable {
+    case contained(FilesystemContainedDiscoveryCandidate)
+    case rejected(FilesystemDiscoveryCandidateRejection)
+}
+
 struct FilesystemPathCanonicalizer: Sendable {
     func canonicalizeAuthorizedRoot(
         authorizedBoundary: URL,
@@ -106,6 +123,46 @@ struct FilesystemPathCanonicalizer: Sendable {
                 onceResolvedCanonical: Self.alias(for: resolvedRoot)
             ),
             volumeSemantics: rootSemantics
+        )
+    }
+
+    /// Revalidates scanner evidence against source-owned root authority immediately
+    /// before a discovery read. A selected root may itself be a symlink because the
+    /// descriptor already owns its once-resolved identity; a descendant replacement
+    /// may not escape that resolved root.
+    func classifyDiscoveryCandidate(
+        _ candidateURL: URL,
+        within registeredRoot: RegisteredRootDescriptor
+    ) -> FilesystemDiscoveryCandidateClassification {
+        guard Self.isAbsoluteFileURL(candidateURL) else {
+            return .rejected(.notAbsoluteFileURL)
+        }
+
+        let canonicalCandidate = candidateURL.standardizedFileURL.resolvingSymlinksInPath()
+        let candidateSemantics: FilesystemVolumeSemantics
+        do {
+            candidateSemantics = try inspectVolumeSemantics(at: canonicalCandidate)
+        } catch {
+            return .rejected(.unavailable)
+        }
+        guard candidateSemantics == registeredRoot.volumeSemantics else {
+            return .rejected(.volumeSemanticsMismatch)
+        }
+        guard
+            Self.contains(
+                parent: registeredRoot.aliases.onceResolvedCanonical.components,
+                child: Self.components(of: canonicalCandidate),
+                casePolicy: registeredRoot.volumeSemantics.casePolicy
+            )
+        else {
+            return .rejected(.outsideRegisteredRoot)
+        }
+
+        return .contained(
+            FilesystemContainedDiscoveryCandidate(
+                canonicalURL: canonicalCandidate,
+                canonicalAlias: Self.alias(for: canonicalCandidate)
+            )
         )
     }
 
