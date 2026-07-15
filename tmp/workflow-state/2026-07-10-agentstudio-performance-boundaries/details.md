@@ -695,3 +695,60 @@ pre-W2b mechanics gate, then the W2b atomic production cut. Production remains
 wholly legacy and no product-performance claim is made until W2b plus the final
 Victoria, authenticated exact-PID IPC, large-root, native UI, and human-feel
 proof loop.
+
+## 2026-07-15 Pre-W2b proof-manifest checkpoint
+
+The combined pre-W2b proof surface is frozen at `47d4833b`. The manifest-driven
+runner rejects zero-test selectors, dispatches ordinary and large Swift test
+tasks explicitly, and proves the production path remains wholly legacy while
+the dormant fixed ingress has exactly one consumer/waiter owner.
+
+Fresh parent proof:
+
+- `bash scripts/verify-filesystem-observation-proof-suites.sh --gate pre-w2b`:
+  12/12 nonzero selectors, exit 0;
+- the deliberately nonexistent selector produced 0 tests/0 suites and was
+  rejected with the exact expected status 65;
+- the real Darwin lifecycle selector passed 1 test/1 suite through
+  `test-large`;
+- the consolidated ingress ownership selector passed 2 tests/1 suite;
+- `mise run lint`: SwiftLint 0/1,562, architecture lint passed, 31 type-state
+  mutation rows restored exactly, release scripts passed, exit 0;
+- `mise run test-fast`: 4,888 tests/584 suites plus 19 IPC socket tests/1 suite,
+  exit 0;
+- the local checkpoint is unsigned because two identical 1Password signing
+  attempts failed after hooks with `failed to fill whole buffer`; no commit
+  content or proof was bypassed.
+
+W2b remains correctly gated by W4.5/W5, W9, and W10. Implementation continues
+at the focused W3/W4a ownership correction and the first exhaustive scanner
+RED; production-performance claims remain open.
+
+## 2026-07-15 W3 scanner/scheduler/projector boundary correction
+
+Live implementation evidence showed that the earlier monolithic scan-result
+shape crossed three owners: `RepoScanner` had no prior topology from which to
+derive removals, scheduler metrics did not belong in scanner output, and
+`RegisteredRootDescriptor` was not available until the later W4 task. The
+focused correction is frozen at `c3ee892d` after one bounded review and one
+remediation pass.
+
+The corrected ownership is:
+
+- W4a constructs `RegisteredRootDescriptor` from host-authorized input and
+  carries one exact `FSEventRegistrationToken` as sole authority;
+- `RepoScannerResult` is a strict associated-value union containing only
+  exhaustive traversal/validation evidence and counts;
+- `WatchedFolderScanScheduler` owns single-flight/fairness, exhaustive causes,
+  non-empty repair obligations, checked scan-run generations, and scheduler
+  metrics;
+- W5 constructs `TopologyProjectionRequest` by binding an accepted scheduled
+  result to its canonical mirror base revision, and only W5 derives canonical
+  removals from complete-current evidence;
+- the W3 transitional `FilesystemActor` comparison is explicitly gated against
+  partial/stale removal and is hard-cut when W5 becomes the final owner.
+
+UUIDv7 remains opaque source/lifecycle authority. Checked numeric generations
+remain ordering/currentness only. Scanner paths and Git metadata remain
+evidence and cannot select watcher/root authority. Implementation resumes at
+the W4a construction RED and exhaustive RepoScanner RED.
