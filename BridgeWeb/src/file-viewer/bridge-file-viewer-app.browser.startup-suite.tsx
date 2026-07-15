@@ -22,6 +22,7 @@ import type { FileMetadataInterestUpdate } from './bridge-file-viewer-browser-te
 import { makeFileContent } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
 	makeFileDescriptor,
+	makeFileDescriptorForContent,
 	makeDescriptorReadyMetadataEvents,
 	makeFileInvalidatedMetadataEvents,
 	makeFileMetadataEvents,
@@ -319,7 +320,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('keeps the requested path selected while metadata interest reconciliation retries', async () => {
-		const initiallyOpenDescriptor = makeFileDescriptor({
+		const initiallyOpenContent = makeFileContent('export const initiallyOpen = true;\n');
+		const initiallyOpenDescriptor = await makeFileDescriptorForContent({
+			content: initiallyOpenContent,
 			contentHandle: 'initial-content',
 			fileId: 'file-000',
 			path: 'File-000.swift',
@@ -333,7 +336,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeFileMetadataEvents(initiallyOpenDescriptor)}
 				fileProductSession={{
-					readContent: async () => makeFileContent('export const initiallyOpen = true;\n'),
+					readContent: async () => initiallyOpenContent,
 					onMetadataInterestUpdate: async (request) => {
 						metadataInterestUpdates.push(request);
 						throw new Error('descriptor request failed');
@@ -482,12 +485,16 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('opens content for a file discovered through a subscribed tree window', async () => {
-		const initialDescriptor = makeFileDescriptor({
+		const initialContent = makeFileContent('export const initialWindowSelection = true;\n');
+		const continuedContent = makeFileContent('export const continuedWindowSelection = true;\n');
+		const initialDescriptor = await makeFileDescriptorForContent({
+			content: initialContent,
 			contentHandle: 'initial-window-content',
 			fileId: 'file-000',
 			path: 'File-000.swift',
 		});
-		const continuedDescriptor = makeFileDescriptor({
+		const continuedDescriptor = await makeFileDescriptorForContent({
+			content: continuedContent,
 			contentHandle: 'continued-window-content',
 			fileId: 'file-250',
 			path: 'File-250.swift',
@@ -507,11 +514,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				fileProductSession={{
 					readContent: async (props) => {
 						openedDescriptorIds.push(props.descriptor.descriptorId);
-						return makeFileContent(
-							props.descriptor.descriptorId.includes('continued-window-content')
-								? 'export const continuedWindowSelection = true;\n'
-								: 'export const initialWindowSelection = true;\n',
-						);
+						return props.descriptor.descriptorId.includes('continued-window-content')
+							? continuedContent
+							: initialContent;
 					},
 					onMetadataInterestUpdate: (request) => {
 						metadataInterestUpdates.push(request);
@@ -629,7 +634,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('requests and opens a descriptor when clicking a metadata-only file row', async () => {
-		const descriptor = makeFileDescriptor({
+		const content = makeFileContent('export const appDelegateFixture = true;\n');
+		const descriptor = await makeFileDescriptorForContent({
+			content,
 			contentHandle: 'app-delegate-content',
 			fileId: 'file-app-delegate',
 			path: 'Sources/AgentStudio/App/AppDelegate.swift',
@@ -645,7 +652,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				fileProductSession={{
 					readContent: async (props) => {
 						openedDescriptorIds.push(props.descriptor.descriptorId);
-						return makeFileContent('export const appDelegateFixture = true;\n');
+						return content;
 					},
 					onMetadataInterestUpdate: (request) => {
 						metadataInterestUpdates.push(request);
@@ -686,7 +693,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('renders selected content after the typed content stream completes', async () => {
-		const descriptor = makeFileDescriptor({
+		const content = makeFileContent('export const fileOpenReady = true;\n');
+		const descriptor = await makeFileDescriptorForContent({
+			content,
 			contentHandle: 'file-open-ready-content',
 			fileId: 'file-open-ready',
 			path: 'src/file-open-ready.ts',
@@ -696,7 +705,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeFileMetadataEvents(descriptor)}
 				fileProductSession={{
-					readContent: async () => makeFileContent('export const fileOpenReady = true;\n'),
+					readContent: async () => content,
 				}}
 			/>,
 		);
