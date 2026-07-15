@@ -1,15 +1,55 @@
 import Foundation
 
-struct RepoExplorerSidebarProjection {
+struct RepoExplorerSidebarContent {
     let resolvedGroups: [RepoPresentationGroup]
     let loadingRepos: [RepoPresentationItem]
     let showsNoResults: Bool
 }
 
+enum RepoExplorerSidebarProjection {
+    case ready(RepoExplorerSidebarContent)
+    case degraded(RepoExplorerTopologyFault)
+
+    var resolvedGroups: [RepoPresentationGroup] {
+        switch self {
+        case .ready(let content): content.resolvedGroups
+        case .degraded: []
+        }
+    }
+
+    var loadingRepos: [RepoPresentationItem] {
+        switch self {
+        case .ready(let content): content.loadingRepos
+        case .degraded: []
+        }
+    }
+
+    var showsNoResults: Bool {
+        switch self {
+        case .ready(let content): content.showsNoResults
+        case .degraded: false
+        }
+    }
+}
+
 enum RepoExplorerProjection {
     static func project(_ snapshot: RepoExplorerSnapshot) -> RepoExplorerSidebarProjection {
-        let resolvedRepos = resolvedRepos(snapshot.repos, enrichmentByRepoId: snapshot.repoEnrichmentByRepoId)
-        let loadingRepos = loadingRepos(snapshot.repos, enrichmentByRepoId: snapshot.repoEnrichmentByRepoId)
+        var topologyFaultDetector = RepoExplorerTopologyFaultDetector()
+        var resolvedRepos: [RepoPresentationItem] = []
+        var loadingRepos: [RepoPresentationItem] = []
+        for repo in snapshot.repos {
+            topologyFaultDetector.observe(repo)
+            switch snapshot.repoEnrichmentByRepoId[repo.id] {
+            case .resolvedLocal, .resolvedRemote:
+                resolvedRepos.append(repo)
+            case .awaitingOrigin, .none:
+                loadingRepos.append(repo)
+            }
+        }
+        if let topologyFault = topologyFaultDetector.fault {
+            return .degraded(topologyFault)
+        }
+
         let filteredResolvedRepos = RepoExplorerFilter.filter(repos: resolvedRepos, query: snapshot.query)
         let filteredLoadingRepos = filterLoadingRepos(loadingRepos, query: snapshot.query)
         let repoMetadataById = RepoPresentationColoring.buildRepoMetadata(
@@ -21,10 +61,12 @@ enum RepoExplorerProjection {
             metadataByRepoId: repoMetadataById
         )
 
-        return RepoExplorerSidebarProjection(
-            resolvedGroups: resolvedGroups,
-            loadingRepos: filteredLoadingRepos,
-            showsNoResults: !snapshot.query.isEmpty && resolvedGroups.isEmpty && filteredLoadingRepos.isEmpty
+        return .ready(
+            RepoExplorerSidebarContent(
+                resolvedGroups: resolvedGroups,
+                loadingRepos: filteredLoadingRepos,
+                showsNoResults: !snapshot.query.isEmpty && resolvedGroups.isEmpty && filteredLoadingRepos.isEmpty
+            )
         )
     }
 

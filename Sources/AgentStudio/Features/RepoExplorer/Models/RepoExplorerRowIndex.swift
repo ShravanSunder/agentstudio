@@ -7,7 +7,6 @@ struct RepoExplorerResolvedWorktreeContext {
 }
 
 struct RepoExplorerWorktreeIdentityClaim: Equatable, Sendable {
-    let groupId: String
     let repoId: UUID
     let stableKey: String
     let path: URL
@@ -26,6 +25,52 @@ enum RepoExplorerTopologyFault: Equatable, Sendable {
         case .duplicateWorktreeIdentities(let duplicates):
             duplicates.count
         }
+    }
+
+}
+
+struct RepoExplorerTopologyFaultDetector {
+    private var claimsByWorktreeId: [UUID: [RepoExplorerWorktreeIdentityClaim]] = [:]
+
+    mutating func observe(_ repo: RepoPresentationItem) {
+        for worktree in repo.worktrees {
+            claimsByWorktreeId[worktree.id, default: []].append(
+                RepoExplorerWorktreeIdentityClaim(
+                    repoId: repo.id,
+                    stableKey: worktree.stableKey,
+                    path: worktree.path
+                )
+            )
+        }
+    }
+
+    var fault: RepoExplorerTopologyFault? {
+        var duplicateIdentities: [RepoExplorerDuplicateWorktreeIdentity] = []
+        for (worktreeId, claims) in claimsByWorktreeId where claims.count > 1 {
+            duplicateIdentities.append(
+                RepoExplorerDuplicateWorktreeIdentity(
+                    worktreeId: worktreeId,
+                    claims: claims.sorted(by: claimPrecedes)
+                )
+            )
+        }
+        duplicateIdentities.sort { $0.worktreeId.uuidString < $1.worktreeId.uuidString }
+
+        guard !duplicateIdentities.isEmpty else { return nil }
+        return .duplicateWorktreeIdentities(duplicateIdentities)
+    }
+
+    private func claimPrecedes(
+        _ lhs: RepoExplorerWorktreeIdentityClaim,
+        _ rhs: RepoExplorerWorktreeIdentityClaim
+    ) -> Bool {
+        if lhs.repoId != rhs.repoId {
+            return lhs.repoId.uuidString < rhs.repoId.uuidString
+        }
+        if lhs.path != rhs.path {
+            return lhs.path.path < rhs.path.path
+        }
+        return lhs.stableKey < rhs.stableKey
     }
 }
 
@@ -51,7 +96,7 @@ struct RepoExplorerRowIndex {
     ) {
         self.projection = projection
 
-        if let topologyFault = Self.topologyFault(in: projection.resolvedGroups) {
+        if case .degraded(let topologyFault) = projection {
             self.entries = [.topologyFault(topologyFault)]
             self.state = .degraded(topologyFault)
             self.worktreeIds = []
@@ -137,55 +182,6 @@ struct RepoExplorerRowIndex {
             }
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
-    }
-
-    private static func topologyFault(in groups: [RepoPresentationGroup]) -> RepoExplorerTopologyFault? {
-        var claimsByWorktreeId: [UUID: [RepoExplorerWorktreeIdentityClaim]] = [:]
-
-        for group in groups {
-            for repo in group.repos {
-                for worktree in repo.worktrees {
-                    claimsByWorktreeId[worktree.id, default: []].append(
-                        RepoExplorerWorktreeIdentityClaim(
-                            groupId: group.id,
-                            repoId: repo.id,
-                            stableKey: worktree.stableKey,
-                            path: worktree.path
-                        )
-                    )
-                }
-            }
-        }
-
-        var duplicateIdentities: [RepoExplorerDuplicateWorktreeIdentity] = []
-        for (worktreeId, claims) in claimsByWorktreeId where claims.count > 1 {
-            duplicateIdentities.append(
-                RepoExplorerDuplicateWorktreeIdentity(
-                    worktreeId: worktreeId,
-                    claims: claims.sorted(by: claimPrecedes)
-                )
-            )
-        }
-        duplicateIdentities.sort { $0.worktreeId.uuidString < $1.worktreeId.uuidString }
-
-        guard !duplicateIdentities.isEmpty else { return nil }
-        return .duplicateWorktreeIdentities(duplicateIdentities)
-    }
-
-    private static func claimPrecedes(
-        _ lhs: RepoExplorerWorktreeIdentityClaim,
-        _ rhs: RepoExplorerWorktreeIdentityClaim
-    ) -> Bool {
-        if lhs.groupId != rhs.groupId {
-            return lhs.groupId < rhs.groupId
-        }
-        if lhs.repoId != rhs.repoId {
-            return lhs.repoId.uuidString < rhs.repoId.uuidString
-        }
-        if lhs.path != rhs.path {
-            return lhs.path.path < rhs.path.path
-        }
-        return lhs.stableKey < rhs.stableKey
     }
 
     private struct RepoKey: Hashable {
