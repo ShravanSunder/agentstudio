@@ -98,6 +98,10 @@ export interface RegisterBridgeCommWorkerRuntimePortProtocolProps {
 	readonly openReviewContent?: BridgeWorkerReviewContentOpen;
 	readonly pump?: WorkerContentPreparationPump;
 	readonly productTransport?: BridgeProductTransportSession;
+	readonly renderFulfillmentContext?: {
+		readonly paneSessionId: string;
+		readonly workerInstanceId: string;
+	};
 	readonly schedulePreparationDrain?: (drain: BridgeCommWorkerPreparationDrain) => void;
 	readonly sendSchemeRpcCommand?: BridgeCommWorkerSchemeRpcCommandSender;
 	readonly schemeRpcTimeoutMilliseconds?: number;
@@ -396,6 +400,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		renderSemantics: [],
 		rows: [],
 		createSequence,
+		...(props.renderFulfillmentContext === undefined
+			? {}
+			: { renderFulfillmentContext: props.renderFulfillmentContext }),
 		...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 		scheduleSelectedReviewContentReadyPreparation,
 		scheduleReviewMetadataReset: (
@@ -793,7 +800,7 @@ function enqueueVisibleBridgeCommWorkerReviewDemandExecution(
 ): readonly EnqueuedBridgeCommWorkerDemandPreparationTicket[] {
 	const membership = visibleReviewDemandMembersNeedingExecutionFromState({
 		forceExecutionItemIds: props.sourceChurnItemIds,
-		state: props.store.getState(),
+		store: props.store,
 	});
 	if (membership.length === 0) {
 		return [];
@@ -856,13 +863,14 @@ function enqueueVisibleBridgeCommWorkerReviewDemandExecution(
 
 function visibleReviewDemandMembersNeedingExecutionFromState(props: {
 	readonly forceExecutionItemIds: ReadonlySet<string>;
-	readonly state: BridgeCommWorkerStoreState;
+	readonly store: BridgeCommWorkerStore;
 }): readonly BridgeCommWorkerDemandMember[] {
 	const membership: BridgeCommWorkerDemandMember[] = [];
-	for (const itemId of visibleReviewDemandItemIdsFromState(props.state)) {
+	const state = props.store.getState();
+	for (const itemId of visibleReviewDemandItemIdsFromState(state)) {
 		if (
 			!props.forceExecutionItemIds.has(itemId) &&
-			!doesVisibleReviewDemandNeedExecution(props.state, itemId)
+			!doesVisibleReviewDemandNeedExecution(props.store, itemId)
 		) {
 			continue;
 		}
@@ -887,11 +895,19 @@ function visibleReviewDemandItemIdsFromState(state: BridgeCommWorkerStoreState):
 }
 
 function doesVisibleReviewDemandNeedExecution(
-	state: BridgeCommWorkerStoreState,
+	store: BridgeCommWorkerStore,
 	itemId: string,
 ): boolean {
+	const state = store.getState();
 	const availability = state.availabilityByItemId.get(itemId);
-	return availability !== 'ready' && availability !== 'failed' && availability !== 'unavailable';
+	if (availability === 'failed' || availability === 'unavailable') {
+		return false;
+	}
+	const fulfillment = store.renderFulfillmentRegistry.getItemState(itemId);
+	if (fulfillment === null) {
+		return true;
+	}
+	return fulfillment.stage === 'desired' || fulfillment.stage === 'retry_wait';
 }
 
 function markVisibleReviewDemandSourceChurn(props: {

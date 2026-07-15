@@ -41,6 +41,7 @@ export type BridgeCommWorkerTelemetryCommand =
 	| 'mode'
 	| 'reviewIntakeReady'
 	| 'reviewInvalidate'
+	| 'renderDisposition'
 	| 'select'
 	| 'viewport';
 

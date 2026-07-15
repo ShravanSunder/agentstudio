@@ -5,6 +5,10 @@ import { render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import './bridge-app.css';
+import {
+	createBridgeMainRenderFulfillmentCoordinator,
+	type BridgeMainRenderFulfillmentCoordinator,
+} from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import { createBridgeMainRenderSnapshotStore } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type {
@@ -13,6 +17,7 @@ import type {
 	BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
 import { buildBridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
+import { makeBridgeWorkerRenderReceiptIdentity } from '../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
 import type { BridgeWorkerRpcCommandInput } from '../core/comm-worker/bridge-worker-rpc-client.js';
 import { createBridgeWorkerRpcLifecycleStore } from '../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
 import {
@@ -303,6 +308,7 @@ function makeFileSurfaceHarness(): FileSurfaceHarness {
 	return {
 		fileViewClient: {
 			lifecycle: lifecycleStore,
+			renderFulfillmentCoordinator: createTestRenderFulfillmentCoordinator(),
 			renderStore: displayStore,
 			send: vi.fn((): string => 'file-request-1'),
 			subscribeMessages: (listener): (() => void) => {
@@ -332,6 +338,7 @@ function makeReviewSurfaceHarness(): ReviewSurfaceHarness {
 		},
 		reviewClient: {
 			lifecycle: lifecycleStore,
+			renderFulfillmentCoordinator: createTestRenderFulfillmentCoordinator(),
 			renderStore: displayStore,
 			send: vi.fn((command): string => {
 				sentCommands.push(command);
@@ -347,6 +354,17 @@ function makeReviewSurfaceHarness(): ReviewSurfaceHarness {
 		},
 		sentCommands,
 	};
+}
+
+function createTestRenderFulfillmentCoordinator(): BridgeMainRenderFulfillmentCoordinator {
+	return createBridgeMainRenderFulfillmentCoordinator({
+		cancelAnimationFrame: (_frameHandle): void => {},
+		nowMilliseconds: (): number => 0,
+		requestAnimationFrame: (_callback): number => {
+			throw new Error('Review Browser fixture must not schedule paint validation.');
+		},
+		sendDisposition: (_receipt): void => {},
+	});
 }
 
 function fileDisplayEvent(props: {
@@ -440,6 +458,12 @@ function reviewContentReadyEvents(): readonly BridgeWorkerServerToMainMessage[] 
 			job,
 			kind: 'reviewPierreRenderJob',
 			publicationSequence: 2,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: job.itemId,
+				publicationSequence: 2,
+				surface: 'review',
+				workerDerivationEpoch: 1,
+			}),
 			surface: 'review',
 			transferDescriptors: [
 				{

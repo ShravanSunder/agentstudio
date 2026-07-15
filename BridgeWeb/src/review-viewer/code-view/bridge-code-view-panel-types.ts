@@ -7,6 +7,7 @@ import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
 import type { BridgeCodeViewItemPresentation } from './bridge-code-view-materialization.js';
 import type { BridgeCodeViewProgrammaticRevealIntent } from './bridge-code-view-programmatic-reveal-gate.js';
+import type { BridgeCodeViewRenderFulfillmentCoordinator } from './bridge-code-view-render-fulfillment.js';
 
 export interface SelectedContentPaintTelemetryStart {
 	readonly actionTraceContext: BridgeTraceContext | null;
@@ -18,6 +19,7 @@ export interface SelectedContentPaintTelemetryStart {
 export interface BridgeCodeViewPanelProps {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly projection: BridgeReviewProjectionResult;
+	readonly renderFulfillmentCoordinator: BridgeCodeViewRenderFulfillmentCoordinator;
 	readonly selectedItemId: string | null;
 	readonly selectedCodeViewItem?: BridgeMainCodeViewItem | null;
 	readonly selectedContentLoadingItemId?: string | null;

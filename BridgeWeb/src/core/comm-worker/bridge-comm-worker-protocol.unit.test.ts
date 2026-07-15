@@ -7,6 +7,7 @@ import {
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerMetadataInterestUpdateCommand,
 	encodeBridgeWorkerModeCommand,
+	encodeBridgeWorkerRenderDispositionCommand,
 	encodeBridgeWorkerReviewIntakeReadyCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
@@ -15,6 +16,7 @@ import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeWorkerMainToServerMessageSchema,
 	type BridgeWorkerMainToServerCommand,
+	type BridgeWorkerRenderDispositionCommand,
 } from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker protocol', () => {
@@ -170,4 +172,43 @@ describe('Bridge comm worker protocol', () => {
 		});
 		expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
 	});
+
+	test('encodes a strict identity-bound render disposition command', () => {
+		const command = encodeBridgeWorkerRenderDispositionCommand({
+			epoch: 5,
+			receipt: reviewQueuedRenderDispositionReceipt(),
+			requestId: 'request-render-disposition',
+		});
+
+		expect(command).toMatchObject({
+			command: 'renderDisposition',
+			epoch: 5,
+			receipt: {
+				disposition: 'queued',
+				itemId: 'item-1',
+				publicationId: 'publication-review-8',
+				publicationSequence: 8,
+				surface: 'review',
+			},
+		});
+		expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
+	});
 });
+
+function reviewQueuedRenderDispositionReceipt(): BridgeWorkerRenderDispositionCommand['receipt'] {
+	return {
+		attemptId: 'attempt-review-8',
+		disposition: 'queued' as const,
+		itemId: 'item-1',
+		kind: 'render.disposition' as const,
+		paneSessionId: 'pane-session-1',
+		publicationId: 'publication-review-8',
+		publicationSequence: 8,
+		receivedAtMilliseconds: 42,
+		submissionId: 'submission-review-8',
+		surface: 'review' as const,
+		windowKey: 'window-review-8',
+		workerDerivationEpoch: 5,
+		workerInstanceId: 'worker-instance-1',
+	};
+}

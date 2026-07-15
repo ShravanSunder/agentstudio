@@ -79,6 +79,7 @@ describe('Bridge comm worker File View preparation', () => {
 		const deferredContent = createDeferredContentOpen('file body\n');
 		let drainRequestCount = 0;
 		const store = createBridgeCommWorkerStore({
+			surface: 'file',
 			contentItems: [
 				makeWorkerFileViewContentMetadata('file-1'),
 				makeWorkerFileViewContentMetadata('file-2'),
@@ -342,6 +343,7 @@ describe('Bridge comm worker File View preparation', () => {
 			now: () => 0,
 		});
 		const store = createBridgeCommWorkerStore({
+			surface: 'file',
 			contentItems: [],
 			rows: [{ id: 'file-without-metadata', parentId: null, index: 0 }],
 		});
@@ -466,6 +468,7 @@ function createDeferredContentOpen(text: string): DeferredContentOpen {
 
 function createSelectedFileViewPreparationStore(text = 'file body\n'): BridgeCommWorkerStore {
 	return createBridgeCommWorkerStore({
+		surface: 'file',
 		contentItems: [makeWorkerFileViewContentMetadata('file-1', text)],
 		rows: [{ id: 'file-1', parentId: null, index: 0 }],
 	});

@@ -31,6 +31,7 @@ import {
 	BridgeCodeViewPanel,
 	type BridgeCodeViewControlHandle,
 } from '../code-view/bridge-code-view-panel.js';
+import type { BridgeCodeViewRenderFulfillmentCoordinator } from '../code-view/bridge-code-view-render-fulfillment.js';
 import type { ReviewContentDemandTelemetry } from '../content/review-content-demand-types.js';
 import { BridgeMarkdownPreview } from '../markdown/bridge-markdown-preview.js';
 import type {
@@ -47,6 +48,7 @@ export interface ReviewViewerShellProps {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly reviewTreeRows?: readonly ReviewTreeRowMetadata[];
 	readonly projection: BridgeReviewProjectionResult;
+	readonly renderFulfillmentCoordinator: BridgeCodeViewRenderFulfillmentCoordinator;
 	readonly selectedItemId: string | null;
 	readonly selectedContentLoadingItemId?: string | null;
 	readonly selectedContentPaintTelemetryStart?: SelectedContentPaintTelemetryStart | null;
@@ -294,6 +296,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 							) : (
 								<BridgeCodeViewPanel
 									projection={projection}
+									renderFulfillmentCoordinator={props.renderFulfillmentCoordinator}
 									reviewPackage={props.reviewPackage}
 									selectedCodeViewItem={props.selectedCodeViewItem ?? null}
 									selectedContentLoadingItemId={props.selectedContentLoadingItemId ?? null}

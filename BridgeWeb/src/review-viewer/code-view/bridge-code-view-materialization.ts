@@ -291,18 +291,7 @@ function shouldUseDiffPlaceholder(item: BridgeReviewItemDescriptor): boolean {
 	if (itemIsOneSidedChange(item)) {
 		return true;
 	}
-	return (
-		item.itemKind === 'diff' &&
-		(hasContentHandle(item.contentRoles.base) ||
-			hasContentHandle(item.contentRoles.head) ||
-			hasContentHandle(item.contentRoles.diff))
-	);
-}
-
-function hasContentHandle(
-	handle: BridgeContentHandle | null | undefined,
-): handle is BridgeContentHandle {
-	return handle !== null && handle !== undefined;
+	return item.itemKind === 'diff';
 }
 
 function createPlaceholderDiffItem(props: {

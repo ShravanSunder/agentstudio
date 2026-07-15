@@ -133,8 +133,8 @@ function rebuildBridgeReviewPresentationLedger(props: {
 		]),
 	);
 	const presentationKey = JSON.stringify([
-		'bridge-review-presentation-v2',
-		props.reviewSourceSlice.metadataWindowIdentity,
+		'bridge-review-presentation-v3',
+		props.catalogSnapshot.epoch ?? 0,
 	]);
 	const reviewPackage = presentationPackageForDisplay({
 		itemsById,

@@ -179,6 +179,7 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 				onSelectFile={selectFileFromTree}
 				openFileState={openFileState}
 				openFileTotalHeightPixels={openFileTotalHeightPixels}
+				renderFulfillmentCoordinator={renderSnapshotController.renderFulfillmentCoordinator}
 				searchMode={searchMode}
 				searchText={searchText}
 				selectedCodeViewItem={renderSnapshotController.selectedCodeViewItem}

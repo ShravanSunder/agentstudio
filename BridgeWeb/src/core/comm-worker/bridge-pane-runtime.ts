@@ -1,5 +1,10 @@
 import { bridgeWorkerPierreRenderPolicy } from '../demand/bridge-content-demand-policy.js';
+import { encodeBridgeWorkerRenderDispositionCommand } from './bridge-comm-worker-protocol.js';
 import type { BridgeMainFileDisplayPatchApplierProps } from './bridge-main-file-display-patch-applier.js';
+import {
+	createBridgeMainRenderFulfillmentCoordinator,
+	type BridgeMainRenderFulfillmentCoordinator,
+} from './bridge-main-render-fulfillment-coordinator.js';
 import {
 	createBridgeMainRenderSnapshotStore,
 	type BridgeMainRenderSnapshotStore,
@@ -47,6 +52,7 @@ export interface BridgePaneSurfaceLifecycleView {
 
 export interface BridgePaneSurfaceClient {
 	readonly lifecycle: BridgePaneSurfaceLifecycleView;
+	readonly renderFulfillmentCoordinator: BridgeMainRenderFulfillmentCoordinator;
 	readonly renderStore: BridgeMainRenderSnapshotStore;
 	readonly send: (command: BridgeWorkerRpcCommandInput) => string;
 	readonly subscribeMessages: (
@@ -93,6 +99,7 @@ export function createBridgePaneRuntime(
 		props.sessionFactory?.() ?? createDefaultBridgePaneSessionPort(props.sessionProps);
 	const rpcClients = new Map<BridgePaneSurface | 'pane', BridgeWorkerRpcClient>();
 	const surfaceClients = new Map<BridgePaneSurface, BridgePaneSurfaceClient>();
+	const renderFulfillmentCoordinators = new Set<BridgeMainRenderFulfillmentCoordinator>();
 	const renderStores = new Set<BridgeMainRenderSnapshotStore>();
 	let isDisposed = false;
 	let nativeBootstrapInstalled = false;
@@ -143,8 +150,21 @@ export function createBridgePaneRuntime(
 			});
 		}
 		rpcClients.set(surface, rpcClient);
+		const renderFulfillmentCoordinator = createBridgeMainRenderFulfillmentCoordinator({
+			sendDisposition: (receipt): void => {
+				rpcClient.send(
+					encodeBridgeWorkerRenderDispositionCommand({
+						epoch: receipt.workerDerivationEpoch,
+						receipt,
+						requestId: 'bridge-main-render-fulfillment',
+					}),
+				);
+			},
+		});
+		renderFulfillmentCoordinators.add(renderFulfillmentCoordinator);
 		surfaceClients.set(surface, {
 			lifecycle: createBridgePaneSurfaceLifecycleView({ lifecycleStore, rpcClient }),
+			renderFulfillmentCoordinator,
 			renderStore,
 			send: rpcClient.send,
 			subscribeMessages: rpcClient.subscribe,
@@ -173,10 +193,12 @@ export function createBridgePaneRuntime(
 		dispose: (): void => {
 			if (isDisposed) return;
 			isDisposed = true;
+			for (const coordinator of renderFulfillmentCoordinators) coordinator.dispose();
 			for (const client of rpcClients.values()) client.dispose();
 			for (const renderStore of renderStores) renderStore.dispose();
 			lifecycleStore.dispose();
 			rpcClients.clear();
+			renderFulfillmentCoordinators.clear();
 			surfaceClients.clear();
 			renderStores.clear();
 			dispatcher.dispose();

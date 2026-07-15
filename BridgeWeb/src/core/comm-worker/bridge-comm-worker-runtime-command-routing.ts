@@ -47,6 +47,7 @@ export function bridgeWorkerRuntimeSchemeRpcCommandForMessage(
 		case 'fileDisplayResync':
 		case 'mode':
 		case 'reviewInvalidate':
+		case 'renderDisposition':
 		case 'select':
 		case 'viewport':
 			return null;
@@ -66,6 +67,7 @@ export function bridgeCommWorkerTelemetryLaneForMessage(
 		case 'fileDisplayResync':
 		case 'hover':
 		case 'reviewInvalidate':
+		case 'renderDisposition':
 			return 'visible';
 		case 'metadataInterestUpdate':
 			return message.request.lane === 'foreground' ? 'selected' : 'visible';

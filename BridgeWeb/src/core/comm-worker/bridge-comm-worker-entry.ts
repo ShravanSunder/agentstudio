@@ -166,6 +166,10 @@ export function bootstrapBridgeCommWorkerEntry(
 				installedProductPort,
 				productSession,
 				telemetryRecorder,
+				{
+					paneSessionId: parsedInstall.data.bootstrap.paneSessionId,
+					workerInstanceId: parsedInstall.data.bootstrap.workerInstanceId,
+				},
 			);
 			return;
 		}
@@ -202,6 +206,10 @@ function bootstrapBridgeCommWorkerRuntimeEntry(
 	port: BridgeCommWorkerPort,
 	productSession: BridgeCommWorkerInstalledProductSession,
 	telemetryRecorder: BridgeCommWorkerTelemetryRecorder,
+	renderFulfillmentContext: {
+		readonly paneSessionId: string;
+		readonly workerInstanceId: string;
+	},
 ): void {
 	let didBootstrapRuntime = false;
 	let didReceiveBootstrap = false;
@@ -230,6 +238,7 @@ function bootstrapBridgeCommWorkerRuntimeEntry(
 							parsedBootstrap.data,
 							productSession.productTransport,
 							telemetryRecorder,
+							renderFulfillmentContext,
 						),
 					);
 					port.postMessage(buildBridgeWorkerReadyHealthEvent(parsedBootstrap.data.requestId));
@@ -281,6 +290,10 @@ function runtimePropsFromBootstrapRequest(
 	request: BridgeCommWorkerBootstrapRequest,
 	productTransport: BridgeProductTransportSession,
 	telemetryClient: BridgeCommWorkerTelemetryRecorder | undefined,
+	renderFulfillmentContext: {
+		readonly paneSessionId: string;
+		readonly workerInstanceId: string;
+	},
 ): RegisterBridgeCommWorkerRuntimePortProtocolProps {
 	const reviewPolicy = request.runtime.surfacePolicies?.review;
 	const fileViewPolicy = request.runtime.surfacePolicies?.fileView;
@@ -297,6 +310,7 @@ function runtimePropsFromBootstrapRequest(
 			? {}
 			: { maxPreparationSliceMs: request.runtime.maxPreparationSliceMs }),
 		productTransport,
+		renderFulfillmentContext,
 		...(telemetryClient === undefined ? {} : { telemetryClient }),
 	};
 }

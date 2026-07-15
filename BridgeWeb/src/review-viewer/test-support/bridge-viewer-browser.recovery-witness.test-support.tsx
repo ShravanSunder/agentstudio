@@ -3,6 +3,7 @@ import { render } from 'vitest-browser-react';
 
 import { BridgeReviewViewerMode } from '../../app/bridge-app-review-viewer-mode.js';
 import type { BridgeViewerNavigationCommand } from '../../app/bridge-viewer-navigation-models.js';
+import { createBridgeMainRenderFulfillmentCoordinator } from '../../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import { createBridgeMainRenderSnapshotStore } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgePaneSurfaceClient } from '../../core/comm-worker/bridge-pane-runtime.js';
 import type {
@@ -11,6 +12,7 @@ import type {
 	BridgeWorkerServerToMainMessage,
 } from '../../core/comm-worker/bridge-worker-contracts.js';
 import { buildBridgeWorkerPierreRenderJob } from '../../core/comm-worker/bridge-worker-pierre-render-job.js';
+import { makeBridgeWorkerRenderReceiptIdentity } from '../../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
 import type { BridgeWorkerRpcCommandInput } from '../../core/comm-worker/bridge-worker-rpc-client.js';
 import { createBridgeWorkerRpcLifecycleStore } from '../../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
 import { bridgeContentDemandExecutionPolicy } from '../../core/demand/bridge-content-demand-policy.js';
@@ -134,8 +136,13 @@ export function renderBridgeReviewRecoveryWitness(
 	const publishedContentItemIds = new Set<string>();
 	let messageListener: ((message: BridgeWorkerServerToMainMessage) => void) | null = null;
 	let isDisposed = false;
+	const renderFulfillmentCoordinator = createBridgeMainRenderFulfillmentCoordinator({
+		nowMilliseconds: (): number => 0,
+		sendDisposition: (_receipt): void => {},
+	});
 	const reviewClient: BridgePaneSurfaceClient = {
 		lifecycle: lifecycleStore,
+		renderFulfillmentCoordinator,
 		renderStore,
 		send: (command): string => {
 			sentCommands.push(command);
@@ -177,6 +184,7 @@ export function renderBridgeReviewRecoveryWitness(
 			if (isDisposed) return;
 			isDisposed = true;
 			messageListener = null;
+			renderFulfillmentCoordinator.dispose();
 			renderStore.dispose();
 			lifecycleStore.dispose();
 			activeHarnesses.delete(activeHarness);
@@ -768,7 +776,9 @@ function reviewDisplayEvent(
 	} = {},
 ): BridgeWorkerReviewDisplayPatchEvent {
 	const treeRows = reviewWitnessTreeRows(files);
-	const metadataWindowIdentity = props.metadataWindowIdentity ?? 'review-recovery-witness-window';
+	const projectionRevision = props.projectionRevision ?? 1;
+	const metadataWindowIdentity =
+		props.metadataWindowIdentity ?? `review-recovery-witness-window-r${projectionRevision}`;
 	return {
 		direction: 'serverWorkerToMain',
 		epoch: props.epoch ?? 1,
@@ -813,7 +823,7 @@ function reviewDisplayEvent(
 				slice: 'reviewTree',
 			},
 		],
-		projectionRevision: props.projectionRevision ?? 1,
+		projectionRevision,
 		sequence: props.sequence ?? 1,
 		surface: 'review',
 		transferDescriptors: [],
@@ -849,7 +859,7 @@ function reviewDisplayAppendEvent(
 			{
 				operation: 'upsert',
 				payload: {
-					metadataWindowIdentity: 'review-recovery-witness-window',
+					metadataWindowIdentity: 'review-recovery-witness-window-r2',
 					status: 'ready',
 					summary: {
 						additions: files.length,
@@ -899,10 +909,30 @@ function reviewDisplayAppendEvent(
 
 function reviewDisplayItem(
 	file: BridgeReviewRecoveryWitnessFile,
-	metadataWindowIdentity = 'review-recovery-witness-window',
+	metadataWindowIdentity = 'review-recovery-witness-window-r2',
 ): BridgeWorkerReviewDisplayItem {
+	const semanticDocumentRevision = `review-recovery-semantic:${file.itemId}:${file.contentMarker}`;
 	return {
-		contentFacts: [],
+		contentFacts: [
+			{
+				contentDigest: {
+					algorithm: 'review-recovery-fixture',
+					authority: 'provisional',
+					value: `base:${file.itemId}`,
+				},
+				role: 'base',
+				semanticDocumentRevision,
+			},
+			{
+				contentDigest: {
+					algorithm: 'review-recovery-fixture',
+					authority: 'provisional',
+					value: `head:${file.itemId}:${file.contentMarker}`,
+				},
+				role: 'head',
+				semanticDocumentRevision,
+			},
+		],
 		extentFacts: [
 			{ contentRole: 'base', itemId: file.itemId, lineCount: file.lineCount },
 			{ contentRole: 'head', itemId: file.itemId, lineCount: file.lineCount },
@@ -973,6 +1003,12 @@ function completeReviewContentMessages(
 			job,
 			kind: 'reviewPierreRenderJob',
 			publicationSequence,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: job.itemId,
+				publicationSequence,
+				surface: 'review',
+				workerDerivationEpoch: 1,
+			}),
 			surface: 'review',
 			transferDescriptors: [
 				{
@@ -1050,6 +1086,12 @@ function completeReviewFileContentMessages(
 			job,
 			kind: 'reviewPierreRenderJob',
 			publicationSequence,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: job.itemId,
+				publicationSequence,
+				surface: 'review',
+				workerDerivationEpoch: 1,
+			}),
 			surface: 'review',
 			transferDescriptors: [
 				{

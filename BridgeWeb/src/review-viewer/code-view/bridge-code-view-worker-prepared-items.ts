@@ -89,12 +89,12 @@ export type BridgeCodeViewMetadataDeltaItemsForPanelSelector = (props: {
 interface BridgeCodeViewMetadataDeltaItemsCacheEntry {
 	readonly result: readonly BridgeCodeViewItem[];
 	readonly selectedDescriptorSignature: string | null;
-	readonly selectedCodeViewItemSignature: string;
+	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null | undefined;
 	readonly selectedContentLoadingItemId: string | null | undefined;
 	readonly selectedItemId: string | null;
 	readonly selectedItemPresentationKey: string;
 	readonly sourceKey: string;
-	readonly visibleCodeViewItemSignatures: readonly string[] | undefined;
+	readonly visibleCodeViewItems: readonly BridgeMainCodeViewItem[] | undefined;
 }
 
 export function createBridgeCodeViewMetadataDeltaItemsForPanelSelector(): BridgeCodeViewMetadataDeltaItemsForPanelSelector {
@@ -108,23 +108,17 @@ export function createBridgeCodeViewMetadataDeltaItemsForPanelSelector(): Bridge
 		const selectedItemPresentationKey = bridgeCodeViewItemPresentationKey(
 			props.selectedItemPresentation,
 		);
-		const selectedCodeViewItemSignature = bridgeOptionalMainCodeViewItemSignature(
-			props.selectedCodeViewItem,
-		);
-		const visibleCodeViewItemSignatures = bridgeMainCodeViewItemSignatures(
-			props.visibleCodeViewItems,
-		);
 		if (
 			previousEntry !== null &&
 			previousEntry.sourceKey === props.sourceKey &&
 			previousEntry.selectedItemId === props.selectedItemId &&
 			previousEntry.selectedContentLoadingItemId === props.selectedContentLoadingItemId &&
-			previousEntry.selectedCodeViewItemSignature === selectedCodeViewItemSignature &&
+			previousEntry.selectedCodeViewItem === props.selectedCodeViewItem &&
 			previousEntry.selectedItemPresentationKey === selectedItemPresentationKey &&
 			previousEntry.selectedDescriptorSignature === selectedDescriptorSignature &&
-			optionalStringArraysEqual(
-				previousEntry.visibleCodeViewItemSignatures,
-				visibleCodeViewItemSignatures,
+			optionalCodeViewItemArraysEqual(
+				previousEntry.visibleCodeViewItems,
+				props.visibleCodeViewItems,
 			)
 		) {
 			return previousEntry.result;
@@ -132,21 +126,21 @@ export function createBridgeCodeViewMetadataDeltaItemsForPanelSelector(): Bridge
 		const result = createBridgeCodeViewMetadataDeltaItemsForPanel(props);
 		previousEntry = {
 			result,
-			selectedCodeViewItemSignature,
+			selectedCodeViewItem: props.selectedCodeViewItem,
 			selectedContentLoadingItemId: props.selectedContentLoadingItemId,
 			selectedDescriptorSignature,
 			selectedItemId: props.selectedItemId,
 			selectedItemPresentationKey,
 			sourceKey: props.sourceKey,
-			visibleCodeViewItemSignatures,
+			visibleCodeViewItems: props.visibleCodeViewItems,
 		};
 		return result;
 	};
 }
 
-function optionalStringArraysEqual(
-	first: readonly string[] | undefined,
-	second: readonly string[] | undefined,
+function optionalCodeViewItemArraysEqual(
+	first: readonly BridgeMainCodeViewItem[] | undefined,
+	second: readonly BridgeMainCodeViewItem[] | undefined,
 ): boolean {
 	if (first === undefined || second === undefined) {
 		return first === second;
@@ -154,25 +148,7 @@ function optionalStringArraysEqual(
 	if (first.length !== second.length) {
 		return false;
 	}
-	return first.every((value, index): boolean => value === second[index]);
-}
-
-function bridgeMainCodeViewItemSignatures(
-	items: readonly BridgeMainCodeViewItem[] | undefined,
-): readonly string[] | undefined {
-	return items === undefined ? undefined : items.map(bridgeMainCodeViewItemSignature);
-}
-
-function bridgeOptionalMainCodeViewItemSignature(
-	item: BridgeMainCodeViewItem | null | undefined,
-): string {
-	if (item === null) {
-		return 'null';
-	}
-	if (item === undefined) {
-		return 'undefined';
-	}
-	return bridgeMainCodeViewItemSignature(item);
+	return first.every((item, index): boolean => item === second[index]);
 }
 
 export function bridgeMainCodeViewItemSignature(item: BridgeMainCodeViewItem): string {

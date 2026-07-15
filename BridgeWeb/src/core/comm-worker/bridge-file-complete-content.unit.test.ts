@@ -26,6 +26,7 @@ import {
 	type BridgeWorkerFileViewContentOpen,
 } from './bridge-worker-file-view-content-fetch.js';
 import { prepareBridgeWorkerFileViewContentRenderJobEvent } from './bridge-worker-file-view-content-ready.js';
+import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 
 const CURRENT_FILE_MAXIMUM_LINES = 10_000;
 const COMPLETE_FILE_SOURCE_BYTE_COUNT = 2_097_217;
@@ -108,6 +109,7 @@ describe('Bridge File complete content', () => {
 				canFetchContent: true,
 			},
 			publicationSequence: 1,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 1, surface: 'file', workerDerivationEpoch: 1 }),
 			resource,
 			workerDerivationEpoch: 1,
 		});

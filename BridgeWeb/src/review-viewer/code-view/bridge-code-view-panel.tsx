@@ -1,4 +1,4 @@
-import type { CodeViewItem, CodeViewScrollBehavior } from '@pierre/diffs';
+import type { CodeViewItem, CodeViewOptions, CodeViewScrollBehavior } from '@pierre/diffs';
 import type { CodeViewHandle } from '@pierre/diffs/react';
 import type { ReactElement } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -57,6 +57,11 @@ import {
 	cancelBridgeCodeViewPendingProgrammaticReveal,
 	createBridgeCodeViewProgrammaticRevealGate,
 } from './bridge-code-view-programmatic-reveal-gate.js';
+import { prepareBridgeCodeViewPublicationPresentationItem } from './bridge-code-view-publication-presentation.js';
+import {
+	observeBridgeCodeViewRenderFulfillment,
+	reconcileBridgeCodeViewRenderFulfillment,
+} from './bridge-code-view-render-fulfillment.js';
 import {
 	selectedContentDiagnosticsForPanel,
 	selectedMaterializationDiagnosticForPanel,
@@ -241,9 +246,24 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			}),
 		[publishVisibleItemIdsFromCurrentHandle],
 	);
-	const handleCodeViewPostRender = useCallback((): void => {
-		postRenderVisibleInterestPublisher.schedule();
-	}, [postRenderVisibleInterestPublisher]);
+	const handleCodeViewPostRender = useCallback<
+		NonNullable<CodeViewOptions<undefined>['onPostRender']>
+	>(
+		(_node, _instance, phase, context): void => {
+			const exactPresentationItem = isBridgeCodeViewItem(context.item) ? context.item : null;
+			observeBridgeCodeViewRenderFulfillment({
+				contextItem: context.item,
+				getCodeViewHandle: (): CodeViewHandle<undefined> | null => codeViewHandleRef.current,
+				itemId: context.item.id,
+				phase,
+				renderFulfillmentCoordinator: props.renderFulfillmentCoordinator,
+				selectedCodeViewItem: exactPresentationItem,
+				visibleCodeViewItems: undefined,
+			});
+			postRenderVisibleInterestPublisher.schedule();
+		},
+		[postRenderVisibleInterestPublisher, props.renderFulfillmentCoordinator],
+	);
 	useEffect(
 		(): (() => void) => (): void => {
 			postRenderVisibleInterestPublisher.cancel();
@@ -549,6 +569,14 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		props.visibleCodeViewItems,
 		sourceKey,
 	]);
+	const initialPresentationItems = useMemo(
+		(): readonly BridgeCodeViewItem[] =>
+			bridgeCodeViewInitialItemsWithMetadataDeltaItems({
+				initialItems,
+				metadataDeltaItems,
+			}),
+		[initialItems, metadataDeltaItems],
+	);
 	useLayoutEffect((): void => {
 		materializationTaskGenerationRef.current += 1;
 		metadataApplyTaskGenerationRef.current += 1;
@@ -577,9 +605,9 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		if (currentCodeViewManifestMountKeyRef.current === manifestMountKey) {
 			return;
 		}
-		currentCodeViewItemsRef.current = initialItems;
+		currentCodeViewItemsRef.current = initialPresentationItems;
 		currentCodeViewManifestMountKeyRef.current = manifestMountKey;
-	}, [codeViewMountVersion, initialItems, sourceKey]);
+	}, [codeViewMountVersion, initialPresentationItems, sourceKey]);
 
 	useEffect((): (() => void) | void => {
 		const codeViewHandle = codeViewHandleRef.current;
@@ -636,6 +664,14 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					: [],
 			getCurrentItem: (itemId: string): CodeViewItem | undefined => codeViewHandle.getItem(itemId),
 			metadataItems: metadataSourceItems,
+			preparePresentationItem: ({ currentItem, metadataItem }): BridgeCodeViewItem => {
+				return prepareBridgeCodeViewPublicationPresentationItem({
+					currentItem,
+					getCodeViewHandle: (): CodeViewHandle<undefined> | null => codeViewHandleRef.current,
+					metadataItem,
+					renderFulfillmentCoordinator: props.renderFulfillmentCoordinator,
+				});
+			},
 			preserveItemIds: sourceReset
 				? []
 				: selectedItemIdForMetadataReconcileRef.current === null
@@ -668,11 +704,16 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					isMaterializedBridgeCodeViewContentState(previousItem.bridgeMetadata.contentState) &&
 					previousItem.bridgeMetadata.cacheKey === item.bridgeMetadata.cacheKey;
 				const materializationStartedAtMilliseconds = performance.now();
-				const updateResult = controller.applyItemUpdate(item);
-				const materializationCompletedAtMilliseconds = performance.now();
 				currentCodeViewItemsRef.current = bridgeCodeViewItemsWithMetadataItem({
 					currentItems: currentCodeViewItemsRef.current,
 					item,
+				});
+				const updateResult = controller.applyItemUpdate(item);
+				const materializationCompletedAtMilliseconds = performance.now();
+				reconcileBridgeCodeViewRenderFulfillment({
+					exactPresentationItem: item,
+					getCodeViewHandle: (): CodeViewHandle<undefined> | null => codeViewHandleRef.current,
+					renderFulfillmentCoordinator: props.renderFulfillmentCoordinator,
 				});
 				recordBridgeCodeViewWorkerPreparedApplyTelemetry({
 					...workerPreparedTelemetryContext,
@@ -761,6 +802,11 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				codeViewInstance.setItems(items);
 				const materializationCompletedAtMilliseconds = performance.now();
 				for (const item of items) {
+					reconcileBridgeCodeViewRenderFulfillment({
+						exactPresentationItem: item,
+						getCodeViewHandle: (): CodeViewHandle<undefined> | null => codeViewHandleRef.current,
+						renderFulfillmentCoordinator: props.renderFulfillmentCoordinator,
+					});
 					const previousItem = previousItemsById.get(item.id);
 					const didFindMatchingPaintedContent =
 						isBridgeCodeViewItem(previousItem) &&
@@ -811,6 +857,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		props.selectedItemId,
 		props.selectedContentPaintTelemetryStart,
 		props.selectedItemPresentation,
+		props.renderFulfillmentCoordinator,
 		props.telemetryParentTraceContext,
 		props.telemetryRecorder,
 		scheduleInstantSelectionRevealRetarget,
@@ -1010,7 +1057,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			handleCodeViewScroll={handleCodeViewScroll}
 			handleCodeViewUserScrollIntent={handleCodeViewUserScrollIntent}
 			headerRenderers={headerRenderers}
-			initialItems={initialItems}
+			initialItems={initialPresentationItems}
 			materializationDiagnostic={selectedMaterializationDiagnostic}
 			materializationResourceEntryCount={0}
 			materializationResourceEntryItemIds=""
@@ -1023,10 +1070,10 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			selectedContentRoleNames={selectedContentDiagnostics.roleNames}
 			selectedContentState={selectedContentDiagnostics.state}
 			selectedDisplayPath={selectedDisplayPath}
-			selectedInitialItemIndex={initialItems.findIndex(
+			selectedInitialItemIndex={initialPresentationItems.findIndex(
 				(item): boolean => item.id === props.selectedItemId,
 			)}
-			selectedInitialItemIsFirst={initialItems[0]?.id === props.selectedItemId}
+			selectedInitialItemIsFirst={initialPresentationItems[0]?.id === props.selectedItemId}
 			selectedItemId={props.selectedItemId}
 			selectedPresentationKind={props.selectedItemPresentation?.kind ?? 'none'}
 			selectedPresentationVersion={

@@ -6,6 +6,7 @@ import {
 	planBridgeWorkerReviewPierreRenderJob,
 	prepareBridgeWorkerReviewPierreRenderJobEvent,
 } from './bridge-worker-review-pierre-job-planner.js';
+import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 
 describe('Bridge worker review Pierre job planner', () => {
 	test('plans modified review diffs as worker-prepared CodeView items', () => {
@@ -403,6 +404,7 @@ describe('Bridge worker review Pierre job planner', () => {
 				maxWindowLines: 50,
 			},
 			publicationSequence: 11,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 11, surface: 'review', workerDerivationEpoch: 7 }),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -457,6 +459,7 @@ describe('Bridge worker review Pierre job planner', () => {
 				maxWindowLines: 100,
 			},
 			publicationSequence: 11,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 11, surface: 'review', workerDerivationEpoch: 7 }),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:head',
@@ -494,6 +497,7 @@ describe('Bridge worker review Pierre job planner', () => {
 				maxWindowLines: 400,
 			},
 			publicationSequence: 11,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 11, surface: 'review', workerDerivationEpoch: 7 }),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:file',
@@ -532,6 +536,7 @@ describe('Bridge worker review Pierre job planner', () => {
 				maxWindowLines: 50,
 			},
 			publicationSequence: 11,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 11, surface: 'review', workerDerivationEpoch: 7 }),
 			resources: [
 				makeFetchedReviewContentResource({
 					role: 'base',

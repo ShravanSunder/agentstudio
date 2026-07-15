@@ -17,8 +17,9 @@ import {
 import {
 	bridgeWorkerFileRenderPatchesFromSlicePatchEvent,
 	commitBridgeWorkerFileViewContentReadyRenderPatch,
+	planBridgeWorkerFileViewPierreRenderJob,
 	prepareBridgeWorkerFileRenderPatchEvent,
-	prepareBridgeWorkerFileViewContentRenderJobEvent,
+	prepareBridgeWorkerFileViewContentRenderJobEventFromJob,
 } from './bridge-worker-file-view-content-ready.js';
 import type {
 	BridgeWorkerDemandRank,
@@ -129,15 +130,13 @@ export function publishSelectedBridgeWorkerFileViewContentReadyFetchResult(
 	if (!isSelectedFileViewContentReadyPreparationCurrent(props)) {
 		return;
 	}
-	const preparedJobEvent = prepareBridgeWorkerFileViewContentRenderJobEvent({
+	const job = planBridgeWorkerFileViewPierreRenderJob({
 		bridgeDemandRank: props.bridgeDemandRank,
 		budget: props.budget,
 		metadata: props.fetchResult.metadata,
-		publicationSequence: props.sequence,
 		resource: props.fetchResult.resource,
-		workerDerivationEpoch: props.workerDerivationEpoch,
 	});
-	if (preparedJobEvent === null) {
+	if (job === null) {
 		postSelectedFileViewContentTerminalAvailability({
 			...props,
 			reason: 'descriptor_rejected',
@@ -145,6 +144,21 @@ export function publishSelectedBridgeWorkerFileViewContentReadyFetchResult(
 		});
 		return;
 	}
+	if (!isSelectedFileViewContentReadyPreparationCurrent(props)) {
+		return;
+	}
+	const publication = props.store.renderFulfillmentRegistry.beginPublication({
+		job,
+		publicationSequence: props.sequence,
+		workerDerivationEpoch: props.workerDerivationEpoch,
+	});
+	if (!publication.shouldPublish) {
+		return;
+	}
+	const preparedJobEvent = prepareBridgeWorkerFileViewContentRenderJobEventFromJob({
+		job,
+		renderReceiptIdentity: publication.receiptIdentity,
+	});
 
 	postPreparedBridgeCommWorkerMessage(props.port, preparedJobEvent);
 	const contentReadyCommit = commitBridgeWorkerFileViewContentReadyRenderPatch({

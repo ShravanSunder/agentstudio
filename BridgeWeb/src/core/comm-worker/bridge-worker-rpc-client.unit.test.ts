@@ -186,6 +186,35 @@ describe('Bridge worker RPC client', () => {
 		expect(lifecycleStore.getSnapshot().requestsById).toEqual({});
 		fileClient.dispose();
 	});
+
+	test('routes render disposition commands only through the receipt surface client', async () => {
+		const { createBridgeWorkerRpcClient } = await loadBridgeWorkerRpcClientModule();
+		const lifecycleStore = createBridgeWorkerRpcLifecycleStore();
+		const dispatch = vi.fn<(message: BridgeWorkerMainToServerMessage) => void>();
+		const fileClient = createBridgeWorkerRpcClient({
+			dispatch,
+			lifecycleStore,
+			requestIdFactory: (): string => 'file-disposition-1',
+			surface: 'fileView',
+		});
+		const reviewClient = createBridgeWorkerRpcClient({
+			dispatch,
+			lifecycleStore,
+			requestIdFactory: (): string => 'review-disposition-1',
+			surface: 'review',
+		});
+		const reviewDisposition = makeReviewRenderDispositionCommandInput();
+
+		expect(() => fileClient.send(reviewDisposition)).toThrow(/targets review, not fileView/u);
+		expect(reviewClient.send(reviewDisposition)).toBe('review-disposition-1');
+		expect(dispatch).toHaveBeenCalledOnce();
+		expect(dispatch.mock.calls[0]?.[0]).toMatchObject({
+			command: 'renderDisposition',
+			receipt: { surface: 'review' },
+		});
+		fileClient.dispose();
+		reviewClient.dispose();
+	});
 });
 
 async function loadBridgeWorkerRpcClientModule(): Promise<
@@ -212,6 +241,28 @@ function makeReviewCommandInput(): BridgeWorkerRpcCommandInput {
 		pathHints: ['Sources/App.swift'],
 		reason: 'sourceChanged',
 		scope: 'items',
+	};
+}
+
+function makeReviewRenderDispositionCommandInput(): BridgeWorkerRpcCommandInput {
+	return {
+		command: 'renderDisposition',
+		epoch: 5,
+		receipt: {
+			attemptId: 'attempt-review-8',
+			disposition: 'queued',
+			itemId: 'item-1',
+			kind: 'render.disposition',
+			paneSessionId: 'pane-session-1',
+			publicationId: 'publication-review-8',
+			publicationSequence: 8,
+			receivedAtMilliseconds: 42,
+			submissionId: 'submission-review-8',
+			surface: 'review',
+			windowKey: 'window-review-8',
+			workerDerivationEpoch: 5,
+			workerInstanceId: 'worker-instance-1',
+		},
 	};
 }
 

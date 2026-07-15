@@ -7,124 +7,101 @@ import { materializeBridgeCodeViewLoadingItem } from './bridge-code-view-materia
 import { createBridgeCodeViewMetadataDeltaItemsForPanelSelector } from './bridge-code-view-worker-prepared-items.js';
 
 describe('Bridge CodeView worker-prepared item selector', () => {
-	test('keeps metadata deltas stable across selected worker item payload clones', () => {
-		const reviewPackage = makeBridgeViewerProjectionFixture();
-		const sourceItem = reviewPackage.itemsById['source-high'];
-		const visibleItem = reviewPackage.itemsById['docs-plan'];
-		if (sourceItem === undefined || visibleItem === undefined) {
-			throw new Error('expected projection fixture items');
-		}
-		const selectedCodeViewItem = workerPreparedCodeViewItem(
-			materializeBridgeCodeViewLoadingItem(sourceItem),
-		);
-		const visibleCodeViewItem = workerPreparedCodeViewItem(
-			materializeBridgeCodeViewLoadingItem(visibleItem),
-		);
+	test('retains the cached result for the exact same selected and visible worker objects', () => {
+		const fixture = makeSelectorFixture();
 		const selector = createBridgeCodeViewMetadataDeltaItemsForPanelSelector();
-
-		const firstItems = selector({
-			reviewPackage,
-			selectedCodeViewItem,
-			selectedItemId: sourceItem.itemId,
-			selectedItemPresentation: null,
-			sourceKey: 'source-a',
-			visibleCodeViewItems: [visibleCodeViewItem],
-		});
-		const secondItems = selector({
-			reviewPackage,
-			selectedCodeViewItem: cloneBridgeMainCodeViewItem(selectedCodeViewItem),
-			selectedItemId: sourceItem.itemId,
-			selectedItemPresentation: null,
-			sourceKey: 'source-a',
-			visibleCodeViewItems: [visibleCodeViewItem],
-		});
+		const firstItems = selectFixtureItems({ fixture, selector });
+		const secondItems = selectFixtureItems({ fixture, selector });
 
 		expect(secondItems).toBe(firstItems);
+		expect(firstItems.find((item) => item.id === fixture.selectedCodeViewItem.id)).toBe(
+			fixture.selectedCodeViewItem,
+		);
+		expect(firstItems.find((item) => item.id === fixture.visibleCodeViewItem.id)).toBe(
+			fixture.visibleCodeViewItem,
+		);
 	});
 
-	test('keeps metadata deltas stable across visible worker item payload clones', () => {
-		const reviewPackage = makeBridgeViewerProjectionFixture();
-		const sourceItem = reviewPackage.itemsById['source-high'];
-		const visibleItem = reviewPackage.itemsById['docs-plan'];
-		if (sourceItem === undefined || visibleItem === undefined) {
-			throw new Error('expected projection fixture items');
-		}
-		const selectedCodeViewItem = workerPreparedCodeViewItem(
-			materializeBridgeCodeViewLoadingItem(sourceItem),
-		);
-		const visibleCodeViewItem = workerPreparedCodeViewItem(
-			materializeBridgeCodeViewLoadingItem(visibleItem),
-		);
+	test('returns a fresh result containing a fresh equivalent selected worker object', () => {
+		const fixture = makeSelectorFixture();
 		const selector = createBridgeCodeViewMetadataDeltaItemsForPanelSelector();
-
-		const firstItems = selector({
-			reviewPackage,
-			selectedCodeViewItem,
-			selectedItemId: sourceItem.itemId,
-			selectedItemPresentation: null,
-			sourceKey: 'source-a',
-			visibleCodeViewItems: [visibleCodeViewItem],
-		});
-		const secondItems = selector({
-			reviewPackage,
-			selectedCodeViewItem,
-			selectedItemId: sourceItem.itemId,
-			selectedItemPresentation: null,
-			sourceKey: 'source-a',
-			visibleCodeViewItems: [cloneBridgeMainCodeViewItem(visibleCodeViewItem)],
+		const firstItems = selectFixtureItems({ fixture, selector });
+		const freshSelectedCodeViewItem = cloneBridgeMainCodeViewItem(fixture.selectedCodeViewItem);
+		const secondItems = selectFixtureItems({
+			fixture: { ...fixture, selectedCodeViewItem: freshSelectedCodeViewItem },
+			selector,
 		});
 
-		expect(secondItems).toBe(firstItems);
+		expect(freshSelectedCodeViewItem).not.toBe(fixture.selectedCodeViewItem);
+		expect(secondItems).not.toBe(firstItems);
+		expect(secondItems.find((item) => item.id === freshSelectedCodeViewItem.id)).toBe(
+			freshSelectedCodeViewItem,
+		);
+		expect(secondItems.find((item) => item.id === fixture.visibleCodeViewItem.id)).toBe(
+			fixture.visibleCodeViewItem,
+		);
 	});
 
-	test('keeps metadata deltas stable across normalization-equivalent worker languages', () => {
-		const reviewPackage = makeBridgeViewerProjectionFixture();
-		const sourceItem = reviewPackage.itemsById['source-high'];
-		const visibleItem = reviewPackage.itemsById['docs-plan'];
-		if (sourceItem === undefined || visibleItem === undefined) {
-			throw new Error('expected projection fixture items');
-		}
-		const selectedCodeViewItem = workerPreparedCodeViewItem(
-			materializeBridgeCodeViewLoadingItem(sourceItem),
-		);
-		const visibleCodeViewItem = workerPreparedCodeViewItem(
-			materializeBridgeCodeViewLoadingItem(visibleItem),
-		);
-		if (visibleCodeViewItem.type !== 'diff') {
-			throw new Error('expected visible diff fixture item');
-		}
+	test('returns a fresh result containing a fresh equivalent visible worker object', () => {
+		const fixture = makeSelectorFixture();
 		const selector = createBridgeCodeViewMetadataDeltaItemsForPanelSelector();
-
-		const firstItems = selector({
-			reviewPackage,
-			selectedCodeViewItem,
-			selectedItemId: sourceItem.itemId,
-			selectedItemPresentation: null,
-			sourceKey: 'source-a',
-			visibleCodeViewItems: [
-				{
-					...visibleCodeViewItem,
-					fileDiff: { ...visibleCodeViewItem.fileDiff, lang: ' TypeScript ' },
-				},
-			],
-		});
-		const secondItems = selector({
-			reviewPackage,
-			selectedCodeViewItem,
-			selectedItemId: sourceItem.itemId,
-			selectedItemPresentation: null,
-			sourceKey: 'source-a',
-			visibleCodeViewItems: [
-				{
-					...visibleCodeViewItem,
-					fileDiff: { ...visibleCodeViewItem.fileDiff, lang: 'typescript' },
-				},
-			],
+		const firstItems = selectFixtureItems({ fixture, selector });
+		const freshVisibleCodeViewItem = cloneBridgeMainCodeViewItem(fixture.visibleCodeViewItem);
+		const secondItems = selectFixtureItems({
+			fixture: { ...fixture, visibleCodeViewItem: freshVisibleCodeViewItem },
+			selector,
 		});
 
-		expect(secondItems).toBe(firstItems);
+		expect(freshVisibleCodeViewItem).not.toBe(fixture.visibleCodeViewItem);
+		expect(secondItems).not.toBe(firstItems);
+		expect(secondItems.find((item) => item.id === fixture.selectedCodeViewItem.id)).toBe(
+			fixture.selectedCodeViewItem,
+		);
+		expect(secondItems.find((item) => item.id === freshVisibleCodeViewItem.id)).toBe(
+			freshVisibleCodeViewItem,
+		);
 	});
 });
+
+interface SelectorFixture {
+	readonly reviewPackage: ReturnType<typeof makeBridgeViewerProjectionFixture>;
+	readonly selectedCodeViewItem: BridgeMainCodeViewItem;
+	readonly selectedItemId: string;
+	readonly visibleCodeViewItem: BridgeMainCodeViewItem;
+}
+
+function makeSelectorFixture(): SelectorFixture {
+	const reviewPackage = makeBridgeViewerProjectionFixture();
+	const sourceItem = reviewPackage.itemsById['source-high'];
+	const visibleItem = reviewPackage.itemsById['docs-plan'];
+	if (sourceItem === undefined || visibleItem === undefined) {
+		throw new Error('expected projection fixture items');
+	}
+	return {
+		reviewPackage,
+		selectedCodeViewItem: workerPreparedCodeViewItem(
+			materializeBridgeCodeViewLoadingItem(sourceItem),
+		),
+		selectedItemId: sourceItem.itemId,
+		visibleCodeViewItem: workerPreparedCodeViewItem(
+			materializeBridgeCodeViewLoadingItem(visibleItem),
+		),
+	};
+}
+
+function selectFixtureItems(props: {
+	readonly fixture: SelectorFixture;
+	readonly selector: ReturnType<typeof createBridgeCodeViewMetadataDeltaItemsForPanelSelector>;
+}): readonly BridgeCodeViewItem[] {
+	return props.selector({
+		reviewPackage: props.fixture.reviewPackage,
+		selectedCodeViewItem: props.fixture.selectedCodeViewItem,
+		selectedItemId: props.fixture.selectedItemId,
+		selectedItemPresentation: null,
+		sourceKey: 'source-a',
+		visibleCodeViewItems: [props.fixture.visibleCodeViewItem],
+	});
+}
 
 function workerPreparedCodeViewItem(item: BridgeCodeViewItem): BridgeMainCodeViewItem {
 	return {

@@ -124,6 +124,7 @@ describe('Bridge comm worker review preparation', () => {
 			},
 		});
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [makeWorkerReviewContentMetadata()],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 		});
@@ -202,6 +203,7 @@ describe('Bridge comm worker review preparation', () => {
 			now: () => 0,
 		});
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [makeWorkerReviewContentMetadata()],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 		});
@@ -274,6 +276,7 @@ describe('Bridge comm worker review preparation', () => {
 			now: () => 0,
 		});
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [
 				makeWorkerReviewContentMetadata('item-1'),
 				makeWorkerReviewContentMetadata('item-2'),
@@ -349,6 +352,7 @@ describe('Bridge comm worker review preparation', () => {
 			now: () => 0,
 		});
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [
 				makeWorkerReviewContentMetadata('item-1'),
 				makeWorkerReviewContentMetadata('item-2'),
@@ -426,6 +430,7 @@ describe('Bridge comm worker review preparation', () => {
 			now: () => 0,
 		});
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [
 				makeWorkerReviewContentMetadata('item-1'),
 				makeWorkerReviewContentMetadata('item-2'),
@@ -493,6 +498,7 @@ describe('Bridge comm worker review preparation', () => {
 			now: () => 0,
 		});
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [makeWorkerReviewContentMetadata()],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 		});
@@ -558,6 +564,7 @@ describe('Bridge comm worker review preparation', () => {
 			},
 		});
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [
 				{
 					...makeWorkerReviewContentMetadata(),
@@ -685,6 +692,7 @@ describe('Bridge comm worker review preparation', () => {
 			now: () => clockMs,
 		});
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [makeWorkerReviewContentMetadata()],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 		});
@@ -770,6 +778,7 @@ describe('Bridge comm worker review preparation', () => {
 			now: () => 0,
 		});
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [],
 			rows: [{ id: 'item-without-metadata', parentId: null, index: 0 }],
 		});

@@ -6,7 +6,6 @@ import {
 	bridgeProductSurfaceSchema,
 	type BridgeProductSurface,
 } from './bridge-product-contract-primitives.js';
-import type { BridgeWorkerSemanticWindowIdentity } from './bridge-worker-semantic-identity.js';
 
 const bridgeWorkerRenderTimestampSchema = z
 	.number()
@@ -17,7 +16,10 @@ const bridgeWorkerRenderWindowKeySchema = z.string().min(1).max(4096);
 
 const bridgeWorkerRenderReceiptIdentityShape = {
 	attemptId: bridgeProductIdentifierSchema,
+	itemId: bridgeWorkerRenderWindowKeySchema,
 	paneSessionId: bridgeProductIdentifierSchema,
+	publicationId: bridgeProductIdentifierSchema,
+	publicationSequence: bridgeProductNonnegativeSequenceSchema,
 	submissionId: bridgeProductIdentifierSchema,
 	surface: bridgeProductSurfaceSchema,
 	windowKey: bridgeWorkerRenderWindowKeySchema,
@@ -31,9 +33,16 @@ const bridgeWorkerRenderReceiptBaseShape = {
 	receivedAtMilliseconds: bridgeWorkerRenderTimestampSchema,
 } as const;
 
+export const bridgeWorkerRenderReceiptIdentitySchema = z
+	.object(bridgeWorkerRenderReceiptIdentityShape)
+	.strict();
+
 const bridgeWorkerRenderFulfillmentIdentitySchema = z
 	.object({
+		itemId: bridgeWorkerRenderWindowKeySchema,
 		paneSessionId: bridgeProductIdentifierSchema,
+		publicationId: bridgeProductIdentifierSchema,
+		publicationSequence: bridgeProductNonnegativeSequenceSchema,
 		submissionId: bridgeProductIdentifierSchema,
 		surface: bridgeProductSurfaceSchema,
 		workerDerivationEpoch: bridgeProductNonnegativeSequenceSchema,
@@ -128,13 +137,26 @@ export interface BridgeWorkerRenderContext {
 
 export interface BridgeWorkerRenderReceiptIdentity extends BridgeWorkerRenderContext {
 	readonly attemptId: string;
+	readonly itemId: string;
+	readonly publicationId: string;
+	readonly publicationSequence: number;
 	readonly submissionId: string;
 	readonly windowKey: string;
 }
 
-type BridgeWorkerRenderDispositionReceipt = Readonly<
+export type BridgeWorkerRenderDispositionReceipt = Readonly<
 	z.infer<typeof bridgeWorkerRenderDispositionReceiptSchema>
 >;
+
+class BridgeWorkerRenderReceiptRejectionError extends Error {
+	override readonly name = 'BridgeWorkerRenderReceiptRejectionError';
+}
+
+export function isBridgeWorkerRenderReceiptRejectionError(
+	error: unknown,
+): error is Error {
+	return error instanceof BridgeWorkerRenderReceiptRejectionError;
+}
 type BridgeWorkerReceiptLeaseExpired = Readonly<
 	z.infer<typeof bridgeWorkerReceiptLeaseExpiredSchema>
 >;
@@ -173,8 +195,15 @@ type BridgeWorkerClosedRenderAttempt =
 
 export type BridgeWorkerPaintedResidency = BridgeWorkerRenderReceiptIdentity;
 
+export interface BridgeWorkerRenderWindowIdentity {
+	readonly windowKey: string;
+}
+
 export interface BridgeWorkerRenderFulfillmentState extends BridgeWorkerRenderContext {
-	readonly identity: BridgeWorkerSemanticWindowIdentity;
+	readonly identity: BridgeWorkerRenderWindowIdentity;
+	readonly itemId: string;
+	readonly publicationId: string;
+	readonly publicationSequence: number;
 	readonly submissionId: string;
 	readonly stage: BridgeWorkerRenderFulfillmentStage;
 	readonly isDesired: boolean;
@@ -200,15 +229,21 @@ export type BridgeWorkerRenderFulfillmentEvent =
 	| BridgeWorkerSelectionAcceptedReceipt;
 
 export function createBridgeWorkerRenderFulfillment(props: {
-	readonly identity: BridgeWorkerSemanticWindowIdentity;
+	readonly identity: BridgeWorkerRenderWindowIdentity;
+	readonly itemId: string;
 	readonly paneSessionId: string;
+	readonly publicationId: string;
+	readonly publicationSequence: number;
 	readonly submissionId: string;
 	readonly surface: BridgeProductSurface;
 	readonly workerDerivationEpoch: number;
 	readonly workerInstanceId: string;
 }): BridgeWorkerRenderFulfillmentState {
 	const fulfillmentIdentity = bridgeWorkerRenderFulfillmentIdentitySchema.parse({
+		itemId: props.itemId,
 		paneSessionId: props.paneSessionId,
+		publicationId: props.publicationId,
+		publicationSequence: props.publicationSequence,
 		submissionId: props.submissionId,
 		surface: props.surface,
 		workerDerivationEpoch: props.workerDerivationEpoch,
@@ -293,11 +328,15 @@ function applyRenderDisposition(
 		if (matchingClosedAttempt.disposition === event.disposition && matchingReason === eventReason) {
 			return state;
 		}
-		throw new Error('Bridge render attempt received a conflicting terminal disposition.');
+		throw new BridgeWorkerRenderReceiptRejectionError(
+			'Bridge render attempt received a conflicting terminal disposition.',
+		);
 	}
 	const activeAttempt = state.activeAttempt;
 	if (activeAttempt === null || activeAttempt.attemptId !== event.attemptId) {
-		throw new Error('Bridge render disposition does not match the active attempt.');
+		throw new BridgeWorkerRenderReceiptRejectionError(
+			'Bridge render disposition does not match the active attempt.',
+		);
 	}
 
 	if (event.disposition === 'rejected' || event.disposition === 'superseded') {
@@ -319,7 +358,7 @@ function applyRenderDisposition(
 		return state;
 	}
 	if (event.disposition !== expectedDisposition) {
-		throw new Error(
+		throw new BridgeWorkerRenderReceiptRejectionError(
 			`Bridge render disposition is out of order: expected ${expectedDisposition}, received ${event.disposition}.`,
 		);
 	}
@@ -334,7 +373,10 @@ function applyRenderDisposition(
 			]),
 			paintedResidency: Object.freeze({
 				attemptId: event.attemptId,
+				itemId: state.itemId,
 				paneSessionId: state.paneSessionId,
+				publicationId: state.publicationId,
+				publicationSequence: state.publicationSequence,
 				submissionId: state.submissionId,
 				surface: state.surface,
 				windowKey: state.identity.windowKey,
@@ -415,33 +457,44 @@ function assertRenderReceiptIdentity(
 	event: BridgeWorkerRenderReceiptTransition,
 ): void {
 	if (
+		event.itemId !== state.itemId ||
 		event.paneSessionId !== state.paneSessionId ||
+		event.publicationId !== state.publicationId ||
+		event.publicationSequence !== state.publicationSequence ||
 		event.workerInstanceId !== state.workerInstanceId ||
 		event.surface !== state.surface ||
 		event.workerDerivationEpoch !== state.workerDerivationEpoch
 	) {
-		throw new Error('Bridge render receipt context does not match current fulfillment.');
+		throw new BridgeWorkerRenderReceiptRejectionError(
+			'Bridge render receipt context does not match current fulfillment.',
+		);
 	}
 	if (event.submissionId !== state.submissionId) {
-		throw new Error(
+		throw new BridgeWorkerRenderReceiptRejectionError(
 			'Bridge render receipt submission identity does not match current fulfillment.',
 		);
 	}
 	if (event.windowKey !== state.identity.windowKey) {
-		throw new Error('Bridge render receipt window identity does not match current fulfillment.');
+		throw new BridgeWorkerRenderReceiptRejectionError(
+			'Bridge render receipt window identity does not match current fulfillment.',
+		);
 	}
 	if (event.kind !== 'render.disposition') {
 		return;
 	}
 	if (!Number.isFinite(event.receivedAtMilliseconds)) {
-		throw new Error('Bridge render disposition requires a finite receive timestamp.');
+		throw new BridgeWorkerRenderReceiptRejectionError(
+			'Bridge render disposition requires a finite receive timestamp.',
+		);
 	}
 	if (
 		event.receivedAtMilliseconds < 0 ||
 		(state.activeAttempt !== null &&
 			event.receivedAtMilliseconds > state.activeAttempt.receiptLeaseExpiresAtMilliseconds)
 	) {
-		throw new Error('Bridge render disposition arrived outside its receipt lease.');
+		throw new BridgeWorkerRenderReceiptRejectionError(
+			'Bridge render disposition arrived outside its receipt lease.',
+		);
 	}
 }
 
@@ -481,7 +534,9 @@ function requiredRetryAt(
 	event: Extract<BridgeWorkerRenderDispositionReceipt, { disposition: 'rejected' | 'superseded' }>,
 ): number {
 	if (event.retryAtMilliseconds < event.receivedAtMilliseconds) {
-		throw new Error('Bridge rejected render disposition requires bounded retry timing.');
+		throw new BridgeWorkerRenderReceiptRejectionError(
+			'Bridge rejected render disposition requires bounded retry timing.',
+		);
 	}
 	return event.retryAtMilliseconds;
 }
@@ -513,7 +568,7 @@ export type BridgeWorkerContentAvailability =
 	| 'failed';
 
 export interface BridgeWorkerContentAvailabilityState {
-	readonly identity: BridgeWorkerSemanticWindowIdentity;
+	readonly identity: BridgeWorkerRenderWindowIdentity;
 	readonly state: BridgeWorkerContentAvailability;
 }
 

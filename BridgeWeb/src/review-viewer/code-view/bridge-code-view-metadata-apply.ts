@@ -10,6 +10,10 @@ export interface BridgeCodeViewMetadataReconcileProps {
 	readonly forceReplaceItemIds?: readonly string[];
 	readonly getCurrentItem: (itemId: string) => CodeViewItem | undefined;
 	readonly metadataItems: readonly BridgeCodeViewItem[];
+	readonly preparePresentationItem?: (props: {
+		readonly currentItem: BridgeCodeViewItem | undefined;
+		readonly metadataItem: BridgeCodeViewItem;
+	}) => BridgeCodeViewItem;
 	readonly preserveItemIds?: readonly string[];
 }
 

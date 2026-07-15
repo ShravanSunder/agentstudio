@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
 import { BridgeViewerResizableRailLayout } from '../../app/bridge-viewer-resizable-rail-layout.js';
+import { createBridgeMainRenderFulfillmentCoordinator } from '../../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import {
 	createBridgeReviewItemRegistry,
 	readBridgeReviewItemRegistryDiagnostics,
@@ -26,6 +27,15 @@ import {
 	ReviewViewerShell,
 	type ReviewViewerShellProps,
 } from './review-viewer-shell.js';
+
+const shellTestRenderFulfillmentCoordinator = createBridgeMainRenderFulfillmentCoordinator({
+	cancelAnimationFrame: (_frameHandle): void => {},
+	nowMilliseconds: (): number => 0,
+	requestAnimationFrame: (_callback): number => {
+		throw new Error('Review shell integration fixtures must not schedule paint validation.');
+	},
+	sendDisposition: (_receipt): void => {},
+});
 
 describe('review viewer shell', () => {
 	test('does not rebuild package registry facts when only selection changes', () => {
@@ -658,14 +668,18 @@ describe('review viewer shell', () => {
 });
 
 function renderReviewViewerShellForTest(
-	props: Omit<ReviewViewerShellProps, 'presentationRegistry'> & {
+	props: Omit<ReviewViewerShellProps, 'presentationRegistry' | 'renderFulfillmentCoordinator'> & {
 		readonly presentationRegistry?: BridgeReviewItemRegistry;
 	},
 ): ReactElement {
 	const presentationRegistry =
 		props.presentationRegistry ??
 		createBridgeReviewItemRegistry({ reviewPackage: props.reviewPackage });
-	return ReviewViewerShell({ ...props, presentationRegistry });
+	return ReviewViewerShell({
+		...props,
+		presentationRegistry,
+		renderFulfillmentCoordinator: shellTestRenderFulfillmentCoordinator,
+	});
 }
 
 function appendedReviewPackageForShell(

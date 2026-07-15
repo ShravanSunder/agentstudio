@@ -6,6 +6,7 @@ import type { BridgeWorkerFileViewContentMetadata } from './bridge-worker-contra
 describe('Bridge comm worker File source mutation', () => {
 	test('deletes stale availability for one affected non-visible item without touching peers', () => {
 		const store = createBridgeCommWorkerStore({
+			surface: 'file',
 			contentItems: [makeContentMetadata('file-1'), makeContentMetadata('file-2')],
 			rows: [
 				{ id: 'file-1', index: 0, parentId: null },

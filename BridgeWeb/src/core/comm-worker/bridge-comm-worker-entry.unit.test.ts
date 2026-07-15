@@ -13,6 +13,7 @@ import {
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerSelectCommand,
 } from './bridge-comm-worker-protocol.js';
+import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 import {
 	createBridgeCommWorkerReviewProductTestSource,
@@ -105,6 +106,7 @@ describe('Bridge comm worker entry', () => {
 				maxWindowLines: 50,
 			},
 			publicationSequence: 1,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 1, surface: 'review', workerDerivationEpoch: 1 }),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -165,6 +167,7 @@ describe('Bridge comm worker entry', () => {
 				maxWindowLines: 50,
 			},
 			publicationSequence: 1,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 1, surface: 'review', workerDerivationEpoch: 1 }),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:file',

@@ -1,6 +1,6 @@
+import type { CodeViewFileItem } from '@pierre/diffs';
+
 import type { BridgeWorkerCodeViewFileItem } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
-import type { BridgeCodeViewItem } from '../review-viewer/code-view/bridge-code-view-materialization.js';
-import { bridgePierreOptionalHighlightLanguage } from '../review-viewer/workers/pierre/bridge-pierre-language-normalization.js';
 import type { BridgeFileViewerOpenState } from './bridge-file-viewer-display-model.js';
 
 export type BridgeFileViewerCodePanelState = BridgeFileViewerOpenState;
@@ -9,29 +9,28 @@ export type BridgeFileViewerSelectedCodeViewItem = BridgeWorkerCodeViewFileItem;
 export function bridgeFileViewerCodeViewItemsForPanelState(props: {
 	readonly openFileState: BridgeFileViewerCodePanelState;
 	readonly selectedCodeViewItem: BridgeFileViewerSelectedCodeViewItem | null;
-}): readonly BridgeCodeViewItem[] {
-	if (props.selectedCodeViewItem !== null) {
-		return [bridgeFileViewerPierreCodeViewItemFromSelectedItem(props.selectedCodeViewItem)];
+}): readonly (BridgeFileViewerSelectedCodeViewItem & CodeViewFileItem)[] {
+	if (props.selectedCodeViewItem !== null && isExactPierreFileItem(props.selectedCodeViewItem)) {
+		return [props.selectedCodeViewItem];
 	}
 	return [];
 }
 
-function bridgeFileViewerPierreCodeViewItemFromSelectedItem(
+function isExactPierreFileItem(
 	item: BridgeFileViewerSelectedCodeViewItem,
-): BridgeCodeViewItem {
-	const normalizedLanguage = bridgePierreOptionalHighlightLanguage(item.file.lang);
-	return {
-		id: item.id,
-		type: item.type,
-		file: {
-			name: item.file.name,
-			contents: item.file.contents,
-			...(normalizedLanguage === undefined ? {} : { lang: normalizedLanguage }),
-			...(item.file.header === undefined ? {} : { header: item.file.header }),
-			...(item.file.cacheKey === undefined ? {} : { cacheKey: item.file.cacheKey }),
-		},
-		...(item.version === undefined ? {} : { version: item.version }),
-		...(item.collapsed === undefined ? {} : { collapsed: item.collapsed }),
-		bridgeMetadata: item.bridgeMetadata,
-	} satisfies BridgeCodeViewItem;
+): item is BridgeFileViewerSelectedCodeViewItem & CodeViewFileItem {
+	return (
+		optionalFieldIsAbsentOrDefined(item, 'collapsed') &&
+		optionalFieldIsAbsentOrDefined(item, 'version') &&
+		optionalFieldIsAbsentOrDefined(item.file, 'cacheKey') &&
+		optionalFieldIsAbsentOrDefined(item.file, 'header') &&
+		optionalFieldIsAbsentOrDefined(item.file, 'lang')
+	);
+}
+
+function optionalFieldIsAbsentOrDefined<
+	TRecord extends Readonly<Record<string, unknown>>,
+	TKey extends keyof TRecord,
+>(record: TRecord, key: TKey): boolean {
+	return record[key] !== undefined || !Object.hasOwn(record, key);
 }

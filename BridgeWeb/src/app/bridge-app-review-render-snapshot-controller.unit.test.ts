@@ -3,6 +3,10 @@ import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
 
+import {
+	createBridgeMainRenderFulfillmentCoordinator,
+	type BridgeMainRenderFulfillmentCoordinator,
+} from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import { createBridgeMainRenderSnapshotStore } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type {
@@ -15,6 +19,7 @@ import {
 	buildBridgeWorkerPierreRenderJob,
 	type BridgeWorkerPierreRenderJob,
 } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
+import { makeBridgeWorkerRenderReceiptIdentity } from '../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
 import type { BridgeWorkerRpcCommandInput } from '../core/comm-worker/bridge-worker-rpc-client.js';
 import type { BridgeWorkerRpcLifecycleSnapshot } from '../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
 import {
@@ -197,6 +202,12 @@ describe('Bridge app review render snapshot controller', () => {
 				},
 			],
 			kind: 'reviewPierreRenderJob',
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: job.itemId,
+				publicationSequence: 7,
+				surface: 'review',
+				workerDerivationEpoch: 4,
+			}),
 			workerDerivationEpoch: 4,
 			job,
 		} satisfies BridgeWorkerReviewPierreRenderJobEvent;
@@ -206,10 +217,12 @@ describe('Bridge app review render snapshot controller', () => {
 				submittedJobs.push(receivedJob);
 			},
 		};
+		const renderFulfillmentCoordinator = createTestRenderFulfillmentCoordinator();
 
 		applyBridgeWorkerMessagesToMainRenderSnapshotStore({
 			messages: [event],
 			pierreCourier,
+			renderFulfillmentCoordinator,
 			renderSnapshotStore,
 		});
 
@@ -220,18 +233,18 @@ describe('Bridge app review render snapshot controller', () => {
 					readonly codeViewItemsById?: Readonly<Record<string, unknown>>;
 				}
 			).codeViewItemsById?.['item-1'],
-		).toEqual(job.payload.item);
+		).toEqual({ ...job.payload.item, version: 1 });
 	});
 
-	test('does not replay duplicate worker Pierre render jobs through the main courier', () => {
+	test('keeps exact replay idempotent while admitting a fresh equivalent Pierre attempt', () => {
 		const renderSnapshotStore = createBridgeMainRenderSnapshotStore();
 		renderSnapshotStore.applyReviewDisplayPatchEvent(
 			reviewDisplayPatchEvent({ epoch: 4, itemIds: ['item-duplicate'], reset: true }),
 		);
 		const job = makeReviewPierreRenderJob('item-duplicate');
 		const event = makePierreRenderJobEvent(job);
-		const duplicateJob = makeReviewPierreRenderJob('item-duplicate');
-		const duplicateEvent = makePierreRenderJobEvent(duplicateJob);
+		const freshAttemptJob = makeReviewPierreRenderJob('item-duplicate');
+		const freshAttemptEvent = makePierreRenderJobEvent(freshAttemptJob, 4, 8);
 		const submittedJobs: BridgeWorkerPierreRenderJob[] = [];
 		let publishCount = 0;
 		const unsubscribe = renderSnapshotStore.subscribe(() => {
@@ -242,22 +255,40 @@ describe('Bridge app review render snapshot controller', () => {
 				submittedJobs.push(receivedJob);
 			},
 		};
+		const renderFulfillmentCoordinator = createTestRenderFulfillmentCoordinator();
 
 		applyBridgeWorkerMessagesToMainRenderSnapshotStore({
 			messages: [event],
 			pierreCourier,
+			renderFulfillmentCoordinator,
 			renderSnapshotStore,
 		});
 		applyBridgeWorkerMessagesToMainRenderSnapshotStore({
-			messages: [duplicateEvent],
+			messages: [event],
 			pierreCourier,
+			renderFulfillmentCoordinator,
 			renderSnapshotStore,
 		});
 
 		expect(submittedJobs).toEqual([job]);
 		expect(publishCount).toBe(1);
+		const firstPresentedItem =
+			renderSnapshotStore.getSnapshot().codeViewItemsById['item-duplicate'];
+		expect(firstPresentedItem).not.toBe(job.payload.item);
+		expect(firstPresentedItem).toEqual({ ...job.payload.item, version: 1 });
+
+		applyBridgeWorkerMessagesToMainRenderSnapshotStore({
+			messages: [freshAttemptEvent],
+			pierreCourier,
+			renderFulfillmentCoordinator,
+			renderSnapshotStore,
+		});
+
+		expect(freshAttemptJob.payload.item).not.toBe(job.payload.item);
+		expect(submittedJobs).toEqual([job, freshAttemptJob]);
+		expect(publishCount).toBe(2);
 		expect(renderSnapshotStore.getSnapshot().codeViewItemsById['item-duplicate']).toBe(
-			job.payload.item,
+			freshAttemptJob.payload.item,
 		);
 
 		unsubscribe();
@@ -282,22 +313,26 @@ describe('Bridge app review render snapshot controller', () => {
 				submittedJobs.push(receivedJob);
 			},
 		};
+		const renderFulfillmentCoordinator = createTestRenderFulfillmentCoordinator();
 
 		applyBridgeWorkerMessagesToMainRenderSnapshotStore({
 			messages: [event],
 			pierreCourier,
+			renderFulfillmentCoordinator,
 			renderSnapshotStore,
 		});
 		applyBridgeWorkerMessagesToMainRenderSnapshotStore({
 			messages: [retargetedEvent],
 			pierreCourier,
+			renderFulfillmentCoordinator,
 			renderSnapshotStore,
 		});
 
 		expect(submittedJobs).toEqual([job, retargetedJob]);
-		expect(renderSnapshotStore.getSnapshot().codeViewItemsById['item-retargeted']).toBe(
-			retargetedJob.payload.item,
-		);
+		const retargetedPresentedItem =
+			renderSnapshotStore.getSnapshot().codeViewItemsById['item-retargeted'];
+		expect(retargetedPresentedItem).not.toBe(retargetedJob.payload.item);
+		expect(retargetedPresentedItem).toEqual({ ...retargetedJob.payload.item, version: 1 });
 	});
 
 	test('review worker courier accepts worker Pierre jobs without minting a receipt', () => {
@@ -426,10 +461,12 @@ describe('Bridge app review render snapshot controller', () => {
 				],
 			},
 		] satisfies readonly BridgeWorkerServerToMainMessage[];
+		const renderFulfillmentCoordinator = createTestRenderFulfillmentCoordinator();
 
 		applyBridgeWorkerMessagesToMainRenderSnapshotStore({
 			messages,
 			pierreCourier,
+			renderFulfillmentCoordinator,
 			renderSnapshotStore,
 		});
 
@@ -452,6 +489,7 @@ describe('Bridge app review render snapshot controller', () => {
 		const pierreCourier: BridgeWorkerPierreCourier = {
 			submit: (_receivedJob: BridgeWorkerPierreRenderJob): void => {},
 		};
+		const renderFulfillmentCoordinator = createTestRenderFulfillmentCoordinator();
 		let publishCount = 0;
 		const unsubscribe = renderSnapshotStore.subscribe(() => {
 			publishCount += 1;
@@ -488,6 +526,7 @@ describe('Bridge app review render snapshot controller', () => {
 				},
 			],
 			pierreCourier,
+			renderFulfillmentCoordinator,
 			renderSnapshotStore,
 		});
 
@@ -512,9 +551,11 @@ describe('Bridge app review render snapshot controller', () => {
 				submittedJobs.push(receivedJob);
 			},
 		};
+		const renderFulfillmentCoordinator = createTestRenderFulfillmentCoordinator();
 		applyBridgeWorkerMessagesToMainRenderSnapshotStore({
 			messages: [reviewDisplayPatchEvent({ epoch: 7, itemIds: [itemId], reset: true })],
 			pierreCourier,
+			renderFulfillmentCoordinator,
 			renderSnapshotStore,
 		});
 		renderSnapshotStore.setLocalSelection({ selectedItemId: itemId, source: 'user' });
@@ -525,16 +566,19 @@ describe('Bridge app review render snapshot controller', () => {
 				reviewRenderPatchEvent({ epoch: 7, itemId, publicationSequence: 1 }),
 			],
 			pierreCourier,
+			renderFulfillmentCoordinator,
 			renderSnapshotStore,
 		});
-		expect(renderSnapshotStore.getReviewCodeViewItemSnapshot(itemId)).toBe(
-			epochSevenJob.payload.item,
-		);
+		expect(renderSnapshotStore.getReviewCodeViewItemSnapshot(itemId)).toEqual({
+			...epochSevenJob.payload.item,
+			version: 1,
+		});
 
 		// Act: a newer accepted display epoch rotates the Review source before delayed epoch-seven work.
 		applyBridgeWorkerMessagesToMainRenderSnapshotStore({
 			messages: [reviewDisplayPatchEvent({ epoch: 8, itemIds: [itemId], reset: true })],
 			pierreCourier,
+			renderFulfillmentCoordinator,
 			renderSnapshotStore,
 		});
 		const submittedJobCountBeforeStaleMessages = submittedJobs.length;
@@ -544,6 +588,7 @@ describe('Bridge app review render snapshot controller', () => {
 				reviewRenderPatchEvent({ epoch: 7, itemId, publicationSequence: 2 }),
 			],
 			pierreCourier,
+			renderFulfillmentCoordinator,
 			renderSnapshotStore,
 		});
 
@@ -563,20 +608,33 @@ describe('Bridge app review render snapshot controller', () => {
 				reviewRenderPatchEvent({ epoch: 8, itemId, publicationSequence: 3 }),
 			],
 			pierreCourier,
+			renderFulfillmentCoordinator,
 			renderSnapshotStore,
 		});
 
 		// Assert
 		expect(submittedJobs.at(-1)).toBe(epochEightJob);
-		expect(renderSnapshotStore.getReviewCodeViewItemSnapshot(itemId)).toBe(
-			epochEightJob.payload.item,
-		);
+		expect(renderSnapshotStore.getReviewCodeViewItemSnapshot(itemId)).toEqual({
+			...epochEightJob.payload.item,
+			version: 1,
+		});
 		expect(renderSnapshotStore.getReviewAvailabilitySnapshot(itemId)).toEqual({ state: 'ready' });
 		expect(renderSnapshotStore.getSnapshot().rowPaintById[itemId]).toEqual({
 			status: 'modified',
 		});
 	});
 });
+
+function createTestRenderFulfillmentCoordinator(): BridgeMainRenderFulfillmentCoordinator {
+	return createBridgeMainRenderFulfillmentCoordinator({
+		cancelAnimationFrame: (_frameHandle): void => {},
+		nowMilliseconds: (): number => 0,
+		requestAnimationFrame: (_callback): number => {
+			throw new Error('Review controller fixture must not schedule paint validation.');
+		},
+		sendDisposition: (_receipt): void => {},
+	});
+}
 
 function makeReviewSurfaceClient(
 	sentCommands: BridgeWorkerRpcCommandInput[],
@@ -589,6 +647,7 @@ function makeReviewSurfaceClient(
 			getServerSnapshot: () => lifecycleSnapshot,
 			subscribe: () => (): void => {},
 		},
+		renderFulfillmentCoordinator: createTestRenderFulfillmentCoordinator(),
 		renderStore,
 		send: (command): string => {
 			sentCommands.push(command);
@@ -664,11 +723,12 @@ function makeReviewPierreRenderJob(itemId: string): BridgeWorkerPierreRenderJob 
 function makePierreRenderJobEvent(
 	job: BridgeWorkerPierreRenderJob,
 	workerDerivationEpoch = 4,
+	publicationSequence = 7,
 ): BridgeWorkerReviewPierreRenderJobEvent {
 	return {
 		wireVersion: 1,
 		direction: 'serverWorkerToMain',
-		publicationSequence: 7,
+		publicationSequence,
 		surface: 'review',
 		transferDescriptors: [
 			{
@@ -679,6 +739,12 @@ function makePierreRenderJobEvent(
 			},
 		],
 		kind: 'reviewPierreRenderJob',
+		renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+			itemId: job.itemId,
+			publicationSequence,
+			surface: 'review',
+			workerDerivationEpoch,
+		}),
 		workerDerivationEpoch,
 		job,
 	};

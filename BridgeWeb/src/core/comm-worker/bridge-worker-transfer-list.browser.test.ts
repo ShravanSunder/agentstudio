@@ -5,6 +5,7 @@ import {
 	type BridgeWorkerFilePierreRenderJobEvent,
 } from './bridge-worker-contracts.js';
 import { buildBridgeWorkerPierreRenderJob } from './bridge-worker-pierre-render-job.js';
+import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 import {
 	buildBridgeWorkerTransferList,
 	prepareBridgeWorkerStructuredMessage,
@@ -55,6 +56,12 @@ describe('Bridge worker transfer list browser transport', () => {
 				transferDescriptors: [],
 				kind: 'filePierreRenderJob',
 				publicationSequence: 1,
+				renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+					itemId: 'item-codeview-file',
+					publicationSequence: 1,
+					surface: 'file',
+					workerDerivationEpoch: 1,
+				}),
 				surface: 'file',
 				workerDerivationEpoch: 1,
 				job: buildBridgeWorkerPierreRenderJob({

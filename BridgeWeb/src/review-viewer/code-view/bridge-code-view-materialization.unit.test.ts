@@ -271,6 +271,53 @@ describe('Bridge CodeView materialization', () => {
 		expect(placeholder.fileDiff.additionLines).toEqual([]);
 	});
 
+	test('keeps an unresolved modified diff type-stable for later diff hydration', () => {
+		// Arrange
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const sourceHighItem = reviewPackage.itemsById['source-high'];
+		if (sourceHighItem === undefined) {
+			throw new Error('expected source fixture item');
+		}
+		const reviewPackageWithUnresolvedDiff = {
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				'source-high': {
+					...sourceHighItem,
+					changeKind: 'modified' as const,
+					contentLineCountsByRole: { base: 17, head: 19 },
+					contentRoles: { base: null, diff: null, file: null, head: null },
+					itemKind: 'diff' as const,
+				},
+			},
+		};
+		const projection = buildBridgeReviewProjection({
+			reviewPackage: reviewPackageWithUnresolvedDiff,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+
+		// Act
+		const placeholder = createBridgeCodeViewInitialItems({
+			reviewPackage: reviewPackageWithUnresolvedDiff,
+			projection,
+			seedItemIds: ['source-high'],
+		})[0];
+
+		// Assert
+		expect(placeholder?.type).toBe('diff');
+		if (placeholder?.type !== 'diff') {
+			throw new Error('expected unresolved modified descriptor to keep a diff placeholder');
+		}
+		expect(placeholder.bridgeMetadata).toMatchObject({
+			contentState: 'placeholder',
+			contentRoles: [],
+			itemId: 'source-high',
+			lineCount: 0,
+		});
+		expect(placeholder.fileDiff.deletionLines).toEqual([]);
+		expect(placeholder.fileDiff.additionLines).toEqual([]);
+	});
+
 	test('does not fabricate unloaded diff bodies from item-local change counts', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const sourceHighItem = reviewPackage.itemsById['source-high'];
@@ -544,9 +591,7 @@ describe('Bridge CodeView materialization', () => {
 		});
 		expect(countPierreContentLines(loadingItem.file.contents)).toBe(0);
 		expect(loadingItem.file.contents).not.toContain('Loading content...');
-		expect(loadingItem.file.cacheKey).toBe(
-			`${item.cacheKey}:placeholder:current:header-only`,
-		);
+		expect(loadingItem.file.cacheKey).toBe(`${item.cacheKey}:placeholder:current:header-only`);
 	});
 
 	test('does not turn file extent facts into current file-target loading bodies', () => {
@@ -572,9 +617,7 @@ describe('Bridge CodeView materialization', () => {
 		expect(loadingItem.bridgeMetadata.lineCount).toBe(0);
 		expect(countPierreContentLines(loadingItem.file.contents)).toBe(0);
 		expect(loadingItem.file.contents).not.toContain('Loading content...');
-		expect(loadingItem.file.cacheKey).toBe(
-			`${item.cacheKey}:placeholder:current:header-only`,
-		);
+		expect(loadingItem.file.cacheKey).toBe(`${item.cacheKey}:placeholder:current:header-only`);
 	});
 
 	test('does not reserve one-sided loading height from addition and deletion extents', () => {

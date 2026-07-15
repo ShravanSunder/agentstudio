@@ -25,7 +25,7 @@ describe('Bridge comm worker Review source reset', () => {
 			renderSemantics: [],
 			rows: [...rows],
 		};
-		const store = createBridgeCommWorkerStore({ contentItems: [], rows: [] });
+		const store = createBridgeCommWorkerStore({ contentItems: [], rows: [], surface: 'review' });
 		const pump = createWorkerContentPreparationPump({ maxSliceMs: 8, now: (): number => 0 });
 		const ticket = enqueueBridgeCommWorkerReviewSourceReset({
 			createSequence: (): number => 1,

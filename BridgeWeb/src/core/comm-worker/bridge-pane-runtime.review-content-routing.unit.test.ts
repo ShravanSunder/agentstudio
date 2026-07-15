@@ -13,6 +13,7 @@ import {
 	commitBridgeWorkerReviewContentReadyRenderPatch,
 	prepareBridgeWorkerReviewContentRenderJobEvent,
 } from './bridge-worker-review-content-ready.js';
+import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 
 describe('Bridge pane runtime Review content routing', () => {
 	test('delivers Review content-ready publications only to the Review surface client', () => {
@@ -57,6 +58,7 @@ describe('Bridge pane runtime Review content routing', () => {
 
 function makeReviewContentReadyPublications(): readonly BridgeWorkerServerToMainMessage[] {
 	const store = createBridgeCommWorkerStore({
+		surface: 'review',
 		contentItems: [makeWorkerReviewContentMetadata()],
 		rows: [{ id: 'item-1', parentId: null, index: 0 }],
 	});
@@ -68,6 +70,7 @@ function makeReviewContentReadyPublications(): readonly BridgeWorkerServerToMain
 			maxWindowLines: 50,
 		},
 		publicationSequence: 11,
+		renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 11, surface: 'review', workerDerivationEpoch: 7 }),
 		resources: [
 			makeFetchedReviewContentResource({
 				contentHash: 'sha256:item-1:base',

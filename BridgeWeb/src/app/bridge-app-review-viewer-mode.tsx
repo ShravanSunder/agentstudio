@@ -173,6 +173,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		codeViewWorkerFactory,
 		codeViewWorkerPoolEnabled,
 		presentationSnapshot,
+		renderFulfillmentCoordinator: reviewClient.renderFulfillmentCoordinator,
 		reviewSourceSlice,
 		selectedCodeViewItem,
 		selectedContentAvailability,
@@ -204,6 +205,7 @@ function reviewPresentationState(props: {
 	readonly codeViewWorkerFactory: (() => Worker) | undefined;
 	readonly codeViewWorkerPoolEnabled: boolean | undefined;
 	readonly presentationSnapshot: ReturnType<typeof bridgeReviewPresentationSnapshotForDisplay>;
+	readonly renderFulfillmentCoordinator: BridgePaneSurfaceClient['renderFulfillmentCoordinator'];
 	readonly reviewSourceSlice: BridgeReviewRenderSnapshotController['reviewSourceSlice'];
 	readonly selectedCodeViewItem: BridgeReviewRenderSnapshotController['selectedCodeViewItem'];
 	readonly selectedContentAvailability: BridgeReviewRenderSnapshotController['selectedContentAvailability'];
@@ -237,6 +239,7 @@ function reviewPresentationState(props: {
 		presentationKey: props.presentationSnapshot.presentationKey,
 		shellProps: {
 			presentationRegistry: props.presentationSnapshot.presentationRegistry,
+			renderFulfillmentCoordinator: props.renderFulfillmentCoordinator,
 			onCodeViewVisibleItemIdsChange: props.setReviewCodeViewVisibleItemIds,
 			onTreeSearchModeChange: props.onTreeSearchModeChange,
 			onTreeSearchOpen: props.onTreeSearchOpen,

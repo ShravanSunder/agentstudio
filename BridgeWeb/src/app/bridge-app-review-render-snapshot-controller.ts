@@ -6,6 +6,8 @@ import {
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from '../core/comm-worker/bridge-comm-worker-protocol.js';
+import { prepareBridgeMainPierreItemForPresentation } from '../core/comm-worker/bridge-main-pierre-item-adapter.js';
+import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import {
 	type BridgeMainCodeViewItem,
 	type BridgeMainRenderSnapshotStore,
@@ -24,7 +26,6 @@ import {
 } from '../core/comm-worker/bridge-worker-pierre-courier.js';
 import type { BridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import type { BridgeWorkerRpcLifecycleSnapshot } from '../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
-import { bridgeMainCodeViewItemSignature } from '../review-viewer/code-view/bridge-code-view-worker-prepared-items.js';
 
 export interface UseBridgeReviewRenderSnapshotControllerProps {
 	readonly pierreCourier: BridgeWorkerPierreCourier;
@@ -131,6 +132,7 @@ export function useBridgeReviewRenderSnapshotController(
 			applyBridgeWorkerMessagesToMainRenderSnapshotStore({
 				messages: [message],
 				pierreCourier,
+				renderFulfillmentCoordinator: props.reviewClient.renderFulfillmentCoordinator,
 				renderSnapshotStore: displayStore,
 			});
 		});
@@ -317,6 +319,10 @@ function useSelectedReviewStoreValue<TValue>(props: {
 export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 	readonly messages: readonly BridgeWorkerServerToMainMessage[];
 	readonly pierreCourier: BridgeWorkerPierreCourier;
+	readonly renderFulfillmentCoordinator: Pick<
+		BridgeMainRenderFulfillmentCoordinator,
+		'acceptPublication' | 'bindPublicationItem' | 'markPublicationQueued' | 'rejectPublication'
+	>;
 	readonly renderSnapshotStore: BridgeMainRenderSnapshotStore;
 }): void {
 	for (const message of props.messages) {
@@ -350,20 +356,42 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 			case 'reviewPierreRenderJob':
 				if (
 					!bridgeReviewPublicationMatchesDisplayEpoch(props.renderSnapshotStore, message) ||
-					!props.renderSnapshotStore.reviewCatalogContainsItem(message.job.itemId) ||
-					bridgeMainCodeViewItemMatchesExistingRenderSnapshot({
-						itemId: message.job.itemId,
-						nextItem: message.job.payload.item,
-						renderSnapshotStore: props.renderSnapshotStore,
-					})
+					!props.renderSnapshotStore.reviewCatalogContainsItem(message.job.itemId)
 				) {
+					props.renderFulfillmentCoordinator.rejectPublication(message, 'stale_submission');
 					break;
 				}
-				props.pierreCourier.submit(message.job);
+				if (props.renderFulfillmentCoordinator.acceptPublication(message) === 'duplicate') {
+					break;
+				}
+				const publicationItem = message.job.payload.item;
+				const currentItem = props.renderSnapshotStore.getReviewCodeViewItemSnapshot(
+					message.job.itemId,
+				);
+				if (currentItem === undefined) {
+					const preparedItem = prepareBridgeMainPierreItemForPresentation({
+						currentItem,
+						presentationItem: publicationItem,
+					});
+					props.renderFulfillmentCoordinator.bindPublicationItem({
+						finalItem: preparedItem.item,
+						publicationItem,
+						residency: preparedItem.residency,
+					});
+					props.renderSnapshotStore.setWorkerCodeViewItem({
+						item: preparedItem.item,
+						itemId: message.job.itemId,
+					});
+					props.pierreCourier.submit(message.job);
+					props.renderFulfillmentCoordinator.markPublicationQueued(message);
+					break;
+				}
 				props.renderSnapshotStore.setWorkerCodeViewItem({
-					item: message.job.payload.item,
+					item: publicationItem,
 					itemId: message.job.itemId,
 				});
+				props.pierreCourier.submit(message.job);
+				props.renderFulfillmentCoordinator.markPublicationQueued(message);
 				break;
 			default:
 				assertNeverBridgeWorkerServerMessage(message);
@@ -379,19 +407,6 @@ function bridgeReviewPublicationMatchesDisplayEpoch(
 	>,
 ): boolean {
 	return store.getSnapshot().reviewDisplayFreshness?.epoch === publication.workerDerivationEpoch;
-}
-
-function bridgeMainCodeViewItemMatchesExistingRenderSnapshot(props: {
-	readonly itemId: string;
-	readonly nextItem: BridgeMainCodeViewItem;
-	readonly renderSnapshotStore: BridgeMainRenderSnapshotStore;
-}): boolean {
-	const previousItem = props.renderSnapshotStore.getReviewCodeViewItemSnapshot(props.itemId);
-	return (
-		previousItem !== undefined &&
-		bridgeMainCodeViewItemSignature(previousItem) ===
-			bridgeMainCodeViewItemSignature(props.nextItem)
-	);
 }
 
 export function createBridgeReviewWorkerPierreCourier(): BridgeWorkerPierreCourier {

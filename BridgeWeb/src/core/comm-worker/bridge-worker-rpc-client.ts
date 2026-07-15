@@ -96,7 +96,7 @@ export function createBridgeWorkerRpcClient(
 		send: (command): string => {
 			if (isDisposed) throw new Error('Bridge worker RPC client is disposed.');
 			assertBridgeWorkerCommandMatchesSurface(command, props.surface);
-			if (!bridgeWorkerCommandMatchesSurface(command.command, props.surface)) {
+			if (!bridgeWorkerCommandMatchesSurface(command, props.surface)) {
 				throw new Error(
 					`Bridge worker ${command.command} command does not belong to ${props.surface} surface.`,
 				);
@@ -141,10 +141,10 @@ export function createBridgeWorkerRpcClient(
 }
 
 function bridgeWorkerCommandMatchesSurface(
-	command: BridgeWorkerMainToServerMessage['command'],
+	command: BridgeWorkerRpcCommandInput,
 	surface: BridgeWorkerRpcClientSurface,
 ): boolean {
-	switch (command) {
+	switch (command.command) {
 		case 'fileDisplayResync':
 		case 'fileQueryUpdate':
 			return surface === 'fileView';
@@ -153,6 +153,10 @@ function bridgeWorkerCommandMatchesSurface(
 		case 'reviewIntakeReady':
 		case 'reviewInvalidate':
 			return surface === 'review';
+		case 'renderDisposition':
+			return command.receipt.surface === 'file'
+				? surface === 'fileView'
+				: surface === 'review';
 		case 'hover':
 		case 'select':
 		case 'viewport':
@@ -168,11 +172,16 @@ function assertBridgeWorkerCommandMatchesSurface(
 	command: BridgeWorkerRpcCommandInput,
 	surface: BridgeWorkerRpcClientSurface,
 ): void {
-	if (
-		command.command !== 'hover' &&
-		command.command !== 'select' &&
-		command.command !== 'viewport'
-	) {
+	if (command.command === 'renderDisposition') {
+		const receiptSurface = command.receipt.surface === 'file' ? 'fileView' : 'review';
+		if (receiptSurface !== surface) {
+			throw new Error(
+				`Bridge worker renderDisposition command targets ${receiptSurface}, not ${surface}.`,
+			);
+		}
+		return;
+	}
+	if (command.command !== 'hover' && command.command !== 'select' && command.command !== 'viewport') {
 		return;
 	}
 	const interactionCommand = command as BridgeWorkerRpcCommandInput & {

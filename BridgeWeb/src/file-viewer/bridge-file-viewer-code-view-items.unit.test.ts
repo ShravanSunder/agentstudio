@@ -55,6 +55,7 @@ describe('Bridge File viewer CodeView items', () => {
 		});
 
 		expect(items).toHaveLength(1);
+		expect(items[0]).toBe(pierreItem);
 		const item = items[0];
 		expect(item?.type).toBe('file');
 		if (item?.type !== 'file') {

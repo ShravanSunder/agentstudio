@@ -10,10 +10,12 @@ import {
 	commitBridgeWorkerFileViewContentReadyRenderPatch,
 	prepareBridgeWorkerFileViewContentRenderJobEvent,
 } from './bridge-worker-file-view-content-ready.js';
+import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 
 describe('Bridge worker File View content ready', () => {
 	test('prepares File View Pierre job events without publishing ready before courier acceptance', () => {
 		const store = createBridgeCommWorkerStore({
+			surface: 'file',
 			contentItems: [makeWorkerFileViewContentMetadata()],
 			rows: [{ id: 'file-1', parentId: null, index: 0 }],
 		});
@@ -27,6 +29,7 @@ describe('Bridge worker File View content ready', () => {
 			},
 			metadata: makeWorkerFileViewContentMetadata(),
 			publicationSequence: 23,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
 			resource: makeFetchedFileViewContentResource({
 				text: 'export const fileView = true;\n',
 			}),
@@ -98,6 +101,7 @@ describe('Bridge worker File View content ready', () => {
 
 	test('commits File View content-ready slice patches only after the render job is accepted', () => {
 		const store = createBridgeCommWorkerStore({
+			surface: 'file',
 			contentItems: [makeWorkerFileViewContentMetadata()],
 			rows: [{ id: 'file-1', parentId: null, index: 0 }],
 		});
@@ -110,6 +114,7 @@ describe('Bridge worker File View content ready', () => {
 			},
 			metadata: makeWorkerFileViewContentMetadata(),
 			publicationSequence: 23,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
 			resource: makeFetchedFileViewContentResource({
 				text: 'export const fileView = true;\n',
 			}),
@@ -191,6 +196,7 @@ describe('Bridge worker File View content ready', () => {
 				payloadLineCount: 4,
 			}),
 			publicationSequence: 23,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
 			resource: makeFetchedFileViewContentResource({
 				text: 'one\ntwo\nthree\nfour\n',
 			}),
@@ -234,6 +240,7 @@ describe('Bridge worker File View content ready', () => {
 				payloadLineCount: 5,
 			}),
 			publicationSequence: 23,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
 			resource: makeFetchedFileViewContentResource({
 				text: 'one\ntwo\nthree\nfour\nfive\n',
 			}),
@@ -266,6 +273,7 @@ describe('Bridge worker File View content ready', () => {
 				payloadLineCount: 5,
 			}),
 			publicationSequence: 23,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
 			resource: makeFetchedFileViewContentResource({
 				text: 'one\ntwo\nthree\nfour\nfive\n',
 			}),
@@ -327,6 +335,7 @@ describe('Bridge worker File View content ready', () => {
 					payloadLineCount: expectedLineCount,
 				}),
 				publicationSequence: 23,
+				renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
 				resource: makeFetchedFileViewContentResource({ text }),
 				workerDerivationEpoch: 17,
 			});
@@ -374,6 +383,7 @@ describe('Bridge worker File View content ready', () => {
 			},
 			metadata,
 			publicationSequence: 23,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
 			resource: makeFetchedFileViewContentResource({ text: 'a\n' }),
 			workerDerivationEpoch: 17,
 		});
@@ -400,6 +410,7 @@ describe('Bridge worker File View content ready', () => {
 				truncationKind: 'lineLimit',
 			}),
 			publicationSequence: 23,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
 			resource: makeFetchedFileViewContentResource({ sizeBytes: sourceByteCount, text }),
 			workerDerivationEpoch: 17,
 		});
@@ -409,6 +420,7 @@ describe('Bridge worker File View content ready', () => {
 
 	test('does not prepare ready jobs when File View content lacks a trustworthy hash', () => {
 		const store = createBridgeCommWorkerStore({
+			surface: 'file',
 			contentItems: [makeWorkerFileViewContentMetadata({ omitContentHash: true })],
 			rows: [{ id: 'file-1', parentId: null, index: 0 }],
 		});
@@ -422,6 +434,7 @@ describe('Bridge worker File View content ready', () => {
 			},
 			metadata: makeWorkerFileViewContentMetadata({ omitContentHash: true }),
 			publicationSequence: 23,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
 			resource: makeFetchedFileViewContentResource({
 				omitContentHash: true,
 				text: 'hashless content must not fake identity\n',
@@ -455,6 +468,7 @@ describe('Bridge worker File View content ready', () => {
 
 function expectNoPreparedJobForMetadata(metadata: BridgeWorkerFileViewContentMetadata): void {
 	const store = createBridgeCommWorkerStore({
+		surface: 'file',
 		contentItems: [metadata],
 		rows: [{ id: 'file-1', parentId: null, index: 0 }],
 	});
@@ -468,6 +482,7 @@ function expectNoPreparedJobForMetadata(metadata: BridgeWorkerFileViewContentMet
 		},
 		metadata,
 		publicationSequence: 23,
+		renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
 		resource: makeFetchedFileViewContentResource({
 			text: 'blocked metadata must not become text payload\n',
 		}),

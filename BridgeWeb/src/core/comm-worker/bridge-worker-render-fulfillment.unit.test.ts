@@ -113,6 +113,9 @@ describe('Bridge worker render fulfillment', () => {
 		let state = createBridgeWorkerRenderFulfillment({
 			...canonicalRenderContext,
 			identity,
+			itemId: 'item-11',
+			publicationId: 'render-publication-review-4-11',
+			publicationSequence: 11,
 			submissionId: 'submission-1',
 		});
 
@@ -410,6 +413,9 @@ function publishedFulfillment(): BridgeWorkerRenderFulfillmentState {
 	let state = createBridgeWorkerRenderFulfillment({
 		...canonicalRenderContext,
 		identity,
+		itemId: 'item-11',
+		publicationId: 'render-publication-review-4-11',
+		publicationSequence: 11,
 		submissionId: 'submission-1',
 	});
 	state = reduceBridgeWorkerRenderFulfillment(state, { kind: 'preparation.started' });
@@ -475,18 +481,24 @@ function disposition(dispositionKind: BridgeWorkerRenderDisposition): RenderDisp
 }
 
 function renderReceiptIdentity(): {
-	readonly paneSessionId: string;
-	readonly workerInstanceId: string;
-	readonly surface: 'review';
-	readonly workerDerivationEpoch: number;
 	readonly attemptId: string;
+	readonly itemId: string;
+	readonly paneSessionId: string;
+	readonly publicationId: string;
+	readonly publicationSequence: number;
 	readonly submissionId: string;
+	readonly surface: 'review';
 	readonly windowKey: string;
+	readonly workerDerivationEpoch: number;
+	readonly workerInstanceId: string;
 } {
 	const identity = createBridgeWorkerSemanticWindowIdentity(semanticIdentityInput);
 	return {
 		...canonicalRenderContext,
 		attemptId: 'attempt-1',
+		itemId: 'item-11',
+		publicationId: 'render-publication-review-4-11',
+		publicationSequence: 11,
 		submissionId: 'submission-1',
 		windowKey: identity.windowKey,
 	};

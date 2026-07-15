@@ -26,6 +26,11 @@ import {
 } from './bridge-comm-worker-store.js';
 import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
 import {
+	BridgeWorkerRenderFulfillmentRegistry,
+	type BridgeWorkerRenderFulfillmentIdentifierPurpose,
+	type BridgeWorkerRenderFulfillmentRegistryContext,
+} from './bridge-worker-render-fulfillment-registry.js';
+import {
 	isBridgeWorkerFileViewContentMetadata,
 	type BridgeWorkerFileViewContentMetadata,
 	type BridgeWorkerFileDisplayResyncCommand,
@@ -35,6 +40,7 @@ import {
 	type BridgeWorkerReviewContentRequestDescriptor,
 	type BridgeWorkerReviewInvalidateCommand,
 	type BridgeWorkerReviewRenderSemantics,
+	type BridgeWorkerRenderDispositionCommand,
 	type BridgeWorkerSelectCommand,
 	type BridgeWorkerServerToMainMessage,
 	type BridgeWorkerViewportCommand,
@@ -52,7 +58,16 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly renderSemantics?: readonly BridgeWorkerReviewRenderSemantics[];
 	readonly rows: readonly BridgeCommWorkerRow[];
 	readonly createSequence?: () => number;
+	readonly createRenderIdentifier?: (
+		purpose: BridgeWorkerRenderFulfillmentIdentifierPurpose,
+	) => string;
 	readonly now?: () => number;
+	readonly renderFulfillmentContext?: Omit<
+		BridgeWorkerRenderFulfillmentRegistryContext,
+		'surface'
+	>;
+	readonly renderReceiptLeaseDurationMilliseconds?: number;
+	readonly renderRetryBackoffMilliseconds?: number;
 	readonly scheduleDemandExecution?: (
 		request: BridgeCommWorkerDemandExecutionScheduleRequest,
 	) => void;
@@ -75,6 +90,10 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly requestFileDisplayResync?: (
 		command: BridgeWorkerFileDisplayResyncCommand,
 	) => readonly BridgeWorkerServerToMainMessage[];
+	readonly applyRenderDisposition?: (props: {
+		readonly command: BridgeWorkerRenderDispositionCommand;
+		readonly store: BridgeCommWorkerStore;
+	}) => readonly BridgeWorkerServerToMainMessage[];
 }
 
 export interface BridgeCommWorkerDemandExecutionScheduleRequest {
@@ -126,16 +145,37 @@ export interface BridgeCommWorkerCommandHandler {
 export function createBridgeCommWorkerCommandHandler(
 	props: CreateBridgeCommWorkerCommandHandlerProps,
 ): BridgeCommWorkerCommandHandler {
+	const renderFulfillmentContext = props.renderFulfillmentContext ?? {
+		paneSessionId: 'worker-local-unbound-pane',
+		workerInstanceId: 'worker-local-unbound-instance',
+	};
+	const createRenderFulfillmentRegistry = (
+		surface: BridgeWorkerRenderFulfillmentRegistryContext['surface'],
+	): BridgeWorkerRenderFulfillmentRegistry =>
+		new BridgeWorkerRenderFulfillmentRegistry({
+			context: { ...renderFulfillmentContext, surface },
+			...(props.createRenderIdentifier === undefined
+				? {}
+				: { createIdentifier: props.createRenderIdentifier }),
+			...(props.now === undefined ? {} : { now: props.now }),
+			receiptLeaseDurationMilliseconds:
+				props.renderReceiptLeaseDurationMilliseconds ?? 5000,
+			retryBackoffMilliseconds: props.renderRetryBackoffMilliseconds ?? 25,
+		});
 	const reviewStore = createBridgeCommWorkerStore({
 		contentItems: props.contentItems,
 		...(props.now === undefined ? {} : { now: props.now }),
+		renderFulfillmentRegistry: createRenderFulfillmentRegistry('review'),
 		rows: props.rows,
+		surface: 'review',
 		...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 	});
 	const fileViewStore = createBridgeCommWorkerStore({
 		contentItems: [],
 		...(props.now === undefined ? {} : { now: props.now }),
+		renderFulfillmentRegistry: createRenderFulfillmentRegistry('file'),
 		rows: [],
+		surface: 'file',
 		...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 	});
 	const createSequence = props.createSequence ?? createBridgeWorkerSequenceCounter();
@@ -252,6 +292,9 @@ export function createBridgeCommWorkerCommandHandler(
 				...(props.requestFileDisplayResync === undefined
 					? {}
 					: { requestFileDisplayResync: props.requestFileDisplayResync }),
+				...(props.applyRenderDisposition === undefined
+					? {}
+					: { applyRenderDisposition: props.applyRenderDisposition }),
 			});
 		},
 	};
@@ -280,6 +323,10 @@ interface HandleBridgeWorkerCommandProps {
 	readonly requestFileDisplayResync?: (
 		command: BridgeWorkerFileDisplayResyncCommand,
 	) => readonly BridgeWorkerServerToMainMessage[];
+	readonly applyRenderDisposition?: (props: {
+		readonly command: BridgeWorkerRenderDispositionCommand;
+		readonly store: BridgeCommWorkerStore;
+	}) => readonly BridgeWorkerServerToMainMessage[];
 }
 
 function handleBridgeWorkerCommand(
@@ -337,6 +384,14 @@ function handleBridgeWorkerCommand(
 					buildBridgeWorkerUnimplementedHealthEvent(props.message),
 				]
 			);
+		case 'renderDisposition':
+			return (
+				props.applyRenderDisposition?.({ command: props.message, store: props.store }) ??
+				applyBridgeWorkerRenderDispositionCommand({
+					command: props.message,
+					store: props.store,
+				})
+			);
 		case 'markFileViewed':
 		case 'metadataInterestUpdate':
 		case 'reviewIntakeReady':
@@ -348,6 +403,21 @@ function handleBridgeWorkerCommand(
 		default:
 			return assertNeverBridgeWorkerCommand(props.message);
 	}
+}
+
+function applyBridgeWorkerRenderDispositionCommand(props: {
+	readonly command: BridgeWorkerRenderDispositionCommand;
+	readonly store: BridgeCommWorkerStore;
+}): readonly BridgeWorkerServerToMainMessage[] {
+	const result = props.store.renderFulfillmentRegistry.applyDisposition(props.command.receipt);
+	return result.status === 'rejected'
+		? [
+				buildBridgeWorkerDegradedHealthEvent({
+					message: 'Bridge render disposition did not match a current worker publication.',
+					requestId: props.command.requestId,
+				}),
+			]
+		: [buildBridgeWorkerReadyHealthEvent(props.command.requestId)];
 }
 
 function applyBridgeCommWorkerFileViewRuntimeSource(props: {
@@ -834,6 +904,8 @@ function bridgeCommWorkerIntentEpochDomain(
 		case 'reviewIntakeReady':
 		case 'reviewInvalidate':
 			return 'review';
+		case 'renderDisposition':
+			return message.receipt.surface === 'file' ? 'fileView' : 'review';
 		case 'activeViewerModeUpdate':
 		case 'mode':
 			return 'pane';

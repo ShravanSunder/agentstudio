@@ -133,7 +133,7 @@ describe('Bridge comm worker Review metadata applicator', () => {
 
 	test('keeps directory rows separate from complete content item identity', () => {
 		// Arrange
-		const store = createBridgeCommWorkerStore({ contentItems: [], rows: [] });
+		const store = createBridgeCommWorkerStore({ contentItems: [], rows: [], surface: 'review' });
 		let runtimeSource: BridgeCommWorkerReviewRuntimeSource = {
 			contentItems: [],
 			contentRequestDescriptors: [],
@@ -398,6 +398,7 @@ describe('Bridge comm worker Review metadata applicator', () => {
 			renderSemantics,
 		});
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [contentMetadata],
 			rows: executableSource.rows,
 		});
@@ -449,6 +450,7 @@ describe('Bridge comm worker Review metadata applicator', () => {
 			renderSemantics,
 		});
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [],
 			rows: executableSource.rows,
 		});
@@ -481,6 +483,7 @@ describe('Bridge comm worker Review metadata applicator', () => {
 		// Arrange
 		const contentMetadata = makeWorkerReviewContentMetadata({ itemId: 'item-1' });
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [contentMetadata],
 			rows: [{ id: 'item-1', index: 0, parentId: null }],
 		});

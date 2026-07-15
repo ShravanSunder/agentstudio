@@ -11,11 +11,13 @@ import {
 	commitBridgeWorkerReviewContentReadyRenderPatch,
 	prepareBridgeWorkerReviewContentRenderJobEvent,
 } from './bridge-worker-review-content-ready.js';
+import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 
 describe('Bridge worker review content ready', () => {
 	test('publishes only schema-valid surface-typed Review content-ready events', () => {
 		// Arrange
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [makeWorkerReviewContentMetadata('item-1')],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 		});
@@ -27,6 +29,7 @@ describe('Bridge worker review content ready', () => {
 				maxWindowLines: 50,
 			},
 			publicationSequence: 11,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 11, surface: 'review', workerDerivationEpoch: 7 }),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -74,6 +77,7 @@ describe('Bridge worker review content ready', () => {
 
 	test('prepares review Pierre job events without publishing ready before courier acceptance', () => {
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [makeWorkerReviewContentMetadata('item-1')],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 		});
@@ -86,6 +90,7 @@ describe('Bridge worker review content ready', () => {
 				maxWindowLines: 50,
 			},
 			publicationSequence: 11,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 11, surface: 'review', workerDerivationEpoch: 7 }),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -131,6 +136,7 @@ describe('Bridge worker review content ready', () => {
 
 	test('commits content-ready slice patches only after the render job is accepted', () => {
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [makeWorkerReviewContentMetadata('item-1')],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 		});
@@ -142,6 +148,7 @@ describe('Bridge worker review content ready', () => {
 				maxWindowLines: 50,
 			},
 			publicationSequence: 11,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 11, surface: 'review', workerDerivationEpoch: 7 }),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -207,6 +214,7 @@ describe('Bridge worker review content ready', () => {
 
 	test('does not mutate the worker store when no complete render job can be planned', () => {
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [makeWorkerReviewContentMetadata('item-1')],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 		});
@@ -219,6 +227,7 @@ describe('Bridge worker review content ready', () => {
 				maxWindowLines: 50,
 			},
 			publicationSequence: 11,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 11, surface: 'review', workerDerivationEpoch: 7 }),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',

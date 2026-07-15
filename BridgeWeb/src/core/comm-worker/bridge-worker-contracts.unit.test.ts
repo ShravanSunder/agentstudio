@@ -3,6 +3,7 @@ import { describe, expect, expectTypeOf, test } from 'vitest';
 import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import { makeContentRequestDescriptor } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { parseBridgeWorkerMainToServerMessage } from './bridge-worker-contract-parsers.js';
+import { buildBridgeWorkerPierreRenderJob } from './bridge-worker-pierre-render-job.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeCommWorkerBootstrapRequestSchema,
@@ -195,6 +196,146 @@ describe('BridgeWorkerContracts', () => {
 			transferDescriptors: [],
 		};
 		expectTypeOf(invalidCommand).toMatchTypeOf<BridgeWorkerMainToServerMessage>();
+	});
+
+	test('accepts only a closed identity-bound render disposition command', () => {
+		// Arrange
+		const renderDispositionCommand = {
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'mainToServerWorker',
+			kind: 'command',
+			command: 'renderDisposition',
+			requestId: 'request-render-disposition',
+			epoch: 4,
+			transferDescriptors: [],
+			receipt: {
+				kind: 'render.disposition',
+				disposition: 'painted',
+				receivedAtMilliseconds: 125,
+				attemptId: 'render-attempt-review-4-11',
+				itemId: 'item-11',
+				paneSessionId: 'pane-session-1',
+				publicationId: 'render-publication-review-4-11',
+				publicationSequence: 11,
+				submissionId: 'render-submission-review-4-11',
+				surface: 'review',
+				windowKey: 'review-cache-key-11',
+				workerDerivationEpoch: 4,
+				workerInstanceId: 'worker-instance-1',
+			},
+		};
+
+		// Act
+		const parsedCommand = bridgeWorkerMainToServerMessageSchema.safeParse(
+			renderDispositionCommand,
+		);
+
+		// Assert
+		expect(parsedCommand.success, 'RENDER_DISPOSITION_COMMAND_UNREACHABLE').toBe(true);
+		for (const requiredIdentityField of [
+			'attemptId',
+			'itemId',
+			'paneSessionId',
+			'publicationId',
+			'publicationSequence',
+			'submissionId',
+			'surface',
+			'windowKey',
+			'workerDerivationEpoch',
+			'workerInstanceId',
+		] as const) {
+			const receiptWithoutIdentityField = { ...renderDispositionCommand.receipt };
+			Reflect.deleteProperty(receiptWithoutIdentityField, requiredIdentityField);
+			expect(
+				bridgeWorkerMainToServerMessageSchema.safeParse({
+					...renderDispositionCommand,
+					receipt: receiptWithoutIdentityField,
+				}).success,
+				`expected ${requiredIdentityField} to be required`,
+			).toBe(false);
+		}
+		expect(
+			bridgeWorkerMainToServerMessageSchema.safeParse({
+				...renderDispositionCommand,
+				receipt: { ...renderDispositionCommand.receipt, undeclaredIdentity: true },
+			}).success,
+		).toBe(false);
+	});
+
+	test('requires complete receipt identity on Pierre publications and rejects cross-field drift', () => {
+		const job = buildBridgeWorkerPierreRenderJob({
+			bridgeDemandRank: { lane: 'visible', priority: 1 },
+			budget: { className: 'visible', maxBytes: 1024, maxWindowLines: 4 },
+			contentCacheKey: 'cache-item-11',
+			contentHash: 'a'.repeat(64),
+			itemId: 'item-11',
+			language: 'text',
+			payload: {
+				kind: 'codeViewFileItem',
+				item: {
+					bridgeMetadata: {
+						cacheKey: 'cache-item-11',
+						contentRoles: ['file'],
+						contentState: 'hydrated',
+						displayPath: 'item-11.txt',
+						itemId: 'item-11',
+						lineCount: 1,
+					},
+					file: { cacheKey: 'cache-item-11', contents: 'content', name: 'item-11.txt' },
+					id: 'item-11',
+					type: 'file',
+				},
+			},
+			renderKind: 'fileText',
+			window: { endLine: 1, startLine: 1, totalLineCount: 1 },
+		});
+		const receiptIdentity = {
+			attemptId: 'render-attempt-review-4-11',
+			itemId: 'item-11',
+			paneSessionId: 'pane-session-1',
+			publicationId: 'render-publication-review-4-11',
+			publicationSequence: 11,
+			submissionId: 'render-submission-review-4-11',
+			surface: 'review',
+			windowKey: 'review-window-11',
+			workerDerivationEpoch: 4,
+			workerInstanceId: 'worker-instance-1',
+		} as const;
+		const publication = {
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'serverWorkerToMain',
+			transferDescriptors: [],
+			kind: 'reviewPierreRenderJob',
+			job,
+			publicationSequence: 11,
+			renderReceiptIdentity: receiptIdentity,
+			surface: 'review',
+			workerDerivationEpoch: 4,
+		};
+
+		expect(
+			bridgeWorkerServerToMainMessageSchema.safeParse(publication).success,
+			'RENDER_PUBLICATION_RECEIPT_IDENTITY_UNREACHABLE',
+		).toBe(true);
+		expect(
+			bridgeWorkerServerToMainMessageSchema.safeParse({
+				...publication,
+				renderReceiptIdentity: undefined,
+			}).success,
+		).toBe(false);
+		for (const renderReceiptIdentity of [
+			{ ...receiptIdentity, itemId: 'item-foreign' },
+			{ ...receiptIdentity, publicationSequence: 12 },
+			{ ...receiptIdentity, surface: 'file' },
+			{ ...receiptIdentity, workerDerivationEpoch: 5 },
+		] as const) {
+			expect(
+				bridgeWorkerServerToMainMessageSchema.safeParse({
+					...publication,
+					renderReceiptIdentity,
+				}).success,
+			).toBe(false);
+		}
 	});
 
 	test('requires every worker message to declare transfer descriptors explicitly', () => {

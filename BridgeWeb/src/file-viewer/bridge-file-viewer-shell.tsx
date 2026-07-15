@@ -3,6 +3,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
 import { BridgeViewerResizableRailLayout } from '../app/bridge-viewer-resizable-rail-layout.js';
 import type { BridgeMainFileTreePatchStream } from '../core/comm-worker/bridge-main-file-display-patch-applier.js';
+import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 import {
@@ -37,6 +38,10 @@ export interface BridgeFileViewerShellProps {
 	readonly onSelectFile: (selection: BridgeFileViewerSelection) => void;
 	readonly openFileState: BridgeFileViewerOpenState;
 	readonly openFileTotalHeightPixels: number | null;
+	readonly renderFulfillmentCoordinator: Pick<
+		BridgeMainRenderFulfillmentCoordinator,
+		'observePostRender' | 'reconcilePublication'
+	>;
 	readonly searchMode: BridgeFileViewerSearchMode;
 	readonly searchText: string;
 	readonly selectedCodeViewItem: BridgeFileViewerSelectedCodeViewItem | null;
@@ -102,6 +107,7 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 						/>
 						<BridgeFileViewerCodePanel
 							openFileState={props.openFileState}
+							renderFulfillmentCoordinator={props.renderFulfillmentCoordinator}
 							selectedCodeViewItem={props.selectedCodeViewItem}
 							totalHeightPixels={props.openFileTotalHeightPixels}
 							{...(props.codeViewWorkerFactory === undefined

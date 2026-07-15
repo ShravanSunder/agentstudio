@@ -240,6 +240,12 @@ describe('Bridge Review continuous large-document Browser witness', () => {
 		if (scrollOwner === null)
 			throw new Error('Retained Review witness has no CodeView scroll owner.');
 		await act(async (): Promise<void> => {
+			scrollOwner.dispatchEvent(
+				new WheelEvent('wheel', {
+					bubbles: true,
+					deltaY: -Math.max(1, scrollOwner.scrollTop),
+				}),
+			);
 			scrollOwner.scrollTop = 0;
 			scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
 			await Promise.resolve();

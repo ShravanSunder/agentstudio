@@ -594,7 +594,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		expect(postedMessages[3]?.message).toMatchObject({
 			kind: 'reviewRenderPatch',
 			publicationSequence: 104,
-			workerDerivationEpoch: 5,
+			workerDerivationEpoch: 1,
 			patches: [
 				{
 					slice: 'rowPaint',

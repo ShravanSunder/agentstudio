@@ -24,6 +24,7 @@ import {
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerMetadataInterestUpdateCommand,
 	encodeBridgeWorkerModeCommand,
+	encodeBridgeWorkerRenderDispositionCommand,
 	encodeBridgeWorkerReviewInvalidateCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
@@ -660,6 +661,72 @@ describe('Bridge comm worker command handler', () => {
 				kind: 'health',
 				requestId: 'request-metadata-interest',
 				status: 'ready',
+			},
+		]);
+	});
+
+	test('routes render dispositions to the matching worker-owned surface store', () => {
+		const appliedStoreSelections: Array<string | null> = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			applyRenderDisposition: ({ command, store }) => {
+				appliedStoreSelections.push(store.getState().selectedId);
+				return [
+					{
+						direction: 'serverWorkerToMain',
+						kind: 'health',
+						requestId: command.requestId,
+						status: 'ready',
+						transferDescriptors: [],
+						wireVersion: 1,
+					},
+				];
+			},
+			contentItems: [makeWorkerReviewContentMetadata('review-item-1')],
+			rows: [{ id: 'review-item-1', parentId: null, index: 0 }],
+			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
+		});
+		handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				epoch: 5,
+				requestId: 'request-select-review-before-disposition',
+				selectedItemId: 'review-item-1',
+				selectedSource: 'user',
+				surface: 'review',
+			}),
+		);
+
+		const messages = handler.handleMessage(
+			encodeBridgeWorkerRenderDispositionCommand({
+				epoch: 5,
+				receipt: {
+					attemptId: 'attempt-review-8',
+					disposition: 'queued',
+					itemId: 'review-item-1',
+					kind: 'render.disposition',
+					paneSessionId: 'pane-session-1',
+					publicationId: 'publication-review-8',
+					publicationSequence: 8,
+					receivedAtMilliseconds: 42,
+					submissionId: 'submission-review-8',
+					surface: 'review',
+					windowKey: 'window-review-8',
+					workerDerivationEpoch: 5,
+					workerInstanceId: 'worker-instance-1',
+				},
+				requestId: 'request-render-disposition-review',
+			}),
+		);
+
+		expect(appliedStoreSelections).toEqual(['review-item-1']);
+		expect(messages).toEqual([
+			{
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'request-render-disposition-review',
+				status: 'ready',
+				transferDescriptors: [],
+				wireVersion: 1,
 			},
 		]);
 	});

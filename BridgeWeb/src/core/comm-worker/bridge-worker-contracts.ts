@@ -35,6 +35,10 @@ import {
 	BRIDGE_WORKER_REVIEW_DISPLAY_PATCH_LIMIT,
 	bridgeWorkerReviewDisplayPatchSchema,
 } from './bridge-worker-review-display-patch-contracts.js';
+import {
+	bridgeWorkerRenderDispositionReceiptSchema,
+	bridgeWorkerRenderReceiptIdentitySchema,
+} from './bridge-worker-render-fulfillment.js';
 
 export const BRIDGE_WORKER_WIRE_VERSION = 1 as const;
 export {
@@ -195,6 +199,13 @@ export const bridgeWorkerReviewInvalidateCommandSchema = bridgeWorkerMainToServe
 	})
 	.strict();
 
+export const bridgeWorkerRenderDispositionCommandSchema = bridgeWorkerMainToServerBaseSchema
+	.extend({
+		command: z.literal('renderDisposition'),
+		receipt: bridgeWorkerRenderDispositionReceiptSchema,
+	})
+	.strict();
+
 const bridgeWorkerSelectionSourceSchema = z.enum(['user', 'keyboard', 'programmatic']);
 
 export const bridgeWorkerSelectionPatchPayloadSchema = z
@@ -299,6 +310,7 @@ export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('comma
 	bridgeWorkerReviewInvalidateCommandSchema,
 	bridgeWorkerFileQueryUpdateCommandSchema,
 	bridgeWorkerFileDisplayResyncCommandSchema,
+	bridgeWorkerRenderDispositionCommandSchema,
 ]);
 
 export const bridgeWorkerMainToServerMessageSchema = bridgeWorkerMainToServerCommandSchema;
@@ -333,6 +345,9 @@ export type BridgeWorkerFileDisplayResyncReason = z.infer<
 >;
 export type BridgeWorkerFileDisplayResyncCommand = z.infer<
 	typeof bridgeWorkerFileDisplayResyncCommandSchema
+>;
+export type BridgeWorkerRenderDispositionCommand = z.infer<
+	typeof bridgeWorkerRenderDispositionCommandSchema
 >;
 export type BridgeWorkerMainToServerCommand = z.infer<typeof bridgeWorkerMainToServerCommandSchema>;
 export type BridgeWorkerMainToServerMessage = BridgeWorkerMainToServerCommand;
@@ -772,15 +787,18 @@ export const bridgeWorkerReviewPierreRenderJobEventSchema = bridgeWorkerServerTo
 		...bridgeWorkerSurfacePublicationEnvelopeShape,
 		job: bridgeWorkerPierreRenderJobSchema,
 		kind: z.literal('reviewPierreRenderJob'),
+		renderReceiptIdentity: bridgeWorkerRenderReceiptIdentitySchema,
 		surface: z.literal('review'),
 	})
-	.strict();
+	.strict()
+	.superRefine(validateBridgeWorkerPierreRenderPublicationIdentity);
 
 export const bridgeWorkerFilePierreRenderJobEventSchema = bridgeWorkerServerToMainBaseSchema
 	.extend({
 		...bridgeWorkerSurfacePublicationEnvelopeShape,
 		job: bridgeWorkerPierreRenderJobSchema,
 		kind: z.literal('filePierreRenderJob'),
+		renderReceiptIdentity: bridgeWorkerRenderReceiptIdentitySchema,
 		surface: z.literal('file'),
 	})
 	.strict()
@@ -792,7 +810,44 @@ export const bridgeWorkerFilePierreRenderJobEventSchema = bridgeWorkerServerToMa
 				path: ['job'],
 			});
 		}
+		validateBridgeWorkerPierreRenderPublicationIdentity(event, context);
 	});
+
+function validateBridgeWorkerPierreRenderPublicationIdentity(
+	event: {
+		readonly job: { readonly itemId: string };
+		readonly publicationSequence: number;
+		readonly renderReceiptIdentity: {
+			readonly itemId: string;
+			readonly publicationSequence: number;
+			readonly surface: BridgeProductSurface;
+			readonly workerDerivationEpoch: number;
+		};
+		readonly surface: BridgeProductSurface;
+		readonly workerDerivationEpoch: number;
+	},
+	context: z.RefinementCtx,
+): void {
+	for (const [field, matches] of [
+		['itemId', event.renderReceiptIdentity.itemId === event.job.itemId],
+		[
+			'publicationSequence',
+			event.renderReceiptIdentity.publicationSequence === event.publicationSequence,
+		],
+		['surface', event.renderReceiptIdentity.surface === event.surface],
+		[
+			'workerDerivationEpoch',
+			event.renderReceiptIdentity.workerDerivationEpoch === event.workerDerivationEpoch,
+		],
+	] as const) {
+		if (matches) continue;
+		context.addIssue({
+			code: 'custom',
+			message: `Bridge Pierre publication ${field} does not match its receipt identity.`,
+			path: ['renderReceiptIdentity', field],
+		});
+	}
+}
 
 export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind', [
 	bridgeWorkerHealthEventSchema,

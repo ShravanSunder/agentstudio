@@ -18,6 +18,7 @@ import {
 	type BridgeReviewViewerPresentationState,
 } from '../../app/bridge-app-review-viewer-shell-boundary.js';
 import type { BridgeViewerNavigationCommand } from '../../app/bridge-viewer-navigation-models.js';
+import { createBridgeMainRenderFulfillmentCoordinator } from '../../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import { createBridgeReviewItemRegistry } from '../../foundation/review-package/bridge-review-item-registry.js';
 import { makeBridgeReviewPackage } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
@@ -27,6 +28,15 @@ import {
 	makeBridgeReviewRecoveryWitnessFiles,
 	renderBridgeReviewRecoveryWitness,
 } from './bridge-viewer-browser.recovery-witness.test-support.js';
+
+const readyPresentationRenderFulfillmentCoordinator = createBridgeMainRenderFulfillmentCoordinator({
+	cancelAnimationFrame: (_frameHandle): void => {},
+	nowMilliseconds: (): number => 0,
+	requestAnimationFrame: (_callback): number => {
+		throw new Error('Ready Review Browser fixture must not schedule paint validation.');
+	},
+	sendDisposition: (_receipt): void => {},
+});
 
 describe('Bridge Review production recovery Browser witnesses', () => {
 	afterEach(async (): Promise<void> => {
@@ -656,6 +666,7 @@ function makeReadyReviewPresentationState(
 				reviewPackage,
 				request: { facets: [], mode: { kind: 'normalReview' } },
 			}),
+			renderFulfillmentCoordinator: readyPresentationRenderFulfillmentCoordinator,
 			reviewPackage,
 			selectedItemId: null,
 		},

@@ -18,18 +18,23 @@ import {
 	type BridgeWorkerPierreRenderJob,
 	type BridgeWorkerPierreRenderWindow,
 } from './bridge-worker-pierre-render-job.js';
+import type { BridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.js';
 import {
 	prepareBridgeWorkerStructuredMessage,
 	type BridgeWorkerTransferFieldDeclaration,
 	type PreparedBridgeWorkerStructuredMessage,
 } from './bridge-worker-transfer-list.js';
 
-export interface PrepareBridgeWorkerFileViewContentReadyEventsProps {
+export interface PlanBridgeWorkerFileViewPierreRenderJobProps {
 	readonly bridgeDemandRank: BridgeWorkerDemandRank;
 	readonly budget: BridgeWorkerPierreRenderBudget;
 	readonly metadata: BridgeWorkerFileViewContentMetadata;
-	readonly publicationSequence: number;
 	readonly resource: BridgeWorkerFetchedFileViewContentResource;
+}
+
+export interface PrepareBridgeWorkerFileViewContentReadyEventsProps extends PlanBridgeWorkerFileViewPierreRenderJobProps {
+	readonly publicationSequence: number;
+	readonly renderReceiptIdentity: BridgeWorkerRenderReceiptIdentity;
 	readonly workerDerivationEpoch: number;
 }
 
@@ -54,18 +59,53 @@ export function prepareBridgeWorkerFileViewContentRenderJobEvent(
 	if (job === null) {
 		return null;
 	}
+	assertBridgeWorkerFileRenderReceiptCorrelation(props);
+	return prepareBridgeWorkerFileViewContentRenderJobEventFromJob({
+		job,
+		renderReceiptIdentity: props.renderReceiptIdentity,
+	});
+}
+
+function assertBridgeWorkerFileRenderReceiptCorrelation(
+	props: Pick<
+		PrepareBridgeWorkerFileViewContentReadyEventsProps,
+		'publicationSequence' | 'renderReceiptIdentity' | 'workerDerivationEpoch'
+	>,
+): void {
+	if (
+		props.renderReceiptIdentity.publicationSequence !== props.publicationSequence ||
+		props.renderReceiptIdentity.surface !== 'file' ||
+		props.renderReceiptIdentity.workerDerivationEpoch !== props.workerDerivationEpoch
+	) {
+		throw new Error(
+			'Bridge worker File render receipt identity does not match publication authority.',
+		);
+	}
+}
+
+export function prepareBridgeWorkerFileViewContentRenderJobEventFromJob(props: {
+	readonly job: BridgeWorkerPierreRenderJob;
+	readonly renderReceiptIdentity: BridgeWorkerRenderReceiptIdentity;
+}): PreparedBridgeWorkerStructuredMessage<BridgeWorkerFilePierreRenderJobEvent> {
+	if (
+		props.renderReceiptIdentity.itemId !== props.job.itemId ||
+		props.renderReceiptIdentity.surface !== 'file'
+	) {
+		throw new Error('Bridge worker File render receipt identity does not match its job.');
+	}
 	return prepareBridgeWorkerStructuredMessage({
 		message: {
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 			direction: 'serverWorkerToMain',
 			transferDescriptors: [],
 			kind: 'filePierreRenderJob',
-			job,
-			publicationSequence: props.publicationSequence,
+			job: props.job,
+			publicationSequence: props.renderReceiptIdentity.publicationSequence,
+			renderReceiptIdentity: props.renderReceiptIdentity,
 			surface: 'file',
-			workerDerivationEpoch: props.workerDerivationEpoch,
+			workerDerivationEpoch: props.renderReceiptIdentity.workerDerivationEpoch,
 		},
-		declaredFields: transferFieldsForBridgeWorkerPierreRenderPayload(job.payloadByteLength),
+		declaredFields: transferFieldsForBridgeWorkerPierreRenderPayload(props.job.payloadByteLength),
 	});
 }
 
@@ -112,8 +152,8 @@ export function prepareBridgeWorkerFileRenderPatchEvent(props: {
 	});
 }
 
-function planBridgeWorkerFileViewPierreRenderJob(
-	props: PrepareBridgeWorkerFileViewContentReadyEventsProps,
+export function planBridgeWorkerFileViewPierreRenderJob(
+	props: PlanBridgeWorkerFileViewPierreRenderJobProps,
 ): BridgeWorkerPierreRenderJob | null {
 	if (!fileViewResourceMatchesMetadata(props)) {
 		return null;
@@ -171,7 +211,7 @@ function planBridgeWorkerFileViewPierreRenderJob(
 }
 
 function fileViewResourceMatchesMetadata(
-	props: PrepareBridgeWorkerFileViewContentReadyEventsProps,
+	props: PlanBridgeWorkerFileViewPierreRenderJobProps,
 ): boolean {
 	const completeTextSemantics = deriveCompleteFileTextSemantics(props.resource.textBytes);
 	return (

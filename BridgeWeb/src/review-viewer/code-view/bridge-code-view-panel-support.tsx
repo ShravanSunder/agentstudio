@@ -879,6 +879,15 @@ export function reconcileBridgeCodeViewMetadataItems(
 	const reconciledItems = props.metadataItems.map(
 		(metadataItem: BridgeCodeViewItem): BridgeCodeViewItem => {
 			const currentItem = props.getCurrentItem(metadataItem.id);
+			if (
+				props.preparePresentationItem !== undefined &&
+				isMaterializedBridgeCodeViewContentState(metadataItem.bridgeMetadata.contentState)
+			) {
+				return props.preparePresentationItem({
+					currentItem: isBridgeCodeViewItem(currentItem) ? currentItem : undefined,
+					metadataItem,
+				});
+			}
 			const replacementItem = isBridgeCodeViewItem(currentItem)
 				? bridgeCodeViewMetadataReplacementForCurrentItem({ currentItem, metadataItem })
 				: null;

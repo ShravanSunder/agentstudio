@@ -179,6 +179,98 @@ describe('Bridge Review presentation adapter', () => {
 		// Assert
 		expect(firstEpochPresentation?.reviewPackage.reviewGeneration).toBe(7);
 		expect(secondEpochPresentation?.reviewPackage.reviewGeneration).toBe(8);
+		expect(secondEpochPresentation?.presentationKey).not.toBe(
+			firstEpochPresentation?.presentationKey,
+		);
+	});
+
+	test('keeps presentation identity across same-epoch resets and rotates it for a new epoch', () => {
+		// Arrange
+		const item = reviewDisplayItem(reviewItemId(0), 'Sources/App/Feature.swift');
+		const items = [item];
+		const rawTreeRows: BridgeMainReviewTreeDisplayRow[] = [
+			{
+				depth: 0,
+				isDirectory: false,
+				itemId: item.metadata.itemId,
+				path: item.metadata.headPath ?? item.metadata.itemId,
+				rowId: 'row-item-source',
+			},
+		];
+		const changesByCursor = new Map<number, readonly BridgeMainReviewCatalogChange[]>([
+			[
+				1,
+				[
+					{
+						cursor: 2,
+						itemIds: [item.metadata.itemId],
+						itemOrderMutations: [{ kind: 'replace', length: 1 }],
+						reset: true,
+						treeRowIds: ['row-item-source'],
+						treeRowOrderMutations: [{ kind: 'replace', length: 1 }],
+					},
+				],
+			],
+		]);
+		const store = instrumentedDisplayStore({
+			accessCounts: { itemAtIndex: 0, itemById: 0, treeRowAtIndex: 0 },
+			changesByCursor,
+			items,
+			rawTreeRows,
+		});
+
+		// Act
+		const initialPresentation = bridgeReviewPresentationSnapshotForDisplay({
+			catalogSnapshot: {
+				changeCursor: 1,
+				epoch: 7,
+				itemOrderLength: 1,
+				revision: 1,
+				treeRowOrderLength: 1,
+			},
+			displayStore: store,
+			reviewSourceSlice: readyReviewSourceSlice({
+				itemCount: 1,
+				metadataWindowIdentity: 'review-window-source-revision-1',
+				treeRowCount: 1,
+			}),
+		});
+		const sameEpochResetPresentation = bridgeReviewPresentationSnapshotForDisplay({
+			catalogSnapshot: {
+				changeCursor: 2,
+				epoch: 7,
+				itemOrderLength: 1,
+				revision: 2,
+				treeRowOrderLength: 1,
+			},
+			displayStore: store,
+			reviewSourceSlice: readyReviewSourceSlice({
+				itemCount: 1,
+				metadataWindowIdentity: 'review-window-source-revision-2',
+				treeRowCount: 1,
+			}),
+		});
+		const nextEpochPresentation = bridgeReviewPresentationSnapshotForDisplay({
+			catalogSnapshot: {
+				changeCursor: 3,
+				epoch: 8,
+				itemOrderLength: 1,
+				revision: 1,
+				treeRowOrderLength: 1,
+			},
+			displayStore: store,
+			reviewSourceSlice: readyReviewSourceSlice({
+				itemCount: 1,
+				metadataWindowIdentity: 'review-window-source-revision-2',
+				treeRowCount: 1,
+			}),
+		});
+
+		// Assert
+		expect(sameEpochResetPresentation?.presentationKey).toBe(initialPresentation?.presentationKey);
+		expect(nextEpochPresentation?.presentationKey).not.toBe(
+			sameEpochResetPresentation?.presentationKey,
+		);
 	});
 
 	test('keeps presentation identity stable and reads only a bounded appended catalog window', () => {

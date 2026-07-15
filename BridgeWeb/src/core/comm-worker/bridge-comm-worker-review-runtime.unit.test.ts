@@ -95,6 +95,12 @@ describe('Bridge comm worker review runtime', () => {
 		if (pierreJobMessage?.kind !== 'reviewPierreRenderJob') {
 			throw new Error('Expected Review Pierre render job message first.');
 		}
+		expect(pierreJobMessage.renderReceiptIdentity).toMatchObject({
+			itemId: 'item-1',
+			publicationSequence: 12,
+			surface: 'review',
+			workerDerivationEpoch: 7,
+		});
 		expect(pierreJobMessage.transferDescriptors).toEqual([
 			{
 				messageKind: 'reviewPierreRenderJob',
@@ -411,6 +417,7 @@ function makeDispatchProps(options: MakeDispatchPropsOptions): DispatchSelectedR
 
 function createSelectedReviewRuntimeStore(): BridgeCommWorkerStore {
 	return createBridgeCommWorkerStore({
+		surface: 'review',
 		contentItems: [makeWorkerReviewContentMetadata()],
 		rows: [{ id: 'item-1', parentId: null, index: 0 }],
 	});

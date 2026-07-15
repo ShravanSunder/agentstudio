@@ -16,6 +16,7 @@ import {
 	type BridgeWorkerPierreRenderPayload,
 	type BridgeWorkerPierreRenderWindow,
 } from './bridge-worker-pierre-render-job.js';
+import type { BridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.js';
 import type { BridgeWorkerFetchedReviewContentResource } from './bridge-worker-review-content-fetch.js';
 import {
 	prepareBridgeWorkerStructuredMessage,
@@ -32,6 +33,7 @@ export interface PlanBridgeWorkerReviewPierreRenderJobProps {
 
 export interface PrepareBridgeWorkerReviewPierreRenderJobEventProps extends PlanBridgeWorkerReviewPierreRenderJobProps {
 	readonly publicationSequence: number;
+	readonly renderReceiptIdentity: BridgeWorkerRenderReceiptIdentity;
 	readonly workerDerivationEpoch: number;
 }
 
@@ -205,20 +207,42 @@ export function prepareBridgeWorkerReviewPierreRenderJobEvent(
 	props: PrepareBridgeWorkerReviewPierreRenderJobEventProps,
 ): PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent> | null {
 	const job = planBridgeWorkerReviewPierreRenderJob(props);
+	if (job !== null) assertBridgeWorkerReviewRenderReceiptCorrelation(props);
 	return job === null
 		? null
 		: prepareBridgeWorkerReviewPierreRenderJobEventFromJob({
 				job,
-				publicationSequence: props.publicationSequence,
-				workerDerivationEpoch: props.workerDerivationEpoch,
+				renderReceiptIdentity: props.renderReceiptIdentity,
 			});
+}
+
+function assertBridgeWorkerReviewRenderReceiptCorrelation(
+	props: Pick<
+		PrepareBridgeWorkerReviewPierreRenderJobEventProps,
+		'publicationSequence' | 'renderReceiptIdentity' | 'workerDerivationEpoch'
+	>,
+): void {
+	if (
+		props.renderReceiptIdentity.publicationSequence !== props.publicationSequence ||
+		props.renderReceiptIdentity.surface !== 'review' ||
+		props.renderReceiptIdentity.workerDerivationEpoch !== props.workerDerivationEpoch
+	) {
+		throw new Error(
+			'Bridge worker Review render receipt identity does not match publication authority.',
+		);
+	}
 }
 
 export function prepareBridgeWorkerReviewPierreRenderJobEventFromJob(props: {
 	readonly job: BridgeWorkerPierreRenderJob;
-	readonly publicationSequence: number;
-	readonly workerDerivationEpoch: number;
+	readonly renderReceiptIdentity: BridgeWorkerRenderReceiptIdentity;
 }): PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent> {
+	if (
+		props.renderReceiptIdentity.itemId !== props.job.itemId ||
+		props.renderReceiptIdentity.surface !== 'review'
+	) {
+		throw new Error('Bridge worker Review render receipt identity does not match its job.');
+	}
 	return prepareBridgeWorkerStructuredMessage({
 		message: {
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
@@ -226,9 +250,10 @@ export function prepareBridgeWorkerReviewPierreRenderJobEventFromJob(props: {
 			transferDescriptors: [],
 			kind: 'reviewPierreRenderJob',
 			job: props.job,
-			publicationSequence: props.publicationSequence,
+			publicationSequence: props.renderReceiptIdentity.publicationSequence,
+			renderReceiptIdentity: props.renderReceiptIdentity,
 			surface: 'review',
-			workerDerivationEpoch: props.workerDerivationEpoch,
+			workerDerivationEpoch: props.renderReceiptIdentity.workerDerivationEpoch,
 		},
 		declaredFields: transferFieldsForBridgeWorkerPierreRenderPayload(props.job.payload),
 	});

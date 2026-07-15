@@ -86,6 +86,12 @@ describe('Bridge comm worker File View runtime', () => {
 		if (pierreJobMessage?.kind !== 'filePierreRenderJob') {
 			throw new Error('Expected File View Pierre render job message first.');
 		}
+		expect(pierreJobMessage.renderReceiptIdentity).toMatchObject({
+			itemId: 'file-1',
+			publicationSequence: 12,
+			surface: 'file',
+			workerDerivationEpoch: 17,
+		});
 		expect(pierreJobMessage.transferDescriptors).toEqual([
 			{
 				messageKind: 'filePierreRenderJob',
@@ -128,6 +134,7 @@ describe('Bridge comm worker File View runtime', () => {
 		const longFileText = makeNumberedFileText(450);
 		const longFileByteLength = new TextEncoder().encode(longFileText).byteLength;
 		const store = createBridgeCommWorkerStore({
+			surface: 'file',
 			contentItems: [
 				makeWorkerFileViewContentMetadata('file-1', {
 					endsWithNewline: false,
@@ -192,6 +199,7 @@ describe('Bridge comm worker File View runtime', () => {
 		const denseFileByteLength = new TextEncoder().encode(denseFileText).byteLength;
 		expect(denseFileByteLength).toBeGreaterThan(512 * 1024);
 		const store = createBridgeCommWorkerStore({
+			surface: 'file',
 			contentItems: [
 				makeWorkerFileViewContentMetadata('file-1', {
 					endsWithNewline: false,
@@ -294,6 +302,7 @@ describe('Bridge comm worker File View runtime', () => {
 		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
 		let openCount = 0;
 		const store = createBridgeCommWorkerStore({
+			surface: 'file',
 			contentItems: [makeWorkerReviewContentMetadata('file-1')],
 			rows: [{ id: 'file-1', parentId: null, index: 0 }],
 		});
@@ -376,6 +385,7 @@ describe('Bridge comm worker File View runtime', () => {
 	test('drops stale selected File View terminal dispatch before publishing content messages', async () => {
 		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
 		const store = createBridgeCommWorkerStore({
+			surface: 'file',
 			contentItems: [
 				makeWorkerFileViewContentMetadata('file-1'),
 				makeWorkerFileViewContentMetadata('file-2'),
@@ -435,6 +445,7 @@ describe('Bridge comm worker File View runtime', () => {
 	test('publishes unavailable when fetched File View content cannot plan a render job', async () => {
 		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
 		const store = createBridgeCommWorkerStore({
+			surface: 'file',
 			contentItems: [makeWorkerFileViewContentMetadata('file-1', { omitContentHash: true })],
 			rows: [{ id: 'file-1', parentId: null, index: 0 }],
 		});
@@ -471,6 +482,7 @@ describe('Bridge comm worker File View runtime', () => {
 	test('drops stale selected File View dispatch before publishing content messages', async () => {
 		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
 		const store = createBridgeCommWorkerStore({
+			surface: 'file',
 			contentItems: [
 				makeWorkerFileViewContentMetadata('file-1'),
 				makeWorkerFileViewContentMetadata('file-2'),
@@ -549,6 +561,7 @@ function makePostedMessagePort(
 
 function createSelectedFileViewRuntimeStore(): BridgeCommWorkerStore {
 	return createBridgeCommWorkerStore({
+		surface: 'file',
 		contentItems: [makeWorkerFileViewContentMetadata('file-1')],
 		rows: [{ id: 'file-1', parentId: null, index: 0 }],
 	});

@@ -13,6 +13,7 @@ import {
 import type {
 	BridgeWorkerDemandRank,
 	BridgeWorkerPierreRenderBudget,
+	BridgeWorkerPierreRenderJob,
 } from './bridge-worker-pierre-render-job.js';
 import type { BridgeWorkerFetchedReviewContentResource } from './bridge-worker-review-content-fetch.js';
 import {
@@ -27,11 +28,17 @@ import {
 export interface PrepareBridgeWorkerReviewContentReadyEventsProps {
 	readonly bridgeDemandRank: BridgeWorkerDemandRank;
 	readonly budget: BridgeWorkerPierreRenderBudget;
+	readonly publicationSequence: number;
+	readonly renderReceiptIdentity: BridgeWorkerReviewPierreRenderJobEvent['renderReceiptIdentity'];
 	readonly resources: readonly BridgeWorkerFetchedReviewContentResource[];
 	readonly semantics: BridgeWorkerReviewRenderSemantics;
-	readonly publicationSequence: number;
 	readonly workerDerivationEpoch: number;
 }
+
+export type PlanBridgeWorkerReviewContentReadyRenderJobProps = Omit<
+	PrepareBridgeWorkerReviewContentReadyEventsProps,
+	'publicationSequence' | 'renderReceiptIdentity' | 'workerDerivationEpoch'
+>;
 
 export interface CommitBridgeWorkerReviewContentReadyRenderPatchProps {
 	readonly preparedJobEvent: PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent>;
@@ -48,7 +55,7 @@ export interface BridgeWorkerReviewContentReadyRenderPatchCommit {
 export type BridgeWorkerReviewContentRenderJobPreparationStepResult =
 	| { readonly status: 'pending' }
 	| {
-			readonly preparedJobEvent: PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent> | null;
+			readonly job: BridgeWorkerPierreRenderJob | null;
 			readonly status: 'complete';
 	  };
 
@@ -65,12 +72,18 @@ export function prepareBridgeWorkerReviewContentRenderJobEvent(
 	const preparation = createBridgeWorkerReviewContentRenderJobPreparation(props);
 	while (true) {
 		const result = preparation.runNextStage();
-		if (result.status === 'complete') return result.preparedJobEvent;
+		if (result.status !== 'complete') continue;
+		return result.job === null
+			? null
+			: prepareBridgeWorkerReviewPierreRenderJobEventFromJob({
+					job: result.job,
+					renderReceiptIdentity: props.renderReceiptIdentity,
+				});
 	}
 }
 
 export function createBridgeWorkerReviewContentRenderJobPreparation(
-	props: PrepareBridgeWorkerReviewContentReadyEventsProps,
+	props: PlanBridgeWorkerReviewContentReadyRenderJobProps,
 ): BridgeWorkerReviewContentRenderJobPreparation {
 	const planningSession = createBridgeWorkerReviewPierreRenderJobPlanningSession({
 		bridgeDemandRank: props.bridgeDemandRank,
@@ -88,18 +101,14 @@ export function createBridgeWorkerReviewContentRenderJobPreparation(
 				if (planningResult.status === 'pending') return planningResult;
 				planningComplete = true;
 				plannedJob = planningResult.job;
-				if (plannedJob === null) return { preparedJobEvent: null, status: 'complete' };
+				if (plannedJob === null) return { job: null, status: 'complete' };
 				return { status: 'pending' };
 			}
 			if (plannedJob === null) {
 				throw new Error('Bridge worker Review render job planning completed without a job.');
 			}
 			return {
-				preparedJobEvent: prepareBridgeWorkerReviewPierreRenderJobEventFromJob({
-					job: plannedJob,
-					publicationSequence: props.publicationSequence,
-					workerDerivationEpoch: props.workerDerivationEpoch,
-				}),
+				job: plannedJob,
 				status: 'complete',
 			};
 		},

@@ -12,6 +12,7 @@ describe('Bridge comm worker store', () => {
 	test('applies Review row splice removals and shifted upserts without stale rows', () => {
 		// Arrange
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [],
 			rows: [
 				{ id: 'row-a', index: 0, parentId: null },
@@ -44,6 +45,7 @@ describe('Bridge comm worker store', () => {
 	test('normalizes worker state and rejects root snapshots getState payloads and package-shaped hot actions', () => {
 		const contentItem = makeWorkerReviewContentMetadata('item-2');
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [makeWorkerReviewContentMetadata('item-1'), contentItem],
 			rows: [
 				{ id: 'root', parentId: null, index: 0 },
@@ -145,6 +147,7 @@ describe('Bridge comm worker store', () => {
 
 	test('keeps raw ids distinct and retires stale selected and viewport demand entries', () => {
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [
 				makeWorkerReviewContentMetadata('item-1'),
 				makeWorkerReviewContentMetadata('item:2/path'),
@@ -190,6 +193,7 @@ describe('Bridge comm worker store', () => {
 
 	test('does not churn availability state for viewport facts with no unavailable content', () => {
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [makeWorkerReviewContentMetadata('item-1')],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 		});
@@ -213,6 +217,7 @@ describe('Bridge comm worker store', () => {
 		let clockMs = 10;
 		const telemetrySamples: BridgeTelemetrySample[] = [];
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [makeWorkerReviewContentMetadata('item-1')],
 			now: () => {
 				const value = clockMs;
@@ -249,6 +254,7 @@ describe('Bridge comm worker store', () => {
 
 	test('invalidates selected and visible review content through worker-owned cache truth', () => {
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [
 				makeWorkerReviewContentMetadata('item-selected'),
 				makeWorkerReviewContentMetadata('item-visible'),
@@ -335,6 +341,7 @@ describe('Bridge comm worker store', () => {
 
 	test('keeps selected visible and paint-ready state across review source updates before invalidation', () => {
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [
 				makeWorkerReviewContentMetadata('item-selected', {
 					path: 'Sources/App/Before.swift',
@@ -404,6 +411,7 @@ describe('Bridge comm worker store', () => {
 
 	test('review source updates report summary touches instead of package-shaped metadata touches', () => {
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [],
 			rows: [],
 		});
@@ -429,6 +437,7 @@ describe('Bridge comm worker store', () => {
 
 	test('rearms selected demand from the selection epoch after independent source metadata', () => {
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [],
 			rows: [{ id: 'item-selected', parentId: null, index: 0 }],
 		});
@@ -466,6 +475,7 @@ describe('Bridge comm worker store', () => {
 	test('preserves the newer selected demand epoch while rearming source churn', () => {
 		// Arrange
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [makeWorkerReviewContentMetadata('item-selected')],
 			rows: [{ id: 'item-selected', parentId: null, index: 0 }],
 		});
@@ -499,6 +509,7 @@ describe('Bridge comm worker store', () => {
 
 	test('invalidates package and tree-window scopes without requiring fresh metadata', () => {
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [makeWorkerReviewContentMetadata('item-selected')],
 			rows: [{ id: 'item-selected', parentId: null, index: 0 }],
 		});
@@ -561,6 +572,7 @@ describe('Bridge comm worker store', () => {
 
 	test('marks selected content unavailable when worker metadata is absent', () => {
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [makeWorkerReviewContentMetadata('visible-item')],
 			rows: [
 				{ id: 'item-without-content-metadata', parentId: null, index: 0 },
@@ -607,6 +619,7 @@ describe('Bridge comm worker store', () => {
 
 	test('partial review source updates retain row-only rows through final reset completion', () => {
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [makeWorkerReviewContentMetadata('old-item')],
 			rows: [
 				{ id: 'old-item', parentId: null, index: 0 },
@@ -634,6 +647,7 @@ describe('Bridge comm worker store', () => {
 
 	test('marks selected content unavailable when worker metadata has no content roles', () => {
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [
 				{
 					...makeWorkerReviewContentMetadata('metadata-only-item'),
@@ -667,6 +681,7 @@ describe('Bridge comm worker store', () => {
 	test('publishes terminal availability for selected content failures', () => {
 		const telemetrySamples: BridgeTelemetrySample[] = [];
 		const store = createBridgeCommWorkerStore({
+			surface: 'review',
 			contentItems: [makeWorkerReviewContentMetadata('item-1')],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 			telemetryClient: {
@@ -718,6 +733,7 @@ describe('Bridge comm worker store', () => {
 			isBinary: true,
 		});
 		const store = createBridgeCommWorkerStore({
+			surface: 'file',
 			contentItems: [fileContentMetadata, binaryMetadata],
 			rows: [
 				{ id: 'file-text', parentId: null, index: 0 },
@@ -773,6 +789,7 @@ describe('Bridge comm worker store', () => {
 
 	test('file view source updates repair selected unavailable content into loading demand', () => {
 		const store = createBridgeCommWorkerStore({
+			surface: 'file',
 			contentItems: [],
 			rows: [{ id: 'file-1', parentId: null, index: 0 }],
 		});
@@ -809,6 +826,7 @@ describe('Bridge comm worker store', () => {
 
 	test('file view source updates retain selected stale paint when metadata is temporarily absent', () => {
 		const store = createBridgeCommWorkerStore({
+			surface: 'file',
 			contentItems: [makeWorkerFileViewContentMetadata('file-1')],
 			rows: [{ id: 'file-1', parentId: null, index: 0 }],
 		});
@@ -849,6 +867,7 @@ describe('Bridge comm worker store', () => {
 	test('file view source updates remove ready paint when content becomes unavailable', () => {
 		const telemetrySamples: BridgeTelemetrySample[] = [];
 		const store = createBridgeCommWorkerStore({
+			surface: 'file',
 			contentItems: [makeWorkerFileViewContentMetadata('file-1')],
 			rows: [{ id: 'file-1', parentId: null, index: 0 }],
 			telemetryClient: {

@@ -1,8 +1,13 @@
 import type { CodeViewOptions } from '@pierre/diffs';
 import { CodeView, type CodeViewHandle } from '@pierre/diffs/react';
-import { useLayoutEffect, useMemo, useRef, type ReactElement } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, type ReactElement } from 'react';
 
+import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import { bridgeCodeViewOptions } from '../review-viewer/code-view/bridge-code-view-panel.js';
+import {
+	observeBridgeCodeViewRenderFulfillment,
+	reconcileBridgeCodeViewRenderFulfillment,
+} from '../review-viewer/code-view/bridge-code-view-render-fulfillment.js';
 import { BridgePierreWorkerPoolProvider } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
 import {
 	bridgeFileViewerCodeViewItemsForPanelState,
@@ -40,6 +45,10 @@ export interface BridgeFileViewerCodePanelProps {
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly openFileState: BridgeFileViewerCodePanelState;
+	readonly renderFulfillmentCoordinator: Pick<
+		BridgeMainRenderFulfillmentCoordinator,
+		'observePostRender' | 'reconcilePublication'
+	>;
 	readonly selectedCodeViewItem: BridgeFileViewerSelectedCodeViewItem | null;
 	readonly totalHeightPixels: number | null;
 	readonly staleNotice?: ReactElement | null;
@@ -65,6 +74,34 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		[props.openFileState, props.selectedCodeViewItem],
 	);
 	const shouldRenderContentState = props.selectedCodeViewItem === null;
+	useLayoutEffect((): void => {
+		if (props.selectedCodeViewItem === null) return;
+		reconcileBridgeCodeViewRenderFulfillment({
+			exactPresentationItem: props.selectedCodeViewItem,
+			getCodeViewHandle: (): CodeViewHandle<undefined> | null => codeViewHandleRef.current,
+			renderFulfillmentCoordinator: props.renderFulfillmentCoordinator,
+		});
+	});
+	const handleCodeViewPostRender = useCallback<
+		NonNullable<CodeViewOptions<undefined>['onPostRender']>
+	>(
+		(_node, _instance, phase, context): void => {
+			observeBridgeCodeViewRenderFulfillment({
+				contextItem: context.item,
+				getCodeViewHandle: (): CodeViewHandle<undefined> | null => codeViewHandleRef.current,
+				itemId: context.item.id,
+				phase,
+				renderFulfillmentCoordinator: props.renderFulfillmentCoordinator,
+				selectedCodeViewItem: props.selectedCodeViewItem,
+				visibleCodeViewItems: undefined,
+			});
+		},
+		[props.renderFulfillmentCoordinator, props.selectedCodeViewItem],
+	);
+	const codeViewOptions = useMemo<CodeViewOptions<undefined>>(
+		() => ({ ...bridgeFileViewerCodeViewOptions, onPostRender: handleCodeViewPostRender }),
+		[handleCodeViewPostRender],
+	);
 	useLayoutEffect((): void => {
 		const effectVersion = scrollEffectVersionRef.current + 1;
 		scrollEffectVersionRef.current = effectVersion;
@@ -150,7 +187,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		<section
 			aria-label="Selected file"
 			className="relative min-h-0 min-w-0 overflow-hidden bg-[var(--bridge-canvas-bg)]"
-			data-bridge-code-view-overflow={bridgeFileViewerCodeViewOptions.overflow}
+			data-bridge-code-view-overflow={codeViewOptions.overflow}
 			data-pierre-code-view-owner="CodeView.file"
 			data-shiki-rendering="pierre"
 			data-testid="bridge-file-viewer-code-canvas"
@@ -190,7 +227,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 						onScroll={(scrollTop): void => {
 							lastScrollTopRef.current = scrollTop;
 						}}
-						options={bridgeFileViewerCodeViewOptions}
+						options={codeViewOptions}
 						ref={codeViewHandleRef}
 						style={{ height: '100%' }}
 					/>

@@ -1,7 +1,13 @@
+import { parseDiffFromFile } from '@pierre/diffs';
 import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
 
+import {
+	createBridgeMainRenderFulfillmentCoordinator,
+	type BridgeMainRenderPublication,
+	type BridgeMainRenderFulfillmentCoordinator,
+} from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import {
 	createBridgeMainRenderSnapshotStore,
 	type BridgeMainRenderSnapshotStore,
@@ -9,15 +15,19 @@ import {
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type {
 	BridgeWorkerFileDisplayPatchEvent,
+	BridgeWorkerFilePierreRenderJobEvent,
 	BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
 import {
 	buildBridgeWorkerPierreRenderJob,
+	type BridgeWorkerCodeViewDiffItem,
 	type BridgeWorkerCodeViewFileItem,
 } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
+import type { BridgeWorkerRenderRejectionReason } from '../core/comm-worker/bridge-worker-render-fulfillment.js';
+import { makeBridgeWorkerRenderReceiptIdentity } from '../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
 import type { BridgeWorkerRpcCommandInput } from '../core/comm-worker/bridge-worker-rpc-client.js';
 import {
-	applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore,
+	applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore as applyProductionBridgeWorkerMessagesToFileViewerRenderSnapshotStore,
 	BridgeFileViewerSurfaceClientProvider,
 	selectedBridgeFileViewerCodeViewItemForSnapshot,
 	type BridgeFileViewerRenderSnapshotController,
@@ -125,8 +135,87 @@ describe('Bridge File viewer render snapshot controller', () => {
 
 		// Assert
 		expect(controller.selectedContentAvailability).toEqual({ state: 'ready' });
-		expect(controller.selectedCodeViewItem).toEqual(selectedItem);
+		expect(controller.selectedCodeViewItem).toEqual({ ...selectedItem, version: 1 });
 		expect(controller.fileDisplaySnapshot.fileStatusSlice).toMatchObject({ state: 'ready' });
+	});
+
+	test('accepts the exact current owned File publication after installing its Pierre item', () => {
+		const renderSnapshotStore = createBridgeMainRenderSnapshotStore();
+		const admissionRecorder = makeFilePublicationAdmissionRecorder();
+		const publication = filePierreRenderJobEvent({
+			publicationSequence: 2,
+			workerDerivationEpoch: 1,
+		});
+
+		applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
+			messages: [fileDisplayEvent({ epoch: 1, projectionRevision: 1, sequence: 1 }), publication],
+			renderFulfillmentCoordinator: admissionRecorder.coordinator,
+			renderSnapshotStore,
+		});
+
+		const presentedItem = renderSnapshotStore.getSnapshot().codeViewItemsById['file-1'];
+		expect(presentedItem).not.toBe(publication.job.payload.item);
+		expect(presentedItem).toEqual({ ...publication.job.payload.item, version: 1 });
+		expect(admissionRecorder.acceptedPublications).toEqual([publication]);
+		expect(admissionRecorder.rejectedPublications).toEqual([]);
+	});
+
+	test('rejects stale, wrong-kind, and unowned File publications without replacing File state', () => {
+		const renderSnapshotStore = createBridgeMainRenderSnapshotStore();
+		const admissionRecorder = makeFilePublicationAdmissionRecorder();
+		applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
+			messages: [fileDisplayEvent({ epoch: 1, projectionRevision: 1, sequence: 1 })],
+			renderSnapshotStore,
+		});
+		renderSnapshotStore.setWorkerCodeViewItem({ item: selectedItem, itemId: 'file-1' });
+		const staleItem = {
+			...selectedItem,
+			file: { ...selectedItem.file, cacheKey: 'cache-stale', contents: 'stale\n' },
+			version: 2,
+			bridgeMetadata: { ...selectedItem.bridgeMetadata, cacheKey: 'cache-stale' },
+		} satisfies BridgeWorkerCodeViewFileItem;
+		const unownedItem = {
+			...selectedItem,
+			id: 'file:file-unowned',
+			file: { ...selectedItem.file, cacheKey: 'cache-unowned', name: 'UNOWNED.md' },
+			bridgeMetadata: {
+				...selectedItem.bridgeMetadata,
+				cacheKey: 'cache-unowned',
+				displayPath: 'UNOWNED.md',
+				itemId: 'file-unowned',
+			},
+		} satisfies BridgeWorkerCodeViewFileItem;
+		const invalidPublications: readonly BridgeWorkerFilePierreRenderJobEvent[] = [
+			filePierreRenderJobEvent({
+				item: staleItem,
+				publicationSequence: 3,
+				workerDerivationEpoch: 0,
+			}),
+			filePierreRenderJobWithDiffItemEvent({
+				publicationSequence: 4,
+				workerDerivationEpoch: 1,
+			}),
+			filePierreRenderJobEvent({
+				item: unownedItem,
+				publicationSequence: 5,
+				workerDerivationEpoch: 1,
+			}),
+		];
+
+		applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
+			messages: invalidPublications,
+			renderFulfillmentCoordinator: admissionRecorder.coordinator,
+			renderSnapshotStore,
+		});
+
+		expect(renderSnapshotStore.getSnapshot().codeViewItemsById).toEqual({ 'file-1': selectedItem });
+		expect(admissionRecorder.acceptedPublications).toEqual([]);
+		expect(admissionRecorder.rejectedPublications).toEqual(
+			invalidPublications.map((publication) => ({
+				publication,
+				reason: 'stale_submission',
+			})),
+		);
 	});
 
 	test('applies display patches while rejecting cross-wired generic Review selection patches', () => {
@@ -219,7 +308,10 @@ describe('Bridge File viewer render snapshot controller', () => {
 		expect(store.getSnapshot().rowPaintById['file-1']).toEqual({
 			contentCacheKey: 'cache-file-1',
 		});
-		expect(store.getSnapshot().codeViewItemsById['file-1']).toEqual(selectedItem);
+		expect(store.getSnapshot().codeViewItemsById['file-1']).toEqual({
+			...selectedItem,
+			version: 1,
+		});
 
 		applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
 			messages: [
@@ -261,7 +353,10 @@ describe('Bridge File viewer render snapshot controller', () => {
 		expect(store.getSnapshot().rowPaintById['file-1']).toEqual({
 			contentCacheKey: 'cache-file-1',
 		});
-		expect(store.getSnapshot().codeViewItemsById['file-1']).toEqual(selectedItem);
+		expect(store.getSnapshot().codeViewItemsById['file-1']).toEqual({
+			...selectedItem,
+			version: 1,
+		});
 	});
 
 	test('does not let generic slice patches mutate File render copies', () => {
@@ -395,6 +490,7 @@ function makeFileViewSurfaceClient(
 			getServerSnapshot: () => ({ requestsById: {} }),
 			subscribe: () => (): void => {},
 		},
+		renderFulfillmentCoordinator: createTestRenderFulfillmentCoordinator(),
 		renderStore,
 		send: (command): string => {
 			sentCommands.push(command);
@@ -402,6 +498,66 @@ function makeFileViewSurfaceClient(
 		},
 		subscribeMessages: () => (): void => {},
 		surface: 'fileView',
+	};
+}
+
+function createTestRenderFulfillmentCoordinator(): BridgeMainRenderFulfillmentCoordinator {
+	return createBridgeMainRenderFulfillmentCoordinator({
+		cancelAnimationFrame: (_frameHandle): void => {},
+		nowMilliseconds: (): number => 0,
+		requestAnimationFrame: (_callback): number => {
+			throw new Error('File controller fixture must not schedule paint validation.');
+		},
+		sendDisposition: (_receipt): void => {},
+	});
+}
+
+function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: {
+	readonly messages: readonly BridgeWorkerServerToMainMessage[];
+	readonly renderFulfillmentCoordinator?: Pick<
+		BridgeMainRenderFulfillmentCoordinator,
+		'acceptPublication' | 'bindPublicationItem' | 'markPublicationQueued' | 'rejectPublication'
+	>;
+	readonly renderSnapshotStore: BridgeMainRenderSnapshotStore;
+}): void {
+	applyProductionBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
+		messages: props.messages,
+		renderFulfillmentCoordinator:
+			props.renderFulfillmentCoordinator ?? makeFilePublicationAdmissionRecorder().coordinator,
+		renderSnapshotStore: props.renderSnapshotStore,
+	});
+}
+
+function makeFilePublicationAdmissionRecorder(): {
+	readonly acceptedPublications: BridgeMainRenderPublication[];
+	readonly coordinator: Pick<
+		BridgeMainRenderFulfillmentCoordinator,
+		'acceptPublication' | 'bindPublicationItem' | 'markPublicationQueued' | 'rejectPublication'
+	>;
+	readonly rejectedPublications: {
+		readonly publication: BridgeMainRenderPublication;
+		readonly reason: BridgeWorkerRenderRejectionReason;
+	}[];
+} {
+	const acceptedPublications: BridgeMainRenderPublication[] = [];
+	const rejectedPublications: {
+		publication: BridgeMainRenderPublication;
+		reason: BridgeWorkerRenderRejectionReason;
+	}[] = [];
+	return {
+		acceptedPublications,
+		coordinator: {
+			acceptPublication: (publication): 'accepted' => {
+				acceptedPublications.push(publication);
+				return 'accepted';
+			},
+			bindPublicationItem: (_props): void => {},
+			markPublicationQueued: (_publication): void => {},
+			rejectPublication: (publication, reason): void => {
+				rejectedPublications.push({ publication, reason });
+			},
+		},
+		rejectedPublications,
 	};
 }
 
@@ -484,27 +640,73 @@ function fileRenderPatchEvent(props: {
 }
 
 function filePierreRenderJobEvent(props: {
+	readonly item?: BridgeWorkerCodeViewFileItem;
 	readonly publicationSequence: number;
 	readonly workerDerivationEpoch: number;
-}): BridgeWorkerServerToMainMessage {
+}): BridgeWorkerFilePierreRenderJobEvent {
+	const item = props.item ?? selectedItem;
+	const itemId = item.bridgeMetadata.itemId;
 	return {
 		direction: 'serverWorkerToMain',
 		job: buildBridgeWorkerPierreRenderJob({
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 1024, maxWindowLines: 10 },
-			contentCacheKey: 'cache-file-1',
-			contentHash: 'sha256:file-1',
-			itemId: 'file-1',
-			language: 'markdown',
-			payload: { item: selectedItem, kind: 'codeViewFileItem' },
+			contentCacheKey: item.bridgeMetadata.cacheKey,
+			contentHash: `sha256:${item.bridgeMetadata.cacheKey}`,
+			itemId,
+			language: item.file.lang ?? 'plaintext',
+			payload: { item, kind: 'codeViewFileItem' },
 			renderKind: 'fileText',
 			window: { endLine: 1, startLine: 1, totalLineCount: 1 },
 		}),
 		kind: 'filePierreRenderJob',
 		publicationSequence: props.publicationSequence,
+		renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+			itemId,
+			publicationSequence: props.publicationSequence,
+			surface: 'file',
+			workerDerivationEpoch: props.workerDerivationEpoch,
+		}),
 		surface: 'file',
 		transferDescriptors: [],
 		wireVersion: 1,
 		workerDerivationEpoch: props.workerDerivationEpoch,
+	};
+}
+
+function filePierreRenderJobWithDiffItemEvent(props: {
+	readonly publicationSequence: number;
+	readonly workerDerivationEpoch: number;
+}): BridgeWorkerFilePierreRenderJobEvent {
+	const diffItem: BridgeWorkerCodeViewDiffItem = {
+		bridgeMetadata: {
+			cacheKey: 'cache-diff-file-1',
+			contentRoles: ['diff'],
+			contentState: 'hydrated',
+			displayPath: 'README.md',
+			itemId: 'file-1',
+			lineCount: 1,
+		},
+		fileDiff: parseDiffFromFile(
+			{ contents: 'before\n', name: 'README.md' },
+			{ contents: 'after\n', name: 'README.md' },
+		),
+		id: 'diff:file-1',
+		type: 'diff',
+	};
+	const fileEnvelope = filePierreRenderJobEvent(props);
+	return {
+		...fileEnvelope,
+		job: buildBridgeWorkerPierreRenderJob({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 1024, maxWindowLines: 10 },
+			contentCacheKey: diffItem.bridgeMetadata.cacheKey,
+			contentHash: 'sha256:diff-file-1',
+			itemId: 'file-1',
+			language: 'markdown',
+			payload: { item: diffItem, kind: 'codeViewDiffItem' },
+			renderKind: 'reviewDiff',
+			window: { endLine: 1, startLine: 1, totalLineCount: 1 },
+		}),
 	};
 }

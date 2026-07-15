@@ -17,6 +17,7 @@ import type {
 import type {
 	BridgeWorkerDemandRank,
 	BridgeWorkerPierreRenderBudget,
+	BridgeWorkerPierreRenderJob,
 } from './bridge-worker-pierre-render-job.js';
 import {
 	type BridgeWorkerFetchedReviewContentResource,
@@ -30,7 +31,8 @@ import {
 	createBridgeWorkerReviewContentRenderJobPreparation,
 	prepareBridgeWorkerReviewRenderPatchEvent,
 } from './bridge-worker-review-content-ready.js';
-import { type PreparedBridgeWorkerStructuredMessage } from './bridge-worker-transfer-list.js';
+import { prepareBridgeWorkerReviewPierreRenderJobEventFromJob } from './bridge-worker-review-pierre-job-planner.js';
+import type { PreparedBridgeWorkerStructuredMessage } from './bridge-worker-transfer-list.js';
 
 export interface DispatchSelectedBridgeWorkerReviewContentReadyProps {
 	readonly bridgeDemandRank: BridgeWorkerDemandRank;
@@ -162,8 +164,7 @@ export function createBridgeWorkerReviewContentReadyPublication(
 	},
 ): BridgeWorkerReviewContentReadyPublication {
 	let publicationStage: BridgeWorkerReviewContentReadyPublicationStage = 'classify';
-	let preparedJobEvent: PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent> | null =
-		null;
+	let plannedJob: BridgeWorkerPierreRenderJob | null = null;
 	let renderJobPreparation: ReturnType<
 		typeof createBridgeWorkerReviewContentRenderJobPreparation
 	> | null = null;
@@ -204,10 +205,8 @@ export function createBridgeWorkerReviewContentReadyPublication(
 					renderJobPreparation = createBridgeWorkerReviewContentRenderJobPreparation({
 						bridgeDemandRank: props.bridgeDemandRank,
 						budget: props.budget,
-						publicationSequence: props.sequence,
 						resources: props.fetchResult.resources,
 						semantics: props.fetchResult.semantics,
-						workerDerivationEpoch: props.workerDerivationEpoch,
 					});
 					publicationStage = 'prepareReady';
 					return { complete: false };
@@ -218,8 +217,8 @@ export function createBridgeWorkerReviewContentReadyPublication(
 					}
 					const preparationResult = renderJobPreparation.runNextStage();
 					if (preparationResult.status === 'pending') return { complete: false };
-					preparedJobEvent = preparationResult.preparedJobEvent;
-					if (preparedJobEvent === null) {
+					plannedJob = preparationResult.job;
+					if (plannedJob === null) {
 						terminalReason = 'descriptor_rejected';
 						terminalState = 'unavailable';
 						publicationStage = 'commitTerminal';
@@ -237,9 +236,21 @@ export function createBridgeWorkerReviewContentReadyPublication(
 						});
 						return completeBridgeWorkerReviewContentReadyPublication();
 					}
+					const job = requirePlannedBridgeWorkerReviewJob(plannedJob);
+					const publication = props.store.renderFulfillmentRegistry.beginPublication({
+						job,
+						publicationSequence: props.sequence,
+						workerDerivationEpoch: props.workerDerivationEpoch,
+					});
+					if (!publication.shouldPublish) {
+						return completeBridgeWorkerReviewContentReadyPublication();
+					}
 					commitPreparedBridgeWorkerReviewContentReady({
 						...props,
-						preparedJobEvent: requirePreparedBridgeWorkerReviewJobEvent(preparedJobEvent),
+						preparedJobEvent: prepareBridgeWorkerReviewPierreRenderJobEventFromJob({
+							job,
+							renderReceiptIdentity: publication.receiptIdentity,
+						}),
 					});
 					return completeBridgeWorkerReviewContentReadyPublication();
 				}
@@ -287,13 +298,13 @@ function commitPreparedBridgeWorkerReviewContentReady(
 	postPreparedBridgeCommWorkerMessage(props.port, contentReadyCommit.preparedMessage);
 }
 
-function requirePreparedBridgeWorkerReviewJobEvent(
-	preparedJobEvent: PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent> | null,
-): PreparedBridgeWorkerStructuredMessage<BridgeWorkerReviewPierreRenderJobEvent> {
-	if (preparedJobEvent === null) {
-		throw new Error('Bridge worker Review prepared job event is unavailable.');
+function requirePlannedBridgeWorkerReviewJob(
+	plannedJob: BridgeWorkerPierreRenderJob | null,
+): BridgeWorkerPierreRenderJob {
+	if (plannedJob === null) {
+		throw new Error('Bridge worker Review planned job is unavailable.');
 	}
-	return preparedJobEvent;
+	return plannedJob;
 }
 
 function requireBridgeWorkerTerminalReason(

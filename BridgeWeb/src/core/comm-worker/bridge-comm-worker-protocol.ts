@@ -7,6 +7,7 @@ import {
 	bridgeWorkerMarkFileViewedCommandSchema,
 	bridgeWorkerMetadataInterestUpdateCommandSchema,
 	bridgeWorkerModeCommandSchema,
+	bridgeWorkerRenderDispositionCommandSchema,
 	bridgeWorkerReviewIntakeReadyCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
 	bridgeWorkerSelectCommandSchema,
@@ -21,6 +22,7 @@ import {
 	type BridgeWorkerMetadataInterestRequest,
 	type BridgeWorkerMetadataInterestUpdateCommand,
 	type BridgeWorkerModeCommand,
+	type BridgeWorkerRenderDispositionCommand,
 	type BridgeWorkerReviewIntakeReadyCommand,
 	type BridgeWorkerReviewInvalidateCommand,
 	type BridgeWorkerSelectCommand,
@@ -88,6 +90,10 @@ export interface EncodeBridgeWorkerReviewInvalidateCommandProps extends EncodeBr
 	readonly itemIds: readonly string[];
 	readonly pathHints: readonly string[];
 	readonly reason: BridgeWorkerReviewInvalidateCommand['reason'];
+}
+
+export interface EncodeBridgeWorkerRenderDispositionCommandProps extends EncodeBridgeWorkerCommandBaseProps {
+	readonly receipt: BridgeWorkerRenderDispositionCommand['receipt'];
 }
 
 export function encodeBridgeWorkerSelectCommand(
@@ -203,6 +209,15 @@ export function encodeBridgeWorkerReviewInvalidateCommand(
 		itemIds: props.itemIds,
 		pathHints: props.pathHints,
 		reason: props.reason,
+	});
+}
+
+export function encodeBridgeWorkerRenderDispositionCommand(
+	props: EncodeBridgeWorkerRenderDispositionCommandProps,
+): BridgeWorkerRenderDispositionCommand {
+	return bridgeWorkerRenderDispositionCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'renderDisposition'),
+		receipt: props.receipt,
 	});
 }
 

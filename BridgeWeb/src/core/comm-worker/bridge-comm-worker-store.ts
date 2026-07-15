@@ -1,5 +1,6 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
+import type { BridgeProductSurface } from './bridge-product-contract-primitives.js';
 import type { BridgeCommWorkerFileViewRuntimeMutation } from './bridge-comm-worker-file-metadata-projection.js';
 import {
 	applyBridgeCommWorkerFileViewSourceMutationFact,
@@ -26,6 +27,7 @@ import {
 	type BridgeWorkerSlicePatch,
 	type BridgeWorkerSlicePatchEvent,
 } from './bridge-worker-contracts.js';
+import { BridgeWorkerRenderFulfillmentRegistry } from './bridge-worker-render-fulfillment-registry.js';
 
 export interface BridgeCommWorkerRow {
 	readonly id: string;
@@ -58,7 +60,9 @@ export interface BridgeCommWorkerStoreState {
 export interface CreateBridgeCommWorkerStoreProps {
 	readonly contentItems: readonly BridgeWorkerContentMetadata[];
 	readonly now?: () => number;
+	readonly renderFulfillmentRegistry?: BridgeWorkerRenderFulfillmentRegistry;
 	readonly rows: readonly BridgeCommWorkerRow[];
+	readonly surface: BridgeProductSurface;
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
 }
 
@@ -156,6 +160,7 @@ export interface TakePendingBridgeCommWorkerSlicePatchEventProps {
 
 export interface BridgeCommWorkerStore {
 	readonly getState: () => BridgeCommWorkerStoreState;
+	readonly renderFulfillmentRegistry: BridgeWorkerRenderFulfillmentRegistry;
 	readonly subscribe: StoreApi<BridgeCommWorkerStoreState>['subscribe'];
 	readonly actions: {
 		readonly applySelectedFact: (
@@ -203,9 +208,22 @@ export function createBridgeCommWorkerStore(
 	);
 	const pendingSlicePatches: BridgeWorkerSlicePatch[] = [];
 	const now = props.now ?? performance.now.bind(performance);
+	const renderFulfillmentRegistry =
+		props.renderFulfillmentRegistry ??
+		new BridgeWorkerRenderFulfillmentRegistry({
+			context: {
+				paneSessionId: 'worker-local-unbound-pane',
+				surface: props.surface,
+				workerInstanceId: 'worker-local-unbound-instance',
+			},
+			now,
+			receiptLeaseDurationMilliseconds: 5000,
+			retryBackoffMilliseconds: 25,
+		});
 
 	const workerStore: BridgeCommWorkerStore = {
 		getState: store.getState,
+		renderFulfillmentRegistry,
 		subscribe: store.subscribe,
 		actions: {
 			applySelectedFact: (

@@ -18,6 +18,8 @@ import {
 	encodeBridgeWorkerViewportCommand,
 } from '../core/comm-worker/bridge-comm-worker-protocol.js';
 import type { BridgeMainFileTreePatchStream } from '../core/comm-worker/bridge-main-file-display-patch-applier.js';
+import { prepareBridgeMainPierreItemForPresentation } from '../core/comm-worker/bridge-main-pierre-item-adapter.js';
+import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import {
 	type BridgeMainRenderSnapshot,
 	type BridgeMainRenderSnapshotStore,
@@ -65,6 +67,10 @@ export interface BridgeFileViewerRenderSnapshotController {
 	readonly selectedContentAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
 	readonly selectedCodeViewItem: BridgeFileViewerSelectedCodeViewItem | null;
 	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
+	readonly renderFulfillmentCoordinator: Pick<
+		BridgeMainRenderFulfillmentCoordinator,
+		'observePostRender' | 'reconcilePublication'
+	>;
 }
 
 export function useBridgeFileViewerRenderSnapshotController(props: {
@@ -86,10 +92,11 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 		(messages: readonly BridgeWorkerServerToMainMessage[]): void => {
 			applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
 				messages,
+				renderFulfillmentCoordinator: fileViewClient.renderFulfillmentCoordinator,
 				renderSnapshotStore,
 			});
 		},
-		[renderSnapshotStore],
+		[fileViewClient.renderFulfillmentCoordinator, renderSnapshotStore],
 	);
 	useEffect((): (() => void) => {
 		const unsubscribe = fileViewClient.subscribeMessages((message): void => {
@@ -189,6 +196,7 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 			selectedContentAvailability,
 			selectedCodeViewItem,
 			fileTreePatchStream: renderSnapshotStore.fileTreePatchStream,
+			renderFulfillmentCoordinator: fileViewClient.renderFulfillmentCoordinator,
 		}),
 		[
 			dispatchSelectedFileViewContentRequest,
@@ -196,6 +204,7 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 			dispatchVisibleFileViewViewportFact,
 			renderSnapshotStore.completeFileQueryTransaction,
 			renderSnapshotStore.fileTreePatchStream,
+			fileViewClient.renderFulfillmentCoordinator,
 			renderSnapshot.fileDisplayFreshness,
 			renderSnapshot.fileItemById,
 			renderSnapshot.fileQuerySlice,
@@ -232,6 +241,10 @@ function bridgeFileViewerStatusForSelectedRender(props: {
 
 export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: {
 	readonly messages: readonly BridgeWorkerServerToMainMessage[];
+	readonly renderFulfillmentCoordinator: Pick<
+		BridgeMainRenderFulfillmentCoordinator,
+		'acceptPublication' | 'bindPublicationItem' | 'markPublicationQueued' | 'rejectPublication'
+	>;
 	readonly renderSnapshotStore: BridgeMainRenderSnapshotStore;
 }): void {
 	for (const message of props.messages) {
@@ -268,18 +281,37 @@ export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: 
 					props.renderSnapshotStore.applySnapshotUpdate({ workerPatches: message.patches });
 				}
 				break;
-			case 'filePierreRenderJob':
+			case 'filePierreRenderJob': {
+				const publicationItem = message.job.payload.item;
 				if (
-					bridgeFilePublicationMatchesDisplayEpoch(props.renderSnapshotStore, message) &&
-					message.job.payload.item.type === 'file' &&
-					bridgeFileViewerItemIdBelongsToSnapshot(props.renderSnapshotStore, message.job.itemId)
+					!bridgeFilePublicationMatchesDisplayEpoch(props.renderSnapshotStore, message) ||
+					publicationItem.type !== 'file' ||
+					!bridgeFileViewerItemIdBelongsToSnapshot(props.renderSnapshotStore, message.job.itemId)
 				) {
-					props.renderSnapshotStore.setWorkerCodeViewItem({
-						item: message.job.payload.item,
-						itemId: message.job.itemId,
-					});
+					props.renderFulfillmentCoordinator.rejectPublication(message, 'stale_submission');
+					break;
 				}
+				if (props.renderFulfillmentCoordinator.acceptPublication(message) === 'duplicate') {
+					break;
+				}
+				const currentItem =
+					props.renderSnapshotStore.getSnapshot().codeViewItemsById[message.job.itemId];
+				const preparedItem = prepareBridgeMainPierreItemForPresentation({
+					currentItem,
+					presentationItem: publicationItem,
+				});
+				props.renderFulfillmentCoordinator.bindPublicationItem({
+					finalItem: preparedItem.item,
+					publicationItem,
+					residency: preparedItem.residency,
+				});
+				props.renderSnapshotStore.setWorkerCodeViewItem({
+					item: preparedItem.item,
+					itemId: message.job.itemId,
+				});
+				props.renderFulfillmentCoordinator.markPublicationQueued(message);
 				break;
+			}
 			case 'health':
 				publishBridgeProductMetadataStreamDiagnostic(message.diagnostic);
 				break;
