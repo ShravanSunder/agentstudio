@@ -778,3 +778,56 @@ topology, pane-residency, cache, persistence, trace, or index-generation effect.
 The guarded regression produces `[X, Y]`, never `[X, X]`. Focused parent proof
 passed 37 tests across the topology atom and both cache-coordinator suites;
 strict scoped lint/format and diff checks passed. Checkpoint commit `b39a0f23`.
+
+## 2026-07-15 W3 traversal and Git validation separation
+
+Implementation evidence proved that the first resumable scanner draft still
+awaited synchronous libgit2 inside an eight-millisecond traversal quantum. Swift
+cancellation cannot interrupt that native call, so the task-group timeout could
+retain traversal credit until physical exit. The focused correction is frozen
+in spec/plan commit `cac5c6d9`.
+
+`RepoScannerTraversalSession` now has the required strict shape
+`suspended | validationRequired | finished`; Git validation never owns a
+traversal credit. One `RepoScannerValidationExecutor` actor owns a root-fair
+bounded queue and two physical native-task slots. A logical timeout creates
+partial/dirty evidence immediately, but a non-cooperative native task keeps its
+physical slot in `draining` until actual exit. No replacement task is created,
+and unrelated-root traversal continues when validation saturates.
+
+Discovery receives a narrow read-only capability, never writer, remote, or
+mutation authority. Production W3 integration is dependency-gated on an
+immutable `agentstudio-git` revision that opens only the exact candidate with
+`GIT_REPOSITORY_OPEN_NO_SEARCH`. Discovery may read identity, registration,
+lock state, and HEAD but cannot create/remove/hold Git locks or mutate a repo,
+worktree, or common directory. Discovery, status, network, lifecycle/checkout,
+and mutation budgets/executors remain distinct. The two physical slots and one
+outstanding candidate per logical scan are fixed; logical deadline and global
+queue capacity remain typed and test-injectable pending workload calibration.
+
+## 2026-07-15 W3 scanner and scheduler mechanics checkpoint
+
+Checkpoint `9db6809f` freezes the standalone W3 mechanics without changing the
+legacy production `FilesystemActor` callback path. The scanner returns exhaustive
+typed evidence, traversal advances through bounded resumable quanta, validation
+uses independent bounded logical and physical custody, and the scheduler owns
+root-fair ready selection, running-plus-newest-dirty collapse, exact registration
+and scan-run currentness, and lossless leased terminal-result custody.
+
+The implementation review findings were remediated once: candidate containment
+is checked before Git access and positive evidence is rechecked after the read;
+both draining physical slots reject new logical custody; stale pending and leased
+results cannot transfer after replacement; ready selection performs constant
+work independent of fleet size; and recent validation completions use a bounded
+256-entry diagnostic history without granting authority. Traversal service and
+physical-slot validation service are separate metrics; executor queue wait,
+scheduler queue wait, and late native drain remain separately owned.
+
+Fresh parent proof passed 75 tests across 9 suites with deterministic 10/100/300
+root fairness, exact result-custody tests, candidate authority tests, draining
+slot tests, and injected-clock validation timing tests. Scoped strict SwiftLint
+reported zero violations across 17 files, strict formatting passed, and the
+cached diff check passed. Production integration remains the next W3 slice: it
+must preserve `WatchedPath.id`, return an exact submission receipt for awaited
+manual demand, route every scan cause through the scheduler, and ensure partial,
+cancelled, unavailable, failed, or stale evidence never removes prior inventory.
