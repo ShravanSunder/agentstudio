@@ -40,4 +40,61 @@ struct WorkspaceWindowMemoryAtomTests {
         #expect(memory.sidebarWidth == 300)
         #expect(memory.windowFrame == frame)
     }
+
+    @Test("prepared window replacement uses one exact transaction")
+    func preparedWindowReplacementUsesOneExactTransaction() throws {
+        let atom = WorkspaceWindowMemoryAtom()
+        let revisionOwner = WorkspacePersistenceRevisionOwner()
+        let frame = CGRect(x: 8, y: 13, width: 987, height: 654)
+        guard case .constructed = atom.makePersistenceSnapshotParticipant() else {
+            Issue.record("window-memory snapshot participant construction failed")
+            return
+        }
+
+        let committedTransaction = try revisionOwner.performSynchronousTransaction { preparation in
+            try atom.prepareHydrate(
+                sidebarWidth: 333,
+                windowFrame: frame,
+                for: preparation,
+                revisionOwner: revisionOwner
+            )
+        }
+
+        #expect(committedTransaction == revisionOwner.committedRevision)
+        #expect(atom.sidebarWidth == 333)
+        #expect(atom.windowFrame == frame)
+        #expect(
+            atom.persistenceSnapshotValue(for: .windowMemory)
+                == .value(.init(sidebarWidth: 333, windowFrame: frame))
+        )
+    }
+
+    @Test("failed window preparation changes neither owner nor revision")
+    func failedWindowPreparationChangesNeitherOwnerNorRevision() {
+        let atom = WorkspaceWindowMemoryAtom()
+        let revisionOwner = WorkspacePersistenceRevisionOwner()
+        guard case .constructed = atom.makePersistenceSnapshotParticipant() else {
+            Issue.record("window-memory snapshot participant construction failed")
+            return
+        }
+
+        #expect(throws: WorkspaceWindowMemorySnapshotPreparationError.self) {
+            try revisionOwner.performSynchronousTransaction { preparation in
+                _ = try atom.prepareSetSidebarWidth(
+                    300,
+                    for: preparation,
+                    revisionOwner: revisionOwner
+                )
+                return try atom.prepareSetWindowFrame(
+                    CGRect(x: 1, y: 2, width: 3, height: 4),
+                    for: preparation,
+                    revisionOwner: revisionOwner
+                )
+            }
+        }
+
+        #expect(revisionOwner.committedRevision == .zero)
+        #expect(atom.sidebarWidth == 250)
+        #expect(atom.windowFrame == nil)
+    }
 }

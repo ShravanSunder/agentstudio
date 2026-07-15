@@ -189,6 +189,12 @@ struct PaneGraphState: Identifiable, Hashable, Sendable {
 @Observable
 final class WorkspacePaneGraphAtom {
     private(set) var paneStates: [UUID: PaneGraphState] = [:]
+    @ObservationIgnored private(set) var paneRawKeyByteCounts: [UUID: UInt64] = [:]
+    @ObservationIgnored
+    let paneGraphPersistenceParticipant = WorkspaceStateSnapshotKeyedParticipant<UUID, PaneGraphState>()
+    @ObservationIgnored var persistenceCurrentValueLookupCount: UInt64 = 0
+    @ObservationIgnored var persistenceRawKeyByteCacheLookupCount: UInt64 = 0
+    @ObservationIgnored var persistenceMembershipBootstrapPaneCount: UInt64 = 0
 
     var paneIds: Set<UUID> {
         Set(paneStates.keys)
@@ -217,6 +223,9 @@ final class WorkspacePaneGraphAtom {
             guard let worktreeId = state.metadata.facets.worktreeId else { return true }
             return validWorktreeIds.contains(worktreeId)
         }
+        paneRawKeyByteCounts = paneStates.keys.reduce(into: [:]) { rawKeyByteCounts, paneID in
+            rawKeyByteCounts[paneID] = Self.persistenceRawKeyByteCount
+        }
 
         let validPaneIds = Set(paneStates.keys)
         for paneId in paneStates.keys {
@@ -228,7 +237,7 @@ final class WorkspacePaneGraphAtom {
     }
 
     func addPane(_ pane: Pane) {
-        paneStates[pane.id] = PaneGraphState(pane: pane)
+        setCanonicalPaneState(PaneGraphState(pane: pane))
     }
 
     @discardableResult
@@ -255,14 +264,14 @@ final class WorkspacePaneGraphAtom {
     ) -> PaneGraphState {
         let pane = Pane(content: content, metadata: metadata, residency: residency)
         let state = PaneGraphState(pane: pane)
-        paneStates[state.id] = state
+        setCanonicalPaneState(state)
         return state
     }
 
     @discardableResult
     func insertRestoredPane(_ pane: Pane) -> Bool {
         guard paneStates[pane.id] == nil else { return false }
-        paneStates[pane.id] = PaneGraphState(pane: pane)
+        setCanonicalPaneState(PaneGraphState(pane: pane))
         return true
     }
 
@@ -271,10 +280,10 @@ final class WorkspacePaneGraphAtom {
         guard paneStates[paneId] != nil else { return false }
         if let drawer = paneStates[paneId]?.drawer {
             for childId in drawer.paneIds {
-                paneStates.removeValue(forKey: childId)
+                removeCanonicalPaneState(for: childId)
             }
         }
-        paneStates.removeValue(forKey: paneId)
+        removeCanonicalPaneState(for: paneId)
         return true
     }
 
@@ -381,7 +390,7 @@ final class WorkspacePaneGraphAtom {
             workspacePaneLogger.warning("purgeOrphanedPane: pane \(paneId) is not backgrounded")
             return
         }
-        paneStates.removeValue(forKey: paneId)
+        removeCanonicalPaneState(for: paneId)
     }
 
     @discardableResult
@@ -401,7 +410,7 @@ final class WorkspacePaneGraphAtom {
             kind: .drawerChild(parentPaneId: parentPaneId)
         )
         let drawerState = PaneGraphState(pane: drawerPane)
-        paneStates[drawerState.id] = drawerState
+        setCanonicalPaneState(drawerState)
         paneStates[parentPaneId]?.withDrawer { drawer in
             drawer.paneIds.append(drawerState.id)
         }
@@ -436,7 +445,7 @@ final class WorkspacePaneGraphAtom {
         paneStates[parentPaneId]?.withDrawer { drawer in
             drawer.paneIds.removeAll { $0 == drawerPaneId }
         }
-        paneStates.removeValue(forKey: drawerPaneId)
+        removeCanonicalPaneState(for: drawerPaneId)
     }
 
     @discardableResult
@@ -531,11 +540,30 @@ final class WorkspacePaneGraphAtom {
 
         var restoredPane = drawerPane
         restoredPane.kind = .drawerChild(parentPaneId: parentPaneId)
-        paneStates[restoredPane.id] = PaneGraphState(pane: restoredPane)
+        setCanonicalPaneState(PaneGraphState(pane: restoredPane))
         paneStates[parentPaneId]?.withDrawer { drawer in
             drawer.paneIds.removeAll { $0 == restoredPane.id }
             drawer.paneIds.append(restoredPane.id)
         }
         return true
+    }
+
+    static let persistenceRawKeyByteCount: UInt64 = 16
+
+    func setCanonicalPaneState(_ state: PaneGraphState) {
+        paneStates[state.id] = state
+        paneRawKeyByteCounts[state.id] = Self.persistenceRawKeyByteCount
+    }
+
+    @discardableResult
+    func removeCanonicalPaneState(for paneID: UUID) -> PaneGraphState? {
+        paneRawKeyByteCounts.removeValue(forKey: paneID)
+        return paneStates.removeValue(forKey: paneID)
+    }
+
+    func incrementPersistenceDiagnostic(_ count: inout UInt64) {
+        let increment = count.addingReportingOverflow(1)
+        precondition(!increment.overflow, "pane graph persistence diagnostic count exhausted")
+        count = increment.partialValue
     }
 }

@@ -62,4 +62,70 @@ struct WorkspaceTabCursorAtomTests {
 
         #expect(atom.activeTabId == activeTabId)
     }
+
+    @Test("prepared active tab uses membership presence and absence")
+    func preparedActiveTabUsesMembershipPresenceAndAbsence() throws {
+        let atom = WorkspaceTabCursorAtom()
+        let revisionOwner = WorkspacePersistenceRevisionOwner()
+        let activeTabID = UUID()
+        guard case .constructed = atom.makePersistenceSnapshotParticipant() else {
+            Issue.record("active-tab snapshot participant construction failed")
+            return
+        }
+
+        let insertionTransaction = try revisionOwner.performSynchronousTransaction { preparation in
+            try atom.prepareSelectTab(
+                activeTabID,
+                availableTabIds: [activeTabID],
+                for: preparation,
+                revisionOwner: revisionOwner
+            )
+        }
+        #expect(insertionTransaction == revisionOwner.committedRevision)
+        #expect(atom.persistenceSnapshotValue(for: .activeTab) == .value(activeTabID))
+
+        let removalTransaction = try revisionOwner.performSynchronousTransaction { preparation in
+            try atom.prepareSelectTab(
+                nil,
+                availableTabIds: [activeTabID],
+                for: preparation,
+                revisionOwner: revisionOwner
+            )
+        }
+        #expect(removalTransaction == revisionOwner.committedRevision)
+        #expect(atom.activeTabId == nil)
+        #expect(atom.persistenceSnapshotValue(for: .activeTab) == .absent)
+    }
+
+    @Test("failed active tab preparation changes neither owner nor revision")
+    func failedActiveTabPreparationChangesNeitherOwnerNorRevision() {
+        let atom = WorkspaceTabCursorAtom()
+        let revisionOwner = WorkspacePersistenceRevisionOwner()
+        let tabID = UUID()
+        guard case .constructed = atom.makePersistenceSnapshotParticipant() else {
+            Issue.record("active-tab snapshot participant construction failed")
+            return
+        }
+
+        #expect(throws: WorkspaceTabCursorSnapshotPreparationError.self) {
+            try revisionOwner.performSynchronousTransaction { preparation in
+                _ = try atom.prepareSelectTab(
+                    tabID,
+                    availableTabIds: [tabID],
+                    for: preparation,
+                    revisionOwner: revisionOwner
+                )
+                return try atom.prepareSelectTab(
+                    nil,
+                    availableTabIds: [tabID],
+                    for: preparation,
+                    revisionOwner: revisionOwner
+                )
+            }
+        }
+
+        #expect(revisionOwner.committedRevision == .zero)
+        #expect(atom.activeTabId == nil)
+        #expect(atom.persistenceSnapshotValue(for: .activeTab) == .absent)
+    }
 }
