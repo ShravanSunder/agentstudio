@@ -1,0 +1,14 @@
+# gate|mise task|Swift Testing selector
+all|test|BoundedGatherMailbox
+all|test|FilesystemObservation
+all|test|FilesystemSourceGate
+all|test|FSEventRegistrationControlBlock
+all|test|DarwinFSEventObservation
+all|test|FilesystemObservationCallbackScaleTests
+all|test|FilesystemObservationFleetExhaustionIntegrationTests
+all|test|WorktreeContentRepairConsumerRegistryTests
+all|test|FilesystemContentRepairProjectorTests
+all|test|RegisteredWorktreeRepairIntegrationTests
+all|test-large|DarwinFSEventObservationLifecycleIntegrationTests
+pre-w2b|test|FilesystemObservationIngressOwnershipArchitectureTests
+w2b|test|FilesystemObservationIngressOwnershipArchitectureTests

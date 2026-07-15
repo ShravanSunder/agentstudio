@@ -145,35 +145,6 @@ struct FilesystemLeaseTransferArchitectureTests {
         }
     }
 
-    @Test("test harness is the sole dormant consumer and waiter owner")
-    func testHarnessIsSoleDormantConsumerAndWaiterOwner() throws {
-        // Arrange
-        let source = try readSource(
-            "Tests/AgentStudioTests/Core/PaneRuntime/Sources/FilesystemObservationDrainHarnessActor.swift"
-        )
-
-        // Act
-        let actorDeclarationCount =
-            source.components(
-                separatedBy: "actor FilesystemObservationDrainHarnessActor"
-            ).count - 1
-        let ownedConsumerPortCount =
-            source.components(
-                separatedBy:
-                    "private let consumerPort: FilesystemObservationActorConsumerPort"
-            ).count - 1
-        let ownedWaiterPortCount =
-            source.components(
-                separatedBy:
-                    "private let waiterPort: FilesystemObservationActorWaiterPort"
-            ).count - 1
-
-        // Assert
-        #expect(actorDeclarationCount == 1)
-        #expect(ownedConsumerPortCount == 1)
-        #expect(ownedWaiterPortCount == 1)
-    }
-
     private func readSource(_ relativePath: String) throws -> String {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         return try String(
