@@ -74,6 +74,16 @@ enum WorkspacePersistenceRevisionOwnerError: Error, Equatable {
     case reentrantTransaction
 }
 
+enum WorkspacePersistenceActiveTransactionValidation: Equatable, Sendable {
+    case active
+    case rejected(WorkspacePersistenceActiveTransactionRejection)
+}
+
+enum WorkspacePersistenceActiveTransactionRejection: Equatable, Sendable {
+    case notCommitting
+    case transactionMismatch
+}
+
 /// Process-local MainActor authority for canonical persistence revisions.
 ///
 /// The transaction body is deliberately synchronous. The proposed revision is
@@ -83,7 +93,8 @@ enum WorkspacePersistenceRevisionOwnerError: Error, Equatable {
 final class WorkspacePersistenceRevisionOwner {
     private enum State {
         case idle
-        case preparingOrCommitting
+        case preparing(WorkspacePersistenceTransaction)
+        case committing(WorkspacePersistenceTransaction)
     }
 
     let processGeneration: WorkspacePersistenceProcessGeneration
@@ -103,17 +114,30 @@ final class WorkspacePersistenceRevisionOwner {
         guard case .idle = state else {
             throw WorkspacePersistenceRevisionOwnerError.reentrantTransaction
         }
-        state = .preparingOrCommitting
-        defer { state = .idle }
-
         let transaction = WorkspacePersistenceTransaction(
             processGeneration: processGeneration,
             expectedPreviousRevision: committedRevision,
             proposedRevision: committedRevision.next()
         )
+        state = .preparing(transaction)
+        defer { state = .idle }
+
         let preparedMutation = try prepare(WorkspacePersistenceTransactionPreparation(transaction: transaction))
+        state = .committing(transaction)
         let result = preparedMutation.body()
         committedRevision = transaction.proposedRevision
         return result
+    }
+
+    func validateActiveCommit(
+        _ transaction: WorkspacePersistenceTransaction
+    ) -> WorkspacePersistenceActiveTransactionValidation {
+        guard case .committing(let activeTransaction) = state else {
+            return .rejected(.notCommitting)
+        }
+        guard activeTransaction == transaction else {
+            return .rejected(.transactionMismatch)
+        }
+        return .active
     }
 }
