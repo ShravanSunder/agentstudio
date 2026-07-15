@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 import Testing
 
@@ -65,20 +66,143 @@ struct BridgeFileCompleteContentTests {
                 )
             )
         )
-        let body = try #require(materialization.body)
-        let assembledText = try #require(String(data: body.data, encoding: .utf8))
-        let assembledSHA256 = sha256Hex(body.data)
+        guard case .available(let descriptor) = materialization.payload.availability else {
+            Issue.record("Expected complete File metadata to issue a text descriptor")
+            return
+        }
+        let reader = try await BridgePaneProductFileContentSource.openReadSession(
+            .init(
+                descriptor: descriptor,
+                relativePath: relativePath,
+                rootURL: directoryURL
+            )
+        )
+        var assembledData = Data()
+        while let chunk = try await reader.nextChunk(
+            maximumByteCount: BridgeProductWireContract.maximumContentDataPayloadBytes
+        ) {
+            assembledData.append(chunk)
+        }
+        await reader.close()
+        let assembledText = try #require(String(data: assembledData, encoding: .utf8))
+        let assembledSHA256 = sha256Hex(assembledData)
         let reachesFinalLineCanary = assembledText.hasSuffix(Self.finalLineCanary)
-        let bytesEqualIndependentSource = body.data == sourceData
+        let bytesEqualIndependentSource = assembledData == sourceData
 
         // Assert
+        #expect(descriptor.declaredByteLength == sourceData.count)
+        #expect(descriptor.maximumBytes == sourceData.count)
+        #expect(descriptor.window.maximumBytes == sourceData.count)
+        #expect(descriptor.window.maximumLines == Self.sourceLineCount)
+        #expect(descriptor.expectedSha256 == Self.sourceSHA256)
+        #expect(materialization.payload.payloadByteCount == sourceData.count)
+        #expect(materialization.payload.payloadLineCount == Self.sourceLineCount)
+        #expect(materialization.payload.totalLineCount == Self.sourceLineCount)
+        #expect(materialization.payload.truncationKind == .complete)
+        #expect(materialization.payload.virtualizedExtentKind == .exactLineCount)
+        #expect(!materialization.payload.endsMidLine)
         #expect(
-            body.endOfSource
-                && reachesFinalLineCanary
+            reachesFinalLineCanary
                 && bytesEqualIndependentSource
                 && assembledSHA256 == Self.sourceSHA256,
-            "complete File product source must reach the final-line canary and equal independent source bytes; observed \(body.data.count)/\(sourceData.count) bytes, endOfSource=\(body.endOfSource), sha256=\(assembledSHA256)"
+            "complete File product source must reach the final-line canary and equal independent source bytes; observed \(assembledData.count)/\(sourceData.count) bytes, sha256=\(assembledSHA256)"
         )
+    }
+
+    @Test("rejects a parent symlink swap between containment preflight and open")
+    func rejectsParentSymlinkSwapBeforeOpen() async throws {
+        // Arrange
+        let fileManager = FileManager.default
+        let containerURL = fileManager.temporaryDirectory
+            .appending(path: "bridge-file-open-race-\(UUID().uuidString)")
+        let rootURL = containerURL.appending(path: "worktree")
+        let trustedDirectoryURL = rootURL.appending(path: "trusted")
+        let displacedTrustedDirectoryURL = rootURL.appending(path: "trusted-original")
+        let externalDirectoryURL = containerURL.appending(path: "external")
+        let relativePath = "trusted/source.txt"
+        let trustedData = Data("trusted-source".utf8)
+        let externalData = Data("external-data!".utf8)
+        #expect(trustedData.count == externalData.count)
+        try fileManager.createDirectory(
+            at: trustedDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(
+            at: externalDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? fileManager.removeItem(at: containerURL) }
+        try trustedData.write(to: trustedDirectoryURL.appending(path: "source.txt"))
+        try externalData.write(to: externalDirectoryURL.appending(path: "source.txt"))
+        let materialization = try await BridgePaneProductFileContentSource.materialize(
+            .init(
+                relativePath: relativePath,
+                rootURL: rootURL,
+                row: BridgeWorktreeTreeRowMetadata(
+                    rowId: "open-race-row-1",
+                    path: relativePath,
+                    name: "source.txt",
+                    parentPath: "trusted",
+                    depth: 1,
+                    isDirectory: false,
+                    fileId: "open-race-file-1",
+                    sizeBytes: trustedData.count,
+                    lineCount: 1,
+                    changeStatus: nil
+                ),
+                source: try .init(
+                    repoId: "00000000-0000-4000-8000-000000000001",
+                    rootRevisionToken: "open-race-root-revision-1",
+                    sourceCursor: "open-race-source-cursor-1",
+                    sourceId: "open-race-source-1",
+                    subscriptionGeneration: 1,
+                    worktreeId: "00000000-0000-4000-8000-000000000002"
+                )
+            )
+        )
+        guard case .available(let descriptor) = materialization.payload.availability else {
+            Issue.record("Expected the trusted source to issue a File descriptor")
+            return
+        }
+        let descriptorRecorder = OpenedFileDescriptorRecorder()
+
+        // Act
+        var rejected = false
+        do {
+            _ = try await BridgePaneProductFileContentSource.openReadSession(
+                .init(
+                    descriptor: descriptor,
+                    relativePath: relativePath,
+                    rootURL: rootURL
+                ),
+                beforeOpeningResolvedFile: { _ in
+                    try FileManager.default.moveItem(
+                        at: trustedDirectoryURL,
+                        to: displacedTrustedDirectoryURL
+                    )
+                    try FileManager.default.createSymbolicLink(
+                        at: trustedDirectoryURL,
+                        withDestinationURL: externalDirectoryURL
+                    )
+                },
+                afterOpeningFileDescriptor: { fileDescriptor in
+                    descriptorRecorder.record(fileDescriptor)
+                }
+            )
+        } catch {
+            rejected = true
+        }
+
+        // Assert
+        #expect(rejected)
+        #expect(
+            try fileManager.destinationOfSymbolicLink(atPath: trustedDirectoryURL.path)
+                == externalDirectoryURL.path
+        )
+        #expect(try Data(contentsOf: trustedDirectoryURL.appending(path: "source.txt")) == externalData)
+        let openedFileDescriptor = try #require(descriptorRecorder.value)
+        #expect(fcntl(openedFileDescriptor, F_GETFD) == -1)
+        #expect(errno == EBADF)
     }
 
     private func makeCompleteFileSourceText() -> String {
@@ -121,5 +245,18 @@ struct BridgeFileCompleteContentTests {
 
     private func sha256Hex(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+private final class OpenedFileDescriptorRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedValue: Int32?
+
+    var value: Int32? {
+        lock.withLock { recordedValue }
+    }
+
+    func record(_ value: Int32) {
+        lock.withLock { recordedValue = value }
     }
 }

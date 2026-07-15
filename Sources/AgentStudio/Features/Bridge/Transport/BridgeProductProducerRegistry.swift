@@ -324,6 +324,9 @@ struct BridgeProductProducerRegistry {
         guard var state = producersByLeaseId[lease.id] else { return }
         state.lifecycle = .stopped
         state.task = nil
+        state.producerObservationPacingExpectedSequence = nil
+        state.producerObservationPacingWaiterToken = nil
+        state.producerObservedSequenceReplay = nil
         producersByLeaseId[lease.id] = state
     }
 
@@ -389,7 +392,13 @@ struct BridgeProductProducerRegistry {
             contentProducerLifecycleResidueCount: contentProducerLifecycleResidueCount,
             queuedFrameCount: states.reduce(0) { $0 + $1.queuedFrames.count },
             queuedByteCount: states.reduce(0) { $0 + $1.queuedByteCount },
-            pendingFrameWaiterCount: states.count { $0.frameWaiterToken != nil },
+            pendingFrameWaiterCount: states.reduce(into: 0) { count, state in
+                if state.frameWaiterToken != nil { count += 1 }
+                if state.producerObservationPacingWaiterToken != nil { count += 1 }
+            },
+            pendingProducerObservationPacingWaiterCount: states.reduce(into: 0) { count, state in
+                if state.producerObservationPacingWaiterToken != nil { count += 1 }
+            },
             inFlightFrameReceiptCount: states.count { $0.inFlightFrameReceipt != nil },
             pendingLifecycleAcknowledgementCount: pendingAcknowledgementsByLeaseId.count,
             nextMetadataStreamSequence: nextMetadataStreamSequence,

@@ -140,6 +140,7 @@ struct BridgeProductProducerRegistrySnapshot: Equatable, Sendable {
     let queuedFrameCount: Int
     let queuedByteCount: Int
     let pendingFrameWaiterCount: Int
+    let pendingProducerObservationPacingWaiterCount: Int
     let inFlightFrameReceiptCount: Int
     let pendingLifecycleAcknowledgementCount: Int
     let nextMetadataStreamSequence: Int
@@ -152,6 +153,7 @@ struct BridgeProductProducerRegistrySnapshot: Equatable, Sendable {
             && queuedFrameCount == 0
             && queuedByteCount == 0
             && pendingFrameWaiterCount == 0
+            && pendingProducerObservationPacingWaiterCount == 0
             && inFlightFrameReceiptCount == 0
             && pendingLifecycleAcknowledgementCount == 0
     }

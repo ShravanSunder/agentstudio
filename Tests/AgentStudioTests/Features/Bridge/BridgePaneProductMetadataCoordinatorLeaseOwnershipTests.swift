@@ -79,7 +79,9 @@ private actor LeaseOwnershipGatedFileMetadataSource: BridgePaneProductFileMetada
 
     func publish(changeset _: FileChangeset) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
 
-    func contentBody(for _: BridgeProductFileContentRequest) -> BridgePaneProductFileContentBody? { nil }
+    func contentReadPlan(
+        for _: BridgeProductFileContentRequest
+    ) -> BridgePaneProductFileContentReadPlan? { nil }
 
     func waitUntilCancellationStarted() async {
         guard !cancellationStarted else { return }

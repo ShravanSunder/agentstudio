@@ -792,7 +792,9 @@ private actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataP
 
     func publish(changeset _: FileChangeset) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
 
-    func contentBody(for _: BridgeProductFileContentRequest) -> BridgePaneProductFileContentBody? { nil }
+    func contentReadPlan(
+        for _: BridgeProductFileContentRequest
+    ) -> BridgePaneProductFileContentReadPlan? { nil }
 
     func waitUntilOpenStarted() async {
         guard !didStartOpen else { return }
@@ -862,7 +864,9 @@ private actor CoordinatorFileMetadataSource: BridgePaneProductFileMetadataProduc
 
     func publish(changeset _: FileChangeset) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
 
-    func contentBody(for _: BridgeProductFileContentRequest) -> BridgePaneProductFileContentBody? { nil }
+    func contentReadPlan(
+        for _: BridgeProductFileContentRequest
+    ) -> BridgePaneProductFileContentReadPlan? { nil }
 }
 
 private func coordinatorMetadataStreamRequest() throws -> BridgeProductMetadataStreamRequest {

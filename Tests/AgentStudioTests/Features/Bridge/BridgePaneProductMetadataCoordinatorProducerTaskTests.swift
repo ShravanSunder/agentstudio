@@ -305,7 +305,9 @@ private actor CoordinatorReplacementBootstrapFileMetadataSource:
 
     func publish(changeset _: FileChangeset) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
 
-    func contentBody(for _: BridgeProductFileContentRequest) -> BridgePaneProductFileContentBody? { nil }
+    func contentReadPlan(
+        for _: BridgeProductFileContentRequest
+    ) -> BridgePaneProductFileContentReadPlan? { nil }
 
     func openObservedCancellation(openOrdinal: Int) -> Bool {
         observedCancellationByOpenOrdinal[openOrdinal] ?? false
@@ -358,7 +360,9 @@ private actor CoordinatorCancellationErrorFileSource:
 
     func publish(changeset _: FileChangeset) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
 
-    func contentBody(for _: BridgeProductFileContentRequest) -> BridgePaneProductFileContentBody? { nil }
+    func contentReadPlan(
+        for _: BridgeProductFileContentRequest
+    ) -> BridgePaneProductFileContentReadPlan? { nil }
 }
 
 private actor CoordinatorProducerTaskTraceRecorder: BridgeProductMetadataLifecycleTraceRecording {

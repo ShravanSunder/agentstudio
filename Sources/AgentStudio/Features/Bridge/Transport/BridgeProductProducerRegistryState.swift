@@ -54,6 +54,9 @@ struct BridgeProductProducerState {
     var terminalFrameConsumed = false
     var frameWaiterToken: UUID?
     var inFlightFrameReceipt: BridgeProductProducerFrameReceipt?
+    var producerObservationPacingExpectedSequence: Int?
+    var producerObservationPacingWaiterToken: UUID?
+    var producerObservedSequenceReplay: Int?
 }
 
 enum BridgeProductProducerFramePullPreparation {
@@ -66,6 +69,12 @@ enum BridgeProductProducerFramePullPreparation {
 struct BridgeProductProducerFrameWaiterResolution {
     let result: BridgeProductProducerFramePullResult
     let waiterToken: UUID
+}
+
+enum BridgeProductProducerObservationPacingPreparation {
+    case observed
+    case rejected
+    case wait(waiterToken: UUID)
 }
 
 extension BridgeProductProducerRegistry {
@@ -192,8 +201,84 @@ extension BridgeProductProducerRegistry {
         if frame.requiredOpening {
             state.openingFrameState = .delivered
         }
+        if state.key.isContent {
+            state.producerObservedSequenceReplay = receipt.sequence
+        }
         producersByLeaseId[lease.id] = state
         return true
+    }
+
+    mutating func prepareProducerObservationPacing(
+        for lease: BridgeProductProducerLease,
+        sequence: Int,
+        waiterToken: UUID
+    ) -> BridgeProductProducerObservationPacingPreparation {
+        guard var state = producersByLeaseId[lease.id],
+            state.key.isContent,
+            state.lifecycle != .stopped
+        else {
+            return .rejected
+        }
+        if state.producerObservedSequenceReplay == sequence {
+            state.producerObservedSequenceReplay = nil
+            producersByLeaseId[lease.id] = state
+            return .observed
+        }
+        guard state.producerObservationPacingWaiterToken == nil,
+            state.producerObservationPacingExpectedSequence == nil,
+            state.queuedFrames.contains(where: { $0.sequence == sequence })
+        else {
+            return .rejected
+        }
+        state.producerObservationPacingExpectedSequence = sequence
+        state.producerObservationPacingWaiterToken = waiterToken
+        producersByLeaseId[lease.id] = state
+        return .wait(waiterToken: waiterToken)
+    }
+
+    mutating func takeProducerObservationPacingResolution(
+        for receipt: BridgeProductProducerFrameReceipt
+    ) -> UUID? {
+        let lease = receipt.producerLease
+        guard var state = producersByLeaseId[lease.id],
+            state.producerObservationPacingExpectedSequence == receipt.sequence,
+            state.producerObservedSequenceReplay == receipt.sequence,
+            let waiterToken = state.producerObservationPacingWaiterToken
+        else {
+            return nil
+        }
+        state.producerObservationPacingExpectedSequence = nil
+        state.producerObservationPacingWaiterToken = nil
+        state.producerObservedSequenceReplay = nil
+        producersByLeaseId[lease.id] = state
+        return waiterToken
+    }
+
+    mutating func cancelProducerObservationPacing(
+        for lease: BridgeProductProducerLease,
+        waiterToken: UUID
+    ) -> Bool {
+        guard var state = producersByLeaseId[lease.id],
+            state.producerObservationPacingWaiterToken == waiterToken
+        else {
+            return false
+        }
+        state.producerObservationPacingExpectedSequence = nil
+        state.producerObservationPacingWaiterToken = nil
+        producersByLeaseId[lease.id] = state
+        return true
+    }
+
+    mutating func abandonProducerObservationPacing(
+        for lease: BridgeProductProducerLease
+    ) -> UUID? {
+        guard var state = producersByLeaseId[lease.id] else { return nil }
+        let waiterToken = state.producerObservationPacingWaiterToken
+        state.producerObservationPacingExpectedSequence = nil
+        state.producerObservationPacingWaiterToken = nil
+        state.producerObservedSequenceReplay = nil
+        producersByLeaseId[lease.id] = state
+        return waiterToken
     }
 
     mutating func abandonFrameDelivery(

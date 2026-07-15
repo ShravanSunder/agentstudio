@@ -1,7 +1,8 @@
+import CryptoKit
 import Foundation
 
 actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
-    private struct ContentBody: Sendable {
+    private struct BufferedContentBody: Sendable {
         let data: Data
         let endOfSource: Bool
         let sha256: String
@@ -9,6 +10,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
 
     private let applyActiveViewerModeUpdate: @MainActor @Sendable (BridgeProductCallRequest) async -> Void
     private let contentDemandAdmission: BridgeContentDemandAdmission
+    private let fileContentReaderFactory: BridgePaneProductFileContentReaderFactory
     private let fileMetadataSource: any BridgePaneProductFileMetadataProducing
     private let handleReviewIntakeReady: @MainActor @Sendable (BridgeProductReviewIntakeReadyRequest) async -> Void
     private let markReviewItemViewed: @MainActor @Sendable (String) -> Void
@@ -24,9 +26,12 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             { _ in },
         applyActiveViewerModeUpdate: @escaping @MainActor @Sendable (BridgeProductCallRequest) async -> Void = { _ in },
         lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)? = nil,
-        contentDemandAdmission: BridgeContentDemandAdmission = BridgeContentDemandAdmission()
+        contentDemandAdmission: BridgeContentDemandAdmission = BridgeContentDemandAdmission(),
+        fileContentReaderFactory: @escaping BridgePaneProductFileContentReaderFactory =
+            BridgePaneProductFileContentSource.openReadSession
     ) {
         self.contentDemandAdmission = contentDemandAdmission
+        self.fileContentReaderFactory = fileContentReaderFactory
         self.fileMetadataSource = fileMetadataSource
         self.handleReviewIntakeReady = handleReviewIntakeReady
         self.metadataCoordinator = BridgePaneProductMetadataCoordinator(
@@ -208,7 +213,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         lease: BridgeProductProducerLease,
         session: BridgeProductSession
     ) async throws {
-        _ = try await session.enqueueRequiredProducerOpeningFrame(
+        let openingResult = try await session.enqueueRequiredProducerOpeningFrame(
             for: lease,
             build: { _ in
                 .content(
@@ -219,25 +224,42 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 )
             }
         )
-        guard let body = await contentBody(for: request) else {
-            _ = try await session.enqueueTerminalProducerFrame(
-                for: lease,
-                build: { sequence in
-                    .content(
-                        .init(
-                            header: try .error(
-                                contentSequence: sequence,
-                                code: .unsupportedContent,
-                                retryable: false,
-                                safeMessage: "Content descriptor is not active"
-                            ),
-                            payload: Data()
-                        )
-                    )
-                }
+        guard
+            await waitForExactWorkerObservation(
+                openingResult,
+                lease: lease,
+                session: session
             )
-            return
+        else { return }
+        switch request {
+        case .fileContent(let fileRequest):
+            await runFileContentProducer(
+                request: fileRequest,
+                lease: lease,
+                session: session
+            )
+        case .reviewContent(let reviewRequest):
+            guard let body = try? await reviewContentSource.contentBody(for: reviewRequest) else {
+                try await enqueueUnavailableContentTerminal(for: lease, session: session)
+                return
+            }
+            try await runBufferedContentProducer(
+                BufferedContentBody(
+                    data: body.data,
+                    endOfSource: body.isFinalRange,
+                    sha256: body.sha256
+                ),
+                lease: lease,
+                session: session
+            )
         }
+    }
+
+    private func runBufferedContentProducer(
+        _ body: BufferedContentBody,
+        lease: BridgeProductProducerLease,
+        session: BridgeProductSession
+    ) async throws {
         var offsetBytes = 0
         while offsetBytes < body.data.count {
             try Task.checkCancellation()
@@ -293,6 +315,168 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         )
     }
 
+    private func runFileContentProducer(
+        request: BridgeProductFileContentRequest,
+        lease: BridgeProductProducerLease,
+        session: BridgeProductSession
+    ) async {
+        guard let readPlan = await metadataCoordinator.contentReadPlan(for: request),
+            readPlan.descriptor == request.descriptor
+        else {
+            try? await enqueueUnavailableContentTerminal(for: lease, session: session)
+            return
+        }
+        let reader: any BridgePaneProductFileContentReading
+        do {
+            reader = try await fileContentReaderFactory(readPlan)
+        } catch {
+            try? await enqueueStaleSourceReset(for: lease, session: session)
+            return
+        }
+
+        var byteCount = 0
+        var hasher = SHA256()
+        do {
+            while let chunk = try await reader.nextChunk(
+                maximumByteCount: BridgeProductWireContract.maximumContentDataPayloadBytes
+            ) {
+                try Task.checkCancellation()
+                let (nextByteCount, overflowed) = byteCount.addingReportingOverflow(chunk.count)
+                guard !overflowed,
+                    nextByteCount <= request.descriptor.declaredByteLength
+                else {
+                    await reader.close()
+                    try await enqueueStaleSourceReset(for: lease, session: session)
+                    return
+                }
+                let chunkOffsetBytes = byteCount
+                hasher.update(data: chunk)
+                let result = try await session.enqueueProducerFrame(
+                    for: lease,
+                    build: { sequence in
+                        .content(
+                            .init(
+                                header: try .data(
+                                    contentSequence: sequence,
+                                    offsetBytes: chunkOffsetBytes
+                                ),
+                                payload: chunk
+                            )
+                        )
+                    },
+                    overflowReset: { sequence in
+                        .content(
+                            .init(
+                                header: try .reset(
+                                    contentSequence: sequence,
+                                    reason: .producerOverflow
+                                ),
+                                payload: Data()
+                            )
+                        )
+                    }
+                )
+                guard
+                    await waitForExactWorkerObservation(
+                        result,
+                        lease: lease,
+                        session: session
+                    )
+                else {
+                    await reader.close()
+                    return
+                }
+                byteCount = nextByteCount
+            }
+            await reader.close()
+            let observedSHA256 = hasher.finalize()
+                .map { String(format: "%02x", $0) }
+                .joined()
+            guard byteCount == request.descriptor.declaredByteLength,
+                observedSHA256 == request.descriptor.expectedSha256
+            else {
+                try await enqueueStaleSourceReset(for: lease, session: session)
+                return
+            }
+            let observedByteCount = byteCount
+            _ = try await session.enqueueTerminalProducerFrame(
+                for: lease,
+                build: { sequence in
+                    .content(
+                        .init(
+                            header: try .end(
+                                contentSequence: sequence,
+                                endOfSource: true,
+                                observedByteLength: observedByteCount,
+                                observedSha256: observedSHA256
+                            ),
+                            payload: Data()
+                        )
+                    )
+                }
+            )
+        } catch is CancellationError {
+            await reader.close()
+        } catch {
+            await reader.close()
+            try? await enqueueStaleSourceReset(for: lease, session: session)
+        }
+    }
+
+    private func waitForExactWorkerObservation(
+        _ result: BridgeProductProducerEnqueueResult,
+        lease: BridgeProductProducerLease,
+        session: BridgeProductSession
+    ) async -> Bool {
+        guard case .enqueued(let frame) = result else { return false }
+        return await session.waitUntilProducerFrameSequenceObserved(
+            for: lease,
+            sequence: frame.sequence
+        )
+    }
+
+    private func enqueueUnavailableContentTerminal(
+        for lease: BridgeProductProducerLease,
+        session: BridgeProductSession
+    ) async throws {
+        _ = try await session.enqueueTerminalProducerFrame(
+            for: lease,
+            build: { sequence in
+                .content(
+                    .init(
+                        header: try .error(
+                            contentSequence: sequence,
+                            code: .unsupportedContent,
+                            retryable: false,
+                            safeMessage: "Content descriptor is not active"
+                        ),
+                        payload: Data()
+                    )
+                )
+            }
+        )
+    }
+
+    private func enqueueStaleSourceReset(
+        for lease: BridgeProductProducerLease,
+        session: BridgeProductSession
+    ) async throws {
+        _ = try await session.enqueueTerminalProducerFrame(
+            for: lease,
+            build: { sequence in
+                .content(
+                    .init(
+                        header: try .reset(
+                            contentSequence: sequence,
+                            reason: .staleSource
+                        ),
+                        payload: Data()
+                    )
+                )
+            }
+        )
+    }
+
     func publishFileStatus(_ status: GitWorkingTreeStatus) async {
         await metadataCoordinator.publish(status: status)
     }
@@ -311,29 +495,6 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     private func waitForProducerCancellation() async {
         let stream = AsyncStream<Void> { _ in }
         for await _ in stream {}
-    }
-
-    private func contentBody(for request: BridgeProductContentRequest) async -> ContentBody? {
-        switch request {
-        case .fileContent(let fileRequest):
-            guard let body = await metadataCoordinator.contentBody(for: fileRequest) else {
-                return nil
-            }
-            return ContentBody(
-                data: body.data,
-                endOfSource: body.endOfSource,
-                sha256: body.sha256
-            )
-        case .reviewContent(let reviewRequest):
-            guard let body = try? await reviewContentSource.contentBody(for: reviewRequest) else {
-                return nil
-            }
-            return ContentBody(
-                data: body.data,
-                endOfSource: body.isFinalRange,
-                sha256: body.sha256
-            )
-        }
     }
 
     private func metadataStreamRequiredError(

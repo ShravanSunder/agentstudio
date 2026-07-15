@@ -18,6 +18,7 @@ actor BridgeProductSession {
     var producerFrameObservationByLease: [BridgeProductProducerLease: BridgeProductSessionProducerFrameObservation] =
         [:]
     var producerFrameWaitersByLease: [BridgeProductProducerLease: BridgeProductSessionProducerFrameWaiter] = [:]
+    var producerObservationPacingWaitersByLease: [BridgeProductProducerLease: BridgeProductProducerPacingWaiter] = [:]
     var producerRetirementStateByLease: [BridgeProductProducerLease: BridgeProductSessionProducerRetirementState] = [:]
     private var controlReplay: BridgeProductControlReplayCache
     private var lifecycle: BridgeProductSessionLifecycle = .awaitingOpen
@@ -179,6 +180,9 @@ actor BridgeProductSession {
         if acknowledged {
             contentAdmissionByProducerLease.removeValue(
                 forKey: acknowledgement.producerLease
+            )
+            resolveProducerObservationPacingCancellation(
+                for: acknowledgement.producerLease
             )
             clearContentFrameObservationReplay(
                 for: acknowledgement.producerLease
@@ -549,6 +553,7 @@ actor BridgeProductSession {
     }
 
     private func producerOperationFinished(_ lease: BridgeProductProducerLease) {
+        resolveProducerObservationPacingCancellation(for: lease)
         producerRegistry.producerOperationFinished(lease)
         resumeProducerFrameWaiterIfPossible(for: lease)
     }

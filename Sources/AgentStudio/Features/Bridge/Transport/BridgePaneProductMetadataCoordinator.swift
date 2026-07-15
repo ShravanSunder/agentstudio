@@ -269,10 +269,10 @@ actor BridgePaneProductMetadataCoordinator {
         }
     }
 
-    func contentBody(
+    func contentReadPlan(
         for request: BridgeProductFileContentRequest
-    ) async -> BridgePaneProductFileContentBody? {
-        await fileMetadataSource.contentBody(for: request)
+    ) async -> BridgePaneProductFileContentReadPlan? {
+        await fileMetadataSource.contentReadPlan(for: request)
     }
 
     func contentDemandInterest(

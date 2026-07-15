@@ -34,7 +34,9 @@ protocol BridgePaneProductFileMetadataProducing: Sendable {
     func publish(status: GitWorkingTreeStatus) async -> [BridgePaneProductFileMetadataEmission]
     func publish(changeset: FileChangeset) async throws -> [BridgePaneProductFileMetadataEmission]
     func authoritativePath(for request: BridgeProductFileContentRequest) async -> String?
-    func contentBody(for request: BridgeProductFileContentRequest) async -> BridgePaneProductFileContentBody?
+    func contentReadPlan(
+        for request: BridgeProductFileContentRequest
+    ) async -> BridgePaneProductFileContentReadPlan?
 }
 
 extension BridgePaneProductFileMetadataProducing {
@@ -68,7 +70,9 @@ actor BridgeUnavailablePaneProductFileMetadataSource: BridgePaneProductFileMetad
 
     func authoritativePath(for _: BridgeProductFileContentRequest) -> String? { nil }
 
-    func contentBody(for _: BridgeProductFileContentRequest) -> BridgePaneProductFileContentBody? { nil }
+    func contentReadPlan(
+        for _: BridgeProductFileContentRequest
+    ) -> BridgePaneProductFileContentReadPlan? { nil }
 }
 
 actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducing {
@@ -76,8 +80,6 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         let manifestIndex: BridgeWorktreeFileManifestIndex
         var openedSource: BridgeWorktreeFileOpenedSource
         let productSource: BridgeProductFileSourceIdentity
-        var bodyByDescriptorId: [String: BridgePaneProductFileContentBody]
-        var bodyDescriptorIdsInAdmissionOrder: [String]
         var descriptorByPath: [String: BridgeProductFileDescriptorReadyPayload]
         var descriptorInterestRevisionByPath: [String: Int]
         var inFlightDescriptorInterestRevisionByPath: [String: Int]
@@ -95,7 +97,6 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
     private let descriptorMaterializer: BridgePaneProductFileDescriptorMaterializer
     private let ignorePolicyLoader: BridgePaneProductFileIgnorePolicyLoader
     private let statusProvider: any GitWorkingTreeStatusProvider
-    private let maximumRetainedContentBodyCount = 8
     private var contextBySubscriptionId: [String: SubscriptionContext] = [:]
     private var nextSourceGeneration = 0
 
@@ -358,9 +359,6 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             currentContext.inFlightDescriptorInterestRevisionByPath.removeValue(forKey: row.path)
             currentContext.descriptorInterestRevisionByPath[row.path] = subscription.interestRevision
             currentContext.descriptorByPath[row.path] = materialized.payload
-            if let body = materialized.body {
-                retain(body: body, in: &currentContext)
-            }
             contextBySubscriptionId[subscription.subscriptionId] = currentContext
             try await request.emit(.descriptorReady(.init(payload: materialized.payload)))
         }
@@ -437,13 +435,9 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
                 )
             }
             for path in changedPaths.sorted() where !Self.isGitInternalPath(path) {
-                let previousDescriptor = context.descriptorByPath[path]
-                if case .available(let descriptor)? = previousDescriptor?.availability {
-                    context.bodyByDescriptorId.removeValue(forKey: descriptor.descriptorId)
-                    context.bodyDescriptorIdsInAdmissionOrder.removeAll {
-                        $0 == descriptor.descriptorId
-                    }
-                }
+                let previousDescriptor = context.descriptorByPath.removeValue(forKey: path)
+                context.descriptorInterestRevisionByPath.removeValue(forKey: path)
+                context.inFlightDescriptorInterestRevisionByPath.removeValue(forKey: path)
                 emissions.append(
                     .init(
                         event: .invalidated(
@@ -491,17 +485,14 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         return nil
     }
 
-    func contentBody(
+    func contentReadPlan(
         for request: BridgeProductFileContentRequest
-    ) async -> BridgePaneProductFileContentBody? {
+    ) -> BridgePaneProductFileContentReadPlan? {
         let descriptor = request.descriptor
         for subscriptionId in contextBySubscriptionId.keys.sorted() {
             guard let context = contextBySubscriptionId[subscriptionId],
                 context.productSource == descriptor.source
             else { continue }
-            if let body = context.bodyByDescriptorId[descriptor.descriptorId] {
-                return body.descriptor == descriptor ? body : nil
-            }
             guard
                 let issuedPayload = context.descriptorByPath.values.first(where: {
                     if case .available(let issuedDescriptor) = $0.availability {
@@ -511,51 +502,13 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
                     }
                 })
             else { return nil }
-            let refreshed = await BridgeWorktreeFileMaterializer.refreshTreeRows(
-                rootURL: authority.worktree.path,
-                relativePaths: [issuedPayload.path]
+            return BridgePaneProductFileContentReadPlan(
+                descriptor: descriptor,
+                relativePath: issuedPayload.path,
+                rootURL: authority.worktree.path
             )
-            guard !Task.isCancelled,
-                let currentContext = contextBySubscriptionId[subscriptionId],
-                currentContext.productSource == descriptor.source,
-                currentContext.descriptorByPath[issuedPayload.path] == issuedPayload
-            else { return nil }
-            guard let row = refreshed.rows.first,
-                let materialized = try? await descriptorMaterializer(
-                    .init(
-                        relativePath: issuedPayload.path,
-                        rootURL: authority.worktree.path,
-                        row: row,
-                        source: context.productSource
-                    )
-                ),
-                let body = materialized.body,
-                body.descriptor == descriptor
-            else { return nil }
-            guard !Task.isCancelled,
-                var currentContext = contextBySubscriptionId[subscriptionId],
-                currentContext.productSource == descriptor.source,
-                currentContext.descriptorByPath[issuedPayload.path] == issuedPayload
-            else { return nil }
-            retain(body: body, in: &currentContext)
-            contextBySubscriptionId[subscriptionId] = currentContext
-            return body
         }
         return nil
-    }
-
-    private func retain(
-        body: BridgePaneProductFileContentBody,
-        in context: inout SubscriptionContext
-    ) {
-        let descriptorId = body.descriptor.descriptorId
-        context.bodyDescriptorIdsInAdmissionOrder.removeAll { $0 == descriptorId }
-        context.bodyDescriptorIdsInAdmissionOrder.append(descriptorId)
-        context.bodyByDescriptorId[descriptorId] = body
-        while context.bodyDescriptorIdsInAdmissionOrder.count > maximumRetainedContentBodyCount {
-            let evictedDescriptorId = context.bodyDescriptorIdsInAdmissionOrder.removeFirst()
-            context.bodyByDescriptorId.removeValue(forKey: evictedDescriptorId)
-        }
     }
 
     private func isCurrent(
@@ -603,8 +556,6 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             manifestIndex: .init(generation: sourceGeneration),
             openedSource: openedSource,
             productSource: productSource,
-            bodyByDescriptorId: [:],
-            bodyDescriptorIdsInAdmissionOrder: [],
             descriptorByPath: [:],
             descriptorInterestRevisionByPath: [:],
             inFlightDescriptorInterestRevisionByPath: [:],

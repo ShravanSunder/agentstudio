@@ -81,22 +81,21 @@ struct BridgeFilePrefixCorpusTests {
         case .binary:
             #expect(prefix.isBinary, Comment(rawValue: fixtureCase.name))
             let materialization = try await materialize(source, caseName: fixtureCase.name)
-            assertBodylessMaterialization(materialization, expectedAvailability: .binary)
+            assertUnavailableMaterialization(materialization, expectedAvailability: .binary)
         case .unsupportedEncoding:
             #expect(!prefix.isValidUTF8, Comment(rawValue: fixtureCase.name))
             let materialization = try await materialize(source, caseName: fixtureCase.name)
-            assertBodylessMaterialization(
+            assertUnavailableMaterialization(
                 materialization,
                 expectedAvailability: .unavailable(.unsupportedEncoding)
             )
         }
     }
 
-    private func assertBodylessMaterialization(
+    private func assertUnavailableMaterialization(
         _ materialization: BridgePaneProductFileDescriptorMaterialization,
         expectedAvailability: BridgeProductFileDescriptorAvailability
     ) {
-        #expect(materialization.body == nil)
         #expect(materialization.payload.availability == expectedAvailability)
         #expect(materialization.payload.encoding == nil)
         #expect(!materialization.payload.endsMidLine)

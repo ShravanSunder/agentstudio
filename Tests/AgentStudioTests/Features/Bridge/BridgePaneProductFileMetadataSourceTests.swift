@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 
@@ -106,8 +107,8 @@ struct BridgePaneProductFileMetadataSourceTests {
         #expect(events.contains { if case .statusPatch = $0 { true } else { false } })
     }
 
-    @Test("interest publishes descriptor before immediate bounded content lookup")
-    func interestPublishesDescriptorBeforeImmediateBoundedContentLookup() async throws {
+    @Test("interest publishes exact complete metadata and a descriptor-bound read plan")
+    func interestPublishesExactCompleteMetadataAndReadPlan() async throws {
         // Arrange
         let fixture = try ProductFileSourceFixture(fileCount: 1, demandedLineCount: 10_200)
         defer { fixture.remove() }
@@ -134,23 +135,22 @@ struct BridgePaneProductFileMetadataSourceTests {
             return
         }
         let request = try fixture.contentRequest(descriptor: descriptor)
-        let body = try #require(await source.contentBody(for: request))
-        let newlineCount = body.data.reduce(into: 0) { count, byte in
-            if byte == UInt8(ascii: "\n") { count += 1 }
-        }
-        #expect(body.descriptor == descriptor)
-        #expect(body.data.count <= BridgeProductWireContract.maximumContentBytes)
-        #expect(newlineCount == BridgeProductWireContract.maximumContentLines)
-        #expect(descriptor.declaredByteLength == body.data.count)
-        #expect(descriptor.expectedSha256 == body.sha256)
+        let readPlan = try #require(await source.contentReadPlan(for: request))
+        let expectedData = try Data(contentsOf: fixture.demandedFileURL)
+        let expectedSHA256 = sha256Hex(expectedData)
+        #expect(readPlan.descriptor == descriptor)
+        #expect(readPlan.relativePath == fixture.demandedPath)
+        #expect(readPlan.rootURL == fixture.rootURL)
+        #expect(descriptor.declaredByteLength == expectedData.count)
+        #expect(descriptor.expectedSha256 == expectedSHA256)
         #expect(descriptorPayload.encoding == .utf8)
-        #expect(descriptorPayload.payloadByteCount == body.data.count)
-        #expect(descriptorPayload.payloadLineCount == BridgeProductWireContract.maximumContentLines)
-        #expect(descriptorPayload.totalLineCount == nil)
-        #expect(descriptorPayload.truncationKind == .lineLimit)
+        #expect(descriptorPayload.payloadByteCount == expectedData.count)
+        #expect(descriptorPayload.payloadLineCount == 10_200)
+        #expect(descriptorPayload.totalLineCount == 10_200)
+        #expect(descriptorPayload.truncationKind == .complete)
         #expect(!descriptorPayload.endsMidLine)
         #expect(descriptorPayload.endsWithNewline)
-        #expect(descriptorPayload.virtualizedExtentKind == .previewBounded)
+        #expect(descriptorPayload.virtualizedExtentKind == .exactLineCount)
     }
 
     @Test("interest refresh upserts a non-first row without emitting a positional window")
@@ -205,7 +205,7 @@ struct BridgePaneProductFileMetadataSourceTests {
             }.first
         )
         let contentRequest = try fixture.contentRequest(descriptor: descriptor)
-        #expect(await source.contentBody(for: contentRequest) != nil)
+        #expect(await source.contentReadPlan(for: contentRequest) != nil)
         try Data("replacement\n".utf8).write(to: fixture.demandedFileURL)
 
         // Act
@@ -223,7 +223,7 @@ struct BridgePaneProductFileMetadataSourceTests {
         // Assert
         #expect(emissions.contains { if case .treeDelta = $0.event { true } else { false } })
         #expect(emissions.contains { if case .invalidated = $0.event { true } else { false } })
-        #expect(await source.contentBody(for: contentRequest) == nil)
+        #expect(await source.contentReadPlan(for: contentRequest) == nil)
     }
 
     @Test("same-subscription source replacement excludes stale lineage and content")
@@ -243,7 +243,7 @@ struct BridgePaneProductFileMetadataSourceTests {
             (await originalCollector.events).compactMap(\.availableDescriptorForTest).first
         )
         let originalRequest = try fixture.contentRequest(descriptor: originalDescriptor)
-        #expect(await source.contentBody(for: originalRequest) != nil)
+        #expect(await source.contentReadPlan(for: originalRequest) != nil)
 
         // Act
         let replacementCollector = ProductFileMetadataEventCollector()
@@ -258,7 +258,7 @@ struct BridgePaneProductFileMetadataSourceTests {
             replacementEvents.compactMap(\.availableDescriptorForTest).first
         )
         let replacementRequest = try fixture.contentRequest(descriptor: replacementDescriptor)
-        let replacementBodyBeforePublish = await source.contentBody(for: replacementRequest)
+        let replacementPlanBeforePublish = await source.contentReadPlan(for: replacementRequest)
         try Data("replacement\n".utf8).write(to: fixture.demandedFileURL)
         let replacementEmissions = try await source.publish(
             changeset: FileChangeset(
@@ -275,8 +275,8 @@ struct BridgePaneProductFileMetadataSourceTests {
         #expect(originalDescriptor.source.subscriptionGeneration == 1)
         #expect(replacementDescriptor.source.subscriptionGeneration == 2)
         #expect(originalDescriptor.source != replacementDescriptor.source)
-        #expect(await source.contentBody(for: originalRequest) == nil)
-        #expect(replacementBodyBeforePublish != nil)
+        #expect(await source.contentReadPlan(for: originalRequest) == nil)
+        #expect(replacementPlanBeforePublish != nil)
         #expect(!replacementEmissions.isEmpty)
         #expect(
             replacementEmissions.allSatisfy {
@@ -373,7 +373,8 @@ struct BridgePaneProductFileMetadataSourceTests {
             }.first
         )
         let fileRequest = try fixture.contentRequest(descriptor: descriptor)
-        let expectedBody = try #require(await source.contentBody(for: fileRequest))
+        let expectedData = try Data(contentsOf: fixture.demandedFileURL)
+        let expectedSHA256 = sha256Hex(expectedData)
         let provider = BridgePaneProductSchemeProvider(
             fileMetadataSource: source,
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
@@ -416,10 +417,10 @@ struct BridgePaneProductFileMetadataSourceTests {
             dataFrames.allSatisfy {
                 $0.count <= BridgeProductWireContract.maximumContentDataPayloadBytes
             })
-        #expect(dataFrames.reduce(into: Data()) { $0.append($1) } == expectedBody.data)
-        #expect(endHeader.endOfSource == expectedBody.endOfSource)
-        #expect(endHeader.observedByteLength == expectedBody.data.count)
-        #expect(endHeader.observedSha256 == expectedBody.sha256)
+        #expect(dataFrames.reduce(into: Data()) { $0.append($1) } == expectedData)
+        #expect(endHeader.endOfSource)
+        #expect(endHeader.observedByteLength == expectedData.count)
+        #expect(endHeader.observedSha256 == expectedSHA256)
 
         for _ in 0..<1000 where (await harness.session.producerSnapshot()).activeProducerTaskCount > 0 {
             await Task.yield()
@@ -548,7 +549,6 @@ struct BridgePaneProductFileMetadataSourceTests {
         )
 
         // Assert
-        #expect(materialization.body == nil)
         #expect(materialization.payload.virtualizedExtentKind == .unavailable)
         #expect(materialization.payload.payloadByteCount == 0)
         guard case .unavailable(let reason) = materialization.payload.availability else {
@@ -644,6 +644,10 @@ private actor ProductFileMaterializationGate {
         for waiter in releaseWaiters { waiter.resume() }
         releaseWaiters.removeAll(keepingCapacity: false)
     }
+}
+
+private func sha256Hex(_ data: Data) -> String {
+    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 }
 
 private struct ProductFileSourceFixture {
