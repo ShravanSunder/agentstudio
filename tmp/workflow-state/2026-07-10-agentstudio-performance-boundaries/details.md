@@ -878,3 +878,29 @@ repo-authorized unsigned local fallback after the configured 1Password account
 was unavailable; `.agents/` was not staged. Continue
 `implementation-execute-plan` at W4.5 canonical revision ownership and
 fixed-revision page leases before W5.
+
+## 2026-07-15 W4.5 Packet E snapshot substrate checkpoint
+
+Packet E now has a closed, finite fourteen-participant factory over the exact
+canonical owners; a bounded contiguous revision journal; a pure off-main
+snapshot assembler/finalizer; pure aggregate hydration preparation; and one
+shared tab-membership normalizer. Invalid factory policy is represented by a
+typed rejection rather than a trap. Pane snapshot byte estimation covers every
+persisted dynamic content family with saturating checked arithmetic. Snapshot
+finalization preserves semantic repository, tab, arrangement, pane, and drawer
+order; UUID identity is never used as product ordering state.
+
+Hydration preparation validates SQLite workspace/topology identity plus global
+repository, worktree, watched-path, pane, drawer, tab, and arrangement identity
+before any canonical mutation. It preserves the current invalid-worktree pane
+filter and tab repair semantics while remaining `Sendable` and runnable off
+MainActor. The historical duplicate-identity and duplicate-key trap shapes are
+therefore rejected before live-state apply.
+
+Fresh parent proof passed 48 tests across five focused suites, including the
+multi-drawer inverse-UUID-order regression. `mise run build`, full `mise run
+lint` (SwiftLint 0/1,633, architecture lint, all 31 admission mutation rows,
+and release scripts), and `git diff --check` passed. The product restore/save
+path is not yet cut over: next is aggregate load, off-main preparation, one
+typed MainActor apply, one-shot participant installation, and pager-backed save
+equivalence before W5.

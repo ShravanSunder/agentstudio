@@ -6,7 +6,7 @@ private let workspacePersistenceTransformerLogger = Logger(
     category: "WorkspacePersistenceTransformer"
 )
 
-struct WorkspaceTabMembershipRepairReport: Equatable {
+struct WorkspaceTabMembershipRepairReport: Equatable, Sendable {
     let repairedTabIds: [UUID]
     let activeTabIdChanged: Bool
 
@@ -15,7 +15,7 @@ struct WorkspaceTabMembershipRepairReport: Equatable {
     }
 }
 
-struct WorkspaceTabMembershipNormalizationResult: Equatable {
+struct WorkspaceTabMembershipNormalizationResult: Equatable, Sendable {
     let tabs: [Tab]
     let activeTabId: UUID?
     let repairReport: WorkspaceTabMembershipRepairReport

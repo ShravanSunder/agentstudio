@@ -25,15 +25,28 @@ extension RepositoryTopologyAtom {
         snapshotStorage.watchedPath(for: id)
     }
 
-    func makeSnapshotParticipants() -> [WorkspaceStateSnapshotPagerParticipant<
-        WorkspacePersistenceSnapshotParticipantID,
-        WorkspacePersistenceSnapshotItem
-    >]? {
-        snapshotStorage.makeParticipants()
+    func makeSnapshotParticipants(
+        membershipLimits: WorkspaceStateSnapshotMembershipLimits
+    ) -> RepositoryTopologyParticipantFactoryResult {
+        snapshotStorage.makeParticipants(membershipLimits: membershipLimits)
     }
 }
 
-enum RepositoryTopologyIdentityRejection: Error, Equatable {
+@MainActor
+enum RepositoryTopologyParticipantFactoryResult {
+    typealias Participant = WorkspaceStateSnapshotPagerParticipant<
+        WorkspacePersistenceSnapshotParticipantID,
+        WorkspacePersistenceSnapshotItem
+    >
+
+    case constructed([Participant])
+    case rejected(
+        participantID: WorkspacePersistenceSnapshotParticipantID,
+        rejection: WorkspaceStateSnapshotParticipantRejection
+    )
+}
+
+enum RepositoryTopologyIdentityRejection: Error, Equatable, Sendable {
     case duplicateRepositoryID(UUID)
     case duplicateWorktreeID(UUID)
     case duplicateWatchedPathID(UUID)
@@ -258,19 +271,15 @@ final class RepositoryTopologySnapshotStorage {
         self.unavailableRepositoryIDs = unavailableRepositoryIDs
     }
 
-    func makeParticipants() -> [WorkspaceStateSnapshotPagerParticipant<
-        WorkspacePersistenceSnapshotParticipantID, WorkspacePersistenceSnapshotItem
-    >]? {
-        typealias Participant = WorkspaceStateSnapshotPagerParticipant<
-            WorkspacePersistenceSnapshotParticipantID,
-            WorkspacePersistenceSnapshotItem
-        >
-        let limits = WorkspaceStateSnapshotMembershipLimits(maximumKeyCount: .max, maximumRawKeyBytes: .max)
+    func makeParticipants(
+        membershipLimits: WorkspaceStateSnapshotMembershipLimits
+    ) -> RepositoryTopologyParticipantFactoryResult {
+        typealias Participant = RepositoryTopologyParticipantFactoryResult.Participant
         let constructions = [
             Participant.typed(
                 participantID: .repositories,
                 keyedParticipant: repositoryParticipant,
-                membershipLimits: limits,
+                membershipLimits: membershipLimits,
                 orderedBaseKeys: { [self] in orderedRepositoryIDs },
                 currentValue: { [self] id -> WorkspaceStateSnapshotStoredValue<CanonicalRepo> in
                     repositoriesByID[id].map { .value($0) } ?? .absent
@@ -288,7 +297,7 @@ final class RepositoryTopologySnapshotStorage {
             Participant.typed(
                 participantID: .worktrees,
                 keyedParticipant: worktreeParticipant,
-                membershipLimits: limits,
+                membershipLimits: membershipLimits,
                 orderedBaseKeys: { [self] in orderedWorktreeIDs },
                 currentValue: { [self] id -> WorkspaceStateSnapshotStoredValue<CanonicalWorktree> in
                     worktreesByID[id].map { .value($0) } ?? .absent
@@ -306,7 +315,7 @@ final class RepositoryTopologySnapshotStorage {
             Participant.typed(
                 participantID: .watchedPaths,
                 keyedParticipant: watchedPathParticipant,
-                membershipLimits: limits,
+                membershipLimits: membershipLimits,
                 orderedBaseKeys: { [self] in orderedWatchedPathIDs },
                 currentValue: { [self] id -> WorkspaceStateSnapshotStoredValue<WatchedPath> in
                     watchedPathsByID[id].map { .value($0) } ?? .absent
@@ -324,7 +333,7 @@ final class RepositoryTopologySnapshotStorage {
             Participant.typed(
                 participantID: .unavailableRepositories,
                 keyedParticipant: unavailableRepositoryParticipant,
-                membershipLimits: limits,
+                membershipLimits: membershipLimits,
                 orderedBaseKeys: { [self] in orderedRepositoryIDs.filter(unavailableRepositoryIDs.contains) },
                 currentValue: { [self] id -> WorkspaceStateSnapshotStoredValue<UUID> in
                     unavailableRepositoryIDs.contains(id) ? .value(id) : .absent
@@ -335,11 +344,23 @@ final class RepositoryTopologySnapshotStorage {
                 )
             ),
         ]
-        let participants: [Participant] = constructions.compactMap {
-            guard case .constructed(let participant) = $0 else { return nil }
-            return participant
+        let participantIDs: [WorkspacePersistenceSnapshotParticipantID] = [
+            .repositories,
+            .worktrees,
+            .watchedPaths,
+            .unavailableRepositories,
+        ]
+        var participants: [Participant] = []
+        participants.reserveCapacity(constructions.count)
+        for (participantID, construction) in zip(participantIDs, constructions) {
+            switch construction {
+            case .constructed(let participant):
+                participants.append(participant)
+            case .rejected(let rejection):
+                return .rejected(participantID: participantID, rejection: rejection)
+            }
         }
-        return participants.count == constructions.count ? participants : nil
+        return .constructed(participants)
     }
 
     func prepare(

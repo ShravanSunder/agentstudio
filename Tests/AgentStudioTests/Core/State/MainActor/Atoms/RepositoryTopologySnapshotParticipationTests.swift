@@ -6,6 +6,33 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct RepositoryTopologySnapshotParticipationTests {
+    @Test("topology construction preserves the exact participant and rejection")
+    func topologyConstructionPreservesExactParticipantAndRejection() {
+        // Arrange
+        let atom = RepositoryTopologyAtom()
+        let repositories = (0..<2).map { index in
+            Repo(
+                id: UUIDv7.generate(),
+                name: "repository-\(index)",
+                repoPath: URL(filePath: "/tmp/topology-limit-repository-\(index)")
+            )
+        }
+        #expect(atom.hydrate(runtimeRepos: repositories, watchedPaths: [], unavailableRepoIds: []) == .applied)
+
+        // Act
+        let result = atom.makeSnapshotParticipants(
+            membershipLimits: .init(maximumKeyCount: 1, maximumRawKeyBytes: 16)
+        )
+
+        // Assert
+        guard case .rejected(let participantID, let rejection) = result else {
+            Issue.record("expected topology participant construction rejection")
+            return
+        }
+        #expect(participantID == .repositories)
+        #expect(rejection == .baseMembershipKeyCountCapacityExceeded)
+    }
+
     @Test("hydrate rejects duplicate topology identity before canonical mutation")
     func hydrateRejectsDuplicateTopologyIdentity() {
         let atom = RepositoryTopologyAtom()
@@ -43,7 +70,14 @@ struct RepositoryTopologySnapshotParticipationTests {
         let revisionOwner = WorkspacePersistenceRevisionOwner()
         let repository = Repo(name: "base", repoPath: URL(filePath: "/tmp/base"))
         #expect(atom.hydrate(runtimeRepos: [repository], watchedPaths: [], unavailableRepoIds: []) == .applied)
-        #expect(atom.makeSnapshotParticipants() != nil)
+        guard
+            case .constructed = atom.makeSnapshotParticipants(
+                membershipLimits: WorkspaceSnapshotParticipantFactoryPolicy.appDefault.fleetMembershipLimits
+            )
+        else {
+            Issue.record("expected topology participants to construct")
+            return
+        }
         let stateBefore = atom.repos
         let duplicateUnavailableMutation = RepositoryTopologyStagedMutationBatch(
             unavailableRepositories: [.remove(UUIDv7.generate())]
@@ -90,7 +124,7 @@ struct RepositoryTopologySnapshotParticipationTests {
                 unavailableRepoIds: [removedRepository.id]
             ) == .applied
         )
-        _ = try #require(atom.makeSnapshotParticipants())
+        _ = try requireConstructedTopologyParticipants(atom)
         let insertedRepository = CanonicalRepo(
             id: UUIDv7.generate(),
             name: "inserted",
@@ -151,7 +185,7 @@ struct RepositoryTopologySnapshotParticipationTests {
                 unavailableRepoIds: []
             ) == .applied
         )
-        _ = try #require(atom.makeSnapshotParticipants())
+        _ = try requireConstructedTopologyParticipants(atom)
         let originalRepositories = atom.repos
         let originalWatchedPaths = atom.watchedPaths
 
@@ -224,7 +258,7 @@ struct RepositoryTopologySnapshotParticipationTests {
     func strictUpdatesAndRemovalsRequireExistingEntity() throws {
         let atom = RepositoryTopologyAtom()
         let revisionOwner = WorkspacePersistenceRevisionOwner()
-        _ = try #require(atom.makeSnapshotParticipants())
+        _ = try requireConstructedTopologyParticipants(atom)
         let missingRepository = CanonicalRepo(
             id: UUIDv7.generate(),
             name: "missing",
@@ -305,7 +339,7 @@ struct RepositoryTopologySnapshotParticipationTests {
                 unavailableRepoIds: [repository.id]
             ) == .applied
         )
-        _ = try #require(atom.makeSnapshotParticipants())
+        _ = try requireConstructedTopologyParticipants(atom)
 
         #expect(
             throws: RepositoryTopologyStagedMutationError.repositoryRemovalMissingWorktreeTombstone(
@@ -367,7 +401,7 @@ struct RepositoryTopologySnapshotParticipationTests {
                 unavailableRepoIds: [repository.id]
             ) == .applied
         )
-        let participants = try #require(atom.makeSnapshotParticipants())
+        let participants = try requireConstructedTopologyParticipants(atom)
         let expectedRepository = try #require(atom.snapshotRepository(for: repository.id))
         let expectedWorktree = try #require(atom.snapshotWorktree(for: worktree.id))
         let pager = makeTopologyPager(participants: participants, revisionOwner: revisionOwner)
@@ -405,7 +439,7 @@ struct RepositoryTopologySnapshotParticipationTests {
             tags: [String(repeating: "t", count: 64)]
         )
         #expect(atom.hydrate(runtimeRepos: [repository], watchedPaths: [], unavailableRepoIds: []) == .applied)
-        let participants = try #require(atom.makeSnapshotParticipants())
+        let participants = try requireConstructedTopologyParticipants(atom)
         let pager = makeTopologyPager(participants: participants, revisionOwner: revisionOwner)
         let lease = try requireOpenedTopologyLease(pager.openLease())
         let limits = requireLimits(maximumItems: 1, maximumBytes: 16)
@@ -445,7 +479,7 @@ struct RepositoryTopologySnapshotParticipationTests {
         )
 
         _ = atom.addRepo(at: repository.repoPath)
-        let participants = try #require(atom.makeSnapshotParticipants())
+        let participants = try requireConstructedTopologyParticipants(atom)
         let pager = makeTopologyPager(participants: participants, revisionOwner: revisionOwner)
         let lease = try requireOpenedTopologyLease(pager.openLease())
         let capturedItems = captureAllTopologyItems(pager: pager, lease: lease)
@@ -469,10 +503,7 @@ struct RepositoryTopologySnapshotParticipationTests {
             revisionOwner: revisionOwner,
             leaseAuthority: WorkspaceStateSnapshotPagerLeaseAuthority(revisionOwner: revisionOwner),
             participants: participants,
-            membershipLimits: WorkspaceStateSnapshotMembershipLimits(
-                maximumKeyCount: .max,
-                maximumRawKeyBytes: .max
-            ),
+            membershipLimits: WorkspaceSnapshotParticipantFactoryPolicy.appDefault.fleetMembershipLimits,
             workLedger: MainActorWorkLedger(clock: PageCaptureIncrementingClock()),
             workRecordObserver: { _ in },
             workInvalidityObserver: { _ in },
@@ -532,9 +563,26 @@ struct RepositoryTopologySnapshotParticipationTests {
         }
         return lease
     }
+
+    private func requireConstructedTopologyParticipants(
+        _ atom: RepositoryTopologyAtom
+    ) throws -> [WorkspaceStateSnapshotPagerParticipant<
+        WorkspacePersistenceSnapshotParticipantID,
+        WorkspacePersistenceSnapshotItem
+    >] {
+        let result = atom.makeSnapshotParticipants(
+            membershipLimits: WorkspaceSnapshotParticipantFactoryPolicy.appDefault.fleetMembershipLimits
+        )
+        guard case .constructed(let participants) = result else {
+            Issue.record("expected topology participant construction, got \(result)")
+            throw RepositoryTopologyTestError.participantConstructionRejected
+        }
+        return participants
+    }
 }
 
 private enum RepositoryTopologyTestError: Error {
     case leaseOpenRejected
     case pageRequestRejected
+    case participantConstructionRejected
 }
