@@ -26,7 +26,10 @@ import {
 import { bridgeWorkerPierreRenderPolicy } from '../core/demand/bridge-content-demand-policy.js';
 import { waitForBridgeViewerAnimationFrame } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import type { BridgeFileViewerBrowserTestProductSession } from './bridge-file-viewer-browser-test-app.js';
-import type { PublishFileMetadataEvents } from './bridge-file-viewer-browser-test-fixtures.js';
+import {
+	fileContentSha256Hex,
+	type PublishFileMetadataEvents,
+} from './bridge-file-viewer-browser-test-fixtures.js';
 
 export type BridgeFileViewerBrowserTestPaneSessionFactory = () => BridgePaneSessionPort;
 
@@ -285,13 +288,16 @@ function createBrowserTestProductTransport(props: {
 				props.productSessionRef.current?.readContent?.({ descriptor: fileDescriptor, signal }) ??
 					defaultBrowserTestContent(fileDescriptor.descriptorId),
 			);
-			const terminal = content.then((text) => ({
-				bytes: new TextEncoder().encode(text).buffer,
-				contentKind: 'file.content' as const,
-				descriptorId: fileDescriptor.descriptorId,
-				kind: 'complete' as const,
-				observedSha256: fileDescriptor.expectedSha256,
-			}));
+			const terminal = content.then(async (text) => {
+				const bytes = new TextEncoder().encode(text);
+				return {
+					bytes: bytes.buffer,
+					contentKind: 'file.content' as const,
+					descriptorId: fileDescriptor.descriptorId,
+					kind: 'complete' as const,
+					observedSha256: await fileContentSha256Hex(bytes),
+				};
+			});
 			void terminal.then(
 				(): void => {
 					props.onContentTerminalSettled(true);

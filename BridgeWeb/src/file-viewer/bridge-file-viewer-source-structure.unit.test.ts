@@ -364,12 +364,12 @@ describe('Bridge file viewer source structure', () => {
 		expect(treePanelSource).not.toContain('requestAnimationFrame');
 	});
 
-	test('keeps File CodeView item shaping out of the visual panel', () => {
+	test('keeps fabricated File CodeView item shaping out of every runtime owner', () => {
 		const codePanelSource = readFileSync(
 			fileURLToPath(new URL('./bridge-file-viewer-code-panel.tsx', import.meta.url)),
 			'utf8',
 		);
-		const codeViewItemOwners = readFileViewerSourceFiles()
+		const fabricatedCodeViewItemOwners = readFileViewerSourceFiles()
 			.filter((entry): boolean =>
 				fileCodeViewItemOwnershipNeedles.some((needle): boolean => entry.source.includes(needle)),
 			)
@@ -379,7 +379,7 @@ describe('Bridge file viewer source structure', () => {
 		expect(codePanelSource).not.toContain('contentBodyReservedForSelectedFileExtent');
 		expect(codePanelSource).not.toContain('textPaddedToMinimumRenderedLineCount');
 		expect(codePanelSource).not.toContain('renderedLineCountForPierreFileContent');
-		expect(codeViewItemOwners).toEqual(['bridge-file-viewer-code-view-items.ts']);
+		expect(fabricatedCodeViewItemOwners).toEqual([]);
 	});
 
 	test('keeps selected File CodeView display behind a selected item seam', () => {

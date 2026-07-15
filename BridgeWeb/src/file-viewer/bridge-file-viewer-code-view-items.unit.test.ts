@@ -64,7 +64,7 @@ describe('Bridge File viewer CodeView items', () => {
 		expect(item.bridgeMetadata).toEqual(pierreItem.bridgeMetadata);
 	});
 
-	test('reserves only the canonical payload prefix and never pads to total source lines', () => {
+	test('does not fabricate a Pierre item or scroll extent while complete content is loading', () => {
 		const items = bridgeFileViewerCodeViewItemsForPanelState({
 			openFileState: {
 				displayItem: { ...displayItem, payloadLineCount: 3 },
@@ -75,15 +75,7 @@ describe('Bridge File viewer CodeView items', () => {
 			selectedCodeViewItem: null,
 		});
 
-		expect(items).toHaveLength(1);
-		const item = items[0];
-		expect(item?.type).toBe('file');
-		if (item?.type !== 'file') {
-			throw new Error('Expected File placeholder item');
-		}
-		expect(item.bridgeMetadata?.lineCount).toBe(3);
-		expect(item.file.contents.split('\n')).toHaveLength(3);
-		expect(item.file.contents.split('\n')).not.toHaveLength(12_000);
+		expect(items).toEqual([]);
 	});
 
 	test('does not synthesize a placeholder for binary or unavailable display items', () => {

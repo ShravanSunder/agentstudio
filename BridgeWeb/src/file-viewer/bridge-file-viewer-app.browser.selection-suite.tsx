@@ -16,7 +16,7 @@ import type { FileMetadataInterestUpdate } from './bridge-file-viewer-browser-te
 import { makeFileContent } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
 	fileNavigationCommandForPath,
-	makeFileDescriptor,
+	makeFileDescriptorForContent,
 	makeDescriptorReadyMetadataEvents,
 	makeFileMetadataEvents,
 	makeTreeRowsOnlyMetadataEvents,
@@ -63,12 +63,16 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('advances selected path immediately while metadata-only content converges', async () => {
-		const initiallyOpenDescriptor = makeFileDescriptor({
+		const initiallyOpenContent = makeFileContent('export const initiallyOpen = true;\n');
+		const clickedContent = makeFileContent('export const clickedSelection = true;\n');
+		const initiallyOpenDescriptor = await makeFileDescriptorForContent({
+			content: initiallyOpenContent,
 			contentHandle: 'initial-content',
 			fileId: 'file-000',
 			path: 'File-000.swift',
 		});
-		const clickedDescriptor = makeFileDescriptor({
+		const clickedDescriptor = await makeFileDescriptorForContent({
+			content: clickedContent,
 			contentHandle: 'clicked-content',
 			fileId: 'file-001',
 			path: 'File-001.swift',
@@ -85,11 +89,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				fileProductSession={{
 					readContent: async (props) => {
 						openedDescriptorIds.push(props.descriptor.descriptorId);
-						return makeFileContent(
-							props.descriptor.descriptorId.includes('clicked-content')
-								? 'export const clickedSelection = true;\n'
-								: 'export const initiallyOpen = true;\n',
-						);
+						return props.descriptor.descriptorId.includes('clicked-content')
+							? clickedContent
+							: initiallyOpenContent;
 					},
 					onMetadataInterestUpdate: (request) => {
 						metadataInterestUpdates.push(request);
@@ -153,7 +155,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('keeps one foreground interest for a selected metadata-only descriptor until it converges', async () => {
-		const initiallyOpenDescriptor = makeFileDescriptor({
+		const initiallyOpenContent = makeFileContent('export const initiallyOpen = true;\n');
+		const initiallyOpenDescriptor = await makeFileDescriptorForContent({
+			content: initiallyOpenContent,
 			contentHandle: 'initial-content',
 			fileId: 'file-000',
 			path: 'File-000.swift',
@@ -167,7 +171,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeFileMetadataEvents(initiallyOpenDescriptor)}
 				fileProductSession={{
-					readContent: async () => makeFileContent('export const initiallyOpen = true;\n'),
+					readContent: async () => initiallyOpenContent,
 					onMetadataInterestUpdate: (request) => {
 						metadataInterestUpdates.push(request);
 					},
@@ -214,7 +218,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('auto-opens the first metadata-only file row by requesting its descriptor', async () => {
-		const descriptor = makeFileDescriptor({
+		const content = makeFileContent('export const autoOpenedMetadataRow = true;\n');
+		const descriptor = await makeFileDescriptorForContent({
+			content,
 			contentHandle: 'app-delegate-content',
 			fileId: 'file-app-delegate',
 			path: 'Sources/AgentStudio/App/AppDelegate.swift',
@@ -231,7 +237,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				fileProductSession={{
 					readContent: async (props) => {
 						openedDescriptorIds.push(props.descriptor.descriptorId);
-						return makeFileContent('export const autoOpenedMetadataRow = true;\n');
+						return content;
 					},
 					onMetadataInterestUpdate: (request) => {
 						metadataInterestUpdates.push(request);
@@ -265,12 +271,16 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('opens a file navigation target in the browser without auto-opening the first descriptor', async () => {
-		const firstDescriptor = makeFileDescriptor({
+		const firstContent = makeFileContent('export const first = true;\n');
+		const targetContent = makeFileContent('export const target = true;\n');
+		const firstDescriptor = await makeFileDescriptorForContent({
+			content: firstContent,
 			contentHandle: 'first-content',
 			fileId: 'file-first',
 			path: 'src/first.ts',
 		});
-		const targetDescriptor = makeFileDescriptor({
+		const targetDescriptor = await makeFileDescriptorForContent({
+			content: targetContent,
 			contentHandle: 'target-content',
 			fileId: 'file-target',
 			path: 'docs/target.ts',
@@ -285,11 +295,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				fileProductSession={{
 					readContent: async (props) => {
 						openedDescriptorIds.push(props.descriptor.descriptorId);
-						return makeFileContent(
-							props.descriptor.descriptorId.includes('target-content')
-								? 'export const target = true;\n'
-								: 'export const first = true;\n',
-						);
+						return props.descriptor.descriptorId.includes('target-content')
+							? targetContent
+							: firstContent;
 					},
 				}}
 			/>,
@@ -307,7 +315,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('requests a metadata-only navigation target descriptor on the foreground lane', async () => {
-		const descriptor = makeFileDescriptor({
+		const content = makeFileContent('export const navigationTargetFromMetadata = true;\n');
+		const descriptor = await makeFileDescriptorForContent({
+			content,
 			contentHandle: 'app-delegate-navigation-content',
 			fileId: 'file-app-delegate',
 			path: 'Sources/AgentStudio/App/AppDelegate.swift',
@@ -327,7 +337,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				fileProductSession={{
 					readContent: async (props) => {
 						openedDescriptorIds.push(props.descriptor.descriptorId);
-						return makeFileContent('export const navigationTargetFromMetadata = true;\n');
+						return content;
 					},
 					onMetadataInterestUpdate: (request) => {
 						metadataInterestUpdates.push(request);
@@ -361,7 +371,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('auto-opens the first descriptor when native metadata streams after the initial snapshot', async () => {
-		const descriptor = makeFileDescriptor({
+		const content = makeFileContent('export const streamed = true;\n');
+		const descriptor = await makeFileDescriptorForContent({
+			content,
 			contentHandle: 'streamed-content',
 			fileId: 'file-streamed',
 			path: 'src/streamed.ts',
@@ -382,7 +394,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				fileProductSession={{
 					readContent: async (props) => {
 						openedDescriptorIds.push(props.descriptor.descriptorId);
-						return makeFileContent('export const streamed = true;\n');
+						return content;
 					},
 					onMetadataSubscription: (handler): (() => void) => {
 						publishMetadataEvents = handler;
@@ -406,7 +418,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('renders file body without Pierre file header chrome inside the File canvas', async () => {
-		const targetDescriptor = makeFileDescriptor({
+		const content = makeFileContent('export const plain = true;\n');
+		const targetDescriptor = await makeFileDescriptorForContent({
+			content,
 			contentHandle: 'plain-content',
 			fileId: 'file-plain',
 			path: 'src/plain.ts',
@@ -418,7 +432,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				initialMetadataEvents={makeFileMetadataEvents(targetDescriptor)}
 				navigationCommand={fileNavigationCommandForPath('src/plain.ts')}
 				fileProductSession={{
-					readContent: async () => makeFileContent('export const plain = true;\n'),
+					readContent: async () => content,
 				}}
 			/>,
 		);
@@ -431,7 +445,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('keeps the File CodeView viewport mounted after a warmed shell while selected file content loads', async () => {
-		const warmDescriptor = makeFileDescriptor({
+		const warmContent = makeFileContent('export const warm = true;\n');
+		const warmDescriptor = await makeFileDescriptorForContent({
+			content: warmContent,
 			contentHandle: 'warm-content',
 			fileId: 'file-warm',
 			path: 'src/warm.ts',
@@ -440,7 +456,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			<BridgeFileViewerApp
 				initialMetadataEvents={makeFileMetadataEvents(warmDescriptor)}
 				fileProductSession={{
-					readContent: async () => makeFileContent('export const warm = true;\n'),
+					readContent: async () => warmContent,
 				}}
 			/>,
 		);
@@ -450,7 +466,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 		await actFrame();
 
-		const targetDescriptor = makeFileDescriptor({
+		const slowContent = makeFileContent('export const slow = true;\n');
+		const targetDescriptor = await makeFileDescriptorForContent({
+			content: slowContent,
 			contentHandle: 'slow-content',
 			fileId: 'file-slow',
 			path: 'src/slow.ts',
@@ -512,11 +530,13 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			idleViewport,
 		);
 		expect(openedDescriptorIds).toContain('slow-content');
-		expect(document.querySelector('[data-testid="bridge-file-viewer-content-state"]')).toBeNull();
-		expect(document.body.textContent ?? '').not.toContain('Loading file');
+		expect(
+			document.querySelector('[data-testid="bridge-file-viewer-content-state"]')?.textContent,
+		).toContain('Loading file');
+		expect(document.querySelectorAll('diffs-container')).toHaveLength(0);
 
 		await actUpdate((): void => {
-			deferredContent.resolve(makeFileContent('export const slow = true;\n'));
+			deferredContent.resolve(slowContent);
 		});
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('export const slow = true;');
@@ -525,11 +545,12 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		);
 	});
 
-	test('reserves selected file scroll extent from line-count metadata while content loads', async () => {
-		const targetDescriptor = makeFileDescriptor({
+	test('does not fabricate selected file scroll extent from metadata while content loads', async () => {
+		const loadingContent = makeFileContent(`${makeGeneratedFileBody('largeLoading', 160)}\n`);
+		const targetDescriptor = await makeFileDescriptorForContent({
+			content: loadingContent,
 			contentHandle: 'large-loading-content',
 			fileId: 'file-large-loading',
-			lineCount: 160,
 			path: 'src/large-loading.ts',
 		});
 		const deferredContent = makeDeferredContent();
@@ -549,22 +570,29 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		await waitForOpenFileState('loading');
 		const scrollOwner = await waitForFileCodeViewScrollOwner();
-		await waitForFileCodeViewScrollable(scrollOwner);
 
-		expect(scrollOwner.scrollHeight).toBeGreaterThan(scrollOwner.clientHeight + 32);
+		expect(scrollOwner.scrollHeight).toBeLessThanOrEqual(scrollOwner.clientHeight + 32);
+		expect(document.querySelectorAll('diffs-container')).toHaveLength(0);
+		expect(
+			document.querySelector('[data-testid="bridge-file-viewer-content-state"]')?.textContent,
+		).toContain('Loading file');
 
 		await actUpdate((): void => {
-			deferredContent.resolve(makeFileContent('export const largeLoading = true;\n'));
+			deferredContent.resolve(loadingContent);
 		});
 	});
 
 	test('keeps the viewport mounted without rendering the previous file while the next file loads', async () => {
-		const firstDescriptor = makeFileDescriptor({
+		const firstContent = makeFileContent('export const firstRetained = true;\n');
+		const secondContent = makeFileContent('export const secondSlow = true;\n');
+		const firstDescriptor = await makeFileDescriptorForContent({
+			content: firstContent,
 			contentHandle: 'first-retained-content',
 			fileId: 'file-first-retained',
 			path: 'src/first-retained.ts',
 		});
-		const secondDescriptor = makeFileDescriptor({
+		const secondDescriptor = await makeFileDescriptorForContent({
+			content: secondContent,
 			contentHandle: 'second-slow-content',
 			fileId: 'file-second-slow',
 			path: 'src/second-slow.ts',
@@ -588,7 +616,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 						readContent: (props) =>
 							props.descriptor.descriptorId.includes('second-slow-content')
 								? deferredSecondContent.promise
-								: Promise.resolve(makeFileContent('export const firstRetained = true;\n')),
+								: Promise.resolve(firstContent),
 					}}
 				/>
 			);
@@ -615,7 +643,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(openFileBodyPreview()).toBeNull();
 
 		await actUpdate((): void => {
-			deferredSecondContent.resolve(makeFileContent('export const secondSlow = true;\n'));
+			deferredSecondContent.resolve(secondContent);
 		});
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('export const secondSlow = true;');
@@ -626,17 +654,21 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(visibleCodeText()).not.toContain('export const firstRetained = true;');
 	});
 
-	test('reserves selected file scroll extent without rendering retained previous content', async () => {
-		const firstDescriptor = makeFileDescriptor({
+	test('shows honest loading state without retained content or fabricated scroll extent', async () => {
+		const firstContent = makeFileContent(`${makeGeneratedFileBody('firstRetainedScroll', 8)}\n`);
+		const secondContent = makeFileContent(
+			`${makeGeneratedFileBody('secondLargeRetainedTarget', 575)}\n`,
+		);
+		const firstDescriptor = await makeFileDescriptorForContent({
+			content: firstContent,
 			contentHandle: 'first-retained-scroll-content',
 			fileId: 'file-first-retained-scroll',
-			lineCount: 8,
 			path: 'src/first-retained-scroll.ts',
 		});
-		const secondDescriptor = makeFileDescriptor({
+		const secondDescriptor = await makeFileDescriptorForContent({
+			content: secondContent,
 			contentHandle: 'second-large-retained-target-content',
 			fileId: 'file-second-large-retained-target',
-			lineCount: 575,
 			path: 'src/second-large-retained-target.ts',
 		});
 		const deferredSecondContent = makeDeferredContent();
@@ -658,7 +690,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 						readContent: (props) =>
 							props.descriptor.descriptorId.includes('second-large-retained-target-content')
 								? deferredSecondContent.promise
-								: Promise.resolve(makeFileContent(makeGeneratedFileBody('firstRetainedScroll', 8))),
+								: Promise.resolve(firstContent),
 					}}
 				/>
 			);
@@ -679,33 +711,33 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForOpenFileState('loading');
 
 		expect(visibleCodeText()).not.toContain('export const firstRetainedScrollLine001 = true;');
-		expect(scrollOwner.scrollHeight).toBeGreaterThan(scrollOwner.clientHeight + 32);
-		const loadingScrollHeight = scrollOwner.scrollHeight;
-		await actUpdate((): void => {
-			scrollOwner.scrollTop = Math.min(scrollOwner.scrollHeight - scrollOwner.clientHeight, 480);
-			scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
-		});
+		expect(scrollOwner.scrollHeight).toBeLessThanOrEqual(scrollOwner.clientHeight + 32);
+		expect(document.querySelectorAll('diffs-container')).toHaveLength(0);
+		expect(
+			document.querySelector('[data-testid="bridge-file-viewer-content-state"]')?.textContent,
+		).toContain('Loading file');
 
 		await actUpdate((): void => {
-			deferredSecondContent.resolve(
-				makeFileContent(makeGeneratedFileBody('secondLargeRetainedTarget', 575)),
-			);
+			deferredSecondContent.resolve(secondContent);
 		});
 		await waitForOpenFileState('ready');
 		await waitForOpenFileBodyPreview('export const secondLargeRetainedTargetLine001 = true;');
 		await actFrame();
 
-		expect(Math.abs(scrollOwner.scrollHeight - loadingScrollHeight)).toBeLessThanOrEqual(1);
+		expect(scrollOwner.scrollHeight).toBeGreaterThan(scrollOwner.clientHeight + 32);
 	});
 
 	test('does not render retained file body while the next selected file content loads', async () => {
-		const firstDescriptor = makeFileDescriptor({
+		const firstContent = makeFileContent(makeGeneratedFileBody('firstScrolled', 120));
+		const secondContent = makeFileContent('export const secondScrollTarget = true;\n');
+		const firstDescriptor = await makeFileDescriptorForContent({
+			content: firstContent,
 			contentHandle: 'first-scrolled-content',
 			fileId: 'file-first-scrolled',
-			lineCount: 120,
 			path: 'src/first-scrolled.ts',
 		});
-		const secondDescriptor = makeFileDescriptor({
+		const secondDescriptor = await makeFileDescriptorForContent({
+			content: secondContent,
 			contentHandle: 'second-scroll-target-content',
 			fileId: 'file-second-scroll-target',
 			path: 'src/second-scroll-target.ts',
@@ -729,7 +761,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 						readContent: (props) =>
 							props.descriptor.descriptorId.includes('second-scroll-target-content')
 								? deferredSecondContent.promise
-								: Promise.resolve(makeFileContent(makeGeneratedFileBody('firstScrolled', 120))),
+								: Promise.resolve(firstContent),
 					}}
 				/>
 			);
@@ -760,7 +792,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(openFileBodyPreview()).toBeNull();
 
 		await actUpdate((): void => {
-			deferredSecondContent.resolve(makeFileContent('export const secondScrollTarget = true;\n'));
+			deferredSecondContent.resolve(secondContent);
 		});
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('export const secondScrollTarget = true;');

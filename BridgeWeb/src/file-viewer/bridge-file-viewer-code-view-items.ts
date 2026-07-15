@@ -13,7 +13,7 @@ export function bridgeFileViewerCodeViewItemsForPanelState(props: {
 	if (props.selectedCodeViewItem !== null) {
 		return [bridgeFileViewerPierreCodeViewItemFromSelectedItem(props.selectedCodeViewItem)];
 	}
-	return bridgeFileViewerPlaceholderItemsForOpenState(props.openFileState);
+	return [];
 }
 
 function bridgeFileViewerPierreCodeViewItemFromSelectedItem(
@@ -34,46 +34,4 @@ function bridgeFileViewerPierreCodeViewItemFromSelectedItem(
 		...(item.collapsed === undefined ? {} : { collapsed: item.collapsed }),
 		bridgeMetadata: item.bridgeMetadata,
 	} satisfies BridgeCodeViewItem;
-}
-
-function bridgeFileViewerPlaceholderItemsForOpenState(
-	openFileState: BridgeFileViewerCodePanelState,
-): readonly BridgeCodeViewItem[] {
-	if (
-		openFileState.status === 'idle' ||
-		openFileState.displayItem === null ||
-		openFileState.displayItem.availability.kind !== 'available' ||
-		openFileState.displayItem.payloadLineCount <= 0
-	) {
-		return [];
-	}
-	const lineCount = openFileState.displayItem.payloadLineCount;
-	const cacheKey = [
-		'file-placeholder',
-		openFileState.fileId,
-		String(openFileState.displayItem.payloadByteCount),
-		String(openFileState.displayItem.payloadLineCount),
-		String(lineCount),
-	].join(':');
-	return [
-		{
-			id: `file-placeholder:${openFileState.fileId}`,
-			type: 'file',
-			file: {
-				cacheKey,
-				contents: Array.from({ length: lineCount }, (): string => ' ').join('\n'),
-				lang: 'text',
-				name: openFileState.path,
-			},
-			version: lineCount,
-			bridgeMetadata: {
-				cacheKey,
-				contentRoles: ['file'],
-				contentState: 'placeholder',
-				displayPath: openFileState.path,
-				itemId: openFileState.fileId,
-				lineCount,
-			},
-		},
-	];
 }

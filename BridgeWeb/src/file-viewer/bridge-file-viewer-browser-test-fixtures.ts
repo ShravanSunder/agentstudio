@@ -298,8 +298,10 @@ export function makeTreeRow(props: {
 
 export interface MakeFileDescriptorProps {
 	readonly contentExpectedBytes?: number;
+	readonly contentExpectedSha256?: string;
 	readonly contentHandle?: string;
 	readonly contentMaxBytes?: number;
+	readonly endsWithNewline?: boolean;
 	readonly fileId?: string;
 	readonly generation?: number;
 	readonly isBinary?: boolean;
@@ -317,29 +319,28 @@ export function makeFileDescriptor(props: MakeFileDescriptorProps): FileDescript
 			props.generation === undefined ? {} : { subscriptionGeneration: props.generation },
 		);
 	const fileId = props.fileId ?? 'file-1';
-	const maximumBytes = props.contentMaxBytes ?? DEFAULT_FILE_TEST_CONTENT_MAX_BYTES;
-	const payloadLineCount = props.lineCount ?? 2;
+	const declaredByteLength = props.contentExpectedBytes ?? 64;
+	const maximumBytes = props.contentMaxBytes ?? declaredByteLength;
+	const payloadLineCount = props.lineCount ?? 1;
 	const isUnavailable = props.isBinary === true || props.virtualizedExtentKind === 'unavailable';
 	const virtualizedExtentKind = isUnavailable
 		? 'unavailable'
 		: (props.virtualizedExtentKind ?? 'exactLineCount');
-	const payloadByteCount = isUnavailable
-		? 0
-		: Math.min(props.contentExpectedBytes ?? 64, maximumBytes);
+	const payloadByteCount = isUnavailable ? 0 : Math.min(declaredByteLength, maximumBytes);
 	const emittedPayloadLineCount = isUnavailable ? 0 : payloadLineCount;
 	const contentDescriptor = {
 		contentKind: 'file.content',
-		declaredByteLength: props.contentExpectedBytes ?? 64,
+		declaredByteLength,
 		descriptorId,
 		encoding: 'utf-8',
-		expectedSha256: testSha256ForDescriptor(descriptorId),
+		expectedSha256: props.contentExpectedSha256 ?? testSha256ForDescriptor(descriptorId),
 		fileId,
 		maximumBytes,
 		source,
 		window: {
 			kind: 'prefix',
 			maximumBytes,
-			maximumLines: 10_000,
+			maximumLines: payloadLineCount,
 			startByte: 0,
 		},
 	} as const;
@@ -351,7 +352,7 @@ export function makeFileDescriptor(props: MakeFileDescriptorProps): FileDescript
 				: { availabilityKind: 'available', contentDescriptor },
 		encoding: isUnavailable ? null : 'utf-8',
 		endsMidLine: false,
-		endsWithNewline: !isUnavailable,
+		endsWithNewline: !isUnavailable && (props.endsWithNewline ?? true),
 		estimatedContentHeightPixels: null,
 		eventKind: 'file.descriptorReady',
 		fileExtension: 'ts',
@@ -362,7 +363,7 @@ export function makeFileDescriptor(props: MakeFileDescriptorProps): FileDescript
 		payloadByteCount,
 		payloadLineCount: emittedPayloadLineCount,
 		rowId: fileTreeRowId(props.path),
-		sizeBytes: Math.max(props.contentExpectedBytes ?? 64, 64),
+		sizeBytes: declaredByteLength,
 		source,
 		totalLineCount: virtualizedExtentKind === 'exactLineCount' ? payloadLineCount : null,
 		truncationKind: 'none',
@@ -372,6 +373,34 @@ export function makeFileDescriptor(props: MakeFileDescriptorProps): FileDescript
 		throw new Error('Browser File descriptor fixture parsed to the wrong event kind.');
 	}
 	return parsedDescriptor;
+}
+
+export interface MakeFileDescriptorForContentProps extends Omit<
+	MakeFileDescriptorProps,
+	| 'contentExpectedBytes'
+	| 'contentExpectedSha256'
+	| 'contentMaxBytes'
+	| 'endsWithNewline'
+	| 'lineCount'
+	| 'virtualizedExtentKind'
+> {
+	readonly content: string;
+}
+
+export async function makeFileDescriptorForContent(
+	props: MakeFileDescriptorForContentProps,
+): Promise<FileDescriptorReadyEvent> {
+	const { content, ...descriptorProps } = props;
+	const contentBytes = new TextEncoder().encode(content);
+	return makeFileDescriptor({
+		...descriptorProps,
+		contentExpectedBytes: contentBytes.byteLength,
+		contentExpectedSha256: await fileContentSha256Hex(contentBytes),
+		contentMaxBytes: contentBytes.byteLength,
+		endsWithNewline: contentBytes.byteLength > 0 && contentBytes.at(-1) === 0x0a,
+		lineCount: logicalFileContentLineCount(contentBytes),
+		virtualizedExtentKind: 'exactLineCount',
+	});
 }
 
 export function makeSourceIdentity(
@@ -396,6 +425,24 @@ export function parseFileMetadataEvent(event: unknown): FileMetadataEvent {
 
 export function makeFileContent(content: string): string {
 	return content;
+}
+
+export async function fileContentSha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+	const digest = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', bytes));
+	return Array.from(digest, (byte): string => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export function logicalFileContentLineCount(bytes: Uint8Array): number {
+	if (bytes.byteLength === 0) return 0;
+	return countFileContentByte(bytes, 0x0a) + (bytes.at(-1) === 0x0a ? 0 : 1);
+}
+
+export function countFileContentByte(bytes: Uint8Array, expectedByte: number): number {
+	let count = 0;
+	for (const byte of bytes) {
+		if (byte === expectedByte) count += 1;
+	}
+	return count;
 }
 
 export function fileTreeRowId(path: string): string {
@@ -423,5 +470,3 @@ function testSha256ForDescriptor(descriptorId: string): string {
 		return `${hash.slice(0, offset)}${byte.toString(16).padStart(2, '0')}${hash.slice(offset + 2)}`;
 	}, '0'.repeat(64));
 }
-
-const DEFAULT_FILE_TEST_CONTENT_MAX_BYTES = 2 * 1024 * 1024;

@@ -64,8 +64,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			}),
 		[props.openFileState, props.selectedCodeViewItem],
 	);
-	const shouldRenderContentState =
-		props.selectedCodeViewItem === null && props.openFileState.status !== 'loading';
+	const shouldRenderContentState = props.selectedCodeViewItem === null;
 	useLayoutEffect((): void => {
 		const effectVersion = scrollEffectVersionRef.current + 1;
 		scrollEffectVersionRef.current = effectVersion;
@@ -157,6 +156,12 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			data-testid="bridge-file-viewer-code-canvas"
 			data-worktree-open-file-body-preview={props.selectedCodeViewItem?.file.contents.slice(0, 160)}
 			data-worktree-rendered-file-path={props.selectedCodeViewItem?.bridgeMetadata.displayPath}
+			data-worktree-rendered-content-roles={props.selectedCodeViewItem?.bridgeMetadata.contentRoles.join(
+				',',
+			)}
+			data-worktree-rendered-content-state={props.selectedCodeViewItem?.bridgeMetadata.contentState}
+			data-worktree-rendered-item-id={props.selectedCodeViewItem?.bridgeMetadata.itemId}
+			data-worktree-rendered-line-count={props.selectedCodeViewItem?.bridgeMetadata.lineCount}
 			data-worker-backed-highlighting={
 				props.codeViewWorkerPoolEnabled === true ? 'requested' : 'disabled'
 			}
