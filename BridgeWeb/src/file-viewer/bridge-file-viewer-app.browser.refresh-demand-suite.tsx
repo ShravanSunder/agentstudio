@@ -7,6 +7,7 @@ import '../app/bridge-app.css';
 import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
 import {
+	collapseBridgeViewerTreeFolder,
 	requireBridgeViewerHTMLElement,
 	waitForBridgeViewerTreeItemButton,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
@@ -16,6 +17,7 @@ import { makeFileContent } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
 	fileNavigationCommandForPath,
 	makeFileDescriptor,
+	makeFileDescriptorForContent,
 	makeDescriptorReadyMetadataEvents,
 	makeFileMetadataEvents,
 	makeSourceReplacementMetadataEvents,
@@ -105,12 +107,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(fileTreeDisclosureRow('src')?.getAttribute('aria-expanded')).toBe('true');
 		expect(fileTreeDisclosureRow('src/old')?.getAttribute('aria-expanded')).toBe('true');
 		expect(fileTreeDisclosureRow('src/other')?.getAttribute('aria-expanded')).toBe('true');
-		const sourceDirectory = fileTreeDisclosureRow('src/old');
-		if (sourceDirectory === null) throw new Error('FILE EXPANSION SOURCE DIRECTORY MISSING');
-		await actUpdate((): void => {
-			sourceDirectory.click();
-		});
-		await actFrame();
+		await collapseBridgeViewerTreeFolder('src/old');
 		expect(fileTreeDisclosureRow('src/old')?.getAttribute('aria-expanded')).toBe('false');
 
 		await actUpdate((): void => {
@@ -198,7 +195,10 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('renders replacement file body after a worker source-update refreshes stale content', async () => {
-		const initialDescriptor = makeFileDescriptor({
+		const initialContent = makeFileContent('export const initial = true;\n');
+		const refreshedContent = makeFileContent('export const refreshed = true;\n');
+		const initialDescriptor = await makeFileDescriptorForContent({
+			content: initialContent,
 			contentHandle: 'refresh-content-1',
 			fileId: 'file-refresh-target',
 			path: 'src/refresh-target.ts',
@@ -207,7 +207,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			subscriptionGeneration: 2,
 			sourceCursor: 'cursor-2',
 		});
-		const replacementDescriptor = makeFileDescriptor({
+		const replacementDescriptor = await makeFileDescriptorForContent({
+			content: refreshedContent,
 			contentHandle: 'refresh-content-2',
 			fileId: 'file-refresh-target',
 			generation: 2,
@@ -225,11 +226,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				fileProductSession={{
 					readContent: async (props) => {
 						openedDescriptorIds.push(props.descriptor.descriptorId);
-						return makeFileContent(
-							props.descriptor.descriptorId.includes('refresh-content-2')
-								? 'export const refreshed = true;\n'
-								: 'export const initial = true;\n',
-						);
+						return props.descriptor.descriptorId.includes('refresh-content-2')
+							? refreshedContent
+							: initialContent;
 					},
 					onMetadataSubscription: (handler): (() => void) => {
 						publishMetadataEvents = handler;
@@ -261,7 +260,10 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('renders replacement file body after an auto-open worker source refresh', async () => {
-		const initialDescriptor = makeFileDescriptor({
+		const initialContent = makeFileContent('export const autoInitial = true;\n');
+		const refreshedContent = makeFileContent('export const autoRefreshed = true;\n');
+		const initialDescriptor = await makeFileDescriptorForContent({
+			content: initialContent,
 			contentHandle: 'auto-refresh-content-1',
 			fileId: 'file-auto-refresh-target',
 			path: 'src/auto-refresh-target.ts',
@@ -270,7 +272,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			subscriptionGeneration: 2,
 			sourceCursor: 'cursor-2',
 		});
-		const replacementDescriptor = makeFileDescriptor({
+		const replacementDescriptor = await makeFileDescriptorForContent({
+			content: refreshedContent,
 			contentHandle: 'auto-refresh-content-2',
 			fileId: 'file-auto-refresh-target',
 			generation: 2,
@@ -288,11 +291,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				fileProductSession={{
 					readContent: async (props) => {
 						openedDescriptorIds.push(props.descriptor.descriptorId);
-						return makeFileContent(
-							props.descriptor.descriptorId.includes('auto-refresh-content-2')
-								? 'export const autoRefreshed = true;\n'
-								: 'export const autoInitial = true;\n',
-						);
+						return props.descriptor.descriptorId.includes('auto-refresh-content-2')
+							? refreshedContent
+							: initialContent;
 					},
 					onMetadataSubscription: (handler): (() => void) => {
 						publishMetadataEvents = handler;
@@ -320,21 +321,23 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('restores File CodeView scroll position after a same-path worker source refresh', async () => {
-		const initialDescriptor = makeFileDescriptor({
+		const initialContent = makeGeneratedFileBody('initialScroll', 140);
+		const refreshedContent = makeGeneratedFileBody('refreshedScroll', 140);
+		const initialDescriptor = await makeFileDescriptorForContent({
+			content: initialContent,
 			contentHandle: 'refresh-scroll-content-1',
 			fileId: 'file-refresh-scroll-target',
-			lineCount: 140,
 			path: 'src/refresh-scroll-target.ts',
 		});
 		const resetSourceIdentity = makeSourceIdentity({
 			subscriptionGeneration: 2,
 			sourceCursor: 'cursor-2',
 		});
-		const replacementDescriptor = makeFileDescriptor({
+		const replacementDescriptor = await makeFileDescriptorForContent({
+			content: refreshedContent,
 			contentHandle: 'refresh-scroll-content-2',
 			fileId: 'file-refresh-scroll-target',
 			generation: 2,
-			lineCount: 140,
 			path: 'src/refresh-scroll-target.ts',
 			sourceIdentity: resetSourceIdentity,
 		});
@@ -348,11 +351,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 					navigationCommand={fileNavigationCommandForPath('src/refresh-scroll-target.ts')}
 					fileProductSession={{
 						readContent: async (props) =>
-							makeFileContent(
-								props.descriptor.descriptorId.includes('refresh-scroll-content-2')
-									? makeGeneratedFileBody('refreshedScroll', 140)
-									: makeGeneratedFileBody('initialScroll', 140),
-							),
+							props.descriptor.descriptorId.includes('refresh-scroll-content-2')
+								? refreshedContent
+								: initialContent,
 						onMetadataSubscription: (handler): (() => void) => {
 							publishMetadataEvents = handler;
 							return (): void => {
@@ -397,7 +398,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('does not repeat a failed replacement content open without explicit user intent', async () => {
-		const initialDescriptor = makeFileDescriptor({
+		const initialContent = makeFileContent('export const failedRefreshInitial = true;\n');
+		const initialDescriptor = await makeFileDescriptorForContent({
+			content: initialContent,
 			contentHandle: 'failed-refresh-content-1',
 			fileId: 'file-failed-refresh-target',
 			path: 'src/failed-refresh-target.ts',
@@ -427,7 +430,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 						if (props.descriptor.descriptorId.includes('failed-refresh-content-2')) {
 							throw new Error('failed refresh canary');
 						}
-						return makeFileContent('export const failedRefreshInitial = true;\n');
+						return initialContent;
 					},
 					onMetadataSubscription: (handler): (() => void) => {
 						publishMetadataEvents = handler;
@@ -461,7 +464,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('keeps selected File loading through unscoped worker health and accepts content completion', async () => {
-		const targetDescriptor = makeFileDescriptor({
+		const completedContent = makeFileContent('export const completedAfterWorkerHealth = true;\n');
+		const targetDescriptor = await makeFileDescriptorForContent({
+			content: completedContent,
 			contentHandle: 'degraded-worker-content',
 			fileId: 'file-degraded-worker-target',
 			path: 'src/degraded-worker-target.ts',
@@ -504,14 +509,19 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(openFileState()).toBe('loading');
 
 		await actUpdate((): void => {
-			deferredContent.resolve('export const completedAfterWorkerHealth = true;\n');
+			deferredContent.resolve(completedContent);
 		});
 		await waitForVisibleCodeText('completedAfterWorkerHealth');
 		expect(openFileState()).toBe('ready');
 	});
 
 	test('retries a failed same-file navigation target after worker source replacement failure', async () => {
-		const initialDescriptor = makeFileDescriptor({
+		const initialContent = makeFileContent('export const failedNavigationRetryInitial = true;\n');
+		const replacementContent = makeFileContent(
+			'export const failedNavigationRetryReplacement = true;\n',
+		);
+		const initialDescriptor = await makeFileDescriptorForContent({
+			content: initialContent,
 			contentHandle: 'failed-navigation-retry-content-1',
 			fileId: 'file-failed-navigation-retry-target',
 			path: 'src/failed-navigation-retry-target.ts',
@@ -520,7 +530,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			subscriptionGeneration: 2,
 			sourceCursor: 'cursor-2',
 		});
-		const replacementDescriptor = makeFileDescriptor({
+		const replacementDescriptor = await makeFileDescriptorForContent({
+			content: replacementContent,
 			contentHandle: 'failed-navigation-retry-content-2',
 			fileId: 'file-failed-navigation-retry-target',
 			generation: 2,
@@ -556,9 +567,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 								if (replacementFetchAttemptCount === 1) {
 									throw new Error('failed navigation retry canary');
 								}
-								return makeFileContent('export const failedNavigationRetryReplacement = true;\n');
+								return replacementContent;
 							}
-							return makeFileContent('export const failedNavigationRetryInitial = true;\n');
+							return initialContent;
 						},
 						onMetadataSubscription: (handler): (() => void) => {
 							publishMetadataEvents = handler;
@@ -602,7 +613,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('retries a failed same-file navigation target on a fresh command', async () => {
-		const targetDescriptor = makeFileDescriptor({
+		const recoveredContent = makeFileContent('export const failedOpenRetryRecovered = true;\n');
+		const targetDescriptor = await makeFileDescriptorForContent({
+			content: recoveredContent,
 			contentHandle: 'failed-open-retry-content',
 			fileId: 'file-failed-open-retry-target',
 			path: 'src/failed-open-retry-target.ts',
@@ -634,7 +647,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 							if (fetchAttemptCount === 1) {
 								throw new Error('failed open retry canary');
 							}
-							return makeFileContent('export const failedOpenRetryRecovered = true;\n');
+							return recoveredContent;
 						},
 					}}
 				/>
@@ -658,7 +671,10 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('continues worker-owned replacement content completion while Files is inactive', async () => {
-		const initialDescriptor = makeFileDescriptor({
+		const initialContent = makeFileContent('export const inactiveRefreshInitial = true;\n');
+		const replacementContent = makeFileContent('export const inactiveRefreshReplacement = true;\n');
+		const initialDescriptor = await makeFileDescriptorForContent({
+			content: initialContent,
 			contentHandle: 'inactive-refresh-content-1',
 			fileId: 'file-inactive-refresh-target',
 			path: 'src/inactive-refresh-target.ts',
@@ -667,7 +683,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			subscriptionGeneration: 2,
 			sourceCursor: 'cursor-2',
 		});
-		const replacementDescriptor = makeFileDescriptor({
+		const replacementDescriptor = await makeFileDescriptorForContent({
+			content: replacementContent,
 			contentHandle: 'inactive-refresh-content-2',
 			fileId: 'file-inactive-refresh-target',
 			generation: 2,
@@ -698,9 +715,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 							if (props.descriptor.descriptorId.includes('inactive-refresh-content-2')) {
 								return deferredRefreshContent.promise;
 							}
-							return Promise.resolve(
-								makeFileContent('export const inactiveRefreshInitial = true;\n'),
-							);
+							return Promise.resolve(initialContent);
 						},
 						onMetadataSubscription: (handler): (() => void) => {
 							publishMetadataEvents = handler;
@@ -726,9 +741,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForFileViewerActiveState('false');
 
 		await actUpdate((): void => {
-			deferredRefreshContent.resolve(
-				makeFileContent('export const inactiveRefreshReplacement = true;\n'),
-			);
+			deferredRefreshContent.resolve(replacementContent);
 		});
 		await actFrame();
 		await actFrame();
@@ -746,7 +759,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('keeps selected file ready when reset metadata carries the same content descriptor', async () => {
-		const initialDescriptor = makeFileDescriptor({
+		const stableContent = makeFileContent('export const stable = true;\n');
+		const initialDescriptor = await makeFileDescriptorForContent({
+			content: stableContent,
 			contentHandle: 'stable-content',
 			fileId: 'file-stable-target',
 			path: 'src/stable-target.ts',
@@ -755,7 +770,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			subscriptionGeneration: 2,
 			sourceCursor: 'cursor-2',
 		});
-		const sameContentDescriptor = makeFileDescriptor({
+		const sameContentDescriptor = await makeFileDescriptorForContent({
+			content: stableContent,
 			contentHandle: 'stable-content',
 			fileId: 'file-stable-target',
 			generation: 2,
@@ -770,7 +786,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				initialMetadataEvents={makeFileMetadataEvents(initialDescriptor)}
 				navigationCommand={fileNavigationCommandForPath('src/stable-target.ts')}
 				fileProductSession={{
-					readContent: async () => makeFileContent('export const stable = true;\n'),
+					readContent: async () => stableContent,
 					onMetadataSubscription: (handler): (() => void) => {
 						publishMetadataEvents = handler;
 						return (): void => {
@@ -796,7 +812,10 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('clears selected content while a new source snapshot replaces the active stream', async () => {
-		const initialDescriptor = makeFileDescriptor({
+		const initialContent = makeFileContent('export const sourceSnapshotInitial = true;\n');
+		const replacementContent = makeFileContent('export const sourceSnapshotFresh = true;\n');
+		const initialDescriptor = await makeFileDescriptorForContent({
+			content: initialContent,
 			contentHandle: 'source-snapshot-content-1',
 			fileId: 'file-source-less-reset-target',
 			path: 'src/source-less-reset-target.ts',
@@ -805,7 +824,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			subscriptionGeneration: 2,
 			sourceCursor: 'cursor-2',
 		});
-		const replacementDescriptor = makeFileDescriptor({
+		const replacementDescriptor = await makeFileDescriptorForContent({
+			content: replacementContent,
 			contentHandle: 'source-snapshot-content-2',
 			fileId: 'file-source-less-reset-target',
 			generation: 2,
@@ -821,11 +841,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				navigationCommand={fileNavigationCommandForPath('src/source-less-reset-target.ts')}
 				fileProductSession={{
 					readContent: async (props) =>
-						makeFileContent(
-							props.descriptor.descriptorId.includes('source-snapshot-content-2')
-								? 'export const sourceSnapshotFresh = true;\n'
-								: 'export const sourceSnapshotInitial = true;\n',
-						),
+						props.descriptor.descriptorId.includes('source-snapshot-content-2')
+							? replacementContent
+							: initialContent,
 					onMetadataSubscription: (handler): (() => void) => {
 						publishMetadataEvents = handler;
 						return (): void => {
@@ -863,7 +881,10 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('blocks descriptor demand between a source-less reset and the next source snapshot', async () => {
-		const initialDescriptor = makeFileDescriptor({
+		const initialContent = makeFileContent('export const sourceLessResetInitial = true;\n');
+		const replacementContent = makeFileContent('export const sourceLessResetFresh = true;\n');
+		const initialDescriptor = await makeFileDescriptorForContent({
+			content: initialContent,
 			contentHandle: 'source-less-reset-content-1',
 			fileId: 'file-source-less-reset-target',
 			path: 'src/source-less-reset-target.ts',
@@ -872,7 +893,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			subscriptionGeneration: 2,
 			sourceCursor: 'cursor-2',
 		});
-		const replacementDescriptor = makeFileDescriptor({
+		const replacementDescriptor = await makeFileDescriptorForContent({
+			content: replacementContent,
 			contentHandle: 'source-less-reset-content-2',
 			fileId: 'file-source-less-reset-target',
 			generation: 2,
@@ -889,11 +911,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				navigationCommand={fileNavigationCommandForPath('src/source-less-reset-target.ts')}
 				fileProductSession={{
 					readContent: async (props) =>
-						makeFileContent(
-							props.descriptor.descriptorId.includes('source-less-reset-content-2')
-								? 'export const sourceLessResetFresh = true;\n'
-								: 'export const sourceLessResetInitial = true;\n',
-						),
+						props.descriptor.descriptorId.includes('source-less-reset-content-2')
+							? replacementContent
+							: initialContent,
 					onMetadataInterestUpdate: (request) => {
 						metadataInterestUpdates.push(request);
 					},
@@ -934,7 +954,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('requests a replacement descriptor after source reset snapshot metadata arrives without descriptors', async () => {
-		const initialDescriptor = makeFileDescriptor({
+		const initialContent = makeFileContent('export const sourceSnapshotDemandInitial = true;\n');
+		const initialDescriptor = await makeFileDescriptorForContent({
+			content: initialContent,
 			contentHandle: 'source-snapshot-demand-content-1',
 			fileId: 'file-source-less-reset-target',
 			path: 'src/source-less-reset-target.ts',
@@ -952,8 +974,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				initialMetadataEvents={makeFileMetadataEvents(initialDescriptor)}
 				navigationCommand={fileNavigationCommandForPath('src/source-less-reset-target.ts')}
 				fileProductSession={{
-					readContent: async () =>
-						makeFileContent('export const sourceSnapshotDemandInitial = true;\n'),
+					readContent: async () => initialContent,
 					onMetadataInterestUpdate: (request) => {
 						metadataInterestUpdates.push(request);
 					},
