@@ -831,3 +831,25 @@ cached diff check passed. Production integration remains the next W3 slice: it
 must preserve `WatchedPath.id`, return an exact submission receipt for awaited
 manual demand, route every scan cause through the scheduler, and ensure partial,
 cancelled, unavailable, failed, or stale evidence never removes prior inventory.
+
+## 2026-07-15 S3 MainActor diagnostics checkpoint
+
+Checkpoint `821e63af` adds the measurement primitives needed by later workload
+proof: UUIDv7 one-use work tickets separate MainActor queue age from synchronous
+service, the responsiveness heartbeat exposes gaps and overdue pulses, and one
+bounded synchronous probe sink feeds scrubbed Victoria distributions, counters,
+and gauges. A run evidence ledger tracks exact stage coverage, loss, sequence
+gaps, and drain completion without exporting raw identities.
+
+The final concurrency review was remediated before commit. Sink calls execute
+outside the ledger lock under typed in-flight custody; drain admission closes
+the sink atomically; an exact UUIDv7 drain-operation token rejects stale or
+foreign receipts; mixed non-run probe records do not corrupt run accounting;
+and every sink-recorded run sequence must be observed exactly once before the
+strict lifecycle can enter `finished`. The lifecycle is one discriminated union,
+not correlated optional sink/state fields.
+
+Fresh parent proof passed 42 tests across 7 suites. Strict scoped swift-format,
+strict SwiftLint, working-tree and cached diff checks passed, and the final
+read-only remediation review returned READY. These primitives are diagnostic
+substrate only; runtime workload wiring and Victoria acceptance remain open.
