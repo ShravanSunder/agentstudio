@@ -4,7 +4,103 @@ import Testing
 @testable import AgentStudio
 
 @Suite
+// swiftlint:disable:next type_body_length
 struct AgentStudioOTLPTraceProjectionTests {
+    @Test
+    func mainActorProjectionKeepsOnlyControlledTaxonomyAndMeasurements() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 999,
+            severityText: .info,
+            body: "performance.mainactor.work",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.mainactor.domain": .string("topology"),
+                "agentstudio.performance.mainactor.operation": .string("topology_apply"),
+                "agentstudio.performance.mainactor.outcome": .string("succeeded"),
+                "agentstudio.performance.mainactor.age_precision": .string("pressure_conservative"),
+                "agentstudio.performance.mainactor.queue_age_pressure_conservative_ms": .double(12),
+                "agentstudio.performance.mainactor.service_ms": .double(2),
+                "agentstudio.performance.mainactor.work.id": .string("019f-private"),
+                "agentstudio.performance.mainactor.raw_path": .string("/Users/private/repo"),
+                "agentstudio.performance.mainactor.prompt": .string("private prompt"),
+                "agentstudio.performance.mainactor.raw_error": .string("private error"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let rendered = projection.renderedForCanaryAssertions()
+
+        #expect(projection.attributes["agentstudio.performance.mainactor.domain"] == .string("topology"))
+        #expect(
+            projection.attributes["agentstudio.performance.mainactor.age_precision"]
+                == .string("pressure_conservative"))
+        #expect(
+            projection.attributes["agentstudio.performance.mainactor.queue_age_pressure_conservative_ms"]
+                == .double(12))
+        #expect(projection.attributes["agentstudio.performance.mainactor.service_ms"] == .double(2))
+        #expect(!rendered.contains("019f-private"))
+        #expect(!rendered.contains("/Users/private/repo"))
+        #expect(!rendered.contains("private prompt"))
+        #expect(!rendered.contains("private error"))
+    }
+
+    @Test
+    func mainActorProjectionRejectsUncontrolledDimensionValues() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 1000,
+            severityText: .info,
+            body: "performance.mainactor.work",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.mainactor.domain": .string("/Users/private"),
+                "agentstudio.performance.mainactor.operation": .string("arbitrary"),
+                "agentstudio.performance.mainactor.outcome": .string("sometimes"),
+                "agentstudio.performance.mainactor.age_precision": .string("approximate"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.attributes["agentstudio.performance.mainactor.domain"] == nil)
+        #expect(projection.attributes["agentstudio.performance.mainactor.operation"] == nil)
+        #expect(projection.attributes["agentstudio.performance.mainactor.outcome"] == nil)
+        #expect(projection.attributes["agentstudio.performance.mainactor.age_precision"] == nil)
+    }
+
+    @Test
+    func pressureConservativeAgeCannotEnterExactLogField() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 1001,
+            severityText: .info,
+            body: "performance.mainactor.work",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.mainactor.age_precision": .string("pressure_conservative"),
+                "agentstudio.performance.mainactor.queue_age_exact_ms": .double(1),
+                "agentstudio.performance.mainactor.queue_age_pressure_conservative_ms": .double(2),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.attributes["agentstudio.performance.mainactor.queue_age_exact_ms"] == nil)
+        #expect(
+            projection.attributes["agentstudio.performance.mainactor.queue_age_pressure_conservative_ms"]
+                == .double(2))
+    }
+
     @Test
     func startupProjectionKeepsControlledFieldsAndDropsProcessIdentity() {
         let record = AgentStudioTraceRecord(

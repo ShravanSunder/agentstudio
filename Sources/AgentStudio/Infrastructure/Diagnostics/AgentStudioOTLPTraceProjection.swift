@@ -17,6 +17,7 @@ enum AgentStudioOTLPTraceProjection {
         let safeResource = safeResource(record.resource)
         let resource = projectedResource(safeResource)
         var attributes = projectedAttributes(record.attributes, resource: safeResource)
+        enforceMainActorAgePrecision(in: &attributes)
         if record.timeUnixNano <= UInt64(Int.max) {
             attributes["agentstudio.event.time_unix_nano"] = .int(Int(record.timeUnixNano))
         }
@@ -88,6 +89,10 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.atom.operation",
         "agentstudio.performance.git.status_unavailable.reason",
         "agentstudio.performance.management_layer.command",
+        "agentstudio.performance.mainactor.age_precision",
+        "agentstudio.performance.mainactor.domain",
+        "agentstudio.performance.mainactor.operation",
+        "agentstudio.performance.mainactor.outcome",
         "agentstudio.performance.pane_action.name",
         "agentstudio.performance.sidebar.toggle.intent",
         "agentstudio.performance.terminal.geometry.reason",
@@ -183,6 +188,20 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.ghostty.surface.initial_frame_width",
         "agentstudio.performance.management_layer.pane.count",
         "agentstudio.performance.management_layer.tab.count",
+        "agentstudio.performance.mainactor.changed_key.count",
+        "agentstudio.performance.mainactor.consecutive_overdue.count",
+        "agentstudio.performance.mainactor.heartbeat_gap_ms",
+        "agentstudio.performance.mainactor.input.count",
+        "agentstudio.performance.mainactor.queue_age_exact_ms",
+        "agentstudio.performance.mainactor.queue_age_pressure_conservative_ms",
+        "agentstudio.performance.mainactor.service_ms",
+        "agentstudio.performance.contraction.admitted.count",
+        "agentstudio.performance.contraction.coalesced.count",
+        "agentstudio.performance.contraction.delivered.count",
+        "agentstudio.performance.contraction.fact.count",
+        "agentstudio.performance.contraction.mainactor_apply.count",
+        "agentstudio.performance.contraction.rendered.count",
+        "agentstudio.performance.contraction.source.count",
         "agentstudio.performance.pane_action.pane.count",
         "agentstudio.performance.pane_action.tab.count",
         "agentstudio.performance.pane_tab_layout.pane.count",
@@ -324,6 +343,22 @@ enum AgentStudioOTLPTraceProjection {
         return projected
     }
 
+    private static func enforceMainActorAgePrecision(
+        in attributes: inout [String: AgentStudioTraceValue]
+    ) {
+        let exactKey = "agentstudio.performance.mainactor.queue_age_exact_ms"
+        let conservativeKey = "agentstudio.performance.mainactor.queue_age_pressure_conservative_ms"
+        switch attributes["agentstudio.performance.mainactor.age_precision"] {
+        case .string(PerformanceAgePrecision.exact.rawValue):
+            attributes.removeValue(forKey: conservativeKey)
+        case .string(PerformanceAgePrecision.pressureConservative.rawValue):
+            attributes.removeValue(forKey: exactKey)
+        case .bool, .double, .int, .string, .stringArray, .none:
+            attributes.removeValue(forKey: exactKey)
+            attributes.removeValue(forKey: conservativeKey)
+        }
+    }
+
     private static func projectedAttributeValue(
         key: String,
         value: AgentStudioTraceValue
@@ -412,6 +447,14 @@ enum AgentStudioOTLPTraceProjection {
             BridgeTelemetrySlice(rawValue: value) != nil
         case "agentstudio.bridge.telemetry.drop_reason":
             BridgeTelemetryDropReason(rawValue: value) != nil
+        case "agentstudio.performance.mainactor.age_precision":
+            PerformanceAgePrecision(rawValue: value) != nil
+        case "agentstudio.performance.mainactor.domain":
+            MainActorWorkDomain(rawValue: value) != nil
+        case "agentstudio.performance.mainactor.operation":
+            MainActorWorkOperation(rawValue: value) != nil
+        case "agentstudio.performance.mainactor.outcome":
+            MainActorWorkOutcome(rawValue: value) != nil
         default:
             true
         }
