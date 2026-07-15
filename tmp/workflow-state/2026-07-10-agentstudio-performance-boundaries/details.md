@@ -853,3 +853,28 @@ Fresh parent proof passed 42 tests across 7 suites. Strict scoped swift-format,
 strict SwiftLint, working-tree and cached diff checks passed, and the final
 read-only remediation review returned READY. These primitives are diagnostic
 substrate only; runtime workload wiring and Victoria acceptance remain open.
+
+## 2026-07-15 W3 production integration checkpoint
+
+Checkpoint `6557bf87` routes every watched-folder scan cause through the bounded
+W3 scheduler while deliberately retaining the complete legacy `FSEventBatch`
+transport until the atomic W2b cut. `WatchedPath.id` remains the stable source
+identity, each legacy callback registration receives a fresh UUIDv7 routing
+identity, and retired callbacks cannot attribute work to a replacement source.
+
+The actor owns strict manual-refresh and result-drain lifecycle unions. Binding
+the sole scheduler result consumer and draining its leased results are one
+awaitable task custody chain, so shutdown cannot strand a pending result during
+consumer binding. Exact current complete evidence may replace inventory;
+complete older evidence, partial evidence, and cancelled evidence are additive;
+unavailable and failed evidence preserve the last-known inventory. One atomic
+EventBus batch admits the authoritative positive and removal effects after the
+final synchronous currentness check.
+
+Fresh parent proof passed 73 tests across 12 suites. `mise run build`, strict
+swift-format over all 23 changed Swift files, strict SwiftLint with zero
+violations, and working/cached diff checks passed. The checkpoint used the
+repo-authorized unsigned local fallback after the configured 1Password account
+was unavailable; `.agents/` was not staged. Continue
+`implementation-execute-plan` at W4.5 canonical revision ownership and
+fixed-revision page leases before W5.
