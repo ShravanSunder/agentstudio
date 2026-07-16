@@ -9,6 +9,7 @@ enum WorkspaceTabGraphPersistenceOperation: Equatable, Sendable {
 enum WorkspaceTabGraphPersistencePreparationError: Error, Equatable {
     case duplicatePaneOwnership(paneID: UUID, firstTabID: UUID, secondTabID: UUID)
     case duplicateTabID(UUID)
+    case emptyCapture
     case invalidInsertionIndex(Int)
     case missingTabID(UUID)
     case ownerRegistration(WorkspaceParticipantRegistrationRejection)
@@ -91,6 +92,54 @@ final class WorkspaceTabGraphPersistenceAdapter {
         }
 
         try prepareReplacement(nextTabStates, for: preparation)
+    }
+
+    func capturePersistencePreimages(
+        _ capture: WorkspaceTabGraphPersistenceCapture,
+        for preparation: WorkspacePersistenceTransactionPreparation
+    ) throws {
+        guard !capture.operations.isEmpty else {
+            throw WorkspaceTabGraphPersistencePreparationError.emptyCapture
+        }
+        var capturedTabIDs = Set<UUID>()
+        capturedTabIDs.reserveCapacity(capture.operations.count)
+        var mutations: [WorkspaceStateSnapshotParticipantMutation<UUID, TabGraphState>] = []
+        mutations.reserveCapacity(capture.operations.count)
+
+        for operation in capture.operations {
+            let tabID: UUID
+            switch operation {
+            case .insertion(let id), .valueChange(let id), .removal(let id):
+                tabID = id
+            }
+            guard capturedTabIDs.insert(tabID).inserted else {
+                throw WorkspaceTabGraphPersistencePreparationError.duplicateTabID(tabID)
+            }
+            switch operation {
+            case .insertion:
+                guard atom.tabState(tabID) == nil else {
+                    throw WorkspaceTabGraphPersistencePreparationError.duplicateTabID(tabID)
+                }
+                mutations.append(.insert(.init(key: tabID, rawKeyByteCount: 16)))
+            case .valueChange:
+                guard let currentState = atom.tabState(tabID) else {
+                    throw WorkspaceTabGraphPersistencePreparationError.missingTabID(tabID)
+                }
+                mutations.append(.replaceValue(key: tabID, currentValue: .value(currentState)))
+            case .removal:
+                guard let currentState = atom.tabState(tabID) else {
+                    throw WorkspaceTabGraphPersistencePreparationError.missingTabID(tabID)
+                }
+                mutations.append(.remove(.init(key: tabID, currentValue: .value(currentState))))
+            }
+        }
+
+        switch snapshotParticipant.prepare(mutations, for: preparation, revisionOwner: revisionOwner) {
+        case .prepared:
+            break
+        case .rejected(let rejection):
+            throw WorkspaceTabGraphPersistencePreparationError.snapshotPreparation(rejection)
+        }
     }
 
     func prepareReplacement(

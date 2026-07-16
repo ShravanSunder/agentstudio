@@ -116,6 +116,26 @@ final class WorkspaceIdentityPersistenceAdapter {
         }
     }
 
+    func capturePersistencePreimage(
+        _ capture: WorkspaceIdentityPersistenceCapture,
+        for preparation: WorkspacePersistenceTransactionPreparation
+    ) throws {
+        switch capture {
+        case .currentIdentity:
+            break
+        }
+        switch snapshotParticipant.prepare(
+            [.replaceValue(key: .identity, currentValue: .value(currentPersistenceIdentity))],
+            for: preparation,
+            revisionOwner: revisionOwner
+        ) {
+        case .prepared:
+            break
+        case .rejected(let rejection):
+            throw WorkspaceIdentitySnapshotPreparationError(rejection: rejection)
+        }
+    }
+
     private var currentPersistenceIdentity: WorkspacePersistenceSnapshotWorkspaceIdentity {
         .init(
             workspaceID: atom.workspaceId,

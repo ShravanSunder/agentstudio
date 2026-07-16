@@ -112,6 +112,26 @@ final class WorkspaceWindowMemoryPersistenceAdapter {
         }
     }
 
+    func capturePersistencePreimage(
+        _ capture: WorkspaceWindowMemoryPersistenceCapture,
+        for preparation: WorkspacePersistenceTransactionPreparation
+    ) throws {
+        switch capture {
+        case .currentWindowMemory:
+            break
+        }
+        switch snapshotParticipant.prepare(
+            [.replaceValue(key: .windowMemory, currentValue: .value(currentPersistenceWindowMemory))],
+            for: preparation,
+            revisionOwner: revisionOwner
+        ) {
+        case .prepared:
+            break
+        case .rejected(let rejection):
+            throw WorkspaceWindowMemorySnapshotPreparationError(rejection: rejection)
+        }
+    }
+
     private var currentPersistenceWindowMemory: WorkspacePersistenceSnapshotWindowMemory {
         .init(sidebarWidth: atom.sidebarWidth, windowFrame: atom.windowFrame)
     }

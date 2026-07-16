@@ -130,6 +130,54 @@ final class WorkspaceDrawerCursorPersistenceAdapter {
         atom.expandedDrawerId == drawerID ? .value(drawerID) : .absent
     }
 
+    func capturePersistencePreimage(
+        _ capture: WorkspaceDrawerCursorPersistenceCapture,
+        for preparation: WorkspacePersistenceTransactionPreparation
+    ) throws {
+        let mutations: [WorkspaceStateSnapshotParticipantMutation<UUID, UUID>]
+        switch capture {
+        case .insertion(let drawerID):
+            guard atom.expandedDrawerId == nil else {
+                throw WorkspaceDrawerCursorPersistenceCaptureError.currentDrawerMismatch(
+                    expected: nil,
+                    actual: atom.expandedDrawerId
+                )
+            }
+            mutations = [.insert(.init(key: drawerID, rawKeyByteCount: 16))]
+        case .removal(let drawerID):
+            guard atom.expandedDrawerId == drawerID else {
+                throw WorkspaceDrawerCursorPersistenceCaptureError.currentDrawerMismatch(
+                    expected: drawerID,
+                    actual: atom.expandedDrawerId
+                )
+            }
+            mutations = [.remove(.init(key: drawerID, currentValue: .value(drawerID)))]
+        case .replacement(let removedDrawerID, let insertedDrawerID):
+            guard removedDrawerID != insertedDrawerID else {
+                throw WorkspaceDrawerCursorPersistenceCaptureError.replacementUsesSameIdentity(removedDrawerID)
+            }
+            guard atom.expandedDrawerId == removedDrawerID else {
+                throw WorkspaceDrawerCursorPersistenceCaptureError.currentDrawerMismatch(
+                    expected: removedDrawerID,
+                    actual: atom.expandedDrawerId
+                )
+            }
+            mutations = [
+                .replaceMembership(
+                    removing: .init(key: removedDrawerID, currentValue: .value(removedDrawerID)),
+                    inserting: .init(key: insertedDrawerID, rawKeyByteCount: 16)
+                )
+            ]
+        }
+
+        switch snapshotParticipant.prepare(mutations, for: preparation, revisionOwner: revisionOwner) {
+        case .prepared:
+            break
+        case .rejected(let rejection):
+            throw WorkspaceDrawerCursorPersistenceCaptureError.snapshotPreparation(rejection)
+        }
+    }
+
     private func prepareExpandedDrawerReplacement(
         _ replacement: UUID?,
         for preparation: WorkspacePersistenceTransactionPreparation

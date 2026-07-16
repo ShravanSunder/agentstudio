@@ -140,6 +140,34 @@ final class WorkspaceArrangementCursorPersistenceAdapter {
         )
     }
 
+    func capturePersistencePreimages(
+        _ capture: WorkspaceArrangementCursorPersistenceCapture,
+        for preparation: WorkspacePersistenceTransactionPreparation
+    ) throws {
+        guard
+            !capture.activeArrangements.isEmpty || !capture.activePanes.isEmpty
+                || !capture.activeDrawerChildren.isEmpty
+        else {
+            throw WorkspaceArrangementCursorPersistenceCaptureError.emptyCapture
+        }
+
+        try prepare(
+            activeArrangementSnapshotParticipant,
+            mutations: try makeActiveArrangementCaptureMutations(capture.activeArrangements),
+            preparation: preparation
+        )
+        try prepare(
+            activePaneSnapshotParticipant,
+            mutations: try makeActivePaneCaptureMutations(capture.activePanes),
+            preparation: preparation
+        )
+        try prepare(
+            activeDrawerChildSnapshotParticipant,
+            mutations: try makeActiveDrawerChildCaptureMutations(capture.activeDrawerChildren),
+            preparation: preparation
+        )
+    }
+
     func prepareReplacement(
         activeArrangementIdsByTabId: [UUID: UUID],
         paneCursorsByArrangementId: [UUID: ArrangementPaneCursorState],
@@ -358,6 +386,43 @@ final class WorkspaceArrangementCursorPersistenceAdapter {
         }
     }
 
+    private func makeActiveArrangementCaptureMutations(
+        _ captures: [WorkspaceActiveArrangementPersistenceCapture]
+    ) throws -> [WorkspaceStateSnapshotParticipantMutation<UUID, UUID>] {
+        var capturedTabIDs = Set<UUID>()
+        capturedTabIDs.reserveCapacity(captures.count)
+        return try captures.map { capture in
+            let tabID: UUID
+            switch capture {
+            case .insertion(let id), .valueChange(let id), .removal(let id): tabID = id
+            }
+            guard capturedTabIDs.insert(tabID).inserted else {
+                throw
+                    WorkspaceArrangementCursorPersistenceCaptureError
+                    .duplicateOrConflictingActiveArrangement(tabID)
+            }
+            switch capture {
+            case .insertion:
+                guard atom.activeArrangementId(forTab: tabID) == nil else {
+                    throw
+                        WorkspaceArrangementCursorPersistenceCaptureError
+                        .insertedActiveArrangementAlreadyExists(tabID)
+                }
+                return .insert(.init(key: tabID, rawKeyByteCount: 16))
+            case .valueChange:
+                guard let current = atom.activeArrangementId(forTab: tabID) else {
+                    throw WorkspaceArrangementCursorPersistenceCaptureError.existingActiveArrangementMissing(tabID)
+                }
+                return .replaceValue(key: tabID, currentValue: .value(current))
+            case .removal:
+                guard let current = atom.activeArrangementId(forTab: tabID) else {
+                    throw WorkspaceArrangementCursorPersistenceCaptureError.existingActiveArrangementMissing(tabID)
+                }
+                return .remove(.init(key: tabID, currentValue: .value(current)))
+            }
+        }
+    }
+
     private func makeActivePaneSnapshotMutations(
         _ operations: [WorkspaceActivePanePersistenceOperation]
     ) -> [WorkspaceStateSnapshotParticipantMutation<UUID, UUID>] {
@@ -370,6 +435,43 @@ final class WorkspaceArrangementCursorPersistenceAdapter {
                 return .insert(.init(key: arrangementID, rawKeyByteCount: 16))
             case .clearSelection(let arrangementID), .removeCursor(let arrangementID):
                 guard let current = atom.activePaneId(forArrangement: arrangementID) else { return nil }
+                return .remove(.init(key: arrangementID, currentValue: .value(current)))
+            }
+        }
+    }
+
+    private func makeActivePaneCaptureMutations(
+        _ captures: [WorkspaceActivePanePersistenceCapture]
+    ) throws -> [WorkspaceStateSnapshotParticipantMutation<UUID, UUID>] {
+        var capturedArrangementIDs = Set<UUID>()
+        capturedArrangementIDs.reserveCapacity(captures.count)
+        return try captures.map { capture in
+            let arrangementID: UUID
+            switch capture {
+            case .insertion(let id), .valueChange(let id), .removal(let id): arrangementID = id
+            }
+            guard capturedArrangementIDs.insert(arrangementID).inserted else {
+                throw
+                    WorkspaceArrangementCursorPersistenceCaptureError
+                    .duplicateOrConflictingActivePane(arrangementID)
+            }
+            switch capture {
+            case .insertion:
+                guard atom.activePaneId(forArrangement: arrangementID) == nil else {
+                    throw
+                        WorkspaceArrangementCursorPersistenceCaptureError
+                        .insertedActivePaneAlreadyExists(arrangementID)
+                }
+                return .insert(.init(key: arrangementID, rawKeyByteCount: 16))
+            case .valueChange:
+                guard let current = atom.activePaneId(forArrangement: arrangementID) else {
+                    throw WorkspaceArrangementCursorPersistenceCaptureError.existingActivePaneMissing(arrangementID)
+                }
+                return .replaceValue(key: arrangementID, currentValue: .value(current))
+            case .removal:
+                guard let current = atom.activePaneId(forArrangement: arrangementID) else {
+                    throw WorkspaceArrangementCursorPersistenceCaptureError.existingActivePaneMissing(arrangementID)
+                }
                 return .remove(.init(key: arrangementID, currentValue: .value(current)))
             }
         }
@@ -390,6 +492,44 @@ final class WorkspaceArrangementCursorPersistenceAdapter {
                     return nil
                 }
                 return .remove(.init(key: key, currentValue: .value(current)))
+            }
+        }
+    }
+
+    private func makeActiveDrawerChildCaptureMutations(
+        _ captures: [WorkspaceActiveDrawerChildPersistenceCapture]
+    ) throws -> [WorkspaceStateSnapshotParticipantMutation<ArrangementDrawerCursorKey, UUID>] {
+        var capturedKeys = Set<ArrangementDrawerCursorKey>()
+        capturedKeys.reserveCapacity(captures.count)
+        return try captures.map { capture in
+            let key: ArrangementDrawerCursorKey
+            switch capture {
+            case .insertion(let value), .valueChange(let value), .removal(let value): key = value
+            }
+            guard capturedKeys.insert(key).inserted else {
+                throw
+                    WorkspaceArrangementCursorPersistenceCaptureError
+                    .duplicateOrConflictingActiveDrawerChild(key)
+            }
+            let currentValue = atom.activeChildId(forArrangement: key.arrangementId, drawerId: key.drawerId)
+            switch capture {
+            case .insertion:
+                guard currentValue == nil else {
+                    throw
+                        WorkspaceArrangementCursorPersistenceCaptureError
+                        .insertedActiveDrawerChildAlreadyExists(key)
+                }
+                return .insert(.init(key: key, rawKeyByteCount: 32))
+            case .valueChange:
+                guard let currentValue else {
+                    throw WorkspaceArrangementCursorPersistenceCaptureError.existingActiveDrawerChildMissing(key)
+                }
+                return .replaceValue(key: key, currentValue: .value(currentValue))
+            case .removal:
+                guard let currentValue else {
+                    throw WorkspaceArrangementCursorPersistenceCaptureError.existingActiveDrawerChildMissing(key)
+                }
+                return .remove(.init(key: key, currentValue: .value(currentValue)))
             }
         }
     }

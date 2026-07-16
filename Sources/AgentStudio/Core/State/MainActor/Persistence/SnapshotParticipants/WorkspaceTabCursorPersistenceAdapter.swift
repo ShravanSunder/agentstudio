@@ -126,6 +126,37 @@ final class WorkspaceTabCursorPersistenceAdapter {
         }
     }
 
+    func capturePersistencePreimage(
+        _ capture: WorkspaceTabCursorPersistenceCapture,
+        for preparation: WorkspacePersistenceTransactionPreparation
+    ) throws {
+        let mutations: [WorkspaceStateSnapshotParticipantMutation<WorkspaceTabCursorSnapshotKey, UUID>]
+        switch capture {
+        case .insertion:
+            if let activeTabID = atom.activeTabId {
+                throw WorkspaceTabCursorPersistenceCaptureError.activeTabAlreadyExists(activeTabID)
+            }
+            mutations = [.insert(.init(key: .activeTab, rawKeyByteCount: 1))]
+        case .valueChange:
+            guard let activeTabID = atom.activeTabId else {
+                throw WorkspaceTabCursorPersistenceCaptureError.activeTabMissing
+            }
+            mutations = [.replaceValue(key: .activeTab, currentValue: .value(activeTabID))]
+        case .removal:
+            guard let activeTabID = atom.activeTabId else {
+                throw WorkspaceTabCursorPersistenceCaptureError.activeTabMissing
+            }
+            mutations = [.remove(.init(key: .activeTab, currentValue: .value(activeTabID)))]
+        }
+
+        switch snapshotParticipant.prepare(mutations, for: preparation, revisionOwner: revisionOwner) {
+        case .prepared:
+            break
+        case .rejected(let rejection):
+            throw WorkspaceTabCursorPersistenceCaptureError.snapshotPreparation(rejection)
+        }
+    }
+
     private func prepareActiveTabReplacement(
         _ replacement: UUID?,
         for preparation: WorkspacePersistenceTransactionPreparation

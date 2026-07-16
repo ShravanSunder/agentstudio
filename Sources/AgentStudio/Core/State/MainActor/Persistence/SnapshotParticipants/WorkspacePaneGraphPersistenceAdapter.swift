@@ -262,6 +262,58 @@ final class WorkspacePaneGraphPersistenceAdapter {
         }
     }
 
+    func capturePersistencePreimages(
+        _ capture: WorkspacePaneGraphPersistenceCapture,
+        for preparation: WorkspacePersistenceTransactionPreparation
+    ) throws {
+        guard !capture.operations.isEmpty else {
+            throw WorkspacePaneGraphPersistenceCaptureError.emptyCapture
+        }
+        var capturedPaneIDs = Set<UUID>()
+        capturedPaneIDs.reserveCapacity(capture.operations.count)
+        var participantMutations: [WorkspaceStateSnapshotParticipantMutation<UUID, PaneGraphState>] = []
+        participantMutations.reserveCapacity(capture.operations.count)
+
+        for operation in capture.operations {
+            let paneID: UUID
+            switch operation {
+            case .insertion(let id), .valueChange(let id), .removal(let id):
+                paneID = id
+            }
+            guard capturedPaneIDs.insert(paneID).inserted else {
+                throw WorkspacePaneGraphPersistenceCaptureError.duplicateOrConflictingPaneID(paneID)
+            }
+            switch operation {
+            case .insertion:
+                guard atom.paneState(paneID) == nil else {
+                    throw WorkspacePaneGraphPersistenceCaptureError.insertedPaneAlreadyExists(paneID)
+                }
+                participantMutations.append(.insert(.init(key: paneID, rawKeyByteCount: Self.rawKeyByteCount)))
+            case .valueChange:
+                guard let currentPaneState = atom.paneState(paneID) else {
+                    throw WorkspacePaneGraphPersistenceCaptureError.existingPaneMissing(paneID)
+                }
+                participantMutations.append(.replaceValue(key: paneID, currentValue: .value(currentPaneState)))
+            case .removal:
+                guard let currentPaneState = atom.paneState(paneID) else {
+                    throw WorkspacePaneGraphPersistenceCaptureError.existingPaneMissing(paneID)
+                }
+                participantMutations.append(.remove(.init(key: paneID, currentValue: .value(currentPaneState))))
+            }
+        }
+
+        switch snapshotParticipant.prepare(
+            participantMutations,
+            for: preparation,
+            revisionOwner: revisionOwner
+        ) {
+        case .prepared:
+            break
+        case .rejected(let rejection):
+            throw WorkspacePaneGraphPersistenceCaptureError.snapshotPreparation(rejection)
+        }
+    }
+
     func applyPreparedMutation(
         _ preparedMutation: WorkspacePaneGraphPreparedPersistenceMutation
     ) {

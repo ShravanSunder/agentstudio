@@ -9,6 +9,7 @@ enum WorkspaceTabShellPersistenceOperation: Equatable, Sendable {
 
 enum WorkspaceTabShellPersistencePreparationError: Error, Equatable {
     case duplicateTabID(UUID)
+    case emptyCapture
     case invalidInsertionIndex(Int)
     case invalidMoveIndex(Int)
     case missingTabID(UUID)
@@ -110,6 +111,70 @@ final class WorkspaceTabShellPersistenceAdapter {
         }
 
         try prepareReplacement(nextTabShells, for: preparation)
+    }
+
+    func capturePersistencePreimages(
+        _ capture: WorkspaceTabShellPersistenceCapture,
+        for preparation: WorkspacePersistenceTransactionPreparation
+    ) throws {
+        guard !capture.operations.isEmpty else {
+            throw WorkspaceTabShellPersistencePreparationError.emptyCapture
+        }
+        var capturedTabIDs = Set<UUID>()
+        capturedTabIDs.reserveCapacity(capture.operations.count)
+        var mutations: [WorkspaceStateSnapshotParticipantMutation<UUID, WorkspacePersistenceSnapshotTabShell>] = []
+        mutations.reserveCapacity(capture.operations.count)
+
+        for operation in capture.operations {
+            let tabID: UUID
+            switch operation {
+            case .insertion(let id), .valueChange(let id), .removal(let id):
+                tabID = id
+            }
+            guard capturedTabIDs.insert(tabID).inserted else {
+                throw WorkspaceTabShellPersistencePreparationError.duplicateTabID(tabID)
+            }
+            switch operation {
+            case .insertion:
+                guard atom.tabIndex(for: tabID) == nil else {
+                    throw WorkspaceTabShellPersistencePreparationError.duplicateTabID(tabID)
+                }
+                mutations.append(.insert(.init(key: tabID, rawKeyByteCount: 16)))
+            case .valueChange:
+                guard let currentIndex = atom.tabIndex(for: tabID) else {
+                    throw WorkspaceTabShellPersistencePreparationError.missingTabID(tabID)
+                }
+                mutations.append(
+                    .replaceValue(
+                        key: tabID,
+                        currentValue: .value(
+                            WorkspacePersistenceSnapshotTabShell(
+                                shell: atom.tabShells[currentIndex],
+                                sortIndex: currentIndex
+                            )
+                        )
+                    )
+                )
+            case .removal:
+                guard let currentIndex = atom.tabIndex(for: tabID) else {
+                    throw WorkspaceTabShellPersistencePreparationError.missingTabID(tabID)
+                }
+                mutations.append(
+                    .remove(
+                        .init(
+                            key: tabID,
+                            currentValue: .value(
+                                WorkspacePersistenceSnapshotTabShell(
+                                    shell: atom.tabShells[currentIndex],
+                                    sortIndex: currentIndex
+                                )
+                            )
+                        )
+                    )
+                )
+            }
+        }
+        try prepareSnapshotParticipant(mutations, preparation: preparation)
     }
 
     func prepareReplacement(
