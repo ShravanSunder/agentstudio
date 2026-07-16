@@ -105,6 +105,28 @@ final class WorkspaceTabGraphAtom {
         tabIDByPaneID[paneID]
     }
 
+    func insertTabState(_ state: TabGraphState, at index: Int) {
+        precondition(
+            (0...tabStates.count).contains(index),
+            "tab graph insertion index must be within the exact insertion boundary"
+        )
+        precondition(tabIndexByID[state.tabId] == nil, "tab graph identity must be absent before insertion")
+        for paneID in state.allPaneIds {
+            precondition(
+                tabIDByPaneID[paneID] == nil,
+                "pane identity must be absent from the tab graph before insertion"
+            )
+        }
+
+        tabStates.insert(state, at: index)
+        for indexedTab in tabStates[index...].enumerated() {
+            tabIndexByID[indexedTab.element.tabId] = index + indexedTab.offset
+        }
+        for paneID in state.allPaneIds {
+            tabIDByPaneID[paneID] = state.tabId
+        }
+    }
+
     private static func makeIndexes(
         _ states: [TabGraphState]
     ) -> (tabIndexByID: [UUID: Int], tabIDByPaneID: [UUID: UUID]) {

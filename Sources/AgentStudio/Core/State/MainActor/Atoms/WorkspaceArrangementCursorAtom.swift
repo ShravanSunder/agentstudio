@@ -48,4 +48,31 @@ final class WorkspaceArrangementCursorAtom {
         drawerCursorsByKey[ArrangementDrawerCursorKey(arrangementId: arrangementId, drawerId: drawerId)]?.activeChildId
     }
 
+    func insertActiveArrangementId(_ arrangementId: UUID, forTab tabId: UUID) {
+        precondition(
+            activeArrangementIdsByTabId[tabId] == nil,
+            "active arrangement cursor must be absent before insertion"
+        )
+        activeArrangementIdsByTabId[tabId] = arrangementId
+    }
+
+    func insertPaneCursor(_ state: ArrangementPaneCursorState, forArrangement arrangementId: UUID) {
+        precondition(
+            paneCursorsByArrangementId[arrangementId] == nil,
+            "active pane cursor must be absent before insertion"
+        )
+        paneCursorsByArrangementId[arrangementId] = state
+    }
+
+    func insertDrawerCursor(
+        _ state: ArrangementDrawerCursorState,
+        for key: ArrangementDrawerCursorKey
+    ) {
+        precondition(
+            drawerCursorsByKey[key] == nil,
+            "active drawer cursor must be absent before insertion"
+        )
+        drawerCursorsByKey[key] = state
+    }
+
 }
