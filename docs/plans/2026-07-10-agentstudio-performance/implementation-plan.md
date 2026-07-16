@@ -95,6 +95,7 @@ Live repo anchors were rechecked at `0fd9a080`: the existing global `PaneRuntime
 6. OTLP fields remain content-safe. Raw paths, UUIDs, pointers, terminal text, titles, URLs, errors, payload strings, clipboard data, and screen content are prohibited.
 7. A hard cut removes old publication/authority paths in the same integration slice. No task is complete with dual global publication, dual persistence writers, or dual terminal fact authorities.
 8. High-conflict files have one integration owner per integration gate. Parallel lanes may add disjoint primitives and focused tests, but they do not independently edit the same composition root.
+9. Canonical atoms remain pure state owners. Atom files may contain canonical in-memory state, synchronous local domain invariants, and narrow domain-native reads/mutations only. Persistence DTOs/row projections, snapshot participants, leases, pagers, byte estimates, revision/transaction ownership, save/retry/checkpoint policy, and cross-atom orchestration belong under `State/MainActor/Persistence` or in coordinators. This rule is the current blocking execution gate for W4.5: remove the boundary violation introduced by `5f8bf99d`, construct exactly one long-lived persistence-adapter bundle in production composition, route every installed persistence-affecting production writer through that bundle/coordinator, and prove pre-mutation paging through real product front doors. W4.5 prepared composition/terminal activation and W5 or later work must not resume from adapter-only or test-only proof.
 
 ## 4.1. Security Context
 
@@ -502,7 +503,8 @@ G0 baseline/spec/repo identity
   +-- S3 MainActor/evidence ledger --------------------+   |     |
                                                       |   |     |
       +-- watched pre-cut: W1a/W2a/W1b, W3-W10, W2b --+---+-----+
-      |   including W4.5, W7d, and complete repair owners       |
+      |   W4.5p pure atoms/live bundle/front-door proof precedes |
+      |   W4.5a-d, W5+, W7d, and complete repair owners          |
       +-- terminal pre-cut: T1-T11 incl. T10.5 activation -----+
       |   T11 keeps the complete legacy downstream route        |
       +-- S3.5 nonterminal visible-first view restore ----------+

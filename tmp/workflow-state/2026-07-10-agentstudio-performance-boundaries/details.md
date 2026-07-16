@@ -177,9 +177,26 @@ Implement the accepted AgentStudio performance-boundary specs and reviewed plans
   parent implementation plan, and focused S1 correction plan.
 - Official current workflow after event
   `2026-07-11T13:32:59Z-s1-physical-custody-plan-ready`:
-  `shravan-dev-workflow:implementation-execute-plan`. The first unproven gate is
-  S1a; implementation must populate the pending physical-custody correction
-  receipt and may not reuse earlier GREEN counts.
+  `shravan-dev-workflow:implementation-execute-plan`. That historical event made
+  S1a the first unproven gate at the time. It is superseded for current execution
+  order by the W4.5p pure-atom correction below; no agent may resume S1, prepared
+  composition/terminal activation, W5, or later work until W4.5p is proven.
+
+## Current blocking correction — pure atom persistence boundary
+
+- The existing repository contract is authoritative: canonical atoms own in-memory state and synchronous local invariants; persistence wrappers live under `State/MainActor/Persistence`; coordinators own cross-atom sequencing.
+- Commit `5f8bf99d` violated that boundary by embedding persistence DTO projection, snapshot participants, membership limits, byte estimates, fixed-revision preparation, and transaction registration in atom files. Dirty W4.5 composition work extended the same violation with `prepareCompositionParticipant` methods.
+- This is the first current execution gate. W4.5 prepared composition and terminal-activation work, S1 follow-up, W5, and all later plan work are paused until this boundary is corrected and proven through production routes.
+- Blocking remediation: move all persistence/revision/pager/lease responsibilities for identity, window memory, topology, pane graph, drawer cursor, tab shell, tab cursor, tab graph, and arrangement cursor into long-lived persistence adapters shared by the participant factory and mutation/applier paths. Atoms retain only canonical state, local invariants, and narrow domain-native reads/mutations.
+- Direct persistence-affecting mutation paths must be inventoried. Once participants are installed, no production setter may bypass first-post-base capture.
+- Independent review verified that the current participant factory is test-only and current focused tests are false-green for live first-post-base semantics because production writers still use direct atom mutations. Runtime construction plus writer routing is required before W4.5p can close.
+- Independent review also verified that topology snapshot storage duplicates canonical/read authority inside the topology atom; W4.5p moves persistence custody out, while W5 remains the exclusive owner of off-main identity reconciliation.
+- Required order: remove persistence mechanics from atoms; integrate exactly one adapter bundle into production composition; hard-cut every installed persistence-affecting live writer through adapters/coordinators; prove a real production pager lease observes literal pre-mutation state through real product front doors; then run build/tests/lint and the focused review/remediation cycle. Adapter-only tests do not advance this gate.
+- Representative live routes include sidebar/window memory, topology coordination, pane/drawer compatibility facades, tab/arrangement compatibility facades, and terminal zmx-anchor mutation. The inventory must discover and cover any additional installed writer rather than treating this list as exhaustive.
+- Proof: structural zero-persistence-vocabulary scan over atom files; atom invariant suites; adapter mutation/lease/page suites; complete heterogeneous participant inventory; one adapter-bundle/revision-owner object identity across production composition; RED/GREEN real-front-door preimage/insertion/tombstone integration proof; direct-mutation inventory; build/lint/diff check.
+- Independent review lane: native Sol xhigh `/root/sol_xhigh_atom_boundary_review`, source-backed and risk-triggered over `5f8bf99d`, supporting commits, current dirty state, tests, docs, and the proposed adapter correction. Parent verification owns accepted findings.
+- Controller brief: `tmp/plan-workflows/2026-07-15-agentstudio-ghostty-performance-pure-atoms/implementation-execute-plan-brief.md`.
+- No broad spec or plan review cycle is reopened; this is implementation remediation against existing authoritative docs and one focused review/remediation cycle.
 
 ## External advisor continuity
 
@@ -901,6 +918,25 @@ Fresh parent proof passed 48 tests across five focused suites, including the
 multi-drawer inverse-UUID-order regression. `mise run build`, full `mise run
 lint` (SwiftLint 0/1,633, architecture lint, all 31 admission mutation rows,
 and release scripts), and `git diff --check` passed. The product restore/save
-path is not yet cut over: next is aggregate load, off-main preparation, one
-typed MainActor apply, one-shot participant installation, and pager-backed save
-equivalence before W5.
+path is not yet cut over. The historical Packet E next step was aggregate load,
+off-main preparation, typed MainActor apply, participant installation, and
+pager-backed save equivalence before W5. That ordering is superseded by the
+active W4.5p resume pointer below.
+
+## ACTIVE RESUME POINTER — W4.5p pure-atom remediation first
+
+This pointer supersedes every older `next`, first-unproven-gate, Packet E,
+composition, activation, S1, and W5 resume statement in this file:
+
+```text
+remove persistence mechanics from canonical atoms
+  -> construct and retain exactly one adapter bundle in production composition
+  -> route every installed persistence-affecting live writer through it
+  -> prove the real production pager returns fixed-revision preimages,
+     excludes post-base insertions, and retains removal tombstones
+  -> parent-verify build/tests/lint plus one focused review/remediation cycle
+  -> only then resume prepared composition, terminal activation, S1, or W5+
+```
+
+Adapter-only tests, a test-only factory/applier, or extracted types without live
+writer routing do not satisfy this gate.

@@ -593,13 +593,108 @@ RED/GREEN: required for generation, authority, and complexity behavior.
 
 Requirements: TA1, TA9–TA11 and the normative mirror-bootstrap contract. This contract must exist before W5; it performs no datastore write and does not create a second persistence writer.
 
+### W4.5p — Blocking pure-atom persistence-boundary remediation
+
+The `5f8bf99d` implementation embedded persistence DTO projection, snapshot
+participants, membership limits, byte estimates, pager/revision preparation,
+and transaction registration inside canonical atom files. That violates the
+existing AgentStudio boundary: atoms own canonical in-memory state and local
+synchronous domain invariants; persistence wrappers own persistence mechanics;
+coordinators own cross-atom sequencing. W4.5 composition and terminal-activation
+work must not resume until this violation is removed.
+
+Hard-cut the fixed-revision implementation into three responsibilities:
+
+```text
+pure atom
+  canonical state + local invariants + domain-native reads/mutations
+        |
+        v
+long-lived persistence adapter
+  persistence projection + snapshot participant + lease/revision preparation
+        |
+        v
+coordinator/applier
+  cross-atom transaction sequencing and accepted effects
+```
+
+Move every `WorkspaceStateSnapshot*`, persistence snapshot DTO/row projection,
+membership/byte-limit calculation, page/lease concept,
+`WorkspacePersistenceRevisionOwner`, and
+`WorkspacePersistenceTransaction*` dependency out of
+`Core/State/MainActor/Atoms/**`. This includes identity, window memory,
+repository topology, pane graph, drawer cursor, tab shell, tab cursor, tab
+graph, and arrangement cursor participation introduced by `5f8bf99d`, plus the
+dirty composition-specific participant methods added afterward.
+
+Persistence adapters live under `Core/State/MainActor/Persistence/**`, retain
+the keyed participant for the full installed lifetime, read/apply only narrow
+domain-native atom values, and preserve heterogeneous limits plus exact
+first-post-base value/tombstone custody. A shared long-lived persistence
+participation owner supplies the same adapter instances to the snapshot factory,
+revisioned mutation owners, and composition/topology appliers; reconstructing an
+adapter per page, transaction, or factory call is forbidden.
+
+Local invariants remain in atoms: pane-graph validity, drawer normalization,
+tab identity/index consistency, tab selection fallback, and arrangement cursor
+validity. Persistence adapters may request a validated domain mutation but may
+not reimplement those invariants or expose persistence vocabulary through the
+atom API. Cross-atom composition repair and application remain outside all
+atoms.
+
+The remediation must inventory direct persistence-affecting atom mutations.
+Before participant installation, dormant/legacy product paths may remain
+explicitly unparticipating. After installation, every persistence-affecting
+mutation routes through the long-lived adapter/coordinator so a direct setter
+cannot bypass first-post-base capture. Do not add a compatibility wrapper that
+continues to expose persistence through atom methods.
+
+The current participant factory/pager assembly is test-only and therefore does
+not prove a live boundary. The corrected bundle must be constructed once at the
+production composition root, shared by participant construction and every
+revisioned mutation owner, and have a runtime-reachability integration proof.
+Tests that open a lease and then call adapter-only `prepare*` methods are not a
+substitute for tracing the real product writers. The direct-writer inventory and
+production routing cut are part of this gate, not deferred proof commentary.
+
+Proof is blocking:
+
+- structural source proof rejects persistence/revision/pager/lease vocabulary
+  anywhere under `Core/State/MainActor/Atoms/**`;
+- focused atom tests cover only canonical state and local invariants;
+- adapter tests retain the prior mutation, membership, first-post-base,
+  heterogeneous-limit, cancellation, and revision proof;
+- the complete production participant inventory opens/pages using the same
+  long-lived adapters used by mutation preparation;
+- composition applies through adapters/coordinator, advances one revision, and
+  installs every atom value atomically without atom-owned transaction code;
+- a direct-mutation inventory proves no installed persistence participant can be
+  bypassed by a production mutation path;
+- production composition constructs exactly one adapter bundle and the live
+  pager/factory plus mutation routes share its object identities;
+- RED/GREEN integration proof opens the real production pager at revision N,
+  mutates through representative live front doors (window/sidebar memory,
+  topology, pane/drawer, tab/arrangement, and terminal zmx-anchor routes), and
+  proves revision N returns literal pre-mutation values, excludes post-base
+  insertions, and retains removals as tombstones.
+
+W4.5p is complete only when all of those checks pass together. Extracting the
+mechanics from atom files without production bundle construction and live-writer
+routing is incomplete and does not unblock prepared composition, terminal
+activation, W5, or later performance work.
+
+The independent native Sol xhigh review of `5f8bf99d`, supporting W4.5 commits,
+current dirty changes, tests, and this remediation direction is required input
+to the parent reducer. Accepted findings are remediated once; this focused review
+does not reopen the completed broad spec/plan review cycles.
+
 ### W4.5a — Sole canonical persistence revision authority
 
-Add `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspacePersistenceRevisionOwner.swift` as the one process-generation-scoped allocator for persistence-affecting canonical transactions. Modify `Sources/AgentStudio/AtomRegistry.swift` and `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift` to inject the same owner into outer canonical mutation owners. Persisted atoms/facades participate in the fixed-revision pager but never mint revisions autonomously: the outer transaction allocates exactly one revision, passes it into every participating keyed mutation, and commits one causally complete change set only after the transaction succeeds. A rejected or failed transaction advances no revision. Defaults may not construct an alternate owner. Existing writers continue unchanged until W7, but they do not mint a competing revision.
+Add `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspacePersistenceRevisionOwner.swift` as the one process-generation-scoped allocator for persistence-affecting canonical transactions. Modify `Sources/AgentStudio/AtomRegistry.swift` and `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift` to inject the same owner into outer canonical mutation owners. Long-lived persistence adapters participate in the fixed-revision pager; atoms/facades never mint revisions or receive revision/transaction types. The outer coordinator allocates exactly one revision, passes it into every participating adapter mutation, and commits one causally complete atom change only after preparation succeeds. A rejected or failed transaction advances no revision. Defaults may not construct an alternate owner. W4.5p hard-cuts every installed adapter's in-memory persistence-affecting writer through this route so first-post-base capture is truthful. Existing SQLite/datastore writers continue unchanged until W7's separate sole-datastore-writer cut, but they do not mint a competing canonical revision.
 
 ### W4.5b — Fixed-revision raw page lease participation
 
-Add `WorkspaceStateSnapshotLease.swift` and `WorkspaceStateSnapshotPager.swift`. Modify the persisted keyed owners/facades:
+Add `WorkspaceStateSnapshotLease.swift` and `WorkspaceStateSnapshotPager.swift`. Add long-lived persistence adapters for the persisted keyed owners/facades:
 
 - `WorkspaceIdentityAtom.swift`
 - `WorkspaceWindowMemoryAtom.swift`
@@ -608,7 +703,7 @@ Add `WorkspaceStateSnapshotLease.swift` and `WorkspaceStateSnapshotPager.swift`.
 - `WorkspaceTabShellAtom.swift`, `WorkspaceTabCursorAtom.swift`, `WorkspaceTabGraphAtom.swift`, and `WorkspaceArrangementCursorAtom.swift`
 - `WorkspacePaneAtom.swift`/`WorkspaceTabLayoutAtom.swift` only as compatibility façades
 
-Each owner exposes fixed-revision base membership/raw page reads and accepts an outer-transaction revision for keyed changes; it retains at most the first post-base value/tombstone for a changed key. MainActor page capture is bounded raw reading only and has one synchronous `MainActorWorkLedger` record. It performs no normalization/join/filter/serialization and never spans `await`.
+Each persistence adapter exposes fixed-revision base membership/raw page reads and accepts an outer-transaction revision for keyed changes; it retains at most the first post-base value/tombstone for a changed key. Canonical atoms expose only domain-native state and local invariant-preserving mutations. MainActor page capture is bounded raw reading only and has one synchronous `MainActorWorkLedger` record. It performs no normalization/join/filter/serialization and never spans `await`.
 
 Set `AppPolicies.WorkspacePersistence.snapshotPageMaximumItems` to the
 compile-time value 256. This caps one MainActor capture page; it does not cap the
@@ -650,7 +745,7 @@ production participant inventory, including empty and maximum-sized owners.
 
 ### W4.5c — Lease stability and update-journal fixture proof
 
-Add `WorkspacePersistenceRevisionOwnerTests.swift`, `WorkspaceStateSnapshotLeaseTests.swift`, `WorkspacePersistencePageCaptureTests.swift`, and a test-only contiguous update-journal fixture. Retain emitted pages while mutating the same/new/removed keys; prove no moving-state reread or fleet COW detachment. Assert one revision-owner object identity across `AtomRegistry`, `WorkspaceStore`, and every outer transaction owner. Prove a multi-atom canonical transaction advances exactly once, passes the same revision to every keyed mutation, and a failed transaction advances zero times. Inventory proof compares page participants with `WorkspaceSQLiteSnapshot`, `RepositoryTopologySQLiteSnapshot`, and repository persistence records; transient zoom/presentation state is a required negative case. No temporary revision owner or full fleet snapshot is permitted.
+Add `WorkspacePersistenceRevisionOwnerTests.swift`, `WorkspaceStateSnapshotLeaseTests.swift`, `WorkspacePersistencePageCaptureTests.swift`, and a test-only contiguous update-journal fixture. Retain emitted pages while mutating the same/new/removed keys through the real coordinator/front-door routes; prove no moving-state reread or fleet COW detachment. Assert one revision-owner and one adapter-bundle object identity across `AtomRegistry`, `WorkspaceStore`, the pager/factory, and every outer transaction owner. Prove a multi-atom canonical transaction advances exactly once, passes the same revision to every participating adapter, and a failed transaction advances zero times. Inventory proof compares adapter-projected page participants with `WorkspaceSQLiteSnapshot`, `RepositoryTopologySQLiteSnapshot`, and repository persistence records; transient zoom/presentation state is a required negative case. Atom-level `prepare*` test APIs, temporary adapters/revision owners, and full fleet snapshots are forbidden substitutes.
 
 Add focused prepared-composition and prepared-topology tests proving O(N)
 validation happens before MainActor apply, rejection leaves its domain
@@ -1192,7 +1287,8 @@ shared S1 admission
   -> W4a source-authorized root descriptor
        +-> W3 scan scheduler/exhaustive scanner result
        +-> W4b root index/batched config
-  -> W4.5 sole revision owner + fixed-revision pager
+  -> W4.5p pure atoms + one live adapter bundle + production-front-door proof
+  -> W4.5a-d sole revision owner + fixed-revision pager/composition work
   -> W5 topology mirror/projector/apply --> W7a-c persistence protocol/migration
                  |                              -> W8 compaction/checkpoint proof
                  |                              -> W7d atomic sole-writer cut
