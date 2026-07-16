@@ -32,9 +32,7 @@ final class TabBarAdapterTests {
             .appending(path: "adapter-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         repoCache = RepoCacheAtom()
         atom(\.inboxNotification).clearAll()
         adapter = TabBarAdapter(

@@ -46,7 +46,7 @@ final class AtomRegistry {
     init(
         workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner = .init(),
         activeWorkspaceSelection: ActiveWorkspaceSelectionAtom = .init(),
-        workspaceIdentity: WorkspaceIdentityAtom = .init(),
+        workspaceIdentity: WorkspaceIdentityAtom = .init(installationState: .awaitingCanonicalComposition),
         workspaceWindowMemory: WorkspaceWindowMemoryAtom = .init(),
         workspaceRepositoryTopology: RepositoryTopologyAtom = .init(),
         workspacePaneGraph: WorkspacePaneGraphAtom? = nil,

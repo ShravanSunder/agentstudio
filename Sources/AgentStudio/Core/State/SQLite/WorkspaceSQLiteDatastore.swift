@@ -18,6 +18,7 @@ actor WorkspaceSQLiteDatastore {
 
     private var saveLocalRepositoryCache: [UUID: WorkspaceLocalRepository] = [:]
     private var restoreLocalRepositoryCache: [UUID: WorkspaceLocalRepository] = [:]
+    private var workspaceStartupLocalRepositoryCache: [UUID: WorkspaceLocalRepository] = [:]
     private var pendingGlobalRecoveryEvents: [PersistenceRecoveryEvent] = []
     private var pendingRecoveryEventsByWorkspaceId: [UUID: [PersistenceRecoveryEvent]] = [:]
     private var workspaceSaveTail: Task<Void, Error>?
@@ -50,7 +51,8 @@ actor WorkspaceSQLiteDatastore {
         self.backend = WorkspaceSQLiteStoreBackend(
             coreRepository: coreRepository,
             makeLocalRepository: { _ in throw WorkspaceSQLiteDatastoreError.useDatastoreLocalRepositoryCache },
-            makeLocalRestoreRepository: { _ in throw WorkspaceSQLiteDatastoreError.useDatastoreLocalRepositoryCache }
+            makeLocalRestoreRepository: { _ in throw WorkspaceSQLiteDatastoreError.useDatastoreLocalRepositoryCache },
+            coreDatabaseStartupProvenance: .preexisting
         )
         self.configuration = nil
         self.makeLocalRepository = makeLocalRepository
@@ -210,63 +212,27 @@ actor WorkspaceSQLiteDatastore {
         )
     }
 
-    func loadWorkspaceSnapshot(preferredWorkspaceId: UUID) async -> LoadResult {
+    func loadWorkspaceSnapshot() async -> LoadResult {
         await recordProbe(.loadWorkspaceSnapshot)
         await traceRecorder.recordOperation(
             .workspaceLoad,
             phase: .openCore,
             lane: .workspace,
             outcome: .started,
-            workspaceId: preferredWorkspaceId,
+            workspaceId: nil,
             database: .core
         )
         do {
-            let backend = try resolvedBackend()
-            let recoverableStagedWorkspaceId =
-                try backend.coreRepository.fetchActiveOrPreferredRecoverableStagedWorkspaceId(
-                    preferredWorkspaceId: preferredWorkspaceId
-                )
-                ?? backend.coreRepository.fetchRecoverableStagedWorkspaceId(preferredWorkspaceId: preferredWorkspaceId)
+            let backend = try resolvedBackendForWorkspaceStartup()
             let snapshot = try await backend.loadCompletedSnapshot(
-                preferredWorkspaceId: preferredWorkspaceId,
                 localRepositoryForWorkspaceId: { workspaceId in
-                    try await self.cachedRestoreLocalRepository(
-                        workspaceId: workspaceId,
-                        operation: .workspaceLoad,
-                        lane: .workspace
-                    )
-                },
-                repairLocalRepositoryForWorkspaceId: { workspaceId in
-                    try await self.cachedSaveLocalRepository(
+                    try await self.cachedStrictWorkspaceRestoreLocalRepository(
                         workspaceId: workspaceId,
                         operation: .workspaceLoad,
                         lane: .workspace
                     )
                 }
             )
-            if recoverableStagedWorkspaceId == snapshot.id {
-                appendRecoveryEvent(
-                    .init(
-                        store: .workspace,
-                        workspaceId: snapshot.id,
-                        recovery: .localStateRebuilt
-                    ),
-                    workspaceId: snapshot.id
-                )
-                await traceRecorder.recordRecovery(
-                    .init(
-                        recoveryKind: .incompleteSnapshot,
-                        operation: .workspaceLoad,
-                        phase: .synthesizeDefaults,
-                        lane: .workspace,
-                        outcome: .recovered,
-                        workspaceId: snapshot.id,
-                        database: nil,
-                        databaseURL: nil,
-                        error: nil
-                    )
-                )
-            }
             await traceRecorder.recordOperation(
                 .workspaceLoad,
                 phase: .openCore,
@@ -282,7 +248,7 @@ actor WorkspaceSQLiteDatastore {
                 phase: .openCore,
                 lane: .workspace,
                 outcome: .skipped,
-                workspaceId: preferredWorkspaceId,
+                workspaceId: nil,
                 database: .core
             )
             return .uninitialized(recoveryEvents: drainAllRecoveryEvents())
@@ -292,7 +258,7 @@ actor WorkspaceSQLiteDatastore {
                 phase: .openCore,
                 lane: .workspace,
                 outcome: .failed,
-                workspaceId: preferredWorkspaceId,
+                workspaceId: nil,
                 database: .core,
                 error: error
             )
@@ -311,107 +277,8 @@ actor WorkspaceSQLiteDatastore {
         }
     }
 
-    func completedSnapshotStatus(workspaceId: UUID) async -> CompletedSnapshotStatusResult {
-        do {
-            let backend = try resolvedBackend()
-            guard
-                try backend.coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspaceId) != nil
-            else {
-                return .completed(false, recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId))
-            }
-            let localRepository = try await cachedRestoreLocalRepository(
-                workspaceId: workspaceId,
-                operation: .snapshotStatus,
-                lane: .workspace
-            )
-            return .completed(
-                try backend.hasCompletedSnapshot(workspaceId: workspaceId, localRepository: localRepository),
-                recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId)
-            )
-        } catch WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(let workspaceId, _) {
-            return .completed(false, recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId))
-        } catch WorkspaceLocalSQLiteStoreBackendError.quarantineFailed(let workspaceId, _) {
-            return .completed(false, recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId))
-        } catch {
-            return .unavailable(.init(error), recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId))
-        }
-    }
-
     func selectActiveWorkspace(_ workspaceId: UUID, updatedAt: Date) async throws {
         try resolvedBackend().selectActiveWorkspace(workspaceId, updatedAt: updatedAt)
-    }
-
-    func markLegacyWorkspaceCompanionImportsCompleted(workspaceId: UUID, importedAt: Date) async throws {
-        try resolvedBackend().markLegacyWorkspaceCompanionImportsCompleted(
-            workspaceId: workspaceId,
-            importedAt: importedAt
-        )
-    }
-
-    func markLegacyWorkspaceArchived(workspaceId: UUID, archivedAt: Date) async throws {
-        try resolvedBackend().markLegacyWorkspaceArchived(workspaceId: workspaceId, archivedAt: archivedAt)
-    }
-
-    func saveImportedLegacySnapshot(_ bundle: WorkspaceSQLiteSaveBundle, sourceStatePath: String) async throws {
-        let backend = try resolvedBackend()
-        let localRepository = try await cachedSaveLocalRepository(
-            workspaceId: bundle.id,
-            operation: .legacyImport,
-            lane: .legacyImport
-        )
-        try backend.saveImportedLegacySnapshot(
-            bundle,
-            sourceStatePath: sourceStatePath,
-            localRepository: localRepository
-        )
-    }
-
-    func markLegacyWorkspaceImportFailed(
-        _ snapshot: WorkspaceSQLiteSnapshot,
-        sourceStatePath: String,
-        error: any Error
-    ) async -> LegacyImportFailureRecordOutcome {
-        do {
-            try resolvedBackend().markLegacyWorkspaceImportFailed(
-                WorkspacePersistenceTransformer.persistableState(from: snapshot),
-                sourceStatePath: sourceStatePath,
-                error: error
-            )
-            return .recorded
-        } catch {
-            return .failedToRecord(.init(error))
-        }
-    }
-
-    func inspectWorkspaceRows() async -> WorkspaceRowsInspectionResult {
-        do {
-            return try resolvedBackend().coreRepository.fetchWorkspaces().isEmpty ? .empty : .hasWorkspaceRows
-        } catch {
-            return .unavailable(.init(error))
-        }
-    }
-
-    func inspectActiveWorkspaceSelection() async -> ActiveWorkspaceSelectionInspectionResult {
-        do {
-            return try resolvedBackend().coreRepository.fetchActiveWorkspaceId() == nil ? .missing : .present
-        } catch {
-            return .unavailable(.init(error))
-        }
-    }
-
-    func legacyImportStatus(workspaceId: UUID) async -> LegacyImportStatusResult {
-        do {
-            guard
-                let status = try resolvedBackend().coreRepository.fetchLegacyWorkspaceImportStatus(
-                    workspaceId: workspaceId
-                )
-            else {
-                return .missing
-            }
-            return .found(status)
-        } catch {
-            return .unavailable(.init(error))
-        }
     }
 
     func localLegacyImportDecision(
@@ -674,6 +541,18 @@ actor WorkspaceSQLiteDatastore {
 }
 
 extension WorkspaceSQLiteDatastore {
+    private func resolvedBackendForWorkspaceStartup() throws -> WorkspaceSQLiteStoreBackend {
+        if let backend {
+            return backend
+        }
+        guard let configuration else {
+            throw WorkspaceSQLiteDatastoreError.missingConfiguration
+        }
+        let openedBackend = try openConfiguredBackend(configuration: configuration)
+        backend = openedBackend
+        return openedBackend
+    }
+
     private func resolvedBackend() throws -> WorkspaceSQLiteStoreBackend {
         if let backend {
             return backend
@@ -681,36 +560,20 @@ extension WorkspaceSQLiteDatastore {
         guard let configuration else {
             throw WorkspaceSQLiteDatastoreError.missingConfiguration
         }
-        do {
-            let openedBackend = try openConfiguredBackend(configuration: configuration)
-            backend = openedBackend
-            return openedBackend
-        } catch {
-            guard WorkspaceSQLiteRecoveryClassifier.shouldQuarantine(error) else {
-                throw error
-            }
-        }
-
-        let quarantine = SQLiteSidecarQuarantine.quarantine(databaseURL: configuration.coreDatabaseURL)
-        appendGlobalRecoveryEvent(
-            .init(
-                store: .workspace,
-                workspaceId: nil,
-                recovery: quarantine.succeeded ? .quarantinedAndReset : .quarantineFailed,
-                quarantinedFilename: quarantine.recoveryFilename
-            )
-        )
-        guard quarantine.succeeded else {
-            throw WorkspaceSQLiteDatastoreError.coreQuarantineFailed
-        }
         let openedBackend = try openConfiguredBackend(configuration: configuration)
         backend = openedBackend
         return openedBackend
     }
 
-    private func openConfiguredBackend(configuration: WorkspaceSQLiteDatastoreConfiguration) throws
+    private func openConfiguredBackend(
+        configuration: WorkspaceSQLiteDatastoreConfiguration
+    ) throws
         -> WorkspaceSQLiteStoreBackend
     {
+        let coreDatabaseStartupProvenance: WorkspaceSQLiteStoreBackend.CoreDatabaseStartupProvenance =
+            FileManager.default.fileExists(atPath: configuration.coreDatabaseURL.path)
+            ? .preexisting
+            : .createdDuringCurrentStartup
         let coreDatabasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
             at: configuration.coreDatabaseURL,
             label: "AgentStudio.sqlite.core"
@@ -721,18 +584,9 @@ extension WorkspaceSQLiteDatastore {
             coreRepository: coreRepository,
             makeLocalRepository: { _ in throw WorkspaceSQLiteDatastoreError.useDatastoreLocalRepositoryCache },
             makeLocalRestoreRepository: { _ in throw WorkspaceSQLiteDatastoreError.useDatastoreLocalRepositoryCache },
+            coreDatabaseStartupProvenance: coreDatabaseStartupProvenance,
             legacyImportDecision: { workspaceId, lane in
-                guard
-                    let status = try coreRepository.fetchLegacyWorkspaceImportStatus(workspaceId: workspaceId)
-                else {
-                    return .allowImport
-                }
-                switch lane {
-                case .local:
-                    return status.localImportedAt == nil ? .allowImport : .blockReplayAllowArchive
-                case .cache:
-                    return status.cacheImportedAt == nil ? .allowImport : .blockReplayAllowArchive
-                }
+                try coreRepository.localLegacyImportDecision(workspaceId: workspaceId, lane: lane)
             }
         )
     }
@@ -891,6 +745,40 @@ extension WorkspaceSQLiteDatastore {
                 quarantinedFilename: quarantinedFilename
             )
         }
+    }
+
+    private func cachedStrictWorkspaceRestoreLocalRepository(
+        workspaceId: UUID,
+        operation: WorkspaceSQLiteTraceOperation,
+        lane: WorkspaceSQLiteTraceLane
+    ) async throws -> WorkspaceLocalRepository {
+        if let cachedRepository = workspaceStartupLocalRepositoryCache[workspaceId] {
+            return cachedRepository
+        }
+        let repository: WorkspaceLocalRepository
+        if let makeLocalRestoreRepository {
+            repository = try makeLocalRestoreRepository(workspaceId)
+        } else {
+            guard let configuration else {
+                throw WorkspaceSQLiteDatastoreError.missingConfiguration
+            }
+            repository = try Self.openConfiguredLocalRepository(
+                workspaceId: workspaceId,
+                configuration: configuration
+            )
+        }
+        workspaceStartupLocalRepositoryCache[workspaceId] = repository
+        await traceRecorder.recordOperation(
+            operation,
+            phase: .openLocalRestore,
+            lane: lane,
+            outcome: .succeeded,
+            workspaceId: workspaceId,
+            database: .local,
+            databaseURL: configuration?.localDatabaseURL(workspaceId)
+        )
+        await recordProbe(.localRepositoryOpened(workspaceId, .restore))
+        return repository
     }
 
     private func makeLocalRepositoryForSave(_ workspaceId: UUID) throws -> LocalRepositoryOpenResult {

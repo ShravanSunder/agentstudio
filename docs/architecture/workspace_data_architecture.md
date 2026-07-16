@@ -8,31 +8,16 @@
 
 Workspace state is split into three persistence tiers: canonical config (user intent), derived cache (enrichment), and UI state (preferences). A sequential enrichment pipeline — `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor` — produces events on the `EventBus`. A single `WorkspaceCacheCoordinator` consumes all events, writing topology changes to the canonical store and enrichment data to the cache store. The sidebar is a pure reader of all three stores via `@Observable` binding — zero imperative fetches, zero mutations.
 
-SQLite cutover status: normal boot now opens `core.sqlite`, the active
-workspace's `<workspace-id>.local.sqlite`, and the workspace settings file
-through the SQLite-backed store path. Legacy JSON files remain import and
-recovery sources only: when SQLite has no authoritative rows, they are
-materialized into the new stores; after import status marks a lane complete,
-stale legacy JSON is not replayed over SQLite/settings state.
-
-Legacy workspace-state import is isolated from the live store wrapper.
-`WorkspaceStore+LegacySQLiteImport` is the thin call site that captures the
-pre-import SQLite state, builds importer input from the current atoms, and
-applies the result. `WorkspaceLegacySQLiteImporter` owns the legacy import
-policy and returns explicit outcomes: no legacy files, initial active import,
-no pending retry work while keeping selection, retry materialized without
-selection change, partial import with a usable active workspace, or failure with
-no usable import. Retry paths must keep the existing SQLite active workspace
-selected without rewriting `active_workspace_id`; only first boot or incomplete
-initial import may select an imported legacy workspace.
-
-Recovery invariants are split by lane. A workspace snapshot is archive-ready
-only when the core and local SQLite completion timestamps match. If local
-completion is stale or the local sidecar cannot be read, restore still hydrates
-from the canonical core rows with deterministic local defaults and repairs the
-local completion row when possible. Sidecar quarantine is corruption-only:
-`SQLITE_CORRUPT` and `SQLITE_NOTADB` failures may move database/WAL/SHM files;
-ordinary open failures must not quarantine sidecars.
+Normal boot opens `core.sqlite` and the selected workspace's
+`<workspace-id>.local.sqlite` through one strict SQLite composition path.
+Workspace composition JSON is not a boot, import, migration, fallback, or
+recovery source. Valid completed core/local snapshots load exactly. Only a
+newly created empty SQLite store may bootstrap one UUIDv7-backed empty
+workspace. Missing, incomplete, corrupt, or invalid existing composition fails
+before atom installation or terminal activation and is never repaired,
+quarantined, recreated, or rewritten by startup. Historical GRDB schema
+migrations remain so valid older databases can open; preference/settings JSON
+and independently owned cache import policies remain separate.
 
 ---
 
@@ -43,7 +28,6 @@ Data flows DOWN only — tier N never reads tier N+1.
 ```
 TIER A: CANONICAL CONFIG (source of truth, user intent)
   Live source: ~/.agentstudio/core.sqlite
-  Legacy import source: ~/.agentstudio/workspaces/<id>/workspace.state.json
   Owner: canonical workspace atoms + WorkspaceStore persistence wrapper
   Mutated by: explicit user actions + topology consumer (discovery events)
   Contains: canonical repos, canonical worktrees, panes, tabs, layouts

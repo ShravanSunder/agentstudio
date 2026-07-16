@@ -85,7 +85,7 @@ struct ZmxSessionIDTests {
             zmxSessionID: generatedSessionID
         )
 
-        let paneContent = resolvedContent.paneContent(for: PaneId())
+        let paneContent = resolvedContent.paneContent(for: PaneId.generateUUIDv7())
 
         guard case .terminal(let terminalState) = paneContent else {
             Issue.record("Expected terminal pane content")

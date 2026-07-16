@@ -323,8 +323,7 @@ struct PrimarySidebarPipelineIntegrationTests {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         persistor.ensureDirectory()
         return WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
     }
 
     private func makePipelineActors(

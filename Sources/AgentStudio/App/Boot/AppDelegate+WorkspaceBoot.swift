@@ -25,7 +25,7 @@ extension AppDelegate {
         filesystemSource: inout FilesystemGitPipeline?
     ) async {
         // The boot order is the contract:
-        // 1. restore the durable workspace model,
+        // 1. load and install the durable SQLite workspace composition,
         // 2. load rebuildable caches without autosave observation,
         // 3. stand up runtime event producers/consumers,
         // 4. replay persisted topology through the same coordinator path as live facts,
@@ -44,10 +44,10 @@ extension AppDelegate {
         }
     }
 
-    /// Seed pane slots immediately after canonical restore and before any hosting controller exists.
-    /// Restored panes already live in `store.paneAtom.panes`; creating their slots here ensures the first
+    /// Seed pane slots immediately after canonical composition installation and before any hosting controller exists.
+    /// Installed panes already live in `store.paneAtom.panes`; creating their slots here ensures the first
     /// SwiftUI read during tab-host creation sees stable slot identity instead of the lazy fallback.
-    func seedSlotsForRestoredPanes() {
+    func seedSlotsForInstalledPanes() {
         guard store != nil, viewRegistry != nil else { return }
         if store.paneAtom.panes.isEmpty {
             viewRegistry.completeInitialRestore()
@@ -57,7 +57,7 @@ extension AppDelegate {
         for paneId in store.paneAtom.panes.keys {
             viewRegistry.ensureSlot(for: paneId)
         }
-        RestoreTrace.log("seedSlotsForRestoredPanes count=\(store.paneAtom.panes.count)")
+        RestoreTrace.log("seedSlotsForInstalledPanes count=\(store.paneAtom.panes.count)")
     }
 
     /// Build a canonical `.repoDiscovered` topology envelope.
@@ -139,25 +139,25 @@ extension AppDelegate {
         atomStore.workspaceRepositoryTopology.setPerformanceTraceRecorder(performanceTraceRecorder)
         AtomPerformanceTelemetry.shared.configure(traceRuntime: traceRuntime)
         AtomScope.setUp(atomStore)
-        workspaceSQLiteDatastore = makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)
-        let workspaceSQLiteSaveCoordinator = workspaceSQLiteDatastore.map { datastore in
-            WorkspaceSQLiteSaveCoordinator(
-                identityAtom: atomStore.workspaceIdentity,
-                windowMemoryAtom: atomStore.workspaceWindowMemory,
-                repositoryTopologyAtom: atomStore.workspaceRepositoryTopology,
-                workspacePaneAtom: atomStore.workspacePane,
-                workspaceTabLayoutAtom: atomStore.workspaceTabLayout,
-                sqliteDatastore: datastore
-            )
-        }
-        repositoryTopologyStore = RepositoryTopologyStore(
+        let sqliteDatastore = makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)
+        workspaceSQLiteDatastore = sqliteDatastore
+        let workspaceSQLiteSaveCoordinator = WorkspaceSQLiteSaveCoordinator(
+            identityAtom: atomStore.workspaceIdentity,
+            windowMemoryAtom: atomStore.workspaceWindowMemory,
+            repositoryTopologyAtom: atomStore.workspaceRepositoryTopology,
+            workspacePaneAtom: atomStore.workspacePane,
+            workspaceTabLayoutAtom: atomStore.workspaceTabLayout,
+            sqliteDatastore: sqliteDatastore
+        )
+        let topologyStore = RepositoryTopologyStore(
             atom: atomStore.workspaceRepositoryTopology,
-            sqliteDatastore: workspaceSQLiteDatastore,
+            sqliteDatastore: sqliteDatastore,
             saveCoordinator: workspaceSQLiteSaveCoordinator,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
         )
+        repositoryTopologyStore = topologyStore
         store = WorkspaceStore(
             workspacePersistenceRuntime: workspacePersistenceRuntime,
             identityAtom: atomStore.workspaceIdentity,
@@ -166,8 +166,7 @@ extension AppDelegate {
             paneAtom: atomStore.workspacePane,
             tabLayoutAtom: atomStore.workspaceTabLayout,
             mutationCoordinator: atomStore.workspaceMutationCoordinator,
-            sqliteDatastore: workspaceSQLiteDatastore,
-            repositoryTopologyStore: repositoryTopologyStore,
+            sqliteDatastore: sqliteDatastore,
             sqliteSaveCoordinator: workspaceSQLiteSaveCoordinator,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
@@ -205,7 +204,21 @@ extension AppDelegate {
         )
         paneInboxNotificationPresenter = PaneInboxNotificationPresenter(traceRuntime: traceRuntime)
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
-        await store.restoreAsync()
+        switch await store.loadCanonicalComposition() {
+        case .loaded(let acceptance), .initializedDefaultWorkspace(let acceptance):
+            installWorkspaceTerminalActivationInput(acceptance.terminalActivationInput)
+        case .failed(let failure):
+            let diagnosticCode = failure.diagnosticCode
+            startupTraceRecorder.recordAppStartup(
+                "workspace.startup.invariant_failure",
+                phase: "workspace_composition",
+                outcome: "failed",
+                attributes: [
+                    "agentstudio.workspace.startup.failure_code": .string(diagnosticCode.rawValue)
+                ]
+            )
+            preconditionFailure("Workspace startup invariant violated: \(diagnosticCode.rawValue)")
+        }
         managementLayerMonitor = ManagementLayerMonitor()
         appLifecycleStore = AppLifecycleAtom()
         windowLifecycleStore = atomStore.windowLifecycle
@@ -215,11 +228,11 @@ extension AppDelegate {
         )
         synchronizeApplicationLifecycleStateAfterWorkspaceBoot(isApplicationActive: NSApp.isActive)
         RestoreTrace.log(
-            "store.restore complete tabs=\(store.tabLayoutAtom.tabs.count) panes=\(store.paneAtom.panes.count) activeTab=\(store.tabLayoutAtom.activeTabId?.uuidString ?? "nil")"
+            "workspace.composition.load complete tabs=\(store.tabLayoutAtom.tabs.count) panes=\(store.paneAtom.panes.count) activeTab=\(store.tabLayoutAtom.activeTabId?.uuidString ?? "nil")"
         )
     }
 
-    private func makeWorkspaceSQLiteDatastore(traceRuntime: AgentStudioTraceRuntime?) -> WorkspaceSQLiteDatastore? {
+    private func makeWorkspaceSQLiteDatastore(traceRuntime: AgentStudioTraceRuntime?) -> WorkspaceSQLiteDatastore {
         WorkspaceSQLiteDatastoreFactory(traceRuntime: traceRuntime).makeDatastore()
     }
 
@@ -234,56 +247,6 @@ extension AppDelegate {
         workspaceSettingsStore.restore(for: store.identityAtom.workspaceId)
         await uiStateStore.restoreAsync(for: store.identityAtom.workspaceId)
         await bootLoadInboxNotificationStore(persistor: persistor)
-        await bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: persistor)
-    }
-
-    private func bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: WorkspacePersistor) async {
-        let archiveResult = await WorkspaceLegacyArchiveCoordinator.archiveLegacyWorkspaceFilesIfReady(
-            workspaceId: store.identityAtom.workspaceId,
-            persistor: persistor,
-            sqliteDatastore: workspaceSQLiteDatastore,
-            canArchiveLegacyCompanionFiles: canArchiveLegacyCompanionFiles
-        )
-        for event in archiveResult.recoveryEvents {
-            recordPersistenceRecovery(event)
-        }
-        let outcome = archiveResult.outcome
-        switch outcome {
-        case .skipped(.missingSQLiteDatastore), .skipped(.notReady), .skipped(.noLegacyFiles):
-            return
-        case .skipped(.snapshotStatusUnavailable(let failure)):
-            appLogger.warning(
-                "Skipping legacy workspace archive; SQLite snapshot status unavailable: \(failure.description)"
-            )
-        case .skipped(.incompleteCompanionImports):
-            appLogger.warning(
-                "Skipping legacy workspace archive; one or more legacy companion files have not been restored into SQLite/settings"
-            )
-        case .skipped(.companionStatusUpdateFailed(let failure)):
-            appLogger.warning(
-                "Skipping legacy workspace archive; companion import status update failed: \(failure.description)"
-            )
-        case .archived(let directoryName):
-            appLogger.info(
-                "Archived legacy workspace files into legacy-imported/\(directoryName, privacy: .public)"
-            )
-        case .archivedButStatusUpdateFailed(let directoryName, let failure):
-            appLogger.warning(
-                "Legacy workspace files archived into legacy-imported/\(directoryName, privacy: .public), but archived_at status update failed: \(failure.description)"
-            )
-        case .archiveIncomplete(let result):
-            appLogger.warning(
-                "Legacy workspace archive incomplete. Archived: \(result.archivedFilenames.joined(separator: ","), privacy: .public). Failed: \(result.failedFilenames.joined(separator: ","), privacy: .public). Incomplete archive directories: \(result.incompleteArchiveDirectoryNames.joined(separator: ","), privacy: .public)"
-            )
-        }
-    }
-
-    private var canArchiveLegacyCompanionFiles: Bool {
-        repoCacheStore.canArchiveLegacyCacheFile
-            && sidebarCacheStore.canArchiveLegacySidebarCacheFile
-            && uiStateStore.canArchiveLegacyUIFile
-            && workspaceSettingsStore.canArchiveLegacySettingsFiles
-            && canArchiveLegacyInboxFile
     }
 
     private func bootEstablishRuntimeBus(
@@ -293,7 +256,7 @@ extension AppDelegate {
         runtime = SessionRuntime(atom: atomStore.sessionRuntime, store: store)
         viewRegistry = ViewRegistry()
         closeTransitionCoordinator = PaneCloseTransitionCoordinator()
-        seedSlotsForRestoredPanes()
+        seedSlotsForInstalledPanes()
         let pipeline = FilesystemGitPipeline(
             bus: paneRuntimeBus,
             fseventStreamClient: DarwinFSEventStreamClient(),
@@ -377,8 +340,21 @@ extension AppDelegate {
     }
 
     private func bootTriggerInitialTopologySync() {
+        shouldStartRepositoryTopologyAfterWindowPresentation = true
+    }
+
+    func startDeferredRepositoryTopologyLaneIfRequested() {
+        guard shouldStartRepositoryTopologyAfterWindowPresentation else { return }
+        shouldStartRepositoryTopologyAfterWindowPresentation = false
+        let loadedWorkspaceID = store.identityAtom.workspaceId
+        let topologyStore = repositoryTopologyStore!
+        let repositoryTopologyLoadTask = Task { @MainActor in
+            await topologyStore.restoreAsync(for: loadedWorkspaceID)
+        }
+        self.repositoryTopologyLoadTask = repositoryTopologyLoadTask
         initialTopologySyncTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            await repositoryTopologyLoadTask.value
             await self.replayBootTopology(store: self.store, coordinator: self.workspaceCacheCoordinator)
             if let filesystemPipelineBootTask = self.filesystemPipelineBootTask {
                 await filesystemPipelineBootTask.value
@@ -427,11 +403,12 @@ extension AppDelegate {
     }
 
     private func completeBootPersistenceObservation() async {
-        // Restore and topology replay intentionally run without debounced persistence
+        // Composition loading and topology replay intentionally run without debounced persistence
         // observation. They can mutate cache atoms many times while runtime cleanup and
         // filesystem discovery are also starting. Arming observation here keeps startup
         // quiet, then immediately persists any stale cache pruning as an explicit boot
         // transaction instead of relying on a debounce side effect.
+        store.startObserving()
         repoCacheStore.startObserving()
         repositoryTopologyStore.startObserving()
         sidebarCacheStore.startObserving()
@@ -449,6 +426,10 @@ extension AppDelegate {
     }
 
     private func assertBootPersistenceObservationArmed() {
+        assert(
+            store.isAutosaveObservationActive,
+            "WorkspaceStore autosave observation must be active after \(WorkspaceBootStep.armPersistenceObservation.rawValue)"
+        )
         assert(
             repoCacheStore.isAutosaveObservationActive,
             "RepoCacheStore autosave observation must be active after \(WorkspaceBootStep.armPersistenceObservation.rawValue)"
@@ -525,19 +506,5 @@ extension AppDelegate {
                 .updateWatchedFolders(watchedPaths: watchedPaths)
             )
         }
-    }
-}
-
-enum WorkspaceLegacyArchiveReadiness {
-    static func canArchiveLegacyFiles(
-        hasSQLiteBackend: Bool,
-        hasCompletedSnapshot: Bool,
-        hasLegacyWorkspaceFiles: Bool,
-        canArchiveLegacyCompanionFiles: Bool
-    ) -> Bool {
-        hasSQLiteBackend
-            && hasCompletedSnapshot
-            && hasLegacyWorkspaceFiles
-            && canArchiveLegacyCompanionFiles
     }
 }

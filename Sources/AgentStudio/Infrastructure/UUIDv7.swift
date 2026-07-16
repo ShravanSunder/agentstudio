@@ -20,7 +20,8 @@ import Security
 /// that imports nothing internal.
 enum UUIDv7 {
 
-    /// Generate a new UUID v7 with the current timestamp.
+    /// Generate the preferred identity for a newly created durable AgentStudio entity.
+    /// Existing persisted identifiers are restored verbatim and never rewritten through this API.
     static func generate() -> UUID {
         generate(timestamp: Date())
     }

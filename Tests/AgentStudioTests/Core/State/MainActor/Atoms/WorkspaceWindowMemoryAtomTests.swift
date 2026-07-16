@@ -27,7 +27,7 @@ struct WorkspaceWindowMemoryAtomTests {
 
     @Test("sidebar and window frame mutate independently from identity")
     func sidebarAndWindowFrameMutateIndependentlyFromIdentity() {
-        let identity = WorkspaceIdentityAtom()
+        let identity = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate())
         let initialWorkspaceId = identity.workspaceId
         let memory = WorkspaceWindowMemoryAtom()
         let frame = CGRect(x: 4, y: 5, width: 600, height: 500)

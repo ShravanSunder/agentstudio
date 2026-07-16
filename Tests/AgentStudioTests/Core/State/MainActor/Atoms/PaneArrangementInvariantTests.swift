@@ -10,9 +10,7 @@ final class PaneArrangementInvariantTests {
 
     init() {
         store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
     }
 
     @Test

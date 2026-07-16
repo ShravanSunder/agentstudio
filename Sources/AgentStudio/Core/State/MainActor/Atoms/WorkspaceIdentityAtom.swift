@@ -1,25 +1,34 @@
 import Foundation
 import Observation
 
+enum WorkspaceIdentityInstallationState {
+    case awaitingCanonicalComposition
+    case installed(workspaceId: UUID, workspaceName: String, createdAt: Date)
+}
+
 @MainActor
 @Observable
 final class WorkspaceIdentityAtom {
-    var workspaceId: UUID { storedWorkspaceId }
-    var workspaceName: String { storedWorkspaceName }
-    var createdAt: Date { storedCreatedAt }
+    var workspaceId: UUID { installedIdentity.workspaceId }
+    var workspaceName: String { installedIdentity.workspaceName }
+    var createdAt: Date { installedIdentity.createdAt }
 
-    private var storedWorkspaceId: UUID
-    private var storedWorkspaceName: String
-    private var storedCreatedAt: Date
+    private var installationState: WorkspaceIdentityInstallationState
+
+    init(installationState: WorkspaceIdentityInstallationState) {
+        self.installationState = installationState
+    }
 
     init(
-        workspaceId: UUID = UUIDv7.generate(),
+        workspaceId: UUID,
         workspaceName: String = "Default Workspace",
         createdAt: Date = Date()
     ) {
-        storedWorkspaceId = workspaceId
-        storedWorkspaceName = workspaceName
-        storedCreatedAt = createdAt
+        installationState = .installed(
+            workspaceId: workspaceId,
+            workspaceName: workspaceName,
+            createdAt: createdAt
+        )
     }
 
     func replaceIdentity(
@@ -27,13 +36,27 @@ final class WorkspaceIdentityAtom {
         workspaceName: String,
         createdAt: Date
     ) {
-        storedWorkspaceId = workspaceId
-        storedWorkspaceName = workspaceName
-        storedCreatedAt = createdAt
+        installationState = .installed(
+            workspaceId: workspaceId,
+            workspaceName: workspaceName,
+            createdAt: createdAt
+        )
     }
 
     func setWorkspaceName(_ workspaceName: String) {
-        guard storedWorkspaceName != workspaceName else { return }
-        storedWorkspaceName = workspaceName
+        let identity = installedIdentity
+        guard identity.workspaceName != workspaceName else { return }
+        installationState = .installed(
+            workspaceId: identity.workspaceId,
+            workspaceName: workspaceName,
+            createdAt: identity.createdAt
+        )
+    }
+
+    private var installedIdentity: (workspaceId: UUID, workspaceName: String, createdAt: Date) {
+        guard case .installed(let workspaceId, let workspaceName, let createdAt) = installationState else {
+            preconditionFailure("workspace identity accessed before canonical composition installation")
+        }
+        return (workspaceId, workspaceName, createdAt)
     }
 }

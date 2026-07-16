@@ -45,8 +45,8 @@ struct DerivedTerminalActivityNotificationRegressionTests {
     @Test("focused pane explicit event clears existing unread activity claim")
     func focusedPaneExplicitEventClearsExistingUnreadActivityClaim() async throws {
         let fixture = await makeFixture()
-        let hiddenPaneId = PaneId()
-        let visiblePaneId = PaneId()
+        let hiddenPaneId = PaneId.generateUUIDv7()
+        let visiblePaneId = PaneId.generateUUIDv7()
         let hiddenTabId = addTerminalPane(hiddenPaneId, to: fixture)
         _ = addTerminalPane(visiblePaneId, to: fixture)
         makeWindowKey(fixture.windowLifecycle)
@@ -94,8 +94,8 @@ struct DerivedTerminalActivityNotificationRegressionTests {
     @Test("new pane event does not rewrite existing unread activity claim")
     func newPaneEventDoesNotRewriteExistingUnreadActivityClaim() async throws {
         let fixture = await makeFixture()
-        let hiddenPaneId = PaneId()
-        let activePaneId = PaneId()
+        let hiddenPaneId = PaneId.generateUUIDv7()
+        let activePaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(hiddenPaneId, to: fixture)
         _ = addTerminalPane(activePaneId, to: fixture)
         makeWindowKey(fixture.windowLifecycle)

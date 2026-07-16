@@ -11,9 +11,7 @@ struct RuntimeTargetResolverTests {
             .appending(path: "agentstudio-pane-target-resolver-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         return store
     }
 
@@ -37,6 +35,6 @@ struct RuntimeTargetResolverTests {
     func resolveMissingPane() {
         let store = makeStore()
         let resolver = RuntimeTargetResolver(workspaceStore: store)
-        #expect(resolver.resolve(.pane(PaneId())) == nil)
+        #expect(resolver.resolve(.pane(PaneId.generateUUIDv7())) == nil)
     }
 }

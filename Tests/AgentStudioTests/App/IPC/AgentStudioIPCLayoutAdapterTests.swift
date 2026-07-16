@@ -332,6 +332,5 @@ private func makeIPCLayoutWorkspaceStore() -> WorkspaceStore {
     let tempDir = FileManager.default.temporaryDirectory
         .appending(path: "agentstudio-ipc-layout-adapter-\(UUID().uuidString)")
     return WorkspaceStore(
-        workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-        persistor: WorkspacePersistor(workspacesDir: tempDir))
+        workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
 }

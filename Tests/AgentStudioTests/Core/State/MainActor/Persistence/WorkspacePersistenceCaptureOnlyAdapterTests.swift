@@ -106,7 +106,7 @@ struct WorkspacePersistenceCaptureOnlyAdapterTests {
     func scalarAdaptersShareOneOuterTransaction() throws {
         // Arrange
         let revisionOwner = WorkspacePersistenceRevisionOwner()
-        let identityAtom = WorkspaceIdentityAtom()
+        let identityAtom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate())
         let windowAtom = WorkspaceWindowMemoryAtom()
         let identityAdapter = WorkspaceIdentityPersistenceAdapter(atom: identityAtom, revisionOwner: revisionOwner)
         let windowAdapter = WorkspaceWindowMemoryPersistenceAdapter(atom: windowAtom, revisionOwner: revisionOwner)

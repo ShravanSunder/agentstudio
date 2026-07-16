@@ -15,18 +15,73 @@ struct WorkspaceSQLiteDatastoreBoundaryTests {
         #expect(!source.contains("sqliteBackend: WorkspaceSQLiteStoreBackend?"))
     }
 
-    @Test("legacy SQLite importer reaches persistence through datastore APIs")
-    func legacySQLiteImporterUsesDatastoreBoundary() throws {
-        let source = try projectSource(
-            "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore+LegacySQLiteImport.swift"
+    @Test("workspace composition startup has no legacy JSON import archive or fallback path")
+    func workspaceCompositionStartupHasNoLegacyJSONPath() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let workspaceStoreSource = try projectSource(
+            "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift"
+        )
+        let restoreAsyncStart = try #require(
+            workspaceStoreSource.range(of: "func loadCanonicalComposition() async -> WorkspaceStoreLoadResult")
+        )
+        let restoreAsyncEnd = try #require(
+            workspaceStoreSource.range(
+                of: "private func initializeAndApplyDefaultWorkspace",
+                range: restoreAsyncStart.upperBound..<workspaceStoreSource.endIndex
+            )
+        )
+        let restoreAsyncSource = workspaceStoreSource[restoreAsyncStart.lowerBound..<restoreAsyncEnd.lowerBound]
+        let appDelegateSource = try projectSource("Sources/AgentStudio/App/Boot/AppDelegate.swift")
+        let workspaceBootSource = try projectSource("Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift")
+        let workspacePersistorSource = try projectSource(
+            "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspacePersistor.swift"
+        )
+        let settingsSource = try projectSource(
+            "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceSettingsStore.swift"
         )
 
-        #expect(source.contains("sqliteDatastore: WorkspaceSQLiteDatastore"))
-        #expect(source.contains("await sqliteDatastore.legacyImportStatus("))
-        #expect(source.contains("await sqliteDatastore.completedSnapshotStatus("))
-        #expect(!source.contains("sqliteBackend: WorkspaceSQLiteStoreBackend"))
-        #expect(!source.contains("WorkspaceCoreRepository"))
-        #expect(!source.contains("fetchLegacyWorkspaceImportStatus("))
+        #expect(!restoreAsyncSource.contains("restoreFromLegacyJSON"))
+        #expect(!restoreAsyncSource.contains("persistLegacyJSONSnapshot"))
+        #expect(!restoreAsyncSource.contains("saveImportedLegacySnapshot"))
+        #expect(!restoreAsyncSource.contains("legacyImportStatus"))
+        #expect(!workspaceStoreSource.contains("WorkspacePersistor"))
+        #expect(!workspaceStoreSource.contains("func restore()"))
+        #expect(!workspaceStoreSource.contains("func flush()"))
+        #expect(!workspacePersistorSource.contains("func save(_ state: PersistableState)"))
+        #expect(!workspacePersistorSource.contains("func load() -> LoadResult<PersistableState>"))
+        #expect(!workspacePersistorSource.contains("loadLegacyWorkspaceStateFiles"))
+        #expect(!workspacePersistorSource.contains("archiveLegacyWorkspaceFiles"))
+        #expect(!workspacePersistorSource.contains("quarantineCorruptCanonicalWorkspaceFiles"))
+        #expect(!appDelegateSource.contains("WorkspaceLegacyArchiveCoordinator"))
+        #expect(!workspaceBootSource.contains("WorkspaceLegacyArchiveCoordinator"))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: projectRoot.appending(
+                    path: "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore+LegacySQLiteImport.swift"
+                ).path
+            )
+        )
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: projectRoot.appending(
+                    path:
+                        "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspacePersistor+LegacyDrawerCursorRouting.swift"
+                ).path
+            )
+        )
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: projectRoot.appending(
+                    path: "Sources/AgentStudio/App/Boot/WorkspaceLegacyArchiveCoordinator.swift"
+                ).path
+            )
+        )
+
+        // The hard cut applies to canonical workspace composition only. Settings remain
+        // an explicitly owned JSON persistence lane and still load during UI-store boot.
+        #expect(settingsSource.contains("JSONDecoder()"))
+        #expect(settingsSource.contains("JSONEncoder()"))
+        #expect(workspaceBootSource.contains("workspaceSettingsStore.restore(for: store.identityAtom.workspaceId)"))
     }
 
     @Test("AppDelegate boot owns datastore, not raw SQLite backends")

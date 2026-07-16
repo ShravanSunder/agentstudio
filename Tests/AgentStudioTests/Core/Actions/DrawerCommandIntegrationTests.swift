@@ -21,9 +21,7 @@ final class DrawerCommandIntegrationTests {
             .appending(path: "drawer-cmd-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         viewRegistry = ViewRegistry()
         runtime = SessionRuntime(store: store)
         surfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()

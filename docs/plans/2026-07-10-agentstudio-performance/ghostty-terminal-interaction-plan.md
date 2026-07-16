@@ -522,7 +522,7 @@ Repair/extend:
 - `GhosttySurfaceViewContentScaleTests.swift`
 - `GhosttySurfaceViewGeometryCommitTests.swift`
 - `GhosttySurfaceViewInitialFrameTests.swift`
-- terminal surface scroll/mount/display/restore tests
+- terminal surface scroll/mount/display/relaunch-activation tests
 
 Add:
 
@@ -552,15 +552,15 @@ MainActor admission. Its public state is a strict discriminated union:
 `failedTerminal(failure:retry:)`, and `cancelledReplaced(replacement:)`;
 correlated optionals are forbidden.
 
-Freeze one `TerminalRestorableCohort` per accepted composition generation. One
+Freeze one `TerminalActivationCohort` per accepted composition generation. One
 fleet scheduler owns that cohort and a compile-time-bounded activation slot
 pool; it must not create one unstructured task or actor per pane. Visible work
 is admitted before hidden work. Every zmx member carries its required opaque
 `ZmxSessionID` from the accepted composition and attach receives that exact
-stored value. No activation or restore path lists sessions, derives identity,
+stored value. No activation path lists sessions, derives identity,
 adopts a name, backfills or rewrites storage, or mutates canonical composition.
-Existing opaque IDs are never UUID-version validated. The
-aggregate receipt completes only after every cohort member has exactly one
+Existing opaque IDs are never UUID-version validated. The aggregate activation
+settlement completes only after every cohort member has exactly one
 `ready`, `failedTerminal`, or `cancelledReplaced` outcome.
 
 Modify:
@@ -568,15 +568,17 @@ Modify:
 - `AppDelegate+WorkspaceBoot.swift` to construct terminal runtime owners as
   soon as composition commits and to launch repository/filesystem services on
   the independent external lane;
-- `AppDelegate.swift` and `AppDelegate+LaunchRestore.swift` to publish distinct
-  `windowReady`, `typingReady`, and `allRestorableTerminalsReady` milestones;
+- `AppDelegate.swift` and legacy-named `AppDelegate+LaunchRestore.swift` (as a
+  rename/removal target) to publish distinct `windowReady`, `typingReady`, and
+  `allTerminalActivationsSettled` milestones;
 - `WorkspaceSurfaceCoordinator+ViewLifecycle.swift` to remove the global
-  `await hiddenLiveSessionIds()` before visible restoration and replace the
+  `await hiddenLiveSessionIds()` before visible activation and replace the
   serial all-pane MainActor loop with bounded scheduler admissions;
-- `TerminalRestoreScheduler.swift` and `TerminalRestoreRuntime.swift` to make
-  active/visible ordering immutable input and pass each terminal's exact stored
-  `ZmxSessionID` to activation without daemon inventory, inference, fallback,
-  or writes;
+- legacy-named `TerminalRestoreScheduler.swift` and
+  `TerminalRestoreRuntime.swift` as rename/removal targets; the activation owner
+  makes active/visible ordering immutable input and passes each terminal's exact
+  stored `ZmxSessionID` to activation without daemon inventory, inference,
+  fallback, or writes;
 - `SessionRuntimeAtom`, `ViewRegistry`, and IPC `attachReady` projection to
   consume current-generation activation states without mutating canonical
   panes or consulting repository topology.
@@ -604,11 +606,12 @@ exceeds the compile-time slot limit. Under sustained selection promotion, every
 eligible current-generation background member reaches an aggregate outcome
 within the calibrated progress bound without delaying active typing.
 
-Add exact identity/startup proof at the owning boundaries: new pane creation
-uses `ZmxSessionID.generateUUIDv7()` before atom insertion; existing UUIDv4,
-UUIDv7, and `as-*` SQLite text round-trips and reaches attach unchanged; startup
-performs zero zmx-list calls and zero identity writes; invalid composition
-causes zero canonical mutation and zero activation.
+Add exact identity/startup checks at the owning boundaries: new pane creation
+uses `ZmxSessionID.generateUUIDv7()` before atom insertion; every existing
+opaque SQLite identity reaches attach unchanged; startup performs zero zmx-list
+calls and zero identity writes; invalid composition causes zero canonical
+mutation and zero activation. This is current load/attach correctness, not a
+migration or restoration proof.
 
 The independent oracle records composition acceptance, activation offers,
 MainActor admissions, surface create/attach/mount/focus calls, state
@@ -617,11 +620,11 @@ exactly one current-generation ready transition, no topology lookup or pane
 residency/tab mutation, bounded fleet concurrency, no task-per-pane fanout,
 complete aggregate outcomes, and bounded MainActor work per turn. Victoria/native
 proof measures composition-to-window, composition-to-typing, and
-composition-to-all-restorable latency plus input-to-visible feedback during
-background attachment.
+composition-to-terminal-settlement latency plus input-to-visible feedback
+during background attachment.
 
 RED/GREEN: required for scheduler admission and readiness behavior. Permanent
-negative proof rejects restore-time daemon listing, identity derivation or
+negative proof rejects activation-time daemon listing, identity derivation or
 rewrite, and terminal activation from invalid composition.
 
 ## 13. Task T11 — Explicit Surface/App Destruction
@@ -762,7 +765,7 @@ No test is deleted without replacement, redundancy, or dead-contract proof.
 | reports are current-principal scoped | T8 | authenticated JSON-RPC | server generation registry + receipt/state | unit + real Unix socket; fresh socket/runtime | required |
 | secure input is app-global/fail-closed | T9 | owner transition API/OS adapter | state table + real OS query + canary scan | unit + native/OTLP integration; exact PID/run | required |
 | input/geometry/visibility stay direct/current | T10 | AppKit-to-Ghostty calls and geometry owner | call ledger + PID-visible behavior | unit + native E2E; display capability manifest | required |
-| active terminal readiness is independent and prioritized | T10.5 | composition receipt, activation scheduler, readiness milestones | invalid-composition zero-mutation/activation ledger + UUIDv7 new-creation proof + historical-ID round-trip + delayed repository fake + literal exact-ID attach ledger + zero daemon-list/write calls | unit + integration + Victoria/native E2E; exact PID/run | required |
+| active terminal readiness is independent and prioritized | T10.5 | composition acceptance, activation scheduler, readiness milestones | invalid-composition zero-mutation/activation ledger + UUIDv7 new-creation proof + historical-ID round-trip + delayed repository fake + literal exact-ID attach ledger + zero daemon-list/write calls | unit + integration + Victoria/native E2E; exact PID/run | required |
 | free occurs only after quiescence | T11 | lifetime owner | vendor completion + leases/publications | pinned/candidate stress; vendor identity | required |
 | candidate benefit is attributable | T1/T12 | immutable build/matrix report | action/header/resource/probe manifests + workload oracles | build + E2E; exact digests | required |
 | memory does not regress | T12 | fill/quiesce/clear/prune workload | stable bounded platform samples | performance E2E; corpus/build/hardware | required |

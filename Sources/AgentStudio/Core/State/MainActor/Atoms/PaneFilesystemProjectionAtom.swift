@@ -37,7 +37,7 @@ final class PaneFilesystemProjectionAtom {
                 return
             }
             let context = PaneFilesystemContext(
-                paneId: PaneId(uuid: entry.paneId),
+                paneId: PaneId(existingUUID: entry.paneId),
                 repoId: repoId,
                 cwd: cwd.standardizedFileURL.resolvingSymlinksInPath(),
                 worktreeId: worktreeId
@@ -271,7 +271,7 @@ final class PaneFilesystemProjectionAtom {
         }
 
         let context = PaneFilesystemContext(
-            paneId: PaneId(uuid: pane.id),
+            paneId: PaneId(existingUUID: pane.id),
             repoId: repoId,
             cwd: (pane.metadata.facets.cwd ?? fallbackCwd).standardizedFileURL.resolvingSymlinksInPath(),
             worktreeId: worktreeId
@@ -310,12 +310,12 @@ final class PaneFilesystemProjectionAtom {
 
         return .pane(
             PaneEnvelope(
-                source: .pane(PaneId(uuid: paneId)),
+                source: .pane(PaneId(existingUUID: paneId)),
                 seq: nextSequence,
                 timestamp: timestamp,
                 correlationId: correlationId,
                 commandId: commandId,
-                paneId: PaneId(uuid: paneId),
+                paneId: PaneId(existingUUID: paneId),
                 paneKind: paneKind,
                 event: event
             )

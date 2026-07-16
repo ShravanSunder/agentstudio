@@ -70,7 +70,7 @@ private struct PreparedTopologyFixture {
     let factory: WorkspacePersistenceSnapshotParticipantFactory
 
     init() {
-        let identityAtom = WorkspaceIdentityAtom()
+        let identityAtom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate())
         let windowMemoryAtom = WorkspaceWindowMemoryAtom()
         let paneGraphAtom = WorkspacePaneGraphAtom()
         let drawerCursorAtom = WorkspaceDrawerCursorAtom()

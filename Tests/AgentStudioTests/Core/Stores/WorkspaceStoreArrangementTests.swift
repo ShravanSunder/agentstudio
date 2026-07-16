@@ -11,9 +11,7 @@ final class WorkspaceStoreArrangementTests {
 
     init() {
         store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
     }
 
     // MARK: - Helpers
@@ -120,10 +118,9 @@ final class WorkspaceStoreArrangementTests {
 
     @Test
 
-    func test_createArrangement_marksDirty() {
+    func test_createArrangement_marksDirty() async {
         let (tab, _) = createTabWithPanes(2)
-        store.flush()
-
+        _ = await store.flushAsync()
         _ = store.createArrangement(
             name: "Test",
             inTab: tab.id
@@ -252,11 +249,10 @@ final class WorkspaceStoreArrangementTests {
 
     @Test
 
-    func test_switchArrangement_sameArrangement_noOp() {
+    func test_switchArrangement_sameArrangement_noOp() async {
         let (tab, _) = createTabWithPanes(2)
         let defaultArrId = store.tab(tab.id)!.activeArrangementId
-        store.flush()
-
+        _ = await store.flushAsync()
         store.switchArrangement(to: defaultArrId, inTab: tab.id)
 
         // No change, so isDirty should NOT have been set by the switch
@@ -471,78 +467,4 @@ final class WorkspaceStoreArrangementTests {
     }
 
     // MARK: - Persistence Round-Trip
-
-    @Test
-
-    func test_arrangement_persistsAndRestores() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "arr-persist-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store1 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-
-        let pane1 = store1.createPane()
-        let pane2 = store1.createPane()
-        let tab = Tab(paneId: pane1.id)
-        store1.appendTab(tab)
-        store1.insertPane(
-            pane2.id, inTab: tab.id, at: pane1.id,
-            direction: .horizontal, position: .after, sizingMode: .halveTarget
-        )
-
-        let arrId = store1.createArrangement(
-            name: "Focus",
-            inTab: tab.id
-        )!
-        store1.switchArrangement(to: arrId, inTab: tab.id)
-        store1.flush()
-
-        // Restore into a new store
-        let store2 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store2.restore()
-
-        let restoredTab = store2.tabs.first!
-        #expect(restoredTab.arrangements.count == 2)
-
-        let restoredCustom = restoredTab.arrangements.first { !$0.isDefault }!
-        #expect(restoredCustom.name == "Focus")
-        #expect(Set(restoredCustom.layout.paneIds) == Set([pane1.id, pane2.id]))
-        #expect(restoredTab.activeArrangementId == arrId)
-
-        try? FileManager.default.removeItem(at: tempDir)
-    }
-
-    @Test
-    func test_minimizedPanes_persistAndRestoreWithArrangement() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "arr-minimized-persist-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store1 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-
-        let pane1 = store1.createPane()
-        let pane2 = store1.createPane()
-        let tab = Tab(paneId: pane1.id)
-        store1.appendTab(tab)
-        store1.insertPane(
-            pane2.id, inTab: tab.id, at: pane1.id,
-            direction: .horizontal, position: .after, sizingMode: .halveTarget
-        )
-        _ = store1.minimizePane(pane2.id, inTab: tab.id)
-        store1.flush()
-
-        let store2 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store2.restore()
-
-        let restoredTab = try #require(store2.tabs.first)
-        #expect(restoredTab.activeMinimizedPaneIds == Set([pane2.id]))
-
-        try? FileManager.default.removeItem(at: tempDir)
-    }
 }

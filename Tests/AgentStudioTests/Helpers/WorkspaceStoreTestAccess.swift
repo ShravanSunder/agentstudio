@@ -8,7 +8,7 @@ extension WorkspaceStore {
     /// persistence authority graph around explicitly supplied atom owners.
     convenience init(
         workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner,
-        identityAtom: WorkspaceIdentityAtom = WorkspaceIdentityAtom(),
+        identityAtom: WorkspaceIdentityAtom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate()),
         windowMemoryAtom: WorkspaceWindowMemoryAtom = WorkspaceWindowMemoryAtom(),
         repositoryTopologyAtom: RepositoryTopologyAtom = RepositoryTopologyAtom(),
         paneGraphAtom: WorkspacePaneGraphAtom = WorkspacePaneGraphAtom(),
@@ -18,13 +18,12 @@ extension WorkspaceStore {
         tabArrangementAtom: WorkspaceTabArrangementAtom = WorkspaceTabArrangementAtom(),
         tabLayoutAtom: WorkspaceTabLayoutAtom? = nil,
         mutationCoordinator: WorkspaceMutationCoordinator? = nil,
-        persistor: WorkspacePersistor = WorkspacePersistor(),
         sqliteDatastore: WorkspaceSQLiteDatastore? = nil,
-        repositoryTopologyStore: RepositoryTopologyStore? = nil,
         sqliteSaveCoordinator: WorkspaceSQLiteSaveCoordinator? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: (any Clock<Duration> & Sendable)? = nil,
-        recoveryReporter: PersistenceRecoveryReporter? = nil
+        recoveryReporter: PersistenceRecoveryReporter? = nil,
+        startsObserving: Bool = true
     ) {
         let resolvedTabShellAtom = tabLayoutAtom?.shellAtom ?? tabShellAtom
         let resolvedTabArrangementAtom = tabLayoutAtom?.arrangementAtom ?? tabArrangementAtom
@@ -63,6 +62,17 @@ extension WorkspaceStore {
                 workspaceArrangementCursor: resolvedTabArrangementAtom.cursorAtom
             )
         )
+        let testSQLiteRoot = FileManager.default.temporaryDirectory.appending(
+            path: "workspace-store-test-\(UUIDv7.generate().uuidString)"
+        )
+        let resolvedSQLiteDatastore =
+            sqliteDatastore
+            ?? WorkspaceSQLiteDatastoreFactory(
+                coreDatabaseURL: testSQLiteRoot.appending(path: "core.sqlite"),
+                localDatabaseURL: { workspaceId in
+                    testSQLiteRoot.appending(path: "\(workspaceId.uuidString).local.sqlite")
+                }
+            ).makeDatastore()
         self.init(
             workspacePersistenceRuntime: persistenceRuntime,
             identityAtom: identityAtom,
@@ -71,14 +81,15 @@ extension WorkspaceStore {
             paneAtom: resolvedPaneAtom,
             tabLayoutAtom: resolvedTabLayoutAtom,
             mutationCoordinator: resolvedMutationCoordinator,
-            persistor: persistor,
-            sqliteDatastore: sqliteDatastore,
-            repositoryTopologyStore: repositoryTopologyStore,
+            sqliteDatastore: resolvedSQLiteDatastore,
             sqliteSaveCoordinator: sqliteSaveCoordinator,
             persistDebounceDuration: persistDebounceDuration,
             clock: clock,
             recoveryReporter: recoveryReporter
         )
+        if startsObserving {
+            startObserving()
+        }
     }
 
     convenience init(
@@ -86,13 +97,12 @@ extension WorkspaceStore {
         catalogAtom: RepositoryTopologyAtom,
         graphAtom: WorkspacePaneAtom,
         interactionAtom: WorkspaceTabLayoutAtom,
-        persistor: WorkspacePersistor = WorkspacePersistor(),
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: any Clock<Duration> & Sendable = ContinuousClock()
     ) {
         self.init(
             workspacePersistenceRevisionOwner: workspacePersistenceRevisionOwner,
-            identityAtom: WorkspaceIdentityAtom(),
+            identityAtom: WorkspaceIdentityAtom(workspaceId: UUIDv7.generate()),
             windowMemoryAtom: WorkspaceWindowMemoryAtom(),
             repositoryTopologyAtom: catalogAtom,
             paneAtom: graphAtom,
@@ -105,7 +115,6 @@ extension WorkspaceStore {
                 workspaceTabShellAtom: interactionAtom.shellAtom,
                 workspaceTabArrangementAtom: interactionAtom.arrangementAtom
             ),
-            persistor: persistor,
             persistDebounceDuration: persistDebounceDuration,
             clock: clock
         )

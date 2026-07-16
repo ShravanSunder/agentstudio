@@ -12,8 +12,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         persistor.ensureDirectory()
         return WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
     }
 
     @Test("repoRemoved marks panes orphaned and prunes cache while preserving canonical identities")

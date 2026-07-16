@@ -6,17 +6,13 @@ import Testing
 
 @MainActor
 @Suite(.serialized)
-// Explicit persistence-owner injection pushes this broad dispatch fixture over the default line threshold.
-// swiftlint:disable type_body_length
 struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     @Test("coordinator injects its runtime registry into Ghostty action routing")
     func coordinatorInjectsGhosttyRuntimeRegistry() {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-registry-injection-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -39,9 +35,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -62,7 +56,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: pane.id))
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(existingUUID: pane.id))
         coordinator.registerRuntime(fakeRuntime)
 
         let result = await coordinator.dispatchRuntimeCommand(.activate, target: .activePane)
@@ -77,9 +71,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-missing-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -102,9 +94,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-not-ready-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -125,7 +115,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: pane.id))
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(existingUUID: pane.id))
         fakeRuntime.lifecycle = .created
         coordinator.registerRuntime(fakeRuntime)
 
@@ -141,9 +131,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-capability-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -164,7 +152,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: pane.id))
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(existingUUID: pane.id))
         fakeRuntime.capabilities = [.input]
         coordinator.registerRuntime(fakeRuntime)
 
@@ -185,9 +173,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-diff-worktree-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -208,7 +194,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: pane.id))
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(existingUUID: pane.id))
         fakeRuntime.capabilities = [.diffReview]
         var facets = fakeRuntime.metadata.facets
         facets.worktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")
@@ -237,9 +223,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-close-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -262,13 +246,13 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
-        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: pane.id))
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(existingUUID: pane.id))
         coordinator.registerRuntime(fakeRuntime)
-        #expect(coordinator.runtimeForPane(PaneId(uuid: pane.id)) != nil)
+        #expect(coordinator.runtimeForPane(PaneId(existingUUID: pane.id)) != nil)
 
         coordinator.execute(.closeTab(tabId: tab.id))
 
-        #expect(coordinator.runtimeForPane(PaneId(uuid: pane.id)) == nil)
+        #expect(coordinator.runtimeForPane(PaneId(existingUUID: pane.id)) == nil)
 
         try? FileManager.default.removeItem(at: tempDir)
     }
@@ -278,9 +262,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-close-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -306,12 +288,12 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         store.appendTab(otherTab)
         store.setActiveTab(sourceTab.id)
 
-        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: sourcePane.id))
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(existingUUID: sourcePane.id))
         coordinator.registerRuntime(fakeRuntime)
 
         fakeRuntime.emit(
             makeRuntimeEnvelope(
-                source: .pane(PaneId(uuid: sourcePane.id)),
+                source: .pane(PaneId(existingUUID: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 1,
                 commandId: nil,
@@ -337,9 +319,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-goto-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -365,12 +345,12 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         store.appendTab(nextTab)
         store.setActiveTab(sourceTab.id)
 
-        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: sourcePane.id))
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(existingUUID: sourcePane.id))
         coordinator.registerRuntime(fakeRuntime)
 
         fakeRuntime.emit(
             makeRuntimeEnvelope(
-                source: .pane(PaneId(uuid: sourcePane.id)),
+                source: .pane(PaneId(existingUUID: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 1,
                 commandId: nil,
@@ -395,9 +375,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-metadata-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -417,12 +395,12 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         store.appendTab(sourceTab)
         store.setActiveTab(sourceTab.id)
 
-        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: sourcePane.id))
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(existingUUID: sourcePane.id))
         coordinator.registerRuntime(fakeRuntime)
 
         fakeRuntime.emit(
             makeRuntimeEnvelope(
-                source: .pane(PaneId(uuid: sourcePane.id)),
+                source: .pane(PaneId(existingUUID: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 1,
                 commandId: nil,
@@ -434,7 +412,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         )
         fakeRuntime.emit(
             makeRuntimeEnvelope(
-                source: .pane(PaneId(uuid: sourcePane.id)),
+                source: .pane(PaneId(existingUUID: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 2,
                 commandId: nil,
@@ -461,9 +439,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-runtime-cwd-identity-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let coordinator = makeTestWorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),
@@ -493,11 +469,11 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         )
         store.appendTab(Tab(paneId: pane.id))
 
-        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: pane.id))
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(existingUUID: pane.id))
         coordinator.registerRuntime(fakeRuntime)
         fakeRuntime.emit(
             makeRuntimeEnvelope(
-                source: .pane(PaneId(uuid: pane.id)),
+                source: .pane(PaneId(existingUUID: pane.id)),
                 paneKind: .terminal,
                 seq: 1,
                 commandId: nil,
@@ -528,9 +504,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-close-right-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -562,12 +536,12 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         store.appendTab(rightTab)
         store.setActiveTab(sourceTab.id)
 
-        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: sourcePane.id))
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(existingUUID: sourcePane.id))
         coordinator.registerRuntime(fakeRuntime)
 
         fakeRuntime.emit(
             makeRuntimeEnvelope(
-                source: .pane(PaneId(uuid: sourcePane.id)),
+                source: .pane(PaneId(existingUUID: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 1,
                 commandId: nil,
@@ -595,9 +569,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-close-right-first-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -629,12 +601,12 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         store.appendTab(rightTwoTab)
         store.setActiveTab(sourceTab.id)
 
-        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: sourcePane.id))
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(existingUUID: sourcePane.id))
         coordinator.registerRuntime(fakeRuntime)
 
         fakeRuntime.emit(
             makeRuntimeEnvelope(
-                source: .pane(PaneId(uuid: sourcePane.id)),
+                source: .pane(PaneId(existingUUID: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 1,
                 commandId: nil,
@@ -660,9 +632,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-close-right-last-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -688,12 +658,12 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         store.appendTab(sourceTab)
         store.setActiveTab(sourceTab.id)
 
-        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: sourcePane.id))
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(existingUUID: sourcePane.id))
         coordinator.registerRuntime(fakeRuntime)
 
         fakeRuntime.emit(
             makeRuntimeEnvelope(
-                source: .pane(PaneId(uuid: sourcePane.id)),
+                source: .pane(PaneId(existingUUID: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 1,
                 commandId: nil,
@@ -720,9 +690,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-goto-index-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -754,12 +722,12 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         store.appendTab(lastTab)
         store.setActiveTab(sourceTab.id)
 
-        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: sourcePane.id))
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(existingUUID: sourcePane.id))
         coordinator.registerRuntime(fakeRuntime)
 
         fakeRuntime.emit(
             makeRuntimeEnvelope(
-                source: .pane(PaneId(uuid: sourcePane.id)),
+                source: .pane(PaneId(existingUUID: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 1,
                 commandId: nil,
@@ -777,7 +745,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
 
         fakeRuntime.emit(
             makeRuntimeEnvelope(
-                source: .pane(PaneId(uuid: sourcePane.id)),
+                source: .pane(PaneId(existingUUID: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 2,
                 commandId: nil,
@@ -797,14 +765,11 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     }
 
     @Test("runtime terminal gotoTab(index) handles 1, N-1, N, and N+1 edges")
-    // swiftlint:disable:next function_body_length
     func runtimeEventGotoTabIndexBoundaryCoverage() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-goto-index-boundaries-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -836,12 +801,12 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         store.appendTab(lastTab)
         store.setActiveTab(lastTab.id)
 
-        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: sourcePane.id))
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(existingUUID: sourcePane.id))
         coordinator.registerRuntime(fakeRuntime)
 
         fakeRuntime.emit(
             makeRuntimeEnvelope(
-                source: .pane(PaneId(uuid: sourcePane.id)),
+                source: .pane(PaneId(existingUUID: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 1,
                 commandId: nil,
@@ -859,7 +824,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
 
         fakeRuntime.emit(
             makeRuntimeEnvelope(
-                source: .pane(PaneId(uuid: sourcePane.id)),
+                source: .pane(PaneId(existingUUID: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 2,
                 commandId: nil,
@@ -877,7 +842,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
 
         fakeRuntime.emit(
             makeRuntimeEnvelope(
-                source: .pane(PaneId(uuid: sourcePane.id)),
+                source: .pane(PaneId(existingUUID: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 3,
                 commandId: nil,
@@ -895,7 +860,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
 
         fakeRuntime.emit(
             makeRuntimeEnvelope(
-                source: .pane(PaneId(uuid: sourcePane.id)),
+                source: .pane(PaneId(existingUUID: sourcePane.id)),
                 paneKind: .terminal,
                 seq: 4,
                 commandId: nil,

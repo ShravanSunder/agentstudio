@@ -757,23 +757,7 @@ extension Ghostty {
                 ghosttyLogger.warning("Dropped action tag \(actionTag): no pane mapped for surface \(surfaceId)")
                 return false
             }
-            guard UUIDv7.isV7(paneUUID) else {
-                traceGhosttyAction(
-                    body: "ghostty.action.dropped",
-                    actionTag: actionTag,
-                    payload: payload,
-                    paneId: paneUUID,
-                    surfaceId: surfaceId,
-                    signalClass: .unhandled,
-                    routeResult: false,
-                    reason: "pane_id_not_uuid_v7"
-                )
-                ghosttyLogger.warning(
-                    "Dropped action tag \(actionTag): mapped pane id is not UUID v7 \(paneUUID.uuidString, privacy: .public)"
-                )
-                return false
-            }
-            let paneId = PaneId(uuid: paneUUID)
+            let paneId = PaneId(existingUUID: paneUUID)
             let routedRuntime = runtimeRegistryForActionRouting.runtime(for: paneId) as? TerminalRuntime
             let runtime: TerminalRuntime?
             if let routedRuntime {

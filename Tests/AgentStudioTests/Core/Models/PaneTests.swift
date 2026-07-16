@@ -26,7 +26,7 @@ final class PaneTests {
         )
 
         #expect(UUIDv7.isV7(pane.id))
-        #expect(pane.metadata.paneId == PaneId(uuid: pane.id))
+        #expect(pane.metadata.paneId == PaneId(existingUUID: pane.id))
     }
 
     @Test
@@ -161,6 +161,25 @@ final class PaneTests {
         // Layout panes always have a drawer (empty by default)
         #expect((decoded.drawer) != nil)
         #expect(decoded.drawer!.paneIds.isEmpty)
+    }
+
+    @Test
+    func test_codable_roundTrip_preservesHistoricalPaneId() throws {
+        let historicalPaneId = UUID(uuidString: "10000000-0000-4000-8000-000000000001")!
+        let pane = Pane(
+            id: historicalPaneId,
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
+            metadata: PaneMetadata(title: "Historical pane")
+        )
+
+        let data = try encoder.encode(pane)
+        let decoded = try decoder.decode(Pane.self, from: data)
+
+        #expect(decoded.id == historicalPaneId)
+        #expect(decoded.metadata.paneId == PaneId(existingUUID: historicalPaneId))
+        #expect(!UUIDv7.isV7(decoded.id))
     }
 
     @Test

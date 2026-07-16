@@ -53,7 +53,7 @@ struct InboxNotificationRouterPayloadTests {
     @Test("command finished duration uses Ghostty nanoseconds")
     func commandFinishedDurationUsesGhosttyNanoseconds() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -74,7 +74,7 @@ struct InboxNotificationRouterPayloadTests {
     @Test("command finished title branches on exit code")
     func commandFinishedTitleBranchesOnExitCode() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -95,7 +95,7 @@ struct InboxNotificationRouterPayloadTests {
     @Test("command finished duration renders minute boundary")
     func commandFinishedDurationRendersMinuteBoundary() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -115,7 +115,7 @@ struct InboxNotificationRouterPayloadTests {
     @Test("command finished ignores implausible duration payloads")
     func commandFinishedIgnoresImplausibleDurationPayloads() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -142,7 +142,7 @@ struct InboxNotificationRouterPayloadTests {
     @Test("blank desktop notification title promotes body preview")
     func blankDesktopNotificationTitlePromotesBodyPreview() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(

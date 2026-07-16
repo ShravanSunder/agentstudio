@@ -48,7 +48,7 @@ struct DerivedActivityNotificationIntegrationTests {
     @Test("drawer child output burst reaches parent PaneInbox through runtime bus")
     func drawerChildOutputBurstReachesParentPaneInboxThroughRuntimeBus() async throws {
         let fixture = await makeFixture()
-        let parentPaneId = PaneId()
+        let parentPaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let drawerPane = try #require(
             addDrawerPane(to: parentPaneId.uuid, in: fixture)
@@ -58,7 +58,7 @@ struct DerivedActivityNotificationIntegrationTests {
         #expect(fixture.paneAtom.pane(parentPaneId.uuid)?.drawer?.isExpanded == false)
 
         await postScrollbackBurst(
-            paneId: PaneId(uuid: drawerPane.id),
+            paneId: PaneId(existingUUID: drawerPane.id),
             to: fixture
         )
 
@@ -88,7 +88,7 @@ struct DerivedActivityNotificationIntegrationTests {
     @Test("continuous output bursts in same pane keep one unread row until observed")
     func continuousOutputBurstsInSamePaneKeepOneUnreadRowUntilObserved() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         await postScrollbackBurst(paneId: paneId, to: fixture)
@@ -115,7 +115,7 @@ struct DerivedActivityNotificationIntegrationTests {
     @Test("read dismissed unseen activity row resets runtime window before quiet close")
     func readDismissedUnseenActivityRowResetsRuntimeWindowBeforeQuietClose() async throws {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         await postScrollbackBurst(paneId: paneId, to: fixture)
@@ -141,7 +141,7 @@ struct DerivedActivityNotificationIntegrationTests {
     @Test("marking unseen activity read resets runtime window before quiet close")
     func markingUnseenActivityReadResetsRuntimeWindowBeforeQuietClose() async throws {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         await postScrollbackBurst(paneId: paneId, to: fixture)
@@ -168,7 +168,7 @@ struct DerivedActivityNotificationIntegrationTests {
     @Test("two drawer children create separate parent PaneInbox rows")
     func twoDrawerChildrenCreateSeparateParentPaneInboxRows() async throws {
         let fixture = await makeFixture()
-        let parentPaneId = PaneId()
+        let parentPaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let firstDrawerPane = try #require(
             addDrawerPane(to: parentPaneId.uuid, in: fixture)
@@ -180,12 +180,12 @@ struct DerivedActivityNotificationIntegrationTests {
         makeWindowKey(fixture.windowLifecycle)
 
         await postScrollbackBurst(
-            paneId: PaneId(uuid: firstDrawerPane.id),
+            paneId: PaneId(existingUUID: firstDrawerPane.id),
             pinnedToBottom: true,
             to: fixture
         )
         await postScrollbackBurst(
-            paneId: PaneId(uuid: secondDrawerPane.id),
+            paneId: PaneId(existingUUID: secondDrawerPane.id),
             to: fixture,
             startingSeq: 10
         )
@@ -213,7 +213,7 @@ struct DerivedActivityNotificationIntegrationTests {
     @Test("active drawer child switch observes current unseen activity window")
     func activeDrawerChildSwitchObservesCurrentUnseenActivityWindow() async throws {
         let fixture = await makeFixture()
-        let parentPaneId = PaneId()
+        let parentPaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let firstDrawerPane = try #require(
             addDrawerPane(to: parentPaneId.uuid, in: fixture)
@@ -225,7 +225,7 @@ struct DerivedActivityNotificationIntegrationTests {
         #expect(drawerView(for: parentPaneId.uuid, in: fixture)?.activeChildId == secondDrawerPane.id)
 
         await postScrollbackBurst(
-            paneId: PaneId(uuid: firstDrawerPane.id),
+            paneId: PaneId(existingUUID: firstDrawerPane.id),
             pinnedToBottom: true,
             to: fixture
         )
@@ -247,7 +247,7 @@ struct DerivedActivityNotificationIntegrationTests {
         }
         fixture.paneAtom.toggleDrawer(for: parentPaneId.uuid)
         await postScrollbackBurst(
-            paneId: PaneId(uuid: firstDrawerPane.id),
+            paneId: PaneId(existingUUID: firstDrawerPane.id),
             totals: [200, 220, 240],
             to: fixture,
             startingSeq: 10
@@ -266,7 +266,7 @@ struct DerivedActivityNotificationIntegrationTests {
     @Test("focused pane output burst does not create a PaneInbox row")
     func focusedPaneOutputBurstDoesNotCreatePaneInboxRow() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
         makeWindowKey(fixture.windowLifecycle)
         await waitForAttendedPane(
@@ -288,7 +288,7 @@ struct DerivedActivityNotificationIntegrationTests {
     @Test("focused drawer child output burst does not create a PaneInbox row")
     func focusedDrawerChildOutputBurstDoesNotCreatePaneInboxRow() async throws {
         let fixture = await makeFixture()
-        let parentPaneId = PaneId()
+        let parentPaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let drawerPane = try #require(
             addDrawerPane(to: parentPaneId.uuid, in: fixture)
@@ -300,7 +300,7 @@ struct DerivedActivityNotificationIntegrationTests {
             description: "focused drawer child should be attended before output burst"
         )
 
-        await postScrollbackBurst(paneId: PaneId(uuid: drawerPane.id), to: fixture, settle: false)
+        await postScrollbackBurst(paneId: PaneId(existingUUID: drawerPane.id), to: fixture, settle: false)
 
         await assertEventuallyMain("focused drawer child burst should still update activity state") {
             fixture.terminalActivity.snapshot(for: drawerPane.id)?.outputBurst.thresholdReached == true
@@ -313,7 +313,7 @@ struct DerivedActivityNotificationIntegrationTests {
     @Test("main pane hidden by open drawer emits unseen activity")
     func mainPaneHiddenByOpenDrawerEmitsUnseenActivity() async throws {
         let fixture = await makeFixture()
-        let parentPaneId = PaneId()
+        let parentPaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(parentPaneId, to: fixture)
         _ = try #require(
             addDrawerPane(to: parentPaneId.uuid, in: fixture)
@@ -336,8 +336,8 @@ struct DerivedActivityNotificationIntegrationTests {
     @Test("visible split sibling stays observed while active pane drawer is open")
     func visibleSplitSiblingStaysObservedWhileActivePaneDrawerIsOpen() async throws {
         let fixture = await makeFixture()
-        let parentPaneId = PaneId()
-        let visibleSiblingPaneId = PaneId()
+        let parentPaneId = PaneId.generateUUIDv7()
+        let visibleSiblingPaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(parentPaneId, to: fixture)
         addVisiblePaneToActiveTab(visibleSiblingPaneId, to: fixture)
         _ = try #require(
@@ -367,8 +367,8 @@ struct DerivedActivityNotificationIntegrationTests {
     @Test("visible split sibling scrolled up emits unread activity for small output")
     func visibleSplitSiblingScrolledUpEmitsUnreadActivityForSmallOutput() async throws {
         let fixture = await makeFixture()
-        let focusedPaneId = PaneId()
-        let visibleSiblingPaneId = PaneId()
+        let focusedPaneId = PaneId.generateUUIDv7()
+        let visibleSiblingPaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(focusedPaneId, to: fixture)
         addVisiblePaneToActiveTab(visibleSiblingPaneId, to: fixture)
         makeWindowKey(fixture.windowLifecycle)
@@ -397,8 +397,8 @@ struct DerivedActivityNotificationIntegrationTests {
     @Test("visible split sibling pinned to bottom ignores small output")
     func visibleSplitSiblingPinnedToBottomIgnoresSmallOutput() async {
         let fixture = await makeFixture()
-        let focusedPaneId = PaneId()
-        let visibleSiblingPaneId = PaneId()
+        let focusedPaneId = PaneId.generateUUIDv7()
+        let visibleSiblingPaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(focusedPaneId, to: fixture)
         addVisiblePaneToActiveTab(visibleSiblingPaneId, to: fixture)
         makeWindowKey(fixture.windowLifecycle)
@@ -422,8 +422,8 @@ struct DerivedActivityNotificationIntegrationTests {
     @Test("bottom-pinned small output resets before visible sibling scrolls up")
     func bottomPinnedSmallOutputResetsBeforeVisibleSiblingScrollsUp() async throws {
         let fixture = await makeFixture()
-        let focusedPaneId = PaneId()
-        let visibleSiblingPaneId = PaneId()
+        let focusedPaneId = PaneId.generateUUIDv7()
+        let visibleSiblingPaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(focusedPaneId, to: fixture)
         addVisiblePaneToActiveTab(visibleSiblingPaneId, to: fixture)
         makeWindowKey(fixture.windowLifecycle)
@@ -463,7 +463,7 @@ struct DerivedActivityNotificationIntegrationTests {
     @Test("hidden drawer child emits unread activity for small output even when pinned")
     func hiddenDrawerChildEmitsUnreadActivityForSmallOutputEvenWhenPinned() async throws {
         let fixture = await makeFixture()
-        let parentPaneId = PaneId()
+        let parentPaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let drawerPane = try #require(
             addDrawerPane(to: parentPaneId.uuid, in: fixture)
@@ -473,7 +473,7 @@ struct DerivedActivityNotificationIntegrationTests {
         #expect(fixture.paneAtom.pane(parentPaneId.uuid)?.drawer?.isExpanded == false)
 
         await postScrollbackBurst(
-            paneId: PaneId(uuid: drawerPane.id),
+            paneId: PaneId(existingUUID: drawerPane.id),
             totals: [100, 101],
             pinnedToBottom: true,
             to: fixture
@@ -505,7 +505,7 @@ struct DerivedActivityNotificationIntegrationTests {
     @Test("expanded drawer hidden inactive child emits unread activity for small output even when pinned")
     func expandedDrawerHiddenInactiveChildEmitsUnreadActivityForSmallOutputEvenWhenPinned() async throws {
         let fixture = await makeFixture()
-        let parentPaneId = PaneId()
+        let parentPaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let hiddenDrawerPane = try #require(
             addDrawerPane(to: parentPaneId.uuid, in: fixture)
@@ -518,7 +518,7 @@ struct DerivedActivityNotificationIntegrationTests {
         #expect(drawerView(for: parentPaneId.uuid, in: fixture)?.activeChildId == activeDrawerPane.id)
 
         await postScrollbackBurst(
-            paneId: PaneId(uuid: hiddenDrawerPane.id),
+            paneId: PaneId(existingUUID: hiddenDrawerPane.id),
             totals: [100, 101],
             pinnedToBottom: true,
             to: fixture
@@ -540,8 +540,8 @@ struct DerivedActivityNotificationIntegrationTests {
     @Test("minimized split sibling stays unobserved even when bottom pinned")
     func minimizedSplitSiblingStaysUnobservedEvenWhenBottomPinned() async {
         let fixture = await makeFixture()
-        let parentPaneId = PaneId()
-        let minimizedSiblingPaneId = PaneId()
+        let parentPaneId = PaneId.generateUUIDv7()
+        let minimizedSiblingPaneId = PaneId.generateUUIDv7()
         let tabId = addTerminalPane(parentPaneId, to: fixture)
         addVisiblePaneToActiveTab(minimizedSiblingPaneId, to: fixture)
         makeWindowKey(fixture.windowLifecycle)
@@ -568,8 +568,8 @@ struct DerivedActivityNotificationIntegrationTests {
     @Test("zoom-hidden split sibling stays unobserved even when bottom pinned")
     func zoomHiddenSplitSiblingStaysUnobservedEvenWhenBottomPinned() async {
         let fixture = await makeFixture()
-        let parentPaneId = PaneId()
-        let hiddenSiblingPaneId = PaneId()
+        let parentPaneId = PaneId.generateUUIDv7()
+        let hiddenSiblingPaneId = PaneId.generateUUIDv7()
         let tabId = addTerminalPane(parentPaneId, to: fixture)
         addVisiblePaneToActiveTab(hiddenSiblingPaneId, to: fixture)
         makeWindowKey(fixture.windowLifecycle)
@@ -596,7 +596,7 @@ struct DerivedActivityNotificationIntegrationTests {
     @Test("main pane hidden by expanded empty drawer emits unseen activity")
     func mainPaneHiddenByExpandedEmptyDrawerEmitsUnseenActivity() async {
         let fixture = await makeFixture()
-        let parentPaneId = PaneId()
+        let parentPaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(parentPaneId, to: fixture)
         makeWindowKey(fixture.windowLifecycle)
         fixture.paneAtom.toggleDrawer(for: parentPaneId.uuid)
@@ -617,7 +617,7 @@ struct DerivedActivityNotificationIntegrationTests {
     @Test("main pane hidden by all minimized drawer emits unseen activity")
     func mainPaneHiddenByAllMinimizedDrawerEmitsUnseenActivity() async throws {
         let fixture = await makeFixture()
-        let parentPaneId = PaneId()
+        let parentPaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let drawerPane = try #require(
             addDrawerPane(to: parentPaneId.uuid, in: fixture)

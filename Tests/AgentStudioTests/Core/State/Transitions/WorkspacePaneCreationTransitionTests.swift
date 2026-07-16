@@ -114,7 +114,7 @@ struct WorkspacePaneCreationTransitionTests {
         // Arrange
         let identities = try #require(makeIdentities())
         let requestedMetadata = PaneMetadata(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             contentType: .terminal,
             title: "Review"
         )

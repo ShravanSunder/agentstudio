@@ -6,19 +6,11 @@ import Testing
 @Suite("Workspace persistence snapshot assembler")
 @MainActor
 struct WorkspacePersistenceSnapshotAssemblerTests {
-    @Test("assembled pages are semantically equivalent to the live transformer")
-    func assembledPagesMatchLiveTransformer() throws {
+    @Test("assembled pages serialize accepted canonical composition exactly")
+    func assembledPagesSerializeAcceptedCanonicalCompositionExactly() throws {
         // Arrange
         let fixture = makeRepresentativeFixture()
-        let owners = makeHydratedOwners(state: fixture.state)
-        let expected = WorkspacePersistenceTransformer.makeLiveSQLiteSaveBundleResult(
-            identityAtom: owners.identity,
-            windowMemoryAtom: owners.windowMemory,
-            repositoryTopologyAtom: owners.topology,
-            workspacePaneAtom: owners.panes,
-            workspaceTabLayoutAtom: owners.tabs,
-            persistedAt: fixture.persistedAt
-        )
+        let expected = WorkspacePersistenceTransformer.sqliteSaveBundle(from: fixture.state)
 
         // Act
         let assembly = try requireAssembly(participants: participantItems(state: fixture.state))
@@ -27,14 +19,18 @@ struct WorkspacePersistenceSnapshotAssemblerTests {
         )
 
         // Assert
-        #expect(actual.bundle == expected.bundle)
-        #expect(actual.repairReport.repairedTabIDs == expected.repairReport.repairedTabIds)
-        #expect(actual.repairReport.activeTabIDChanged == expected.repairReport.activeTabIdChanged)
-        #expect(actual.bundle.repositoryTopology.repos.map(\.id) == fixture.state.repos.map(\.id))
-        #expect(actual.bundle.repositoryTopology.worktrees.map(\.id) == fixture.state.worktrees.map(\.id))
-        #expect(actual.bundle.repositoryTopology.watchedPaths.map(\.id) == fixture.state.watchedPaths.map(\.id))
-        #expect(actual.bundle.workspace.tabs.map(\.id) == fixture.state.tabs.map(\.id))
-        #expect(actual.bundle.workspace.tabs.allSatisfy { $0.zoomedPaneId == nil })
+        #expect(actual == expected)
+        #expect(actual.repositoryTopology.repos.map(\.id) == fixture.state.repos.map(\.id))
+        #expect(actual.repositoryTopology.worktrees.map(\.id) == fixture.state.worktrees.map(\.id))
+        #expect(actual.repositoryTopology.watchedPaths.map(\.id) == fixture.state.watchedPaths.map(\.id))
+        #expect(
+            actual.workspace.tabs
+                == fixture.state.tabs.map { tab in
+                    var persistedTab = tab
+                    persistedTab.zoomedPaneId = nil
+                    return persistedTab
+                })
+        #expect(actual.workspace.activeTabId == fixture.state.activeTabId)
     }
 
     @Test("empty optional cursor membership preserves nil semantics")
@@ -49,15 +45,7 @@ struct WorkspacePersistenceSnapshotAssemblerTests {
             createdAt: Date(timeIntervalSince1970: 1_730_000_000),
             updatedAt: persistedAt
         )
-        let owners = makeHydratedOwners(state: state)
-        let expected = WorkspacePersistenceTransformer.makeLiveSQLiteSaveBundleResult(
-            identityAtom: owners.identity,
-            windowMemoryAtom: owners.windowMemory,
-            repositoryTopologyAtom: owners.topology,
-            workspacePaneAtom: owners.panes,
-            workspaceTabLayoutAtom: owners.tabs,
-            persistedAt: persistedAt
-        )
+        let expected = WorkspacePersistenceTransformer.sqliteSaveBundle(from: state)
 
         // Act
         let assembly = try requireAssembly(participants: participantItems(state: state))
@@ -66,10 +54,8 @@ struct WorkspacePersistenceSnapshotAssemblerTests {
         )
 
         // Assert
-        #expect(actual.bundle == expected.bundle)
-        #expect(actual.repairReport.repairedTabIDs == expected.repairReport.repairedTabIds)
-        #expect(actual.repairReport.activeTabIDChanged == expected.repairReport.activeTabIdChanged)
-        #expect(actual.bundle.workspace.activeTabId == nil)
+        #expect(actual == expected)
+        #expect(actual.workspace.activeTabId == nil)
         #expect(assembly.expandedDrawerID == nil)
         #expect(assembly.activeArrangementIDsByTabID.isEmpty)
         #expect(assembly.activePaneIDsByArrangementID.isEmpty)
@@ -162,8 +148,47 @@ struct WorkspacePersistenceSnapshotAssemblerTests {
         )
     }
 
-    @Test("multi-drawer membership follows parent layout order, never drawer UUID order")
-    func multiDrawerMembershipFollowsParentLayoutOrder() throws {
+    @Test("unreferenced canonical tab membership is rejected instead of repaired")
+    func unreferencedCanonicalTabMembershipIsRejected() {
+        // Arrange
+        let fixture = makeRepresentativeFixture()
+        var participants = participantItems(state: fixture.state)
+        let unreferencedPaneID = UUIDv7.generate()
+        let unreferencedPane = makeTerminalPane(
+            id: unreferencedPaneID,
+            title: "Unreferenced",
+            kind: .layout(drawer: Drawer(parentPaneId: unreferencedPaneID))
+        )
+        participants[6] = WorkspacePersistenceSnapshotParticipantItems(
+            participantID: .paneGraphs,
+            items: participants[6].items + [.paneGraph(PaneGraphState(pane: unreferencedPane))]
+        )
+        guard case .tabGraph(var tabGraph) = participants[10].items[0] else {
+            Issue.record("Expected a tab graph fixture")
+            return
+        }
+        tabGraph.allPaneIds.append(unreferencedPane.id)
+        participants[10] = WorkspacePersistenceSnapshotParticipantItems(
+            participantID: .tabGraphs,
+            items: [.tabGraph(tabGraph)]
+        )
+
+        // Act
+        let result = WorkspacePersistenceSnapshotAssembler.assemble(participants: participants)
+
+        // Assert
+        #expect(
+            result
+                == .rejected(
+                    .tabPaneNotReferenced(
+                        tabID: fixture.state.tabs[0].id,
+                        paneID: unreferencedPane.id
+                    ))
+        )
+    }
+
+    @Test("multi-drawer membership preserves accepted canonical order")
+    func multiDrawerMembershipPreservesAcceptedCanonicalOrder() throws {
         // Arrange
         let parentPaneAID = UUIDv7.generate()
         let parentPaneBID = UUIDv7.generate()
@@ -241,12 +266,12 @@ struct WorkspacePersistenceSnapshotAssemblerTests {
         let finalized = try assembly.finalize(
             input: WorkspacePersistenceSnapshotFinalizationInput(persistedAt: persistedAt)
         )
-        let finalizedTab = try #require(finalized.bundle.workspace.tabs.first)
+        let finalizedTab = try #require(finalized.workspace.tabs.first)
 
         // Assert
         #expect(lexicallyLaterDrawerID.uuidString > lexicallyEarlierDrawerID.uuidString)
         #expect(finalizedTab.arrangements[0].layout.paneIds == [parentPaneAID, parentPaneBID])
-        #expect(finalizedTab.allPaneIds == [parentPaneAID, childPaneAID, parentPaneBID, childPaneBID])
+        #expect(finalizedTab.allPaneIds == [parentPaneAID, parentPaneBID, childPaneBID, childPaneAID])
         #expect(
             finalizedTab.arrangements[0].drawerViews[lexicallyLaterDrawerID]?.layout.paneIds
                 == [childPaneAID]
@@ -261,37 +286,6 @@ struct WorkspacePersistenceSnapshotAssemblerTests {
 private struct SnapshotAssemblerFixture {
     let state: WorkspacePersistor.PersistableState
     let persistedAt: Date
-}
-
-@MainActor
-private struct SnapshotAssemblerOwners {
-    let identity: WorkspaceIdentityAtom
-    let windowMemory: WorkspaceWindowMemoryAtom
-    let topology: RepositoryTopologyAtom
-    let panes: WorkspacePaneAtom
-    let tabs: WorkspaceTabLayoutAtom
-}
-
-@MainActor
-private func makeHydratedOwners(
-    state: WorkspacePersistor.PersistableState
-) -> SnapshotAssemblerOwners {
-    let owners = SnapshotAssemblerOwners(
-        identity: WorkspaceIdentityAtom(),
-        windowMemory: WorkspaceWindowMemoryAtom(),
-        topology: RepositoryTopologyAtom(),
-        panes: WorkspacePaneAtom(),
-        tabs: WorkspaceTabLayoutAtom()
-    )
-    _ = WorkspacePersistenceTransformer.hydrate(
-        state,
-        identityAtom: owners.identity,
-        windowMemoryAtom: owners.windowMemory,
-        repositoryTopologyAtom: owners.topology,
-        workspacePaneAtom: owners.panes,
-        workspaceTabLayoutAtom: owners.tabs
-    )
-    return owners
 }
 
 private func makeRepresentativeFixture() -> SnapshotAssemblerFixture {

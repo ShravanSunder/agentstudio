@@ -18,11 +18,7 @@ final class ArrangementDerivedTests {
             windowMemoryAtom: registry.workspaceWindowMemory,
             repositoryTopologyAtom: registry.workspaceRepositoryTopology,
             paneAtom: registry.workspacePane,
-            tabLayoutAtom: registry.workspaceTabLayout,
-            persistor: WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-            )
-        )
+            tabLayoutAtom: registry.workspaceTabLayout)
     }
 
     @Test
@@ -205,62 +201,5 @@ final class ArrangementDerivedTests {
             let items = ArrangementDerived().paneVisibilityItems(for: tab.id)
             #expect(items.first(where: { $0.id == secondPane.id })?.isMinimized == true)
         }
-    }
-
-    @Test
-    func paneVisibilityItems_restoresMinimizedStateAfterPersistenceRoundTrip() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "arrangement-derived-persist-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-
-        let firstRegistry = AtomRegistry()
-        let firstStore = WorkspaceStore(
-            workspacePersistenceRevisionOwner: firstRegistry.workspacePersistenceRevisionOwner,
-            identityAtom: firstRegistry.workspaceIdentity,
-            windowMemoryAtom: firstRegistry.workspaceWindowMemory,
-            repositoryTopologyAtom: firstRegistry.workspaceRepositoryTopology,
-            paneAtom: firstRegistry.workspacePane,
-            tabLayoutAtom: firstRegistry.workspaceTabLayout,
-            persistor: persistor
-        )
-
-        let secondPaneId = AtomScope.$override.withValue(firstRegistry) {
-            let firstPane = firstStore.createPane()
-            let tab = Tab(paneId: firstPane.id)
-            firstStore.appendTab(tab)
-            firstStore.setActiveTab(tab.id)
-
-            let secondPane = firstStore.createPane()
-            _ = firstStore.insertPane(
-                secondPane.id,
-                inTab: tab.id,
-                at: firstPane.id,
-                direction: .horizontal,
-                position: .after, sizingMode: .halveTarget
-            )
-            _ = firstStore.minimizePane(secondPane.id, inTab: tab.id)
-            #expect(firstStore.flush())
-            return secondPane.id
-        }
-
-        let restoredRegistry = AtomRegistry()
-        let restoredStore = WorkspaceStore(
-            workspacePersistenceRevisionOwner: restoredRegistry.workspacePersistenceRevisionOwner,
-            identityAtom: restoredRegistry.workspaceIdentity,
-            windowMemoryAtom: restoredRegistry.workspaceWindowMemory,
-            repositoryTopologyAtom: restoredRegistry.workspaceRepositoryTopology,
-            paneAtom: restoredRegistry.workspacePane,
-            tabLayoutAtom: restoredRegistry.workspaceTabLayout,
-            persistor: persistor
-        )
-        restoredStore.restore()
-
-        try AtomScope.$override.withValue(restoredRegistry) {
-            let restoredTabId = try #require(restoredStore.activeTabId)
-            let items = ArrangementDerived().paneVisibilityItems(for: restoredTabId)
-            #expect(items.first(where: { $0.id == secondPaneId })?.isMinimized == true)
-        }
-
-        try? FileManager.default.removeItem(at: tempDir)
     }
 }

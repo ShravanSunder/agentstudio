@@ -1,6 +1,6 @@
 import Foundation
 
-/// A user-added folder path persisted in workspace.state.json.
+/// A user-added folder path persisted through the workspace SQLite topology store.
 /// FilesystemActor watches this path with FSEvents and rescans for new repos.
 struct WatchedPath: Codable, Identifiable, Hashable, Sendable {
     let id: UUID

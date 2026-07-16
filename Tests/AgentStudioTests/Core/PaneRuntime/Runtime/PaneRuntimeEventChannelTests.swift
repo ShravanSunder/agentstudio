@@ -10,7 +10,7 @@ struct PaneRuntimeEventChannelTests {
     func emittedEventsReachBusInSequenceOrder() async {
         let harness = EventBusHarness<RuntimeEnvelope>()
         let subscriber = await harness.makeSubscriber()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         let metadata = PaneMetadata(
             paneId: paneId,
             contentType: .terminal,

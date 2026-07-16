@@ -23,10 +23,7 @@ struct WorkspaceLauncherProjectorTests {
             repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
             paneAtom: atoms.workspacePane,
             tabLayoutAtom: atoms.workspaceTabLayout,
-            mutationCoordinator: atoms.workspaceMutationCoordinator,
-            persistor: persistor
-        )
-        store.restore()
+            mutationCoordinator: atoms.workspaceMutationCoordinator)
         return store
     }
 

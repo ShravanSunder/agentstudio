@@ -134,9 +134,7 @@ final class SessionRuntimeTests {
             .appending(path: "runtime-test-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let runtime = makeRuntime(store: store)
 
         let pane = store.createPane()
@@ -157,9 +155,7 @@ final class SessionRuntimeTests {
             .appending(path: "runtime-test-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let runtime = makeRuntime(store: store)
 
         let staleId = UUID()

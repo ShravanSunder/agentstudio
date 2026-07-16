@@ -13,8 +13,7 @@ struct StoreVisibilityTierResolverTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let firstPane = store.createPane(
@@ -40,8 +39,8 @@ struct StoreVisibilityTierResolverTests {
 
         let resolver = StoreVisibilityTierResolver(store: store)
 
-        #expect(resolver.tier(for: PaneId(uuid: firstPane.id)) == .p0Visible)
-        #expect(resolver.tier(for: PaneId(uuid: secondPane.id)) == .p1Hidden)
+        #expect(resolver.tier(for: PaneId(existingUUID: firstPane.id)) == .p0Visible)
+        #expect(resolver.tier(for: PaneId(existingUUID: secondPane.id)) == .p1Hidden)
     }
 
     @Test
@@ -51,8 +50,7 @@ struct StoreVisibilityTierResolverTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let firstPane = store.createPane(
@@ -78,8 +76,8 @@ struct StoreVisibilityTierResolverTests {
 
         let resolver = StoreVisibilityTierResolver(store: store)
 
-        #expect(resolver.tier(for: PaneId(uuid: firstPane.id)) == .p0Visible)
-        #expect(resolver.tier(for: PaneId(uuid: secondPane.id)) == .p1Hidden)
+        #expect(resolver.tier(for: PaneId(existingUUID: firstPane.id)) == .p0Visible)
+        #expect(resolver.tier(for: PaneId(existingUUID: secondPane.id)) == .p1Hidden)
     }
 
     @Test
@@ -89,8 +87,7 @@ struct StoreVisibilityTierResolverTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let parentPane = store.createPane(
@@ -105,9 +102,9 @@ struct StoreVisibilityTierResolverTests {
 
         let resolver = StoreVisibilityTierResolver(store: store)
 
-        #expect(resolver.tier(for: PaneId(uuid: parentPane.id)) == .p0Visible)
-        #expect(resolver.tier(for: PaneId(uuid: firstDrawerPane.id)) == .p0Visible)
-        #expect(resolver.tier(for: PaneId(uuid: secondDrawerPane.id)) == .p0Visible)
+        #expect(resolver.tier(for: PaneId(existingUUID: parentPane.id)) == .p0Visible)
+        #expect(resolver.tier(for: PaneId(existingUUID: firstDrawerPane.id)) == .p0Visible)
+        #expect(resolver.tier(for: PaneId(existingUUID: secondDrawerPane.id)) == .p0Visible)
     }
 
     @Test
@@ -117,8 +114,7 @@ struct StoreVisibilityTierResolverTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let parentPane = store.createPane(
@@ -133,6 +129,6 @@ struct StoreVisibilityTierResolverTests {
 
         let resolver = StoreVisibilityTierResolver(store: store)
 
-        #expect(resolver.tier(for: PaneId(uuid: drawerPane.id)) == .p1Hidden)
+        #expect(resolver.tier(for: PaneId(existingUUID: drawerPane.id)) == .p1Hidden)
     }
 }

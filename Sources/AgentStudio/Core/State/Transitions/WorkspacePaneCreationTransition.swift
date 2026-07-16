@@ -60,7 +60,7 @@ struct WorkspaceNewPaneTabIDs: Equatable, Sendable {
 
         return .validated(
             Self(
-                paneID: PaneId(uuid: paneID),
+                paneID: PaneId(existingUUID: paneID),
                 drawerID: drawerID,
                 tabID: tabID,
                 arrangementID: arrangementID

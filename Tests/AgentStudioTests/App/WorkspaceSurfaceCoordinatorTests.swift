@@ -24,9 +24,7 @@ struct WorkspaceSurfaceCoordinatorTests {
             .appending(path: "agentstudio-pane-coordinator-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let coordinator = WorkspaceSurfaceCoordinator(
@@ -248,9 +246,7 @@ struct WorkspaceSurfaceCoordinatorTests {
             .appending(path: "agentstudio-pane-filesystem-lifecycle-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let paneFilesystemProjectionStore = PaneFilesystemProjectionAtom()
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store,
@@ -295,9 +291,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let coordinator = makeFilesystemSyncCoordinator(
             store: store,
             filesystemSource: RecordingFilesystemSourceHarness(),
@@ -373,7 +367,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let runtimePaneId = PaneId()
+        let runtimePaneId = PaneId.generateUUIDv7()
         let metadata = PaneMetadata(
             paneId: runtimePaneId,
             contentType: .browser,
@@ -473,10 +467,7 @@ struct WorkspaceSurfaceCoordinatorTests {
 
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store.restore()
-
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-roots-\(UUID().uuidString)"))
         guard let primaryWorktree = store.repo(repo.id)?.worktrees.first(where: \.isMainWorktree) else {
             Issue.record("Expected addRepo to create a main worktree")
@@ -585,10 +576,7 @@ struct WorkspaceSurfaceCoordinatorTests {
 
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store.restore()
-
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-unavailable-\(UUID().uuidString)"))
         store.markRepoUnavailable(repo.id)
 
@@ -626,10 +614,7 @@ struct WorkspaceSurfaceCoordinatorTests {
 
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store.restore()
-
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-converge-\(UUID().uuidString)"))
         guard let mainWorktree = store.repo(repo.id)?.worktrees.first(where: \.isMainWorktree) else {
             Issue.record("Expected addRepo to create a main worktree")
@@ -712,10 +697,7 @@ struct WorkspaceSurfaceCoordinatorTests {
 
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store.restore()
-
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-empty-delta-\(UUID().uuidString)"))
         guard let mainWorktree = store.repo(repo.id)?.worktrees.first(where: \.isMainWorktree) else {
             Issue.record("Expected addRepo to create main worktree")

@@ -87,7 +87,7 @@ private struct PreparedWorkspaceCompositionTabInputs {
     let tabIDByPaneID: [UUID: UUID]
 }
 
-private struct DrawerViewValidationContext {
+private struct PreparedCompositionDrawerViewValidationContext {
     let drawerID: UUID
     let arrangementID: UUID
     let tabID: UUID
@@ -142,6 +142,12 @@ struct PreparedWorkspaceComposition: Equatable, Sendable {
 }
 
 enum WorkspaceCompositionPreparer {
+    @concurrent nonisolated static func prepareOffMain(
+        _ snapshot: WorkspaceSQLiteSnapshot
+    ) async -> WorkspaceCompositionPreparationResult {
+        prepare(snapshot)
+    }
+
     static func prepare(
         _ snapshot: WorkspaceSQLiteSnapshot
     ) -> WorkspaceCompositionPreparationResult {
@@ -424,7 +430,7 @@ enum WorkspaceCompositionPreparer {
             }
             let validation = validateDrawerView(
                 drawerView,
-                context: DrawerViewValidationContext(
+                context: PreparedCompositionDrawerViewValidationContext(
                     drawerID: drawerID,
                     arrangementID: arrangement.id,
                     tabID: tabID,
@@ -450,7 +456,7 @@ enum WorkspaceCompositionPreparer {
 
     private static func validateDrawerView(
         _ drawerView: DrawerView,
-        context: DrawerViewValidationContext
+        context: PreparedCompositionDrawerViewValidationContext
     ) -> DrawerViewValidationResult {
         let drawerID = context.drawerID
         let arrangementID = context.arrangementID
@@ -574,7 +580,7 @@ enum WorkspaceCompositionPreparer {
                 panesByID: panesByID
             )
             return TerminalActivationDescriptor(
-                paneID: PaneId(uuid: pane.id),
+                paneID: PaneId(existingUUID: pane.id),
                 zmxSessionID: terminalState.zmxSessionID,
                 provider: terminalActivationProvider(from: terminalState),
                 launchConfiguration: TerminalActivationLaunchConfiguration(
@@ -614,7 +620,7 @@ enum WorkspaceCompositionPreparer {
             guard let parentPane = panesByID[parentPaneID], let drawer = parentPane.drawer else { return nil }
             return .drawer(
                 tabID: tabID,
-                parentPaneID: PaneId(uuid: parentPaneID),
+                parentPaneID: PaneId(existingUUID: parentPaneID),
                 drawerID: drawer.drawerId
             )
         }

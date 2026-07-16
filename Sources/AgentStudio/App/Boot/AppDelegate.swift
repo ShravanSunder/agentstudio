@@ -10,6 +10,11 @@ enum WorkspacePersistenceRuntimeBootState {
     case ready(WorkspacePersistenceRuntime)
 }
 
+enum WorkspaceTerminalActivationInputBootState {
+    case awaitingCanonicalComposition
+    case ready(TerminalActivationInput)
+}
+
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var mainWindowController: MainWindowController?
@@ -22,6 +27,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             preconditionFailure("workspace persistence runtime accessed before canonical-store boot")
         }
         return runtime
+    }
+    private var workspaceTerminalActivationInputBootState = WorkspaceTerminalActivationInputBootState
+        .awaitingCanonicalComposition
+    var workspaceTerminalActivationInput: TerminalActivationInput {
+        guard case .ready(let input) = workspaceTerminalActivationInputBootState else {
+            preconditionFailure("terminal activation input accessed before canonical composition restore")
+        }
+        return input
     }
     var store: WorkspaceStore!
     var repoCache: RepoCacheAtom! { atomStore.repoCache }
@@ -63,11 +76,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         workspacePersistenceRuntimeBootState = .ready(runtime)
     }
+
+    func installWorkspaceTerminalActivationInput(_ input: TerminalActivationInput) {
+        guard case .awaitingCanonicalComposition = workspaceTerminalActivationInputBootState else {
+            preconditionFailure("terminal activation input installed more than once")
+        }
+        workspaceTerminalActivationInputBootState = .ready(input)
+    }
     // MARK: - Command Bar
     var commandBarController: CommandBarPanelController!
     // MARK: - OAuth
     var oauthService: OAuthService!
     var filesystemPipelineBootTask: Task<Void, Never>?
+    var shouldStartRepositoryTopologyAfterWindowPresentation = false
+    var repositoryTopologyLoadTask: Task<Void, Never>?
     var initialTopologySyncTask: Task<Void, Never>?
     var persistenceObservationBootTask: Task<Void, Never>?
     var isObservingTraceIdentityInputs = false
@@ -160,6 +182,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.activate(ignoringOtherApps: true)
         mainWindowController?.completeLaunchPresentation()
         observeLaunchRestoreReadiness()
+        startDeferredRepositoryTopologyLaneIfRequested()
         wireLifecycleConsumers()
         startAppIPCServer()
         if let window = mainWindowController?.window {
@@ -178,6 +201,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     isolated deinit {
         appIPCServer?.stop()
         filesystemPipelineBootTask?.cancel()
+        repositoryTopologyLoadTask?.cancel()
         initialTopologySyncTask?.cancel()
         persistenceObservationBootTask?.cancel()
         launchRestoreObservationTask?.cancel()

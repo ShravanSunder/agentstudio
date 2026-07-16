@@ -14,9 +14,7 @@ struct WorkspaceRuntimeDispatchNonTerminalTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),
@@ -47,12 +45,12 @@ struct WorkspaceRuntimeDispatchNonTerminalTests {
 
         let bridgeWorktreeId = UUID()
         let webviewRuntime = FakePaneRuntimeNonTerminal(
-            paneId: PaneId(uuid: webviewPane.id),
+            paneId: PaneId(existingUUID: webviewPane.id),
             contentType: .browser,
             capabilities: [.navigation]
         )
         let bridgeRuntime = FakePaneRuntimeNonTerminal(
-            paneId: PaneId(uuid: bridgePane.id),
+            paneId: PaneId(existingUUID: bridgePane.id),
             contentType: .diff,
             capabilities: [.diffReview]
         )
@@ -60,7 +58,7 @@ struct WorkspaceRuntimeDispatchNonTerminalTests {
         bridgeRuntimeFacets.worktreeId = bridgeWorktreeId
         bridgeRuntime.metadata.updateFacets(bridgeRuntimeFacets)
         let codeViewerRuntime = FakePaneRuntimeNonTerminal(
-            paneId: PaneId(uuid: codePane.id),
+            paneId: PaneId(existingUUID: codePane.id),
             contentType: .codeViewer,
             capabilities: [.editorActions]
         )
@@ -70,7 +68,7 @@ struct WorkspaceRuntimeDispatchNonTerminalTests {
 
         let webviewResult = await coordinator.dispatchRuntimeCommand(
             .browser(.reload(hard: false)),
-            target: .pane(PaneId(uuid: webviewPane.id))
+            target: .pane(PaneId(existingUUID: webviewPane.id))
         )
         let artifact = DiffArtifact(
             diffId: UUID(),
@@ -79,11 +77,11 @@ struct WorkspaceRuntimeDispatchNonTerminalTests {
         )
         let bridgeResult = await coordinator.dispatchRuntimeCommand(
             .diff(.loadDiff(artifact)),
-            target: .pane(PaneId(uuid: bridgePane.id))
+            target: .pane(PaneId(existingUUID: bridgePane.id))
         )
         let codeViewerResult = await coordinator.dispatchRuntimeCommand(
             .editor(.save),
-            target: .pane(PaneId(uuid: codePane.id))
+            target: .pane(PaneId(existingUUID: codePane.id))
         )
 
         #expect(webviewResult == .success(commandId: webviewRuntime.receivedCommandIds.first!))

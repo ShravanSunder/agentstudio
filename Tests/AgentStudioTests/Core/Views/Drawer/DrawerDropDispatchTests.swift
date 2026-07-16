@@ -155,10 +155,7 @@ final class DrawerDropDispatchTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "drawer-drop-dispatch-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
-
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let parentPane = store.createPane()
         let tab = Tab(paneId: parentPane.id)
         store.appendTab(tab)

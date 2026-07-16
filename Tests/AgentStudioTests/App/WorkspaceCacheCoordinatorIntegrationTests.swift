@@ -13,8 +13,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         persistor.ensureDirectory()
         return WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
     }
 
     // MARK: - Integration: Add Folder Convergence

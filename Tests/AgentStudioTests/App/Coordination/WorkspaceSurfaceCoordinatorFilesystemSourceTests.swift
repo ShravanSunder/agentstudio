@@ -304,9 +304,7 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-filesystem-coordinator-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         return FilesystemCoordinatorHarness(
             store: store,
             bus: makeTestPaneRuntimeEventBus(),

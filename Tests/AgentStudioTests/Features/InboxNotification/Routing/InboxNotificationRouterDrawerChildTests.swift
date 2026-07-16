@@ -9,7 +9,7 @@ extension InboxNotificationRouterTests {
     func commandFinishedNotifiesForDrawerChildOfAttendedParentPane() async throws {
         let fixture = await makeFixture()
 
-        let parentPaneId = PaneId()
+        let parentPaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let drawerPane = try #require(
             fixture.paneAtom.addDrawerPane(
@@ -26,7 +26,7 @@ extension InboxNotificationRouterTests {
 
         _ = await fixture.bus.post(
             makePaneEnvelope(
-                paneId: PaneId(uuid: drawerPane.id),
+                paneId: PaneId(existingUUID: drawerPane.id),
                 event: .terminal(.commandFinished(exitCode: 0, duration: 20_000_000_000))
             )
         )
@@ -49,7 +49,7 @@ extension InboxNotificationRouterTests {
     func drawerChildDesktopNotificationRemainsVisibleInParentPaneInboxScope() async throws {
         let fixture = await makeFixture()
 
-        let parentPaneId = PaneId()
+        let parentPaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let drawerPane = try #require(
             fixture.paneAtom.addDrawerPane(
@@ -61,7 +61,7 @@ extension InboxNotificationRouterTests {
 
         _ = await fixture.bus.post(
             makePaneEnvelope(
-                paneId: PaneId(uuid: drawerPane.id),
+                paneId: PaneId(existingUUID: drawerPane.id),
                 event: .terminal(.desktopNotificationRequested(title: "Gemini", body: "waiting for input"))
             )
         )
@@ -97,7 +97,7 @@ extension InboxNotificationRouterTests {
     func focusedDrawerChildDesktopNotificationAppendsReadHistory() async throws {
         let fixture = await makeFixture()
 
-        let parentPaneId = PaneId()
+        let parentPaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let drawerPane = try #require(
             fixture.paneAtom.addDrawerPane(
@@ -120,7 +120,7 @@ extension InboxNotificationRouterTests {
 
         _ = await fixture.bus.post(
             makePaneEnvelope(
-                paneId: PaneId(uuid: drawerPane.id),
+                paneId: PaneId(existingUUID: drawerPane.id),
                 event: .terminal(.desktopNotificationRequested(title: "Gemini", body: "waiting for input"))
             )
         )
@@ -143,7 +143,7 @@ extension InboxNotificationRouterTests {
     @Test("focus-gained on parent pane keeps drawer-child pane inbox notifications visible")
     func focusGainedOnParentPaneDoesNotDismissDrawerChildPaneInboxNotifications() async throws {
         let fixture = await makeFixture()
-        let parentPaneId = PaneId()
+        let parentPaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let drawerPane = try #require(
             fixture.paneAtom.addDrawerPane(

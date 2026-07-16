@@ -11,9 +11,7 @@ final class PaneRemovalCascadeTests {
 
     init() {
         store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
     }
 
     // MARK: - Helpers

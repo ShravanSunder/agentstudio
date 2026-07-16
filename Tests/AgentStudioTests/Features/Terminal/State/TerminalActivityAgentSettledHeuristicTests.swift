@@ -43,7 +43,7 @@ struct TerminalActivityAgentSettledHeuristicTests {
             unseenActivityClock: clock,
             nowMilliseconds: { nowMilliseconds.get() }
         )
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 2)
@@ -90,7 +90,7 @@ struct TerminalActivityAgentSettledHeuristicTests {
             unseenActivityClock: clock,
             nowMilliseconds: { nowMilliseconds.get() }
         )
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 2)
@@ -144,7 +144,7 @@ struct TerminalActivityAgentSettledHeuristicTests {
             unseenActivityClock: clock,
             nowMilliseconds: { nowMilliseconds.get() }
         )
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 2)
@@ -210,7 +210,7 @@ struct TerminalActivityAgentSettledHeuristicTests {
             unseenActivityClock: clock,
             nowMilliseconds: { nowMilliseconds.get() }
         )
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 2)
@@ -264,7 +264,7 @@ struct TerminalActivityAgentSettledHeuristicTests {
             unseenActivityClock: clock,
             nowMilliseconds: { nowMilliseconds.get() }
         )
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 2)
@@ -328,7 +328,7 @@ struct TerminalActivityAgentSettledHeuristicTests {
             unseenActivityClock: clock,
             nowMilliseconds: { nowMilliseconds.get() }
         )
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 2)

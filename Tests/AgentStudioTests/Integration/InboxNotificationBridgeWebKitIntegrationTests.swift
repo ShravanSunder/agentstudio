@@ -15,7 +15,7 @@ extension WebKitSerializedTests {
         func bridgeInboxPostReachesRouterAndAtom() async {
             let fixture = await InboxNotificationIntegrationHarness.makeFixture()
             let paneUUID = UUIDv7.generate()
-            let paneId = PaneId(uuid: paneUUID)
+            let paneId = PaneId(existingUUID: paneUUID)
             let bridgeState = BridgePaneState(panelKind: .diffViewer, source: nil)
             let tabId = InboxNotificationIntegrationHarness.addPane(
                 paneId,
@@ -64,7 +64,7 @@ extension WebKitSerializedTests {
         func bridgeInboxPostBoundsTitleAndBodyBeforeInboxPersistence() async throws {
             let fixture = await InboxNotificationIntegrationHarness.makeFixture()
             let paneUUID = UUIDv7.generate()
-            let paneId = PaneId(uuid: paneUUID)
+            let paneId = PaneId(existingUUID: paneUUID)
             let bridgeState = BridgePaneState(panelKind: .diffViewer, source: nil)
             _ = InboxNotificationIntegrationHarness.addPane(
                 paneId,

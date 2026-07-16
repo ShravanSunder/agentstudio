@@ -24,9 +24,7 @@ struct WorkspaceActionExecutorTestsQuick {
             .appending(path: "agentstudio-action-executor-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let coordinator = WorkspaceSurfaceCoordinator(

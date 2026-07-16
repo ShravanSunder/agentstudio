@@ -4,12 +4,10 @@ enum WorkspaceSQLiteTraceOperation: String, Sendable {
     case activeWorkspaceSelect = "active_workspace.select"
     case inboxLoad = "inbox.load"
     case inboxSave = "inbox.save"
-    case legacyImport = "legacy_import"
     case repoCacheLoad = "repo_cache.load"
     case repoCacheSave = "repo_cache.save"
     case sidebarLoad = "sidebar.load"
     case sidebarSave = "sidebar.save"
-    case snapshotStatus = "snapshot.status"
     case uiStateLoad = "ui_state.load"
     case uiStateSave = "ui_state.save"
     case workspaceLoad = "workspace.load"
@@ -17,23 +15,19 @@ enum WorkspaceSQLiteTraceOperation: String, Sendable {
 }
 
 enum WorkspaceSQLiteTracePhase: String, Sendable {
-    case archiveLegacy = "archive_legacy"
     case classifyRecovery = "classify_recovery"
     case commitCore = "commit_core"
     case openCore = "open_core"
     case openLocalRestore = "open_local_restore"
     case openLocalSave = "open_local_save"
     case quarantineSidecars = "quarantine_sidecars"
-    case repairLocal = "repair_local"
     case stageCore = "stage_core"
-    case synthesizeDefaults = "synthesize_defaults"
     case writeLocal = "write_local"
 }
 
 enum WorkspaceSQLiteTraceLane: String, Sendable {
     case core
     case inbox
-    case legacyImport = "legacy_import"
     case local
     case repoCache = "repo_cache"
     case sidebar
@@ -59,10 +53,7 @@ enum WorkspaceSQLiteTraceDatabase: String, Sendable {
 
 enum WorkspaceSQLiteRecoveryKind: String, Sendable {
     case coreQuarantine = "core_quarantine"
-    case incompleteSnapshot = "incomplete_snapshot"
-    case legacyImportFailed = "legacy_import_failed"
     case localQuarantine = "local_quarantine"
-    case localRepairFailed = "local_repair_failed"
     case notADatabase = "not_a_database"
     case quarantineFailed = "quarantine_failed"
     case saveFailed = "save_failed"

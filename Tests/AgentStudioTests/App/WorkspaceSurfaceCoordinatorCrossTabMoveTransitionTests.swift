@@ -79,9 +79,7 @@ struct WorkspaceCrossTabMoveTransitionTests {
             defer { try? FileManager.default.removeItem(at: tempDir) }
 
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-                persistor: WorkspacePersistor(workspacesDir: tempDir))
-            store.restore()
+                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
             let viewRegistry = ViewRegistry()
             let surfaceManager = CrossTabMoveSurfaceManager()
             let coordinator = WorkspaceSurfaceCoordinator(
@@ -170,9 +168,7 @@ struct WorkspaceCrossTabMoveTransitionTests {
             defer { try? FileManager.default.removeItem(at: tempDir) }
 
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-                persistor: WorkspacePersistor(workspacesDir: tempDir))
-            store.restore()
+                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
             let viewRegistry = ViewRegistry()
             let surfaceManager = CrossTabMoveSurfaceManager()
             let coordinator = WorkspaceSurfaceCoordinator(

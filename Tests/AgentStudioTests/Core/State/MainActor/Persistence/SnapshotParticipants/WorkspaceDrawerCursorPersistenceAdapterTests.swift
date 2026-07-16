@@ -118,7 +118,7 @@ private func makeDrawerCursorAdapterBundle(
 ) -> WorkspacePersistenceAdapterBundle {
     WorkspacePersistenceAdapterBundle(
         revisionOwner: revisionOwner,
-        workspaceIdentityAtom: WorkspaceIdentityAtom(),
+        workspaceIdentityAtom: WorkspaceIdentityAtom(workspaceId: UUIDv7.generate()),
         workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom(),
         repositoryTopologyAtom: RepositoryTopologyAtom(),
         workspacePaneGraphAtom: WorkspacePaneGraphAtom(),

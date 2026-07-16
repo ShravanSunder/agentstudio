@@ -23,9 +23,7 @@ struct WorkspaceSurfaceCoordinatorViewFactoryTests {
             .appending(path: "agentstudio-coordinator-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let coordinator = WorkspaceSurfaceCoordinator(
@@ -164,9 +162,9 @@ struct WorkspaceSurfaceCoordinatorViewFactoryTests {
         _ = coordinator.createViewForContent(pane: bridgePane)
         _ = coordinator.createViewForContent(pane: codeViewerPane)
 
-        #expect(coordinator.runtimeForPane(PaneId(uuid: webviewPane.id)) is WebviewRuntime)
-        #expect(coordinator.runtimeForPane(PaneId(uuid: bridgePane.id)) is BridgeRuntime)
-        #expect(coordinator.runtimeForPane(PaneId(uuid: codeViewerPane.id)) is SwiftPaneRuntime)
+        #expect(coordinator.runtimeForPane(PaneId(existingUUID: webviewPane.id)) is WebviewRuntime)
+        #expect(coordinator.runtimeForPane(PaneId(existingUUID: bridgePane.id)) is BridgeRuntime)
+        #expect(coordinator.runtimeForPane(PaneId(existingUUID: codeViewerPane.id)) is SwiftPaneRuntime)
     }
 
     @Test("createViewForContent returns nil for unsupported pane content")

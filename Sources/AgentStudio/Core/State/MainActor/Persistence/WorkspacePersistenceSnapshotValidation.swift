@@ -17,6 +17,13 @@ struct WorkspacePersistenceSnapshotValidatedInventory: Sendable {
     let activeDrawerChildIDsByKey: [ArrangementDrawerCursorKey: UUID]
 }
 
+private struct WorkspacePersistenceTabValidationIndex {
+    let paneIDs: Set<UUID>
+    let drawerParentPaneIDByDrawerID: [UUID: UUID]
+    var ownerByPaneID: [UUID: UUID] = [:]
+    var arrangementByID: [UUID: PaneArrangementGraphState] = [:]
+}
+
 extension WorkspacePersistenceSnapshotAssembler {
     static func validatedInventory(
         from participants: [WorkspacePersistenceSnapshotParticipantItems]
@@ -259,70 +266,39 @@ extension WorkspacePersistenceSnapshotAssembler {
         _ inventory: WorkspacePersistenceSnapshotValidatedInventory,
         graphIDs: Set<UUID>
     ) -> WorkspacePersistenceSnapshotAssemblyRejection? {
-        let paneIDs = Set(inventory.paneGraphs.map(\.id))
-        var ownerByPaneID: [UUID: UUID] = [:]
-        var arrangementByID: [UUID: PaneArrangementGraphState] = [:]
+        var validationIndex = WorkspacePersistenceTabValidationIndex(
+            paneIDs: Set(inventory.paneGraphs.map(\.id)),
+            drawerParentPaneIDByDrawerID: Dictionary(
+                uniqueKeysWithValues: inventory.paneGraphs.compactMap { paneGraph in
+                    paneGraph.drawer.map { ($0.drawerId, paneGraph.id) }
+                }
+            )
+        )
         for tabGraph in inventory.tabGraphs {
-            guard !tabGraph.arrangements.isEmpty else { return .emptyTabArrangements(tabID: tabGraph.tabId) }
-            let defaultCount = tabGraph.arrangements.filter(\.isDefault).count
-            guard defaultCount == 1 else {
-                return .invalidDefaultArrangementCount(tabID: tabGraph.tabId, count: defaultCount)
-            }
-            for paneID in tabGraph.allPaneIds {
-                guard paneIDs.contains(paneID) else { return .tabPaneNotFound(tabID: tabGraph.tabId, paneID: paneID) }
-                if let firstTabID = ownerByPaneID.updateValue(tabGraph.tabId, forKey: paneID),
-                    firstTabID != tabGraph.tabId
-                {
-                    return .paneOwnedByMultipleTabs(
-                        paneID: paneID,
-                        firstTabID: firstTabID,
-                        secondTabID: tabGraph.tabId
-                    )
-                }
-            }
-            let ownedPaneIDs = Set(tabGraph.allPaneIds)
-            for arrangement in tabGraph.arrangements {
-                guard arrangementByID.updateValue(arrangement, forKey: arrangement.id) == nil else {
-                    return .duplicateArrangementID(arrangement.id)
-                }
-                if let paneID = arrangement.layout.paneIds.first(where: { !ownedPaneIDs.contains($0) }) {
-                    return .arrangementPaneNotOwnedByTab(
-                        tabID: tabGraph.tabId,
-                        arrangementID: arrangement.id,
-                        paneID: paneID
-                    )
-                }
-                for (drawerID, drawerView) in arrangement.drawerViews {
-                    if let paneID = drawerView.layout.paneIds.first(where: { !ownedPaneIDs.contains($0) }) {
-                        return .drawerViewPaneNotOwnedByTab(
-                            tabID: tabGraph.tabId,
-                            arrangementID: arrangement.id,
-                            drawerID: drawerID,
-                            paneID: paneID
-                        )
-                    }
-                }
-            }
-            guard let activeArrangementID = inventory.activeArrangementIDsByTabID[tabGraph.tabId] else {
-                return .missingActiveArrangement(tabID: tabGraph.tabId)
-            }
-            guard tabGraph.arrangements.contains(where: { $0.id == activeArrangementID }) else {
-                return .activeArrangementNotFound(tabID: tabGraph.tabId, arrangementID: activeArrangementID)
+            if let rejection = validateTabGraph(
+                tabGraph,
+                activeArrangementID: inventory.activeArrangementIDsByTabID[tabGraph.tabId],
+                validationIndex: &validationIndex
+            ) {
+                return rejection
             }
         }
         for (tabID, arrangementID) in inventory.activeArrangementIDsByTabID where !graphIDs.contains(tabID) {
             return .activeArrangementNotFound(tabID: tabID, arrangementID: arrangementID)
         }
         for (arrangementID, paneID) in inventory.activePaneIDsByArrangementID {
-            guard let arrangement = arrangementByID[arrangementID] else {
+            guard let arrangement = validationIndex.arrangementByID[arrangementID] else {
                 return .activePaneArrangementNotFound(arrangementID: arrangementID)
             }
             guard arrangement.layout.contains(paneID) else {
                 return .activePaneNotInArrangement(arrangementID: arrangementID, paneID: paneID)
             }
+            guard !arrangement.minimizedPaneIds.contains(paneID) else {
+                return .activePaneIsMinimized(arrangementID: arrangementID, paneID: paneID)
+            }
         }
         for (key, childPaneID) in inventory.activeDrawerChildIDsByKey {
-            guard let arrangement = arrangementByID[key.arrangementId] else {
+            guard let arrangement = validationIndex.arrangementByID[key.arrangementId] else {
                 return .activeDrawerArrangementNotFound(key)
             }
             guard let drawerView = arrangement.drawerViews[key.drawerId] else {
@@ -331,6 +307,92 @@ extension WorkspacePersistenceSnapshotAssembler {
             guard drawerView.layout.contains(childPaneID) else {
                 return .activeDrawerChildNotFound(key: key, childPaneID: childPaneID)
             }
+        }
+        return nil
+    }
+
+    private static func validateTabGraph(
+        _ tabGraph: TabGraphState,
+        activeArrangementID: UUID?,
+        validationIndex: inout WorkspacePersistenceTabValidationIndex
+    ) -> WorkspacePersistenceSnapshotAssemblyRejection? {
+        guard !tabGraph.arrangements.isEmpty else { return .emptyTabArrangements(tabID: tabGraph.tabId) }
+        let defaultCount = tabGraph.arrangements.filter(\.isDefault).count
+        guard defaultCount == 1 else {
+            return .invalidDefaultArrangementCount(tabID: tabGraph.tabId, count: defaultCount)
+        }
+        var ownedPaneIDs: Set<UUID> = []
+        for paneID in tabGraph.allPaneIds {
+            guard ownedPaneIDs.insert(paneID).inserted else {
+                return .duplicateTabPaneMembership(tabID: tabGraph.tabId, paneID: paneID)
+            }
+            guard validationIndex.paneIDs.contains(paneID) else {
+                return .tabPaneNotFound(tabID: tabGraph.tabId, paneID: paneID)
+            }
+            if let firstTabID = validationIndex.ownerByPaneID.updateValue(tabGraph.tabId, forKey: paneID),
+                firstTabID != tabGraph.tabId
+            {
+                return .paneOwnedByMultipleTabs(
+                    paneID: paneID,
+                    firstTabID: firstTabID,
+                    secondTabID: tabGraph.tabId
+                )
+            }
+        }
+        var referencedPaneIDs: Set<UUID> = []
+        for arrangement in tabGraph.arrangements {
+            guard validationIndex.arrangementByID.updateValue(arrangement, forKey: arrangement.id) == nil else {
+                return .duplicateArrangementID(arrangement.id)
+            }
+            if let paneID = arrangement.layout.paneIds.first(where: { !ownedPaneIDs.contains($0) }) {
+                return .arrangementPaneNotOwnedByTab(
+                    tabID: tabGraph.tabId,
+                    arrangementID: arrangement.id,
+                    paneID: paneID
+                )
+            }
+            referencedPaneIDs.formUnion(arrangement.layout.paneIds)
+            for (drawerID, drawerView) in arrangement.drawerViews {
+                guard let parentPaneID = validationIndex.drawerParentPaneIDByDrawerID[drawerID] else {
+                    return .drawerViewNotFound(
+                        tabID: tabGraph.tabId,
+                        arrangementID: arrangement.id,
+                        drawerID: drawerID
+                    )
+                }
+                guard arrangement.layout.contains(parentPaneID) else {
+                    return .drawerViewParentPaneNotInArrangement(
+                        tabID: tabGraph.tabId,
+                        arrangementID: arrangement.id,
+                        drawerID: drawerID,
+                        parentPaneID: parentPaneID
+                    )
+                }
+                if let paneID = drawerView.layout.paneIds.first(where: { !ownedPaneIDs.contains($0) }) {
+                    return .drawerViewPaneNotOwnedByTab(
+                        tabID: tabGraph.tabId,
+                        arrangementID: arrangement.id,
+                        drawerID: drawerID,
+                        paneID: paneID
+                    )
+                }
+                referencedPaneIDs.formUnion(drawerView.layout.paneIds)
+            }
+        }
+        if let paneID = tabGraph.allPaneIds.first(where: { !referencedPaneIDs.contains($0) }) {
+            return .tabPaneNotReferenced(tabID: tabGraph.tabId, paneID: paneID)
+        }
+        guard let activeArrangementID else {
+            return .missingActiveArrangement(tabID: tabGraph.tabId)
+        }
+        guard let activeArrangement = tabGraph.arrangements.first(where: { $0.id == activeArrangementID }) else {
+            return .activeArrangementNotFound(tabID: tabGraph.tabId, arrangementID: activeArrangementID)
+        }
+        guard !activeArrangement.layout.isEmpty else {
+            return .activeArrangementHasNoLivePane(
+                tabID: tabGraph.tabId,
+                arrangementID: activeArrangementID
+            )
         }
         return nil
     }

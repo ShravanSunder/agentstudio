@@ -54,7 +54,7 @@ struct WorkspaceIdentityPersistenceAdapterTests {
 
     @Test("duplicate preparation changes neither atom nor revision")
     func duplicatePreparationChangesNeitherAtomNorRevision() {
-        let atom = WorkspaceIdentityAtom()
+        let atom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate())
         let originalName = atom.workspaceName
         let revisionOwner = WorkspacePersistenceRevisionOwner()
         let adapter = WorkspaceIdentityPersistenceAdapter(atom: atom, revisionOwner: revisionOwner)
@@ -82,7 +82,10 @@ struct WorkspaceIdentityPersistenceAdapterTests {
 
     @Test("unchanged workspace name mutates nothing and advances no revision")
     func unchangedWorkspaceNameMutatesNothingAndAdvancesNoRevision() throws {
-        let atom = WorkspaceIdentityAtom(workspaceName: "Unchanged")
+        let atom = WorkspaceIdentityAtom(
+            workspaceId: UUIDv7.generate(),
+            workspaceName: "Unchanged"
+        )
         let revisionOwner = WorkspacePersistenceRevisionOwner()
         let adapter = WorkspaceIdentityPersistenceAdapter(atom: atom, revisionOwner: revisionOwner)
 
@@ -100,7 +103,7 @@ struct WorkspaceIdentityPersistenceAdapterTests {
 
     @Test("registered replacement applies through the adapter")
     func registeredReplacementAppliesThroughAdapter() throws {
-        let atom = WorkspaceIdentityAtom()
+        let atom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate())
         let revisionOwner = WorkspacePersistenceRevisionOwner()
         let bundle = makeIdentityAdapterBundle(atom: atom, revisionOwner: revisionOwner)
         let adapter = bundle.workspaceIdentity
@@ -134,7 +137,10 @@ struct WorkspaceIdentityPersistenceAdapterTests {
 
     @Test("bound adapter rejects a transaction preparation from a foreign revision owner")
     func boundAdapterRejectsForeignRevisionOwnerPreparation() {
-        let atom = WorkspaceIdentityAtom(workspaceName: "Original")
+        let atom = WorkspaceIdentityAtom(
+            workspaceId: UUIDv7.generate(),
+            workspaceName: "Original"
+        )
         let boundRevisionOwner = WorkspacePersistenceRevisionOwner()
         let foreignRevisionOwner = WorkspacePersistenceRevisionOwner()
         let adapter = WorkspaceIdentityPersistenceAdapter(atom: atom, revisionOwner: boundRevisionOwner)

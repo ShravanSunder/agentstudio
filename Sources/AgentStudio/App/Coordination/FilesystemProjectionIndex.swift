@@ -334,7 +334,7 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
 
     private func context(for pane: IndexedPane) -> PaneFilesystemContext {
         PaneFilesystemContext(
-            paneId: PaneId(uuid: pane.paneId),
+            paneId: PaneId(existingUUID: pane.paneId),
             repoId: pane.repoId,
             cwd: pane.cwd,
             worktreeId: pane.worktreeId

@@ -34,9 +34,7 @@ struct FilesystemGitPipelineIntegrationTests {
             .appending(path: "pipeline-store-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: workspaceDir) }
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: workspaceDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let repoCache = RepoCacheAtom()
         let cacheCoordinator = WorkspaceCacheCoordinator(
             bus: bus,
@@ -124,10 +122,7 @@ struct FilesystemGitPipelineIntegrationTests {
             .appending(path: "pipeline-periodic-store-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: workspaceDir) }
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: workspaceDir))
-        store.restore()
-
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let repoCache = RepoCacheAtom()
         let cacheCoordinator = WorkspaceCacheCoordinator(
             bus: bus,
@@ -209,10 +204,7 @@ struct FilesystemGitPipelineIntegrationTests {
             .appending(path: "pipeline-focus-store-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: workspaceDir) }
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: workspaceDir))
-        store.restore()
-
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let repoCache = RepoCacheAtom()
         let cacheCoordinator = WorkspaceCacheCoordinator(
             bus: bus,
@@ -303,9 +295,7 @@ struct FilesystemGitPipelineIntegrationTests {
             .appending(path: "pipeline-origin-retry-store-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: workspaceDir) }
         let workspaceStore = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: workspaceDir))
-        workspaceStore.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let repo = workspaceStore.addRepo(at: rootPath)
         guard let worktreeId = repo.worktrees.first?.id else {
             Issue.record("Expected repo to have main worktree")

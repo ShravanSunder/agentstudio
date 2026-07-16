@@ -452,16 +452,10 @@ extension WorkspaceSurfaceCoordinator {
 
         viewRegistry.unregister(paneId)
         if shouldUnregisterRuntime {
-            if UUIDv7.isV7(paneId) {
-                let runtimePaneId = PaneId(uuid: paneId)
-                _ = unregisterRuntime(runtimePaneId)
-                Task { [paneEventBus] in
-                    await paneEventBus.evictReplay(sourceKey: EventSource.pane(runtimePaneId).description)
-                }
-            } else {
-                Self.logger.warning(
-                    "Skipping runtime unregister for non-v7 pane id \(paneId.uuidString, privacy: .public)"
-                )
+            let runtimePaneId = PaneId(existingUUID: paneId)
+            _ = unregisterRuntime(runtimePaneId)
+            Task { [paneEventBus] in
+                await paneEventBus.evictReplay(sourceKey: EventSource.pane(runtimePaneId).description)
             }
             runtime.removeSession(paneId)
         }
@@ -513,12 +507,7 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     private func registerCodeViewerRuntimeIfNeeded(for pane: Pane) -> SwiftPaneRuntime? {
-        guard let runtimePaneId = runtimePaneId(for: pane.id) else {
-            Self.logger.warning(
-                "Skipping code viewer runtime registration for non-v7 pane id \(pane.id.uuidString, privacy: .public)"
-            )
-            return nil
-        }
+        let runtimePaneId = runtimePaneId(for: pane.id)
         let canonicalMetadata = pane.metadata.canonicalizedIdentity(
             paneId: runtimePaneId,
             contentType: .codeViewer
@@ -541,7 +530,7 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     private func registerRuntimeIfNeeded(runtime: any PaneRuntime, for pane: Pane) {
-        guard let runtimePaneId = runtimePaneId(for: pane.id) else { return }
+        let runtimePaneId = runtimePaneId(for: pane.id)
         guard runtime.paneId == runtimePaneId else {
             Self.logger.error(
                 "Runtime pane id mismatch during registration for pane \(pane.id.uuidString, privacy: .public)"
@@ -560,14 +549,8 @@ extension WorkspaceSurfaceCoordinator {
         registerRuntime(runtime)
     }
 
-    private func runtimePaneId(for paneId: UUID) -> PaneId? {
-        guard UUIDv7.isV7(paneId) else {
-            Self.logger.error(
-                "Runtime registration requested for non-v7 pane id \(paneId.uuidString, privacy: .public)"
-            )
-            return nil
-        }
-        return PaneId(uuid: paneId)
+    private func runtimePaneId(for paneId: UUID) -> PaneId {
+        PaneId(existingUUID: paneId)
     }
 
     private func registerPaneFilesystemContextIfNeeded(for pane: Pane) {
@@ -581,13 +564,7 @@ extension WorkspaceSurfaceCoordinator {
         worktree: Worktree,
         repo: Repo
     ) -> TerminalPaneMountView? {
-        guard UUIDv7.isV7(pane.id) else {
-            Self.logger.error(
-                "Unable to restore runtime for non-v7 pane id \(pane.id.uuidString, privacy: .public)"
-            )
-            return nil
-        }
-        let runtimePaneId = PaneId(uuid: pane.id)
+        let runtimePaneId = PaneId(existingUUID: pane.id)
         let runtimeWasAlreadyRegistered = runtimeForPane(runtimePaneId) != nil
         if let undone = surfaceManager.undoClose() {
             if undone.metadata.paneId == pane.id {
@@ -626,7 +603,7 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     /// Recreate views for all restored panes in all tabs, including drawer panes.
-    /// Called once at launch after store.restore() populates persisted state.
+    /// Called once after the prepared SQLite composition is installed.
     ///
     /// Startup is staged so the active tab is restored first, then background tabs
     /// are hydrated cooperatively with yields to keep first-interaction latency low.
@@ -642,7 +619,9 @@ extension WorkspaceSurfaceCoordinator {
             RestoreTrace.log("restoreAllViews inputBounds=nil")
         }
         let orderedPaneIds = TerminalRestoreScheduler.order(
-            Self.orderedUniquePaneIds(store.tabLayoutAtom.tabs.flatMap(\.allPaneIds)).map(PaneId.init(uuid:)),
+            Self.orderedUniquePaneIds(store.tabLayoutAtom.tabs.flatMap(\.allPaneIds)).map {
+                PaneId(existingUUID: $0)
+            },
             resolver: visibilityTierResolver
         ).map(\.uuid)
         RestoreTrace.log(
@@ -655,7 +634,7 @@ extension WorkspaceSurfaceCoordinator {
         }
 
         // Seed slots for all panes before creating any views.
-        // Panes already exist in the store from store.restore().
+        // Panes already exist in the installed canonical composition.
         // SwiftUI body may run before restoreAllViews completes,
         // so slots must exist before the first createViewForContent call.
         let allPaneIds = store.tabLayoutAtom.tabs.flatMap(\.activePaneIds)
@@ -671,10 +650,10 @@ extension WorkspaceSurfaceCoordinator {
         }
 
         let visiblePaneIds = orderedPaneIds.filter {
-            visibilityTierResolver.tier(for: PaneId(uuid: $0)) == .p0Visible
+            visibilityTierResolver.tier(for: PaneId(existingUUID: $0)) == .p0Visible
         }
         let hiddenPaneIds = orderedPaneIds.filter {
-            visibilityTierResolver.tier(for: PaneId(uuid: $0)) == .p1Hidden
+            visibilityTierResolver.tier(for: PaneId(existingUUID: $0)) == .p1Hidden
         }
         let resolvedPaneFramesByTabId = resolveInitialFramesByTabId(in: terminalContainerBounds)
         var progress = RestoreAllViewsProgress()

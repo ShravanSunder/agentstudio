@@ -57,7 +57,7 @@ struct TerminalActivityDerivedEventTests {
             unseenActivityDebounceDuration: .milliseconds(750),
             unseenActivityClock: clock
         )
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 2)
@@ -91,7 +91,7 @@ struct TerminalActivityDerivedEventTests {
             unseenActivityClock: clock,
             nowMilliseconds: { nowMilliseconds.get() }
         )
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 2)
@@ -142,7 +142,7 @@ struct TerminalActivityDerivedEventTests {
             subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let clock = TestPushClock()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         let attendedPaneIds = PaneSetBox()
         let router = TerminalActivityRouter(
             bus: bus,
@@ -205,7 +205,7 @@ struct TerminalActivityDerivedEventTests {
             unseenActivityDebounceDuration: .milliseconds(750),
             unseenActivityClock: clock
         )
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 2)

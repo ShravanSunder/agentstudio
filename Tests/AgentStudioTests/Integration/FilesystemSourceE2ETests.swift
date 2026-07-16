@@ -17,10 +17,7 @@ extension E2ESerializedTests {
             let workspaceDir = repoURL.deletingLastPathComponent().appending(path: "workspace-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: workspaceDir) }
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-                persistor: WorkspacePersistor(workspacesDir: workspaceDir))
-            store.restore()
-
+                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
             let repo = store.addRepo(at: repoURL)
             let worktree = Worktree(
                 repoId: repo.id,

@@ -45,14 +45,25 @@ enum WorkspacePersistenceSnapshotAssemblyRejection: Error, Equatable, Sendable {
     case invalidDefaultArrangementCount(tabID: UUID, count: Int)
     case duplicateArrangementID(UUID)
     case tabPaneNotFound(tabID: UUID, paneID: UUID)
+    case duplicateTabPaneMembership(tabID: UUID, paneID: UUID)
     case paneOwnedByMultipleTabs(paneID: UUID, firstTabID: UUID, secondTabID: UUID)
     case arrangementPaneNotOwnedByTab(tabID: UUID, arrangementID: UUID, paneID: UUID)
     case drawerViewPaneNotOwnedByTab(tabID: UUID, arrangementID: UUID, drawerID: UUID, paneID: UUID)
+    case drawerViewNotFound(tabID: UUID, arrangementID: UUID, drawerID: UUID)
+    case drawerViewParentPaneNotInArrangement(
+        tabID: UUID,
+        arrangementID: UUID,
+        drawerID: UUID,
+        parentPaneID: UUID
+    )
+    case tabPaneNotReferenced(tabID: UUID, paneID: UUID)
     case activeTabNotFound(UUID)
     case missingActiveArrangement(tabID: UUID)
     case activeArrangementNotFound(tabID: UUID, arrangementID: UUID)
+    case activeArrangementHasNoLivePane(tabID: UUID, arrangementID: UUID)
     case activePaneArrangementNotFound(arrangementID: UUID)
     case activePaneNotInArrangement(arrangementID: UUID, paneID: UUID)
+    case activePaneIsMinimized(arrangementID: UUID, paneID: UUID)
     case activeDrawerArrangementNotFound(ArrangementDrawerCursorKey)
     case activeDrawerNotFound(ArrangementDrawerCursorKey)
     case activeDrawerChildNotFound(key: ArrangementDrawerCursorKey, childPaneID: UUID)
@@ -65,16 +76,6 @@ enum WorkspacePersistenceSnapshotAssemblyResult: Equatable, Sendable {
 
 struct WorkspacePersistenceSnapshotFinalizationInput: Equatable, Sendable {
     let persistedAt: Date
-}
-
-struct WorkspacePersistenceSnapshotRepairReport: Equatable, Sendable {
-    let repairedTabIDs: [UUID]
-    let activeTabIDChanged: Bool
-}
-
-struct WorkspacePersistenceSnapshotFinalization: Equatable, Sendable {
-    let bundle: WorkspaceSQLiteSaveBundle
-    let repairReport: WorkspacePersistenceSnapshotRepairReport
 }
 
 struct WorkspacePersistenceSnapshotAssembly: Equatable, Sendable {
@@ -95,7 +96,7 @@ struct WorkspacePersistenceSnapshotAssembly: Equatable, Sendable {
 
     func finalize(
         input: WorkspacePersistenceSnapshotFinalizationInput
-    ) throws -> WorkspacePersistenceSnapshotFinalization {
+    ) throws -> WorkspaceSQLiteSaveBundle {
         try WorkspacePersistenceSnapshotAssembler.finalize(assembly: self, input: input)
     }
 }

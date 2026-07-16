@@ -17,7 +17,7 @@ Focused type-state spec checkpoint:
 Focused S1 accepted hashes:
 
 ```text
-6282630cb420956073e279bb65a35189a54fb9bedddf692d2a22a8bc8adeb93a  maintained spec
+737dcdb0278719b3294dacd757921206bc0517eda0c7fa0f949932b760c041d1  maintained spec
 7b312eaef20411b3d982fd99e0d427fbadbf00430e2ea6f7bf9fd99d901cac81  focused API
 ```
 
@@ -44,7 +44,7 @@ Implement the accepted performance boundary contracts without asking the executo
 2. keep one typed global `RuntimeFactBus` for semantic product facts;
 3. move fleet/source/state-machine work off MainActor and retain typed, bounded MainActor apply owners;
 4. preserve exact lifecycle, repair, user-intent, persistence, and security semantics under overload and teardown;
-5. separate strict composition restore, prioritized terminal activation, and
+5. separate strict SQLite composition load/new-database creation, prioritized terminal activation, and
    non-blocking repository/filesystem/Git/topology derivation so external work cannot gate an
    active pane becoming typing-ready;
 6. prove typing, cursor, TUI mouse, focus, reveal, terminal throughput, filesystem recovery, MainActor fairness, and scrollback memory with correlated current-run evidence.
@@ -57,8 +57,8 @@ The planning run read the complete accepted artifacts:
 
 | Source | Lines | Contract used by this plan |
 | --- | ---: | --- |
-| `docs/specs/2026-07-10-agentstudio-performance-boundaries/agentstudio-performance-boundaries.md` | 2,013 | shared primitives, startup-lane separation, fact transport, MainActor ledger, harness, scope |
-| `docs/specs/2026-07-09-watched-folder-admission-mainactor-fairness/watched-folder-admission-mainactor-fairness.md` | 1,999 | WF/WS/FI/TA/EV/BR requirements, strict composition restore, independent topology derivation, and proof |
+| `docs/specs/2026-07-10-agentstudio-performance-boundaries/agentstudio-performance-boundaries.md` | 2,054 | shared primitives, startup-lane separation, fact transport, MainActor ledger, harness, scope |
+| `docs/specs/2026-07-09-watched-folder-admission-mainactor-fairness/watched-folder-admission-mainactor-fairness.md` | 1,999 | WF/WS/FI/TA/EV/BR requirements, strict SQLite composition load/new-database creation, independent topology derivation, and proof |
 | `docs/specs/2026-07-09-watched-folder-admission-mainactor-fairness/filesystem-observation-admission-lifecycle.md` | 958 | fixed fleet slots, callback authority, replacement, FIFO retirement, replay, native release, and shutdown debt |
 | `docs/specs/2026-07-09-ghostty-terminal-interaction-fairness/ghostty-terminal-interaction-fairness.md` | 1,886 | CB/GT/GA/TS/AI/SC/SF/GV requirements, prioritized terminal activation, and proof |
 | `docs/specs/2026-07-09-ghostty-terminal-interaction-fairness/ghostty-action-admission-manifest.md` | 186 | exhaustive action disposition and mechanical coverage |
@@ -71,7 +71,8 @@ Live repo anchors were rechecked at `0fd9a080`: the existing global `PaneRuntime
 
 - Shared admission mechanics, typed fact transport, topic filtering/recovery, MainActor work attribution, architecture enforcement, and the shared performance workload.
 - Watched-folder callback admission, repair, fair scanning, root indexing, topology projection/apply, persistence handoff, filesystem-to-Git invalidation, and bounded Bridge filesystem refresh/currentness.
-- Strict composition restore, independent topology derivation, legacy workspace JSON hard cut, and
+- Strict SQLite composition load/new-database creation, independent topology derivation,
+  legacy workspace JSON boot-path deletion, and
   domain-separated steady-state persistence requests.
 - Ghostty callback lifetime, tick admission, action/user-intent admission, terminal signal hard cut, activity/notification parity, agent-report IPC, secure input, prioritized startup activation, surface geometry/visibility/lifetime, atomic vendor cutover, and performance proof.
 
@@ -81,8 +82,8 @@ Live repo anchors were rechecked at `0fd9a080`: the existing global `PaneRuntime
 - Full Bridge mutation journal, normalized React store, memoization, or list/content virtualization.
 - A host-owned VT parser, renderer, or frame loop.
 - Actor-per-terminal-pane or several product-global event buses.
-- Persistence redesign beyond the accepted forward migration removing legacy
-  import state and topology-derived pane facets; no long-lived compatibility pipeline.
+- SQLite schema compaction or historical-migration rewriting. Unused historical
+  columns/tables may remain; no long-lived compatibility pipeline is added.
 - Rewriting already-lazy SwiftUI lists without a measured violation.
 
 ## 4. Shared Implementation Rules
@@ -95,8 +96,9 @@ Live repo anchors were rechecked at `0fd9a080`: the existing global `PaneRuntime
 6. OTLP fields remain content-safe. Raw paths, UUIDs, pointers, terminal text, titles, URLs, errors, payload strings, clipboard data, and screen content are prohibited.
 7. A hard cut removes old publication/authority paths in the same integration slice. No task is complete with dual global publication, dual persistence writers, or dual terminal fact authorities.
 8. High-conflict files have one integration owner per integration gate. Parallel lanes may add disjoint primitives and focused tests, but they do not independently edit the same composition root.
-9. Canonical atoms remain state or pure-derived-state owners. Their narrow methods only assign caller-supplied values, suppress equal writes, perform simple representation-local transforms, and maintain storage indexes/observation invariants. Pure domain types validate and decide; mutation coordinators sequence cross-owner changes; persistence coordinators/adapters reserve preimages and transact assignments. No atom/facade prepares a mutation plan, rejection, semantic effect, persistence descriptor, or cross-owner workflow. W4.5 constructs one long-lived adapter bundle in production, routes every installed persistence-affecting writer through its domain gateway, and proves pre-mutation paging through real front doors. W4.5z hard-cuts durable terminal identity to a non-optional opaque `ZmxSessionID`, UUIDv7 generation for new values, exact existing-value preservation, and mutation-free restore before terminal activation or W5+ resumes.
+9. Canonical atoms remain state or pure-derived-state owners. Their narrow methods only assign caller-supplied values, suppress equal writes, perform simple representation-local transforms, and maintain storage indexes/observation invariants. Pure domain types validate and decide; mutation coordinators sequence cross-owner changes; persistence coordinators/adapters reserve preimages and transact assignments. No atom/facade prepares a mutation plan, rejection, semantic effect, persistence descriptor, or cross-owner workflow. Every production creation owner calls an explicit self-documenting UUIDv7-named API at the creation call site for every new durable identity before atom insertion—for example, `UUIDv7.generate()` or a type-specific `generateUUIDv7()`. Atoms and model initializers do not hide durable identity generation in defaults. UUIDv7 is the preferred generation policy for new durable IDs. Existing persisted IDs are opaque and load exactly without UUID-version validation, rewrite, migration, backfill, or adoption. No migration implementation or migration-specific proof belongs to this cut. W4.5 constructs one long-lived adapter bundle in production, routes every installed persistence-affecting writer through its domain gateway, and proves pre-mutation paging through real front doors. W4.5z hard-cuts durable terminal identity to a non-optional opaque `ZmxSessionID`, exact existing-value preservation, and mutation-free startup load before terminal activation or W5+ resumes.
 10. Every workload-producing path is acyclic per checked attempt/generation and proves separate admission, MainActor service, and downstream-expansion bounds. Acknowledgements may close custody; retries/source reconfiguration require a new bounded attempt/generation and cannot synchronously re-enter with payload. Composition and topology install independently inside one persistence runtime, and telemetry remains a bounded fail-open sidecar rather than a correctness edge.
+11. In this plan, repair/reconciliation/fallback refers only to external filesystem observation, watched-root currentness, topology discovery, or fact-gap recovery. SQLite composition startup and durable identity have no repair, restoration, reconciliation, adoption, backfill, fallback, quarantine, recreation, or recovery path. Existing empty/corrupt/incomplete/invalid SQLite fails content-safely without changing core/local files or sidecars.
 
 ## 4.1. Security Context
 
@@ -239,7 +241,7 @@ exact-latency series or exact-valued log field.
 
 After S1 interfaces stabilize, execute the watched and terminal plans in parallel using disjoint files. After S2 stabilizes, domain lanes may build and test cutover-ready `RuntimeFactBus` endpoints in isolated assemblies, but production global wiring stays entirely legacy until IG1. S3 must exist before acceptance-grade measurements.
 
-- Watched pre-IG1 preparation/cuts: W1a, W2a, dormant W1b, W3–W10, split-domain W4.5 strict composition restore, W4.5z durable terminal identity, atomic W2b, and atomic W7d including the legacy JSON/schema hard cut. W1b's native observation adapter remains isolated from the complete legacy `FSEventStreamClient -> FSEventBatch -> FilesystemActor` production path; W2b replaces that protocol/composition and deletes the legacy batch path atomically. W11/W12 are post-IG1.
+- Watched pre-IG1 preparation/cuts: W1a, W2a, dormant W1b, W3–W10, split-domain W4.5 strict SQLite composition load/new-database creation, W4.5z durable terminal identity, atomic W2b, and atomic W7d including legacy workspace JSON boot-path deletion without schema migration. W1b's native observation adapter remains isolated from the complete legacy `FSEventStreamClient -> FSEventBatch -> FilesystemActor` production path; W2b replaces that protocol/composition and deletes the legacy batch path atomically. W11/W12 are post-IG1.
 - The focused W1b/W2 child plan supersedes the older registration-keyed/raw-
   port/per-generation-seal task vocabulary. W1b dormant readiness includes the
   isolated actor/SourceGate transfer and real native lifetime proof; W2a
@@ -248,19 +250,20 @@ After S1 interfaces stabilize, execute the watched and terminal plans in paralle
 - Terminal pre-IG1 preparation/cuts: W4.5z then T1–T11 including T10.5
   prioritized startup activation. T12 is post-IG1 and post-CG1.
 
-### Shared lane S3.5 — Visible-First View Composition Restore
+### Shared lane S3.5 — Visible-First Nonterminal Content Mounting
 
 Depends on accepted W4.5 composition and coordinates with T10.5 without owning
-terminal runtime activation. Add `ViewCompositionRestoreOwner` as the bounded
+terminal runtime activation. Add `NonterminalContentMountOwner` as the bounded
 visible-first owner for webview, code-viewer, Bridge, and other nonterminal pane
-content. Replace the generic serial `restoreAllViews` loop with an exhaustive
-prepared-content dispatch: terminal cases go only to T10.5; nonterminal cases go
+content. Delete the legacy generic serial method named `restoreAllViews` and
+replace it with exhaustive prepared-content activation/mount dispatch: terminal
+cases go only to T10.5; nonterminal cases go
 only to this owner; the empty-workspace case installs the shell empty state.
 Expanded-drawer panes are visible priority, and each pane may mount exactly once
 per composition generation.
 
-Modify `WorkspaceSurfaceCoordinator+ViewLifecycle.swift`, launch restore call
-sites, `ViewRegistry`, and focused launch-restore tests. Prove active
+Modify `WorkspaceSurfaceCoordinator+ViewLifecycle.swift`, launch-mount call
+sites, `ViewRegistry`, and focused launch-mount tests. Prove active
 nonterminal, active terminal, mixed terminal/nonterminal, empty workspace, and
 expanded-drawer behavior. `activeContentReady` gates only the active pane;
 `visibleContentSettled` reports all visible content-specific outcomes without
@@ -370,7 +373,7 @@ The following subgroups define the broader fixtures covered by those two rules a
 
 - forbidden filesystem/serialization/fleet work in typed MainActor appliers;
 - `WorkspacePersistenceCoordinator` queue/drain/retry/checkpoint arbitration isolated to MainActor or any canonical atom/facade minting a revision outside its outer transaction owner;
-- direct product datastore mutations outside `WorkspacePersistenceCoordinator` after W7 migration;
+- direct product datastore mutations outside `WorkspacePersistenceCoordinator` after the W7 cutover;
 - closure-backed, repository-handle-bearing, undeclared-family, or non-inventoried local persistence mutations;
 - large fleet transforms in SwiftUI body-derived code.
 - new/touched atom methods that accept commands/plans or produce validation,
@@ -508,10 +511,10 @@ G0 baseline/spec/repo identity
                                                       |   |     |
       +-- watched pre-cut: W1a/W2a/W1b, W3-W10, W2b --+---+-----+
       |   W4.5p pure atoms/live bundle/front-door proof precedes |
-      |   W4.5a-d/z strict restore, W5+, and W7d                 |
+      |   W4.5a-d/z strict SQLite load/create, W5+, W7d         |
       +-- terminal pre-cut: T1-T11 incl. T10.5 activation -----+
       |   T11 keeps the complete legacy downstream route        |
-      +-- S3.5 nonterminal visible-first view restore ----------+
+      +-- S3.5 nonterminal visible-first content mounting ------+
       +-- S4a-S4e cutover-ready endpoints ----------------------+
                                                                   |
                    IG1 one atomic global transport hard cut
@@ -565,8 +568,8 @@ The executor may allocate these disjoint initial lanes:
 | F2 | strict composition validation/apply and independent topology-lane tests | boot composition roots and persistence hard cut |
 | G | Ghostty callback control blocks/tick gate and tests | app/surface lifecycle files |
 | H | terminal activity mailbox/projector and tests | terminal/inbox boot and router |
-| H2 | terminal activation scheduler/readiness tests | AppDelegate launch restore, view lifecycle, SurfaceManager |
-| H3 | nonterminal view-composition restore owner/readiness tests | launch restore, view lifecycle, ViewRegistry |
+| H2 | terminal activation scheduler/readiness tests | legacy-named `AppDelegate+LaunchRestore.swift` as a rename/removal target, view lifecycle, SurfaceManager |
+| H3 | nonterminal content-mount owner/readiness tests | legacy-named launch-restore call sites as rename/removal targets, view lifecycle, ViewRegistry |
 | I | IPC report contracts/contribution and tests | authentication/server/runtime adapter |
 | J | Bridge refresh request/coordinator/currentness and tests | coordinator/controller/WebKit surface |
 | K | harness/evidence types/verifier tests | `.mise.toml`, shared runner integration |
@@ -586,7 +589,7 @@ High-conflict files are single-owner at each gate: `WorkspaceSurfaceCoordinator.
 | workload flow has no same-attempt cascade | parent acyclic-workload contract | S5/S6; every domain cut | checked owner/route manifest plus literal correlation/generation count ledger; independent negative back-edge/observation fixtures | compile/static + deterministic unit/integration counts + Victoria runtime evidence; current source/HEAD/run | required; acknowledgements are payload-free and every retry/reconfiguration advances a checked attempt/generation |
 | one global semantic fact bus filters before queue/replay | parent fact taxonomy; EV1–EV11 | S2/S4/IG1 | `RuntimeFactBus.subscribe/post`; independent topic/replay table and structural source inventory | unit + integration + architecture lint; current source tree | required; IG1 atomic |
 | MainActor attribution and availability are causal and bounded | parent MainActor last mile; TA8 | S3, every applier, DQ1 | `MainActorWorkLedger`; independent heartbeat plus interaction stages | unit + Victoria observability + native E2E; current PID/run/build/root manifest | required; queue/service/liveness/interaction gates all pass |
-| composition, content mounting, terminal activation, and repository startup are independent | parent startup-lane contract; SF12–SF17 | W4.5/W4.5z/W5/W7; S3.5/T10.5 | invalid composition with zero mutation/activation; accepted immutable composition with one bounded apply; UUIDv7 new creation; exact historical-ID round-trip; zero startup writes/list calls; exact stored-ID activation ledger; delayed topology control | unit + SQLite/runtime integration + Victoria/native E2E; current PID/run/build | required; active terminal/nonterminal readiness and empty shell precede delayed external lanes; each pane mounts once and external lanes cannot alter composition/residency/session identity |
+| composition, content mounting, terminal activation, and repository startup are independent | parent startup-lane contract; SF12–SF17 | W4.5/W4.5z/W5/W7; S3.5/T10.5 | valid SQLite exact load with zero writes; only a newly created empty database with current-open provenance performs one UUIDv7-backed empty-workspace creation transaction; preexisting empty and corrupt/incomplete/invalid core or local SQLite terminate with unchanged files/sidecars and zero canonical mutation/activation/writes/fallback; accepted immutable composition has one bounded apply; exact stored-ID preservation without migration; zero zmx-list calls; delayed topology control | unit + SQLite/runtime integration + Victoria/native E2E; current PID/run/build | required; active terminal/nonterminal readiness and empty shell precede delayed external lanes; each pane mounts once and external lanes cannot alter composition/residency/session identity |
 | UI-memory persistence is settled/coalesced, never callback-rate | parent UI-memory checkpoint contract | W4.5p/W7/W8 | explicit end-gesture or injected-clock latest settle gate plus revision/pump counters; literal N-callback oracle | unit + AppKit-boundary integration + Victoria MainActor/persistence counts; current source/run | required; N continuous callbacks yield one settled atom assignment/revision/request, zero fact posts, and no Observation feedback revision |
 | watched loss never authorizes false removal | WF/WS/FI | W1–W5 | callback/source-gate/scheduler/topology applier; literal filesystem manifest | unit + real filesystem/Git integration + workload | required; split callback, scan, apply |
 | watched roots never falsely present last-known state as current | watched currentness contract | W5b/W11/DQ1 | `WatchedFolderCurrentnessAtom` + Repo Explorer currentness read model | unit + integration + PID-targeted native visibility; current source/run/root generation | required; last-known content remains usable but visibly non-current |
@@ -609,7 +612,7 @@ Accepted specification SHA256 values for this implementation-plan revision:
 
 | Artifact | SHA256 |
 | --- | --- |
-| `agentstudio-performance-boundaries.md` | `bc7a065d7b4c518a82923520e68da116eaf8cdb92dfa1bc4bb05f455cf38a801` |
+| `agentstudio-performance-boundaries.md` | `737dcdb0278719b3294dacd757921206bc0517eda0c7fa0f949932b760c041d1` |
 | `watched-folder-admission-mainactor-fairness.md` | `ad5081fee1f1e9ba726beec33681b2b767430bed97c2b21af87e998b9b8d3122` |
 | `ghostty-terminal-interaction-fairness.md` | `7bfdbf98f59ca5fa84ceff85deb05d7dd1ea69e62d03d3c4b1ef7fc6406bccdb` |
 | `ghostty-action-admission-manifest.md` | `68f81a879119f331291f2fa66dd1442a07a20494caa70b4b80c702c69169c5fa` |

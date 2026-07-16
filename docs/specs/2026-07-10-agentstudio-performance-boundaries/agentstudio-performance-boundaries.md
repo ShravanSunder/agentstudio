@@ -121,7 +121,7 @@ startup composition boundary
 terminal activation boundary
   owns: prioritized surface creation, zmx attachment, host mounting, focus,
         per-pane runtime readiness, retry, and cancellation
-  exposes: active-terminal typing readiness and all-restorable readiness
+  exposes: active-terminal typing readiness and all-terminal-activations-settled
   does not own: canonical pane structure or repository availability
 
 external reconciliation boundary
@@ -1344,7 +1344,7 @@ semantic-resolution dependencies or returning to a manual name manifest.
 The same fail-closed ownership grammar covers configuration-lifetime slot-index containers.
 Their class-typed dynamic-custody edges must be `weak`, and raw state may not
 retain another strong alias to those nodes outside its declared live head/tail
-or bounded cleanup owner. Required restored-source mutations replace the weak
+or bounded cleanup owner. Required mutation fixtures replace the weak
 edge with strong storage, add another strong shell property, and add a strong
 raw-state alias; each must fail lint while production passes. Runtime cleanup
 tests continue to prove payload-bearing custody, turn bounds, counters, age,
@@ -1571,8 +1571,8 @@ attribution.
 
 ### Startup Composition, Terminal Activation, And External Derived Work
 
-Startup has three independently owned readiness lanes. The composition lane is
-strictly:
+Startup has three independently owned readiness lanes. An initialized
+workspace's composition lane is strictly:
 
 ```text
 SQLite decode
@@ -1582,13 +1582,44 @@ SQLite decode
   -> terminal activation
 ```
 
-Invalid persisted composition is rejected before canonical mutation or terminal
-activation. Startup does not normalize, choose fallback selection, synthesize
-cursors, repair membership, or write canonical state. The accepted composition
-includes pane identity, content/provider, the terminal's required
-`ZmxSessionID`, launch configuration, drawer/tab/layout membership, local
-cursors, and window/sidebar presentation state. It excludes repository/worktree
-identity, Git state, filesystem currentness, and derived pane location context.
+Valid SQLite composition loads exactly. Validation is pure and non-mutating: it
+does not normalize membership, choose fallback selection, synthesize cursors,
+or rewrite persisted values. Invalid, unavailable, or rejected composition is a
+startup invariant failure. The app records a content-safe diagnostic and
+terminates loudly before canonical mutation, window/content activation,
+terminal activation, or fallback selection.
+
+A newly created empty SQLite database, proven by database-open provenance from
+the current startup, is the only bootstrap case. The startup coordinator creates
+and persists exactly one default empty workspace, generating each new durable
+identity through its named UUIDv7 API before atom insertion; the workspace
+identity uses `UUIDv7.generate()`. Empty composition creates no pane, tab, or zmx
+identity. The persisted result then enters the same strict
+decode/validation/apply lane. A preexisting database with no workspace row is
+invalid, not uninitialized. Failure to persist or validate the new database's
+seed is the same loud invariant failure, not permission to synthesize another
+workspace.
+
+An existing empty, corrupt, incomplete, or otherwise invalid core or local
+SQLite database produces a typed content-safe startup failure. Startup leaves
+the core database, selected local database, and their sidecars unchanged: it
+does not quarantine, recreate, recover, repair, migrate, backfill, or fall back
+to another source. That failure performs zero canonical mutation, zero content
+or terminal activation, and zero persistence writes.
+
+For every new durable identity, the production creation owner uses an explicit
+named UUIDv7 API visible at the call site, such as `UUIDv7.generate()` or a
+type-specific `generateUUIDv7()`. Canonical atoms do not hide identity
+generation in default arguments. This generation rule never reinterprets or
+rewrites an existing persisted identity.
+
+The accepted composition includes pane identity, content/provider, the
+terminal's required `ZmxSessionID`, launch configuration, drawer/tab/layout
+membership, local cursors, and window/sidebar presentation state. It excludes
+repository/worktree identity, Git state, filesystem currentness, and derived
+pane location context.
+Preference/settings JSON stores are independent owners and are not workspace
+composition inputs or fallbacks.
 
 Every terminal pane owns a non-optional opaque `ZmxSessionID`. The App or
 coordinator owner of a new terminal-pane creation intent independently mints it
@@ -1599,10 +1630,12 @@ subprocess boundary. Pane, repository, worktree, path, launch-directory,
 drawer, or other topology values never derive it. New arbitrary strings cannot
 represent zmx identity. Decode accepts every existing nonblank stored value,
 including historical UUIDv4 and `as-*` values, without UUID-version validation,
-interpretation, conversion, or rewrite. UUIDv7 is the creation rule for new
-identities, not a validity rule for existing data. This cut changes no schema
-and performs no migration, backfill, reconciliation, adoption, or identity
-repair.
+interpretation, conversion, or rewrite. UUIDv7 is the preferred creation rule
+for new identities, not a validity rule for existing data. Existing SQLite
+identity text is used exactly as stored. This cut changes no schema and adds no
+migration, migration proof, backfill, reconciliation, adoption, or identity
+rewrite. Existing GRDB migrations remain unchanged so databases can open;
+unused columns/tables may remain, and schema compaction is out of scope.
 
 Canonical `Pane` exposes no `repoId` or `worktreeId` facet/accessor.
 `SessionResidency` contains only repository-independent process/UI lifecycle
@@ -1610,23 +1643,23 @@ states; repository or worktree unavailability is never a residency case.
 
 An accepted composition transaction emits one immutable
 `TerminalActivationInput`. The terminal activation owner immediately schedules
-restorable terminal panes by strict priority: active visible terminals, other
+activatable terminal panes by strict priority: active visible terminals, other
 visible/expanded-drawer terminals, then hidden terminals. It attaches each zmx
 terminal with the exact stored `ZmxSessionID`. Activation performs no live-
 session discovery, identity inference, adoption, fallback, or persistence
 mutation. Visibility changes scheduling priority only; it never changes session
 identity.
 
-Nonterminal restoration has a separate `ViewCompositionRestoreOwner`. It owns
+Nonterminal content mounting has a separate `NonterminalContentMountOwner`. It owns
 visible-first construction and MainActor mounting for webview, code-viewer,
 Bridge, and other nonterminal content; it does not create, attach, or classify
 terminal runtimes. The prepared composition exposes an exhaustive content union,
-so each pane is routed to exactly one restoration owner and can mount at most
+so each pane is routed to exactly one activation/mount owner and can mount at most
 once for a composition generation. Expanded-drawer panes are visible priority.
 Background nonterminal mounting does not delay active-content readiness.
 
 `windowReady`, `activeContentReady`, `typingReady`,
-`visibleContentSettled`, and `allRestorableTerminalsReady` are distinct
+`visibleContentSettled`, and `allTerminalActivationsSettled` are distinct
 current-generation milestones. `windowReady` requires accepted composition and
 the workspace shell; an empty workspace reaches `activeContentReady` when its
 empty state is installed. An active nonterminal pane reaches
@@ -1665,7 +1698,8 @@ Atoms do not interpret commands/events/workflows, validate or normalize domain
 input, prepare mutation plans/preimages/rejections/effects, coordinate other
 owners, persist, perform I/O or async work, or publish/subscribe through runtime
 transport. Pure domain types decide; coordinators sequence; persistence adapters
-capture/restore; projectors compute off-main; atoms receive final state. A
+capture exact preimages and transact caller-approved assignments; projectors
+compute off-main; atoms receive final state. A
 `MainActorMutationApplier` is a coordinator/applier boundary, not an atom
 protocol. Atom observation never initiates canonical mutation or fact delivery.
 
@@ -1675,6 +1709,8 @@ toggles/selections may commit once immediately; text-like or bursty UI memory
 may update its UI owner immediately while the persistence pump coalesces the
 latest committed revision. No pointer/key callback performs SQLite work, and
 persistence acknowledgement never repairs or mutates installed canonical state.
+Only `WorkspacePreparedCompositionApplier` performs startup composition apply.
+Persistence acknowledgements never restore, repair, or mutate atoms.
 
 ### Safe Authority Defaults
 
@@ -1855,7 +1891,7 @@ confounded causal claim.
 | semantic topic transport | parent + watched-folder child | structural policy, queue admission, lag/recovery proof |
 | Ghostty tick/action admission | terminal child | state/origin tables, races, sustained producer pressure |
 | terminal sample contraction/activity parity | terminal child | sequence oracle, bounded flood, semantic parity |
-| startup composition and terminal readiness | parent + terminal child | invalid composition with zero canonical mutation/activation; accepted immutable composition with one bounded apply; new UUIDv7 identity creation; historical UUIDv4/`as-*` exact round-trip; zero startup writes and zmx-list calls; active-before-hidden exact-ID attachment; distinct window/typing/all-restorable milestones; delayed repository-lane injection |
+| startup composition and terminal readiness | parent + terminal child | valid SQLite exact load with zero writes; only a newly created empty SQLite database with current-open provenance performs one UUIDv7-backed empty-workspace creation transaction; preexisting empty and corrupt/incomplete/invalid core or local SQLite terminate loudly with unchanged database files/sidecars and zero canonical mutation/activation/writes/fallback; accepted immutable composition has one bounded apply; exact stored-ID preservation without migration; zero zmx-list calls; active-before-hidden exact-ID attachment; delayed repository-lane injection |
 | secure input/screen boundary | terminal child | owner-state races, denied capture, export canaries |
 | combined typing/cursor symptom | shared harness | correlated watched-pressure, input-to-frame-layer-publication tails, and native visible outcomes |
 
@@ -1884,7 +1920,7 @@ call, raw lock/state escape, or alias passed to an unclassified helper. It does
 not trust production-maintained visit counters as its sole oracle. Preserved RED
 receipts insert uncounted journal-history traversal, non-hash gather slot scan,
 latest retention-order scan, helper rename, and aliased/pass-through scans and
-prove that the independent structural rule fails before restored source passes.
+prove that the independent structural rule fails before preserved source passes.
 
 Deterministic destructor barriers separately prove that queued cleanup becomes
 in-flight without releasing physical capacity, diagnostics during destruction
@@ -1913,7 +1949,7 @@ weak/deinit payload oracle and proves recovery-only metadata admission through
 bounded turns, counters, age, and quiescence. A preserved payload-bearing
 fleet-root or strong-tail mutation must fail the weak/deinit payload oracle.
 Private recovery-only metadata lifetime is instead proved by the structural
-weak-edge and no-extra-strong-alias mutations above. Restored-source runtime
+weak-edge and no-extra-strong-alias mutations above. Preserved-source runtime
 proof covers recovery-only and mixed fleets at 1/100/10,000 slots; structural
 proof establishes that terminal root/cursor destruction cannot retain
 unaccounted metadata outside the shared cleanup quantum.
@@ -1950,8 +1986,13 @@ contract named by its child spec.
 - No claim that static code shape establishes the runtime-dominant hotspot.
 - No host-owned VT parser, renderer, or frame loop.
 - No claim that layer publication is physical display scanout.
-- No legacy JSON compatibility path. Forward SQLite migrations may remove
-  topology-derived pane facets and repository-coupled residency encodings.
+- No legacy workspace JSON import, migration, fallback, archive path, or
+  migration-specific proof and no new schema/data migration for this cut.
+  Preference/settings JSON owners remain independent. Existing GRDB migrations
+  remain unchanged so SQLite databases can open; unused columns/tables may remain, and startup
+  never uses them to backfill or rewrite composition. Startup never quarantines,
+  recreates, or recovers an existing core/local database; an existing empty,
+  corrupt, incomplete, or invalid database fails without changing its files.
 - No default-on screen capture or agent authority inferred from terminal data.
 - No permanent old/new compatibility pipelines.
 

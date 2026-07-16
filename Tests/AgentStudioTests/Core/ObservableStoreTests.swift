@@ -29,9 +29,7 @@ final class ObservableStoreTests {
                 .appending(path: "obs-tests-\(UUID().uuidString)")
         )
         store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
     }
 
     deinit {

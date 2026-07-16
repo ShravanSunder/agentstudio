@@ -12,9 +12,7 @@ final class PaneContentWiringTests {
     init() {
         installTestAtomRegistryIfNeeded()
         store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
     }
 
     // MARK: - WorkspaceStore.createPane(content:)
@@ -75,8 +73,8 @@ final class PaneContentWiringTests {
 
     @Test
 
-    func test_createPane_marksDirty() {
-        store.flush()
+    func test_createPane_marksDirty() async {
+        _ = await store.flushAsync()
         _ = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://test.com")!, showNavigation: false)),
             metadata: PaneMetadata(title: "Web")
@@ -111,73 +109,6 @@ final class PaneContentWiringTests {
     }
 
     // MARK: - Persistence round-trip
-
-    @Test
-
-    func test_webviewPane_persistsAndRestores() {
-        let persistDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        let persistor = WorkspacePersistor(workspacesDir: persistDir)
-        let store1 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-
-        let pane = store1.createPane(
-            content: .webview(WebviewState(url: URL(string: "https://round-trip.com")!, showNavigation: false)),
-            metadata: PaneMetadata(title: "Persist Web")
-        )
-        let tab = Tab(paneId: pane.id)
-        store1.appendTab(tab)
-        store1.flush()
-
-        // Restore into new store
-        let store2 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store2.restore()
-
-        let restored = store2.pane(pane.id)
-        #expect((restored) != nil)
-        #expect(restored?.title == "Persist Web")
-        if case .webview(let state) = restored?.content {
-            #expect(state.url.absoluteString == "https://round-trip.com")
-            #expect(!(state.showNavigation))
-        } else {
-            Issue.record("Expected .webview content after restore, got \(String(describing: restored?.content))")
-        }
-    }
-
-    @Test
-
-    func test_codeViewerPane_persistsAndRestores() {
-        let persistDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        let persistor = WorkspacePersistor(workspacesDir: persistDir)
-        let store1 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-
-        let filePath = URL(fileURLWithPath: "/tmp/code.swift")
-        let pane = store1.createPane(
-            content: .codeViewer(CodeViewerState(filePath: filePath, scrollToLine: 99)),
-            metadata: PaneMetadata(title: "Persist Code")
-        )
-        let tab = Tab(paneId: pane.id)
-        store1.appendTab(tab)
-        store1.flush()
-
-        let store2 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store2.restore()
-
-        let restored = store2.pane(pane.id)
-        #expect((restored) != nil)
-        if case .codeViewer(let state) = restored?.content {
-            #expect(state.filePath == filePath)
-            #expect(state.scrollToLine == 99)
-        } else {
-            Issue.record("Expected .codeViewer content after restore")
-        }
-    }
 
     // MARK: - ViewRegistry generalization
 
@@ -261,13 +192,13 @@ final class PaneContentWiringTests {
 
     @Test
 
-    func test_updatePaneWebviewState_marksDirty() {
+    func test_updatePaneWebviewState_marksDirty() async {
         // Arrange
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com")!)),
             metadata: PaneMetadata(title: "Web")
         )
-        store.flush()
+        _ = await store.flushAsync()
         #expect(!(store.isDirty))
 
         // Act

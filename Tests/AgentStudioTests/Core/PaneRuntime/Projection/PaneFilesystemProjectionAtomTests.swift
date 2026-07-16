@@ -154,7 +154,7 @@ struct PaneFilesystemProjectionAtomTests {
             Issue.record("Expected cwdSubtreeChanged pane filesystem context event")
             return
         }
-        #expect(context.paneId == PaneId(uuid: pane.id))
+        #expect(context.paneId == PaneId(existingUUID: pane.id))
         #expect(context.repoId == repoId)
         #expect(context.cwd == worktreeRoot.appending(path: "Sources"))
         #expect(context.worktreeId == worktreeId)
@@ -196,7 +196,7 @@ struct PaneFilesystemProjectionAtomTests {
             Issue.record("Expected gitWorkingTreeInCwd pane filesystem context event")
             return
         }
-        #expect(context.paneId == PaneId(uuid: pane.id))
+        #expect(context.paneId == PaneId(existingUUID: pane.id))
         #expect(context.repoId == repoId)
         #expect(context.cwd == worktreeRoot)
         #expect(staged == 2)

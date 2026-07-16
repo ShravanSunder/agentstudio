@@ -17,9 +17,7 @@ extension WebKitSerializedTests {
             let tempDir = FileManager.default.temporaryDirectory
                 .appending(path: "agentstudio-bridge-filesystem-refresh-\(UUID().uuidString)")
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-                persistor: WorkspacePersistor(workspacesDir: tempDir))
-            store.restore()
+                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
             let paneEventBus = makeTestPaneRuntimeEventBus()
             let viewRegistry = ViewRegistry()
             let coordinator = makeTestWorkspaceSurfaceCoordinator(
@@ -88,7 +86,7 @@ extension WebKitSerializedTests {
                     event: .paneFilesystemContext(
                         .cwdSubtreeChanged(
                             context: PaneFilesystemContext(
-                                paneId: PaneId(uuid: paneId),
+                                paneId: PaneId(existingUUID: paneId),
                                 repoId: headEndpoint.repoId,
                                 cwd: URL(fileURLWithPath: "/tmp/worktree"),
                                 worktreeId: headEndpoint.worktreeId
@@ -97,7 +95,7 @@ extension WebKitSerializedTests {
                             batchSeq: 10
                         )
                     ),
-                    paneId: PaneId(uuid: paneId)
+                    paneId: PaneId(existingUUID: paneId)
                 )
             )
 

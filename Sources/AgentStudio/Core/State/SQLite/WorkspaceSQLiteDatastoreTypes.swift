@@ -8,7 +8,6 @@ struct WorkspaceSQLiteDatastoreConfiguration: Sendable {
 enum WorkspaceSQLiteDatastoreError: Error, Equatable, Sendable {
     case missingConfiguration
     case useDatastoreLocalRepositoryCache
-    case coreQuarantineFailed
 }
 
 struct WorkspaceSQLiteDatastoreFailure: Error, Equatable, Sendable {
@@ -17,11 +16,6 @@ struct WorkspaceSQLiteDatastoreFailure: Error, Equatable, Sendable {
     init(_ error: any Error) {
         self.description = String(describing: error)
     }
-}
-
-enum LegacyImportFailureRecordOutcome: Equatable, Sendable {
-    case recorded
-    case failedToRecord(WorkspaceSQLiteDatastoreFailure)
 }
 
 extension WorkspaceSQLiteDatastore {
@@ -50,31 +44,8 @@ extension WorkspaceSQLiteDatastore {
         case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 
-    enum LegacyImportStatusResult: Equatable, Sendable {
-        case found(WorkspaceCoreRepository.LegacyImportStatusRecord)
-        case missing
-        case unavailable(WorkspaceSQLiteDatastoreFailure)
-    }
-
     enum LocalLegacyImportDecisionResult: Equatable, Sendable {
         case found(WorkspaceLocalSQLiteLegacyImportDecision)
-        case unavailable(WorkspaceSQLiteDatastoreFailure)
-    }
-
-    enum CompletedSnapshotStatusResult: Equatable, Sendable {
-        case completed(Bool, recoveryEvents: [PersistenceRecoveryEvent])
-        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
-    }
-
-    enum WorkspaceRowsInspectionResult: Equatable, Sendable {
-        case hasWorkspaceRows
-        case empty
-        case unavailable(WorkspaceSQLiteDatastoreFailure)
-    }
-
-    enum ActiveWorkspaceSelectionInspectionResult: Equatable, Sendable {
-        case present
-        case missing
         case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 

@@ -149,7 +149,7 @@ extension WorkspaceSurfaceCoordinator {
             return
         }
 
-        let runtimePaneId = PaneId(uuid: paneId)
+        let runtimePaneId = PaneId(existingUUID: paneId)
         guard visibilityTierResolver.tier(for: runtimePaneId) == .p0Visible else { return }
         guard let pane = store.paneAtom.pane(paneId) else { return }
         guard store.tabLayoutAtom.tabContaining(paneId: pane.parentPaneId ?? pane.id)?.id == activeTab.id else {

@@ -73,7 +73,7 @@ struct PaneDisplayDerivedTests {
     @Test("pane note appears after location parts in collapsed label parts")
     func paneNoteAppearsAfterLocationPartsInCollapsedLabelParts() {
         withTestAtomRegistry { atoms in
-            let paneId = PaneId().uuid
+            let paneId = PaneId.generateUUIDv7().uuid
             var metadata = PaneMetadata(
                 launchDirectory: URL(fileURLWithPath: "/tmp/project-dev/agent-studio"),
                 title: "Terminal"
@@ -105,7 +105,7 @@ struct PaneDisplayDerivedTests {
         var metadata = PaneMetadata(title: "Terminal")
         metadata.updateNote("gondolin auth logs")
         let pane = Pane(
-            id: PaneId().uuid,
+            id: PaneId.generateUUIDv7().uuid,
             content: .terminal(
                 TerminalState(
                     provider: .zmx,

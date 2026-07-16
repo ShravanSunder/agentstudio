@@ -13,7 +13,7 @@ struct InboxNotificationIntegrationTests {
     @Test("pane bus emission reaches atom and list model with source context")
     func paneBusEmissionReachesAtomAndListModel() async {
         let fixture = await InboxNotificationIntegrationHarness.makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         let repoId = UUID()
         let worktreeId = UUID()
         let tabId = InboxNotificationIntegrationHarness.addPane(
@@ -60,7 +60,7 @@ struct InboxNotificationIntegrationTests {
     @Test("approval and security receive-side events land in list and drawer surfaces")
     func approvalAndSecurityReceiveSideEventsReachInboxSurfaces() async {
         let fixture = await InboxNotificationIntegrationHarness.makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         let repoId = UUID()
         let worktreeId = UUID()
         _ = InboxNotificationIntegrationHarness.addPane(

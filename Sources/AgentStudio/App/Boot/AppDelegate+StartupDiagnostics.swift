@@ -568,7 +568,7 @@ extension AppDelegate {
         let terminalView = viewRegistry.terminalView(for: paneId)
         let mountedSurfaces = [terminalView?.ghosttySurface].compactMap { $0 }
         let validGeometryCount = mountedSurfaces.filter(Self.surfaceHasValidSmokeGeometry).count
-        let runtime = workspaceSurfaceCoordinator.runtimeForPane(PaneId(uuid: paneId))
+        let runtime = workspaceSurfaceCoordinator.runtimeForPane(PaneId(existingUUID: paneId))
 
         return CrossTabMoveGeometrySmokeRenderProof(
             expectedVisiblePaneCount: 1,

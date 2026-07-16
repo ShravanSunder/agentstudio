@@ -18,11 +18,7 @@ final class CollapsedBarLabelPartsTests {
             windowMemoryAtom: registry.workspaceWindowMemory,
             repositoryTopologyAtom: registry.workspaceRepositoryTopology,
             paneAtom: registry.workspacePane,
-            tabLayoutAtom: registry.workspaceTabLayout,
-            persistor: WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-            )
-        )
+            tabLayoutAtom: registry.workspaceTabLayout)
     }
 
     @Test

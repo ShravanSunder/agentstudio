@@ -26,13 +26,7 @@ extension WorkspaceSurfaceCoordinator {
             return nil
         }
 
-        guard UUIDv7.isV7(pane.id) else {
-            Self.logger.error(
-                "Skipping terminal runtime registration for non-v7 pane id \(pane.id.uuidString, privacy: .public)"
-            )
-            return nil
-        }
-        let runtimePaneId = PaneId(uuid: pane.id)
+        let runtimePaneId = PaneId(existingUUID: pane.id)
         if let existingRuntime = runtimeForPane(runtimePaneId) as? TerminalRuntime {
             return (existingRuntime, false)
         }

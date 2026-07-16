@@ -99,7 +99,7 @@ struct CommandBarPaneSearchTests {
         var metadata = PaneMetadata(title: "Terminal")
         metadata.updateNote("zmx lease repro")
         let pane = Pane(
-            id: PaneId().uuid,
+            id: PaneId.generateUUIDv7().uuid,
             content: .terminal(
                 TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
             ),

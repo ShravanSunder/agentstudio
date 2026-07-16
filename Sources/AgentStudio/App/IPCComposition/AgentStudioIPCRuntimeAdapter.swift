@@ -62,7 +62,7 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
 
         let result = await commandDispatcher.dispatchRuntimeCommand(
             .terminal(.sendInput(input)),
-            target: .pane(PaneId(uuid: paneId)),
+            target: .pane(PaneId(existingUUID: paneId)),
             correlationId: correlationId
         )
         return try mapTerminalSendResult(result, paneId: paneId, correlationId: correlationId)
@@ -188,7 +188,7 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
     }
 
     private func terminalRuntime(for paneId: UUID) throws -> any PaneRuntime {
-        guard let runtime = runtimeRegistry.runtime(for: PaneId(uuid: paneId)) else {
+        guard let runtime = runtimeRegistry.runtime(for: PaneId(existingUUID: paneId)) else {
             throw AppIPCRuntimeError(reason: .noRuntime)
         }
         guard runtime.metadata.contentType == .terminal else {

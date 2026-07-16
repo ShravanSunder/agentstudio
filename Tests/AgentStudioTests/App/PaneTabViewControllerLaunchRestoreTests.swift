@@ -30,9 +30,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
             .appending(path: "agentstudio-pane-tab-launch-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let appLifecycleStore = AppLifecycleAtom()

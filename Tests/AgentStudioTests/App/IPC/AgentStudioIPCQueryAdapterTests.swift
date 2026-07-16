@@ -203,8 +203,7 @@ private func makeWorkspaceStore() -> WorkspaceStore {
     let tempDir = FileManager.default.temporaryDirectory
         .appending(path: "agentstudio-ipc-query-adapter-\(UUID().uuidString)")
     return WorkspaceStore(
-        workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-        persistor: WorkspacePersistor(workspacesDir: tempDir))
+        workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
 }
 
 private func encodedJSONString<T: Encodable>(_ value: T) throws -> String {

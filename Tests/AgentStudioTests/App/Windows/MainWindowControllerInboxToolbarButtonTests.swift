@@ -143,11 +143,7 @@ private func withMainWindowControllerHarness<T>(
         repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
         paneAtom: atoms.workspacePane,
         tabLayoutAtom: atoms.workspaceTabLayout,
-        mutationCoordinator: atoms.workspaceMutationCoordinator,
-        persistor: persistor
-    )
-    store.restore()
-
+        mutationCoordinator: atoms.workspaceMutationCoordinator)
     let viewRegistry = ViewRegistry()
     let runtime = SessionRuntime(atom: atoms.sessionRuntime, store: store)
     let coordinator = WorkspaceSurfaceCoordinator(

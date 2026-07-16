@@ -63,9 +63,7 @@ struct WorkspaceSurfaceArrangementSwitchHostTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-arrangement-switch-host-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let windowLifecycleStore = WindowLifecycleAtom()
         let coordinator = WorkspaceSurfaceCoordinator(

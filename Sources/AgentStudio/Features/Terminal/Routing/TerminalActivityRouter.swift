@@ -389,7 +389,7 @@ final class TerminalActivityRouter {
                     correlationId: window.lastCorrelationId,
                     causationId: window.lastCausationId,
                     commandId: window.lastCommandId,
-                    paneId: PaneId(uuid: window.paneId),
+                    paneId: PaneId(existingUUID: window.paneId),
                     paneKind: .terminal,
                     event: .terminalActivity(event)
                 )
@@ -413,7 +413,7 @@ final class TerminalActivityRouter {
                     correlationId: envelope.correlationId,
                     causationId: envelope.causationId,
                     commandId: envelope.commandId,
-                    paneId: PaneId(uuid: paneId),
+                    paneId: PaneId(existingUUID: paneId),
                     paneKind: envelope.paneKind,
                     event: .terminalActivity(.agentSettledActivityRevoked)
                 )
@@ -537,7 +537,7 @@ final class TerminalActivityRouter {
                     correlationId: candidate.lastCorrelationId,
                     causationId: candidate.lastCausationId,
                     commandId: candidate.lastCommandId,
-                    paneId: PaneId(uuid: paneId),
+                    paneId: PaneId(existingUUID: paneId),
                     paneKind: .terminal,
                     event: .terminalActivity(.agentSettledActivityPromoted(settledActivity(from: candidate)))
                 )

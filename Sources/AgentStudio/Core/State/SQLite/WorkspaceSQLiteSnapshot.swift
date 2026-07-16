@@ -19,7 +19,7 @@ struct WorkspaceSQLiteSnapshot: Equatable, Sendable {
     var updatedAt: Date
 
     init(
-        id: UUID = UUID(),
+        id: UUID,
         name: String = "Default Workspace",
         panes: [Pane] = [],
         tabs: [Tab] = [],

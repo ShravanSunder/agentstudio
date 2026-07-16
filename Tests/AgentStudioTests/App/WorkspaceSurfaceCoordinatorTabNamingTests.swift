@@ -115,9 +115,7 @@ struct WorkspaceSurfaceCoordinatorTabNamingTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "pane-coordinator-naming-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let coordinator = makeTestWorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),

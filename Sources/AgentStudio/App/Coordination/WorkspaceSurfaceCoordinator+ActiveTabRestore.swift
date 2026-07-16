@@ -28,7 +28,7 @@ extension WorkspaceSurfaceCoordinator {
         )
         let resolvedPaneFramesByTabId = resolveInitialFramesByTabId(in: terminalContainerBounds)
         let visiblePaneIds = TerminalRestoreScheduler.order(
-            store.paneAtom.panes.keys.map(PaneId.init(uuid:)),
+            store.paneAtom.panes.keys.map { PaneId(existingUUID: $0) },
             resolver: visibilityTierResolver
         )
         .filter { visibilityTierResolver.tier(for: $0) == .p0Visible }

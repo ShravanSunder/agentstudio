@@ -14,7 +14,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
     func terminalStatusReadsRegisteredRuntimeLifecycleAndCapabilities() throws {
         let harness = RuntimeAdapterHarness()
         let pane = harness.createTerminalPane()
-        let runtime = RecordingTerminalIPCRuntime(paneId: PaneId(uuid: pane.id))
+        let runtime = RecordingTerminalIPCRuntime(paneId: PaneId(existingUUID: pane.id))
         runtime.lifecycle = .created
         runtime.capabilities = [.input, .resize, .search]
         harness.runtimeRegistry.register(runtime)
@@ -38,9 +38,9 @@ struct AgentStudioIPCRuntimeAdapterTests {
                 title: "Secret Terminal Title"
             )
         )
-        let runtime = RecordingTerminalIPCRuntime(paneId: PaneId(uuid: pane.id))
+        let runtime = RecordingTerminalIPCRuntime(paneId: PaneId(existingUUID: pane.id))
         runtime.metadata = PaneMetadata(
-            paneId: PaneId(uuid: pane.id),
+            paneId: PaneId(existingUUID: pane.id),
             contentType: .terminal,
             launchDirectory: secretCWD,
             title: "Secret Terminal Title"
@@ -66,7 +66,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
     func terminalSnapshotMapsRuntimeOwnedHealthFacts() throws {
         let harness = RuntimeAdapterHarness()
         let pane = harness.createTerminalPane()
-        let runtime = RecordingTerminalIPCRuntime(paneId: PaneId(uuid: pane.id))
+        let runtime = RecordingTerminalIPCRuntime(paneId: PaneId(existingUUID: pane.id))
         runtime.terminalSnapshotFacts = TerminalRuntimeSnapshotFacts(
             rendererHealthy: true,
             readOnly: false,
@@ -89,7 +89,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
             let tab = Tab(paneId: pane.id)
             harness.store.appendTab(tab)
             harness.store.setActiveTab(tab.id)
-            let runtime = RecordingTerminalIPCRuntime(paneId: PaneId(uuid: pane.id))
+            let runtime = RecordingTerminalIPCRuntime(paneId: PaneId(existingUUID: pane.id))
             harness.runtimeRegistry.register(runtime)
             let adapter = AgentStudioIPCRuntimeAdapter(
                 workspaceStore: harness.store,
@@ -158,7 +158,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
     func terminalWaitAttachReadyResolvesFromReadyRuntimeLifecycle() async throws {
         let harness = RuntimeAdapterHarness()
         let pane = harness.createTerminalPane()
-        harness.runtimeRegistry.register(RecordingTerminalIPCRuntime(paneId: PaneId(uuid: pane.id)))
+        harness.runtimeRegistry.register(RecordingTerminalIPCRuntime(paneId: PaneId(existingUUID: pane.id)))
 
         let result = try await harness.adapter.waitForTerminal(
             IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)),
@@ -175,7 +175,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
     func terminalWaitAttachReadyResolvesAfterRuntimeBecomesReady() async throws {
         let harness = RuntimeAdapterHarness()
         let pane = harness.createTerminalPane()
-        let runtime = RecordingTerminalIPCRuntime(paneId: PaneId(uuid: pane.id))
+        let runtime = RecordingTerminalIPCRuntime(paneId: PaneId(existingUUID: pane.id))
         runtime.lifecycle = .created
         harness.runtimeRegistry.register(runtime)
 
@@ -199,7 +199,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
     func terminalWaitCommandFinishedResolvesFromPaneRuntimeEvent() async throws {
         let harness = RuntimeAdapterHarness()
         let pane = harness.createTerminalPane()
-        let paneId = PaneId(uuid: pane.id)
+        let paneId = PaneId(existingUUID: pane.id)
         let runtime = RecordingTerminalIPCRuntime(paneId: paneId)
         harness.runtimeRegistry.register(runtime)
         let commandId = UUID()
@@ -242,7 +242,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
     func terminalWaitCommandFinishedReplaysEventsAfterRequestedRuntimeSequence() async throws {
         let harness = RuntimeAdapterHarness()
         let pane = harness.createTerminalPane()
-        let paneId = PaneId(uuid: pane.id)
+        let paneId = PaneId(existingUUID: pane.id)
         let runtime = RecordingTerminalIPCRuntime(paneId: paneId)
         let commandId = UUID()
         let correlationId = UUID()
@@ -282,7 +282,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
     func terminalWaitIgnoresLiveEventsAtOrBeforeRequestedRuntimeSequence() async throws {
         let harness = RuntimeAdapterHarness()
         let pane = harness.createTerminalPane()
-        let paneId = PaneId(uuid: pane.id)
+        let paneId = PaneId(existingUUID: pane.id)
         let runtime = RecordingTerminalIPCRuntime(paneId: paneId)
         harness.runtimeRegistry.register(runtime)
         let expectedCommandId = UUID()
@@ -338,7 +338,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
     func terminalWaitFailsFastWhenAfterSequenceReplayHasGap() async throws {
         let harness = RuntimeAdapterHarness()
         let pane = harness.createTerminalPane()
-        let runtime = RecordingTerminalIPCRuntime(paneId: PaneId(uuid: pane.id))
+        let runtime = RecordingTerminalIPCRuntime(paneId: PaneId(existingUUID: pane.id))
         runtime.replayGapDetected = true
         harness.runtimeRegistry.register(runtime)
 
@@ -360,7 +360,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
         let eventBus = makeTestPaneRuntimeEventBus()
         let harness = RuntimeAdapterHarness(eventBus: eventBus)
         let pane = harness.createTerminalPane()
-        harness.runtimeRegistry.register(RecordingTerminalIPCRuntime(paneId: PaneId(uuid: pane.id)))
+        harness.runtimeRegistry.register(RecordingTerminalIPCRuntime(paneId: PaneId(existingUUID: pane.id)))
 
         do {
             _ = try await harness.adapter.waitForTerminal(
@@ -449,7 +449,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
     ) async throws {
         let harness = RuntimeAdapterHarness(commandDispatcher: StaticRuntimeCommandDispatcher(result: actionResult))
         let pane = harness.createTerminalPane()
-        harness.runtimeRegistry.register(RecordingTerminalIPCRuntime(paneId: PaneId(uuid: pane.id)))
+        harness.runtimeRegistry.register(RecordingTerminalIPCRuntime(paneId: PaneId(existingUUID: pane.id)))
 
         do {
             _ = try await harness.adapter.sendTerminalInput(
@@ -478,8 +478,7 @@ private struct RuntimeAdapterHarness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-ipc-runtime-adapter-\(UUID().uuidString)")
         workspaceStore = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         runtimeRegistry = RuntimeRegistry()
         adapter = AgentStudioIPCRuntimeAdapter(
             workspaceStore: workspaceStore,

@@ -211,32 +211,6 @@ struct WorkspacePaneGraphPersistenceAdapterTests {
         #expect(result == .failure(.duplicateDrawerChildMembership(child.id)))
     }
 
-    @Test("legacy replacement removes missing drawer members but retains repository-independent panes")
-    func legacyReplacementNormalizesMembershipWithoutTopologyFiltering() throws {
-        // Arrange
-        let revisionOwner = WorkspacePersistenceRevisionOwner()
-        let adapter = WorkspacePaneGraphPersistenceAdapter(
-            atom: WorkspacePaneGraphAtom(),
-            revisionOwner: revisionOwner
-        )
-        let unavailableWorktreeID = UUIDv7.generate()
-        let missingPaneID = UUIDv7.generate()
-        var parent = makeLayoutPaneGraphState(title: "Parent")
-        parent.metadata.facets.worktreeId = unavailableWorktreeID
-        parent.withDrawer { $0.paneIds = [missingPaneID] }
-
-        // Act
-        let replacement = try requireReplacement(
-            adapter.makeLegacyHydrationReplacement(
-                persistedPanes: [parent.pane(isDrawerExpanded: false)]
-            )
-        )
-
-        // Assert
-        #expect(replacement.paneStates[parent.id]?.metadata.facets.worktreeId == unavailableWorktreeID)
-        #expect(replacement.paneStates[parent.id]?.drawer?.paneIds.isEmpty == true)
-    }
-
     @Test("post-install full replacement preserves base updates removals and insertion exclusion")
     func postInstallReplacementCapturesEveryKeyedChange() throws {
         // Arrange
@@ -523,7 +497,7 @@ private func makePaneGraphAdapterBundle(
 ) -> WorkspacePersistenceAdapterBundle {
     WorkspacePersistenceAdapterBundle(
         revisionOwner: revisionOwner,
-        workspaceIdentityAtom: WorkspaceIdentityAtom(),
+        workspaceIdentityAtom: WorkspaceIdentityAtom(workspaceId: UUIDv7.generate()),
         workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom(),
         repositoryTopologyAtom: RepositoryTopologyAtom(),
         workspacePaneGraphAtom: atom,

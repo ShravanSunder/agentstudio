@@ -2370,7 +2370,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             guard let self else { return }
             _ = await self.runtimeCommandDispatcher.dispatchRuntimeCommand(
                 runtimeCommand,
-                target: .pane(PaneId(uuid: paneId)),
+                target: .pane(PaneId(existingUUID: paneId)),
                 correlationId: nil
             )
         }

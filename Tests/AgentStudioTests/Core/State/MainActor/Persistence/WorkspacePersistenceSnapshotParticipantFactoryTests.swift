@@ -523,7 +523,7 @@ private struct FactoryOwnerFixture {
     let adapters: WorkspacePersistenceAdapterBundle
 
     init(
-        workspaceIdentityAtom: WorkspaceIdentityAtom = WorkspaceIdentityAtom(),
+        workspaceIdentityAtom: WorkspaceIdentityAtom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate()),
         workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom = WorkspaceWindowMemoryAtom()
     ) {
         revisionOwner = WorkspacePersistenceRevisionOwner()

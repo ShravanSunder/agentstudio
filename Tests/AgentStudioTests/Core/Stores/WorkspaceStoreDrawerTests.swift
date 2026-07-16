@@ -11,9 +11,7 @@ final class WorkspaceStoreDrawerTests {
 
     init() {
         store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
     }
 
     private func drawerView(for parentPaneId: UUID) -> DrawerView? {
@@ -41,12 +39,15 @@ final class WorkspaceStoreDrawerTests {
                 WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
             }
         )
-        let bundle = WorkspacePersistenceTransformer.makeLiveSQLiteSaveBundle(
+        let saveCoordinator = WorkspaceSQLiteSaveCoordinator(
             identityAtom: store.identityAtom,
             windowMemoryAtom: store.windowMemoryAtom,
             repositoryTopologyAtom: store.repositoryTopologyAtom,
             workspacePaneAtom: store.paneAtom,
             workspaceTabLayoutAtom: store.tabLayoutAtom,
+            sqliteDatastore: datastore
+        )
+        let bundle = saveCoordinator.captureCurrentSaveBundle(
             persistedAt: Date(timeIntervalSince1970: 1_780_000_000)
         )
         try await datastore.saveWorkspaceSnapshotBundle(bundle)
@@ -153,10 +154,9 @@ final class WorkspaceStoreDrawerTests {
 
     @Test
 
-    func test_addDrawerPane_marksDirty() {
+    func test_addDrawerPane_marksDirty() async {
         let pane = createTabbedPane()
-        store.flush()
-
+        _ = await store.flushAsync()
         _ = store.addDrawerPane(to: pane.id)
 
         #expect(store.isDirty)
@@ -875,45 +875,4 @@ final class WorkspaceStoreDrawerTests {
     }
 
     // MARK: - Persistence
-
-    @Test
-
-    func test_drawer_persistsAndRestores() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "drawer-persist-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store1 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-
-        let pane = store1.createPane()
-        let tab = Tab(paneId: pane.id)
-        store1.appendTab(tab)
-
-        let dp = store1.addDrawerPane(to: pane.id)!
-        store1.flush()
-
-        // Restore into a new store
-        let store2 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store2.restore()
-
-        let restoredPane = store2.panes.values.first {
-            !$0.isDrawerChild && $0.drawer != nil && !$0.drawer!.paneIds.isEmpty
-        }
-        #expect((restoredPane) != nil)
-        if let restored = restoredPane {
-            #expect(restored.drawer!.paneIds.count == 1)
-            #expect(store2.drawerView(forParent: restored.id)?.activeChildId == dp.id)
-
-            // Drawer child pane should also be restored in store
-            let restoredDrawerPane = store2.pane(dp.id)
-            #expect((restoredDrawerPane) != nil)
-            #expect(restoredDrawerPane?.metadata.title == "Drawer")
-            #expect(restoredDrawerPane?.isDrawerChild ?? false)
-        }
-
-        try? FileManager.default.removeItem(at: tempDir)
-    }
 }

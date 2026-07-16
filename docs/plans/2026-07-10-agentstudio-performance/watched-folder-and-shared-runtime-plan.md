@@ -641,9 +641,11 @@ adapter per page, transaction, or factory call is forbidden.
 
 Pure domain types outside atoms own pane-graph validity, strict drawer/tab/
 cursor validation, and typed decisions. Startup rejects invalid composition; it
-does not normalize membership, choose fallback selection, or repair cursors.
+does not normalize membership, choose fallback selection, or alter cursor
+values.
 Mutation coordinators sequence accepted cross-atom changes;
-persistence adapters capture/restore but do not reimplement domain rules or
+persistence adapters capture exact preimages and transact caller-approved
+assignments but do not reimplement domain rules or
 expose persistence vocabulary through atom APIs. Exact cross-atom composition
 application remains outside all atoms.
 
@@ -734,7 +736,7 @@ applies accepted composition once, and activation passes the exact stored ID to
 zmx. No startup reconciliation, identity repair, adoption, derivation,
 discovery, backfill, fallback, or post-decode identity write exists.
 Startup diagnostics use the installed semantic pane/tab gateways and receive no
-bootstrap exception.
+special mutation exception.
 
 The current participant factory/pager assembly is test-only and therefore does
 not prove a live boundary. The corrected bundle must be constructed once at the
@@ -766,7 +768,7 @@ Proof is blocking:
 - N window/sidebar callbacks produce immediate visual updates but exactly one
   settled canonical mutation, revision, and persistence request, with zero
   fact posts and zero Observation-triggered second revision;
-- terminal creation, strict SQLite codec/round-trip, mutation-free restore, and
+- terminal creation, strict SQLite codec/round-trip, mutation-free startup load, and
   exact stored-ID zmx attach are proved directly; static searches reject every
   path-derived identity or startup identity-mutation route;
 - a direct-mutation inventory proves no installed persistence participant can be
@@ -784,7 +786,7 @@ mechanics from atom files without production bundle construction and live-writer
 routing is incomplete and does not unblock prepared composition, terminal
 activation, W5, or later performance work.
 
-### W4.5z — Durable terminal identity and mutation-free restore hard cut
+### W4.5z — Durable terminal identity and mutation-free startup-load hard cut
 
 Complete this before terminal activation consumes accepted composition.
 
@@ -805,11 +807,12 @@ write the strong non-optional type through the existing text column. Preserve
 every existing nonempty stored value, including historical `as-*`, byte for
 byte. Add no schema/data migration, table rebuild, or conversion.
 
-Modify `TerminalRestoreRuntime.swift`, terminal view-lifecycle restoration, App
-boot, and `ZmxBackend.swift`. Remove every startup identity-mutation owner and
-restore-time daemon-list dependency. Attach, health, list, and kill accept the
-strong identity type; attach receives the exact stored value and normal runtime
-callers cannot supply untyped subprocess session text.
+Modify the legacy-named `TerminalRestoreRuntime.swift` only as a rename/removal
+target, then update terminal activation and content-mount lifecycle, App boot,
+and `ZmxBackend.swift`. Remove every startup identity-mutation owner and startup
+daemon-list dependency. Attach, health, list, and kill accept the strong
+identity type; attach receives the exact stored value and normal runtime callers
+cannot supply untyped subprocess session text.
 
 Delete obsolete identity-derivation, startup-mutation, and daemon-inventory
 proof scaffolding. Retain these permanent tests:
@@ -821,8 +824,8 @@ proof scaffolding. Retain these permanent tests:
   UUIDv7 values exactly, reject missing/blank identity at the strong decode
   boundary, and round-trip without schema or data changes or UUID-version
   validation;
-- restore integration holds repository startup indefinitely and proves terminal
-  activation does not wait; a datastore before/after oracle proves zero restore
+- relaunch activation integration holds repository startup indefinitely and proves terminal
+  activation does not wait; a datastore before/after oracle proves zero load-time
   or startup writes;
 - backend tests prove exact stored-ID attach and that normal attach/health/kill
   call sites cannot pass raw text; real-zmx E2E proves create, persist, relaunch,
@@ -830,7 +833,7 @@ proof scaffolding. Retain these permanent tests:
 - invalid-composition integration proves zero canonical mutation, zero terminal
   activation, and zero persistence writes;
 - structural searches reject path/topology session derivation, optional/missing
-  identity states, identity setters, restore-time zmx listing, and any startup
+  identity states, identity setters, startup zmx listing, and any startup
   identity mutation route.
 
 The stored historical `as-*` and UUIDv4 values are permanent opaque data, not
@@ -865,7 +868,7 @@ Integrate two independent boot domains before participant installation:
 
 - `WorkspaceCompositionPreparer` strictly decodes and validates identity/window,
   pane/drawer, tab/arrangement, and local cursor state off-main without
-  normalization, fallback selection, cursor synthesis, or membership repair.
+  normalization, fallback selection, cursor synthesis, or membership rewrite.
   Invalid composition produces no canonical mutation and no terminal
   activation. `WorkspacePreparedCompositionApplier` installs accepted immutable
   composition in one bounded MainActor transaction and returns the terminal
@@ -885,12 +888,15 @@ participants from default membership, route initial fleet insertions through
 unconfigured participants, or assemble the complete pager before both domains
 are installed.
 
-Replace the current WIP `WorkspaceHydrationPreparation.swift` legacy/source
-union and `WorkspacePreparedHydrationApplier.swift` combined applier rather than
-extending them: the SQLite reader produces separate opaque prepared composition
-and topology inputs, off-main preparation owns all O(N) validation, and each
-MainActor applier performs only prevalidated bounded installation. Remove the
-second MainActor validation pass.
+Delete any surviving legacy-named `WorkspaceHydrationPreparation.swift`
+source union and `WorkspacePreparedHydrationApplier.swift` combined applier
+rather than extending them. The target path uses
+`WorkspaceCompositionPreparation.swift`,
+`WorkspacePreparedCompositionApplier.swift`, and
+`WorkspacePreparedTopologyApplier.swift`: the SQLite reader produces separate
+opaque composition and topology inputs, off-main preparation owns all O(N)
+validation, and each MainActor applier performs only prevalidated bounded
+installation. Remove the second MainActor validation pass.
 
 The real participant factory has heterogeneous membership/byte limits. Store
 validated limits on each participant and let the pager request that
@@ -910,14 +916,14 @@ installed once and unlocks terminal activation while topology preparation is
 suspended; and real heterogeneous participant limits page without mismatch or a
 test-only bypass.
 
-### W4.5d — Atomic restore-owner hard cut
+### W4.5d — Atomic SQLite startup-owner hard cut
 
-Replace, in one production integration diff,
-`Core/State/MainActor/Persistence/WorkspaceHydrationPreparation.swift`,
-`Core/State/MainActor/Persistence/WorkspacePreparedHydrationApplier.swift`, and
-their boot call sites. Delete the combined source/legacy preparation result and
-combined applier; do not leave a compatibility wrapper or second boot route.
-Install the two domain-specific paths instead:
+In one production integration diff, delete any surviving legacy-named
+`WorkspaceHydrationPreparation.swift` and
+`WorkspacePreparedHydrationApplier.swift` plus their boot call sites. Delete
+the combined source/legacy preparation result and combined applier; do not leave
+a compatibility wrapper or second boot route. Install the two domain-specific
+paths instead:
 
 - `WorkspaceCompositionPreparer` and
   `WorkspacePreparedCompositionApplier` exclusively prepare/apply composition
@@ -932,8 +938,58 @@ Install the two domain-specific paths instead:
 Delete the old `WorkspaceStore.hydrateWorkspaceState*` atom-replacement routes
 and `applyLiveSQLiteTabRepairIfNeeded` save-result mutation in this same cut.
 SQLite-to-atom flow is preinstall-only through the two prepared appliers; an
-installed save acknowledgement may clear persistence custody but never repair,
-hydrate, or advance canonical state.
+installed save acknowledgement may only clear persistence custody; it cannot
+mutate canonical state.
+
+Hard-cut production startup to SQLite in this same diff. Delete
+`WorkspaceStore+LegacySQLiteImport.swift`, `WorkspaceLegacyArchiveCoordinator`,
+the workspace JSON import/fallback/archive branch, and every workspace-
+composition method or filename helper from `WorkspacePersistor`. Preserve
+current preference/settings JSON owners; they are not workspace composition.
+Add a strict startup outcome union with no correlated
+optionals or fallback case:
+
+- `.loaded(PreparedWorkspaceComposition)` for valid SQLite composition, loaded
+  exactly without normalization or rewrite;
+- `.newlyCreatedEmptyDatabase(NewEmptyWorkspaceSeed)` only when SQLite database-
+  open provenance explicitly proves that the database was created during the
+  current startup and has no workspace row; a preexisting empty database, query
+  failure, corruption, or an unexpectedly missing row cannot produce this case.
+  The startup coordinator constructs the seed, calls
+  `UUIDv7.generate()` for its workspace identity before atom insertion, persists
+  exactly one default empty workspace, then feeds that exact persisted value
+  through strict decode/validation. Empty composition creates no pane, tab, or
+  zmx identity;
+- `.invariantFailure(WorkspaceCompositionStartupFailure)` for preexisting empty,
+  unavailable, corrupt, incomplete, invalid, rejected, or failed-new-database
+  composition. Emit a content-safe
+  diagnostic and terminate loudly before canonical mutation, content/terminal
+  activation, fallback workspace selection, or any startup write. Existing core
+  and selected local database files plus their sidecars remain unchanged; this
+  path never quarantines, recreates, recovers, repairs, migrates, or backfills.
+
+Modify `WorkspaceIdentityAtom.swift` so construction requires the
+caller-supplied workspace identity; remove its default identity generation.
+Atoms receive only accepted caller-supplied values. Remove fallback/default
+synthesis from existing-store load paths. This cut adds no schema/data migration
+and leaves historical GRDB migrations unchanged so existing databases still
+open. Unused historical columns/tables may remain; schema compaction is out of
+scope.
+
+Delete tests for the removed legacy workspace JSON import/fallback/archive
+behaviors and all composition normalization/default-synthesis,
+migration/backfill, repair, or restoration proof scaffolding. Keep permanent
+strict-startup proof only: exact load of valid
+SQLite; one atomic UUIDv7 empty-workspace creation for a database proven newly
+created during the current startup; and a bounded subprocess harness proving
+preexisting empty, unavailable, corrupt, incomplete, invalid, rejected, and
+failed-new-database outcomes terminate nonzero after the sanitized diagnostic
+but before canonical mutation, activation, or any write. Before/after file
+digests prove existing core/local SQLite files and sidecars are unchanged, and
+repository snapshots prove existing IDs/text are byte-for-byte unchanged. This
+proof also places a legacy workspace JSON file beside SQLite and shows startup
+neither reads, changes, archives, nor deletes it. This work adds no migration;
+historical GRDB migrations remain only so existing databases can open.
 
 The cut removes every owner capable of validating or applying both domains.
 Structural negative proof inventories the production boot graph and fails when
@@ -1102,7 +1158,7 @@ RED/GREEN: current legacy posts and ignored-topic deliveries form RED in the iso
 
 ## 9. Task W7 — Sole Persistence Revision Owner And Writer
 
-Requirements: TA10–TA11, the split startup domains, the legacy-JSON hard cut,
+Requirements: TA10–TA11, the split startup domains, the SQLite-only startup hard cut,
 and the normative persistence contract.
 
 This task is an ordered hard-cut sequence rather than one broad checkpoint.
@@ -1113,15 +1169,20 @@ Inventory every mutating `WorkspaceSQLiteDatastore` API and production caller. T
 
 - `WorkspaceSQLiteSaveCoordinator.swift`
 - `RepositoryTopologyStore.swift`
-- `WorkspaceStore.swift` and the legacy `WorkspaceStore+LegacySQLiteImport.swift`
+- `WorkspaceStore.swift`
 - `RepoCacheStore.swift`
 - `UIStateStore.swift`
 - `SidebarCacheStore.swift`
 - `Features/InboxNotification/State/MainActor/Persistence/InboxNotificationSQLiteDatastoreAdapter.swift`
-- legacy `App/Boot/WorkspaceLegacyArchiveCoordinator.swift`
-- active workspace selection, import/archive status, and any other call found by the source inventory
+- active workspace selection and any other current caller found by the source inventory
 
-Classify each write as canonical revisioned change, checkpoint/import, local coalesced autosave, or operational status. `WorkspacePersistenceCoordinator` is the sole product caller for all four classes; only canonical workspace mutations consume the canonical persistence revision stream. Read-only restore/status queries remain direct only when the inventory table explicitly marks them read-only.
+Classify each write as canonical revisioned change, checkpoint, local coalesced
+autosave, or operational status. `WorkspacePersistenceCoordinator` is the sole
+product caller for all four classes; only canonical workspace mutations consume
+the canonical persistence revision stream. Read-only load/status queries remain
+direct only when the inventory table explicitly marks them read-only. The
+inventory rejects any surviving legacy workspace importer, archive coordinator,
+or import-status writer rather than routing it.
 
 The W7a architecture test compares the live caller/API inventory with the checked table and fails on an unclassified or direct writer.
 
@@ -1155,19 +1216,21 @@ Prepare modifications for all W7a callers and exercise them through isolated cut
 - canonical atom/coordinator mutations to emit revisioned changed-key records.
 - `WorkspaceSQLiteDatastore.swift`, `WorkspaceSQLiteDatastoreTypes.swift`, and `Core/State/MainActor/Persistence/WorkspaceSQLiteStoreBackend.swift` to accept/reject coordinator-owned typed writes atomically through existing repository mutations.
 
-Operational import/archive/status and local-feature requests enter the same arbiter but do not pretend to be canonical entity revisions. Their ordering and failure receipts remain typed and are covered by the sole-caller inventory.
+Local-feature requests enter the same arbiter but do not pretend to be canonical
+entity revisions. Their ordering and failure receipts remain typed and are
+covered by the sole-caller inventory.
 
-This preparation also hard-cuts the obsolete JSON workspace path. Delete
-`WorkspaceStore+LegacySQLiteImport.swift`, `WorkspaceLegacyArchiveCoordinator`,
-legacy workspace/cache/UI/sidebar/inbox import decisions and status APIs, their
-DTOs/decoders, `WorkspacePersistor` boot plumbing, and the
-`legacy_workspace_import_status` schema/API surface. Preserve current
+W4.5d removes the obsolete workspace JSON boot path atomically. W7 verifies that
+no legacy-import/archive/status writer remains and does not route or replace one.
+Add no schema/data migration. Preserve current
 `preferences.global.json`, per-workspace settings JSON plus backup, runtime
-diagnostic/checkpoint JSON, SQLite corruption recovery, and GRDB schema
-migrations. Add a forward SQLite migration that removes durable pane
-`repoId`/`worktreeId` facets and repository-coupled orphan residency storage;
-the migration preserves panes, opaque terminal `ZmxSessionID` values, CWD, tabs,
-and layouts.
+diagnostic/checkpoint JSON, independently owned non-composition cache recovery,
+and historical GRDB migrations. Core or selected local workspace-composition
+database corruption is a typed startup invariant failure and never triggers
+quarantine, recreation, recovery, repair, or fallback. Existing unused SQLite columns or tables may remain physically
+present; current code neither reads nor writes them as product state. Schema
+compaction is a separately scoped maintenance task, not part of this
+performance cut.
 
 Modify `Pane.swift`, pane metadata/facet types,
 `WorkspacePaneGraphAtom.swift`, `SessionResidency.swift`, pane SQLite row
@@ -1194,8 +1257,8 @@ The same atomic cut removes canonical-atom Observation as a persistence trigger.
 Only explicit committed revisions/change sets wake the level-triggered
 persistence pump; save receipts acknowledge custody and cannot mutate atoms.
 
-Only the forward hard-cut migration named in W7c is authorized. A stale
-full/checkpoint write must be rejected before replacement.
+No new schema/data migration is authorized by W7. A stale full/checkpoint write
+must be rejected before replacement.
 
 ### Test proof
 
@@ -1216,11 +1279,15 @@ Extend:
 
 Cases: stale checkpoint after newer change set, revision gap, process-generation mismatch, repeated same-key change, create/remove net-zero, tombstone until acknowledgement, core/local failure and retry, cancellation/shutdown.
 
-Add migration and negative-architecture proof: existing SQLite composition
-opens with pane/tab/terminal session/CWD identity preserved and topology facets removed;
-startup contains no legacy JSON import/archive branch; topology persistence
-cannot submit pane/tab changes and composition persistence cannot submit
-repository/worktree changes.
+Add negative-architecture proof: existing SQLite composition opens with
+pane/tab/terminal session/CWD identity preserved without schema or data rewrite;
+startup contains no legacy workspace JSON import/fallback/archive branch;
+only a newly created empty SQLite database with current-open provenance creates
+one UUIDv7-backed empty workspace; preexisting empty and all other failure paths
+leave core/local files and sidecars unchanged and terminate before canonical
+mutation/activation/write/fallback; topology
+persistence cannot submit pane/tab changes and composition persistence cannot
+submit repository/worktree changes.
 
 Independent oracle: query/reload SQLite through fresh repository/datastore read APIs and compare with a literal final entity map.
 
@@ -1242,7 +1309,7 @@ The revision owner opens a fixed base-revision lease. Concurrent mutations enter
 
 MainActor captures the W4.5 bounded raw keyed pages only; off-main code normalizes/encodes. After base commit, the coordinator applies the contiguous compacted range and acknowledges tombstones.
 
-Modify `WorkspacePersistenceTransformer.swift` so ordinary writes no longer call `makeLiveSQLiteSnapshotResult` over the fleet. Keep full transform only behind boot/import/export/checkpoint paging where required.
+Modify `WorkspacePersistenceTransformer.swift` so ordinary writes no longer call `makeLiveSQLiteSnapshotResult` over the fleet. Keep full transformation only behind strict SQLite load and checkpoint paging where required.
 
 ### W8c — Starvation and retained-page memory proof
 
@@ -1406,7 +1473,7 @@ Requirements: PF1–PF9 and shared harness contract.
 
 Use the shared S6 verifier and standard debug runner. Add the fixed scenario manifests `WF-ADD-SCALE-V1`, `WF-COLD-BOOT-V1`, and `WF-HUGE-STEADY-V1`; extend rather than fork `verify-git-refresh-performance-workload.sh` where common fixture logic is reusable.
 
-The workload includes 10/100/300 scale, real watched-enabled versus equivalent one-shot-import control, one/many writers, noise, sidebar/Bridge states, and idle/interactive/heavy attended terminal. Record request, first useful state, repair-quiescent state, topology/Git/content oracle, source/mailbox/scan/root/project/apply/persistence/Bridge stage ledgers, MainActor heartbeat, and typing/cursor/TUI mouse/layer endpoints.
+The workload includes 10/100/300 scale, real watched-enabled versus equivalent one-shot filesystem scan control, one/many writers, noise, sidebar/Bridge states, and idle/interactive/heavy attended terminal. Record request, first useful state, repair-quiescent state, topology/Git/content oracle, source/mailbox/scan/root/project/apply/persistence/Bridge stage ledgers, MainActor heartbeat, and typing/cursor/TUI mouse/layer endpoints.
 
 W12 has two proof layers:
 
@@ -1468,7 +1535,7 @@ shared S1 admission
        +-> W4b root index/batched config
   -> W4.5p pure atoms + one live adapter bundle + production-front-door proof
   -> W4.5a-d sole revision owner + fixed-revision pager/composition work
-  -> W5 topology mirror/projector/apply --> W7a-c persistence protocol/migration
+  -> W5 topology mirror/projector/apply --> W7a-c persistence protocol/cutover
                  |                              -> W8 compaction/checkpoint proof
                  |                              -> W7d atomic sole-writer cut
                  +-> W6 cutover-ready semantic fact endpoints

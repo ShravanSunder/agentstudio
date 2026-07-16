@@ -10,7 +10,7 @@ struct WorkspaceSQLiteZmxSessionIDStorageTests {
     func newZmxPanesPreserveUUIDv7IdentitiesThroughSQLiteFlush() async throws {
         let workspaceID = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceID)
-        let identityAtom = WorkspaceIdentityAtom()
+        let identityAtom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate())
         identityAtom.replaceIdentity(
             workspaceId: workspaceID,
             workspaceName: "UUIDv7 zmx workspace",
@@ -19,9 +19,6 @@ struct WorkspaceSQLiteZmxSessionIDStorageTests {
         let store = WorkspaceStore(
             workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
-            persistor: WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-            ),
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
         let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-zmx-id-repo"))

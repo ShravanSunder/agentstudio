@@ -207,7 +207,7 @@ struct InboxNotificationRouterTests {
     @Test("desktopNotificationRequested posts an inbox notification")
     func desktopNotificationRequested() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -236,7 +236,7 @@ struct InboxNotificationRouterTests {
     func missingPaneContextEmitsUnresolvedContextTraceAndSkipsNotification() async throws {
         let traceRuntime = makeTraceRuntime(name: "inbox-context-unresolved", processIdentifier: 272)
         let fixture = await makeFixture(traceRuntime: traceRuntime)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         _ = await fixture.bus.post(
             makePaneEnvelope(
@@ -244,7 +244,7 @@ struct InboxNotificationRouterTests {
                 event: .terminal(.desktopNotificationRequested(title: "Done", body: "exit 0"))
             )
         )
-        let sentinelPaneId = PaneId()
+        let sentinelPaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(sentinelPaneId, to: fixture)
         _ = await fixture.bus.post(
             makePaneEnvelope(
@@ -278,7 +278,7 @@ struct InboxNotificationRouterTests {
     func inboxTracingRecordsNotifyDecisionsAndSuppressionReasons() async throws {
         let traceRuntime = makeTraceRuntime(name: "inbox-decisions", processIdentifier: 260)
         let fixture = await makeFixture(traceRuntime: traceRuntime)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(makePaneEnvelope(paneId: paneId, event: .terminal(.bellRang)))
@@ -342,7 +342,7 @@ struct InboxNotificationRouterTests {
             tags: "eventbus"
         )
         let fixture = await makeFixture(traceRuntime: traceRuntime)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(makePaneEnvelope(paneId: paneId, event: .terminal(.bellRang)))
@@ -388,7 +388,7 @@ struct InboxNotificationRouterTests {
     func activityOnlyScrollbarIgnoresDoNotWriteInboxTraceRecords() async throws {
         let traceRuntime = makeTraceRuntime(name: "inbox-scrollbar-ignore", processIdentifier: 261)
         let fixture = await makeFixture(traceRuntime: traceRuntime)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -410,7 +410,7 @@ struct InboxNotificationRouterTests {
     func focusGainedTraceRecordsAttentionWithoutMarkingPaneNotificationsRead() async throws {
         let traceRuntime = makeTraceRuntime(name: "inbox-focus-observed", processIdentifier: 262)
         let fixture = await makeFixture(traceRuntime: traceRuntime)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         fixture.inboxAtom.append(
@@ -449,7 +449,7 @@ struct InboxNotificationRouterTests {
     @Test("bell is gated by prefs")
     func bellIsGated() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(makePaneEnvelope(paneId: paneId, event: .terminal(.bellRang)))
@@ -472,7 +472,7 @@ struct InboxNotificationRouterTests {
     func commandFinishedGating() async {
         let fixture = await makeFixture()
 
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
         await Task.yield()
 
@@ -507,7 +507,7 @@ struct InboxNotificationRouterTests {
     func commandFinishedUsesAttendedPaneForFocusGating() async {
         let fixture = await makeFixture()
 
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
         #expect(fixture.tabLayout.activeTab?.activePaneId == paneId.uuid)
         #expect(fixture.attendedPane.attendedPaneId == nil)
@@ -536,7 +536,7 @@ struct InboxNotificationRouterTests {
     @Test("approvalRequested and selected security alerts notify")
     func approvalAndSecurityRouting() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         let repoId = UUID()
         let worktreeId = UUID()
         _ = addTerminalPane(paneId, to: fixture, repoId: repoId, worktreeId: worktreeId)
@@ -587,8 +587,8 @@ struct InboxNotificationRouterTests {
     @Test("sandbox health unhealthy edge is tracked per pane and reset on stop")
     func sandboxHealthEdgesArePerPaneAndResetOnStop() async {
         let fixture = await makeFixture()
-        let firstPaneId = PaneId()
-        let secondPaneId = PaneId()
+        let firstPaneId = PaneId.generateUUIDv7()
+        let secondPaneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(firstPaneId, to: fixture)
         _ = addTerminalPane(secondPaneId, to: fixture)
 
@@ -661,7 +661,7 @@ struct InboxNotificationRouterTests {
     @Test("progress error notifies on error edge and rearms after non-error progress")
     func progressErrorNotifiesOnErrorEdgeAndRearms() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -720,7 +720,7 @@ struct InboxNotificationRouterTests {
     @Test("secure input true notifies once and rearms after false")
     func secureInputTrueNotifiesOnceAndRearmsAfterFalse() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -776,7 +776,7 @@ struct InboxNotificationRouterTests {
     @Test("renderer unhealthy notifies on unhealthy edge per pane")
     func rendererUnhealthyNotifiesOnUnhealthyEdgePerPane() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -833,7 +833,7 @@ extension InboxNotificationRouterTests {
     @Test("pane closed prunes edge detector state for reused pane identifiers")
     func paneClosedPrunesEdgeDetectorState() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -882,7 +882,7 @@ extension InboxNotificationRouterTests {
     @Test("focus-gained keeps pane notifications unread until explicit activation")
     func focusGainedKeepsPaneNotificationsUnreadUntilExplicitActivation() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         fixture.inboxAtom.append(
@@ -916,7 +916,7 @@ extension InboxNotificationRouterTests {
     @Test("agent notification requests become agentRpc inbox rows")
     func agentNotificationRequested() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(

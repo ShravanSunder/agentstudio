@@ -172,7 +172,7 @@ private final class PreparedCompositionApplierFixture {
     }
 
     let revisionOwner = WorkspacePersistenceRevisionOwner()
-    let identityAtom = WorkspaceIdentityAtom()
+    let identityAtom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate())
     let windowMemoryAtom = WorkspaceWindowMemoryAtom()
     let repositoryTopologyAtom = RepositoryTopologyAtom()
     let paneGraphAtom = WorkspacePaneGraphAtom()

@@ -87,9 +87,7 @@ struct PaneCloseTransitionCoordinatorTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-close-transition-test-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let clock = TestPushClock()

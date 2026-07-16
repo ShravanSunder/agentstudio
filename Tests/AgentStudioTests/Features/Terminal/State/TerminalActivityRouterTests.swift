@@ -136,7 +136,7 @@ struct TerminalActivityRouterTests {
         let bus = EventBus<RuntimeEnvelope>()
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 1)
@@ -175,7 +175,7 @@ struct TerminalActivityRouterTests {
             timeUnixNano: { 404 }
         )
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         let correlationId = UUID()
 
         await router.start()
@@ -225,7 +225,7 @@ struct TerminalActivityRouterTests {
             timeUnixNano: { 909 }
         )
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 1)
@@ -288,7 +288,7 @@ struct TerminalActivityRouterTests {
             timeUnixNano: { 505 }
         )
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         _ = await bus.post(
@@ -333,7 +333,7 @@ struct TerminalActivityRouterTests {
             timeUnixNano: { 606 }
         )
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         for sequence in 1...5 {
@@ -387,7 +387,7 @@ struct TerminalActivityRouterTests {
             unseenActivityClock: clock,
             nowMilliseconds: { nowMilliseconds.get() }
         )
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         for (index, totalRows) in [100, 120, 140].enumerated() {
@@ -426,7 +426,7 @@ struct TerminalActivityRouterTests {
         let bus = EventBus<RuntimeEnvelope>()
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let traceDirectory = temporaryTraceDirectoryURL()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         let attendedPane = makeAttendedPaneAtom(activePaneId: paneId.uuid)
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
@@ -486,7 +486,7 @@ struct TerminalActivityRouterTests {
             timeUnixNano: { 1001 }
         )
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         let correlationId = UUID()
 
         await router.start()
@@ -543,7 +543,7 @@ struct TerminalActivityRouterTests {
             unseenActivityClock: clock,
             nowMilliseconds: { nowMilliseconds.get() }
         )
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         _ = await bus.post(
@@ -614,7 +614,7 @@ struct TerminalActivityRouterTests {
             unseenActivityDebounceDuration: .milliseconds(750),
             unseenActivityClock: clock
         )
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 1)
@@ -666,7 +666,7 @@ struct TerminalActivityRouterTests {
             timeUnixNano: { 1003 }
         )
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         for totalRows in [100, 80] {
@@ -700,7 +700,7 @@ struct TerminalActivityRouterTests {
         let bus = EventBus<RuntimeEnvelope>()
         let atom = TerminalActivityAtom()
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await router.start()
@@ -726,7 +726,7 @@ struct TerminalActivityRouterTests {
         let bus = EventBus<RuntimeEnvelope>()
         let atom = TerminalActivityAtom()
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await router.stop()
@@ -749,7 +749,7 @@ struct TerminalActivityRouterTests {
         let bus = EventBus<RuntimeEnvelope>()
         let atom = TerminalActivityAtom()
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         _ = await bus.post(

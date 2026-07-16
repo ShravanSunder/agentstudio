@@ -118,7 +118,7 @@ func makeRuntimeEnvelope(
     case .pane(let resolvedPaneId):
         paneId = resolvedPaneId
     case .system, .worktree:
-        paneId = PaneId()
+        paneId = PaneId.generateUUIDv7()
     }
 
     return .pane(

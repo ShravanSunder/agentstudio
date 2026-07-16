@@ -387,8 +387,7 @@ icons when a sidebar/local action already defines the presentation.
 | `InboxSidebarRuntimeAtom` | runtime pending inbox filter handoff | `Features/InboxNotification/State/MainActor/Atoms/InboxSidebarState.swift` |
 | `InboxSidebarState` | UI-facing composition surface over inbox sidebar memory + runtime atoms | `Features/InboxNotification/State/MainActor/Atoms/InboxSidebarState.swift` |
 | `WorkspaceStore` | persistence wrapper over the workspace-domain atoms | `Core/State/MainActor/Persistence/WorkspaceStore.swift` |
-| `WorkspaceLegacySQLiteImporter` | legacy `workspace.state.json` import policy and retry outcome state machine; returns explicit enum outcomes for the `WorkspaceStore` call site to apply | `Core/State/MainActor/Persistence/WorkspaceStore+LegacySQLiteImport.swift` |
-| `WorkspaceSQLiteDatastore` | actor boundary for product SQLite I/O, repository caching, core/local commit sequencing, local quarantine state, and legacy import status decisions; does not own atoms | `Core/State/SQLite/WorkspaceSQLiteDatastore.swift` |
+| `WorkspaceSQLiteDatastore` | actor boundary for product SQLite I/O, repository caching, strict core/local composition loading, and commit sequencing; does not own atoms | `Core/State/SQLite/WorkspaceSQLiteDatastore.swift` |
 | `WorkspaceSQLiteSnapshot` | immutable live SQLite bridge snapshot passed across the MainActor/datastore boundary; not a legacy JSON DTO and not a row projection | `Core/State/SQLite/WorkspaceSQLiteSnapshot.swift` |
 | `WorkspaceSQLiteRecoveryClassifier` | GRDB corruption/not-a-database classifier shared by product SQLite recovery paths; no repository or atom ownership | `Core/State/SQLite/WorkspaceSQLiteRecoveryClassifier.swift` |
 | `WorkspaceSQLiteStoreBackendFactory` | product-specific SQLite backend bootstrap, core migration, core sidecar quarantine, and local repository construction | `Core/State/MainActor/Persistence/WorkspaceSQLiteStoreBackendFactory.swift` |
@@ -695,8 +694,7 @@ Where each key component lives — use this to decide where new files go. Apply 
 | `RecentWorkspaceTargetAtom` | `Core/State/MainActor/Atoms/` | Local recent workspace target history |
 | `RepoCacheAtom` | `Core/State/MainActor/Atoms/` | Compatibility read surface over repo enrichment + recent targets; does not own notification unread counts |
 | `WorkspaceStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for the workspace-domain atoms |
-| `WorkspaceLegacySQLiteImporter` | `Core/State/MainActor/Persistence/` | Legacy workspace JSON import policy and explicit import outcome state machine |
-| `WorkspaceSQLiteDatastore` | `Core/State/SQLite/` | Actor boundary for product SQLite I/O, repository caching, core/local commit sequencing, local quarantine state, and legacy import status decisions |
+| `WorkspaceSQLiteDatastore` | `Core/State/SQLite/` | Actor boundary for product SQLite I/O, repository caching, strict core/local composition loading, and commit sequencing |
 | `WorkspaceSQLiteSnapshot` | `Core/State/SQLite/` | Immutable live SQLite bridge snapshot passed across the MainActor/datastore boundary; not a legacy JSON DTO or row projection |
 | `WorkspaceSQLiteRecoveryClassifier` | `Core/State/SQLite/` | GRDB corruption/not-a-database classifier shared by product SQLite recovery paths |
 | `RepoCacheStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for repo enrichment cache + recent workspace targets |

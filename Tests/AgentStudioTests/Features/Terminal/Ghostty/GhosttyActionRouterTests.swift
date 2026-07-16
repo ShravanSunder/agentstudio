@@ -152,7 +152,7 @@ struct GhosttyActionRouterTests {
         let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
         let surfaceId = UUID()
         let paneUUID = UUIDv7.generate()
-        let paneId = PaneId(uuid: paneUUID)
+        let paneId = PaneId(existingUUID: paneUUID)
         let runtime = TerminalRuntime(
             paneId: paneId,
             metadata: PaneMetadata(
@@ -189,7 +189,7 @@ struct GhosttyActionRouterTests {
         let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
         let surfaceId = UUID()
         let paneUUID = UUIDv7.generate()
-        let paneId = PaneId(uuid: paneUUID)
+        let paneId = PaneId(existingUUID: paneUUID)
         let runtime = TerminalRuntime(
             paneId: paneId,
             metadata: PaneMetadata(
@@ -238,7 +238,7 @@ struct GhosttyActionRouterTests {
         let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
         let surfaceId = UUID()
         let paneUUID = UUIDv7.generate()
-        let paneId = PaneId(uuid: paneUUID)
+        let paneId = PaneId(existingUUID: paneUUID)
         let runtime = TerminalRuntime(
             paneId: paneId,
             metadata: PaneMetadata(
@@ -342,7 +342,7 @@ struct GhosttyActionRouterTests {
         let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
         let surfaceId = UUID()
         let paneUUID = UUIDv7.generate()
-        let paneId = PaneId(uuid: paneUUID)
+        let paneId = PaneId(existingUUID: paneUUID)
         let runtime = TerminalRuntime(
             paneId: paneId,
             metadata: PaneMetadata(
@@ -405,7 +405,7 @@ struct GhosttyActionRouterTests {
         let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
         let surfaceId = UUID()
         let paneUUID = UUIDv7.generate()
-        let paneId = PaneId(uuid: paneUUID)
+        let paneId = PaneId(existingUUID: paneUUID)
         let runtime = TerminalRuntime(
             paneId: paneId,
             metadata: PaneMetadata(
@@ -459,7 +459,7 @@ struct GhosttyActionRouterTests {
         let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
         let surfaceId = UUID()
         let paneUUID = UUIDv7.generate()
-        let paneId = PaneId(uuid: paneUUID)
+        let paneId = PaneId(existingUUID: paneUUID)
         let runtime = TerminalRuntime(
             paneId: paneId,
             metadata: PaneMetadata(

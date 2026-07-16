@@ -16,7 +16,7 @@ struct PaneMetadata: Codable, Hashable, Sendable {
     private(set) var note: String?
 
     init(
-        paneId: PaneId = PaneId(),
+        paneId: PaneId = PaneId.generateUUIDv7(),
         contentType: PaneContentType = .terminal,
         launchDirectory: URL? = nil,
         executionBackend: ExecutionBackend = .local,

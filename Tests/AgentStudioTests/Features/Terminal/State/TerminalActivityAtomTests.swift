@@ -7,7 +7,7 @@ import Testing
 @Suite("TerminalActivityAtom")
 struct TerminalActivityAtomTests {
     private func paneEnvelope(
-        paneId: PaneId = PaneId(),
+        paneId: PaneId = PaneId.generateUUIDv7(),
         event: GhosttyEvent,
         seq: UInt64 = 1
     ) -> PaneEnvelope {
@@ -22,7 +22,7 @@ struct TerminalActivityAtomTests {
     @Test("tracks every progress state including non-error and remove")
     func tracksEveryProgressStateIncludingNonErrorAndRemove() {
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         atom.consume(
             paneEnvelope(
@@ -54,7 +54,7 @@ struct TerminalActivityAtomTests {
     @Test("tracks cwd and recent URL requests without turning them into notifications")
     func tracksCwdAndRecentURLRequests() {
         let atom = TerminalActivityAtom(outputBurstThreshold: 30, recentURLLimit: 2)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         atom.consume(paneEnvelope(paneId: paneId, event: .cwdChanged("/tmp/project")))
         atom.consume(
@@ -88,7 +88,7 @@ struct TerminalActivityAtomTests {
     @Test("scrollbar total growth accumulates output bursts above threshold")
     func scrollbarTotalGrowthAccumulatesOutputBurstsAboveThreshold() {
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         atom.consume(
             paneEnvelope(
@@ -141,7 +141,7 @@ struct TerminalActivityAtomTests {
     @Test("scrollbar state records pinned-to-bottom observation")
     func scrollbarStateRecordsPinnedToBottomObservation() {
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         atom.consume(
             paneEnvelope(
@@ -166,7 +166,7 @@ struct TerminalActivityAtomTests {
     @Test("clear removes per-pane terminal activity")
     func clearRemovesPerPaneTerminalActivity() {
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         atom.consume(paneEnvelope(paneId: paneId, event: .cwdChanged("/tmp/project")))
         atom.clear(paneId: paneId.uuid)

@@ -10,7 +10,7 @@ struct TerminalRuntimeTests {
     @Test("handleCommand rejects when lifecycle not ready")
     func rejectWhenNotReady() async {
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime")
         )
         let commandEnvelope = makeEnvelope(command: .activate, paneId: runtime.paneId)
@@ -21,7 +21,7 @@ struct TerminalRuntimeTests {
     @Test("handleCommand succeeds after ready transition")
     func succeedsWhenReady() async {
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
@@ -38,7 +38,7 @@ struct TerminalRuntimeTests {
     @Test("terminal commands fail when no surface is attached")
     func terminalCommandFailsWithoutSurface() async {
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
@@ -51,7 +51,7 @@ struct TerminalRuntimeTests {
     @Test("scrollToBottom terminal command fails without surface")
     func scrollToBottomTerminalCommandFailsWithoutSurface() async {
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
@@ -65,7 +65,7 @@ struct TerminalRuntimeTests {
     @Test("scrollPageUp terminal command fails without surface")
     func scrollPageUpTerminalCommandFailsWithoutSurface() async {
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
@@ -79,7 +79,7 @@ struct TerminalRuntimeTests {
     @Test("jumpToPrompt terminal command fails without surface")
     func jumpToPromptTerminalCommandFailsWithoutSurface() async {
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
@@ -93,7 +93,7 @@ struct TerminalRuntimeTests {
     @Test("non-terminal command families are rejected as unsupported")
     func rejectsUnsupportedCommandFamilies() async {
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
@@ -116,7 +116,7 @@ struct TerminalRuntimeTests {
     @Test("prepareForClose transitions runtime to draining and rejects follow-up command")
     func prepareForCloseTransitionsToDraining() async {
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
@@ -135,7 +135,7 @@ struct TerminalRuntimeTests {
     func terminalSendWritesInputWithoutFocusSideEffects() async {
         let surfaceDispatcher = RecordingTerminalSurfaceCommandDispatcher()
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime"),
             surfaceCommandDispatcher: surfaceDispatcher
         )
@@ -154,7 +154,7 @@ struct TerminalRuntimeTests {
     @Test("eventsSince replays emitted events")
     func replaysEvents() async {
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
@@ -171,7 +171,7 @@ struct TerminalRuntimeTests {
     @Test("handleGhosttyEvent updates metadata and preserves envelope identifiers")
     func ghosttyEventMetadataAndEnvelope() async {
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
@@ -203,7 +203,7 @@ struct TerminalRuntimeTests {
     func replayGapAfterEviction() async {
         let replayBuffer = EventReplayBuffer(config: .init(maxEvents: 2, maxBytes: 10_000, ttl: .seconds(300)))
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime"),
             replayBuffer: replayBuffer
         )
@@ -222,7 +222,7 @@ struct TerminalRuntimeTests {
     @Test("action events emit to subscribers but are not persisted in replay")
     func actionEventsBypassReplayBuffer() async {
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
@@ -254,7 +254,7 @@ struct TerminalRuntimeTests {
         let harness = EventBusHarness<RuntimeEnvelope>()
         let subscriber = await harness.makeSubscriber()
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime"),
             paneEventBus: harness.bus
         )
@@ -320,7 +320,7 @@ struct TerminalRuntimeTests {
     func readOnly_postsReplayableBusEvent() async {
         let paneEventBus = EventBus<RuntimeEnvelope>()
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime"),
             paneEventBus: paneEventBus
         )
@@ -348,7 +348,7 @@ struct TerminalRuntimeTests {
     @Test("mouse events update observable runtime state")
     func mouseEventsUpdateObservableRuntimeState() {
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
@@ -364,7 +364,7 @@ struct TerminalRuntimeTests {
     func promptTitle_postsNonReplayableBusEvent() async {
         let paneEventBus = EventBus<RuntimeEnvelope>()
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime"),
             paneEventBus: paneEventBus
         )
@@ -392,7 +392,7 @@ struct TerminalRuntimeTests {
         let harness = EventBusHarness<RuntimeEnvelope>()
         let subscriber = await harness.makeSubscriber()
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime"),
             paneEventBus: harness.bus
         )
@@ -452,7 +452,7 @@ struct TerminalRuntimeTests {
         let harness = EventBusHarness<RuntimeEnvelope>()
         let subscriber = await harness.makeSubscriber()
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime"),
             paneEventBus: harness.bus
         )
@@ -490,7 +490,7 @@ struct TerminalRuntimeTests {
     @Test("searchEnded clears state and remains replayable")
     func searchEnded_clearsStateAndReplays() async {
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
@@ -517,7 +517,7 @@ struct TerminalRuntimeTests {
         let harness = EventBusHarness<RuntimeEnvelope>()
         let subscriber = await harness.makeSubscriber()
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime"),
             paneEventBus: harness.bus
         )
@@ -553,7 +553,7 @@ struct TerminalRuntimeTests {
     func deferredEvent_doesNotPostOrReplay() async {
         let paneEventBus = EventBus<RuntimeEnvelope>()
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime"),
             paneEventBus: paneEventBus
         )
@@ -577,7 +577,7 @@ struct TerminalRuntimeTests {
     @Test("subscribe returns independent streams and broadcasts events to all subscribers")
     func subscribeBroadcastsToMultipleSubscribers() async {
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
@@ -617,7 +617,7 @@ struct TerminalRuntimeTests {
     @Test("shutdown finishes event stream")
     func shutdownFinishesEventStream() async {
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
@@ -633,7 +633,7 @@ struct TerminalRuntimeTests {
     @Test("commands are rejected after shutdown")
     func rejectCommandsAfterShutdown() async {
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()

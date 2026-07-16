@@ -16,11 +16,8 @@ final class WorkspaceStoreTests {
         // Use a temp directory to avoid polluting real workspace data
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "workspace-store-tests-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
         store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
     }
 
     deinit {
@@ -28,11 +25,11 @@ final class WorkspaceStoreTests {
         store = nil
     }
 
-    // MARK: - Init & Restore
+    // MARK: - Initialization
 
     @Test
 
-    func test_restore_emptyState() {
+    func test_init_hasExplicitEmptyState() {
         // Assert
         #expect(store.panes.isEmpty)
         #expect(store.repos.isEmpty)
@@ -41,217 +38,28 @@ final class WorkspaceStoreTests {
     }
 
     @Test
-    func test_restore_loadedState_doesNotMarkDirtyOrScheduleDebouncedSave() async throws {
-        let persistedDir = FileManager.default.temporaryDirectory
-            .appending(path: "workspace-store-restore-tests-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: persistedDir)
-        #expect(persistor.ensureDirectory())
-
-        let workspaceId = UUID()
-        let pane = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
-            metadata: PaneMetadata(
-                title: "Restored"
-            )
-        )
-        let tab = Tab(paneId: pane.id)
-        try persistor.save(
-            .init(
-                id: workspaceId,
-                panes: [pane],
-                tabs: [tab],
-                activeTabId: tab.id
-            )
-        )
-
-        let clock = TestPushClock()
-        let restoredStore = WorkspaceStore(
+    func persistenceObservationArmsExplicitlyAndIdempotently() async {
+        let unarmedStore = WorkspaceStore(
             workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor,
-            persistDebounceDuration: .milliseconds(1),
-            clock: clock
+            startsObserving: false
         )
-
-        restoredStore.restore()
+        unarmedStore.identityAtom.replaceIdentity(
+            workspaceId: UUIDv7.generate(),
+            workspaceName: "Installed Composition",
+            createdAt: Date(timeIntervalSince1970: 1)
+        )
         await Task.yield()
 
-        #expect(!restoredStore.isDirty)
-        #expect(clock.pendingSleepCount == 0)
-    }
+        #expect(!unarmedStore.isAutosaveObservationActive)
+        #expect(!unarmedStore.isDirty)
 
-    @Test
-    func test_restore_corruptWorkspace_reportsRecovery() throws {
-        let persistedDir = FileManager.default.temporaryDirectory
-            .appending(path: "workspace-store-corrupt-tests-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: persistedDir)
-        #expect(persistor.ensureDirectory())
-        let workspaceId = UUID()
-        let stateURL = persistedDir.appending(path: "\(workspaceId.uuidString).workspace.state.json")
-        let cacheURL = persistedDir.appending(path: "\(workspaceId.uuidString).workspace.cache.json")
-        let uiURL = persistedDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
-        let sidebarCacheURL = persistedDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
-        let inboxURL = persistedDir.appending(path: "\(workspaceId.uuidString).notification-inbox.json")
-        try Data("not-json".utf8).write(to: stateURL, options: .atomic)
-        try Data("{}".utf8).write(to: cacheURL, options: .atomic)
-        try Data("{}".utf8).write(to: uiURL, options: .atomic)
-        try Data("{}".utf8).write(to: sidebarCacheURL, options: .atomic)
-        try Data("{}".utf8).write(to: inboxURL, options: .atomic)
-        var reportedRecovery: PersistenceRecoveryEvent?
-        let restoredStore = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor,
-            recoveryReporter: { reportedRecovery = $0 }
-        )
+        unarmedStore.startObserving()
+        unarmedStore.startObserving()
+        unarmedStore.identityAtom.setWorkspaceName("User Rename")
+        await Task.yield()
 
-        restoredStore.restore()
-
-        #expect(reportedRecovery?.store == .workspace)
-        #expect(reportedRecovery?.workspaceId == workspaceId)
-        #expect(reportedRecovery?.recovery == .quarantinedAndReset)
-        #expect(reportedRecovery?.quarantinedFilename?.contains(".workspace.state.corrupt-") == true)
-        #expect(reportedRecovery?.quarantinedFilename?.contains(".workspace.cache.corrupt-") == true)
-        #expect(reportedRecovery?.quarantinedFilename?.contains(".workspace.ui.corrupt-") == true)
-        #expect(reportedRecovery?.quarantinedFilename?.contains(".workspace.sidebar-cache.corrupt-") == true)
-        #expect(reportedRecovery?.quarantinedFilename?.contains(".notification-inbox.corrupt-") == true)
-        #expect(!FileManager.default.fileExists(atPath: stateURL.path))
-        #expect(!FileManager.default.fileExists(atPath: cacheURL.path))
-        #expect(!FileManager.default.fileExists(atPath: uiURL.path))
-        #expect(!FileManager.default.fileExists(atPath: sidebarCacheURL.path))
-        #expect(!FileManager.default.fileExists(atPath: inboxURL.path))
-        #expect(restoredStore.panes.isEmpty)
-    }
-
-    @Test
-    func archiveLegacyWorkspaceFiles_movesCompanionFilesIntoLegacyImportedDirectory() throws {
-        let persistedDir = FileManager.default.temporaryDirectory
-            .appending(path: "workspace-store-archive-tests-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: persistedDir)
-        #expect(persistor.ensureDirectory())
-        let workspaceId = UUID()
-        let legacyURLs = [
-            persistedDir.appending(path: "\(workspaceId.uuidString).workspace.state.json"),
-            persistedDir.appending(path: "\(workspaceId.uuidString).workspace.cache.json"),
-            persistedDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json"),
-            persistedDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json"),
-            persistedDir.appending(path: "\(workspaceId.uuidString).notification-inbox.json"),
-        ]
-        for url in legacyURLs {
-            try Data(url.lastPathComponent.utf8).write(to: url, options: .atomic)
-        }
-
-        let result = try #require(persistor.archiveLegacyWorkspaceFiles(for: workspaceId))
-
-        #expect(result.failedFilenames.isEmpty)
-        #expect(Set(result.archivedFilenames) == Set(legacyURLs.map(\.lastPathComponent)))
-        let archiveDirectory =
-            persistedDir
-            .appending(path: "legacy-imported")
-            .appending(path: result.archiveDirectoryName)
-        #expect(FileManager.default.fileExists(atPath: archiveDirectory.path))
-        for url in legacyURLs {
-            #expect(!FileManager.default.fileExists(atPath: url.path))
-            #expect(
-                FileManager.default.fileExists(atPath: archiveDirectory.appending(path: url.lastPathComponent).path))
-        }
-    }
-
-    @Test
-    func hasLegacyWorkspaceFilesReportsWhetherAnyLegacyFileExists() throws {
-        let persistedDir = FileManager.default.temporaryDirectory
-            .appending(path: "workspace-store-legacy-file-presence-tests-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: persistedDir)
-        #expect(persistor.ensureDirectory())
-        let workspaceId = UUID()
-
-        #expect(!persistor.hasLegacyWorkspaceFiles(for: workspaceId))
-
-        let stateURL = persistedDir.appending(path: "\(workspaceId.uuidString).workspace.state.json")
-        try Data("state".utf8).write(to: stateURL, options: .atomic)
-
-        #expect(persistor.hasLegacyWorkspaceFiles(for: workspaceId))
-    }
-
-    @Test
-    func archiveLegacyWorkspaceFilesReportsPriorIncompleteArchiveDirectory() throws {
-        let persistedDir = FileManager.default.temporaryDirectory
-            .appending(path: "workspace-store-incomplete-archive-tests-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: persistedDir)
-        #expect(persistor.ensureDirectory())
-        let workspaceId = UUID()
-        let stateURL = persistedDir.appending(path: "\(workspaceId.uuidString).workspace.state.json")
-        try Data("state".utf8).write(to: stateURL, options: .atomic)
-        let incompleteDirectoryName = "2026-06-06T00-00-00Z"
-        let incompleteDirectory =
-            persistedDir
-            .appending(path: "legacy-imported")
-            .appending(path: incompleteDirectoryName)
-        try FileManager.default.createDirectory(at: incompleteDirectory, withIntermediateDirectories: true)
-        try Data("partial".utf8).write(
-            to: incompleteDirectory.appending(path: "\(workspaceId.uuidString).workspace.cache.json"),
-            options: .atomic
-        )
-        try Data("incomplete".utf8).write(
-            to: incompleteDirectory.appending(path: ".archive-incomplete-\(workspaceId.uuidString).marker"),
-            options: .atomic
-        )
-
-        let result = try #require(persistor.archiveLegacyWorkspaceFiles(for: workspaceId))
-
-        #expect(result.archivedFilenames.isEmpty)
-        #expect(result.failedFilenames == [stateURL.lastPathComponent])
-        #expect(result.incompleteArchiveDirectoryNames == [incompleteDirectoryName])
-        #expect(!result.succeeded)
-        #expect(FileManager.default.fileExists(atPath: stateURL.path))
-    }
-
-    @Test
-    func test_flushFailure_reportsSaveFailedRecovery() {
-        let blockedDirectoryURL = FileManager.default.temporaryDirectory
-            .appending(path: "workspace-store-blocked-\(UUID().uuidString)")
-        try? Data("not-a-directory".utf8).write(to: blockedDirectoryURL, options: .atomic)
-        var reportedRecovery: PersistenceRecoveryEvent?
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: blockedDirectoryURL),
-            recoveryReporter: { reportedRecovery = $0 }
-        )
-
-        #expect(store.flush() == false)
-        #expect(reportedRecovery?.store == .workspace)
-        #expect(reportedRecovery?.workspaceId == store.identityAtom.workspaceId)
-        #expect(reportedRecovery?.recovery == .saveFailed)
-    }
-
-    @Test
-    func test_workspaceStore_readsAndPersistsTheProvidedLiveAtomScope() throws {
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let atoms = AtomRegistry()
-        let scopedStore = WorkspaceStore(
-            workspacePersistenceRevisionOwner: atoms.workspacePersistenceRevisionOwner,
-            catalogAtom: atoms.workspaceRepositoryTopology,
-            graphAtom: atoms.workspacePane,
-            interactionAtom: atoms.workspaceTabLayout,
-            persistor: persistor
-        )
-
-        let pane = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
-            metadata: PaneMetadata(
-                title: "Scoped"
-            )
-        )
-        atoms.workspacePane.addPane(pane)
-
-        #expect(scopedStore.graphAtom === atoms.workspacePane)
-        #expect(scopedStore.pane(pane.id)?.title == "Scoped")
-
-        #expect(scopedStore.flush())
-
-        let restoredStore = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        restoredStore.restore()
-        #expect(restoredStore.pane(pane.id)?.title == "Scoped")
+        #expect(unarmedStore.isAutosaveObservationActive)
+        #expect(unarmedStore.isDirty)
     }
 
     @Test
@@ -273,9 +81,7 @@ final class WorkspaceStoreTests {
 
         let store = WorkspaceStore(
             workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            tabLayoutAtom: tabLayoutAtom,
-            persistor: WorkspacePersistor(workspacesDir: tempDir)
-        )
+            tabLayoutAtom: tabLayoutAtom)
 
         #expect(store.tabShellAtom === tabShellAtom)
         #expect(store.tabCursorAtom === tabCursorAtom)
@@ -361,7 +167,7 @@ final class WorkspaceStoreTests {
     }
 
     @Test
-    func updatePaneLiveLocation_clearsLiveRepoAndWorktreeWhenCwdLeavesKnownWorktrees() throws {
+    func updatePaneLiveLocation_clearsLiveRepoAndWorktreeWhenCwdLeavesKnownWorktrees() async throws {
         let repo = store.addRepo(at: URL(filePath: "/tmp/live-clear-repo"))
         let main = Worktree(
             repoId: repo.id,
@@ -393,11 +199,9 @@ final class WorkspaceStoreTests {
         #expect(updated?.metadata.repoName == nil)
         #expect(updated?.metadata.worktreeName == nil)
 
-        #expect(store.flush())
+        #expect((await store.flushAsync()).succeeded)
         let restoredStore = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        restoredStore.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let restoredPane = try #require(restoredStore.pane(pane.id))
         #expect(restoredPane.metadata.cwd == externalCwd)
         #expect(restoredPane.repoId == nil)
@@ -480,7 +284,7 @@ final class WorkspaceStoreTests {
     func workspacePaneAtomUpdatesPaneNote() {
         let atom = WorkspacePaneAtom()
         let pane = Pane(
-            id: PaneId().uuid,
+            id: PaneId.generateUUIDv7().uuid,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata()
         )
@@ -581,13 +385,12 @@ final class WorkspaceStoreTests {
 
     @Test
 
-    func test_updatePaneCWD_sameCWD_noOpDoesNotMarkDirty() {
+    func test_updatePaneCWD_sameCWD_noOpDoesNotMarkDirty() async {
         // Arrange
         let pane = store.createPane()
         let cwd = URL(fileURLWithPath: "/tmp")
         store.updatePaneCWD(pane.id, cwd: cwd)
-        store.flush()
-
+        _ = await store.flushAsync()
         // Act — update with same CWD
         store.updatePaneCWD(pane.id, cwd: cwd)
 
@@ -1052,112 +855,22 @@ final class WorkspaceStoreTests {
 
     // MARK: - Persistence Round-Trip
 
-    @Test
-
-    func test_persistence_saveAndRestore() {
-        // Arrange
-        let pane = store.createPane(
-            title: "Persistent"
-        )
-        let tab = Tab(paneId: pane.id)
-        store.appendTab(tab)
-        store.flush()
-
-        // Act — create new store with same persistor
-        let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
-        let store2 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor2)
-        store2.restore()
-
-        // Assert
-        #expect(store2.panes.count == 1)
-        // Find the pane by the known ID
-        #expect(store2.pane(pane.id)?.title == "Persistent")
-        #expect(store2.tabs.count == 1)
-        #expect(store2.tabs[0].paneIds.count == 1)
-    }
-
-    @Test
-
-    func test_persistence_temporaryPanesExcluded() {
-        // Arrange
-        let persistent = store.createPane(
-            title: "Persistent",
-            lifetime: .persistent
-        )
-        store.createPane(
-            title: "Temporary",
-            lifetime: .temporary
-        )
-        let tab = Tab(paneId: persistent.id)
-        store.appendTab(tab)
-        store.flush()
-
-        // Act — restore from disk
-        let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
-        let store2 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor2)
-        store2.restore()
-
-        // Assert — only persistent pane restored
-        #expect(store2.panes.count == 1)
-        #expect(store2.pane(persistent.id)?.title == "Persistent")
-        #expect(store2.pane(persistent.id)?.lifetime == .persistent)
-    }
-
     // MARK: - Persistence Pruning
 
     @Test
 
-    func test_persistence_temporaryPanesPrunedFromLayouts() {
-        // Arrange — create a tab with both persistent and temporary panes in a split layout
-        let persistent = store.createPane(
-            title: "Persistent",
-            lifetime: .persistent
-        )
-        let temporary = store.createPane(
-            title: "Temporary",
-            lifetime: .temporary
-        )
-        let tab = makeTab(paneIds: [persistent.id, temporary.id])
-        store.appendTab(tab)
-        store.flush()
-
-        // Act — restore from disk
-        let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
-        let store2 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor2)
-        store2.restore()
-
-        // Assert — only persistent pane remains, no dangling temporary IDs in layouts
-        #expect(store2.panes.count == 1)
-        #expect((store2.pane(persistent.id)) != nil)
-        #expect(store2.tabs.count == 1)
-        #expect(store2.tabs[0].paneIds == [persistent.id])
-        #expect(!(store2.tabs[0].isSplit))
-    }
-
-    @Test
-
-    func test_persistence_allTemporary_tabPruned() {
+    func test_persistence_allTemporary_tabPruned() async {
         // Arrange — tab with only temporary panes
         let temp1 = store.createPane(
             lifetime: .temporary
         )
         let tab = Tab(paneId: temp1.id)
         store.appendTab(tab)
-        store.flush()
-
+        _ = await store.flushAsync()
         // Act
         let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
         let store2 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor2)
-        store2.restore()
-
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         // Assert — tab fully pruned since all panes were temporary
         #expect(store2.panes.isEmpty)
         #expect(store2.tabs.isEmpty)
@@ -1165,7 +878,7 @@ final class WorkspaceStoreTests {
 
     @Test
 
-    func test_persistence_activeTabIdFixupAfterPrune() {
+    func test_persistence_activeTabIdFixupAfterPrune() async {
         // Arrange — two tabs: one all-temporary (active), one persistent
         let persistent = store.createPane(
             lifetime: .persistent
@@ -1179,15 +892,11 @@ final class WorkspaceStoreTests {
         store.appendTab(tab2)
         // tab2 is active (appendTab sets activeTabId)
         #expect(store.activeTabId == tab2.id)
-        store.flush()
-
+        _ = await store.flushAsync()
         // Act — restore
         let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
         let store2 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor2)
-        store2.restore()
-
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         // Assert — temporary tab pruned, activeTabId points to surviving tab
         #expect(store2.tabs.count == 1)
         #expect(store2.tabs[0].id == tab1.id)
@@ -1196,59 +905,11 @@ final class WorkspaceStoreTests {
 
     // MARK: - Orphaned Pane Pruning
 
-    @Test
-
-    func test_restore_prunesPanesWithMissingWorktree() {
-        // Arrange — add a repo with a worktree, then create a worktree-bound pane
-        let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/orphan-test-repo"))
-        let wt = makeWorktree(name: "main", path: "/tmp/orphan-test-repo")
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [wt])
-
-        let worktree = store.repos.first!.worktrees.first!
-        let pane = store.createPane(
-            launchDirectory: worktree.path,
-            title: "Will become orphaned",
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
-        )
-        let tab = Tab(paneId: pane.id)
-        store.appendTab(tab)
-        store.flush()
-
-        // Act — restore into a new store. The persisted repo has worktrees serialized,
-        // but the pane's worktreeId won't match if worktrees were deleted.
-        // Simulate by restoring, then creating a pane with a fabricated worktreeId
-        // that doesn't exist in any repo.
-        let orphanPane = store.createPane(
-            launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
-            title: "Orphaned",
-            facets: PaneContextFacets(
-                repoId: repo.id,
-                worktreeId: UUID(),
-                cwd: URL(fileURLWithPath: "/tmp/worktree")
-            )
-        )
-        let orphanTab = Tab(paneId: orphanPane.id)
-        store.appendTab(orphanTab)
-        store.flush()
-
-        let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
-        let store2 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor2)
-        store2.restore()
-
-        // Assert — the orphaned pane (with non-existent worktreeId) is pruned;
-        // the valid pane (with existing worktreeId) survives
-        #expect(store2.panes.count == 1, "Only the valid pane should survive")
-        #expect((store2.pane(pane.id)) != nil)
-        #expect(store2.tabs.count == 1, "Only the tab with valid pane should survive")
-    }
-
     // MARK: - Dirty Flag
 
     @Test
 
-    func test_isDirty_setOnMutation_clearedOnFlush() {
+    func test_isDirty_setOnMutation_clearedOnFlush() async {
         // Arrange
         #expect(!(store.isDirty))
 
@@ -1257,7 +918,7 @@ final class WorkspaceStoreTests {
         #expect(store.isDirty)
 
         // Act — flush clears dirty
-        store.flush()
+        _ = await store.flushAsync()
         #expect(!(store.isDirty))
     }
 
@@ -1268,10 +929,8 @@ final class WorkspaceStoreTests {
         let fastPersistor = WorkspacePersistor(workspacesDir: tempDir)
         let fastStore = WorkspaceStore(
             workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: fastPersistor,
             persistDebounceDuration: .zero
         )
-        fastStore.restore()
         _ = fastStore.createPane()
         #expect(fastStore.isDirty)
 
@@ -1308,7 +967,7 @@ final class WorkspaceStoreTests {
         )
         let clock = TestPushClock()
         var recoveryEvents: [PersistenceRecoveryEvent] = []
-        let identityAtom = WorkspaceIdentityAtom()
+        let identityAtom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate())
         identityAtom.replaceIdentity(
             workspaceId: workspaceId,
             workspaceName: "Autosave Damping",
@@ -1317,9 +976,6 @@ final class WorkspaceStoreTests {
         let store = WorkspaceStore(
             workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
-            persistor: WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-            ),
             sqliteDatastore: sqliteDatastore,
             persistDebounceDuration: .milliseconds(10),
             clock: clock,
@@ -1416,7 +1072,7 @@ final class WorkspaceStoreTests {
         let pane = store.paneAtom.createPane(zmxSessionID: .generateUUIDv7())
         let tab = Tab(paneId: pane.id)
         store.tabLayoutAtom.appendTab(tab)
-        #expect(store.flush())
+        #expect((await store.flushAsync()).succeeded)
         #expect(!store.isDirty)
 
         store.tabLayoutAtom.toggleZoom(paneId: pane.id, inTab: tab.id)
@@ -1433,7 +1089,7 @@ final class WorkspaceStoreTests {
         let pane = store.paneAtom.createPane(zmxSessionID: .generateUUIDv7())
         let tab = Tab(paneId: pane.id)
         store.tabLayoutAtom.appendTab(tab)
-        #expect(store.flush())
+        #expect((await store.flushAsync()).succeeded)
         #expect(!store.isDirty)
 
         store.tabGraphAtom.replaceStates([])
@@ -1454,7 +1110,7 @@ final class WorkspaceStoreTests {
         let secondTab = Tab(paneId: secondPane.id)
         store.appendTab(secondTab)
         #expect(store.activeTabId == secondTab.id)
-        #expect(store.flush())
+        #expect((await store.flushAsync()).succeeded)
         #expect(!store.isDirty)
 
         store.setActiveTab(firstTab.id)
@@ -1482,7 +1138,7 @@ final class WorkspaceStoreTests {
                 sizingMode: .halveTarget
             ))
         let customArrangementId = try #require(store.createArrangement(name: "Focus", inTab: tab.id))
-        #expect(store.flush())
+        #expect((await store.flushAsync()).succeeded)
         #expect(!store.isDirty)
 
         store.switchArrangement(to: customArrangementId, inTab: tab.id)
@@ -1510,7 +1166,7 @@ final class WorkspaceStoreTests {
                 sizingMode: .halveTarget
             ))
         #expect(store.tab(tab.id)?.activePaneId == secondPane.id)
-        #expect(store.flush())
+        #expect((await store.flushAsync()).succeeded)
         #expect(!store.isDirty)
 
         store.setActivePane(firstPane.id, inTab: tab.id)
@@ -1530,7 +1186,7 @@ final class WorkspaceStoreTests {
         let firstDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
         let secondDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
         #expect(store.drawerView(forParent: parentPane.id)?.activeChildId == secondDrawerPane.id)
-        #expect(store.flush())
+        #expect((await store.flushAsync()).succeeded)
         #expect(!store.isDirty)
 
         store.setActiveDrawerPane(firstDrawerPane.id, in: parentPane.id)
@@ -1540,97 +1196,6 @@ final class WorkspaceStoreTests {
         }
 
         #expect(store.isDirty)
-    }
-
-    @Test
-    func test_repoEnrichmentDisplayChangeDoesNotDirtyWorkspacePersistence() async throws {
-        let persistedDir = FileManager.default.temporaryDirectory
-            .appending(path: "workspace-store-derived-display-tests-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: persistedDir)
-        let repoId = UUID()
-        let worktreeId = UUID()
-        let repoPath = URL(filePath: "/tmp/project-dev/agent-studio")
-        let worktreePath = repoPath.appending(path: "sqlite")
-        let pane = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
-            metadata: PaneMetadata(
-                launchDirectory: worktreePath,
-                title: "Terminal",
-                facets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId, cwd: worktreePath)
-            )
-        )
-        let tab = Tab(paneId: pane.id)
-        #expect(persistor.ensureDirectory())
-        try persistor.save(
-            .init(
-                repos: [CanonicalRepo(id: repoId, name: "agent-studio", repoPath: repoPath)],
-                worktrees: [CanonicalWorktree(id: worktreeId, repoId: repoId, name: "sqlite", path: worktreePath)],
-                panes: [pane],
-                tabs: [tab],
-                activeTabId: tab.id
-            )
-        )
-
-        let atoms = AtomRegistry()
-        let clock = TestPushClock()
-        let scopedStore = WorkspaceStore(
-            workspacePersistenceRevisionOwner: atoms.workspacePersistenceRevisionOwner,
-            identityAtom: atoms.workspaceIdentity,
-            windowMemoryAtom: atoms.workspaceWindowMemory,
-            repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
-            paneAtom: atoms.workspacePane,
-            tabShellAtom: atoms.workspaceTabShell,
-            tabArrangementAtom: atoms.workspaceTabArrangement,
-            tabLayoutAtom: atoms.workspaceTabLayout,
-            mutationCoordinator: atoms.workspaceMutationCoordinator,
-            persistor: persistor,
-            persistDebounceDuration: .seconds(1),
-            clock: clock
-        )
-        scopedStore.restore()
-        await Task.yield()
-        #expect(!scopedStore.isDirty)
-        #expect(clock.pendingSleepCount == 0)
-
-        let restoredPane = try #require(scopedStore.pane(pane.id))
-        #expect(restoredPane.repoId == repoId)
-        #expect(restoredPane.worktreeId == worktreeId)
-        #expect(restoredPane.metadata.cwd == worktreePath)
-        #expect(scopedStore.activeTabId == tab.id)
-
-        atoms.repoEnrichmentCache.setRepoEnrichment(
-            .resolvedRemote(
-                repoId: repoId,
-                raw: RawRepoOrigin(origin: "origin-url", upstream: "upstream-url"),
-                identity: RepoIdentity(
-                    groupKey: "org",
-                    remoteSlug: "org/agent-studio",
-                    organizationName: "org",
-                    displayName: "agent-studio"
-                ),
-                updatedAt: Date(timeIntervalSince1970: 1)
-            )
-        )
-        await Task.yield()
-
-        let derivedPane = try #require(scopedStore.pane(pane.id))
-        #expect(derivedPane.metadata.facets.organizationName == "org")
-        #expect(derivedPane.metadata.facets.origin == "origin-url")
-        #expect(!scopedStore.isDirty)
-        #expect(clock.pendingSleepCount == 0)
-        #expect(scopedStore.flush())
-
-        switch persistor.load() {
-        case .loaded(let persistedState):
-            let persistedPane = try #require(persistedState.panes.first)
-            #expect(persistedPane.metadata.facets.organizationName == nil)
-            #expect(persistedPane.metadata.facets.origin == nil)
-            #expect(persistedPane.metadata.facets.upstream == nil)
-        case .missing:
-            Issue.record("Expected workspace state file after flush")
-        case .corrupt(let error):
-            Issue.record("Expected decodable workspace state, got \(error)")
-        }
     }
 
     // MARK: - Undo
@@ -1783,207 +1348,7 @@ final class WorkspaceStoreTests {
 
     @Test
 
-    func test_restore_repairsStaleActiveArrangementId() throws {
-        // Arrange — persist a tab with an activeArrangementId that doesn't match any arrangement
-        let pane = makePane()
-        let layout = Layout(paneId: pane.id)
-        let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: layout)
-        let tab = Tab(
-            panes: [pane.id],
-            arrangements: [arrangement],
-            activeArrangementId: UUID(),  // stale — doesn't match `arrangement.id`
-            activePaneId: pane.id
-        )
-        var state = WorkspacePersistor.PersistableState()
-        state.panes = [pane]
-        state.tabs = [tab]
-        state.activeTabId = tab.id
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        persistor.ensureDirectory()
-        try persistor.save(state)
-
-        // Act
-        let store2 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store2.restore()
-
-        // Assert — activeArrangementId repaired to the default arrangement
-        #expect(store2.tabs.count == 1)
-        #expect(store2.tabs[0].activeArrangementId == arrangement.id)
-    }
-
-    @Test
-
-    func test_restore_repairsStaleActivePaneId() throws {
-        // Arrange — persist a tab whose activePaneId doesn't exist in the layout
-        let pane = makePane()
-        let layout = Layout(paneId: pane.id)
-        let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: layout)
-        let tab = Tab(
-            panes: [pane.id],
-            arrangements: [arrangement],
-            activeArrangementId: arrangement.id,
-            activePaneId: UUID()  // stale — not in layout
-        )
-        var state = WorkspacePersistor.PersistableState()
-        state.panes = [pane]
-        state.tabs = [tab]
-        state.activeTabId = tab.id
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        persistor.ensureDirectory()
-        try persistor.save(state)
-
-        // Act
-        let store2 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store2.restore()
-
-        // Assert — activePaneId repaired to the first pane in layout
-        #expect(store2.tabs[0].activePaneId == pane.id)
-    }
-
-    @Test
-
-    func test_restore_repairsMissingDefaultArrangement() throws {
-        // Arrange — construct a valid tab, then corrupt it before persisting
-        let pane = makePane()
-        var tab = Tab(paneId: pane.id)
-        // Corrupt: clear the isDefault flag
-        tab.arrangements[0].isDefault = false
-        var state = WorkspacePersistor.PersistableState()
-        state.panes = [pane]
-        state.tabs = [tab]
-        state.activeTabId = tab.id
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        persistor.ensureDirectory()
-        try persistor.save(state)
-
-        // Act
-        let store2 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store2.restore()
-
-        // Assert — first arrangement promoted to default
-        #expect(store2.tabs.count == 1)
-        #expect(store2.tabs[0].arrangements[0].isDefault)
-    }
-
-    @Test
-
-    func test_restore_syncsPanesListWithLayoutPaneIds() throws {
-        // Arrange — persist a tab whose panes list drifted from layout
-        let p1 = makePane()
-        let p2 = makePane()
-        let layout = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
-        let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: layout)
-        let tab = Tab(
-            panes: [p1.id],  // missing p2 — drifted
-            arrangements: [arrangement],
-            activeArrangementId: arrangement.id,
-            activePaneId: p1.id
-        )
-        var state = WorkspacePersistor.PersistableState()
-        state.panes = [p1, p2]
-        state.tabs = [tab]
-        state.activeTabId = tab.id
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        persistor.ensureDirectory()
-        try persistor.save(state)
-
-        // Act
-        let store2 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store2.restore()
-
-        // Assert — panes list synced with layout
-        #expect(Set(store2.tabs[0].panes) == Set([p1.id, p2.id]))
-    }
-
-    @Test
-
-    func test_restore_repairsCrossTabDuplicatePanes() throws {
-        // Arrange — persist two tabs sharing the same pane (corruption)
-        let p1 = makePane()
-        let p2 = makePane()
-        let layout1 = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
-        let layout2 = Layout(paneId: p2.id)  // p2 duplicated across tabs
-        let arr1 = PaneArrangement(name: "Default", isDefault: true, layout: layout1)
-        let arr2 = PaneArrangement(name: "Default", isDefault: true, layout: layout2)
-        let tab1 = Tab(
-            panes: [p1.id, p2.id], arrangements: [arr1],
-            activeArrangementId: arr1.id, activePaneId: p1.id)
-        let tab2 = Tab(
-            panes: [p2.id], arrangements: [arr2],
-            activeArrangementId: arr2.id, activePaneId: p2.id)
-        var state = WorkspacePersistor.PersistableState()
-        state.panes = [p1, p2]
-        state.tabs = [tab1, tab2]
-        state.activeTabId = tab1.id
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        persistor.ensureDirectory()
-        try persistor.save(state)
-
-        // Act
-        let store2 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store2.restore()
-
-        // Assert — p2 should only appear in ONE tab (first wins)
-        let allPanes = store2.tabs.flatMap(\.panes)
-        let p2Count = allPanes.filter { $0 == p2.id }.count
-        #expect(p2Count == 1, "Duplicate pane should be repaired to appear in only one tab")
-    }
-
-    @Test
-
-    func test_restore_repairsActivePaneIdAfterDuplicateRemoval() throws {
-        // Arrange — tab2's active pane is a duplicate that will be removed
-        let p1 = makePane()
-        let p2 = makePane()
-        let layout1 = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
-        let layout2 = Layout(paneId: p2.id)
-        let arr1 = PaneArrangement(name: "Default", isDefault: true, layout: layout1)
-        let arr2 = PaneArrangement(name: "Default", isDefault: true, layout: layout2)
-        let tab1 = Tab(
-            panes: [p1.id, p2.id], arrangements: [arr1],
-            activeArrangementId: arr1.id, activePaneId: p1.id)
-        let tab2 = Tab(
-            panes: [p2.id], arrangements: [arr2],
-            activeArrangementId: arr2.id, activePaneId: p2.id)  // active is the duplicate
-        var state = WorkspacePersistor.PersistableState()
-        state.panes = [p1, p2]
-        state.tabs = [tab1, tab2]
-        state.activeTabId = tab1.id
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        persistor.ensureDirectory()
-        try persistor.save(state)
-
-        // Act
-        let store2 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
-        store2.restore()
-
-        // Assert — if tab2 survives, its activePaneId should not be p2 (was removed)
-        // Tab2 may be empty and removed, which is also a valid repair outcome
-        for tab in store2.tabs {
-            if let apId = tab.activePaneId {
-                #expect(tab.activeArrangement.layout.paneIds.contains(apId))
-            }
-        }
-    }
-
-    @Test
-
-    func test_persistence_activeTabIdNotMutatedDuringSave() {
+    func test_persistence_activeTabIdNotMutatedDuringSave() async {
         // Arrange — create tabs: tab1 has temporary pane (pruned on save), tab2 is persistent
         let p1 = store.createPane(
             lifetime: .temporary)
@@ -1996,7 +1361,7 @@ final class WorkspaceStoreTests {
 
         // Act — flush() calls persistNow() which prunes tab1 (all-temporary)
         // from the persisted copy. This should NOT change live activeTabId.
-        _ = store.flush()
+        _ = await store.flushAsync()
 
         // Assert — live activeTabId still points to tab1
         #expect(store.activeTabId == tab1.id, "flush/persistNow should not mutate live activeTabId")

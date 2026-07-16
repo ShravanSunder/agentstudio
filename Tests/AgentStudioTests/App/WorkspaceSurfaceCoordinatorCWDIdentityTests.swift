@@ -16,9 +16,7 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-surface-cwd-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let surfaceManager = CWDIdentitySurfaceManager()
@@ -74,9 +72,7 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-surface-cwd-clears-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let surfaceManager = CWDIdentitySurfaceManager()
         let coordinator = makeTestWorkspaceSurfaceCoordinator(
             store: store,
@@ -127,9 +123,7 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
             .appending(path: "agentstudio-pane-coordinator-runtime-cwd-\(UUID().uuidString)")
         let bus = makeTestPaneRuntimeEventBus()
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let coordinator = makeTestWorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),
@@ -164,7 +158,7 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         _ = await bus.post(
             RuntimeEnvelopeHarness.paneEnvelope(
                 event: .terminal(.cwdChanged(rawCwdPath)),
-                paneId: PaneId(uuid: pane.id)
+                paneId: PaneId(existingUUID: pane.id)
             )
         )
 
@@ -190,9 +184,7 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-floating-cwd-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let surfaceManager = CWDIdentitySurfaceManager()
         let coordinator = makeTestWorkspaceSurfaceCoordinator(
             store: store,

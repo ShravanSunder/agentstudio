@@ -23,9 +23,7 @@ struct PaneTabViewControllerEditorChooserCommandTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-editor-chooser-command-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let runtimeRegistry = RuntimeRegistry()

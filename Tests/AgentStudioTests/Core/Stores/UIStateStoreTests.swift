@@ -328,33 +328,6 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func flushFailure_reportsSaveFailedRecovery() async {
-        let workspaceId = UUID()
-        let blockedDirectoryURL = FileManager.default.temporaryDirectory
-            .appending(path: "ui-state-blocked-\(UUID().uuidString)")
-        try? Data("not-a-directory".utf8).write(to: blockedDirectoryURL, options: .atomic)
-        let atom = WorkspaceSidebarState()
-        var reportedRecovery: PersistenceRecoveryEvent?
-        let store = UIStateStore(
-            atom: atom,
-            editorChooserState: EditorChooserState(),
-            persistor: WorkspacePersistor(workspacesDir: blockedDirectoryURL),
-            recoveryReporter: { reportedRecovery = $0 }
-        )
-
-        do {
-            try await store.flushAsync(for: workspaceId)
-            Issue.record("Expected UI state flush to fail")
-        } catch {
-            // Expected path.
-        }
-
-        #expect(reportedRecovery?.store == .uiState)
-        #expect(reportedRecovery?.workspaceId == workspaceId)
-        #expect(reportedRecovery?.recovery == .saveFailed)
-    }
-
-    @Test
     func restore_legacyShowMinimizedBarsField_isIgnored() async throws {
         let workspaceId = UUID()
         let json = """

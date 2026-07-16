@@ -528,7 +528,7 @@ struct PaneInboxNotificationPopoverTests {
                 TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
             ),
             metadata: PaneMetadata(
-                paneId: PaneId(uuid: parentPaneId),
+                paneId: PaneId(existingUUID: parentPaneId),
                 contentType: .terminal,
                 title: "Parent"
             ),
@@ -540,7 +540,7 @@ struct PaneInboxNotificationPopoverTests {
                 TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
             ),
             metadata: PaneMetadata(
-                paneId: PaneId(uuid: drawerPaneId),
+                paneId: PaneId(existingUUID: drawerPaneId),
                 contentType: .terminal,
                 title: "Drawer"
             ),

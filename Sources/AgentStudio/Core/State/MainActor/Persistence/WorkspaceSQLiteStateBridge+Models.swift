@@ -58,6 +58,7 @@ extension WorkspaceSQLiteStateBridge {
     }
 }
 
-enum WorkspaceSQLiteStateBridgeError: Error {
+enum WorkspaceSQLiteStateBridgeError: Error, Equatable, Sendable {
     case invalidPayloadJSON
+    case layoutPaneMissingDrawer(UUID)
 }

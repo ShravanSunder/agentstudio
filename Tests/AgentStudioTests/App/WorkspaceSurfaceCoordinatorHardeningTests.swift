@@ -29,9 +29,7 @@ struct WorkspaceSurfaceCoordinatorHardeningTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-hardening-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let surfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager(createSurfaceResult: createSurfaceResult)
@@ -690,7 +688,7 @@ struct WorkspaceSurfaceCoordinatorHardeningTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let pane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Restore")
-        let runtimePaneId = PaneId(uuid: pane.id)
+        let runtimePaneId = PaneId(existingUUID: pane.id)
 
         var runtimeWasRegisteredDuringUndoLookup = false
         harness.surfaceManager.onUndoClose = {
@@ -711,7 +709,7 @@ struct WorkspaceSurfaceCoordinatorHardeningTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let pane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Fresh")
-        let runtimePaneId = PaneId(uuid: pane.id)
+        let runtimePaneId = PaneId(existingUUID: pane.id)
 
         var runtimeWasRegisteredDuringCreateSurface = false
         harness.surfaceManager.onCreateSurface = { _ in
@@ -736,7 +734,7 @@ struct WorkspaceSurfaceCoordinatorHardeningTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let pane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Rollback")
-        let runtimePaneId = PaneId(uuid: pane.id)
+        let runtimePaneId = PaneId(existingUUID: pane.id)
 
         let created = harness.coordinator.createView(
             for: pane,

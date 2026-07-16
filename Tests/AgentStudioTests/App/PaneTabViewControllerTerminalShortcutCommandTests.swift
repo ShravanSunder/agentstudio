@@ -34,8 +34,8 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
             harness.store.setActiveDrawerPane(drawerPane.id, in: parentPane.id)
             atoms.workspaceFocusOwner.focusDrawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id)
 
-            let parentRuntime = RecordingCommandPaneRuntime(paneId: PaneId(uuid: parentPane.id))
-            let drawerRuntime = RecordingCommandPaneRuntime(paneId: PaneId(uuid: drawerPane.id))
+            let parentRuntime = RecordingCommandPaneRuntime(paneId: PaneId(existingUUID: parentPane.id))
+            let drawerRuntime = RecordingCommandPaneRuntime(paneId: PaneId(existingUUID: drawerPane.id))
             harness.runtimeRegistry.register(parentRuntime)
             harness.runtimeRegistry.register(drawerRuntime)
 
@@ -58,7 +58,7 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
                     await waitForRecordedCommands(on: drawerRuntime, count: 1)
                     #expect(parentRuntime.receivedCommands.isEmpty)
                     let command = try #require(drawerRuntime.receivedCommands.first)
-                    #expect(command.targetPaneId == PaneId(uuid: drawerPane.id))
+                    #expect(command.targetPaneId == PaneId(existingUUID: drawerPane.id))
                     guard case .terminal(.scrollToBottom) = command.command else {
                         Issue.record("Expected focused drawer pane to receive scrollToBottom")
                         return
@@ -112,7 +112,7 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
             harness.store.setActivePane(pane.id, inTab: tab.id)
             atoms.workspaceFocusOwner.focusMainPane(pane.id)
 
-            let runtime = RecordingCommandPaneRuntime(paneId: PaneId(uuid: pane.id))
+            let runtime = RecordingCommandPaneRuntime(paneId: PaneId(existingUUID: pane.id))
             harness.runtimeRegistry.register(runtime)
 
             let event = try #require(
@@ -158,7 +158,7 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
             harness.store.setActivePane(pane.id, inTab: tab.id)
             atoms.workspaceFocusOwner.focusMainPane(pane.id)
 
-            let runtime = RecordingCommandPaneRuntime(paneId: PaneId(uuid: pane.id))
+            let runtime = RecordingCommandPaneRuntime(paneId: PaneId(existingUUID: pane.id))
             harness.runtimeRegistry.register(runtime)
 
             let event = try #require(
@@ -206,8 +206,8 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
         harness.store.setActiveDrawerPane(drawerPane.id, in: parentPane.id)
         atom(\.workspaceFocusOwner).focusMainPane(parentPane.id)
 
-        let parentRuntime = RecordingCommandPaneRuntime(paneId: PaneId(uuid: parentPane.id))
-        let drawerRuntime = RecordingCommandPaneRuntime(paneId: PaneId(uuid: drawerPane.id))
+        let parentRuntime = RecordingCommandPaneRuntime(paneId: PaneId(existingUUID: parentPane.id))
+        let drawerRuntime = RecordingCommandPaneRuntime(paneId: PaneId(existingUUID: drawerPane.id))
         harness.runtimeRegistry.register(parentRuntime)
         harness.runtimeRegistry.register(drawerRuntime)
 
@@ -216,7 +216,7 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
         await waitForRecordedCommands(on: drawerRuntime, count: 1)
         #expect(parentRuntime.receivedCommands.isEmpty)
         let command = try #require(drawerRuntime.receivedCommands.first)
-        #expect(command.targetPaneId == PaneId(uuid: drawerPane.id))
+        #expect(command.targetPaneId == PaneId(existingUUID: drawerPane.id))
         guard case .terminal(.scrollToBottom) = command.command else {
             Issue.record("Expected targeted drawer pane to receive scrollToBottom")
             return

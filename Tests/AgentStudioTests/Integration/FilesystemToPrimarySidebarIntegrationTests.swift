@@ -209,8 +209,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
         let persistor = WorkspacePersistor(workspacesDir: workspaceDir)
         persistor.ensureDirectory()
         return WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: persistor)
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
     }
 
     private func makeProjectDevShapeFixture() throws -> URL {

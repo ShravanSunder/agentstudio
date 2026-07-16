@@ -106,7 +106,7 @@ struct InboxSidebarFocusActivationTests {
 
     @Test("activation resolver focuses live pane rows")
     func activationResolverFocusesLivePane() {
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         let notification = InboxNotification(
             id: UUID(),
             timestamp: Date(timeIntervalSince1970: 100),
@@ -161,7 +161,7 @@ struct InboxSidebarFocusActivationTests {
                 TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
             ),
             metadata: PaneMetadata(
-                paneId: PaneId(uuid: parentPaneId),
+                paneId: PaneId(existingUUID: parentPaneId),
                 contentType: .terminal,
                 title: "Parent"
             ),
@@ -173,7 +173,7 @@ struct InboxSidebarFocusActivationTests {
                 TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
             ),
             metadata: PaneMetadata(
-                paneId: PaneId(uuid: drawerPaneId),
+                paneId: PaneId(existingUUID: drawerPaneId),
                 contentType: .terminal,
                 title: "Drawer"
             ),

@@ -102,16 +102,6 @@ final class WorkspacePaneGraphPersistenceAdapter {
         self.revisionOwner = revisionOwner
     }
 
-    func makeLegacyHydrationReplacement(
-        persistedPanes: [Pane]
-    ) -> Result<WorkspacePaneGraphReplacement, WorkspacePaneGraphReplacementRejection> {
-        let statesByID = Dictionary(
-            persistedPanes.map { pane in (pane.id, PaneGraphState(pane: pane)) },
-            uniquingKeysWith: { _, last in last }
-        )
-        return WorkspacePaneGraphReplacement.prepare(statesByID)
-    }
-
     func makeSnapshotParticipant(
         membershipLimits: WorkspaceStateSnapshotMembershipLimits,
         estimatedByteCount: @escaping @MainActor (PaneGraphState) -> Int

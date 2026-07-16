@@ -98,7 +98,7 @@ private func makeWindowMemoryAdapterBundle(
 ) -> WorkspacePersistenceAdapterBundle {
     WorkspacePersistenceAdapterBundle(
         revisionOwner: revisionOwner,
-        workspaceIdentityAtom: WorkspaceIdentityAtom(),
+        workspaceIdentityAtom: WorkspaceIdentityAtom(workspaceId: UUIDv7.generate()),
         workspaceWindowMemoryAtom: atom,
         repositoryTopologyAtom: RepositoryTopologyAtom(),
         workspacePaneGraphAtom: WorkspacePaneGraphAtom(),

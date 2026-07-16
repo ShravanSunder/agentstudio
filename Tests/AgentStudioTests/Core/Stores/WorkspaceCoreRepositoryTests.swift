@@ -158,84 +158,6 @@ struct WorkspaceCoreRepositoryTests {
         }
     }
 
-    @Test("legacy archive status rejects missing import status row")
-    func legacyArchiveStatusRejectsMissingImportStatusRow() throws {
-        let repository = try makeFixture().repository
-        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000019")!
-        try repository.upsertWorkspace(
-            .init(
-                id: workspaceId,
-                name: "Imported",
-                createdAt: Date(timeIntervalSince1970: 100),
-                updatedAt: Date(timeIntervalSince1970: 200)
-            )
-        )
-
-        #expect(throws: WorkspaceCoreRepositoryError.legacyImportStatusNotFound(workspaceId)) {
-            try repository.markLegacyWorkspaceArchived(
-                workspaceId: workspaceId,
-                archivedAt: Date(timeIntervalSince1970: 300)
-            )
-        }
-    }
-
-    @Test("legacy companion import status rejects missing import status row")
-    func legacyCompanionImportStatusRejectsMissingImportStatusRow() throws {
-        let repository = try makeFixture().repository
-        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000025")!
-        try repository.upsertWorkspace(
-            .init(
-                id: workspaceId,
-                name: "Imported",
-                createdAt: Date(timeIntervalSince1970: 100),
-                updatedAt: Date(timeIntervalSince1970: 200)
-            )
-        )
-
-        #expect(throws: WorkspaceCoreRepositoryError.legacyImportStatusNotFound(workspaceId)) {
-            try repository.markLegacyWorkspaceCompanionImportsCompleted(
-                workspaceId: workspaceId,
-                importedAt: Date(timeIntervalSince1970: 300)
-            )
-        }
-    }
-
-    @Test("legacy companion import status records settings local and cache completion")
-    func legacyCompanionImportStatusRecordsSettingsLocalAndCacheCompletion() throws {
-        let repository = try makeFixture().repository
-        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000026")!
-        let sourcePath = "/tmp/imported.workspace.state.json"
-        let coreImportedAt = Date(timeIntervalSince1970: 200)
-        let companionImportedAt = Date(timeIntervalSince1970: 300)
-        try repository.upsertWorkspace(
-            .init(
-                id: workspaceId,
-                name: "Imported",
-                createdAt: Date(timeIntervalSince1970: 100),
-                updatedAt: Date(timeIntervalSince1970: 200)
-            )
-        )
-        try repository.markLegacyWorkspaceCoreImported(
-            workspaceId: workspaceId,
-            sourceStatePath: sourcePath,
-            importedAt: coreImportedAt
-        )
-
-        try repository.markLegacyWorkspaceCompanionImportsCompleted(
-            workspaceId: workspaceId,
-            importedAt: companionImportedAt
-        )
-
-        let status = try #require(try repository.fetchLegacyWorkspaceImportStatus(workspaceId: workspaceId))
-        #expect(status.sourceStatePath == sourcePath)
-        #expect(status.coreImportedAt == coreImportedAt)
-        #expect(status.settingsImportedAt == companionImportedAt)
-        #expect(status.localImportedAt == companionImportedAt)
-        #expect(status.cacheImportedAt == companionImportedAt)
-        #expect(status.archivedAt == nil)
-        #expect(status.lastError == nil)
-    }
-
     @Test("active workspace clear is rejected while workspace rows remain")
     func activeWorkspaceClearIsRejectedWhileWorkspaceRowsRemain() throws {
         let repository = try makeFixture().repository
@@ -252,57 +174,6 @@ struct WorkspaceCoreRepositoryTests {
         #expect(throws: WorkspaceCoreRepositoryError.cannotClearActiveWorkspaceWhileWorkspacesExist) {
             try repository.clearActiveWorkspaceSelection(updatedAt: Date(timeIntervalSince1970: 300))
         }
-    }
-
-    @Test("missing active workspace selection repairs to newest workspace with uuid tie break")
-    func missingActiveWorkspaceSelectionRepairsToNewestWorkspaceWithUUIDTieBreak() throws {
-        let repository = try makeFixture().repository
-        let olderWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000020")!
-        let laterTieWinnerId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
-        let laterTieLoserId = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
-        let oldTimestamp = Date(timeIntervalSince1970: 10)
-        let newestTimestamp = Date(timeIntervalSince1970: 20)
-
-        try repository.upsertWorkspace(
-            .init(id: olderWorkspaceId, name: "Older", createdAt: oldTimestamp, updatedAt: oldTimestamp)
-        )
-        try repository.upsertWorkspace(
-            .init(id: laterTieLoserId, name: "Later B", createdAt: oldTimestamp, updatedAt: newestTimestamp)
-        )
-        try repository.upsertWorkspace(
-            .init(id: laterTieWinnerId, name: "Later A", createdAt: oldTimestamp, updatedAt: newestTimestamp)
-        )
-
-        let repairedWorkspaceId = try repository.repairActiveWorkspaceSelection(
-            updatedAt: Date(timeIntervalSince1970: 30)
-        )
-        let restoredActiveWorkspaceId = try repository.fetchActiveWorkspaceId()
-
-        #expect(repairedWorkspaceId == laterTieWinnerId)
-        #expect(restoredActiveWorkspaceId == laterTieWinnerId)
-    }
-
-    @Test("malformed active workspace selection repairs to newest workspace")
-    func malformedActiveWorkspaceSelectionRepairsToNewestWorkspace() throws {
-        let fixture = try makeFixture()
-        let repository = fixture.repository
-        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000021")!
-        try repository.upsertWorkspace(
-            .init(
-                id: workspaceId,
-                name: "Fallback",
-                createdAt: Date(timeIntervalSince1970: 100),
-                updatedAt: Date(timeIntervalSince1970: 200)
-            )
-        )
-        try setRawActiveWorkspaceSelection("not-a-uuid", in: fixture.databaseQueue)
-
-        let repairedWorkspaceId = try repository.repairActiveWorkspaceSelection(
-            updatedAt: Date(timeIntervalSince1970: 300)
-        )
-
-        #expect(repairedWorkspaceId == workspaceId)
-        #expect(try repository.fetchActiveWorkspaceId() == workspaceId)
     }
 
     @Test("dangling active workspace selection fails fast on read")
@@ -324,54 +195,6 @@ struct WorkspaceCoreRepositoryTests {
         #expect(throws: WorkspaceCoreRepositoryError.activeWorkspaceSelectionDangling(danglingWorkspaceId)) {
             try repository.fetchActiveWorkspaceId()
         }
-    }
-
-    @Test("dangling active workspace selection repairs to newest workspace")
-    func danglingActiveWorkspaceSelectionRepairsToNewestWorkspace() throws {
-        let fixture = try makeFixture()
-        let repository = fixture.repository
-        let fallbackWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000025")!
-        let danglingWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000026")!
-        try repository.upsertWorkspace(
-            .init(
-                id: fallbackWorkspaceId,
-                name: "Fallback",
-                createdAt: Date(timeIntervalSince1970: 100),
-                updatedAt: Date(timeIntervalSince1970: 200)
-            )
-        )
-        try setRawActiveWorkspaceSelection(danglingWorkspaceId.uuidString, in: fixture.databaseQueue)
-
-        let repairedWorkspaceId = try repository.repairActiveWorkspaceSelection(
-            updatedAt: Date(timeIntervalSince1970: 300)
-        )
-
-        #expect(repairedWorkspaceId == fallbackWorkspaceId)
-        #expect(try repository.fetchActiveWorkspaceId() == fallbackWorkspaceId)
-    }
-
-    @Test("missing active workspace singleton row is recreated during repair")
-    func missingActiveWorkspaceSingletonRowIsRecreatedDuringRepair() throws {
-        let fixture = try makeFixture()
-        let repository = fixture.repository
-        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000022")!
-        try repository.upsertWorkspace(
-            .init(
-                id: workspaceId,
-                name: "Fallback",
-                createdAt: Date(timeIntervalSince1970: 100),
-                updatedAt: Date(timeIntervalSince1970: 200)
-            )
-        )
-        try deleteActiveWorkspaceSelectionSingleton(in: fixture.databaseQueue)
-
-        let repairedWorkspaceId = try repository.repairActiveWorkspaceSelection(
-            updatedAt: Date(timeIntervalSince1970: 300)
-        )
-
-        #expect(repairedWorkspaceId == workspaceId)
-        #expect(try repository.fetchActiveWorkspaceId() == workspaceId)
-        #expect(try activeWorkspaceSelectionSingletonCount(in: fixture.databaseQueue) == 1)
     }
 
     @Test("deleting active workspace repairs selection in the same core transaction")

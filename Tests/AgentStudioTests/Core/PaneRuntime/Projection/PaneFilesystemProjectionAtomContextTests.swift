@@ -10,7 +10,7 @@ struct PaneFilesystemProjectionAtomContextTests {
     func registerPaneContextStoresContext() {
         let store = PaneFilesystemProjectionAtom()
         let context = PaneFilesystemContext(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             repoId: UUID(),
             cwd: URL(fileURLWithPath: "/tmp/worktree/Sources"),
             worktreeId: UUID()
@@ -32,7 +32,7 @@ struct PaneFilesystemProjectionAtomContextTests {
 
         store.registerPaneContext(
             PaneFilesystemContext(
-                paneId: PaneId(uuid: pane.id),
+                paneId: PaneId(existingUUID: pane.id),
                 repoId: repoId,
                 cwd: root,
                 worktreeId: worktreeId
@@ -57,7 +57,7 @@ struct PaneFilesystemProjectionAtomContextTests {
         let worktreeId = UUID()
         let root = URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)")
         let pane = makePane(repoId: repoId, worktreeId: worktreeId, cwd: root)
-        let paneId = PaneId(uuid: pane.id)
+        let paneId = PaneId(existingUUID: pane.id)
 
         store.registerPaneContext(
             PaneFilesystemContext(paneId: paneId, repoId: repoId, cwd: root, worktreeId: worktreeId)
@@ -78,7 +78,7 @@ struct PaneFilesystemProjectionAtomContextTests {
     func updatePaneCwdIsIdempotentWhenUnchanged() {
         let store = PaneFilesystemProjectionAtom()
         let context = PaneFilesystemContext(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             repoId: UUID(),
             cwd: URL(fileURLWithPath: "/tmp/worktree/Sources"),
             worktreeId: UUID()
@@ -117,7 +117,7 @@ struct PaneFilesystemProjectionAtomContextTests {
                     paneId: paneId,
                     paneKind: .terminal,
                     context: PaneFilesystemContext(
-                        paneId: PaneId(uuid: paneId),
+                        paneId: PaneId(existingUUID: paneId),
                         repoId: repoId,
                         cwd: root,
                         worktreeId: worktreeId
@@ -140,13 +140,13 @@ struct PaneFilesystemProjectionAtomContextTests {
     func pruneAndResetCleanContextTrackingState() {
         let store = PaneFilesystemProjectionAtom()
         let keepContext = PaneFilesystemContext(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             repoId: UUID(),
             cwd: URL(fileURLWithPath: "/tmp/worktree/Keep"),
             worktreeId: UUID()
         )
         let dropContext = PaneFilesystemContext(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             repoId: UUID(),
             cwd: URL(fileURLWithPath: "/tmp/worktree/Drop"),
             worktreeId: UUID()

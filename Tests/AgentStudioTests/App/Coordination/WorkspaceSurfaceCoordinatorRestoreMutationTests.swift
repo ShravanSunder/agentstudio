@@ -65,11 +65,7 @@ struct WorkspaceSurfaceCoordinatorRestoreMutationTests {
         let tempDirectory = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-restore-mutation-\(UUID().uuidString)")
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDirectory)
-        )
-        store.restore()
-
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let sessionConfiguration = SessionConfiguration(
             isEnabled: false,
             zmxPath: nil,

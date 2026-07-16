@@ -367,8 +367,7 @@ private struct DrawerSurfaceRegistrationModifier: ViewModifier {
                 repositoryTopologyAtom: atomRegistry.workspaceRepositoryTopology,
                 paneAtom: atomRegistry.workspacePane,
                 tabLayoutAtom: atomRegistry.workspaceTabLayout,
-                mutationCoordinator: atomRegistry.workspaceMutationCoordinator,
-                persistor: WorkspacePersistor(workspacesDir: FileManager.default.temporaryDirectory)
+                mutationCoordinator: atomRegistry.workspaceMutationCoordinator
             )
             VStack {
                 Spacer()

@@ -253,10 +253,7 @@ struct GitTopologyPipelineHarness {
             .appending(path: "git-topology-harness-\(UUID().uuidString)")
         let bus = EventBus<RuntimeEnvelope>()
         let workspaceStore = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir)
-        )
-        workspaceStore.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let repoCache = RepoCacheAtom()
         let scanResults = ControllableWatchedFolderScanSchedulerResults()
         let fseventClient = ControllableFSEventStreamClient()
@@ -358,10 +355,7 @@ struct GitEnrichmentPipelineHarness {
             .appending(path: "git-enrichment-harness-\(UUID().uuidString)")
         let bus = EventBus<RuntimeEnvelope>()
         let workspaceStore = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistor: WorkspacePersistor(workspacesDir: tempDir)
-        )
-        workspaceStore.restore()
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,
