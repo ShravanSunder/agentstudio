@@ -13,9 +13,9 @@ struct AgentStudioGitDependencyTests {
 
         #expect(!packageManifest.contains(#".package(path: "../agentstudio-git")"#))
         #expect(packageManifest.contains(#"url: "https://github.com/ShravanSunder/agentstudio-git.git""#))
-        #expect(packageManifest.contains(#"revision: "397b8e11369c429463ed3a3c43ed462905f8b2b5""#))
+        #expect(packageManifest.contains(#"revision: "34182c12ec77a70088cdd57f60c929b44536afe6""#))
         #expect(packageResolved.contains(#""location" : "https://github.com/ShravanSunder/agentstudio-git.git""#))
-        #expect(packageResolved.contains(#""revision" : "397b8e11369c429463ed3a3c43ed462905f8b2b5""#))
+        #expect(packageResolved.contains(#""revision" : "34182c12ec77a70088cdd57f60c929b44536afe6""#))
 
         for configuration in [miseConfig, ciWorkflow, releaseWorkflow] {
             #expect(!configuration.contains("AGENTSTUDIO_GIT_ALLOW_LIBGIT2_BINARY_URL"))
