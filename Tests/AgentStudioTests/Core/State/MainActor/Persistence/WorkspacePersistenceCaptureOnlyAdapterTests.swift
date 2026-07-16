@@ -155,6 +155,83 @@ struct WorkspacePersistenceCaptureOnlyAdapterTests {
         #expect(retainedIdentity == identityBeforeCapture)
         #expect(retainedWindow == windowBeforeCapture)
     }
+
+    @Test("arrangement capture maps reservation rejection and releases earlier custody")
+    func arrangementCaptureMapsRejectionAndReleasesCustody() throws {
+        // Arrange
+        let revisionOwner = WorkspacePersistenceRevisionOwner()
+        let atom = WorkspaceArrangementCursorAtom()
+        let adapter = WorkspaceArrangementCursorPersistenceAdapter(
+            atom: atom,
+            revisionOwner: revisionOwner
+        )
+        guard
+            case .constructed = adapter.makeSnapshotParticipants(
+                limits: .init(maximumKeyCount: 32, maximumRawKeyBytes: 512)
+            )
+        else {
+            Issue.record("expected arrangement snapshot participants to construct")
+            return
+        }
+        let firstTabID = UUIDv7.generate()
+        let secondTabID = UUIDv7.generate()
+        let arrangementID = UUIDv7.generate()
+
+        // Act
+        var capturedError: WorkspaceArrangementCursorPersistenceCaptureError?
+        do {
+            _ = try revisionOwner.performSynchronousTransaction { preparation in
+                try adapter.capturePersistencePreimages(
+                    .init(
+                        activeArrangements: [.insertion(tabID: firstTabID)],
+                        activePanes: [],
+                        activeDrawerChildren: []
+                    ),
+                    for: preparation
+                )
+                try adapter.capturePersistencePreimages(
+                    .init(
+                        activeArrangements: [.insertion(tabID: secondTabID)],
+                        activePanes: [],
+                        activeDrawerChildren: []
+                    ),
+                    for: preparation
+                )
+                return preparation.commit {
+                    Issue.record("rejected arrangement capture must not reach its commit body")
+                }
+            }
+        } catch let error as WorkspaceArrangementCursorPersistenceCaptureError {
+            capturedError = error
+        }
+
+        let retryRevision = try revisionOwner.performSynchronousTransaction { preparation in
+            try adapter.capturePersistencePreimages(
+                .init(
+                    activeArrangements: [.insertion(tabID: firstTabID)],
+                    activePanes: [],
+                    activeDrawerChildren: []
+                ),
+                for: preparation
+            )
+            return preparation.commit {
+                atom.insertActiveArrangementId(arrangementID, forTab: firstTabID)
+                return preparation.transaction.proposedRevision
+            }
+        }
+
+        // Assert
+        #expect(
+            capturedError
+                == .snapshotPreparation(
+                    .participant(.participantReserved)
+                )
+        )
+        #expect(retryRevision.rawValue == 1)
+        #expect(revisionOwner.committedRevision == retryRevision)
+        #expect(atom.activeArrangementId(forTab: firstTabID) == arrangementID)
+        #expect(atom.activeArrangementId(forTab: secondTabID) == nil)
+    }
 }
 
 @MainActor

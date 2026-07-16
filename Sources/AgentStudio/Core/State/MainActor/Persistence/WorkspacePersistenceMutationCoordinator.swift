@@ -2,11 +2,16 @@ import CoreGraphics
 import Foundation
 
 enum WorkspacePersistenceMutationFailure: Equatable, Sendable {
+    case arrangementCursorCapture(WorkspaceArrangementCursorPersistenceCaptureError)
     case compositionDomainNotInstalled(phase: WorkspacePersistenceAdapterLifecyclePhase)
     case paneGraphCapture(WorkspacePaneGraphPersistenceCaptureError)
     case paneIdentityMismatch(requestedPaneID: UUID, currentPaneID: UUID)
     case paneMissing(UUID)
+    case paneTabApplication(WorkspacePaneTabTransitionApplicationRejection)
     case revisionOwner(WorkspacePersistenceRevisionOwnerError)
+    case tabCursorCapture(WorkspaceTabCursorPersistenceCaptureError)
+    case tabGraphCapture(WorkspaceTabGraphPersistencePreparationError)
+    case tabShellCapture(WorkspaceTabShellPersistencePreparationError)
     case windowMemory(WorkspaceSnapshotPreparationRejection)
 }
 
@@ -25,14 +30,19 @@ enum WorkspacePersistenceMutationResult: Equatable, Sendable {
 final class WorkspacePersistenceMutationCoordinator {
     private let revisionOwner: WorkspacePersistenceRevisionOwner
     private let adapters: WorkspacePersistenceAdapterBundle
+    private let workspacePaneTabTransitionApplier: WorkspacePaneTabTransitionApplier
     private let workspacePaneGraphAtom: WorkspacePaneGraphAtom
     private let workspacePaneTransitionApplier: WorkspacePaneTransitionApplier
+    private let workspaceTabShellAtom: WorkspaceTabShellAtom
     private let workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom
 
     init(
         revisionOwner: WorkspacePersistenceRevisionOwner,
         adapters: WorkspacePersistenceAdapterBundle,
         workspacePaneGraphAtom: WorkspacePaneGraphAtom,
+        workspaceTabShellAtom: WorkspaceTabShellAtom,
+        workspaceTabGraphAtom: WorkspaceTabGraphAtom,
+        workspaceArrangementCursorAtom: WorkspaceArrangementCursorAtom,
         workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom
     ) {
         self.revisionOwner = revisionOwner
@@ -41,7 +51,64 @@ final class WorkspacePersistenceMutationCoordinator {
         workspacePaneTransitionApplier = WorkspacePaneTransitionApplier(
             workspacePaneGraphAtom: workspacePaneGraphAtom
         )
+        workspacePaneTabTransitionApplier = WorkspacePaneTabTransitionApplier(
+            workspacePaneGraphAtom: workspacePaneGraphAtom,
+            workspaceTabTransitionApplier: WorkspaceTabTransitionApplier(
+                workspaceTabShellAtom: workspaceTabShellAtom,
+                workspaceTabGraphAtom: workspaceTabGraphAtom,
+                workspaceArrangementCursorAtom: workspaceArrangementCursorAtom
+            )
+        )
+        self.workspaceTabShellAtom = workspaceTabShellAtom
         self.workspaceWindowMemoryAtom = workspaceWindowMemoryAtom
+    }
+
+    func commitPaneCreation(
+        _ transition: WorkspacePaneCreationTransition
+    ) -> WorkspacePersistenceMutationResult {
+        guard case .installed = adapters.compositionLifecyclePhase else {
+            return .rejected(
+                .compositionDomainNotInstalled(phase: adapters.compositionLifecyclePhase)
+            )
+        }
+        let preparedApplication: WorkspacePreparedPaneTabTransitionApplication
+        switch workspacePaneTabTransitionApplier.preflight(
+            paneState: transition.paneState,
+            tabTransition: transition.tabTransition
+        ) {
+        case .ready(let preparation):
+            preparedApplication = preparation
+        case .rejected(let rejection):
+            return .rejected(.paneTabApplication(rejection))
+        }
+
+        do {
+            let committedRevision = try revisionOwner.performSynchronousTransaction { preparation in
+                try capturePaneCreationPreimages(
+                    transition,
+                    for: preparation
+                )
+                return preparation.commit { [workspacePaneTabTransitionApplier] in
+                    workspacePaneTabTransitionApplier.apply(preparedApplication)
+                    return preparation.transaction.proposedRevision
+                }
+            }
+            return .changed(revision: committedRevision)
+        } catch let error as WorkspacePaneGraphPersistenceCaptureError {
+            return .rejected(.paneGraphCapture(error))
+        } catch let error as WorkspaceTabShellPersistencePreparationError {
+            return .rejected(.tabShellCapture(error))
+        } catch let error as WorkspaceTabCursorPersistenceCaptureError {
+            return .rejected(.tabCursorCapture(error))
+        } catch let error as WorkspaceTabGraphPersistencePreparationError {
+            return .rejected(.tabGraphCapture(error))
+        } catch let error as WorkspaceArrangementCursorPersistenceCaptureError {
+            return .rejected(.arrangementCursorCapture(error))
+        } catch let error as WorkspacePersistenceRevisionOwnerError {
+            return .rejected(.revisionOwner(error))
+        } catch {
+            preconditionFailure("pane-creation persistence mutation emitted an unmodeled error")
+        }
     }
 
     func updatePaneTitle(
@@ -125,6 +192,47 @@ final class WorkspacePersistenceMutationCoordinator {
         }
     }
 
+    private func capturePaneCreationPreimages(
+        _ transition: WorkspacePaneCreationTransition,
+        for preparation: WorkspacePersistenceTransactionPreparation
+    ) throws {
+        let tabID = transition.tab.id
+        try adapters.workspacePaneGraph.capturePersistencePreimages(
+            WorkspacePaneGraphPersistenceCapture(
+                operations: [.insertion(transition.paneState.id)]
+            ),
+            for: preparation
+        )
+        try adapters.workspaceTabShell.capturePersistencePreimages(
+            WorkspaceTabShellPersistenceCapture(
+                operations: [.insertion(tabID)]
+            ),
+            for: preparation
+        )
+        try adapters.workspaceTabCursor.capturePersistencePreimage(
+            workspaceTabShellAtom.activeTabId == nil ? .insertion : .valueChange,
+            for: preparation
+        )
+        try adapters.workspaceTabGraph.capturePersistencePreimages(
+            WorkspaceTabGraphPersistenceCapture(
+                operations: [.insertion(tabID)]
+            ),
+            for: preparation
+        )
+
+        let activeArrangementCaptures = transition.tabTransition.activeArrangement.persistenceCaptures
+        let activePaneCaptures = transition.tabTransition.activePanes.map(\.persistenceCapture)
+        let activeDrawerCaptures = transition.tabTransition.activeDrawerChildren.map(\.persistenceCapture)
+        try adapters.workspaceArrangementCursor.capturePersistencePreimages(
+            WorkspaceArrangementCursorPersistenceCapture(
+                activeArrangements: activeArrangementCaptures,
+                activePanes: activePaneCaptures,
+                activeDrawerChildren: activeDrawerCaptures
+            ),
+            for: preparation
+        )
+    }
+
     private func performPaneTransition(
         _ transition: WorkspacePaneGraphTransition
     ) -> WorkspacePersistenceMutationResult {
@@ -148,6 +256,33 @@ final class WorkspacePersistenceMutationCoordinator {
             return .rejected(.revisionOwner(error))
         } catch {
             preconditionFailure("pane persistence mutation emitted an unmodeled error")
+        }
+    }
+}
+
+extension WorkspaceActiveArrangementTransition {
+    fileprivate var persistenceCaptures: [WorkspaceActiveArrangementPersistenceCapture] {
+        switch self {
+        case .insert(let tabID, _):
+            [.insertion(tabID: tabID)]
+        }
+    }
+}
+
+extension WorkspaceActivePaneTransition {
+    fileprivate var persistenceCapture: WorkspaceActivePanePersistenceCapture {
+        switch self {
+        case .insert(let arrangementID, _):
+            .insertion(arrangementID: arrangementID)
+        }
+    }
+}
+
+extension WorkspaceActiveDrawerChildTransition {
+    fileprivate var persistenceCapture: WorkspaceActiveDrawerChildPersistenceCapture {
+        switch self {
+        case .insert(let key, _):
+            .insertion(key)
         }
     }
 }

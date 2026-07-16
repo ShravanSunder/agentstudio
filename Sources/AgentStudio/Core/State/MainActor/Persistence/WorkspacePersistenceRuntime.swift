@@ -108,6 +108,9 @@ final class WorkspacePersistenceRuntime {
             revisionOwner: revisionOwner,
             adapters: adapters,
             workspacePaneGraphAtom: atomOwners.workspacePaneGraph,
+            workspaceTabShellAtom: atomOwners.workspaceTabShell,
+            workspaceTabGraphAtom: atomOwners.workspaceTabGraph,
+            workspaceArrangementCursorAtom: atomOwners.workspaceArrangementCursor,
             workspaceWindowMemoryAtom: atomOwners.workspaceWindowMemory
         )
     }

@@ -151,17 +151,17 @@ final class WorkspaceArrangementCursorPersistenceAdapter {
             throw WorkspaceArrangementCursorPersistenceCaptureError.emptyCapture
         }
 
-        try prepare(
+        try prepareCapture(
             activeArrangementSnapshotParticipant,
             mutations: try makeActiveArrangementCaptureMutations(capture.activeArrangements),
             preparation: preparation
         )
-        try prepare(
+        try prepareCapture(
             activePaneSnapshotParticipant,
             mutations: try makeActivePaneCaptureMutations(capture.activePanes),
             preparation: preparation
         )
-        try prepare(
+        try prepareCapture(
             activeDrawerChildSnapshotParticipant,
             mutations: try makeActiveDrawerChildCaptureMutations(capture.activeDrawerChildren),
             preparation: preparation
@@ -545,6 +545,20 @@ final class WorkspaceArrangementCursorPersistenceAdapter {
             break
         case .rejected(let rejection):
             throw ArrangementCursorPreparationError.snapshotPreparation(rejection)
+        }
+    }
+
+    private func prepareCapture<Key: Hashable & Sendable>(
+        _ participant: WorkspaceStateSnapshotKeyedParticipant<Key, UUID>,
+        mutations: [WorkspaceStateSnapshotParticipantMutation<Key, UUID>],
+        preparation: WorkspacePersistenceTransactionPreparation
+    ) throws {
+        guard !mutations.isEmpty else { return }
+        switch participant.prepare(mutations, for: preparation, revisionOwner: revisionOwner) {
+        case .prepared:
+            break
+        case .rejected(let rejection):
+            throw WorkspaceArrangementCursorPersistenceCaptureError.snapshotPreparation(rejection)
         }
     }
 
