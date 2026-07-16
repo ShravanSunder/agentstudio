@@ -159,12 +159,13 @@ Per Bridge pane:
     synchronous ProductAdmissionGate
       -> immediate close and epoch validation
 
-    BridgeReviewPublicationCoordinator actor
-      -> active A, optional pending B, retiring A leases
-      -> canonical package/descriptor authority
+    @MainActor BridgeReviewPublicationCoordinator
+      -> state-only active A, optional pending B, retiring A leases
+      -> synchronous package/descriptor and pane-presentation commit
 
     BridgeReviewContentLoaderCache actor
-      -> provider I/O, validation, coalescing, cache and eviction only
+      -> off-main provider I/O, candidate validation/indexing, coalescing,
+         cache and eviction only
 
     BridgePaneProductMetadataCoordinator actor
       -> subscriptions, delivery reservation, replay and task lifecycle only
@@ -230,16 +231,17 @@ Checkpoint: behavior-neutral BridgeWeb structure commit.
 Split trigger: stop if extraction requires a wire or behavior change; that
 belongs to S2.
 
-### S8a — Hosted WebKit Host And Frame Liveness Prerequisite
+### S8a — SwiftPM WebKit Transport And Lifecycle Lower Gate
 
 Purpose:
 
-- fix only the source-confirmed harness mismatch between background orderBack
-  hosting and the test requirement for visible document/animation frames;
-- establish host/window/visibility/RAF liveness before any hosted-native
-  product assertion; and
-- retain the real-git, bundled-worker, source-correlation and zero-residue
-  canary.
+- keep the SwiftPM Swift Testing process as the real in-process WKWebView lower
+  gate without claiming that its non-running `NSApplication` is compositor
+  visible;
+- prove the bundled app, custom-scheme streams, one pane comm worker, native
+  request/receipt lifecycle and teardown through real WebKit; and
+- retain real-git source identity, protocol correlation and zero-residue facts
+  that do not depend on visible-document animation frames.
 
 Allowed writes:
 
@@ -247,16 +249,18 @@ Allowed writes:
 
 Proof:
 
-- permanent host/window/visibility/RAF assertions;
-- the existing real-git File/Review correlation and teardown canary remain
-  green;
+- permanent host classification prevents the SwiftPM helper from being used as
+  a physical-paint oracle;
+- the real-git File/Review worker, scheme, request/receipt and teardown canary
+  remains green;
 - no product workaround or wall-clock sleep.
 
 Dependencies: none. May run in parallel with S0a, S1 lower layers and S5a.
-S8a must be green before S1 hosted-native proof and every later hosted WebKit
-proof; it is a harness prerequisite, not product behavior.
+S8a must be green before S1 hosted-native transport proof and later in-process
+WebKit integration. Visible-document, RAF and painted-disposition proof belongs
+only to the LaunchServices-launched app in S8b.
 
-Checkpoint: hosted WebKit liveness commit.
+Checkpoint: SwiftPM WebKit lower-gate commit.
 
 ### S1 — Synchronous Pane Product Admission
 
@@ -300,6 +304,9 @@ shipping partial coverage.
 Purpose:
 
 - add BridgeReviewPublicationCoordinator;
+- prepare and pre-index immutable Review candidates off-main, then keep the
+  MainActor publication coordinator state-only and make package/descriptor
+  authority plus pane presentation one synchronous commit turn;
 - move package/descriptor authority out of metadata delivery and content cache;
 - rename/extract BridgeContentStore as authority-free
   BridgeReviewContentLoaderCache;
@@ -313,7 +320,8 @@ Purpose:
 Native write sublane:
 
 - pane controller diff/publication/bootstrap/teardown owners;
-- Review publication coordinator and cache;
+- off-main Review candidate preparation/indexing, the state-only MainActor
+  publication coordinator and the authority-free loader cache;
 - metadata/content sources and delivery coordinator;
 - focused Swift authority, lease, failure and replay tests.
 
@@ -345,10 +353,12 @@ Proof layers:
 
 - Swift and TypeScript unit state machines;
 - real native-worker protocol integration;
-- hosted WebKit A/B source-to-readable-DOM/disposition journey;
+- SwiftPM WebKit A/B native-worker transport and lifecycle journey;
+- LaunchServices A/B source-to-readable-DOM/disposition journey in S8b;
 - hostile/stale/teardown static and integration gates.
 
-Dependencies: S0a and S1. The hosted proof layer additionally requires S8a.
+Dependencies: S0a and S1. The in-process WebKit layer additionally requires
+S8a; visible paint remains a later S8b obligation.
 
 Checkpoint: one serial cross-language transactional-publication commit after
 both sublanes join. No independent completion claims.
@@ -675,6 +685,7 @@ Permanent RED:
 Proof:
 
 - hosted WebKit lower gate;
+- visible document and live RAF from the running LaunchServices application;
 - generated bundle source/asset/executable audit;
 - LaunchServices PID/bundle/launch-method identity;
 - semantic IPC journey;
@@ -857,12 +868,12 @@ Terminal: PR ready, not merged.
     Gate A: re-anchor HEAD/status/spec and freeze manifests
       |
       +-- S0a Review runtime structure
-      +-- S8a hosted WebKit liveness prerequisite
+      +-- S8a SwiftPM WebKit transport/lifecycle lower gate
       +-- S1 synchronous admission lower layers
       +-- S5a package reachability/verification -> S5b pin
       |
-    Join A: parent verifies four disjoint checkpoints; S8a gates every hosted
-            proof from S1 onward
+    Join A: parent verifies four disjoint checkpoints; S8a gates in-process
+            WebKit transport proof from S1 onward
       |
     S2 transactional native/worker Review publication
       |
@@ -907,7 +918,7 @@ claim and checkpoint. S8 through S11 are serial by runtime/evidence identity.
 | Blocking libgit2 boundary is reachable and pinned | R69 | S5a, S5b | package tests/build/lint and provider compatibility | parent package/remote/pin/build evidence | remote SHA and Package.resolved | existing package red/green reverified | yes after repo split |
 | Worktree/class admission and physical draining | R69 | S6, S10b | scheduler unit, blocked-read integration/workload | parent queue/running/draining/heartbeat/residue | pin, class, worktree, slot, process/marker | permanent RED required | yes |
 | Current BridgeWeb regressions and structure | repo gates | S0a, S0b, S7 | focused/full unit, architecture, static, check/build | parent exact counts and command exits | HEAD, lock/config/source hashes | current 23 RED to zero | yes after split |
-| Full packaged product behavior | R41-R69, WebKit constraints | S8a, S8b | hosted WebKit, packaged LaunchServices, IPC, Victoria, visual | parent bundle/PID/source/DOM/disposition evidence | source/assets/executable/PID/launch/marker | missing journey RED | yes after liveness split |
+| Full packaged product behavior | R41-R69, WebKit constraints | S8a, S8b | SwiftPM WebKit transport/lifecycle, packaged LaunchServices paint, IPC, Victoria, visual | parent bundle/PID/source/DOM/disposition evidence | source/assets/executable/PID/launch/marker | missing journey RED | yes after proof-owner split |
 | One honest Vite E2E owner | R61, R65 | S9 | deterministic and disposable live-worktree E2E | parent independent source oracle and readable DOM | config/server/provider/browser/source generation | absent owner RED | yes |
 | Whole-item correctness, memory and p99 | R41, R57, R61, R62 | S10a | immutable 84-cell matrix | parent completeness validator and numeric results | candidate/fixture/machine/runtime/marker | invalid/missing cell RED | yes after workload split |
 | No Pierre modification/private path | non-goal, R57/R61 | S7, S11a | dependency/source/asset audit and static negative | parent final diff and package audit | final diff, lockfile, Pierre version | static RED to green | yes |
