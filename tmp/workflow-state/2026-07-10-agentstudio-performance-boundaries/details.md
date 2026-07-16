@@ -965,3 +965,35 @@ publish one revision. Sidebar width and window frame are one aggregate
 window-memory writer family. Composition remains uninstalled until every pane,
 drawer, tab, arrangement, topology-to-pane, and startup-diagnostic writer is
 cut and the batched preinstall zmx repair is complete.
+
+Commit `8dd0f561` establishes the first installed semantic gateway family for
+aggregate window memory. The gateway rejects preinstall use, decides equal
+sidebar/frame requests before opening a transaction, captures the literal
+width-and-frame preimage once, applies the pure atom setter once, and advances
+one revision. Parent verification passed 10 tests across the coordinator,
+window-memory adapter, and runtime suites plus `mise run build` and
+`git diff --check`; the staged-file pre-commit format and SwiftLint gate also
+passed.
+
+Live pane/tab mapping proved that mechanically wrapping the remaining facades
+would duplicate domain invariants and preserve fleet-wide MainActor work.
+Remaining composition families therefore use this responsibility split:
+
+```text
+pure atom/facade prepare
+  -> planned(exact keyed domain patches + typed semantic effect)
+  -> unchanged
+  -> rejected(typed reason)
+
+outer WorkspacePersistenceMutationCoordinator
+  -> aggregate exact capture descriptors once per participant
+  -> reserve all affected preimages
+  -> commit one shared revision
+  -> pure facade applies the exact plan once
+```
+
+Plans contain no persistence descriptors, revisions, adapter references, or
+generic mutation closures. Pane, drawer, shell, tab graph, and cursor changes
+that arise from one semantic action remain one outer transaction. The immediate
+active work is the pure keyed pane/tab substrate; production writer routing and
+domain installation follow only after that substrate is proven.
