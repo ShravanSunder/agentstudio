@@ -1,8 +1,30 @@
 import Foundation
 
-struct WorkspacePreparedCompositionAcceptance: Equatable, Sendable {
+struct WorkspaceContentMountGeneration: Hashable, Sendable {
+    let processGeneration: WorkspacePersistenceProcessGeneration
     let revision: WorkspacePersistenceRevision
+}
+
+struct WorkspacePreparedContentMountCohort: Equatable, Sendable {
+    let generation: WorkspaceContentMountGeneration
     let terminalActivationInput: TerminalActivationInput
+    let nonterminalContentMountInput: NonterminalContentMountInput
+}
+
+struct WorkspacePreparedCompositionAcceptance: Equatable, Sendable {
+    let contentMountCohort: WorkspacePreparedContentMountCohort
+
+    var revision: WorkspacePersistenceRevision {
+        contentMountCohort.generation.revision
+    }
+
+    var terminalActivationInput: TerminalActivationInput {
+        contentMountCohort.terminalActivationInput
+    }
+
+    var nonterminalContentMountInput: NonterminalContentMountInput {
+        contentMountCohort.nonterminalContentMountInput
+    }
 }
 
 enum WorkspacePreparedCompositionAdapter: Equatable, Sendable {
@@ -154,8 +176,14 @@ final class WorkspacePreparedCompositionApplier {
         }
         return preparation.commit {
             WorkspacePreparedCompositionAcceptance(
-                revision: preparation.transaction.proposedRevision,
-                terminalActivationInput: prepared.terminalActivationInput
+                contentMountCohort: WorkspacePreparedContentMountCohort(
+                    generation: WorkspaceContentMountGeneration(
+                        processGeneration: preparation.transaction.processGeneration,
+                        revision: preparation.transaction.proposedRevision
+                    ),
+                    terminalActivationInput: prepared.terminalActivationInput,
+                    nonterminalContentMountInput: prepared.nonterminalContentMountInput
+                )
             )
         }
     }

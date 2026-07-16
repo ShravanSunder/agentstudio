@@ -22,7 +22,10 @@ struct WorkspacePreparedCompositionApplierTests {
             return
         }
         #expect(acceptance.revision.rawValue == 1)
+        #expect(acceptance.contentMountCohort.generation.processGeneration == fixture.revisionOwner.processGeneration)
+        #expect(acceptance.contentMountCohort.generation.revision == acceptance.revision)
         #expect(acceptance.terminalActivationInput == prepared.terminalActivationInput)
+        #expect(acceptance.nonterminalContentMountInput == prepared.nonterminalContentMountInput)
         #expect(fixture.revisionOwner.committedRevision == acceptance.revision)
         #expect(fixture.identityAtom.workspaceId == prepared.identity.workspaceID)
         #expect(fixture.identityAtom.workspaceName == prepared.identity.workspaceName)

@@ -61,100 +61,17 @@ extension WorkspaceSurfaceCoordinator {
         initialFrame: NSRect? = nil,
         treatAsRestoredSessionStart: Bool = false
     ) -> NSView? {
-        viewRegistry.ensureSlot(for: pane.id)
-        registerPaneFilesystemContextIfNeeded(for: pane)
-
         switch pane.content {
         case .terminal:
-            if let worktreeId = pane.worktreeId,
-                let repoId = pane.repoId,
-                let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
-                let repo = store.repositoryTopologyAtom.repo(repoId)
-            {
-                return createView(
-                    for: pane,
-                    worktree: worktree,
-                    repo: repo,
-                    initialFrame: initialFrame,
-                    treatAsRestoredSessionStart: treatAsRestoredSessionStart
-                )
-
-            } else if let parentPaneId = pane.parentPaneId,
-                let parentPane = store.paneAtom.pane(parentPaneId),
-                let worktreeId = parentPane.worktreeId,
-                let repoId = parentPane.repoId,
-                let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
-                let repo = store.repositoryTopologyAtom.repo(repoId)
-            {
-                return createView(
-                    for: pane,
-                    worktree: worktree,
-                    repo: repo,
-                    initialFrame: initialFrame,
-                    treatAsRestoredSessionStart: treatAsRestoredSessionStart
-                )
-
-            } else {
-                return createFloatingTerminalView(
-                    for: pane,
-                    initialFrame: initialFrame,
-                    treatAsRestoredSessionStart: treatAsRestoredSessionStart
-                )
-            }
-
-        case .webview(let state):
-            let view = WebviewPaneMountView(paneId: pane.id, state: state)
-            let paneId = pane.id
-            view.controller.onTitleChange = { [weak self] title in
-                self?.store.paneAtom.updatePaneTitle(paneId, title: title)
-            }
-            registerHostedView(mountedView: view, for: pane.id)
-            registerRuntimeIfNeeded(runtime: view.runtime, for: pane)
-            Self.logger.info("Created webview pane \(pane.id)")
-            return view
-
-        case .codeViewer(let state):
-            let initialText: String?
-            if let codeViewerRuntime = registerCodeViewerRuntimeIfNeeded(for: pane) {
-                if codeViewerRuntime.lifecycle == .created {
-                    let transitioned = codeViewerRuntime.transitionToReady()
-                    if !transitioned {
-                        Self.logger.warning(
-                            "Code viewer runtime for pane \(pane.id.uuidString, privacy: .public) failed ready transition"
-                        )
-                    }
-                }
-                initialText = codeViewerRuntime.displayedText.isEmpty ? nil : codeViewerRuntime.displayedText
-            } else {
-                initialText = nil
-            }
-
-            let view = CodeViewerPaneMountView(
-                paneId: pane.id,
-                state: state,
-                initialText: initialText
+            return mountCurrentTerminalContent(
+                pane: pane,
+                initialFrame: initialFrame,
+                treatAsRestoredSessionStart: treatAsRestoredSessionStart
             )
-            registerHostedView(mountedView: view, for: pane.id)
-            Self.logger.info("Created code viewer pane \(pane.id)")
-            return view
 
-        case .bridgePanel(let state):
-            let controller = BridgePaneController(
-                paneId: pane.id,
-                state: state,
-                reviewSourceProvider: bridgeReviewSourceProvider(for: pane, state: state),
-                traceRuntime: traceRuntime
-            )
-            let view = BridgePaneMountView(paneId: pane.id, controller: controller)
-            registerHostedView(mountedView: view, for: pane.id)
-            registerRuntimeIfNeeded(runtime: view.runtime, for: pane)
-            controller.loadApp()
-            Self.logger.info("Created bridge panel view for pane \(pane.id)")
-            return view
-
-        case .unsupported:
-            Self.logger.warning("Cannot create view for unsupported content type — pane \(pane.id)")
-            return nil
+        case .webview, .codeViewer, .bridgePanel, .unsupported:
+            registerPaneFilesystemContextIfNeeded(for: pane)
+            return mountCurrentNonterminalContent(pane: pane)
         }
     }
 
@@ -269,7 +186,7 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     @discardableResult
-    private func createFloatingTerminalView(
+    func createTopologyIndependentTerminalView(
         for pane: Pane,
         initialFrame: NSRect? = nil,
         treatAsRestoredSessionStart: Bool = false
@@ -506,7 +423,7 @@ extension WorkspaceSurfaceCoordinator {
         Self.logger.debug("Reattached pane \(paneId.uuidString, privacy: .public) for view switch")
     }
 
-    private func registerCodeViewerRuntimeIfNeeded(for pane: Pane) -> SwiftPaneRuntime? {
+    func registerCodeViewerRuntimeIfNeeded(for pane: Pane) -> SwiftPaneRuntime? {
         let runtimePaneId = runtimePaneId(for: pane.id)
         let canonicalMetadata = pane.metadata.canonicalizedIdentity(
             paneId: runtimePaneId,
@@ -529,7 +446,7 @@ extension WorkspaceSurfaceCoordinator {
         return runtime
     }
 
-    private func registerRuntimeIfNeeded(runtime: any PaneRuntime, for pane: Pane) {
+    func registerRuntimeIfNeeded(runtime: any PaneRuntime, for pane: Pane) {
         let runtimePaneId = runtimePaneId(for: pane.id)
         guard runtime.paneId == runtimePaneId else {
             Self.logger.error(
@@ -553,7 +470,7 @@ extension WorkspaceSurfaceCoordinator {
         PaneId(existingUUID: paneId)
     }
 
-    private func registerPaneFilesystemContextIfNeeded(for pane: Pane) {
+    func registerPaneFilesystemContextIfNeeded(for pane: Pane) {
         upsertPaneFilesystemProjectionContext(for: pane)
     }
 

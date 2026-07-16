@@ -18,6 +18,14 @@ enum AppPolicies {
         static let snapshotPageMaximumItems: Int = 256
     }
 
+    enum TerminalActivation {
+        static let maximumConcurrentAdmissions: Int = 4
+    }
+
+    enum NonterminalContentMount {
+        static let maximumMountsPerMainActorTurn: Int = 4
+    }
+
     enum GitRefresh {
         static let defaultPolicy = Policy()
         static let defaultStatusReadTimeout: Duration = .seconds(1)

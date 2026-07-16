@@ -87,6 +87,11 @@ private struct PreparedWorkspaceCompositionTabInputs {
     let tabIDByPaneID: [UUID: UUID]
 }
 
+private struct PreparedWorkspaceContentInputs {
+    let terminalActivationInput: TerminalActivationInput
+    let nonterminalContentMountInput: NonterminalContentMountInput
+}
+
 private struct PreparedCompositionDrawerViewValidationContext {
     let drawerID: UUID
     let arrangementID: UUID
@@ -113,6 +118,7 @@ struct PreparedWorkspaceComposition: Equatable, Sendable {
     let tabGraph: PreparedWorkspaceTabGraph
     let arrangementCursors: PreparedWorkspaceArrangementCursors
     let terminalActivationInput: TerminalActivationInput
+    let nonterminalContentMountInput: NonterminalContentMountInput
 
     fileprivate init(
         identity: PreparedWorkspaceCompositionIdentity,
@@ -125,7 +131,8 @@ struct PreparedWorkspaceComposition: Equatable, Sendable {
         tabShells: PreparedWorkspaceTabShells,
         tabGraph: PreparedWorkspaceTabGraph,
         arrangementCursors: PreparedWorkspaceArrangementCursors,
-        terminalActivationInput: TerminalActivationInput
+        terminalActivationInput: TerminalActivationInput,
+        nonterminalContentMountInput: NonterminalContentMountInput
     ) {
         self.identity = identity
         self.windowMemory = windowMemory
@@ -138,6 +145,7 @@ struct PreparedWorkspaceComposition: Equatable, Sendable {
         self.tabGraph = tabGraph
         self.arrangementCursors = arrangementCursors
         self.terminalActivationInput = terminalActivationInput
+        self.nonterminalContentMountInput = nonterminalContentMountInput
     }
 }
 
@@ -186,6 +194,12 @@ enum WorkspaceCompositionPreparer {
             uniqueKeysWithValues: tabGraphStates.enumerated().map { ($0.element.tabId, $0.offset) }
         )
         let arrangementCursors = makeArrangementCursors(from: snapshot.tabs)
+        let contentInputs = makePreparedContentInputs(
+            panes: snapshot.panes,
+            tabs: snapshot.tabs,
+            activeTabID: snapshot.activeTabId,
+            tabIDByPaneID: tabInputs.tabIDByPaneID
+        )
 
         return .prepared(
             PreparedWorkspaceComposition(
@@ -210,12 +224,8 @@ enum WorkspaceCompositionPreparer {
                     tabIDByPaneID: tabInputs.tabIDByPaneID
                 ),
                 arrangementCursors: arrangementCursors,
-                terminalActivationInput: makeTerminalActivationInput(
-                    panes: snapshot.panes,
-                    tabs: snapshot.tabs,
-                    activeTabID: snapshot.activeTabId,
-                    tabIDByPaneID: tabInputs.tabIDByPaneID
-                )
+                terminalActivationInput: contentInputs.terminalActivationInput,
+                nonterminalContentMountInput: contentInputs.nonterminalContentMountInput
             ))
     }
 
@@ -554,47 +564,145 @@ enum WorkspaceCompositionPreparer {
         )
     }
 
-    private static func makeTerminalActivationInput(
+    private static func makePreparedContentInputs(
         panes: [Pane],
         tabs: [Tab],
         activeTabID: UUID?,
         tabIDByPaneID: [UUID: UUID]
-    ) -> TerminalActivationInput {
+    ) -> PreparedWorkspaceContentInputs {
         let tabsByID = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         let panesByID = Dictionary(uniqueKeysWithValues: panes.map { ($0.id, $0) })
-        let entries = panes.compactMap { pane -> TerminalActivationDescriptor? in
-            guard case .terminal(let terminalState) = pane.content else { return nil }
-            guard let tabID = tabIDByPaneID[pane.id], let tab = tabsByID[tabID] else { return nil }
+        var terminalEntries: [(sourceIndex: Int, descriptor: TerminalActivationDescriptor)] = []
+        var nonterminalEntries: [(sourceIndex: Int, descriptor: NonterminalContentMountDescriptor)] = []
+
+        for (sourceIndex, pane) in panes.enumerated() {
+            guard let tabID = tabIDByPaneID[pane.id], let tab = tabsByID[tabID] else {
+                preconditionFailure("validated composition pane is missing its owning tab")
+            }
             guard
-                let hostPlacement = terminalHostPlacement(
+                let hostPlacement = contentHostPlacement(
                     for: pane,
                     tabID: tabID,
                     panesByID: panesByID
                 )
-            else { return nil }
-
-            let visibilityPriority = terminalVisibilityPriority(
+            else {
+                preconditionFailure("validated drawer pane is missing its host placement")
+            }
+            let visibilityPriority = contentVisibilityPriority(
                 for: pane,
                 tab: tab,
                 activeTabID: activeTabID,
                 panesByID: panesByID
             )
-            return TerminalActivationDescriptor(
-                paneID: PaneId(existingUUID: pane.id),
-                zmxSessionID: terminalState.zmxSessionID,
-                provider: terminalActivationProvider(from: terminalState),
-                launchConfiguration: TerminalActivationLaunchConfiguration(
-                    launchDirectory: pane.metadata.launchDirectory.map(TerminalActivationLaunchDirectory.stored)
-                        ?? .userHomeDefault,
-                    executionBackend: pane.metadata.executionBackend,
-                    lifetime: terminalState.lifetime,
-                    displayTitle: pane.metadata.title
-                ),
+
+            switch preparedContentDescriptor(
+                for: pane,
                 visibilityPriority: visibilityPriority,
                 hostPlacement: hostPlacement
+            ) {
+            case .terminal(let descriptor):
+                terminalEntries.append((sourceIndex, descriptor))
+            case .nonterminal(let descriptor):
+                nonterminalEntries.append((sourceIndex, descriptor))
+            }
+        }
+
+        terminalEntries.sort { lhs, rhs in
+            if lhs.descriptor.visibilityPriority != rhs.descriptor.visibilityPriority {
+                return lhs.descriptor.visibilityPriority < rhs.descriptor.visibilityPriority
+            }
+            return lhs.sourceIndex < rhs.sourceIndex
+        }
+        nonterminalEntries.sort { lhs, rhs in
+            if lhs.descriptor.visibilityPriority != rhs.descriptor.visibilityPriority {
+                return lhs.descriptor.visibilityPriority < rhs.descriptor.visibilityPriority
+            }
+            return lhs.sourceIndex < rhs.sourceIndex
+        }
+        return PreparedWorkspaceContentInputs(
+            terminalActivationInput: TerminalActivationInput(
+                entries: terminalEntries.map(\.descriptor)
+            ),
+            nonterminalContentMountInput: NonterminalContentMountInput(
+                entries: nonterminalEntries.map(\.descriptor)
+            )
+        )
+    }
+
+    private enum PreparedContentDescriptor {
+        case terminal(TerminalActivationDescriptor)
+        case nonterminal(NonterminalContentMountDescriptor)
+    }
+
+    private static func preparedContentDescriptor(
+        for pane: Pane,
+        visibilityPriority: TerminalActivationVisibilityPriority,
+        hostPlacement: TerminalHostPlacementIdentity
+    ) -> PreparedContentDescriptor {
+        switch pane.content {
+        case .terminal(let terminalState):
+            return .terminal(
+                TerminalActivationDescriptor(
+                    pane: pane,
+                    zmxSessionID: terminalState.zmxSessionID,
+                    provider: terminalActivationProvider(from: terminalState),
+                    launchConfiguration: TerminalActivationLaunchConfiguration(
+                        launchDirectory: pane.metadata.launchDirectory.map(
+                            TerminalActivationLaunchDirectory.stored
+                        ) ?? .userHomeDefault,
+                        executionBackend: pane.metadata.executionBackend,
+                        lifetime: terminalState.lifetime,
+                        displayTitle: pane.metadata.title
+                    ),
+                    visibilityPriority: visibilityPriority,
+                    hostPlacement: hostPlacement
+                )
+            )
+        case .webview:
+            return .nonterminal(
+                nonterminalContentDescriptor(
+                    .webview(pane),
+                    visibilityPriority: visibilityPriority,
+                    hostPlacement: hostPlacement
+                )
+            )
+        case .bridgePanel:
+            return .nonterminal(
+                nonterminalContentDescriptor(
+                    .bridgePanel(pane),
+                    visibilityPriority: visibilityPriority,
+                    hostPlacement: hostPlacement
+                )
+            )
+        case .codeViewer:
+            return .nonterminal(
+                nonterminalContentDescriptor(
+                    .codeViewer(pane),
+                    visibilityPriority: visibilityPriority,
+                    hostPlacement: hostPlacement
+                )
+            )
+        case .unsupported:
+            return .nonterminal(
+                nonterminalContentDescriptor(
+                    .unsupported(pane),
+                    visibilityPriority: visibilityPriority,
+                    hostPlacement: hostPlacement
+                )
             )
         }
-        return TerminalActivationInput(entries: entries)
+    }
+
+    private static func nonterminalContentDescriptor(
+        _ content: NonterminalContentMountContent,
+        visibilityPriority: TerminalActivationVisibilityPriority,
+        hostPlacement: TerminalHostPlacementIdentity
+    ) -> NonterminalContentMountDescriptor {
+        NonterminalContentMountDescriptor(
+            content: content,
+            visibilityPriority: visibilityPriority,
+            hostPlacement: hostPlacement
+        )
     }
 
     private static func terminalActivationProvider(
@@ -608,7 +716,7 @@ enum WorkspaceCompositionPreparer {
         }
     }
 
-    private static func terminalHostPlacement(
+    private static func contentHostPlacement(
         for pane: Pane,
         tabID: UUID,
         panesByID: [UUID: Pane]
@@ -626,7 +734,7 @@ enum WorkspaceCompositionPreparer {
         }
     }
 
-    private static func terminalVisibilityPriority(
+    private static func contentVisibilityPriority(
         for pane: Pane,
         tab: Tab,
         activeTabID: UUID?,

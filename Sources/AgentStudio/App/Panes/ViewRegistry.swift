@@ -4,6 +4,35 @@ import os.log
 
 private let viewRegistryLogger = Logger(subsystem: "com.agentstudio", category: "ViewRegistry")
 
+enum PreparedContentMountOwnerLane: Equatable, Sendable {
+    case terminal
+    case nonterminal
+}
+
+enum PreparedContentMountDisposition: Equatable, Sendable {
+    case mounted
+    case failed
+    case cancelledReplaced
+}
+
+enum PreparedContentMountLedgerState: Equatable, Sendable {
+    case pending(owner: PreparedContentMountOwnerLane)
+    case mounting(owner: PreparedContentMountOwnerLane)
+    case completed(owner: PreparedContentMountOwnerLane, disposition: PreparedContentMountDisposition)
+}
+
+enum PreparedContentMountClaimRejection: Equatable, Sendable {
+    case staleGeneration
+    case unknownPane
+    case wrongOwner(expected: PreparedContentMountOwnerLane)
+    case alreadyClaimed(PreparedContentMountLedgerState)
+}
+
+enum PreparedContentMountClaimDecision: Equatable, Sendable {
+    case accepted
+    case rejected(PreparedContentMountClaimRejection)
+}
+
 /// Maps pane IDs to live PaneHostView instances via per-pane observable slots.
 /// Runtime only — not persisted. Collaborator of WorkspaceStore.
 ///
@@ -46,6 +75,8 @@ final class ViewRegistry {
     private var retiredPaneIds: Set<UUID> = []
     private var renderedIdsBySurface: [String: Set<UUID>] = [:]
     private(set) var isInitialRestorePending = false
+    private var preparedContentMountGeneration: WorkspaceContentMountGeneration?
+    private var preparedContentMountStatesByPaneID: [PaneId: PreparedContentMountLedgerState] = [:]
 
     /// Mark the launch window where restored pane slots may exist before hosts are recreated.
     ///
@@ -58,6 +89,74 @@ final class ViewRegistry {
     /// Mark that launch restore has either completed or found no panes to restore.
     func completeInitialRestore() {
         isInitialRestorePending = false
+    }
+
+    /// Install the exact, disjoint terminal/nonterminal ownership ledger for
+    /// one accepted composition generation.
+    func installPreparedContentMountCohort(_ cohort: WorkspacePreparedContentMountCohort) {
+        let terminalPaneIDs = cohort.terminalActivationInput.entries.map(\.paneID)
+        let nonterminalPaneIDs = cohort.nonterminalContentMountInput.entries.map(\.paneID)
+        let allPaneIDs = terminalPaneIDs + nonterminalPaneIDs
+        precondition(
+            Set(allPaneIDs).count == allPaneIDs.count,
+            "prepared content cohort assigns one pane to multiple owners"
+        )
+        precondition(
+            preparedContentMountGeneration != cohort.generation,
+            "prepared content cohort installed more than once"
+        )
+
+        preparedContentMountGeneration = cohort.generation
+        preparedContentMountStatesByPaneID = Dictionary(
+            uniqueKeysWithValues:
+                terminalPaneIDs.map { ($0, .pending(owner: .terminal)) }
+                + nonterminalPaneIDs.map { ($0, .pending(owner: .nonterminal)) }
+        )
+    }
+
+    func claimPreparedContentMount(
+        paneID: PaneId,
+        owner: PreparedContentMountOwnerLane,
+        generation: WorkspaceContentMountGeneration
+    ) -> PreparedContentMountClaimDecision {
+        guard preparedContentMountGeneration == generation else {
+            return .rejected(.staleGeneration)
+        }
+        guard let state = preparedContentMountStatesByPaneID[paneID] else {
+            return .rejected(.unknownPane)
+        }
+        guard case .pending(let expectedOwner) = state else {
+            return .rejected(.alreadyClaimed(state))
+        }
+        guard expectedOwner == owner else {
+            return .rejected(.wrongOwner(expected: expectedOwner))
+        }
+        preparedContentMountStatesByPaneID[paneID] = .mounting(owner: owner)
+        return .accepted
+    }
+
+    func settlePreparedContentMount(
+        paneID: PaneId,
+        owner: PreparedContentMountOwnerLane,
+        generation: WorkspaceContentMountGeneration,
+        disposition: PreparedContentMountDisposition
+    ) {
+        guard preparedContentMountGeneration == generation else { return }
+        guard preparedContentMountStatesByPaneID[paneID] == .mounting(owner: owner) else {
+            preconditionFailure("prepared content mount settled without matching claim")
+        }
+        preparedContentMountStatesByPaneID[paneID] = .completed(
+            owner: owner,
+            disposition: disposition
+        )
+    }
+
+    func preparedContentMountState(
+        for paneID: PaneId,
+        generation: WorkspaceContentMountGeneration
+    ) -> PreparedContentMountLedgerState? {
+        guard preparedContentMountGeneration == generation else { return nil }
+        return preparedContentMountStatesByPaneID[paneID]
     }
 
     /// Create the slot proactively when a pane enters workspace structure.

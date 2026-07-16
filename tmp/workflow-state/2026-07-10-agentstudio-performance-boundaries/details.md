@@ -977,6 +977,26 @@ four-scenario subprocess harness; the two lint-remediation suites passed 11/11;
 `mise run build`, full `mise run lint`, and `git diff --check` passed. The next
 active slice is the content-owner startup hard cut described above.
 
+The first content-owner checkpoint now prepares one exhaustive, disjoint
+terminal/nonterminal cohort from accepted composition and derives its generation
+from the composition transaction's process generation and revision. A fixed
+four-worker terminal activation scheduler proves active-visible, visible, then
+hidden priority; exact opaque zmx identity forwarding; bounded 100/300-pane
+fleets; retry; promotion; replacement cancellation; and aggregate settlement.
+The nonterminal owner mounts at most four entries per MainActor turn, and
+`ViewRegistry` has generation-scoped lane claims before host construction.
+Prepared terminal activation no longer registers filesystem projection or reads
+repository topology; steady-state topology-enriched terminal creation retains
+fresh-versus-restored semantics. Parent proof passed 29 tests across five
+cohort/owner suites and seven retained terminal/nonterminal factory tests;
+scoped strict format, SwiftLint, and `git diff --check` passed.
+
+Production startup cutover remains open because Bridge construction currently
+selects its Git review provider through live repository topology. The required
+next boundary is a topology-independent Bridge shell plus generation-bound
+external provider attachment; `restoreAllViews` cannot be deleted until that
+seam and its exact owner tests land atomically.
+
 ### Current W4.5p implementation checkpoint — capture-only custody
 
 Commit `93041f0f` adds strict composition capture descriptors and adapter-owned
