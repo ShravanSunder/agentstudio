@@ -491,7 +491,11 @@ These four patterns govern all code. Follow them. Breaking them creates bugs tha
 
 ### 1. Atoms — canonical state
 
-`@Observable @MainActor`, `private(set)` reads, mutation via methods (valtio-style). One atom per domain, one reason to change. No god-atom. Atoms never touch disk.
+`@Observable @MainActor`, `private(set)` reads, and mutations through narrow methods. Atoms own canonical state or pure derived state, Jotai-style.
+
+Atom methods may only assign values, perform simple local transforms, suppress equal writes, and maintain storage indexes or observation invariants. They must not contain business rules, command interpretation, validation, mutation planning, semantic effects, persistence, I/O, async work, or cross-atom coordination.
+
+Business rules belong in pure domain types; coordinators sequence them; persistence adapters capture and restore state.
 
 **Write-owner atoms are not SQL table models.** When moving persistence to SQLite, keep atom boundaries aligned to lifecycle and semantic write ownership, not relational normalization. A write-owner atom may project to multiple normalized tables when one validated user command must update those rows coherently. Use derived readers/atoms to compose rich UI/domain values from several write-owner atoms. Do not create one atom per table such as `pane`, `drawer_pane`, `tab_pane`, and `arrangement_layout_pane`; that pushes table orchestration into coordinators and destroys domain cohesion.
 
