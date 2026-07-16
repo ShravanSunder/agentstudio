@@ -74,7 +74,7 @@ released-baseline evidence is pinned to tag `diffs-v1.2.12` at
 
 ## Normative Product And Success Contract
 
-The worker architecture is a means to the product contract. R41-R66 cannot be
+The worker architecture is a means to the product contract. R41-R69 cannot be
 declared complete while Review or File View is functionally wrong, even when an
 individual worker, schema, or unit-test seam passes.
 
@@ -276,9 +276,28 @@ ONE PER-PANE COMM WORKER
   forbidden: DOM work, telemetry pipeline work, FE/native fallback ownership
 
 Swift product server
-  owns: provider/source authority, sourceGeneration, metadata/content service,
-        product scheme endpoints, leases, stream production/admission
+  owns: synchronous pane product-admission epoch, provider/source authority,
+        transactional Review publication, sourceGeneration, metadata/content
+        service, product scheme endpoints, stream production/admission
   exposes: disposable pane-scoped call/metadata/content POST service
+
+Swift Review publication boundary
+  owns: one active plus optional pending package/descriptor-authority snapshot
+        per pane, atomic commit/rollback, dirty/fresh state
+  forbidden: transport-subscription, cache, provider-I/O, or UI-position ownership
+
+Swift BridgePaneProductMetadataCoordinator
+  owns: subscription/producer install, uninstall, pacing, and frame delivery
+  forbidden: package, descriptor, cache, freshness, or presentation authority
+
+Swift Review content loader/cache actor
+  owns: provider loading/streaming, validation, in-flight coalescing, bounded cache
+  forbidden: canonical package/descriptor authority or synchronous pane admission
+
+Swift Git read execution
+  owns: worktree-keyed foreground/background admission plus separately bounded
+        metadata/content native-read capacity and true-completion/draining custody
+  forbidden: MainActor work, pane presentation, or one global serial Git actor
 
 main producer port + comm producer port
   -> OPTIONAL PER-PANE TELEMETRY WORKER
@@ -307,7 +326,10 @@ Identity lineage is split into semantic, UI, worker, and native planes:
 
 | Value | Mint | Validate | Reset | Observe |
 | --- | --- | --- | --- | --- |
-| `sourceGeneration` and metadata lineage | Swift/native provider source authority | Swift rejects stale source requests; worker treats it as source fact, never as worker cache epoch authority | Swift rotates on accepted source change, resets metadata stream/gates, and revokes stale source leases | comm worker subscriptions, server seam, native proof |
+| `paneProductAdmissionEpoch` | Swift pane synchronous gate | every native product request before work and after each suspension | pane close increments and permanently closes admission | native lifecycle tests and zero-residue trace only |
+| active/pending Review publication | Swift Review publication coordinator | package, descriptor authority, pane presentation, and metadata commit as one transaction | success retires active A after B commits; failure discards B; close revokes both | bounded identity/status facts; never a transport-owned package snapshot |
+| pane activity (`foreground | loadedHidden | dormant | closed`) | native workspace visibility/lifecycle | Swift pane admission and Git scheduler | native tab/window/pane lifecycle only; worker cannot mint it | surface-scoped updating chrome and native proof |
+| `sourceGeneration` and metadata lineage | Swift/native provider source authority | Swift rejects stale source requests; worker treats it as source fact, never as worker cache epoch authority | Swift rotates on accepted source change, resets metadata stream/gates, and revokes stale handles/admitted work | comm worker subscriptions, server seam, native proof |
 | `semanticDocumentRevision` | comm worker from algorithm-tagged content digests and document kind/ordered roles | worker and Pierre item/publication validation | changes only when semantic source content changes | display cache, complete-item residency, proof oracles |
 | `uiIntentRevision` | FE, monotonic per surface | comm worker accepts/supersedes intent and echoes the accepted value | surface remount/page session reset | FE render copies and worker intent receipts only |
 | `workerInstanceId` | Swift/native, freshly for each comm-worker lifetime | Swift product session and main reset barrier | every comm-worker restart | product frames, reset proof, diagnostics |
@@ -336,9 +358,14 @@ Extended truth ownership:
 
 | Datum | Owner | Readers | Write path | Repair path | Inactive-mode behavior |
 | --- | --- | --- | --- | --- | --- |
+| pane product admission | Swift synchronous gate per pane | native call/metadata/content entry points and post-await commit guards | pane creation opens one epoch; teardown synchronously closes it before producer/telemetry drain | none; closed panes cannot reopen | loaded-hidden remains open but reduced; closed rejects immediately |
+| active/pending Review package and descriptor authority | Swift Review publication coordinator per pane | pane presentation, metadata source, Review content admission | stage B beside readable A -> publish -> atomic commit B or rollback A | worker reinstall republishes active A; partial B reset cannot revoke A | retained while loaded-hidden; dormant has no package; close revokes active/pending |
+| native pane activity and package freshness | native workspace/pane lifecycle plus Review publication coordinator | Git admission, refresh coalescer, surface updating presentation | visibility transitions; filesystem events mark loaded-hidden package dirty | foreground performs at most one latest refresh; dormant cold-loads once activated | inactive surface never shows another surface's updating state |
+| Bridge pane attendance recency | native workspace runtime | state-aware worktree command resolver | successful pane attention updates one runtime-only monotonic fact | missing pane removes its fact; no persistence or product authority | default open chooses the most recently attended matching pane |
+| Git read permits and physical native slots | application-scoped keyed Git scheduler plus operation-class executor | Swift Review pipeline/content loader | foreground/background ranked request; bounded metadata/content lanes | logical timeout/cancel leaves running native slot draining until true return | loaded-hidden starts no refresh/body work; dirty fact is retained |
 | `streamId` | comm worker | FE diagnostics, Swift validation | worker opens/reopens source session | worker/server resync on gap or unhealthy | retained, never FE-writable |
 | `sourceGeneration` / metadata lineage | Swift/native | comm worker, server tests | native accepted-source transition | native reset/reopen or unhealthy | native may continue metadata rules; FE sees no protocol state |
-| `semanticDocumentRevision` / semantic item identity | comm worker from canonical content descriptors/hashes | display cache, Pierre item, proof | semantic content or deterministic item-role change only | metadata/lease/transport churn revalidates without demoting unchanged ready content |
+| `semanticDocumentRevision` / semantic item identity | comm worker from canonical content descriptors/hashes | display cache, Pierre item, proof | semantic content or deterministic item-role change only | metadata/producer/transport churn revalidates without demoting unchanged ready content |
 | `uiIntentRevision` | FE local surface | comm worker | every local selection/mode/filter intent | latest-wins worker acceptance/repair | retained per mounted viewer; grants no protocol authority |
 | `workerInstanceId` | Swift/native pane-session bootstrap | main/worker/Swift | every worker creation | reset barrier cancels prior-instance work | one active instance per pane |
 | `workerDerivationEpoch` | comm worker, scoped by surface/source context | FE diagnostics, Swift freshness echo, worker tests | worker accepts sourceGeneration/stream tuple | epoch reset clears derived worker truth for that context | retained per pane worker; inactive foreground work demotes/aborts |
@@ -357,13 +384,13 @@ Extended truth ownership:
 | `viewport` / rendered range | FE virtualizer slice | comm worker reconciler | rAF/idle-coalesced viewport publication | next viewport fact supersedes; worker re-derives | inactive viewport may be retained but does not create foreground demand |
 | `expanded` / collapsed rows | FE local slice | comm worker for visible derivation | fresh/source-reset trees expand every authoritative directory; user toggle writes local UI fact; same-source appends preserve retained collapse and open new directories | source reset clears prior disclosure intent, expands the replacement source and drops invalid row ids; worker publishes availability repairs | retained per viewer until source reset; never inferred from selected-item reveal |
 | viewed marks | Swift/native viewed-file command authority | FE render slices, comm worker ack tracking | FE sends write intent through worker to Swift | Swift ack or retry/unhealthy; worker emits ack health slice | inactive mode may queue intent only through worker, never direct native write |
-| diff status | Swift/native push plane | FE render slices, comm worker health | native status push through worker | failed push clears dedupe and re-emits or marks unhealthy | retained as last known health; stale status marked explicitly |
+| diff status | Swift/native Review metadata source | FE render slices, comm worker health | revisioned product metadata stream through worker | failed publication rolls back or resets/re-emits active package | retained as last known health; dirty/stale status marked explicitly |
 | command acks | comm worker | FE health/render slices, Swift request handlers | worker correlates requests/intents to Swift responses | timeout/backoff/retry or unhealthy | inactive acks may settle but cannot update active selection/content |
 | render disposition / fulfillment | main mints structural disposition; comm worker owns fulfillment state | demand reconciler, FE diagnostics | main reports queued/applied/painted/rejected/superseded for a worker item publication | missing/rejected/superseded receipt keeps current selected/visible demand live and re-derivable | inactive receipts may settle but cannot create foreground demand |
-| product connectionHealth | comm worker | FE health chrome, Swift diagnostics | worker observes bootstrap, product fetch/stream/push failures | reconnect reset, source reopen, or unhealthy slice | inactive mode shows retained health only; no foreground retries |
+| product connectionHealth | comm worker | FE health chrome, Swift diagnostics | worker observes bootstrap, product fetch/stream/delivery failures | reconnect reset, source reopen, or unhealthy slice | inactive mode shows retained health only; no foreground retries |
 | write intents | FE creates; comm worker owns queue/dedupe | Swift command handlers, FE ack slices | local intent -> worker queue -> Swift command | worker retries/backoff or fails visibly; no direct FE->native bypass | inactive writes are demoted/queued by policy or rejected visibly |
 | telemetry queue / batch sequence / retry outbox | optional telemetry worker | Swift telemetry endpoint, proof tooling | compact samples arrive on port-bound main/comm producer ports | bounded credits, reserved loss summaries, proof failure on required loss | worker survives mode changes; no worker when telemetry is disabled |
-| metadata plane | Swift/native | comm worker subscriptions | native interest stream and provider scheduler | native reset/reopen/unhealthy | untouched by this spec |
+| native product metadata production | Swift publication/source owners | comm worker subscriptions | active package -> delivery-only metadata coordinator | rollback active package, reset, reopen, or unhealthy | retained package outlives a worker stream; loaded-hidden starts no refresh |
 
 ## Requirements
 
@@ -533,7 +560,7 @@ Telemetry proof integrity:
 | slow click, reject, abort, stale, unavailable, timeout, or failure sample shed | proof fails; tail/failure samples are required |
 | optional/debug event shed | allowed only with exact aggregate counters and explicit lossy-run annotation |
 
-Percentiles can satisfy R41-R66 only from non-lossy required event streams.
+Percentiles can satisfy R41-R69 only from non-lossy required event streams.
 Lossy telemetry runs are debugging aids, not performance proof.
 
 ### R44. Content bytes stream to the worker, not the main thread.
@@ -734,7 +761,7 @@ Existing R32-R40 seams remain required
 
 ### R49. The topology has three product channel families plus one telemetry sidecar.
 
-The comm worker named here is the single pane-owned product worker in R41-R66.
+The comm worker named here is the single pane-owned product worker in R41-R69.
 Every ordinary Review/File web-to-Swift edge originates in that worker. The
 telemetry worker is an explicit observability-plane exception and cannot carry
 product state or commands.
@@ -790,41 +817,21 @@ or feature-owned fetch helpers are rejected production alternatives because
 they restore main or a second module as a sequence/backpressure participant. If
 direct worker streaming cannot pass native proof, stop and redesign R44/R49.
 
-Direct page/native exceptions are exactly:
+Direct page/native exceptions are limited to one-shot identity/capability/port
+bootstrap, static assets, and typed diagnostics/programmatic-control ingress
+that invokes the same FE local-intent seam as user input. They carry no product
+egress, intake, cache, demand, retry, acknowledgement, or backpressure traffic;
+every product consequence still follows main -> pane comm worker -> Swift.
 
-- one-shot page identity, pane-session capability, policy, and port bootstrap;
-- static app/worker assets needed before workers can exist; and
-- narrowly typed native-to-FE diagnostics/programmatic-control ingress that
-  invokes the same FE local-intent function as a user action. After ingress,
-  every product consequence follows main -> pane comm worker -> Swift.
-
-These exceptions never permit FE/main-to-Swift product egress and must not carry
-product intake, push, content, subscription, cache, demand, retry,
-acknowledgement, or backpressure traffic. A diagnostic carrier is not permission
-for a product bypass; any resulting product action flows through the comm worker.
-
-The `WKScriptMessage` / `__bridge_command` RPC plane and every direct main-owned
-product scheme caller are deleted by the final cutover's compile-enforced
-deletion set. Content worlds remain only for minimal bootstrap isolation and
-typed control/probe injection. No ordinary product carrier survives beside the
-comm-worker path.
+The `WKScriptMessage` / `__bridge_command` RPC plane and direct main-owned product
+scheme callers are compile-dead. Content worlds remain only for bootstrap
+isolation and typed control/probe injection.
 
 A future domain such as comments adds closed registry cases, a native handler,
 and a worker reducer; it adds no transport route/fetch/cache/retry/IPC pathway.
 
-Current script-message RPC inventory and post-migration carriers:
-
-| Current command or lane | Post-migration carrier |
-| --- | --- |
-| `review.markFileViewed` | main -> worker port, then worker scheme-POST |
-| active viewer surface signal | FE UI intent -> worker port; worker owns accepted surface (R42), then scheme-POST |
-| `system.bridgeTelemetry` | main compact sample -> telemetry worker -> `agentstudio://telemetry/batch` |
-| worktree-file telemetry sink | same telemetry-worker path; no pre-React page recorder |
-| page-control/probe commands | typed isolated native -> page adapter; bounded command/result only, with product consequences entering the comm worker |
-| intake frames | per-unit cutover to worker streamed subscriptions |
-
-The retained semantic Agent Studio IPC surface has this closed post-cutover
-mapping. External IPC never exposes raw WebKit evaluation. An internal typed
+The retained semantic Agent Studio IPC surface has this closed mapping.
+External IPC never exposes raw WebKit evaluation. An internal typed
 page-control adapter may inject one bounded command into an isolated content
 world, but it is async, validates its result, invokes the same FE local-intent
 seam as the corresponding user action, and returns only the bounded typed
@@ -835,7 +842,7 @@ result named below.
 | `bridge.diff.load`, `bridge.fileView.open`, `bridge.diff.refresh` | native source authority initiates or rotates the source; the resulting source fact/product flow enters the pane comm worker and never becomes a native/main product relay | correlated worker `sourceAccepted`/`sourceResynced` plus the method's required post-paint state; bounded pane/source identity and outcome only |
 | `bridge.diff.selectFile`, `bridge.diff.scrollToFile`, `bridge.diff.expandFile`, `bridge.diff.collapseFile`, `bridge.fileTree.search`, `bridge.fileTree.setFilter`, `bridge.fileTree.revealPath`, `bridge.fileView.showMarkdownPreview` | typed native control -> isolated page-control adapter -> the same FE local-intent function used by pointer/keyboard input; every subsequent demand, command, content, acknowledgement, retry, or write goes main -> comm worker -> Swift as required | the action's declared worker acceptance plus correlated post-paint completion when it changes visible state; bounded ids/status/reason only |
 | `bridge.diff.getPackage`, `bridge.diff.renderState` | read-only bounded diagnostic/probe projection; never product mutation, subscription, cache authority, or content carrier | bounded metadata, health, identity, counters, and render facts only; no package snapshot, raw body, source text, or worker-owned store state |
-| `bridge.fileView.getContent` | read-only content-handle probe against native lease metadata; never a body-read path | bounded handle, semantic/item metadata, availability, and MIME facts only; no body bytes or source text |
+| `bridge.fileView.getContent` | read-only content-handle probe against native package metadata; never a body-read path | bounded handle, semantic/item metadata, availability, and MIME facts only; no body bytes or source text |
 | `bridge.telemetry.snapshot` | typed control -> telemetry-worker `snapshot` | bounded counters/session/proof-eligibility state only; never the legacy native recorder |
 | `bridge.telemetry.flush` | typed control -> telemetry-worker `drain` | correlated terminal drain acknowledgement and bounded counts/state; never the legacy native recorder |
 
@@ -1061,8 +1068,8 @@ client plus `BridgeWorkerRpcLifecycleStore` is the required primitive.
 
 ### R56. Main render snapshots use one non-Zustand primitive.
 
-OD-LF2 is closed: the FE primitive is `BridgeMainRenderSnapshotStore`, a
-non-Zustand store exposed to React through `useSyncExternalStore`. It has exactly
+The FE primitive is `BridgeMainRenderSnapshotStore`, a non-Zustand store exposed
+to React through `useSyncExternalStore`. It has exactly
 two write inputs:
 
 - local intent helpers for synchronous UI facts: selected, hover/focus, viewport
@@ -1370,8 +1377,8 @@ R60. A large diff/file prepare test is mandatory: while an 18k-line-equivalent
 fixture or policy-sized stress fixture is preparing, a selected fact enters the
 worker and its queue wait remains under the selected p95/p99 budget.
 
-OD-LF1 is closed at the ownership level: the comm worker is the single
-protocol/cache/demand authority and owns scheduling decisions. Physical compute
+The comm worker is the single protocol/cache/demand authority and owns
+scheduling decisions. Physical compute
 may run as local pump slices or in a coordinated compute pool, but no
 package-shaped parse/decode/diff/item preparation may run as one
 synchronous comm-worker task.
@@ -1596,7 +1603,7 @@ response packages and logical metadata JSON frames have the same 128 KiB
 pre-decode ceiling. Binary content response frames use their distinct bounds
 below. The authenticated pane session is `wireVersion: 2` plus `paneSessionId`, a freshly native-minted
 `workerInstanceId`, and its 256-bit opaque capability. Bootstrap transfers the capability's 32 bytes into the worker and detaches main; only the capability is a privileged header. Replacement revokes old subscriptions/content/leases.
-No product identity/length appears in URL or headers, and the capability never appears in body/response/DOM/log/telemetry/error. Static assets and `OPTIONS` remain capability-free. This not-yet-installed wire has no v1 decoder, fallback, compatibility branch, global `workerEpoch`, or dual path.
+No product identity/length appears in URL or headers, and the capability never appears in body/response/DOM/log/telemetry/error. Static assets and `OPTIONS` remain capability-free. This hard-cut wire has no v1 decoder, fallback, compatibility branch, global `workerEpoch`, or dual path.
 No loopback HTTP product carrier exists; product transport stays on these
 capability-bound custom-scheme routes.
 
@@ -1818,6 +1825,83 @@ The semantic IPC methods `bridge.telemetry.snapshot` and
 they cannot read or drain `BridgePerformanceTraceRecorder` or another native
 fallback pipeline.
 
+### R67. Native Review publication is transactional and pane admission closes synchronously.
+
+One pane-owned synchronous `ProductAdmissionGate` guards every product call,
+metadata producer, and content request. Teardown closes it and advances its epoch
+before retirement/drain. Post-close requests reject synchronously; in-flight work
+rechecks after suspension and before cache, metadata, pane-state, or response
+publication, so late completion cannot reopen admission.
+
+The gate is a short lock/atomic owner, not an actor, and no lock spans `await`.
+Package/descriptor authority belongs to the per-pane publication coordinator,
+not `BridgePaneProductMetadataCoordinator`, worker, or cache. Stream uninstall removes
+delivery only; replacement reopens the accepted native package.
+
+Publication is one transaction:
+
+```text
+active A -> stage candidate B beside readable A
+  success: publish B metadata/content authority, atomically commit B, retire A
+  failure: reset partial B, restore/retain A everywhere
+  teardown: synchronously invalidate A and B, then cancel/drain work
+```
+
+Pane presentation, descriptor authority, and worker metadata cannot commit
+different packages. `BridgeReviewContentLoaderCache` owns provider I/O,
+validation, coalescing, cache, and eviction only. Permanent proof injects failure
+at staging, delivery, and commit; preserves A; and covers immediate/in-flight
+post-close rejection plus worker uninstall/reinstall reconstruction.
+
+### R68. Native pane activity controls work without erasing retained product state.
+
+Native workspace visibility/lifecycle is authoritative; browser visibility and
+`activeViewerMode` cannot decide whether a pane is foreground. The states are:
+
+| Activity | Package/presentation | Admitted work |
+| --- | --- | --- |
+| `foreground` | retain current File and Review positions/state | interactive demand plus latest refresh |
+| `loadedHidden` | retain package/cache and both surface positions; mark dirty | no body/prefetch/refresh work; collapse invalidations to one dirty fact |
+| `dormant` | controller/package does not exist | no work; cold-load once first activated |
+| `closed` | authority revoked | reject new work; cancel/drain existing work |
+
+Returning dirty paints retained state immediately, shows only the active surface's
+inline `Updating files...` or `Updating review...`, and performs at most one
+latest refresh without switching modes. Both surfaces retain independent
+selection, tree, and content/continuous-diff positions.
+
+Typed `showBridgeReview`/`showBridgeFiles` commands activate the most recently
+attended match or create one; labels resolve `Open` versus `Go to` from workspace
+state. `openBridgeReviewInNewTab`/`openBridgeFilesInNewTab` always create
+independent authority/query/presentation. Proof covers hidden-event collapse,
+dormant cold activation, position retention, default jump, and explicit duplicate.
+Future commit comparison still runs through native `agentstudio-git`.
+
+### R69. Git reads use bounded worktree-keyed admission and true physical completion.
+
+Git diff/tree/descriptor/content reads, hashing, package projection/encoding,
+cache work, and streaming never execute on `MainActor`. Synchronous libgit2
+bodies run on a dedicated blocking queue, never the caller actor or Swift
+cooperative pool. Scheduler operation-class slots bound physical capacity and
+retain custody through true return; the queue owns execution, not admission.
+
+One application-scoped, activity-ranked, worktree-keyed scheduler gives Review
+metadata and selected/visible content separate operation classes so a large diff
+scan cannot block a selected file. Logical timeout or
+cancellation ends the caller wait but never claims a synchronous native call
+stopped: its physical slot remains `draining` until libgit2 actually returns,
+and late output is discarded by admission/publication epochs. No UUID ordering,
+one global serial Git actor, or unbounded replacement task may define fairness.
+Watched-folder discovery, routine status, fetch/pull, checkout/worktree lifecycle,
+and mutations retain their independently calibrated capacities and owners.
+
+Proof covers five repositories with several worktrees, intentional duplicate
+panes, a deliberately blocked native read, background event storms, and selected
+foreground work. It reports bounded queue/physical/draining counts, zero producer
+residue, MainActor/event-loop heartbeat, slow-worktree isolation, and applicable
+foreground p95/p99. Concrete capacities are accepted only from this workload;
+discovery/status budgets cannot be copied without measurement.
+
 ## Action And Event Sequence Contracts
 
 Every user action and system event must preserve the local-first rule: FE may
@@ -1831,7 +1915,7 @@ Boundary notation:
 ```text
 main/FE -> comm worker       pane MessageChannel product boundary
 comm worker -> Swift         typed product call/metadata/content POST boundary
-Swift -> comm worker         streamed push/content/response boundary
+Swift -> comm worker         streamed metadata/content/response boundary
 comm worker -> main/FE       typed slice/job publication boundary
 main/FE -> comm worker       typed render-disposition boundary
 main/comm -> telemetry worker dedicated compact-sample producer ports
@@ -1851,8 +1935,12 @@ main/FE -> Pierre worker     public Pierre API compute/apply boundary
 | expand/collapse | source reset or user/FE | source reset expands the complete authoritative tree locally; user toggle crosses 0 boundaries before paint, then FE -> comm worker publishes the expanded/collapsed fact | fresh/reset source paints fully expanded; later manual collapse paints in frame 1 and survives same-source appends; comm worker repairs invalid ids or supplies content deltas later | R41, R42, R45, R46, R49 |
 | hunk expansion | user/FE/Pierre supported hunk control | complete full-source item expands through Pierre's supported item/render behavior; patch-derived partial item reports typed expansion unavailable when required source roles are absent | affordance paints locally; expansion is source-backed with stable anchor, never blank filler or a missing-window protocol | R42, R46, R57, R61, R63 |
 | surface switch | user/FE app shell | 0 before shell paint; later FE -> comm worker `activeSurfaceUiIntent` with UI revision | frame-1 paints retained local shell; worker accepts `activeSurface`, demotes inactive foreground, and repairs later | R41, R42, R45, R49 |
-| tab/worktree switch | user/FE app shell | 0 before shell paint; later FE -> comm worker selected context fact and comm worker -> Swift product-stream subscribe/reopen if needed | frame-1 paints retained local shell or honest loading; no visible old-worktree content after identity change | R41, R42, R45, R48, R49 |
-| server push/fact | Swift | Swift -> comm worker streamed product response; comm worker -> FE affected slices only | FE paints only after comm worker validates stream/epoch/sequence and publishes O(delta) slice patches | R42, R45, R48, R49, R50 |
+| pane foreground | native workspace lifecycle | native activity -> pane admission/scheduler; retained worker stream repairs only when installed | retained active surface paints immediately; one dirty refresh may show only that surface's inline updating state | R42, R49, R67-R69 |
+| pane loaded-hidden | native workspace lifecycle or tab switch | native activity -> pane admission/scheduler; filesystem invalidations collapse to one dirty fact | no remount, body demand, prefetch, or package refresh; both surface positions remain retained | R42, R63, R67-R69 |
+| pane dormant/closed | native restore or close | dormant crosses no product boundary; close synchronously revokes admission before async cancellation/drain | dormant paints after first activation; closed work never paints or caches late output | R42, R63, R67-R69 |
+| worktree open/jump | user/native command system | default resolves the most-recent matching pane; explicit new-tab allocates independent pane authority | jump preserves the pane's active surface/positions; explicit duplicate starts independent presentation | R42, R67, R68 |
+| Review publication A -> B | Swift source/publication coordinator | B stages beside readable A; delivery commits B or rolls back to A; worker reinstall republishes active truth | one paint belongs wholly to A or B; partial B, failed delivery, or stream uninstall never erases A | R42, R63, R67 |
+| product metadata/fact | Swift | Swift -> comm worker streamed product response; comm worker -> FE affected slices only | FE paints only after comm worker validates stream/epoch/sequence and publishes O(delta) slice patches | R42, R45, R48-R50, R67 |
 | content-ready | Swift/comm worker executor | Swift -> comm worker streamed content response; comm worker -> FE paint-ready slice | no direct paint from response; comm worker validates current epoch and FE applies rank-first within R46 | R42, R44, R46, R48, R49, R52 |
 | Review item hydration | FE/Pierre viewport | FE -> comm selected/visible item facts; comm -> Swift complete required roles as needed; comm -> FE complete ready item; FE -> comm disposition | existing DOM scrolls immediately; later complete item applies without prefix replay/filler and demand remains until painted | R42, R44, R46, R57, R61 |
 | generation rotation | Swift source plus comm-worker epoch authority | Swift -> comm worker source fact; comm worker atomic epoch reset; comm worker -> FE reset slices | one paint observes either old epoch before reset or new epoch after reset; never half-old/half-new | R37, R42, R44, R45, R48, R49 |
@@ -1874,143 +1962,38 @@ and is never awaited by it.
 
 ## Migration Constraints
 
-What stays:
-- `WKURLSchemeHandler` as the shared POST product-stream adapter;
-- `BridgeContentDemandAdmission` as a Swift/native serving-side pacing valve;
-- native metadata plane: interest stream, metadata lane scheduler, manifest index, provider/source authority;
-- R32-R40 content-demand contract and Constants Annex;
-- one pane-owned comm-worker product session with surface-scoped contexts;
-- optional separate pane telemetry worker and telemetry-only endpoint;
-- main-thread DOM materialization, bounded by R46.
-- the normative HEAD recovery set is the file output of `git ls-tree -r --name-only 38fe66a --` for `BridgeWeb/src/review-viewer/{state,projections,workers/projection,workers/shared-rpc,test-support}`, `BridgeWeb/src/app/bridge-app-review-{viewer-shell-boundary,controller,navigation-controller,selection-controller}.tsx`. The plan inventories owner and permanent-test files separately and gives every entry an individual recover/adapt or evidence-backed reject disposition; wholesale restore is forbidden;
-- preserve `BridgeWeb/src/review-viewer/trees/`, the continuous CodeView decomposition, and permanent large-tree/scroll/virtualizer/benchmark/mocked-backend proof without any Pierre source/package change;
-- during parity recovery only, the pane composition root selects one closed `flat | recovered` Review shell target. Exactly one shell is mounted and may emit intents per pane across startup, HMR, mode switches, and pane/worker restart; there is no automatic fallback or runtime retargeting. Component-lifecycle proof plus a static ordinary-import-site scan enforce the invariant. The flat shell is deleted in the same cutover unit that closes recovered hierarchy/continuous/performance/security parity.
+The cutover is atomic by authority, not by file age. Keep the custom-scheme POST
+adapter, native source authority, pane worker, optional telemetry worker, and
+bounded main/Pierre presentation. Historical UX/projection code is evidence,
+never permission to restore a transport or truth owner. Compile-delete competing
+carriers, feature workers, main/React data stores, page/native relays, resource
+URL/GET paths, package-first loaders, flat/selected-only Review, FE product
+owners, private Pierre traffic, and main/comm telemetry pipelines.
 
-What dies:
-
-- multiple feature-owned comm-worker instances and bootstraps seeded with main-owned Review/File source packages;
-- all main-owned Review/File product intake, buffering, sequencing, materialization, readiness, reopen/retry, and frame-protocol decisions;
-- native product `callJavaScript`/DOM-event push and every page fetch/relay;
-- telemetry buffers, batching, JSON encoding, retry/outbox, sinks, or scheme fetch on main or the comm worker;
-- the `WKScriptMessage` / `__bridge_command` RPC plane after page-load bootstrap, including content-world command listeners, nonce command dispatch, `RPCMessageHandler`, `RPCRouter`, and script-message ingress;
-- FE protocol state: generations, sequences, stream identity, staleness, cache-membership truth, retry state, and demand membership truth;
-- React/main-thread Zustand stores for Bridge viewer data in converted Review and File View surfaces;
-- main-thread store or query cache as canonical Bridge data/cache/demand owner;
-- cross-boundary store mirroring, `store.getState()` payloads, or query-cache payloads as protocol;
-- async cache libraries as worker RPC lifecycle owner or high-frequency row/content patch stream;
-- root-snapshot render coupling for interaction paths;
-- package-shaped sync work inside click, selection, scroll, or paint handlers;
-- main-side ready-to-loading semantic gates and uncancelled stale placeholder work;
-- Review first-window-as-complete behavior and File View payload-line padding;
-- the independently authoritative Review projection worker/coordinator and canonical main Review store; pure projection and UI-only decomposition may be recovered under the owners defined here;
-- the flat direct Review shell after recovered hierarchy/continuous parity, browser/packaged/performance/security proof, and single-emitter cutover pass;
-- Pierre native-content fetch capability and receipt-only couriers;
-- handler-splitting as a claim of WebKit IPC isolation.
-- feature-specific product fetch helpers, resource URLs/GETs, route constants, and recursive JSON payload bags outside `BridgeProductTransport`;
-
-Compile-enforced deletion sets are required per cutover unit:
-
-| Cutover unit | Delete or make unbuildable | Keep only | Enforcement floor |
-| --- | --- | --- | --- |
-| pane comm-worker topology | feature worker factories; main-seeded product bootstrap/updates | one pane worker/session and surface clients | type/import lint + real browser/native identity |
-| File content protocol | FE body/frame protocol/cache/retry/padding and fixed-prefix fulfillment | display slices, one complete selected item, worker/native owners | schema/state tests + static scan + complete source-to-paint oracle |
-| Review content protocol | package body loading, root selection semantics, prefetch/cache truth, prefix completion | worker complete-item hydration/residency plus keyed display slices | state tests + full-item browser/native oracle |
-| Review UX recovery | flat path rows, selected-only CodeView, deleted hierarchy/controllers/permanent proof | actual restored HEAD components/tests adapted through one presentation boundary | source-structure + hierarchy/continuous browser + packaged/manual proof |
-| React Bridge data stores | main Review/File Zustand imports/mutations | RPC lifecycle, render snapshot, worker Zustand | import/architecture lint + subscription proof |
-| telemetry transport | page/pre-React/comm pipeline/fetch/flush/retry | producer ports, telemetry worker/endpoint | disjoint-schema scan + loss/failure/native tests |
-| browser/native product carrier | script-message RPC, product `callJavaScript`/DOM/page relays/router, feature fetch/resource GET | bootstrap/assets/typed controls and worker-only call/metadata/content POST transport | structural scan + packaged trace |
-| render fulfillment | semantic ready rejection, silent drops, stale placeholders | structural apply, semantic identity, R63 dispositions/barrier | state-machine tests + repeated live clicks |
-| Pierre adapter | receipt-only/direct payload/main source reconstruction/private traffic/sparse fiction | one supported complete-item presentation adapter | public types + no-dependency-change + clone/heap/p99/anchor proof |
-| demand membership | staging caps/eviction/parked retry | reconciler membership and executor pacing | compile deletion + hostile demand proof |
-
-No old and new path may remain live for the same viewer/protocol surface. The
-temporary compiled shell choice above is the sole exception: it selects one
-mount target and grants no dual reader, worker, adapter, protocol, source,
-projection, hydration, telemetry, or fallback authority. The flat target is
-unconverted and cannot satisfy R41-R66. Every other compatibility shim, feature
-flag, or dual reader for one converted surface is a contract violation unless
-the old path is compile-dead in that unit.
-
-Cutover readiness rule:
-
-- A typed worker shell, shared DTO module, lifecycle helper, or snapshot helper is not a converted surface by itself; it is scaffolding until the old owner for that viewer/protocol surface is compile-dead.
-- Dev-server, Vitest Browser, Playwright, or Chrome proof may close FE-seam
-  claims only: local render slices, hostile fake-worker behavior, DOM apply, and
-  browser interaction timing. It cannot close WebKit `agentstudio://` scheme
-  fetch, streamed-response push, native admission, or Swift/source authority.
-- Native debug-app proof remains mandatory for the JavaScript <-> Swift scheme
-  boundary. If source scans still find extra comm-worker creation sites, a live
-  main/native product carrier, main-thread Bridge data Zustand owner, FE
-  retry/demand/cache owner, main/comm telemetry pipeline, package-first body
-  loader, or Pierre native fetch for a converted surface, that surface is
-  unconverted and no R41-R66 performance or ownership claim may be made for it.
+One converted surface has one reader, writer, projection, hydration path, and
+emitter; no fallback or dual live path survives. Browser proof closes browser
+claims only. Packaged proof must close streaming, admission, publication,
+visibility, bounded Git execution, and Swift authority.
 
 ## Non-Goals
 
 - No Pierre fork.
-- No private Pierre worker protocol, proxy worker, local-path dependency, or
-  `patch-package`; a required upstream change lands as a general public release.
+- No private Pierre worker protocol, proxy, local-path dependency, or `patch-package`; upstream changes ship as public releases.
 - No claim that DOM materialization moves off the main thread.
 - No `SharedArrayBuffer` requirement.
 - No merge of the native metadata plane into the comm worker.
 - No new browser-side diff/repo authority.
 - No server lifetime surfaced to FE as user-visible protocol state.
-- No permanent File View prefix/cap without measured failure evidence, explicit
-  user reconvergence, and a separately accepted product-contract change.
+- No permanent File View prefix/cap without measured failure evidence, user reconvergence, and a separately accepted contract.
 - No shared cross-pane comm or telemetry worker.
+- No global serial Git actor and no actor-per-worktree registry without measured need.
+- No commit-comparison UX in this recovery increment.
 - No implementation phase plan in this document.
 
-## Open Decisions
+## Empirical Release Gates
 
-OD-LF1. Worker topology. CLOSED by R60 at the ownership level.
-
-The comm worker is the single protocol/cache/demand authority and scheduler. It
-may execute lightweight compute as local `WorkerContentPreparationPump` slices
-or coordinate a compute/Pierre pool for heavier work. The invariant is
-unchanged: FE sees one local-first worker contract, and no package-shaped
-parse/decode/diff/item preparation may run as one synchronous comm-worker
-task.
-
-OD-LF2. FE render snapshot primitive. CLOSED by R56.
-
-The FE primitive is `BridgeMainRenderSnapshotStore`: a non-Zustand store exposed
-to React through `useSyncExternalStore`, written only by local intent helpers and
-`BridgeWorkerPatchApplier`.
-
-OD-LF3. WebKit run-loop starvation proof.
-
-The research lane marks `kCFRunLoopDefaultMode` delivery and gesture starvation
-as plausible and source-grounded, but still empirical-confirm-required for this
-app. Native proof must measure command/telemetry/content delivery under
-gesture tracking before any final run-loop starvation claim is closed.
-
-OD-LF4. Durable single-writer content cache.
-
-The comm worker's single-writer ownership of protocol/cache truth enables a
-later separate PR for a persistent content cache, likely OPFS or IndexedDB with
-content-addressed keys and generation-epoch invalidation. This increment does
-not need a separate coordination design for durable cache ownership, and durable
-cache implementation remains out of scope here.
-
-OD-LF5. Pierre complete-item boundary. CLOSED as an API contract by
-R52/R53/R57.
-
-The installed pinned public complete-item API is the implementation floor.
-Whole-string/object publication is an unavoidable measured corridor. No
-byte-backed window API, future release, private compatibility path, fork, or
-source change is required or allowed.
-
-OD-LF7. Continuous Review residency and geometry. OPEN as an empirical release
-gate; ownership is closed by R42/R57/R61.
-
-Pierre has no sparse geometry/content admission API. The implementation must
-prove truthful order, far reveal, anchor stability, final traversal, bounded
-heap, main-thread work, and p99 with complete items. Failure is a shared-model
-reconvergence condition, not authority to fabricate extent, weaken proof, add a
-silent File cap, or modify Pierre.
-
-OD-LF6. Telemetry worker topology. CLOSED by R43/R49.
-
-Each pane creates no telemetry worker when disabled and at most one isolated
-telemetry worker when enabled. Main and comm are compact-sample producers only;
-no fallback pipeline exists on either interactive loop.
+Native gesture proof measures command, metadata, content, and telemetry delivery;
+Pierre proof covers truthful order, far reveal, anchors, final traversal, bounded
+heap/main work, and p99. Multi-worktree proof includes one blocked native read
+without foreground starvation. Failure triggers reconvergence, never weaker proof,
+fabricated extent, a silent File cap, or a Pierre modification.
