@@ -908,8 +908,16 @@ struct TabBarEmptyState: View {
             let tempDir = FileManager.default.temporaryDirectory
                 .appending(path: "preview-\(UUID().uuidString)")
             let persistor = WorkspacePersistor(workspacesDir: tempDir)
+            let atomRegistry = AtomRegistry()
+            let persistenceRuntime = WorkspacePersistenceRuntime(atomRegistry: atomRegistry)
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
+                workspacePersistenceRuntime: persistenceRuntime,
+                identityAtom: atomRegistry.workspaceIdentity,
+                windowMemoryAtom: atomRegistry.workspaceWindowMemory,
+                repositoryTopologyAtom: atomRegistry.workspaceRepositoryTopology,
+                paneAtom: atomRegistry.workspacePane,
+                tabLayoutAtom: atomRegistry.workspaceTabLayout,
+                mutationCoordinator: atomRegistry.workspaceMutationCoordinator,
                 persistor: persistor
             )
             store.restore()

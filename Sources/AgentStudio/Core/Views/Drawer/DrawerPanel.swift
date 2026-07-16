@@ -358,6 +358,18 @@ private struct DrawerSurfaceRegistrationModifier: ViewModifier {
 #if DEBUG
     struct DrawerPanel_Previews: PreviewProvider {
         static var previews: some View {
+            let atomRegistry = AtomRegistry()
+            let persistenceRuntime = WorkspacePersistenceRuntime(atomRegistry: atomRegistry)
+            let store = WorkspaceStore(
+                workspacePersistenceRuntime: persistenceRuntime,
+                identityAtom: atomRegistry.workspaceIdentity,
+                windowMemoryAtom: atomRegistry.workspaceWindowMemory,
+                repositoryTopologyAtom: atomRegistry.workspaceRepositoryTopology,
+                paneAtom: atomRegistry.workspacePane,
+                tabLayoutAtom: atomRegistry.workspaceTabLayout,
+                mutationCoordinator: atomRegistry.workspaceMutationCoordinator,
+                persistor: WorkspacePersistor(workspacesDir: FileManager.default.temporaryDirectory)
+            )
             VStack {
                 Spacer()
                 DrawerPanel(
@@ -369,9 +381,7 @@ private struct DrawerSurfaceRegistrationModifier: ViewModifier {
                     showsMinimizedPanes: true,
                     closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
                     height: 200,
-                    store: WorkspaceStore(
-                        workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-                        persistor: WorkspacePersistor(workspacesDir: FileManager.default.temporaryDirectory)),
+                    store: store,
                     repoCache: RepoCacheAtom(),
                     viewRegistry: ViewRegistry(),
                     action: { _ in },

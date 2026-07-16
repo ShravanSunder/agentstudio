@@ -4,6 +4,83 @@ import Foundation
 
 @MainActor
 extension WorkspaceStore {
+    /// Test-target-only compatibility seam for constructing one coherent
+    /// persistence authority graph around explicitly supplied atom owners.
+    convenience init(
+        workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner,
+        identityAtom: WorkspaceIdentityAtom = WorkspaceIdentityAtom(),
+        windowMemoryAtom: WorkspaceWindowMemoryAtom = WorkspaceWindowMemoryAtom(),
+        repositoryTopologyAtom: RepositoryTopologyAtom = RepositoryTopologyAtom(),
+        paneGraphAtom: WorkspacePaneGraphAtom = WorkspacePaneGraphAtom(),
+        drawerCursorAtom: WorkspaceDrawerCursorAtom = WorkspaceDrawerCursorAtom(),
+        paneAtom: WorkspacePaneAtom? = nil,
+        tabShellAtom: WorkspaceTabShellAtom = WorkspaceTabShellAtom(),
+        tabArrangementAtom: WorkspaceTabArrangementAtom = WorkspaceTabArrangementAtom(),
+        tabLayoutAtom: WorkspaceTabLayoutAtom? = nil,
+        mutationCoordinator: WorkspaceMutationCoordinator? = nil,
+        persistor: WorkspacePersistor = WorkspacePersistor(),
+        sqliteDatastore: WorkspaceSQLiteDatastore? = nil,
+        repositoryTopologyStore: RepositoryTopologyStore? = nil,
+        sqliteSaveCoordinator: WorkspaceSQLiteSaveCoordinator? = nil,
+        persistDebounceDuration: Duration = .milliseconds(500),
+        clock: (any Clock<Duration> & Sendable)? = nil,
+        recoveryReporter: PersistenceRecoveryReporter? = nil
+    ) {
+        let resolvedTabShellAtom = tabLayoutAtom?.shellAtom ?? tabShellAtom
+        let resolvedTabArrangementAtom = tabLayoutAtom?.arrangementAtom ?? tabArrangementAtom
+        let resolvedTabLayoutAtom =
+            tabLayoutAtom
+            ?? WorkspaceTabLayoutAtom(
+                shellAtom: resolvedTabShellAtom,
+                arrangementAtom: resolvedTabArrangementAtom
+            )
+        let resolvedPaneAtom =
+            paneAtom
+            ?? WorkspacePaneAtom(
+                graphAtom: paneGraphAtom,
+                drawerCursorAtom: drawerCursorAtom,
+                repositoryTopologyAtom: repositoryTopologyAtom
+            )
+        let resolvedMutationCoordinator =
+            mutationCoordinator
+            ?? WorkspaceMutationCoordinator(
+                repositoryTopologyAtom: repositoryTopologyAtom,
+                workspacePaneAtom: resolvedPaneAtom,
+                workspaceTabShellAtom: resolvedTabShellAtom,
+                workspaceTabArrangementAtom: resolvedTabArrangementAtom
+            )
+        let persistenceRuntime = WorkspacePersistenceRuntime(
+            revisionOwner: workspacePersistenceRevisionOwner,
+            atomOwners: WorkspacePersistenceAtomOwners(
+                workspaceIdentity: identityAtom,
+                workspaceWindowMemory: windowMemoryAtom,
+                repositoryTopology: repositoryTopologyAtom,
+                workspacePaneGraph: resolvedPaneAtom.graphAtom,
+                workspaceDrawerCursor: resolvedPaneAtom.drawerCursorAtom,
+                workspaceTabShell: resolvedTabShellAtom,
+                workspaceTabCursor: resolvedTabShellAtom.cursorAtom,
+                workspaceTabGraph: resolvedTabArrangementAtom.graphAtom,
+                workspaceArrangementCursor: resolvedTabArrangementAtom.cursorAtom
+            )
+        )
+        self.init(
+            workspacePersistenceRuntime: persistenceRuntime,
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
+            repositoryTopologyAtom: repositoryTopologyAtom,
+            paneAtom: resolvedPaneAtom,
+            tabLayoutAtom: resolvedTabLayoutAtom,
+            mutationCoordinator: resolvedMutationCoordinator,
+            persistor: persistor,
+            sqliteDatastore: sqliteDatastore,
+            repositoryTopologyStore: repositoryTopologyStore,
+            sqliteSaveCoordinator: sqliteSaveCoordinator,
+            persistDebounceDuration: persistDebounceDuration,
+            clock: clock,
+            recoveryReporter: recoveryReporter
+        )
+    }
+
     convenience init(
         workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner,
         catalogAtom: RepositoryTopologyAtom,

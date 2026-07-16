@@ -14,6 +14,7 @@ enum WorkspaceStoreError: Error {
 /// mutations live on the owning atoms or `WorkspaceMutationCoordinator`.
 @MainActor
 final class WorkspaceStore {
+    let workspacePersistenceRuntime: WorkspacePersistenceRuntime
     let workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner
     let identityAtom: WorkspaceIdentityAtom
     let windowMemoryAtom: WorkspaceWindowMemoryAtom
@@ -44,17 +45,13 @@ final class WorkspaceStore {
     private(set) var isDirty: Bool = false
 
     init(
-        workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner,
-        identityAtom: WorkspaceIdentityAtom = WorkspaceIdentityAtom(),
-        windowMemoryAtom: WorkspaceWindowMemoryAtom = WorkspaceWindowMemoryAtom(),
-        repositoryTopologyAtom: RepositoryTopologyAtom = RepositoryTopologyAtom(),
-        paneGraphAtom: WorkspacePaneGraphAtom = WorkspacePaneGraphAtom(),
-        drawerCursorAtom: WorkspaceDrawerCursorAtom = WorkspaceDrawerCursorAtom(),
-        paneAtom: WorkspacePaneAtom? = nil,
-        tabShellAtom: WorkspaceTabShellAtom = WorkspaceTabShellAtom(),
-        tabArrangementAtom: WorkspaceTabArrangementAtom = WorkspaceTabArrangementAtom(),
-        tabLayoutAtom: WorkspaceTabLayoutAtom? = nil,
-        mutationCoordinator: WorkspaceMutationCoordinator? = nil,
+        workspacePersistenceRuntime: WorkspacePersistenceRuntime,
+        identityAtom: WorkspaceIdentityAtom,
+        windowMemoryAtom: WorkspaceWindowMemoryAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
+        paneAtom: WorkspacePaneAtom,
+        tabLayoutAtom: WorkspaceTabLayoutAtom,
+        mutationCoordinator: WorkspaceMutationCoordinator,
         persistor: WorkspacePersistor = WorkspacePersistor(),
         sqliteDatastore: WorkspaceSQLiteDatastore? = nil,
         repositoryTopologyStore: RepositoryTopologyStore? = nil,
@@ -63,22 +60,24 @@ final class WorkspaceStore {
         clock: (any Clock<Duration> & Sendable)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
-        self.workspacePersistenceRevisionOwner = workspacePersistenceRevisionOwner
-        let resolvedTabShellAtom = tabLayoutAtom?.shellAtom ?? tabShellAtom
-        let resolvedTabArrangementAtom = tabLayoutAtom?.arrangementAtom ?? tabArrangementAtom
-        let resolvedTabLayoutAtom =
-            tabLayoutAtom
-            ?? WorkspaceTabLayoutAtom(
-                shellAtom: resolvedTabShellAtom,
-                arrangementAtom: resolvedTabArrangementAtom
+        let resolvedTabShellAtom = tabLayoutAtom.shellAtom
+        let resolvedTabArrangementAtom = tabLayoutAtom.arrangementAtom
+        let resolvedPaneAtom = paneAtom
+        workspacePersistenceRuntime.requireExactAtomOwners(
+            WorkspacePersistenceAtomOwners(
+                workspaceIdentity: identityAtom,
+                workspaceWindowMemory: windowMemoryAtom,
+                repositoryTopology: repositoryTopologyAtom,
+                workspacePaneGraph: resolvedPaneAtom.graphAtom,
+                workspaceDrawerCursor: resolvedPaneAtom.drawerCursorAtom,
+                workspaceTabShell: resolvedTabShellAtom,
+                workspaceTabCursor: resolvedTabShellAtom.cursorAtom,
+                workspaceTabGraph: resolvedTabArrangementAtom.graphAtom,
+                workspaceArrangementCursor: resolvedTabArrangementAtom.cursorAtom
             )
-        let resolvedPaneAtom =
-            paneAtom
-            ?? WorkspacePaneAtom(
-                graphAtom: paneGraphAtom,
-                drawerCursorAtom: drawerCursorAtom,
-                repositoryTopologyAtom: repositoryTopologyAtom
-            )
+        )
+        self.workspacePersistenceRuntime = workspacePersistenceRuntime
+        workspacePersistenceRevisionOwner = workspacePersistenceRuntime.revisionOwner
         self.identityAtom = identityAtom
         self.windowMemoryAtom = windowMemoryAtom
         self.repositoryTopologyAtom = repositoryTopologyAtom
@@ -91,15 +90,8 @@ final class WorkspaceStore {
         self.tabGraphAtom = resolvedTabArrangementAtom.graphAtom
         self.arrangementCursorAtom = resolvedTabArrangementAtom.cursorAtom
         self.panePresentationAtom = resolvedTabArrangementAtom.presentationAtom
-        self.tabLayoutAtom = resolvedTabLayoutAtom
-        self.mutationCoordinator =
-            mutationCoordinator
-            ?? WorkspaceMutationCoordinator(
-                repositoryTopologyAtom: repositoryTopologyAtom,
-                workspacePaneAtom: resolvedPaneAtom,
-                workspaceTabShellAtom: resolvedTabShellAtom,
-                workspaceTabArrangementAtom: resolvedTabArrangementAtom
-            )
+        self.tabLayoutAtom = tabLayoutAtom
+        self.mutationCoordinator = mutationCoordinator
         let resolvedSQLiteSaveCoordinator =
             sqliteSaveCoordinator
             ?? sqliteDatastore.map { datastore in
@@ -108,7 +100,7 @@ final class WorkspaceStore {
                     windowMemoryAtom: windowMemoryAtom,
                     repositoryTopologyAtom: repositoryTopologyAtom,
                     workspacePaneAtom: resolvedPaneAtom,
-                    workspaceTabLayoutAtom: resolvedTabLayoutAtom,
+                    workspaceTabLayoutAtom: tabLayoutAtom,
                     sqliteDatastore: datastore
                 )
             }

@@ -24,12 +24,24 @@ struct ZmxStartupReconciliationSummary: Equatable, Sendable {
 
 let appLogger = Logger(subsystem: "com.agentstudio", category: "AppDelegate")
 
+enum WorkspacePersistenceRuntimeBootState {
+    case uninitialized
+    case ready(WorkspacePersistenceRuntime)
+}
+
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var mainWindowController: MainWindowController?
     // MARK: - Shared Services (created once at launch)
     // Module-internal to support focused same-type AppDelegate extensions.
     var atomStore: AtomRegistry!
+    private var workspacePersistenceRuntimeBootState = WorkspacePersistenceRuntimeBootState.uninitialized
+    var workspacePersistenceRuntime: WorkspacePersistenceRuntime {
+        guard case .ready(let runtime) = workspacePersistenceRuntimeBootState else {
+            preconditionFailure("workspace persistence runtime accessed before canonical-store boot")
+        }
+        return runtime
+    }
     var store: WorkspaceStore!
     var repoCache: RepoCacheAtom! { atomStore.repoCache }
     var uiState: WorkspaceSidebarState! { atomStore.workspaceSidebarState }
@@ -63,6 +75,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var windowLifecycleStore: WindowLifecycleAtom!
     var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
     var managementLayerMonitor: ManagementLayerMonitor!
+
+    func installWorkspacePersistenceRuntime(_ runtime: WorkspacePersistenceRuntime) {
+        guard case .uninitialized = workspacePersistenceRuntimeBootState else {
+            preconditionFailure("workspace persistence runtime installed more than once")
+        }
+        workspacePersistenceRuntimeBootState = .ready(runtime)
+    }
     // MARK: - Command Bar
     var commandBarController: CommandBarPanelController!
     // MARK: - OAuth
