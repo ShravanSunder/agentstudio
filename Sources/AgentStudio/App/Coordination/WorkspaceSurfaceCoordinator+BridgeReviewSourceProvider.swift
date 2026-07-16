@@ -11,14 +11,11 @@ extension WorkspaceSurfaceCoordinator {
                 return provider
             }
         #endif
-        let worktreePath =
-            resolvedWorktreeContext(for: pane)?.worktree.path
-            ?? bridgeWorkspaceSourcePath(from: state.source)
-        return BridgeReviewSourceProviderFactory.gitProvider(repositoryPath: worktreePath)
-    }
-
-    private func bridgeWorkspaceSourcePath(from source: BridgePaneSource?) -> URL? {
-        guard case .workspace(let rootPath, _) = source else { return nil }
-        return URL(fileURLWithPath: rootPath)
+        let location = BridgeReviewSourceProviderFactory.repositoryLocation(
+            source: state.source,
+            launchDirectory: pane.metadata.launchDirectory,
+            currentWorkingDirectory: pane.metadata.cwd
+        )
+        return BridgeReviewSourceProviderFactory.gitProvider(location: location)
     }
 }

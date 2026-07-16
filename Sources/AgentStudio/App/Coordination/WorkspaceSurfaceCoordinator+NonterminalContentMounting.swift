@@ -4,11 +4,23 @@ import Foundation
 @MainActor
 extension WorkspaceSurfaceCoordinator {
     /// Mount one nonterminal pane selected by a steady-state user action.
-    ///
-    /// Bridge source selection may use current repository topology. Prepared
-    /// startup content must use a separate topology-independent admission port.
     @discardableResult
     func mountCurrentNonterminalContent(pane: Pane) -> NSView? {
+        mountNonterminalContent(pane: pane)
+    }
+
+    /// Mount one nonterminal pane from the exact accepted composition value.
+    ///
+    /// The caller must claim the pane's prepared generation before entering
+    /// this method. Mounting uses only values already carried by `pane` and
+    /// never registers filesystem projection or reads repository topology.
+    @discardableResult
+    func mountPreparedNonterminalContent(pane: Pane) -> NSView? {
+        mountNonterminalContent(pane: pane)
+    }
+
+    @discardableResult
+    private func mountNonterminalContent(pane: Pane) -> NSView? {
         viewRegistry.ensureSlot(for: pane.id)
 
         switch pane.content {
