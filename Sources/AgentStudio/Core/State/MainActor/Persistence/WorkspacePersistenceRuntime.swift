@@ -70,6 +70,7 @@ final class WorkspacePersistenceRuntime {
     let snapshotParticipantFactory: WorkspacePersistenceSnapshotParticipantFactory
     let preparedCompositionApplier: WorkspacePreparedCompositionApplier
     let preparedTopologyApplier: WorkspacePreparedTopologyApplier
+    let preinstallZmxAnchorRepairCoordinator: WorkspacePreinstallZmxAnchorRepairCoordinator
     let mutationCoordinator: WorkspacePersistenceMutationCoordinator
     let paneCreationGateway: WorkspacePaneCreationGateway
     let snapshotPagerState = WorkspacePersistenceSnapshotPagerState
@@ -105,6 +106,11 @@ final class WorkspacePersistenceRuntime {
         snapshotParticipantFactory = WorkspacePersistenceSnapshotParticipantFactory(adapters: adapters)
         preparedCompositionApplier = WorkspacePreparedCompositionApplier(adapters: adapters)
         preparedTopologyApplier = WorkspacePreparedTopologyApplier(adapters: adapters)
+        preinstallZmxAnchorRepairCoordinator = WorkspacePreinstallZmxAnchorRepairCoordinator(
+            revisionOwner: revisionOwner,
+            adapters: adapters,
+            workspacePaneGraphAtom: atomOwners.workspacePaneGraph
+        )
         let mutationCoordinator = WorkspacePersistenceMutationCoordinator(
             revisionOwner: revisionOwner,
             adapters: adapters,
