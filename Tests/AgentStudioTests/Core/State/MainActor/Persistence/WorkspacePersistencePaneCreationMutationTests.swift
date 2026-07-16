@@ -46,8 +46,8 @@ struct WorkspacePersistencePaneCreationMutationTests {
         let repeatedResult = runtime.mutationCoordinator.commitPaneCreation(transition)
 
         // Assert
-        guard case .changed(let committedRevision) = result else {
-            Issue.record("expected changed pane-creation result")
+        guard case .committed(let committedRevision) = result else {
+            Issue.record("expected committed pane-creation result")
             return
         }
         #expect(committedRevision.rawValue == 1)

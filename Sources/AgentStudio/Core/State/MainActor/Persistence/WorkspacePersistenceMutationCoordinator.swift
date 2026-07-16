@@ -21,6 +21,11 @@ enum WorkspacePersistenceMutationResult: Equatable, Sendable {
     case rejected(WorkspacePersistenceMutationFailure)
 }
 
+enum WorkspacePaneCreationPersistenceCommitResult: Equatable, Sendable {
+    case committed(revision: WorkspacePersistenceRevision)
+    case rejected(WorkspacePersistenceMutationFailure)
+}
+
 /// Persistence-aware mutation boundary for installed canonical workspace state.
 ///
 /// This coordinator owns no canonical values. It reserves fixed-revision
@@ -65,7 +70,7 @@ final class WorkspacePersistenceMutationCoordinator {
 
     func commitPaneCreation(
         _ transition: WorkspacePaneCreationTransition
-    ) -> WorkspacePersistenceMutationResult {
+    ) -> WorkspacePaneCreationPersistenceCommitResult {
         guard case .installed = adapters.compositionLifecyclePhase else {
             return .rejected(
                 .compositionDomainNotInstalled(phase: adapters.compositionLifecyclePhase)
@@ -93,7 +98,7 @@ final class WorkspacePersistenceMutationCoordinator {
                     return preparation.transaction.proposedRevision
                 }
             }
-            return .changed(revision: committedRevision)
+            return .committed(revision: committedRevision)
         } catch let error as WorkspacePaneGraphPersistenceCaptureError {
             return .rejected(.paneGraphCapture(error))
         } catch let error as WorkspaceTabShellPersistencePreparationError {
