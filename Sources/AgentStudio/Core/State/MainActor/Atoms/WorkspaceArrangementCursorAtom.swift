@@ -40,12 +40,24 @@ final class WorkspaceArrangementCursorAtom {
         activeArrangementIdsByTabId[tabId]
     }
 
+    func hasActiveArrangementCursor(tabID: UUID) -> Bool {
+        activeArrangementIdsByTabId[tabID] != nil
+    }
+
     func activePaneId(forArrangement arrangementId: UUID) -> UUID? {
         paneCursorsByArrangementId[arrangementId]?.activePaneId
     }
 
+    func hasPaneCursor(arrangementID: UUID) -> Bool {
+        paneCursorsByArrangementId[arrangementID] != nil
+    }
+
     func activeChildId(forArrangement arrangementId: UUID, drawerId: UUID) -> UUID? {
         drawerCursorsByKey[ArrangementDrawerCursorKey(arrangementId: arrangementId, drawerId: drawerId)]?.activeChildId
+    }
+
+    func hasDrawerCursor(_ key: ArrangementDrawerCursorKey) -> Bool {
+        drawerCursorsByKey[key] != nil
     }
 
     func insertActiveArrangementId(_ arrangementId: UUID, forTab tabId: UUID) {

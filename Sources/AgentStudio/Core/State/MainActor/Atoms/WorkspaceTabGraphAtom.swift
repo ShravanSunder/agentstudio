@@ -81,6 +81,16 @@ final class WorkspaceTabGraphAtom {
     private(set) var tabStates: [TabGraphState] = []
     private var tabIndexByID: [UUID: Int] = [:]
     private var tabIDByPaneID: [UUID: UUID] = [:]
+    private var tabIDByArrangementID: [UUID: UUID] = [:]
+
+    var tabCount: Int {
+        tabStates.count
+    }
+
+    func containsTab(_ id: UUID) -> Bool {
+        tabIndexByID[id] != nil
+    }
+
     func replaceStates(_ states: [TabGraphState]) {
         replaceTabStates(states)
     }
@@ -91,6 +101,7 @@ final class WorkspaceTabGraphAtom {
         tabStates = states
         tabIndexByID = indexes.tabIndexByID
         tabIDByPaneID = indexes.tabIDByPaneID
+        tabIDByArrangementID = indexes.tabIDByArrangementID
     }
 
     func tabState(_ tabId: UUID) -> TabGraphState? {
@@ -105,6 +116,10 @@ final class WorkspaceTabGraphAtom {
         tabIDByPaneID[paneID]
     }
 
+    func tabID(containingArrangement arrangementID: UUID) -> UUID? {
+        tabIDByArrangementID[arrangementID]
+    }
+
     func insertTabState(_ state: TabGraphState, at index: Int) {
         precondition(
             (0...tabStates.count).contains(index),
@@ -117,6 +132,17 @@ final class WorkspaceTabGraphAtom {
                 "pane identity must be absent from the tab graph before insertion"
             )
         }
+        var insertedArrangementIDs: Set<UUID> = []
+        for arrangement in state.arrangements {
+            precondition(
+                insertedArrangementIDs.insert(arrangement.id).inserted,
+                "arrangement identity must be unique within an inserted tab graph"
+            )
+            precondition(
+                tabIDByArrangementID[arrangement.id] == nil,
+                "arrangement identity must be absent from the tab graph before insertion"
+            )
+        }
 
         tabStates.insert(state, at: index)
         for indexedTab in tabStates[index...].enumerated() {
@@ -125,13 +151,21 @@ final class WorkspaceTabGraphAtom {
         for paneID in state.allPaneIds {
             tabIDByPaneID[paneID] = state.tabId
         }
+        for arrangement in state.arrangements {
+            tabIDByArrangementID[arrangement.id] = state.tabId
+        }
     }
 
     private static func makeIndexes(
         _ states: [TabGraphState]
-    ) -> (tabIndexByID: [UUID: Int], tabIDByPaneID: [UUID: UUID]) {
+    ) -> (
+        tabIndexByID: [UUID: Int],
+        tabIDByPaneID: [UUID: UUID],
+        tabIDByArrangementID: [UUID: UUID]
+    ) {
         var tabIndexByID: [UUID: Int] = [:]
         var tabIDByPaneID: [UUID: UUID] = [:]
+        var tabIDByArrangementID: [UUID: UUID] = [:]
         for (index, state) in states.enumerated() {
             precondition(
                 tabIndexByID.updateValue(index, forKey: state.tabId) == nil,
@@ -146,7 +180,12 @@ final class WorkspaceTabGraphAtom {
                     )
                 }
             }
+            for arrangement in state.arrangements {
+                guard tabIDByArrangementID.updateValue(state.tabId, forKey: arrangement.id) == nil else {
+                    preconditionFailure("arrangement \(arrangement.id) must have one tab owner")
+                }
+            }
         }
-        return (tabIndexByID, tabIDByPaneID)
+        return (tabIndexByID, tabIDByPaneID, tabIDByArrangementID)
     }
 }

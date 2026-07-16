@@ -23,6 +23,14 @@ final class WorkspaceTabShellAtom {
         cursorAtom.activeTabId
     }
 
+    var tabCount: Int {
+        tabShells.count
+    }
+
+    func containsTab(_ id: UUID) -> Bool {
+        tabIndexByID[id] != nil
+    }
+
     func replaceTabShells(_ shells: [TabShell]) {
         let replacementIndex = Self.makeUniqueIndex(shells)
         guard tabShells != shells else { return }

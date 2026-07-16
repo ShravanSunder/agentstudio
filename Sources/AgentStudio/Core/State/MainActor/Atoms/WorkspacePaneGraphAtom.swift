@@ -280,6 +280,7 @@ struct WorkspacePaneGraphReplacement: Equatable, Sendable {
 @Observable
 final class WorkspacePaneGraphAtom {
     private(set) var paneStates: [UUID: PaneGraphState] = [:]
+    private var parentPaneIDByDrawerID: [UUID: UUID] = [:]
 
     var paneIds: Set<UUID> {
         Set(paneStates.keys)
@@ -293,6 +294,10 @@ final class WorkspacePaneGraphAtom {
         paneStates[id]
     }
 
+    func parentPaneID(containingDrawer drawerID: UUID) -> UUID? {
+        parentPaneIDByDrawerID[drawerID]
+    }
+
     /// Durable graph membership only. Use `WorkspacePaneDerived` when callers
     /// need cwd/topology-resolved worktree membership.
     func paneStates(for worktreeId: UUID) -> [PaneGraphState] {
@@ -301,6 +306,11 @@ final class WorkspacePaneGraphAtom {
 
     func replacePaneStates(_ replacement: WorkspacePaneGraphReplacement) {
         paneStates = replacement.paneStates
+        parentPaneIDByDrawerID = Dictionary(
+            uniqueKeysWithValues: replacement.paneStates.values.compactMap { paneState in
+                paneState.drawer.map { ($0.drawerId, paneState.id) }
+            }
+        )
     }
 
     func addPane(_ pane: Pane) {
@@ -616,11 +626,29 @@ final class WorkspacePaneGraphAtom {
     }
 
     func setCanonicalPaneState(_ state: PaneGraphState) {
+        let previousDrawerID = paneStates[state.id]?.drawer?.drawerId
+        let nextDrawerID = state.drawer?.drawerId
+        if let nextDrawerID {
+            precondition(
+                parentPaneIDByDrawerID[nextDrawerID].map { $0 == state.id } ?? true,
+                "drawer identity must have one parent pane owner"
+            )
+        }
         paneStates[state.id] = state
+        if let previousDrawerID, previousDrawerID != nextDrawerID {
+            parentPaneIDByDrawerID.removeValue(forKey: previousDrawerID)
+        }
+        if let nextDrawerID {
+            parentPaneIDByDrawerID[nextDrawerID] = state.id
+        }
     }
 
     @discardableResult
     func removeCanonicalPaneState(for paneID: UUID) -> PaneGraphState? {
-        paneStates.removeValue(forKey: paneID)
+        guard let removedState = paneStates.removeValue(forKey: paneID) else { return nil }
+        if let drawerID = removedState.drawer?.drawerId {
+            parentPaneIDByDrawerID.removeValue(forKey: drawerID)
+        }
+        return removedState
     }
 }
