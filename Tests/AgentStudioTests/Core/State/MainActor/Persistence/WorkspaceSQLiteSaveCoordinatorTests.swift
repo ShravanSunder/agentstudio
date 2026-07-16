@@ -23,7 +23,7 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
 
         // Assert
         #expect(saved == expected)
-        guard case .loaded(let workspace, _) = loadedWorkspace else {
+        guard case .loaded(let workspace) = loadedWorkspace else {
             Issue.record("Expected saved workspace to load")
             return
         }

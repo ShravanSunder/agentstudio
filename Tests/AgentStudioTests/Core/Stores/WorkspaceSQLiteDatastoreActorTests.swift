@@ -245,7 +245,7 @@ struct WorkspaceSQLiteDatastoreActorTests {
         try await secondSave.value
         let loaded = await datastore.loadWorkspaceSnapshot()
 
-        guard case .loaded(let snapshot, _) = loaded else {
+        guard case .loaded(let snapshot) = loaded else {
             Issue.record("Expected loaded snapshot after serialized saves, got \(loaded)")
             return
         }
@@ -307,7 +307,7 @@ struct WorkspaceSQLiteDatastoreActorTests {
         try await secondSave.value
         let loaded = await datastore.loadWorkspaceSnapshot()
 
-        guard case .loaded(let snapshot, _) = loaded else {
+        guard case .loaded(let snapshot) = loaded else {
             Issue.record("Expected loaded snapshot after queued failure recovery, got \(loaded)")
             return
         }
@@ -361,20 +361,16 @@ struct WorkspaceSQLiteDatastoreActorTests {
         )
         let result = await saveDatastore.loadWorkspaceSnapshot()
 
-        guard case .loaded(let snapshot, let recoveryEvents) = result else {
+        guard case .loaded(let snapshot) = result else {
             Issue.record("Expected loaded snapshot after local save quarantine, got \(result)")
             return
         }
         #expect(snapshot.name == "Saved After Quarantine")
-        #expect(
-            recoveryEvents.contains { event in
-                event.store == .workspace
-                    && event.workspaceId == workspaceId
-                    && event.recovery == .quarantinedAndReset
-                    && event.quarantinedFilename?.contains(".local.sqlite.corrupt-") == true
-            },
-            "Recovery events: \(recoveryEvents)"
-        )
+        let quarantineArtifacts = try FileManager.default.contentsOfDirectory(
+            at: rootDirectory,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.contains(".local.sqlite.corrupt-") }
+        #expect(quarantineArtifacts.count == 1)
     }
 
     @Test("production datastore legacy lane decisions honor completed companion import status")

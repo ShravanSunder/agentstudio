@@ -825,13 +825,15 @@ proof scaffolding. Retain these permanent tests:
   boundary, and round-trip without schema or data changes or UUID-version
   validation;
 - relaunch activation integration holds repository startup indefinitely and proves terminal
-  activation does not wait; a datastore before/after oracle proves zero load-time
-  or startup writes;
+  activation does not wait; a current-schema datastore before/after oracle proves
+  zero post-open composition writes, while an older-schema case captures its
+  baseline after unchanged historical GRDB migration and proves zero subsequent
+  composition writes;
 - backend tests prove exact stored-ID attach and that normal attach/health/kill
   call sites cannot pass raw text; real-zmx E2E proves create, persist, relaunch,
   exact attach, scrollback, and exact kill;
 - invalid-composition integration proves zero canonical mutation, zero terminal
-  activation, and zero persistence writes;
+  activation, and zero post-open composition writes;
 - structural searches reject path/topology session derivation, optional/missing
   identity states, identity setters, startup zmx listing, and any startup
   identity mutation route.
@@ -888,9 +890,8 @@ participants from default membership, route initial fleet insertions through
 unconfigured participants, or assemble the complete pager before both domains
 are installed.
 
-Delete any surviving legacy-named `WorkspaceHydrationPreparation.swift`
-source union and `WorkspacePreparedHydrationApplier.swift` combined applier
-rather than extending them. The target path uses
+The `cb62c43f` startup cut removed the legacy combined preparation/applier route.
+The target path uses
 `WorkspaceCompositionPreparation.swift`,
 `WorkspacePreparedCompositionApplier.swift`, and
 `WorkspacePreparedTopologyApplier.swift`: the SQLite reader produces separate
@@ -911,19 +912,17 @@ Add `WorkspacePersistenceRevisionOwnerTests.swift`, `WorkspaceStateSnapshotLease
 
 Add focused prepared-composition and prepared-topology tests proving O(N)
 validation happens before MainActor apply; invalid composition produces zero
-canonical mutation, activation, or persistence writes; accepted composition is
+canonical mutation, activation, or post-open composition writes; accepted composition is
 installed once and unlocks terminal activation while topology preparation is
 suspended; and real heterogeneous participant limits page without mismatch or a
 test-only bypass.
 
 ### W4.5d — Atomic SQLite startup-owner hard cut
 
-In one production integration diff, delete any surviving legacy-named
-`WorkspaceHydrationPreparation.swift` and
-`WorkspacePreparedHydrationApplier.swift` plus their boot call sites. Delete
-the combined source/legacy preparation result and combined applier; do not leave
-a compatibility wrapper or second boot route. Install the two domain-specific
-paths instead:
+Commit `cb62c43f` completed the SQLite-only production startup cut: the legacy
+combined preparation/result/applier route and workspace JSON boot path are gone.
+No compatibility wrapper or second boot route may return. The two
+domain-specific paths remain:
 
 - `WorkspaceCompositionPreparer` and
   `WorkspacePreparedCompositionApplier` exclusively prepare/apply composition
@@ -935,61 +934,100 @@ paths instead:
   writer is cut through the bound adapters before the runtime installs the
   topology participant inventory and exposes topology mutation.
 
-Delete the old `WorkspaceStore.hydrateWorkspaceState*` atom-replacement routes
-and `applyLiveSQLiteTabRepairIfNeeded` save-result mutation in this same cut.
+The same cut deleted the old atom-replacement load routes and save-result live-
+tab mutation.
 SQLite-to-atom flow is preinstall-only through the two prepared appliers; an
 installed save acknowledgement may only clear persistence custody; it cannot
 mutate canonical state.
 
-Hard-cut production startup to SQLite in this same diff. Delete
+The `cb62c43f` diff also hard-cut production startup to SQLite and deleted
 `WorkspaceStore+LegacySQLiteImport.swift`, `WorkspaceLegacyArchiveCoordinator`,
 the workspace JSON import/fallback/archive branch, and every workspace-
-composition method or filename helper from `WorkspacePersistor`. Preserve
-current preference/settings JSON owners; they are not workspace composition.
-Add a strict startup outcome union with no correlated
-optionals or fallback case:
+composition method or filename helper from `WorkspacePersistor`. Current
+preference/settings JSON owners remain independent; they are not workspace
+composition. The strict startup outcome union has no correlated optionals or
+fallback case:
 
-- `.loaded(PreparedWorkspaceComposition)` for valid SQLite composition, loaded
-  exactly without normalization or rewrite;
-- `.newlyCreatedEmptyDatabase(NewEmptyWorkspaceSeed)` only when SQLite database-
-  open provenance explicitly proves that the database was created during the
-  current startup and has no workspace row; a preexisting empty database, query
-  failure, corruption, or an unexpectedly missing row cannot produce this case.
+- the live `.loaded(WorkspacePreparedCompositionAcceptance)` case for valid
+  SQLite composition, loaded exactly without normalization or rewrite;
+- the live `.initializedDefaultWorkspace(WorkspacePreparedCompositionAcceptance)`
+  case only when SQLite database-open provenance explicitly proves that the
+  database was created during the current startup and has no workspace row; a
+  preexisting empty database, query failure, corruption, or an unexpectedly
+  missing row cannot produce this case.
   The startup coordinator constructs the seed, calls
   `UUIDv7.generate()` for its workspace identity before atom insertion, persists
   exactly one default empty workspace, then feeds that exact persisted value
   through strict decode/validation. Empty composition creates no pane, tab, or
   zmx identity;
-- `.invariantFailure(WorkspaceCompositionStartupFailure)` for preexisting empty,
+- the live `.failed(WorkspaceStoreLoadFailure)` case for preexisting empty,
   unavailable, corrupt, incomplete, invalid, rejected, or failed-new-database
   composition. Emit a content-safe
   diagnostic and terminate loudly before canonical mutation, content/terminal
-  activation, fallback workspace selection, or any startup write. Existing core
-  and selected local database files plus their sidecars remain unchanged; this
-  path never quarantines, recreates, recovers, repairs, migrates, or backfills.
+  activation, fallback workspace selection, or any post-open composition write.
+  This path never quarantines, recreates, recovers, repairs, backfills,
+  normalizes, or rewrites composition.
 
 Modify `WorkspaceIdentityAtom.swift` so construction requires the
 caller-supplied workspace identity; remove its default identity generation.
 Atoms receive only accepted caller-supplied values. Remove fallback/default
 synthesis from existing-store load paths. This cut adds no schema/data migration
 and leaves historical GRDB migrations unchanged so existing databases still
-open. Unused historical columns/tables may remain; schema compaction is out of
-scope.
+open. Those migrations may write only during schema-open. A rejected current-
+schema fixture leaves existing core/local files and sidecars byte-identical; an
+older-schema rejection captures its baseline after historical migration and
+proves zero subsequent composition writes. Unused historical columns/tables may
+remain; schema compaction is out of scope.
+
+Replace the serial `WorkspaceBootSequence` and generic `restoreAllViews`
+authority in the same startup cut. The production boot graph becomes:
+
+```text
+SQLite schema-open [unchanged historical GRDB migrations only]
+  -> strict decode
+  -> pure exhaustive validation off-main
+  -> accepted immutable composition
+  -> one bounded MainActor install
+       +-> workspace shell/windowReady
+       +-> TerminalActivationOwner
+       |     active visible -> other visible/drawer -> hidden
+       +-> NonterminalContentMountOwner
+             active/visible -> other visible -> hidden
+
+accepted composition/workspace identity
+  -> topology/cache/filesystem/Git/Forge lanes [non-blocking]
+
+invalid/rejected
+  -> content-safe diagnostic -> nonzero termination
+       [no install, activation, or post-open composition write]
+```
+
+Minimal host/runtime assembly and composition-owned local UI state may precede
+shell presentation. Repository cache, settings enrichment, inbox history,
+topology, filesystem, Git, and Forge work may not gate shell presentation or
+active terminal/nonterminal readiness. Each pane enters exactly one content
+owner per composition generation. No topology result, content-ready milestone,
+persistence acknowledgement, or diagnostic sidecar has a back-edge into that
+generation; retry requires a new generation.
 
 Delete tests for the removed legacy workspace JSON import/fallback/archive
 behaviors and all composition normalization/default-synthesis,
 migration/backfill, repair, or restoration proof scaffolding. Keep permanent
 strict-startup proof only: exact load of valid
 SQLite; one atomic UUIDv7 empty-workspace creation for a database proven newly
-created during the current startup; and a bounded subprocess harness proving
-preexisting empty, unavailable, corrupt, incomplete, invalid, rejected, and
-failed-new-database outcomes terminate nonzero after the sanitized diagnostic
-but before canonical mutation, activation, or any write. Before/after file
-digests prove existing core/local SQLite files and sidecars are unchanged, and
-repository snapshots prove existing IDs/text are byte-for-byte unchanged. This
-proof also places a legacy workspace JSON file beside SQLite and shows startup
-neither reads, changes, archives, nor deletes it. This work adds no migration;
-historical GRDB migrations remain only so existing databases can open.
+created during the current startup; representative real-process failures for a
+preexisting empty database, corrupt core database, incomplete local snapshot,
+and rejected composition terminating nonzero after the sanitized diagnostic;
+and lower-level exhaustive proof for unavailable and failed-new-database cases,
+zero canonical mutation, zero activation, and zero post-open composition writes.
+Before/after digests prove the representative current-schema core/local SQLite
+files and sidecars are unchanged, and repository snapshots prove existing
+IDs/text are byte-for-byte unchanged. An older-schema failure case instead
+captures its baseline after historical migration and proves zero subsequent
+composition writes. The subprocess proof also places a legacy workspace JSON
+file beside SQLite and shows startup neither reads, changes, archives, nor
+deletes it. This work adds no migration; historical GRDB migrations remain only
+so existing databases can open.
 
 The cut removes every owner capable of validating or applying both domains.
 Structural negative proof inventories the production boot graph and fails when

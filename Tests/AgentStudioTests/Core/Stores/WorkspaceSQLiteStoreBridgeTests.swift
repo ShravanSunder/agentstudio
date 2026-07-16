@@ -8,6 +8,66 @@ import Testing
 @MainActor
 @Suite("WorkspaceSQLiteStoreBridgeTests", .serialized)
 struct WorkspaceSQLiteStoreBridgeTests {
+    @Test("SQLite materialization rejects missing required window state")
+    func sqliteMaterializationRejectsMissingWindowState() throws {
+        var snapshot = try makeStrictWorkspaceSQLiteStateBridgeSnapshot()
+        snapshot.windowState = nil
+
+        #expect(throws: WorkspaceSQLiteStateBridgeError.missingWindowState) {
+            try WorkspaceSQLiteStateBridge.persistableState(from: snapshot)
+        }
+    }
+
+    @Test("SQLite materialization rejects missing required drawer expansion state")
+    func sqliteMaterializationRejectsMissingDrawerExpansionState() throws {
+        var snapshot = try makeStrictWorkspaceSQLiteStateBridgeSnapshot()
+        snapshot.cursorState.drawerExpansionByDrawerId = [:]
+
+        #expect(throws: WorkspaceSQLiteStateBridgeError.missingDrawerExpansionState) {
+            try WorkspaceSQLiteStateBridge.persistableState(from: snapshot)
+        }
+    }
+
+    @Test("SQLite materialization rejects missing required active arrangement state")
+    func sqliteMaterializationRejectsMissingActiveArrangementState() throws {
+        var snapshot = try makeStrictWorkspaceSQLiteStateBridgeSnapshot()
+        snapshot.cursorState.activeArrangementIdsByTabId = [:]
+
+        #expect(throws: WorkspaceSQLiteStateBridgeError.missingActiveArrangementState) {
+            try WorkspaceSQLiteStateBridge.persistableState(from: snapshot)
+        }
+    }
+
+    @Test("SQLite materialization rejects missing required tab shell")
+    func sqliteMaterializationRejectsMissingTabShell() throws {
+        var snapshot = try makeStrictWorkspaceSQLiteStateBridgeSnapshot()
+        snapshot.tabShells = []
+
+        #expect(throws: WorkspaceSQLiteStateBridgeError.missingTabShell) {
+            try WorkspaceSQLiteStateBridge.persistableState(from: snapshot)
+        }
+    }
+
+    @Test("SQLite materialization preserves exact durable pane metadata")
+    func sqliteMaterializationPreservesExactDurablePaneMetadata() throws {
+        let launchDirectory = URL(filePath: "/tmp/strict-launch")
+        var snapshot = try makeStrictWorkspaceSQLiteStateBridgeSnapshot()
+        var paneRecord = try #require(snapshot.paneGraph.panes.single)
+        paneRecord.metadata.launchDirectory = launchDirectory
+        paneRecord.metadata.note = "  exact note with surrounding whitespace  \n"
+        paneRecord.metadata.checkoutRef = "  refs/heads/noncanonical  "
+        paneRecord.metadata.durableFacets.cwd = nil
+        snapshot.paneGraph.panes = [paneRecord]
+
+        let state = try WorkspaceSQLiteStateBridge.persistableState(from: snapshot)
+        let pane = try #require(state.panes.single)
+
+        #expect(pane.metadata.note == "  exact note with surrounding whitespace  \n")
+        #expect(pane.metadata.checkoutRef == "  refs/heads/noncanonical  ")
+        #expect(pane.metadata.launchDirectory == launchDirectory)
+        #expect(pane.metadata.cwd == nil)
+    }
+
     @Test("SQLite materialization rejects a layout pane without its persisted drawer")
     func sqliteMaterializationRejectsLayoutPaneWithoutPersistedDrawer() throws {
         let workspaceId = UUIDv7.generate()
@@ -330,6 +390,71 @@ struct WorkspaceSQLiteStoreBridgeTests {
             sqliteSaveCoordinator: saveCoordinator
         )
     }
+}
+
+private func makeStrictWorkspaceSQLiteStateBridgeSnapshot() throws -> WorkspaceSQLiteStateBridge.Snapshot {
+    let workspaceId = UUIDv7.generate()
+    let paneId = UUIDv7.generate()
+    let drawerId = UUIDv7.generate()
+    let arrangementId = UUIDv7.generate()
+    let tabId = UUIDv7.generate()
+    let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+    let pane = Pane(
+        id: paneId,
+        content: .terminal(
+            .init(
+                provider: .zmx,
+                lifetime: .persistent,
+                zmxSessionID: .generateUUIDv7()
+            )
+        ),
+        metadata: PaneMetadata(
+            paneId: PaneId(existingUUID: paneId),
+            createdAt: timestamp,
+            title: "Strict pane"
+        ),
+        kind: .layout(
+            drawer: Drawer(
+                drawerId: drawerId,
+                parentPaneId: paneId,
+                isExpanded: true
+            )
+        )
+    )
+    let arrangement = PaneArrangement(
+        id: arrangementId,
+        name: "Default",
+        isDefault: true,
+        layout: Layout(paneId: paneId),
+        activePaneId: paneId
+    )
+    let tab = Tab(
+        id: tabId,
+        name: "Strict tab",
+        allPaneIds: [paneId],
+        arrangements: [arrangement],
+        activeArrangementId: arrangementId
+    )
+    let liveSnapshot = WorkspaceSQLiteSnapshot(
+        id: workspaceId,
+        name: "Strict workspace",
+        panes: [pane],
+        tabs: [tab],
+        activeTabId: tabId,
+        sidebarWidth: 321,
+        windowFrame: CGRect(x: 1, y: 2, width: 800, height: 600),
+        createdAt: timestamp,
+        updatedAt: timestamp
+    )
+    let state = WorkspacePersistenceTransformer.persistableState(from: liveSnapshot)
+    return WorkspaceSQLiteStateBridge.Snapshot(
+        workspace: WorkspaceSQLiteStateBridge.workspaceRecord(from: state),
+        paneGraph: try WorkspaceSQLiteStateBridge.paneGraphRecord(from: state),
+        tabShells: WorkspaceSQLiteStateBridge.tabShellRecords(from: state),
+        tabGraph: WorkspaceSQLiteStateBridge.tabGraphRecord(from: state),
+        cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: state),
+        windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: state)
+    )
 }
 
 struct WorkspaceSQLiteBridgeFixture {

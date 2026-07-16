@@ -19,21 +19,12 @@ extension AppDelegate {
         }
     }
 
-    func bootWorkspaceServices(
+    func bootWorkspacePresentationPrerequisites(
         persistor: WorkspacePersistor,
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
         filesystemSource: inout FilesystemGitPipeline?
     ) async {
-        // The boot order is the contract:
-        // 1. load and install the durable SQLite workspace composition,
-        // 2. load rebuildable caches without autosave observation,
-        // 3. stand up runtime event producers/consumers,
-        // 4. replay persisted topology through the same coordinator path as live facts,
-        // 5. arm cache/UI autosave only after boot mutations have settled.
-        //
-        // `WorkspaceBootStep.purpose` carries the per-step "why" and is covered by
-        // tests so future boot changes cannot silently become an unlabeled ordering bet.
-        await WorkspaceBootSequence.runAsync { [self] step in
+        await WorkspaceBootSequence.runPresentationPrerequisitesAsync { [self] step in
             recordBootStep(step)
             await executeBootStep(
                 step,
@@ -42,6 +33,23 @@ extension AppDelegate {
                 filesystemSource: &filesystemSource
             )
         }
+    }
+
+    func bootWorkspacePostPresentationServices(
+        persistor: WorkspacePersistor,
+        paneRuntimeBus: EventBus<RuntimeEnvelope>,
+        filesystemSource: inout FilesystemGitPipeline?
+    ) async {
+        await WorkspaceBootSequence.runPostPresentationAsync { [self] step in
+            recordBootStep(step)
+            await executeBootStep(
+                step,
+                persistor: persistor,
+                paneRuntimeBus: paneRuntimeBus,
+                filesystemSource: &filesystemSource
+            )
+        }
+        startDeferredRepositoryTopologyLaneIfRequested()
     }
 
     /// Seed pane slots immediately after canonical composition installation and before any hosting controller exists.
@@ -130,6 +138,8 @@ extension AppDelegate {
             bootArmPersistenceObservation()
         case .readyForReactiveSidebar:
             break
+        case .checkWorktrunkDependency:
+            presentWorktrunkInstallationOfferIfNeeded()
         }
     }
 

@@ -30,6 +30,7 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
             ),
             metadata: PaneMetadata(
                 launchDirectory: URL(filePath: "/tmp/strict-sqlite-composition-load"),
+                createdAt: Date(timeIntervalSince1970: 1_700_100_000),
                 title: "Stored terminal"
             ),
             residency: .active,
@@ -97,7 +98,13 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
     func pristineSQLiteInitializesOneUUIDv7DefaultWorkspaceThatReloads() async throws {
         let harness = try StrictSQLiteCompositionLoadHarness.make(testName: "default-workspace")
         defer { harness.removeTemporaryFiles() }
-        let firstStore = harness.makeStore(revisionOwner: WorkspacePersistenceRevisionOwner())
+        let probeRecorder = StrictStartupProbeRecorder()
+        let firstStore = harness.makeStore(
+            revisionOwner: WorkspacePersistenceRevisionOwner(),
+            datastore: harness.makeDatastore(probe: { event in
+                await probeRecorder.record(event)
+            })
+        )
 
         let firstResult = await firstStore.loadCanonicalComposition()
 
@@ -110,6 +117,8 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         #expect(firstStore.panes.isEmpty)
         #expect(firstStore.tabs.isEmpty)
         #expect(acceptance.terminalActivationInput.entries.isEmpty)
+        #expect(await probeRecorder.count(of: .saveWorkspaceSnapshot) == 1)
+        #expect(await probeRecorder.count(of: .loadWorkspaceSnapshot) == 2)
 
         let reloadedStore = harness.makeStore(revisionOwner: WorkspacePersistenceRevisionOwner())
         let reloadResult = await reloadedStore.loadCanonicalComposition()
@@ -122,6 +131,57 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         #expect(reloadedStore.workspaceName == firstStore.workspaceName)
         #expect(reloadedStore.panes.isEmpty)
         #expect(reloadedStore.tabs.isEmpty)
+    }
+
+    @Test("default workspace rejects a mismatched persisted reread without canonical mutation")
+    func defaultWorkspaceRejectsMismatchedPersistedRereadWithoutCanonicalMutation() async throws {
+        let harness = try StrictSQLiteCompositionLoadHarness.make(testName: "default-workspace-reread-mismatch")
+        defer { harness.removeTemporaryFiles() }
+        let coreDatabaseURL = harness.coreDatabaseURL
+        let mutationOutcome = StrictStartupProbeMutationOutcome()
+        let probeRecorder = StrictStartupProbeRecorder(onFirstSuccessfulSave: {
+            do {
+                let databasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
+                    at: coreDatabaseURL,
+                    label: "AgentStudio.sqlite.strict-restore.default-reread-mismatch"
+                )
+                try await databasePool.write { database in
+                    try database.execute(
+                        sql: "UPDATE workspace SET name = ?",
+                        arguments: ["Persisted mismatch"]
+                    )
+                }
+                try databasePool.close()
+            } catch {
+                await mutationOutcome.recordFailure()
+            }
+        })
+        let initialWorkspaceID = UUIDv7.generate()
+        let identityAtom = WorkspaceIdentityAtom(
+            workspaceId: initialWorkspaceID,
+            workspaceName: "Initial identity",
+            createdAt: Date(timeIntervalSince1970: 40)
+        )
+        let revisionOwner = WorkspacePersistenceRevisionOwner()
+        let store = harness.makeStore(
+            revisionOwner: revisionOwner,
+            identityAtom: identityAtom,
+            datastore: harness.makeDatastore(probe: { event in
+                await probeRecorder.record(event)
+            })
+        )
+
+        let result = await store.loadCanonicalComposition()
+
+        #expect(result == .failed(.defaultWorkspacePersistenceMismatch))
+        #expect(await mutationOutcome.failureCount == 0)
+        #expect(await probeRecorder.count(of: .saveWorkspaceSnapshot) == 1)
+        #expect(await probeRecorder.count(of: .loadWorkspaceSnapshot) == 2)
+        #expect(store.workspaceId == initialWorkspaceID)
+        #expect(store.workspaceName == "Initial identity")
+        #expect(store.panes.isEmpty)
+        #expect(store.tabs.isEmpty)
+        #expect(revisionOwner.committedRevision == .zero)
     }
 
     @Test("invalid persisted composition is rejected without atom mutation or revision advance")
@@ -272,13 +332,22 @@ private struct StrictSQLiteCompositionLoadHarness {
     }
 
     func makeFreshDatastore() -> WorkspaceSQLiteDatastore {
+        makeDatastore()
+    }
+
+    func makeDatastore(
+        probe: (@Sendable (WorkspaceSQLiteDatastore.ProbeEvent) async -> Void)? = nil
+    ) -> WorkspaceSQLiteDatastore {
         let rootDirectory = rootDirectory
-        return WorkspaceSQLiteDatastoreFactory(
-            coreDatabaseURL: coreDatabaseURL,
-            localDatabaseURL: { workspaceID in
-                rootDirectory.appending(path: "\(workspaceID.uuidString).local.sqlite")
-            }
-        ).makeDatastore()
+        return WorkspaceSQLiteDatastore(
+            configuration: WorkspaceSQLiteDatastoreConfiguration(
+                coreDatabaseURL: coreDatabaseURL,
+                localDatabaseURL: { workspaceID in
+                    rootDirectory.appending(path: "\(workspaceID.uuidString).local.sqlite")
+                }
+            ),
+            probe: probe
+        )
     }
 
     func makeStore(
@@ -297,5 +366,34 @@ private struct StrictSQLiteCompositionLoadHarness {
 
     func removeTemporaryFiles() {
         try? FileManager.default.removeItem(at: rootDirectory)
+    }
+}
+
+private actor StrictStartupProbeRecorder {
+    private var events: [WorkspaceSQLiteDatastore.ProbeEvent] = []
+    private let onFirstSuccessfulSave: (@Sendable () async -> Void)?
+    private var didRunSuccessfulSaveAction = false
+
+    init(onFirstSuccessfulSave: (@Sendable () async -> Void)? = nil) {
+        self.onFirstSuccessfulSave = onFirstSuccessfulSave
+    }
+
+    func record(_ event: WorkspaceSQLiteDatastore.ProbeEvent) async {
+        events.append(event)
+        guard event == .saveWorkspaceSnapshotSucceeded, !didRunSuccessfulSaveAction else { return }
+        didRunSuccessfulSaveAction = true
+        await onFirstSuccessfulSave?()
+    }
+
+    func count(of event: WorkspaceSQLiteDatastore.ProbeEvent) -> Int {
+        events.count { $0 == event }
+    }
+}
+
+private actor StrictStartupProbeMutationOutcome {
+    private(set) var failureCount = 0
+
+    func recordFailure() {
+        failureCount += 1
     }
 }

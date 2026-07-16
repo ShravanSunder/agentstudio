@@ -133,9 +133,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             RestoreTrace.log("unset NO_COLOR for terminal color support")
         }
 
-        // Check for worktrunk dependency
-        checkWorktrunkInstallation()
-
         // Set up main menu (doesn't depend on zmx restore)
         setupMainMenu()
 
@@ -146,21 +143,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.bootWorkspaceServices(
+            await self.bootWorkspacePresentationPrerequisites(
                 persistor: persistor,
                 paneRuntimeBus: paneRuntimeBus,
                 filesystemSource: &filesystemSource
             )
-            self.finishLaunchingAfterWorkspaceBoot()
+            self.presentWindowAfterWorkspaceComposition()
+            await self.bootWorkspacePostPresentationServices(
+                persistor: persistor,
+                paneRuntimeBus: paneRuntimeBus,
+                filesystemSource: &filesystemSource
+            )
+            self.finishPostPresentationStartup()
         }
     }
 
-    private func finishLaunchingAfterWorkspaceBoot() {
-        startupTraceRecorder.recordAppStartup(
-            "app.did_finish_launching.succeeded",
-            phase: "did_finish_launching",
-            outcome: "succeeded"
-        )
+    private func presentWindowAfterWorkspaceComposition() {
         // Create main window
         mainWindowController = MainWindowController(
             store: store,
@@ -182,7 +180,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.activate(ignoringOtherApps: true)
         mainWindowController?.completeLaunchPresentation()
         observeLaunchRestoreReadiness()
-        startDeferredRepositoryTopologyLaneIfRequested()
         wireLifecycleConsumers()
         startAppIPCServer()
         if let window = mainWindowController?.window {
@@ -192,7 +189,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         } else {
             RestoreTrace.log("mainWindow showWindow: window=nil")
         }
+    }
 
+    private func finishPostPresentationStartup() {
+        startupTraceRecorder.recordAppStartup(
+            "app.did_finish_launching.succeeded",
+            phase: "did_finish_launching",
+            outcome: "succeeded"
+        )
         RestoreTrace.log("appDidFinishLaunching: end")
         runStartupDiagnosticActionIfRequested()
         scheduleFullDiskAccessHealthCheck()
@@ -210,7 +214,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // MARK: - Dependency Check
 
-    private func checkWorktrunkInstallation() {
+    func presentWorktrunkInstallationOfferIfNeeded() {
         guard !WorktrunkService.shared.isInstalled else { return }
 
         let alert = NSAlert()

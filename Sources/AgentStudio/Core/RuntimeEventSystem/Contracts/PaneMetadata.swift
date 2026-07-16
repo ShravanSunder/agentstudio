@@ -36,7 +36,7 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         let launchFacets = PaneContextFacets(cwd: launchDirectory)
         self.facets = fillNilLaunchDirectoryFacet ? facets.fillingNilFields(from: launchFacets) : facets
         self.checkoutRef = checkoutRef
-        self.note = Self.normalizedNote(note)
+        self.note = note
     }
 
     mutating func updateTitle(_ newTitle: String) {
@@ -177,7 +177,7 @@ struct PaneMetadata: Codable, Hashable, Sendable {
             )
         }
         self.checkoutRef = try container.decodeIfPresent(String.self, forKey: .checkoutRef)
-        self.note = Self.normalizedNote(try container.decodeIfPresent(String.self, forKey: .note))
+        self.note = try container.decodeIfPresent(String.self, forKey: .note)
     }
 
     private static func normalizedNote(_ value: String?) -> String? {

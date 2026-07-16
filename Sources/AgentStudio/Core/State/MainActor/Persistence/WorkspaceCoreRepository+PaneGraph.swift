@@ -60,13 +60,9 @@ extension WorkspaceCoreRepository {
             self.executionBackend = executionBackend
             self.createdAt = createdAt
             self.title = title
-            self.note = normalizedOptionalString(note)
-            self.checkoutRef = normalizedOptionalString(checkoutRef)
-            self.durableFacets = durableFacets.fillingNilFields(
-                from: .init(
-                    cwd: launchDirectory
-                )
-            )
+            self.note = note
+            self.checkoutRef = checkoutRef
+            self.durableFacets = durableFacets
         }
     }
 
@@ -81,13 +77,6 @@ extension WorkspaceCoreRepository {
             self.cwd = cwd
         }
 
-        func fillingNilFields(from defaults: Self) -> Self {
-            .init(
-                repoId: repoId ?? defaults.repoId,
-                worktreeId: worktreeId ?? defaults.worktreeId,
-                cwd: cwd ?? defaults.cwd
-            )
-        }
     }
 
     enum PaneResidencyRecord: Equatable, Sendable {
@@ -135,12 +124,6 @@ extension WorkspaceCoreRepository {
             return .init(panes: panes)
         }
     }
-}
-
-private func normalizedOptionalString(_ value: String?) -> String? {
-    guard let value else { return nil }
-    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty ? nil : trimmed
 }
 
 private func decodePaneRecord(_ database: Database, row: Row) throws -> WorkspaceCoreRepository.PaneRecord {

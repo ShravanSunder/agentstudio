@@ -32,7 +32,8 @@ struct Pane: Codable, Identifiable, Hashable, Sendable {
     ) {
         let normalizedMetadata = metadata.canonicalizedIdentity(
             paneId: PaneId(existingUUID: id),
-            contentType: Self.contentType(for: content)
+            contentType: Self.contentType(for: content),
+            fillNilLaunchDirectoryFacet: false
         )
 
         self.id = id

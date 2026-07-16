@@ -223,6 +223,57 @@ struct WorkspacePersistenceMutationCoordinatorTests {
         #expect(retainedTargetState?.metadata.title == "Before")
         _ = participant.participant.close(lease: participant.lease)
     }
+
+    @Test("installed pane note gateway retains one-key preimage and does not revise normalized no-ops")
+    func installedPaneNoteGatewayRetainsOneKeyPreimage() throws {
+        // Arrange
+        let atomRegistry = AtomRegistry()
+        let targetPane = makePanePersistenceMutationCoordinatorPane(
+            title: "Target",
+            note: "Original note"
+        )
+        atomRegistry.workspacePaneGraph.addPane(targetPane)
+        let runtime = WorkspacePersistenceRuntime(atomRegistry: atomRegistry)
+        let participant = try installAndOpenPaneGraphParticipant(
+            runtime: runtime,
+            expectedPaneCount: 1
+        )
+        let request = WorkspacePaneMetadataUpdateRequest(
+            paneID: targetPane.id,
+            update: .note(.set("  Ship after verification  "))
+        )
+
+        // Act
+        let changedResult = runtime.mutationCoordinator.updatePaneMetadata(request)
+        let repeatedResult = runtime.mutationCoordinator.updatePaneMetadata(request)
+        let missingPaneID = UUIDv7.generate()
+        let missingResult = runtime.mutationCoordinator.updatePaneMetadata(
+            .init(paneID: missingPaneID, update: .note(.clear))
+        )
+
+        // Assert
+        guard case .changed(let changedRevision) = changedResult else {
+            Issue.record("expected pane note mutation to change")
+            return
+        }
+        #expect(repeatedResult == .unchanged(revision: changedRevision))
+        #expect(missingResult == .rejected(.paneMissing(missingPaneID)))
+        #expect(runtime.revisionOwner.committedRevision == changedRevision)
+        #expect(atomRegistry.workspacePaneGraph.paneState(targetPane.id)?.metadata.note == "Ship after verification")
+        guard
+            case .item(let projectedItem, _, _, _) = participant.participant.inspectBaseSlot(
+                lease: participant.lease,
+                slotCursor: 0
+            ),
+            case .paneGraph(let retainedState) = projectedItem.item
+        else {
+            Issue.record("expected retained pane-note preimage")
+            return
+        }
+        #expect(retainedState == PaneGraphState(pane: targetPane))
+        _ = participant.participant.close(lease: participant.lease)
+    }
+
 }
 
 @MainActor
@@ -282,10 +333,14 @@ private func installAndOpenPaneGraphParticipant(
     return (participant, lease)
 }
 
-private func makePanePersistenceMutationCoordinatorPane(title: String) -> Pane {
+private func makePanePersistenceMutationCoordinatorPane(
+    title: String,
+    facets: PaneContextFacets = .empty,
+    note: String? = nil
+) -> Pane {
     Pane(
-        content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
-        metadata: PaneMetadata(title: title)
+        content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
+        metadata: PaneMetadata(title: title, facets: facets, note: note)
     )
 }
 

@@ -11,8 +11,8 @@ enum WorkspaceStoreError: Error {
 enum WorkspaceStoreLoadFailure: Error, Equatable, Sendable {
     case missingSQLiteDatastore
     case sqliteUnavailable(WorkspaceSQLiteDatastoreFailure)
-    case sqliteRecoveryDuringUninitializedLoad([PersistenceRecoveryEvent])
     case defaultWorkspaceInitializationFailed(WorkspaceSQLiteDatastoreFailure)
+    case defaultWorkspacePersistenceMismatch
     case compositionRejected(WorkspaceCompositionPreparationRejection)
     case compositionApplyFailed(WorkspacePreparedCompositionApplyFailure)
 
@@ -22,10 +22,10 @@ enum WorkspaceStoreLoadFailure: Error, Equatable, Sendable {
             .missingSQLiteDatastore
         case .sqliteUnavailable:
             .sqliteUnavailable
-        case .sqliteRecoveryDuringUninitializedLoad:
-            .unexpectedRecoveryDuringBootstrap
         case .defaultWorkspaceInitializationFailed:
             .defaultWorkspaceInitializationFailed
+        case .defaultWorkspacePersistenceMismatch:
+            .defaultWorkspacePersistenceMismatch
         case .compositionRejected:
             .compositionRejected
         case .compositionApplyFailed:
@@ -37,8 +37,8 @@ enum WorkspaceStoreLoadFailure: Error, Equatable, Sendable {
 enum WorkspaceStartupFailureDiagnosticCode: String, Equatable, Sendable {
     case missingSQLiteDatastore = "missing_sqlite_datastore"
     case sqliteUnavailable = "sqlite_unavailable"
-    case unexpectedRecoveryDuringBootstrap = "unexpected_recovery_during_bootstrap"
     case defaultWorkspaceInitializationFailed = "default_workspace_initialization_failed"
+    case defaultWorkspacePersistenceMismatch = "default_workspace_persistence_mismatch"
     case compositionRejected = "composition_rejected"
     case compositionApplyFailed = "composition_apply_failed"
 }
@@ -166,21 +166,16 @@ final class WorkspaceStore {
         }
 
         switch await sqliteDatastore.loadWorkspaceSnapshot() {
-        case .loaded(let snapshot, let recoveryEvents):
-            reportRecoveryEvents(recoveryEvents)
+        case .loaded(let snapshot):
             switch await prepareAndApplyComposition(snapshot) {
             case .success(let acceptance):
                 return .loaded(acceptance)
             case .failure(let failure):
                 return .failed(failure)
             }
-        case .uninitialized(let recoveryEvents):
-            guard recoveryEvents.isEmpty else {
-                return .failed(.sqliteRecoveryDuringUninitializedLoad(recoveryEvents))
-            }
+        case .uninitialized:
             return await initializeAndApplyDefaultWorkspace(using: sqliteDatastore)
-        case .unavailable(let failure, let recoveryEvents):
-            reportRecoveryEvents(recoveryEvents)
+        case .unavailable(let failure):
             return .failed(.sqliteUnavailable(failure))
         }
     }
@@ -212,7 +207,21 @@ final class WorkspaceStore {
         } catch {
             return .failed(.defaultWorkspaceInitializationFailed(.init(error)))
         }
-        switch await prepareAndApplyComposition(workspaceSnapshot) {
+
+        let persistedSnapshot: WorkspaceSQLiteSnapshot
+        switch await sqliteDatastore.loadWorkspaceSnapshot() {
+        case .loaded(let snapshot):
+            guard snapshot.hasSameSQLiteRepresentation(as: workspaceSnapshot) else {
+                return .failed(.defaultWorkspacePersistenceMismatch)
+            }
+            persistedSnapshot = snapshot
+        case .uninitialized:
+            return .failed(.defaultWorkspacePersistenceMismatch)
+        case .unavailable(let failure):
+            return .failed(.defaultWorkspaceInitializationFailed(failure))
+        }
+
+        switch await prepareAndApplyComposition(persistedSnapshot) {
         case .success(let acceptance):
             return .initializedDefaultWorkspace(acceptance)
         case .failure(let failure):

@@ -17,7 +17,7 @@ Focused type-state spec checkpoint:
 Focused S1 accepted hashes:
 
 ```text
-737dcdb0278719b3294dacd757921206bc0517eda0c7fa0f949932b760c041d1  maintained spec
+65314ec74e15858cf4e636873c117fe64b59c66c4cde6215eeeb2d68358cfeaa  maintained spec
 7b312eaef20411b3d982fd99e0d427fbadbf00430e2ea6f7bf9fd99d901cac81  focused API
 ```
 
@@ -98,7 +98,7 @@ Live repo anchors were rechecked at `0fd9a080`: the existing global `PaneRuntime
 8. High-conflict files have one integration owner per integration gate. Parallel lanes may add disjoint primitives and focused tests, but they do not independently edit the same composition root.
 9. Canonical atoms remain state or pure-derived-state owners. Their narrow methods only assign caller-supplied values, suppress equal writes, perform simple representation-local transforms, and maintain storage indexes/observation invariants. Pure domain types validate and decide; mutation coordinators sequence cross-owner changes; persistence coordinators/adapters reserve preimages and transact assignments. No atom/facade prepares a mutation plan, rejection, semantic effect, persistence descriptor, or cross-owner workflow. Every production creation owner calls an explicit self-documenting UUIDv7-named API at the creation call site for every new durable identity before atom insertion—for example, `UUIDv7.generate()` or a type-specific `generateUUIDv7()`. Atoms and model initializers do not hide durable identity generation in defaults. UUIDv7 is the preferred generation policy for new durable IDs. Existing persisted IDs are opaque and load exactly without UUID-version validation, rewrite, migration, backfill, or adoption. No migration implementation or migration-specific proof belongs to this cut. W4.5 constructs one long-lived adapter bundle in production, routes every installed persistence-affecting writer through its domain gateway, and proves pre-mutation paging through real front doors. W4.5z hard-cuts durable terminal identity to a non-optional opaque `ZmxSessionID`, exact existing-value preservation, and mutation-free startup load before terminal activation or W5+ resumes.
 10. Every workload-producing path is acyclic per checked attempt/generation and proves separate admission, MainActor service, and downstream-expansion bounds. Acknowledgements may close custody; retries/source reconfiguration require a new bounded attempt/generation and cannot synchronously re-enter with payload. Composition and topology install independently inside one persistence runtime, and telemetry remains a bounded fail-open sidecar rather than a correctness edge.
-11. In this plan, repair/reconciliation/fallback refers only to external filesystem observation, watched-root currentness, topology discovery, or fact-gap recovery. SQLite composition startup and durable identity have no repair, restoration, reconciliation, adoption, backfill, fallback, quarantine, recreation, or recovery path. Existing empty/corrupt/incomplete/invalid SQLite fails content-safely without changing core/local files or sidecars.
+11. In this plan, repair/reconciliation/fallback refers only to external filesystem observation, watched-root currentness, topology discovery, or fact-gap recovery. SQLite composition startup and durable identity have no repair, restoration, reconciliation, adoption, backfill, fallback, quarantine, recreation, or recovery path. SQLite schema-open may run only the unchanged historical GRDB migrations required to open an older database. After schema-open, composition decode/validation performs no write, repair, backfill, normalization, or identity rewrite. Rejected current-schema fixtures leave core/local files and sidecars byte-identical; an older-schema rejection uses a post-migration baseline and proves zero subsequent composition writes.
 
 ## 4.1. Security Context
 
@@ -261,6 +261,15 @@ cases go only to T10.5; nonterminal cases go
 only to this owner; the empty-workspace case installs the shell empty state.
 Expanded-drawer panes are visible priority, and each pane may mount exactly once
 per composition generation.
+
+Hard-cut the current serial startup authority in `WorkspaceBootSequence` and
+the generic `restoreAllViews` route. After strict composition installation,
+minimal host/runtime assembly and workspace-owned local UI state may precede
+shell presentation, but repository cache, settings enrichment, inbox history,
+topology, filesystem, Git, and Forge work cannot gate `windowReady`,
+`activeContentReady`, or `typingReady`. Those lanes start independently and
+apply only current-generation bounded results. Do not retain the serial boot
+sequence as a compatibility route.
 
 Modify `WorkspaceSurfaceCoordinator+ViewLifecycle.swift`, launch-mount call
 sites, `ViewRegistry`, and focused launch-mount tests. Prove active
@@ -546,10 +555,38 @@ domain token; hard-cut every same-domain production writer through the bound
 adapters/coordinator; install that domain participant inventory; then expose its
 installed mutation gateway. Composition may unlock window and terminal
 readiness while topology is still preparing. The complete pager is assembled
-only after both domains install. No later S1, prepared-composition,
-terminal-activation, W5, or performance lane resumes until W4.5p production
-reachability, real-front-door pager proof, and full validation pass. Terminal
-activation additionally requires W4.5z.
+only after both domains install. The strict composition/terminal-identity cuts
+already landed remain subject to their startup proof and may not grow a repair
+or compatibility route. W5, event cutover, and performance lanes do not resume
+until W4.5p production reachability, real-front-door pager proof, startup-DAG
+proof, and full validation pass.
+
+The startup portion of W4.5/S3.5/T10.5 has this exact DAG:
+
+```text
+SQLite schema-open [unchanged historical GRDB migrations only]
+  -> strict decode
+  -> pure exhaustive validation off-main
+  -> accepted immutable composition
+  -> one bounded MainActor install
+       +-> workspace shell/windowReady
+       +-> TerminalActivationOwner
+       |     active visible -> other visible/drawer -> hidden
+       +-> NonterminalContentMountOwner
+             active/visible -> other visible -> hidden
+
+accepted composition/workspace identity
+  -> topology/cache/filesystem/Git/Forge lanes [non-blocking]
+
+invalid/rejected
+  -> content-safe diagnostic -> nonzero termination
+       [no install, activation, or post-open composition write]
+```
+
+Each pane enters exactly one content lane per composition generation. No
+topology result, content-ready milestone, persistence acknowledgement, or
+diagnostic sidecar may re-enter composition decode/validation/install. Retry
+requires a new generation.
 
 W12 and T12 are contributors to DQ1/IG2, not prerequisites that recursively own them. T11 may run candidate callback/app/surface quiescence before CG1 only as build-identity-bound correctness/compatibility proof; it does not measure or accept candidate performance. Every T12 and DQ1 performance cell requires the immutable human-approved CG1 manifest digest.
 
@@ -589,7 +626,7 @@ High-conflict files are single-owner at each gate: `WorkspaceSurfaceCoordinator.
 | workload flow has no same-attempt cascade | parent acyclic-workload contract | S5/S6; every domain cut | checked owner/route manifest plus literal correlation/generation count ledger; independent negative back-edge/observation fixtures | compile/static + deterministic unit/integration counts + Victoria runtime evidence; current source/HEAD/run | required; acknowledgements are payload-free and every retry/reconfiguration advances a checked attempt/generation |
 | one global semantic fact bus filters before queue/replay | parent fact taxonomy; EV1–EV11 | S2/S4/IG1 | `RuntimeFactBus.subscribe/post`; independent topic/replay table and structural source inventory | unit + integration + architecture lint; current source tree | required; IG1 atomic |
 | MainActor attribution and availability are causal and bounded | parent MainActor last mile; TA8 | S3, every applier, DQ1 | `MainActorWorkLedger`; independent heartbeat plus interaction stages | unit + Victoria observability + native E2E; current PID/run/build/root manifest | required; queue/service/liveness/interaction gates all pass |
-| composition, content mounting, terminal activation, and repository startup are independent | parent startup-lane contract; SF12–SF17 | W4.5/W4.5z/W5/W7; S3.5/T10.5 | valid SQLite exact load with zero writes; only a newly created empty database with current-open provenance performs one UUIDv7-backed empty-workspace creation transaction; preexisting empty and corrupt/incomplete/invalid core or local SQLite terminate with unchanged files/sidecars and zero canonical mutation/activation/writes/fallback; accepted immutable composition has one bounded apply; exact stored-ID preservation without migration; zero zmx-list calls; delayed topology control | unit + SQLite/runtime integration + Victoria/native E2E; current PID/run/build | required; active terminal/nonterminal readiness and empty shell precede delayed external lanes; each pane mounts once and external lanes cannot alter composition/residency/session identity |
+| composition, content mounting, terminal activation, and repository startup are independent | parent startup-lane contract; SF12–SF17 | W4.5/W4.5z/W5/W7; S3.5/T10.5 | valid current-schema SQLite exact load with zero post-open composition writes; older schemas may perform only unchanged historical GRDB migration writes before the composition oracle begins; only a newly created empty database with current-open provenance performs one UUIDv7-backed empty-workspace creation transaction; representative current-schema failure shapes terminate in a real process with unchanged files/sidecars, while exhaustive lower-level proof covers zero canonical mutation/activation/fallback and zero post-open composition writes; accepted immutable composition has one bounded install; exact stored-ID preservation without new migration; zero zmx-list calls; delayed topology control; static/runtime startup-DAG oracle rejects serial cache/settings/inbox/topology gating and same-generation back-edges | unit + SQLite/runtime integration + real-process failure harness + Victoria/native E2E; current PID/run/build | required; active terminal/nonterminal readiness and empty shell precede delayed external lanes; each pane mounts once per generation and external lanes cannot alter composition/residency/session identity |
 | UI-memory persistence is settled/coalesced, never callback-rate | parent UI-memory checkpoint contract | W4.5p/W7/W8 | explicit end-gesture or injected-clock latest settle gate plus revision/pump counters; literal N-callback oracle | unit + AppKit-boundary integration + Victoria MainActor/persistence counts; current source/run | required; N continuous callbacks yield one settled atom assignment/revision/request, zero fact posts, and no Observation feedback revision |
 | watched loss never authorizes false removal | WF/WS/FI | W1–W5 | callback/source-gate/scheduler/topology applier; literal filesystem manifest | unit + real filesystem/Git integration + workload | required; split callback, scan, apply |
 | watched roots never falsely present last-known state as current | watched currentness contract | W5b/W11/DQ1 | `WatchedFolderCurrentnessAtom` + Repo Explorer currentness read model | unit + integration + PID-targeted native visibility; current source/run/root generation | required; last-known content remains usable but visibly non-current |
@@ -612,7 +649,7 @@ Accepted specification SHA256 values for this implementation-plan revision:
 
 | Artifact | SHA256 |
 | --- | --- |
-| `agentstudio-performance-boundaries.md` | `737dcdb0278719b3294dacd757921206bc0517eda0c7fa0f949932b760c041d1` |
+| `agentstudio-performance-boundaries.md` | `65314ec74e15858cf4e636873c117fe64b59c66c4cde6215eeeb2d68358cfeaa` |
 | `watched-folder-admission-mainactor-fairness.md` | `ad5081fee1f1e9ba726beec33681b2b767430bed97c2b21af87e998b9b8d3122` |
 | `ghostty-terminal-interaction-fairness.md` | `7bfdbf98f59ca5fa84ceff85deb05d7dd1ea69e62d03d3c4b1ef7fc6406bccdb` |
 | `ghostty-action-admission-manifest.md` | `68f81a879119f331291f2fa66dd1442a07a20494caa70b4b80c702c69169c5fa` |

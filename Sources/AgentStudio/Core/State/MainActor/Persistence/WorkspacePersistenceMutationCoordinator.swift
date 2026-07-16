@@ -145,6 +145,35 @@ final class WorkspacePersistenceMutationCoordinator {
         }
     }
 
+    func updatePaneMetadata(
+        _ request: WorkspacePaneMetadataUpdateRequest
+    ) -> WorkspacePersistenceMutationResult {
+        guard case .installed = adapters.compositionLifecyclePhase else {
+            return .rejected(
+                .compositionDomainNotInstalled(phase: adapters.compositionLifecyclePhase)
+            )
+        }
+
+        switch WorkspacePaneMetadataTransitionPlanner.plan(
+            request,
+            currentPaneState: workspacePaneGraphAtom.paneState(request.paneID)
+        ) {
+        case .changed(let transition):
+            return performPaneTransition(transition)
+        case .unchanged:
+            return .unchanged(revision: revisionOwner.committedRevision)
+        case .rejected(.paneMissing(let paneID)):
+            return .rejected(.paneMissing(paneID))
+        case .rejected(.paneIdentityMismatch(let requestedPaneID, let currentPaneID)):
+            return .rejected(
+                .paneIdentityMismatch(
+                    requestedPaneID: requestedPaneID,
+                    currentPaneID: currentPaneID
+                )
+            )
+        }
+    }
+
     func setSidebarWidth(_ sidebarWidth: CGFloat) -> WorkspacePersistenceMutationResult {
         guard case .installed = adapters.compositionLifecyclePhase else {
             return .rejected(

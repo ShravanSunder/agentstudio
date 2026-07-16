@@ -179,24 +179,30 @@ Implement the accepted AgentStudio performance-boundary specs and reviewed plans
   `2026-07-11T13:32:59Z-s1-physical-custody-plan-ready`:
   `shravan-dev-workflow:implementation-execute-plan`. That historical event made
   S1a the first unproven gate at the time. It is superseded for current execution
-  order by the W4.5p pure-atom correction below; no agent may resume S1, prepared
-  composition/terminal activation, W5, or later work until W4.5p is proven.
+  order by the active strict-startup/W4.5p pointer below.
 
-## Current blocking correction — pure atom persistence boundary
+## Current blocking correction — strict startup and pure atom persistence boundary
 
 - The existing repository contract is authoritative: canonical atoms own in-memory state and synchronous local invariants; persistence wrappers live under `State/MainActor/Persistence`; coordinators own cross-atom sequencing.
 - Commit `5f8bf99d` violated that boundary by embedding persistence DTO projection, snapshot participants, membership limits, byte estimates, fixed-revision preparation, and transaction registration in atom files. Dirty W4.5 composition work extended the same violation with `prepareCompositionParticipant` methods.
-- This is the first current execution gate. W4.5 prepared composition and terminal-activation work, S1 follow-up, W5, and all later plan work are paused until this boundary is corrected and proven through production routes.
+- Strict composition startup and terminal identity are now hard-cut in commits
+  `0d3ec070`, `c7e6bb17`, `cb62c43f`, and `350ed632`. Representative
+  real-process failure proof and the non-serial startup readiness DAG remain
+  blocking before event/performance work resumes. W4.5p writer/pager proof is
+  still open in parallel with that cleanup.
 - Blocking remediation: move all persistence/revision/pager/lease responsibilities for identity, window memory, topology, pane graph, drawer cursor, tab shell, tab cursor, tab graph, and arrangement cursor into long-lived persistence adapters shared by the participant factory and mutation/applier paths. Atoms retain only canonical state, local invariants, and narrow domain-native reads/mutations.
 - Direct persistence-affecting mutation paths must be inventoried. Once participants are installed, no production setter may bypass first-post-base capture.
 - Independent review verified that the current participant factory is test-only and current focused tests are false-green for live first-post-base semantics because production writers still use direct atom mutations. Runtime construction plus writer routing is required before W4.5p can close.
 - Independent review also verified that topology snapshot storage duplicates canonical/read authority inside the topology atom; W4.5p moves persistence custody out, while W5 remains the exclusive owner of off-main identity reconciliation.
 - Required order: remove persistence mechanics from atoms; integrate exactly one adapter bundle into production composition; hard-cut every installed persistence-affecting live writer through adapters/coordinators; prove a real production pager lease observes literal pre-mutation state through real product front doors; then run build/tests/lint and the focused review/remediation cycle. Adapter-only tests do not advance this gate.
-- Startup authority is domain-scoped inside one runtime: composition and topology share one revision owner/bundle but use distinct non-copyable preinstall tokens and strict enum-backed lifecycles. A token cannot authorize the other domain, and neither initial apply nor bootstrap repair remains callable after its domain installs.
+- Startup authority is domain-scoped inside one runtime: composition and topology share one revision owner/bundle but use distinct non-copyable preinstall tokens and strict enum-backed lifecycles. A token cannot authorize the other domain, and neither initial apply nor any post-open startup mutation remains callable after its domain installs.
 - Safe per-domain transition: off-main prepare/validate -> atomic initial apply with the domain token -> cut every same-domain steady-state writer through the bound adapters/coordinator -> install that domain participant inventory -> expose that domain mutation gateway. Installation before writer cutover is forbidden because it makes fixed-revision custody false.
 - Composition may finish that transition and unlock window/terminal readiness while topology remains suspended. Topology cannot gate or mutate composition. The complete pager is assembled only after both domains install; optional participant arrays/`nil` are not lifecycle authority.
-- Startup zmx-anchor reconciliation is a composition preinstall repair, batched across changed panes in one transaction after initial composition apply and before installation. The route is sealed after install. Startup diagnostics use installed semantic gateways because they may execute after normal boot.
-- Representative live routes include sidebar/window memory, topology coordination, pane/drawer compatibility facades, tab/arrangement compatibility facades, and terminal zmx-anchor mutation. The inventory must discover and cover any additional installed writer rather than treating this list as exhaustive.
+- Startup has no zmx reconciliation, repair, adoption, derivation, or identity
+  mutation. Exact stored `ZmxSessionID` values flow from strict composition into
+  terminal activation. Startup diagnostics use installed semantic gateways when
+  they execute after normal boot.
+- Representative live routes include sidebar/window memory, topology coordination, pane/drawer compatibility facades, tab/arrangement compatibility facades, and terminal pane creation with caller-minted UUIDv7 identity. The inventory must discover and cover any additional installed writer rather than treating this list as exhaustive.
 - Proof: structural zero-persistence-vocabulary scan over atom files; atom invariant suites; adapter mutation/lease/page suites; complete heterogeneous participant inventory; one adapter-bundle/revision-owner object identity across production composition; RED/GREEN real-front-door preimage/insertion/tombstone integration proof; direct-mutation inventory; build/lint/diff check.
 - Independent review lane: native Sol xhigh `/root/sol_xhigh_atom_boundary_review`, source-backed and risk-triggered over `5f8bf99d`, supporting commits, current dirty state, tests, docs, and the proposed adapter correction. Parent verification owns accepted findings.
 - Controller brief: `tmp/plan-workflows/2026-07-15-agentstudio-ghostty-performance-pure-atoms/implementation-execute-plan-brief.md`.
@@ -927,28 +933,49 @@ off-main preparation, typed MainActor apply, participant installation, and
 pager-backed save equivalence before W5. That ordering is superseded by the
 active W4.5p resume pointer below.
 
-## ACTIVE RESUME POINTER — W4.5p pure-atom remediation first
+## ACTIVE RESUME POINTER — strict startup proof, startup DAG cut, then W4.5p
 
 This pointer supersedes every older `next`, first-unproven-gate, Packet E,
 composition, activation, S1, and W5 resume statement in this file:
 
 ```text
-remove persistence mechanics from canonical atoms
-  -> construct and retain one persistence runtime/revision owner/adapter bundle
-  -> independently prepare and initially apply composition/topology with
-     distinct non-copyable domain tokens
-  -> before installing each domain, route every same-domain steady-state
-     persistence-affecting writer through the bound adapters/coordinator
-  -> install that domain and expose only its installed mutation gateway
-  -> assemble the complete pager only after both domains are installed
-  -> prove the real production pager returns fixed-revision preimages,
-     excludes post-base insertions, and retains removal tombstones
+strict terminal identity hard cut                         0d3ec070
+  -> strict composition startup                          c7e6bb17
+  -> SQLite-only startup/legacy workspace path deletion  cb62c43f
+  -> obsolete startup-repair proof removal               350ed632
+  -> land representative real-process strict-failure proof
+  -> hard-cut serial WorkspaceBootSequence/restoreAllViews authority
+       one bounded composition install
+         +-> workspace shell/window
+         +-> TerminalActivationOwner
+         +-> NonterminalContentMountOwner
+       external topology/cache/filesystem/Git/Forge lanes never gate readiness
+  -> finish W4.5p semantic gateways and same-domain writer cutover
+  -> assemble/prove the real production fixed-revision pager
   -> parent-verify build/tests/lint plus one focused review/remediation cycle
-  -> only then resume prepared composition, terminal activation, S1, or W5+
+  -> resume W5+/event cutover and performance proof
 ```
 
 Adapter-only tests, a test-only factory/applier, or extracted types without live
 writer routing do not satisfy this gate.
+
+Composition startup has no repair, normalization, adoption, identity rewrite,
+fallback, legacy combined load, or post-open acknowledgement mutation. Historical
+GRDB migrations remain the sole schema-open exception; after schema-open, strict
+composition decode/validation is write-free. Filesystem/topology currentness
+repair remains a separate external-runtime concern.
+
+The strict-startup proof checkpoint now uses a transient
+`mode=ro&readonly_shm=1` reader for preexisting current-schema core/local
+databases, so committed WAL-only state remains visible without changing the
+database, WAL, or SHM bytes. Older schemas run only the unchanged historical
+GRDB migrations, close the writable migration pool, and reopen through the same
+byte-preserving reader before strict decode. Representative real-process
+failures terminate nonzero with content-safe diagnostics and unchanged durable
+inputs. Parent proof passed 67 tests across nine focused suites, including the
+four-scenario subprocess harness; the two lint-remediation suites passed 11/11;
+`mise run build`, full `mise run lint`, and `git diff --check` passed. The next
+active slice is the content-owner startup hard cut described above.
 
 ### Current W4.5p implementation checkpoint — capture-only custody
 
@@ -962,9 +989,10 @@ The next active slice is the installed semantic gateway layer. It must decide
 typed rejection and semantic no-op before committing, then reserve every
 affected participant, execute narrow atom assignments once, and
 publish one revision. Sidebar width and window frame are one aggregate
-window-memory writer family. Composition remains uninstalled until every pane,
-drawer, tab, arrangement, topology-to-pane, and startup-diagnostic writer is
-cut and the batched preinstall zmx repair is complete.
+window-memory writer family. The strict startup composition path is installed;
+its remaining W4.5p gate is to route every steady-state pane, drawer, tab,
+arrangement, topology-to-pane, and startup-diagnostic writer through the bound
+semantic gateways without introducing any startup repair path.
 
 Commit `8dd0f561` establishes the first installed semantic gateway family for
 aggregate window memory. The gateway rejects preinstall use, decides equal
@@ -1008,7 +1036,7 @@ Observation-triggered second revision.
 
 Each domain installation must consume its own non-copyable writer-cutover
 receipt after the checked same-domain production-writer inventory is complete.
-Participant construction cannot install a domain by itself. The atomic hydration
-hard cut deletes `WorkspaceStore.hydrateWorkspaceState*` and save-result live-tab
-repair; installed SQLite acknowledgements clear custody only and never mutate
-canonical atoms.
+Participant construction cannot install a domain by itself. The strict SQLite
+startup hard cut has deleted the old combined load/apply route and save-result
+live-tab mutation; installed SQLite acknowledgements clear custody only and
+never mutate canonical atoms.

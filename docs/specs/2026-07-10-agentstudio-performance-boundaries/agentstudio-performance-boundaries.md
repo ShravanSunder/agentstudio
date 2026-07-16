@@ -1572,15 +1572,36 @@ attribution.
 ### Startup Composition, Terminal Activation, And External Derived Work
 
 Startup has three independently owned readiness lanes. An initialized
-workspace's composition lane is strictly:
+workspace follows this acyclic per-composition-generation DAG:
 
 ```text
-SQLite decode
-  -> pure exhaustive validation
+SQLite schema-open
+  unchanged historical GRDB migrations only
+  -> strict SQLite decode
+  -> pure exhaustive validation off-main
   -> accepted immutable composition
-  -> one bounded MainActor apply
-  -> terminal activation
+  -> one bounded MainActor install
+       +-> workspace shell/windowReady
+       +-> TerminalActivationOwner
+       |     active visible -> other visible/drawer -> hidden
+       +-> NonterminalContentMountOwner
+             active/visible -> other visible -> hidden
+
+accepted composition/workspace identity
+  -> external topology/cache/filesystem/Git lane
+       non-blocking; no shell/content/typing readiness edge
+
+invalid or rejected
+  -> content-safe diagnostic
+  -> nonzero termination
+       no canonical install, content activation, or post-open composition write
 ```
+
+Each pane is admitted to exactly one content owner for that composition
+generation. Topology results, persistence acknowledgements, and content-ready
+milestones have no edge back into decode, validation, or installation. A retry
+requires a new generation; it cannot synchronously re-enter the rejected or
+completed generation.
 
 Valid SQLite composition loads exactly. Validation is pure and non-mutating: it
 does not normalize membership, choose fallback selection, synthesize cursors,
@@ -1601,11 +1622,16 @@ seed is the same loud invariant failure, not permission to synthesize another
 workspace.
 
 An existing empty, corrupt, incomplete, or otherwise invalid core or local
-SQLite database produces a typed content-safe startup failure. Startup leaves
-the core database, selected local database, and their sidecars unchanged: it
-does not quarantine, recreate, recover, repair, migrate, backfill, or fall back
-to another source. That failure performs zero canonical mutation, zero content
-or terminal activation, and zero persistence writes.
+SQLite database produces a typed content-safe startup failure. Database open
+may run only the unchanged historical GRDB schema migrations required to open
+an older database. After schema-open completes, composition startup performs no
+persistence write, quarantine, recreation, recovery, repair, backfill,
+normalization, identity rewrite, or fallback. A rejected current-schema fixture
+leaves the core database, selected local database, and their sidecars byte-for-
+byte unchanged. If an older-schema database migrates and is then rejected, the
+no-write oracle captures its baseline after the historical migration and proves
+zero subsequent composition writes. Every failure performs zero canonical
+mutation and zero content or terminal activation.
 
 For every new durable identity, the production creation owner uses an explicit
 named UUIDv7 API visible at the call site, such as `UUIDv7.generate()` or a
@@ -1891,7 +1917,7 @@ confounded causal claim.
 | semantic topic transport | parent + watched-folder child | structural policy, queue admission, lag/recovery proof |
 | Ghostty tick/action admission | terminal child | state/origin tables, races, sustained producer pressure |
 | terminal sample contraction/activity parity | terminal child | sequence oracle, bounded flood, semantic parity |
-| startup composition and terminal readiness | parent + terminal child | valid SQLite exact load with zero writes; only a newly created empty SQLite database with current-open provenance performs one UUIDv7-backed empty-workspace creation transaction; preexisting empty and corrupt/incomplete/invalid core or local SQLite terminate loudly with unchanged database files/sidecars and zero canonical mutation/activation/writes/fallback; accepted immutable composition has one bounded apply; exact stored-ID preservation without migration; zero zmx-list calls; active-before-hidden exact-ID attachment; delayed repository-lane injection |
+| startup composition and terminal readiness | parent + terminal child | valid current-schema SQLite exact load with zero post-open composition writes; an older schema may perform only unchanged historical GRDB migration writes before the composition oracle begins; only a newly created empty SQLite database with current-open provenance performs one UUIDv7-backed empty-workspace creation transaction; representative preexisting empty/corrupt/incomplete/invalid current-schema failures terminate in a real process with unchanged database files/sidecars, while lower-level exhaustive proof establishes zero canonical mutation/activation/fallback and zero post-open composition writes for every rejection; accepted immutable composition has one bounded install; one content owner per pane/generation; exact stored-ID preservation without new migration; zero zmx-list calls; active-before-hidden exact-ID attachment; delayed repository-lane injection |
 | secure input/screen boundary | terminal child | owner-state races, denied capture, export canaries |
 | combined typing/cursor symptom | shared harness | correlated watched-pressure, input-to-frame-layer-publication tails, and native visible outcomes |
 
@@ -1989,10 +2015,13 @@ contract named by its child spec.
 - No legacy workspace JSON import, migration, fallback, archive path, or
   migration-specific proof and no new schema/data migration for this cut.
   Preference/settings JSON owners remain independent. Existing GRDB migrations
-  remain unchanged so SQLite databases can open; unused columns/tables may remain, and startup
-  never uses them to backfill or rewrite composition. Startup never quarantines,
-  recreates, or recovers an existing core/local database; an existing empty,
-  corrupt, incomplete, or invalid database fails without changing its files.
+  remain unchanged so SQLite databases can open; their schema-open writes are
+  the only historical-migration exception to the post-open composition no-write
+  rule. Unused columns/tables may remain, and startup never uses them to backfill
+  or rewrite composition. Startup never quarantines, recreates, or recovers an
+  existing core/local database; a rejected current-schema database leaves its
+  files unchanged, while an older-schema rejection proves no writes after the
+  migration baseline.
 - No default-on screen capture or agent authority inferred from terminal data.
 - No permanent old/new compatibility pipelines.
 

@@ -6,14 +6,17 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct AppBootSequenceTests {
-    @Test("boot sequence exposes the architecture-ordered steps")
-    func orderedStepsMatchesArchitectureContract() {
+    @Test("boot sequence exposes only composition prerequisites before presentation")
+    func presentationPrerequisitesMatchArchitectureContract() {
         #expect(
-            WorkspaceBootSequence.orderedSteps == [
+            WorkspaceBootSequence.presentationPrerequisiteSteps == [
                 .loadCanonicalStore,
+                .establishRuntimeBus,
+            ])
+        #expect(
+            WorkspaceBootSequence.postPresentationSteps == [
                 .loadCacheStore,
                 .loadUIStore,
-                .establishRuntimeBus,
                 .startFilesystemActor,
                 .startGitProjector,
                 .startForgeActor,
@@ -21,23 +24,47 @@ struct AppBootSequenceTests {
                 .triggerInitialTopologySync,
                 .armPersistenceObservation,
                 .readyForReactiveSidebar,
+                .checkWorktrunkDependency,
             ])
     }
 
-    @Test("boot runner executes all steps in declared order")
-    func runExecutesOrderedSequence() {
+    @Test("presentation runner cannot execute post-presentation work")
+    func presentationRunnerExecutesOnlyPrerequisites() {
         var recorded: [WorkspaceBootStep] = []
-        WorkspaceBootSequence.run { step in
+        WorkspaceBootSequence.runPresentationPrerequisites { step in
             recorded.append(step)
         }
-        #expect(recorded == WorkspaceBootSequence.orderedSteps)
+        #expect(recorded == WorkspaceBootSequence.presentationPrerequisiteSteps)
+        #expect(!recorded.contains(.loadCacheStore))
+        #expect(!recorded.contains(.loadUIStore))
+        #expect(!recorded.contains(.triggerInitialTopologySync))
+        #expect(!recorded.contains(.checkWorktrunkDependency))
     }
 
     @Test("every boot step explains why it exists")
     func bootStepsDocumentTheirPurpose() {
-        for step in WorkspaceBootSequence.orderedSteps {
+        for step in WorkspaceBootSequence.presentationPrerequisiteSteps
+            + WorkspaceBootSequence.postPresentationSteps
+        {
             #expect(!step.purpose.isEmpty, "Missing boot purpose for \(step.rawValue)")
         }
+    }
+
+    @Test("window presentation precedes independent cache and topology startup")
+    func windowPresentationPrecedesIndependentStartupLanes() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let appDelegateSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift"),
+            encoding: .utf8
+        )
+        let presentation = try #require(
+            appDelegateSource.range(of: "self.presentWindowAfterWorkspaceComposition()")
+        )
+        let postPresentation = try #require(
+            appDelegateSource.range(of: "await self.bootWorkspacePostPresentationServices(")
+        )
+
+        #expect(presentation.lowerBound < postPresentation.lowerBound)
     }
 
     @Test("boot observation step arms every autosaving persistence store")

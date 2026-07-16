@@ -213,6 +213,7 @@ actor WorkspaceSQLiteDatastore {
     }
 
     func loadWorkspaceSnapshot() async -> LoadResult {
+        defer { workspaceStartupLocalRepositoryCache.removeAll() }
         await recordProbe(.loadWorkspaceSnapshot)
         await traceRecorder.recordOperation(
             .workspaceLoad,
@@ -241,7 +242,7 @@ actor WorkspaceSQLiteDatastore {
                 workspaceId: snapshot.id,
                 database: .core
             )
-            return .loaded(snapshot, recoveryEvents: drainRecoveryEvents(workspaceId: snapshot.id))
+            return .loaded(snapshot)
         } catch is BackendUninitializedError {
             await traceRecorder.recordOperation(
                 .workspaceLoad,
@@ -251,7 +252,7 @@ actor WorkspaceSQLiteDatastore {
                 workspaceId: nil,
                 database: .core
             )
-            return .uninitialized(recoveryEvents: drainAllRecoveryEvents())
+            return .uninitialized
         } catch {
             await traceRecorder.recordOperation(
                 .workspaceLoad,
@@ -262,7 +263,7 @@ actor WorkspaceSQLiteDatastore {
                 database: .core,
                 error: error
             )
-            return .unavailable(.init(error), recoveryEvents: drainAllRecoveryEvents())
+            return .unavailable(.init(error))
         }
     }
 
@@ -548,9 +549,31 @@ extension WorkspaceSQLiteDatastore {
         guard let configuration else {
             throw WorkspaceSQLiteDatastoreError.missingConfiguration
         }
-        let openedBackend = try openConfiguredBackend(configuration: configuration)
-        backend = openedBackend
-        return openedBackend
+        guard FileManager.default.fileExists(atPath: configuration.coreDatabaseURL.path) else {
+            let openedBackend = try openConfiguredBackend(configuration: configuration)
+            backend = openedBackend
+            return openedBackend
+        }
+
+        try WorkspaceSQLiteStartupSchemaPreparer.migratePreexistingDatabaseIfRequired(
+            at: configuration.coreDatabaseURL,
+            label: "AgentStudio.sqlite.core.startup-schema-check",
+            migrator: WorkspaceCoreMigrations.migrator
+        )
+        let coreStartupReader = try SQLiteDatabaseFactory.makeBytePreservingStartupReader(
+            at: configuration.coreDatabaseURL,
+            label: "AgentStudio.sqlite.core.startup-read"
+        )
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreStartupReader)
+        return WorkspaceSQLiteStoreBackend(
+            coreRepository: coreRepository,
+            makeLocalRepository: { _ in throw WorkspaceSQLiteDatastoreError.useDatastoreLocalRepositoryCache },
+            makeLocalRestoreRepository: { _ in throw WorkspaceSQLiteDatastoreError.useDatastoreLocalRepositoryCache },
+            coreDatabaseStartupProvenance: .preexisting,
+            legacyImportDecision: { workspaceId, lane in
+                try coreRepository.localLegacyImportDecision(workspaceId: workspaceId, lane: lane)
+            }
+        )
     }
 
     private func resolvedBackend() throws -> WorkspaceSQLiteStoreBackend {
@@ -605,6 +628,26 @@ extension WorkspaceSQLiteDatastore {
         )
         try localRepository.migrate()
         return localRepository
+    }
+
+    private static func openBytePreservingConfiguredLocalRepository(
+        workspaceId: UUID,
+        configuration: WorkspaceSQLiteDatastoreConfiguration
+    ) throws -> WorkspaceLocalRepository {
+        let localDatabaseURL = configuration.localDatabaseURL(workspaceId)
+        try WorkspaceSQLiteStartupSchemaPreparer.migratePreexistingDatabaseIfRequired(
+            at: localDatabaseURL,
+            label: "AgentStudio.sqlite.local.\(workspaceId.uuidString).startup-schema-check",
+            migrator: WorkspaceLocalMigrations.migrator
+        )
+        let localStartupReader = try SQLiteDatabaseFactory.makeBytePreservingStartupReader(
+            at: localDatabaseURL,
+            label: "AgentStudio.sqlite.local.\(workspaceId.uuidString).startup-read"
+        )
+        return WorkspaceLocalRepository(
+            workspaceId: workspaceId,
+            databaseWriter: localStartupReader
+        )
     }
 
     private func cachedSaveLocalRepository(
@@ -756,13 +799,15 @@ extension WorkspaceSQLiteDatastore {
             return cachedRepository
         }
         let repository: WorkspaceLocalRepository
-        if let makeLocalRestoreRepository {
+        if configuration != nil, let currentStartupSaveRepository = saveLocalRepositoryCache[workspaceId] {
+            repository = currentStartupSaveRepository
+        } else if let makeLocalRestoreRepository {
             repository = try makeLocalRestoreRepository(workspaceId)
         } else {
             guard let configuration else {
                 throw WorkspaceSQLiteDatastoreError.missingConfiguration
             }
-            repository = try Self.openConfiguredLocalRepository(
+            repository = try Self.openBytePreservingConfiguredLocalRepository(
                 workspaceId: workspaceId,
                 configuration: configuration
             )

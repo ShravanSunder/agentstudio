@@ -20,11 +20,10 @@ struct WorkspaceSQLiteStrictReadTests {
 
         let result = await datastore.loadWorkspaceSnapshot()
 
-        guard case .uninitialized(let recoveryEvents) = result else {
+        guard case .uninitialized = result else {
             Issue.record("Expected newly created SQLite to be uninitialized, got \(result)")
             return
         }
-        #expect(recoveryEvents.isEmpty)
         #expect(FileManager.default.fileExists(atPath: coreDatabaseURL.path))
     }
 
@@ -48,12 +47,11 @@ struct WorkspaceSQLiteStrictReadTests {
 
         let result = await datastore.loadWorkspaceSnapshot()
 
-        guard case .unavailable(let failure, let recoveryEvents) = result else {
+        guard case .unavailable(let failure) = result else {
             Issue.record("Expected pre-existing empty SQLite to be unavailable, got \(result)")
             return
         }
         #expect(failure.description.contains("preexistingDatabaseHasNoWorkspaceRows"))
-        #expect(recoveryEvents.isEmpty)
         #expect(try Data(contentsOf: coreDatabaseURL) == bytesBeforeLoad)
         #expect(try !containsQuarantineArtifact(in: rootDirectory))
     }
@@ -73,11 +71,10 @@ struct WorkspaceSQLiteStrictReadTests {
 
         let result = await datastore.loadWorkspaceSnapshot()
 
-        guard case .unavailable(_, let recoveryEvents) = result else {
+        guard case .unavailable = result else {
             Issue.record("Expected corrupt core SQLite to be unavailable, got \(result)")
             return
         }
-        #expect(recoveryEvents.isEmpty)
         #expect(try Data(contentsOf: coreDatabaseURL) == corruptBytes)
         #expect(try !containsQuarantineArtifact(in: rootDirectory))
     }
@@ -103,13 +100,92 @@ struct WorkspaceSQLiteStrictReadTests {
 
         let result = await datastore.loadWorkspaceSnapshot()
 
-        guard case .unavailable(_, let recoveryEvents) = result else {
+        guard case .unavailable = result else {
             Issue.record("Expected corrupt local SQLite to be unavailable, got \(result)")
             return
         }
-        #expect(recoveryEvents.isEmpty)
         #expect(try Data(contentsOf: localDatabaseURL) == corruptBytes)
         #expect(try !containsQuarantineArtifact(in: rootDirectory))
+    }
+
+    @Test("older core schema migrates then rejection is byte-preserving")
+    func olderCoreSchemaMigratesThenRejectionIsBytePreserving() async throws {
+        // Arrange
+        let rootDirectory = try makeStrictReadTemporaryDirectory(prefix: "older-core")
+        let coreDatabaseURL = rootDirectory.appending(path: "core.sqlite")
+        let migrationPool = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: coreDatabaseURL,
+            label: "AgentStudio.sqlite.strict-read.older-core.setup"
+        )
+        try WorkspaceCoreMigrations.migrator.migrate(migrationPool, upTo: "009_drop_pane_source_binding")
+        try migrationPool.close()
+        try WorkspaceSQLiteStartupSchemaPreparer.migratePreexistingDatabaseIfRequired(
+            at: coreDatabaseURL,
+            label: "AgentStudio.sqlite.strict-read.older-core.preparer",
+            migrator: WorkspaceCoreMigrations.migrator
+        )
+        let postMigrationBaseline = try strictReadDatabaseFiles(at: coreDatabaseURL)
+        let postMigrationInventory = try strictReadDirectoryInventory(rootDirectory)
+        let datastore = WorkspaceSQLiteDatastoreFactory(
+            coreDatabaseURL: coreDatabaseURL,
+            localDatabaseURL: { workspaceId in
+                rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
+            }
+        ).makeDatastore()
+
+        // Act
+        let result = await datastore.loadWorkspaceSnapshot()
+
+        // Assert
+        guard case .unavailable(let failure) = result else {
+            Issue.record("Expected migrated empty core SQLite to be rejected, got \(result)")
+            return
+        }
+        #expect(failure.description.contains("preexistingDatabaseHasNoWorkspaceRows"))
+        #expect(try strictReadDatabaseFiles(at: coreDatabaseURL) == postMigrationBaseline)
+        #expect(try strictReadDirectoryInventory(rootDirectory) == postMigrationInventory)
+    }
+
+    @Test("older local schema migrates then rejection is byte-preserving")
+    func olderLocalSchemaMigratesThenRejectionIsBytePreserving() async throws {
+        // Arrange
+        let workspaceId = UUIDv7.generate()
+        let rootDirectory = try makeStrictReadTemporaryDirectory(prefix: "older-local")
+        let coreDatabaseURL = rootDirectory.appending(path: "core.sqlite")
+        let localDatabaseURL = rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
+        let factory = WorkspaceSQLiteDatastoreFactory(
+            coreDatabaseURL: coreDatabaseURL,
+            localDatabaseURL: { _ in localDatabaseURL }
+        )
+        try await seedStrictReadWorkspace(workspaceId: workspaceId, factory: factory)
+        try removeSQLiteDatabaseAndSidecars(for: localDatabaseURL)
+        let migrationPool = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: localDatabaseURL,
+            label: "AgentStudio.sqlite.strict-read.older-local.setup"
+        )
+        try WorkspaceLocalMigrations.migrator.migrate(
+            migrationPool,
+            upTo: "006_create_local_persistence_lane_markers"
+        )
+        try migrationPool.close()
+        try WorkspaceSQLiteStartupSchemaPreparer.migratePreexistingDatabaseIfRequired(
+            at: localDatabaseURL,
+            label: "AgentStudio.sqlite.strict-read.older-local.preparer",
+            migrator: WorkspaceLocalMigrations.migrator
+        )
+        let postMigrationBaseline = try strictReadDatabaseFiles(at: localDatabaseURL)
+        let postMigrationInventory = try strictReadDirectoryInventory(rootDirectory)
+
+        // Act
+        let result = await factory.makeDatastore().loadWorkspaceSnapshot()
+
+        // Assert
+        guard case .unavailable = result else {
+            Issue.record("Expected migrated local SQLite without a completion token to be rejected, got \(result)")
+            return
+        }
+        #expect(try strictReadDatabaseFiles(at: localDatabaseURL) == postMigrationBaseline)
+        #expect(try strictReadDirectoryInventory(rootDirectory) == postMigrationInventory)
     }
 
     @Test("missing active selection is rejected without selecting the preferred workspace")
@@ -273,14 +349,13 @@ struct WorkspaceSQLiteStrictReadTests {
 
         let result = await datastore.loadWorkspaceSnapshot()
 
-        guard case .loaded(let snapshot, let recoveryEvents) = result else {
+        guard case .loaded(let snapshot) = result else {
             Issue.record("Expected exact completed snapshot load, got \(result)")
             return
         }
         #expect(snapshot.id == workspaceId)
         #expect(snapshot.name == "Exact Snapshot")
         #expect(snapshot.updatedAt == completedAt)
-        #expect(recoveryEvents.isEmpty)
         #expect(try activeWorkspaceSelection(in: coreQueue) == selectionBeforeLoad)
         #expect(
             try coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspaceId)
@@ -288,6 +363,71 @@ struct WorkspaceSQLiteStrictReadTests {
         )
         #expect(try localRepository.fetchCompletedWorkspaceSQLiteSnapshotAt() == localCompletionBeforeLoad)
     }
+
+    @Test("preexisting valid snapshot loads byte-preserving then opens a writable steady backend")
+    func preexistingValidSnapshotLoadsBytePreservingThenSavesThroughWritableBackend() async throws {
+        // Arrange
+        let workspaceId = UUIDv7.generate()
+        let rootDirectory = try makeStrictReadTemporaryDirectory(prefix: "valid-file-backed")
+        let coreDatabaseURL = rootDirectory.appending(path: "core.sqlite")
+        let localDatabaseURL = rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
+        let factory = WorkspaceSQLiteDatastoreFactory(
+            coreDatabaseURL: coreDatabaseURL,
+            localDatabaseURL: { _ in localDatabaseURL }
+        )
+        try await seedStrictReadWorkspace(workspaceId: workspaceId, factory: factory)
+        let durableFilesBeforeLoad = try StrictReadDurableFiles(
+            core: strictReadDatabaseFiles(at: coreDatabaseURL),
+            local: strictReadDatabaseFiles(at: localDatabaseURL)
+        )
+        let datastore = factory.makeDatastore()
+
+        // Act
+        let loadResult = await datastore.loadWorkspaceSnapshot()
+
+        // Assert
+        guard case .loaded(let loadedSnapshot) = loadResult else {
+            Issue.record("Expected a valid preexisting snapshot, got \(loadResult)")
+            return
+        }
+        #expect(loadedSnapshot.id == workspaceId)
+        #expect(
+            try StrictReadDurableFiles(
+                core: strictReadDatabaseFiles(at: coreDatabaseURL),
+                local: strictReadDatabaseFiles(at: localDatabaseURL)
+            ) == durableFilesBeforeLoad
+        )
+
+        let updatedAt = Date()
+        let updatedSnapshot = WorkspaceSQLiteSnapshot.emptyFixture(
+            id: workspaceId,
+            name: "Saved After Byte-Preserving Startup",
+            updatedAt: updatedAt
+        )
+        try await datastore.saveWorkspaceSnapshotBundle(.emptyTopologyFixture(workspace: updatedSnapshot))
+        guard case .loaded(let reloadedSnapshot) = await datastore.loadWorkspaceSnapshot() else {
+            Issue.record("Expected the steady writable backend to reload its save")
+            return
+        }
+        #expect(reloadedSnapshot.name == "Saved After Byte-Preserving Startup")
+        #expect(reloadedSnapshot.updatedAt.timeIntervalSince1970 == updatedAt.timeIntervalSince1970)
+    }
+}
+
+private struct StrictReadDurableFiles: Equatable {
+    let core: StrictReadDatabaseFiles
+    let local: StrictReadDatabaseFiles
+}
+
+private struct StrictReadDatabaseFiles: Equatable {
+    enum FileBytes: Equatable {
+        case missing
+        case present(Data)
+    }
+
+    let database: FileBytes
+    let wal: FileBytes
+    let sharedMemory: FileBytes
 }
 
 private struct StrictReadActiveWorkspaceSelection: Equatable {
@@ -344,6 +484,32 @@ private func removeSQLiteSidecarsIfPresent(for databaseURL: URL) throws {
     ] where FileManager.default.fileExists(atPath: sidecarURL.path) {
         try FileManager.default.removeItem(at: sidecarURL)
     }
+}
+
+private func removeSQLiteDatabaseAndSidecars(for databaseURL: URL) throws {
+    try removeSQLiteSidecarsIfPresent(for: databaseURL)
+    if FileManager.default.fileExists(atPath: databaseURL.path) {
+        try FileManager.default.removeItem(at: databaseURL)
+    }
+}
+
+private func strictReadDatabaseFiles(at databaseURL: URL) throws -> StrictReadDatabaseFiles {
+    func bytes(at fileURL: URL) throws -> StrictReadDatabaseFiles.FileBytes {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return .missing
+        }
+        return try .present(Data(contentsOf: fileURL))
+    }
+
+    return try StrictReadDatabaseFiles(
+        database: bytes(at: databaseURL),
+        wal: bytes(at: URL(filePath: databaseURL.path + "-wal")),
+        sharedMemory: bytes(at: URL(filePath: databaseURL.path + "-shm"))
+    )
+}
+
+private func strictReadDirectoryInventory(_ directoryURL: URL) throws -> [String] {
+    try FileManager.default.contentsOfDirectory(atPath: directoryURL.path).sorted()
 }
 
 private func containsQuarantineArtifact(in directory: URL) throws -> Bool {

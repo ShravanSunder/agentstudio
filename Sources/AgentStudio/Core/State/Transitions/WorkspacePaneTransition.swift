@@ -66,3 +66,68 @@ enum WorkspacePaneTitleTransitionPlanner {
         )
     }
 }
+
+enum WorkspacePaneNoteUpdate: Equatable, Sendable {
+    case set(String)
+    case clear
+}
+
+enum WorkspacePaneMetadataUpdate: Equatable, Sendable {
+    case title(String)
+    case note(WorkspacePaneNoteUpdate)
+}
+
+struct WorkspacePaneMetadataUpdateRequest: Equatable, Sendable {
+    let paneID: UUID
+    let update: WorkspacePaneMetadataUpdate
+}
+
+enum WorkspacePaneMetadataTransitionDecision: Equatable, Sendable {
+    case changed(WorkspacePaneGraphTransition)
+    case unchanged
+    case rejected(WorkspacePaneTitleTransitionRejection)
+}
+
+enum WorkspacePaneMetadataTransitionPlanner {
+    static func plan(
+        _ request: WorkspacePaneMetadataUpdateRequest,
+        currentPaneState: PaneGraphState?
+    ) -> WorkspacePaneMetadataTransitionDecision {
+        guard let currentPaneState else {
+            return .rejected(.paneMissing(request.paneID))
+        }
+        guard currentPaneState.id == request.paneID else {
+            return .rejected(
+                .paneIdentityMismatch(
+                    requestedPaneID: request.paneID,
+                    currentPaneID: currentPaneState.id
+                )
+            )
+        }
+
+        var replacementState = currentPaneState
+        switch request.update {
+        case .title(let title):
+            replacementState.metadata.title = title
+        case .note(.set(let note)):
+            replacementState.metadata.updateNote(note)
+        case .note(.clear):
+            replacementState.metadata.updateNote(nil)
+        }
+        guard replacementState != currentPaneState else {
+            return .unchanged
+        }
+
+        return .changed(
+            WorkspacePaneGraphTransition(
+                replacements: [
+                    WorkspacePaneStateTransitionReplacement(
+                        paneID: request.paneID,
+                        expectedCurrentState: currentPaneState,
+                        replacementState: replacementState
+                    )
+                ]
+            )
+        )
+    }
+}

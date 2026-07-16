@@ -33,9 +33,9 @@ extension WorkspaceSQLiteDatastore {
     }
 
     enum LoadResult: Equatable, Sendable {
-        case loaded(WorkspaceSQLiteSnapshot, recoveryEvents: [PersistenceRecoveryEvent])
-        case uninitialized(recoveryEvents: [PersistenceRecoveryEvent])
-        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
+        case loaded(WorkspaceSQLiteSnapshot)
+        case uninitialized
+        case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 
     enum RepositoryTopologyLoadResult: Equatable, Sendable {

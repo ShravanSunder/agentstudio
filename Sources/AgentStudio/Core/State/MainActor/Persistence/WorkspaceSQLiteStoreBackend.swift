@@ -438,6 +438,9 @@ enum WorkspaceSQLiteStateBridge {
         from snapshot: Snapshot
     ) throws -> WorkspacePersistor.PersistableState {
         let tabShellsById = Dictionary(uniqueKeysWithValues: snapshot.tabShells.map { ($0.id, $0) })
+        guard let windowState = snapshot.windowState else {
+            throw WorkspaceSQLiteStateBridgeError.missingWindowState
+        }
         return .init(
             id: snapshot.workspace.id,
             name: snapshot.workspace.name,
@@ -445,16 +448,16 @@ enum WorkspaceSQLiteStateBridge {
             worktrees: [],
             unavailableRepoIds: [],
             panes: try snapshot.paneGraph.panes.map { try pane(from: $0, cursorState: snapshot.cursorState) },
-            tabs: snapshot.tabGraph.tabs.map { tabState in
-                tab(
+            tabs: try snapshot.tabGraph.tabs.map { tabState in
+                try tab(
                     from: tabState,
                     shell: tabShellsById[tabState.tabId],
                     cursorState: snapshot.cursorState
                 )
             },
             activeTabId: snapshot.cursorState.activeTabId,
-            sidebarWidth: CGFloat(snapshot.windowState?.sidebarWidth ?? 250),
-            windowFrame: snapshot.windowState?.windowFrame,
+            sidebarWidth: CGFloat(windowState.sidebarWidth),
+            windowFrame: windowState.windowFrame,
             watchedPaths: [],
             createdAt: snapshot.workspace.createdAt,
             updatedAt: snapshot.workspace.updatedAt
@@ -654,7 +657,8 @@ enum WorkspaceSQLiteStateBridge {
                 cwd: record.durableFacets.cwd
             ),
             checkoutRef: record.checkoutRef,
-            note: record.note
+            note: record.note,
+            fillNilLaunchDirectoryFacet: false
         )
     }
 
@@ -682,11 +686,14 @@ enum WorkspaceSQLiteStateBridge {
             guard let drawerRecord = record.drawer else {
                 throw WorkspaceSQLiteStateBridgeError.layoutPaneMissingDrawer(record.id)
             }
+            guard let isExpanded = cursorState.drawerExpansionByDrawerId[drawerRecord.drawerId] else {
+                throw WorkspaceSQLiteStateBridgeError.missingDrawerExpansionState
+            }
             let drawer = Drawer(
                 drawerId: drawerRecord.drawerId,
                 parentPaneId: drawerRecord.parentPaneId,
                 paneIds: drawerRecord.childPaneIds,
-                isExpanded: cursorState.drawerExpansionByDrawerId[drawerRecord.drawerId] ?? false
+                isExpanded: isExpanded
             )
             return .layout(drawer: drawer)
         case .drawerChild(let parentPaneId):
@@ -698,22 +705,29 @@ enum WorkspaceSQLiteStateBridge {
         from state: WorkspaceCoreRepository.TabGraphStateRecord,
         shell: WorkspaceCoreRepository.TabShellRecord?,
         cursorState: WorkspaceLocalRepository.CursorStateRecord
-    ) -> Tab {
+    ) throws -> Tab {
         let arrangements = state.arrangements.map { arrangement in
             paneArrangement(from: arrangement, cursorState: cursorState)
         }
-        let rememberedActiveArrangementId = cursorState.activeArrangementIdsByTabId[state.tabId]
-        let activeArrangementId =
-            rememberedActiveArrangementId
-            ?? arrangements.first(where: \.isDefault)?.id
-            ?? arrangements[0].id
+        guard !arrangements.isEmpty, arrangements.filter(\.isDefault).count == 1 else {
+            throw WorkspaceSQLiteStateBridgeError.invalidTabArrangementSet(state.tabId)
+        }
+        guard let activeArrangementId = cursorState.activeArrangementIdsByTabId[state.tabId] else {
+            throw WorkspaceSQLiteStateBridgeError.missingActiveArrangementState
+        }
+        guard arrangements.contains(where: { $0.id == activeArrangementId }) else {
+            throw WorkspaceSQLiteStateBridgeError.activeArrangementNotInTab(state.tabId)
+        }
+        guard let shell else {
+            throw WorkspaceSQLiteStateBridgeError.missingTabShell
+        }
         return .init(
             id: state.tabId,
-            name: shell?.name ?? "Tab",
+            name: shell.name,
             allPaneIds: state.allPaneIds,
             arrangements: arrangements,
             activeArrangementId: activeArrangementId,
-            colorHex: shell?.colorHex,
+            colorHex: shell.colorHex,
             zoomedPaneId: nil
         )
     }
