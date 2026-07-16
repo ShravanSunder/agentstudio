@@ -125,6 +125,24 @@ struct WorkspacePanePlacementIndex: Equatable, Sendable {
         drawerByID[drawerID].map(WorkspaceDrawerPlacementLookup.found) ?? .missing
     }
 
+    /// A fixed-cardinality validation context for a prospective one-pane tab.
+    /// It deliberately contains no established fleet state because that tab
+    /// cannot reference any established pane or drawer placement.
+    static func prospectiveLayoutPane(
+        paneID: UUID,
+        drawerID: UUID
+    ) -> Self {
+        Self(
+            placementByPaneID: [paneID: .drawerParent(drawerID: drawerID)],
+            drawerByID: [
+                drawerID: WorkspaceDrawerPlacementCapability(
+                    parentPaneID: paneID,
+                    childPaneIDs: []
+                )
+            ]
+        )
+    }
+
     static func prepare(
         _ descriptors: [WorkspacePanePlacementDescriptor]
     ) -> WorkspacePanePlacementIndexPreparation {

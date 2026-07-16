@@ -24,6 +24,15 @@ enum WorkspaceTabTransitionApplicationResult: Equatable, Sendable {
     case rejected(WorkspaceTabTransitionApplicationRejection)
 }
 
+enum WorkspaceTabTransitionPreflightResult: Equatable, Sendable {
+    case ready(WorkspacePreparedTabTransitionApplication)
+    case rejected(WorkspaceTabTransitionApplicationRejection)
+}
+
+struct WorkspacePreparedTabTransitionApplication: Equatable, Sendable {
+    fileprivate let insertion: WorkspaceTabTransitionInsertion
+}
+
 @MainActor
 final class WorkspaceTabTransitionApplier {
     private let workspaceTabShellAtom: WorkspaceTabShellAtom
@@ -41,14 +50,36 @@ final class WorkspaceTabTransitionApplier {
     }
 
     func apply(_ transition: WorkspaceTabTransition) -> WorkspaceTabTransitionApplicationResult {
-        let insertion = WorkspaceTabTransitionInsertion(transition)
-        switch preflight(insertion) {
-        case .accepted:
-            break
+        switch preflight(transition) {
+        case .ready(let preparation):
+            apply(preparation)
+            return .applied
         case .rejected(let rejection):
             return .rejected(rejection)
         }
+    }
 
+    func preflight(_ transition: WorkspaceTabTransition) -> WorkspaceTabTransitionPreflightResult {
+        preflight(WorkspaceTabTransitionInsertion(transition))
+    }
+
+    func apply(_ preparation: WorkspacePreparedTabTransitionApplication) {
+        preconditionPreparedApplicationIsFresh(preparation)
+        applyPreparedInsertion(preparation.insertion)
+    }
+
+    func preconditionPreparedApplicationIsFresh(
+        _ preparation: WorkspacePreparedTabTransitionApplication
+    ) {
+        switch preflight(preparation.insertion) {
+        case .ready:
+            return
+        case .rejected(let rejection):
+            preconditionFailure("prepared tab transition is stale: \(rejection)")
+        }
+    }
+
+    private func applyPreparedInsertion(_ insertion: WorkspaceTabTransitionInsertion) {
         workspaceTabShellAtom.insertTabShell(insertion.shell, at: insertion.shellIndex)
         workspaceTabGraphAtom.insertTabState(insertion.graph, at: insertion.graphIndex)
         workspaceArrangementCursorAtom.insertActiveArrangementId(
@@ -68,12 +99,11 @@ final class WorkspaceTabTransitionApplier {
             )
         }
         workspaceTabShellAtom.cursorAtom.replaceActiveTab(insertion.selectedTabID)
-        return .applied
     }
 
     private func preflight(
         _ insertion: WorkspaceTabTransitionInsertion
-    ) -> WorkspaceTabTransitionPreflight {
+    ) -> WorkspaceTabTransitionPreflightResult {
         guard
             insertion.shell.id == insertion.graph.tabId,
             insertion.shell.id == insertion.activeArrangementTabID,
@@ -148,16 +178,11 @@ final class WorkspaceTabTransitionApplier {
                 return .rejected(.activeDrawerCursorAlreadyExists(drawerCursor.key))
             }
         }
-        return .accepted
+        return .ready(WorkspacePreparedTabTransitionApplication(insertion: insertion))
     }
 }
 
-private enum WorkspaceTabTransitionPreflight {
-    case accepted
-    case rejected(WorkspaceTabTransitionApplicationRejection)
-}
-
-private struct WorkspaceTabTransitionInsertion {
+private struct WorkspaceTabTransitionInsertion: Equatable, Sendable {
     let shell: TabShell
     let shellIndex: Int
     let selectedTabID: UUID
@@ -193,7 +218,7 @@ private struct WorkspaceTabTransitionInsertion {
     }
 }
 
-private struct WorkspaceTabPaneCursorInsertion {
+private struct WorkspaceTabPaneCursorInsertion: Equatable, Sendable {
     let arrangementID: UUID
     let state: ArrangementPaneCursorState
 
@@ -206,7 +231,7 @@ private struct WorkspaceTabPaneCursorInsertion {
     }
 }
 
-private struct WorkspaceTabDrawerCursorInsertion {
+private struct WorkspaceTabDrawerCursorInsertion: Equatable, Sendable {
     let key: ArrangementDrawerCursorKey
     let state: ArrangementDrawerCursorState
 

@@ -134,7 +134,7 @@ struct WorkspaceTabTransitionApplierTests {
     }
 }
 
-private struct ExistingTabFleet {
+struct ExistingTabFleet {
     let shells: [TabShell]
     let graphs: [TabGraphState]
     let activeArrangementIDsByTabID: [UUID: UUID]
@@ -167,14 +167,14 @@ private struct AppendTabFixture {
 }
 
 @MainActor
-private struct TabOwners {
+struct TabOwners {
     let shellCursorAtom: WorkspaceTabCursorAtom
     let shellAtom: WorkspaceTabShellAtom
     let graphAtom: WorkspaceTabGraphAtom
     let arrangementCursorAtom: WorkspaceArrangementCursorAtom
 }
 
-private func makeExistingTabFleet(count: Int) -> ExistingTabFleet {
+func makeExistingTabFleet(count: Int) -> ExistingTabFleet {
     var shells: [TabShell] = []
     var graphs: [TabGraphState] = []
     var activeArrangementIDsByTabID: [UUID: UUID] = [:]
@@ -252,7 +252,7 @@ private func makeAppendTabFixture() -> AppendTabFixture {
 }
 
 @MainActor
-private func makeTabOwners(existingFleet: ExistingTabFleet) -> TabOwners {
+func makeTabOwners(existingFleet: ExistingTabFleet) -> TabOwners {
     let shellCursorAtom = WorkspaceTabCursorAtom(activeTabId: existingFleet.shells.last?.id)
     let shellAtom = WorkspaceTabShellAtom(cursorAtom: shellCursorAtom)
     let graphAtom = WorkspaceTabGraphAtom()

@@ -168,6 +168,50 @@ struct WorkspaceAppendTabValidationContextTests {
                 )
         )
     }
+
+    @Test("prospective layout pane context contains only its pane and drawer")
+    func prospectiveLayoutPaneContextContainsOnlyItsPaneAndDrawer() throws {
+        // Arrange
+        let establishedPaneID = UUIDv7.generate()
+        let establishedDrawerID = UUIDv7.generate()
+        let prospectivePaneID = UUIDv7.generate()
+        let prospectiveDrawerID = UUIDv7.generate()
+        let establishedIndex = try #require(
+            WorkspacePanePlacementIndex.prepare([
+                .drawerParent(
+                    paneID: establishedPaneID,
+                    drawerID: establishedDrawerID,
+                    drawerChildPaneIDs: []
+                )
+            ]).validatedIndex
+        )
+
+        // Act
+        let prospectiveIndex = WorkspacePanePlacementIndex.prospectiveLayoutPane(
+            paneID: prospectivePaneID,
+            drawerID: prospectiveDrawerID
+        )
+
+        // Assert
+        #expect(
+            prospectiveIndex.placement(for: prospectivePaneID)
+                == .drawerParent(drawerID: prospectiveDrawerID)
+        )
+        #expect(
+            prospectiveIndex.drawer(for: prospectiveDrawerID)
+                == .found(
+                    WorkspaceDrawerPlacementCapability(
+                        parentPaneID: prospectivePaneID,
+                        childPaneIDs: []
+                    )
+                )
+        )
+        #expect(prospectiveIndex.placement(for: establishedPaneID) == .missing)
+        #expect(prospectiveIndex.drawer(for: establishedDrawerID) == .missing)
+        #expect(establishedIndex.placement(for: prospectivePaneID) == .missing)
+        #expect(establishedIndex.drawer(for: prospectiveDrawerID) == .missing)
+        #expect(establishedIndex.placement(for: establishedPaneID) == .drawerParent(drawerID: establishedDrawerID))
+    }
     @Test("append rejects a drawer child in a main arrangement layout")
     func appendRejectsDrawerChildInMainLayout() {
         // Arrange
@@ -276,6 +320,13 @@ struct WorkspaceAppendTabValidationContextTests {
         )
     }
 
+}
+
+extension WorkspacePanePlacementIndexPreparation {
+    fileprivate var validatedIndex: WorkspacePanePlacementIndex? {
+        guard case .validated(let index) = self else { return nil }
+        return index
+    }
 }
 
 struct ComplexTabFixture {
