@@ -9,9 +9,11 @@ struct WorkspaceCompositionPreparerTests {
     func staleWorktreeMetadataCannotDiscardCompositionPanes() async throws {
         // Arrange
         let staleWorktreeID = UUIDv7.generate()
+        let storedText = "frozen-zmx-anchor"
+        let zmxSessionID = try #require(ZmxSessionID(restoring: storedText))
         let pane = makeCompositionPane(
             worktreeID: staleWorktreeID,
-            zmxSessionID: "frozen-zmx-anchor"
+            zmxSessionID: zmxSessionID
         )
         let tab = makeCompositionTab(paneID: pane.id)
         let snapshot = WorkspaceSQLiteSnapshot(
@@ -33,49 +35,20 @@ struct WorkspaceCompositionPreparerTests {
         let prepared = try requirePreparedComposition(result)
         #expect(prepared.panes.map(\.id) == [pane.id])
         #expect(prepared.panes[0].worktreeId == staleWorktreeID)
-        #expect(prepared.panes[0].terminalState?.zmxSessionId == "frozen-zmx-anchor")
+        #expect(prepared.panes[0].terminalState?.zmxSessionID.rawValue == storedText)
         #expect(prepared.paneGraph.replacement.paneStates[pane.id] != nil)
         #expect(prepared.tabs.map(\.id) == [tab.id])
         let activation = try #require(prepared.terminalActivationInput.entries.first)
         #expect(activation.paneID.uuid == pane.id)
         #expect(activation.visibilityPriority == .activeVisible)
         #expect(activation.hostPlacement == .tab(tabID: tab.id))
-        guard case .zmx(let sessionAnchor) = activation.provider else {
+        guard case .zmx(let restoredSessionID) = activation.provider else {
             Issue.record("expected zmx activation backend")
             return
         }
-        #expect(sessionAnchor == .stored("frozen-zmx-anchor"))
+        #expect(restoredSessionID.rawValue == storedText)
         #expect(activation.launchConfiguration.launchDirectory == .stored(URL(filePath: "/tmp/composition")))
         #expect(activation.launchConfiguration.lifetime == .persistent)
-    }
-
-    @Test("missing frozen zmx anchor remains explicit and never consults topology")
-    func missingFrozenZmxAnchorRemainsExplicit() throws {
-        // Arrange
-        let pane = makeCompositionPane(
-            worktreeID: UUIDv7.generate(),
-            zmxSessionID: nil
-        )
-        let tab = makeCompositionTab(paneID: pane.id)
-        let snapshot = WorkspaceSQLiteSnapshot(
-            id: UUIDv7.generate(),
-            panes: [pane],
-            tabs: [tab],
-            activeTabId: tab.id
-        )
-
-        // Act
-        let prepared = try requirePreparedComposition(
-            WorkspaceCompositionPreparer.prepare(snapshot)
-        )
-
-        // Assert
-        let activation = try #require(prepared.terminalActivationInput.entries.first)
-        guard case .zmx(let sessionAnchor) = activation.provider else {
-            Issue.record("expected zmx activation backend")
-            return
-        }
-        #expect(sessionAnchor == .missing)
     }
 
     @Test("duplicate composition identities reject off-main before apply")
@@ -160,7 +133,7 @@ private func requirePreparedComposition(
 private func makeCompositionPane(
     id: UUID = UUIDv7.generate(),
     worktreeID: UUID? = nil,
-    zmxSessionID: String? = nil
+    zmxSessionID: ZmxSessionID = .generateUUIDv7()
 ) -> Pane {
     Pane(
         id: id,
@@ -168,7 +141,7 @@ private func makeCompositionPane(
             TerminalState(
                 provider: .zmx,
                 lifetime: .persistent,
-                zmxSessionId: zmxSessionID
+                zmxSessionID: zmxSessionID
             )),
         metadata: PaneMetadata(
             launchDirectory: URL(filePath: "/tmp/composition"),

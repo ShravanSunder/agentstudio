@@ -121,7 +121,9 @@ struct InboxSidebarFocusActivationTests {
         workspacePaneAtom.addPane(
             Pane(
                 id: paneId.uuid,
-                content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+                content: .terminal(
+                    TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+                ),
                 metadata: PaneMetadata(
                     paneId: paneId,
                     contentType: .terminal,
@@ -155,7 +157,9 @@ struct InboxSidebarFocusActivationTests {
         let workspacePaneAtom = WorkspacePaneAtom()
         let parentPane = Pane(
             id: parentPaneId,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata(
                 paneId: PaneId(uuid: parentPaneId),
                 contentType: .terminal,
@@ -165,7 +169,9 @@ struct InboxSidebarFocusActivationTests {
         )
         let drawerPane = Pane(
             id: drawerPaneId,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata(
                 paneId: PaneId(uuid: drawerPaneId),
                 contentType: .terminal,

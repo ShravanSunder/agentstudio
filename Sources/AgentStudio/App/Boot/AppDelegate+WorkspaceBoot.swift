@@ -291,7 +291,6 @@ extension AppDelegate {
         filesystemSource: inout FilesystemGitPipeline?
     ) async {
         runtime = SessionRuntime(atom: atomStore.sessionRuntime, store: store)
-        await reconcileZmxSessionAnchorsAtStartup()
         viewRegistry = ViewRegistry()
         closeTransitionCoordinator = PaneCloseTransitionCoordinator()
         seedSlotsForRestoredPanes()

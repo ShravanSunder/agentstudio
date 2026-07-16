@@ -736,7 +736,9 @@ extension DerivedActivityNotificationIntegrationTests {
         )
         let pane = Pane(
             id: paneId.uuid,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: metadata
         )
         fixture.paneAtom.addPane(pane)
@@ -758,7 +760,13 @@ extension DerivedActivityNotificationIntegrationTests {
     }
 
     private func addDrawerPane(to parentPaneId: UUID, in fixture: Fixture) -> Pane? {
-        guard let drawerPane = fixture.paneAtom.addDrawerPane(to: parentPaneId, parentFallbackCWD: nil) else {
+        guard
+            let drawerPane = fixture.paneAtom.addDrawerPane(
+                to: parentPaneId,
+                parentFallbackCWD: nil,
+                zmxSessionID: .generateUUIDv7()
+            )
+        else {
             return nil
         }
         guard let drawer = fixture.paneAtom.pane(parentPaneId)?.drawer,
@@ -818,7 +826,9 @@ extension DerivedActivityNotificationIntegrationTests {
     ) {
         let pane = Pane(
             id: paneId.uuid,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata(
                 paneId: paneId,
                 contentType: .terminal,

@@ -169,7 +169,9 @@ struct PaneFilesystemProjectionAtomContextTests {
 
     private func makePane(repoId: UUID, worktreeId: UUID, cwd: URL?) -> Pane {
         Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata(
                 launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
                 title: "Pane",

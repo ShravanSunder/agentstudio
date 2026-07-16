@@ -29,7 +29,7 @@ struct WorkspacePersistenceTransformerTests {
             isMainWorktree: true
         )
         let pane = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(
                 launchDirectory: URL(fileURLWithPath: "/tmp/agent-studio"),
                 title: "Restored",
@@ -255,6 +255,7 @@ struct WorkspacePersistenceTransformerTests {
 
         let pane = paneAtom.createPane(
             launchDirectory: worktreePath,
+            zmxSessionID: .generateUUIDv7(),
             facets: PaneContextFacets(
                 repoId: repoId,
                 repoName: "stale repo",
@@ -677,7 +678,7 @@ struct WorkspacePersistenceTransformerTests {
         var parentPane = makePane(title: "Parent")
         let drawerId = try #require(parentPane.drawer?.drawerId)
         let drawerPane = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(title: "Drawer"),
             kind: .drawerChild(parentPaneId: parentPane.id)
         )
@@ -778,7 +779,7 @@ struct WorkspacePersistenceTransformerTests {
         let parentPane = makePane(title: "Parent")
         let drawerId = try #require(parentPane.drawer?.drawerId)
         let drawerPane = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(title: "Drawer"),
             kind: .drawerChild(parentPaneId: parentPane.id)
         )

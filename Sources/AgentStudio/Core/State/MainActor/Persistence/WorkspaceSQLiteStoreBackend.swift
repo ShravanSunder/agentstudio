@@ -682,7 +682,7 @@ enum WorkspaceSQLiteStateBridge {
             return .terminal(
                 provider: state.provider,
                 lifetime: state.lifetime,
-                zmxSessionId: state.zmxSessionId
+                zmxSessionID: state.zmxSessionID
             )
         case .webview(let state):
             return .webview(url: state.url, title: state.title, showNavigation: state.showNavigation)
@@ -802,8 +802,8 @@ enum WorkspaceSQLiteStateBridge {
         from record: WorkspaceCoreRepository.PaneContentRecord
     ) throws -> PaneContent {
         switch record {
-        case .terminal(let provider, let lifetime, let zmxSessionId):
-            .terminal(.init(provider: provider, lifetime: lifetime, zmxSessionId: zmxSessionId))
+        case .terminal(let provider, let lifetime, let zmxSessionID):
+            .terminal(.init(provider: provider, lifetime: lifetime, zmxSessionID: zmxSessionID))
         case .webview(let url, let title, let showNavigation):
             .webview(.init(url: url, title: title, showNavigation: showNavigation))
         case .codeViewer(let filePath, let scrollToLine):

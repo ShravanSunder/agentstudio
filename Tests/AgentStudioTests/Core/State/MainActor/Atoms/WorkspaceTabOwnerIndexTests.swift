@@ -205,7 +205,7 @@ private func makeTabGraphState() -> TabGraphState {
 
 private func makePane() -> Pane {
     Pane(
-        content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+        content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
         metadata: PaneMetadata()
     )
 }

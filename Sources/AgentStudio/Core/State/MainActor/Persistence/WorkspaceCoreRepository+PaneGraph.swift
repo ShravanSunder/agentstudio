@@ -17,21 +17,12 @@ extension WorkspaceCoreRepository {
     }
 
     enum PaneContentRecord: Equatable, Sendable {
-        case terminal(provider: SessionProvider, lifetime: SessionLifetime, zmxSessionId: String?)
+        case terminal(provider: SessionProvider, lifetime: SessionLifetime, zmxSessionID: ZmxSessionID)
         case webview(url: URL, title: String, showNavigation: Bool)
         case codeViewer(filePath: URL, scrollToLine: Int?)
         /// `contentType` and `payloadKind` are routing/index tokens; `payloadJSON`
         /// is the content-specific representation for payload-backed pane types.
         case payload(contentType: PaneContentType, payloadKind: String, payloadJSON: String)
-
-        /// Anchor-less convenience for terminal records (test fixtures and
-        /// call sites that have no spawn-time session id in hand).
-        static func terminal(
-            provider: SessionProvider,
-            lifetime: SessionLifetime
-        ) -> Self {
-            .terminal(provider: provider, lifetime: lifetime, zmxSessionId: nil)
-        }
 
         var contentType: PaneContentType {
             switch self {

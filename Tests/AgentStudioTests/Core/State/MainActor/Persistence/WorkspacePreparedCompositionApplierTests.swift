@@ -304,7 +304,7 @@ private final class PreparedCompositionApplierFixture {
         makeFixturePane(
             title: "Candidate",
             worktreeID: UUIDv7.generate(),
-            zmxSessionID: "candidate-zmx"
+            zmxSessionID: .generateUUIDv7()
         )
     }
 
@@ -349,7 +349,7 @@ private enum PreparedCompositionApplierTestError: Error, Equatable {
 private func makeFixturePane(
     title: String,
     worktreeID: UUID? = nil,
-    zmxSessionID: String? = nil
+    zmxSessionID: ZmxSessionID = .generateUUIDv7()
 ) -> Pane {
     Pane(
         id: UUIDv7.generate(),
@@ -357,7 +357,7 @@ private func makeFixturePane(
             TerminalState(
                 provider: .zmx,
                 lifetime: .persistent,
-                zmxSessionId: zmxSessionID
+                zmxSessionID: zmxSessionID
             )),
         metadata: PaneMetadata(
             launchDirectory: URL(filePath: "/tmp/\(title)"),

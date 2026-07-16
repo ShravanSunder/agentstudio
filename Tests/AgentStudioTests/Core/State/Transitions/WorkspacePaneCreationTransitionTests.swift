@@ -88,44 +88,25 @@ struct WorkspacePaneCreationTransitionTests {
         )
     }
 
-    @Test("zmx creation derives exact top-level worktree and floating session identities")
-    func zmxCreationDerivesExactSessionIdentities() throws {
+    @Test("zmx creation preserves the caller-supplied opaque session identity")
+    func zmxCreationPreservesSuppliedSessionIdentity() throws {
         // Arrange
-        let worktreeIDs = try #require(makeIdentities())
-        let floatingIDs = try #require(makeIdentities())
-        let floatingDirectory = URL(fileURLWithPath: "/tmp/agent-studio-floating")
+        let identities = try #require(makeIdentities())
+        let storedSessionID = try #require(
+            ZmxSessionID(restoring: "as-existing-opaque-session")
+        )
 
         // Act
-        let worktreeDecision = makeCreationDecision(
-            identities: worktreeIDs,
+        let decision = makeCreationDecision(
+            identities: identities,
             content: .zmxTerminal(
                 lifetime: .persistent,
-                anchor: .worktree(repoStableKey: "repo-key", worktreeStableKey: "worktree-key")
+                zmxSessionID: storedSessionID
             )
         )
-        let floatingDecision = makeCreationDecision(
-            identities: floatingIDs,
-            content: .zmxTerminal(
-                lifetime: .persistent,
-                anchor: .floating(launchDirectory: floatingDirectory)
-            )
-        )
+
         // Assert
-        #expect(
-            terminalState(from: worktreeDecision)?.zmxSessionId
-                == ZmxBackend.sessionId(
-                    repoStableKey: "repo-key",
-                    worktreeStableKey: "worktree-key",
-                    paneId: worktreeIDs.paneID.uuid
-                )
-        )
-        #expect(
-            terminalState(from: floatingDecision)?.zmxSessionId
-                == ZmxBackend.floatingSessionId(
-                    launchDirectory: floatingDirectory,
-                    paneId: floatingIDs.paneID.uuid
-                )
-        )
+        #expect(terminalState(from: decision)?.zmxSessionID == storedSessionID)
     }
 
     @Test("creation produces canonical pane graph and exact append-tab transition")
@@ -262,7 +243,10 @@ private func makeIdentities() -> WorkspaceNewPaneTabIDs? {
 
 private func makeCreationDecision(
     identities: WorkspaceNewPaneTabIDs,
-    content: WorkspaceResolvedPaneContent = .ghosttyTerminal(lifetime: .temporary),
+    content: WorkspaceResolvedPaneContent = .ghosttyTerminal(
+        lifetime: .temporary,
+        zmxSessionID: .generateUUIDv7()
+    ),
     metadata: PaneMetadata = PaneMetadata(title: "Terminal"),
     tabName: String = "Terminal",
     context: WorkspacePaneCreationContext = WorkspacePaneCreationContext(

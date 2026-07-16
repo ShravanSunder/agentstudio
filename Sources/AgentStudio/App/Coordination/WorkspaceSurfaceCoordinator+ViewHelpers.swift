@@ -91,7 +91,8 @@ extension WorkspaceSurfaceCoordinator {
                 at: targetDrawerPaneId,
                 direction: direction,
                 sizingMode: sizingMode,
-                parentFallbackCWD: fallbackCWD
+                parentFallbackCWD: fallbackCWD,
+                zmxSessionID: .generateUUIDv7()
             )
         else {
             Self.logger.warning(

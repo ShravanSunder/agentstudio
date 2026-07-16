@@ -1,8 +1,13 @@
 # Startup Runtime Reconciliation and zmx Session Safety
 
+> **OBSOLETE — DO NOT IMPLEMENT.** The startup discovery, anchor hydration,
+> adoption, fallback, and persistence design below is superseded by
+> [Session Lifecycle Architecture](../../architecture/session_lifecycle.md).
+> Existing nonempty `ZmxSessionID` values restore verbatim; new values use
+> UUIDv7; restore performs no identity inference, repair, list, or write.
+
 Date: 2026-06-12
-Status: accepted design direction; implemented by the startup runtime
-reconciliation plan slice on this branch
+Historical status: superseded accepted design
 
 ## Problem
 

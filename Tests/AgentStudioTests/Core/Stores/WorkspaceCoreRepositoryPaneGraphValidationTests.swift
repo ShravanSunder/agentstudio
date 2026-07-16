@@ -505,7 +505,7 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
             graph: .init(panes: [
                 makeFloatingPane(
                     id: paneId,
-                    content: .terminal(provider: .zmx, lifetime: .persistent)
+                    content: .terminal(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
                 )
             ])
         )
@@ -620,7 +620,8 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
 
     private func makeFloatingPane(
         id: UUID,
-        content: WorkspaceCoreRepository.PaneContentRecord = .terminal(provider: .zmx, lifetime: .persistent),
+        content: WorkspaceCoreRepository.PaneContentRecord = .terminal(
+            provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7()),
         title: String = "Pane",
         placement: WorkspaceCoreRepository.PanePlacementRecord = .layout,
         drawer: WorkspaceCoreRepository.DrawerRecord? = nil
@@ -656,7 +657,7 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
             )
         return .init(
             id: id,
-            content: .terminal(provider: .zmx, lifetime: .persistent),
+            content: .terminal(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7()),
             metadata: .init(
                 launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/worktree"),
                 executionBackend: .local,

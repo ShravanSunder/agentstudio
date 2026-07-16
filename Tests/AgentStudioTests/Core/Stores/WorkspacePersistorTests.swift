@@ -328,13 +328,13 @@ final class WorkspacePersistorTests {
         }
         let firstDrawerChildPane = Pane(
             id: firstDrawerChildPaneId,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(title: "First Drawer Child"),
             kind: .drawerChild(parentPaneId: parentPane.id)
         )
         let secondDrawerChildPane = Pane(
             id: secondDrawerChildPaneId,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(title: "Second Drawer Child"),
             kind: .drawerChild(parentPaneId: parentPane.id)
         )

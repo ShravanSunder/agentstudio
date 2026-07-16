@@ -597,15 +597,23 @@ a single unqualified RSS snapshot or wall-clock sleep is not proof.
 
 SF12. Accepted workspace composition, not repository topology, unlocks terminal
 activation. Its immutable input contains pane UUIDv7 identity, terminal
-provider, frozen zmx session anchor, launch configuration, visibility priority,
-and host-placement identity. It contains no repository/worktree ownership.
+provider, a required opaque `ZmxSessionID`, launch configuration, visibility
+priority, and host-placement identity. It contains no repository/worktree
+ownership. The App/coordinator creation owner gives every new terminal pane an
+independently generated UUIDv7 `ZmxSessionID` before atom/graph insertion;
+atoms only store the caller-supplied typed value. Repository writers store it verbatim in the existing SQLite text
+column. Restore accepts every existing nonempty value, including historical
+`as-*`, as the same opaque typed
+identity and uses it exactly. No schema/data migration is part of this cut. No
+path, topology, pane fragment, or arbitrary new string can become session
+identity.
 
 SF13. Composition acceptance freezes one `TerminalRestorableCohort` for its
 generation. Terminal activation uses exhaustive priority: active visible, other
-visible/expanded drawer, then hidden panes with already-live zmx sessions. The
-active set begins before hidden-session discovery completes. Inventory classifies
-every hidden cohort member as live, missing, or inventory-failed; missing hidden
-zmx sessions remain dormant until selection and are not silently recreated.
+visible/expanded drawer, then hidden panes. Every zmx attach receives the exact
+stored `ZmxSessionID`. Restore and activation do not discover live sessions,
+derive or validate identity from pane/topology state, adopt an existing name,
+backfill storage, or mutate canonical composition.
 
 SF14. `windowReady`, `typingReady`, and `allRestorableTerminalsReady` are
 distinct current-generation milestones. Typing readiness requires active
@@ -613,11 +621,11 @@ surface creation, zmx attachment where applicable, host mounting, focus, and
 current-generation runtime readiness; background completion cannot gate it.
 `allRestorableTerminalsReady` is an aggregate-settled milestone, not an all-
 success claim: every member of the frozen cohort has reached exactly one terminal
-outcome—`ready`, `dormant`, `failedTerminal`, or `cancelledReplaced`. Failures
+outcome—`ready`, `failedTerminal`, or `cancelledReplaced`. Failures
 remain explicit in the aggregate receipt.
 
-SF15. Scheduling, live-session inventory, prioritization, retry, and state
-transition computation execute off-main in one fleet scheduler with bounded
+SF15. Scheduling, prioritization, retry, and state-transition computation
+execute off-main in one fleet scheduler with bounded
 in-flight operations; there is no task-per-pane or actor-per-pane fanout.
 Ghostty surface creation, AppKit host mounting, and focus remain MainActor-owned
 through a bounded service quantum that yields between panes and rechecks priority
@@ -627,10 +635,10 @@ progress within the calibrated maximum foreground burst unless that member is
 closed or replaced.
 
 SF16. Attach progress is runtime state, not canonical `Pane` mutation. The
-runtime owner exposes a strict union for queued, attaching, ready, dormant,
-failed-terminal/retryable, and cancelled/replaced states keyed by pane/runtime
-generation. Hidden-inventory failure produces an explicit retryable
-`failedTerminal` outcome and never blocks foreground readiness.
+runtime owner exposes a strict union for queued, attaching, ready, failed-
+terminal/retryable, and cancelled/replaced states keyed by pane/runtime
+generation. Attach failure is explicit and never blocks unrelated foreground
+readiness or mutates the stored identity.
 
 SF17. CWD/title/activity updates may follow attachment through their typed
 lanes. Repository matching is a derived external projection and cannot delay,
@@ -1697,7 +1705,7 @@ timing alone—establishes precision latency.
 | TS1-TS9 | signal planes and content disposition | type/architecture enforcement plus bounded flood and export canaries | signal planes |
 | AI1-AI10 | activity parity, provenance, report API, lease, server generation | injected-clock sequence oracle plus IPC ordering/revoke/replace integration | activity intelligence and agent reports |
 | SC1-SC8 | future screen boundary and global secure-input owner | exhaustive owner-state races, baseline capture denial, and real Carbon transition smoke | secure input; future capture constraints |
-| SF1-SF17 | direct input, startup activation, geometry, visibility, display, teardown, and scrollback memory | priority/readiness tests, delayed repository/hidden-inventory integration, geometry/visibility/lifetime tests, native interaction diagnostics, and count-driven memory gate | surface host and terminal activation |
+| SF1-SF17 | direct input, startup activation, geometry, visibility, display, teardown, and scrollback memory | priority/readiness tests, delayed repository integration, mutation-free restore and exact-ID attach proof, geometry/visibility/lifetime tests, native interaction diagnostics, and count-driven memory gate | surface host and terminal activation |
 | GV1-GV8 | atomic vendor cutover, attribution identity, measurement isolation | build-manifest/delta/negative-product checks, throughput and core factorial report | Ghostty cutover and shared harness |
 
 ## Security and Trust Context

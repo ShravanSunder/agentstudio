@@ -61,7 +61,7 @@ extension WorkspaceSurfaceCoordinator {
                     ?? resolved.worktree.path
                 let pane = store.paneAtom.createPane(
                     launchDirectory: launchDirectory,
-                    provider: .zmx,
+                    provider: .zmx, zmxSessionID: .generateUUIDv7(),
                     facets: (targetPane?.metadata.facets ?? .empty).fillingNilFields(
                         from: PaneContextFacets(
                             repoId: resolved.repo.id,
@@ -94,7 +94,7 @@ extension WorkspaceSurfaceCoordinator {
 
             let pane = store.paneAtom.createPane(
                 launchDirectory: targetPane?.metadata.cwd ?? targetPane?.metadata.launchDirectory,
-                provider: .zmx,
+                provider: .zmx, zmxSessionID: .generateUUIDv7(),
                 facets: targetPane?.metadata.facets ?? .empty
             )
             prepareTerminalPaneSlot(pane)

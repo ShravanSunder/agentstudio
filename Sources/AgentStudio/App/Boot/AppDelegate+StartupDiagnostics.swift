@@ -657,7 +657,8 @@ extension AppDelegate {
         store.paneAtom.createPane(
             title: title,
             provider: .zmx,
-            lifetime: .temporary
+            lifetime: .temporary,
+            zmxSessionID: .generateUUIDv7()
         )
     }
 

@@ -41,7 +41,7 @@ struct WorkspacePaneGraphPersistenceSnapshotByteEstimator: Sendable {
     private static func estimatedContentByteCount(_ content: PaneContent) -> Int {
         switch content {
         case .terminal(let terminalState):
-            return estimatedOptionalStringByteCount(terminalState.zmxSessionId)
+            return estimatedStringByteCount(terminalState.zmxSessionID.rawValue)
         case .webview(let webviewState):
             return saturatedSum(
                 estimatedURLByteCount(webviewState.url),

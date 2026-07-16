@@ -52,8 +52,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         )
         coordinator.sessionConfig = fixtureSessionConfiguration
         coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
-            sessionConfiguration: fixtureSessionConfiguration,
-            liveSessionIdsProvider: { _ in [] }
+            sessionConfiguration: fixtureSessionConfiguration
         )
         return Harness(
             store: store,
@@ -197,8 +196,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         )
         coordinator.sessionConfig = fixtureSessionConfiguration
         coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
-            sessionConfiguration: fixtureSessionConfiguration,
-            liveSessionIdsProvider: { _ in [] }
+            sessionConfiguration: fixtureSessionConfiguration
         )
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
@@ -249,8 +247,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         )
         restoredCoordinator.sessionConfig = fixtureSessionConfiguration
         restoredCoordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
-            sessionConfiguration: fixtureSessionConfiguration,
-            liveSessionIdsProvider: { _ in [] }
+            sessionConfiguration: fixtureSessionConfiguration
         )
 
         restoredWindowLifecycleStore.recordTerminalContainerBounds(trustedBounds)

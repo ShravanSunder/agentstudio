@@ -1500,6 +1500,13 @@ struct BackgroundPrewarmAttachPolicy: Sendable {
 
 ### Contract 5b: Restart Reconcile Policy (LUNA-324)
 
+> **OBSOLETE — DO NOT IMPLEMENT THIS CONTRACT.** Startup reconciliation,
+> inventory, anchor validation, hydration/adoption, and persistence below are a
+> historical design. [Session Lifecycle Architecture](session_lifecycle.md) is
+> authoritative: restore strictly decodes the opaque stored `ZmxSessionID`,
+> applies composition once, and attaches that exact value without discovery,
+> inference, fallback, repair, or mutation.
+
 On app launch, the restore flow reconciles persisted workspace state against
 live zmx daemons before creating any Ghostty surfaces. Startup reconciliation
 hydrates legacy missing anchors, protects known sessions, and reports

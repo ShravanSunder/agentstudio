@@ -284,7 +284,9 @@ struct PaneFilesystemProjectionAtomTests {
     ) -> Pane {
         let launchDirectory = URL(fileURLWithPath: "/tmp/worktree")
         return Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata(
                 launchDirectory: launchDirectory,
                 title: "Pane",

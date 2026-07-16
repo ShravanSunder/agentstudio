@@ -66,6 +66,7 @@ extension WorkspaceSurfaceCoordinator {
             title: worktree.name,
             provider: .zmx,
             lifetime: .persistent,
+            zmxSessionID: .generateUUIDv7(),
             residency: .active,
             facets: PaneContextFacets(
                 repoId: repo.id,
@@ -248,6 +249,7 @@ extension WorkspaceSurfaceCoordinator {
             launchDirectory: launchDirectory,
             title: (resolvedTitle?.isEmpty == false) ? resolvedTitle! : "Terminal",
             provider: .zmx,
+            zmxSessionID: .generateUUIDv7(),
             facets: PaneContextFacets(cwd: launchDirectory)
         )
         prepareTerminalPaneSlot(pane)
@@ -574,7 +576,11 @@ extension WorkspaceSurfaceCoordinator {
             let fallbackCWD = store.paneAtom.pane(parentPaneId)?.worktreeId.flatMap(
                 store.repositoryTopologyAtom.worktree)?
                 .path
-            if let drawerPane = store.paneAtom.addDrawerPane(to: parentPaneId, parentFallbackCWD: fallbackCWD) {
+            if let drawerPane = store.paneAtom.addDrawerPane(
+                to: parentPaneId,
+                parentFallbackCWD: fallbackCWD,
+                zmxSessionID: .generateUUIDv7()
+            ) {
                 prepareTerminalPaneSlot(drawerPane)
                 registerTerminalPlaceholderIfNeeded(for: drawerPane, mode: .preparing)
                 guard let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId else {
@@ -745,6 +751,7 @@ extension WorkspaceSurfaceCoordinator {
             title: (resolvedTitle?.isEmpty == false) ? resolvedTitle! : worktree.name,
             provider: .zmx,
             lifetime: .persistent,
+            zmxSessionID: .generateUUIDv7(),
             residency: .active,
             facets: paneFacets
         )

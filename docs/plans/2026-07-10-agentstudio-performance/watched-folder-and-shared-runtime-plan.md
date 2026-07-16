@@ -639,12 +639,13 @@ participation owner supplies the same adapter instances to the snapshot factory,
 revisioned mutation owners, and composition/topology appliers; reconstructing an
 adapter per page, transaction, or factory call is forbidden.
 
-Pure domain types outside atoms own pane-graph validity, drawer normalization,
-tab identity/index consistency, selection fallback, cursor validity, and typed
-decisions. Mutation coordinators sequence accepted cross-atom changes;
+Pure domain types outside atoms own pane-graph validity, strict drawer/tab/
+cursor validation, and typed decisions. Startup rejects invalid composition; it
+does not normalize membership, choose fallback selection, or repair cursors.
+Mutation coordinators sequence accepted cross-atom changes;
 persistence adapters capture/restore but do not reimplement domain rules or
-expose persistence vocabulary through atom APIs. Cross-atom composition repair
-and application remain outside all atoms.
+expose persistence vocabulary through atom APIs. Exact cross-atom composition
+application remains outside all atoms.
 
 The remediation must inventory direct persistence-affecting atom mutations.
 Before participant installation, dormant/legacy product paths may remain
@@ -696,7 +697,7 @@ prepare and validate off-main
 ```
 
 Do not install a domain while any same-domain post-install writer can bypass
-the adapters. Initial apply, bootstrap repair, and preinstall-only mutation are
+the adapters. Initial apply and preinstall-only mutation are
 rejected after installation. Composition may complete this sequence and unlock
 window/terminal readiness while topology remains preparing or unavailable.
 Topology never gates composition. The complete production pager is assembled
@@ -704,12 +705,14 @@ only after both participant inventories are installed; until then each domain
 retains its own bounded lifecycle and no partial pager can masquerade as the
 complete inventory.
 
-Participant construction does not itself prove writer cutover. Each domain
-installation consumes a distinct non-copyable `WorkspacePersistenceWriterCutoverReceipt`
-minted only after the checked production-writer inventory is complete; a receipt
-for one domain cannot install the other. The participant factory cannot advance
-lifecycle state without that receipt, and the complete pager is constructible
-only from both installed-domain inventories.
+Participant construction does not itself prove writer ownership. Prove the
+cut directly: a checked static inventory admits every production writer only
+through the bound adapters/coordinator, and runtime reachability proves the
+ordinary production composition root constructs and shares that same runtime.
+Writer ownership, runtime construction, and installed lifecycle are separate,
+minimal concerns. Do not add a receipt, token, capability, or factory side
+channel that attempts to turn static proof into runtime authority. The complete
+pager is constructible only from both installed-domain inventories.
 
 UI-memory persistence is checkpointed rather than callback-rate. Continuous
 window/sidebar geometry renders immediately in AppKit-local presentation state
@@ -719,14 +722,16 @@ the persistence pump coalesces the latest committed revision. Use explicit
 gesture-finalization where AppKit provides it and an injected-clock bounded
 latest-value settle gate otherwise. No wall-clock sleep or fact-bus route.
 
-Startup zmx-anchor reconciliation is an explicit composition bootstrap repair,
-not ordinary steady-state mutation. After prepared composition apply, collect
-all accepted anchor changes and apply them through one preinstall pane-graph
-transaction before composition participant installation; do not advance one
-revision per pane. Once composition installs, this preinstall route is sealed.
-Startup diagnostics can execute after normal boot, so they must use the same
-installed semantic pane/tab gateways as product actions and receive no bootstrap
-exception.
+Terminal identity is not a persistence mutation route. Terminal creation mints
+one independent, non-optional `ZmxSessionID` with UUIDv7 before pane insertion;
+repository codecs require the strong type and round-trip the existing SQLite
+text exactly. This cut adds no schema/data migration or table rebuild.
+Existing nonempty values, including historical `as-*`, remain unchanged. Startup
+strictly decodes that value, applies composition once, and activation passes the
+exact stored ID to zmx. No startup reconciliation, repair transaction, hydration, adoption,
+derivation, discovery, backfill, fallback, or post-decode identity write exists.
+Startup diagnostics use the installed semantic pane/tab gateways and receive no
+bootstrap exception.
 
 The current participant factory/pager assembly is test-only and therefore does
 not prove a live boundary. The corrected bundle must be constructed once at the
@@ -749,25 +754,25 @@ Proof is blocking:
   installs every atom value atomically without atom-owned transaction code;
 - composition installation and mutation readiness do not wait for topology,
   and the topology lifecycle cannot mutate composition or consume its token;
-- each domain rejects post-install initial apply/bootstrap repair and is not
-  installed until its complete production writer inventory routes through the
+- each domain rejects post-install initial apply and is not installed until its
+  complete production writer inventory routes through the
   bound adapters/coordinator;
-- domain installation rejects a missing, foreign, reused, or cross-domain
-  writer-cutover receipt, and a complete pager is unavailable after only one
-  domain installs;
+- the checked writer inventory and architecture rule reject every bypass, while
+  a runtime-construction integration proves the live product shares one adapter
+  bundle; a complete pager is unavailable after only one domain installs;
 - N window/sidebar callbacks produce immediate visual updates but exactly one
   settled canonical mutation, revision, and persistence request, with zero
   fact posts and zero Observation-triggered second revision;
-- startup zmx-anchor reconciliation completes through one preinstall pane batch
-  before composition installation, while post-boot diagnostics use installed
-  semantic gateways;
+- terminal creation, strict SQLite codec/round-trip, mutation-free restore, and
+  exact stored-ID zmx attach are proved directly; static searches reject every
+  path-derived identity or startup repair route;
 - a direct-mutation inventory proves no installed persistence participant can be
   bypassed by a production mutation path;
 - production composition constructs exactly one adapter bundle and the live
   pager/factory plus mutation routes share its object identities;
 - RED/GREEN integration proof opens the real production pager at revision N,
   mutates through representative live front doors (window/sidebar memory,
-  topology, pane/drawer, tab/arrangement, and terminal zmx-anchor routes), and
+  topology, pane/drawer, and tab/arrangement routes), and
   proves revision N returns literal pre-mutation values, excludes post-base
   insertions, and retains removals as tombstones.
 
@@ -776,10 +781,54 @@ mechanics from atom files without production bundle construction and live-writer
 routing is incomplete and does not unblock prepared composition, terminal
 activation, W5, or later performance work.
 
-The independent native Sol xhigh review of `5f8bf99d`, supporting W4.5 commits,
-current dirty changes, tests, and this remediation direction is required input
-to the parent reducer. Accepted findings are remediated once; this focused review
-does not reopen the completed broad spec/plan review cycles.
+### W4.5z — Durable terminal identity and mutation-free restore hard cut
+
+Complete this before terminal activation consumes accepted composition.
+
+Modify `Core/Models/PaneContent.swift`,
+`Core/Models/TerminalActivationInput.swift`,
+`Core/State/Transitions/WorkspacePaneCreationTransition.swift`, App/coordinator
+terminal-creation owners, and the atom/graph insertion APIs they call.
+Introduce the non-optional opaque `ZmxSessionID`; each App/coordinator creation
+owner calls `ZmxSessionID.generateUUIDv7()` before graph insertion, while atoms
+require and store only the caller-supplied typed value. Remove optional/raw-string identity,
+post-creation identity setters, and repo/worktree/path/pane-fragment naming
+inputs. Atoms hold canonical values and simple derivation only; identity and
+persistence workflow stay outside them.
+
+Modify the pane-graph repository records, codecs/mutations,
+`WorkspaceSQLiteStoreBackend.swift`, and the SQLite snapshot bridge. Decode and
+write the strong non-optional type through the existing text column. Preserve
+every existing nonempty stored value, including historical `as-*`, byte for
+byte. Add no schema/data migration, table rebuild, or conversion.
+
+Modify `TerminalRestoreRuntime.swift`, terminal view-lifecycle restoration, App
+boot, and `ZmxBackend.swift`. Delete startup identity repair/adoption and every
+restore-time daemon-list dependency. Attach, health, list, and kill accept the
+strong identity type; attach receives the exact stored value and normal runtime
+callers cannot supply untyped subprocess session text.
+
+Replace obsolete derivation/repair tests with permanent proof:
+
+- creation tests cover every terminal provider and worktree/floating/drawer/
+  template/diagnostic entry point, assert a non-optional UUIDv7-backed identity
+  exists before insertion, and prove `PaneId` does not determine it;
+- repository/codec tests preserve historical `as-*` and existing UUID values
+  exactly, reject missing/empty identity at the strong decode boundary, and
+  round-trip without schema or data changes;
+- restore integration holds repository startup indefinitely and proves terminal
+  activation does not wait; a datastore before/after oracle proves zero restore
+  or startup writes;
+- backend tests prove exact stored-ID attach and that normal attach/health/kill
+  call sites cannot pass raw text; real-zmx E2E proves create, persist, relaunch,
+  exact attach, scrollback, and exact kill;
+- structural searches reject path/topology session derivation, optional/missing
+  identity states, identity setters, restore-time zmx listing, and startup
+  repair/hydration/adoption/backfill routes.
+
+RED/GREEN is required. The current nullable `String`, path-derived `as-*`
+creation, restore fallback, and startup repair paths are the RED behavior. The
+stored historical `as-*` values themselves are durable data and remain valid.
 
 ### W4.5a — Sole canonical persistence revision authority
 
@@ -808,9 +857,9 @@ and close/abort plus drain retained cleanup custody on every exit path.
 
 Integrate two boot hydration domains before participant installation:
 
-- `WorkspaceCompositionPreparer` decodes, validates, and deterministically
-  repairs identity/window, pane/drawer, tab/arrangement, and local cursor state
-  off-main. `WorkspacePreparedCompositionApplier` installs it in one bounded
+- `WorkspaceCompositionPreparer` strictly decodes and validates identity/window,
+  pane/drawer, tab/arrangement, and local cursor state off-main without
+  normalization or repair. `WorkspacePreparedCompositionApplier` installs it in one bounded
   MainActor transaction and returns the terminal activation input.
 - topology decode/normalization feeds the W5 topology projector/applier lane
   independently. It may retain last-known/non-current state but never blocks
@@ -851,7 +900,7 @@ byte-for-byte unchanged, composition acceptance unlocks terminal activation
 while topology preparation is suspended, and real heterogeneous participant
 limits page without mismatch or a test-only bypass.
 
-### W4.5d — Atomic hydration-owner hard cut
+### W4.5d — Atomic restore-owner hard cut
 
 Replace, in one production integration diff,
 `Core/State/MainActor/Persistence/WorkspaceHydrationPreparation.swift`,
@@ -1107,7 +1156,8 @@ DTOs/decoders, `WorkspacePersistor` boot plumbing, and the
 diagnostic/checkpoint JSON, SQLite corruption recovery, and GRDB schema
 migrations. Add a forward SQLite migration that removes durable pane
 `repoId`/`worktreeId` facets and repository-coupled orphan residency storage;
-the migration preserves panes, terminal zmx anchors, CWD, tabs, and layouts.
+the migration preserves panes, opaque terminal `ZmxSessionID` values, CWD, tabs,
+and layouts.
 
 Modify `Pane.swift`, pane metadata/facet types,
 `WorkspacePaneGraphAtom.swift`, `SessionResidency.swift`, pane SQLite row
@@ -1115,7 +1165,7 @@ mapping, and topology-removal coordination in the same hard cut: remove durable
 `repoId`/`worktreeId`, the convenience accessors, `WorktreeUnavailableReason`,
 and `.orphaned`; CWD changes never synchronously query topology or write derived
 repository identity. Replace UI readers with the W5 derived location
-projection. Repository removal tests prove panes, tabs, zmx anchors, and
+projection. Repository removal tests prove panes, tabs, terminal session identities, and
 residency remain unchanged.
 
 Split steady-state requests structurally: `WorkspaceCompositionChangeSet`
@@ -1157,7 +1207,7 @@ Extend:
 Cases: stale checkpoint after newer change set, revision gap, process-generation mismatch, repeated same-key change, create/remove net-zero, tombstone until acknowledgement, core/local failure and retry, cancellation/shutdown.
 
 Add migration and negative-architecture proof: existing SQLite composition
-opens with pane/tab/zmx/CWD identity preserved and topology facets removed;
+opens with pane/tab/terminal session/CWD identity preserved and topology facets removed;
 startup contains no legacy JSON import/archive branch; topology persistence
 cannot submit pane/tab changes and composition persistence cannot submit
 repository/worktree changes.

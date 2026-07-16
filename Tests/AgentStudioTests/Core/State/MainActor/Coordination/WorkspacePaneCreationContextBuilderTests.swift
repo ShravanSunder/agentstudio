@@ -118,7 +118,7 @@ private func insertionIndex(
     let decision = WorkspacePaneCreationTransitionDecider.decide(
         request: WorkspacePaneCreationRequest(
             identities: identities,
-            content: .ghosttyTerminal(lifetime: .temporary),
+            content: .ghosttyTerminal(lifetime: .temporary, zmxSessionID: .generateUUIDv7()),
             metadata: PaneMetadata(title: "Terminal"),
             residency: .active,
             tabName: "Terminal"

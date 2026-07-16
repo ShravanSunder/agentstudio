@@ -62,7 +62,7 @@ struct WorkspaceCoreRepositoryPaneSourceLatchTests {
     ) -> WorkspaceCoreRepository.PaneRecord {
         .init(
             id: paneId,
-            content: .terminal(provider: .zmx, lifetime: .persistent),
+            content: .terminal(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7()),
             metadata: .init(
                 launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/latch-repo-0"),
                 executionBackend: .local,

@@ -284,7 +284,7 @@ private func makePaneState(id: UUID, title: String) -> PaneGraphState {
     PaneGraphState(
         pane: Pane(
             id: id,
-            content: .terminal(.init(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(.init(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(title: title)
         )
     )

@@ -539,27 +539,29 @@ Oracle: literal pixel geometry and fake libghostty call ledger plus native visib
 ## 12.5. Task T10.5 — Prioritized Startup Terminal Activation
 
 Requirements: SF12–SF17 and the parent startup-lane contract. Depends on the
-accepted composition boundary from W4.5 and may proceed independently of W5
+accepted composition boundary and durable identity hard cut from W4.5/W4.5z and
+may proceed independently of W5
 topology hydration.
 
 ### Production changes
 
 Add `TerminalActivationScheduler` as the off-main owner of immutable
 `TerminalActivationInput`, per-pane/runtime-generation activation state,
-priority, hidden live-session inventory, retry, cancellation, and bounded
+priority, retry, cancellation, and bounded
 MainActor admission. Its public state is a strict discriminated union:
-`queued(priority:)`, `attaching`, `ready(surfaceID:)`, `dormant(reason:)`,
+`queued(priority:)`, `attaching`, `ready(surfaceID:)`,
 `failedTerminal(failure:retry:)`, and `cancelledReplaced(replacement:)`;
 correlated optionals are forbidden.
 
 Freeze one `TerminalRestorableCohort` per accepted composition generation. One
 fleet scheduler owns that cohort and a compile-time-bounded activation slot
 pool; it must not create one unstructured task or actor per pane. Visible work
-can begin before inventory. Inventory success classifies every hidden member as
-live or missing; inventory failure assigns each unresolved hidden member an
-explicit retryable `failedTerminal(.inventoryUnavailable)` outcome. The
+is admitted before hidden work. Every zmx member carries its required opaque
+`ZmxSessionID` from the accepted composition and attach receives that exact
+stored value. No activation or restore path lists sessions, derives identity,
+adopts a name, repairs/backfills storage, or mutates canonical composition. The
 aggregate receipt completes only after every cohort member has exactly one
-`ready`, `dormant`, `failedTerminal`, or `cancelledReplaced` outcome.
+`ready`, `failedTerminal`, or `cancelledReplaced` outcome.
 
 Modify:
 
@@ -572,8 +574,8 @@ Modify:
   `await hiddenLiveSessionIds()` before visible restoration and replace the
   serial all-pane MainActor loop with bounded scheduler admissions;
 - `TerminalRestoreScheduler.swift` and `TerminalRestoreRuntime.swift` to make
-  active/visible ordering immutable input, discover hidden live sessions
-  off-main, and retain missing hidden sessions as dormant until selection;
+  active/visible ordering immutable input and pass each terminal's exact stored
+  `ZmxSessionID` to activation without inventory, inference, fallback, or writes;
 - `SessionRuntimeAtom`, `ViewRegistry`, and IPC `attachReady` projection to
   consume current-generation activation states without mutating canonical
   panes or consulting repository topology.
@@ -591,11 +593,11 @@ generation is the only way an eligible member exits without a terminal outcome.
 
 Add `TerminalActivationSchedulerTests.swift`,
 `TerminalStartupActivationIntegrationTests.swift`, and readiness/IPC tests.
-Use injected continuations rather than sleeps to hold hidden-session inventory
-and repository startup indefinitely while proving the active pane reaches
-`typingReady`. Cover multiple visible panes, expanded drawers, hidden live zmx,
-hidden missing zmx, selection promotion, failure/retry, cancellation,
-close/recreate generation replacement, inventory failure, and 0/1/100/300-pane
+Use injected continuations rather than sleeps to hold repository startup
+indefinitely while proving the active pane reaches `typingReady`. Cover multiple
+visible panes, expanded drawers, hidden zmx panes, selection promotion,
+failure/retry, cancellation, close/recreate generation replacement, and
+0/1/100/300-pane
 cohorts. Record maximum simultaneous scheduler operations and prove it never
 exceeds the compile-time slot limit. Under sustained selection promotion, every
 eligible current-generation background member reaches an aggregate outcome
@@ -611,8 +613,8 @@ proof measures composition-to-window, composition-to-typing, and
 composition-to-all-restorable latency plus input-to-visible feedback during
 background attachment.
 
-RED/GREEN: required. The current pre-visible hidden inventory await and serial
-all-pane restore are the RED behavior.
+RED/GREEN: required. The current pre-visible global daemon-list await and serial
+all-pane restore are the RED behavior; GREEN proves no restore-time list call.
 
 ## 13. Task T11 — Explicit Surface/App Destruction
 
@@ -752,7 +754,7 @@ No test is deleted without replacement, redundancy, or dead-contract proof.
 | reports are current-principal scoped | T8 | authenticated JSON-RPC | server generation registry + receipt/state | unit + real Unix socket; fresh socket/runtime | required |
 | secure input is app-global/fail-closed | T9 | owner transition API/OS adapter | state table + real OS query + canary scan | unit + native/OTLP integration; exact PID/run | required |
 | input/geometry/visibility stay direct/current | T10 | AppKit-to-Ghostty calls and geometry owner | call ledger + PID-visible behavior | unit + native E2E; display capability manifest | required |
-| active terminal readiness is independent and prioritized | T10.5 | composition receipt, activation scheduler, readiness milestones | delayed hidden-inventory/repository fakes + literal attach ledger | unit + integration + Victoria/native E2E; exact PID/run | required |
+| active terminal readiness is independent and prioritized | T10.5 | composition receipt, activation scheduler, readiness milestones | delayed repository fake + literal exact-ID attach ledger + zero daemon-list calls | unit + integration + Victoria/native E2E; exact PID/run | required |
 | free occurs only after quiescence | T11 | lifetime owner | vendor completion + leases/publications | pinned/candidate stress; vendor identity | required |
 | candidate benefit is attributable | T1/T12 | immutable build/matrix report | action/header/resource/probe manifests + workload oracles | build + E2E; exact digests | required |
 | memory does not regress | T12 | fill/quiesce/clear/prune workload | stable bounded platform samples | performance E2E; corpus/build/hardware | required |

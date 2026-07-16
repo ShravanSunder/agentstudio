@@ -514,7 +514,7 @@ private func makeRecoveryTestPane(title: String) -> Pane {
     let paneId = UUIDv7.generate()
     return Pane(
         id: paneId,
-        content: .terminal(.init(provider: .zmx, lifetime: .persistent)),
+        content: .terminal(.init(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
         metadata: PaneMetadata(
             paneId: PaneId(uuid: paneId),
             createdAt: Date(timeIntervalSince1970: 1_700_000_304),

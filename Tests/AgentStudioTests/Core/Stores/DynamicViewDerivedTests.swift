@@ -40,7 +40,7 @@ final class DynamicViewDerivedTests {
         ]
 
         let pane1 = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(
                 launchDirectory: wtA1.path,
                 title: "agent-studio main",
@@ -52,7 +52,7 @@ final class DynamicViewDerivedTests {
             )
         )
         let pane2 = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(
                 launchDirectory: wtA2.path,
                 title: "agent-studio feature-x",
@@ -64,7 +64,7 @@ final class DynamicViewDerivedTests {
             )
         )
         let pane3 = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(
                 launchDirectory: wtB1.path,
                 title: "askluna main",
@@ -284,7 +284,8 @@ final class DynamicViewDerivedTests {
         var (panes, repos, repoEnrichments, worktreeEnrichments, tabs) = makeTestPanes()
         // Add a pane that's not in any tab
         let orphan = Pane(
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            content: .terminal(
+                TerminalState(provider: .ghostty, lifetime: .temporary, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(title: "Orphan")
         )
         panes[orphan.id] = orphan

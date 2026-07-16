@@ -129,13 +129,13 @@ private func upsertPane(_ database: Database, workspaceId: UUID, pane: Workspace
 private func replacePaneContent(_ database: Database, pane: WorkspaceCoreRepository.PaneRecord) throws {
     try deletePaneContentRows(database, paneId: pane.id)
     switch pane.content {
-    case .terminal(let provider, let lifetime, let zmxSessionId):
+    case .terminal(let provider, let lifetime, let zmxSessionID):
         try insertTerminalContent(
             database,
             paneId: pane.id,
             provider: provider,
             lifetime: lifetime,
-            zmxSessionId: zmxSessionId
+            zmxSessionID: zmxSessionID
         )
     case .webview(let url, let title, let showNavigation):
         try insertWebviewContent(database, paneId: pane.id, url: url, title: title, showNavigation: showNavigation)
@@ -157,14 +157,14 @@ private func insertTerminalContent(
     paneId: UUID,
     provider: SessionProvider,
     lifetime: SessionLifetime,
-    zmxSessionId: String?
+    zmxSessionID: ZmxSessionID
 ) throws {
     try database.execute(
         sql: """
             INSERT INTO pane_content_terminal(pane_id, provider, lifetime, zmx_session_id)
             VALUES (?, ?, ?, ?)
             """,
-        arguments: [paneId.uuidString, provider.rawValue, lifetime.rawValue, zmxSessionId]
+        arguments: [paneId.uuidString, provider.rawValue, lifetime.rawValue, zmxSessionID.rawValue]
     )
 }
 

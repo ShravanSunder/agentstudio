@@ -156,6 +156,7 @@ extension WorkspaceStore {
         title: String = "Terminal",
         provider: SessionProvider = .zmx,
         lifetime: SessionLifetime = .persistent,
+        zmxSessionID: ZmxSessionID = .generateUUIDv7(),
         residency: SessionResidency = .active,
         facets: PaneContextFacets = .empty
     ) -> Pane {
@@ -164,6 +165,7 @@ extension WorkspaceStore {
             title: title,
             provider: provider,
             lifetime: lifetime,
+            zmxSessionID: zmxSessionID,
             residency: residency,
             facets: facets
         )
@@ -258,9 +260,21 @@ extension WorkspaceStore {
         tabLayoutAtom.renameArrangement(arrangementId, name: name, inTab: tabId)
     }
     @discardableResult
-    func addDrawerPane(to parentPaneId: UUID) -> Pane? {
-        let fallbackCWD = paneAtom.pane(parentPaneId)?.worktreeId.flatMap(repositoryTopologyAtom.worktree)?.path
-        guard let drawerPane = paneAtom.addDrawerPane(to: parentPaneId, parentFallbackCWD: fallbackCWD) else {
+    func addDrawerPane(
+        to parentPaneId: UUID,
+        parentFallbackCWD: URL? = nil,
+        zmxSessionID: ZmxSessionID = .generateUUIDv7()
+    ) -> Pane? {
+        let fallbackCWD =
+            parentFallbackCWD
+            ?? paneAtom.pane(parentPaneId)?.worktreeId.flatMap(repositoryTopologyAtom.worktree)?.path
+        guard
+            let drawerPane = paneAtom.addDrawerPane(
+                to: parentPaneId,
+                parentFallbackCWD: fallbackCWD,
+                zmxSessionID: zmxSessionID
+            )
+        else {
             return nil
         }
         if let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
@@ -297,7 +311,8 @@ extension WorkspaceStore {
                 at: targetDrawerPaneId,
                 direction: splitDirection,
                 sizingMode: sizingMode,
-                parentFallbackCWD: fallbackCWD
+                parentFallbackCWD: fallbackCWD,
+                zmxSessionID: .generateUUIDv7()
             )
         else { return nil }
         if let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,

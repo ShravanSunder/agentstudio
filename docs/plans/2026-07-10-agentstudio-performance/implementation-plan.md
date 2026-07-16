@@ -95,7 +95,7 @@ Live repo anchors were rechecked at `0fd9a080`: the existing global `PaneRuntime
 6. OTLP fields remain content-safe. Raw paths, UUIDs, pointers, terminal text, titles, URLs, errors, payload strings, clipboard data, and screen content are prohibited.
 7. A hard cut removes old publication/authority paths in the same integration slice. No task is complete with dual global publication, dual persistence writers, or dual terminal fact authorities.
 8. High-conflict files have one integration owner per integration gate. Parallel lanes may add disjoint primitives and focused tests, but they do not independently edit the same composition root.
-9. Canonical atoms remain state or pure-derived-state owners. Their narrow methods only assign caller-supplied values, suppress equal writes, perform simple representation-local transforms, and maintain storage indexes/observation invariants. Pure domain types validate and decide; mutation coordinators sequence cross-owner changes; persistence coordinators/adapters reserve preimages and transact assignments. No atom/facade prepares a mutation plan, rejection, semantic effect, persistence descriptor, or cross-owner workflow. W4.5 removes the `5f8bf99d` persistence violation, constructs one long-lived adapter bundle in production, routes every installed persistence-affecting writer through its domain gateway, and proves pre-mutation paging through real front doors before prepared composition/terminal activation or W5+ resumes.
+9. Canonical atoms remain state or pure-derived-state owners. Their narrow methods only assign caller-supplied values, suppress equal writes, perform simple representation-local transforms, and maintain storage indexes/observation invariants. Pure domain types validate and decide; mutation coordinators sequence cross-owner changes; persistence coordinators/adapters reserve preimages and transact assignments. No atom/facade prepares a mutation plan, rejection, semantic effect, persistence descriptor, or cross-owner workflow. W4.5 constructs one long-lived adapter bundle in production, routes every installed persistence-affecting writer through its domain gateway, and proves pre-mutation paging through real front doors. W4.5z hard-cuts durable terminal identity to a non-optional opaque `ZmxSessionID`, UUIDv7 generation for new values, exact existing-value preservation, and mutation-free restore before terminal activation or W5+ resumes.
 10. Every workload-producing path is acyclic per checked attempt/generation and proves separate admission, MainActor service, and downstream-expansion bounds. Acknowledgements may close custody; retries/source reconfiguration require a new bounded attempt/generation and cannot synchronously re-enter with payload. Composition and topology install independently inside one persistence runtime, and telemetry remains a bounded fail-open sidecar rather than a correctness edge.
 
 ## 4.1. Security Context
@@ -239,14 +239,14 @@ exact-latency series or exact-valued log field.
 
 After S1 interfaces stabilize, execute the watched and terminal plans in parallel using disjoint files. After S2 stabilizes, domain lanes may build and test cutover-ready `RuntimeFactBus` endpoints in isolated assemblies, but production global wiring stays entirely legacy until IG1. S3 must exist before acceptance-grade measurements.
 
-- Watched pre-IG1 preparation/cuts: W1a, W2a, dormant W1b, W3–W10, split-domain W4.5 hydration, atomic W2b, and atomic W7d including the legacy JSON/schema hard cut. W1b's native observation adapter remains isolated from the complete legacy `FSEventStreamClient -> FSEventBatch -> FilesystemActor` production path; W2b replaces that protocol/composition and deletes the legacy batch path atomically. W11/W12 are post-IG1.
+- Watched pre-IG1 preparation/cuts: W1a, W2a, dormant W1b, W3–W10, split-domain W4.5 strict composition restore, W4.5z durable terminal identity, atomic W2b, and atomic W7d including the legacy JSON/schema hard cut. W1b's native observation adapter remains isolated from the complete legacy `FSEventStreamClient -> FSEventBatch -> FilesystemActor` production path; W2b replaces that protocol/composition and deletes the legacy batch path atomically. W11/W12 are post-IG1.
 - The focused W1b/W2 child plan supersedes the older registration-keyed/raw-
   port/per-generation-seal task vocabulary. W1b dormant readiness includes the
   isolated actor/SourceGate transfer and real native lifetime proof; W2a
   mechanics completion includes fixed-slot replacement/currentness and repair-
   participant protocol mechanics. W2b remains the sole production cut.
-- Terminal pre-IG1 preparation/cuts: T1–T11 including T10.5 prioritized
-  startup activation. T12 is post-IG1 and post-CG1.
+- Terminal pre-IG1 preparation/cuts: W4.5z then T1–T11 including T10.5
+  prioritized startup activation. T12 is post-IG1 and post-CG1.
 
 ### Shared lane S3.5 — Visible-First View Composition Restore
 
@@ -508,7 +508,7 @@ G0 baseline/spec/repo identity
                                                       |   |     |
       +-- watched pre-cut: W1a/W2a/W1b, W3-W10, W2b --+---+-----+
       |   W4.5p pure atoms/live bundle/front-door proof precedes |
-      |   W4.5a-d, W5+, W7d, and complete repair owners          |
+      |   W4.5a-d/z strict restore, W5+, and W7d                 |
       +-- terminal pre-cut: T1-T11 incl. T10.5 activation -----+
       |   T11 keeps the complete legacy downstream route        |
       +-- S3.5 nonterminal visible-first view restore ----------+
@@ -545,8 +545,8 @@ installed mutation gateway. Composition may unlock window and terminal
 readiness while topology is still preparing. The complete pager is assembled
 only after both domains install. No later S1, prepared-composition,
 terminal-activation, W5, or performance lane resumes until W4.5p production
-reachability, real-front-door pager proof, full validation, and one focused
-review/remediation cycle pass.
+reachability, real-front-door pager proof, and full validation pass. Terminal
+activation additionally requires W4.5z.
 
 W12 and T12 are contributors to DQ1/IG2, not prerequisites that recursively own them. T11 may run candidate callback/app/surface quiescence before CG1 only as build-identity-bound correctness/compatibility proof; it does not measure or accept candidate performance. Every T12 and DQ1 performance cell requires the immutable human-approved CG1 manifest digest.
 
@@ -586,7 +586,7 @@ High-conflict files are single-owner at each gate: `WorkspaceSurfaceCoordinator.
 | workload flow has no same-attempt cascade | parent acyclic-workload contract | S5/S6; every domain cut | checked owner/route manifest plus literal correlation/generation count ledger; independent negative back-edge/observation fixtures | compile/static + deterministic unit/integration counts + Victoria runtime evidence; current source/HEAD/run | required; acknowledgements are payload-free and every retry/reconfiguration advances a checked attempt/generation |
 | one global semantic fact bus filters before queue/replay | parent fact taxonomy; EV1–EV11 | S2/S4/IG1 | `RuntimeFactBus.subscribe/post`; independent topic/replay table and structural source inventory | unit + integration + architecture lint; current source tree | required; IG1 atomic |
 | MainActor attribution and availability are causal and bounded | parent MainActor last mile; TA8 | S3, every applier, DQ1 | `MainActorWorkLedger`; independent heartbeat plus interaction stages | unit + Victoria observability + native E2E; current PID/run/build/root manifest | required; queue/service/liveness/interaction gates all pass |
-| composition, content mounting, terminal activation, and repository startup are independent | parent startup-lane contract; SF12–SF17 | W4.5/W5/W7; S3.5/T10.5 | prepared/repaired/rejected composition result, exhaustive content dispatch, mount/activation ledgers, delayed topology/hidden-inventory controls, unchanged composition snapshot | unit + SQLite/runtime integration + Victoria/native E2E; current PID/run/build | required; active terminal/nonterminal readiness and empty shell precede delayed external lanes; each pane mounts once |
+| composition, content mounting, terminal activation, and repository startup are independent | parent startup-lane contract; SF12–SF17 | W4.5/W4.5z/W5/W7; S3.5/T10.5 | invalid strict-decode or accepted immutable composition, exhaustive content dispatch, exact stored-ID activation ledger, delayed topology control, unchanged datastore snapshot | unit + SQLite/runtime integration + Victoria/native E2E; current PID/run/build | required; active terminal/nonterminal readiness and empty shell precede delayed external lanes; restore performs no repair/list/write and each pane mounts once |
 | UI-memory persistence is settled/coalesced, never callback-rate | parent UI-memory checkpoint contract | W4.5p/W7/W8 | explicit end-gesture or injected-clock latest settle gate plus revision/pump counters; literal N-callback oracle | unit + AppKit-boundary integration + Victoria MainActor/persistence counts; current source/run | required; N continuous callbacks yield one settled atom assignment/revision/request, zero fact posts, and no Observation feedback revision |
 | watched loss never authorizes false removal | WF/WS/FI | W1–W5 | callback/source-gate/scheduler/topology applier; literal filesystem manifest | unit + real filesystem/Git integration + workload | required; split callback, scan, apply |
 | watched roots never falsely present last-known state as current | watched currentness contract | W5b/W11/DQ1 | `WatchedFolderCurrentnessAtom` + Repo Explorer currentness read model | unit + integration + PID-targeted native visibility; current source/run/root generation | required; last-known content remains usable but visibly non-current |

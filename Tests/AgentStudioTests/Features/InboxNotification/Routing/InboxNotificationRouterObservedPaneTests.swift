@@ -97,7 +97,9 @@ struct InboxNotificationRouterObservedPaneTests {
         )
         let pane = Pane(
             id: paneId.uuid,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: metadata
         )
         paneAtom.addPane(pane)
@@ -550,7 +552,11 @@ struct InboxNotificationRouterObservedPaneTests {
         let parentPaneId = PaneId()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let drawerPane = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+            fixture.paneAtom.addDrawerPane(
+                to: parentPaneId.uuid,
+                parentFallbackCWD: nil,
+                zmxSessionID: .generateUUIDv7()
+            )
         )
         fixture.inboxAtom.append(makeNotification(kind: .agentRpc, paneId: drawerPane.id))
         fixture.terminalActivity.consume(
@@ -575,7 +581,11 @@ struct InboxNotificationRouterObservedPaneTests {
         let parentPaneId = PaneId()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let drawerPane = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+            fixture.paneAtom.addDrawerPane(
+                to: parentPaneId.uuid,
+                parentFallbackCWD: nil,
+                zmxSessionID: .generateUUIDv7()
+            )
         )
         let parentDrawerId = try #require(fixture.paneAtom.pane(parentPaneId.uuid)?.drawer?.drawerId)
         let tabId = try #require(fixture.tabLayout.tabContaining(paneId: parentPaneId.uuid)?.id)
@@ -689,7 +699,9 @@ struct InboxNotificationRouterObservedPaneTests {
         )
         let pane = Pane(
             id: paneId.uuid,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: metadata
         )
         fixture.paneAtom.addPane(pane)
@@ -716,7 +728,9 @@ struct InboxNotificationRouterObservedPaneTests {
     ) {
         let pane = Pane(
             id: paneId.uuid,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata(
                 paneId: paneId,
                 contentType: .terminal,

@@ -464,7 +464,8 @@ struct WorkspacePaneGraphPersistenceAdapterTests {
     private func makePaneGraphState(title: String) -> PaneGraphState {
         PaneGraphState(
             pane: Pane(
-                content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+                content: .terminal(
+                    TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
                 metadata: PaneMetadata(title: title)
             )
         )
@@ -478,7 +479,8 @@ struct WorkspacePaneGraphPersistenceAdapterTests {
         return PaneGraphState(
             pane: Pane(
                 id: paneID,
-                content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+                content: .terminal(
+                    TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
                 metadata: PaneMetadata(title: title),
                 kind: .layout(drawer: Drawer(drawerId: drawerID, parentPaneId: paneID))
             )
@@ -488,7 +490,8 @@ struct WorkspacePaneGraphPersistenceAdapterTests {
     private func makeDrawerChildPaneGraphState(title: String, parentPaneID: UUID) -> PaneGraphState {
         PaneGraphState(
             pane: Pane(
-                content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+                content: .terminal(
+                    TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
                 metadata: PaneMetadata(title: title),
                 kind: .drawerChild(parentPaneId: parentPaneID)
             )

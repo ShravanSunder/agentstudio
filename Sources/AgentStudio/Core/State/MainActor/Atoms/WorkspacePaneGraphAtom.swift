@@ -323,11 +323,18 @@ final class WorkspacePaneGraphAtom {
         title: String = "Terminal",
         provider: SessionProvider = .zmx,
         lifetime: SessionLifetime = .persistent,
+        zmxSessionID: ZmxSessionID,
         residency: SessionResidency = .active,
         facets: PaneContextFacets = .empty
     ) -> PaneGraphState {
         createPane(
-            content: .terminal(TerminalState(provider: provider, lifetime: lifetime)),
+            content: .terminal(
+                TerminalState(
+                    provider: provider,
+                    lifetime: lifetime,
+                    zmxSessionID: zmxSessionID
+                )
+            ),
             metadata: PaneMetadata(launchDirectory: launchDirectory, title: title, facets: facets),
             residency: residency
         )
@@ -431,27 +438,6 @@ final class WorkspacePaneGraphAtom {
             return
         }
         paneStates[paneId]?.content = .webview(state)
-    }
-
-    @discardableResult
-    func setTerminalZmxSessionId(_ paneId: UUID, sessionId: String) -> Bool {
-        guard var paneState = paneStates[paneId] else {
-            workspacePaneLogger.warning("setTerminalZmxSessionId: pane \(paneId) not found")
-            return false
-        }
-        guard case .terminal(var terminalState) = paneState.content else {
-            return false
-        }
-        guard terminalState.provider == .zmx else {
-            return false
-        }
-        guard terminalState.zmxSessionId != sessionId else {
-            return false
-        }
-        terminalState.zmxSessionId = sessionId
-        paneState.content = .terminal(terminalState)
-        paneStates[paneId] = paneState
-        return true
     }
 
     func setResidency(_ residency: SessionResidency, for paneId: UUID) {

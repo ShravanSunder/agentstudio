@@ -1571,13 +1571,27 @@ attribution.
 
 ### Startup Composition, Terminal Activation, And External Reconciliation
 
-Startup has three independently owned readiness lanes. Composition is prepared,
-validated, and deterministically repaired off-main, then installed in one
-bounded MainActor transaction. The prepared composition includes pane identity,
-content/provider, frozen zmx anchor, launch configuration, drawer/tab/layout
-membership, local cursors, and window/sidebar presentation state. It excludes
-repository/worktree identity, Git state, filesystem currentness, and derived
-pane location context.
+Startup has three independently owned readiness lanes. SQLite rows are decoded
+strictly into an immutable composition off-main, then that composition is
+installed in one bounded MainActor transaction. Restore does not normalize,
+repair, infer, backfill, adopt, discover, or write canonical state. Invalid
+persisted composition fails before installation. The prepared composition
+includes pane identity, content/provider, the terminal's required
+`ZmxSessionID`, launch configuration, drawer/tab/layout membership, local
+cursors, and window/sidebar presentation state. It excludes repository/worktree
+identity, Git state, filesystem currentness, and derived pane location context.
+
+Every terminal pane owns a non-optional opaque `ZmxSessionID`. The App or
+coordinator owner of a new terminal-pane creation intent independently mints it
+with the self-documenting `ZmxSessionID.generateUUIDv7()` API before atom/graph
+insertion. Atoms only accept and store the caller-supplied typed value. SQLite
+stores it verbatim as existing text, and only the strong identity type reaches the zmx
+subprocess boundary. Pane, repository, worktree, path, launch-directory,
+drawer, or other topology values
+never derive or validate it. New arbitrary strings cannot represent zmx
+identity. Restore accepts every existing nonempty stored value, including
+historical `as-*`, and neither interprets nor rewrites it. This cut changes no
+schema and performs no identity data migration.
 
 Canonical `Pane` exposes no `repoId` or `worktreeId` facet/accessor.
 `SessionResidency` contains only repository-independent process/UI lifecycle
@@ -1586,10 +1600,11 @@ states; repository or worktree unavailability is never a residency case.
 An accepted composition transaction emits one immutable
 `TerminalActivationInput`. The terminal activation owner immediately schedules
 restorable terminal panes by strict priority: active visible terminals, other
-visible/expanded-drawer terminals, then hidden terminals with an already-live
-zmx session. Active attachment never awaits hidden-session discovery. A hidden
-pane with no live zmx session remains valid composition but dormant until user
-selection; startup does not silently create a new hidden shell.
+visible/expanded-drawer terminals, then hidden terminals. It attaches each zmx
+terminal with the exact stored `ZmxSessionID`. Activation performs no live-
+session discovery, identity inference, adoption, fallback, or persistence
+mutation. Visibility changes scheduling priority only; it never changes session
+identity.
 
 Nonterminal restoration has a separate `ViewCompositionRestoreOwner`. It owns
 visible-first construction and MainActor mounting for webview, code-viewer,
@@ -1611,8 +1626,8 @@ active readiness only on the active pane. `visibleContentSettled` covers every
 visible main/expanded-drawer pane reaching its content-specific ready, dormant,
 or failed outcome; it does not gate active interaction. Terminal background
 attachment gates neither window nor active-content readiness. Surface creation
-and AppKit mounting remain MainActor-owned, but schedulers, inventory,
-prioritization, retry, and currentness bookkeeping execute outside MainActor and
+and AppKit mounting remain MainActor-owned, but schedulers, prioritization,
+retry, and currentness bookkeeping execute outside MainActor and
 admit only bounded service quanta back to it.
 
 Repository/filesystem startup is a separate non-blocking lane. Persisted
@@ -1624,7 +1639,7 @@ terminal lifecycle, or zmx attachment.
 
 Coordinated SQLite checkpoints may share one persistence revision, but that
 storage transaction does not merge composition and topology validation,
-hydration, mutation, or runtime ownership. Steady-state composition and topology
+mutation, or runtime ownership. Steady-state composition and topology
 writes enter the persistence coordinator as separate typed change sets.
 
 ### Atoms And Observables
@@ -1828,7 +1843,7 @@ confounded causal claim.
 | semantic topic transport | parent + watched-folder child | structural policy, queue admission, lag/recovery proof |
 | Ghostty tick/action admission | terminal child | state/origin tables, races, sustained producer pressure |
 | terminal sample contraction/activity parity | terminal child | sequence oracle, bounded flood, semantic parity |
-| startup composition and terminal readiness | parent + terminal child | rejected/repaired/prepared composition states; active-before-hidden attachment; bounded MainActor activation service; distinct window/typing/all-restorable milestones; delayed repository-lane injection |
+| startup composition and terminal readiness | parent + terminal child | invalid strict-decode and accepted immutable composition states; active-before-hidden exact-ID attachment; bounded MainActor activation service; distinct window/typing/all-restorable milestones; delayed repository-lane injection |
 | secure input/screen boundary | terminal child | owner-state races, denied capture, export canaries |
 | combined typing/cursor symptom | shared harness | correlated watched-pressure, input-to-frame-layer-publication tails, and native visible outcomes |
 

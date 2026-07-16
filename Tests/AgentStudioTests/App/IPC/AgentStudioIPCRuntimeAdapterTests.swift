@@ -491,7 +491,9 @@ private struct RuntimeAdapterHarness {
 
     func createTerminalPane(metadata: PaneMetadata = PaneMetadata(title: "Terminal")) -> Pane {
         let pane = workspaceStore.createPane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .temporary)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .temporary, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: metadata
         )
         workspaceStore.appendTab(Tab(paneId: pane.id))

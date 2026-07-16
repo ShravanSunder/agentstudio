@@ -59,7 +59,13 @@ final class PaneContentWiringTests {
 
     func test_createPane_terminalContent_viaGenericOverload() {
         let pane = store.createPane(
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(
+                    provider: .ghostty,
+                    lifetime: .persistent,
+                    zmxSessionID: .generateUUIDv7()
+                )
+            ),
             metadata: PaneMetadata(title: "Term")
         )
 

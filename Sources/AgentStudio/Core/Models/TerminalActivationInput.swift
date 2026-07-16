@@ -19,16 +19,7 @@ struct TerminalActivationDescriptor: Equatable, Sendable {
 
 enum TerminalActivationProvider: Equatable, Sendable {
     case ghostty
-    case zmx(frozenSessionAnchor: FrozenZmxSessionAnchor)
-}
-
-/// The stored zmx identity is never re-derived from repository topology.
-///
-/// `.missing` preserves the explicit pre-anchor data state without turning it
-/// into an optional or silently manufacturing a different session identity.
-enum FrozenZmxSessionAnchor: Equatable, Sendable {
-    case stored(String)
-    case missing
+    case zmx(sessionID: ZmxSessionID)
 }
 
 enum TerminalActivationLaunchDirectory: Equatable, Sendable {

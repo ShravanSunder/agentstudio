@@ -70,7 +70,13 @@ enum InboxNotificationIntegrationHarness {
     static func addPane(
         _ paneId: PaneId,
         to fixture: Fixture,
-        content: PaneContent = .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+        content: PaneContent = .terminal(
+            TerminalState(
+                provider: .zmx,
+                lifetime: .persistent,
+                zmxSessionID: .generateUUIDv7()
+            )
+        ),
         contentType: PaneContentType = .terminal,
         repoId: UUID? = nil,
         repoName: String? = nil,

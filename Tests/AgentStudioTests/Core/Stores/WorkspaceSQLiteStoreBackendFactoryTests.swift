@@ -139,7 +139,7 @@ struct WorkspaceSQLiteStoreBackendFactoryTests {
         let workspaceId = UUID()
         let createdAt = Date(timeIntervalSince1970: 1_700_001_000)
         let pane = Pane(
-            content: .terminal(.init(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(.init(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: .init(
                 createdAt: createdAt,
                 title: "Legacy After Corruption"

@@ -126,7 +126,7 @@ private func makeBaselinePaneTabState() -> BaselinePaneTabState {
     let paneState = PaneGraphState(
         pane: Pane(
             id: paneID,
-            content: .terminal(.init(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(.init(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(title: "Baseline")
         )
     )

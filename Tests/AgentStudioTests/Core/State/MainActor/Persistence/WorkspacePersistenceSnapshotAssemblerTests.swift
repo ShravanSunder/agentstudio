@@ -314,7 +314,7 @@ private func makeRepresentativeFixture() -> SnapshotAssemblerFixture {
     )
     let pane = Pane(
         id: UUIDv7.generate(),
-        content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+        content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
         metadata: PaneMetadata(
             title: "Assembler pane",
             facets: PaneContextFacets(repoId: repositoryA.id, worktreeId: worktree.id)
@@ -349,7 +349,7 @@ private func makeRepresentativeFixture() -> SnapshotAssemblerFixture {
 private func makeTerminalPane(id: UUID, title: String, kind: PaneKind) -> Pane {
     Pane(
         id: id,
-        content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+        content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
         metadata: PaneMetadata(title: title),
         kind: kind
     )

@@ -322,10 +322,7 @@ enum WorkspaceCompositionPreparer {
         case .ghostty:
             return .ghostty
         case .zmx:
-            let frozenSessionAnchor =
-                terminalState.zmxSessionId
-                .map(FrozenZmxSessionAnchor.stored) ?? .missing
-            return .zmx(frozenSessionAnchor: frozenSessionAnchor)
+            return .zmx(sessionID: terminalState.zmxSessionID)
         }
     }
 

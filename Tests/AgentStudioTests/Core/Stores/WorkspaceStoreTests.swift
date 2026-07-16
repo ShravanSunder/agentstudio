@@ -49,7 +49,7 @@ final class WorkspaceStoreTests {
 
         let workspaceId = UUID()
         let pane = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(
                 title: "Restored"
             )
@@ -235,7 +235,7 @@ final class WorkspaceStoreTests {
         )
 
         let pane = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(
                 title: "Scoped"
             )
@@ -481,7 +481,7 @@ final class WorkspaceStoreTests {
         let atom = WorkspacePaneAtom()
         let pane = Pane(
             id: PaneId().uuid,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata()
         )
         #expect(atom.insertRestoredPane(pane))
@@ -1385,7 +1385,7 @@ final class WorkspaceStoreTests {
     func test_isDirty_setOnDirectPaneAtomMutation() async {
         #expect(!(store.isDirty))
 
-        _ = store.paneAtom.createPane()
+        _ = store.paneAtom.createPane(zmxSessionID: .generateUUIDv7())
 
         for _ in 0..<10 where !store.isDirty {
             await Task.yield()
@@ -1413,7 +1413,7 @@ final class WorkspaceStoreTests {
 
     @Test
     func test_zoomPresentationChangeDoesNotDirtyWorkspacePersistence() async {
-        let pane = store.paneAtom.createPane()
+        let pane = store.paneAtom.createPane(zmxSessionID: .generateUUIDv7())
         let tab = Tab(paneId: pane.id)
         store.tabLayoutAtom.appendTab(tab)
         #expect(store.flush())
@@ -1430,7 +1430,7 @@ final class WorkspaceStoreTests {
 
     @Test
     func test_isDirty_setOnDirectTabWriteOwnerMutation() async {
-        let pane = store.paneAtom.createPane()
+        let pane = store.paneAtom.createPane(zmxSessionID: .generateUUIDv7())
         let tab = Tab(paneId: pane.id)
         store.tabLayoutAtom.appendTab(tab)
         #expect(store.flush())
@@ -1552,7 +1552,7 @@ final class WorkspaceStoreTests {
         let repoPath = URL(filePath: "/tmp/project-dev/agent-studio")
         let worktreePath = repoPath.appending(path: "sqlite")
         let pane = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(
                 launchDirectory: worktreePath,
                 title: "Terminal",

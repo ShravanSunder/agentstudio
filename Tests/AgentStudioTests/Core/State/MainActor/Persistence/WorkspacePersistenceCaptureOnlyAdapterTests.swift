@@ -257,7 +257,7 @@ private enum CaptureOnlyAdapterTestError: Error {
 private func makeCapturePaneState(title: String) -> PaneGraphState {
     PaneGraphState(
         pane: Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(title: title)
         )
     )

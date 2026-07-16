@@ -11,7 +11,13 @@ struct WorkspacePaneBoundaryTests {
         let repoId = UUID()
         let worktreeId = UUID()
         let pane = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(
+                    provider: .zmx,
+                    lifetime: .persistent,
+                    zmxSessionID: .generateUUIDv7()
+                )
+            ),
             metadata: PaneMetadata(
                 launchDirectory: URL(filePath: "/tmp/agent-studio"),
                 title: "Terminal",
@@ -57,6 +63,7 @@ struct WorkspacePaneBoundaryTests {
         let paneAtom = WorkspacePaneAtom(graphAtom: graphAtom)
         let pane = paneAtom.createPane(
             launchDirectory: URL(filePath: "/tmp/project"),
+            zmxSessionID: .generateUUIDv7(),
             facets: PaneContextFacets(
                 repoId: repoId,
                 worktreeId: worktreeId,
@@ -77,27 +84,18 @@ struct WorkspacePaneBoundaryTests {
         #expect(projectedPane.worktreeId == nil)
     }
 
-    @Test("Setting identical zmx session anchor is a no-op")
-    func settingIdenticalZmxSessionAnchorIsNoOp() throws {
+    @Test("Pane creation preserves the caller-supplied zmx identity")
+    func paneCreationPreservesCallerSuppliedZmxIdentity() throws {
         let graphAtom = WorkspacePaneGraphAtom()
         let paneAtom = WorkspacePaneAtom(graphAtom: graphAtom)
-        let pane = paneAtom.createPane()
-        let sessionId = ZmxBackend.sessionId(
-            repoStableKey: "1111111111111111",
-            worktreeStableKey: "2222222222222222",
-            paneId: pane.id
-        )
+        let suppliedSessionID = try #require(ZmxSessionID(restoring: "existing-session"))
+        let pane = paneAtom.createPane(zmxSessionID: suppliedSessionID)
 
-        let firstUpdateChangedState = paneAtom.setTerminalZmxSessionId(pane.id, sessionId: sessionId)
-        let secondUpdateChangedState = paneAtom.setTerminalZmxSessionId(pane.id, sessionId: sessionId)
-
-        #expect(firstUpdateChangedState)
-        #expect(!secondUpdateChangedState)
         guard case .terminal(let terminalState) = graphAtom.paneState(pane.id)?.content else {
             Issue.record("Expected pane content to remain terminal")
             return
         }
-        #expect(terminalState.zmxSessionId == sessionId)
+        #expect(terminalState.zmxSessionID == suppliedSessionID)
     }
 
     @Test("Drawer cursor owns expansion and derived panes reflect it atomically")
@@ -106,8 +104,8 @@ struct WorkspacePaneBoundaryTests {
         let drawerCursorAtom = WorkspaceDrawerCursorAtom()
         let paneAtom = WorkspacePaneAtom(graphAtom: graphAtom, drawerCursorAtom: drawerCursorAtom)
         let derived = WorkspacePaneDerived(graphAtom: graphAtom, drawerCursorAtom: drawerCursorAtom)
-        let firstPane = paneAtom.createPane()
-        let secondPane = paneAtom.createPane()
+        let firstPane = paneAtom.createPane(zmxSessionID: .generateUUIDv7())
+        let secondPane = paneAtom.createPane(zmxSessionID: .generateUUIDv7())
         let firstDrawerId = try #require(graphAtom.paneState(firstPane.id)?.drawer?.drawerId)
         let secondDrawerId = try #require(graphAtom.paneState(secondPane.id)?.drawer?.drawerId)
 
@@ -166,6 +164,7 @@ struct WorkspacePaneBoundaryTests {
         )
         let pane = paneAtom.createPane(
             launchDirectory: worktreePath,
+            zmxSessionID: .generateUUIDv7(),
             facets: PaneContextFacets(
                 repoId: repoId,
                 repoName: "stale repo",
@@ -219,6 +218,7 @@ struct WorkspacePaneBoundaryTests {
         )
         let pane = paneAtom.createPane(
             launchDirectory: worktreePath,
+            zmxSessionID: .generateUUIDv7(),
             facets: PaneContextFacets(cwd: worktreePath.appending(path: "Sources"))
         )
 
@@ -261,6 +261,7 @@ struct WorkspacePaneBoundaryTests {
         )
         _ = paneAtom.createPane(
             launchDirectory: worktreePath,
+            zmxSessionID: .generateUUIDv7(),
             facets: PaneContextFacets(cwd: worktreePath.appending(path: "Sources"))
         )
 

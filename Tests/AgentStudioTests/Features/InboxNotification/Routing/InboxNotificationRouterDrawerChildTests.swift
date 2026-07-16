@@ -12,7 +12,11 @@ extension InboxNotificationRouterTests {
         let parentPaneId = PaneId()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let drawerPane = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+            fixture.paneAtom.addDrawerPane(
+                to: parentPaneId.uuid,
+                parentFallbackCWD: nil,
+                zmxSessionID: .generateUUIDv7()
+            )
         )
         fixture.paneAtom.toggleDrawer(for: parentPaneId.uuid)
         makeWindowKey(fixture.windowLifecycle)
@@ -48,7 +52,11 @@ extension InboxNotificationRouterTests {
         let parentPaneId = PaneId()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let drawerPane = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+            fixture.paneAtom.addDrawerPane(
+                to: parentPaneId.uuid,
+                parentFallbackCWD: nil,
+                zmxSessionID: .generateUUIDv7()
+            )
         )
 
         _ = await fixture.bus.post(
@@ -92,7 +100,11 @@ extension InboxNotificationRouterTests {
         let parentPaneId = PaneId()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let drawerPane = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+            fixture.paneAtom.addDrawerPane(
+                to: parentPaneId.uuid,
+                parentFallbackCWD: nil,
+                zmxSessionID: .generateUUIDv7()
+            )
         )
         let drawerId = try #require(fixture.paneAtom.pane(parentPaneId.uuid)?.drawer?.drawerId)
         let tabId = try #require(fixture.tabLayout.activeTabId)
@@ -134,7 +146,11 @@ extension InboxNotificationRouterTests {
         let parentPaneId = PaneId()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let drawerPane = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+            fixture.paneAtom.addDrawerPane(
+                to: parentPaneId.uuid,
+                parentFallbackCWD: nil,
+                zmxSessionID: .generateUUIDv7()
+            )
         )
 
         fixture.inboxAtom.append(

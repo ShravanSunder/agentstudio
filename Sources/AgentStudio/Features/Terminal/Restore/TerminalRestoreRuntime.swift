@@ -17,133 +17,39 @@ struct TerminalRestoreRuntime {
     }
 
     let sessionConfiguration: SessionConfiguration
-    let liveSessionIdsProvider: @MainActor @Sendable (SessionConfiguration) async -> Set<String>
 
-    init(
-        sessionConfiguration: SessionConfiguration,
-        liveSessionIdsProvider: @escaping @MainActor @Sendable (SessionConfiguration) async -> Set<String> = Self
-            .discoverLiveSessionIds
-    ) {
-        self.sessionConfiguration = sessionConfiguration
-        self.liveSessionIdsProvider = liveSessionIdsProvider
+    /// Return the exact durable identity stored with the terminal pane.
+    /// Restoration never derives, validates against pane shape, or rewrites it.
+    func zmxSessionID(for pane: Pane) -> ZmxSessionID? {
+        guard pane.provider == .zmx else { return nil }
+        return pane.terminalState?.zmxSessionID
     }
 
-    func shouldStartHiddenRestore(hasExistingSession: Bool) -> Bool {
-        TerminalRestoreScheduler.shouldStartHiddenRestore(
-            hasExistingSession: hasExistingSession
-        )
-    }
-
-    func discoverLiveSessionIds() async -> Set<String> {
-        await liveSessionIdsProvider(sessionConfiguration)
-    }
-
-    func shouldRestoreHiddenPane(
-        _ pane: Pane,
-        store: WorkspaceStore,
-        liveSessionIds: Set<String>
-    ) -> Bool {
-        guard pane.provider == .zmx else { return true }
-        guard let sessionId = zmxSessionId(for: pane, store: store) else { return false }
-        return shouldStartHiddenRestore(
-            hasExistingSession: liveSessionIds.contains(sessionId)
-        )
-    }
-
-    func zmxAttachCommand(for pane: Pane, store: WorkspaceStore) -> String? {
+    func zmxAttachCommand(for pane: Pane) -> String? {
         guard sessionConfiguration.isOperational else { return nil }
-        guard let sessionId = zmxSessionId(for: pane, store: store) else { return nil }
+        guard let sessionID = zmxSessionID(for: pane) else { return nil }
         guard let zmxPath = sessionConfiguration.zmxPath else { return nil }
         return ZmxBackend.buildAttachCommand(
             zmxPath: zmxPath,
-            sessionId: sessionId,
+            sessionID: sessionID,
             shell: SessionConfiguration.defaultShell()
         )
     }
 
-    func zmxSessionId(for pane: Pane, store: WorkspaceStore) -> String? {
-        guard pane.provider == .zmx else { return nil }
-        if let storedSessionId = pane.terminalState?.zmxSessionId,
-            Self.isValidStoredSessionId(storedSessionId, for: pane)
-        {
-            return storedSessionId
-        }
-        return legacyZmxSessionId(for: pane, store: store)
-    }
-
-    func legacyZmxSessionId(for pane: Pane, store: WorkspaceStore) -> String? {
-        guard pane.provider == .zmx else { return nil }
-        let workspaceRepositoryTopology = store.repositoryTopologyAtom
-
-        if let parentPaneId = pane.parentPaneId {
-            return ZmxBackend.drawerSessionId(
-                parentPaneId: parentPaneId,
-                drawerPaneId: pane.id
-            )
-        }
-
-        if let worktreeId = pane.worktreeId,
-            let worktree = workspaceRepositoryTopology.worktree(worktreeId),
-            let repo = workspaceRepositoryTopology.repo(containing: worktreeId)
-        {
-            return ZmxBackend.sessionId(
-                repoStableKey: repo.stableKey,
-                worktreeStableKey: worktree.stableKey,
-                paneId: pane.id
-            )
-        }
-
-        if let launchDirectory = pane.metadata.launchDirectory ?? pane.metadata.facets.cwd {
-            return ZmxBackend.floatingSessionId(
-                launchDirectory: launchDirectory,
-                paneId: pane.id
-            )
-        }
-
-        return ZmxBackend.floatingSessionId(
-            launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
-            paneId: pane.id
-        )
-    }
-
-    func zmxAttachDiagnostics(for pane: Pane, store: WorkspaceStore) -> ZmxAttachDiagnostics? {
+    func zmxAttachDiagnostics(for pane: Pane) -> ZmxAttachDiagnostics? {
         guard sessionConfiguration.isOperational else { return nil }
-        guard pane.provider == .zmx else { return nil }
-        guard let sessionId = zmxSessionId(for: pane, store: store) else { return nil }
+        guard let sessionID = zmxSessionID(for: pane) else { return nil }
         guard let zmxPath = sessionConfiguration.zmxPath else { return nil }
 
-        let socketPath = "\(sessionConfiguration.zmxDir)/\(sessionId)"
+        let socketPath = "\(sessionConfiguration.zmxDir)/\(sessionID.rawValue)"
         return ZmxAttachDiagnostics(
             paneId: pane.id,
-            sessionId: sessionId,
+            sessionId: sessionID.rawValue,
             zmxDir: sessionConfiguration.zmxDir,
             socketPath: socketPath,
             socketPathLength: socketPath.count,
             maxSocketPathLength: 103,
             zmxPath: zmxPath
         )
-    }
-
-    private static func discoverLiveSessionIds(
-        sessionConfiguration: SessionConfiguration
-    ) async -> Set<String> {
-        guard sessionConfiguration.isOperational, let zmxPath = sessionConfiguration.zmxPath else { return [] }
-        let backend = ZmxBackend(
-            zmxPath: zmxPath,
-            zmxDir: sessionConfiguration.zmxDir,
-            retryPolicy: .standard
-        )
-        return Set(await backend.discoverOrphanSessions(excluding: []))
-    }
-
-    static func isValidStoredSessionId(_ sessionId: String, for pane: Pane) -> Bool {
-        if let parentPaneId = pane.parentPaneId {
-            return ZmxBackend.isValidStoredDrawerSessionId(
-                sessionId,
-                parentPaneId: parentPaneId,
-                drawerPaneId: pane.id
-            )
-        }
-        return ZmxBackend.isValidStoredLayoutPaneSessionId(sessionId, paneId: pane.id)
     }
 }

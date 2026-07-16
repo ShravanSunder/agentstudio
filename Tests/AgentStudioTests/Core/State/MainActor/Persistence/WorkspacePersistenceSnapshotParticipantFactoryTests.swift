@@ -164,7 +164,13 @@ struct WorkspaceSnapshotParticipantFactoryTests {
         // Arrange
         let paneGraph = PaneGraphState(
             pane: Pane(
-                content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+                content: .terminal(
+                    TerminalState(
+                        provider: .zmx,
+                        lifetime: .persistent,
+                        zmxSessionID: .generateUUIDv7()
+                    )
+                ),
                 metadata: PaneMetadata(title: "Factory estimate")
             )
         )
@@ -180,15 +186,21 @@ struct WorkspaceSnapshotParticipantFactoryTests {
     }
 
     @Test("pane graph byte estimation increases with every persisted dynamic content family")
-    func paneGraphByteEstimationIncreasesWithPersistedDynamicContent() {
+    func paneGraphByteEstimationIncreasesWithPersistedDynamicContent() throws {
         // Arrange
         let estimator = WorkspacePaneGraphPersistenceSnapshotByteEstimator()
         let compactText = "x"
         let expandedText = String(repeating: "x", count: 1024)
+        let compactZmxSessionID = try #require(ZmxSessionID(restoring: compactText))
+        let expandedZmxSessionID = try #require(ZmxSessionID(restoring: expandedText))
         let contentPairs: [(PaneContent, PaneContent)] = [
             (
-                .terminal(.init(provider: .zmx, lifetime: .persistent, zmxSessionId: compactText)),
-                .terminal(.init(provider: .zmx, lifetime: .persistent, zmxSessionId: expandedText))
+                .terminal(
+                    .init(provider: .zmx, lifetime: .persistent, zmxSessionID: compactZmxSessionID)
+                ),
+                .terminal(
+                    .init(provider: .zmx, lifetime: .persistent, zmxSessionID: expandedZmxSessionID)
+                )
             ),
             (
                 .webview(.init(url: URL(filePath: "/tmp/x"), title: compactText)),

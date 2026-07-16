@@ -54,20 +54,6 @@ extension WorkspaceSurfaceCoordinator {
         return host
     }
 
-    static func floatingZmxRestoreSessionId(for pane: Pane, launchDirectory: URL) -> String {
-        if let parentPaneId = pane.parentPaneId {
-            return ZmxBackend.drawerSessionId(
-                parentPaneId: parentPaneId,
-                drawerPaneId: pane.id
-            )
-        }
-
-        return ZmxBackend.floatingSessionId(
-            launchDirectory: launchDirectory,
-            paneId: pane.id
-        )
-    }
-
     /// Create a view for any pane content type. Dispatches to the appropriate factory.
     /// Returns the created mounted content view, or nil on failure.
     func createViewForContent(
@@ -398,13 +384,13 @@ extension WorkspaceSurfaceCoordinator {
     ) -> TerminalSurfaceStartupPreparation? {
         switch pane.provider {
         case .zmx:
-            let diagnostics = terminalRestoreRuntime.zmxAttachDiagnostics(for: pane, store: store)
+            let diagnostics = terminalRestoreRuntime.zmxAttachDiagnostics(for: pane)
             if let diagnostics {
                 RestoreTrace.log(
                     "\(context.diagnosticsTracePrefix) zmxDiagnostics pane=\(diagnostics.paneId) session=\(diagnostics.sessionId) socketPathLen=\(diagnostics.socketPathLength) socketPathHeadroom=\(diagnostics.socketPathHeadroom) maxSocketPathLen=\(diagnostics.maxSocketPathLength)"
                 )
             }
-            if let attachCommand = terminalRestoreRuntime.zmxAttachCommand(for: pane, store: store) {
+            if let attachCommand = terminalRestoreRuntime.zmxAttachCommand(for: pane) {
                 traceZmxAttachPrepared(pane: pane, diagnostics: diagnostics)
                 // Prevent nested Agent Studio launches from inheriting an outer zmx session.
                 let environmentVariables: [String: String] = [
@@ -412,11 +398,6 @@ extension WorkspaceSurfaceCoordinator {
                     "ZMX_SESSION": "",
                     "ZMX_SESSION_PREFIX": "",
                 ]
-                if case .floating(let launchDirectory) = context {
-                    RestoreTrace.log(
-                        "createFloatingView zmx pane=\(pane.id) session=\(Self.floatingZmxRestoreSessionId(for: pane, launchDirectory: launchDirectory)) cwd=\(launchDirectory.path)"
-                    )
-                }
                 return TerminalSurfaceStartupPreparation(
                     strategy: .surfaceCommand(attachCommand),
                     showsRestorePresentationDuringStartup: treatAsRestoredSessionStart,
@@ -689,7 +670,6 @@ extension WorkspaceSurfaceCoordinator {
         let hiddenPaneIds = orderedPaneIds.filter {
             visibilityTierResolver.tier(for: PaneId(uuid: $0)) == .p1Hidden
         }
-        let liveHiddenSessionIds = await hiddenLiveSessionIds()
         let resolvedPaneFramesByTabId = resolveInitialFramesByTabId(in: terminalContainerBounds)
         var progress = RestoreAllViewsProgress()
 
@@ -698,7 +678,6 @@ extension WorkspaceSurfaceCoordinator {
             restorePaneAndDrawers(
                 paneId,
                 resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
-                liveHiddenSessionIds: liveHiddenSessionIds,
                 progress: &progress
             )
         }
@@ -719,7 +698,6 @@ extension WorkspaceSurfaceCoordinator {
             restorePaneAndDrawers(
                 paneId,
                 resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
-                liveHiddenSessionIds: liveHiddenSessionIds,
                 progress: &progress
             )
             if index.isMultiple(of: 2) {
@@ -749,34 +727,6 @@ extension WorkspaceSurfaceCoordinator {
         return paneIds.filter { seen.insert($0).inserted }
     }
 
-    private func hiddenLiveSessionIds() async -> Set<String> {
-        let hiddenZmxPaneIds = store.paneAtom.panes.values.compactMap { pane -> UUID? in
-            guard pane.provider == .zmx else { return nil }
-            let paneId = PaneId(uuid: pane.id)
-            return visibilityTierResolver.tier(for: paneId) == .p1Hidden ? pane.id : nil
-        }
-        let needsHiddenSessionDiscovery = !hiddenZmxPaneIds.isEmpty
-        if !needsHiddenSessionDiscovery {
-            return []
-        }
-        return await terminalRestoreRuntime.discoverLiveSessionIds()
-    }
-
-    private func shouldRestoreHiddenPane(
-        _ pane: Pane,
-        liveHiddenSessionIds: Set<String>
-    ) -> Bool {
-        let paneId = PaneId(uuid: pane.id)
-        guard visibilityTierResolver.tier(for: paneId) == .p1Hidden else {
-            return true
-        }
-        return terminalRestoreRuntime.shouldRestoreHiddenPane(
-            pane,
-            store: store,
-            liveSessionIds: liveHiddenSessionIds
-        )
-    }
-
     func initialFrame(
         for pane: Pane,
         resolvedPaneFramesByTabId: [UUID: [UUID: CGRect]]
@@ -794,7 +744,6 @@ extension WorkspaceSurfaceCoordinator {
     private func restorePaneAndDrawers(
         _ paneId: UUID,
         resolvedPaneFramesByTabId: [UUID: [UUID: CGRect]],
-        liveHiddenSessionIds: Set<String>,
         progress: inout RestoreAllViewsProgress
     ) {
         guard progress.restoredPaneIds.insert(paneId).inserted else { return }
@@ -803,17 +752,6 @@ extension WorkspaceSurfaceCoordinator {
             RestoreTrace.log("restoreAllViews skip missing pane=\(paneId)")
             return
         }
-        guard shouldRestoreHiddenPane(pane, liveHiddenSessionIds: liveHiddenSessionIds) else {
-            RestoreTrace.log("restoreAllViews skip hidden pane=\(paneId) reason=policy")
-            restoreDrawerPanes(
-                for: pane,
-                resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
-                liveHiddenSessionIds: liveHiddenSessionIds,
-                progress: &progress
-            )
-            return
-        }
-
         RestoreTrace.log("restoreAllViews restoring pane=\(paneId) content=\(String(describing: pane.content))")
         if registeredViewDoesNotNeedRestore(for: paneId)
             || createViewForContent(
@@ -830,7 +768,6 @@ extension WorkspaceSurfaceCoordinator {
         restoreDrawerPanes(
             for: pane,
             resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
-            liveHiddenSessionIds: liveHiddenSessionIds,
             progress: &progress
         )
     }
@@ -838,7 +775,6 @@ extension WorkspaceSurfaceCoordinator {
     private func restoreDrawerPanes(
         for parentPane: Pane,
         resolvedPaneFramesByTabId: [UUID: [UUID: CGRect]],
-        liveHiddenSessionIds: Set<String>,
         progress: inout RestoreAllViewsProgress
     ) {
         guard let drawer = parentPane.drawer else { return }
@@ -847,12 +783,6 @@ extension WorkspaceSurfaceCoordinator {
             guard let drawerPane = store.paneAtom.pane(drawerPaneId) else {
                 Self.logger.warning(
                     "restoreAllViews: drawer pane \(drawerPaneId) referenced by parent \(parentPane.id) is missing from store"
-                )
-                continue
-            }
-            guard shouldRestoreHiddenPane(drawerPane, liveHiddenSessionIds: liveHiddenSessionIds) else {
-                RestoreTrace.log(
-                    "restoreAllViews skip hidden drawer pane=\(drawerPaneId) parent=\(parentPane.id) reason=policy"
                 )
                 continue
             }

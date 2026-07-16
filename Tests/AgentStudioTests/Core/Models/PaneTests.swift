@@ -19,7 +19,9 @@ final class PaneTests {
 
     func test_defaultInit_generatesV7PaneId() {
         let pane = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata()
         )
 
@@ -190,7 +192,9 @@ final class PaneTests {
             isExpanded: false
         )
         let pane = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata(title: "Host"),
             kind: .layout(drawer: drawer)
         )
@@ -260,7 +264,9 @@ final class PaneTests {
             isExpanded: true
         )
         let pane = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata(title: "Legacy Host"),
             kind: .layout(drawer: drawer)
         )
@@ -516,7 +522,9 @@ final class PaneTests {
     func test_paneKind_drawerChild_hasNoDrawer() {
         let parentId = UUID()
         let pane = Pane(
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            content: .terminal(
+                TerminalState(provider: .ghostty, lifetime: .temporary, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata(),
             kind: .drawerChild(parentPaneId: parentId)
         )
@@ -541,7 +549,9 @@ final class PaneTests {
     func test_withDrawer_noOpForDrawerChild() {
         let parentId = UUID()
         var pane = Pane(
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            content: .terminal(
+                TerminalState(provider: .ghostty, lifetime: .temporary, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata(),
             kind: .drawerChild(parentPaneId: parentId)
         )
@@ -567,7 +577,9 @@ final class PaneTests {
     func test_pane_defaultKind_hasCollapsedDrawer() {
         // Arrange — default Pane init uses .layout(drawer: Drawer())
         let pane = Pane(
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            content: .terminal(
+                TerminalState(provider: .ghostty, lifetime: .temporary, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata()
         )
 

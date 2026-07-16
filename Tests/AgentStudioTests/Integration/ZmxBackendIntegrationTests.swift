@@ -37,19 +37,15 @@ extension E2ESerializedTests {
         func test_createSession_producesValidHandle() async throws {
             try await withBackend { _, backend in
                 // Arrange
-                let worktree = makeWorktree(
-                    name: "integ-test",
-                    path: "/tmp"
-                )
-                let repo = makeRepo()
+                let requestedSessionID = ZmxSessionID.generateUUIDv7()
 
                 // Act
-                let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
+                let handle = try await backend.createPaneSession(sessionID: requestedSessionID)
 
                 // Assert — handle is valid (no zmx session actually started, that happens on attach)
-                #expect(handle.id.hasPrefix("as-"))
-                #expect(handle.id.count == 53)
-                #expect(handle.id.split(separator: "-").count == 4)
+                let handleUUID = try #require(UUID(uuidString: handle.id.rawValue))
+                #expect(handle.id == requestedSessionID)
+                #expect(UUIDv7.isV7(handleUUID))
             }
         }
 
@@ -59,9 +55,7 @@ extension E2ESerializedTests {
         func test_attachCommand_containsAttachAndSessionId() async throws {
             try await withBackend { _, backend in
                 // Arrange
-                let worktree = makeWorktree(name: "attach-test", path: "/tmp")
-                let repo = makeRepo()
-                let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
+                let handle = try await backend.createPaneSession(sessionID: .generateUUIDv7())
 
                 // Act
                 let cmd = backend.attachCommand(for: handle)
@@ -70,7 +64,7 @@ extension E2ESerializedTests {
                 #expect(!cmd.contains("ZMX_DIR="))
                 #expect(cmd.hasPrefix("\""))
                 #expect(cmd.contains("attach"))
-                #expect(cmd.contains(handle.id))
+                #expect(cmd.contains(handle.id.rawValue))
                 #expect(cmd.contains("-i -l"))
             }
         }
@@ -81,11 +75,10 @@ extension E2ESerializedTests {
         func test_zmxDir_isolatesFromDefaultDir() async throws {
             try await withBackend { harness, backend in
                 // Arrange — create a session in test-isolated dir
-                let worktree = makeWorktree(name: "isolation-test", path: "/tmp")
-                let repo = makeRepo()
+                let sessionID = ZmxSessionID.generateUUIDv7()
 
                 // Act
-                _ = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
+                _ = try await backend.createPaneSession(sessionID: sessionID)
 
                 // Assert — the zmx dir should exist and be in temp
                 #expect(
@@ -100,12 +93,12 @@ extension E2ESerializedTests {
         // MARK: - Destroy
 
         @Test
-        func test_destroySessionById_doesNotThrowForMissingSession() async throws {
+        func test_destroySessionByID_doesNotThrowForMissingSession() async throws {
             try await withBackend { _, backend in
                 // zmx kill for a non-existent session should fail gracefully
                 // or throw — either behavior is acceptable in integration context
                 do {
-                    try await backend.destroySessionById("as-fake-fake-fake1234567890ab")
+                    try await backend.destroySessionByID(.generateUUIDv7())
                 } catch {
                     #expect(error is SessionBackendError)
                 }

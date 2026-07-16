@@ -42,6 +42,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         let pane = store.createPane(
             launchDirectory: worktree.path,
             title: "SQLite Pane",
+            zmxSessionID: .generateUUIDv7(),
             facets: PaneContextFacets(
                 repoId: repo.id,
                 repoName: "Derived Repo Name",
@@ -115,7 +116,8 @@ struct WorkspaceSQLiteStoreBridgeTests {
         )
         let temporaryPane = store.createPane(
             title: "Ephemeral",
-            lifetime: .temporary
+            lifetime: .temporary,
+            zmxSessionID: .generateUUIDv7()
         )
         let tab = Tab(paneId: temporaryPane.id, name: "Ephemeral Tab")
         store.appendTab(tab)
@@ -128,89 +130,6 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(tabShells.map(\.id) == [tab.id])
         let tabGraph = try fixture.coreRepository.fetchTabGraph(workspaceId: workspaceId)
         #expect(tabGraph.tabs.single?.allPaneIds == [temporaryPane.id])
-    }
-
-    @Test("new zmx panes store deterministic session anchors at creation and SQLite flush")
-    func newZmxPanesStoreDeterministicSessionAnchorsAtCreationAndSQLiteFlush() async throws {
-        let workspaceId = UUID()
-        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
-        let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.replaceIdentity(
-            workspaceId: workspaceId,
-            workspaceName: "Anchored zmx Workspace",
-            createdAt: Date(timeIntervalSince1970: 1_700_000_075)
-        )
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            identityAtom: identityAtom,
-            persistor: WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-            ),
-            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
-        )
-        let repoPath = URL(filePath: "/tmp/agent-studio-zmx-anchor-repo")
-        let repo = store.addRepo(at: repoPath)
-        let worktree = try #require(repo.worktrees.first)
-        let floatingDirectory = URL(filePath: "/tmp/agent-studio-zmx-anchor-floating")
-
-        let worktreePane = store.createPane(
-            launchDirectory: worktree.path,
-            title: "Worktree Anchor",
-            provider: .zmx,
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
-        )
-        let floatingPane = store.createPane(
-            launchDirectory: floatingDirectory,
-            title: "Floating Anchor",
-            provider: .zmx
-        )
-        let parentPane = store.createPane(
-            launchDirectory: floatingDirectory,
-            title: "Parent Anchor",
-            provider: .zmx
-        )
-        store.appendTab(Tab(paneId: worktreePane.id, name: "Worktree"))
-        store.appendTab(Tab(paneId: floatingPane.id, name: "Floating"))
-        store.appendTab(Tab(paneId: parentPane.id, name: "Parent"))
-        let drawerPane = try #require(store.addDrawerPane(to: parentPane.id))
-
-        let expectedWorktreeSessionId = ZmxBackend.sessionId(
-            repoStableKey: repo.stableKey,
-            worktreeStableKey: worktree.stableKey,
-            paneId: worktreePane.id
-        )
-        let expectedFloatingSessionId = ZmxBackend.floatingSessionId(
-            launchDirectory: floatingDirectory,
-            paneId: floatingPane.id
-        )
-        let expectedDrawerSessionId = ZmxBackend.drawerSessionId(
-            parentPaneId: parentPane.id,
-            drawerPaneId: drawerPane.id
-        )
-
-        #expect(store.pane(worktreePane.id)?.terminalState?.zmxSessionId == expectedWorktreeSessionId)
-        #expect(store.pane(floatingPane.id)?.terminalState?.zmxSessionId == expectedFloatingSessionId)
-        #expect(store.pane(drawerPane.id)?.terminalState?.zmxSessionId == expectedDrawerSessionId)
-
-        #expect((await store.flushAsync()).succeeded)
-
-        let storedPanes = try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceId).panes
-        let storedContentByPaneId = Dictionary(uniqueKeysWithValues: storedPanes.map { ($0.id, $0.content) })
-        guard case .terminal(_, _, let storedWorktreeSessionId) = storedContentByPaneId[worktreePane.id] else {
-            Issue.record("Expected worktree terminal content record")
-            return
-        }
-        guard case .terminal(_, _, let storedFloatingSessionId) = storedContentByPaneId[floatingPane.id] else {
-            Issue.record("Expected floating terminal content record")
-            return
-        }
-        guard case .terminal(_, _, let storedDrawerSessionId) = storedContentByPaneId[drawerPane.id] else {
-            Issue.record("Expected drawer terminal content record")
-            return
-        }
-        #expect(storedWorktreeSessionId == expectedWorktreeSessionId)
-        #expect(storedFloatingSessionId == expectedFloatingSessionId)
-        #expect(storedDrawerSessionId == expectedDrawerSessionId)
     }
 
     @Test("SQLite flush normalizes a live tab graph whose arrangement references a missing membership pane")
@@ -232,10 +151,12 @@ struct WorkspaceSQLiteStoreBridgeTests {
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
         let firstPane = store.createPane(
-            title: "First"
+            title: "First",
+            zmxSessionID: .generateUUIDv7()
         )
         let arrangementOnlyPane = store.createPane(
-            title: "Arrangement Only"
+            title: "Arrangement Only",
+            zmxSessionID: .generateUUIDv7()
         )
         let layout = Layout(paneId: firstPane.id)
             .inserting(
@@ -302,7 +223,8 @@ struct WorkspaceSQLiteStoreBridgeTests {
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
         let sharedPane = store.createPane(
-            title: "Shared"
+            title: "Shared",
+            zmxSessionID: .generateUUIDv7()
         )
         let firstTab = Tab(paneId: sharedPane.id, name: "First")
         let secondTab = Tab(paneId: sharedPane.id, name: "Second")
@@ -327,9 +249,17 @@ struct WorkspaceSQLiteStoreBridgeTests {
         let arrangementId = UUID()
         let tabId = UUID()
         let repoPath = URL(filePath: "/tmp/agent-studio-restore-repo")
+        let storedZmxSessionText = "existing-opaque-zmx-session-id"
+        let storedZmxSessionID = try #require(ZmxSessionID(restoring: storedZmxSessionText))
         let pane = Pane(
             id: paneId,
-            content: .terminal(.init(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                .init(
+                    provider: .zmx,
+                    lifetime: .persistent,
+                    zmxSessionID: storedZmxSessionID
+                )
+            ),
             metadata: PaneMetadata(
                 paneId: PaneId(uuid: paneId),
                 launchDirectory: repoPath,
@@ -399,6 +329,10 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(restoredStore.windowMemoryAtom.windowFrame == CGRect(x: 1, y: 2, width: 800, height: 600))
         #expect(restoredStore.repositoryTopologyAtom.repos.single?.id == repoId)
         #expect(restoredStore.paneAtom.pane(paneId)?.title == "Restored SQLite Pane")
+        #expect(
+            restoredStore.paneAtom.pane(paneId)?.terminalState?.zmxSessionID.rawValue
+                == storedZmxSessionText
+        )
         #expect(restoredStore.tabLayoutAtom.activeTabId == tabId)
         #expect(restoredStore.tabLayoutAtom.tab(tabId)?.activeArrangementId == arrangementId)
         #expect(!restoredStore.isDirty)
@@ -522,7 +456,13 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(persistor.ensureDirectory())
         let createdAt = Date(timeIntervalSince1970: 1_700_000_300)
         let pane = Pane(
-            content: .terminal(.init(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                .init(
+                    provider: .zmx,
+                    lifetime: .persistent,
+                    zmxSessionID: .generateUUIDv7()
+                )
+            ),
             metadata: .init(
                 createdAt: createdAt,
                 title: "Legacy Pane"

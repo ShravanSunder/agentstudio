@@ -69,48 +69,29 @@ struct WorkspaceNewPaneTabIDs: Equatable, Sendable {
     }
 }
 
-enum WorkspaceResolvedTopLevelZmxAnchor: Equatable, Sendable {
-    case worktree(repoStableKey: String, worktreeStableKey: String)
-    case floating(launchDirectory: URL)
-}
-
 enum WorkspaceResolvedPaneContent: Equatable, Sendable {
-    case zmxTerminal(lifetime: SessionLifetime, anchor: WorkspaceResolvedTopLevelZmxAnchor)
-    case ghosttyTerminal(lifetime: SessionLifetime)
+    case zmxTerminal(lifetime: SessionLifetime, zmxSessionID: ZmxSessionID)
+    case ghosttyTerminal(lifetime: SessionLifetime, zmxSessionID: ZmxSessionID)
     case webview(WebviewState)
     case bridgePanel(BridgePaneState)
     case codeViewer(CodeViewerState)
 
-    func paneContent(for paneID: PaneId) -> PaneContent {
+    func paneContent(for _: PaneId) -> PaneContent {
         switch self {
-        case .zmxTerminal(let lifetime, let anchor):
-            let sessionID: String
-            switch anchor {
-            case .worktree(let repoStableKey, let worktreeStableKey):
-                sessionID = ZmxBackend.sessionId(
-                    repoStableKey: repoStableKey,
-                    worktreeStableKey: worktreeStableKey,
-                    paneId: paneID.uuid
-                )
-            case .floating(let launchDirectory):
-                sessionID = ZmxBackend.floatingSessionId(
-                    launchDirectory: launchDirectory,
-                    paneId: paneID.uuid
-                )
-            }
+        case .zmxTerminal(let lifetime, let zmxSessionID):
             return .terminal(
                 TerminalState(
                     provider: .zmx,
                     lifetime: lifetime,
-                    zmxSessionId: sessionID
+                    zmxSessionID: zmxSessionID
                 )
             )
-        case .ghosttyTerminal(let lifetime):
+        case .ghosttyTerminal(let lifetime, let zmxSessionID):
             return .terminal(
                 TerminalState(
                     provider: .ghostty,
                     lifetime: lifetime,
-                    zmxSessionId: nil
+                    zmxSessionID: zmxSessionID
                 )
             )
         case .webview(let state):

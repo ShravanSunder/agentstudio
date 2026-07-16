@@ -134,15 +134,6 @@ final class SessionConfigurationTests {
         #expect(config.healthCheckInterval == 30.0)
     }
 
-    @Test
-
-    func test_sessionRestoreDetect_usesExistingSessionsOnlyHiddenRestorePolicy() {
-        let config = SessionConfiguration.detect(environment: [:])
-
-        #expect(config.shouldRestoreHiddenPane(hasExistingSession: true))
-        #expect(!config.shouldRestoreHiddenPane(hasExistingSession: false))
-    }
-
     // MARK: - zmxDir
 
     @Test

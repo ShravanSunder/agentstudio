@@ -248,6 +248,7 @@ struct WorkspaceLauncherProjectorTests {
             let pane = store.paneAtom.createPane(
                 launchDirectory: worktree.path,
                 title: "Terminal",
+                zmxSessionID: .generateUUIDv7(),
                 facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
             )
             store.tabLayoutAtom.appendTab(Tab(paneId: pane.id))

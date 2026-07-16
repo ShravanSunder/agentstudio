@@ -173,7 +173,7 @@ private struct SnapshotItemFixture {
     let paneGraph = PaneGraphState(
         pane: Pane(
             id: UUID(uuidString: "01900000-0000-7000-8000-000000000006")!,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(title: "Snapshot fixture"),
             kind: .layout(drawer: Drawer())
         )

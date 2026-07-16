@@ -1,7 +1,15 @@
 # Drawer Restore And Reconnect Invariants
 
+> **SUPERSEDED — DO NOT IMPLEMENT.** This draft's restore-time graph repair and
+> zmx anchor reconciliation/fallback model conflicts with the current strict
+> restore contract in [Session Lifecycle Architecture](../architecture/session_lifecycle.md).
+> Restore is strict SQLite decode → one composition apply → activation → exact
+> stored opaque `ZmxSessionID` attach, with no normalization, repair, discovery,
+> adoption, inference, backfill, fallback, or write. The remainder is retained
+> only as non-normative historical problem evidence.
+
 Date: 2026-06-29
-Status: draft spec
+Historical status: superseded draft
 Scope: close-tab undo restore and cold app restart restore for drawer panes
 
 ## Product Intent

@@ -176,7 +176,9 @@ struct InboxNotificationRouterPayloadTests {
         )
         let pane = Pane(
             id: paneId.uuid,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: metadata
         )
         fixture.paneAtom.addPane(pane)

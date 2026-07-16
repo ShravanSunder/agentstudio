@@ -19,7 +19,7 @@ struct WorkspaceSQLiteStoreLegacySourceImportTests {
         #expect(persistor.ensureDirectory())
         let createdAt = Date(timeIntervalSince1970: 1_700_000_410)
         let pane = Pane(
-            content: .terminal(.init(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(.init(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: .init(
                 launchDirectory: launchDirectory,
                 createdAt: createdAt,

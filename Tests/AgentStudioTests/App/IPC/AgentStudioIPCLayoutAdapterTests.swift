@@ -135,7 +135,11 @@ struct AgentStudioIPCLayoutAdapterTests {
     func drawerMethodsRejectDrawerChildHandlesAsParents() throws {
         let store = makeIPCLayoutWorkspaceStore()
         let parentPane = store.createPane(title: "Parent")
-        let drawerPane = store.paneAtom.addDrawerPane(to: parentPane.id, parentFallbackCWD: nil)
+        let drawerPane = store.paneAtom.addDrawerPane(
+            to: parentPane.id,
+            parentFallbackCWD: nil,
+            zmxSessionID: .generateUUIDv7()
+        )
         let tab = makeTab(paneIds: [parentPane.id], activePaneId: parentPane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)

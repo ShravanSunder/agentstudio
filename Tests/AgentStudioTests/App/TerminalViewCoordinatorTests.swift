@@ -190,46 +190,4 @@ struct WorkspaceSurfaceCoordinatorViewFactoryTests {
         #expect(viewRegistry.registeredPaneIds.isEmpty)
     }
 
-    @Test("floating zmx restore uses drawer session IDs for drawer panes")
-    func floatingZmxRestoreSessionId_drawerPane_usesDrawerSessionId() {
-        let parentPaneId = UUIDv7.generate()
-        let drawerPaneId = UUIDv7.generate()
-        let pane = Pane(
-            id: drawerPaneId,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
-            metadata: PaneMetadata(
-                launchDirectory: URL(fileURLWithPath: "/Users/test"),
-                title: "Drawer"
-            ),
-            kind: .drawerChild(parentPaneId: parentPaneId)
-        )
-
-        let sessionId = WorkspaceSurfaceCoordinator.floatingZmxRestoreSessionId(
-            for: pane,
-            launchDirectory: URL(fileURLWithPath: "/Users/test")
-        )
-
-        #expect(sessionId == ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId))
-    }
-
-    @Test("floating zmx restore uses floating session IDs for top-level floating panes")
-    func floatingZmxRestoreSessionId_topLevelFloatingPane_usesFloatingSessionId() {
-        let paneId = UUIDv7.generate()
-        let launchDirectory = URL(fileURLWithPath: "/Users/test/project")
-        let pane = Pane(
-            id: paneId,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
-            metadata: PaneMetadata(
-                launchDirectory: launchDirectory,
-                title: "Floating"
-            )
-        )
-
-        let sessionId = WorkspaceSurfaceCoordinator.floatingZmxRestoreSessionId(
-            for: pane,
-            launchDirectory: launchDirectory
-        )
-
-        #expect(sessionId == ZmxBackend.floatingSessionId(launchDirectory: launchDirectory, paneId: paneId))
-    }
 }
