@@ -476,8 +476,8 @@ struct RepoExplorerReadModelTests {
         #expect(placementTexts == ["Pane 1", "Pane 2 active"])
     }
 
-    @Test("pane and tab rows do not use source-family checkout colors")
-    func paneAndTabRowsDoNotUseSourceFamilyCheckoutColors() throws {
+    @Test("pane and tab rows preserve automatic repo checkout colors")
+    func paneAndTabRowsPreserveAutomaticRepoCheckoutColors() throws {
         let firstRepoId = UUID()
         let secondRepoId = UUID()
         let firstWorktree = worktree(repoId: firstRepoId, name: "first")
@@ -548,12 +548,9 @@ struct RepoExplorerReadModelTests {
         let repoRow = try #require(
             repoProjection.worktreeRowsByGroupId["repo:\(secondRepoId.uuidString)"]?.first
         )
-        let placementGroupRowIconColorHex = "#8E8E93"
         #expect(repoRow.checkoutColorHex == expectedSecondRepoColor)
-        #expect(paneRow.checkoutColorHex != expectedSecondRepoColor)
-        #expect(tabRow.checkoutColorHex != expectedSecondRepoColor)
-        #expect(paneRow.checkoutColorHex == placementGroupRowIconColorHex)
-        #expect(tabRow.checkoutColorHex == placementGroupRowIconColorHex)
+        #expect(paneRow.checkoutColorHex == expectedSecondRepoColor)
+        #expect(tabRow.checkoutColorHex == expectedSecondRepoColor)
     }
 
     private func repo(

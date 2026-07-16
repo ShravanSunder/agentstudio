@@ -198,8 +198,8 @@ struct InboxNotificationSidebarViewTests {
         )
     }
 
-    @Test("mounted inbox sidebar delete menu replaces the clear button")
-    func mountedInboxSidebarDeleteMenuReplacesClearButton() async throws {
+    @Test("mounted inbox sidebar places delete menu before rightmost grouping control")
+    func mountedInboxSidebarPlacesDeleteMenuBeforeRightmostGroupingControl() async throws {
         let router = MockAppCommandRouter()
         router.appCommands = [.clearReadInboxNotifications]
         try await withIsolatedCommandDispatcher(
@@ -257,6 +257,10 @@ struct InboxNotificationSidebarViewTests {
                         in: hostingView,
                         identifier: "inboxSidebarSortButtonFrame"
                     ),
+                    let groupingButton = inboxSidebarDescendant(
+                        in: hostingView,
+                        identifier: "inboxSidebarGroupingButtonFrame"
+                    ),
                     let deleteMenuAccessibleTarget = inboxSidebarAccessibleElement(
                         in: hostingView,
                         identifier: "inboxSidebarDeleteMenu"
@@ -269,12 +273,15 @@ struct InboxNotificationSidebarViewTests {
                 let toolbarRowFrame = toolbarRow.convert(toolbarRow.bounds, to: hostingView)
                 let deleteMenuFrame = deleteMenuView.convert(deleteMenuView.bounds, to: hostingView)
                 let sortButtonFrame = sortButton.convert(sortButton.bounds, to: hostingView)
+                let groupingButtonFrame = groupingButton.convert(groupingButton.bounds, to: hostingView)
 
                 #expect(deleteMenuFrame.width > 0)
                 #expect(deleteMenuFrame.height > 0)
-                #expect(deleteMenuFrame.midX > searchRowFrame.midX)
-                #expect(deleteMenuFrame.maxX <= searchRowFrame.maxX)
-                #expect(sortButtonFrame.midX > toolbarRowFrame.midX)
+                #expect(abs(deleteMenuFrame.midY - toolbarRowFrame.midY) < 2)
+                #expect(deleteMenuFrame.midX < groupingButtonFrame.midX)
+                #expect(groupingButtonFrame.maxX <= toolbarRowFrame.maxX)
+                #expect(deleteMenuFrame.midX < sortButtonFrame.midX)
+                #expect(searchRowFrame.width > toolbarRowFrame.width * 0.9)
 
                 pressInboxSidebarAccessibleElement(deleteMenuAccessibleTarget)
 

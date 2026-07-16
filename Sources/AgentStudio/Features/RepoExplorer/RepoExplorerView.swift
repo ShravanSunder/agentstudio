@@ -346,40 +346,37 @@ struct RepoExplorerView: View {
                 onToggle: repoExplorerPrefs.toggleSortOrder
             )
 
-            SidebarToolbarActionButton(
+            SidebarToolbarDivider()
+
+            SidebarToolbarGroupingButton(
                 label: groupingAction.label,
+                selectionLabel: repoExplorerPrefs.groupingMode.title,
                 accessibilityIdentifier: "repoSidebarGroupingButton",
                 tooltipValue: groupingAction.controlTooltipRenderValue(
                     provenance: .localAction(rawValue: "groupRepoExplorerWorktrees"),
                     textOverride: "Group"
                 ),
-                icon: repoExplorerPrefs.groupingMode.icon,
+                isOpen: groupingMenuOpen,
                 tooltipTarget: RepoSidebarToolbarTooltipTarget.grouping,
                 tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
+                frameAccessibilityIdentifier: "repoSidebarGroupingButtonFrame",
                 onHover: { updateTooltipTarget(.grouping, isHovered: $0) },
                 action: {
                     groupingMenuOpen.toggle()
                 }
             )
             .popover(isPresented: $groupingMenuOpen) {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(RepoExplorerGroupingMode.allCases, id: \.self) { candidate in
-                        Button {
-                            repoExplorerPrefs.setGroupingMode(candidate)
-                            groupingMenuOpen = false
-                        } label: {
-                            HStack {
-                                Image(systemName: repoExplorerPrefs.groupingMode == candidate ? "checkmark" : "")
-                                    .frame(width: 12)
-                                candidate.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
-                                    .frame(width: AppStyles.General.Icon.compact)
-                                Text(candidate.title)
-                            }
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                }
-                .padding(8)
+                SidebarGroupingPopover(
+                    items: RepoExplorerGroupingMode.allCases,
+                    selectedItem: repoExplorerPrefs.groupingMode,
+                    icon: \.icon,
+                    label: \.title,
+                    onSelect: { candidate in
+                        repoExplorerPrefs.setGroupingMode(candidate)
+                        groupingMenuOpen = false
+                    },
+                    onDismiss: { groupingMenuOpen = false }
+                )
             }
         }
         .background(

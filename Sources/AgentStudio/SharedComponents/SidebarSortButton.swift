@@ -17,6 +17,106 @@ struct SidebarToolbarIcon: View {
     }
 }
 
+enum SidebarToolbarControlVisualState: Equatable {
+    case idle
+    case hovered
+    case pressed
+    case active
+    case open
+    case disabled
+
+    static func resolve(
+        isEnabled: Bool,
+        isHovered: Bool,
+        isPressed: Bool,
+        isActive: Bool,
+        isOpen: Bool
+    ) -> Self {
+        guard isEnabled else { return .disabled }
+        if isPressed { return .pressed }
+        if isOpen { return .open }
+        if isActive { return .active }
+        if isHovered { return .hovered }
+        return .idle
+    }
+
+    var fillOpacity: CGFloat {
+        switch self {
+        case .idle, .disabled:
+            return 0
+        case .hovered:
+            return AppStyles.Shell.Sidebar.ToolbarControl.hoverFillOpacity
+        case .pressed:
+            return AppStyles.Shell.Sidebar.ToolbarControl.pressedFillOpacity
+        case .active, .open:
+            return AppStyles.Shell.Sidebar.ToolbarControl.activeFillOpacity
+        }
+    }
+}
+
+struct SidebarToolbarButtonStyle: ButtonStyle {
+    var isActive = false
+    var isOpen = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        SidebarToolbarButtonStyleBody(
+            configuration: configuration,
+            isActive: isActive,
+            isOpen: isOpen
+        )
+    }
+}
+
+private struct SidebarToolbarButtonStyleBody: View {
+    let configuration: ButtonStyle.Configuration
+    let isActive: Bool
+    let isOpen: Bool
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovered = false
+
+    var body: some View {
+        let visualState = SidebarToolbarControlVisualState.resolve(
+            isEnabled: isEnabled,
+            isHovered: isHovered,
+            isPressed: configuration.isPressed,
+            isActive: isActive,
+            isOpen: isOpen
+        )
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.ToolbarControl.cornerRadius)
+                    .fill(Color.primary.opacity(visualState.fillOpacity))
+            )
+            .opacity(isEnabled ? 1 : AppStyles.Shell.Sidebar.ToolbarControl.disabledOpacity)
+            .onHover { isHovered = $0 }
+    }
+}
+
+struct SidebarToolbarMenuLabel: View {
+    let icon: CommandIcon
+    @State private var isHovered = false
+
+    var body: some View {
+        SidebarToolbarIcon(icon: icon)
+            .background(
+                RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.ToolbarControl.cornerRadius)
+                    .fill(
+                        Color.primary.opacity(
+                            isHovered ? AppStyles.Shell.Sidebar.ToolbarControl.hoverFillOpacity : 0
+                        )
+                    )
+            )
+            .onHover { isHovered = $0 }
+    }
+}
+
+struct SidebarToolbarDivider: View {
+    var body: some View {
+        Divider()
+            .frame(height: AppStyles.Shell.Sidebar.ToolbarControl.dividerHeight)
+    }
+}
+
 struct SidebarSortButton<SortValue: Equatable, Icon: View>: View {
     let sortValue: SortValue
     let isReversed: Bool
@@ -31,7 +131,7 @@ struct SidebarSortButton<SortValue: Equatable, Icon: View>: View {
                 .rotationEffect(.degrees(isReversed ? 180 : 0))
                 .animation(.easeInOut(duration: AppStyles.General.Animation.standard), value: sortValue)
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(SidebarToolbarButtonStyle())
         .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier(accessibilityIdentifier)
     }
@@ -215,8 +315,56 @@ struct SidebarToolbarActionButton<TooltipTarget: Hashable>: View {
         Button(action: action) {
             SidebarToolbarIcon(icon: icon, isActive: isActive)
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(SidebarToolbarButtonStyle(isActive: isActive))
         .accessibilityLabel(label)
+        .accessibilityIdentifier(accessibilityIdentifier)
+        .modifier(
+            SidebarToolbarControlDecoration(
+                label: label,
+                tooltipValue: tooltipValue,
+                tooltipTarget: tooltipTarget,
+                tooltipCoordinateSpaceName: tooltipCoordinateSpaceName,
+                frameAccessibilityIdentifier: frameAccessibilityIdentifier,
+                onHover: onHover
+            )
+        )
+    }
+}
+
+struct SidebarToolbarGroupingButton<TooltipTarget: Hashable>: View {
+    let label: String
+    let selectionLabel: String
+    let accessibilityIdentifier: String
+    let tooltipValue: ControlTooltipRenderValue
+    let isOpen: Bool
+    let tooltipTarget: TooltipTarget
+    let tooltipCoordinateSpaceName: String
+    let frameAccessibilityIdentifier: String?
+    let onHover: ((Bool) -> Void)?
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: AppStyles.Shell.Sidebar.ToolbarControl.groupingContentSpacing) {
+                CommandIcon.system(.rectangleGrid1x3)
+                    .swiftUIImage(size: AppStyles.General.Icon.compact)
+                Text(selectionLabel)
+                    .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
+                    .frame(
+                        minWidth: AppStyles.Shell.Sidebar.ToolbarControl.groupingLabelMinimumWidth,
+                        alignment: .leading
+                    )
+                Image(systemName: "chevron.down")
+                    .font(.system(size: AppStyles.Shell.Sidebar.ToolbarControl.groupingChevronSize, weight: .semibold))
+                    .rotationEffect(.degrees(isOpen ? 180 : 0))
+            }
+            .foregroundStyle(isOpen ? Color.accentColor : Color.secondary)
+            .padding(.horizontal, AppStyles.Shell.Sidebar.ToolbarControl.groupingHorizontalPadding)
+            .frame(height: AppStyles.General.Button.compact)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(SidebarToolbarButtonStyle(isOpen: isOpen))
+        .accessibilityLabel("\(label): \(selectionLabel)")
         .accessibilityIdentifier(accessibilityIdentifier)
         .modifier(
             SidebarToolbarControlDecoration(

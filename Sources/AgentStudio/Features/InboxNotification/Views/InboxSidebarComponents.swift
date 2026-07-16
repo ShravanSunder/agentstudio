@@ -88,8 +88,6 @@ struct InboxSidebarRootContainer: View {
                 actions: actions
             )
 
-            Divider()
-
             InboxSidebarContent(
                 sections: sections,
                 focusedField: focusedField,
@@ -185,62 +183,9 @@ struct InboxSidebarHeader: View {
                 }
             )
             .controlHelp(Self.searchTooltipValue)
-        } primaryAction: {
-            Menu {
-                Button("Delete Read", action: actions.onClearReadHistory)
-                Divider()
-                Button("Delete All", role: .destructive, action: actions.onClearAllHistory)
-            } label: {
-                SidebarToolbarIcon(icon: deleteInboxAction.icon)
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(deleteInboxAction.label)
-            .accessibilityIdentifier("inboxSidebarDeleteMenu")
-            .controlHelp(
-                Self.toolbarTooltipValue(
-                    for: .delete,
-                    rowStateFilter: rowStateFilter,
-                    contentMode: contentMode
-                )
-            )
-            .simultaneousGesture(
-                TapGesture().onEnded {
-                    suppressDeleteTooltipUntilHoverExit = true
-                    hoveredTooltipTarget = nil
-                }
-            )
-            .onHover { updateDeleteTooltipTarget(isHovered: $0) }
-            .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.delete, in: Self.tooltipCoordinateSpaceName)
-            .fixedSize()
-            .background(
-                AccessibilityLabelBridge(
-                    identifier: "inboxSidebarDeleteMenu",
-                    label: deleteInboxAction.label
-                )
-            )
         } toolbarRow: {
             HStack(spacing: AppStyles.General.Spacing.standard) {
                 Spacer(minLength: 0)
-
-                SidebarToolbarSortButton(
-                    sortValue: sort,
-                    isReversed: sort == .oldestFirst,
-                    label: toggleSortSpec.label,
-                    accessibilityIdentifier: "inboxSidebarSortButton",
-                    tooltipValue: Self.toolbarTooltipValue(
-                        for: .sort,
-                        rowStateFilter: rowStateFilter,
-                        contentMode: contentMode
-                    ),
-                    icon: toggleSortSpec.icon,
-                    tooltipTarget: InboxSidebarToolbarTooltipTarget.sort,
-                    tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
-                    frameAccessibilityIdentifier: "inboxSidebarSortButtonFrame",
-                    onHover: { updateTooltipTarget(.sort, isHovered: $0) },
-                    onToggle: actions.onToggleSort
-                )
 
                 SidebarToolbarActionButton(
                     label: rowStateAction.label,
@@ -274,41 +219,58 @@ struct InboxSidebarHeader: View {
                     action: actions.onCycleContentMode
                 )
 
-                SidebarToolbarActionButton(
+                deleteMenu
+
+                SidebarToolbarSortButton(
+                    sortValue: sort,
+                    isReversed: sort == .oldestFirst,
+                    label: toggleSortSpec.label,
+                    accessibilityIdentifier: "inboxSidebarSortButton",
+                    tooltipValue: Self.toolbarTooltipValue(
+                        for: .sort,
+                        rowStateFilter: rowStateFilter,
+                        contentMode: contentMode
+                    ),
+                    icon: toggleSortSpec.icon,
+                    tooltipTarget: InboxSidebarToolbarTooltipTarget.sort,
+                    tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
+                    frameAccessibilityIdentifier: "inboxSidebarSortButtonFrame",
+                    onHover: { updateTooltipTarget(.sort, isHovered: $0) },
+                    onToggle: actions.onToggleSort
+                )
+
+                SidebarToolbarDivider()
+
+                SidebarToolbarGroupingButton(
                     label: groupingAction.label,
+                    selectionLabel: grouping.commandLabel,
                     accessibilityIdentifier: "inboxSidebarGroupingButton",
                     tooltipValue: Self.toolbarTooltipValue(
                         for: .grouping,
                         rowStateFilter: rowStateFilter,
                         contentMode: contentMode
                     ),
-                    icon: grouping.icon,
+                    isOpen: groupingMenuOpen,
                     tooltipTarget: InboxSidebarToolbarTooltipTarget.grouping,
                     tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
+                    frameAccessibilityIdentifier: "inboxSidebarGroupingButtonFrame",
                     onHover: { updateTooltipTarget(.grouping, isHovered: $0) },
                     action: {
                         groupingMenuOpen.toggle()
                     }
                 )
                 .popover(isPresented: $groupingMenuOpen) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(InboxNotificationGrouping.allCases, id: \.self) { candidate in
-                            Button {
-                                actions.onSelectGrouping(candidate)
-                                groupingMenuOpen = false
-                            } label: {
-                                HStack {
-                                    Image(systemName: grouping == candidate ? "checkmark" : "")
-                                        .frame(width: 12)
-                                    candidate.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
-                                        .frame(width: AppStyles.General.Icon.compact)
-                                    Text(groupingLabel(candidate))
-                                }
-                            }
-                            .buttonStyle(.borderless)
-                        }
-                    }
-                    .padding(8)
+                    SidebarGroupingPopover(
+                        items: InboxNotificationGrouping.allCases,
+                        selectedItem: grouping,
+                        icon: \.icon,
+                        label: \.commandLabel,
+                        onSelect: { candidate in
+                            actions.onSelectGrouping(candidate)
+                            groupingMenuOpen = false
+                        },
+                        onDismiss: { groupingMenuOpen = false }
+                    )
                 }
             }
             .background(
@@ -354,6 +316,43 @@ struct InboxSidebarHeader: View {
             AccessibilityLabelBridge(
                 identifier: "inboxSidebarSearchRow",
                 label: "Inbox search row"
+            )
+        )
+    }
+
+    private var deleteMenu: some View {
+        Menu {
+            Button("Delete Read", action: actions.onClearReadHistory)
+            Divider()
+            Button("Delete All", role: .destructive, action: actions.onClearAllHistory)
+        } label: {
+            SidebarToolbarMenuLabel(icon: deleteInboxAction.icon)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(deleteInboxAction.label)
+        .accessibilityIdentifier("inboxSidebarDeleteMenu")
+        .controlHelp(
+            Self.toolbarTooltipValue(
+                for: .delete,
+                rowStateFilter: rowStateFilter,
+                contentMode: contentMode
+            )
+        )
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                suppressDeleteTooltipUntilHoverExit = true
+                hoveredTooltipTarget = nil
+            }
+        )
+        .onHover { updateDeleteTooltipTarget(isHovered: $0) }
+        .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.delete, in: Self.tooltipCoordinateSpaceName)
+        .fixedSize()
+        .background(
+            AccessibilityLabelBridge(
+                identifier: "inboxSidebarDeleteMenu",
+                label: deleteInboxAction.label
             )
         )
     }
@@ -442,19 +441,6 @@ struct InboxSidebarHeader: View {
                 textOverride: "Group",
                 shortcutText: InboxSidebarShortcutCatalog.toggleGroupingMenu.displayText
             )
-        }
-    }
-
-    private func groupingLabel(_ grouping: InboxNotificationGrouping) -> String {
-        switch grouping {
-        case .none:
-            return "None"
-        case .byRepo:
-            return "By Repo"
-        case .byPane:
-            return "By Pane"
-        case .byTab:
-            return "By Tab"
         }
     }
 

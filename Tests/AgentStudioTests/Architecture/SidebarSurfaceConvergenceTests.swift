@@ -104,4 +104,35 @@ struct SidebarSurfaceConvergenceTests {
         #expect(inboxSource.contains("SidebarToolbarSortButton("))
         #expect(sharedSource.contains("struct SidebarToolbarSortButton"))
     }
+
+    @Test("repo and inbox grouping controls share the labeled trigger and selectable popover")
+    func repoAndInboxGroupingControlsShareLabeledTriggerAndSelectablePopover() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let repoSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
+            encoding: .utf8
+        )
+        let inboxSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/InboxNotification/Views/InboxSidebarComponents.swift"),
+            encoding: .utf8
+        )
+        let toolbarSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/SharedComponents/SidebarSortButton.swift"),
+            encoding: .utf8
+        )
+        let popoverSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/SharedComponents/SelectablePopover/SidebarGroupingPopover.swift"),
+            encoding: .utf8
+        )
+
+        #expect(repoSource.contains("SidebarToolbarGroupingButton("))
+        #expect(inboxSource.contains("SidebarToolbarGroupingButton("))
+        #expect(repoSource.contains("SidebarGroupingPopover("))
+        #expect(inboxSource.contains("SidebarGroupingPopover("))
+        #expect(!inboxSource.contains(")\n\n            Divider()\n\n            InboxSidebarContent("))
+        #expect(toolbarSource.contains("struct SidebarToolbarGroupingButton"))
+        #expect(popoverSource.contains("SelectablePopoverKeyboardBridge("))
+    }
 }

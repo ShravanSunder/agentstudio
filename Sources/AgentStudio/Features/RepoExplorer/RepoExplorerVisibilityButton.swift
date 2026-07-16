@@ -10,23 +10,16 @@ struct RepoExplorerVisibilityButton: View {
 
     var body: some View {
         let actionSpec = actionSpec
-        Button(action: onToggle) {
-            actionSpec.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
-                .frame(
-                    width: AppStyles.General.Button.compact,
-                    height: AppStyles.General.Button.compact
-                )
-                .foregroundStyle(Color.secondary)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .accessibilityLabel(actionSpec.label)
-        .accessibilityIdentifier("repoSidebarVisibilityButton")
-        .controlHelp(
-            actionSpec.controlTooltipRenderValue(
+        SidebarToolbarActionButton(
+            label: actionSpec.label,
+            accessibilityIdentifier: "repoSidebarVisibilityButton",
+            tooltipValue: actionSpec.controlTooltipRenderValue(
                 provenance: .localAction(rawValue: "toggleRepoSidebarFavoritesOnly"),
                 textOverride: actionSpec.label
-            )
+            ),
+            icon: actionSpec.icon,
+            isActive: isFavoritesOnly,
+            action: onToggle
         )
     }
 }

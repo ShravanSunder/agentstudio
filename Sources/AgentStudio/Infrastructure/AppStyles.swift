@@ -151,6 +151,24 @@ enum AppStyles {
                 static let contentPadding: CGFloat = 8
             }
 
+            enum ToolbarControl {
+                static let cornerRadius = AppStyles.General.CornerRadius.button
+                static let foregroundOpacity = AppStyles.General.Foreground.secondary
+                static let disabledOpacity = AppStyles.General.Foreground.dim
+                static let hoverFillOpacity = AppStyles.General.Fill.hover
+                static let pressedFillOpacity = AppStyles.General.Fill.pressed
+                static let activeFillOpacity = AppStyles.General.Fill.active
+                static let groupingContentSpacing = AppStyles.General.Spacing.tight
+                static let groupingHorizontalPadding = AppStyles.General.Spacing.standard
+                static let groupingLabelMinimumWidth: CGFloat = 32
+                static let groupingChevronSize: CGFloat = 8
+                static let dividerHeight: CGFloat = 16
+                static let popoverRowCornerRadius = AppStyles.General.CornerRadius.button
+                static let popoverRowHorizontalPadding = AppStyles.General.Spacing.standard
+                static let popoverRowVerticalPadding = AppStyles.General.Spacing.tight
+                static let popoverMinimumWidth: CGFloat = 116
+            }
+
             static let groupChildRowLeadingInset: CGFloat =
                 listRowLeadingInset
                 + AppStyles.General.Typography.textBase

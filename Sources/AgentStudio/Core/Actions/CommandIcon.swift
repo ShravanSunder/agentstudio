@@ -60,6 +60,7 @@ enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
     case rectangle3Group = "rectangle.3.group"
     case rectangle3GroupBubble = "rectangle.3.group.bubble"
     case rectangle3GroupFill = "rectangle.3.group.fill"
+    case rectangleGrid1x3 = "rectangle.grid.1x3"
     case rectangleBottomhalfFilled = "rectangle.bottomhalf.filled"
     case rectangleBottomhalfInsetFilled = "rectangle.bottomhalf.inset.filled"
     case rectangleExpandVertical = "rectangle.expand.vertical"
