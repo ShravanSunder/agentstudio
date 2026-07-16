@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
-import type { BridgeRPCCommand } from '../../bridge/bridge-rpc-client.js';
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
+import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 
 describe('Bridge comm worker product command sender', () => {
@@ -28,8 +28,11 @@ describe('Bridge comm worker product command sender', () => {
 		});
 
 		// Act
-		await controller.send({ method: 'review.markFileViewed', params: { fileId: 'item-1' } });
-		await controller.send({
+		await controller.sendProductControl({
+			method: 'review.markFileViewed',
+			params: { fileId: 'item-1' },
+		});
+		await controller.sendProductControl({
 			method: 'bridge.intakeReady',
 			params: {
 				protocolId: 'review',
@@ -37,8 +40,8 @@ describe('Bridge comm worker product command sender', () => {
 				streamId: 'review-stream',
 			},
 		});
-		await controller.send(activeModeCommand('review'));
-		await controller.send(activeModeCommand('file'));
+		await controller.sendProductControl(activeModeCommand('review'));
+		await controller.sendProductControl(activeModeCommand('file'));
 
 		// Assert
 		expect(calls).toEqual([
@@ -87,7 +90,7 @@ describe('Bridge comm worker product command sender', () => {
 
 		// Act / Assert
 		await expect(
-			controller.send({
+			controller.sendProductControl({
 				...activeModeCommand('review'),
 				params: {
 					...activeModeCommand('review').params,
@@ -101,7 +104,7 @@ describe('Bridge comm worker product command sender', () => {
 
 function activeModeCommand(
 	mode: 'file' | 'review',
-): Extract<BridgeRPCCommand, { readonly method: 'bridge.activeViewerMode.update' }> {
+): Extract<BridgeProductControlCommand, { readonly method: 'bridge.activeViewerMode.update' }> {
 	return {
 		method: 'bridge.activeViewerMode.update',
 		params: {

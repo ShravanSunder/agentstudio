@@ -1,5 +1,5 @@
-import type { BridgeRPCCommand } from '../../bridge/bridge-rpc-client.js';
 import type { BridgeProductCallResult } from './bridge-product-call-contracts.js';
+import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
 import {
 	BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT,
 	type BridgeProductSubscriptionEvent,
@@ -7,6 +7,7 @@ import {
 } from './bridge-product-subscription-contracts.js';
 import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import type { BridgeWorkerMetadataInterestRequest } from './bridge-worker-contracts.js';
 
 type FileMetadataSubscription = BridgeProductSubscription<'file.metadata'>;
 type FileMetadataEvent = BridgeProductSubscriptionEvent<'file.metadata'>;
@@ -111,9 +112,7 @@ export class BridgeCommWorkerProductController {
 
 	ensureReviewMetadata(): void {
 		if (this.#reviewSubscription !== null) return;
-		const interests = reviewMetadataInterestsInPriorityOrder(
-			this.#reviewInterestItemIdsByLane,
-		);
+		const interests = reviewMetadataInterestsInPriorityOrder(this.#reviewInterestItemIdsByLane);
 		const workerDerivationEpoch = this.#productTransport.bumpWorkerDerivationEpoch('review');
 		this.#reviewWorkerDerivationEpoch = workerDerivationEpoch;
 		this.#reviewDesiredInterestSignature = JSON.stringify(interests);
@@ -130,7 +129,7 @@ export class BridgeCommWorkerProductController {
 		}
 	}
 
-	async send(command: BridgeRPCCommand): Promise<unknown> {
+	async sendProductControl(command: BridgeProductControlCommand): Promise<unknown> {
 		switch (command.method) {
 			case 'review.markFileViewed':
 				return await this.#productTransport.call('review.markFileViewed', {
@@ -138,24 +137,17 @@ export class BridgeCommWorkerProductController {
 				});
 			case 'bridge.activeViewerMode.update':
 				return await this.#sendActiveViewerModeUpdate(command);
-			case 'bridge.metadata_interest.update':
-				return await this.#updateReviewMetadataInterests(command.params);
 			case 'bridge.intakeReady':
 				return await this.#productTransport.call('review.intake.ready', {
 					reason: command.params.reason ?? null,
 					streamId: command.params.streamId ?? null,
 				});
 			default:
-				return assertNeverBridgeRPCCommand(command);
+				return assertNeverBridgeProductControlCommand(command);
 		}
 	}
 
-	async #updateReviewMetadataInterests(
-		request: Extract<
-			BridgeRPCCommand,
-			{ readonly method: 'bridge.metadata_interest.update' }
-		>['params'],
-	): Promise<void> {
+	async updateReviewMetadataInterests(request: BridgeWorkerMetadataInterestRequest): Promise<void> {
 		this.#replaceReviewInterestLane(request.lane, request.itemIds ?? []);
 		const interests = reviewMetadataInterestsInPriorityOrder(this.#reviewInterestItemIdsByLane);
 		if (this.#reviewSubscription === null) {
@@ -392,7 +384,10 @@ export class BridgeCommWorkerProductController {
 	}
 
 	async #sendActiveViewerModeUpdate(
-		command: Extract<BridgeRPCCommand, { readonly method: 'bridge.activeViewerMode.update' }>,
+		command: Extract<
+			BridgeProductControlCommand,
+			{ readonly method: 'bridge.activeViewerMode.update' }
+		>,
 	): Promise<unknown> {
 		const expectedProtocol = command.params.mode === 'review' ? 'review' : 'worktree-file';
 		if (
@@ -482,7 +477,7 @@ function uniqueFileDemandPaths(paths: readonly string[]): readonly string[] {
 	return [...new Set(paths)];
 }
 
-function assertNeverBridgeRPCCommand(command: never): never {
+function assertNeverBridgeProductControlCommand(command: never): never {
 	throw new Error(`Unhandled Bridge product command: ${JSON.stringify(command)}`);
 }
 

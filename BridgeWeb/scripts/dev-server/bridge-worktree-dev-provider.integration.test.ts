@@ -68,9 +68,7 @@ describe('Bridge worktree dev provider', () => {
 			expect(sourceDescriptor.lineCount).toBeGreaterThan(0);
 			expect(deletedDescriptor.virtualizedExtentKind).toBe('unavailable');
 			expect(deletedDescriptor.isBinary).toBe(false);
-			expect(sourceDescriptor.contentDescriptor.descriptor.resourceUrl).toContain(
-				'agentstudio://resource/worktree-file/worktree.fileContent/',
-			);
+			expect(sourceDescriptor.contentHandle).toMatch(/^dev-file-/u);
 			expect(surfaceJson).not.toContain('new docs body');
 			expect(surfaceJson).not.toContain('export const value = 2');
 
@@ -145,9 +143,7 @@ describe('Bridge worktree dev provider', () => {
 			).toBeUndefined();
 			expect(descriptorFrame.frameKind).toBe('worktree.fileDescriptor');
 			expect(descriptorFrame.descriptor.path).toBe('src/app.ts');
-			expect(descriptorFrame.descriptor.contentDescriptor.descriptor.resourceKind).toBe(
-				'worktree.fileContent',
-			);
+			expect(descriptorFrame.descriptor.contentHandle).toMatch(/^dev-file-/u);
 			await expect(
 				provider.loadWorktreeFileContent(
 					worktreeFileContentRequestForDescriptor(descriptorFrame.descriptor),
@@ -749,13 +745,9 @@ function renderLineCount(content: string): number {
 function worktreeFileContentRequestForDescriptor(
 	descriptor: WorktreeFileDescriptor,
 ): BridgeWorktreeDevProviderWorktreeFileContentRequest {
-	const identity = descriptor.contentDescriptor.ref.expectedIdentity;
-	if (identity.generation === undefined || identity.cursor === undefined) {
-		throw new Error('Expected Worktree/File descriptor identity generation and cursor');
-	}
 	return {
-		descriptorId: descriptor.contentDescriptor.ref.descriptorId,
-		sourceCursor: identity.cursor,
-		subscriptionGeneration: identity.generation,
+		descriptorId: descriptor.contentHandle,
+		sourceCursor: descriptor.sourceIdentity.sourceCursor,
+		subscriptionGeneration: descriptor.sourceIdentity.subscriptionGeneration,
 	};
 }

@@ -15,7 +15,7 @@ extension AppDelegate {
             let result: BridgeProductStreamFeasibilityDiagnosticResult
             do {
                 let workerAsset = try await BridgeAppAssetStore().load(
-                    relativePath: "assets/bridge-worker-fetch-probe-worker.js"
+                    relativePath: "assets/bridge-product-stream-webkit-feasibility-worker.js"
                 )
                 guard let workerSource = String(data: workerAsset.data, encoding: .utf8) else {
                     recordBridgeProductStreamWebKitFeasibilityResult(

@@ -51,10 +51,10 @@ export default defineConfig([
 	},
 	{
 		...sharedBridgeWebBuildConfig,
-		name: 'bridge-worker-fetch-probe-worker',
+		name: 'bridge-product-stream-webkit-feasibility-worker',
 		entry: {
-			'bridge-worker-fetch-probe-worker':
-				'./src/app/diagnostics/bridge-worker-fetch-probe-worker-entry.ts',
+			'bridge-product-stream-webkit-feasibility-worker':
+				'./src/app/diagnostics/bridge-product-stream-webkit-feasibility-worker-entry.ts',
 		},
 		outputOptions: {
 			codeSplitting: false,

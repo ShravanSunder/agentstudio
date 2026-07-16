@@ -1,9 +1,32 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, test } from 'vitest';
 
 describe('Bridge demand membership cutover source structure', () => {
+	test('legacy feature-resource owners remain deleted', () => {
+		const deletedOwnerPaths = [
+			'../../app/bridge-app-review-demand-telemetry-controller.ts',
+			'../models/bridge-resource-descriptor.ts',
+			'../resources/bridge-resource-registry.ts',
+			'../resources/bridge-resource-url.ts',
+			'../resources/bridge-integrity.ts',
+			'../resources/bridge-resource-stream.ts',
+			'./bridge-resource-executor.ts',
+			'./bridge-content-demand-reconciler.ts',
+			'../../features/review/demand/review-demand-policy.ts',
+			'../../features/review/protocol/review-metadata-frame-builder.ts',
+			'../../review-viewer/content/review-content-demand-telemetry.ts',
+			'../../../scripts/dev-server/bridge-worktree-review-dev-provider.ts',
+		];
+
+		expect(
+			deletedOwnerPaths.filter((relativePath): boolean =>
+				existsSync(fileURLToPath(new URL(relativePath, import.meta.url))),
+			),
+		).toEqual([]);
+	});
+
 	test('main demand reconciler is compile-dead for converted surfaces', () => {
 		const violations = convertedSurfaceSources().flatMap((entry): readonly string[] =>
 			[
@@ -54,7 +77,6 @@ function convertedSurfaceSources(): readonly SourceEntry[] {
 		'../../app/bridge-app-review-render-snapshot-controller.ts',
 		'../../app/bridge-app-review-selection-controller.ts',
 		'../../app/bridge-app-review-navigation-controller.ts',
-		'../../app/bridge-app-review-demand-telemetry-controller.ts',
 		'../../file-viewer/bridge-file-viewer-app.tsx',
 		'../../file-viewer/bridge-file-viewer-render-snapshot-controller.ts',
 		'../../file-viewer/use-bridge-file-viewer-visible-demand-controller.ts',

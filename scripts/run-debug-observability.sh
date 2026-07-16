@@ -702,8 +702,7 @@ elif [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ] ||
   [ "$startup_diagnostic_action" = "bridge-file-view-command-route-observability-smoke" ] ||
   [ "$startup_diagnostic_action" = "bridge-file-view-targeted-route-observability-smoke" ] ||
   [ "$startup_diagnostic_action" = "bridge-review-to-file-view-observability-smoke" ] ||
-  [ "$startup_diagnostic_action" = "bridge-product-paint-correlation" ] ||
-  [ "$startup_diagnostic_action" = "bridge-worker-fetch-scheme-smoke" ]; then
+  [ "$startup_diagnostic_action" = "bridge-product-paint-correlation" ]; then
   trace_tags="app.startup,bridge.performance.*"
 else
   trace_tags="*"

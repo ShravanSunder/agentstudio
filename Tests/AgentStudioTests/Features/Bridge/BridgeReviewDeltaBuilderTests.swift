@@ -291,7 +291,6 @@ private func makeDescriptor(
         role: .head,
         endpointId: "head",
         reviewGeneration: 7,
-        resourceUrl: "agentstudio://resource/review/content/handle-\(itemId)?generation=7",
         contentHash: headContentHash,
         contentHashAlgorithm: "sha256",
         cacheKey: "head:\(itemId):\(headContentHash)",

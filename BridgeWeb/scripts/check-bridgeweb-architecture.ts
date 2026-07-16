@@ -64,7 +64,7 @@ const ignoredDirectoryNames = new Set(['node_modules', 'dist', 'coverage', '.vit
 const maxSourceFileLineCount = 1000;
 const allowedPostMessagePaths = new Set([
 	'src/app/diagnostics/bridge-product-stream-webkit-feasibility-probe.ts',
-	'src/app/diagnostics/bridge-worker-fetch-probe-worker-entry.ts',
+	'src/app/diagnostics/bridge-product-stream-webkit-feasibility-worker-entry.ts',
 	'src/core/comm-worker/bridge-comm-worker-client.ts',
 	'src/core/comm-worker/bridge-comm-worker-entry.ts',
 	'src/core/comm-worker/bridge-pane-comm-worker-session.ts',

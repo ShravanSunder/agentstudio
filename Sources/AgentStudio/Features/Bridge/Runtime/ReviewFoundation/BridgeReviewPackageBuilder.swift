@@ -91,7 +91,7 @@ enum BridgeReviewPackageBuilder {
     ) -> BridgeContentHandle {
         let itemId = itemId(for: changedFile)
         let contentHash = contentHash(for: changedFile, role: role)
-        let handleId = BridgeContentHandleIdentity.handleId(
+        let handleId = BridgeProductContentHandleIdentity.handleId(
             endpointId: endpoint.endpointId,
             itemId: itemId,
             role: role,
@@ -103,10 +103,6 @@ enum BridgeReviewPackageBuilder {
             role: role,
             endpointId: endpoint.endpointId,
             reviewGeneration: reviewGeneration,
-            resourceUrl: BridgeContentHandleIdentity.resourceUrl(
-                handleId: handleId,
-                reviewGeneration: reviewGeneration
-            ),
             contentHash: contentHash,
             contentHashAlgorithm: changedFile.contentHashAlgorithm,
             cacheKey: "\(endpoint.endpointId):\(itemId):\(role.rawValue):\(contentHash)",

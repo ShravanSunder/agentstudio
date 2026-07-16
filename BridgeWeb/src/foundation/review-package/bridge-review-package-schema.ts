@@ -64,7 +64,6 @@ export const bridgeContentHandleSchema = z
 		role: bridgeContentRoleSchema,
 		endpointId: z.string(),
 		reviewGeneration: bridgeReviewGenerationSchema,
-		resourceUrl: z.string(),
 		contentHash: z.string(),
 		contentHashAlgorithm: z.string(),
 		cacheKey: z.string(),

@@ -97,8 +97,6 @@ extension WebKitSerializedTests {
                 telemetryRecorder: recorder
             )
             defer { controller.teardown() }
-            var errorCode: Int?
-            controller.schemeCommandDispatcher.onError = { code, _, _ in errorCode = code }
 
             await controller.recordSwiftTelemetry(
                 name: "performance.bridge.swift.package_build",
@@ -107,14 +105,11 @@ extension WebKitSerializedTests {
                 traceContext: nil,
                 durationMilliseconds: 1
             )
-            await controller.schemeCommandDispatcher.dispatch(
-                json:
-                    #"{"jsonrpc":"2.0","method":"system.bridgeTelemetry","params":{"schemaVersion":1,"scenario":"package_apply_content_fetch_v1","samples":[]}}"#,
-                isBridgeReady: true
-            )
+            let flushResult = try? await controller.flushTelemetryForIPC()
 
-            #expect(controller.schemeCommandDispatcher.telemetryRecorder == nil)
-            #expect(errorCode == -32_601)
+            #expect(controller.telemetrySessionOwner == nil)
+            #expect(flushResult?.kind == .unavailable)
+            #expect(flushResult?.unavailableReason == .disabled)
             #expect(await recorder.samples().isEmpty)
         }
 

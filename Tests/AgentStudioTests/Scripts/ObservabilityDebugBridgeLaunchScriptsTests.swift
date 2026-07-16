@@ -27,16 +27,16 @@ struct ObservabilityDebugBridgeLaunchScriptsTests {
                 "[ \"$startup_diagnostic_action\" = \"bridge-review-to-file-view-observability-smoke\" ] ||"))
         #expect(
             script.contains(
-                "[ \"$startup_diagnostic_action\" = \"bridge-worker-fetch-scheme-smoke\" ]; then"))
+                "[ \"$startup_diagnostic_action\" = \"bridge-product-paint-correlation\" ]; then"))
         #expect(script.contains("trace_tags=\"app.startup,bridge.performance.*\""))
         #expect(script.contains("--env \"AGENTSTUDIO_TRACE_TAGS=$trace_tags\""))
     }
 
-    @Test("debug launcher allows bridge worker fetch scheme smoke trace tags")
-    func debugLauncherAllowsBridgeWorkerFetchSchemeSmokeTraceTags() throws {
+    @Test("debug launcher has no retired feature-resource GET diagnostic")
+    func debugLauncherHasNoRetiredFeatureResourceGetDiagnostic() throws {
         let script = try String(contentsOfFile: "scripts/run-debug-observability.sh", encoding: .utf8)
 
-        #expect(script.contains("bridge-worker-fetch-scheme-smoke"))
+        #expect(!script.contains("bridge-worker-fetch-scheme-smoke"))
         #expect(script.contains("trace_tags=\"app.startup,bridge.performance.*\""))
         #expect(script.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=$startup_diagnostic_action"))
     }

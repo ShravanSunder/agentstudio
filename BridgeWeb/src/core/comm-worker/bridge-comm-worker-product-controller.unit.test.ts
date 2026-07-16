@@ -61,37 +61,25 @@ describe('Bridge comm worker product controller', () => {
 		});
 
 		// Act
-		await controller.send({
-			method: 'bridge.metadata_interest.update',
-			params: {
-				itemIds: ['item-selected'],
-				lane: 'foreground',
-				protocol: 'review',
-			},
+		await controller.updateReviewMetadataInterests({
+			itemIds: ['item-selected'],
+			lane: 'foreground',
+			protocol: 'review',
 		});
-		await controller.send({
-			method: 'bridge.metadata_interest.update',
-			params: {
-				itemIds: ['item-selected', 'item-visible'],
-				lane: 'visible',
-				protocol: 'review',
-			},
+		await controller.updateReviewMetadataInterests({
+			itemIds: ['item-selected', 'item-visible'],
+			lane: 'visible',
+			protocol: 'review',
 		});
-		await controller.send({
-			method: 'bridge.metadata_interest.update',
-			params: {
-				itemIds: [],
-				lane: 'foreground',
-				protocol: 'review',
-			},
+		await controller.updateReviewMetadataInterests({
+			itemIds: [],
+			lane: 'foreground',
+			protocol: 'review',
 		});
-		await controller.send({
-			method: 'bridge.metadata_interest.update',
-			params: {
-				itemIds: [],
-				lane: 'visible',
-				protocol: 'review',
-			},
+		await controller.updateReviewMetadataInterests({
+			itemIds: [],
+			lane: 'visible',
+			protocol: 'review',
 		});
 		const sourceAcceptedEvent = {
 			eventKind: 'review.sourceAccepted',
@@ -155,13 +143,15 @@ describe('Bridge comm worker product controller', () => {
 		});
 
 		// Act
-		await controller.send({
-			method: 'bridge.metadata_interest.update',
-			params: { itemIds: [], lane: 'foreground', protocol: 'review' },
+		await controller.updateReviewMetadataInterests({
+			itemIds: [],
+			lane: 'foreground',
+			protocol: 'review',
 		});
-		await controller.send({
-			method: 'bridge.metadata_interest.update',
-			params: { itemIds: [], lane: 'visible', protocol: 'review' },
+		await controller.updateReviewMetadataInterests({
+			itemIds: [],
+			lane: 'visible',
+			protocol: 'review',
 		});
 
 		// Assert

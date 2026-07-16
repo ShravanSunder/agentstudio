@@ -829,37 +829,8 @@ function legacySource(): WorktreeFileSurfaceSourceIdentity {
 }
 
 function legacyDescriptor(path: string): WorktreeFileDescriptor {
-	const identity = {
-		cursor: sourceCursor,
-		generation: 1,
-		paneId: 'dev-pane',
-		protocol: 'worktree-file' as const,
-		sourceId: 'source-1',
-		streamId: 'worktree-file:dev-pane',
-	};
 	const descriptorId = 'dev-file-descriptor-1';
 	return {
-		contentDescriptor: {
-			descriptor: {
-				content: {
-					encoding: 'utf-8',
-					expectedBytes: 11,
-					maxBytes: 11,
-					mediaType: 'text/typescript',
-				},
-				descriptorId,
-				identity,
-				protocol: 'worktree-file',
-				resourceKind: 'worktree.fileContent',
-				resourceUrl: 'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-1',
-			},
-			ref: {
-				descriptorId,
-				expectedIdentity: identity,
-				expectedProtocol: 'worktree-file',
-				expectedResourceKind: 'worktree.fileContent',
-			},
-		},
 		contentHandle: descriptorId,
 		contentHash: `sha256:${createHash('sha256').update('alpha\nbeta\n').digest('hex')}`,
 		fileExtension: 'ts',

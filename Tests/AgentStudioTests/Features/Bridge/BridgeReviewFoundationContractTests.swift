@@ -19,18 +19,9 @@ struct BridgeReviewFoundationContractTests {
         #expect(package.orderedItemIds == ["item-file-source-1"])
         #expect(package.itemsById["item-file-source-1"]?.fileClass == .source)
         #expect(package.itemsById["item-file-generated-1"]?.isHiddenByDefault == true)
-        #expect(
-            package.itemsById["item-file-source-1"]?.contentRoles.base?.resourceUrl
-                == "agentstudio://resource/review/content/handle-source-base?generation=42"
-        )
-        #expect(
-            package.itemsById["item-file-source-1"]?.contentRoles.head?.resourceUrl
-                == "agentstudio://resource/review/content/handle-source-head?generation=42"
-        )
-        #expect(
-            package.itemsById["item-file-generated-1"]?.contentRoles.head?.resourceUrl
-                == "agentstudio://resource/review/content/handle-generated-head?generation=42"
-        )
+        #expect(package.itemsById["item-file-source-1"]?.contentRoles.base?.handleId == "handle-source-base")
+        #expect(package.itemsById["item-file-source-1"]?.contentRoles.head?.handleId == "handle-source-head")
+        #expect(package.itemsById["item-file-generated-1"]?.contentRoles.head?.handleId == "handle-generated-head")
         try assertRoundTrip(package)
     }
 
@@ -86,7 +77,6 @@ struct BridgeReviewFoundationContractTests {
             role: .base,
             endpointId: "baseline",
             reviewGeneration: 7,
-            resourceUrl: "agentstudio://resource/review/content/handle-source-base?generation=7",
             contentHash: bridgeSHA256ContentHash("old source"),
             contentHashAlgorithm: "sha256",
             cacheKey: "baseline:item-source:base",

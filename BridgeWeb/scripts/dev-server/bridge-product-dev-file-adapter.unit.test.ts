@@ -138,37 +138,7 @@ function fakeFileProvider(text: string): BridgeWorktreeDevProvider {
 function fakeDescriptor(sourceBytes: Uint8Array): WorktreeFileDescriptor {
 	const expectedSha256 = createHash('sha256').update(sourceBytes).digest('hex');
 	const descriptorId = 'fixture-complete-file-descriptor';
-	const attachedIdentity = {
-		cursor: sourceIdentity.sourceCursor,
-		generation: sourceIdentity.subscriptionGeneration,
-		paneId: 'fixture-pane',
-		protocol: 'worktree-file' as const,
-		sourceId: sourceIdentity.sourceId,
-		streamId: 'worktree-file:fixture-pane',
-	};
 	return {
-		contentDescriptor: {
-			descriptor: {
-				content: {
-					encoding: 'utf-8',
-					expectedBytes: sourceBytes.byteLength,
-					maxBytes: Math.max(1, sourceBytes.byteLength),
-					mediaType: 'text/plain',
-				},
-				descriptorId,
-				identity: attachedIdentity,
-				protocol: 'worktree-file',
-				resourceKind: 'worktree.fileContent',
-				resourceUrl:
-					'agentstudio://resource/worktree-file/worktree.fileContent/fixture-complete-file-descriptor',
-			},
-			ref: {
-				descriptorId,
-				expectedIdentity: attachedIdentity,
-				expectedProtocol: 'worktree-file',
-				expectedResourceKind: 'worktree.fileContent',
-			},
-		},
 		contentHandle: descriptorId,
 		contentHash: `sha256:${expectedSha256}`,
 		fileExtension: 'txt',

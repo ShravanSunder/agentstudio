@@ -19,15 +19,13 @@ import {
 } from './bridge-page-handshake.js';
 
 describe('bridge page handshake', () => {
-	test('requests handshake replay and emits bridge ready after handshake with nonce arrives', async () => {
+	test('requests handshake replay and emits bridge ready after bootstrap context arrives', async () => {
 		const target = new EventTarget();
 		const eventNames: string[] = [];
 
 		target.addEventListener('__bridge_handshake_request', () => {
 			eventNames.push('__bridge_handshake_request');
-			target.dispatchEvent(
-				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
-			);
+			target.dispatchEvent(new CustomEvent('__bridge_handshake'));
 		});
 		target.addEventListener('__bridge_ready', () => {
 			eventNames.push('__bridge_ready');
@@ -36,15 +34,32 @@ describe('bridge page handshake', () => {
 		const uninstall = installBridgePageHandshake(target);
 		expect(eventNames).toEqual(['__bridge_handshake_request']);
 		await Promise.resolve();
-		target.dispatchEvent(
-			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-2' } }),
-		);
+		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
 		uninstall();
 
 		expect(eventNames).toEqual(['__bridge_handshake_request', '__bridge_ready']);
 	});
 
-	test('does not emit bridge ready until the handshake carries a push nonce', async () => {
+	test('does not emit bridge ready until bootstrap context arrives', async () => {
+		const target = new EventTarget();
+		const eventNames: string[] = [];
+
+		target.addEventListener('__bridge_ready', () => {
+			eventNames.push('__bridge_ready');
+		});
+
+		const session = installBridgePageHandshakeSession(target);
+		expect(eventNames).toEqual([]);
+
+		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
+		expect(eventNames).toEqual([]);
+		await Promise.resolve();
+		session.uninstall();
+
+		expect(eventNames).toEqual(['__bridge_ready']);
+	});
+
+	test('emits bridge ready only once when bootstrap context is replayed', async () => {
 		const target = new EventTarget();
 		const eventNames: string[] = [];
 
@@ -54,35 +69,11 @@ describe('bridge page handshake', () => {
 
 		const session = installBridgePageHandshakeSession(target);
 		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
-		expect(eventNames).toEqual([]);
-
-		target.dispatchEvent(
-			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
-		);
-		expect(eventNames).toEqual([]);
+		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
 		await Promise.resolve();
 		session.uninstall();
 
-		expect(session.getPushNonce()).toBe('push-1');
 		expect(eventNames).toEqual(['__bridge_ready']);
-	});
-
-	test('retains the first push nonce from the bridge handshake', () => {
-		const target = new EventTarget();
-
-		target.addEventListener('__bridge_handshake_request', () => {
-			target.dispatchEvent(
-				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
-			);
-		});
-
-		const session = installBridgePageHandshakeSession(target);
-		target.dispatchEvent(
-			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-2' } }),
-		);
-		session.uninstall();
-
-		expect(session.getPushNonce()).toBe('push-1');
 	});
 
 	test('retains telemetry config from the first valid handshake config', () => {
@@ -92,7 +83,6 @@ describe('bridge page handshake', () => {
 			target.dispatchEvent(
 				new CustomEvent('__bridge_handshake', {
 					detail: {
-						pushNonce: 'push-1',
 						telemetryConfig: {
 							enabledScopes: ['web', 'webkit'],
 							scenario: 'bridge-runtime',
@@ -106,7 +96,6 @@ describe('bridge page handshake', () => {
 		target.dispatchEvent(
 			new CustomEvent('__bridge_handshake', {
 				detail: {
-					pushNonce: 'push-2',
 					telemetryConfig: null,
 				},
 			}),
@@ -129,7 +118,6 @@ describe('bridge page handshake', () => {
 		target.dispatchEvent(
 			new CustomEvent('__bridge_handshake', {
 				detail: {
-					pushNonce: 'push-1',
 					telemetryConfig: {
 						enabledScopes: ['web'],
 						scenario: 'metadata_apply_content_fetch_v1',
@@ -140,7 +128,6 @@ describe('bridge page handshake', () => {
 		target.dispatchEvent(
 			new CustomEvent('__bridge_handshake', {
 				detail: {
-					pushNonce: 'push-2',
 					telemetryConfig: {
 						enabledScopes: ['web'],
 						scenario: 'ignored_later_config',
@@ -166,12 +153,10 @@ describe('bridge page handshake', () => {
 
 		const session = installBridgePageHandshakeSession(target, {
 			onReady: (): void => {
-				events.push(`ready-callback:${session.getPushNonce() ?? 'missing'}`);
+				events.push('ready-callback');
 			},
 		});
-		target.dispatchEvent(
-			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
-		);
+		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
 		await Promise.resolve();
 		expect(events).toEqual(['ready-event']);
 		expect(readyRequestId).not.toBeNull();
@@ -182,7 +167,7 @@ describe('bridge page handshake', () => {
 		);
 		session.uninstall();
 
-		expect(events).toEqual(['ready-event', 'ready-callback:push-1']);
+		expect(events).toEqual(['ready-event', 'ready-callback']);
 	});
 
 	test('does not dispatch bridge-ready over ordinary page command RPC', async () => {
@@ -200,12 +185,10 @@ describe('bridge page handshake', () => {
 
 		const session = installBridgePageHandshakeSession(target, {
 			onReady: (): void => {
-				events.push(`ready-callback:${session.getPushNonce() ?? 'missing'}`);
+				events.push('ready-callback');
 			},
 		});
-		target.dispatchEvent(
-			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
-		);
+		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
 		await Promise.resolve();
 		target.dispatchEvent(
 			new CustomEvent('__bridge_ready_ack', {
@@ -214,7 +197,7 @@ describe('bridge page handshake', () => {
 		);
 		session.uninstall();
 
-		expect(events).toEqual(['ready-event', 'ready-callback:push-1']);
+		expect(events).toEqual(['ready-event', 'ready-callback']);
 	});
 
 	test('ignores bridge ready acknowledgements for a different request id', async () => {
@@ -232,9 +215,7 @@ describe('bridge page handshake', () => {
 				events.push('ready-callback');
 			},
 		});
-		target.dispatchEvent(
-			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
-		);
+		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
 		await Promise.resolve();
 		target.dispatchEvent(
 			new CustomEvent('__bridge_ready_ack', {
@@ -267,9 +248,7 @@ describe('bridge page handshake', () => {
 				events.push('ready-callback');
 			},
 		});
-		target.dispatchEvent(
-			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
-		);
+		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
 		await Promise.resolve();
 		target.dispatchEvent(
 			new CustomEvent('__bridge_ready_ack', {
@@ -301,9 +280,7 @@ describe('bridge page handshake', () => {
 			},
 			readyAcknowledgementTimeoutMilliseconds: 25,
 		});
-		target.dispatchEvent(
-			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
-		);
+		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
 		await Promise.resolve();
 
 		vi.advanceTimersByTime(25);
@@ -327,9 +304,7 @@ describe('bridge page handshake', () => {
 				events.push('ready-callback');
 			},
 		});
-		target.dispatchEvent(
-			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
-		);
+		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
 		await Promise.resolve();
 		target.dispatchEvent(
 			new CustomEvent('__bridge_ready_ack', {

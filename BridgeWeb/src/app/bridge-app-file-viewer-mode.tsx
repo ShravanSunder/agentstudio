@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 
-import type { BridgeActiveViewerSource } from '../bridge/bridge-rpc-client.js';
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
+import type { BridgeActiveViewerSource } from '../core/comm-worker/bridge-product-control-contracts.js';
 import {
 	BridgeFileViewerApp,
 	type BridgeFileViewerAppProps,

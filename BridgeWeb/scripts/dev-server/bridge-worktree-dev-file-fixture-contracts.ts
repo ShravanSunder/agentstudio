@@ -2,10 +2,6 @@ import { z } from 'zod';
 
 import { bridgeDemandLaneSchema } from '../../src/core/models/bridge-demand-models.js';
 import { bridgeIntakeFrameBaseSchema } from '../../src/core/models/bridge-intake-frame.js';
-import {
-	bridgeAttachedResourceDescriptorSchema,
-	bridgeDescriptorRefSchema,
-} from '../../src/core/models/bridge-resource-descriptor.js';
 
 export const worktreeFileSurfaceSourceSpecSchema = z
 	.object({
@@ -124,17 +120,11 @@ export const worktreeFileVirtualizedExtentKindSchema = z.enum([
 	'unavailable',
 ]);
 
-export const worktreeFileSurfaceResourceKindSchema = z.enum([
-	'worktree.fileContent',
-	'worktree.fileRange',
-]);
-
 export const worktreeFileDescriptorSchema = z
 	.object({
 		path: z.string().min(1),
 		fileId: z.string().min(1),
 		contentHandle: z.string().min(1),
-		contentDescriptor: bridgeAttachedResourceDescriptorSchema,
 		contentHash: z.string().min(1).optional(),
 		sourceIdentity: worktreeFileSurfaceSourceIdentitySchema,
 		sizeBytes: z.number().int().nonnegative(),
@@ -169,11 +159,8 @@ export const worktreeFileDescriptorSchema = z
 				path: ['estimatedContentHeightPixels'],
 			});
 		}
-		const hasTerminalAvailability =
-			descriptor.isBinary || descriptor.unavailableReason !== null;
-		if (
-			(descriptor.virtualizedExtentKind === 'unavailable') !== hasTerminalAvailability
-		) {
+		const hasTerminalAvailability = descriptor.isBinary || descriptor.unavailableReason !== null;
+		if ((descriptor.virtualizedExtentKind === 'unavailable') !== hasTerminalAvailability) {
 			context.addIssue({
 				code: 'custom',
 				message:
@@ -327,7 +314,6 @@ export const worktreeResetFrameSchema = bridgeIntakeFrameBaseSchema
 		frameKind: z.literal('worktree.reset'),
 		reason: z.enum(['sourceChanged', 'subscriptionReset', 'providerRestart', 'authorityChanged']),
 		source: worktreeFileSurfaceSourceIdentitySchema.optional(),
-		replacementDescriptor: bridgeAttachedResourceDescriptorSchema.optional(),
 	})
 	.strict();
 
@@ -339,60 +325,6 @@ export const worktreeFileProtocolFrameSchema = z.discriminatedUnion('frameKind',
 	worktreeFileDescriptorFrameSchema,
 	worktreeFileInvalidatedFrameSchema,
 	worktreeResetFrameSchema,
-]);
-
-export const worktreeFileDemandStimulusSchema = z.discriminatedUnion('kind', [
-	z
-		.object({
-			kind: z.literal('fileSelected'),
-			descriptorRef: bridgeDescriptorRefSchema,
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal('openFileInvalidated'),
-			descriptorRef: bridgeDescriptorRefSchema,
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal('treeViewportChanged'),
-			descriptorRefs: z.array(bridgeDescriptorRefSchema),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal('treeExpanded'),
-			descriptorRef: bridgeDescriptorRefSchema,
-			nearbyDescriptorRefs: z.array(bridgeDescriptorRefSchema).optional(),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal('explicitRefresh'),
-			descriptorRef: bridgeDescriptorRefSchema,
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal('hoverChanged'),
-			descriptorRef: bridgeDescriptorRefSchema.nullable(),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal('recentlyUpdatedFile'),
-			descriptorRef: bridgeDescriptorRefSchema,
-			proximity: z.enum(['nearby', 'remote']),
-			sourceIdentity: z.string().min(1),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal('sourceReset'),
-			sourceIdentity: z.string().min(1),
-		})
-		.strict(),
 ]);
 
 export type WorktreeFileSurfaceSourceSpec = z.infer<typeof worktreeFileSurfaceSourceSpecSchema>;
@@ -414,7 +346,6 @@ export type WorktreeFileDescriptorRequest = z.infer<typeof worktreeFileDescripto
 export type WorktreeFileVirtualizedExtentKind = z.infer<
 	typeof worktreeFileVirtualizedExtentKindSchema
 >;
-export type WorktreeFileSurfaceResourceKind = z.infer<typeof worktreeFileSurfaceResourceKindSchema>;
 export type WorktreeFileDescriptor = z.infer<typeof worktreeFileDescriptorSchema>;
 
 export function canFetchWorktreeFileDescriptorContent(descriptor: WorktreeFileDescriptor): boolean {
@@ -432,4 +363,3 @@ export type WorktreeFileDescriptorFrame = z.infer<typeof worktreeFileDescriptorF
 export type WorktreeFileInvalidatedFrame = z.infer<typeof worktreeFileInvalidatedFrameSchema>;
 export type WorktreeResetFrame = z.infer<typeof worktreeResetFrameSchema>;
 export type WorktreeFileProtocolFrame = z.infer<typeof worktreeFileProtocolFrameSchema>;
-export type WorktreeFileDemandStimulus = z.infer<typeof worktreeFileDemandStimulusSchema>;

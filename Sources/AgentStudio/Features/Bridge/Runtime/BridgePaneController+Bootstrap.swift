@@ -24,8 +24,6 @@ typealias BridgeTelemetrySessionBootstrapSink =
     ) async throws -> Void
 
 struct BridgeBootstrapScriptInput {
-    let bridgeNonce: String
-    let pushNonce: String
     let reviewPaneId: String
     let reviewStreamId: String
     let panelKind: BridgePanelKind
@@ -34,17 +32,12 @@ struct BridgeBootstrapScriptInput {
 }
 
 struct BridgeBootstrapArtifacts {
-    let pushNonce: String
     let script: WKUserScript
 }
 
 struct BridgeSchemeHandlerRegistrationInput {
     let paneId: UUID
-    let reviewContentStore: BridgeContentStore
-    let resourceLeaseRegistry: BridgeTransportResourceLeaseRegistry
-    let telemetryRecorder: (any BridgePerformanceTraceRecording)?
     let telemetrySessionOwner: BridgePaneTelemetrySessionOwner?
-    let productSessionOwner: BridgePaneProductSessionOwner
     let productSessionRouter: BridgeProductSchemeSessionRouter
 }
 
@@ -112,13 +105,34 @@ final class BridgePaneProductCommittedCallTarget {
     }
 
     func applyReviewIntakeReady(_ request: BridgeProductReviewIntakeReadyRequest) async {
-        _ = await controller?.handleBridgeIntakeReadyResult(
-            BridgeIntakeReadyMethod.Params(
-                protocolId: "review",
-                streamId: request.streamId,
-                reason: request.reason
+        await controller?.handleCommittedProductReviewIntakeReady(request)
+    }
+}
+
+@MainActor
+extension BridgePaneController {
+    func handleCommittedProductReviewIntakeReady(
+        _ request: BridgeProductReviewIntakeReadyRequest
+    ) async {
+        let currentStreamId = reviewProtocolStreamId()
+        guard request.streamId == currentStreamId else {
+            await recordReviewIntakeReadyTelemetry(phase: "dropped")
+            return
+        }
+        await recordReviewIntakeReadyTelemetry(phase: "accepted")
+        if let package = paneState.diff.packageMetadata {
+            await setActiveViewerModeAcceptedSignalForExplicitReviewRequest(
+                streamId: currentStreamId,
+                generation: package.reviewGeneration.rawValue
             )
-        )
+        } else {
+            clearActiveViewerModeAcceptedSignalForExplicitReviewRequest()
+        }
+        if paneState.diff.packageMetadata == nil {
+            scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
+        } else if request.reason == "sequence_gap" {
+            scheduleReviewPackageReloadForProductResync(reason: .productResync)
+        }
     }
 }
 
@@ -330,9 +344,6 @@ extension BridgePaneController {
         onRuntimeEvent = { [weak self] event, commandId, correlationId in
             self?.runtime.ingestBridgeEvent(event, commandId: commandId, correlationId: correlationId)
         }
-        onRuntimeCommandAck = { [weak self] ack in
-            self?.runtime.recordCommandAck(ack)
-        }
         runtime.commandHandler = self
     }
 
@@ -450,14 +461,9 @@ extension BridgePaneController {
         guard let scheme = URLScheme("agentstudio") else { return }
         config.urlSchemeHandlers[scheme] = BridgeSchemeHandler(
             paneId: input.paneId,
-            contentStore: input.reviewContentStore,
-            resourceLeaseRegistry: input.resourceLeaseRegistry,
-            allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds,
-            telemetryRecorder: input.telemetryRecorder,
             telemetrySessionOwner: input.telemetrySessionOwner,
             productSessionRouter: input.productSessionRouter
         )
-        _ = input.productSessionOwner
     }
 
     nonisolated static func makeTelemetrySessionDependencies(
@@ -508,21 +514,9 @@ extension BridgePaneController {
         return (resolvedScopeGate, resolvedRecorder, resolvedSessionDependencies)
     }
 
-    nonisolated static func resolveIntakeFrameSink(
-        preEncodedIntakeFrameSink: @escaping @MainActor (WebPage, PreEncodedIntakeFrame) async throws -> Void,
-        rawIntakeFrameSink: (@MainActor (WebPage, String, String) async throws -> Void)?
-    ) -> @MainActor (WebPage, PreEncodedIntakeFrame) async throws -> Void {
-        guard let rawIntakeFrameSink else { return preEncodedIntakeFrameSink }
-        return { page, frame in
-            try await rawIntakeFrameSink(page, frame.envelopeJSON, frame.pushNonce)
-        }
-    }
-
     static func makeBootstrapScript(_ input: BridgeBootstrapScriptInput) -> WKUserScript {
         WKUserScript(
             source: BridgeBootstrap.generateScript(
-                bridgeNonce: input.bridgeNonce,
-                pushNonce: input.pushNonce,
                 appProtocol: Self.bridgeAppProtocol(for: input.panelKind),
                 reviewPaneId: input.reviewPaneId,
                 reviewStreamId: input.reviewStreamId,
@@ -540,8 +534,6 @@ extension BridgePaneController {
         telemetryScopeGate: BridgeTelemetryScopeGate,
         bridgeWorld: WKContentWorld
     ) -> BridgeBootstrapArtifacts {
-        let bridgeNonce = UUID().uuidString
-        let pushNonce = UUID().uuidString
         let reviewPaneId = paneId.uuidString
         let reviewStreamId = "review:\(reviewPaneId)"
         let webTelemetryScopes = telemetryScopeGate.browserExposedScopes
@@ -563,8 +555,6 @@ extension BridgePaneController {
         }
         let script = makeBootstrapScript(
             BridgeBootstrapScriptInput(
-                bridgeNonce: bridgeNonce,
-                pushNonce: pushNonce,
                 reviewPaneId: reviewPaneId,
                 reviewStreamId: reviewStreamId,
                 panelKind: state.panelKind,
@@ -572,7 +562,7 @@ extension BridgePaneController {
                 bridgeWorld: bridgeWorld
             )
         )
-        return BridgeBootstrapArtifacts(pushNonce: pushNonce, script: script)
+        return BridgeBootstrapArtifacts(script: script)
     }
 
     private static func bridgeAppProtocol(for panelKind: BridgePanelKind) -> String {

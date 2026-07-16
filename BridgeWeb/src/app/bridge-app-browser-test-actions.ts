@@ -57,16 +57,14 @@ export interface InstalledBridgeReadyHandshake {
 
 export function installBridgeReadyHandshake(
 	props: {
-		readonly pushNonce?: string;
 		readonly readyErrorMessage?: string;
 		readonly telemetryConfig?: unknown;
 	} = {},
 ): InstalledBridgeReadyHandshake {
-	const pushNonce = props.pushNonce ?? 'push-nonce';
 	const handleBridgeHandshakeRequest = (): void => {
 		document.dispatchEvent(
 			new CustomEvent('__bridge_handshake', {
-				detail: { pushNonce, telemetryConfig: props.telemetryConfig },
+				detail: { telemetryConfig: props.telemetryConfig },
 			}),
 		);
 	};

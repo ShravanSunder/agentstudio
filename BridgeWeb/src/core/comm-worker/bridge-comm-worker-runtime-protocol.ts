@@ -1,4 +1,3 @@
-import type { BridgeRPCCommand } from '../../bridge/bridge-rpc-client.js';
 import { bridgeContentDemandExecutionPolicy } from '../demand/bridge-content-demand-policy.js';
 import {
 	createBridgeCommWorkerCommandHandler,
@@ -38,7 +37,7 @@ import {
 } from './bridge-comm-worker-review-source-reset.js';
 import {
 	bridgeCommWorkerTelemetryLaneForMessage,
-	bridgeWorkerRuntimeSchemeRpcCommandForMessage,
+	bridgeWorkerRuntimeProductControlCommandForMessage,
 } from './bridge-comm-worker-runtime-command-routing.js';
 import {
 	bridgeWorkerRuntimeMessagesContainReadyRequest,
@@ -61,6 +60,7 @@ import {
 	recordBridgeCommWorkerTaskTelemetry,
 	type BridgeCommWorkerTelemetryRecorder,
 } from './bridge-comm-worker-telemetry.js';
+import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import {
 	createWorkerContentPreparationPump,
@@ -103,14 +103,14 @@ export interface RegisterBridgeCommWorkerRuntimePortProtocolProps {
 		readonly workerInstanceId: string;
 	};
 	readonly schedulePreparationDrain?: (drain: BridgeCommWorkerPreparationDrain) => void;
-	readonly sendSchemeRpcCommand?: BridgeCommWorkerSchemeRpcCommandSender;
-	readonly schemeRpcTimeoutMilliseconds?: number;
+	readonly sendProductControl?: BridgeCommWorkerProductControlSender;
+	readonly productControlTimeoutMilliseconds?: number;
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
 }
 
-const bridgeCommWorkerSchemeRpcTimeoutMilliseconds = 5000;
-export type BridgeCommWorkerSchemeRpcCommandSender = (
-	command: BridgeRPCCommand,
+const bridgeCommWorkerProductControlTimeoutMilliseconds = 5000;
+export type BridgeCommWorkerProductControlSender = (
+	command: BridgeProductControlCommand,
 ) => Promise<unknown>;
 
 export function registerBridgeCommWorkerRuntimePortProtocol(
@@ -127,7 +127,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		});
 	const schedulePreparationDrain =
 		props.schedulePreparationDrain ?? scheduleDefaultBridgeCommWorkerPreparationDrain;
-	let sendSchemeRpcCommand = props.sendSchemeRpcCommand ?? rejectUninstalledBridgeProductCommand;
+	let sendProductControl = props.sendProductControl ?? rejectUninstalledBridgeProductControl;
 	const productTransport = props.productTransport;
 	const openFileViewContent: BridgeWorkerFileViewContentOpen =
 		props.openFileViewContent ??
@@ -139,8 +139,8 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		(productTransport === undefined
 			? undefined
 			: (descriptor, abortSignal) => productTransport.openContent(descriptor, abortSignal));
-	const schemeRpcTimeoutMilliseconds =
-		props.schemeRpcTimeoutMilliseconds ?? bridgeCommWorkerSchemeRpcTimeoutMilliseconds;
+	const productControlTimeoutMilliseconds =
+		props.productControlTimeoutMilliseconds ?? bridgeCommWorkerProductControlTimeoutMilliseconds;
 	const preparationCompletions: Promise<void>[] = [];
 	let drainScheduled = false;
 	let shouldRequestDrainAfterMessage = false;
@@ -223,6 +223,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	const fileQueryProjection = new BridgeCommWorkerFileQueryProjection();
 	let updateFileMetadataDemand: ((demand: BridgeCommWorkerFileMetadataDemand) => void) | null =
 		null;
+	let productController: BridgeCommWorkerProductController | null = null;
 
 	const drainPreparation: BridgeCommWorkerPreparationDrain = async () => {
 		drainScheduled = false;
@@ -524,7 +525,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			currentWorkerDerivationEpoch: () => productTransport.workerDerivationEpoch('review'),
 			publishDisplayPatches: publishReviewDisplayPatches,
 		});
-		const productController = new BridgeCommWorkerProductController({
+		const installedProductController = new BridgeCommWorkerProductController({
 			onFileMetadataDemandFailure: (): void => {
 				port.postMessage(buildBridgeWorkerFileMetadataInterestFailureHealthEvent());
 			},
@@ -613,12 +614,13 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			},
 			productTransport,
 		});
+		productController = installedProductController;
 		try {
-			productController.ensureReviewMetadata();
+			installedProductController.ensureReviewMetadata();
 		} catch {
 			// The typed failure publication above keeps the runtime alive for repair/resubscription.
 		}
-		void productController.ensureFileSource().catch((): void => {
+		void installedProductController.ensureFileSource().catch((): void => {
 			port.postMessage(
 				buildBridgeWorkerFileMetadataFailureHealthEvent(
 					bridgeProductMetadataStreamHealthDiagnostic(productTransport),
@@ -626,10 +628,11 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			);
 		});
 		updateFileMetadataDemand = (demand): void => {
-			void productController.updateFileMetadataDemand(demand).catch((): void => {});
+			void installedProductController.updateFileMetadataDemand(demand).catch((): void => {});
 		};
-		if (props.sendSchemeRpcCommand === undefined) {
-			sendSchemeRpcCommand = (command): Promise<unknown> => productController.send(command);
+		if (props.sendProductControl === undefined) {
+			sendProductControl = (command): Promise<unknown> =>
+				installedProductController.sendProductControl(command);
 		}
 	}
 
@@ -656,39 +659,50 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			taskKind: 'message_handler',
 			...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 		});
-		const ordinarySchemeRpcCommand = bridgeWorkerRuntimeSchemeRpcCommandForMessage(
+		const productControlCommand = bridgeWorkerRuntimeProductControlCommandForMessage(
 			parsedMessage.data,
 		);
-		const shouldForwardOrdinarySchemeRpcCommand =
-			ordinarySchemeRpcCommand !== null &&
+		const metadataInterestUpdateCommand =
+			parsedMessage.data.command === 'metadataInterestUpdate' ? parsedMessage.data : null;
+		const deferredRequestId =
+			metadataInterestUpdateCommand?.requestId ?? productControlCommand?.requestId ?? null;
+		const shouldSendProductControl =
+			productControlCommand !== null &&
 			bridgeWorkerRuntimeMessagesContainReadyRequest({
 				messages,
-				requestId: ordinarySchemeRpcCommand.requestId,
+				requestId: productControlCommand.requestId,
 			});
-		const immediateMessages = shouldForwardOrdinarySchemeRpcCommand
-			? messages.filter(
-					(message): boolean =>
-						!bridgeWorkerRuntimeMessageIsReadyRequest({
-							message,
-							requestId: ordinarySchemeRpcCommand.requestId,
-						}),
-				)
-			: messages;
+		const shouldUpdateReviewMetadataInterests =
+			metadataInterestUpdateCommand !== null &&
+			bridgeWorkerRuntimeMessagesContainReadyRequest({
+				messages,
+				requestId: metadataInterestUpdateCommand.requestId,
+			});
+		const shouldDeferReadyMessage = shouldSendProductControl || shouldUpdateReviewMetadataInterests;
+		const immediateMessages =
+			shouldDeferReadyMessage && deferredRequestId !== null
+				? messages.filter(
+						(message): boolean =>
+							!bridgeWorkerRuntimeMessageIsReadyRequest({
+								message,
+								requestId: deferredRequestId,
+							}),
+					)
+				: messages;
 		for (const message of immediateMessages) {
 			port.postMessage(message);
 		}
-		if (ordinarySchemeRpcCommand !== null && shouldForwardOrdinarySchemeRpcCommand) {
-			void sendBridgeCommWorkerSchemeRpcCommandWithTimeout({
-				command: ordinarySchemeRpcCommand.command,
-				sendSchemeRpcCommand,
-				timeoutMilliseconds: schemeRpcTimeoutMilliseconds,
+		if (productControlCommand !== null && shouldSendProductControl) {
+			void sendBridgeCommWorkerActionWithTimeout({
+				send: (): Promise<unknown> => sendProductControl(productControlCommand.command),
+				timeoutMilliseconds: productControlTimeoutMilliseconds,
 			})
 				.then((): void => {
 					for (const message of messages) {
 						if (
 							bridgeWorkerRuntimeMessageIsReadyRequest({
 								message,
-								requestId: ordinarySchemeRpcCommand.requestId,
+								requestId: productControlCommand.requestId,
 							})
 						) {
 							port.postMessage(message);
@@ -698,13 +712,46 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				.catch((_error: unknown): void => {
 					port.postMessage(
 						buildBridgeWorkerRuntimeCommandFailedHealthEvent({
-							requestId: ordinarySchemeRpcCommand.requestId,
-							message: bridgeCommWorkerSchemeRpcFailureMessage({
-								command: ordinarySchemeRpcCommand.command,
+							requestId: productControlCommand.requestId,
+							message: bridgeCommWorkerProductControlFailureMessage({
+								command: productControlCommand.command,
 							}),
-							...(ordinarySchemeRpcCommand.command.method === 'bridge.activeViewerMode.update'
+							...(productControlCommand.command.method === 'bridge.activeViewerMode.update'
 								? { deliveryStatus: 'unknownAfterDispatch' }
 								: {}),
+						}),
+					);
+				});
+		}
+		if (metadataInterestUpdateCommand !== null && shouldUpdateReviewMetadataInterests) {
+			const activeProductController = productController;
+			void sendBridgeCommWorkerActionWithTimeout({
+				send:
+					activeProductController === null
+						? rejectUninstalledReviewMetadataInterestUpdate
+						: (): Promise<void> =>
+								activeProductController.updateReviewMetadataInterests(
+									metadataInterestUpdateCommand.request,
+								),
+				timeoutMilliseconds: productControlTimeoutMilliseconds,
+			})
+				.then((): void => {
+					for (const message of messages) {
+						if (
+							bridgeWorkerRuntimeMessageIsReadyRequest({
+								message,
+								requestId: metadataInterestUpdateCommand.requestId,
+							})
+						) {
+							port.postMessage(message);
+						}
+					}
+				})
+				.catch((): void => {
+					port.postMessage(
+						buildBridgeWorkerRuntimeCommandFailedHealthEvent({
+							requestId: metadataInterestUpdateCommand.requestId,
+							message: 'Bridge comm worker failed to update Review metadata interests.',
 						}),
 					);
 				});
@@ -716,23 +763,28 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	port.start?.();
 }
 
-async function rejectUninstalledBridgeProductCommand(command: BridgeRPCCommand): Promise<never> {
-	throw new Error(`Bridge product command sender is not installed for ${command.method}.`);
+async function rejectUninstalledBridgeProductControl(
+	command: BridgeProductControlCommand,
+): Promise<never> {
+	throw new Error(`Bridge product-control sender is not installed for ${command.method}.`);
+}
+
+async function rejectUninstalledReviewMetadataInterestUpdate(): Promise<never> {
+	throw new Error('Bridge Review metadata product subscription is not installed.');
 }
 
 function rejectUninstalledBridgeFileContentOpen(): never {
 	throw new Error('Bridge File content transport is not installed.');
 }
 
-function bridgeCommWorkerSchemeRpcFailureMessage(props: {
-	readonly command: BridgeRPCCommand;
+function bridgeCommWorkerProductControlFailureMessage(props: {
+	readonly command: BridgeProductControlCommand;
 }): string {
 	return `Bridge comm worker failed to forward ${props.command.method}.`;
 }
 
-function sendBridgeCommWorkerSchemeRpcCommandWithTimeout(props: {
-	readonly command: BridgeRPCCommand;
-	readonly sendSchemeRpcCommand: BridgeCommWorkerSchemeRpcCommandSender;
+function sendBridgeCommWorkerActionWithTimeout(props: {
+	readonly send: () => Promise<unknown>;
 	readonly timeoutMilliseconds: number;
 }): Promise<unknown> {
 	return new Promise<unknown>((resolve, reject): void => {
@@ -742,16 +794,16 @@ function sendBridgeCommWorkerSchemeRpcCommandWithTimeout(props: {
 				return;
 			}
 			didSettle = true;
-			reject(new Error('Bridge comm worker scheme RPC timed out.'));
+			reject(new Error('Bridge comm worker command action timed out.'));
 		}, props.timeoutMilliseconds);
-		void props.sendSchemeRpcCommand(props.command).then(
-			(schemeRpcResult: unknown): void => {
+		void props.send().then(
+			(actionResult: unknown): void => {
 				if (didSettle) {
 					return;
 				}
 				didSettle = true;
 				globalThis.clearTimeout(timeoutId);
-				resolve(schemeRpcResult);
+				resolve(actionResult);
 			},
 			(error: unknown): void => {
 				if (didSettle) {

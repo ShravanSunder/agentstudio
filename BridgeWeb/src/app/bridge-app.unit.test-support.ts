@@ -1,18 +1,10 @@
 import type { BridgeDemandLane } from '../core/models/bridge-demand-models.js';
-import type { BridgeAttachedResourceDescriptor } from '../core/models/bridge-resource-descriptor.js';
-import type { BridgeTextResourceStreamResult } from '../core/resources/bridge-resource-stream.js';
-import type { ReviewMetadataSnapshotFrame } from '../features/review/models/review-protocol-models.js';
-import type {
-	BridgeContentHandle,
-	BridgeReviewPackage,
-} from '../foundation/review-package/bridge-review-package.js';
 import type {
 	BridgeTelemetryMeasureProps,
 	BridgeTelemetryRecorder,
 } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-types.js';
 import type { BridgeReviewProjectionInputItem } from '../review-viewer/models/review-projection-models.js';
-import type { BridgeReviewFrameAuthority } from './bridge-app.js';
 
 export function makeReviewProjectionInputItem(props: {
 	readonly itemId: string;
@@ -36,89 +28,6 @@ export function makeReviewProjectionInputItem(props: {
 		},
 		mimeTypes: ['text/x-swift'],
 		provenance: emptyReviewProjectionItemProvenance(),
-	};
-}
-
-export function makeReviewMetadataSnapshotFrame(props: {
-	readonly contentDescriptors: readonly BridgeAttachedResourceDescriptor[];
-	readonly reviewFrameAuthority: BridgeReviewFrameAuthority;
-	readonly reviewPackage: BridgeReviewPackage;
-}): ReviewMetadataSnapshotFrame {
-	return {
-		kind: 'metadataSnapshot',
-		streamId: props.reviewFrameAuthority.streamId,
-		generation: props.reviewPackage.reviewGeneration,
-		sequence: 0,
-		frameKind: 'review.metadataSnapshot',
-		comparison: {
-			packageId: props.reviewPackage.packageId,
-			sourceIdentity: props.reviewPackage.query.queryId,
-			generation: props.reviewPackage.reviewGeneration,
-			revision: props.reviewPackage.revision,
-			baseEndpoint: props.reviewPackage.baseEndpoint,
-			headEndpoint: props.reviewPackage.headEndpoint,
-			contentDescriptors: [...props.contentDescriptors],
-		},
-		selectedItemId: 'item-source',
-		visibleItemIds: ['item-source'],
-		itemMetadata: [
-			makeReviewProjectionInputItem({ itemId: 'item-source', path: 'Sources/App/View.swift' }),
-		],
-		treeRows: [
-			{
-				rowId: 'row-item-source',
-				itemId: 'item-source',
-				path: 'Sources/App/View.swift',
-				depth: 2,
-				isDirectory: false,
-			},
-		],
-		extentFacts: [],
-		summary: props.reviewPackage.summary,
-	};
-}
-
-export function makeReviewAttachedContentDescriptor(props: {
-	readonly handle: BridgeContentHandle;
-	readonly reviewFrameAuthority: BridgeReviewFrameAuthority;
-	readonly reviewPackage: BridgeReviewPackage;
-	readonly contentByteBounds?: {
-		readonly expectedBytes?: number | undefined;
-		readonly maxBytes: number;
-	};
-}): BridgeAttachedResourceDescriptor {
-	const identity = {
-		paneId: props.reviewFrameAuthority.paneId,
-		protocol: 'review',
-		sourceId: props.reviewPackage.query.queryId,
-		packageId: props.reviewPackage.packageId,
-		generation: props.handle.reviewGeneration,
-		streamId: props.reviewFrameAuthority.streamId,
-	} as const;
-	return {
-		ref: {
-			descriptorId: props.handle.handleId,
-			expectedProtocol: 'review',
-			expectedResourceKind: 'content',
-			expectedIdentity: identity,
-		},
-		descriptor: {
-			descriptorId: props.handle.handleId,
-			protocol: 'review',
-			resourceKind: 'content',
-			resourceUrl: props.handle.resourceUrl,
-			identity,
-			content: {
-				mediaType: props.handle.mimeType,
-				encoding: props.handle.isBinary ? 'binary' : 'utf-8',
-				...(props.contentByteBounds === undefined
-					? { expectedBytes: props.handle.sizeBytes }
-					: props.contentByteBounds.expectedBytes === undefined
-						? {}
-						: { expectedBytes: props.contentByteBounds.expectedBytes }),
-				maxBytes: props.contentByteBounds?.maxBytes ?? Math.max(props.handle.sizeBytes, 1),
-			},
-		},
 	};
 }
 
@@ -166,16 +75,6 @@ export async function flushMicrotasksUntil(
 	}
 	await flushMicrotasks(1);
 	await flushMicrotasksUntil(predicate, maxFlushCount - 1);
-}
-
-export function makeTextStreamResult(text: string): BridgeTextResourceStreamResult {
-	const bytes = new TextEncoder().encode(text);
-	return {
-		authoritative: true,
-		byteLength: bytes.byteLength,
-		copyBytes: (): ArrayBuffer => bytes.buffer.slice(0),
-		readText: (): string => text,
-	};
 }
 
 function emptyDemandLaneByteCounts(): Record<BridgeDemandLane, number> {

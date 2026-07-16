@@ -9,7 +9,7 @@ import {
 
 describe('Bridge comm worker runtime review intake-ready protocol', () => {
 	test('waits for the worker-owned product call before acknowledging review intake readiness', async () => {
-		const sendSchemeRpcCommand = vi.fn(async (): Promise<void> => {});
+		const sendProductControl = vi.fn(async (): Promise<void> => {});
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
@@ -19,7 +19,7 @@ describe('Bridge comm worker runtime review intake-ready protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			sendSchemeRpcCommand,
+			sendProductControl,
 		});
 
 		dispatch.message(
@@ -32,7 +32,7 @@ describe('Bridge comm worker runtime review intake-ready protocol', () => {
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 
-		expect(sendSchemeRpcCommand).toHaveBeenCalledWith({
+		expect(sendProductControl).toHaveBeenCalledWith({
 			method: 'bridge.intakeReady',
 			params: {
 				protocolId: 'review',

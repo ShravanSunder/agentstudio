@@ -13,7 +13,6 @@ struct BridgeContentHandle: Codable, Equatable, Sendable {
     let role: Role
     let endpointId: String
     let reviewGeneration: BridgeReviewGeneration
-    let resourceUrl: String
     let contentHash: String
     let contentHashAlgorithm: String
     let cacheKey: String
@@ -29,7 +28,6 @@ struct BridgeContentHandle: Codable, Equatable, Sendable {
         role: Role,
         endpointId: String,
         reviewGeneration: BridgeReviewGeneration,
-        resourceUrl: String,
         contentHash: String,
         contentHashAlgorithm: String,
         cacheKey: String,
@@ -44,7 +42,6 @@ struct BridgeContentHandle: Codable, Equatable, Sendable {
         self.role = role
         self.endpointId = endpointId
         self.reviewGeneration = reviewGeneration
-        self.resourceUrl = resourceUrl
         self.contentHash = contentHash
         self.contentHashAlgorithm = contentHashAlgorithm
         self.cacheKey = cacheKey
@@ -61,7 +58,6 @@ struct BridgeContentHandle: Codable, Equatable, Sendable {
         case role
         case endpointId
         case reviewGeneration
-        case resourceUrl
         case contentHash
         case contentHashAlgorithm
         case cacheKey
@@ -80,7 +76,6 @@ struct BridgeContentHandle: Codable, Equatable, Sendable {
             role: container.decode(Role.self, forKey: .role),
             endpointId: container.decode(String.self, forKey: .endpointId),
             reviewGeneration: container.decode(BridgeReviewGeneration.self, forKey: .reviewGeneration),
-            resourceUrl: container.decode(String.self, forKey: .resourceUrl),
             contentHash: container.decode(String.self, forKey: .contentHash),
             contentHashAlgorithm: container.decode(String.self, forKey: .contentHashAlgorithm),
             cacheKey: container.decode(String.self, forKey: .cacheKey),
@@ -99,7 +94,6 @@ struct BridgeContentHandle: Codable, Equatable, Sendable {
         try container.encode(role, forKey: .role)
         try container.encode(endpointId, forKey: .endpointId)
         try container.encode(reviewGeneration, forKey: .reviewGeneration)
-        try container.encode(resourceUrl, forKey: .resourceUrl)
         try container.encode(contentHash, forKey: .contentHash)
         try container.encode(contentHashAlgorithm, forKey: .contentHashAlgorithm)
         try container.encode(cacheKey, forKey: .cacheKey)

@@ -242,7 +242,6 @@ extension WebKitSerializedTests {
                 role: handle.role,
                 endpointId: handle.endpointId,
                 reviewGeneration: handle.reviewGeneration,
-                resourceUrl: handle.resourceUrl,
                 contentHash: handle.contentHash,
                 contentHashAlgorithm: handle.contentHashAlgorithm,
                 cacheKey: handle.cacheKey,

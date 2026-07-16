@@ -504,36 +504,7 @@ function fileSourceIdentity(): WorktreeFileSurfaceSourceIdentity {
 function healthyDescriptor(path: string): WorktreeFileDescriptor {
 	const content = 'alpha\nbeta\n';
 	const descriptorId = 'item-error-healthy-descriptor';
-	const identity = {
-		cursor: sourceCursor,
-		generation: 1,
-		paneId: 'item-error-pane',
-		protocol: 'worktree-file' as const,
-		sourceId: 'item-error-source',
-		streamId: 'worktree-file:item-error-pane',
-	};
 	return {
-		contentDescriptor: {
-			descriptor: {
-				content: {
-					encoding: 'utf-8',
-					expectedBytes: content.length,
-					maxBytes: content.length,
-					mediaType: 'text/typescript',
-				},
-				descriptorId,
-				identity,
-				protocol: 'worktree-file',
-				resourceKind: 'worktree.fileContent',
-				resourceUrl: 'agentstudio://resource/worktree-file/item-error-healthy',
-			},
-			ref: {
-				descriptorId,
-				expectedIdentity: identity,
-				expectedProtocol: 'worktree-file',
-				expectedResourceKind: 'worktree.fileContent',
-			},
-		},
 		contentHandle: descriptorId,
 		contentHash: `sha256:${createHash('sha256').update(content).digest('hex')}`,
 		fileExtension: 'ts',

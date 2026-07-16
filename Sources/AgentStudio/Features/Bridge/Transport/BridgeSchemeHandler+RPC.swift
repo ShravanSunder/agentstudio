@@ -12,7 +12,7 @@ extension BridgeSchemeHandler.PathType {
         switch self {
         case .telemetryBatch, .product:
             true
-        case .app, .leasedContent, .invalid:
+        case .app, .invalid:
             false
         }
     }

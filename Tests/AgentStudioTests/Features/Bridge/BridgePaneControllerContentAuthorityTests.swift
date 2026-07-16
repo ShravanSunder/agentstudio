@@ -102,13 +102,11 @@ extension WebKitSerializedTests {
                 commandId: firstCommandId,
                 correlationId: nil
             )
-            let headResource = try #require(
-                BridgeTransportResourceURL.parse(
-                    headHandle.resourceUrl,
-                    allowedResourceKindsByProtocol: ["review": Set(["content"])]
-                ))
             #expect(firstResult == .success(commandId: firstCommandId))
-            #expect(await controller.resourceLeaseRegistry.contains(headResource, paneId: controller.paneId) == true)
+            _ = try await controller.loadContentForIPC(
+                contentHandleId: headHandle.handleId,
+                reviewGeneration: 1
+            )
 
             let secondResult = await controller.handleDiffCommand(
                 .loadDiff(
@@ -123,7 +121,12 @@ extension WebKitSerializedTests {
             )
 
             #expect(secondResult == .failure(.backendUnavailable(backend: "BridgeReviewSourceProvider")))
-            #expect(await controller.resourceLeaseRegistry.contains(headResource, paneId: controller.paneId) == false)
+            await #expect(throws: BridgeIPCProjectionError.self) {
+                _ = try await controller.loadContentForIPC(
+                    contentHandleId: headHandle.handleId,
+                    reviewGeneration: 1
+                )
+            }
         }
 
         @Test("loadDiff synchronously revokes previous content authority while reload is in flight")
@@ -147,11 +150,6 @@ extension WebKitSerializedTests {
                 role: .head,
                 reviewGeneration: 1
             )
-            let initialResource = try #require(
-                BridgeTransportResourceURL.parse(
-                    initialHandle.resourceUrl,
-                    allowedResourceKindsByProtocol: ["review": Set(["content"])]
-                ))
             let provider = BridgeReviewSourceProviderFake(
                 comparison: BridgeEndpointComparison(
                     baseEndpoint: baseEndpoint,
@@ -185,7 +183,6 @@ extension WebKitSerializedTests {
                 correlationId: nil
             )
             #expect(firstResult == .success(commandId: firstCommandId))
-            #expect(await controller.resourceLeaseRegistry.contains(initialResource, paneId: controller.paneId))
             _ = try await controller.loadContentForIPC(
                 contentHandleId: initialHandle.handleId,
                 reviewGeneration: 1
@@ -214,14 +211,6 @@ extension WebKitSerializedTests {
             }
             await reloadGate.waitForStartedComparisonCount(1)
 
-            #expect(
-                controller.resourceLeaseRegistry.isRevokedSynchronously(
-                    paneId: controller.paneId,
-                    protocolId: "review",
-                    resourceKind: "content"
-                ))
-            #expect(
-                await controller.resourceLeaseRegistry.contains(initialResource, paneId: controller.paneId) == false)
             await #expect(throws: BridgeIPCProjectionError.self) {
                 _ = try await controller.loadContentForIPC(
                     contentHandleId: initialHandle.handleId,
@@ -249,11 +238,6 @@ extension WebKitSerializedTests {
                 role: .head,
                 reviewGeneration: 1
             )
-            let initialResource = try #require(
-                BridgeTransportResourceURL.parse(
-                    initialHandle.resourceUrl,
-                    allowedResourceKindsByProtocol: ["review": Set(["content"])]
-                ))
             let loadResult = await fixture.controller.handleDiffCommand(
                 .loadDiff(
                     DiffArtifact(
@@ -266,9 +250,10 @@ extension WebKitSerializedTests {
                 correlationId: nil
             )
             #expect(loadResult == .success(commandId: fixture.commandId))
-            #expect(
-                await fixture.controller.resourceLeaseRegistry.contains(
-                    initialResource, paneId: fixture.controller.paneId))
+            _ = try await fixture.controller.loadContentForIPC(
+                contentHandleId: initialHandle.handleId,
+                reviewGeneration: initialHandle.reviewGeneration.rawValue
+            )
             let initialPackage = try #require(fixture.controller.paneState.diff.packageMetadata)
             let initialDelta = fixture.controller.paneState.diff.packageDelta
 
@@ -283,26 +268,25 @@ extension WebKitSerializedTests {
                 role: .head,
                 reviewGeneration: initialPackage.reviewGeneration
             )
-            let invalidRefreshResource = try #require(
-                BridgeTransportResourceURL.parse(
-                    invalidRefreshHandle.resourceUrl,
-                    allowedResourceKindsByProtocol: ["review": Set(["content"])]
-                ))
             await setRefreshComparison(fixture, changedFile: invalidRefreshFile)
             await postRefreshEvent(fixture, path: "Sources/App/BadSize.swift", batchSeq: 50)
 
-            #expect(
-                await fixture.controller.resourceLeaseRegistry.contains(
-                    initialResource, paneId: fixture.controller.paneId))
-            #expect(
-                await fixture.controller.resourceLeaseRegistry.contains(
-                    invalidRefreshResource, paneId: fixture.controller.paneId) == false)
+            _ = try await fixture.controller.loadContentForIPC(
+                contentHandleId: initialHandle.handleId,
+                reviewGeneration: initialHandle.reviewGeneration.rawValue
+            )
+            await #expect(throws: BridgeIPCProjectionError.self) {
+                _ = try await fixture.controller.loadContentForIPC(
+                    contentHandleId: invalidRefreshHandle.handleId,
+                    reviewGeneration: invalidRefreshHandle.reviewGeneration.rawValue
+                )
+            }
             #expect(fixture.controller.paneState.diff.packageMetadata == initialPackage)
             #expect(fixture.controller.paneState.diff.packageDelta == initialDelta)
         }
 
-        @Test("teardown synchronously revokes review content leases")
-        func teardown_synchronously_revokes_review_content_leases() async throws {
+        @Test("teardown synchronously revokes direct review content authority")
+        func teardown_synchronously_revokes_direct_review_content_authority() async throws {
             let fixture = makeRefreshRevisionFixture()
             let initialHandle = BridgeReviewPackageBuilder.contentHandle(
                 for: makeBridgeEndpointChangedFile(
@@ -314,11 +298,6 @@ extension WebKitSerializedTests {
                 role: .head,
                 reviewGeneration: 1
             )
-            let initialResource = try #require(
-                BridgeTransportResourceURL.parse(
-                    initialHandle.resourceUrl,
-                    allowedResourceKindsByProtocol: ["review": Set(["content"])]
-                ))
             let loadResult = await fixture.controller.handleDiffCommand(
                 .loadDiff(
                     DiffArtifact(
@@ -331,21 +310,19 @@ extension WebKitSerializedTests {
                 correlationId: nil
             )
             #expect(loadResult == .success(commandId: fixture.commandId))
-            #expect(
-                await fixture.controller.resourceLeaseRegistry.contains(
-                    initialResource, paneId: fixture.controller.paneId))
+            _ = try await fixture.controller.loadContentForIPC(
+                contentHandleId: initialHandle.handleId,
+                reviewGeneration: initialHandle.reviewGeneration.rawValue
+            )
 
             fixture.controller.teardown()
 
-            #expect(
-                fixture.controller.resourceLeaseRegistry.isRevokedSynchronously(
-                    paneId: fixture.controller.paneId,
-                    protocolId: "review",
-                    resourceKind: "content"
-                ))
-            #expect(
-                await fixture.controller.resourceLeaseRegistry.contains(
-                    initialResource, paneId: fixture.controller.paneId) == false)
+            await #expect(throws: BridgeIPCProjectionError.self) {
+                _ = try await fixture.controller.loadContentForIPC(
+                    contentHandleId: initialHandle.handleId,
+                    reviewGeneration: initialHandle.reviewGeneration.rawValue
+                )
+            }
         }
 
         @Test("teardown prevents in-flight loadDiff from reauthorizing review content")
@@ -381,12 +358,6 @@ extension WebKitSerializedTests {
                 role: .head,
                 reviewGeneration: 1
             )
-            let headResource = try #require(
-                BridgeTransportResourceURL.parse(
-                    headHandle.resourceUrl,
-                    allowedResourceKindsByProtocol: ["review": Set(["content"])]
-                ))
-
             let loadTask = Task { @MainActor in
                 await controller.handleDiffCommand(
                     .loadDiff(
@@ -407,8 +378,6 @@ extension WebKitSerializedTests {
             let result = await loadTask.value
 
             #expect(result == .failure(.invalidPayload(description: "Stale bridge review load")))
-            #expect(
-                await controller.resourceLeaseRegistry.contains(headResource, paneId: controller.paneId) == false)
             await #expect(throws: BridgeIPCProjectionError.self) {
                 _ = try await controller.loadContentForIPC(
                     contentHandleId: headHandle.handleId,
@@ -449,12 +418,6 @@ extension WebKitSerializedTests {
                 role: .head,
                 reviewGeneration: 1
             )
-            let invalidResource = try #require(
-                BridgeTransportResourceURL.parse(
-                    invalidHandle.resourceUrl,
-                    allowedResourceKindsByProtocol: ["review": Set(["content"])]
-                ))
-
             let result = await controller.handleDiffCommand(
                 .loadDiff(
                     DiffArtifact(
@@ -468,8 +431,12 @@ extension WebKitSerializedTests {
             )
 
             #expect(result == .failure(.invalidPayload(description: "Failed to load bridge review package")))
-            #expect(
-                await controller.resourceLeaseRegistry.contains(invalidResource, paneId: controller.paneId) == false)
+            await #expect(throws: BridgeIPCProjectionError.self) {
+                _ = try await controller.loadContentForIPC(
+                    contentHandleId: invalidHandle.handleId,
+                    reviewGeneration: invalidHandle.reviewGeneration.rawValue
+                )
+            }
             #expect(controller.paneState.diff.packageMetadata == nil)
             #expect(controller.paneState.diff.status == .error)
         }
@@ -481,8 +448,7 @@ extension WebKitSerializedTests {
             BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: state,
-                reviewSourceProvider: reviewSourceProvider,
-                intakeFrameSink: { _, _, _ in }
+                reviewSourceProvider: reviewSourceProvider
             )
         }
     }

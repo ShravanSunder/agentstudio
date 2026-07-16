@@ -55,7 +55,7 @@ describe('Bridge file viewer mode re-open on switch', () => {
 				metadataSubscriptionOpenCount += 1;
 			},
 		};
-		const handshake = installBridgeReadyHandshake({ pushNonce: 'push-reopen-1' });
+		const handshake = installBridgeReadyHandshake();
 
 		renderFileProductApp('review', productSession);
 		expect(await pollWithinActUntilEqual(() => sourceDiscoveryCount, 1)).toBe(1);
@@ -82,7 +82,7 @@ describe('Bridge file viewer mode re-open on switch', () => {
 				metadataSubscriptionOpenCount += 1;
 			},
 		};
-		const handshake = installBridgeReadyHandshake({ pushNonce: 'push-reopen-healthy' });
+		const handshake = installBridgeReadyHandshake();
 
 		renderFileProductApp('worktree-file', productSession);
 		expect(await pollWithinActUntilEqual(() => sourceDiscoveryCount, 1)).toBe(1);

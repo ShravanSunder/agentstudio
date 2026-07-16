@@ -1,119 +1,29 @@
 import { describe, expect, test } from 'vitest';
 
-import {
-	bridgeDemandIntentSchema,
-	bridgeDemandKeysSchema,
-	bridgeContentDemandRoleSchema,
-	bridgeDescriptorDemandStateSchema,
-	bridgeViewInterestSchema,
-} from './bridge-demand-models.js';
+import { bridgeContentDemandRoleSchema, bridgeDemandLaneSchema } from './bridge-demand-models.js';
 
-describe('bridge demand models', () => {
-	test('parses demand intent, demand keys, descriptor state, and view interest', () => {
-		const descriptorRef = {
-			descriptorId: 'descriptor-1',
-			expectedProtocol: 'review',
-			expectedResourceKind: 'content',
-			expectedIdentity: {
-				paneId: 'pane-1',
-				protocol: 'review',
-				sourceId: 'source-1',
-				packageId: 'package-1',
-				generation: 1,
-				revision: 2,
-			},
-		};
-
-		expect(
-			bridgeDemandIntentSchema.parse({
-				descriptorRef,
-				lane: 'foreground',
-				demandRank: 0,
-				orderingKey: '0001',
-				dedupeKey: 'review:descriptor-1',
-				freshnessKey: 'review:descriptor-1:revision-2',
-				cancellationGroup: 'review:package-1',
-			}),
-		).toEqual({
-			descriptorRef,
-			lane: 'foreground',
-			demandRank: 0,
-			orderingKey: '0001',
-			dedupeKey: 'review:descriptor-1',
-			freshnessKey: 'review:descriptor-1:revision-2',
-			cancellationGroup: 'review:package-1',
-		});
-		expect(
-			bridgeDemandKeysSchema.parse({
-				orderingKey: '0001',
-				dedupeKey: 'review:descriptor-1',
-				freshnessKey: 'review:descriptor-1:revision-2',
-				cancellationGroup: 'review:package-1',
-			}),
-		).toEqual({
-			orderingKey: '0001',
-			dedupeKey: 'review:descriptor-1',
-			freshnessKey: 'review:descriptor-1:revision-2',
-			cancellationGroup: 'review:package-1',
-		});
-		expect(
-			bridgeDescriptorDemandStateSchema.parse({
-				kind: 'valid',
-				freshnessKey: 'review:descriptor-1:revision-2',
-				needsBodyOrWindow: true,
-			}),
-		).toEqual({
-			kind: 'valid',
-			freshnessKey: 'review:descriptor-1:revision-2',
-			needsBodyOrWindow: true,
-		});
-		expect(bridgeViewInterestSchema.parse({ kind: 'selected' })).toEqual({
-			kind: 'selected',
-		});
-		expect(bridgeContentDemandRoleSchema.parse('selected')).toBe('selected');
-		expect(bridgeContentDemandRoleSchema.parse('background')).toBe('background');
+describe('bridge demand product vocabulary', () => {
+	test('accepts the closed worker lane and content-role vocabularies', () => {
+		expect(bridgeDemandLaneSchema.options).toEqual([
+			'foreground',
+			'active',
+			'visible',
+			'nearby',
+			'speculative',
+			'idle',
+		]);
+		expect(bridgeContentDemandRoleSchema.options).toEqual([
+			'selected',
+			'visible',
+			'nearby',
+			'speculative',
+			'background',
+		]);
 	});
 
-	test('rejects loose scheduling fields and unknown lanes', () => {
-		const descriptorRef = {
-			descriptorId: 'descriptor-1',
-			expectedProtocol: 'review',
-			expectedResourceKind: 'content',
-			expectedIdentity: {
-				paneId: 'pane-1',
-				protocol: 'review',
-			},
-		};
-
-		expect(
-			bridgeDemandIntentSchema.safeParse({
-				descriptorRef,
-				lane: 'selected',
-				orderingKey: '0001',
-				dedupeKey: 'review:descriptor-1',
-				freshnessKey: 'review:descriptor-1:revision-2',
-				cancellationGroup: 'review:package-1',
-			}).success,
-		).toBe(false);
-		expect(
-			bridgeDemandIntentSchema.safeParse({
-				descriptorRef,
-				lane: 'foreground',
-				demandRank: 0,
-				orderingKey: '0001',
-				dedupeKey: 'review:descriptor-1',
-				freshnessKey: 'review:descriptor-1:revision-2',
-				cancellationGroup: 'review:package-1',
-				reason: 'selected',
-			}).success,
-		).toBe(false);
-		expect(
-			bridgeDescriptorDemandStateSchema.safeParse({
-				kind: 'valid',
-				freshnessKey: 'review:descriptor-1:revision-2',
-				needsBodyOrWindow: true,
-				resourceUrl: 'agentstudio://resource/review/content/descriptor-1',
-			}).success,
-		).toBe(false);
+	test('rejects descriptor-era and unknown scheduling values', () => {
+		expect(bridgeDemandLaneSchema.safeParse('selected').success).toBe(false);
+		expect(bridgeDemandLaneSchema.safeParse('resource').success).toBe(false);
+		expect(bridgeContentDemandRoleSchema.safeParse('foreground').success).toBe(false);
 	});
 });

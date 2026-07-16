@@ -188,16 +188,25 @@ final class BridgeSchemeHandlerRPCTests {
             body: metadataBody
         )
         let recorder = BridgeProductSchemeReplyEventRecorder()
+        let (observedFrames, observedFrameContinuation) =
+            AsyncStream<BridgeProductMetadataFrameIdentity>.makeStream()
 
         // Act
         let consumer = Task {
             do {
+                let frameDecoder = try BridgeProductMetadataFrameDecoder()
                 for try await result in handler.reply(for: metadataRequest) {
                     switch result {
                     case .response:
                         await recorder.record(.response)
-                    case .data:
+                    case .data(let chunk):
+                        let frames = try frameDecoder.append(chunk)
+                        guard frames.count == 1, let frame = frames.first else {
+                            Issue.record("Expected one metadata frame per scheme reply data event")
+                            continue
+                        }
                         await recorder.record(.data)
+                        observedFrameContinuation.yield(frame.producerFrameIdentity)
                     @unknown default:
                         Issue.record("Unexpected URL scheme task result")
                     }
@@ -208,9 +217,15 @@ final class BridgeSchemeHandlerRPCTests {
                 Issue.record("Unexpected metadata reply failure: \(error)")
             }
         }
+        try await acknowledgeMetadataFrames(
+            observedFrames,
+            handler: handler,
+            capabilityHeader: capabilityHeader
+        )
         await recorder.waitUntilCount(4)
         consumer.cancel()
         _ = await consumer.value
+        observedFrameContinuation.finish()
         await router.waitForDrain()
         await provider.waitUntilAcknowledgedLifecycleCount(1)
 
@@ -270,6 +285,40 @@ final class BridgeSchemeHandlerRPCTests {
         )
         #expect(reply.body.isEmpty)
         #expect(inactiveRouteReason == "product-session-unavailable")
+    }
+}
+
+private func acknowledgeMetadataFrames(
+    _ observedFrames: AsyncStream<BridgeProductMetadataFrameIdentity>,
+    handler: BridgeSchemeHandler,
+    capabilityHeader: String
+) async throws {
+    var observedFrameIterator = observedFrames.makeAsyncIterator()
+    for expectedStreamSequence in 0...2 {
+        let frameIdentity = try #require(await observedFrameIterator.next())
+        #expect(frameIdentity.streamSequence == expectedStreamSequence)
+        let acknowledgementBody = try JSONSerialization.data(
+            withJSONObject: [
+                "kind": "stream.frameObserved",
+                "metadataStreamId": frameIdentity.metadataStreamId,
+                "paneSessionId": frameIdentity.paneSessionId,
+                "streamKind": "metadata",
+                "streamSequence": frameIdentity.streamSequence,
+                "wireVersion": frameIdentity.wireVersion,
+                "workerInstanceId": frameIdentity.workerInstanceId,
+            ],
+            options: [.sortedKeys]
+        )
+        let acknowledgementReply = try await collectBridgeSchemeHandlerReply(
+            handler: handler,
+            request: bridgeProductSchemeRequest(
+                route: BridgeProductWireContract.commandRoute,
+                capability: capabilityHeader,
+                body: acknowledgementBody
+            )
+        )
+        #expect(acknowledgementReply.response?.statusCode == 204)
+        #expect(acknowledgementReply.body.isEmpty)
     }
 }
 

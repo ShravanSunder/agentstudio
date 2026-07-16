@@ -1,87 +1,10 @@
 import Foundation
 import Testing
-import WebKit
 
 @testable import AgentStudio
 
 @Suite(.serialized)
 final class BridgeContentDemandAdmissionTests {
-    private actor BridgeTelemetryRecorderSpy: BridgePerformanceTraceRecording {
-        private var recordedSamples: [BridgeTelemetrySample] = []
-
-        func record(sample: BridgeTelemetrySample, receivedAtUnixNano: UInt64) async {
-            _ = receivedAtUnixNano
-            recordedSamples.append(sample)
-        }
-
-        func recordDrop(
-            reason: BridgeTelemetryDropReason,
-            droppedCount: Int,
-            firstRejectedEventName: String?,
-            receivedAtUnixNano: UInt64
-        ) async {
-            _ = reason
-            _ = droppedCount
-            _ = firstRejectedEventName
-            _ = receivedAtUnixNano
-        }
-
-        func samples() -> [BridgeTelemetrySample] {
-            recordedSamples
-        }
-
-        func drain() async throws {}
-    }
-
-    @Test
-    func test_transportResourceURL_parsesContentInterestWithoutLeaseIdentity() throws {
-        let resourceURL =
-            "agentstudio://resource/review/content/content-123?generation=2&revision=4&interest=selected"
-        let parsed = try #require(
-            BridgeTransportResourceURL.parse(
-                resourceURL,
-                allowedResourceKindsByProtocol: ["review": Set(["content"])]
-            ))
-
-        #expect(parsed.canonicalURL == "agentstudio://resource/review/content/content-123?generation=2&revision=4")
-        #expect(BridgeContentDemandInterest.parse(resourceURL) == .selected)
-    }
-
-    @Test
-    func test_contentRoute_recordsDemandInterestTelemetryFromResourceURL() async throws {
-        let handle = makeBridgeContentHandle(
-            itemId: "item-1",
-            role: .head,
-            reviewGeneration: 7,
-            contentHash: bridgeSHA256ContentHash("hello bridge")
-        )
-        let provider = BridgeReviewSourceProviderFake(
-            comparison: BridgeEndpointComparison(
-                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
-                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
-                changedFiles: []
-            ),
-            contentByHandleId: [
-                handle.handleId: makeContentResult(handle: handle, data: "hello bridge")
-            ]
-        )
-        let contentStore = BridgeContentStore(provider: provider)
-        let recorder = BridgeTelemetryRecorderSpy()
-        await contentStore.activate(handles: [handle], reviewGeneration: 7)
-        let handler = await makeLeasedBridgeSchemeHandler(
-            contentStore: contentStore,
-            handle: handle,
-            telemetryRecorder: recorder
-        )
-        let requestURL = handle.resourceUrl + "&interest=visible"
-        let request = URLRequest(url: URL(string: requestURL)!)
-
-        for try await _ in handler.reply(for: request) {}
-
-        let sample = try #require(await recorder.samples().first)
-        #expect(sample.stringAttributes["agentstudio.bridge.content.interest"] == "visible")
-    }
-
     @Test
     func test_backgroundContentDemandYieldsUntilVisibleDemandFinishes() async {
         let admission = BridgeContentDemandAdmission()
@@ -387,33 +310,6 @@ final class BridgeContentDemandAdmissionTests {
         }
 
         #expect(clock.pendingSleepCount == 0)
-    }
-
-    private func makeLeasedBridgeSchemeHandler(
-        contentStore: BridgeContentStore,
-        handle: BridgeContentHandle,
-        telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
-    ) async -> BridgeSchemeHandler {
-        let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
-        let paneId = UUID()
-        if let resource = BridgeTransportResourceURL.parse(
-            handle.resourceUrl,
-            allowedResourceKindsByProtocol: ["review": Set(["content"])]
-        ) {
-            await resourceLeaseRegistry.register(
-                resource,
-                paneId: paneId,
-                descriptorId: resource.opaqueId,
-                maxBytes: handle.sizeBytes,
-                expectedRevocationRevision: 0
-            )
-        }
-        return BridgeSchemeHandler(
-            paneId: paneId,
-            contentStore: contentStore,
-            resourceLeaseRegistry: resourceLeaseRegistry,
-            telemetryRecorder: telemetryRecorder
-        )
     }
 
     private func terminalSnapshot(

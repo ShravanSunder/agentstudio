@@ -9,7 +9,6 @@ enum BridgeTelemetryDropReason: String, CaseIterable, Codable, Equatable, Sendab
     case missingPushNonce = "missing_push_nonce"
     case missingDropCounter = "missing_drop_counter"
     case pushDecodeFailed = "push_decode_failed"
-    case pushNonceMismatch = "push_nonce_mismatch"
     case queueSaturated = "queue_saturated"
     case rateLimited = "rate_limited"
     case requiredEventShed = "required_event_shed"

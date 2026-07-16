@@ -8,7 +8,7 @@ extension WebKitSerializedTests.BridgeWebKitSpikeTests {
     func packagedWorkerProvesPositiveProductStreamCarrier() async throws {
         // Arrange
         let workerAsset = try await BridgeAppAssetStore().load(
-            relativePath: "assets/bridge-worker-fetch-probe-worker.js")
+            relativePath: "assets/bridge-product-stream-webkit-feasibility-worker.js")
         let workerSource = try #require(String(data: workerAsset.data, encoding: .utf8))
 
         // Act

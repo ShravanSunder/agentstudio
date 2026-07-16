@@ -134,6 +134,17 @@ private func bridgeHardCutNativeReviewPublicationRules() -> [BridgeHardCutOwnerR
 
     return [
         bridgeHardCutOwnerFileRule(
+            .featureResourceGet,
+            bridgeHardCutSourcePath(
+                "Sources", "AgentStudio", "App", "Boot", "AppDelegate+BridgeWorkerFetchStartupDiagnostics.swift"),
+            "legacy worker feature-resource GET startup diagnostic"),
+        bridgeHardCutOwnerFileRule(
+            .featureResourceGet,
+            bridgeHardCutSourcePath(
+                "Sources", "AgentStudio", "Features", "Bridge", "Models", "Transport",
+                "BridgeResourceDescriptor.swift"),
+            "generic feature-resource URL descriptor model"),
+        bridgeHardCutOwnerFileRule(
             .nativeReviewPublication,
             bridgeHardCutSourcePath(
                 runtimeRoot + [bridgeHardCutJoin("BridgePaneController+", "ReviewProtocolResources.swift")]),
@@ -186,6 +197,12 @@ private func bridgeHardCutFeatureResourceRules() -> [BridgeHardCutOwnerRule] {
             "native feature resource GET URL authority"),
         bridgeHardCutOwnerFileRule(
             .featureResourceGet,
+            bridgeHardCutSourcePath(
+                "Sources", "AgentStudio", "Features", "Bridge", "Models", "Transport",
+                "BridgeResourceProtocolRegistry.swift"),
+            "native feature-resource protocol allowlist"),
+        bridgeHardCutOwnerFileRule(
+            .featureResourceGet,
             bridgeHardCutSourcePath(reviewFoundationRuntimeRoot + ["BridgeContentHandleIdentity.swift"]),
             "native Review content resource URL builder"),
         bridgeHardCutSourceRule(
@@ -200,13 +217,26 @@ private func bridgeHardCutFeatureResourceRules() -> [BridgeHardCutOwnerRule] {
 }
 
 private func bridgeHardCutProductIngressAndEgressRules() -> [BridgeHardCutOwnerRule] {
+    bridgeHardCutProductEgressRules() + bridgeHardCutScriptMessageProductIngressRules()
+}
+
+private func bridgeHardCutProductEgressRules() -> [BridgeHardCutOwnerRule] {
     let runtimeRoot = ["Sources", "AgentStudio", "Features", "Bridge", "Runtime"]
     let transportRoot = ["Sources", "AgentStudio", "Features", "Bridge", "Transport"]
     let controllerPath = bridgeHardCutSourcePath(runtimeRoot + ["BridgePaneController.swift"])
     let bootstrapPath = bridgeHardCutSourcePath(transportRoot + ["BridgeBootstrap.swift"])
-    let readyHandlerPath = bridgeHardCutSourcePath(transportRoot + ["BridgeReadyMessageHandler.swift"])
+    let bridgeWebBridgeRoot = ["BridgeWeb", "src", "bridge"]
+    let pushStateRoot = ["Sources", "AgentStudio", "Features", "Bridge", "State", "Push"]
 
     return [
+        bridgeHardCutOwnerFileRule(
+            .productDOMEgress,
+            bridgeHardCutSourcePath(bridgeWebBridgeRoot + ["bridge-push-envelope.ts"]),
+            "page-owned legacy product push envelope model"),
+        bridgeHardCutOwnerFileRule(
+            .productDOMEgress,
+            bridgeHardCutSourcePath(bridgeWebBridgeRoot + ["bridge-push-receiver.ts"]),
+            "page-owned legacy product push receiver"),
         bridgeHardCutOwnerFileRule(
             .productDOMEgress,
             bridgeHardCutSourcePath(
@@ -216,6 +246,42 @@ private func bridgeHardCutProductIngressAndEgressRules() -> [BridgeHardCutOwnerR
             .productDOMEgress,
             bridgeHardCutSourcePath(runtimeRoot + [bridgeHardCutJoin("BridgePaneController+", "PushPlans.swift")]),
             "native main-owned product page-push plans"),
+        bridgeHardCutOwnerFileRule(
+            .productDOMEgress,
+            bridgeHardCutSourcePath(runtimeRoot + ["BridgeMetadataLaneScheduler.swift"]),
+            "native legacy metadata intake scheduler"),
+        bridgeHardCutOwnerFileRule(
+            .productDOMEgress,
+            bridgeHardCutSourcePath(runtimeRoot + ["BridgePushEnvelopeEncoder.swift"]),
+            "native legacy push-envelope encoder"),
+        bridgeHardCutOwnerFileRule(
+            .productDOMEgress,
+            bridgeHardCutSourcePath(runtimeRoot + ["PreEncodedIntakeFrame.swift"]),
+            "native legacy intake-frame carrier"),
+        bridgeHardCutOwnerFileRule(
+            .productDOMEgress,
+            bridgeHardCutSourcePath(pushStateRoot + ["EntitySlice.swift"]),
+            "native legacy entity push projection"),
+        bridgeHardCutOwnerFileRule(
+            .productDOMEgress,
+            bridgeHardCutSourcePath(pushStateRoot + ["PushPlan.swift"]),
+            "native legacy page-push plan"),
+        bridgeHardCutOwnerFileRule(
+            .productDOMEgress,
+            bridgeHardCutSourcePath(pushStateRoot + ["PushSnapshots.swift"]),
+            "native legacy page-push snapshots"),
+        bridgeHardCutOwnerFileRule(
+            .productDOMEgress,
+            bridgeHardCutSourcePath(pushStateRoot + ["PushTransport.swift"]),
+            "native legacy page-push transport contract"),
+        bridgeHardCutOwnerFileRule(
+            .productDOMEgress,
+            bridgeHardCutSourcePath(pushStateRoot + ["RevisionClock.swift"]),
+            "native legacy page-push revision clock"),
+        bridgeHardCutOwnerFileRule(
+            .productDOMEgress,
+            bridgeHardCutSourcePath(pushStateRoot + ["Slice.swift"]),
+            "native legacy page-push slice projection"),
         bridgeHardCutSourceRule(
             .productDOMEgress,
             controllerPath,
@@ -231,7 +297,30 @@ private func bridgeHardCutProductIngressAndEgressRules() -> [BridgeHardCutOwnerR
             [
                 bridgeHardCutJoin("applyEnvelope", "JSON"),
                 bridgeHardCutJoin("applyIntakeFrame", "JSON"),
+                bridgeHardCutJoin("PUSH", "_NONCE"),
+                bridgeHardCutJoin("push", "Nonce"),
             ]),
+    ]
+}
+
+private func bridgeHardCutScriptMessageProductIngressRules() -> [BridgeHardCutOwnerRule] {
+    let runtimeRoot = ["Sources", "AgentStudio", "Features", "Bridge", "Runtime"]
+    let transportRoot = ["Sources", "AgentStudio", "Features", "Bridge", "Transport"]
+    let readyHandlerPath = bridgeHardCutSourcePath(transportRoot + ["BridgeReadyMessageHandler.swift"])
+
+    return [
+        bridgeHardCutOwnerFileRule(
+            .scriptMessageProductIngress,
+            bridgeHardCutSourcePath(runtimeRoot + ["BridgePaneController+SchemeCommandDispatch.swift"]),
+            "legacy generic scheme-command compatibility owner"),
+        bridgeHardCutOwnerFileRule(
+            .scriptMessageProductIngress,
+            bridgeHardCutSourcePath(transportRoot + ["BridgeSchemeCommandDispatcher.swift"]),
+            "legacy generic scheme-command dispatcher"),
+        bridgeHardCutOwnerFileRule(
+            .scriptMessageProductIngress,
+            bridgeHardCutSourcePath(transportRoot + ["RPCMethod.swift"]),
+            "legacy generic scheme-command method abstraction"),
         bridgeHardCutOwnerFileRule(
             .scriptMessageProductIngress,
             bridgeHardCutSourcePath(transportRoot + [bridgeHardCutJoin("RPCMessage", "Handler.swift")]),

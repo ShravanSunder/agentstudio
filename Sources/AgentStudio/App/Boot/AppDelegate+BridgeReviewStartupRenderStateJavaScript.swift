@@ -737,56 +737,6 @@ extension AppDelegate {
               const reviewIntakeMetadataWindowFrameCount = reviewIntakeFrames.filter((entry) => {
                 return entry?.payloadFrameKind === 'review.metadataWindow';
               }).length;
-              const metadataInterestProbe =
-                window.__bridgeReviewMetadataInterestProbe &&
-                typeof window.__bridgeReviewMetadataInterestProbe === 'object'
-                  ? window.__bridgeReviewMetadataInterestProbe
-                  : {};
-              if (
-                reviewIntakeMetadataWindowFrameCount === 0 &&
-                typeof metadataInterestProbe.commandId !== 'string' &&
-                reviewStreamId.length > 0 &&
-                Number.isFinite(reviewGeneration) &&
-                reviewGeneration >= 0 &&
-                selectedItemId.length > 0
-              ) {
-                const commandId = `startup-review-metadata-interest-${Date.now().toString(36)}`;
-                window.__bridgeReviewMetadataInterestProbe = {
-                  commandId,
-                  itemId: selectedItemId,
-                  streamId: reviewStreamId,
-                  status: 'requested'
-                };
-                fetch('agentstudio://rpc/command', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    __commandId: commandId,
-                    id: commandId,
-                    jsonrpc: '2.0',
-                    method: 'bridge.metadata_interest.update',
-                    params: {
-                      protocol: 'review',
-                      streamId: reviewStreamId,
-                      generation: reviewGeneration,
-                      itemIds: [selectedItemId],
-                      lane: 'foreground'
-                    }
-                  })
-                }).then((response) => {
-                  window.__bridgeReviewMetadataInterestProbe = {
-                    ...(window.__bridgeReviewMetadataInterestProbe || {}),
-                    httpStatus: response.status,
-                    status: response.ok ? 'response' : 'http_error'
-                  };
-                }).catch((error) => {
-                  window.__bridgeReviewMetadataInterestProbe = {
-                    ...(window.__bridgeReviewMetadataInterestProbe || {}),
-                    error: String(error?.message ?? error),
-                    status: 'fetch_error'
-                  };
-                });
-              }
               return {
                 hasReviewShell: reviewShell !== null,
                 reviewShellState,

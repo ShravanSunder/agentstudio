@@ -400,7 +400,6 @@ func makeBridgeContentHandle(
         role: role,
         endpointId: endpointId,
         reviewGeneration: reviewGeneration,
-        resourceUrl: "agentstudio://resource/review/content/\(handleId)?generation=\(reviewGeneration.rawValue)",
         contentHash: contentHash,
         contentHashAlgorithm: "sha256",
         cacheKey: "\(endpointId):\(itemId):\(role.rawValue)",

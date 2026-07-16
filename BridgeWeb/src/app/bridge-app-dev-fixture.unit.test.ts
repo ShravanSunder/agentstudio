@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'vitest';
 
-import { buildReviewMetadataSnapshotFrame } from '../features/review/protocol/review-metadata-frame-builder.js';
 import { bridgeReviewPackageSchema } from '../foundation/review-package/bridge-review-package-schema.js';
 import { makeBridgeViewerBrowserFixture } from '../review-viewer/test-support/bridge-viewer-mocked-backend-fixture.js';
 import {
@@ -230,17 +229,6 @@ describe('bridge app dev fixture options', () => {
 		expect(markdownPackage.orderedItemIds[0]).toBe('browser-docs-plan');
 		expect(scrollPackage.orderedItemIds[0]).toBe('browser-large-diff');
 		expect(bridgeReviewPackageSchema.safeParse(scrollPackage).success).toBe(true);
-		const scrollFrame = buildReviewMetadataSnapshotFrame({
-			package: scrollPackage,
-			paneId: 'bridge-review-pane-browser',
-			sourceIdentity: scrollPackage.query.queryId,
-			streamId: 'bridge-review-stream-browser',
-			sequence: scrollPackage.revision,
-			selectedItemId: scrollPackage.orderedItemIds[0] ?? null,
-			visibleItemIds: scrollPackage.orderedItemIds.slice(0, 80),
-		});
-		expect(scrollFrame.comparison).not.toHaveProperty('rootDescriptor');
-		expect(scrollFrame.frameKind).toBe('review.metadataSnapshot');
 		expect(markdownPackage.orderedItemIds).toHaveLength(
 			fixture.reviewPackage.orderedItemIds.length,
 		);

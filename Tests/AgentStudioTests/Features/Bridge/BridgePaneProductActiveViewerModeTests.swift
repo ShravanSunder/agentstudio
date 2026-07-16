@@ -11,8 +11,8 @@ extension WebKitSerializedTests {
             installTestAtomRegistryIfNeeded()
         }
 
-        @Test("committed File product mode suppresses Review production")
-        func committedFileProductModeSuppressesReviewProduction() async throws {
+        @Test("committed File product mode accepts a worktree File source")
+        func committedFileProductModeAcceptsWorktreeFileSource() async throws {
             let controller = makeController()
             defer { controller.teardown() }
             let activeSource = BridgeActiveViewerSource(
@@ -31,68 +31,76 @@ extension WebKitSerializedTests {
             let acceptedSignal = try #require(controller.activeViewerModeSignalState.acceptedSignal)
             #expect(acceptedSignal.mode == .file)
             #expect(acceptedSignal.activeSource == activeSource)
-            #expect(controller.shouldSuppressReviewProtocolProduction(generation: 999))
+            #expect(acceptedSignal.sequenceFloor == 1)
         }
 
-        @Test("committed File to Review switch catches up suppressed Review metadata")
-        func committedFileToReviewSwitchCatchesUpSuppressedReviewMetadata() async throws {
-            // Arrange
-            let frameCapture = ProductActiveViewerReviewFrameCapture()
-            let controller = makeReviewController(frameCapture: frameCapture)
+        @Test("committed Review product mode accepts the current stream and generation")
+        func committedReviewProductModeAcceptsCurrentStreamAndGeneration() async throws {
+            let controller = makeController()
             defer { controller.teardown() }
-            #expect(controller.handleBridgeReady())
-            guard case .success = await controller.loadInitialReviewPackageIfPossible(correlationId: nil) else {
-                Issue.record("Expected the Review package fixture to load")
-                return
-            }
-            await controller.handleBridgeIntakeReady(
-                BridgeIntakeReadyMethod.Params(protocolId: "review", streamId: nil)
-            )
-            await controller.activeReviewRefreshTask?.value
-            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
-            let package = try #require(controller.paneState.diff.packageMetadata)
-            await frameCapture.removeAll()
-            await controller.handleCommittedProductActiveViewerModeUpdate(
-                sessionId: "product-mode-switch-session",
-                sequence: 1,
-                mode: .file,
-                activeSource: BridgeActiveViewerSource(
-                    protocolId: .worktreeFile,
-                    streamId: "product-file-stream",
-                    generation: 1
-                )
+            let reviewPackage = try productActiveViewerReviewPackageFixture()
+            controller.paneState.diff.setPackageMetadata(reviewPackage)
+            let activeSource = BridgeActiveViewerSource(
+                protocolId: .review,
+                streamId: controller.reviewProtocolStreamId(),
+                generation: reviewPackage.reviewGeneration.rawValue
             )
 
-            // Act
-            await controller.commitReviewPackageLoad(
-                BridgeReviewPackageLoadData(package: package, delta: nil),
-                traceContext: nil
-            )
-            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
-            let framesWhileFileIsActive = await frameCapture.frames
-            let suppressedDrop = controller.reviewProtocolSuppressedDrop
             await controller.handleCommittedProductActiveViewerModeUpdate(
-                sessionId: "product-mode-switch-session",
-                sequence: 2,
+                sessionId: "product-review-session",
+                sequence: 1,
+                mode: .review,
+                activeSource: activeSource
+            )
+
+            let acceptedSignal = try #require(controller.activeViewerModeSignalState.acceptedSignal)
+            #expect(acceptedSignal.mode == .review)
+            #expect(acceptedSignal.activeSource == activeSource)
+            #expect(acceptedSignal.sequenceFloor == 1)
+        }
+
+        @Test("committed Review product mode rejects a stale generation")
+        func committedReviewProductModeRejectsStaleGeneration() async throws {
+            let controller = makeController()
+            defer { controller.teardown() }
+            let reviewPackage = try productActiveViewerReviewPackageFixture()
+            controller.paneState.diff.setPackageMetadata(reviewPackage)
+
+            await controller.handleCommittedProductActiveViewerModeUpdate(
+                sessionId: "product-review-session",
+                sequence: 1,
                 mode: .review,
                 activeSource: BridgeActiveViewerSource(
                     protocolId: .review,
                     streamId: controller.reviewProtocolStreamId(),
-                    generation: package.reviewGeneration.rawValue
+                    generation: reviewPackage.reviewGeneration.rawValue + 1
                 )
             )
-            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
 
-            // Assert
-            #expect(framesWhileFileIsActive.isEmpty)
-            #expect(suppressedDrop != nil)
-            #expect(controller.reviewProtocolSuppressedDrop == nil)
-            #expect(
-                (await frameCapture.frames).contains {
-                    ProductActiveViewerReviewFrameCapture.frameKind(of: $0)
-                        == "review.metadataSnapshot"
-                }
+            #expect(controller.activeViewerModeSignalState.lastSequence == 1)
+            #expect(controller.activeViewerModeSignalState.acceptedSignal == nil)
+        }
+
+        @Test("committed Review product mode rejects a mismatched stream")
+        func committedReviewProductModeRejectsMismatchedStream() async throws {
+            let controller = makeController()
+            defer { controller.teardown() }
+            let reviewPackage = try productActiveViewerReviewPackageFixture()
+            controller.paneState.diff.setPackageMetadata(reviewPackage)
+
+            await controller.handleCommittedProductActiveViewerModeUpdate(
+                sessionId: "product-review-session",
+                sequence: 1,
+                mode: .review,
+                activeSource: BridgeActiveViewerSource(
+                    protocolId: .review,
+                    streamId: "stale-review-stream",
+                    generation: reviewPackage.reviewGeneration.rawValue
+                )
             )
+
+            #expect(controller.activeViewerModeSignalState.lastSequence == 1)
+            #expect(controller.activeViewerModeSignalState.acceptedSignal == nil)
         }
 
         @Test("Review package state is installed before product ready publication")
@@ -223,6 +231,38 @@ extension WebKitSerializedTests {
             #expect(controller.activeViewerModeSignalState.acceptedSignal?.activeSource == acceptedSource)
         }
 
+        @Test("new product session accepts a lower sequence")
+        func newProductSessionAcceptsLowerSequence() async throws {
+            let controller = makeController()
+            defer { controller.teardown() }
+            await controller.handleCommittedProductActiveViewerModeUpdate(
+                sessionId: "first-product-session",
+                sequence: 9,
+                mode: .file,
+                activeSource: BridgeActiveViewerSource(
+                    protocolId: .worktreeFile,
+                    streamId: "first-file-stream",
+                    generation: 1
+                )
+            )
+            let replacementSource = BridgeActiveViewerSource(
+                protocolId: .worktreeFile,
+                streamId: "replacement-file-stream",
+                generation: 2
+            )
+
+            await controller.handleCommittedProductActiveViewerModeUpdate(
+                sessionId: "replacement-product-session",
+                sequence: 1,
+                mode: .file,
+                activeSource: replacementSource
+            )
+
+            #expect(controller.activeViewerModeSignalState.sessionId == "replacement-product-session")
+            #expect(controller.activeViewerModeSignalState.lastSequence == 1)
+            #expect(controller.activeViewerModeSignalState.acceptedSignal?.activeSource == replacementSource)
+        }
+
         @Test("mismatched product File source fails open")
         func mismatchedProductFileSourceFailsOpen() async {
             let controller = makeController()
@@ -240,7 +280,6 @@ extension WebKitSerializedTests {
             )
 
             #expect(controller.activeViewerModeSignalState.acceptedSignal == nil)
-            #expect(!controller.shouldSuppressReviewProtocolProduction(generation: 1))
         }
 
         private func makeController() -> BridgePaneController {
@@ -253,48 +292,6 @@ extension WebKitSerializedTests {
             )
         }
 
-        private func makeReviewController(
-            frameCapture: ProductActiveViewerReviewFrameCapture
-        ) -> BridgePaneController {
-            BridgePaneController(
-                paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .fileViewer,
-                    source: .workspace(rootPath: "/tmp/product-file-viewer", baseline: .unstaged)
-                ),
-                metadata: PaneMetadata(
-                    contentType: .diff,
-                    title: "Files",
-                    facets: PaneContextFacets(
-                        repoId: UUIDv7.generate(),
-                        worktreeId: UUIDv7.generate()
-                    )
-                ),
-                reviewSourceProvider: BridgeReviewSourceProviderFake(
-                    comparison: BridgeEndpointComparison(
-                        baseEndpoint: makeBridgeEndpoint(
-                            endpointId: "baseline-headMinusOne",
-                            kind: .gitRef
-                        ),
-                        headEndpoint: makeBridgeEndpoint(
-                            endpointId: "working-tree",
-                            kind: .workingTree
-                        ),
-                        changedFiles: [
-                            makeBridgeEndpointChangedFile(
-                                fileId: "source",
-                                path: "Sources/App/View.swift",
-                                sizeBytes: 100
-                            )
-                        ]
-                    ),
-                    contentByHandleId: [:]
-                ),
-                intakeFrameSink: { _, frameJSON, _ in
-                    await frameCapture.append(frameJSON)
-                }
-            )
-        }
     }
 }
 
@@ -368,26 +365,4 @@ private func productActiveViewerReviewPackageFixture() throws -> BridgeReviewPac
         BridgeReviewPackage.self,
         from: Data(contentsOf: fixtureURL)
     )
-}
-
-private actor ProductActiveViewerReviewFrameCapture {
-    private(set) var frames: [String] = []
-
-    func append(_ frameJSON: String) {
-        frames.append(frameJSON)
-    }
-
-    func removeAll() {
-        frames.removeAll(keepingCapacity: false)
-    }
-
-    nonisolated static func frameKind(of frameJSON: String) -> String? {
-        guard let data = frameJSON.data(using: .utf8),
-            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let payload = object["payload"] as? [String: Any]
-        else {
-            return nil
-        }
-        return payload["frameKind"] as? String
-    }
 }

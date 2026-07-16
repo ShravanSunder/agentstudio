@@ -8,10 +8,7 @@ struct BridgeProductBootstrapHardCutContractTests {
     @Test("content-world bootstrap cannot carry ordinary File or Review product frames")
     func contentWorldBootstrapCannotCarryProductFrames() {
         // Arrange
-        let script = BridgeBootstrap.generateScript(
-            bridgeNonce: "unused-command-nonce",
-            pushNonce: "bootstrap-push-nonce"
-        )
+        let script = BridgeBootstrap.generateScript()
         let forbiddenProductCarrierMarkers = [
             "applyIntakeFrameJSON",
             "agentstudio.bridge.hostIntakeFrameJSON",
@@ -94,10 +91,7 @@ struct BridgeProductBootstrapHardCutContractTests {
                 )
             )
         }
-        let bootstrapScript = BridgeBootstrap.generateScript(
-            bridgeNonce: "unused-command-nonce",
-            pushNonce: "bootstrap-push-nonce"
-        )
+        let bootstrapScript = BridgeBootstrap.generateScript()
 
         // Assert
         guard case .workerSessionAccepted = openResponse,

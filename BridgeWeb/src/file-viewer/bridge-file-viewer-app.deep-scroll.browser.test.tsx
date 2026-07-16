@@ -232,7 +232,7 @@ describe('BridgeFileViewerApp sustained deep scrolling', () => {
 		const paneSessionFactory = createBridgeFileViewerBrowserTestPaneSessionFactory({
 			productSessionRef: { current: productSession },
 		});
-		disposeRouteHandshake = installBridgeReadyHandshake({ pushNonce: 'deep-scroll-route' }).dispose;
+		disposeRouteHandshake = installBridgeReadyHandshake().dispose;
 		routePierreWorkerFactory = createBridgePierrePortableBlobWorkerFactory();
 
 		render(
@@ -332,9 +332,7 @@ describe('BridgeFileViewerApp sustained deep scrolling', () => {
 	realViteProductTest(
 		'keeps the real Vite module-worker File route painted through sustained deep scrolling',
 		async () => {
-			disposeRouteHandshake = installBridgeReadyHandshake({
-				pushNonce: 'deep-scroll-real-vite',
-			}).dispose;
+			disposeRouteHandshake = installBridgeReadyHandshake().dispose;
 			routeProductSessionHost = installBridgeAppDevProductSessionHost();
 			routePierreWorkerFactory = createBridgePierrePortableBlobWorkerFactory();
 

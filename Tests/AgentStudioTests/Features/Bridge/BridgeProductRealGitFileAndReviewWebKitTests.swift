@@ -13,7 +13,6 @@ extension WebKitSerializedTests {
             let fileCorrelationObserved: Bool
             let fileModeActivated: Bool
             let filePathSelected: Bool
-            let legacyEgress: BridgeProductWebKitCarrierLegacyEgressSnapshot
             let native: BridgeProductWebKitCarrierNativeSnapshot
             let reviewDOMBeforeFileSwitch: BridgeProductWebKitCarrierDOMSnapshot
             let sourceOracle: LiveSourceOracle
@@ -38,19 +37,16 @@ extension WebKitSerializedTests {
             try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
             let sourceOracle = try makeSourceOracle(repoURL: repoURL)
             let traceRecorder = BridgeProductWebKitCarrierTraceRecorder()
-            let legacyEgressRecorder = BridgeProductWebKitCarrierLegacyEgressRecorder()
             let controller = makeController(
                 repoURL: repoURL,
-                traceRecorder: traceRecorder,
-                legacyEgressRecorder: legacyEgressRecorder
+                traceRecorder: traceRecorder
             )
 
             // Act
             let run = try await collectLiveProof(
                 controller: controller,
                 sourceOracle: sourceOracle,
-                traceRecorder: traceRecorder,
-                legacyEgressRecorder: legacyEgressRecorder
+                traceRecorder: traceRecorder
             )
 
             // Assert
@@ -59,8 +55,7 @@ extension WebKitSerializedTests {
 
         private func makeController(
             repoURL: URL,
-            traceRecorder: BridgeProductWebKitCarrierTraceRecorder,
-            legacyEgressRecorder: BridgeProductWebKitCarrierLegacyEgressRecorder
+            traceRecorder: BridgeProductWebKitCarrierTraceRecorder
         ) -> BridgePaneController {
             let paneId = UUIDv7.generate()
             return BridgePaneController(
@@ -89,23 +84,14 @@ extension WebKitSerializedTests {
                 ),
                 telemetryRuntimePolicy: .live,
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
-                telemetryRecorder: traceRecorder,
-                pushEnvelopeSink: { _, envelope, _ in
-                    await legacyEgressRecorder.recordPush(byteCount: envelope.utf8.count)
-                },
-                preEncodedIntakeFrameSink: { _, frame in
-                    await legacyEgressRecorder.recordIntake(
-                        byteCount: frame.envelopeJSON.utf8.count
-                    )
-                }
+                telemetryRecorder: traceRecorder
             )
         }
 
         private func collectLiveProof(
             controller: BridgePaneController,
             sourceOracle: LiveSourceOracle,
-            traceRecorder: BridgeProductWebKitCarrierTraceRecorder,
-            legacyEgressRecorder: BridgeProductWebKitCarrierLegacyEgressRecorder
+            traceRecorder: BridgeProductWebKitCarrierTraceRecorder
         ) async throws -> BridgeProductWebKitCarrierRunResult<LiveProof> {
             try await BridgeProductWebKitCarrierTestSupport.withHostedController(controller) { hostedController in
                 hostedController.loadApp()
@@ -187,7 +173,6 @@ extension WebKitSerializedTests {
                     fileCorrelationObserved: fileCorrelationObserved,
                     fileModeActivated: fileModeActivated,
                     filePathSelected: filePathSelected,
-                    legacyEgress: await legacyEgressRecorder.snapshot(),
                     native: await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(hostedController),
                     reviewDOMBeforeFileSwitch: reviewDOMBeforeFileSwitch,
                     sourceOracle: sourceOracle,
@@ -240,13 +225,13 @@ extension WebKitSerializedTests {
             )
             #expect(
                 reviewDOM.hasReviewShell,
-                "W0 construction seam: Review metadata crossed the worker but no product Review shell mounted; reviewDOM=\(reviewDOM), legacyEgress=\(run.value.legacyEgress), trace=\(run.value.trace)"
+                "W0 construction seam: Review metadata crossed the worker but no product Review shell mounted; reviewDOM=\(reviewDOM), trace=\(run.value.trace)"
             )
             #expect(
                 reviewDOM.hasReviewCodeViewPanel
                     && reviewDOM.reviewSelectedContentState == "ready"
                     && reviewDOM.reviewSelectedContentLineCount > 0,
-                "W0 content-observation seam: Swift emitted Review content, but the worker did not acknowledge and drain the concurrent content streams into a ready CodeView while both legacy page sinks were closed; reviewDOM=\(reviewDOM), legacyEgress=\(run.value.legacyEgress), native=\(run.value.native)"
+                "W0 content-observation seam: Swift emitted Review content, but the worker did not acknowledge and drain the concurrent content streams into a ready CodeView; reviewDOM=\(reviewDOM), native=\(run.value.native)"
             )
             #expect(
                 reviewDOM.reviewSelectedDisplayPath == run.value.sourceOracle.path,
@@ -288,7 +273,10 @@ extension WebKitSerializedTests {
                 expectedSurface: "file",
                 sourceOracle: run.value.sourceOracle
             )
-            assertLegacyEgressAndTeardown(run)
+            #expect(
+                run.teardownSnapshot.hasZeroResidue,
+                "W0 teardown seam: production product session retained transport residue; snapshot=\(run.teardownSnapshot)"
+            )
         }
 
         private func assertPackagedFrameLiveness(
@@ -301,25 +289,6 @@ extension WebKitSerializedTests {
             #expect(reviewDOM.frameLivenessRafAlive == "true", "host=\(host)")
             #expect(reviewDOM.frameLivenessRafFiredCount > 0, "host=\(host)")
             #expect(reviewDOM.frameLivenessRafScheduledCount > 0, "host=\(host)")
-        }
-
-        private func assertLegacyEgressAndTeardown(
-            _ run: BridgeProductWebKitCarrierRunResult<LiveProof>
-        ) {
-            #expect(
-                run.value.legacyEgress.attemptedPushCount == 0
-                    && run.value.legacyEgress.attemptedPushByteCount == 0,
-                "G0 PACKAGED LEGACY PUSH SURVIVED: product push attempted page/native egress; legacyEgress=\(run.value.legacyEgress)"
-            )
-            #expect(
-                run.value.legacyEgress.attemptedIntakeCount == 0
-                    && run.value.legacyEgress.attemptedIntakeByteCount == 0,
-                "G0 PACKAGED LEGACY INTAKE SURVIVED: product intake attempted page/native egress; legacyEgress=\(run.value.legacyEgress)"
-            )
-            #expect(
-                run.teardownSnapshot.hasZeroResidue,
-                "W0 teardown seam: production product session retained transport residue; snapshot=\(run.teardownSnapshot)"
-            )
         }
 
         private func assertPaintCorrelation(

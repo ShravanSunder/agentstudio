@@ -1,9 +1,5 @@
 import { z } from 'zod';
 
-import {
-	bridgeActiveViewerModeUpdateSchema,
-	bridgeIntakeReadyParamsSchema,
-} from '../../bridge/bridge-rpc-client.js';
 import { bridgeDemandLaneSchema } from '../models/bridge-demand-models.js';
 import { bridgeProductReviewContentDescriptorSchema } from './bridge-product-content-contracts.js';
 import {
@@ -12,6 +8,10 @@ import {
 	bridgeProductSurfaceSchema,
 	type BridgeProductSurface,
 } from './bridge-product-contract-primitives.js';
+import {
+	bridgeActiveViewerModeUpdateSchema,
+	bridgeProductControlIntakeReadyParamsSchema,
+} from './bridge-product-control-contracts.js';
 import {
 	bridgeProductReviewContentLineCountsByRoleSchema,
 	bridgeProductReviewContentRoleSchema,
@@ -32,13 +32,13 @@ import {
 	bridgeWorkerPierreRenderJobSchema,
 } from './bridge-worker-pierre-render-job.js';
 import {
-	BRIDGE_WORKER_REVIEW_DISPLAY_PATCH_LIMIT,
-	bridgeWorkerReviewDisplayPatchSchema,
-} from './bridge-worker-review-display-patch-contracts.js';
-import {
 	bridgeWorkerRenderDispositionReceiptSchema,
 	bridgeWorkerRenderReceiptIdentitySchema,
 } from './bridge-worker-render-fulfillment.js';
+import {
+	BRIDGE_WORKER_REVIEW_DISPLAY_PATCH_LIMIT,
+	bridgeWorkerReviewDisplayPatchSchema,
+} from './bridge-worker-review-display-patch-contracts.js';
 
 export const BRIDGE_WORKER_WIRE_VERSION = 1 as const;
 export {
@@ -139,7 +139,7 @@ export const bridgeWorkerMetadataInterestUpdateCommandSchema = bridgeWorkerMainT
 	})
 	.strict();
 
-const bridgeWorkerReviewIntakeReadyParamsSchema = bridgeIntakeReadyParamsSchema
+const bridgeWorkerReviewIntakeReadyParamsSchema = bridgeProductControlIntakeReadyParamsSchema
 	.extend({
 		protocolId: z.literal('review'),
 	})

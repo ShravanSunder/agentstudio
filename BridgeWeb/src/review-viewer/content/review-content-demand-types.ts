@@ -1,13 +1,4 @@
-import type {
-	BridgeResourceExecutorLoadFailureKind,
-	BridgeResourceExecutorResult,
-} from '../../core/demand/bridge-resource-executor.js';
-import type {
-	BridgeDemandIntent,
-	BridgeDemandLane,
-} from '../../core/models/bridge-demand-models.js';
-import type { BridgeTextResourceStreamResult } from '../../core/resources/bridge-resource-stream.js';
-import type { BridgeContentRole } from '../../foundation/review-package/bridge-review-package.js';
+import type { BridgeDemandLane } from '../../core/models/bridge-demand-models.js';
 
 export type ReviewContentDemandInterest =
 	| 'selected'
@@ -34,6 +25,13 @@ export type ReviewContentDemandResultReason = Exclude<
 	{ readonly status: 'ready' }
 >['reason'];
 
+export type ReviewContentDemandLoadFailureKind =
+	| 'http_error'
+	| 'missing_body'
+	| 'byte_limit_exceeded'
+	| 'integrity_mismatch'
+	| 'chunk_manifest_unsupported';
+
 export interface ReviewContentDemandTelemetry {
 	readonly itemId: string;
 	readonly packageId: string;
@@ -42,7 +40,7 @@ export interface ReviewContentDemandTelemetry {
 	readonly interest: ReviewContentDemandInterest;
 	readonly resultReason?: ReviewContentDemandResultReason;
 	readonly resultStatus?: ReviewContentDemandLoadResult['status'];
-	readonly resultLoadFailureKind?: BridgeResourceExecutorLoadFailureKind;
+	readonly resultLoadFailureKind?: ReviewContentDemandLoadFailureKind;
 	readonly byteBudgetSource: 'review-content-demand';
 	readonly durationMilliseconds: number;
 	readonly configuredExecutorMaxConcurrentLoads: number;
@@ -79,19 +77,3 @@ export interface ReviewContentDemandTelemetry {
 	readonly loadedCount: number;
 	readonly staleDropCount: number;
 }
-
-export interface LoadedReviewContentDemandResult {
-	readonly estimatedBytes: number;
-	readonly intent: BridgeDemandIntent;
-	readonly role: BridgeContentRole;
-	readonly result: BridgeResourceExecutorResult<BridgeTextResourceStreamResult>;
-}
-
-export type LoadedReviewContentDemandSettledResult =
-	| {
-			readonly status: 'fulfilled';
-			readonly value: LoadedReviewContentDemandResult;
-	  }
-	| {
-			readonly status: 'rejected';
-	  };

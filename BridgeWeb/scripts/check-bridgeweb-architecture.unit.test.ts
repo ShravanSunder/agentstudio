@@ -455,8 +455,8 @@ describe('BridgeWeb architecture checker', () => {
 					const port = { postMessage: (_message: unknown): void => undefined };
 					port.postMessage({ kind: 'product-session' });
 				`,
-				'src/app/diagnostics/bridge-worker-fetch-probe-worker-entry.ts': `
-					self.postMessage({ kind: 'worker-fetch-probe' });
+				'src/app/diagnostics/bridge-product-stream-webkit-feasibility-worker-entry.ts': `
+					self.postMessage({ kind: 'product-stream-feasibility' });
 				`,
 				'src/app/diagnostics/bridge-product-stream-webkit-feasibility-probe.ts': `
 					const worker = { postMessage: (_message: unknown): void => undefined };

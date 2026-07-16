@@ -1,6 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
 
-import type { BridgeRPCCommand } from '../../bridge/bridge-rpc-client.js';
 import {
 	encodeBridgeWorkerActiveViewerModeUpdateCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
@@ -25,12 +24,20 @@ import {
 	openReviewContentFromDescriptorMap,
 	type DeferredReviewContentStream,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
+import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
+import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
+import type {
+	BridgeProductSubscriptionEvent,
+	BridgeProductSubscriptionUpdateOptions,
+} from './bridge-product-subscription-contracts.js';
+import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
+import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 
 describe('Bridge comm worker runtime protocol', () => {
 	test('opens Review metadata through worker-owned intake readiness', async () => {
 		// Arrange
-		const sentCommands: BridgeRPCCommand[] = [];
+		const sentCommands: BridgeProductControlCommand[] = [];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
@@ -39,7 +46,7 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			sendSchemeRpcCommand: async (command): Promise<void> => {
+			sendProductControl: async (command): Promise<void> => {
 				sentCommands.push(command);
 			},
 		});
@@ -75,10 +82,10 @@ describe('Bridge comm worker runtime protocol', () => {
 		);
 	});
 
-	test('forwards markFileViewed commands to Swift through worker-owned scheme RPC', async () => {
-		const sentCommands: BridgeRPCCommand[] = [];
+	test('sends markFileViewed through worker-owned product control', async () => {
+		const sentCommands: BridgeProductControlCommand[] = [];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
-		const schemeRpcCompletion = createDeferredVoid();
+		const productControlCompletion = createDeferredVoid();
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
@@ -87,9 +94,9 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			sendSchemeRpcCommand: async (command): Promise<void> => {
+			sendProductControl: async (command): Promise<void> => {
 				sentCommands.push(command);
-				await schemeRpcCompletion.promise;
+				await productControlCompletion.promise;
 			},
 		});
 
@@ -115,7 +122,7 @@ describe('Bridge comm worker runtime protocol', () => {
 				status: 'ready',
 			}),
 		);
-		schemeRpcCompletion.resolve();
+		productControlCompletion.resolve();
 		await flushBridgeWorkerRuntimeContinuations();
 
 		expect(postedMessages.map((postedMessage) => postedMessage.message)).toContainEqual(
@@ -127,7 +134,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		);
 	});
 
-	test('reports degraded health when markFileViewed scheme RPC forwarding fails', async () => {
+	test('reports degraded health when markFileViewed product control fails', async () => {
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
@@ -137,7 +144,7 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			sendSchemeRpcCommand: async (): Promise<void> => {
+			sendProductControl: async (): Promise<void> => {
 				throw new Error('scheme down');
 			},
 		});
@@ -168,8 +175,8 @@ describe('Bridge comm worker runtime protocol', () => {
 		);
 	});
 
-	test('does not forward rejected markFileViewed commands through scheme RPC', async () => {
-		const sentCommands: BridgeRPCCommand[] = [];
+	test('does not send rejected markFileViewed product control', async () => {
+		const sentCommands: BridgeProductControlCommand[] = [];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
@@ -179,7 +186,7 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			sendSchemeRpcCommand: async (command): Promise<void> => {
+			sendProductControl: async (command): Promise<void> => {
 				sentCommands.push(command);
 			},
 		});
@@ -216,10 +223,16 @@ describe('Bridge comm worker runtime protocol', () => {
 		);
 	});
 
-	test('forwards metadataInterestUpdate commands to Swift through worker-owned scheme RPC', async () => {
-		const sentCommands: BridgeRPCCommand[] = [];
+	test('updates Review metadata interests through the worker-owned product subscription', async () => {
+		const updates: BridgeProductSubscriptionUpdateOptions<'review.metadata'>[] = [];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
-		const schemeRpcCompletion = createDeferredVoid();
+		const updateCompletion = createDeferredVoid();
+		const reviewProductTransport = createReviewMetadataInterestProductTransport(
+			async (options): Promise<void> => {
+				updates.push(options);
+				await updateCompletion.promise;
+			},
+		);
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
@@ -228,9 +241,9 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			sendSchemeRpcCommand: async (command): Promise<void> => {
-				sentCommands.push(command);
-				await schemeRpcCompletion.promise;
+			productTransport: reviewProductTransport.productTransport,
+			sendProductControl: async (): Promise<void> => {
+				throw new Error('metadata interests must not use generic product control');
 			},
 		});
 
@@ -240,27 +253,16 @@ describe('Bridge comm worker runtime protocol', () => {
 				epoch: 3,
 				request: {
 					protocol: 'review',
-					streamId: 'stream-1',
-					generation: 7,
 					itemIds: ['item-1'],
 					lane: 'foreground',
-					loaded_by: 'foreground',
 				},
 			}),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 
-		expect(sentCommands).toEqual([
+		expect(updates).toEqual([
 			{
-				method: 'bridge.metadata_interest.update',
-				params: {
-					protocol: 'review',
-					streamId: 'stream-1',
-					generation: 7,
-					itemIds: ['item-1'],
-					lane: 'foreground',
-					loaded_by: 'foreground',
-				},
+				interests: [{ itemIds: ['item-1'], lane: 'foreground' }],
 			},
 		]);
 		expect(postedMessages.map((postedMessage) => postedMessage.message)).not.toContainEqual(
@@ -270,7 +272,7 @@ describe('Bridge comm worker runtime protocol', () => {
 				status: 'ready',
 			}),
 		);
-		schemeRpcCompletion.resolve();
+		updateCompletion.resolve();
 		await flushBridgeWorkerRuntimeContinuations();
 
 		expect(postedMessages.map((postedMessage) => postedMessage.message)).toContainEqual(
@@ -280,10 +282,16 @@ describe('Bridge comm worker runtime protocol', () => {
 				status: 'ready',
 			}),
 		);
+		reviewProductTransport.close();
 	});
 
-	test('reports degraded health when metadataInterestUpdate scheme RPC forwarding fails', async () => {
+	test('reports degraded health when the Review metadata subscription update fails', async () => {
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const reviewProductTransport = createReviewMetadataInterestProductTransport(
+			async (): Promise<void> => {
+				throw new Error('subscription down');
+			},
+		);
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
@@ -292,9 +300,7 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			sendSchemeRpcCommand: async (): Promise<void> => {
-				throw new Error('scheme down');
-			},
+			productTransport: reviewProductTransport.productTransport,
 		});
 
 		dispatch.message(
@@ -303,8 +309,6 @@ describe('Bridge comm worker runtime protocol', () => {
 				epoch: 3,
 				request: {
 					protocol: 'review',
-					streamId: 'stream-1',
-					generation: 7,
 					itemIds: ['item-1'],
 					lane: 'foreground',
 				},
@@ -317,7 +321,7 @@ describe('Bridge comm worker runtime protocol', () => {
 				kind: 'health',
 				requestId: 'request-metadata-interest',
 				status: 'degraded',
-				message: 'Bridge comm worker failed to forward bridge.metadata_interest.update.',
+				message: 'Bridge comm worker failed to update Review metadata interests.',
 			}),
 		);
 		expect(postedMessages.map((postedMessage) => postedMessage.message)).not.toContainEqual(
@@ -327,12 +331,16 @@ describe('Bridge comm worker runtime protocol', () => {
 				status: 'ready',
 			}),
 		);
+		reviewProductTransport.close();
 	});
 
-	test('reports degraded health when metadataInterestUpdate scheme RPC forwarding never settles', async () => {
+	test('reports degraded health when the Review metadata subscription update never settles', async () => {
 		vi.useFakeTimers();
 		try {
 			const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+			const reviewProductTransport = createReviewMetadataInterestProductTransport(
+				async (): Promise<void> => new Promise((): void => {}),
+			);
 
 			registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 				bridgeDemandRank: { lane: 'selected', priority: 0 },
@@ -341,8 +349,8 @@ describe('Bridge comm worker runtime protocol', () => {
 					maxBytes: 512 * 1024,
 					maxWindowLines: 50,
 				},
-				schemeRpcTimeoutMilliseconds: 25,
-				sendSchemeRpcCommand: async (): Promise<void> => new Promise((): void => {}),
+				productControlTimeoutMilliseconds: 25,
+				productTransport: reviewProductTransport.productTransport,
 			});
 
 			dispatch.message(
@@ -351,8 +359,6 @@ describe('Bridge comm worker runtime protocol', () => {
 					epoch: 3,
 					request: {
 						protocol: 'review',
-						streamId: 'stream-1',
-						generation: 7,
 						itemIds: ['item-1'],
 						lane: 'foreground',
 					},
@@ -376,7 +382,7 @@ describe('Bridge comm worker runtime protocol', () => {
 					kind: 'health',
 					requestId: 'request-metadata-interest',
 					status: 'degraded',
-					message: 'Bridge comm worker failed to forward bridge.metadata_interest.update.',
+					message: 'Bridge comm worker failed to update Review metadata interests.',
 				}),
 			);
 			expect(postedMessages.map((postedMessage) => postedMessage.message)).not.toContainEqual(
@@ -386,15 +392,16 @@ describe('Bridge comm worker runtime protocol', () => {
 					status: 'ready',
 				}),
 			);
+			reviewProductTransport.close();
 		} finally {
 			vi.useRealTimers();
 		}
 	});
 
-	test('forwards activeViewerModeUpdate commands to Swift through worker-owned scheme RPC', async () => {
-		const sentCommands: BridgeRPCCommand[] = [];
+	test('sends activeViewerModeUpdate through worker-owned product control', async () => {
+		const sentCommands: BridgeProductControlCommand[] = [];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
-		const schemeRpcCompletion = createDeferredVoid();
+		const productControlCompletion = createDeferredVoid();
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
@@ -403,9 +410,9 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			sendSchemeRpcCommand: async (command): Promise<void> => {
+			sendProductControl: async (command): Promise<void> => {
 				sentCommands.push(command);
-				await schemeRpcCompletion.promise;
+				await productControlCompletion.promise;
 			},
 		});
 
@@ -449,7 +456,7 @@ describe('Bridge comm worker runtime protocol', () => {
 				status: 'ready',
 			}),
 		);
-		schemeRpcCompletion.resolve();
+		productControlCompletion.resolve();
 		await flushBridgeWorkerRuntimeContinuations();
 
 		expect(postedMessages.map((postedMessage) => postedMessage.message)).toContainEqual(
@@ -461,7 +468,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		);
 	});
 
-	test('reports degraded health when activeViewerModeUpdate scheme RPC forwarding fails', async () => {
+	test('reports degraded health when activeViewerModeUpdate product control fails', async () => {
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
@@ -471,7 +478,7 @@ describe('Bridge comm worker runtime protocol', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 50,
 			},
-			sendSchemeRpcCommand: async (): Promise<void> => {
+			sendProductControl: async (): Promise<void> => {
 				throw new Error('scheme down');
 			},
 		});
@@ -964,6 +971,52 @@ describe('Bridge comm worker runtime protocol', () => {
 		expect(JSON.stringify(pierreJobMessages[0])).not.toContain('old head');
 	});
 });
+
+function createReviewMetadataInterestProductTransport(
+	update: (options: BridgeProductSubscriptionUpdateOptions<'review.metadata'>) => Promise<void>,
+): { readonly close: () => void; readonly productTransport: BridgeProductTransportSession } {
+	const events = new BridgeProductBoundedAsyncQueue<
+		BridgeProductSubscriptionEvent<'review.metadata'>
+	>(1);
+	let reviewWorkerDerivationEpoch = 0;
+	const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+		cancel: async (): Promise<void> => {},
+		events,
+		subscriptionId: 'review-metadata-interest-test-subscription',
+		subscriptionKind: 'review.metadata',
+		update,
+	};
+	return {
+		close: (): void => {
+			events.close(true);
+		},
+		productTransport: {
+			bumpWorkerDerivationEpoch: (surface): number => {
+				if (surface === 'review') reviewWorkerDerivationEpoch += 1;
+				return surface === 'review' ? reviewWorkerDerivationEpoch : 0;
+			},
+			call: async (...arguments_): Promise<never> => {
+				const [method] = arguments_;
+				if (method === 'file.source.current') {
+					return { reason: 'review-only-test', status: 'unavailable' } as never;
+				}
+				return undefined as never;
+			},
+			openContent: (): never => {
+				throw new Error('Review metadata interest test does not open content.');
+			},
+			subscribe: (...arguments_): never => {
+				const [subscriptionKind] = arguments_;
+				if (subscriptionKind !== 'review.metadata') {
+					throw new Error(`Unexpected subscription ${subscriptionKind}.`);
+				}
+				return reviewSubscription as never;
+			},
+			workerDerivationEpoch: (surface): number =>
+				surface === 'review' ? reviewWorkerDerivationEpoch : 0,
+		},
+	};
+}
 
 function createDeferredVoid(): { readonly promise: Promise<void>; readonly resolve: () => void } {
 	let resolvePromise: (() => void) | null = null;

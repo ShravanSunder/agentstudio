@@ -47,8 +47,7 @@ func makeRefreshRevisionFixture() -> RefreshRevisionFixture {
             panelKind: .diffViewer,
             source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
         ),
-        reviewSourceProvider: provider,
-        intakeFrameSink: { _, _, _ in }
+        reviewSourceProvider: provider
     )
     return RefreshRevisionFixture(
         baseEndpoint: baseEndpoint,

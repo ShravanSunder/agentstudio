@@ -587,10 +587,6 @@ run = "/bin/bash scripts/verify-bridge-review-journey-smoke.sh"
 description = "Verify Bridge review/file mode switching and idle telemetry stability"
 run = "/bin/bash scripts/verify-bridge-mode-idle-smoke.sh"
 
-[tasks.verify-bridge-worker-fetch-scheme-smoke]
-description = "Verify Bridge worker fetches content scheme resources from marker-scoped VictoriaLogs"
-run = "/bin/bash scripts/verify-bridge-worker-fetch-scheme-smoke.sh"
-
 [tasks.verify-bridge-product-paint-correlation]
 description = "Verify real-current-worktree Bridge source-to-DOM paint correlation"
 run = "/bin/bash scripts/verify-bridge-product-paint-correlation.sh"

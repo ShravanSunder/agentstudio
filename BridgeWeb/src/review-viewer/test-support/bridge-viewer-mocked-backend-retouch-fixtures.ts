@@ -19,7 +19,6 @@ export function makeBridgeViewerContentUnavailableFixture(): BridgeViewerBrowser
 		handleId: isolatedSecondHeadHandleId,
 		cacheKey: `${secondHeadHandle.cacheKey}:failure-content-unavailable`,
 		contentHash: `${secondHeadHandle.contentHash}:failure-content-unavailable`,
-		resourceUrl: `agentstudio://resource/review/content/${isolatedSecondHeadHandleId}?generation=${secondHeadHandle.reviewGeneration}`,
 	};
 	const isolatedSecondItem = {
 		...secondItem,
@@ -88,7 +87,6 @@ export function makeBridgeViewerContentRevisionFixture(): BridgeViewerContentRev
 		handleId: revisedHeadHandleId,
 		contentHash: `${sourceHeadHandle.contentHash}:revised`,
 		cacheKey: `${sourceHeadHandle.cacheKey}:revised`,
-		resourceUrl: `agentstudio://resource/review/content/${revisedHeadHandleId}?generation=${sourceHeadHandle.reviewGeneration}`,
 	};
 	const contentByHandleId = new Map(fixture.contentByHandleId);
 	contentByHandleId.set(revisedHeadHandleId, revisedInitialBody);
@@ -144,7 +142,6 @@ export function makeBridgeViewerDescriptorRetouchFixture(): BridgeViewerDescript
 		handleId: changedHeadHandleId,
 		contentHash: changedHeadContentHash,
 		cacheKey: `${sourceHeadHandle.cacheKey}:CHANGED`,
-		resourceUrl: `agentstudio://resource/review/content/${changedHeadHandleId}?generation=${sourceHeadHandle.reviewGeneration}`,
 	};
 	const contentByHandleId = new Map(fixture.contentByHandleId);
 	contentByHandleId.set(changedHeadHandleId, changedHeadBody);

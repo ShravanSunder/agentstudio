@@ -1,4 +1,3 @@
-import { parseBridgeCoreResourceUrl } from '../../core/resources/bridge-resource-url.js';
 import {
 	makeBridgeContentHandle,
 	makeBridgeReviewItem,
@@ -136,7 +135,6 @@ export function makeBrowserContentHandle(
 	return {
 		...handle,
 		reviewGeneration: 338,
-		resourceUrl: `agentstudio://resource/review/content/${handle.handleId}?generation=338`,
 		mimeType: extension === 'md' ? 'text/markdown' : 'text/typescript',
 		language,
 		sizeBytes: 512,
@@ -284,16 +282,6 @@ export function hunkedBrowserDiffText(label: 'base' | 'head'): string {
 		}
 		return `export const stableContextLine${paddedIndex} = 'same';`;
 	}).join('\n');
-}
-
-export function handleIdFromResourceUrl(url: string): string | null {
-	const parsedUrl = parseBridgeCoreResourceUrl(url, {
-		allowedResourceKindsByProtocol: { review: new Set(['content']) },
-	});
-	if (parsedUrl?.protocol !== 'review' || parsedUrl.resourceKind !== 'content') {
-		return null;
-	}
-	return parsedUrl.opaqueId;
 }
 
 export function countChangeKinds(

@@ -266,7 +266,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         input: FileDescriptorInput,
         itemId: String
     ) -> BridgeContentHandle {
-        let handleId = BridgeContentHandleIdentity.handleId(
+        let handleId = BridgeProductContentHandleIdentity.handleId(
             endpointId: input.endpoint.endpointId,
             itemId: itemId,
             role: .file,
@@ -278,10 +278,6 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
             role: .file,
             endpointId: input.endpoint.endpointId,
             reviewGeneration: input.reviewGeneration,
-            resourceUrl: BridgeContentHandleIdentity.resourceUrl(
-                handleId: handleId,
-                reviewGeneration: input.reviewGeneration
-            ),
             contentHash: input.contentHash,
             contentHashAlgorithm: input.contentHashAlgorithm,
             cacheKey: "\(input.endpoint.endpointId):\(itemId):file:\(input.contentHash)",

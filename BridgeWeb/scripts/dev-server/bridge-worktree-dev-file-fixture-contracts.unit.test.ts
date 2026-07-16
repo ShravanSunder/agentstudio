@@ -1,9 +1,5 @@
 import { describe, expect, test } from 'vitest';
 
-import type {
-	BridgeAttachedResourceDescriptor,
-	BridgeResourceDescriptor,
-} from '../../src/core/models/bridge-resource-descriptor.js';
 import invalidOpenSourceOutcomeExtraFieldFixture from '../../src/test-fixtures/bridge-contract-fixtures/invalid/worktree-file-open-source-outcome-extra-field.json' with { type: 'json' };
 import invalidOpenSourceOutcomeWrongProtocolFixture from '../../src/test-fixtures/bridge-contract-fixtures/invalid/worktree-file-open-source-outcome-wrong-protocol.json' with { type: 'json' };
 import invalidOpenSourceSpecExtraFieldFixture from '../../src/test-fixtures/bridge-contract-fixtures/invalid/worktree-file-open-source-spec-extra-field.json' with { type: 'json' };
@@ -16,11 +12,9 @@ import type {
 	WorktreeTreeRowMetadata,
 } from './bridge-worktree-dev-file-fixture-contracts.js';
 import {
-	worktreeFileDemandStimulusSchema,
 	worktreeFileDescriptorSchema,
 	worktreeFileInvalidatedFrameSchema,
 	worktreeFileMetadataLineageSchema,
-	worktreeFileSurfaceResourceKindSchema,
 	worktreeFileSurfaceOpenSourceOutcomeSchema,
 	worktreeFileSurfaceSourceSpecSchema,
 	worktreeFileProtocolFrameSchema,
@@ -30,13 +24,6 @@ import {
 } from './bridge-worktree-dev-file-fixture-contracts.js';
 
 describe('worktree file protocol models', () => {
-	test('limits Worktree/File resource kinds to body streams', () => {
-		expect(worktreeFileSurfaceResourceKindSchema.options).toEqual([
-			'worktree.fileContent',
-			'worktree.fileRange',
-		]);
-	});
-
 	test('parses shared open-source input and output contract fixtures', () => {
 		const sourceSpec = worktreeFileSurfaceSourceSpecSchema.parse(validOpenSourceSpecFixture);
 		expect(sourceSpec).toMatchObject({
@@ -295,17 +282,11 @@ describe('worktree file protocol models', () => {
 	});
 
 	test('requires explicit file virtualized extent facts', () => {
-		const contentDescriptor = makeAttachedDescriptor({
-			descriptorId: 'file-content-1',
-			resourceKind: 'worktree.fileContent',
-		});
-
 		expect(
 			worktreeFileDescriptorSchema.parse({
 				path: 'Sources/App/View.swift',
 				fileId: 'file-1',
 				contentHandle: 'handle-1',
-				contentDescriptor,
 				sourceIdentity: makeSourceIdentity(),
 				sizeBytes: 96,
 				virtualizedExtentKind: 'exactLineCount',
@@ -324,7 +305,6 @@ describe('worktree file protocol models', () => {
 				path: 'Sources/App/View.swift',
 				fileId: 'file-1',
 				contentHandle: 'handle-1',
-				contentDescriptor,
 				sourceIdentity: makeSourceIdentity(),
 				sizeBytes: 96,
 				virtualizedExtentKind: 'exactLineCount',
@@ -337,55 +317,11 @@ describe('worktree file protocol models', () => {
 				path: 'Sources/App/View.swift',
 				fileId: 'file-1',
 				contentHandle: 'handle-1',
-				contentDescriptor,
 				sourceIdentity: makeSourceIdentity(),
 				sizeBytes: 96,
 				virtualizedExtentKind: 'estimatedHeight',
 				isBinary: false,
 				unavailableReason: null,
-			}).success,
-		).toBe(false);
-	});
-
-	test('rejects loose demand stimuli and raw descriptor strings', () => {
-		const descriptorRef = makeAttachedDescriptor({
-			descriptorId: 'file-content-1',
-			resourceKind: 'worktree.fileContent',
-		}).ref;
-
-		expect(
-			worktreeFileDemandStimulusSchema.safeParse({
-				kind: 'fileSelected',
-				descriptorRef,
-			}).success,
-		).toBe(true);
-		expect(
-			worktreeFileDemandStimulusSchema.safeParse({
-				kind: 'fileSelected',
-				descriptorId: 'file-content-1',
-			}).success,
-		).toBe(false);
-		expect(
-			worktreeFileDemandStimulusSchema.safeParse({
-				kind: 'openFileInvalidated',
-				descriptorRef,
-				autoFetch: true,
-			}).success,
-		).toBe(false);
-		expect(
-			worktreeFileDemandStimulusSchema.safeParse({
-				kind: 'recentlyUpdatedFile',
-				descriptorRef,
-				proximity: 'nearby',
-				sourceIdentity: 'source-1',
-			}).success,
-		).toBe(true);
-		expect(
-			worktreeFileDemandStimulusSchema.safeParse({
-				kind: 'recentlyUpdatedFile',
-				descriptorRef,
-				proximity: 'foreground',
-				sourceIdentity: 'source-1',
 			}).success,
 		).toBe(false);
 	});
@@ -476,10 +412,6 @@ function makeWorktreeFileDescriptor(path: string): WorktreeFileDescriptor {
 		path,
 		fileId: 'file-1',
 		contentHandle: 'handle-1',
-		contentDescriptor: makeAttachedDescriptor({
-			descriptorId: 'file-content-1',
-			resourceKind: 'worktree.fileContent',
-		}),
 		sourceIdentity: makeSourceIdentity(),
 		sizeBytes: 96,
 		virtualizedExtentKind: 'exactLineCount',
@@ -488,44 +420,5 @@ function makeWorktreeFileDescriptor(path: string): WorktreeFileDescriptor {
 		unavailableReason: null,
 		language: 'swift',
 		fileExtension: 'swift',
-	};
-}
-
-interface MakeAttachedDescriptorProps {
-	readonly descriptorId: string;
-	readonly resourceKind: 'worktree.fileContent' | 'worktree.fileRange';
-}
-
-function makeAttachedDescriptor(
-	props: MakeAttachedDescriptorProps,
-): BridgeAttachedResourceDescriptor {
-	const identity = {
-		paneId: 'pane-1',
-		protocol: 'worktree-file',
-		sourceId: 'source-1',
-		generation: 1,
-		streamId: 'worktree-file:pane-1',
-	};
-	const descriptor = {
-		descriptorId: props.descriptorId,
-		protocol: 'worktree-file',
-		resourceKind: props.resourceKind,
-		resourceUrl: `agentstudio://resource/worktree-file/${props.resourceKind}/${props.descriptorId}?generation=1`,
-		identity,
-		content: {
-			mediaType: 'application/json',
-			encoding: 'utf-8',
-			expectedBytes: 128,
-			maxBytes: 1024,
-		},
-	} satisfies BridgeResourceDescriptor;
-	return {
-		ref: {
-			descriptorId: descriptor.descriptorId,
-			expectedProtocol: descriptor.protocol,
-			expectedResourceKind: descriptor.resourceKind,
-			expectedIdentity: identity,
-		},
-		descriptor,
 	};
 }

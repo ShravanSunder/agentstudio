@@ -71,11 +71,11 @@ const runBuildAppAssets = async (): Promise<void> => {
 		auxiliaryScriptPaths: builtAssets.auxiliaryScripts,
 		entrypointName: 'bridge-markdown-render-worker',
 	});
-	const workerFetchProbeAssetPath = requiredAuxiliaryScriptPath({
+	const productStreamFeasibilityWorkerAssetPath = requiredAuxiliaryScriptPath({
 		auxiliaryScriptPaths: builtAssets.auxiliaryScripts,
-		entrypointName: 'bridge-worker-fetch-probe-worker',
+		entrypointName: 'bridge-product-stream-webkit-feasibility-worker',
 	});
-	void workerFetchProbeAssetPath;
+	void productStreamFeasibilityWorkerAssetPath;
 	const bridgeCommWorkerAssetPath = requiredAuxiliaryScriptPath({
 		auxiliaryScriptPaths: builtAssets.auxiliaryScripts,
 		entrypointName: 'bridge-comm-worker',

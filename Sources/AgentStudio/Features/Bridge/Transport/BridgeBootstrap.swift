@@ -3,23 +3,13 @@ import Foundation
 /// Generates the JavaScript bootstrap script injected into the bridge content world.
 ///
 /// This script runs at document start in the bridge world (not page world).
-/// It installs `window.__bridgeInternal` with relay functions for state pushes,
-/// and handles the page-load `bridge.ready` bootstrap handshake.
-///
-/// Implements push/intake bootstrap injection for bridge runtime.
+/// It handles bootstrap readiness plus product and telemetry session requests.
 enum BridgeBootstrap {
 
     /// Generate the bootstrap JavaScript for a bridge pane.
     ///
-    /// - Parameters:
-    ///   - bridgeNonce: Deprecated bootstrap input kept until the caller artifact shape is removed.
-    ///     Ordinary browser-to-native commands use the `agentstudio://rpc/command` scheme.
-    ///   - pushNonce: Nonce sent to page world in handshake for push event validation.
-    ///     Page world uses this to verify incoming `__bridge_push` events.
     /// - Returns: JavaScript source string to inject as WKUserScript in bridge content world.
     static func generateScript(
-        bridgeNonce: String,
-        pushNonce: String,
         appProtocol: String? = nil,
         reviewPaneId: String? = nil,
         reviewStreamId: String? = nil,
@@ -35,7 +25,6 @@ enum BridgeBootstrap {
             (function() {
                 'use strict';
 
-                const PUSH_NONCE = '\(pushNonce)';
                 const APP_PROTOCOL = \(appProtocolJSON);
                 const REVIEW_PANE_ID = \(reviewPaneIdJSON);
                 const REVIEW_STREAM_ID = \(reviewStreamIdJSON);
@@ -49,25 +38,23 @@ enum BridgeBootstrap {
                         console.warn('[BridgeBootstrap] Rejected bridge.ready: missing request id');
                         return;
                     }
-                    // Relay to Swift — this triggers push plan start
                     window.webkit.messageHandlers.rpc.postMessage(
                         JSON.stringify({ jsonrpc: '2.0', id: requestId, method: 'bridge.ready', params: {} })
                     );
                 });
 
-                // Dispatch handshake to page world with push nonce.
-                // Page world needs this to validate incoming push events.
+                // Dispatch bootstrap context to the page world.
                 document.dispatchEvent(new CustomEvent('__bridge_handshake', {
-                    detail: { pushNonce: PUSH_NONCE, telemetryConfig: TELEMETRY_CONFIG }
+                    detail: { telemetryConfig: TELEMETRY_CONFIG }
                 }));
 
                 // Replay handshake for late page-world listeners (P1 fix).
                 // The initial __bridge_handshake fires at document start, but the React
                 // bundle typically loads later and misses it. Page world can dispatch
-                // __bridge_handshake_request to receive a replayed __bridge_handshake.
+                // __bridge_handshake_request to receive replayed bootstrap context.
                 document.addEventListener('__bridge_handshake_request', function() {
                     document.dispatchEvent(new CustomEvent('__bridge_handshake', {
-                        detail: { pushNonce: PUSH_NONCE, telemetryConfig: TELEMETRY_CONFIG }
+                        detail: { telemetryConfig: TELEMETRY_CONFIG }
                     }));
                 });
                 document.addEventListener('__bridge_product_session_bootstrap_request', function(event) {

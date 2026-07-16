@@ -21,13 +21,15 @@ struct BridgeGitReviewSourceProviderTests {
         )
         #expect(fixture.comparison.changedFiles.first?.contentHashAlgorithm == "git-blob-sha1")
         #expect(!fixture.headHandle.handleId.contains("/"))
-        let resource = try #require(
-            BridgeTransportResourceURL.parse(
-                fixture.headHandle.resourceUrl,
-                allowedResourceKindsByProtocol: ["review": Set(["content"])]
-            )
+        #expect(
+            fixture.headHandle.handleId
+                == BridgeProductContentHandleIdentity.handleId(
+                    endpointId: fixture.headHandle.endpointId,
+                    itemId: fixture.headHandle.itemId,
+                    role: fixture.headHandle.role,
+                    contentHash: fixture.headHandle.contentHash
+                )
         )
-        #expect(BridgeSchemeHandler.classifyPath(fixture.headHandle.resourceUrl) == .leasedContent(resource))
         #expect(fixture.loadedBaseContent.data == Data(fixture.baseContent.utf8))
         #expect(fixture.loadedBaseContent.contentHash == gitBlobSHA1ContentHash(fixture.baseContent))
         #expect(fixture.loadedBaseContent.contentHashAlgorithm == "git-blob-sha1")

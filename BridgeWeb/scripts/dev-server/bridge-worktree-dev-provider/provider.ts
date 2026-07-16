@@ -1,8 +1,4 @@
 import type {
-	BridgeAttachedResourceDescriptor,
-	BridgeResourceDescriptor,
-} from '../../../src/core/models/bridge-resource-descriptor.js';
-import type {
 	WorktreeFileDescriptor,
 	WorktreeFileInvalidatedFrame,
 	WorktreeFileProtocolFrame,
@@ -18,7 +14,6 @@ import {
 	extensionForPath,
 	hashText,
 	languageForExtension,
-	mimeTypeForExtension,
 	renderLineCount,
 	resolveAllowedWorktreeRoot,
 } from './files.ts';
@@ -306,14 +301,10 @@ async function materializeDescriptor(props: {
 	});
 	const text = decodeUtf8OrNull(window.bytes);
 	if (window.bytes.includes(0) || text === null) {
-		const descriptor = unavailableDescriptor(
-			changedFile,
-			props.state.worktreeFileSurface.source,
-			{
-				isBinary: window.bytes.includes(0),
-				unavailableReason: text === null ? 'unsupported_encoding' : null,
-			},
-		);
+		const descriptor = unavailableDescriptor(changedFile, props.state.worktreeFileSurface.source, {
+			isBinary: window.bytes.includes(0),
+			unavailableReason: text === null ? 'unsupported_encoding' : null,
+		});
 		rememberDescriptor(props.state, descriptor, props.request.path);
 		return descriptor;
 	}
@@ -563,12 +554,6 @@ function availableDescriptor(props: {
 	const descriptorId = `dev-file-${pathHash}-${props.contentSha256.slice(0, 16)}`;
 	const extension = extensionForPath(props.changedFile.path);
 	return {
-		contentDescriptor: makeWorktreeAttachedDescriptor({
-			descriptorId,
-			expectedBytes: byteLength(props.text),
-			mediaType: mimeTypeForExtension(extension),
-			sourceIdentity: props.sourceIdentity,
-		}),
 		contentHandle: descriptorId,
 		contentHash: `sha256:${props.contentSha256}`,
 		fileExtension: extension,
@@ -597,12 +582,6 @@ function unavailableDescriptor(
 	const descriptorId = `dev-file-unavailable-${pathHash}`;
 	const extension = extensionForPath(changedFile.path);
 	return {
-		contentDescriptor: makeWorktreeAttachedDescriptor({
-			descriptorId,
-			expectedBytes: 0,
-			mediaType: mimeTypeForExtension(extension),
-			sourceIdentity,
-		}),
 		contentHandle: descriptorId,
 		fileExtension: extension,
 		fileId: `dev-file-id-${pathHash}`,
@@ -613,44 +592,6 @@ function unavailableDescriptor(
 		sizeBytes: 0,
 		sourceIdentity,
 		virtualizedExtentKind: 'unavailable',
-	};
-}
-
-function makeWorktreeAttachedDescriptor(props: {
-	readonly descriptorId: string;
-	readonly expectedBytes: number;
-	readonly mediaType: string;
-	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity;
-}): BridgeAttachedResourceDescriptor {
-	const identity = {
-		cursor: props.sourceIdentity.sourceCursor,
-		generation: props.sourceIdentity.subscriptionGeneration,
-		paneId: worktreeFilePaneId,
-		protocol: worktreeFileProtocol,
-		sourceId: props.sourceIdentity.sourceId,
-		streamId: worktreeFileStreamId,
-	};
-	const descriptor = {
-		content: {
-			encoding: 'utf-8',
-			expectedBytes: props.expectedBytes,
-			maxBytes: Math.max(props.expectedBytes, 1),
-			mediaType: props.mediaType,
-		},
-		descriptorId: props.descriptorId,
-		identity,
-		protocol: worktreeFileProtocol,
-		resourceKind: 'worktree.fileContent',
-		resourceUrl: `agentstudio://resource/${worktreeFileProtocol}/worktree.fileContent/${props.descriptorId}?generation=${props.sourceIdentity.subscriptionGeneration}&cursor=${props.sourceIdentity.sourceCursor}`,
-	} satisfies BridgeResourceDescriptor;
-	return {
-		descriptor,
-		ref: {
-			descriptorId: descriptor.descriptorId,
-			expectedIdentity: descriptor.identity,
-			expectedProtocol: descriptor.protocol,
-			expectedResourceKind: descriptor.resourceKind,
-		},
 	};
 }
 

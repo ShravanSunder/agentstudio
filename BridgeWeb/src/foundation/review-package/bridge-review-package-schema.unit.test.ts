@@ -74,4 +74,32 @@ describe('Bridge review package schema', () => {
 
 		expect(result.success).toBe(false);
 	});
+
+	test('rejects legacy feature resource URL authority on content handles', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const item = reviewPackage.itemsById['item-source'];
+		const baseHandle = item?.contentRoles.base;
+		if (item === undefined || baseHandle === null || baseHandle === undefined) {
+			throw new Error('Expected item-source base handle fixture');
+		}
+
+		const result = bridgeReviewPackageSchema.safeParse({
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				[item.itemId]: {
+					...item,
+					contentRoles: {
+						...item.contentRoles,
+						base: {
+							...baseHandle,
+							resourceUrl: 'agentstudio://resource/review/content/legacy',
+						},
+					},
+				},
+			},
+		});
+
+		expect(result.success).toBe(false);
+	});
 });

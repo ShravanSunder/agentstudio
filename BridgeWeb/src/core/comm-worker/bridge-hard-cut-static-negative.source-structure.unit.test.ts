@@ -9,6 +9,7 @@ type BridgeHardCutOwnerGroup =
 	| 'legacy-file-fe-authority'
 	| 'legacy-main-review-authority'
 	| 'legacy-telemetry-transport'
+	| 'page-transport-compatibility'
 	| 'page-review-intake-materialization'
 	| 'whole-item-private-pierre';
 
@@ -42,6 +43,7 @@ const reviewContentRouteHandler = joinFragments('handleBridgeWorktree', 'ReviewC
 const reviewMetadataRouteHandler = joinFragments('handleBridgeWorktree', 'ReviewMetadataRequest');
 const legacyFileRuntimeFactory = joinFragments('createWorktreeFile', 'SurfaceRuntime');
 const legacyContentLoader = joinFragments('loadBridge', 'ContentResource');
+const legacyDiagnosticResourceFetch = joinFragments('request.', 'resourceUrl');
 const privatePierreFetch = joinFragments('fetch', '(descriptor.resourceUrl)');
 const receiptOnlyPierreStatus = joinFragments('status:', "'", 'enqueued', "'");
 const wholeItemPierrePayload = joinFragments('kind:', "'", 'codeViewFileItem', "'");
@@ -85,9 +87,80 @@ const legacyReviewSourceStructureTestPath = sourcePath(
 
 const bridgeHardCutOwnerRules = [
 	ownerFileRule(
+		'page-transport-compatibility',
+		sourcePath('src', 'bridge', joinFragments('bridge-rpc-', 'client.ts')),
+		'generic page JSON-RPC compatibility client',
+	),
+	ownerFileRule(
+		'page-transport-compatibility',
+		sourcePath('src', 'bridge', joinFragments('bridge-push-', 'envelope.ts')),
+		'legacy page push envelope contract',
+	),
+	ownerFileRule(
+		'page-transport-compatibility',
+		sourcePath('src', 'bridge', joinFragments('bridge-push-', 'receiver.ts')),
+		'legacy page push receiver',
+	),
+	ownerFileRule(
+		'feature-resource-get',
+		sourcePath(
+			'src',
+			'app',
+			'diagnostics',
+			joinFragments('bridge-worker-fetch-probe-worker-', 'entry.ts'),
+		),
+		'legacy feature-resource worker diagnostic entry',
+	),
+	ownerFileRule(
 		'page-review-intake-materialization',
 		sourcePath('src', 'app', joinFragments('bridge-app-review-', 'intake-receiver.ts')),
 		'page-owned Review intake sequencing receiver',
+	),
+	ownerFileRule(
+		'feature-resource-get',
+		sourcePath(
+			'src',
+			'features',
+			'review',
+			'protocol',
+			joinFragments('review-metadata-frame-', 'builder.ts'),
+		),
+		'legacy Review metadata frame and feature resource descriptor builder',
+	),
+	ownerFileRule(
+		'feature-resource-get',
+		sourcePath(
+			'scripts',
+			'dev-server',
+			joinFragments('bridge-worktree-review-dev-', 'provider.ts'),
+		),
+		'dormant Review metadata/resource development provider',
+	),
+	ownerFileRule(
+		'feature-resource-get',
+		sourcePath('src', 'core', 'resources', joinFragments('bridge-resource-', 'registry.ts')),
+		'legacy feature resource descriptor registry',
+	),
+	ownerFileRule(
+		'feature-resource-get',
+		sourcePath('src', 'core', 'resources', joinFragments('bridge-resource-', 'url.ts')),
+		'legacy feature resource URL parser',
+	),
+	ownerFileRule(
+		'feature-resource-get',
+		sourcePath('src', 'core', 'models', joinFragments('bridge-resource-', 'descriptor.ts')),
+		'legacy feature resource descriptor schema',
+	),
+	sourceSignatureRule(
+		'feature-resource-get',
+		sourcePath(
+			'src',
+			'app',
+			'diagnostics',
+			joinFragments('bridge-product-stream-webkit-feasibility-worker-', 'entry.ts'),
+		),
+		'legacy feature resource fetch branch in the retained product-stream diagnostic worker',
+		[legacyDiagnosticResourceFetch],
 	),
 	sourceSignatureRule(
 		'page-review-intake-materialization',
@@ -402,6 +475,18 @@ describe('Bridge hard-cut static negatives', () => {
 			joinFragments('const state = useState \n < BridgeReview', 'Package | null > ( null );'),
 		];
 		const canonicalSources = new Map<string, string>([
+			[
+				sourcePath('src', 'bridge', joinFragments('bridge-rpc-', 'client.ts')),
+				'export const genericRpcCompatibilityClient = true;',
+			],
+			[
+				sourcePath('src', 'bridge', joinFragments('bridge-push-', 'envelope.ts')),
+				'export const legacyPushEnvelope = true;',
+			],
+			[
+				sourcePath('src', 'bridge', joinFragments('bridge-push-', 'receiver.ts')),
+				'export const legacyPushReceiver = true;',
+			],
 			[legacyReviewProductDisplayPath, 'export const productDisplayAdapter = true;'],
 			[legacyReviewModePath, canonicalLegacyReviewModeSources.join('\n')],
 			[
@@ -436,6 +521,15 @@ describe('Bridge hard-cut static negatives', () => {
 			[
 				sourcePath('src', 'foundation', 'content', joinFragments('content-resource-', 'loader.ts')),
 				joinFragments('export async function ', legacyContentLoader, '() {}'),
+			],
+			[
+				sourcePath(
+					'src',
+					'app',
+					'diagnostics',
+					joinFragments('bridge-product-stream-webkit-feasibility-worker-', 'entry.ts'),
+				),
+				joinFragments('await fetch(', legacyDiagnosticResourceFetch, ');'),
 			],
 			[
 				sourcePath(
@@ -491,6 +585,15 @@ describe('Bridge hard-cut static negatives', () => {
 			[
 				sourcePath(
 					'src',
+					'app',
+					'diagnostics',
+					joinFragments('bridge-product-stream-webkit-feasibility-worker-', 'entry.ts'),
+				),
+				joinFragments('await fetch( request . ', 'resourceUrl );'),
+			],
+			[
+				sourcePath(
+					'src',
 					'core',
 					'comm-worker',
 					joinFragments('bridge-worker-pierre-', 'courier.ts'),
@@ -521,6 +624,9 @@ describe('Bridge hard-cut static negatives', () => {
 
 		expect(scanBridgeHardCutSources(canonicalSources).map(violationIdentity)).toEqual(
 			expect.arrayContaining([
+				'page-transport-compatibility:src/bridge/bridge-rpc-client.ts',
+				'page-transport-compatibility:src/bridge/bridge-push-envelope.ts',
+				'page-transport-compatibility:src/bridge/bridge-push-receiver.ts',
 				`legacy-main-review-authority:${legacyReviewProductDisplayPath}`,
 				legacyReviewModeIdentity,
 				`legacy-main-review-authority:${legacyReviewShellBoundaryPath}`,
@@ -528,6 +634,7 @@ describe('Bridge hard-cut static negatives', () => {
 				'page-review-intake-materialization:src/app/bridge-app-review-intake-controller.ts',
 				'legacy-file-fe-authority:src/worktree-file-surface/worktree-file-surface-runtime.ts',
 				'feature-resource-get:src/foundation/content/content-resource-loader.ts',
+				'feature-resource-get:src/app/diagnostics/bridge-product-stream-webkit-feasibility-worker-entry.ts',
 				'whole-item-private-pierre:src/core/comm-worker/bridge-worker-pierre-courier.ts',
 				'whole-item-private-pierre:src/review-viewer/workers/pierre/bridge-pierre-worker-content-descriptor.ts',
 			]),
@@ -541,6 +648,7 @@ describe('Bridge hard-cut static negatives', () => {
 				'page-review-intake-materialization:src/app/bridge-app-review-intake-controller.ts',
 				'legacy-file-fe-authority:src/worktree-file-surface/worktree-file-surface-runtime.ts',
 				'feature-resource-get:src/foundation/content/content-resource-loader.ts',
+				'feature-resource-get:src/app/diagnostics/bridge-product-stream-webkit-feasibility-worker-entry.ts',
 				'whole-item-private-pierre:src/core/comm-worker/bridge-worker-pierre-courier.ts',
 				'whole-item-private-pierre:src/review-viewer/workers/pierre/bridge-pierre-worker-content-descriptor.ts',
 			]),

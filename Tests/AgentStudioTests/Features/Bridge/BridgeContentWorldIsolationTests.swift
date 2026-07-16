@@ -42,7 +42,7 @@ extension WebKitSerializedTests {
                 try await waitForPageLoad(page)
 
                 _ = try await page.callJavaScript(
-                    BridgeBootstrap.generateScript(bridgeNonce: "bridge-nonce", pushNonce: "push-nonce"),
+                    BridgeBootstrap.generateScript(),
                     contentWorld: bridgeWorld
                 )
 

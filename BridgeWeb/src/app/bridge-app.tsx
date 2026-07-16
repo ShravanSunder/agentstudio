@@ -5,16 +5,16 @@ import {
 	type BridgePageHandshakeSession,
 	installBridgePageHandshakeSession,
 } from '../bridge/bridge-page-handshake.js';
-import {
-	type BridgeActiveViewerModeUpdate,
-	type BridgeActiveViewerSource,
-} from '../bridge/bridge-rpc-client.js';
 import { encodeBridgeWorkerActiveViewerModeUpdateCommand } from '../core/comm-worker/bridge-comm-worker-protocol.js';
 import {
 	createBridgePaneRuntime,
 	type BridgePaneRuntime,
 	type BridgePaneSurfaceClient,
 } from '../core/comm-worker/bridge-pane-runtime.js';
+import {
+	type BridgeActiveViewerModeUpdate,
+	type BridgeActiveViewerSource,
+} from '../core/comm-worker/bridge-product-control-contracts.js';
 import type {
 	BridgeWorkerHealthEvent,
 	BridgeWorkerServerToMainMessage,

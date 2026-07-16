@@ -13,7 +13,14 @@ import {
 	decodeBridgeTelemetryBootstrapConfig,
 	type BridgeTelemetryBootstrapConfig,
 } from '../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
-import { bridgeRPCErrorPayloadSchema, bridgeRPCIdSchema } from './bridge-rpc-client.js';
+
+const bridgeBootstrapAcknowledgementIdSchema = z.union([z.string(), z.number()]);
+const bridgeBootstrapAcknowledgementErrorSchema = z
+	.object({
+		code: z.number().int(),
+		message: z.string(),
+	})
+	.strict();
 
 type BridgeHandshakeTarget = Pick<
 	EventTarget,
@@ -21,7 +28,6 @@ type BridgeHandshakeTarget = Pick<
 >;
 
 export interface BridgePageHandshakeSession {
-	readonly getPushNonce: () => string | null;
 	readonly getTelemetryConfig: () => BridgeTelemetryBootstrapConfig | null;
 	readonly requestProductSessionReplacement: () => void;
 	readonly requestTelemetrySessionReplacement: () => void;
@@ -55,15 +61,15 @@ const bridgeReadyAcknowledgementSchema = z
 		z
 			.object({
 				jsonrpc: z.literal('2.0'),
-				id: bridgeRPCIdSchema,
+				id: bridgeBootstrapAcknowledgementIdSchema,
 				result: z.unknown(),
 			})
 			.strict(),
 		z
 			.object({
 				jsonrpc: z.literal('2.0'),
-				id: bridgeRPCIdSchema,
-				error: bridgeRPCErrorPayloadSchema,
+				id: bridgeBootstrapAcknowledgementIdSchema,
+				error: bridgeBootstrapAcknowledgementErrorSchema,
 			})
 			.strict(),
 	])
@@ -94,7 +100,6 @@ export function installBridgePageHandshakeSession(
 ): BridgePageHandshakeSession {
 	let didSendReady = false;
 	let isInstalled = true;
-	let pushNonce: string | null = null;
 	let telemetryConfig: BridgeTelemetryBootstrapConfig | null = null;
 	const deliveredProductWorkerInstanceIds = new Set<string>();
 	const pendingProductBootstrapRequestIds = new Set<string>();
@@ -147,9 +152,6 @@ export function installBridgePageHandshakeSession(
 	};
 
 	const handleHandshake = (event: Event): void => {
-		if (pushNonce === null) {
-			pushNonce = extractPushNonce(event);
-		}
 		if (telemetryConfig === null) {
 			const nextTelemetryConfig = extractTelemetryConfig(event);
 			if (nextTelemetryConfig !== null) {
@@ -157,7 +159,7 @@ export function installBridgePageHandshakeSession(
 				props.onTelemetryConfig?.(nextTelemetryConfig);
 			}
 		}
-		if (didSendReady || pushNonce === null) {
+		if (didSendReady) {
 			return;
 		}
 
@@ -267,7 +269,6 @@ export function installBridgePageHandshakeSession(
 	target.dispatchEvent(new CustomEvent('__bridge_handshake_request'));
 
 	return {
-		getPushNonce: (): string | null => pushNonce,
 		getTelemetryConfig: (): BridgeTelemetryBootstrapConfig | null => telemetryConfig,
 		requestProductSessionReplacement: (): void => {
 			requestProductSessionBootstrap('workerReplacement');
@@ -330,18 +331,6 @@ function createTelemetrySessionBootstrapRequestId(): string {
 	telemetrySessionBootstrapRequestSequence =
 		(telemetrySessionBootstrapRequestSequence + 1) % Number.MAX_SAFE_INTEGER;
 	return `bridge-telemetry-bootstrap-${Date.now().toString(36)}-${telemetrySessionBootstrapRequestSequence.toString(36)}`;
-}
-
-function extractPushNonce(event: Event): string | null {
-	if (!('detail' in event)) {
-		return null;
-	}
-	const detail = event.detail;
-	if (typeof detail !== 'object' || detail === null || !('pushNonce' in detail)) {
-		return null;
-	}
-	const pushNonce = detail.pushNonce;
-	return typeof pushNonce === 'string' && pushNonce.length > 0 ? pushNonce : null;
 }
 
 function extractTelemetryConfig(event: Event): BridgeTelemetryBootstrapConfig | null {
