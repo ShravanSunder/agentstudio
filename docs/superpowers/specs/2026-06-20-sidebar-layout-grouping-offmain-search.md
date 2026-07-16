@@ -307,11 +307,12 @@ Required behavior:
 - Favorite state is keyed by stable repo id, not repo name, path, branch, group
   label, pane id, or tab id.
 - Favorite state persists across app restart and workspace reload.
-- Favorite state follows the repo wherever it appears in the sidebar. In Repo
-  mode the primary affordance belongs on the repo group/header row. In Pane and
-  Tab modes, rows that identify a repo must carry enough favorite presentation
-  state to show and toggle the same repo tag without creating per-attachment
-  favorite state.
+- Favorite state follows the repo wherever its main worktree appears in the
+  sidebar. The favorite control is rendered only on rows whose worktree has
+  `isMainWorktree == true`, in Repo, Pane, Tab, and Inactive groups. Linked
+  worktree rows must not render the favorite button or favorite context-menu
+  action. Repeated placements of the same main worktree may repeat the same
+  repo-scoped control; they do not create per-placement favorite state.
 - Favorite must not create a fourth grouping mode. The grouping modes remain
   exactly Repo, Pane, and Tab.
 - Favorite state must not reorder the normal all-repos list. Bookmarking or

@@ -88,7 +88,7 @@ Deliver the repo/inbox sidebar cleanup to a PR-ready state without merging:
 | Mode-scoped collapse memory prevents `pane:inactive` and `tab:inactive` collisions | T3 | implementation + parent | state/model tests and persistence tests if storage changes | unit/integration | persisted key round trip | Required |
 | Repo favorites persist on `repo.is_favorite` keyed by repo id | T2A | implementation + parent | core SQLite migration/repository tests and restore tests | integration | migrated core DB fixture | Required |
 | Repo/worktree notes, repo tags, and tab shell colors exist as SQLite metadata | T2A | implementation + parent | core migration/schema tests | integration | migrated core DB fixture | Required |
-| Favorite toggle is available without adding a Favorite grouping mode | T2A, T4 | implementation + parent | toolbar/row presentation tests and grouping enum tests | unit/UI | current view diff | Required |
+| Favorite toggle is available on main-worktree rows without adding a Favorite grouping mode | T2A, T4, T5 | implementation + parent | toolbar/row presentation tests and grouping enum tests | unit/UI | current view diff | Required |
 | Favorite toggling does not reorder the normal all-repos Repo/Pane/Tab views | T2A, T3 | implementation + parent | RepoExplorer projection tests across all grouping modes | unit | fixtures with mixed favorite ids | Required |
 | Command-shaped sidebar writes use typed command specs and generic `command.execute` | T4, T8 | implementation + parent | command catalog, command.execute, and cleanup tests | unit/integration | current IPC registry and adapter diff | Required |
 | Sidebar command execution preserves compile-time typed args after IPC DTO validation | T4, T8 | implementation + parent | command argument tests and architecture check forbidding feature-specific IPC adapter switches | unit + architecture | current command execution code inspected | Required |
@@ -497,8 +497,10 @@ Likely write surfaces:
 Steps:
 
 1. Consume row entries whose identity already includes group id and attachment id when needed.
-2. Render favorite state from the prepared row/header model and route toggles
-   through feature-owned callbacks.
+2. Render the repo-scoped favorite control only on rows whose worktree has
+   `isMainWorktree == true`, in every grouping mode. Linked worktree rows must
+   expose neither the inline bookmark nor the favorite context-menu action.
+   Route visible toggles through feature-owned callbacks.
 3. Add secondary placement text for Pane/Tab attachment rows.
 4. Follow the inbox pattern: primary worktree/repo text plus secondary source/placement context.
 5. Preserve branch status, PR count, and existing row affordances except manual
@@ -510,7 +512,8 @@ Proof gates:
 
 - Row-index tests for stable ids from T3.
 - Row presentation tests for duplicate attachments.
-- Row/header presentation tests for favorite state and toggle callback wiring.
+- Row presentation tests proving the favorite control is available for main
+  worktrees and absent for linked worktrees.
 - Existing RepoExplorer row tests.
 
 ### T6. Inbox Off-Main Projection

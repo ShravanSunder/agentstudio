@@ -6,6 +6,16 @@ enum RepoExplorerCheckoutIconKind {
     case gitWorktree
 }
 
+struct RepoExplorerFavoriteControlVisibility: Equatable {
+    let showsInlineButton: Bool
+    let showsContextMenuAction: Bool
+
+    init(isMainWorktree: Bool) {
+        showsInlineButton = isMainWorktree
+        showsContextMenuAction = isMainWorktree
+    }
+}
+
 struct RepoExplorerWorktreeRowContent: View {
     let checkoutTitle: String
     let branchName: String
@@ -14,6 +24,7 @@ struct RepoExplorerWorktreeRowContent: View {
     let iconColor: Color
     let branchStatus: GitBranchStatus
     let unreadCount: Int
+    let showsFavoriteControl: Bool
     var isFavorite = false
     var onToggleFavorite: () -> Void = {}
     var onUnreadPillTap: () -> Void = {}
@@ -86,19 +97,21 @@ struct RepoExplorerWorktreeRowContent: View {
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                Button(action: onToggleFavorite) {
-                    Image(systemName: Self.favoriteSystemImageName(isFavorite: isFavorite))
-                        .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
-                        .foregroundStyle(isFavorite ? iconColor : .secondary)
-                        .frame(
-                            width: AppStyles.General.Button.compact,
-                            height: AppStyles.General.Button.compact
-                        )
-                        .contentShape(Rectangle())
+                if showsFavoriteControl {
+                    Button(action: onToggleFavorite) {
+                        Image(systemName: Self.favoriteSystemImageName(isFavorite: isFavorite))
+                            .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
+                            .foregroundStyle(isFavorite ? iconColor : .secondary)
+                            .frame(
+                                width: AppStyles.General.Button.compact,
+                                height: AppStyles.General.Button.compact
+                            )
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Self.favoriteAccessibilityLabel(isFavorite: isFavorite))
+                    .help(Self.favoriteHelpText(isFavorite: isFavorite))
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Self.favoriteAccessibilityLabel(isFavorite: isFavorite))
-                .help(Self.favoriteHelpText(isFavorite: isFavorite))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -206,6 +219,10 @@ struct RepoExplorerWorktreeRow: View {
     @State private var isHovering = false
 
     var body: some View {
+        let favoriteControlVisibility = RepoExplorerFavoriteControlVisibility(
+            isMainWorktree: worktree.isMainWorktree
+        )
+
         SidebarRowShell(isHovering: isHovering) {
             RepoExplorerWorktreeRowContent(
                 checkoutTitle: checkoutTitle,
@@ -215,6 +232,7 @@ struct RepoExplorerWorktreeRow: View {
                 iconColor: iconColor,
                 branchStatus: branchStatus,
                 unreadCount: unreadCount,
+                showsFavoriteControl: favoriteControlVisibility.showsInlineButton,
                 isFavorite: isFavorite,
                 onToggleFavorite: onToggleFavorite,
                 onUnreadPillTap: onUnreadPillTap
@@ -245,13 +263,15 @@ struct RepoExplorerWorktreeRow: View {
                 menuLabel(actionSpec: LocalActionSpec.goToTerminal.actionSpec)
             }
 
-            Button {
-                onToggleFavorite()
-            } label: {
-                Label(
-                    RepoExplorerWorktreeRowContent.favoriteAccessibilityLabel(isFavorite: isFavorite),
-                    systemImage: RepoExplorerWorktreeRowContent.favoriteSystemImageName(isFavorite: isFavorite)
-                )
+            if favoriteControlVisibility.showsContextMenuAction {
+                Button {
+                    onToggleFavorite()
+                } label: {
+                    Label(
+                        RepoExplorerWorktreeRowContent.favoriteAccessibilityLabel(isFavorite: isFavorite),
+                        systemImage: RepoExplorerWorktreeRowContent.favoriteSystemImageName(isFavorite: isFavorite)
+                    )
+                }
             }
 
             Menu(LocalActionSpec.openInMenu.actionSpec.label) {

@@ -15,7 +15,8 @@ struct RepoExplorerWorktreeRowTests {
             checkoutIconKind: .mainCheckout,
             iconColor: .accentColor,
             branchStatus: .unknown,
-            unreadCount: 4
+            unreadCount: 4,
+            showsFavoriteControl: false
         )
 
         _ = view.body
@@ -37,6 +38,28 @@ struct RepoExplorerWorktreeRowTests {
         #expect(RepoExplorerWorktreeRowContent.favoriteSystemImageName(isFavorite: true) == "bookmark.fill")
     }
 
+    @Test("favorite control visibility uses main worktree identity for every action")
+    func favoriteControlVisibilityUsesMainWorktreeIdentity() {
+        let mainVisibility = RepoExplorerFavoriteControlVisibility(isMainWorktree: true)
+        let linkedVisibility = RepoExplorerFavoriteControlVisibility(isMainWorktree: false)
+
+        #expect(mainVisibility.showsInlineButton)
+        #expect(mainVisibility.showsContextMenuAction)
+        #expect(!linkedVisibility.showsInlineButton)
+        #expect(!linkedVisibility.showsContextMenuAction)
+    }
+
+    @Test("favorite visibility policy guards inline and context-menu actions")
+    func favoriteVisibilityPolicyGuardsEveryAction() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            encoding: .utf8
+        )
+
+        #expect(source.contains("showsFavoriteControl: favoriteControlVisibility.showsInlineButton"))
+        #expect(source.contains("if favoriteControlVisibility.showsContextMenuAction"))
+    }
+
     @Test("repo explorer remains inbox-feature agnostic")
     func repoExplorerDoesNotReferenceInboxFeatureTypes() throws {
         let source = try String(
@@ -46,4 +69,5 @@ struct RepoExplorerWorktreeRowTests {
 
         #expect(!source.contains("InboxNotification"))
     }
+
 }
