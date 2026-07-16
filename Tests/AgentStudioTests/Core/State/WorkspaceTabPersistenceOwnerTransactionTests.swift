@@ -12,17 +12,19 @@ struct WorkspaceTabPersistenceOwnerTransactionTests {
         let revisionOwner = WorkspacePersistenceRevisionOwner()
         let shellAtom = WorkspaceTabShellAtom()
         let graphAtom = WorkspaceTabGraphAtom()
+        let shellAdapter = WorkspaceTabShellPersistenceAdapter(atom: shellAtom, revisionOwner: revisionOwner)
+        let graphAdapter = WorkspaceTabGraphPersistenceAdapter(atom: graphAtom, revisionOwner: revisionOwner)
         let shell = TabShell(id: UUIDv7.generate(), name: "Original")
         let graph = makeTransactionGraphState(tabID: shell.id)
         shellAtom.appendTabShell(shell)
         graphAtom.replaceStates([graph])
         _ = try requireConstructedShellParticipant(
-            shellAtom.makePersistenceSnapshotParticipant(
+            shellAdapter.makeSnapshotParticipant(
                 limits: .init(maximumKeyCount: 2, maximumRawKeyBytes: 32)
             )
         )
         _ = try requireConstructedGraphParticipantForTransaction(
-            graphAtom.makePersistenceSnapshotParticipant(
+            graphAdapter.makeSnapshotParticipant(
                 limits: .init(maximumKeyCount: 1, maximumRawKeyBytes: 16)
             )
         )
@@ -31,15 +33,13 @@ struct WorkspaceTabPersistenceOwnerTransactionTests {
         // Act
         #expect(throws: WorkspaceTabGraphPersistencePreparationError.self) {
             try revisionOwner.performSynchronousTransaction { preparation in
-                _ = try shellAtom.preparePersistenceMutation(
+                _ = try shellAdapter.preparePersistenceMutation(
                     [.update(replacement)],
-                    for: preparation,
-                    revisionOwner: revisionOwner
+                    for: preparation
                 )
-                _ = try graphAtom.preparePersistenceMutation(
+                _ = try graphAdapter.preparePersistenceMutation(
                     [.insert(makeTransactionGraphState(), at: 1)],
-                    for: preparation,
-                    revisionOwner: revisionOwner
+                    for: preparation
                 )
                 return preparation.commit {}
             }
@@ -51,10 +51,9 @@ struct WorkspaceTabPersistenceOwnerTransactionTests {
         #expect(revisionOwner.committedRevision == .zero)
 
         try revisionOwner.performSynchronousTransaction { preparation in
-            try shellAtom.preparePersistenceMutation(
+            try shellAdapter.preparePersistenceMutation(
                 [.update(replacement)],
-                for: preparation,
-                revisionOwner: revisionOwner
+                for: preparation
             )
             return preparation.commit {}
         }

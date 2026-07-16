@@ -185,16 +185,101 @@ struct PaneGraphState: Identifiable, Hashable, Sendable {
     }
 }
 
+enum WorkspacePaneGraphReplacementRejection: Error, Equatable, Sendable {
+    case paneKeyIdentityMismatch(key: UUID, paneID: UUID)
+    case duplicateDrawerIdentity(UUID)
+    case drawerParentMismatch(drawerID: UUID, expectedParentPaneID: UUID, actualParentPaneID: UUID)
+    case drawerChildParentMismatch(
+        childPaneID: UUID,
+        expectedParentPaneID: UUID,
+        actualParentPaneID: UUID
+    )
+    case orphanDrawerChild(childPaneID: UUID, parentPaneID: UUID)
+    case duplicateDrawerChildMembership(UUID)
+}
+
+/// A complete pane graph that has passed the pane domain's normalization and
+/// relational invariants. Its initializer is intentionally private so full
+/// atom replacement cannot bypass validation.
+struct WorkspacePaneGraphReplacement: Equatable, Sendable {
+    let paneStates: [UUID: PaneGraphState]
+
+    private init(paneStates: [UUID: PaneGraphState]) {
+        self.paneStates = paneStates
+    }
+
+    static func prepare(
+        _ proposedPaneStates: [UUID: PaneGraphState]
+    ) -> Result<Self, WorkspacePaneGraphReplacementRejection> {
+        for (paneID, paneState) in proposedPaneStates where paneID != paneState.id {
+            return .failure(.paneKeyIdentityMismatch(key: paneID, paneID: paneState.id))
+        }
+
+        let validPaneIDs = Set(proposedPaneStates.keys)
+        var normalizedPaneStates = proposedPaneStates
+        for paneID in normalizedPaneStates.keys {
+            normalizedPaneStates[paneID]?.withDrawer { drawer in
+                drawer.paneIds.removeAll { !validPaneIDs.contains($0) }
+            }
+        }
+
+        var parentPaneIDByDrawerID: [UUID: UUID] = [:]
+        var parentPaneIDByChildPaneID: [UUID: UUID] = [:]
+        for paneState in normalizedPaneStates.values {
+            guard let drawer = paneState.drawer else { continue }
+            guard drawer.parentPaneId == paneState.id else {
+                return .failure(
+                    .drawerParentMismatch(
+                        drawerID: drawer.drawerId,
+                        expectedParentPaneID: paneState.id,
+                        actualParentPaneID: drawer.parentPaneId
+                    )
+                )
+            }
+            guard parentPaneIDByDrawerID.updateValue(paneState.id, forKey: drawer.drawerId) == nil else {
+                return .failure(.duplicateDrawerIdentity(drawer.drawerId))
+            }
+            for childPaneID in drawer.paneIds {
+                guard parentPaneIDByChildPaneID.updateValue(paneState.id, forKey: childPaneID) == nil else {
+                    return .failure(.duplicateDrawerChildMembership(childPaneID))
+                }
+                guard let childPaneState = normalizedPaneStates[childPaneID],
+                    let actualParentPaneID = childPaneState.parentPaneId
+                else {
+                    preconditionFailure("normalized drawer membership retained a missing pane")
+                }
+                guard actualParentPaneID == paneState.id else {
+                    return .failure(
+                        .drawerChildParentMismatch(
+                            childPaneID: childPaneID,
+                            expectedParentPaneID: paneState.id,
+                            actualParentPaneID: actualParentPaneID
+                        )
+                    )
+                }
+            }
+        }
+
+        for paneState in normalizedPaneStates.values {
+            guard let parentPaneID = paneState.parentPaneId else { continue }
+            guard parentPaneIDByChildPaneID[paneState.id] == parentPaneID else {
+                return .failure(
+                    .orphanDrawerChild(
+                        childPaneID: paneState.id,
+                        parentPaneID: parentPaneID
+                    )
+                )
+            }
+        }
+
+        return .success(Self(paneStates: normalizedPaneStates))
+    }
+}
+
 @MainActor
 @Observable
 final class WorkspacePaneGraphAtom {
     private(set) var paneStates: [UUID: PaneGraphState] = [:]
-    @ObservationIgnored private(set) var paneRawKeyByteCounts: [UUID: UInt64] = [:]
-    @ObservationIgnored
-    let paneGraphPersistenceParticipant = WorkspaceStateSnapshotKeyedParticipant<UUID, PaneGraphState>()
-    @ObservationIgnored var persistenceCurrentValueLookupCount: UInt64 = 0
-    @ObservationIgnored var persistenceRawKeyByteCacheLookupCount: UInt64 = 0
-    @ObservationIgnored var persistenceMembershipBootstrapPaneCount: UInt64 = 0
 
     var paneIds: Set<UUID> {
         Set(paneStates.keys)
@@ -214,26 +299,8 @@ final class WorkspacePaneGraphAtom {
         paneStates.values.filter { $0.metadata.facets.worktreeId == worktreeId }
     }
 
-    func hydrate(persistedPanes: [Pane], validWorktreeIds: Set<UUID>) {
-        paneStates = Dictionary(
-            persistedPanes.map { pane in (pane.id, PaneGraphState(pane: pane)) },
-            uniquingKeysWith: { _, last in last }
-        )
-        paneStates = paneStates.filter { _, state in
-            guard let worktreeId = state.metadata.facets.worktreeId else { return true }
-            return validWorktreeIds.contains(worktreeId)
-        }
-        paneRawKeyByteCounts = paneStates.keys.reduce(into: [:]) { rawKeyByteCounts, paneID in
-            rawKeyByteCounts[paneID] = Self.persistenceRawKeyByteCount
-        }
-
-        let validPaneIds = Set(paneStates.keys)
-        for paneId in paneStates.keys {
-            guard paneStates[paneId]?.drawer != nil else { continue }
-            paneStates[paneId]?.withDrawer { drawer in
-                drawer.paneIds.removeAll { !validPaneIds.contains($0) }
-            }
-        }
+    func replacePaneStates(_ replacement: WorkspacePaneGraphReplacement) {
+        paneStates = replacement.paneStates
     }
 
     func addPane(_ pane: Pane) {
@@ -548,22 +615,12 @@ final class WorkspacePaneGraphAtom {
         return true
     }
 
-    static let persistenceRawKeyByteCount: UInt64 = 16
-
     func setCanonicalPaneState(_ state: PaneGraphState) {
         paneStates[state.id] = state
-        paneRawKeyByteCounts[state.id] = Self.persistenceRawKeyByteCount
     }
 
     @discardableResult
     func removeCanonicalPaneState(for paneID: UUID) -> PaneGraphState? {
-        paneRawKeyByteCounts.removeValue(forKey: paneID)
-        return paneStates.removeValue(forKey: paneID)
-    }
-
-    func incrementPersistenceDiagnostic(_ count: inout UInt64) {
-        let increment = count.addingReportingOverflow(1)
-        precondition(!increment.overflow, "pane graph persistence diagnostic count exhausted")
-        count = increment.partialValue
+        paneStates.removeValue(forKey: paneID)
     }
 }

@@ -32,7 +32,9 @@ struct WorkspacePaneBoundaryTests {
         )
         let graphAtom = WorkspacePaneGraphAtom()
 
-        graphAtom.hydrate(persistedPanes: [pane], validWorktreeIds: [worktreeId])
+        graphAtom.replacePaneStates(
+            try requirePaneGraphReplacement([pane.id: PaneGraphState(pane: pane)])
+        )
 
         let state = try #require(graphAtom.paneState(pane.id))
         #expect(state.metadata.facets.repoId == repoId)
@@ -133,12 +135,11 @@ struct WorkspacePaneBoundaryTests {
             isMainWorktree: false
         )
         let topologyAtom = RepositoryTopologyAtom()
-        topologyAtom.hydrate(
-            runtimeRepos: [
+        try replaceTopology(
+            topologyAtom,
+            repositories: [
                 Repo(id: repo.id, name: repo.name, repoPath: repo.repoPath, worktrees: [worktree])
-            ],
-            watchedPaths: [],
-            unavailableRepoIds: []
+            ]
         )
         let cacheAtom = RepoEnrichmentCacheAtom()
         cacheAtom.setRepoEnrichment(
@@ -202,12 +203,11 @@ struct WorkspacePaneBoundaryTests {
             isMainWorktree: false
         )
         let topologyAtom = RepositoryTopologyAtom()
-        topologyAtom.hydrate(
-            runtimeRepos: [
+        try replaceTopology(
+            topologyAtom,
+            repositories: [
                 Repo(id: repoId, name: "agent-studio", repoPath: repoPath, worktrees: [worktree])
-            ],
-            watchedPaths: [],
-            unavailableRepoIds: []
+            ]
         )
         let graphAtom = WorkspacePaneGraphAtom()
         let drawerCursorAtom = WorkspaceDrawerCursorAtom()
@@ -230,14 +230,15 @@ struct WorkspacePaneBoundaryTests {
     }
 
     @Test("Pane count uses durable graph worktree membership without topology derivation")
-    func paneCountUsesDurableGraphWorktreeMembershipWithoutTopologyDerivation() {
+    func paneCountUsesDurableGraphWorktreeMembershipWithoutTopologyDerivation() throws {
         let repoId = UUID()
         let worktreeId = UUID()
         let repoPath = URL(filePath: "/tmp/project-dev/agent-studio")
         let worktreePath = repoPath.appending(path: "performance")
         let topologyAtom = RepositoryTopologyAtom()
-        topologyAtom.hydrate(
-            runtimeRepos: [
+        try replaceTopology(
+            topologyAtom,
+            repositories: [
                 Repo(
                     id: repoId,
                     name: "agent-studio",
@@ -252,9 +253,7 @@ struct WorkspacePaneBoundaryTests {
                         )
                     ]
                 )
-            ],
-            watchedPaths: [],
-            unavailableRepoIds: []
+            ]
         )
         let paneAtom = WorkspacePaneAtom(
             graphAtom: WorkspacePaneGraphAtom(),
@@ -267,4 +266,36 @@ struct WorkspacePaneBoundaryTests {
 
         #expect(paneAtom.paneCount(for: worktreeId) == 0)
     }
+
+    private func replaceTopology(
+        _ atom: RepositoryTopologyAtom,
+        repositories: [Repo]
+    ) throws {
+        guard
+            case .prepared(let replacement) = RepositoryTopologyReplacement.prepare(
+                repositories: repositories,
+                watchedPaths: [],
+                unavailableRepositoryIDs: []
+            )
+        else {
+            throw WorkspacePaneBoundaryTestError.topologyReplacementRejected
+        }
+        atom.replaceTopology(replacement)
+    }
+
+    private func requirePaneGraphReplacement(
+        _ paneStates: [UUID: PaneGraphState]
+    ) throws -> WorkspacePaneGraphReplacement {
+        switch WorkspacePaneGraphReplacement.prepare(paneStates) {
+        case .success(let replacement):
+            return replacement
+        case .failure:
+            throw WorkspacePaneBoundaryTestError.paneGraphReplacementRejected
+        }
+    }
+}
+
+private enum WorkspacePaneBoundaryTestError: Error {
+    case paneGraphReplacementRejected
+    case topologyReplacementRejected
 }

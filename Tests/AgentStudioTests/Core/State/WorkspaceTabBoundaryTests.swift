@@ -7,7 +7,7 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceTabBoundaryTests {
     @Test
-    func hydrateSplitsGraphCursorAndPresentationOwners() {
+    func domainReplacementSplitsGraphCursorAndPresentationOwners() {
         let primaryPaneId = UUID()
         let secondaryPaneId = UUID()
         let drawerPaneId = UUID()
@@ -52,7 +52,7 @@ struct WorkspaceTabBoundaryTests {
             presentationAtom: presentationAtom
         )
 
-        arrangementAtom.hydrate(persistedTabs: [tab], validPaneIds: Set(tab.allPaneIds))
+        replaceTabComposition([tab], in: arrangementAtom)
 
         #expect(Set(graphAtom.tabState(tabId)?.allPaneIds ?? []) == [primaryPaneId, secondaryPaneId, drawerPaneId])
         #expect(graphAtom.tabState(tabId)?.arrangements.map(\.id) == [defaultArrangementId, focusedArrangementId])
@@ -81,7 +81,7 @@ struct WorkspaceTabBoundaryTests {
             cursorAtom: cursorAtom,
             presentationAtom: presentationAtom
         )
-        arrangementAtom.hydrate(persistedTabs: [tab], validPaneIds: Set(tab.allPaneIds))
+        replaceTabComposition([tab], in: arrangementAtom)
         presentationAtom.setZoomedPaneId(targetPaneId, forTab: tab.id)
 
         let didInsert = arrangementAtom.insertPane(
@@ -176,7 +176,7 @@ struct WorkspaceTabBoundaryTests {
             cursorAtom: cursorAtom,
             presentationAtom: WorkspacePanePresentationAtom()
         )
-        arrangementAtom.hydrate(persistedTabs: [tab], validPaneIds: Set(tab.allPaneIds))
+        replaceTabComposition([tab], in: arrangementAtom)
 
         _ = arrangementAtom.minimizePane(firstPaneId, inTab: tab.id)
         _ = arrangementAtom.minimizePane(secondPaneId, inTab: tab.id)
@@ -228,7 +228,7 @@ struct WorkspaceTabBoundaryTests {
             arrangements: [arrangement],
             activeArrangementId: arrangement.id
         )
-        arrangementAtom.hydrate(persistedTabs: [hydratedTab], validPaneIds: Set(hydratedTab.allPaneIds))
+        replaceTabComposition([hydratedTab], in: arrangementAtom)
         presentationAtom.setZoomedPaneId(paneId, forTab: hydratedTab.id)
 
         arrangementAtom.removePaneReferences(Set([paneId]))
@@ -274,10 +274,7 @@ struct WorkspaceTabBoundaryTests {
             cursorAtom: WorkspaceArrangementCursorAtom(),
             presentationAtom: presentationAtom
         )
-        arrangementAtom.hydrate(
-            persistedTabs: [hydratedSourceTab, destinationTab],
-            validPaneIds: Set(hydratedSourceTab.allPaneIds + destinationTab.allPaneIds)
-        )
+        replaceTabComposition([hydratedSourceTab, destinationTab], in: arrangementAtom)
         presentationAtom.setZoomedPaneId(movingPaneId, forTab: hydratedSourceTab.id)
         presentationAtom.setZoomedPaneId(destinationPaneId, forTab: destinationTab.id)
 
@@ -300,5 +297,42 @@ struct WorkspaceTabBoundaryTests {
         #expect(presentationAtom.zoomedPaneId(forTab: destinationTab.id) == nil)
         #expect(arrangementAtom.arrangementState(hydratedSourceTab.id)?.zoomedPaneId == nil)
         #expect(arrangementAtom.arrangementState(destinationTab.id)?.zoomedPaneId == nil)
+    }
+
+    private func replaceTabComposition(
+        _ tabs: [Tab],
+        in arrangementAtom: WorkspaceTabArrangementAtom
+    ) {
+        let arrangementStates = tabs.map {
+            TabArrangementState(
+                tabId: $0.id,
+                allPaneIds: $0.allPaneIds,
+                arrangements: $0.arrangements,
+                activeArrangementId: $0.activeArrangementId,
+                zoomedPaneId: $0.zoomedPaneId
+            )
+        }
+        var activeArrangementIdsByTabId: [UUID: UUID] = [:]
+        var paneCursorsByArrangementId: [UUID: ArrangementPaneCursorState] = [:]
+        var drawerCursorsByKey: [ArrangementDrawerCursorKey: ArrangementDrawerCursorState] = [:]
+        for tab in tabs {
+            activeArrangementIdsByTabId[tab.id] = tab.activeArrangementId
+            for arrangement in tab.arrangements {
+                paneCursorsByArrangementId[arrangement.id] = .init(activePaneId: arrangement.activePaneId)
+                for (drawerId, drawerView) in arrangement.drawerViews {
+                    drawerCursorsByKey[
+                        ArrangementDrawerCursorKey(arrangementId: arrangement.id, drawerId: drawerId)
+                    ] = .init(activeChildId: drawerView.activeChildId)
+                }
+            }
+        }
+
+        arrangementAtom.graphAtom.replaceStates(arrangementStates.map(TabGraphState.init))
+        arrangementAtom.cursorAtom.replaceCursors(
+            activeArrangementIdsByTabId: activeArrangementIdsByTabId,
+            paneCursorsByArrangementId: paneCursorsByArrangementId,
+            drawerCursorsByKey: drawerCursorsByKey
+        )
+        arrangementAtom.presentationAtom.replaceStates(arrangementStates)
     }
 }

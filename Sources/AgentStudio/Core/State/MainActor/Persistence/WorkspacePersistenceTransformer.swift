@@ -42,25 +42,30 @@ enum WorkspacePersistenceTransformer {
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom
     ) -> WorkspaceTabMembershipRepairReport {
-        identityAtom.hydrate(
+        guard
+            let topologyReplacement = preparedTopologyReplacement(
+                canonicalRepos: state.repos,
+                canonicalWorktrees: state.worktrees,
+                watchedPaths: state.watchedPaths,
+                unavailableRepositoryIDs: state.unavailableRepoIds
+            )
+        else {
+            workspacePersistenceTransformerLogger.error(
+                "Rejected invalid repository topology before workspace hydration"
+            )
+            return .init(repairedTabIds: [], activeTabIdChanged: false)
+        }
+
+        identityAtom.replaceIdentity(
             workspaceId: state.id,
             workspaceName: state.name,
             createdAt: state.createdAt
         )
-        windowMemoryAtom.hydrate(
+        windowMemoryAtom.replaceWindowMemory(
             sidebarWidth: state.sidebarWidth,
             windowFrame: state.windowFrame
         )
-
-        let runtimeRepos = runtimeRepos(
-            canonicalRepos: state.repos,
-            canonicalWorktrees: state.worktrees
-        )
-        repositoryTopologyAtom.hydrate(
-            runtimeRepos: runtimeRepos,
-            watchedPaths: state.watchedPaths,
-            unavailableRepoIds: state.unavailableRepoIds
-        )
+        repositoryTopologyAtom.replaceTopology(topologyReplacement)
 
         return hydrateWorkspaceOnly(
             state,
@@ -76,15 +81,20 @@ enum WorkspacePersistenceTransformer {
         _ snapshot: RepositoryTopologySQLiteSnapshot,
         repositoryTopologyAtom: RepositoryTopologyAtom
     ) {
-        let runtimeRepos = runtimeRepos(
-            canonicalRepos: snapshot.repos,
-            canonicalWorktrees: snapshot.worktrees
-        )
-        repositoryTopologyAtom.hydrate(
-            runtimeRepos: runtimeRepos,
-            watchedPaths: snapshot.watchedPaths,
-            unavailableRepoIds: snapshot.unavailableRepoIds
-        )
+        guard
+            let replacement = preparedTopologyReplacement(
+                canonicalRepos: snapshot.repos,
+                canonicalWorktrees: snapshot.worktrees,
+                watchedPaths: snapshot.watchedPaths,
+                unavailableRepositoryIDs: snapshot.unavailableRepoIds
+            )
+        else {
+            workspacePersistenceTransformerLogger.error(
+                "Rejected invalid repository topology snapshot before hydration"
+            )
+            return
+        }
+        repositoryTopologyAtom.replaceTopology(replacement)
     }
 
     @discardableResult
@@ -96,30 +106,29 @@ enum WorkspacePersistenceTransformer {
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom
     ) -> WorkspaceTabMembershipRepairReport {
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: state.id,
             workspaceName: state.name,
             createdAt: state.createdAt
         )
-        windowMemoryAtom.hydrate(
+        windowMemoryAtom.replaceWindowMemory(
             sidebarWidth: state.sidebarWidth,
             windowFrame: state.windowFrame
         )
 
-        workspacePaneAtom.hydrate(
-            persistedPanes: state.panes,
-            validWorktreeIds: repositoryTopologyAtom.allWorktreeIds
-        )
+        replacePaneComposition(state.panes, in: workspacePaneAtom)
         let validPaneIds = workspacePaneAtom.graphAtom.paneIds
-        let drawerParentPaneIdByDrawerId = drawerParentPaneIdsByDrawerId(from: workspacePaneAtom.liveSQLitePanes.values)
+        let drawerParentPaneIdByDrawerId = drawerParentPaneIdsByDrawerId(
+            from: livePaneProjection(from: workspacePaneAtom).values
+        )
         let normalizedTabs = normalizeLiveSQLiteTabs(
             tabs: state.tabs,
             validPaneIds: validPaneIds,
             activeTabId: state.activeTabId,
             drawerParentPaneIdByDrawerId: drawerParentPaneIdByDrawerId
         )
-        workspaceTabLayoutAtom.hydrate(
-            persistedTabs: normalizedTabs.tabs,
+        workspaceTabLayoutAtom.replaceTabs(
+            normalizedTabs.tabs,
             activeTabId: normalizedTabs.activeTabId,
             validPaneIds: validPaneIds,
             drawerParentPaneIdByDrawerId: drawerParentPaneIdByDrawerId
@@ -136,7 +145,7 @@ enum WorkspacePersistenceTransformer {
         persistedAt: Date
     ) -> WorkspacePersistor.PersistableState {
         let persistablePanes = Array(
-            workspacePaneAtom.legacyPersistablePanes.values.filter { pane in
+            livePaneProjection(from: workspacePaneAtom).values.filter { pane in
                 if case .terminal(let terminalState) = pane.content {
                     return terminalState.lifetime != .temporary
                 }
@@ -265,7 +274,7 @@ enum WorkspacePersistenceTransformer {
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
         persistedAt: Date
     ) -> WorkspaceLiveSQLiteSnapshotResult {
-        let livePanes = Array(workspacePaneAtom.liveSQLitePanes.values)
+        let livePanes = Array(livePaneProjection(from: workspacePaneAtom).values)
         let drawerParentPaneIdByDrawerId = drawerParentPaneIdsByDrawerId(from: livePanes)
         let normalizedTabs = normalizeLiveSQLiteTabs(
             tabs: workspaceTabLayoutAtom.tabs,
@@ -586,6 +595,73 @@ enum WorkspacePersistenceTransformer {
                 tags: canonicalRepo.tags
             )
         }
+    }
+
+    private static func preparedTopologyReplacement(
+        canonicalRepos: [CanonicalRepo],
+        canonicalWorktrees: [CanonicalWorktree],
+        watchedPaths: [WatchedPath],
+        unavailableRepositoryIDs: Set<UUID>
+    ) -> RepositoryTopologyReplacement? {
+        switch RepositoryTopologyReplacement.prepare(
+            repositories: runtimeRepos(
+                canonicalRepos: canonicalRepos,
+                canonicalWorktrees: canonicalWorktrees
+            ),
+            watchedPaths: watchedPaths,
+            unavailableRepositoryIDs: unavailableRepositoryIDs
+        ) {
+        case .prepared(let replacement):
+            return replacement
+        case .rejected:
+            return nil
+        }
+    }
+
+    private static func replacePaneComposition(
+        _ panes: [Pane],
+        in workspacePaneAtom: WorkspacePaneAtom
+    ) {
+        var paneStates = Dictionary(
+            panes.map { pane in (pane.id, PaneGraphState(pane: pane)) },
+            uniquingKeysWith: { _, last in last }
+        )
+        let validPaneIDs = Set(paneStates.keys)
+        for paneID in paneStates.keys where paneStates[paneID]?.drawer != nil {
+            paneStates[paneID]?.withDrawer { drawer in
+                drawer.paneIds.removeAll { !validPaneIDs.contains($0) }
+            }
+        }
+        guard case .success(let replacement) = WorkspacePaneGraphReplacement.prepare(paneStates) else {
+            workspacePersistenceTransformerLogger.error(
+                "Rejected invalid pane graph before workspace hydration"
+            )
+            return
+        }
+        workspacePaneAtom.graphAtom.replacePaneStates(replacement)
+        let expandedDrawerID = panes.compactMap { pane -> UUID? in
+            guard let drawer = pane.drawer, drawer.isExpanded,
+                workspacePaneAtom.graphAtom.drawerIds.contains(drawer.drawerId)
+            else { return nil }
+            return drawer.drawerId
+        }.last
+        workspacePaneAtom.drawerCursorAtom.replaceExpandedDrawer(expandedDrawerID)
+    }
+
+    static func livePaneProjection(from workspacePaneAtom: WorkspacePaneAtom) -> [UUID: Pane] {
+        Dictionary(
+            uniqueKeysWithValues: workspacePaneAtom.graphAtom.paneStates.map { paneID, state in
+                let drawerID = state.drawer?.drawerId
+                return (
+                    paneID,
+                    state.pane(
+                        isDrawerExpanded: drawerID.map {
+                            workspacePaneAtom.drawerCursorAtom.isExpanded(drawerId: $0)
+                        } ?? false
+                    )
+                )
+            }
+        )
     }
 
     private static func pruneInvalidPanes(

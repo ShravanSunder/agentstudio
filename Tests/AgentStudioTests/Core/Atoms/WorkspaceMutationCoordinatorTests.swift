@@ -13,7 +13,6 @@ struct WorkspaceMutationCoordinatorTests {
         let tabShellAtom = WorkspaceTabShellAtom()
         let tabArrangementAtom = WorkspaceTabArrangementAtom()
         let coordinator = WorkspaceMutationCoordinator(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             repositoryTopologyAtom: topologyAtom,
             workspacePaneAtom: paneAtom,
             workspaceTabShellAtom: tabShellAtom,
@@ -43,7 +42,6 @@ struct WorkspaceMutationCoordinatorTests {
         let tabShellAtom = WorkspaceTabShellAtom()
         let tabArrangementAtom = WorkspaceTabArrangementAtom()
         let coordinator = WorkspaceMutationCoordinator(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             repositoryTopologyAtom: topologyAtom,
             workspacePaneAtom: paneAtom,
             workspaceTabShellAtom: tabShellAtom,
@@ -78,7 +76,6 @@ struct WorkspaceMutationCoordinatorTests {
         let tabShellAtom = WorkspaceTabShellAtom()
         let tabArrangementAtom = WorkspaceTabArrangementAtom()
         let coordinator = WorkspaceMutationCoordinator(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             repositoryTopologyAtom: topologyAtom,
             workspacePaneAtom: paneAtom,
             workspaceTabShellAtom: tabShellAtom,

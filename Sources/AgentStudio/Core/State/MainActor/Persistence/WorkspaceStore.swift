@@ -95,16 +95,11 @@ final class WorkspaceStore {
         self.mutationCoordinator =
             mutationCoordinator
             ?? WorkspaceMutationCoordinator(
-                workspacePersistenceRevisionOwner: workspacePersistenceRevisionOwner,
                 repositoryTopologyAtom: repositoryTopologyAtom,
                 workspacePaneAtom: resolvedPaneAtom,
                 workspaceTabShellAtom: resolvedTabShellAtom,
                 workspaceTabArrangementAtom: resolvedTabArrangementAtom
             )
-        precondition(
-            self.mutationCoordinator.workspacePersistenceRevisionOwner === workspacePersistenceRevisionOwner,
-            "workspace store and mutation coordinator must share one persistence revision owner"
-        )
         let resolvedSQLiteSaveCoordinator =
             sqliteSaveCoordinator
             ?? sqliteDatastore.map { datastore in
@@ -496,12 +491,13 @@ final class WorkspaceStore {
     private func applyLiveSQLiteTabRepairIfNeeded(_ snapshotResult: WorkspaceLiveSQLiteSnapshotResult) {
         guard snapshotResult.repairReport.hasRepairs else { return }
         isRestoringState = true
-        tabLayoutAtom.hydrate(
-            persistedTabs: snapshotResult.snapshot.tabs,
+        tabLayoutAtom.replaceTabs(
+            snapshotResult.snapshot.tabs,
             activeTabId: snapshotResult.snapshot.activeTabId,
             validPaneIds: paneAtom.graphAtom.paneIds,
             drawerParentPaneIdByDrawerId: WorkspacePersistenceTransformer.drawerParentPaneIdsByDrawerId(
-                from: paneAtom.liveSQLitePanes.values)
+                from: WorkspacePersistenceTransformer.livePaneProjection(from: paneAtom).values
+            )
         )
         isRestoringState = false
     }

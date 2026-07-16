@@ -9,40 +9,12 @@ enum WorkspaceTabShellAtomError: Error, Equatable {
     case invalidTabColorHex(String)
 }
 
-enum WorkspaceTabShellPersistenceOperation: Equatable, Sendable {
-    case insert(TabShell, at: Int)
-    case update(TabShell)
-    case remove(tabID: UUID)
-    case move(tabID: UUID, toIndex: Int)
-}
-
-enum WorkspaceTabShellPersistencePreparationError: Error, Equatable {
-    case duplicateTabID(UUID)
-    case invalidInsertionIndex(Int)
-    case invalidMoveIndex(Int)
-    case missingTabID(UUID)
-    case ownerRegistration(WorkspaceParticipantRegistrationRejection)
-    case snapshotParticipant(WorkspaceStateSnapshotParticipantRejection)
-    case snapshotPreparation(WorkspaceSnapshotPreparationRejection)
-}
-
-private struct WorkspaceTabShellPreparedPersistenceMutation {
-    let transaction: WorkspacePersistenceTransaction
-    let tabShells: [TabShell]
-    let tabIndexByID: [UUID: Int]
-}
-
 @MainActor
 @Observable
 final class WorkspaceTabShellAtom {
     let cursorAtom: WorkspaceTabCursorAtom
     private(set) var tabShells: [TabShell] = []
     private var tabIndexByID: [UUID: Int] = [:]
-    private let snapshotParticipant = WorkspaceStateSnapshotKeyedParticipant<
-        UUID,
-        WorkspacePersistenceSnapshotTabShell
-    >()
-
     init(cursorAtom: WorkspaceTabCursorAtom = WorkspaceTabCursorAtom()) {
         self.cursorAtom = cursorAtom
     }
@@ -51,10 +23,11 @@ final class WorkspaceTabShellAtom {
         cursorAtom.activeTabId
     }
 
-    func hydrate(persistedTabs: [Tab], activeTabId: UUID?) {
-        tabShells = persistedTabs.map { TabShell(id: $0.id, name: $0.name, colorHex: $0.colorHex) }
-        rebuildTabIndex()
-        cursorAtom.hydrate(activeTabId: activeTabId, availableTabIds: tabShells.map(\.id))
+    func replaceTabShells(_ shells: [TabShell]) {
+        let replacementIndex = Self.makeUniqueIndex(shells)
+        guard tabShells != shells else { return }
+        tabShells = shells
+        tabIndexByID = replacementIndex
     }
 
     func tabShell(_ id: UUID) -> TabShell? {
@@ -147,173 +120,20 @@ final class WorkspaceTabShellAtom {
         tabShells[tabIndex].setColorHex(canonicalColorHex)
     }
 
-    func makePersistenceSnapshotParticipant(
-        limits: WorkspaceStateSnapshotMembershipLimits
-    ) -> SnapshotPagerParticipantConstructionResult<
-        WorkspacePersistenceSnapshotParticipantID,
-        WorkspacePersistenceSnapshotItem
-    > {
-        WorkspaceStateSnapshotPagerParticipant<
-            WorkspacePersistenceSnapshotParticipantID,
-            WorkspacePersistenceSnapshotItem
-        >.typed(
-            participantID: .tabShells,
-            keyedParticipant: snapshotParticipant,
-            membershipLimits: limits,
-            orderedBaseKeys: { [self] in tabShells.map(\.id) },
-            currentValue: { [self] tabID in
-                guard let index = tabIndexByID[tabID] else { return .absent }
-                return .value(
-                    WorkspacePersistenceSnapshotTabShell(
-                        shell: tabShells[index],
-                        sortIndex: index
-                    )
-                )
-            },
-            projection: WorkspaceStateSnapshotItemProjection(
-                itemIDForKey: { .tabShell($0) },
-                projectItem: { _, snapshot in
-                    WorkspaceStateSnapshotPagerTypedItem(
-                        item: .tabShell(snapshot),
-                        estimatedByteCount: Self.estimatedSnapshotByteCount(snapshot)
-                    )
-                }
-            ),
-            rawKeyByteCount: { _ in 16 }
-        )
-    }
-
-    func preparePersistenceMutation(
-        _ operations: [WorkspaceTabShellPersistenceOperation],
-        for preparation: WorkspacePersistenceTransactionPreparation,
-        revisionOwner: WorkspacePersistenceRevisionOwner
-    ) throws {
-        var nextTabShells = tabShells
-        for operation in operations {
-            switch operation {
-            case .insert(let shell, let index):
-                guard !nextTabShells.contains(where: { $0.id == shell.id }) else {
-                    throw WorkspaceTabShellPersistencePreparationError.duplicateTabID(shell.id)
-                }
-                guard index >= 0, index <= nextTabShells.count else {
-                    throw WorkspaceTabShellPersistencePreparationError.invalidInsertionIndex(index)
-                }
-                nextTabShells.insert(shell, at: index)
-            case .update(let shell):
-                guard let index = nextTabShells.firstIndex(where: { $0.id == shell.id }) else {
-                    throw WorkspaceTabShellPersistencePreparationError.missingTabID(shell.id)
-                }
-                nextTabShells[index] = shell
-            case .remove(let tabID):
-                guard let index = nextTabShells.firstIndex(where: { $0.id == tabID }) else {
-                    throw WorkspaceTabShellPersistencePreparationError.missingTabID(tabID)
-                }
-                nextTabShells.remove(at: index)
-            case .move(let tabID, let toIndex):
-                guard let index = nextTabShells.firstIndex(where: { $0.id == tabID }) else {
-                    throw WorkspaceTabShellPersistencePreparationError.missingTabID(tabID)
-                }
-                guard toIndex >= 0, toIndex < nextTabShells.count else {
-                    throw WorkspaceTabShellPersistencePreparationError.invalidMoveIndex(toIndex)
-                }
-                let shell = nextTabShells.remove(at: index)
-                nextTabShells.insert(shell, at: toIndex)
-            }
-        }
-
-        let nextTabIndexByID = try Self.makeUniqueIndex(nextTabShells)
-        var snapshotMutations: [WorkspaceStateSnapshotParticipantMutation<UUID, WorkspacePersistenceSnapshotTabShell>] =
-            []
-        snapshotMutations.reserveCapacity(tabShells.count + nextTabShells.count)
-        for (oldIndex, oldShell) in tabShells.enumerated() {
-            let oldValue = WorkspacePersistenceSnapshotTabShell(shell: oldShell, sortIndex: oldIndex)
-            guard let nextIndex = nextTabIndexByID[oldShell.id] else {
-                snapshotMutations.append(
-                    .remove(.init(key: oldShell.id, currentValue: .value(oldValue)))
-                )
-                continue
-            }
-            if nextIndex != oldIndex || nextTabShells[nextIndex] != oldShell {
-                snapshotMutations.append(.replaceValue(key: oldShell.id, currentValue: .value(oldValue)))
-            }
-        }
-        for shell in nextTabShells where tabIndexByID[shell.id] == nil {
-            snapshotMutations.append(.insert(.init(key: shell.id, rawKeyByteCount: 16)))
-        }
-
-        try prepareSnapshotParticipant(
-            snapshotMutations,
-            preparation: preparation,
-            revisionOwner: revisionOwner
-        )
-        let preparedMutation = WorkspaceTabShellPreparedPersistenceMutation(
-            transaction: preparation.transaction,
-            tabShells: nextTabShells,
-            tabIndexByID: nextTabIndexByID
-        )
-        switch revisionOwner.registerPreparedParticipantMutation(
-            participant: self,
-            preparation: preparation,
-            apply: { [self] in applyPreparedPersistenceMutation(preparedMutation, revisionOwner: revisionOwner) },
-            cancel: {}
-        ) {
-        case .registered:
-            break
-        case .rejected(let rejection):
-            throw WorkspaceTabShellPersistencePreparationError.ownerRegistration(rejection)
-        }
-    }
-
-    private func prepareSnapshotParticipant(
-        _ mutations: [WorkspaceStateSnapshotParticipantMutation<UUID, WorkspacePersistenceSnapshotTabShell>],
-        preparation: WorkspacePersistenceTransactionPreparation,
-        revisionOwner: WorkspacePersistenceRevisionOwner
-    ) throws {
-        guard !mutations.isEmpty else { return }
-        switch snapshotParticipant.prepare(mutations, for: preparation, revisionOwner: revisionOwner) {
-        case .prepared:
-            break
-        case .rejected(let rejection):
-            throw WorkspaceTabShellPersistencePreparationError.snapshotPreparation(rejection)
-        }
-    }
-
-    private func applyPreparedPersistenceMutation(
-        _ mutation: WorkspaceTabShellPreparedPersistenceMutation,
-        revisionOwner: WorkspacePersistenceRevisionOwner
-    ) {
-        precondition(
-            revisionOwner.validateActiveCommit(mutation.transaction) == .active,
-            "tab shell prepared mutation requires its exact active transaction"
-        )
-        tabShells = mutation.tabShells
-        tabIndexByID = mutation.tabIndexByID
-    }
-
-    private func rebuildTabIndex() {
-        tabIndexByID = Dictionary(uniqueKeysWithValues: tabShells.enumerated().map { ($0.element.id, $0.offset) })
-    }
-
     private func reindexTabs(in range: Range<Int>) {
         for index in range { tabIndexByID[tabShells[index].id] = index }
     }
 
-    private static func makeUniqueIndex(_ shells: [TabShell]) throws -> [UUID: Int] {
+    private static func makeUniqueIndex(_ shells: [TabShell]) -> [UUID: Int] {
         var indexByID: [UUID: Int] = [:]
         indexByID.reserveCapacity(shells.count)
         for (index, shell) in shells.enumerated() {
-            guard indexByID.updateValue(index, forKey: shell.id) == nil else {
-                throw WorkspaceTabShellPersistencePreparationError.duplicateTabID(shell.id)
-            }
+            precondition(
+                indexByID.updateValue(index, forKey: shell.id) == nil,
+                "tab shell identity must be unique"
+            )
         }
         return indexByID
-    }
-
-    private static func estimatedSnapshotByteCount(
-        _ snapshot: WorkspacePersistenceSnapshotTabShell
-    ) -> Int {
-        16 + MemoryLayout<Int>.size + snapshot.shell.name.utf8.count
-            + (snapshot.shell.colorHex?.utf8.count ?? 0) + 1
     }
 
     private static func validatedTabColorHex(_ colorHex: String) throws -> String {

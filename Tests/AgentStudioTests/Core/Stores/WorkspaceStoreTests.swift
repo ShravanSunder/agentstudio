@@ -1309,7 +1309,7 @@ final class WorkspaceStoreTests {
         let clock = TestPushClock()
         var recoveryEvents: [PersistenceRecoveryEvent] = []
         let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: workspaceId,
             workspaceName: "Autosave Damping",
             createdAt: Date(timeIntervalSince1970: 1_700_010_000)

@@ -625,10 +625,11 @@ struct InboxNotificationSidebarViewSourceGroupTests {
             repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
             worktrees: [worktree]
         )
-        repositoryTopologyAtom.hydrate(
-            runtimeRepos: [repo],
+        replaceTopology(
+            in: repositoryTopologyAtom,
+            repositories: [repo],
             watchedPaths: [],
-            unavailableRepoIds: []
+            unavailableRepositoryIDs: []
         )
         repoCache.setRepoEnrichment(
             .resolvedRemote(
@@ -710,10 +711,11 @@ struct InboxNotificationSidebarViewSourceGroupTests {
             repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
             worktrees: [worktree]
         )
-        repositoryTopologyAtom.hydrate(
-            runtimeRepos: [repo],
+        replaceTopology(
+            in: repositoryTopologyAtom,
+            repositories: [repo],
             watchedPaths: [],
-            unavailableRepoIds: []
+            unavailableRepositoryIDs: []
         )
         prefsAtom.setGrouping(.byRepo)
         prefsAtom.setGlobalInboxContentMode(.all)
@@ -780,6 +782,25 @@ struct InboxNotificationSidebarViewSourceGroupTests {
                 .contains("agent-studio, ShravanSunder")
         }
     }
+}
+
+@MainActor
+private func replaceTopology(
+    in atom: RepositoryTopologyAtom,
+    repositories: [Repo],
+    watchedPaths: [WatchedPath],
+    unavailableRepositoryIDs: Set<UUID>
+) {
+    guard
+        case .prepared(let replacement) = RepositoryTopologyReplacement.prepare(
+            repositories: repositories,
+            watchedPaths: watchedPaths,
+            unavailableRepositoryIDs: unavailableRepositoryIDs
+        )
+    else {
+        preconditionFailure("test topology fixture must satisfy domain identity invariants")
+    }
+    atom.replaceTopology(replacement)
 }
 
 @MainActor

@@ -278,7 +278,7 @@ struct WorkspaceSQLiteStoreBackendFactoryTests {
         try Data("not a sqlite database".utf8).write(to: localSQLiteURL)
         var recoveryEvents: [PersistenceRecoveryEvent] = []
         let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: workspaceId,
             workspaceName: "Before Restore",
             createdAt: Date(timeIntervalSince1970: 1)

@@ -169,12 +169,12 @@ struct WorkspacePersistenceTransformerTests {
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: UUID(),
             workspaceName: "Workspace",
             createdAt: Date(timeIntervalSince1970: 1000)
         )
-        windowMemoryAtom.hydrate(
+        windowMemoryAtom.replaceWindowMemory(
             sidebarWidth: 250,
             windowFrame: nil
         )
@@ -211,7 +211,8 @@ struct WorkspacePersistenceTransformerTests {
         let worktreeId = UUID()
         let repoPath = URL(filePath: "/tmp/project-dev/agent-studio")
         let worktreePath = repoPath.appending(path: "sqlite")
-        topologyAtom.hydrate(
+        replaceTopology(
+            in: topologyAtom,
             runtimeRepos: [
                 Repo(
                     id: repoId,
@@ -245,12 +246,12 @@ struct WorkspacePersistenceTransformerTests {
         )
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: UUID(),
             workspaceName: "Workspace",
             createdAt: Date(timeIntervalSince1970: 1000)
         )
-        windowMemoryAtom.hydrate(sidebarWidth: 250, windowFrame: nil)
+        windowMemoryAtom.replaceWindowMemory(sidebarWidth: 250, windowFrame: nil)
 
         let pane = paneAtom.createPane(
             launchDirectory: worktreePath,
@@ -302,12 +303,13 @@ struct WorkspacePersistenceTransformerTests {
         let repoId = UUID()
         let worktreeId = UUID()
 
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: workspaceId,
             workspaceName: "Workspace",
             createdAt: Date(timeIntervalSince1970: 1000)
         )
-        topologyAtom.hydrate(
+        replaceTopology(
+            in: topologyAtom,
             runtimeRepos: [
                 Repo(
                     id: repoId,
@@ -351,12 +353,12 @@ struct WorkspacePersistenceTransformerTests {
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: UUID(),
             workspaceName: "Workspace",
             createdAt: Date(timeIntervalSince1970: 1000)
         )
-        windowMemoryAtom.hydrate(
+        windowMemoryAtom.replaceWindowMemory(
             sidebarWidth: 250,
             windowFrame: nil
         )
@@ -395,12 +397,12 @@ struct WorkspacePersistenceTransformerTests {
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: UUID(),
             workspaceName: "Workspace",
             createdAt: Date(timeIntervalSince1970: 1000)
         )
-        windowMemoryAtom.hydrate(
+        windowMemoryAtom.replaceWindowMemory(
             sidebarWidth: 250,
             windowFrame: nil
         )
@@ -461,12 +463,12 @@ struct WorkspacePersistenceTransformerTests {
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: UUID(),
             workspaceName: "Workspace",
             createdAt: Date(timeIntervalSince1970: 1000)
         )
-        windowMemoryAtom.hydrate(
+        windowMemoryAtom.replaceWindowMemory(
             sidebarWidth: 250,
             windowFrame: nil
         )
@@ -505,12 +507,12 @@ struct WorkspacePersistenceTransformerTests {
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: UUID(),
             workspaceName: "Workspace",
             createdAt: Date(timeIntervalSince1970: 1000)
         )
-        windowMemoryAtom.hydrate(
+        windowMemoryAtom.replaceWindowMemory(
             sidebarWidth: 250,
             windowFrame: nil
         )
@@ -558,12 +560,12 @@ struct WorkspacePersistenceTransformerTests {
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: UUID(),
             workspaceName: "Workspace",
             createdAt: Date(timeIntervalSince1970: 1000)
         )
-        windowMemoryAtom.hydrate(
+        windowMemoryAtom.replaceWindowMemory(
             sidebarWidth: 250,
             windowFrame: nil
         )
@@ -837,12 +839,12 @@ struct WorkspacePersistenceTransformerTests {
         let topologyAtom = RepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: UUID(),
             workspaceName: "SQLite Workspace",
             createdAt: Date(timeIntervalSince1970: 1000)
         )
-        windowMemoryAtom.hydrate(sidebarWidth: 250, windowFrame: nil)
+        windowMemoryAtom.replaceWindowMemory(sidebarWidth: 250, windowFrame: nil)
         return SQLiteSnapshotFixture(
             identityAtom: identityAtom,
             windowMemoryAtom: windowMemoryAtom,
@@ -862,6 +864,25 @@ struct WorkspacePersistenceTransformerTests {
             persistedAt: Date(timeIntervalSince1970: 2000)
         )
     }
+}
+
+@MainActor
+private func replaceTopology(
+    in atom: RepositoryTopologyAtom,
+    runtimeRepos: [Repo],
+    watchedPaths: [WatchedPath],
+    unavailableRepoIds: Set<UUID>
+) {
+    guard
+        case .prepared(let replacement) = RepositoryTopologyReplacement.prepare(
+            repositories: runtimeRepos,
+            watchedPaths: watchedPaths,
+            unavailableRepositoryIDs: unavailableRepoIds
+        )
+    else {
+        preconditionFailure("test topology fixture must satisfy domain identity invariants")
+    }
+    atom.replaceTopology(replacement)
 }
 
 private struct SQLiteSnapshotFixture {

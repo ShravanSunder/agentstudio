@@ -3,8 +3,6 @@ import os.log
 
 @MainActor
 final class WorkspaceMutationCoordinator {
-    let workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner
-
     enum RestorePaneResult: Equatable {
         case restored
         case failedMissingDrawerParent(UUID?)
@@ -65,13 +63,11 @@ final class WorkspaceMutationCoordinator {
     }
 
     init(
-        workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner,
         repositoryTopologyAtom: RepositoryTopologyAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabShellAtom: WorkspaceTabShellAtom,
         workspaceTabArrangementAtom: WorkspaceTabArrangementAtom
     ) {
-        self.workspacePersistenceRevisionOwner = workspacePersistenceRevisionOwner
         self.repositoryTopologyAtom = repositoryTopologyAtom
         self.workspacePaneAtom = workspacePaneAtom
         self.workspaceTabShellAtom = workspaceTabShellAtom

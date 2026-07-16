@@ -5,6 +5,38 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct WorkspacePersistencePageCaptureRouteTests {
+    @Test("keyed participant rejects membership limits that differ from registration")
+    func keyedParticipantRejectsMembershipLimitsThatDifferFromRegistration() {
+        // Arrange
+        let revisionOwner = WorkspacePersistenceRevisionOwner()
+        let participant = WorkspaceStateSnapshotKeyedParticipant<PageCaptureTestKey, String>()
+        let registeredLimits = WorkspaceStateSnapshotMembershipLimits(
+            maximumKeyCount: 1,
+            maximumRawKeyBytes: 16
+        )
+        let substitutedLimits = WorkspaceStateSnapshotMembershipLimits(
+            maximumKeyCount: 2,
+            maximumRawKeyBytes: 32
+        )
+        #expect(
+            participant.registerInitialKey(
+                PageCaptureTestKey("registered"),
+                rawKeyByteCount: 16,
+                limits: registeredLimits
+            ) == .registered
+        )
+        let lease = WorkspaceStateSnapshotLease.open(
+            pagerIdentity: .make(),
+            revisionOwner: revisionOwner
+        )
+
+        // Act
+        let result = participant.open(lease: lease, limits: substitutedLimits)
+
+        // Assert
+        #expect(result == .rejected(.membershipLimitsMismatch))
+    }
+
     @Test("same participant with wrong item identity rejects without consuming source slot")
     func sameParticipantWrongItemIdentityRejectsWithoutConsumingSourceSlot() {
         // Arrange
@@ -201,7 +233,6 @@ struct WorkspacePersistencePageCaptureRouteTests {
                 revisionOwner: revisionOwner
             ),
             participants: [registration],
-            membershipLimits: limits,
             workLedger: workLedger,
             workRecordObserver: { _ in },
             workInvalidityObserver: { _ in }

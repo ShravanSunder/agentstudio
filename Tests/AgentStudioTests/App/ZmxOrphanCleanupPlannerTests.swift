@@ -341,8 +341,7 @@ struct ZmxOrphanCleanupPlannerTests {
         // Arrange
         let workspaceId = UUID()
         let fixture = try makeZmxCleanupSQLiteFixture(workspaceId: workspaceId)
-        let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        let identityAtom = WorkspaceIdentityAtom(
             workspaceId: workspaceId,
             workspaceName: "Legacy zmx Cleanup",
             createdAt: Date(timeIntervalSince1970: 1_700_000_200)
@@ -443,8 +442,7 @@ struct ZmxOrphanCleanupPlannerTests {
         // Arrange
         let workspaceId = UUID()
         let fixture = try makeZmxCleanupSQLiteFixture(workspaceId: workspaceId)
-        let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        let identityAtom = WorkspaceIdentityAtom(
             workspaceId: workspaceId,
             workspaceName: "Wrapper zmx Reconciliation",
             createdAt: Date(timeIntervalSince1970: 1_700_000_300)
@@ -502,8 +500,7 @@ struct ZmxOrphanCleanupPlannerTests {
         // Arrange
         let workspaceId = UUID()
         let fixture = try makeZmxCleanupSQLiteFixture(workspaceId: workspaceId)
-        let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        let identityAtom = WorkspaceIdentityAtom(
             workspaceId: workspaceId,
             workspaceName: "Anchored zmx Reconciliation",
             createdAt: Date(timeIntervalSince1970: 1_700_000_350)
@@ -567,8 +564,7 @@ struct ZmxOrphanCleanupPlannerTests {
         // Arrange
         let workspaceId = UUID()
         let fixture = try makeZmxCleanupSQLiteFixture(workspaceId: workspaceId)
-        let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        let identityAtom = WorkspaceIdentityAtom(
             workspaceId: workspaceId,
             workspaceName: "Invalid Anchor zmx Reconciliation",
             createdAt: Date(timeIntervalSince1970: 1_700_000_375)
@@ -632,8 +628,7 @@ struct ZmxOrphanCleanupPlannerTests {
         // Arrange
         let workspaceId = UUID()
         let fixture = try makeZmxCleanupSQLiteFixture(workspaceId: workspaceId)
-        let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        let identityAtom = WorkspaceIdentityAtom(
             workspaceId: workspaceId,
             workspaceName: "Unavailable zmx Inventory",
             createdAt: Date(timeIntervalSince1970: 1_700_000_400)

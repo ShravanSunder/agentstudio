@@ -472,8 +472,8 @@ struct WorkspacePersistencePageCaptureTests {
         #expect(secondPage.participantID == .alpha)
     }
 
-    @Test("typed participant factories preserve heterogeneous owner key and value pairs")
-    func typedParticipantFactoriesPreserveHeterogeneousOwnerKeyAndValuePairs() {
+    @Test("typed participants preserve heterogeneous owner types and membership limits")
+    func typedParticipantsPreserveHeterogeneousOwnerTypesAndMembershipLimits() {
         // Arrange
         let textKey = PageCaptureTextOwnerKey(rawValue: "readme")
         let textValue = PageCaptureTextOwnerValue(payload: "contents")
@@ -494,7 +494,7 @@ struct WorkspacePersistencePageCaptureTests {
             >.typed(
                 participantID: .alpha,
                 keyedParticipant: textParticipant,
-                membershipLimits: pageCaptureTestMembershipLimits,
+                membershipLimits: .init(maximumKeyCount: 1, maximumRawKeyBytes: 6),
                 orderedBaseKeys: { [textKey] },
                 currentValue: { key in key == textKey ? .value(textValue) : .absent },
                 projection: .init(
@@ -519,7 +519,7 @@ struct WorkspacePersistencePageCaptureTests {
             >.typed(
                 participantID: .beta,
                 keyedParticipant: numericParticipant,
-                membershipLimits: pageCaptureTestMembershipLimits,
+                membershipLimits: .init(maximumKeyCount: 2, maximumRawKeyBytes: 16),
                 orderedBaseKeys: { [numericKey] },
                 currentValue: { key in key == numericKey ? .value(numericValue) : .absent },
                 projection: .init(
@@ -551,7 +551,10 @@ struct WorkspacePersistencePageCaptureTests {
             workRecordObserver: { _ in },
             workInvalidityObserver: { _ in }
         )
-        let lease = requireOpenedLease(pager.openLease())
+        guard case .opened(let lease) = pager.openLease() else {
+            Issue.record("heterogeneous participants must open with their stored membership limits")
+            return
+        }
         let limits = requireLimits(maximumItems: 1, maximumBytes: 64)
 
         // Act

@@ -15,7 +15,7 @@ struct WorkspaceSQLiteStoreBridgeRepairTests {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: workspaceId,
             workspaceName: "Default Empty Repair Workspace",
             createdAt: Date(timeIntervalSince1970: 1_700_000_085)
@@ -120,7 +120,7 @@ struct WorkspaceSQLiteStoreBridgeRepairTests {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: workspaceId,
             workspaceName: "Drawer Only Repair Workspace",
             createdAt: Date(timeIntervalSince1970: 1_700_000_086)
@@ -190,7 +190,7 @@ struct WorkspaceSQLiteStoreBridgeRepairTests {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: workspaceId,
             workspaceName: "Drawer Close SQLite Workspace",
             createdAt: Date(timeIntervalSince1970: 1_700_000_086)
@@ -244,7 +244,7 @@ struct WorkspaceSQLiteStoreBridgeRepairTests {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: workspaceId,
             workspaceName: "Drawer Detach SQLite Workspace",
             createdAt: Date(timeIntervalSince1970: 1_700_000_087)
@@ -299,7 +299,7 @@ struct WorkspaceSQLiteStoreBridgeRepairTests {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: workspaceId,
             workspaceName: "Drawer Background SQLite Workspace",
             createdAt: Date(timeIntervalSince1970: 1_700_000_088)

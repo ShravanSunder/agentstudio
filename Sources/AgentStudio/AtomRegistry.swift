@@ -121,16 +121,11 @@ final class AtomRegistry {
         self.workspaceMutationCoordinator =
             workspaceMutationCoordinator
             ?? WorkspaceMutationCoordinator(
-                workspacePersistenceRevisionOwner: workspacePersistenceRevisionOwner,
                 repositoryTopologyAtom: workspaceRepositoryTopology,
                 workspacePaneAtom: self.workspacePane,
                 workspaceTabShellAtom: self.workspaceTabShell,
                 workspaceTabArrangementAtom: self.workspaceTabArrangement
             )
-        precondition(
-            self.workspaceMutationCoordinator.workspacePersistenceRevisionOwner === workspacePersistenceRevisionOwner,
-            "workspace mutation coordinator must share AtomRegistry's persistence revision owner"
-        )
         self.windowLifecycle = windowLifecycle
         self.repoEnrichmentCache = repoEnrichmentCache
         self.recentWorkspaceTarget = recentWorkspaceTarget

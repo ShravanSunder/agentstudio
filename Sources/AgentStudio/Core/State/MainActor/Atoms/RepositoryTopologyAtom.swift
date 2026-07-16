@@ -8,6 +8,86 @@ enum RepositoryTopologyAtomError: Error, Equatable {
     case worktreeNotFound(UUID)
 }
 
+enum RepositoryTopologyIdentityRejection: Error, Equatable, Sendable {
+    case duplicateRepositoryID(UUID)
+    case duplicateWorktreeID(UUID)
+    case duplicateWatchedPathID(UUID)
+    case worktreeRepositoryMissing(worktreeID: UUID, repositoryID: UUID)
+    case unavailableRepositoryMissing(UUID)
+}
+
+enum RepositoryTopologyReplacementPreparation: Sendable {
+    case prepared(RepositoryTopologyReplacement)
+    case rejected(RepositoryTopologyIdentityRejection)
+}
+
+struct RepositoryTopologyReplacement: Sendable {
+    let repositories: [Repo]
+    let watchedPaths: [WatchedPath]
+    let unavailableRepositoryIDs: Set<UUID>
+
+    private init(
+        repositories: [Repo],
+        watchedPaths: [WatchedPath],
+        unavailableRepositoryIDs: Set<UUID>
+    ) {
+        self.repositories = repositories
+        self.watchedPaths = watchedPaths
+        self.unavailableRepositoryIDs = unavailableRepositoryIDs
+    }
+
+    nonisolated static func prepare(
+        repositories: [Repo],
+        watchedPaths: [WatchedPath],
+        unavailableRepositoryIDs: Set<UUID>
+    ) -> RepositoryTopologyReplacementPreparation {
+        if let rejection = validateIdentity(
+            repositories: repositories,
+            watchedPaths: watchedPaths,
+            unavailableRepositoryIDs: unavailableRepositoryIDs
+        ) {
+            return .rejected(rejection)
+        }
+        return .prepared(
+            .init(
+                repositories: repositories,
+                watchedPaths: watchedPaths,
+                unavailableRepositoryIDs: unavailableRepositoryIDs
+            )
+        )
+    }
+
+    private nonisolated static func validateIdentity(
+        repositories: [Repo],
+        watchedPaths: [WatchedPath],
+        unavailableRepositoryIDs: Set<UUID>
+    ) -> RepositoryTopologyIdentityRejection? {
+        var repositoryIDs = Set<UUID>()
+        var worktreeIDs = Set<UUID>()
+        var watchedPathIDs = Set<UUID>()
+        for repository in repositories {
+            guard repositoryIDs.insert(repository.id).inserted else {
+                return .duplicateRepositoryID(repository.id)
+            }
+            for worktree in repository.worktrees {
+                guard worktreeIDs.insert(worktree.id).inserted else {
+                    return .duplicateWorktreeID(worktree.id)
+                }
+                guard worktree.repoId == repository.id else {
+                    return .worktreeRepositoryMissing(worktreeID: worktree.id, repositoryID: worktree.repoId)
+                }
+            }
+        }
+        for watchedPath in watchedPaths where !watchedPathIDs.insert(watchedPath.id).inserted {
+            return .duplicateWatchedPathID(watchedPath.id)
+        }
+        if let missingID = unavailableRepositoryIDs.first(where: { !repositoryIDs.contains($0) }) {
+            return .unavailableRepositoryMissing(missingID)
+        }
+        return nil
+    }
+}
+
 @MainActor
 @Observable
 final class RepositoryTopologyAtom {
@@ -20,7 +100,9 @@ final class RepositoryTopologyAtom {
     @ObservationIgnored private var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     @ObservationIgnored private var deferredWorktreePathIndexRebuildDepth = 0
     @ObservationIgnored private var deferredWorktreePathIndexRebuildNeeded = false
-    @ObservationIgnored let snapshotStorage = RepositoryTopologySnapshotStorage()
+    @ObservationIgnored private var repositoriesByID: [UUID: Repo] = [:]
+    @ObservationIgnored private var worktreesByID: [UUID: Worktree] = [:]
+    @ObservationIgnored private var watchedPathsByID: [UUID: WatchedPath] = [:]
 
     private struct WorktreePathIndexEntry {
         let repo: Repo
@@ -33,7 +115,19 @@ final class RepositoryTopologyAtom {
     }
 
     var allWorktreeIds: Set<UUID> {
-        snapshotStorage.allWorktreeIDs
+        Set(worktreesByID.keys)
+    }
+
+    var repositoryIdsInOrder: [UUID] {
+        repos.map(\.id)
+    }
+
+    var worktreeIdsInOrder: [UUID] {
+        repos.flatMap(\.worktrees).map(\.id)
+    }
+
+    var watchedPathIdsInOrder: [UUID] {
+        watchedPaths.map(\.id)
     }
 
     func setPerformanceTraceRecorder(_ recorder: AgentStudioPerformanceTraceRecorder?) {
@@ -52,38 +146,29 @@ final class RepositoryTopologyAtom {
         mutation()
     }
 
-    @discardableResult
-    func hydrate(
-        runtimeRepos: [Repo],
-        watchedPaths: [WatchedPath],
-        unavailableRepoIds: Set<UUID>
-    ) -> RepositoryTopologyHydrationResult {
-        if let rejection = snapshotStorage.validate(
-            repositories: runtimeRepos,
-            watchedPaths: watchedPaths,
-            unavailableRepositoryIDs: unavailableRepoIds
-        ) {
-            return .rejected(rejection)
-        }
-        repos = runtimeRepos
-        self.watchedPaths = watchedPaths
-        self.unavailableRepoIds = unavailableRepoIds
-        synchronizeSnapshotStorage()
+    func replaceTopology(_ replacement: RepositoryTopologyReplacement) {
+        repos = replacement.repositories
+        watchedPaths = replacement.watchedPaths
+        unavailableRepoIds = replacement.unavailableRepositoryIDs
+        rebuildEntityIndexes()
         scheduleWorktreePathIndexRebuild()
-        return .applied
     }
 
     func repo(_ id: UUID) -> Repo? {
-        snapshotStorage.runtimeRepository(for: id)
+        repositoriesByID[id]
     }
 
     func worktree(_ id: UUID) -> Worktree? {
-        snapshotStorage.runtimeWorktree(for: id)
+        worktreesByID[id]
+    }
+
+    func watchedPath(_ id: UUID) -> WatchedPath? {
+        watchedPathsByID[id]
     }
 
     func repo(containing worktreeId: UUID) -> Repo? {
-        guard let worktree = snapshotStorage.runtimeWorktree(for: worktreeId) else { return nil }
-        return snapshotStorage.runtimeRepository(for: worktree.repoId)
+        guard let worktree = worktreesByID[worktreeId] else { return nil }
+        return repositoriesByID[worktree.repoId]
     }
 
     func repoAndWorktree(containing cwd: URL?) -> (repo: Repo, worktree: Worktree)? {
@@ -118,9 +203,7 @@ final class RepositoryTopologyAtom {
         if let existing = repos.first(where: {
             $0.repoPath.standardizedFileURL == normalizedPath || $0.stableKey == incomingStableKey
         }) {
-            if unavailableRepoIds.remove(existing.id) != nil {
-                synchronizeSnapshotStorage()
-            }
+            unavailableRepoIds.remove(existing.id)
             return existing
         }
 
@@ -140,7 +223,7 @@ final class RepositoryTopologyAtom {
         )
         repos.append(repo)
         unavailableRepoIds.remove(repo.id)
-        synchronizeSnapshotStorage()
+        rebuildEntityIndexes()
         scheduleWorktreePathIndexRebuild()
         return repo
     }
@@ -149,19 +232,17 @@ final class RepositoryTopologyAtom {
         guard repos.contains(where: { $0.id == repoId }) else { return }
         repos.removeAll { $0.id == repoId }
         unavailableRepoIds.remove(repoId)
-        synchronizeSnapshotStorage()
+        rebuildEntityIndexes()
         scheduleWorktreePathIndexRebuild()
     }
 
     func markRepoUnavailable(_ repoId: UUID) {
         guard repos.contains(where: { $0.id == repoId }) else { return }
         unavailableRepoIds.insert(repoId)
-        synchronizeSnapshotStorage()
     }
 
     func markRepoAvailable(_ repoId: UUID) {
         unavailableRepoIds.remove(repoId)
-        synchronizeSnapshotStorage()
     }
 
     func isRepoUnavailable(_ repoId: UUID) -> Bool {
@@ -173,7 +254,7 @@ final class RepositoryTopologyAtom {
             throw RepositoryTopologyAtomError.repoNotFound(repoId)
         }
         repos[repoIndex].tags = try Self.canonicalRepositoryTags(tags)
-        synchronizeSnapshotStorage()
+        rebuildEntityIndexes()
     }
 
     func setWorktreeTags(_ tags: [String], worktreeId: UUID) throws {
@@ -182,7 +263,7 @@ final class RepositoryTopologyAtom {
                 continue
             }
             repos[repoIndex].worktrees[worktreeIndex].tags = try Self.canonicalRepositoryTags(tags)
-            synchronizeSnapshotStorage()
+            rebuildEntityIndexes()
             return
         }
         throw RepositoryTopologyAtomError.worktreeNotFound(worktreeId)
@@ -197,13 +278,13 @@ final class RepositoryTopologyAtom {
         }
         let watchedPath = WatchedPath(path: normalizedPath)
         watchedPaths.append(watchedPath)
-        synchronizeSnapshotStorage()
+        rebuildEntityIndexes()
         return watchedPath
     }
 
     func removeWatchedPath(_ id: UUID) {
         watchedPaths.removeAll { $0.id == id }
-        synchronizeSnapshotStorage()
+        rebuildEntityIndexes()
     }
 
     @discardableResult
@@ -260,7 +341,7 @@ final class RepositoryTopologyAtom {
             repos[prepared.repoIndex].repoPath = normalizedPath
             repos[prepared.repoIndex].worktrees = prepared.mergedWorktrees
             unavailableRepoIds.remove(repoId)
-            synchronizeSnapshotStorage()
+            rebuildEntityIndexes()
             scheduleWorktreePathIndexRebuild()
             return .accepted(
                 .init(
@@ -377,7 +458,7 @@ final class RepositoryTopologyAtom {
         case .prepared(let prepared):
             if prepared.delta.didChange {
                 repos[prepared.repoIndex].worktrees = prepared.mergedWorktrees
-                synchronizeSnapshotStorage()
+                rebuildEntityIndexes()
                 scheduleWorktreePathIndexRebuild()
             }
             return .accepted(.init(delta: prepared.delta))
@@ -501,31 +582,10 @@ final class RepositoryTopologyAtom {
         rebuildWorktreePathIndexAndBumpGeneration()
     }
 
-    private func synchronizeSnapshotStorage() {
-        snapshotStorage.synchronize(
-            repositories: repos,
-            watchedPaths: watchedPaths,
-            unavailableRepositoryIDs: unavailableRepoIds
-        )
-    }
-
-    func prepareSnapshotMutation(
-        _ batch: RepositoryTopologyStagedMutationBatch,
-        for preparation: WorkspacePersistenceTransactionPreparation,
-        revisionOwner: WorkspacePersistenceRevisionOwner
-    ) throws -> WorkspacePersistencePreparedMutation<RepositoryTopologyStagedMutationReceipt> {
-        try snapshotStorage.validate(batch)
-        try snapshotStorage.prepare(batch, preparation: preparation, revisionOwner: revisionOwner)
-        return preparation.commit { [self] in
-            snapshotStorage.apply(
-                batch,
-                repositories: &repos,
-                watchedPaths: &watchedPaths,
-                unavailableRepositoryIDs: &unavailableRepoIds
-            )
-            scheduleWorktreePathIndexRebuild()
-            return RepositoryTopologyStagedMutationReceipt(revision: preparation.transaction.proposedRevision)
-        }
+    private func rebuildEntityIndexes() {
+        repositoriesByID = Dictionary(uniqueKeysWithValues: repos.map { ($0.id, $0) })
+        worktreesByID = Dictionary(uniqueKeysWithValues: repos.flatMap(\.worktrees).map { ($0.id, $0) })
+        watchedPathsByID = Dictionary(uniqueKeysWithValues: watchedPaths.map { ($0.id, $0) })
     }
 
     private func rebuildWorktreePathIndexAndBumpGeneration() {
@@ -593,4 +653,5 @@ final class RepositoryTopologyAtom {
     private static func isValidRepositoryTag(_ tag: String) -> Bool {
         RepositoryTagValidation.isValid(tag)
     }
+
 }

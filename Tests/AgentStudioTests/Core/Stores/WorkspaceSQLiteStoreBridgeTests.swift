@@ -14,7 +14,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
         let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: workspaceId,
             workspaceName: "SQLite Workspace",
             createdAt: createdAt
@@ -100,7 +100,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: workspaceId,
             workspaceName: "Live SQLite Workspace",
             createdAt: Date(timeIntervalSince1970: 1_700_000_050)
@@ -135,7 +135,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: workspaceId,
             workspaceName: "Anchored zmx Workspace",
             createdAt: Date(timeIntervalSince1970: 1_700_000_075)
@@ -218,7 +218,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: workspaceId,
             workspaceName: "Wedged SQLite Workspace",
             createdAt: Date(timeIntervalSince1970: 1_700_000_075)
@@ -288,7 +288,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        identityAtom.replaceIdentity(
             workspaceId: workspaceId,
             workspaceName: "Duplicate Ownership Workspace",
             createdAt: Date(timeIntervalSince1970: 1_700_000_090)

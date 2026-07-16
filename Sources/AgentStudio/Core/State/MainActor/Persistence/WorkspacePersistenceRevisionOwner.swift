@@ -124,6 +124,11 @@ struct WorkspacePersistencePreparedMutation<TransactionResult> {
     }
 }
 
+enum WorkspacePersistenceTransactionDecision<TransactionResult> {
+    case unchanged(TransactionResult)
+    case commit(WorkspacePersistencePreparedMutation<TransactionResult>)
+}
+
 enum WorkspacePersistenceRevisionOwnerError: Error, Equatable {
     case reentrantTransaction
 }
@@ -168,6 +173,15 @@ final class WorkspacePersistenceRevisionOwner {
             TransactionResult
         >
     ) throws -> TransactionResult {
+        try performSynchronousTransactionDecision { preparation in
+            WorkspacePersistenceTransactionDecision.commit(try prepare(preparation))
+        }
+    }
+
+    func performSynchronousTransactionDecision<TransactionResult>(
+        _ prepare: (WorkspacePersistenceTransactionPreparation) throws
+            -> WorkspacePersistenceTransactionDecision<TransactionResult>
+    ) throws -> TransactionResult {
         guard case .idle = state else {
             throw WorkspacePersistenceRevisionOwnerError.reentrantTransaction
         }
@@ -183,17 +197,22 @@ final class WorkspacePersistenceRevisionOwner {
             state = .idle
         }
 
-        let preparedMutation = try prepare(
+        let decision = try prepare(
             WorkspacePersistenceTransactionPreparation(
                 transaction: transaction,
                 participantMutations: participantMutations
             )
         )
-        state = .committing(transaction)
-        participantMutations.applyAll()
-        let result = preparedMutation.body()
-        committedRevision = transaction.proposedRevision
-        return result
+        switch decision {
+        case .unchanged(let result):
+            return result
+        case .commit(let preparedMutation):
+            state = .committing(transaction)
+            participantMutations.applyAll()
+            let result = preparedMutation.body()
+            committedRevision = transaction.proposedRevision
+            return result
+        }
     }
 
     func registerPreparedParticipantMutation(

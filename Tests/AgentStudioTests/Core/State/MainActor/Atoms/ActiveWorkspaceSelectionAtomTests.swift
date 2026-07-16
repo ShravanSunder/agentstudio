@@ -37,8 +37,7 @@ struct ActiveWorkspaceSelectionAtomTests {
     func registryOwnsActiveWorkspaceSelectionSeparatelyFromWorkspaceMetadata() {
         let selectedWorkspaceId = UUID()
         let hydratedWorkspaceId = UUID()
-        let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        let identityAtom = WorkspaceIdentityAtom(
             workspaceId: hydratedWorkspaceId,
             workspaceName: "Hydrated Workspace",
             createdAt: Date()

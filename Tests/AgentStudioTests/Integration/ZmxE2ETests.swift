@@ -283,8 +283,7 @@ extension E2ESerializedTests {
             // worktree B, and still has a live zmx daemon under its birth id.
             let workspaceId = UUID()
             let fixture = try makeZmxE2ESQLiteFixture(workspaceId: workspaceId)
-            let identityAtom = WorkspaceIdentityAtom()
-            identityAtom.hydrate(
+            let identityAtom = WorkspaceIdentityAtom(
                 workspaceId: workspaceId,
                 workspaceName: "zmx Phase A Smoke",
                 createdAt: Date(timeIntervalSince1970: 1_700_000_300)

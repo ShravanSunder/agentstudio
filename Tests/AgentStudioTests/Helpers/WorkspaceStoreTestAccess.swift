@@ -23,7 +23,6 @@ extension WorkspaceStore {
             tabArrangementAtom: interactionAtom.arrangementAtom,
             tabLayoutAtom: interactionAtom,
             mutationCoordinator: WorkspaceMutationCoordinator(
-                workspacePersistenceRevisionOwner: workspacePersistenceRevisionOwner,
                 repositoryTopologyAtom: catalogAtom,
                 workspacePaneAtom: graphAtom,
                 workspaceTabShellAtom: interactionAtom.shellAtom,

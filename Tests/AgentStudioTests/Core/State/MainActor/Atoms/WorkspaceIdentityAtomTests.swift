@@ -14,13 +14,13 @@ struct WorkspaceIdentityAtomTests {
         #expect(atom.createdAt <= Date())
     }
 
-    @Test("hydrate updates only workspace identity fields")
-    func hydrateUpdatesOnlyWorkspaceIdentityFields() {
+    @Test("identity replacement updates only workspace identity fields")
+    func identityReplacementUpdatesOnlyWorkspaceIdentityFields() {
         let atom = WorkspaceIdentityAtom()
         let workspaceId = UUID()
         let createdAt = Date(timeIntervalSince1970: 1_714_000_000)
 
-        atom.hydrate(
+        atom.replaceIdentity(
             workspaceId: workspaceId,
             workspaceName: "SQLite Cutover",
             createdAt: createdAt
@@ -40,73 +40,4 @@ struct WorkspaceIdentityAtomTests {
         #expect(atom.workspaceName == "Renamed")
     }
 
-    @Test("prepared identity replacement uses one exact transaction")
-    func preparedIdentityReplacementUsesOneExactTransaction() throws {
-        let atom = WorkspaceIdentityAtom()
-        let revisionOwner = WorkspacePersistenceRevisionOwner()
-        let replacementID = UUID()
-        let replacementDate = Date(timeIntervalSince1970: 1_720_000_000)
-        guard case .constructed = atom.makePersistenceSnapshotParticipant() else {
-            Issue.record("identity snapshot participant construction failed")
-            return
-        }
-
-        let committedTransaction = try revisionOwner.performSynchronousTransaction { preparation in
-            try atom.prepareHydrate(
-                workspaceId: replacementID,
-                workspaceName: "Prepared",
-                createdAt: replacementDate,
-                for: preparation,
-                revisionOwner: revisionOwner
-            )
-        }
-
-        #expect(committedTransaction == revisionOwner.committedRevision)
-        #expect(atom.workspaceId == replacementID)
-        #expect(atom.workspaceName == "Prepared")
-        #expect(atom.createdAt == replacementDate)
-        #expect(
-            atom.persistenceSnapshotValue(for: .identity)
-                == .value(
-                    .init(
-                        workspaceID: replacementID,
-                        workspaceName: "Prepared",
-                        createdAt: replacementDate
-                    )
-                )
-        )
-    }
-
-    @Test("failed identity preparation changes neither owner nor revision")
-    func failedIdentityPreparationChangesNeitherOwnerNorRevision() {
-        let atom = WorkspaceIdentityAtom()
-        let revisionOwner = WorkspacePersistenceRevisionOwner()
-        let originalID = atom.workspaceId
-        let originalName = atom.workspaceName
-        let originalDate = atom.createdAt
-        guard case .constructed = atom.makePersistenceSnapshotParticipant() else {
-            Issue.record("identity snapshot participant construction failed")
-            return
-        }
-
-        #expect(throws: WorkspaceIdentitySnapshotPreparationError.self) {
-            try revisionOwner.performSynchronousTransaction { preparation in
-                _ = try atom.prepareSetWorkspaceName(
-                    "First",
-                    for: preparation,
-                    revisionOwner: revisionOwner
-                )
-                return try atom.prepareSetWorkspaceName(
-                    "Rejected",
-                    for: preparation,
-                    revisionOwner: revisionOwner
-                )
-            }
-        }
-
-        #expect(revisionOwner.committedRevision == .zero)
-        #expect(atom.workspaceId == originalID)
-        #expect(atom.workspaceName == originalName)
-        #expect(atom.createdAt == originalDate)
-    }
 }

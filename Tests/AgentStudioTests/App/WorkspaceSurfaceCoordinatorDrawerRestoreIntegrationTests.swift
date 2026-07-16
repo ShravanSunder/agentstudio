@@ -170,8 +170,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-terminal-restore-composed-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
-        let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        let identityAtom = WorkspaceIdentityAtom(
             workspaceId: workspaceId,
             workspaceName: "Composed Drawer Restore",
             createdAt: Date(timeIntervalSince1970: 1_700_000_089)

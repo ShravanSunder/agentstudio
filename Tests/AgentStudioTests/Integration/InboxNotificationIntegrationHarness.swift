@@ -94,7 +94,16 @@ enum InboxNotificationIntegrationHarness {
                 worktrees: [worktree]
             )
             let repos = fixture.topologyAtom.repos.filter { $0.id != repoId } + [repo]
-            fixture.topologyAtom.hydrate(runtimeRepos: repos, watchedPaths: [], unavailableRepoIds: [])
+            guard
+                case .prepared(let replacement) = RepositoryTopologyReplacement.prepare(
+                    repositories: repos,
+                    watchedPaths: [],
+                    unavailableRepositoryIDs: []
+                )
+            else {
+                preconditionFailure("notification integration fixture produced invalid repository topology")
+            }
+            fixture.topologyAtom.replaceTopology(replacement)
         }
 
         let metadata = PaneMetadata(

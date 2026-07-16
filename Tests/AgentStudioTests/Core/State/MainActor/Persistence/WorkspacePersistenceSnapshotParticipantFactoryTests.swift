@@ -94,7 +94,7 @@ struct WorkspaceSnapshotParticipantFactoryTests {
     }
 
     @Test("factory constructs all fourteen participants for a large bounded topology")
-    func constructsAllParticipantsForLargeBoundedTopology() {
+    func constructsAllParticipantsForLargeBoundedTopology() throws {
         // Arrange
         let fixture = FactoryOwnerFixture()
         let repositories = (0..<10_000).map { index in
@@ -104,12 +104,8 @@ struct WorkspaceSnapshotParticipantFactoryTests {
                 repoPath: URL(filePath: "/tmp/factory-repository-\(index)")
             )
         }
-        #expect(
-            fixture.repositoryTopologyAtom.hydrate(
-                runtimeRepos: repositories,
-                watchedPaths: [],
-                unavailableRepoIds: []
-            ) == .applied
+        fixture.repositoryTopologyAtom.replaceTopology(
+            try requireTopologyReplacement(repositories: repositories)
         )
         let factory = fixture.makeFactory()
 
@@ -136,12 +132,8 @@ struct WorkspaceSnapshotParticipantFactoryTests {
                 repoPath: URL(filePath: "/tmp/over-limit-repository-\(index)")
             )
         }
-        #expect(
-            fixture.repositoryTopologyAtom.hydrate(
-                runtimeRepos: repositories,
-                watchedPaths: [],
-                unavailableRepoIds: []
-            ) == .applied
+        fixture.repositoryTopologyAtom.replaceTopology(
+            try requireTopologyReplacement(repositories: repositories)
         )
         let policy = try requireConstructedPolicy(
             WorkspaceSnapshotParticipantFactoryPolicy.validated(
@@ -285,7 +277,94 @@ struct WorkspaceSnapshotParticipantFactoryTests {
             Issue.record("expected repeated construction to be rejected")
             return
         }
-        #expect(rejection == .constructionAlreadyAttempted)
+        guard case .lifecycle(.participantInstallationUnavailable(let phase)) = rejection else {
+            Issue.record("expected composition lifecycle rejection, received \(rejection)")
+            return
+        }
+        guard case .installed(let attemptID) = phase else {
+            Issue.record("expected installed composition phase")
+            return
+        }
+        #expect(UUIDv7.isV7(attemptID.rawValue))
+    }
+
+    @Test("composition installation does not seal topology preinstall access")
+    func compositionInstallationDoesNotSealTopology() {
+        // Arrange
+        let fixture = FactoryOwnerFixture()
+        let factory = fixture.makeFactory()
+
+        // Act
+        let compositionResult = factory.constructCompositionParticipantSet()
+        let topologyAccess = fixture.adapters.withTopologyPreinstallAccess { _ in true }
+        let topologyResult = factory.constructTopologyParticipantSet()
+
+        // Assert
+        guard case .constructed(let compositionSet) = compositionResult else {
+            Issue.record("expected composition participants")
+            return
+        }
+        #expect(compositionSet.participants.count == 10)
+        guard case .authorized(true) = topologyAccess else {
+            Issue.record("expected independent topology preinstall access")
+            return
+        }
+        guard case .constructed(let topologySet) = topologyResult else {
+            Issue.record("expected topology participants")
+            return
+        }
+        #expect(topologySet.participantIDs == [.repositories, .worktrees, .watchedPaths, .unavailableRepositories])
+        #expect(factory.installedParticipantSet?.participantIDs == WorkspacePersistenceSnapshotParticipantID.allCases)
+    }
+
+    @Test("topology construction failure is terminal only for topology domain")
+    func topologyFailureIsDomainScoped() throws {
+        // Arrange
+        let fixture = FactoryOwnerFixture()
+        fixture.repositoryTopologyAtom.replaceTopology(
+            try requireTopologyReplacement(
+                repositories: [
+                    Repo(id: UUIDv7.generate(), name: "one", repoPath: URL(filePath: "/tmp/one")),
+                    Repo(id: UUIDv7.generate(), name: "two", repoPath: URL(filePath: "/tmp/two")),
+                ]
+            )
+        )
+        let policy = try requireConstructedPolicy(
+            WorkspaceSnapshotParticipantFactoryPolicy.validated(
+                fleetMembershipLimits: .init(maximumKeyCount: 1, maximumRawKeyBytes: 16)
+            )
+        )
+        let factory = fixture.makeFactory(policy: policy)
+
+        // Act
+        let compositionResult = factory.constructCompositionParticipantSet()
+        let topologyResult = factory.constructTopologyParticipantSet()
+        let topologyRetry = factory.constructTopologyParticipantSet()
+        let compositionAccess = fixture.adapters.withCompositionPreinstallAccess { _ in true }
+
+        // Assert
+        guard case .constructed = compositionResult else {
+            Issue.record("expected independent composition installation")
+            return
+        }
+        guard case .rejected(.participantConstructionRejected(.repositories, _)) = topologyResult else {
+            Issue.record("expected topology construction rejection")
+            return
+        }
+        guard case .rejected(.lifecycle(.participantInstallationUnavailable(let topologyPhase))) = topologyRetry,
+            case .installationFailed(let attemptID) = topologyPhase
+        else {
+            Issue.record("expected terminal topology retry rejection")
+            return
+        }
+        #expect(UUIDv7.isV7(attemptID.rawValue))
+        guard case .rejected(.preinstallAccessUnavailable(let compositionPhase)) = compositionAccess,
+            case .installed = compositionPhase
+        else {
+            Issue.record("expected composition to remain independently installed")
+            return
+        }
+        #expect(factory.installedParticipantSet == nil)
     }
 
     @Test("a later owner rejection does not install a partial participant set")
@@ -298,7 +377,7 @@ struct WorkspaceSnapshotParticipantFactoryTests {
             arrangements: []
         )
         fixture.workspaceTabGraphAtom.replaceStates([tabGraphState])
-        let preconstruction = fixture.workspaceTabGraphAtom.makePersistenceSnapshotParticipant(
+        let preconstruction = fixture.adapters.workspaceTabGraph.makeSnapshotParticipant(
             limits: WorkspaceSnapshotParticipantFactoryPolicy.appDefault.fleetMembershipLimits
         )
         guard case .constructed = preconstruction else {
@@ -351,16 +430,12 @@ struct WorkspaceSnapshotParticipantFactoryTests {
             pagerIdentity: .make(),
             revisionOwner: revisionOwner
         )
-        let singletonLimits = WorkspaceStateSnapshotMembershipLimits(
-            maximumKeyCount: 1,
-            maximumRawKeyBytes: 1
-        )
         let identityParticipant = participantSet.participants[0]
         let windowParticipant = participantSet.participants[1]
 
         // Act
-        let identityOpenResult = identityParticipant.open(lease: lease, limits: singletonLimits)
-        let windowOpenResult = windowParticipant.open(lease: lease, limits: singletonLimits)
+        let identityOpenResult = identityParticipant.open(lease: lease)
+        let windowOpenResult = windowParticipant.open(lease: lease)
         let identityInspection = identityParticipant.inspectBaseSlot(lease: lease, slotCursor: 0)
         let windowInspection = windowParticipant.inspectBaseSlot(lease: lease, slotCursor: 0)
 
@@ -393,6 +468,7 @@ struct WorkspaceSnapshotParticipantFactoryTests {
 
 private enum FactoryPolicyTestError: Error {
     case expectedConstructedPolicy
+    case expectedTopologyReplacement
 }
 
 private func requireConstructedPolicy(
@@ -405,8 +481,24 @@ private func requireConstructedPolicy(
     return policy
 }
 
+private func requireTopologyReplacement(
+    repositories: [Repo]
+) throws -> RepositoryTopologyReplacement {
+    guard
+        case .prepared(let replacement) = RepositoryTopologyReplacement.prepare(
+            repositories: repositories,
+            watchedPaths: [],
+            unavailableRepositoryIDs: []
+        )
+    else {
+        throw FactoryPolicyTestError.expectedTopologyReplacement
+    }
+    return replacement
+}
+
 @MainActor
 private struct FactoryOwnerFixture {
+    let revisionOwner: WorkspacePersistenceRevisionOwner
     let workspaceIdentityAtom: WorkspaceIdentityAtom
     let workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom
     let repositoryTopologyAtom: RepositoryTopologyAtom
@@ -416,11 +508,13 @@ private struct FactoryOwnerFixture {
     let workspaceTabShellAtom: WorkspaceTabShellAtom
     let workspaceTabGraphAtom: WorkspaceTabGraphAtom
     let workspaceArrangementCursorAtom: WorkspaceArrangementCursorAtom
+    let adapters: WorkspacePersistenceAdapterBundle
 
     init(
         workspaceIdentityAtom: WorkspaceIdentityAtom = WorkspaceIdentityAtom(),
         workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom = WorkspaceWindowMemoryAtom()
     ) {
+        revisionOwner = WorkspacePersistenceRevisionOwner()
         self.workspaceIdentityAtom = workspaceIdentityAtom
         self.workspaceWindowMemoryAtom = workspaceWindowMemoryAtom
         repositoryTopologyAtom = RepositoryTopologyAtom()
@@ -430,21 +524,25 @@ private struct FactoryOwnerFixture {
         workspaceTabShellAtom = WorkspaceTabShellAtom(cursorAtom: workspaceTabCursorAtom)
         workspaceTabGraphAtom = WorkspaceTabGraphAtom()
         workspaceArrangementCursorAtom = WorkspaceArrangementCursorAtom()
-    }
-
-    func makeFactory(
-        policy: WorkspaceSnapshotParticipantFactoryPolicy = .appDefault
-    ) -> WorkspacePersistenceSnapshotParticipantFactory {
-        WorkspacePersistenceSnapshotParticipantFactory(
-            workspaceIdentityAtom: workspaceIdentityAtom,
-            workspaceWindowMemoryAtom: workspaceWindowMemoryAtom,
+        adapters = WorkspacePersistenceAdapterBundle(
+            revisionOwner: revisionOwner,
+            workspaceIdentityAtom: self.workspaceIdentityAtom,
+            workspaceWindowMemoryAtom: self.workspaceWindowMemoryAtom,
             repositoryTopologyAtom: repositoryTopologyAtom,
             workspacePaneGraphAtom: workspacePaneGraphAtom,
             workspaceDrawerCursorAtom: workspaceDrawerCursorAtom,
             workspaceTabShellAtom: workspaceTabShellAtom,
             workspaceTabCursorAtom: workspaceTabCursorAtom,
             workspaceTabGraphAtom: workspaceTabGraphAtom,
-            workspaceArrangementCursorAtom: workspaceArrangementCursorAtom,
+            workspaceArrangementCursorAtom: workspaceArrangementCursorAtom
+        )
+    }
+
+    func makeFactory(
+        policy: WorkspaceSnapshotParticipantFactoryPolicy = .appDefault
+    ) -> WorkspacePersistenceSnapshotParticipantFactory {
+        WorkspacePersistenceSnapshotParticipantFactory(
+            adapters: adapters,
             policy: policy
         )
     }

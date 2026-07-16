@@ -33,7 +33,6 @@ final class WorkspaceStateSnapshotPager<
     private let revisionOwner: WorkspacePersistenceRevisionOwner
     private let leaseAuthority: WorkspaceStateSnapshotPagerLeaseAuthority
     private let participants: [WorkspaceStateSnapshotPagerParticipant<ParticipantID, Item>]
-    private let membershipLimits: WorkspaceStateSnapshotMembershipLimits
     nonisolated private let workLedger: MainActorWorkLedger
     private let workRecordObserver: (MainActorWorkRecord) -> Void
     private let workInvalidityObserver: (MainActorWorkInvalidity) -> Void
@@ -45,10 +44,6 @@ final class WorkspaceStateSnapshotPager<
         revisionOwner: WorkspacePersistenceRevisionOwner,
         leaseAuthority: WorkspaceStateSnapshotPagerLeaseAuthority,
         participants: [WorkspaceStateSnapshotPagerParticipant<ParticipantID, Item>],
-        membershipLimits: WorkspaceStateSnapshotMembershipLimits = .init(
-            maximumKeyCount: 100_000,
-            maximumRawKeyBytes: 64 * 1024 * 1024
-        ),
         workLedger: MainActorWorkLedger,
         workRecordObserver: @escaping (MainActorWorkRecord) -> Void,
         workInvalidityObserver: @escaping (MainActorWorkInvalidity) -> Void,
@@ -58,7 +53,6 @@ final class WorkspaceStateSnapshotPager<
         self.revisionOwner = revisionOwner
         self.leaseAuthority = leaseAuthority
         self.participants = participants
-        self.membershipLimits = membershipLimits
         self.workLedger = workLedger
         self.workRecordObserver = workRecordObserver
         self.workInvalidityObserver = workInvalidityObserver
@@ -85,7 +79,7 @@ final class WorkspaceStateSnapshotPager<
 
         var openedParticipants: [WorkspaceStateSnapshotPagerParticipant<ParticipantID, Item>] = []
         for participant in participants {
-            let openResult = participant.open(lease: lease, limits: membershipLimits)
+            let openResult = participant.open(lease: lease)
             guard case .opened = openResult else {
                 for openedParticipant in openedParticipants {
                     _ = openedParticipant.close(lease: lease)

@@ -34,30 +34,6 @@ final class WorkspacePaneAtom {
         derived.panes
     }
 
-    /// Legacy JSON persistence projection. This composes the graph owner with
-    /// the drawer cursor so current workspace.state.json saves retain drawer
-    /// expansion, while excluding topology/cache display facets.
-    var legacyPersistablePanes: [UUID: Pane] {
-        liveSQLitePanes
-    }
-
-    /// Live SQLite projection of the pane graph plus local drawer cursor facts.
-    /// This keeps derived topology/cache display facets out of core rows while
-    /// preserving the current atom-owned pane graph.
-    var liveSQLitePanes: [UUID: Pane] {
-        Dictionary(
-            uniqueKeysWithValues: graphAtom.paneStates.map { paneId, state in
-                let drawerId = state.drawer?.drawerId
-                return (
-                    paneId,
-                    state.pane(
-                        isDrawerExpanded: drawerId.map { drawerCursorAtom.isExpanded(drawerId: $0) } ?? false
-                    )
-                )
-            }
-        )
-    }
-
     private var derived: WorkspacePaneDerived {
         WorkspacePaneDerived(
             graphAtom: graphAtom,
@@ -65,11 +41,6 @@ final class WorkspacePaneAtom {
             repositoryTopologyAtom: repositoryTopologyAtom,
             repoEnrichmentCacheAtom: repoEnrichmentCacheAtom
         )
-    }
-
-    func hydrate(persistedPanes: [Pane], validWorktreeIds: Set<UUID>) {
-        graphAtom.hydrate(persistedPanes: persistedPanes, validWorktreeIds: validWorktreeIds)
-        drawerCursorAtom.hydrate(persistedPanes: persistedPanes, validDrawerIds: graphAtom.drawerIds)
     }
 
     func pane(_ id: UUID) -> Pane? {

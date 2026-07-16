@@ -92,6 +92,33 @@ struct WorkspacePersistenceRevisionOwnerTests {
         #expect(revisionOwner.committedRevision == .zero)
     }
 
+    @Test("unchanged decision cancels participant custody without publishing a revision")
+    func unchangedDecisionCancelsParticipantCustodyWithoutPublishingRevision() throws {
+        // Arrange
+        let revisionOwner = WorkspacePersistenceRevisionOwner()
+        let participant = FakePersistenceRevisionParticipant()
+        var didApply = false
+        var didCancel = false
+
+        // Act
+        let result = try revisionOwner.performSynchronousTransactionDecision { preparation in
+            let registration = revisionOwner.registerPreparedParticipantMutation(
+                participant: participant,
+                preparation: preparation,
+                apply: { didApply = true },
+                cancel: { didCancel = true }
+            )
+            #expect(registration == .registered)
+            return WorkspacePersistenceTransactionDecision.unchanged("unchanged")
+        }
+
+        // Assert
+        #expect(result == "unchanged")
+        #expect(!didApply)
+        #expect(didCancel)
+        #expect(revisionOwner.committedRevision == .zero)
+    }
+
     @Test("sequential transactions publish a contiguous revision stream")
     func sequentialTransactionsPublishContiguousRevisionStream() throws {
         // Arrange
@@ -149,8 +176,8 @@ struct WorkspacePersistenceRevisionOwnerTests {
         #expect(UUIDv7.isV7(firstRead.rawValue))
     }
 
-    @Test("process composition shares one persistence revision owner")
-    func processCompositionSharesOnePersistenceRevisionOwner() {
+    @Test("workspace persistence owners share one revision owner")
+    func workspacePersistenceOwnersShareOneRevisionOwner() {
         // Arrange
         let atomRegistry = AtomRegistry()
 
@@ -161,15 +188,7 @@ struct WorkspacePersistenceRevisionOwnerTests {
         )
 
         // Assert
-        #expect(
-            atomRegistry.workspaceMutationCoordinator.workspacePersistenceRevisionOwner
-                === atomRegistry.workspacePersistenceRevisionOwner
-        )
         #expect(workspaceStore.workspacePersistenceRevisionOwner === atomRegistry.workspacePersistenceRevisionOwner)
-        #expect(
-            workspaceStore.mutationCoordinator.workspacePersistenceRevisionOwner
-                === atomRegistry.workspacePersistenceRevisionOwner
-        )
     }
 }
 

@@ -302,6 +302,7 @@ struct WorkspaceStateSnapshotPagerParticipant<
     Item: WorkspaceStateSnapshotIdentifiedItem
 > where Item.SnapshotParticipantID == ParticipantID {
     let participantID: ParticipantID
+    private let membershipLimits: WorkspaceStateSnapshotMembershipLimits
     private let openAction:
         (WorkspaceStateSnapshotLease, WorkspaceStateSnapshotMembershipLimits) ->
             WorkspaceStateSnapshotParticipantOpenResult
@@ -339,6 +340,7 @@ struct WorkspaceStateSnapshotPagerParticipant<
         return .constructed(
             Self(
                 participantID: participantID,
+                membershipLimits: membershipLimits,
                 openAction: { lease, limits in
                     keyedParticipant.open(
                         lease: lease,
@@ -388,11 +390,8 @@ struct WorkspaceStateSnapshotPagerParticipant<
             ))
     }
 
-    func open(
-        lease: WorkspaceStateSnapshotLease,
-        limits: WorkspaceStateSnapshotMembershipLimits
-    ) -> WorkspaceStateSnapshotParticipantOpenResult {
-        openAction(lease, limits)
+    func open(lease: WorkspaceStateSnapshotLease) -> WorkspaceStateSnapshotParticipantOpenResult {
+        openAction(lease, membershipLimits)
     }
 
     func slotUpperBound(

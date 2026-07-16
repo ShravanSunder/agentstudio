@@ -4,61 +4,8 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite(.serialized)
+@Suite
 struct WorkspaceTabShellAtomTests {
-    @Test("prepared reorder retains exact base sort indexes and maintains the ID index")
-    func preparedReorderRetainsBaseSortIndexes() throws {
-        // Arrange
-        let revisionOwner = WorkspacePersistenceRevisionOwner()
-        let atom = WorkspaceTabShellAtom()
-        let shells = (0..<3).map { TabShell(id: UUIDv7.generate(), name: "Tab \($0)") }
-        shells.forEach(atom.appendTabShell)
-        let participant = try requireConstructedTabShellParticipant(
-            atom.makePersistenceSnapshotParticipant(
-                limits: .init(maximumKeyCount: 16, maximumRawKeyBytes: 16 * 16)
-            )
-        )
-        let lease = WorkspaceStateSnapshotLease.open(
-            pagerIdentity: .make(),
-            revisionOwner: revisionOwner
-        )
-        #expect(
-            participant.open(
-                lease: lease,
-                limits: .init(maximumKeyCount: 16, maximumRawKeyBytes: 16 * 16)
-            ) == .opened(baseMembershipCount: 3)
-        )
-
-        // Act
-        try revisionOwner.performSynchronousTransaction { preparation in
-            try atom.preparePersistenceMutation(
-                [.move(tabID: shells[2].id, toIndex: 0)],
-                for: preparation,
-                revisionOwner: revisionOwner
-            )
-            return preparation.commit {}
-        }
-        let baseSortIndexes = (0..<3).compactMap { slotIndex -> (UUID, Int)? in
-            guard
-                case .item(let typedItem, _, _, _) = participant.inspectBaseSlot(
-                    lease: lease,
-                    slotCursor: slotIndex
-                ), case .tabShell(let snapshot) = typedItem.item
-            else { return nil }
-            return (snapshot.shell.id, snapshot.sortIndex)
-        }
-
-        // Assert
-        #expect(atom.tabShells.map(\.id) == [shells[2].id, shells[0].id, shells[1].id])
-        #expect(atom.tabIndex(for: shells[2].id) == 0)
-        #expect(
-            Dictionary(uniqueKeysWithValues: baseSortIndexes) == [
-                shells[0].id: 0,
-                shells[1].id: 1,
-                shells[2].id: 2,
-            ])
-    }
-
     @Test
     func appendTabShell_setsActiveTabId() {
         let atom = WorkspaceTabShellAtom()
@@ -190,38 +137,14 @@ struct WorkspaceTabShellAtomTests {
     }
 
     @Test
-    func hydrate_withStaleActiveTabId_fallsBackToFirstTab() {
-        let pane = UUID()
-        let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: Layout(paneId: pane))
-        let tab = Tab(
-            name: "One",
-            allPaneIds: [pane],
-            arrangements: [arrangement],
-            activeArrangementId: arrangement.id,
-            activePaneId: pane
-        )
+    func replaceTabShells_rebuildsIndex() {
+        let first = TabShell(id: UUIDv7.generate(), name: "One")
+        let second = TabShell(id: UUIDv7.generate(), name: "Two")
         let atom = WorkspaceTabShellAtom()
 
-        atom.hydrate(persistedTabs: [tab], activeTabId: UUID())
+        atom.replaceTabShells([second, first])
 
-        #expect(atom.activeTabId == tab.id)
-    }
-}
-
-@MainActor
-private func requireConstructedTabShellParticipant(
-    _ result: SnapshotPagerParticipantConstructionResult<
-        WorkspacePersistenceSnapshotParticipantID,
-        WorkspacePersistenceSnapshotItem
-    >
-) throws -> WorkspaceStateSnapshotPagerParticipant<
-    WorkspacePersistenceSnapshotParticipantID,
-    WorkspacePersistenceSnapshotItem
-> {
-    switch result {
-    case .constructed(let participant): participant
-    case .rejected(let rejection):
-        Issue.record("expected tab shell participant, received \(rejection)")
-        throw WorkspaceTabShellPersistencePreparationError.snapshotParticipant(rejection)
+        #expect(atom.tabIndex(for: second.id) == 0)
+        #expect(atom.tabIndex(for: first.id) == 1)
     }
 }

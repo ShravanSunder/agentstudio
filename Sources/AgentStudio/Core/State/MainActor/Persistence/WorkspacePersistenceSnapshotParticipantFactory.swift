@@ -221,7 +221,7 @@ struct WorkspacePersistenceSnapshotParticipantSet {
 }
 
 enum WorkspaceSnapshotParticipantFactoryRejection: Error, Equatable {
-    case constructionAlreadyAttempted
+    case lifecycle(WorkspacePersistenceLifecycleRejection)
     case participantConstructionRejected(
         participantID: WorkspacePersistenceSnapshotParticipantID,
         rejection: WorkspaceStateSnapshotParticipantRejection
@@ -242,73 +242,74 @@ enum WorkspaceSnapshotParticipantFactoryResult {
 final class WorkspacePersistenceSnapshotParticipantFactory {
     private typealias Participant = WorkspacePersistenceSnapshotParticipantSet.Participant
 
-    private enum ConstructionState {
-        case available
-        case attempted
+    private enum InstalledDomainInventory {
+        case neither
+        case composition([Participant])
+        case topology([Participant])
+        case both(composition: [Participant], topology: [Participant])
     }
 
-    private let workspaceIdentityAtom: WorkspaceIdentityAtom
-    private let workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom
-    private let repositoryTopologyAtom: RepositoryTopologyAtom
-    private let workspacePaneGraphAtom: WorkspacePaneGraphAtom
-    private let workspaceDrawerCursorAtom: WorkspaceDrawerCursorAtom
-    private let workspaceTabShellAtom: WorkspaceTabShellAtom
-    private let workspaceTabCursorAtom: WorkspaceTabCursorAtom
-    private let workspaceTabGraphAtom: WorkspaceTabGraphAtom
-    private let workspaceArrangementCursorAtom: WorkspaceArrangementCursorAtom
+    private let adapters: WorkspacePersistenceAdapterBundle
     private let policy: WorkspaceSnapshotParticipantFactoryPolicy
     private let paneGraphByteEstimator = WorkspacePaneGraphPersistenceSnapshotByteEstimator()
-    private var constructionState = ConstructionState.available
+    private var installedDomainInventory = InstalledDomainInventory.neither
 
     private(set) var installedParticipantSet: WorkspacePersistenceSnapshotParticipantSet?
 
     init(
-        workspaceIdentityAtom: WorkspaceIdentityAtom,
-        workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom,
-        repositoryTopologyAtom: RepositoryTopologyAtom,
-        workspacePaneGraphAtom: WorkspacePaneGraphAtom,
-        workspaceDrawerCursorAtom: WorkspaceDrawerCursorAtom,
-        workspaceTabShellAtom: WorkspaceTabShellAtom,
-        workspaceTabCursorAtom: WorkspaceTabCursorAtom,
-        workspaceTabGraphAtom: WorkspaceTabGraphAtom,
-        workspaceArrangementCursorAtom: WorkspaceArrangementCursorAtom,
+        adapters: WorkspacePersistenceAdapterBundle,
         policy: WorkspaceSnapshotParticipantFactoryPolicy = .appDefault
     ) {
-        self.workspaceIdentityAtom = workspaceIdentityAtom
-        self.workspaceWindowMemoryAtom = workspaceWindowMemoryAtom
-        self.repositoryTopologyAtom = repositoryTopologyAtom
-        self.workspacePaneGraphAtom = workspacePaneGraphAtom
-        self.workspaceDrawerCursorAtom = workspaceDrawerCursorAtom
-        self.workspaceTabShellAtom = workspaceTabShellAtom
-        self.workspaceTabCursorAtom = workspaceTabCursorAtom
-        self.workspaceTabGraphAtom = workspaceTabGraphAtom
-        self.workspaceArrangementCursorAtom = workspaceArrangementCursorAtom
+        self.adapters = adapters
         self.policy = policy
     }
 
     func constructParticipantSet() -> WorkspaceSnapshotParticipantFactoryResult {
-        guard case .available = constructionState else {
-            return .rejected(.constructionAlreadyAttempted)
+        switch constructCompositionParticipantSet() {
+        case .constructed:
+            break
+        case .rejected(let rejection):
+            return .rejected(rejection)
         }
-        constructionState = .attempted
+        switch constructTopologyParticipantSet() {
+        case .constructed:
+            return makeInstalledParticipantSet()
+        case .rejected(let rejection):
+            return .rejected(rejection)
+        }
+    }
 
+    func constructCompositionParticipantSet() -> WorkspaceSnapshotParticipantFactoryResult {
+        switch adapters.beginCompositionParticipantInstallation() {
+        case .rejected(let rejection):
+            return .rejected(.lifecycle(rejection))
+        case .started(let attemptID):
+            let result = buildCompositionParticipantSet()
+            return finalizeComposition(result, attemptID: attemptID)
+        }
+    }
+
+    func constructTopologyParticipantSet() -> WorkspaceSnapshotParticipantFactoryResult {
+        switch adapters.beginTopologyParticipantInstallation() {
+        case .rejected(let rejection):
+            return .rejected(.lifecycle(rejection))
+        case .started(let attemptID):
+            let result = buildTopologyParticipantSet()
+            return finalizeTopology(result, attemptID: attemptID)
+        }
+    }
+
+    private func buildCompositionParticipantSet() -> WorkspaceSnapshotParticipantFactoryResult {
         var participants: [Participant] = []
-        participants.reserveCapacity(WorkspacePersistenceSnapshotParticipantID.allCases.count)
+        participants.reserveCapacity(10)
 
-        switch append(workspaceIdentityAtom.makePersistenceSnapshotParticipant(), to: &participants) {
+        switch append(adapters.workspaceIdentity.makePersistenceSnapshotParticipant(), to: &participants) {
         case .appended:
             break
         case .rejected(let rejection):
             return .rejected(rejection)
         }
-        switch append(workspaceWindowMemoryAtom.makePersistenceSnapshotParticipant(), to: &participants) {
-        case .appended:
-            break
-        case .rejected(let rejection):
-            return .rejected(rejection)
-        }
-
-        switch appendRepositoryTopologyParticipants(to: &participants) {
+        switch append(adapters.workspaceWindowMemory.makePersistenceSnapshotParticipant(), to: &participants) {
         case .appended:
             break
         case .rejected(let rejection):
@@ -316,7 +317,7 @@ final class WorkspacePersistenceSnapshotParticipantFactory {
         }
 
         switch append(
-            workspacePaneGraphAtom.makePersistenceSnapshotParticipant(
+            adapters.workspacePaneGraph.makeSnapshotParticipant(
                 membershipLimits: policy.fleetMembershipLimits,
                 estimatedByteCount: { [paneGraphByteEstimator] paneGraph in
                     paneGraphByteEstimator.estimate(paneGraph)
@@ -329,14 +330,14 @@ final class WorkspacePersistenceSnapshotParticipantFactory {
         case .rejected(let rejection):
             return .rejected(rejection)
         }
-        switch append(workspaceDrawerCursorAtom.makePersistenceSnapshotParticipant(), to: &participants) {
+        switch append(adapters.workspaceDrawerCursor.makePersistenceSnapshotParticipant(), to: &participants) {
         case .appended:
             break
         case .rejected(let rejection):
             return .rejected(rejection)
         }
         switch append(
-            workspaceTabShellAtom.makePersistenceSnapshotParticipant(limits: policy.fleetMembershipLimits),
+            adapters.workspaceTabShell.makeSnapshotParticipant(limits: policy.fleetMembershipLimits),
             to: &participants
         ) {
         case .appended:
@@ -344,14 +345,14 @@ final class WorkspacePersistenceSnapshotParticipantFactory {
         case .rejected(let rejection):
             return .rejected(rejection)
         }
-        switch append(workspaceTabCursorAtom.makePersistenceSnapshotParticipant(), to: &participants) {
+        switch append(adapters.workspaceTabCursor.makePersistenceSnapshotParticipant(), to: &participants) {
         case .appended:
             break
         case .rejected(let rejection):
             return .rejected(rejection)
         }
         switch append(
-            workspaceTabGraphAtom.makePersistenceSnapshotParticipant(limits: policy.fleetMembershipLimits),
+            adapters.workspaceTabGraph.makeSnapshotParticipant(limits: policy.fleetMembershipLimits),
             to: &participants
         ) {
         case .appended:
@@ -360,7 +361,7 @@ final class WorkspacePersistenceSnapshotParticipantFactory {
             return .rejected(rejection)
         }
 
-        switch workspaceArrangementCursorAtom.makePersistenceSnapshotParticipants(
+        switch adapters.workspaceArrangementCursor.makeSnapshotParticipants(
             limits: policy.fleetMembershipLimits
         ) {
         case .constructed(let cursorParticipants):
@@ -375,7 +376,7 @@ final class WorkspacePersistenceSnapshotParticipantFactory {
                 ))
         }
 
-        let expectedParticipantIDs = WorkspacePersistenceSnapshotParticipantID.allCases
+        let expectedParticipantIDs = Self.compositionParticipantIDs
         let actualParticipantIDs = participants.map(\.participantID)
         guard
             Set(actualParticipantIDs).count == actualParticipantIDs.count,
@@ -388,9 +389,119 @@ final class WorkspacePersistenceSnapshotParticipantFactory {
                 ))
         }
 
-        let participantSet = WorkspacePersistenceSnapshotParticipantSet(participants: participants)
-        installedParticipantSet = participantSet
-        return .constructed(participantSet)
+        return .constructed(WorkspacePersistenceSnapshotParticipantSet(participants: participants))
+    }
+
+    private func buildTopologyParticipantSet() -> WorkspaceSnapshotParticipantFactoryResult {
+        var participants: [Participant] = []
+        participants.reserveCapacity(Self.topologyParticipantIDs.count)
+        switch appendRepositoryTopologyParticipants(to: &participants) {
+        case .appended:
+            break
+        case .rejected(let rejection):
+            return .rejected(rejection)
+        }
+        guard participants.map(\.participantID) == Self.topologyParticipantIDs else {
+            return .rejected(
+                .invalidParticipantInventory(
+                    expected: Self.topologyParticipantIDs,
+                    actual: participants.map(\.participantID)
+                ))
+        }
+        return .constructed(WorkspacePersistenceSnapshotParticipantSet(participants: participants))
+    }
+
+    private func finalizeComposition(
+        _ result: WorkspaceSnapshotParticipantFactoryResult,
+        attemptID: WorkspacePersistenceInstallationAttemptID
+    ) -> WorkspaceSnapshotParticipantFactoryResult {
+        switch result {
+        case .constructed(let participantSet):
+            guard case .completed = adapters.completeCompositionParticipantInstallation(attemptID) else {
+                preconditionFailure("composition installation attempt changed during synchronous construction")
+            }
+            installCompositionInventory(participantSet.participants)
+            installCombinedParticipantSetIfReady()
+            return .constructed(participantSet)
+        case .rejected:
+            guard case .completed = adapters.failCompositionParticipantInstallation(attemptID) else {
+                preconditionFailure("composition installation attempt changed during synchronous failure")
+            }
+            return result
+        }
+    }
+
+    private func finalizeTopology(
+        _ result: WorkspaceSnapshotParticipantFactoryResult,
+        attemptID: WorkspacePersistenceInstallationAttemptID
+    ) -> WorkspaceSnapshotParticipantFactoryResult {
+        switch result {
+        case .constructed(let participantSet):
+            guard case .completed = adapters.completeTopologyParticipantInstallation(attemptID) else {
+                preconditionFailure("topology installation attempt changed during synchronous construction")
+            }
+            installTopologyInventory(participantSet.participants)
+            installCombinedParticipantSetIfReady()
+            return .constructed(participantSet)
+        case .rejected:
+            guard case .completed = adapters.failTopologyParticipantInstallation(attemptID) else {
+                preconditionFailure("topology installation attempt changed during synchronous failure")
+            }
+            return result
+        }
+    }
+
+    private func makeInstalledParticipantSet() -> WorkspaceSnapshotParticipantFactoryResult {
+        installCombinedParticipantSetIfReady()
+        guard let installedParticipantSet else {
+            preconditionFailure("combined participant installation requires both domains")
+        }
+        return .constructed(installedParticipantSet)
+    }
+
+    private func installCombinedParticipantSetIfReady() {
+        guard case .both(let compositionParticipants, let topologyParticipants) = installedDomainInventory else {
+            return
+        }
+        let participantsByID = Dictionary(
+            uniqueKeysWithValues: (compositionParticipants + topologyParticipants).map { ($0.participantID, $0) }
+        )
+        let expectedParticipantIDs = WorkspacePersistenceSnapshotParticipantID.allCases
+        let participants = expectedParticipantIDs.compactMap { participantsByID[$0] }
+        guard participants.map(\.participantID) == expectedParticipantIDs else {
+            preconditionFailure("domain participant inventories do not form the canonical combined inventory")
+        }
+        installedParticipantSet = WorkspacePersistenceSnapshotParticipantSet(participants: participants)
+    }
+
+    private func installCompositionInventory(_ participants: [Participant]) {
+        switch installedDomainInventory {
+        case .neither:
+            installedDomainInventory = .composition(participants)
+        case .topology(let topologyParticipants):
+            installedDomainInventory = .both(composition: participants, topology: topologyParticipants)
+        case .composition, .both:
+            preconditionFailure("composition participant inventory installed more than once")
+        }
+    }
+
+    private func installTopologyInventory(_ participants: [Participant]) {
+        switch installedDomainInventory {
+        case .neither:
+            installedDomainInventory = .topology(participants)
+        case .composition(let compositionParticipants):
+            installedDomainInventory = .both(composition: compositionParticipants, topology: participants)
+        case .topology, .both:
+            preconditionFailure("topology participant inventory installed more than once")
+        }
+    }
+
+    private static let topologyParticipantIDs: [WorkspacePersistenceSnapshotParticipantID] = [
+        .repositories, .worktrees, .watchedPaths, .unavailableRepositories,
+    ]
+
+    private static let compositionParticipantIDs = WorkspacePersistenceSnapshotParticipantID.allCases.filter {
+        !topologyParticipantIDs.contains($0)
     }
 
     private enum AppendResult {
@@ -401,7 +512,7 @@ final class WorkspacePersistenceSnapshotParticipantFactory {
     private func appendRepositoryTopologyParticipants(
         to participants: inout [Participant]
     ) -> AppendResult {
-        switch repositoryTopologyAtom.makeSnapshotParticipants(
+        switch adapters.repositoryTopology.makeParticipants(
             membershipLimits: policy.fleetMembershipLimits
         ) {
         case .constructed(let repositoryTopologyParticipants):
@@ -439,8 +550,7 @@ final class WorkspacePersistenceSnapshotParticipantFactory {
     private func expectedNextParticipantID(
         for participants: [Participant]
     ) -> WorkspacePersistenceSnapshotParticipantID {
-        let expectedParticipantIDs = WorkspacePersistenceSnapshotParticipantID.allCases
-        precondition(participants.count < expectedParticipantIDs.count)
-        return expectedParticipantIDs[participants.count]
+        precondition(participants.count < Self.compositionParticipantIDs.count)
+        return Self.compositionParticipantIDs[participants.count]
     }
 }
