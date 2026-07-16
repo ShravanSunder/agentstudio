@@ -530,6 +530,20 @@ G0 baseline/spec/repo identity
                          lint + full tests + CI/PR gates
 ```
 
+W4.5p is a blocking architectural correction, not a reorderable implementation
+detail. One persistence-owned `WorkspacePersistenceRuntime` retains the shared
+revision owner and adapter bundle, but composition and topology have independent
+strict lifecycles and distinct non-copyable preinstall tokens. For each domain,
+the required order is: off-main prepare/validate; atomic initial apply with that
+domain token; hard-cut every same-domain production writer through the bound
+adapters/coordinator; install that domain participant inventory; then expose its
+installed mutation gateway. Composition may unlock window and terminal
+readiness while topology is still preparing. The complete pager is assembled
+only after both domains install. No later S1, prepared-composition,
+terminal-activation, W5, or performance lane resumes until W4.5p production
+reachability, real-front-door pager proof, full validation, and one focused
+review/remediation cycle pass.
+
 W12 and T12 are contributors to DQ1/IG2, not prerequisites that recursively own them. T11 may run candidate callback/app/surface quiescence before CG1 only as build-identity-bound correctness/compatibility proof; it does not measure or accept candidate performance. Every T12 and DQ1 performance cell requires the immutable human-approved CG1 manifest digest.
 
 ## 7. Parallel Write Scopes

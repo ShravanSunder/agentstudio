@@ -192,6 +192,9 @@ Implement the accepted AgentStudio performance-boundary specs and reviewed plans
 - Independent review verified that the current participant factory is test-only and current focused tests are false-green for live first-post-base semantics because production writers still use direct atom mutations. Runtime construction plus writer routing is required before W4.5p can close.
 - Independent review also verified that topology snapshot storage duplicates canonical/read authority inside the topology atom; W4.5p moves persistence custody out, while W5 remains the exclusive owner of off-main identity reconciliation.
 - Required order: remove persistence mechanics from atoms; integrate exactly one adapter bundle into production composition; hard-cut every installed persistence-affecting live writer through adapters/coordinators; prove a real production pager lease observes literal pre-mutation state through real product front doors; then run build/tests/lint and the focused review/remediation cycle. Adapter-only tests do not advance this gate.
+- Startup authority is domain-scoped inside one runtime: composition and topology share one revision owner/bundle but use distinct non-copyable preinstall tokens and strict enum-backed lifecycles. A token cannot authorize the other domain, and neither initial apply nor bootstrap repair remains callable after its domain installs.
+- Safe per-domain transition: off-main prepare/validate -> atomic initial apply with the domain token -> cut every same-domain steady-state writer through the bound adapters/coordinator -> install that domain participant inventory -> expose that domain mutation gateway. Installation before writer cutover is forbidden because it makes fixed-revision custody false.
+- Composition may finish that transition and unlock window/terminal readiness while topology remains suspended. Topology cannot gate or mutate composition. The complete pager is assembled only after both domains install; optional participant arrays/`nil` are not lifecycle authority.
 - Representative live routes include sidebar/window memory, topology coordination, pane/drawer compatibility facades, tab/arrangement compatibility facades, and terminal zmx-anchor mutation. The inventory must discover and cover any additional installed writer rather than treating this list as exhaustive.
 - Proof: structural zero-persistence-vocabulary scan over atom files; atom invariant suites; adapter mutation/lease/page suites; complete heterogeneous participant inventory; one adapter-bundle/revision-owner object identity across production composition; RED/GREEN real-front-door preimage/insertion/tombstone integration proof; direct-mutation inventory; build/lint/diff check.
 - Independent review lane: native Sol xhigh `/root/sol_xhigh_atom_boundary_review`, source-backed and risk-triggered over `5f8bf99d`, supporting commits, current dirty state, tests, docs, and the proposed adapter correction. Parent verification owns accepted findings.
@@ -930,8 +933,13 @@ composition, activation, S1, and W5 resume statement in this file:
 
 ```text
 remove persistence mechanics from canonical atoms
-  -> construct and retain exactly one adapter bundle in production composition
-  -> route every installed persistence-affecting live writer through it
+  -> construct and retain one persistence runtime/revision owner/adapter bundle
+  -> independently prepare and initially apply composition/topology with
+     distinct non-copyable domain tokens
+  -> before installing each domain, route every same-domain steady-state
+     persistence-affecting writer through the bound adapters/coordinator
+  -> install that domain and expose only its installed mutation gateway
+  -> assemble the complete pager only after both domains are installed
   -> prove the real production pager returns fixed-revision preimages,
      excludes post-base insertions, and retains removal tombstones
   -> parent-verify build/tests/lint plus one focused review/remediation cycle

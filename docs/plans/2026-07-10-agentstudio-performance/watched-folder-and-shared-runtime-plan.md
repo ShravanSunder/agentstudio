@@ -649,6 +649,57 @@ mutation routes through the long-lived adapter/coordinator so a direct setter
 cannot bypass first-post-base capture. Do not add a compatibility wrapper that
 continues to expose persistence through atom methods.
 
+The production boundary is one persistence-owned
+`@MainActor WorkspacePersistenceRuntime`, not persistence behavior inside
+`AtomRegistry`, atoms, or view/controller leaves. It owns one shared
+`WorkspacePersistenceRevisionOwner`, one bound adapter bundle, the two prepared
+appliers, domain lifecycle authority, the mutation coordinator, and the
+eventual complete pager. `WorkspaceStore` and production writers receive this
+exact runtime; no production default, convenience initializer, or test fixture
+may construct a second authority graph.
+
+Startup has two independent persistence-installation domains inside that one
+runtime:
+
+```text
+WorkspacePersistenceRuntime
+  shared revision owner + one bound adapter bundle
+    |
+    +-- CompositionLifecycle
+    |     identity/window/pane/drawer/tab/arrangement
+    |     distinct non-copyable composition preinstall token
+    |
+    +-- TopologyLifecycle
+          repositories/worktrees/watched paths
+          distinct non-copyable topology preinstall token
+```
+
+The tokens are capabilities, not optional lifecycle flags. A composition token
+cannot authorize topology work and a topology token cannot authorize
+composition work. Neither token is usable after its domain installs. Lifecycle
+state is a strict enum-backed authority; optional participant arrays or `nil`
+sentinels cannot decide whether a domain is installed.
+
+Each domain performs one indivisible installation sequence:
+
+```text
+prepare and validate off-main
+  -> atomic initial MainActor apply using that domain's preinstall token
+  -> hard-cut every steady-state production writer for that domain
+     through the bound adapters/coordinator
+  -> install that domain's participant inventory
+  -> expose that domain's installed mutation gateway
+```
+
+Do not install a domain while any same-domain post-install writer can bypass
+the adapters. Initial apply, bootstrap repair, and preinstall-only mutation are
+rejected after installation. Composition may complete this sequence and unlock
+window/terminal readiness while topology remains preparing or unavailable.
+Topology never gates composition. The complete production pager is assembled
+only after both participant inventories are installed; until then each domain
+retains its own bounded lifecycle and no partial pager can masquerade as the
+complete inventory.
+
 The current participant factory/pager assembly is test-only and therefore does
 not prove a live boundary. The corrected bundle must be constructed once at the
 production composition root, shared by participant construction and every
@@ -668,6 +719,11 @@ Proof is blocking:
   long-lived adapters used by mutation preparation;
 - composition applies through adapters/coordinator, advances one revision, and
   installs every atom value atomically without atom-owned transaction code;
+- composition installation and mutation readiness do not wait for topology,
+  and the topology lifecycle cannot mutate composition or consume its token;
+- each domain rejects post-install initial apply/bootstrap repair and is not
+  installed until its complete production writer inventory routes through the
+  bound adapters/coordinator;
 - a direct-mutation inventory proves no installed persistence participant can be
   bypassed by a production mutation path;
 - production composition constructs exactly one adapter bundle and the live
@@ -723,11 +779,16 @@ Integrate two boot hydration domains before participant installation:
   independently. It may retain last-known/non-current state but never blocks
   composition, window presentation, or terminal activation.
 
-Construct/install each domain's participants only after that domain commits.
-A shared checkpoint revision coordinates persistence only; it does not create a
-shared validation/apply owner. Rejection advances zero revisions and mutates no
-owner in that domain. Do not preconstruct participants from default membership
-or route initial fleet insertions through unconfigured participants.
+After a domain's prepared commit, hard-cut every steady-state production writer
+for that domain through the bound adapters/coordinator before installing that
+domain's participants. Installation is the final lifecycle transition that
+exposes the domain's installed mutation gateway; it is not permitted merely
+because initial apply succeeded. A shared checkpoint revision coordinates
+persistence only; it does not create a shared validation/apply owner. Rejection
+advances zero revisions and mutates no owner in that domain. Do not preconstruct
+participants from default membership, route initial fleet insertions through
+unconfigured participants, or assemble the complete pager before both domains
+are installed.
 
 Replace the current WIP `WorkspaceHydrationPreparation.swift` legacy/source
 union and `WorkspacePreparedHydrationApplier.swift` combined applier rather than
@@ -764,9 +825,13 @@ Install the two domain-specific paths instead:
 
 - `WorkspaceCompositionPreparer` and
   `WorkspacePreparedCompositionApplier` exclusively prepare/apply composition
-  and install only composition participants after acceptance;
+  using the composition preinstall token; after acceptance, every composition
+  writer is cut through the bound adapters before the runtime installs the
+  composition participant inventory and exposes composition mutation;
 - the SQLite topology input enters the W5 projector/applier exclusively and
-  installs only topology participants after topology acceptance.
+  applies using the topology preinstall token; after acceptance, every topology
+  writer is cut through the bound adapters before the runtime installs the
+  topology participant inventory and exposes topology mutation.
 
 The cut removes every owner capable of validating or applying both domains.
 Structural negative proof inventories the production boot graph and fails when
