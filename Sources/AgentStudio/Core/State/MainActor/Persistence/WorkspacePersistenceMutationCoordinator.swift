@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 
 enum WorkspacePersistenceMutationFailure: Equatable, Sendable {
+    case compositionDomainNotInstalled(phase: WorkspacePersistenceAdapterLifecyclePhase)
     case revisionOwner(WorkspacePersistenceRevisionOwnerError)
     case windowMemory(WorkspaceSnapshotPreparationRejection)
 }
@@ -21,42 +22,59 @@ enum WorkspacePersistenceMutationResult: Equatable, Sendable {
 final class WorkspacePersistenceMutationCoordinator {
     private let revisionOwner: WorkspacePersistenceRevisionOwner
     private let adapters: WorkspacePersistenceAdapterBundle
+    private let workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom
 
     init(
         revisionOwner: WorkspacePersistenceRevisionOwner,
-        adapters: WorkspacePersistenceAdapterBundle
+        adapters: WorkspacePersistenceAdapterBundle,
+        workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom
     ) {
         self.revisionOwner = revisionOwner
         self.adapters = adapters
+        self.workspaceWindowMemoryAtom = workspaceWindowMemoryAtom
     }
 
     func setSidebarWidth(_ sidebarWidth: CGFloat) -> WorkspacePersistenceMutationResult {
-        performWindowMemoryMutation { preparation in
-            try adapters.workspaceWindowMemory.prepareSetSidebarWidth(
-                sidebarWidth,
-                for: preparation
+        guard case .installed = adapters.compositionLifecyclePhase else {
+            return .rejected(
+                .compositionDomainNotInstalled(phase: adapters.compositionLifecyclePhase)
             )
+        }
+        guard workspaceWindowMemoryAtom.sidebarWidth != sidebarWidth else {
+            return .unchanged(revision: revisionOwner.committedRevision)
+        }
+        return performWindowMemoryMutation { [workspaceWindowMemoryAtom] in
+            workspaceWindowMemoryAtom.setSidebarWidth(sidebarWidth)
         }
     }
 
-    func setWindowFrame(_ windowFrame: CGRect?) -> WorkspacePersistenceMutationResult {
-        performWindowMemoryMutation { preparation in
-            try adapters.workspaceWindowMemory.prepareSetWindowFrame(
-                windowFrame,
-                for: preparation
+    func setWindowFrame(_ windowFrame: CGRect) -> WorkspacePersistenceMutationResult {
+        guard case .installed = adapters.compositionLifecyclePhase else {
+            return .rejected(
+                .compositionDomainNotInstalled(phase: adapters.compositionLifecyclePhase)
             )
+        }
+        guard workspaceWindowMemoryAtom.windowFrame != windowFrame else {
+            return .unchanged(revision: revisionOwner.committedRevision)
+        }
+        return performWindowMemoryMutation { [workspaceWindowMemoryAtom] in
+            workspaceWindowMemoryAtom.setWindowFrame(windowFrame)
         }
     }
 
     private func performWindowMemoryMutation(
-        _ prepare: (WorkspacePersistenceTransactionPreparation) throws
-            -> WorkspacePersistenceTransactionDecision<WorkspacePersistenceRevision>
+        _ mutate: @escaping @MainActor () -> Void
     ) -> WorkspacePersistenceMutationResult {
-        let previousRevision = revisionOwner.committedRevision
         do {
-            let committedRevision = try revisionOwner.performSynchronousTransactionDecision(prepare)
-            if committedRevision == previousRevision {
-                return .unchanged(revision: committedRevision)
+            let committedRevision = try revisionOwner.performSynchronousTransaction { preparation in
+                try adapters.workspaceWindowMemory.capturePersistencePreimage(
+                    .currentWindowMemory,
+                    for: preparation
+                )
+                return preparation.commit {
+                    mutate()
+                    return preparation.transaction.proposedRevision
+                }
             }
             return .changed(revision: committedRevision)
         } catch let error as WorkspaceWindowMemorySnapshotPreparationError {

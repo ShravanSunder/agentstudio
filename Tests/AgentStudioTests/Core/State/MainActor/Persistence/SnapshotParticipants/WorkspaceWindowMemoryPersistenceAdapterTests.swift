@@ -16,11 +16,11 @@ struct WorkspaceWindowMemoryPersistenceAdapterTests {
         let lease = WorkspaceStateSnapshotLease.open(pagerIdentity: .make(), revisionOwner: revisionOwner)
         #expect(participant.open(lease: lease) == .opened(baseMembershipCount: 1))
 
-        _ = try revisionOwner.performSynchronousTransactionDecision { preparation in
-            try adapter.prepareSetSidebarWidth(
-                333,
-                for: preparation
-            )
+        try revisionOwner.performSynchronousTransaction { preparation in
+            try adapter.capturePersistencePreimage(.currentWindowMemory, for: preparation)
+            return preparation.commit {
+                atom.setSidebarWidth(333)
+            }
         }
 
         guard case .item(let typedItem, _, _, _) = participant.inspectBaseSlot(lease: lease, slotCursor: 0)
@@ -46,42 +46,18 @@ struct WorkspaceWindowMemoryPersistenceAdapterTests {
         }
 
         #expect(throws: WorkspaceWindowMemorySnapshotPreparationError.self) {
-            try revisionOwner.performSynchronousTransactionDecision { preparation in
-                _ = try adapter.prepareSetSidebarWidth(
-                    300,
-                    for: preparation
-                )
-                return try adapter.prepareSetWindowFrame(
-                    CGRect(x: 1, y: 2, width: 3, height: 4),
-                    for: preparation
-                )
+            try revisionOwner.performSynchronousTransaction { preparation in
+                try adapter.capturePersistencePreimage(.currentWindowMemory, for: preparation)
+                try adapter.capturePersistencePreimage(.currentWindowMemory, for: preparation)
+                return preparation.commit {
+                    Issue.record("duplicate capture must not commit")
+                }
             }
         }
 
         #expect(revisionOwner.committedRevision == .zero)
         #expect(atom.sidebarWidth == 250)
         #expect(atom.windowFrame == nil)
-    }
-
-    @Test("unchanged window memory mutates nothing and advances no revision")
-    func unchangedWindowMemoryMutatesNothingAndAdvancesNoRevision() throws {
-        let frame = CGRect(x: 1, y: 2, width: 800, height: 600)
-        let atom = WorkspaceWindowMemoryAtom(sidebarWidth: 333, windowFrame: frame)
-        let revisionOwner = WorkspacePersistenceRevisionOwner()
-        let adapter = WorkspaceWindowMemoryPersistenceAdapter(atom: atom, revisionOwner: revisionOwner)
-
-        let revision = try revisionOwner.performSynchronousTransactionDecision { preparation in
-            try adapter.prepareHydrate(
-                sidebarWidth: 333,
-                windowFrame: frame,
-                for: preparation
-            )
-        }
-
-        #expect(revision == .zero)
-        #expect(revisionOwner.committedRevision == .zero)
-        #expect(atom.sidebarWidth == 333)
-        #expect(atom.windowFrame == frame)
     }
 
     @Test("registered replacement applies through the adapter")

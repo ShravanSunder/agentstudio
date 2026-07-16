@@ -106,7 +106,8 @@ final class WorkspacePersistenceRuntime {
         preparedTopologyApplier = WorkspacePreparedTopologyApplier(adapters: adapters)
         mutationCoordinator = WorkspacePersistenceMutationCoordinator(
             revisionOwner: revisionOwner,
-            adapters: adapters
+            adapters: adapters,
+            workspaceWindowMemoryAtom: atomOwners.workspaceWindowMemory
         )
     }
 

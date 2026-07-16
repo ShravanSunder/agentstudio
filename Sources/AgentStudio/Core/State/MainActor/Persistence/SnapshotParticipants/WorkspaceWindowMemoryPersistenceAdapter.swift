@@ -52,37 +52,6 @@ final class WorkspaceWindowMemoryPersistenceAdapter {
         )
     }
 
-    func prepareHydrate(
-        sidebarWidth: CGFloat,
-        windowFrame: CGRect?,
-        for preparation: WorkspacePersistenceTransactionPreparation
-    ) throws -> WorkspacePersistenceTransactionDecision<WorkspacePersistenceRevision> {
-        try prepareWindowMemoryReplacement(
-            .init(sidebarWidth: sidebarWidth, windowFrame: windowFrame),
-            for: preparation
-        )
-    }
-
-    func prepareSetSidebarWidth(
-        _ sidebarWidth: CGFloat,
-        for preparation: WorkspacePersistenceTransactionPreparation
-    ) throws -> WorkspacePersistenceTransactionDecision<WorkspacePersistenceRevision> {
-        try prepareWindowMemoryReplacement(
-            .init(sidebarWidth: sidebarWidth, windowFrame: atom.windowFrame),
-            for: preparation
-        )
-    }
-
-    func prepareSetWindowFrame(
-        _ windowFrame: CGRect?,
-        for preparation: WorkspacePersistenceTransactionPreparation
-    ) throws -> WorkspacePersistenceTransactionDecision<WorkspacePersistenceRevision> {
-        try prepareWindowMemoryReplacement(
-            .init(sidebarWidth: atom.sidebarWidth, windowFrame: windowFrame),
-            for: preparation
-        )
-    }
-
     func registerInitialWindowMemoryReplacement(
         token _: borrowing WorkspaceCompositionPreinstallToken,
         sidebarWidth: CGFloat,
@@ -143,31 +112,4 @@ final class WorkspaceWindowMemoryPersistenceAdapter {
             + (windowMemory.windowFrame == nil ? 0 : MemoryLayout<CGRect>.size)
     }
 
-    private func prepareWindowMemoryReplacement(
-        _ replacement: WorkspacePersistenceSnapshotWindowMemory,
-        for preparation: WorkspacePersistenceTransactionPreparation
-    ) throws -> WorkspacePersistenceTransactionDecision<WorkspacePersistenceRevision> {
-        let currentWindowMemory = currentPersistenceWindowMemory
-        guard replacement != currentWindowMemory else {
-            return .unchanged(revisionOwner.committedRevision)
-        }
-        switch snapshotParticipant.prepare(
-            [.replaceValue(key: .windowMemory, currentValue: .value(currentWindowMemory))],
-            for: preparation,
-            revisionOwner: revisionOwner
-        ) {
-        case .prepared:
-            return .commit(
-                preparation.commit { [atom] in
-                    atom.replaceWindowMemory(
-                        sidebarWidth: replacement.sidebarWidth,
-                        windowFrame: replacement.windowFrame
-                    )
-                    return preparation.transaction.proposedRevision
-                }
-            )
-        case .rejected(let rejection):
-            throw WorkspaceWindowMemorySnapshotPreparationError(rejection: rejection)
-        }
-    }
 }
