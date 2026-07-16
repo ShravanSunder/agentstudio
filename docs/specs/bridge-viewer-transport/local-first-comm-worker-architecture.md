@@ -286,6 +286,11 @@ Swift Review publication boundary
         per pane, atomic commit/rollback, dirty/fresh state
   forbidden: transport-subscription, cache, provider-I/O, or UI-position ownership
 
+Swift BridgePaneActivityCoordinator
+  owns: canonical pane activity from workspace/pane/tab/window/app facts; exposes
+        synchronous activity transitions to product admission and Git scheduling
+  forbidden: package, cache, presentation-position, or Git-execution ownership
+
 Swift BridgePaneProductMetadataCoordinator
   owns: subscription/producer install, uninstall, pacing, and frame delivery
   forbidden: package, descriptor, cache, freshness, or presentation authority
@@ -328,7 +333,7 @@ Identity lineage is split into semantic, UI, worker, and native planes:
 | --- | --- | --- | --- | --- |
 | `paneProductAdmissionEpoch` | Swift pane synchronous gate | every native product request before work and after each suspension | pane close increments and permanently closes admission | native lifecycle tests and zero-residue trace only |
 | active/pending Review publication | Swift Review publication coordinator | package, descriptor authority, pane presentation, and metadata commit as one transaction | success retires active A after B commits; failure discards B; close revokes both | bounded identity/status facts; never a transport-owned package snapshot |
-| pane activity (`foreground | loadedHidden | dormant | closed`) | native workspace visibility/lifecycle | Swift pane admission and Git scheduler | native tab/window/pane lifecycle only; worker cannot mint it | surface-scoped updating chrome and native proof |
+| pane activity (`foreground | loadedHidden | dormant | closed`) | per-pane `BridgePaneActivityCoordinator` from native workspace, pane residency/controller, tab/arrangement/drawer, window, and app facts | Swift pane admission and Git scheduler | native fact transition only; worker/browser cannot mint it | surface-scoped updating chrome and native transition proof |
 | `sourceGeneration` and metadata lineage | Swift/native provider source authority | Swift rejects stale source requests; worker treats it as source fact, never as worker cache epoch authority | Swift rotates on accepted source change, resets metadata stream/gates, and revokes stale handles/admitted work | comm worker subscriptions, server seam, native proof |
 | `semanticDocumentRevision` | comm worker from algorithm-tagged content digests and document kind/ordered roles | worker and Pierre item/publication validation | changes only when semantic source content changes | display cache, complete-item residency, proof oracles |
 | `uiIntentRevision` | FE, monotonic per surface | comm worker accepts/supersedes intent and echoes the accepted value | surface remount/page session reset | FE render copies and worker intent receipts only |
@@ -359,7 +364,7 @@ Extended truth ownership:
 | Datum | Owner | Readers | Write path | Repair path | Inactive-mode behavior |
 | --- | --- | --- | --- | --- | --- |
 | pane product admission | Swift synchronous gate per pane | native call/metadata/content entry points and post-await commit guards | pane creation opens one epoch; teardown synchronously closes it before producer/telemetry drain | none; closed panes cannot reopen | loaded-hidden remains open but reduced; closed rejects immediately |
-| active/pending Review package and descriptor authority | Swift Review publication coordinator per pane | pane presentation, metadata source, Review content admission | stage B beside readable A -> publish -> atomic commit B or rollback A | worker reinstall republishes active A; partial B reset cannot revoke A | retained while loaded-hidden; dormant has no package; close revokes active/pending |
+| active/pending Review package and descriptor authority | Swift Review publication coordinator per pane | pane presentation, metadata source, Review content admission | stage isolated B beside readable A -> atomically commit B before any worker-visible B -> retire A after worker observation/lease settlement | pre-commit failure discards B; post-commit delivery retries B and never rolls back to A | retained while loaded-hidden; dormant has no package; close revokes active/pending |
 | native pane activity and package freshness | native workspace/pane lifecycle plus Review publication coordinator | Git admission, refresh coalescer, surface updating presentation | visibility transitions; filesystem events mark loaded-hidden package dirty | foreground performs at most one latest refresh; dormant cold-loads once activated | inactive surface never shows another surface's updating state |
 | Bridge pane attendance recency | native workspace runtime | state-aware worktree command resolver | successful pane attention updates one runtime-only monotonic fact | missing pane removes its fact; no persistence or product authority | default open chooses the most recently attended matching pane |
 | Git read permits and physical native slots | application-scoped keyed Git scheduler plus operation-class executor | Swift Review pipeline/content loader | foreground/background ranked request; bounded metadata/content lanes | logical timeout/cancel leaves running native slot draining until true return | loaded-hidden starts no refresh/body work; dirty fact is retained |
@@ -1656,7 +1661,7 @@ provider owns File/Review metadata and content production, not protocol commit
 effects.
 
 One `metadataStream.open` establishes the pane stream. Each logical metadata frame is `u32be frameBodyLength | strict typed UTF-8 JSON body`; `frameBodyLength` counts only the body and has a hard 128 KiB ceiling. WebKit delivery chunks are non-semantic.
-`AsyncThrowingStream.Continuation.yield(.enqueued)` proves only admission to a local Swift buffer; it is not evidence that WebKit delivered the bytes or that the comm worker consumed a frame. Swift therefore retains each queued metadata or content frame and permits at most one unobserved frame per physical response stream. Only after the comm worker has assembled, strictly decoded, and committed the exact next frame does it send `stream.frameObserved` through the authenticated command route and await bodyless `204` success. The acknowledgement echoes the full pane/session, worker-instance, physical stream, producer/request or lease, and metadata/content sequence identity. Native accepts only the exact outstanding identity and sequence. An exact replay of the last accepted acknowledgement is idempotent and returns the same `204` without releasing twice; skipped, foreign, stale-instance, changed-reuse, and post-terminal acknowledgements are typed status rejections and release nothing. Native removes that frame and releases the next frame for that stream only after accepting the worker observation; local yield disposition never advances the producer queue.
+`AsyncThrowingStream.Continuation.yield(.enqueued)` proves only admission to a local Swift buffer; it is not evidence that WebKit delivered the bytes or that the comm worker consumed a frame. Swift therefore retains each queued metadata or content frame and permits at most one unobserved frame per physical response stream. The window of one is the normative initial safety policy; a wider window requires packaged throughput evidence and explicit contract reconvergence. Only after the comm worker has assembled, strictly decoded, and committed the exact next frame does it send `stream.frameObserved` through the authenticated command route and await bodyless `204` success. The acknowledgement echoes the full pane/session, worker-instance, physical stream, producer/request or lease, and metadata/content sequence identity. Native accepts only the exact outstanding identity and sequence. An exact replay of the last accepted acknowledgement is idempotent and returns the same `204` without releasing twice; skipped, foreign, stale-instance, changed-reuse, and post-terminal acknowledgements are typed status rejections and release nothing. Native removes that frame and releases the next frame for that stream only after accepting the worker observation; local yield disposition never advances the producer queue.
 
 Metadata and every independently cancellable content response pace separately, so one slow or cancelled stream cannot withhold another stream's frame or an interactive command. Physical transport admission MUST
 reserve capacity for the metadata response plus observation/control traffic: on a six-request carrier with one metadata response, at most four content responses may remain open. This is worker-transport admission,
@@ -1827,71 +1832,46 @@ fallback pipeline.
 
 ### R67. Native Review publication is transactional and pane admission closes synchronously.
 
-One pane-owned synchronous `ProductAdmissionGate` guards every product call,
-metadata producer, and content request. Teardown closes it and advances its epoch
-before retirement/drain. Post-close requests reject synchronously; in-flight work
-rechecks after suspension and before cache, metadata, pane-state, or response
-publication, so late completion cannot reopen admission.
+One pane-owned synchronous `ProductAdmissionGate` guards every product call, metadata producer, and content request. Teardown closes it and advances its epoch before retirement/drain. Post-close requests reject synchronously; in-flight work rechecks after suspension and before cache, metadata, pane-state, or response publication, so late completion cannot reopen admission.
 
-The gate is a short lock/atomic owner, not an actor, and no lock spans `await`.
-Package/descriptor authority belongs to the per-pane publication coordinator,
-not `BridgePaneProductMetadataCoordinator`, worker, or cache. Stream uninstall removes
-delivery only; replacement reopens the accepted native package.
+The gate is a short lock/atomic owner, not an actor, and no lock spans `await`. Package/descriptor authority belongs to the per-pane publication coordinator, not `BridgePaneProductMetadataCoordinator`, worker, or cache. Stream uninstall removes delivery only; replacement reopens the accepted native package.
 
 Publication is one transaction:
 
 ```text
-active A -> stage candidate B beside readable A
-  success: publish B metadata/content authority, atomically commit B, retire A
-  failure: reset partial B, restore/retain A everywhere
-  teardown: synchronously invalidate A and B, then cancel/drain work
+active A -> stage isolated candidate B beside readable A
+  pre-commit failure: discard B; A remains native- and worker-visible
+  commit: atomically make B native authority before emitting worker-visible B
+  delivery: worker stages complete B, then swaps A -> B at the commit barrier
+  post-commit failure: retain worker-visible A, retry/resync B; never roll back B
+  retire A: after B observation or settlement of every admitted A lease
+  teardown: synchronously invalidate A, B, and retiring leases, then drain
 ```
 
-Pane presentation, descriptor authority, and worker metadata cannot commit
-different packages. `BridgeReviewContentLoaderCache` owns provider I/O,
-validation, coalescing, cache, and eviction only. Permanent proof injects failure
-at staging, delivery, and commit; preserves A; and covers immediate/in-flight
-post-close rejection plus worker uninstall/reinstall reconstruction.
+Candidate B is invisible to pane presentation and worker render slices until its native commit. Multi-frame B metadata remains worker-pending until its final commit barrier, so partial B cannot paint. A pre-commit delivery reservation may fail and preserve A; after native commit, delivery failure keeps A visibly stale with surface-scoped updating/health while native remains B and retries B. Pane presentation, descriptor authority, and worker metadata therefore never expose B -> A snapback. `BridgeReviewContentLoaderCache` owns provider I/O, validation, coalescing, cache, and eviction only. Permanent proof injects staging, reservation, commit, partial-delivery, and observation failures; covers immediate and in-flight post-close rejection; and proves worker uninstall/reinstall replays the committed native package.
 
 ### R68. Native pane activity controls work without erasing retained product state.
 
-Native workspace visibility/lifecycle is authoritative; browser visibility and
-`activeViewerMode` cannot decide whether a pane is foreground. The states are:
+`BridgePaneActivityCoordinator` is the sole mint. Browser visibility and `activeViewerMode` are inputs to neither activity nor native work admission.
 
-| Activity | Package/presentation | Admitted work |
+| Activity | Concrete native facts | Package/presentation and admitted work |
 | --- | --- | --- |
-| `foreground` | retain current File and Review positions/state | interactive demand plus latest refresh |
-| `loadedHidden` | retain package/cache and both surface positions; mark dirty | no body/prefetch/refresh work; collapse invalidations to one dirty fact |
-| `dormant` | controller/package does not exist | no work; cold-load once first activated |
-| `closed` | authority revoked | reject new work; cancel/drain existing work |
+| `foreground` | active residency; controller installed; pane visible in the active tab/arrangement or expanded drawer; not minimized or zoom-excluded; owning window visible, unminiaturized, and unoccluded; app active | retain both surface positions; admit interactive demand plus one latest refresh; key/focus affects rank, not state |
+| `loadedHidden` | controller installed and admission open, but any foreground visibility/activity fact is false, including inactive tab/arrangement/drawer, minimized/zoom-excluded pane, hidden/miniaturized/occluded window, inactive app, or backgrounded residency | retain bounded package/cache and both positions; admit no body/prefetch/refresh; collapse invalidations to one dirty fact |
+| `dormant` | pane record can be activated, but no Bridge controller, gate, worker, package, or presentation store has been created in this app lifetime | no work and no position owner; first activation creates authority and starts File/Review at canonical defaults |
+| `closed` | close/teardown has begun or pane authority was explicitly revoked | reject synchronously; cancel/drain existing work; undo/reopen creates fresh authority |
 
-Returning dirty paints retained state immediately, shows only the active surface's
-inline `Updating files...` or `Updating review...`, and performs at most one
-latest refresh without switching modes. Both surfaces retain independent
-selection, tree, and content/continuous-diff positions.
+A loaded pane does not transition to `dormant` in this recovery increment; hidden loaded panes stay `loadedHidden`. Position retention covers surface switches and foreground <-> loaded-hidden transitions. Dormant cold activation does not invent native UI-position persistence.
 
-Typed `showBridgeReview`/`showBridgeFiles` commands activate the most recently
-attended match or create one; labels resolve `Open` versus `Go to` from workspace
-state. `openBridgeReviewInNewTab`/`openBridgeFilesInNewTab` always create
-independent authority/query/presentation. Proof covers hidden-event collapse,
-dormant cold activation, position retention, default jump, and explicit duplicate.
-Future commit comparison still runs through native `agentstudio-git`.
+Returning dirty paints retained state immediately, shows only the active surface's inline `Updating files...` or `Updating review...`, and performs at most one latest refresh without switching modes. Both surfaces retain independent selection, tree, and content/continuous-diff positions.
+
+Successful tab activation, pane focus, default jump, or new-tab creation records one runtime-only monotonic attendance ordinal; visibility and background refresh do not. `showBridgeReview`/`showBridgeFiles` choose the matching pane with the greatest ordinal, activate it, and select the command's named Review/File surface. A currently active match wins an ordinal tie; restored/never-attended ties use stable workspace tab then pane-layout order. With no match they create the named surface. Labels resolve `Open` versus `Go to` from the same resolver. `openBridgeReviewInNewTab`/`openBridgeFilesInNewTab` always create independent authority/query/presentation. Future commit comparison still uses native `agentstudio-git`.
 
 ### R69. Git reads use bounded worktree-keyed admission and true physical completion.
 
-Git diff/tree/descriptor/content reads, hashing, package projection/encoding,
-cache work, and streaming never execute on `MainActor`. Synchronous libgit2
-bodies run on a dedicated blocking queue, never the caller actor or Swift
-cooperative pool. Scheduler operation-class slots bound physical capacity and
-retain custody through true return; the queue owns execution, not admission.
+Git diff/tree/descriptor/content reads, hashing, package projection/encoding, cache work, and streaming never execute on `MainActor`. Synchronous libgit2 bodies run on a dedicated blocking queue, never the caller actor or Swift cooperative pool. Scheduler operation-class slots bound physical capacity and retain custody through true return; the queue owns execution, not admission.
 
-One application-scoped, activity-ranked, worktree-keyed scheduler gives Review
-metadata and selected/visible content separate operation classes so a large diff
-scan cannot block a selected file. Logical timeout or
-cancellation ends the caller wait but never claims a synchronous native call
-stopped: its physical slot remains `draining` until libgit2 actually returns,
-and late output is discarded by admission/publication epochs. No UUID ordering,
-one global serial Git actor, or unbounded replacement task may define fairness.
+One application-scoped, activity-ranked, worktree-keyed scheduler gives Review metadata and selected/visible content separate operation classes so a large diff scan cannot block a selected file. Logical timeout or cancellation ends the caller wait but never claims a synchronous native call stopped: its physical slot remains `draining` until libgit2 actually returns, continues consuming its operation-class physical capacity, and permits no replacement/backfill before true return. Late output is discarded by admission/publication epochs. No UUID ordering, one global serial Git actor, or unbounded replacement task may define fairness.
 Watched-folder discovery, routine status, fetch/pull, checkout/worktree lifecycle,
 and mutations retain their independently calibrated capacities and owners.
 
@@ -1938,8 +1918,8 @@ main/FE -> Pierre worker     public Pierre API compute/apply boundary
 | pane foreground | native workspace lifecycle | native activity -> pane admission/scheduler; retained worker stream repairs only when installed | retained active surface paints immediately; one dirty refresh may show only that surface's inline updating state | R42, R49, R67-R69 |
 | pane loaded-hidden | native workspace lifecycle or tab switch | native activity -> pane admission/scheduler; filesystem invalidations collapse to one dirty fact | no remount, body demand, prefetch, or package refresh; both surface positions remain retained | R42, R63, R67-R69 |
 | pane dormant/closed | native restore or close | dormant crosses no product boundary; close synchronously revokes admission before async cancellation/drain | dormant paints after first activation; closed work never paints or caches late output | R42, R63, R67-R69 |
-| worktree open/jump | user/native command system | default resolves the most-recent matching pane; explicit new-tab allocates independent pane authority | jump preserves the pane's active surface/positions; explicit duplicate starts independent presentation | R42, R67, R68 |
-| Review publication A -> B | Swift source/publication coordinator | B stages beside readable A; delivery commits B or rolls back to A; worker reinstall republishes active truth | one paint belongs wholly to A or B; partial B, failed delivery, or stream uninstall never erases A | R42, R63, R67 |
+| worktree open/jump | user/native command system | named show command resolves deterministic most-recent matching pane and records attendance; explicit new-tab allocates independent pane authority | jump selects Review or File as named while preserving both surfaces' positions; explicit duplicate starts independent presentation | R42, R67, R68 |
+| Review publication A -> B | Swift source/publication coordinator | isolated B stages; native commits before worker-visible B; worker swaps only at complete commit barrier; post-commit delivery retries B | one paint belongs wholly to A or B; partial B, failure, or stream uninstall never produces B -> A snapback or revokes native B | R42, R63, R67 |
 | product metadata/fact | Swift | Swift -> comm worker streamed product response; comm worker -> FE affected slices only | FE paints only after comm worker validates stream/epoch/sequence and publishes O(delta) slice patches | R42, R45, R48-R50, R67 |
 | content-ready | Swift/comm worker executor | Swift -> comm worker streamed content response; comm worker -> FE paint-ready slice | no direct paint from response; comm worker validates current epoch and FE applies rank-first within R46 | R42, R44, R46, R48, R49, R52 |
 | Review item hydration | FE/Pierre viewport | FE -> comm selected/visible item facts; comm -> Swift complete required roles as needed; comm -> FE complete ready item; FE -> comm disposition | existing DOM scrolls immediately; later complete item applies without prefix replay/filler and demand remains until painted | R42, R44, R46, R57, R61 |
