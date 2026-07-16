@@ -77,10 +77,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
 
     private struct ReviewPackageLoadReset {
         let reviewGeneration: BridgeReviewGeneration
-        let streamId: String
         let contentAuthorityLifetime: Int
         let expectedRevocationRevision: UInt64
-        let resetSourceIdentity: String
     }
 
     private func handleLoadDiffCommand(
@@ -90,23 +88,6 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     ) async -> ActionResult {
         let packageTraceContext = makeRootTraceContext()
         let reset = await beginReviewPackageLoad(artifact: artifact)
-        await enqueueReviewProtocolFrameJob(
-            lane: .foreground,
-            generation: reset.reviewGeneration.rawValue,
-            traceContext: packageTraceContext
-        ) { sequence in
-            .reset(
-                BridgeReviewProtocolFrameBuilder.reset(
-                    request: BridgeReviewProtocolResetBuildRequest(
-                        sourceIdentity: reset.resetSourceIdentity,
-                        streamId: reset.streamId,
-                        generation: reset.reviewGeneration.rawValue,
-                        sequence: sequence,
-                        reason: "authorityChanged"
-                    )
-                )
-            )
-        }
         var reviewLoadStage = "request"
         do {
             let result = try await loadReviewPackageResult(
@@ -149,12 +130,6 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 availability: .failed,
                 traceContext: packageTraceContext
             )
-            await deliverReviewProtocolErrorFrame(
-                streamId: reset.streamId,
-                generation: reset.reviewGeneration.rawValue,
-                message: "providerUnavailable",
-                traceContext: packageTraceContext
-            )
             return .failure(.backendUnavailable(backend: "BridgeReviewSourceProvider"))
         } catch {
             let failureSummary = Self.reviewPackageLoadFailureSummary(for: error, stage: reviewLoadStage)
@@ -164,12 +139,6 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             paneState.diff.setStatus(.error, error: failureSummary)
             await productSchemeProvider?.publish(
                 availability: .failed,
-                traceContext: packageTraceContext
-            )
-            await deliverReviewProtocolErrorFrame(
-                streamId: reset.streamId,
-                generation: reset.reviewGeneration.rawValue,
-                message: failureSummary,
                 traceContext: packageTraceContext
             )
             return .failure(.invalidPayload(description: "Failed to load bridge review package"))
@@ -182,27 +151,14 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         paneState.diff.advanceEpoch()
         let reviewGeneration = nextReviewGeneration.next()
         nextReviewGeneration = reviewGeneration
-        nextReviewProtocolSequence = 0
-        // Accepting the new generation stale-drops queued review jobs from
-        // the previous package; the intake gate stays as-is because the
-        // review stream identity survives package reloads.
-        await worktreeFileMetadataScheduler.acceptGeneration(
-            reviewGeneration.rawValue,
-            protocolId: "review"
-        )
-        let resetSourceIdentity =
-            paneState.diff.packageMetadata?.query.queryId ?? reviewSourceIdentity(for: artifact)
         paneState.diff.setPackageMetadata(nil)
         paneState.diff.setPackageDelta(nil)
         let contentAuthorityLifetime = revokeReviewContentAuthoritySynchronously()
         await clearReviewContentAuthority(revokeAuthority: false)
-        let streamId = reviewProtocolStreamId()
         return ReviewPackageLoadReset(
             reviewGeneration: reviewGeneration,
-            streamId: streamId,
             contentAuthorityLifetime: contentAuthorityLifetime,
-            expectedRevocationRevision: reviewContentRevocationRevision(),
-            resetSourceIdentity: resetSourceIdentity
+            expectedRevocationRevision: reviewContentRevocationRevision()
         )
     }
 
@@ -394,20 +350,6 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     func handlePaneFilesystemContextEvent(_ event: PaneFilesystemContextEvent) async {
         guard shouldRefreshReviewPackage(for: event) else { return }
 
-        if let currentPackage = paneState.diff.packageMetadata {
-            await enqueueReviewProtocolFrameJob(
-                lane: .active,
-                generation: currentPackage.reviewGeneration.rawValue,
-                traceContext: lastReviewPackageTraceContext
-            ) { [weak self] sequence in
-                guard let self else { return nil }
-                return self.makeReviewProtocolInvalidationFrame(
-                    currentPackage: currentPackage,
-                    event: event,
-                    sequence: sequence
-                )
-            }
-        }
         hasPendingReviewRefresh = true
         pendingReviewPackageBuildReasons.insert(.filesystemRefresh)
         if let activeReviewRefreshTask {

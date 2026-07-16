@@ -9,11 +9,11 @@ import {
 	postPreparedBridgeCommWorkerMessage,
 	registerInertBridgeCommWorkerPortProtocol,
 } from './bridge-comm-worker-entry.js';
+import { makeFetchedReviewContentResource } from './bridge-comm-worker-entry.test-support.js';
 import {
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerSelectCommand,
 } from './bridge-comm-worker-protocol.js';
-import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 import {
 	createBridgeCommWorkerReviewProductTestSource,
@@ -45,7 +45,7 @@ import {
 	type BridgeWorkerReviewRenderSemantics,
 	type BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
-import type { BridgeWorkerFetchedReviewContentResource } from './bridge-worker-review-content-fetch.js';
+import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 import { prepareBridgeWorkerReviewContentRenderJobEvent } from './bridge-worker-review-content-ready.js';
 
 interface PostedBridgeWorkerMessage {
@@ -106,7 +106,12 @@ describe('Bridge comm worker entry', () => {
 				maxWindowLines: 50,
 			},
 			publicationSequence: 1,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 1, surface: 'review', workerDerivationEpoch: 1 }),
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'item-1',
+				publicationSequence: 1,
+				surface: 'review',
+				workerDerivationEpoch: 1,
+			}),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -167,7 +172,12 @@ describe('Bridge comm worker entry', () => {
 				maxWindowLines: 50,
 			},
 			publicationSequence: 1,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 1, surface: 'review', workerDerivationEpoch: 1 }),
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'item-1',
+				publicationSequence: 1,
+				surface: 'review',
+				workerDerivationEpoch: 1,
+			}),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:file',
@@ -849,24 +859,6 @@ function makeRenderSemantics(
 		language: 'swift',
 		contentLineCountsByRole: { base: 100, head: 80 },
 		...overrides,
-	};
-}
-
-function makeFetchedReviewContentResource(props: {
-	readonly contentHash: string;
-	readonly role: BridgeWorkerFetchedReviewContentResource['role'];
-	readonly text: string;
-}): BridgeWorkerFetchedReviewContentResource {
-	const textBytes = new TextEncoder().encode(props.text).buffer;
-	return {
-		itemId: 'item-1',
-		role: props.role,
-		contentHash: props.contentHash,
-		contentHashAlgorithm: 'fixture-preview',
-		language: 'swift',
-		byteLength: textBytes.byteLength,
-		text: props.text,
-		textBytes,
 	};
 }
 

@@ -284,7 +284,7 @@ expected failure phrase and exit code before production edits:
 | File tree/content disappearance after sustained deep scroll | `BridgeWeb/src/file-viewer/bridge-file-viewer-app.deep-scroll.browser.test.tsx` | focused Browser command for that exact file |
 | deterministic source-to-readable-DOM/disposition correlation | existing focused Browser integration tests | current `integration-browser` project with deterministic File/Review fixtures |
 | absent dedicated Vite product E2E and live-git oracle | future `BridgeWeb/tests/e2e/bridge-viewer-vite-product.e2e.test.tsx` | future `BridgeWeb/vitest.e2e.config.ts`; absence is the intentional RED until the post-Swift E2E slice |
-| shallow packaged Swift journey | `Tests/AgentStudioTests/Features/Bridge/BridgeProductRealGitFileAndReviewWebKitTests.swift` | `mise run test-webkit -- --filter BridgeProductRealGitFileAndReviewWebKitTests` |
+| shallow packaged Swift journey | `Tests/AgentStudioTests/Features/Bridge/BridgeProductRealGitFileAndReviewWebKitTests.swift` | `mise run test-webkit -- --filter WebKitSerializedTests/BridgeProductRealGitFileAndReviewWebKitTests` |
 | surviving legacy owners/carriers | TS `bridge-hard-cut-static-negative.source-structure.unit.test.ts` plus Swift `BridgeHardCutStaticNegativeTests.swift` and `BridgeProductBootstrapHardCutContractTests.swift` | focused Vitest paths plus `mise run test-fast -- --filter BridgeHardCutStaticNegativeTests` and `mise run test-fast -- --filter BridgeProductBootstrapHardCutContractTests` |
 | TypeScript and packaged BridgeWeb failures | `BridgeWeb/package.json` scripts | `pnpm -C BridgeWeb run check` and `pnpm -C BridgeWeb run build` |
 

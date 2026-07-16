@@ -9,16 +9,19 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     struct BridgeProductRealGitFileAndReviewWebKitTests {
         private struct LiveProof {
-            let dom: BridgeProductWebKitCarrierDOMSnapshot
+            let fileDOMAfterFileSwitch: BridgeProductWebKitCarrierDOMSnapshot
+            let fileCorrelationObserved: Bool
+            let fileModeActivated: Bool
+            let filePathSelected: Bool
             let legacyEgress: BridgeProductWebKitCarrierLegacyEgressSnapshot
             let native: BridgeProductWebKitCarrierNativeSnapshot
+            let reviewDOMBeforeFileSwitch: BridgeProductWebKitCarrierDOMSnapshot
             let sourceOracle: LiveSourceOracle
             let trace: BridgeProductWebKitCarrierTrace
         }
 
         private struct LiveSourceOracle {
             let canaryText: String
-            let itemId: String
             let path: String
             let sha256: String
         }
@@ -126,16 +129,67 @@ extension WebKitSerializedTests {
                     let dom = await BridgeProductWebKitCarrierTestSupport.domSnapshot(
                         hostedController.page
                     )
-                    return dom?.hasReviewShell == true
-                        && dom?.hasReviewCodeViewPanel == true
-                        && dom?.reviewSelectedContentState == "ready"
+                    guard let dom, let reviewRenderedItemId = dom.reviewRenderedItemId else {
+                        return false
+                    }
+                    return dom.hasReviewShell
+                        && dom.hasReviewCodeViewPanel
+                        && dom.reviewSelectedContentState == "ready"
+                        && dom.correlations.contains { correlation in
+                            correlation.surface == "review"
+                                && correlation.semanticItemId == reviewRenderedItemId
+                                && correlation.role == "head"
+                                && correlation.observedSHA256 == sourceOracle.sha256
+                                && correlation.disposition == "painted"
+                                && correlation.readableText.contains(sourceOracle.canaryText)
+                        }
                 }
+                let reviewDOMBeforeFileSwitch =
+                    await BridgeProductWebKitCarrierTestSupport.domSnapshot(
+                        hostedController.page
+                    ) ?? .unavailable
+                let fileModeActivated = await BridgeProductWebKitCarrierTestSupport.activateFileMode(
+                    hostedController.page
+                )
+                let filePathSelected: Bool
+                if fileModeActivated {
+                    filePathSelected = await BridgeProductWebKitCarrierTestSupport.waitUntil(
+                        timeout: .seconds(15)
+                    ) {
+                        await BridgeProductWebKitCarrierTestSupport.selectFilePath(
+                            hostedController.page,
+                            path: sourceOracle.path
+                        )
+                    }
+                } else {
+                    filePathSelected = false
+                }
+                let fileCorrelationObserved = await BridgeProductWebKitCarrierTestSupport.waitUntil(
+                    timeout: .seconds(15)
+                ) {
+                    let dom = await BridgeProductWebKitCarrierTestSupport.domSnapshot(
+                        hostedController.page
+                    )
+                    return dom?.correlations.contains { correlation in
+                        correlation.surface == "file"
+                            && correlation.role == "file"
+                            && correlation.observedSHA256 == sourceOracle.sha256
+                            && correlation.readableText.contains(sourceOracle.canaryText)
+                    } == true
+                }
+                let fileDOMAfterFileSwitch =
+                    await BridgeProductWebKitCarrierTestSupport.domSnapshot(
+                        hostedController.page
+                    ) ?? .unavailable
 
                 return LiveProof(
-                    dom: await BridgeProductWebKitCarrierTestSupport.domSnapshot(hostedController.page)
-                        ?? .unavailable,
+                    fileDOMAfterFileSwitch: fileDOMAfterFileSwitch,
+                    fileCorrelationObserved: fileCorrelationObserved,
+                    fileModeActivated: fileModeActivated,
+                    filePathSelected: filePathSelected,
                     legacyEgress: await legacyEgressRecorder.snapshot(),
                     native: await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(hostedController),
+                    reviewDOMBeforeFileSwitch: reviewDOMBeforeFileSwitch,
                     sourceOracle: sourceOracle,
                     trace: await traceRecorder.scrubbedTrace()
                 )
@@ -145,8 +199,11 @@ extension WebKitSerializedTests {
         private func assertProof(
             _ run: BridgeProductWebKitCarrierRunResult<LiveProof>
         ) {
+            let fileDOM = run.value.fileDOMAfterFileSwitch
+            let reviewDOM = run.value.reviewDOMBeforeFileSwitch
+            assertPackagedFrameLiveness(reviewDOM, fileDOM: fileDOM, host: run.hostSnapshot)
             #expect(
-                run.value.dom.hasAppRoot,
+                reviewDOM.hasAppRoot && fileDOM.hasAppRoot,
                 "W0 product seam: the current bundled BridgeWeb app did not mount"
             )
             #expect(
@@ -178,43 +235,86 @@ extension WebKitSerializedTests {
                 "W0 product seam: a product command remained in flight; native=\(run.value.native)"
             )
             #expect(
-                run.value.dom.hasFileModeHost && run.value.dom.hasReviewModeHost,
-                "W0 product seam: the canonical File+Review viewer hosts were not both constructed; dom=\(run.value.dom)"
+                reviewDOM.hasReviewModeHost && fileDOM.hasFileModeHost,
+                "W0 product seam: the canonical File+Review viewer hosts were not both constructed; reviewDOM=\(reviewDOM), fileDOM=\(fileDOM)"
             )
             #expect(
-                run.value.dom.hasReviewShell,
-                "W0 construction seam: Review metadata crossed the worker but no product Review shell mounted; dom=\(run.value.dom), legacyEgress=\(run.value.legacyEgress), trace=\(run.value.trace)"
+                reviewDOM.hasReviewShell,
+                "W0 construction seam: Review metadata crossed the worker but no product Review shell mounted; reviewDOM=\(reviewDOM), legacyEgress=\(run.value.legacyEgress), trace=\(run.value.trace)"
             )
             #expect(
-                run.value.dom.hasReviewCodeViewPanel
-                    && run.value.dom.reviewSelectedContentState == "ready"
-                    && run.value.dom.reviewSelectedContentLineCount > 0,
-                "W0 content-observation seam: Swift emitted Review content, but the worker did not acknowledge and drain the concurrent content streams into a ready CodeView while both legacy page sinks were closed; dom=\(run.value.dom), legacyEgress=\(run.value.legacyEgress), native=\(run.value.native)"
+                reviewDOM.hasReviewCodeViewPanel
+                    && reviewDOM.reviewSelectedContentState == "ready"
+                    && reviewDOM.reviewSelectedContentLineCount > 0,
+                "W0 content-observation seam: Swift emitted Review content, but the worker did not acknowledge and drain the concurrent content streams into a ready CodeView while both legacy page sinks were closed; reviewDOM=\(reviewDOM), legacyEgress=\(run.value.legacyEgress), native=\(run.value.native)"
             )
             #expect(
-                run.value.dom.reviewSelectedDisplayPath == run.value.sourceOracle.path,
-                "G0 PACKAGED SELECTED IDENTITY MISSING: selected Review path did not match the live-git oracle; selected=\(run.value.dom.reviewSelectedDisplayPath ?? "missing"), expected=\(run.value.sourceOracle.path)"
+                reviewDOM.reviewSelectedDisplayPath == run.value.sourceOracle.path,
+                "G0 PACKAGED SELECTED IDENTITY MISSING: selected Review path did not match the live-git oracle; selected=\(reviewDOM.reviewSelectedDisplayPath ?? "missing"), expected=\(run.value.sourceOracle.path)"
             )
             #expect(
-                run.value.dom.reviewRenderedItemId == run.value.sourceOracle.itemId,
-                "G0 PACKAGED SEMANTIC ITEM MISSING: rendered Review item did not match the live-git oracle; rendered=\(run.value.dom.reviewRenderedItemId ?? "missing"), expected=\(run.value.sourceOracle.itemId)"
+                reviewDOM.reviewRenderedItemId?.isEmpty == false,
+                "G0 PACKAGED SEMANTIC ITEM MISSING: rendered Review item did not retain its canonical semantic identity"
             )
             assertPaintCorrelation(
-                run.value.dom.correlations.first { correlation in
+                reviewDOM.correlations.first { correlation in
                     correlation.surface == "review"
-                        && correlation.itemId == run.value.sourceOracle.itemId
+                        && correlation.semanticItemId == reviewDOM.reviewRenderedItemId
                         && correlation.role == "head"
                 },
+                expectedSemanticItemId: reviewDOM.reviewRenderedItemId,
                 expectedSurface: "review",
                 sourceOracle: run.value.sourceOracle
             )
+            #expect(
+                run.value.fileModeActivated,
+                "G0 PACKAGED FILE MODE MISSING: the real bundled File control was not available"
+            )
+            #expect(
+                run.value.filePathSelected,
+                "G0 PACKAGED FILE SELECTION MISSING: File mode did not select the live-git source through the real tree"
+            )
+            #expect(
+                run.value.fileCorrelationObserved,
+                "G0 PACKAGED FILE PAINT MISSING: File mode never painted the independently read live-git source"
+            )
             assertPaintCorrelation(
-                run.value.dom.correlations.first { correlation in
+                fileDOM.correlations.first { correlation in
                     correlation.surface == "file"
-                        && correlation.itemId == run.value.sourceOracle.itemId
+                        && correlation.role == "file"
+                        && correlation.observedSHA256 == run.value.sourceOracle.sha256
                 },
+                expectedSemanticItemId: nil,
                 expectedSurface: "file",
                 sourceOracle: run.value.sourceOracle
+            )
+            assertLegacyEgressAndTeardown(run)
+        }
+
+        private func assertPackagedFrameLiveness(
+            _ reviewDOM: BridgeProductWebKitCarrierDOMSnapshot,
+            fileDOM: BridgeProductWebKitCarrierDOMSnapshot,
+            host: BridgeProductWebKitCarrierHostSnapshot
+        ) {
+            #expect(reviewDOM.documentVisibilityState == "visible", "host=\(host)")
+            #expect(fileDOM.documentVisibilityState == "visible", "host=\(host)")
+            #expect(reviewDOM.frameLivenessRafAlive == "true", "host=\(host)")
+            #expect(reviewDOM.frameLivenessRafFiredCount > 0, "host=\(host)")
+            #expect(reviewDOM.frameLivenessRafScheduledCount > 0, "host=\(host)")
+        }
+
+        private func assertLegacyEgressAndTeardown(
+            _ run: BridgeProductWebKitCarrierRunResult<LiveProof>
+        ) {
+            #expect(
+                run.value.legacyEgress.attemptedPushCount == 0
+                    && run.value.legacyEgress.attemptedPushByteCount == 0,
+                "G0 PACKAGED LEGACY PUSH SURVIVED: product push attempted page/native egress; legacyEgress=\(run.value.legacyEgress)"
+            )
+            #expect(
+                run.value.legacyEgress.attemptedIntakeCount == 0
+                    && run.value.legacyEgress.attemptedIntakeByteCount == 0,
+                "G0 PACKAGED LEGACY INTAKE SURVIVED: product intake attempted page/native egress; legacyEgress=\(run.value.legacyEgress)"
             )
             #expect(
                 run.teardownSnapshot.hasZeroResidue,
@@ -224,6 +324,7 @@ extension WebKitSerializedTests {
 
         private func assertPaintCorrelation(
             _ correlation: BridgeProductWebKitCarrierPaintCorrelation?,
+            expectedSemanticItemId: String?,
             expectedSurface: String,
             sourceOracle: LiveSourceOracle
         ) {
@@ -233,7 +334,12 @@ extension WebKitSerializedTests {
             )
             guard let correlation else { return }
             #expect(correlation.surface == expectedSurface)
-            #expect(correlation.semanticItemId == sourceOracle.itemId)
+            #expect(correlation.itemId == correlation.semanticItemId)
+            #expect(!correlation.pierreItemId.isEmpty)
+            #expect(!correlation.publicationId.isEmpty)
+            if let expectedSemanticItemId {
+                #expect(correlation.semanticItemId == expectedSemanticItemId)
+            }
             #expect(!correlation.descriptorId.isEmpty)
             #expect(!correlation.requestId.isEmpty)
             #expect(!correlation.sourceIdentity.isEmpty)
@@ -252,7 +358,6 @@ extension WebKitSerializedTests {
             let sourceData = try Data(contentsOf: repoURL.appending(path: path))
             return LiveSourceOracle(
                 canaryText: "updated",
-                itemId: "item-\(path)",
                 path: path,
                 sha256: SHA256.hash(data: sourceData)
                     .map { String(format: "%02x", $0) }

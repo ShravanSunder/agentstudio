@@ -26,8 +26,12 @@ export interface BridgeWorkerFetchedFileViewContentResource {
 	readonly language: string | null;
 	readonly maxBytes: number;
 	readonly path: string;
+	readonly requestId: string;
 	readonly resourceKind: 'file.content';
 	readonly sizeBytes: number;
+	readonly sourceGeneration: number;
+	readonly sourceIdentity: string;
+	readonly sourcePosition: string;
 	readonly text: string;
 	readonly textBytes: ArrayBuffer;
 }
@@ -68,8 +72,12 @@ export async function fetchBridgeWorkerFileViewContentResource(
 		language: props.contentRequest.language,
 		maxBytes: descriptor.maximumBytes,
 		path: props.contentRequest.path,
+		requestId: contentStream.contentRequestId,
 		resourceKind: 'file.content',
 		sizeBytes: props.contentRequest.sizeBytes,
+		sourceGeneration: descriptor.source.subscriptionGeneration,
+		sourceIdentity: descriptor.source.sourceId,
+		sourcePosition: terminal.endOfSource ? 'whole' : 'prefix:0',
 		text,
 		textBytes: terminal.bytes,
 	};

@@ -571,6 +571,7 @@ enum AgentStudioOTLPTraceProjection {
         "terminal.activity.rows_added",
         "terminal.activity.threshold_rows",
     ]).union(BridgeProductStreamProjectionKeys.numericKeys)
+        .union(BridgeProductPaintProjectionKeys.numericKeys)
 
     private static let allowedBooleanAttributeKeys: Set<String> = Set([
         "agentstudio.app.is_active",
@@ -675,6 +676,7 @@ enum AgentStudioOTLPTraceProjection {
         "terminal.activity.is_inferred",
         "terminal.activity.is_pinned_to_bottom",
     ]).union(BridgeProductStreamProjectionKeys.booleanKeys)
+        .union(BridgeProductPaintProjectionKeys.booleanKeys)
 
     private static let resourceKeysProjectedAsLogAttributes: Set<String> = [
         "agentstudio.release_channel",
@@ -886,5 +888,25 @@ private enum BridgeProductStreamProjectionKeys {
             "framed_stream.succeeded",
             "worker_observed_cancellation",
             "abort_causal_cancellation.succeeded",
+        ].map { "\(prefix).\($0)" })
+}
+
+private enum BridgeProductPaintProjectionKeys {
+    private static let prefix = "agentstudio.startup_diagnostic.bridge.product_paint"
+
+    static let numericKeys: Set<String> = Set(
+        [
+            "file_source_match.count",
+            "review_source_match.count",
+        ].map { "\(prefix).\($0)" })
+    static let booleanKeys: Set<String> = Set(
+        [
+            "document_visible",
+            "file_mode_activated",
+            "file_selected_identity_matched",
+            "file_source_matched",
+            "frame_live",
+            "review_selected_identity_matched",
+            "review_source_matched",
         ].map { "\(prefix).\($0)" })
 }

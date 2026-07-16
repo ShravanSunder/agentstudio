@@ -26,12 +26,18 @@ describe('Bridge worker review content fetch', () => {
 
 		expect(openedDescriptorIds).toEqual([descriptor.descriptorId]);
 		expect(result).toMatchObject({
-			itemId: 'item-1',
-			role: 'head',
+			byteLength: 19,
 			contentHash: 'sha256:item-1:head:generation-4',
 			contentHashAlgorithm: 'fixture-preview',
+			descriptorId: descriptor.descriptorId,
+			itemId: descriptor.itemId,
 			language: 'swift',
-			byteLength: 19,
+			observedSha256: 'a'.repeat(64),
+			requestId: `content-request-${descriptor.descriptorId}`,
+			role: descriptor.role,
+			sourceGeneration: descriptor.reviewGeneration,
+			sourceIdentity: descriptor.sourceIdentity,
+			sourcePosition: 'whole',
 		});
 		expect(result.textBytes.byteLength).toBe(19);
 		expect(new TextDecoder().decode(result.textBytes)).toBe('hello bridge worker');
@@ -40,20 +46,32 @@ describe('Bridge worker review content fetch', () => {
 	test('accepts a completed stream for an inexact Review byte range', async () => {
 		const descriptor = makeContentRequestDescriptor({ role: 'head', text: 'fixture' });
 		const maximumBytes = 64;
+		const startByte = 128;
 		const result = await fetchBridgeWorkerReviewContentResource({
 			descriptor: {
 				...descriptor,
 				declaredByteLength: null,
 				maximumBytes,
 				wholeByteLength: null,
-				window: { ...descriptor.window, maximumBytes },
+				window: { ...descriptor.window, maximumBytes, startByte },
 			},
 			openContent: (openedDescriptor) =>
 				makeImmediateReviewContentStream(openedDescriptor, 'hello bridge worker'),
 		});
 
-		expect(result.byteLength).toBe(19);
-		expect(result.text).toBe('hello bridge worker');
+		expect(result).toMatchObject({
+			byteLength: 19,
+			contentHash: descriptor.contentDigest.value,
+			descriptorId: descriptor.descriptorId,
+			itemId: descriptor.itemId,
+			observedSha256: 'a'.repeat(64),
+			requestId: `content-request-${descriptor.descriptorId}`,
+			role: descriptor.role,
+			sourceGeneration: descriptor.reviewGeneration,
+			sourceIdentity: descriptor.sourceIdentity,
+			sourcePosition: 'byteRange:128:19',
+			text: 'hello bridge worker',
+		});
 	});
 
 	test('rejects an error terminal from the Review content transport', async () => {

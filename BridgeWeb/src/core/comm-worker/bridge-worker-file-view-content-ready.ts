@@ -207,6 +207,18 @@ export function planBridgeWorkerFileViewPierreRenderJob(
 			},
 		},
 		budget: publicationCapacity,
+		sourceCorrelations: [
+			{
+				descriptorId: props.resource.descriptorId,
+				itemId: props.resource.itemId,
+				observedSha256: props.resource.contentHash,
+				position: props.resource.sourcePosition,
+				requestId: props.resource.requestId,
+				role: 'file',
+				sourceGeneration: props.resource.sourceGeneration,
+				sourceIdentity: props.resource.sourceIdentity,
+			},
+		],
 	});
 }
 

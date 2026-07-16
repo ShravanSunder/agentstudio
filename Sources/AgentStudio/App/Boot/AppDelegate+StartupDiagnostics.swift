@@ -44,6 +44,8 @@ extension AppDelegate {
                     await self.runBridgeFileViewTargetedRouteObservabilitySmokeDiagnostic(action: action)
                 case .bridgeReviewToFileViewObservabilitySmoke:
                     await self.runBridgeReviewToFileViewObservabilitySmokeDiagnostic(action: action)
+                case .bridgeProductPaintCorrelation:
+                    await self.runBridgeProductPaintCorrelationDiagnostic(action: action)
                 case .bridgeWorkerFetchSchemeSmoke:
                     await self.runBridgeWorkerFetchSchemeSmokeDiagnostic(action: action)
                 case .bridgeProductStreamWebKitFeasibility:

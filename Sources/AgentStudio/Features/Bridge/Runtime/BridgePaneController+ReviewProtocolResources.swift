@@ -13,50 +13,6 @@ extension BridgePaneController {
         _ load: BridgeReviewPackageLoadData,
         traceContext: BridgeTraceContext?
     ) async {
-        let generation = load.package.reviewGeneration.rawValue
-        let package = load.package
-        await enqueueReviewProtocolFrameJob(
-            lane: .foreground,
-            generation: generation,
-            traceContext: traceContext
-        ) { [weak self] sequence in
-            guard let self else { return nil }
-            return .snapshot(
-                try self.makeReviewProtocolSnapshotFrame(package: package, sequence: sequence)
-            )
-        }
-        if let delta = load.delta {
-            await enqueueReviewProtocolFrameJob(
-                lane: .foreground,
-                generation: generation,
-                traceContext: traceContext
-            ) { [weak self] sequence in
-                guard let self else { return nil }
-                return .delta(
-                    try self.makeReviewProtocolDeltaFrame(
-                        package: package,
-                        delta: delta,
-                        sequence: sequence
-                    )
-                )
-            }
-        }
-        for itemIds in Self.reviewStartupMetadataWindowItemIdChunks(package: package) {
-            await enqueueReviewProtocolFrameJob(
-                lane: .speculative,
-                generation: generation,
-                traceContext: traceContext
-            ) { [weak self] sequence in
-                guard let self else { return nil }
-                return .metadataWindow(
-                    try await self.makeReviewProtocolMetadataWindowFrame(
-                        package: package,
-                        itemIds: itemIds,
-                        sequence: sequence
-                    )
-                )
-            }
-        }
         paneState.diff.setPackageMetadata(load.package)
         paneState.diff.setPackageDelta(load.delta)
         paneState.diff.setStatus(.ready)

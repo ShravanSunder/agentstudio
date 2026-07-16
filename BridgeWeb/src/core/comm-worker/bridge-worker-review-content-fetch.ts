@@ -24,8 +24,14 @@ export interface BridgeWorkerFetchedReviewContentResource {
 	readonly role: BridgeWorkerReviewContentRequestDescriptor['role'];
 	readonly contentHash: string;
 	readonly contentHashAlgorithm: string;
+	readonly descriptorId: string;
 	readonly language: string | null;
 	readonly byteLength: number;
+	readonly observedSha256: string;
+	readonly requestId: string;
+	readonly sourceGeneration: number;
+	readonly sourceIdentity: string;
+	readonly sourcePosition: string;
 	readonly text: string;
 	readonly textBytes: ArrayBuffer;
 }
@@ -89,8 +95,17 @@ export async function fetchBridgeWorkerReviewContentResource(
 		role: descriptor.role,
 		contentHash: descriptor.contentDigest.value,
 		contentHashAlgorithm: descriptor.contentDigest.algorithm,
+		descriptorId: descriptor.descriptorId,
 		language: descriptor.language,
 		byteLength: terminal.bytes.byteLength,
+		observedSha256: terminal.observedSha256,
+		requestId: contentStream.contentRequestId,
+		sourceGeneration: descriptor.reviewGeneration,
+		sourceIdentity: descriptor.sourceIdentity,
+		sourcePosition:
+			terminal.endOfSource && descriptor.window.startByte === 0
+				? 'whole'
+				: `byteRange:${descriptor.window.startByte}:${terminal.bytes.byteLength}`,
 		text,
 		textBytes: terminal.bytes,
 	};

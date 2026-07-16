@@ -1,5 +1,11 @@
 import { z } from 'zod';
 
+import {
+	bridgeProductIdentifierSchema,
+	bridgeProductNonnegativeSequenceSchema,
+	bridgeProductSha256Schema,
+} from './bridge-product-contract-primitives.js';
+
 export const bridgeWorkerPierreRenderKindSchema = z.enum(['reviewDiff', 'fileText']);
 export const bridgeWorkerPierreBudgetClassSchema = z.enum(['interactive', 'visible', 'background']);
 export const bridgeWorkerDemandLaneSchema = z.enum([
@@ -33,6 +39,19 @@ const bridgeWorkerCodeViewContentStateSchema = z.enum([
 ]);
 
 const bridgeWorkerCodeViewContentRoleSchema = z.enum(['base', 'head', 'diff', 'file']);
+
+export const bridgeWorkerRenderSourceCorrelationSchema = z
+	.object({
+		descriptorId: bridgeProductIdentifierSchema,
+		itemId: z.string().min(1),
+		observedSha256: bridgeProductSha256Schema,
+		position: z.string().min(1).max(256),
+		requestId: bridgeProductIdentifierSchema,
+		role: bridgeWorkerCodeViewContentRoleSchema,
+		sourceGeneration: bridgeProductNonnegativeSequenceSchema,
+		sourceIdentity: bridgeProductIdentifierSchema,
+	})
+	.strict();
 
 const bridgeWorkerPierreFileContentsSchema = z
 	.object({
@@ -184,6 +203,11 @@ export const bridgeWorkerPierreRenderJobPropsSchema = z
 		window: bridgeWorkerPierreRenderWindowSchema,
 		payload: bridgeWorkerPierreRenderPayloadSchema,
 		budget: bridgeWorkerPierreRenderBudgetSchema,
+		sourceCorrelations: z
+			.array(bridgeWorkerRenderSourceCorrelationSchema)
+			.max(4)
+			.readonly()
+			.optional(),
 	})
 	.strict();
 
@@ -191,6 +215,7 @@ export const bridgeWorkerPierreRenderJobSchema = bridgeWorkerPierreRenderJobProp
 	.extend({
 		budgetClass: bridgeWorkerPierreBudgetClassSchema,
 		payloadByteLength: z.number().int().nonnegative(),
+		sourceCorrelations: z.array(bridgeWorkerRenderSourceCorrelationSchema).max(4).readonly(),
 		windowLineCount: z.number().int().nonnegative(),
 	})
 	.strict();
@@ -210,6 +235,9 @@ export type BridgeWorkerPierreCodeViewDiffItemPayload = z.infer<
 >;
 export type BridgeWorkerPierreRenderPayload = z.infer<typeof bridgeWorkerPierreRenderPayloadSchema>;
 export type BridgeWorkerPierreRenderBudget = z.infer<typeof bridgeWorkerPierreRenderBudgetSchema>;
+export type BridgeWorkerRenderSourceCorrelation = z.infer<
+	typeof bridgeWorkerRenderSourceCorrelationSchema
+>;
 export type BuildBridgeWorkerPierreRenderJobProps = z.infer<
 	typeof bridgeWorkerPierreRenderJobPropsSchema
 >;
@@ -240,6 +268,7 @@ export function buildBridgeWorkerPierreRenderJob(
 		...parsedProps,
 		budgetClass: parsedProps.budget.className,
 		payloadByteLength,
+		sourceCorrelations: parsedProps.sourceCorrelations ?? [],
 		windowLineCount,
 	});
 }

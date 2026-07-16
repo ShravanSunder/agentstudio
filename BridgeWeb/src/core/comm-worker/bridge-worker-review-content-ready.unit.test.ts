@@ -6,12 +6,12 @@ import {
 	type BridgeWorkerReviewContentMetadata,
 	type BridgeWorkerReviewRenderSemantics,
 } from './bridge-worker-contracts.js';
+import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 import type { BridgeWorkerFetchedReviewContentResource } from './bridge-worker-review-content-fetch.js';
 import {
 	commitBridgeWorkerReviewContentReadyRenderPatch,
 	prepareBridgeWorkerReviewContentRenderJobEvent,
 } from './bridge-worker-review-content-ready.js';
-import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 
 describe('Bridge worker review content ready', () => {
 	test('publishes only schema-valid surface-typed Review content-ready events', () => {
@@ -29,7 +29,12 @@ describe('Bridge worker review content ready', () => {
 				maxWindowLines: 50,
 			},
 			publicationSequence: 11,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 11, surface: 'review', workerDerivationEpoch: 7 }),
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'item-1',
+				publicationSequence: 11,
+				surface: 'review',
+				workerDerivationEpoch: 7,
+			}),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -90,7 +95,12 @@ describe('Bridge worker review content ready', () => {
 				maxWindowLines: 50,
 			},
 			publicationSequence: 11,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 11, surface: 'review', workerDerivationEpoch: 7 }),
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'item-1',
+				publicationSequence: 11,
+				surface: 'review',
+				workerDerivationEpoch: 7,
+			}),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -148,7 +158,12 @@ describe('Bridge worker review content ready', () => {
 				maxWindowLines: 50,
 			},
 			publicationSequence: 11,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 11, surface: 'review', workerDerivationEpoch: 7 }),
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'item-1',
+				publicationSequence: 11,
+				surface: 'review',
+				workerDerivationEpoch: 7,
+			}),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -227,7 +242,12 @@ describe('Bridge worker review content ready', () => {
 				maxWindowLines: 50,
 			},
 			publicationSequence: 11,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 11, surface: 'review', workerDerivationEpoch: 7 }),
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'item-1',
+				publicationSequence: 11,
+				surface: 'review',
+				workerDerivationEpoch: 7,
+			}),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -284,8 +304,14 @@ function makeFetchedReviewContentResource(props: {
 		role: props.role,
 		contentHash: props.contentHash,
 		contentHashAlgorithm: 'fixture-preview',
+		descriptorId: `descriptor-item-1-${props.role}`,
 		language: 'swift',
 		byteLength: textBytes.byteLength,
+		observedSha256: props.role === 'base' ? 'a'.repeat(64) : 'b'.repeat(64),
+		requestId: `content-request-item-1-${props.role}`,
+		sourceGeneration: 7,
+		sourceIdentity: 'review-source-1',
+		sourcePosition: 'whole',
 		text: props.text,
 		textBytes,
 	};

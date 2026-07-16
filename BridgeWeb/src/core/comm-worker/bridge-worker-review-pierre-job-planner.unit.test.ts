@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'vitest';
 
 import type { BridgeWorkerReviewRenderSemantics } from './bridge-worker-contracts.js';
+import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 import type { BridgeWorkerFetchedReviewContentResource } from './bridge-worker-review-content-fetch.js';
 import {
 	planBridgeWorkerReviewPierreRenderJob,
 	prepareBridgeWorkerReviewPierreRenderJobEvent,
 } from './bridge-worker-review-pierre-job-planner.js';
-import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 
 describe('Bridge worker review Pierre job planner', () => {
 	test('plans modified review diffs as worker-prepared CodeView items', () => {
@@ -56,6 +56,63 @@ describe('Bridge worker review Pierre job planner', () => {
 				'pierre-content:fixture-preview:sha256:item-1:head',
 			);
 		}
+	});
+
+	test('preserves ordered base and head source lineage on modified Review jobs', () => {
+		// Arrange
+		const resources = [
+			makeFetchedReviewContentResource({
+				contentHash: 'sha256:item-1:base',
+				lineCount: 2,
+				role: 'base',
+				text: 'export const before = 1;\n',
+			}),
+			makeFetchedReviewContentResource({
+				contentHash: 'sha256:item-1:head',
+				lineCount: 2,
+				role: 'head',
+				text: 'export const after = 2;\n',
+			}),
+		];
+
+		// Act
+		const job = planBridgeWorkerReviewPierreRenderJob({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			resources,
+			semantics: makeRenderSemantics({
+				contentLineCountsByRole: { base: 2, head: 2 },
+				itemKind: 'diff',
+			}),
+		});
+
+		// Assert
+		expect(job?.sourceCorrelations).toEqual([
+			{
+				descriptorId: 'descriptor-item-1-base',
+				itemId: 'item-1',
+				observedSha256: 'a'.repeat(64),
+				position: 'whole',
+				requestId: 'content-request-item-1-base',
+				role: 'base',
+				sourceGeneration: 7,
+				sourceIdentity: 'review-source-1',
+			},
+			{
+				descriptorId: 'descriptor-item-1-head',
+				itemId: 'item-1',
+				observedSha256: 'b'.repeat(64),
+				position: 'whole',
+				requestId: 'content-request-item-1-head',
+				role: 'head',
+				sourceGeneration: 7,
+				sourceIdentity: 'review-source-1',
+			},
+		]);
 	});
 
 	test('plans modified review diffs from base and head content windows', () => {
@@ -243,6 +300,75 @@ describe('Bridge worker review Pierre job planner', () => {
 		}
 	});
 
+	test('retains only the available source lineage for one-sided added and deleted Review jobs', () => {
+		// Arrange
+		const budget = {
+			className: 'interactive' as const,
+			maxBytes: 512 * 1024,
+			maxWindowLines: 100,
+		};
+		const addedResource = makeFetchedReviewContentResource({
+			contentHash: 'sha256:item-1:head',
+			lineCount: 33,
+			role: 'head',
+			text: 'let added = true;\n',
+		});
+		const deletedResource = makeFetchedReviewContentResource({
+			contentHash: 'sha256:item-1:base',
+			lineCount: 33,
+			role: 'base',
+			text: 'let deleted = true;\n',
+		});
+
+		// Act
+		const addedJob = planBridgeWorkerReviewPierreRenderJob({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget,
+			resources: [addedResource],
+			semantics: makeRenderSemantics({
+				changeKind: 'added',
+				contentLineCountsByRole: { head: 33 },
+				itemKind: 'file',
+			}),
+		});
+		const deletedJob = planBridgeWorkerReviewPierreRenderJob({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget,
+			resources: [deletedResource],
+			semantics: makeRenderSemantics({
+				changeKind: 'deleted',
+				contentLineCountsByRole: { base: 33 },
+				itemKind: 'file',
+			}),
+		});
+
+		// Assert
+		expect(addedJob?.sourceCorrelations).toEqual([
+			{
+				descriptorId: 'descriptor-item-1-head',
+				itemId: 'item-1',
+				observedSha256: 'b'.repeat(64),
+				position: 'whole',
+				requestId: 'content-request-item-1-head',
+				role: 'head',
+				sourceGeneration: 7,
+				sourceIdentity: 'review-source-1',
+			},
+		]);
+		expect(deletedJob?.sourceCorrelations).toEqual([
+			{
+				descriptorId: 'descriptor-item-1-base',
+				itemId: 'item-1',
+				observedSha256: 'a'.repeat(64),
+				position: 'whole',
+				requestId: 'content-request-item-1-base',
+				role: 'base',
+				sourceGeneration: 7,
+				sourceIdentity: 'review-source-1',
+			},
+		]);
+	});
+
 	test('derives the bounded Review window from fetched text when metadata omits extent facts', () => {
 		const fetchedText =
 			[
@@ -404,7 +530,12 @@ describe('Bridge worker review Pierre job planner', () => {
 				maxWindowLines: 50,
 			},
 			publicationSequence: 11,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 11, surface: 'review', workerDerivationEpoch: 7 }),
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'item-1',
+				publicationSequence: 11,
+				surface: 'review',
+				workerDerivationEpoch: 7,
+			}),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
@@ -459,7 +590,12 @@ describe('Bridge worker review Pierre job planner', () => {
 				maxWindowLines: 100,
 			},
 			publicationSequence: 11,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 11, surface: 'review', workerDerivationEpoch: 7 }),
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'item-1',
+				publicationSequence: 11,
+				surface: 'review',
+				workerDerivationEpoch: 7,
+			}),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:head',
@@ -497,7 +633,12 @@ describe('Bridge worker review Pierre job planner', () => {
 				maxWindowLines: 400,
 			},
 			publicationSequence: 11,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 11, surface: 'review', workerDerivationEpoch: 7 }),
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'item-1',
+				publicationSequence: 11,
+				surface: 'review',
+				workerDerivationEpoch: 7,
+			}),
 			resources: [
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:file',
@@ -536,7 +677,12 @@ describe('Bridge worker review Pierre job planner', () => {
 				maxWindowLines: 50,
 			},
 			publicationSequence: 11,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 11, surface: 'review', workerDerivationEpoch: 7 }),
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'item-1',
+				publicationSequence: 11,
+				surface: 'review',
+				workerDerivationEpoch: 7,
+			}),
 			resources: [
 				makeFetchedReviewContentResource({
 					role: 'base',
@@ -584,8 +730,14 @@ function makeFetchedReviewContentResource(props: {
 		role: props.role,
 		contentHash: props.contentHash ?? `sha256:item-1:${props.role}`,
 		contentHashAlgorithm: 'fixture-preview',
+		descriptorId: `descriptor-item-1-${props.role}`,
 		language: props.language === undefined ? 'swift' : props.language,
 		byteLength: textBytes.byteLength,
+		observedSha256: props.role === 'base' ? 'a'.repeat(64) : 'b'.repeat(64),
+		requestId: `content-request-item-1-${props.role}`,
+		sourceGeneration: 7,
+		sourceIdentity: 'review-source-1',
+		sourcePosition: 'whole',
 		text,
 		textBytes,
 	};

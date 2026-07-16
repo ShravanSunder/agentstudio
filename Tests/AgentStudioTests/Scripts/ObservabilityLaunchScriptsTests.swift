@@ -88,6 +88,10 @@ struct ObservabilityLaunchScriptsTests {
         #expect(testHelperScript.contains("WorkspaceSurfaceCoordinatorFilesystemSourceTests"))
         #expect(testHelperScript.contains("WebKitSerializedTests/BridgePaneControllerIPCProjectionTests"))
         #expect(testHelperScript.contains("WebKitSerializedTests/BridgePaneControllerContentAuthorityTests"))
+        #expect(
+            testHelperScript.contains(
+                "WebKitSerializedTests/BridgeProductRealGitFileAndReviewWebKitTests"
+            ))
         #expect(!testHelperScript.contains("\nWebKitSerializedTests/BridgeTransportIntegrationTests\n"))
         #expect(testHelperScript.contains("terminate_process_tree TERM \"$command_pid\""))
         #expect(!testHelperScript.contains("pkill -9 -f"))

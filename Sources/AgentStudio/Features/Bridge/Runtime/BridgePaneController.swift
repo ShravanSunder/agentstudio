@@ -13,8 +13,9 @@ private let bridgeControllerLogger = Logger(subsystem: "com.agentstudio", catego
 /// - Bootstrap `WKUserScript` injected at document start in the bridge world
 /// - `BridgeSchemeHandler` registered for the `agentstudio://` custom URL scheme
 ///
-/// The controller owns the scheme-command dispatcher used by scheme RPC. Push plans are started
-/// only after the `bridge.ready` handshake completes.
+/// The controller owns the scheme-command dispatcher used by scheme RPC. The `bridge.ready`
+/// handshake is bootstrap-only; ordinary File and Review product data uses the pane product
+/// session and its direct comm-worker streams.
 ///
 /// Unlike `WebviewPaneController` which uses a shared static configuration,
 /// `BridgePaneController` creates a **per-pane** configuration because each pane
@@ -33,7 +34,7 @@ final class BridgePaneController {
     var paneState: PaneDomainState { runtime.paneState }
 
     /// Whether the bridge handshake has completed.
-    /// No state pushes or commands are allowed before this becomes `true`.
+    /// No bootstrap-gated commands are allowed before this becomes `true`.
     /// Gated and idempotent — once set, subsequent `bridge.ready` messages are ignored.
     private(set) var isBridgeReady = false
 
@@ -629,7 +630,7 @@ final class BridgePaneController {
     /// Handle the `bridge.ready` message from the bridge world.
     ///
     /// This is gated and idempotent:
-    /// - First call sets `isBridgeReady = true` and starts push plans.
+    /// - First call sets `isBridgeReady = true`.
     /// - Subsequent calls are silently ignored.
     ///
     /// `internal` (not `private`) for testability — allows integration tests to
@@ -655,15 +656,6 @@ final class BridgePaneController {
         }
         isBridgeReady = true
 
-        diffPushPlan = makeDiffPushPlan()
-        reviewPushPlan = makeReviewPushPlan()
-        connectionPushPlan = makeConnectionPushPlan()
-        agentPushPlan = makeAgentPushPlan()
-
-        diffPushPlan?.start()
-        reviewPushPlan?.start()
-        connectionPushPlan?.start()
-        agentPushPlan?.start()
         return true
     }
 
@@ -702,7 +694,6 @@ final class BridgePaneController {
         } else {
             clearActiveViewerModeAcceptedSignalForExplicitReviewRequest()
         }
-        await worktreeFileMetadataScheduler.openGate(protocolId: "review")
         // The review viewer announces intake-ready when its surface mounts or
         // when an active surface has no applied snapshot. An announce is the
         // browser declaring "I have no usable review state": a cold pane

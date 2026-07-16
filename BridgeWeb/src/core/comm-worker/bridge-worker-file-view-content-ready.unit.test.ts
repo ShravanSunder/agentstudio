@@ -29,7 +29,12 @@ describe('Bridge worker File View content ready', () => {
 			},
 			metadata: makeWorkerFileViewContentMetadata(),
 			publicationSequence: 23,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'file-1',
+				publicationSequence: 23,
+				surface: 'file',
+				workerDerivationEpoch: 17,
+			}),
 			resource: makeFetchedFileViewContentResource({
 				text: 'export const fileView = true;\n',
 			}),
@@ -47,7 +52,7 @@ describe('Bridge worker File View content ready', () => {
 				itemId: 'file-1',
 				renderKind: 'fileText',
 				contentCacheKey: 'file-view:metadata-cache:file-1',
-				contentHash: 'sha256:file-1',
+				contentHash: 'a'.repeat(64),
 				payload: {
 					kind: 'codeViewFileItem',
 					item: {
@@ -99,6 +104,47 @@ describe('Bridge worker File View content ready', () => {
 		expect(store.actions.takePendingSlicePatchEvent({ epoch: 17, sequence: 24 })).toBeNull();
 	});
 
+	test('stamps exact File source lineage on generated Pierre jobs', () => {
+		// Arrange
+		const resource = makeFetchedFileViewContentResource({
+			text: 'export const fileView = true;\n',
+		});
+
+		// Act
+		const result = prepareBridgeWorkerFileViewContentRenderJobEvent({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			metadata: makeWorkerFileViewContentMetadata(),
+			publicationSequence: 23,
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'file-1',
+				publicationSequence: 23,
+				surface: 'file',
+				workerDerivationEpoch: 17,
+			}),
+			resource,
+			workerDerivationEpoch: 17,
+		});
+
+		// Assert
+		expect(result?.message.job.sourceCorrelations).toEqual([
+			{
+				descriptorId: 'descriptor-file-1',
+				itemId: 'file-1',
+				observedSha256: 'a'.repeat(64),
+				position: 'whole',
+				requestId: 'content-request-file-1',
+				role: 'file',
+				sourceGeneration: 3,
+				sourceIdentity: 'file-source-1',
+			},
+		]);
+	});
+
 	test('commits File View content-ready slice patches only after the render job is accepted', () => {
 		const store = createBridgeCommWorkerStore({
 			surface: 'file',
@@ -114,7 +160,12 @@ describe('Bridge worker File View content ready', () => {
 			},
 			metadata: makeWorkerFileViewContentMetadata(),
 			publicationSequence: 23,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'file-1',
+				publicationSequence: 23,
+				surface: 'file',
+				workerDerivationEpoch: 17,
+			}),
 			resource: makeFetchedFileViewContentResource({
 				text: 'export const fileView = true;\n',
 			}),
@@ -196,7 +247,12 @@ describe('Bridge worker File View content ready', () => {
 				payloadLineCount: 4,
 			}),
 			publicationSequence: 23,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'file-1',
+				publicationSequence: 23,
+				surface: 'file',
+				workerDerivationEpoch: 17,
+			}),
 			resource: makeFetchedFileViewContentResource({
 				text: 'one\ntwo\nthree\nfour\n',
 			}),
@@ -240,7 +296,12 @@ describe('Bridge worker File View content ready', () => {
 				payloadLineCount: 5,
 			}),
 			publicationSequence: 23,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'file-1',
+				publicationSequence: 23,
+				surface: 'file',
+				workerDerivationEpoch: 17,
+			}),
 			resource: makeFetchedFileViewContentResource({
 				text: 'one\ntwo\nthree\nfour\nfive\n',
 			}),
@@ -273,7 +334,12 @@ describe('Bridge worker File View content ready', () => {
 				payloadLineCount: 5,
 			}),
 			publicationSequence: 23,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'file-1',
+				publicationSequence: 23,
+				surface: 'file',
+				workerDerivationEpoch: 17,
+			}),
 			resource: makeFetchedFileViewContentResource({
 				text: 'one\ntwo\nthree\nfour\nfive\n',
 			}),
@@ -335,7 +401,12 @@ describe('Bridge worker File View content ready', () => {
 					payloadLineCount: expectedLineCount,
 				}),
 				publicationSequence: 23,
-				renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
+				renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+					itemId: 'file-1',
+					publicationSequence: 23,
+					surface: 'file',
+					workerDerivationEpoch: 17,
+				}),
 				resource: makeFetchedFileViewContentResource({ text }),
 				workerDerivationEpoch: 17,
 			});
@@ -383,7 +454,12 @@ describe('Bridge worker File View content ready', () => {
 			},
 			metadata,
 			publicationSequence: 23,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'file-1',
+				publicationSequence: 23,
+				surface: 'file',
+				workerDerivationEpoch: 17,
+			}),
 			resource: makeFetchedFileViewContentResource({ text: 'a\n' }),
 			workerDerivationEpoch: 17,
 		});
@@ -410,7 +486,12 @@ describe('Bridge worker File View content ready', () => {
 				truncationKind: 'lineLimit',
 			}),
 			publicationSequence: 23,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'file-1',
+				publicationSequence: 23,
+				surface: 'file',
+				workerDerivationEpoch: 17,
+			}),
 			resource: makeFetchedFileViewContentResource({ sizeBytes: sourceByteCount, text }),
 			workerDerivationEpoch: 17,
 		});
@@ -434,7 +515,12 @@ describe('Bridge worker File View content ready', () => {
 			},
 			metadata: makeWorkerFileViewContentMetadata({ omitContentHash: true }),
 			publicationSequence: 23,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'file-1',
+				publicationSequence: 23,
+				surface: 'file',
+				workerDerivationEpoch: 17,
+			}),
 			resource: makeFetchedFileViewContentResource({
 				omitContentHash: true,
 				text: 'hashless content must not fake identity\n',
@@ -482,7 +568,12 @@ function expectNoPreparedJobForMetadata(metadata: BridgeWorkerFileViewContentMet
 		},
 		metadata,
 		publicationSequence: 23,
-		renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 23, surface: 'file', workerDerivationEpoch: 17 }),
+		renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+			itemId: 'file-1',
+			publicationSequence: 23,
+			surface: 'file',
+			workerDerivationEpoch: 17,
+		}),
 		resource: makeFetchedFileViewContentResource({
 			text: 'blocked metadata must not become text payload\n',
 		}),
@@ -508,7 +599,7 @@ function makeWorkerFileViewContentMetadata(
 		readonly truncationKind?: 'none' | 'byteLimit' | 'lineLimit' | 'both';
 	} = {},
 ): BridgeWorkerFileViewContentMetadata {
-	const contentHash = props.contentHash ?? 'sha256:file-1';
+	const contentHash = props.contentHash ?? 'a'.repeat(64);
 	const payloadByteCount = props.payloadByteCount ?? 30;
 	const payloadLineCount = props.payloadLineCount ?? 1;
 	return {
@@ -543,7 +634,7 @@ function makeFetchedFileViewContentResource(props: {
 	readonly sizeBytes?: number;
 	readonly text: string;
 }): BridgeWorkerFetchedFileViewContentResource {
-	const contentHash = props.contentHash ?? 'sha256:file-1';
+	const contentHash = props.contentHash ?? 'a'.repeat(64);
 	const textBytes = new TextEncoder().encode(props.text).buffer;
 	return {
 		itemId: 'file-1',
@@ -556,6 +647,10 @@ function makeFetchedFileViewContentResource(props: {
 		sizeBytes: props.sizeBytes ?? textBytes.byteLength,
 		maxBytes: textBytes.byteLength,
 		byteLength: textBytes.byteLength,
+		requestId: 'content-request-file-1',
+		sourceGeneration: 3,
+		sourceIdentity: 'file-source-1',
+		sourcePosition: 'whole',
 		text: props.text,
 		textBytes,
 	};

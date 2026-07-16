@@ -10,7 +10,9 @@ struct BridgeProductWebKitCarrierPaintCorrelation: Decodable, Equatable, Sendabl
     let disposition: String
     let itemId: String
     let observedSHA256: String
+    let pierreItemId: String
     let position: String
+    let publicationId: String
     let readableDOMSelector: String
     let readableText: String
     let requestId: String
@@ -25,7 +27,9 @@ struct BridgeProductWebKitCarrierPaintCorrelation: Decodable, Equatable, Sendabl
         case disposition
         case itemId
         case observedSHA256 = "observedSha256"
+        case pierreItemId
         case position
+        case publicationId
         case readableDOMSelector = "readableDomSelector"
         case readableText
         case requestId
@@ -39,12 +43,17 @@ struct BridgeProductWebKitCarrierPaintCorrelation: Decodable, Equatable, Sendabl
 
 struct BridgeProductWebKitCarrierDOMSnapshot: Decodable, Equatable, Sendable {
     let correlations: [BridgeProductWebKitCarrierPaintCorrelation]
+    let documentVisibilityState: String
+    let frameLivenessRafAlive: String
+    let frameLivenessRafFiredCount: Int
+    let frameLivenessRafScheduledCount: Int
     let hasAppRoot: Bool
     let hasFileModeHost: Bool
     let hasReviewModeHost: Bool
     let hasReviewMetadataFailedShell: Bool
     let hasReviewMetadataLoadingShell: Bool
     let hasReviewShell: Bool
+    let paintedElementCount: Int
     let hasReviewCodeViewPanel: Bool
     let reviewSelectedContentLineCount: Int
     let reviewSelectedContentState: String?
@@ -53,12 +62,17 @@ struct BridgeProductWebKitCarrierDOMSnapshot: Decodable, Equatable, Sendable {
 
     static let unavailable = Self(
         correlations: [],
+        documentVisibilityState: "unavailable",
+        frameLivenessRafAlive: "unavailable",
+        frameLivenessRafFiredCount: 0,
+        frameLivenessRafScheduledCount: 0,
         hasAppRoot: false,
         hasFileModeHost: false,
         hasReviewModeHost: false,
         hasReviewMetadataFailedShell: false,
         hasReviewMetadataLoadingShell: false,
         hasReviewShell: false,
+        paintedElementCount: 0,
         hasReviewCodeViewPanel: false,
         reviewSelectedContentLineCount: 0,
         reviewSelectedContentState: nil,
@@ -222,8 +236,26 @@ actor BridgeProductWebKitCarrierTraceRecorder: BridgePerformanceTraceRecording {
 }
 
 struct BridgeProductWebKitCarrierRunResult<Value> {
+    let hostSnapshot: BridgeProductWebKitCarrierHostSnapshot
     let teardownSnapshot: BridgePaneProductSessionOwnerSnapshot
     let value: Value
+}
+
+struct BridgeProductWebKitCarrierHostSnapshot: Equatable, Sendable, CustomStringConvertible {
+    let applicationIsActive: Bool
+    let hostingViewHasWindow: Bool
+    let hostingViewHeight: Double
+    let hostingViewWidth: Double
+    let mountViewHasWindow: Bool
+    let mountViewHeight: Double
+    let mountViewWidth: Double
+    let windowIsKey: Bool
+    let windowIsVisible: Bool
+    let windowOcclusionIsVisible: Bool
+
+    var description: String {
+        "appActive=\(applicationIsActive),windowVisible=\(windowIsVisible),windowKey=\(windowIsKey),occlusionVisible=\(windowOcclusionIsVisible),mount=\(mountViewWidth)x\(mountViewHeight)/attached=\(mountViewHasWindow),hosting=\(hostingViewWidth)x\(hostingViewHeight)/attached=\(hostingViewHasWindow)"
+    }
 }
 
 @MainActor
@@ -250,8 +282,10 @@ enum BridgeProductWebKitCarrierTestSupport {
 
         do {
             let value = try await operation(controller)
+            let hostSnapshot = hostSnapshot(window: window, mountView: mountView)
             let teardownSnapshot = await teardown(controller: controller, window: window)
             return BridgeProductWebKitCarrierRunResult(
+                hostSnapshot: hostSnapshot,
                 teardownSnapshot: teardownSnapshot,
                 value: value
             )
@@ -284,19 +318,65 @@ enum BridgeProductWebKitCarrierTestSupport {
                 const selectedContentLineCount = Number(
                   codeViewPanel?.getAttribute('data-selected-content-line-count') ?? '0'
                 );
-                const sourceCellReport = globalThis.__bridgeProductSourceCellReport;
-                const correlations = Array.isArray(sourceCellReport?.correlations)
-                  ? sourceCellReport.correlations.map((correlation) => ({
+                const appRoot = document.querySelector('[data-testid="bridge-app-root"]');
+                const readableTextIncludingOpenShadowRoots = (root) => {
+                  const textParts = [];
+                  const visit = (node) => {
+                    if (node.nodeType === Node.TEXT_NODE) {
+                      textParts.push(node.textContent ?? '');
+                      return;
+                    }
+                    if (node instanceof Element && node.shadowRoot !== null) {
+                      visit(node.shadowRoot);
+                    }
+                    for (const child of node.childNodes) visit(child);
+                  };
+                  visit(root);
+                  return textParts.join(' ');
+                };
+                const paintedElements = [];
+                const collectPaintedElements = (root) => {
+                  for (const element of root.querySelectorAll('*')) {
+                    if (element.hasAttribute('data-bridge-painted-source-correlations')) {
+                      paintedElements.push(element);
+                    }
+                    if (element.shadowRoot !== null) collectPaintedElements(element.shadowRoot);
+                  }
+                };
+                collectPaintedElements(document);
+                const correlations = paintedElements.flatMap((element) => {
+                  const publicationId =
+                    element.getAttribute('data-bridge-painted-publication-id') ?? '';
+                  let sourceCorrelations = [];
+                  try {
+                    const parsedCorrelations = JSON.parse(
+                      element.getAttribute('data-bridge-painted-source-correlations') ?? '[]'
+                    );
+                    if (Array.isArray(parsedCorrelations)) sourceCorrelations = parsedCorrelations;
+                  } catch {
+                    sourceCorrelations = [];
+                  }
+                  const readableDomSelector =
+                    `[data-bridge-painted-publication-id="${CSS.escape(publicationId)}"]`;
+                  const readableText = readableTextIncludingOpenShadowRoots(element);
+                  return sourceCorrelations
+                    .filter((correlation) => correlation?.publicationId === publicationId)
+                    .map((correlation) => ({
                       ...correlation,
-                      readableText:
-                        typeof correlation?.readableDomSelector === 'string'
-                          ? document.querySelector(correlation.readableDomSelector)?.textContent ?? ''
-                          : ''
-                    }))
-                  : [];
+                      readableDomSelector,
+                      readableText
+                    }));
+                });
                 return JSON.stringify({
                   correlations,
-                  hasAppRoot: document.querySelector('[data-testid="bridge-app-root"]') !== null,
+                  documentVisibilityState: document.visibilityState,
+                  frameLivenessRafAlive:
+                    globalThis.__bridgeFrameLivenessProbe?.rafAlive ?? 'missing',
+                  frameLivenessRafFiredCount:
+                    globalThis.__bridgeFrameLivenessProbe?.rafFiredCount ?? 0,
+                  frameLivenessRafScheduledCount:
+                    globalThis.__bridgeFrameLivenessProbe?.rafScheduledCount ?? 0,
+                  hasAppRoot: appRoot !== null,
                   hasFileModeHost:
                     document.querySelector('[data-testid="bridge-viewer-mode-host-file"]') !== null,
                   hasReviewModeHost:
@@ -306,6 +386,7 @@ enum BridgeProductWebKitCarrierTestSupport {
                   hasReviewMetadataLoadingShell:
                     document.querySelector('[data-testid="bridge-review-metadata-loading-shell"]') !== null,
                   hasReviewShell: reviewShell !== null,
+                  paintedElementCount: paintedElements.length,
                   hasReviewCodeViewPanel: codeViewPanel !== null,
                   reviewSelectedContentLineCount:
                     Number.isSafeInteger(selectedContentLineCount) && selectedContentLineCount >= 0
@@ -322,15 +403,69 @@ enum BridgeProductWebKitCarrierTestSupport {
                 });
                 """
             )
-            guard let encodedSnapshot = encodedSnapshot as? String,
-                let snapshotData = encodedSnapshot.data(using: .utf8)
-            else { return nil }
-            return try JSONDecoder().decode(
-                BridgeProductWebKitCarrierDOMSnapshot.self,
-                from: snapshotData
-            )
+            return try decodeDOMSnapshot(encodedSnapshot)
         } catch {
             return nil
+        }
+    }
+
+    private static func decodeDOMSnapshot(
+        _ encodedSnapshot: Any?
+    ) throws -> BridgeProductWebKitCarrierDOMSnapshot? {
+        guard let encodedSnapshot = encodedSnapshot as? String,
+            let snapshotData = encodedSnapshot.data(using: .utf8)
+        else { return nil }
+        return try JSONDecoder().decode(
+            BridgeProductWebKitCarrierDOMSnapshot.self,
+            from: snapshotData
+        )
+    }
+
+    static func activateFileMode(_ page: WebPage) async -> Bool {
+        do {
+            let didActivate = try await page.callJavaScript(
+                """
+                const button = document.querySelector('[data-testid="bridge-viewer-context-file"]');
+                if (!(button instanceof HTMLElement)) return false;
+                button.click();
+                return true;
+                """
+            )
+            return didActivate as? Bool ?? false
+        } catch {
+            return false
+        }
+    }
+
+    static func selectFilePath(_ page: WebPage, path: String) async -> Bool {
+        guard let encodedPathData = try? JSONEncoder().encode(path),
+            let encodedPath = String(data: encodedPathData, encoding: .utf8)
+        else { return false }
+        do {
+            let didSelect = try await page.callJavaScript(
+                """
+                const path = \(encodedPath);
+                const selector =
+                  `button[data-type="item"][data-item-type="file"][data-item-path="${CSS.escape(path)}"]`;
+                const queryInOpenShadowRoots = (root, selector) => {
+                  const directMatch = root.querySelector(selector);
+                  if (directMatch !== null) return directMatch;
+                  for (const element of root.querySelectorAll('*')) {
+                    if (element.shadowRoot === null) continue;
+                    const shadowMatch = queryInOpenShadowRoots(element.shadowRoot, selector);
+                    if (shadowMatch !== null) return shadowMatch;
+                  }
+                  return null;
+                };
+                const button = queryInOpenShadowRoots(document, selector);
+                if (!(button instanceof HTMLElement)) return false;
+                button.click();
+                return true;
+                """
+            )
+            return didSelect as? Bool ?? false
+        } catch {
+            return false
         }
     }
 
@@ -386,6 +521,25 @@ enum BridgeProductWebKitCarrierTestSupport {
         case .revoked:
             "revoked"
         }
+    }
+
+    private static func hostSnapshot(
+        window: NSWindow,
+        mountView: BridgePaneMountView
+    ) -> BridgeProductWebKitCarrierHostSnapshot {
+        let hostingView = mountView.subviews.first
+        return BridgeProductWebKitCarrierHostSnapshot(
+            applicationIsActive: NSApp.isActive,
+            hostingViewHasWindow: hostingView?.window === window,
+            hostingViewHeight: Double(hostingView?.frame.height ?? 0),
+            hostingViewWidth: Double(hostingView?.frame.width ?? 0),
+            mountViewHasWindow: mountView.window === window,
+            mountViewHeight: Double(mountView.frame.height),
+            mountViewWidth: Double(mountView.frame.width),
+            windowIsKey: window.isKeyWindow,
+            windowIsVisible: window.isVisible,
+            windowOcclusionIsVisible: window.occlusionState.contains(.visible)
+        )
     }
 
     private static func settleAsyncCallbacks(turns: Int = 40) async {

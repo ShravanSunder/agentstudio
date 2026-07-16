@@ -15,6 +15,7 @@ import {
 	type BridgeWorkerPierreRenderJob,
 	type BridgeWorkerPierreRenderPayload,
 	type BridgeWorkerPierreRenderWindow,
+	type BridgeWorkerRenderSourceCorrelation,
 } from './bridge-worker-pierre-render-job.js';
 import type { BridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.js';
 import type { BridgeWorkerFetchedReviewContentResource } from './bridge-worker-review-content-fetch.js';
@@ -407,7 +408,29 @@ function buildBridgeWorkerReviewPierreRenderJob(props: {
 		window: props.selectedPlan.window,
 		payload: props.payload,
 		budget: props.budget,
+		sourceCorrelations: reviewRenderSourceCorrelations(props.selectedPlan),
 	});
+}
+
+function reviewRenderSourceCorrelations(
+	selectedPlan: BridgeWorkerReviewSelectedPlan,
+): readonly BridgeWorkerRenderSourceCorrelation[] {
+	const resources =
+		selectedPlan.kind === 'diff'
+			? [selectedPlan.base, selectedPlan.head].filter(
+					(resource): resource is BridgeWorkerFetchedReviewContentResource => resource !== null,
+				)
+			: [selectedPlan.resource];
+	return resources.map((resource) => ({
+		descriptorId: resource.descriptorId,
+		itemId: resource.itemId,
+		observedSha256: resource.observedSha256,
+		position: resource.sourcePosition,
+		requestId: resource.requestId,
+		role: resource.role,
+		sourceGeneration: resource.sourceGeneration,
+		sourceIdentity: resource.sourceIdentity,
+	}));
 }
 
 function createBridgeWorkerCodeViewDiffItem(props: {

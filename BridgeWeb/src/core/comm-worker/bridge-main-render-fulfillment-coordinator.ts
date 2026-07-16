@@ -1,5 +1,3 @@
-import type { PostRenderPhase } from '@pierre/diffs';
-
 import type {
 	BridgeWorkerFilePierreRenderJobEvent,
 	BridgeWorkerReviewPierreRenderJobEvent,
@@ -16,11 +14,31 @@ export type BridgeMainRenderPublication =
 	| BridgeWorkerReviewPierreRenderJobEvent;
 
 export type BridgeMainRenderPublicationItem = BridgeMainRenderPublication['job']['payload']['item'];
+type BridgeMainRenderSourceCorrelation =
+	BridgeMainRenderPublication['job']['sourceCorrelations'][number];
 
 export type BridgeMainPierreItemResidency = 'replaced' | 'reusedPainted';
+type BridgeMainPostRenderPhase = 'mount' | 'update' | 'unmount';
+
+interface BridgeMainPaintedSourceCorrelation extends BridgeMainRenderSourceCorrelation {
+	readonly disposition: 'painted';
+	readonly pierreItemId: string;
+	readonly publicationId: string;
+	readonly semanticItemId: string;
+	readonly surface: BridgeMainRenderPublication['surface'];
+}
+
+interface BridgeMainRetainedPaintedEvidence {
+	readonly encodedSourceCorrelations: string;
+	readonly publicationId: string;
+}
 
 export interface BridgeMainRenderedItemReadback {
-	readonly element: { readonly isConnected: boolean };
+	readonly element: {
+		readonly isConnected: boolean;
+		readonly removeAttribute: (qualifiedName: string) => void;
+		readonly setAttribute: (qualifiedName: string, value: string) => void;
+	};
 	readonly item: BridgeMainRenderPublicationItem;
 }
 
@@ -45,7 +63,7 @@ export interface BridgeMainRenderFulfillmentCoordinator {
 		props: BridgeMainRenderReadback & {
 			readonly contextItem: BridgeMainRenderPublicationItem;
 			readonly itemId: string;
-			readonly phase: PostRenderPhase;
+			readonly phase: BridgeMainPostRenderPhase;
 		},
 	) => void;
 	readonly reconcilePublication: (
@@ -94,6 +112,10 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 	const pendingByPublicationItem = new WeakMap<
 		BridgeMainRenderPublicationItem,
 		BridgeMainPendingRenderPublication
+	>();
+	let retainedPaintedEvidenceByFinalItem = new WeakMap<
+		BridgeMainRenderPublicationItem,
+		BridgeMainRetainedPaintedEvidence
 	>();
 	const terminalPublicationIdentityKeys = new Set<string>();
 	let isDisposed = false;
@@ -178,7 +200,8 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 				return;
 			}
 			entry.animationFrameHandle = null;
-			if (!renderReadbackMatchesEntry(entry, readback)) {
+			const renderedItem = matchingRenderedItemForEntry(entry, readback);
+			if (renderedItem === null) {
 				closePendingPublication(entry, 'rejected', 'stale_attempt');
 				return;
 			}
@@ -186,6 +209,11 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 			pendingByPierreItemId.delete(entry.pierreItemId);
 			pendingByPublicationItem.delete(entry.publicationItem);
 			terminalPublicationIdentityKeys.add(entry.identityKey);
+			retainAndStampPaintedSourceCorrelation(
+				entry,
+				renderedItem,
+				retainedPaintedEvidenceByFinalItem,
+			);
 		});
 		entry.animationFrameHandle = animationFrameHandle;
 	};
@@ -194,13 +222,11 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 		entry: BridgeMainPendingRenderPublication,
 		readback: BridgeMainRenderReadback,
 	): void => {
+		const renderedItem = matchingRenderedItemForEntry(entry, readback);
+		if (renderedItem === null) return;
+		clearPaintedSourceCorrelation(renderedItem);
 		if (entry.stage === 'accepted') return;
-		if (
-			(entry.residency !== 'reusedPainted' && !entry.postRenderObserved) ||
-			!renderReadbackMatchesEntry(entry, readback)
-		) {
-			return;
-		}
+		if (entry.residency !== 'reusedPainted' && !entry.postRenderObserved) return;
 		if (entry.stage === 'queued') {
 			sendPositiveDisposition(entry, 'applied');
 			entry.stage = 'applied';
@@ -239,6 +265,7 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 				residency: 'replaced',
 				stage: 'accepted',
 			};
+			retainedPaintedEvidenceByFinalItem.delete(entry.publicationItem);
 			pendingByPierreItemId.set(pierreItemId, entry);
 			pendingByPublicationItem.set(entry.publicationItem, entry);
 			return 'accepted';
@@ -257,6 +284,8 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 			}
 			if (entry.item === bindProps.finalItem && entry.finalItemBound) return;
 			cancelPendingFrame(entry);
+			retainedPaintedEvidenceByFinalItem.delete(entry.item);
+			retainedPaintedEvidenceByFinalItem.delete(bindProps.finalItem);
 			entry.item = bindProps.finalItem;
 			entry.finalItemBound = true;
 			entry.postRenderObserved = bindProps.residency === 'reusedPainted';
@@ -269,6 +298,7 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 			for (const entry of pendingByPierreItemId.values()) {
 				closePendingPublication(entry, 'superseded', 'stale_submission');
 			}
+			retainedPaintedEvidenceByFinalItem = new WeakMap();
 			terminalPublicationIdentityKeys.clear();
 		},
 		isBoundFinalItem: (item): boolean => {
@@ -294,14 +324,30 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 		observePostRender: (observeProps): void => {
 			if (isDisposed || observeProps.phase === 'unmount') return;
 			const entry = pendingByPierreItemId.get(observeProps.itemId);
-			if (entry === undefined || observeProps.contextItem !== entry.item) return;
+			if (entry === undefined || observeProps.contextItem !== entry.item) {
+				synchronizeRetainedPaintedEvidence(
+					observeProps.contextItem,
+					observeProps,
+					retainedPaintedEvidenceByFinalItem,
+				);
+				return;
+			}
 			entry.postRenderObserved = true;
 			reconcileEntry(entry, observeProps);
 		},
 		reconcilePublication: (reconcileProps): void => {
 			if (isDisposed) return;
 			const entry = pendingByPierreItemId.get(reconcileProps.itemId);
-			if (entry === undefined) return;
+			if (entry === undefined) {
+				const currentItem = reconcileProps.readCurrentItem();
+				if (currentItem === undefined) return;
+				synchronizeRetainedPaintedEvidence(
+					currentItem,
+					reconcileProps,
+					retainedPaintedEvidenceByFinalItem,
+				);
+				return;
+			}
 			reconcileEntry(entry, reconcileProps);
 		},
 		rejectPublication: (publication, reason): void => {
@@ -324,15 +370,110 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 	};
 }
 
-function renderReadbackMatchesEntry(
+function matchingRenderedItemForEntry(
 	entry: BridgeMainPendingRenderPublication,
 	readback: BridgeMainRenderReadback,
-): boolean {
-	if (readback.readCurrentItem() !== entry.item) return false;
+): BridgeMainRenderedItemReadback | null {
+	return matchingRenderedItemForExactItem(entry.item, readback);
+}
+
+function matchingRenderedItemForExactItem(
+	item: BridgeMainRenderPublicationItem,
+	readback: BridgeMainRenderReadback,
+): BridgeMainRenderedItemReadback | null {
+	if (readback.readCurrentItem() !== item) return null;
 	const renderedItem = readback.readRenderedItem();
-	return (
-		renderedItem !== null && renderedItem.item === entry.item && renderedItem.element.isConnected
-	);
+	return renderedItem !== null && renderedItem.item === item && renderedItem.element.isConnected
+		? renderedItem
+		: null;
+}
+
+const BRIDGE_PAINTED_SOURCE_CORRELATIONS_ATTRIBUTE = 'data-bridge-painted-source-correlations';
+const BRIDGE_PAINTED_PUBLICATION_ID_ATTRIBUTE = 'data-bridge-painted-publication-id';
+
+function retainAndStampPaintedSourceCorrelation(
+	entry: BridgeMainPendingRenderPublication,
+	renderedItem: BridgeMainRenderedItemReadback,
+	retainedPaintedEvidenceByFinalItem: WeakMap<
+		BridgeMainRenderPublicationItem,
+		BridgeMainRetainedPaintedEvidence
+	>,
+): void {
+	try {
+		const paintedSourceCorrelations = paintedSourceCorrelationsForEntry(entry);
+		if (paintedSourceCorrelations.length === 0) {
+			retainedPaintedEvidenceByFinalItem.delete(entry.item);
+			clearPaintedSourceCorrelation(renderedItem);
+			return;
+		}
+		const evidence = {
+			encodedSourceCorrelations: JSON.stringify(paintedSourceCorrelations),
+			publicationId: entry.publication.renderReceiptIdentity.publicationId,
+		} satisfies BridgeMainRetainedPaintedEvidence;
+		retainedPaintedEvidenceByFinalItem.set(entry.item, evidence);
+		stampRetainedPaintedEvidence(renderedItem, evidence);
+	} catch {
+		// Packaged proof metadata is diagnostic-only and cannot gate product fulfillment.
+	}
+}
+
+function synchronizeRetainedPaintedEvidence(
+	item: BridgeMainRenderPublicationItem,
+	readback: BridgeMainRenderReadback,
+	retainedPaintedEvidenceByFinalItem: WeakMap<
+		BridgeMainRenderPublicationItem,
+		BridgeMainRetainedPaintedEvidence
+	>,
+): void {
+	const renderedItem = matchingRenderedItemForExactItem(item, readback);
+	if (renderedItem === null) return;
+	const evidence = retainedPaintedEvidenceByFinalItem.get(item);
+	if (evidence === undefined) {
+		clearPaintedSourceCorrelation(renderedItem);
+		return;
+	}
+	stampRetainedPaintedEvidence(renderedItem, evidence);
+}
+
+function clearPaintedSourceCorrelation(renderedItem: BridgeMainRenderedItemReadback): void {
+	try {
+		renderedItem.element.removeAttribute(BRIDGE_PAINTED_PUBLICATION_ID_ATTRIBUTE);
+		renderedItem.element.removeAttribute(BRIDGE_PAINTED_SOURCE_CORRELATIONS_ATTRIBUTE);
+	} catch {
+		// Packaged proof metadata is diagnostic-only and cannot gate product fulfillment.
+	}
+}
+
+function stampRetainedPaintedEvidence(
+	renderedItem: BridgeMainRenderedItemReadback,
+	evidence: BridgeMainRetainedPaintedEvidence,
+): void {
+	try {
+		clearPaintedSourceCorrelation(renderedItem);
+		renderedItem.element.setAttribute(
+			BRIDGE_PAINTED_SOURCE_CORRELATIONS_ATTRIBUTE,
+			evidence.encodedSourceCorrelations,
+		);
+		renderedItem.element.setAttribute(
+			BRIDGE_PAINTED_PUBLICATION_ID_ATTRIBUTE,
+			evidence.publicationId,
+		);
+	} catch {
+		// Packaged proof metadata is diagnostic-only and cannot gate product fulfillment.
+	}
+}
+
+function paintedSourceCorrelationsForEntry(
+	entry: BridgeMainPendingRenderPublication,
+): readonly BridgeMainPaintedSourceCorrelation[] {
+	return entry.publication.job.sourceCorrelations.map((sourceCorrelation) => ({
+		...sourceCorrelation,
+		disposition: 'painted',
+		pierreItemId: entry.pierreItemId,
+		publicationId: entry.publication.renderReceiptIdentity.publicationId,
+		semanticItemId: entry.logicalItemId,
+		surface: entry.publication.surface,
+	}));
 }
 
 function assertBridgeMainRenderPublicationIdentity(publication: BridgeMainRenderPublication): void {

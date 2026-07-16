@@ -28,7 +28,11 @@ describe('Bridge worker File View content fetch', () => {
 			itemId: 'file-1',
 			language: 'swift',
 			path: 'Sources/App/FileView.swift',
+			requestId: 'content-request-1',
 			resourceKind: 'file.content',
+			sourceGeneration: 3,
+			sourceIdentity: 'file-source-1',
+			sourcePosition: 'whole',
 		});
 		expect(new TextDecoder().decode(result.textBytes)).toBe('hello file worker');
 	});

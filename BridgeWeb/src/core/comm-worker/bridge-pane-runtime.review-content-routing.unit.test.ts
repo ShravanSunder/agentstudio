@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { createBridgeCommWorkerStore } from './bridge-comm-worker-store.js';
 import type { BridgePaneCommWorkerDispatcher } from './bridge-pane-comm-worker-session.js';
@@ -8,16 +8,22 @@ import type {
 	BridgeWorkerReviewRenderSemantics,
 	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
+import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 import type { BridgeWorkerFetchedReviewContentResource } from './bridge-worker-review-content-fetch.js';
 import {
 	commitBridgeWorkerReviewContentReadyRenderPatch,
 	prepareBridgeWorkerReviewContentRenderJobEvent,
 } from './bridge-worker-review-content-ready.js';
-import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 
 describe('Bridge pane runtime Review content routing', () => {
+	afterEach((): void => {
+		vi.unstubAllGlobals();
+	});
+
 	test('delivers Review content-ready publications only to the Review surface client', () => {
 		// Arrange
+		vi.stubGlobal('cancelAnimationFrame', vi.fn());
+		vi.stubGlobal('requestAnimationFrame', vi.fn((): number => 1));
 		let publishWorkerMessages:
 			| ((messages: readonly BridgeWorkerServerToMainMessage[]) => void)
 			| undefined;
@@ -70,7 +76,12 @@ function makeReviewContentReadyPublications(): readonly BridgeWorkerServerToMain
 			maxWindowLines: 50,
 		},
 		publicationSequence: 11,
-		renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'item-1', publicationSequence: 11, surface: 'review', workerDerivationEpoch: 7 }),
+		renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+			itemId: 'item-1',
+			publicationSequence: 11,
+			surface: 'review',
+			workerDerivationEpoch: 7,
+		}),
 		resources: [
 			makeFetchedReviewContentResource({
 				contentHash: 'sha256:item-1:base',
@@ -134,8 +145,14 @@ function makeFetchedReviewContentResource(props: {
 		role: props.role,
 		contentHash: props.contentHash,
 		contentHashAlgorithm: 'fixture-preview',
+		descriptorId: `descriptor-item-1-${props.role}`,
 		language: 'swift',
 		byteLength: textBytes.byteLength,
+		observedSha256: props.role === 'base' ? 'a'.repeat(64) : 'b'.repeat(64),
+		requestId: `content-request-item-1-${props.role}`,
+		sourceGeneration: 7,
+		sourceIdentity: 'review-source-1',
+		sourcePosition: 'whole',
 		text: props.text,
 		textBytes,
 	};

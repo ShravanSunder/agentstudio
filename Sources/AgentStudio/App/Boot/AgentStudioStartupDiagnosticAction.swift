@@ -18,6 +18,7 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
             case bridgeFileViewTargetedRouteObservabilitySmoke =
                 "bridge-file-view-targeted-route-observability-smoke"
             case bridgeReviewToFileViewObservabilitySmoke = "bridge-review-to-file-view-observability-smoke"
+            case bridgeProductPaintCorrelation = "bridge-product-paint-correlation"
             case bridgeWorkerFetchSchemeSmoke = "bridge-worker-fetch-scheme-smoke"
             case bridgeProductStreamWebKitFeasibility = "bridge-product-stream-webkit-feasibility"
         #endif
@@ -32,6 +33,7 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
                 || kind == .bridgeFileViewCommandRouteObservabilitySmoke
                 || kind == .bridgeFileViewTargetedRouteObservabilitySmoke
                 || kind == .bridgeReviewToFileViewObservabilitySmoke
+                || kind == .bridgeProductPaintCorrelation
                 || kind == .bridgeWorkerFetchSchemeSmoke
                 || kind == .bridgeProductStreamWebKitFeasibility
         #else
@@ -62,6 +64,8 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
                 "bridgeFileViewTargetedRouteObservabilitySmoke"
             case .bridgeReviewToFileViewObservabilitySmoke:
                 "bridgeReviewToFileViewObservabilitySmoke"
+            case .bridgeProductPaintCorrelation:
+                "bridgeProductPaintCorrelation"
             case .bridgeWorkerFetchSchemeSmoke:
                 "bridgeWorkerFetchSchemeSmoke"
             case .bridgeProductStreamWebKitFeasibility:
