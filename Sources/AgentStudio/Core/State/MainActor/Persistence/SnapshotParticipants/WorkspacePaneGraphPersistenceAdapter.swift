@@ -45,6 +45,7 @@ enum WorkspacePaneGraphPersistencePreparationResult {
 
 struct WorkspacePaneGraphParticipantDiagnostics: Equatable, Sendable {
     let currentValueLookupCount: UInt64
+    let persistenceCapturePaneLookupCount: UInt64
     let rawKeyByteCacheLookupCount: UInt64
     let membershipBootstrapPaneCount: UInt64
 }
@@ -283,6 +284,7 @@ final class WorkspacePaneGraphPersistenceAdapter {
             guard capturedPaneIDs.insert(paneID).inserted else {
                 throw WorkspacePaneGraphPersistenceCaptureError.duplicateOrConflictingPaneID(paneID)
             }
+            diagnostics.recordPersistenceCapturePaneLookup()
             switch operation {
             case .insertion:
                 guard atom.paneState(paneID) == nil else {
@@ -410,6 +412,7 @@ final class WorkspacePaneGraphPersistenceAdapter {
 @MainActor
 private final class WorkspacePaneGraphParticipantDiagnosticCounter {
     private var currentValueLookupCount: UInt64 = 0
+    private var persistenceCapturePaneLookupCount: UInt64 = 0
     private var rawKeyByteCacheLookupCount: UInt64 = 0
     private var membershipBootstrapPaneCount: UInt64 = 0
 
@@ -421,6 +424,10 @@ private final class WorkspacePaneGraphParticipantDiagnosticCounter {
         increment(&rawKeyByteCacheLookupCount)
     }
 
+    func recordPersistenceCapturePaneLookup() {
+        increment(&persistenceCapturePaneLookupCount)
+    }
+
     func recordMembershipBootstrap(paneCount: Int) {
         membershipBootstrapPaneCount = UInt64(paneCount)
     }
@@ -428,6 +435,7 @@ private final class WorkspacePaneGraphParticipantDiagnosticCounter {
     func snapshot() -> WorkspacePaneGraphParticipantDiagnostics {
         WorkspacePaneGraphParticipantDiagnostics(
             currentValueLookupCount: currentValueLookupCount,
+            persistenceCapturePaneLookupCount: persistenceCapturePaneLookupCount,
             rawKeyByteCacheLookupCount: rawKeyByteCacheLookupCount,
             membershipBootstrapPaneCount: membershipBootstrapPaneCount
         )

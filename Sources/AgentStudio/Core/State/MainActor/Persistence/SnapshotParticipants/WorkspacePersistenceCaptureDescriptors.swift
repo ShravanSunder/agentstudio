@@ -18,7 +18,7 @@ struct WorkspacePaneGraphPersistenceCapture: Equatable, Sendable {
     let operations: [WorkspacePaneGraphPersistenceCaptureOperation]
 }
 
-enum WorkspacePaneGraphPersistenceCaptureError: Error, Equatable {
+enum WorkspacePaneGraphPersistenceCaptureError: Error, Equatable, Sendable {
     case duplicateOrConflictingPaneID(UUID)
     case emptyCapture
     case insertedPaneAlreadyExists(UUID)

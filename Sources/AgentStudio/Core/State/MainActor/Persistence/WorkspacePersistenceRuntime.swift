@@ -107,6 +107,7 @@ final class WorkspacePersistenceRuntime {
         mutationCoordinator = WorkspacePersistenceMutationCoordinator(
             revisionOwner: revisionOwner,
             adapters: adapters,
+            workspacePaneGraphAtom: atomOwners.workspacePaneGraph,
             workspaceWindowMemoryAtom: atomOwners.workspaceWindowMemory
         )
     }
