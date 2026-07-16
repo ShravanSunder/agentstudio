@@ -42,11 +42,11 @@ struct WorkspaceCompositionPreparerTests {
         #expect(activation.paneID.uuid == pane.id)
         #expect(activation.visibilityPriority == .activeVisible)
         #expect(activation.hostPlacement == .tab(tabID: tab.id))
-        guard case .zmx(let restoredSessionID) = activation.provider else {
+        guard case .zmx = activation.provider else {
             Issue.record("expected zmx activation backend")
             return
         }
-        #expect(restoredSessionID.rawValue == storedText)
+        #expect(activation.zmxSessionID.rawValue == storedText)
         #expect(activation.launchConfiguration.launchDirectory == .stored(URL(filePath: "/tmp/composition")))
         #expect(activation.launchConfiguration.lifetime == .persistent)
     }
@@ -71,8 +71,8 @@ struct WorkspaceCompositionPreparerTests {
         #expect(result == .rejected(.duplicatePaneID(pane.id)))
     }
 
-    @Test("prepared owner projections match repaired composition")
-    func preparedOwnerProjectionsMatchRepairedComposition() throws {
+    @Test("missing drawer membership rejects instead of pruning composition")
+    func missingDrawerMembershipRejectsInsteadOfPruningComposition() throws {
         // Arrange
         let firstPane = makeCompositionPane()
         let secondPane = makeCompositionPane()
@@ -96,24 +96,95 @@ struct WorkspaceCompositionPreparerTests {
         )
 
         // Act
+        let result = WorkspaceCompositionPreparer.prepare(snapshot)
+
+        // Assert
+        #expect(
+            result
+                == .rejected(
+                    .drawerContainsMissingPane(
+                        drawerID: try #require(parentPane.drawer?.drawerId),
+                        paneID: missingPaneID
+                    ))
+        )
+    }
+
+    @Test("invalid active tab rejects instead of selecting fallback")
+    func invalidActiveTabRejectsInsteadOfSelectingFallback() {
+        // Arrange
+        let pane = makeCompositionPane()
+        let tab = makeCompositionTab(paneID: pane.id)
+        let missingTabID = UUIDv7.generate()
+        let snapshot = WorkspaceSQLiteSnapshot(
+            id: UUIDv7.generate(),
+            panes: [pane],
+            tabs: [tab],
+            activeTabId: missingTabID
+        )
+
+        // Act
+        let result = WorkspaceCompositionPreparer.prepare(snapshot)
+
+        // Assert
+        #expect(result == .rejected(.activeTabNotFound(missingTabID)))
+    }
+
+    @Test("inexact tab membership rejects instead of rebuilding membership")
+    func inexactTabMembershipRejectsInsteadOfRebuildingMembership() {
+        // Arrange
+        let pane = makeCompositionPane()
+        let unreferencedPane = makeCompositionPane()
+        let tab = makeCompositionTab(
+            paneID: pane.id,
+            allPaneIDs: [pane.id, unreferencedPane.id]
+        )
+        let snapshot = WorkspaceSQLiteSnapshot(
+            id: UUIDv7.generate(),
+            panes: [pane, unreferencedPane],
+            tabs: [tab],
+            activeTabId: tab.id
+        )
+
+        // Act
+        let result = WorkspaceCompositionPreparer.prepare(snapshot)
+
+        // Assert
+        #expect(
+            result
+                == .rejected(
+                    .tabPaneMissingFromArrangements(
+                        tabID: tab.id,
+                        paneID: unreferencedPane.id
+                    ))
+        )
+    }
+
+    @Test("accepted composition preserves pane and tab values exactly")
+    func acceptedCompositionPreservesPaneAndTabValuesExactly() throws {
+        // Arrange
+        let pane = makeCompositionPane()
+        var tab = makeCompositionTab(paneID: pane.id)
+        tab.zoomedPaneId = pane.id
+        let snapshot = WorkspaceSQLiteSnapshot(
+            id: UUIDv7.generate(),
+            name: "Projection",
+            panes: [pane],
+            tabs: [tab],
+            activeTabId: tab.id,
+            sidebarWidth: 333
+        )
+
+        // Act
         let prepared = try requirePreparedComposition(
             WorkspaceCompositionPreparer.prepare(snapshot)
         )
 
         // Assert
+        #expect(prepared.panes == snapshot.panes)
+        #expect(prepared.tabs == snapshot.tabs)
+        #expect(prepared.activeTabID == snapshot.activeTabId)
         #expect(prepared.identity.workspaceID == snapshot.id)
         #expect(prepared.windowMemory.sidebarWidth == 333)
-        #expect(prepared.paneGraph.replacement.paneStates.count == 2)
-        #expect(
-            prepared.paneGraph.replacement.paneStates[parentPane.id]?.drawer?.paneIds
-                == [secondPane.id]
-        )
-        #expect(prepared.expandedDrawerID == parentPane.drawer?.drawerId)
-        #expect(prepared.tabShells.shells.map(\.id) == prepared.tabs.map(\.id))
-        #expect(prepared.tabShells.indexByID[tab.id] == 0)
-        #expect(prepared.tabGraph.states.map(\.tabId) == prepared.tabs.map(\.id))
-        #expect(prepared.tabGraph.indexByID[tab.id] == 0)
-        #expect(prepared.arrangementCursors.activeArrangementIDsByTabID[tab.id] == tab.activeArrangementId)
     }
 }
 

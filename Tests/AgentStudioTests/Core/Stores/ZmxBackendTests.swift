@@ -134,7 +134,7 @@ final class ZmxBackendTests {
         )
 
         // Assert
-        #expect(cmd == "\"/opt/homebrew/bin/zmx\" attach \"as-abc-def-ghi\" \"/bin/zsh\" -i -l")
+        #expect(cmd == "'/opt/homebrew/bin/zmx' attach 'as-abc-def-ghi' '/bin/zsh' -i -l")
     }
 
     // MARK: - Shell Escape
@@ -142,49 +142,82 @@ final class ZmxBackendTests {
     @Test
 
     func test_shellEscape_simplePath() {
-        #expect(ZmxBackend.shellEscape("/usr/bin/zmx") == "\"/usr/bin/zmx\"")
+        #expect(ZmxBackend.shellEscape("/usr/bin/zmx") == "'/usr/bin/zmx'")
     }
 
     @Test
 
     func test_shellEscape_pathWithSpaces() {
-        #expect(ZmxBackend.shellEscape("/Users/test user/bin/zmx") == "\"/Users/test user/bin/zmx\"")
+        #expect(ZmxBackend.shellEscape("/Users/test user/bin/zmx") == "'/Users/test user/bin/zmx'")
     }
 
     @Test
 
     func test_shellEscape_pathWithSingleQuote() {
-        #expect(ZmxBackend.shellEscape("/tmp/it's") == "\"/tmp/it's\"")
+        #expect(ZmxBackend.shellEscape("/tmp/it's") == "'/tmp/it'\\''s'")
     }
 
     @Test
 
     func test_shellEscape_escapesDollar() {
-        #expect(ZmxBackend.shellEscape("/tmp/$HOME") == "\"/tmp/\\$HOME\"")
+        #expect(ZmxBackend.shellEscape("/tmp/$HOME") == "'/tmp/$HOME'")
     }
 
     @Test
 
     func test_shellEscape_escapesBacktick() {
-        #expect(ZmxBackend.shellEscape("/tmp/`pwd`") == "\"/tmp/\\`pwd\\`\"")
+        #expect(ZmxBackend.shellEscape("/tmp/`pwd`") == "'/tmp/`pwd`'")
     }
 
     @Test
 
     func test_shellEscape_escapesDoubleQuote() {
-        #expect(ZmxBackend.shellEscape("/tmp/\"quoted\"") == "\"/tmp/\\\"quoted\\\"\"")
+        #expect(ZmxBackend.shellEscape("/tmp/\"quoted\"") == "'/tmp/\"quoted\"'")
     }
 
     @Test
 
     func test_shellEscape_escapesBackslash() {
-        #expect(ZmxBackend.shellEscape("/tmp/foo\\bar") == "\"/tmp/foo\\\\bar\"")
+        #expect(ZmxBackend.shellEscape("/tmp/foo\\bar") == "'/tmp/foo\\bar'")
     }
 
     @Test
 
     func test_shellEscape_escapesHistoryBang() {
-        #expect(ZmxBackend.shellEscape("/tmp/bang!") == "\"/tmp/bang\\!\"")
+        #expect(ZmxBackend.shellEscape("/tmp/bang!") == "'/tmp/bang!'")
+    }
+
+    @Test
+    func test_shellEscape_roundTripsOpaqueArgumentsThroughZsh() throws {
+        // Arrange
+        let opaqueArguments = [
+            "legacy!id",
+            "single'quote",
+            "double\"quote",
+            "back\\slash",
+            "white space",
+            "$HOME",
+            "`pwd`",
+        ]
+        let command = "printf '%s\\n' \(opaqueArguments.map(ZmxBackend.shellEscape).joined(separator: " "))"
+        let outputPipe = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-c", command]
+        process.standardOutput = outputPipe
+
+        // Act
+        try process.run()
+        process.waitUntilExit()
+        let output = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        let decodedArguments = try #require(String(data: output, encoding: .utf8))
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .dropLast()
+            .map(String.init)
+
+        // Assert
+        #expect(process.terminationStatus == 0)
+        #expect(decodedArguments == opaqueArguments)
     }
 
     // MARK: - healthCheck

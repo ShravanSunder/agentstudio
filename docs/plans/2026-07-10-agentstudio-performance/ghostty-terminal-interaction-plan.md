@@ -540,8 +540,7 @@ Oracle: literal pixel geometry and fake libghostty call ledger plus native visib
 
 Requirements: SF12–SF17 and the parent startup-lane contract. Depends on the
 accepted composition boundary and durable identity hard cut from W4.5/W4.5z and
-may proceed independently of W5
-topology hydration.
+may proceed independently of the W5 repository/filesystem/Git/topology lane.
 
 ### Production changes
 
@@ -559,7 +558,8 @@ pool; it must not create one unstructured task or actor per pane. Visible work
 is admitted before hidden work. Every zmx member carries its required opaque
 `ZmxSessionID` from the accepted composition and attach receives that exact
 stored value. No activation or restore path lists sessions, derives identity,
-adopts a name, repairs/backfills storage, or mutates canonical composition. The
+adopts a name, backfills or rewrites storage, or mutates canonical composition.
+Existing opaque IDs are never UUID-version validated. The
 aggregate receipt completes only after every cohort member has exactly one
 `ready`, `failedTerminal`, or `cancelledReplaced` outcome.
 
@@ -575,7 +575,8 @@ Modify:
   serial all-pane MainActor loop with bounded scheduler admissions;
 - `TerminalRestoreScheduler.swift` and `TerminalRestoreRuntime.swift` to make
   active/visible ordering immutable input and pass each terminal's exact stored
-  `ZmxSessionID` to activation without inventory, inference, fallback, or writes;
+  `ZmxSessionID` to activation without daemon inventory, inference, fallback,
+  or writes;
 - `SessionRuntimeAtom`, `ViewRegistry`, and IPC `attachReady` projection to
   consume current-generation activation states without mutating canonical
   panes or consulting repository topology.
@@ -603,6 +604,12 @@ exceeds the compile-time slot limit. Under sustained selection promotion, every
 eligible current-generation background member reaches an aggregate outcome
 within the calibrated progress bound without delaying active typing.
 
+Add exact identity/startup proof at the owning boundaries: new pane creation
+uses `ZmxSessionID.generateUUIDv7()` before atom insertion; existing UUIDv4,
+UUIDv7, and `as-*` SQLite text round-trips and reaches attach unchanged; startup
+performs zero zmx-list calls and zero identity writes; invalid composition
+causes zero canonical mutation and zero activation.
+
 The independent oracle records composition acceptance, activation offers,
 MainActor admissions, surface create/attach/mount/focus calls, state
 transitions, and readiness milestones. It proves active-before-hidden order,
@@ -613,8 +620,9 @@ proof measures composition-to-window, composition-to-typing, and
 composition-to-all-restorable latency plus input-to-visible feedback during
 background attachment.
 
-RED/GREEN: required. The current pre-visible global daemon-list await and serial
-all-pane restore are the RED behavior; GREEN proves no restore-time list call.
+RED/GREEN: required for scheduler admission and readiness behavior. Permanent
+negative proof rejects restore-time daemon listing, identity derivation or
+rewrite, and terminal activation from invalid composition.
 
 ## 13. Task T11 — Explicit Surface/App Destruction
 
@@ -754,7 +762,7 @@ No test is deleted without replacement, redundancy, or dead-contract proof.
 | reports are current-principal scoped | T8 | authenticated JSON-RPC | server generation registry + receipt/state | unit + real Unix socket; fresh socket/runtime | required |
 | secure input is app-global/fail-closed | T9 | owner transition API/OS adapter | state table + real OS query + canary scan | unit + native/OTLP integration; exact PID/run | required |
 | input/geometry/visibility stay direct/current | T10 | AppKit-to-Ghostty calls and geometry owner | call ledger + PID-visible behavior | unit + native E2E; display capability manifest | required |
-| active terminal readiness is independent and prioritized | T10.5 | composition receipt, activation scheduler, readiness milestones | delayed repository fake + literal exact-ID attach ledger + zero daemon-list calls | unit + integration + Victoria/native E2E; exact PID/run | required |
+| active terminal readiness is independent and prioritized | T10.5 | composition receipt, activation scheduler, readiness milestones | invalid-composition zero-mutation/activation ledger + UUIDv7 new-creation proof + historical-ID round-trip + delayed repository fake + literal exact-ID attach ledger + zero daemon-list/write calls | unit + integration + Victoria/native E2E; exact PID/run | required |
 | free occurs only after quiescence | T11 | lifetime owner | vendor completion + leases/publications | pinned/candidate stress; vendor identity | required |
 | candidate benefit is attributable | T1/T12 | immutable build/matrix report | action/header/resource/probe manifests + workload oracles | build + E2E; exact digests | required |
 | memory does not regress | T12 | fill/quiesce/clear/prune workload | stable bounded platform samples | performance E2E; corpus/build/hardware | required |
@@ -786,7 +794,7 @@ shared admission/ledger
   -> IG2 combined cross-pressure proof
 ```
 
-T3, T4, and initial T10 owner files may develop in parallel after T2 interfaces stabilize. T10.5 depends on accepted composition but not topology hydration. T7, T8, and T9 may develop in parallel after T6/T5 contracts stabilize. T12 contributes the terminal/vendor cells and accepted candidate artifact to DQ1 and IG2; it does not own either shared decision. Existing edits to `GhosttyCallbackRouter.swift`, `GhosttyAppHandle.swift`, `GhosttySurfaceView.swift`, `SurfaceManager.swift`, `GhosttyActionRouter.swift`, `TerminalRuntime.swift`, `RuntimeRegistry.swift`, IPC server/auth files, `AgentStudioOTLPTraceProjection.swift`, `.mise.toml`, and the vendor pointer use one integration owner per gate.
+T3, T4, and initial T10 owner files may develop in parallel after T2 interfaces stabilize. T10.5 depends on accepted composition but not the independent topology lane. T7, T8, and T9 may develop in parallel after T6/T5 contracts stabilize. T12 contributes the terminal/vendor cells and accepted candidate artifact to DQ1 and IG2; it does not own either shared decision. Existing edits to `GhosttyCallbackRouter.swift`, `GhosttyAppHandle.swift`, `GhosttySurfaceView.swift`, `SurfaceManager.swift`, `GhosttyActionRouter.swift`, `TerminalRuntime.swift`, `RuntimeRegistry.swift`, IPC server/auth files, `AgentStudioOTLPTraceProjection.swift`, `.mise.toml`, and the vendor pointer use one integration owner per gate.
 
 ## 18. Validation Commands
 

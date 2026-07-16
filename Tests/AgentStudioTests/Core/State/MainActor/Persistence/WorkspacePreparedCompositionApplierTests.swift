@@ -22,7 +22,6 @@ struct WorkspacePreparedCompositionApplierTests {
             return
         }
         #expect(acceptance.revision.rawValue == 1)
-        #expect(acceptance.repairReport == prepared.repairReport)
         #expect(acceptance.terminalActivationInput == prepared.terminalActivationInput)
         #expect(fixture.revisionOwner.committedRevision == acceptance.revision)
         #expect(fixture.identityAtom.workspaceId == prepared.identity.workspaceID)

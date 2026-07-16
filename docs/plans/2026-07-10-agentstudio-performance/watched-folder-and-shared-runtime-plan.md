@@ -723,13 +723,16 @@ gesture-finalization where AppKit provides it and an injected-clock bounded
 latest-value settle gate otherwise. No wall-clock sleep or fact-bus route.
 
 Terminal identity is not a persistence mutation route. Terminal creation mints
-one independent, non-optional `ZmxSessionID` with UUIDv7 before pane insertion;
-repository codecs require the strong type and round-trip the existing SQLite
-text exactly. This cut adds no schema/data migration or table rebuild.
-Existing nonempty values, including historical `as-*`, remain unchanged. Startup
-strictly decodes that value, applies composition once, and activation passes the
-exact stored ID to zmx. No startup reconciliation, repair transaction, hydration, adoption,
-derivation, discovery, backfill, fallback, or post-decode identity write exists.
+one independent, non-optional `ZmxSessionID` through
+`ZmxSessionID.generateUUIDv7()` at the App/coordinator owner before pane
+insertion; atoms only accept and store that caller-supplied typed value.
+Repository codecs require the strong type and round-trip the existing SQLite
+`TEXT` exactly. This cut adds no schema/data migration or table rebuild.
+Existing nonblank values, including historical UUIDv4 and `as-*`, remain
+unchanged and are not validated as UUIDv7. Startup strictly decodes that value,
+applies accepted composition once, and activation passes the exact stored ID to
+zmx. No startup reconciliation, identity repair, adoption, derivation,
+discovery, backfill, fallback, or post-decode identity write exists.
 Startup diagnostics use the installed semantic pane/tab gateways and receive no
 bootstrap exception.
 
@@ -765,7 +768,7 @@ Proof is blocking:
   fact posts and zero Observation-triggered second revision;
 - terminal creation, strict SQLite codec/round-trip, mutation-free restore, and
   exact stored-ID zmx attach are proved directly; static searches reject every
-  path-derived identity or startup repair route;
+  path-derived identity or startup identity-mutation route;
 - a direct-mutation inventory proves no installed persistence participant can be
   bypassed by a production mutation path;
 - production composition constructs exactly one adapter bundle and the live
@@ -803,32 +806,35 @@ every existing nonempty stored value, including historical `as-*`, byte for
 byte. Add no schema/data migration, table rebuild, or conversion.
 
 Modify `TerminalRestoreRuntime.swift`, terminal view-lifecycle restoration, App
-boot, and `ZmxBackend.swift`. Delete startup identity repair/adoption and every
+boot, and `ZmxBackend.swift`. Remove every startup identity-mutation owner and
 restore-time daemon-list dependency. Attach, health, list, and kill accept the
 strong identity type; attach receives the exact stored value and normal runtime
 callers cannot supply untyped subprocess session text.
 
-Replace obsolete derivation/repair tests with permanent proof:
+Delete obsolete identity-derivation, startup-mutation, and daemon-inventory
+proof scaffolding. Retain these permanent tests:
 
 - creation tests cover every terminal provider and worktree/floating/drawer/
   template/diagnostic entry point, assert a non-optional UUIDv7-backed identity
   exists before insertion, and prove `PaneId` does not determine it;
-- repository/codec tests preserve historical `as-*` and existing UUID values
-  exactly, reject missing/empty identity at the strong decode boundary, and
-  round-trip without schema or data changes;
+- repository/codec tests preserve historical `as-*`, UUIDv4, and existing
+  UUIDv7 values exactly, reject missing/blank identity at the strong decode
+  boundary, and round-trip without schema or data changes or UUID-version
+  validation;
 - restore integration holds repository startup indefinitely and proves terminal
   activation does not wait; a datastore before/after oracle proves zero restore
   or startup writes;
 - backend tests prove exact stored-ID attach and that normal attach/health/kill
   call sites cannot pass raw text; real-zmx E2E proves create, persist, relaunch,
   exact attach, scrollback, and exact kill;
+- invalid-composition integration proves zero canonical mutation, zero terminal
+  activation, and zero persistence writes;
 - structural searches reject path/topology session derivation, optional/missing
-  identity states, identity setters, restore-time zmx listing, and startup
-  repair/hydration/adoption/backfill routes.
+  identity states, identity setters, restore-time zmx listing, and any startup
+  identity mutation route.
 
-RED/GREEN is required. The current nullable `String`, path-derived `as-*`
-creation, restore fallback, and startup repair paths are the RED behavior. The
-stored historical `as-*` values themselves are durable data and remain valid.
+The stored historical `as-*` and UUIDv4 values are permanent opaque data, not
+migration inputs. UUIDv7 assertions apply only to newly generated identities.
 
 ### W4.5a — Sole canonical persistence revision authority
 
@@ -855,12 +861,15 @@ separate validated policy values. Transfer each page into the off-main
 accumulator before acknowledging `.transferred`, yield between capture turns,
 and close/abort plus drain retained cleanup custody on every exit path.
 
-Integrate two boot hydration domains before participant installation:
+Integrate two independent boot domains before participant installation:
 
 - `WorkspaceCompositionPreparer` strictly decodes and validates identity/window,
   pane/drawer, tab/arrangement, and local cursor state off-main without
-  normalization or repair. `WorkspacePreparedCompositionApplier` installs it in one bounded
-  MainActor transaction and returns the terminal activation input.
+  normalization, fallback selection, cursor synthesis, or membership repair.
+  Invalid composition produces no canonical mutation and no terminal
+  activation. `WorkspacePreparedCompositionApplier` installs accepted immutable
+  composition in one bounded MainActor transaction and returns the terminal
+  activation input.
 - topology decode/normalization feeds the W5 topology projector/applier lane
   independently. It may retain last-known/non-current state but never blocks
   composition, window presentation, or terminal activation.
@@ -895,10 +904,11 @@ production participant inventory, including empty and maximum-sized owners.
 Add `WorkspacePersistenceRevisionOwnerTests.swift`, `WorkspaceStateSnapshotLeaseTests.swift`, `WorkspacePersistencePageCaptureTests.swift`, and a test-only contiguous update-journal fixture. Retain emitted pages while mutating the same/new/removed keys through the real coordinator/front-door routes; prove no moving-state reread or fleet COW detachment. Assert one revision-owner and one adapter-bundle object identity across `AtomRegistry`, `WorkspaceStore`, the pager/factory, and every outer transaction owner. Prove a multi-atom canonical transaction advances exactly once, passes the same revision to every participating adapter, and a failed transaction advances zero times. Inventory proof compares adapter-projected page participants with `WorkspaceSQLiteSnapshot`, `RepositoryTopologySQLiteSnapshot`, and repository persistence records; transient zoom/presentation state is a required negative case. Atom-level `prepare*` test APIs, temporary adapters/revision owners, and full fleet snapshots are forbidden substitutes.
 
 Add focused prepared-composition and prepared-topology tests proving O(N)
-validation happens before MainActor apply, rejection leaves its domain
-byte-for-byte unchanged, composition acceptance unlocks terminal activation
-while topology preparation is suspended, and real heterogeneous participant
-limits page without mismatch or a test-only bypass.
+validation happens before MainActor apply; invalid composition produces zero
+canonical mutation, activation, or persistence writes; accepted composition is
+installed once and unlocks terminal activation while topology preparation is
+suspended; and real heterogeneous participant limits page without mismatch or a
+test-only bypass.
 
 ### W4.5d — Atomic restore-owner hard cut
 

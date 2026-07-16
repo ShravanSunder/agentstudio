@@ -44,8 +44,8 @@ Implement the accepted performance boundary contracts without asking the executo
 2. keep one typed global `RuntimeFactBus` for semantic product facts;
 3. move fleet/source/state-machine work off MainActor and retain typed, bounded MainActor apply owners;
 4. preserve exact lifecycle, repair, user-intent, persistence, and security semantics under overload and teardown;
-5. separate blocking composition, prioritized terminal activation, and
-   non-blocking repository reconciliation so repository startup cannot gate an
+5. separate strict composition restore, prioritized terminal activation, and
+   non-blocking repository/filesystem/Git/topology derivation so external work cannot gate an
    active pane becoming typing-ready;
 6. prove typing, cursor, TUI mouse, focus, reveal, terminal throughput, filesystem recovery, MainActor fairness, and scrollback memory with correlated current-run evidence.
 
@@ -57,10 +57,10 @@ The planning run read the complete accepted artifacts:
 
 | Source | Lines | Contract used by this plan |
 | --- | ---: | --- |
-| `docs/specs/2026-07-10-agentstudio-performance-boundaries/agentstudio-performance-boundaries.md` | 1,930 | shared primitives, startup-lane separation, fact transport, MainActor ledger, harness, scope |
-| `docs/specs/2026-07-09-watched-folder-admission-mainactor-fairness/watched-folder-admission-mainactor-fairness.md` | 1,999 | WF/WS/FI/TA/EV/BR requirements, split composition/topology hydration, and proof |
-| `docs/specs/2026-07-09-watched-folder-admission-mainactor-fairness/filesystem-observation-admission-lifecycle.md` | 713 | fixed fleet slots, callback authority, replacement, FIFO retirement, replay, native release, and shutdown debt |
-| `docs/specs/2026-07-09-ghostty-terminal-interaction-fairness/ghostty-terminal-interaction-fairness.md` | 1,868 | CB/GT/GA/TS/AI/SC/SF/GV requirements, prioritized terminal activation, and proof |
+| `docs/specs/2026-07-10-agentstudio-performance-boundaries/agentstudio-performance-boundaries.md` | 2,013 | shared primitives, startup-lane separation, fact transport, MainActor ledger, harness, scope |
+| `docs/specs/2026-07-09-watched-folder-admission-mainactor-fairness/watched-folder-admission-mainactor-fairness.md` | 1,999 | WF/WS/FI/TA/EV/BR requirements, strict composition restore, independent topology derivation, and proof |
+| `docs/specs/2026-07-09-watched-folder-admission-mainactor-fairness/filesystem-observation-admission-lifecycle.md` | 958 | fixed fleet slots, callback authority, replacement, FIFO retirement, replay, native release, and shutdown debt |
+| `docs/specs/2026-07-09-ghostty-terminal-interaction-fairness/ghostty-terminal-interaction-fairness.md` | 1,886 | CB/GT/GA/TS/AI/SC/SF/GV requirements, prioritized terminal activation, and proof |
 | `docs/specs/2026-07-09-ghostty-terminal-interaction-fairness/ghostty-action-admission-manifest.md` | 186 | exhaustive action disposition and mechanical coverage |
 
 Live repo anchors were rechecked at `0fd9a080`: the existing global `PaneRuntimeEventBus`, outbound `PaneRuntimeEventChannel`, MainActor `NotificationReducer`, FSEvent callback/source actor, topology/cache/persistence owners, Bridge filesystem refresh path, Ghostty callbacks/action router/surface host, IPC registry/authentication, performance recorder, shared runner, and SwiftSyntax architecture linter.
@@ -71,7 +71,7 @@ Live repo anchors were rechecked at `0fd9a080`: the existing global `PaneRuntime
 
 - Shared admission mechanics, typed fact transport, topic filtering/recovery, MainActor work attribution, architecture enforcement, and the shared performance workload.
 - Watched-folder callback admission, repair, fair scanning, root indexing, topology projection/apply, persistence handoff, filesystem-to-Git invalidation, and bounded Bridge filesystem refresh/currentness.
-- Split composition/topology hydration, legacy workspace JSON hard cut, and
+- Strict composition restore, independent topology derivation, legacy workspace JSON hard cut, and
   domain-separated steady-state persistence requests.
 - Ghostty callback lifetime, tick admission, action/user-intent admission, terminal signal hard cut, activity/notification parity, agent-report IPC, secure input, prioritized startup activation, surface geometry/visibility/lifetime, atomic vendor cutover, and performance proof.
 
@@ -562,7 +562,7 @@ The executor may allocate these disjoint initial lanes:
 | D | FSEvent callback/source/mailbox and tests | `FilesystemActor.swift` |
 | E | scan scheduler/result/root index and tests | `FilesystemActor.swift`, `RepoScanner.swift` |
 | F | persistence types/pager/coordinator and tests | canonical atoms/datastore owners |
-| F2 | composition preparation/apply and topology-hydration separation tests | boot composition roots and persistence hard cut |
+| F2 | strict composition validation/apply and independent topology-lane tests | boot composition roots and persistence hard cut |
 | G | Ghostty callback control blocks/tick gate and tests | app/surface lifecycle files |
 | H | terminal activity mailbox/projector and tests | terminal/inbox boot and router |
 | H2 | terminal activation scheduler/readiness tests | AppDelegate launch restore, view lifecycle, SurfaceManager |
@@ -586,7 +586,7 @@ High-conflict files are single-owner at each gate: `WorkspaceSurfaceCoordinator.
 | workload flow has no same-attempt cascade | parent acyclic-workload contract | S5/S6; every domain cut | checked owner/route manifest plus literal correlation/generation count ledger; independent negative back-edge/observation fixtures | compile/static + deterministic unit/integration counts + Victoria runtime evidence; current source/HEAD/run | required; acknowledgements are payload-free and every retry/reconfiguration advances a checked attempt/generation |
 | one global semantic fact bus filters before queue/replay | parent fact taxonomy; EV1–EV11 | S2/S4/IG1 | `RuntimeFactBus.subscribe/post`; independent topic/replay table and structural source inventory | unit + integration + architecture lint; current source tree | required; IG1 atomic |
 | MainActor attribution and availability are causal and bounded | parent MainActor last mile; TA8 | S3, every applier, DQ1 | `MainActorWorkLedger`; independent heartbeat plus interaction stages | unit + Victoria observability + native E2E; current PID/run/build/root manifest | required; queue/service/liveness/interaction gates all pass |
-| composition, content mounting, terminal activation, and repository startup are independent | parent startup-lane contract; SF12–SF17 | W4.5/W4.5z/W5/W7; S3.5/T10.5 | invalid strict-decode or accepted immutable composition, exhaustive content dispatch, exact stored-ID activation ledger, delayed topology control, unchanged datastore snapshot | unit + SQLite/runtime integration + Victoria/native E2E; current PID/run/build | required; active terminal/nonterminal readiness and empty shell precede delayed external lanes; restore performs no repair/list/write and each pane mounts once |
+| composition, content mounting, terminal activation, and repository startup are independent | parent startup-lane contract; SF12–SF17 | W4.5/W4.5z/W5/W7; S3.5/T10.5 | invalid composition with zero mutation/activation; accepted immutable composition with one bounded apply; UUIDv7 new creation; exact historical-ID round-trip; zero startup writes/list calls; exact stored-ID activation ledger; delayed topology control | unit + SQLite/runtime integration + Victoria/native E2E; current PID/run/build | required; active terminal/nonterminal readiness and empty shell precede delayed external lanes; each pane mounts once and external lanes cannot alter composition/residency/session identity |
 | UI-memory persistence is settled/coalesced, never callback-rate | parent UI-memory checkpoint contract | W4.5p/W7/W8 | explicit end-gesture or injected-clock latest settle gate plus revision/pump counters; literal N-callback oracle | unit + AppKit-boundary integration + Victoria MainActor/persistence counts; current source/run | required; N continuous callbacks yield one settled atom assignment/revision/request, zero fact posts, and no Observation feedback revision |
 | watched loss never authorizes false removal | WF/WS/FI | W1–W5 | callback/source-gate/scheduler/topology applier; literal filesystem manifest | unit + real filesystem/Git integration + workload | required; split callback, scan, apply |
 | watched roots never falsely present last-known state as current | watched currentness contract | W5b/W11/DQ1 | `WatchedFolderCurrentnessAtom` + Repo Explorer currentness read model | unit + integration + PID-targeted native visibility; current source/run/root generation | required; last-known content remains usable but visibly non-current |
@@ -609,9 +609,9 @@ Accepted specification SHA256 values for this implementation-plan revision:
 
 | Artifact | SHA256 |
 | --- | --- |
-| `agentstudio-performance-boundaries.md` | `dc1c3662674e654fd737e0b35a98ade382a038fd35ab487b27f82f59e3bbe77d` |
+| `agentstudio-performance-boundaries.md` | `bc7a065d7b4c518a82923520e68da116eaf8cdb92dfa1bc4bb05f455cf38a801` |
 | `watched-folder-admission-mainactor-fairness.md` | `ad5081fee1f1e9ba726beec33681b2b767430bed97c2b21af87e998b9b8d3122` |
-| `ghostty-terminal-interaction-fairness.md` | `03325caf587d8d0f61db15cf32444f8b923200a76c5e268df2430ff220d8a4a3` |
+| `ghostty-terminal-interaction-fairness.md` | `7bfdbf98f59ca5fa84ceff85deb05d7dd1ea69e62d03d3c4b1ef7fc6406bccdb` |
 | `ghostty-action-admission-manifest.md` | `68f81a879119f331291f2fa66dd1442a07a20494caa70b4b80c702c69169c5fa` |
 
 ## 9. Validation Gates

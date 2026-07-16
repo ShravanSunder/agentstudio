@@ -600,13 +600,16 @@ activation. Its immutable input contains pane UUIDv7 identity, terminal
 provider, a required opaque `ZmxSessionID`, launch configuration, visibility
 priority, and host-placement identity. It contains no repository/worktree
 ownership. The App/coordinator creation owner gives every new terminal pane an
-independently generated UUIDv7 `ZmxSessionID` before atom/graph insertion;
-atoms only store the caller-supplied typed value. Repository writers store it verbatim in the existing SQLite text
-column. Restore accepts every existing nonempty value, including historical
-`as-*`, as the same opaque typed
-identity and uses it exactly. No schema/data migration is part of this cut. No
-path, topology, pane fragment, or arbitrary new string can become session
-identity.
+independently generated identity through `ZmxSessionID.generateUUIDv7()` before
+atom/graph insertion;
+atoms only store the caller-supplied typed value. Repository writers store it
+verbatim in the existing SQLite `TEXT` column. Decode accepts every existing
+nonblank value, including historical UUIDv4 and `as-*`, as the same opaque typed
+identity and uses it exactly. Existing values are not validated as UUIDv7:
+UUIDv7 is the generation contract for new identities only. This cut performs no
+schema/data migration, conversion, backfill, rewrite, adoption, reconciliation,
+or identity repair. No path, topology, pane fragment, or arbitrary new string
+can become session identity.
 
 SF13. Composition acceptance freezes one `TerminalRestorableCohort` for its
 generation. Terminal activation uses exhaustive priority: active visible, other
@@ -642,7 +645,8 @@ readiness or mutates the stored identity.
 
 SF17. CWD/title/activity updates may follow attachment through their typed
 lanes. Repository matching is a derived external projection and cannot delay,
-cancel, or destroy a terminal runtime.
+cancel, or destroy a terminal runtime. Repository/filesystem/Git/topology work
+cannot block pane attachment or mutate composition, residency, or zmx identity.
 
 ### Ghostty Version Cutover
 
@@ -1705,7 +1709,7 @@ timing alone—establishes precision latency.
 | TS1-TS9 | signal planes and content disposition | type/architecture enforcement plus bounded flood and export canaries | signal planes |
 | AI1-AI10 | activity parity, provenance, report API, lease, server generation | injected-clock sequence oracle plus IPC ordering/revoke/replace integration | activity intelligence and agent reports |
 | SC1-SC8 | future screen boundary and global secure-input owner | exhaustive owner-state races, baseline capture denial, and real Carbon transition smoke | secure input; future capture constraints |
-| SF1-SF17 | direct input, startup activation, geometry, visibility, display, teardown, and scrollback memory | priority/readiness tests, delayed repository integration, mutation-free restore and exact-ID attach proof, geometry/visibility/lifetime tests, native interaction diagnostics, and count-driven memory gate | surface host and terminal activation |
+| SF1-SF17 | direct input, startup activation, geometry, visibility, display, teardown, and scrollback memory | invalid composition with zero mutation/activation; UUIDv7 new creation plus opaque historical-ID round-trip; zero startup writes and zmx-list calls; priority/exact-ID attach and delayed repository integration; geometry/visibility/lifetime tests; native interaction diagnostics; count-driven memory gate | surface host and terminal activation |
 | GV1-GV8 | atomic vendor cutover, attribution identity, measurement isolation | build-manifest/delta/negative-product checks, throughput and core factorial report | Ghostty cutover and shared harness |
 
 ## Security and Trust Context

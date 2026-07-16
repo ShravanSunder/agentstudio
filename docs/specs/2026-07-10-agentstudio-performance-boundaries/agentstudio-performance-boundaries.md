@@ -1569,13 +1569,22 @@ gap is evidence of starvation, not proof that the immediately preceding named
 operation caused it. Stack samples/signposts and work-item spans provide causal
 attribution.
 
-### Startup Composition, Terminal Activation, And External Reconciliation
+### Startup Composition, Terminal Activation, And External Derived Work
 
-Startup has three independently owned readiness lanes. SQLite rows are decoded
-strictly into an immutable composition off-main, then that composition is
-installed in one bounded MainActor transaction. Restore does not normalize,
-repair, infer, backfill, adopt, discover, or write canonical state. Invalid
-persisted composition fails before installation. The prepared composition
+Startup has three independently owned readiness lanes. The composition lane is
+strictly:
+
+```text
+SQLite decode
+  -> pure exhaustive validation
+  -> accepted immutable composition
+  -> one bounded MainActor apply
+  -> terminal activation
+```
+
+Invalid persisted composition is rejected before canonical mutation or terminal
+activation. Startup does not normalize, choose fallback selection, synthesize
+cursors, repair membership, or write canonical state. The accepted composition
 includes pane identity, content/provider, the terminal's required
 `ZmxSessionID`, launch configuration, drawer/tab/layout membership, local
 cursors, and window/sidebar presentation state. It excludes repository/worktree
@@ -1585,13 +1594,15 @@ Every terminal pane owns a non-optional opaque `ZmxSessionID`. The App or
 coordinator owner of a new terminal-pane creation intent independently mints it
 with the self-documenting `ZmxSessionID.generateUUIDv7()` API before atom/graph
 insertion. Atoms only accept and store the caller-supplied typed value. SQLite
-stores it verbatim as existing text, and only the strong identity type reaches the zmx
+stores it verbatim as `TEXT`, and only the strong identity type reaches the zmx
 subprocess boundary. Pane, repository, worktree, path, launch-directory,
-drawer, or other topology values
-never derive or validate it. New arbitrary strings cannot represent zmx
-identity. Restore accepts every existing nonempty stored value, including
-historical `as-*`, and neither interprets nor rewrites it. This cut changes no
-schema and performs no identity data migration.
+drawer, or other topology values never derive it. New arbitrary strings cannot
+represent zmx identity. Decode accepts every existing nonblank stored value,
+including historical UUIDv4 and `as-*` values, without UUID-version validation,
+interpretation, conversion, or rewrite. UUIDv7 is the creation rule for new
+identities, not a validity rule for existing data. This cut changes no schema
+and performs no migration, backfill, reconciliation, adoption, or identity
+repair.
 
 Canonical `Pane` exposes no `repoId` or `worktreeId` facet/accessor.
 `SessionResidency` contains only repository-independent process/UI lifecycle
@@ -1630,12 +1641,13 @@ and AppKit mounting remain MainActor-owned, but schedulers, prioritization,
 retry, and currentness bookkeeping execute outside MainActor and
 admit only bounded service quanta back to it.
 
-Repository/filesystem startup is a separate non-blocking lane. Persisted
-topology may provide last-known display state, but discovery, Git validation,
-watched-root registration, and CWD-to-topology matching never gate window or
-terminal readiness. Repository removal invalidates and recomputes derived pane
-location projection only; it never changes pane residency, tab membership,
-terminal lifecycle, or zmx attachment.
+Repository/filesystem/Git/topology startup is a separate non-blocking derived
+lane. Persisted topology may provide last-known display state, but discovery,
+Git validation, watched-root registration, and CWD-to-topology matching never
+gate pane attachment, window readiness, or terminal readiness. Repository
+removal invalidates and recomputes derived pane-location projection only; it
+never changes canonical composition, pane residency, tab membership, terminal
+lifecycle, or zmx session identity/attachment.
 
 Coordinated SQLite checkpoints may share one persistence revision, but that
 storage transaction does not merge composition and topology validation,
@@ -1843,7 +1855,7 @@ confounded causal claim.
 | semantic topic transport | parent + watched-folder child | structural policy, queue admission, lag/recovery proof |
 | Ghostty tick/action admission | terminal child | state/origin tables, races, sustained producer pressure |
 | terminal sample contraction/activity parity | terminal child | sequence oracle, bounded flood, semantic parity |
-| startup composition and terminal readiness | parent + terminal child | invalid strict-decode and accepted immutable composition states; active-before-hidden exact-ID attachment; bounded MainActor activation service; distinct window/typing/all-restorable milestones; delayed repository-lane injection |
+| startup composition and terminal readiness | parent + terminal child | invalid composition with zero canonical mutation/activation; accepted immutable composition with one bounded apply; new UUIDv7 identity creation; historical UUIDv4/`as-*` exact round-trip; zero startup writes and zmx-list calls; active-before-hidden exact-ID attachment; distinct window/typing/all-restorable milestones; delayed repository-lane injection |
 | secure input/screen boundary | terminal child | owner-state races, denied capture, export canaries |
 | combined typing/cursor symptom | shared harness | correlated watched-pressure, input-to-frame-layer-publication tails, and native visible outcomes |
 

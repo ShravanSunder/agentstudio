@@ -2,7 +2,6 @@ import Foundation
 
 struct WorkspacePreparedCompositionAcceptance: Equatable, Sendable {
     let revision: WorkspacePersistenceRevision
-    let repairReport: WorkspaceTabMembershipRepairReport
     let terminalActivationInput: TerminalActivationInput
 }
 
@@ -156,7 +155,6 @@ final class WorkspacePreparedCompositionApplier {
         return preparation.commit {
             WorkspacePreparedCompositionAcceptance(
                 revision: preparation.transaction.proposedRevision,
-                repairReport: prepared.repairReport,
                 terminalActivationInput: prepared.terminalActivationInput
             )
         }

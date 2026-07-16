@@ -11,6 +11,9 @@ struct TerminalActivationInput: Equatable, Sendable {
 
 struct TerminalActivationDescriptor: Equatable, Sendable {
     let paneID: PaneId
+    /// Durable terminal identity restored from SQLite without rewriting it.
+    /// Provider selection never owns or changes this identity.
+    let zmxSessionID: ZmxSessionID
     let provider: TerminalActivationProvider
     let launchConfiguration: TerminalActivationLaunchConfiguration
     let visibilityPriority: TerminalActivationVisibilityPriority
@@ -19,7 +22,7 @@ struct TerminalActivationDescriptor: Equatable, Sendable {
 
 enum TerminalActivationProvider: Equatable, Sendable {
     case ghostty
-    case zmx(sessionID: ZmxSessionID)
+    case zmx
 }
 
 enum TerminalActivationLaunchDirectory: Equatable, Sendable {

@@ -210,19 +210,14 @@ final class ZmxBackend: SessionBackend {
         return "\(escapedPath) attach \(escapedId) \(escapedShell) -i -l"
     }
 
-    /// Double-quote a string for safe shell interpolation.
+    /// Encode one opaque argument for POSIX shell parsing.
     ///
-    /// This string is injected into an interactive shell via `sendText`, so it
-    /// must survive one level of shell parsing in a double-quoted context.
+    /// Single-quoted arguments preserve every byte except the quote itself;
+    /// embedded quotes use the standard close-quote, escaped-quote, reopen
+    /// sequence. This is deliberately an argument encoder, not an identity
+    /// normalizer: stored zmx session text must reach zmx unchanged.
     static func shellEscape(_ value: String) -> String {
-        let escaped =
-            value
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "$", with: "\\$")
-            .replacingOccurrences(of: "!", with: "\\!")
-            .replacingOccurrences(of: "`", with: "\\`")
-        return "\"\(escaped)\""
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
     func destroyPaneSession(_ handle: PaneSessionHandle) async throws {

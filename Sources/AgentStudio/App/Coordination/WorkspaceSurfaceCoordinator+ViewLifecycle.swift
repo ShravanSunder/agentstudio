@@ -409,6 +409,12 @@ extension WorkspaceSurfaceCoordinator {
             Self.logger.error(
                 "\(context.missingZmxLogMessage) for \(pane.id) (state will not persist)"
             )
+            if treatAsRestoredSessionStart {
+                // Initial restore activates the exact durable session or presents failure.
+                // It must not rewrite composition or silently launch a replacement shell.
+                registerTerminalPlaceholderIfNeeded(for: pane, mode: .failedToStart)
+                return nil
+            }
             if !pane.metadata.title.localizedCaseInsensitiveContains("ephemeral") {
                 store.paneAtom.updatePaneTitle(pane.id, title: "\(pane.metadata.title) [ephemeral]")
             }
