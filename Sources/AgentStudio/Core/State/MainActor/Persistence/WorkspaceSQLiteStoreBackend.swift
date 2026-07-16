@@ -434,19 +434,6 @@ enum WorkspaceSQLiteStateBridge {
         )
     }
 
-    static func defaultCursorState(
-        tabShells: [WorkspaceCoreRepository.TabShellRecord],
-        tabGraph: WorkspaceCoreRepository.TabGraphRecord
-    ) -> WorkspaceLocalRepository.CursorStateRecord {
-        .init(
-            activeTabId: tabShells.first?.id ?? tabGraph.tabs.first?.tabId,
-            activeArrangementIdsByTabId: [:],
-            activePaneIdsByArrangementId: [:],
-            drawerExpansionByDrawerId: [:],
-            activeChildIdsByArrangementDrawer: [:]
-        )
-    }
-
     static func persistableState(
         from snapshot: Snapshot
     ) throws -> WorkspacePersistor.PersistableState {
