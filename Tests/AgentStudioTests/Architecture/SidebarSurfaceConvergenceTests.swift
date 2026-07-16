@@ -105,6 +105,25 @@ struct SidebarSurfaceConvergenceTests {
         #expect(sharedSource.contains("struct SidebarToolbarSortButton"))
     }
 
+    @Test("inbox delete menu uses the shared toolbar menu primitive")
+    func inboxDeleteMenuUsesSharedToolbarMenuPrimitive() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let inboxSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/InboxNotification/Views/InboxSidebarComponents.swift"),
+            encoding: .utf8
+        )
+        let toolbarSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/SharedComponents/SidebarSortButton.swift"),
+            encoding: .utf8
+        )
+
+        #expect(inboxSource.contains("SidebarToolbarMenuButton("))
+        #expect(!inboxSource.contains("private var deleteMenu: some View {\n        Menu {"))
+        #expect(toolbarSource.contains("struct SidebarToolbarMenuButton"))
+        #expect(toolbarSource.contains(".tint(Color.secondary)"))
+    }
+
     @Test("repo and inbox grouping controls share the labeled trigger and selectable popover")
     func repoAndInboxGroupingControlsShareLabeledTriggerAndSelectablePopover() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))

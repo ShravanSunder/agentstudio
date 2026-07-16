@@ -110,6 +110,22 @@ struct SidebarToolbarMenuLabel: View {
     }
 }
 
+struct SidebarToolbarMenuButton<MenuContent: View>: View {
+    let icon: CommandIcon
+    @ViewBuilder let menuContent: () -> MenuContent
+
+    var body: some View {
+        Menu {
+            menuContent()
+        } label: {
+            SidebarToolbarMenuLabel(icon: icon)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .tint(Color.secondary)
+    }
+}
+
 struct SidebarToolbarDivider: View {
     var body: some View {
         Divider()

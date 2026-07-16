@@ -74,11 +74,7 @@ enum AppEntityIcon: Equatable {
         switch self {
         case .coloredRepo(let colorHex), .checkout(let colorHex, _):
             return Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
-        case .paneGroup:
-            return AppStyles.Shell.Sidebar.paneGroupIconColor
-        case .tabGroup:
-            return AppStyles.Shell.Sidebar.tabGroupIconColor
-        case .repo, .pane, .tab, .workspace, .otherSources:
+        case .repo, .pane, .paneGroup, .tab, .tabGroup, .workspace, .otherSources:
             return .secondary
         }
     }

@@ -87,4 +87,21 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(projectionWorkerSource.contains("branchStatusByWorktreeId"))
         #expect(projectionWorkerSource.contains("branchNameByWorktreeId"))
     }
+
+    @Test("repo favorite rows read current topology state instead of projected entity copies")
+    func repoFavoriteRowsReadCurrentTopologyState() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let repoExplorerViewSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(repoExplorerViewSource.contains("isFavorite: currentRepoFavoriteState("))
+        #expect(
+            repoExplorerViewSource.contains(
+                "store.repositoryTopologyAtom.repo(repoId)?.isFavorite ?? projectedFallback"
+            )
+        )
+        #expect(!repoExplorerViewSource.contains("isFavorite: resolvedWorktreeContext.repo.isFavorite"))
+    }
 }

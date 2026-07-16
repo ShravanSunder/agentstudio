@@ -34,9 +34,11 @@ struct SidebarSourceGroupHeaderTests {
         #expect(AppEntityIcon.tabGroup.symbol == .system(.squareStackFill))
     }
 
-    @Test("app entity icons use semantic variants for colored pane and tab groups")
-    func appEntityIconsUseSemanticVariantsForColoredPaneAndTabGroups() {
+    @Test("pane and tab group icons use monochrome semantic color")
+    func paneAndTabGroupIconsUseMonochromeSemanticColor() {
         #expect(AppEntityIcon.paneGroup != .pane)
         #expect(AppEntityIcon.tabGroup != .tab)
+        #expect(AppEntityIcon.paneGroup.foregroundStyle == Color.secondary)
+        #expect(AppEntityIcon.tabGroup.foregroundStyle == Color.secondary)
     }
 }

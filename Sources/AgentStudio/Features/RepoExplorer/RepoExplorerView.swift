@@ -474,7 +474,10 @@ struct RepoExplorerView: View {
                                 resolvedWorktreeContext.worktree.id
                             ] ?? .unknown,
                             unreadCount: unreadCount(resolvedWorktreeContext.worktree),
-                            isFavorite: resolvedWorktreeContext.repo.isFavorite,
+                            isFavorite: currentRepoFavoriteState(
+                                repoId: resolvedWorktreeContext.repo.id,
+                                projectedFallback: resolvedWorktreeContext.repo.isFavorite
+                            ),
                             onToggleFavorite: {
                                 toggleFavorite(repoId: resolvedWorktreeContext.repo.id)
                             },
@@ -568,6 +571,10 @@ struct RepoExplorerView: View {
     private func toggleFavorite(repoId: UUID) {
         guard let repo = store.repositoryTopologyAtom.repo(repoId) else { return }
         store.repositoryTopologyAtom.setRepoFavorite(repoId, isFavorite: !repo.isFavorite)
+    }
+
+    private func currentRepoFavoriteState(repoId: UUID, projectedFallback: Bool) -> Bool {
+        store.repositoryTopologyAtom.repo(repoId)?.isFavorite ?? projectedFallback
     }
 
     private func checkoutTitle(for worktree: Worktree, in repo: RepoPresentationItem) -> String {
