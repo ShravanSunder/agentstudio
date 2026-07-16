@@ -949,3 +949,19 @@ remove persistence mechanics from canonical atoms
 
 Adapter-only tests, a test-only factory/applier, or extracted types without live
 writer routing do not satisfy this gate.
+
+### Current W4.5p implementation checkpoint — capture-only custody
+
+Commit `93041f0f` adds strict composition capture descriptors and adapter-owned
+capture-only APIs. They reserve fixed-revision participant preimages in
+`O(changed keys)` without mutating canonical atoms or registering replacement
+state. Parent verification passed the capture-only suite (3 tests), existing
+pane/tab adapter suites (16 tests), `mise run build`, and `git diff --check`.
+
+The next active slice is the installed semantic gateway layer. It must decide
+typed rejection and semantic no-op before committing, then reserve every
+affected participant, execute the existing pure atom/facade mutation once, and
+publish one revision. Sidebar width and window frame are one aggregate
+window-memory writer family. Composition remains uninstalled until every pane,
+drawer, tab, arrangement, topology-to-pane, and startup-diagnostic writer is
+cut and the batched preinstall zmx repair is complete.
