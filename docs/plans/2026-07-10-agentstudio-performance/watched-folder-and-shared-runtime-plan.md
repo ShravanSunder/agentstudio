@@ -598,24 +598,28 @@ Requirements: TA1, TA9–TA11 and the normative mirror-bootstrap contract. This 
 The `5f8bf99d` implementation embedded persistence DTO projection, snapshot
 participants, membership limits, byte estimates, pager/revision preparation,
 and transaction registration inside canonical atom files. That violates the
-existing AgentStudio boundary: atoms own canonical in-memory state and local
-synchronous domain invariants; persistence wrappers own persistence mechanics;
-coordinators own cross-atom sequencing. W4.5 composition and terminal-activation
-work must not resume until this violation is removed.
+existing AgentStudio boundary: atoms own canonical or pure derived state; pure
+domain types own validation and decisions; coordinators own cross-atom
+sequencing; persistence wrappers own persistence mechanics. W4.5 composition
+and terminal-activation work must not resume until this violation is removed.
 
 Hard-cut the fixed-revision implementation into three responsibilities:
 
 ```text
+pure domain decision
+  final typed change | unchanged | typed rejection
+        |
+        v
+outer persistence mutation coordinator
+  exact preimage capture + one revision/effect transaction
+        |
+        v
 pure atom
-  canonical state + local invariants + domain-native reads/mutations
+  canonical assignment + equality/index/observation maintenance only
         |
         v
-long-lived persistence adapter
-  persistence projection + snapshot participant + lease/revision preparation
-        |
-        v
-coordinator/applier
-  cross-atom transaction sequencing and accepted effects
+long-lived persistence adapter/pager
+  fixed-revision participation; SQLite assembly remains off-main
 ```
 
 Move every `WorkspaceStateSnapshot*`, persistence snapshot DTO/row projection,
@@ -635,12 +639,12 @@ participation owner supplies the same adapter instances to the snapshot factory,
 revisioned mutation owners, and composition/topology appliers; reconstructing an
 adapter per page, transaction, or factory call is forbidden.
 
-Local invariants remain in atoms: pane-graph validity, drawer normalization,
-tab identity/index consistency, tab selection fallback, and arrangement cursor
-validity. Persistence adapters may request a validated domain mutation but may
-not reimplement those invariants or expose persistence vocabulary through the
-atom API. Cross-atom composition repair and application remain outside all
-atoms.
+Pure domain types outside atoms own pane-graph validity, drawer normalization,
+tab identity/index consistency, selection fallback, cursor validity, and typed
+decisions. Mutation coordinators sequence accepted cross-atom changes;
+persistence adapters capture/restore but do not reimplement domain rules or
+expose persistence vocabulary through atom APIs. Cross-atom composition repair
+and application remain outside all atoms.
 
 The remediation must inventory direct persistence-affecting atom mutations.
 Before participant installation, dormant/legacy product paths may remain
@@ -700,6 +704,21 @@ only after both participant inventories are installed; until then each domain
 retains its own bounded lifecycle and no partial pager can masquerade as the
 complete inventory.
 
+Participant construction does not itself prove writer cutover. Each domain
+installation consumes a distinct non-copyable `WorkspacePersistenceWriterCutoverReceipt`
+minted only after the checked production-writer inventory is complete; a receipt
+for one domain cannot install the other. The participant factory cannot advance
+lifecycle state without that receipt, and the complete pager is constructible
+only from both installed-domain inventories.
+
+UI-memory persistence is checkpointed rather than callback-rate. Continuous
+window/sidebar geometry renders immediately in AppKit-local presentation state
+and submits one latest settled checkpoint; discrete toggles/selections may
+commit once immediately; text-like/bursty UI memory may update its UI owner while
+the persistence pump coalesces the latest committed revision. Use explicit
+gesture-finalization where AppKit provides it and an injected-clock bounded
+latest-value settle gate otherwise. No wall-clock sleep or fact-bus route.
+
 Startup zmx-anchor reconciliation is an explicit composition bootstrap repair,
 not ordinary steady-state mutation. After prepared composition apply, collect
 all accepted anchor changes and apply them through one preinstall pane-graph
@@ -733,6 +752,12 @@ Proof is blocking:
 - each domain rejects post-install initial apply/bootstrap repair and is not
   installed until its complete production writer inventory routes through the
   bound adapters/coordinator;
+- domain installation rejects a missing, foreign, reused, or cross-domain
+  writer-cutover receipt, and a complete pager is unavailable after only one
+  domain installs;
+- N window/sidebar callbacks produce immediate visual updates but exactly one
+  settled canonical mutation, revision, and persistence request, with zero
+  fact posts and zero Observation-triggered second revision;
 - startup zmx-anchor reconciliation completes through one preinstall pane batch
   before composition installation, while post-boot diagnostics use installed
   semantic gateways;
@@ -771,7 +796,7 @@ Add `WorkspaceStateSnapshotLease.swift` and `WorkspaceStateSnapshotPager.swift`.
 - `WorkspaceTabShellAtom.swift`, `WorkspaceTabCursorAtom.swift`, `WorkspaceTabGraphAtom.swift`, and `WorkspaceArrangementCursorAtom.swift`
 - `WorkspacePaneAtom.swift`/`WorkspaceTabLayoutAtom.swift` only as compatibility façades
 
-Each persistence adapter exposes fixed-revision base membership/raw page reads and accepts an outer-transaction revision for keyed changes; it retains at most the first post-base value/tombstone for a changed key. Canonical atoms expose only domain-native state and local invariant-preserving mutations. MainActor page capture is bounded raw reading only and has one synchronous `MainActorWorkLedger` record. It performs no normalization/join/filter/serialization and never spans `await`.
+Each persistence adapter exposes fixed-revision base membership/raw page reads and accepts an outer-transaction revision for keyed changes; it retains at most the first post-base value/tombstone for a changed key. Canonical atoms expose only narrow assignment/simple-transform methods plus pure reads; domain validation/decisions stay outside them. MainActor page capture is bounded raw reading only and has one synchronous `MainActorWorkLedger` record. It performs no normalization/join/filter/serialization and never spans `await`.
 
 Set `AppPolicies.WorkspacePersistence.snapshotPageMaximumItems` to the
 compile-time value 256. This caps one MainActor capture page; it does not cap the
@@ -844,6 +869,12 @@ Install the two domain-specific paths instead:
   applies using the topology preinstall token; after acceptance, every topology
   writer is cut through the bound adapters before the runtime installs the
   topology participant inventory and exposes topology mutation.
+
+Delete the old `WorkspaceStore.hydrateWorkspaceState*` atom-replacement routes
+and `applyLiveSQLiteTabRepairIfNeeded` save-result mutation in this same cut.
+SQLite-to-atom flow is preinstall-only through the two prepared appliers; an
+installed save acknowledgement may clear persistence custody but never repair,
+hydrate, or advance canonical state.
 
 The cut removes every owner capable of validating or applying both domains.
 Structural negative proof inventories the production boot graph and fails when
@@ -946,6 +977,7 @@ Add:
 - `FilesystemTopologyProjectorTests.swift`
 - `WorkspaceTopologyApplierTests.swift`
 - `WorkspaceTopologyApplyScalingTests.swift`
+- `WorkspaceTopologyAttemptGraphTests.swift`
 - `WatchedFolderCurrentnessAtomTests.swift`
 
 Extend:
@@ -959,6 +991,12 @@ Extend:
 - `RepoExplorerReadModelTests.swift` and `RepoExplorerViewTests.swift` for visible currentness states
 
 Invariants: stale base has no partial mutation or revision advance; one topology apply advances the revision owner exactly once; discovery-owned and user-owned fields merge only per spec; cache cleanup and location invalidation are atomic with topology; pane residency/tab membership and terminal lifecycle are byte-for-byte unchanged; at most one observation invalidation and trace refresh; accepted effect record exhaustively names source/Git/location/Forge/persistence/trace/repair follow-ups and watched-root currentness. A non-current root retains last-known state but has a distinguishable Repo Explorer presentation.
+
+The attempt-graph oracle proves an accepted generation-N effect cannot re-enter
+generation N, acknowledgements are payload-free custody closure, and retry or
+topology-driven source reconfiguration advances a checked attempt/generation
+before producing work. One correlation cannot revisit a workload owner in the
+same attempt.
 
 Add a RED regression for the historical double reconciliation: guarded
 projector output `[X, Y]` entering the canonical apply path must remain `[X, Y]`.
@@ -1091,6 +1129,10 @@ W7b/W7c do not change production construction or caller selection. Before W7d, e
 ### W7d — Atomic sole-writer cut
 
 Depends on W8a–W8c proving checkpoint compaction/commit/starvation over the W4.5 pager. In one production integration diff, drain/cancel old scheduled saves, fence their process generation, switch every W7a caller to its W7c typed request endpoint, install `WorkspacePersistenceCoordinator`, remove/absorb `WorkspaceSQLiteSaveCoordinator` and every direct write path, and only then enable the direct-writer architecture rule. No intermediate product state has two writers, and the sole-writer cut cannot land before checkpoint recovery is operational.
+
+The same atomic cut removes canonical-atom Observation as a persistence trigger.
+Only explicit committed revisions/change sets wake the level-triggered
+persistence pump; save receipts acknowledge custody and cannot mutate atoms.
 
 Only the forward hard-cut migration named in W7c is authorized. A stale
 full/checkpoint write must be rejected before replacement.

@@ -358,6 +358,10 @@ The flood classification is exact:
 - filesystem changed paths are not terminal samples and do not use latest-value
   semantics: the filesystem owner unions/deduplicates exact paths and contracts
   overload to dirty subtree/root state while preserving FSEvent continuity.
+- the exhaustive descriptor-route test proves presentation/activity/current
+  metadata never enters legacy replay or per-event persistence; title/CWD equal
+  values dedupe at their authoritative current owner, and any named semantic
+  fact uses only its declared latest recovery rather than raw event replay.
 
 All four distinctions are structural: zero raw sample posts, zero raw sample
 replay, and no sample may share a dropping queue with semantic facts.
@@ -504,7 +508,7 @@ Add:
 
 Modify:
 
-- `GhosttySurfaceView+Input.swift` only to preserve the short direct input path and host-call scope; perform no repo/global/screen/fleet work before Ghostty.
+- `GhosttySurfaceView+Input.swift` only to preserve the short direct input path and host-call scope; perform no atom read/mutation, persistence, fact/replay, repo/global/screen/fleet work before Ghostty.
 - `GhosttySurfaceView.swift` to delegate content scale/pixel size/display ID commit to one owner.
 - `TerminalSurfaceScrollView.swift` so layout does not invoke an independent geometry path.
 - `SurfaceManager.swift` and mount/window lifecycle to derive mounted, selected/host-hidden, occluded/minimized, app/window active, focus, and display ID separately.
@@ -523,6 +527,8 @@ Repair/extend:
 Add:
 
 - `GhosttySurfaceInputPathTests.swift`
+- a structural negative input-path fixture proving no atom, persistence gateway,
+  `RuntimeFactBus`, replay, actor mailbox, or asynchronous hop precedes the C call.
 - `GhosttySurfaceVisibilityTests.swift`
 - `GhosttyDisplayPacingTests.swift`
 

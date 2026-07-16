@@ -960,7 +960,7 @@ pane/tab adapter suites (16 tests), `mise run build`, and `git diff --check`.
 
 The next active slice is the installed semantic gateway layer. It must decide
 typed rejection and semantic no-op before committing, then reserve every
-affected participant, execute the existing pure atom/facade mutation once, and
+affected participant, execute narrow atom assignments once, and
 publish one revision. Sidebar width and window frame are one aggregate
 window-memory writer family. Composition remains uninstalled until every pane,
 drawer, tab, arrangement, topology-to-pane, and startup-diagnostic writer is
@@ -976,11 +976,11 @@ window-memory adapter, and runtime suites plus `mise run build` and
 passed.
 
 Live pane/tab mapping proved that mechanically wrapping the remaining facades
-would duplicate domain invariants and preserve fleet-wide MainActor work.
-Remaining composition families therefore use this responsibility split:
+would preserve fleet-wide MainActor work. Remaining composition families use
+this split without adding planning methods to atoms/facades:
 
 ```text
-pure atom/facade prepare
+pure domain transition owner
   -> planned(exact keyed domain patches + typed semantic effect)
   -> unchanged
   -> rejected(typed reason)
@@ -989,11 +989,26 @@ outer WorkspacePersistenceMutationCoordinator
   -> aggregate exact capture descriptors once per participant
   -> reserve all affected preimages
   -> commit one shared revision
-  -> pure facade applies the exact plan once
+  -> narrow atom assignments apply the accepted patches once
 ```
 
-Plans contain no persistence descriptors, revisions, adapter references, or
-generic mutation closures. Pane, drawer, shell, tab graph, and cursor changes
-that arise from one semantic action remain one outer transaction. The immediate
-active work is the pure keyed pane/tab substrate; production writer routing and
-domain installation follow only after that substrate is proven.
+Domain decisions contain no persistence descriptors, revisions, adapter
+references, or generic mutation closures. Pane, drawer, shell, tab graph, and
+cursor changes from one semantic action remain one outer transaction. The
+immediate active work is the keyed pane/tab transition substrate outside atoms;
+production writer routing and domain installation follow after it is proven.
+
+UI-memory persistence is not callback-rate. Continuous window/sidebar geometry
+stays immediate in AppKit presentation and produces one latest settled canonical
+checkpoint; discrete memory may commit once immediately; text-like/bursty UI
+memory may update its UI owner while the persistence pump coalesces the latest
+committed revision. Deterministic proof requires N callbacks -> one settled atom
+assignment/revision/persistence request, zero fact posts, and zero
+Observation-triggered second revision.
+
+Each domain installation must consume its own non-copyable writer-cutover
+receipt after the checked same-domain production-writer inventory is complete.
+Participant construction cannot install a domain by itself. The atomic hydration
+hard cut deletes `WorkspaceStore.hydrateWorkspaceState*` and save-result live-tab
+repair; installed SQLite acknowledgements clear custody only and never mutate
+canonical atoms.

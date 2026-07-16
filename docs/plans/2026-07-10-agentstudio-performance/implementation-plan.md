@@ -95,7 +95,8 @@ Live repo anchors were rechecked at `0fd9a080`: the existing global `PaneRuntime
 6. OTLP fields remain content-safe. Raw paths, UUIDs, pointers, terminal text, titles, URLs, errors, payload strings, clipboard data, and screen content are prohibited.
 7. A hard cut removes old publication/authority paths in the same integration slice. No task is complete with dual global publication, dual persistence writers, or dual terminal fact authorities.
 8. High-conflict files have one integration owner per integration gate. Parallel lanes may add disjoint primitives and focused tests, but they do not independently edit the same composition root.
-9. Canonical atoms remain pure state owners. Atom files may contain canonical in-memory state, synchronous local domain invariants, and narrow domain-native reads/mutations only. Persistence DTOs/row projections, snapshot participants, leases, pagers, byte estimates, revision/transaction ownership, save/retry/checkpoint policy, and cross-atom orchestration belong under `State/MainActor/Persistence` or in coordinators. This rule is the current blocking execution gate for W4.5: remove the boundary violation introduced by `5f8bf99d`, construct exactly one long-lived persistence-adapter bundle in production composition, route every installed persistence-affecting production writer through that bundle/coordinator, and prove pre-mutation paging through real product front doors. W4.5 prepared composition/terminal activation and W5 or later work must not resume from adapter-only or test-only proof.
+9. Canonical atoms remain state or pure-derived-state owners. Their narrow methods only assign caller-supplied values, suppress equal writes, perform simple representation-local transforms, and maintain storage indexes/observation invariants. Pure domain types validate and decide; mutation coordinators sequence cross-owner changes; persistence coordinators/adapters reserve preimages and transact assignments. No atom/facade prepares a mutation plan, rejection, semantic effect, persistence descriptor, or cross-owner workflow. W4.5 removes the `5f8bf99d` persistence violation, constructs one long-lived adapter bundle in production, routes every installed persistence-affecting writer through its domain gateway, and proves pre-mutation paging through real front doors before prepared composition/terminal activation or W5+ resumes.
+10. Every workload-producing path is acyclic per checked attempt/generation and proves separate admission, MainActor service, and downstream-expansion bounds. Acknowledgements may close custody; retries/source reconfiguration require a new bounded attempt/generation and cannot synchronously re-enter with payload. Composition and topology install independently inside one persistence runtime, and telemetry remains a bounded fail-open sidecar rather than a correctness edge.
 
 ## 4.1. Security Context
 
@@ -352,7 +353,7 @@ the completed S1i handoff; read-only fixture preparation may occur earlier.
 Each new clause starts with a narrow RED fixture and must pass independently:
 
 1. `MainActorBlockingWorkRule` (`agentstudio_mainactor_blocking_work`, error): in `@MainActor` declarations, `State/MainActor/**`, `MainActorMutationApplier` implementations, and `withMainActorWork` regions, reject filesystem enumeration/canonicalization, Git/process/network calls, JSON encode/decode, regex construction or fleet collection transforms, persistence queue/retry/checkpoint arbitration, and spans crossing `await`. Allowlist entries require an operation name, calibrated service budget, and expiry/owner comment.
-2. Extend `RuntimeSignalPlaneRule` (`agentstudio_runtime_signal_plane`, error): preserve S1h's settled structural Admission wrapper/token protected-helper graph, then reject `LocalUISample`/`ActivitySample`/diagnostic values posted or replayed through `RuntimeFactBus`, exact facts placed in lossy/latest mailboxes, terminal publication through legacy `PaneRuntimeEventChannel`, mixed fact/sample dropping queues, and unkeyed `Task { @MainActor }` scheduling from C callback routers. S5 does not restore a helper-name manifest or rescan contract. The rule checks declared protocol conformances and call-site receiver/argument types; runtime flood/race tests remain the behavioral oracle.
+2. Extend `RuntimeSignalPlaneRule` (`agentstudio_runtime_signal_plane`, error): preserve S1h's settled structural Admission wrapper/token protected-helper graph, then reject `LocalUISample`/`ActivitySample`/diagnostic values posted or replayed through `RuntimeFactBus`, exact facts placed in lossy/latest mailboxes, terminal publication through legacy `PaneRuntimeEventChannel`, mixed fact/sample dropping queues, and unkeyed `Task { @MainActor }` scheduling from C callback routers. Its checked owner/route manifest enumerates direct input, Ghostty action, filesystem/Git, composition install, topology install, durable mutation, fact transport, and diagnostic export edges; a focused static test rejects same-attempt back-edges, observation-driven mutation, cross-domain preinstall authority, and undeclared routes without attempting a whole-program call-graph solver. S5 does not restore a helper-name manifest or rescan contract. Runtime flood/race/count tests remain the behavioral oracle.
 
 The following subgroups define the broader fixtures covered by those two rules and adjacent existing rules:
 
@@ -363,6 +364,7 @@ The following subgroups define the broader fixtures covered by those two rules a
 - production subscriber without topics/recovery declaration;
 - `AppEventBus` or another global product `EventBus` construction;
 - same-bus repost without a named contraction budget.
+- missing owner/route declaration or a same-attempt workload-producing back-edge.
 
 #### S5b — MainActor/persistence/render rules
 
@@ -371,6 +373,8 @@ The following subgroups define the broader fixtures covered by those two rules a
 - direct product datastore mutations outside `WorkspacePersistenceCoordinator` after W7 migration;
 - closure-backed, repository-handle-bearing, undeclared-family, or non-inventoried local persistence mutations;
 - large fleet transforms in SwiftUI body-derived code.
+- new/touched atom methods that accept commands/plans or produce validation,
+  rejection, semantic-effect, persistence, async, I/O, or cross-atom workflow state.
 
 #### S5c — Ghostty/security/content rules
 
@@ -579,9 +583,11 @@ High-conflict files are single-owner at each gate: `WorkspaceSurfaceCoordinator.
 | Claim | Source | Owner | Public seam and independent oracle | Layer and freshness | RED/GREEN / fit |
 | --- | --- | --- | --- | --- | --- |
 | admission is bounded before per-sample task allocation | parent shared interfaces | S1; W1–W2; T3/T6/T7 | strict discriminated public/private type states; typed producer/consumer ports, nonempty gather/latest/fact drains, latest `D/R/C` offer/take/cleanup, journal physical snapshots/readers; compiler-negative former-construction fixtures plus literal custody/counter/currentness histories | compile/static, unit, and in-process integration, then product pressure integration in later lanes; current source manifest/HEAD/run | required; S1 fails type-state, component-pressure, final-batch wake, retry/currentness, metadata-root, snapshot-reader, private-owner, and graph-lint REDs before GREEN |
+| workload flow has no same-attempt cascade | parent acyclic-workload contract | S5/S6; every domain cut | checked owner/route manifest plus literal correlation/generation count ledger; independent negative back-edge/observation fixtures | compile/static + deterministic unit/integration counts + Victoria runtime evidence; current source/HEAD/run | required; acknowledgements are payload-free and every retry/reconfiguration advances a checked attempt/generation |
 | one global semantic fact bus filters before queue/replay | parent fact taxonomy; EV1–EV11 | S2/S4/IG1 | `RuntimeFactBus.subscribe/post`; independent topic/replay table and structural source inventory | unit + integration + architecture lint; current source tree | required; IG1 atomic |
 | MainActor attribution and availability are causal and bounded | parent MainActor last mile; TA8 | S3, every applier, DQ1 | `MainActorWorkLedger`; independent heartbeat plus interaction stages | unit + Victoria observability + native E2E; current PID/run/build/root manifest | required; queue/service/liveness/interaction gates all pass |
 | composition, content mounting, terminal activation, and repository startup are independent | parent startup-lane contract; SF12–SF17 | W4.5/W5/W7; S3.5/T10.5 | prepared/repaired/rejected composition result, exhaustive content dispatch, mount/activation ledgers, delayed topology/hidden-inventory controls, unchanged composition snapshot | unit + SQLite/runtime integration + Victoria/native E2E; current PID/run/build | required; active terminal/nonterminal readiness and empty shell precede delayed external lanes; each pane mounts once |
+| UI-memory persistence is settled/coalesced, never callback-rate | parent UI-memory checkpoint contract | W4.5p/W7/W8 | explicit end-gesture or injected-clock latest settle gate plus revision/pump counters; literal N-callback oracle | unit + AppKit-boundary integration + Victoria MainActor/persistence counts; current source/run | required; N continuous callbacks yield one settled atom assignment/revision/request, zero fact posts, and no Observation feedback revision |
 | watched loss never authorizes false removal | WF/WS/FI | W1–W5 | callback/source-gate/scheduler/topology applier; literal filesystem manifest | unit + real filesystem/Git integration + workload | required; split callback, scan, apply |
 | watched roots never falsely present last-known state as current | watched currentness contract | W5b/W11/DQ1 | `WatchedFolderCurrentnessAtom` + Repo Explorer currentness read model | unit + integration + PID-targeted native visibility; current source/run/root generation | required; last-known content remains usable but visibly non-current |
 | stale persistence cannot overwrite newer topology | TA10–TA11 | W7/W8 | coordinator/datastore receipts; repository reads compared to literal final map | unit + real SQLite integration + workload | required; sole-writer cut atomic |
@@ -603,9 +609,9 @@ Accepted specification SHA256 values for this implementation-plan revision:
 
 | Artifact | SHA256 |
 | --- | --- |
-| `agentstudio-performance-boundaries.md` | `4c04a2bf2981c305881e60c5e51cbcdf9349cffc9a74ef97bab150461e416f4d` |
-| `watched-folder-admission-mainactor-fairness.md` | `cdc5bef76f803d1a2c6cc7d8f4c0f12e98b22a844148dff56acbc1e4bd0cf0ce` |
-| `ghostty-terminal-interaction-fairness.md` | `1f2e8c986e8d83f8add9f491acc120e9ad236c2aa7cf8c599d0720681ff1a082` |
+| `agentstudio-performance-boundaries.md` | `dc1c3662674e654fd737e0b35a98ade382a038fd35ab487b27f82f59e3bbe77d` |
+| `watched-folder-admission-mainactor-fairness.md` | `ad5081fee1f1e9ba726beec33681b2b767430bed97c2b21af87e998b9b8d3122` |
+| `ghostty-terminal-interaction-fairness.md` | `03325caf587d8d0f61db15cf32444f8b923200a76c5e268df2430ff220d8a4a3` |
 | `ghostty-action-admission-manifest.md` | `68f81a879119f331291f2fa66dd1442a07a20494caa70b4b80c702c69169c5fa` |
 
 ## 9. Validation Gates
