@@ -216,19 +216,21 @@ struct WorkspacePaneCreationTransitionTests {
     func creationRejectsExistingIdentities() throws {
         // Arrange
         let identities = try #require(makeIdentities())
-        let paneConflictContext = makeAppendContext(
-            panePlacementDescriptors: [.mainLayout(paneID: identities.paneID.uuid)]
+        let paneConflictContext = WorkspacePaneCreationContext(
+            proposedPaneIsOccupied: true,
+            proposedDrawerIsOccupied: false,
+            appendTabContext: makeAppendContext()
         )
-        let drawerConflictContext = makeAppendContext(
-            panePlacementDescriptors: [
-                .drawerParent(
-                    paneID: UUIDv7.generate(),
-                    drawerID: identities.drawerID,
-                    drawerChildPaneIDs: []
-                )
-            ]
+        let drawerConflictContext = WorkspacePaneCreationContext(
+            proposedPaneIsOccupied: false,
+            proposedDrawerIsOccupied: true,
+            appendTabContext: makeAppendContext()
         )
-        let tabConflictContext = makeAppendContext(orderedTabIDs: [identities.tabID])
+        let tabConflictContext = WorkspacePaneCreationContext(
+            proposedPaneIsOccupied: false,
+            proposedDrawerIsOccupied: false,
+            appendTabContext: makeAppendContext(orderedTabIDs: [identities.tabID])
+        )
 
         // Act / Assert
         #expect(
@@ -263,7 +265,11 @@ private func makeCreationDecision(
     content: WorkspaceResolvedPaneContent = .ghosttyTerminal(lifetime: .temporary),
     metadata: PaneMetadata = PaneMetadata(title: "Terminal"),
     tabName: String = "Terminal",
-    context: WorkspaceAppendTabContext = makeAppendContext()
+    context: WorkspacePaneCreationContext = WorkspacePaneCreationContext(
+        proposedPaneIsOccupied: false,
+        proposedDrawerIsOccupied: false,
+        appendTabContext: makeAppendContext()
+    )
 ) -> WorkspacePaneCreationTransitionDecision {
     WorkspacePaneCreationTransitionDecider.decide(
         request: WorkspacePaneCreationRequest(

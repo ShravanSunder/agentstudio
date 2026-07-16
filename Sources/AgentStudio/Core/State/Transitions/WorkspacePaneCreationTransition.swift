@@ -141,6 +141,12 @@ struct WorkspacePaneCreationTransition: Equatable, Sendable {
     }
 }
 
+struct WorkspacePaneCreationContext: Equatable, Sendable {
+    let proposedPaneIsOccupied: Bool
+    let proposedDrawerIsOccupied: Bool
+    let appendTabContext: WorkspaceAppendTabContext
+}
+
 enum WorkspacePaneCreationTransitionDecision: Equatable, Sendable {
     case changed(WorkspacePaneCreationTransition)
     case rejected(WorkspacePaneCreationTransitionRejection)
@@ -156,13 +162,13 @@ enum WorkspacePaneCreationTransitionRejection: Equatable, Sendable {
 enum WorkspacePaneCreationTransitionDecider {
     static func decide(
         request: WorkspacePaneCreationRequest,
-        context: WorkspaceAppendTabContext
+        context: WorkspacePaneCreationContext
     ) -> WorkspacePaneCreationTransitionDecision {
         let identities = request.identities
-        guard context.panePlacements.placement(for: identities.paneID.uuid) == .missing else {
+        guard !context.proposedPaneIsOccupied else {
             return .rejected(.paneIdentityAlreadyExists(identities.paneID.uuid))
         }
-        guard context.panePlacements.drawer(for: identities.drawerID) == .missing else {
+        guard !context.proposedDrawerIsOccupied else {
             return .rejected(.drawerIdentityAlreadyExists(identities.drawerID))
         }
 
@@ -193,18 +199,19 @@ enum WorkspacePaneCreationTransitionDecider {
             arrangements: [arrangement],
             activeArrangementId: identities.arrangementID
         )
+        let appendContext = context.appendTabContext
         let prospectiveContext = WorkspaceAppendTabContext(
-            activeTab: context.activeTab,
-            alignedTabOwners: context.alignedTabOwners,
+            activeTab: appendContext.activeTab,
+            alignedTabOwners: appendContext.alignedTabOwners,
             panePlacements: WorkspacePanePlacementIndex.prospectiveLayoutPane(
                 paneID: identities.paneID.uuid,
                 drawerID: identities.drawerID
             ),
-            paneOwnerByPaneID: context.paneOwnerByPaneID,
-            existingArrangementIDs: context.existingArrangementIDs,
-            existingActiveArrangementTabIDs: context.existingActiveArrangementTabIDs,
-            existingActivePaneArrangementIDs: context.existingActivePaneArrangementIDs,
-            existingActiveDrawerChildKeys: context.existingActiveDrawerChildKeys
+            paneOwnerByPaneID: appendContext.paneOwnerByPaneID,
+            existingArrangementIDs: appendContext.existingArrangementIDs,
+            existingActiveArrangementTabIDs: appendContext.existingActiveArrangementTabIDs,
+            existingActivePaneArrangementIDs: appendContext.existingActivePaneArrangementIDs,
+            existingActiveDrawerChildKeys: appendContext.existingActiveDrawerChildKeys
         )
 
         switch WorkspaceAppendTabTransitionDecider.decide(

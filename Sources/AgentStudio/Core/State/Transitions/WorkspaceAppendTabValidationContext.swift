@@ -8,6 +8,9 @@ enum WorkspaceExistingActiveTabSelection: Equatable, Sendable {
 enum WorkspaceAlignedTabOwnerIndexRejection: Equatable, Sendable {
     case duplicateShellTabID(UUID)
     case duplicateGraphTabID(UUID)
+    case duplicateRelevantTabID(UUID)
+    case tabOwnerCountMismatch(shellCount: Int, graphCount: Int)
+    case relevantTabMembershipMismatch(tabID: UUID, shellContains: Bool, graphContains: Bool)
     case tabIDSetMismatch(shellOnly: Set<UUID>, graphOnly: Set<UUID>)
     case tabOrderMismatch(index: Int, shellTabID: UUID, graphTabID: UUID)
 }
@@ -18,18 +21,31 @@ enum WorkspaceAlignedTabOwnerIndexPreparation: Equatable, Sendable {
 }
 
 struct WorkspaceAlignedTabOwnerIndex: Equatable, Sendable {
-    private let orderedTabIDs: [UUID]
-    private let tabIDs: Set<UUID>
-
-    private init(orderedTabIDs: [UUID], tabIDs: Set<UUID>) {
-        self.orderedTabIDs = orderedTabIDs
-        self.tabIDs = tabIDs
+    private enum Membership: Equatable, Sendable {
+        case complete(Set<UUID>)
+        case relevant([UUID: Bool])
     }
 
-    var count: Int { orderedTabIDs.count }
+    private let tabCount: Int
+    private let membership: Membership
+
+    private init(tabCount: Int, membership: Membership) {
+        self.tabCount = tabCount
+        self.membership = membership
+    }
+
+    var count: Int { tabCount }
 
     func contains(_ tabID: UUID) -> Bool {
-        tabIDs.contains(tabID)
+        switch membership {
+        case .complete(let tabIDs):
+            return tabIDs.contains(tabID)
+        case .relevant(let membershipByTabID):
+            guard let containsTab = membershipByTabID[tabID] else {
+                preconditionFailure("relevant tab membership must be captured before validation")
+            }
+            return containsTab
+        }
     }
 
     static func prepare(
@@ -61,8 +77,50 @@ struct WorkspaceAlignedTabOwnerIndex: Equatable, Sendable {
                 )
             )
         }
-        return .validated(Self(orderedTabIDs: shellTabIDs, tabIDs: shellTabIDSet))
+        return .validated(Self(tabCount: shellTabIDs.count, membership: .complete(shellTabIDSet)))
     }
+
+    /// Captures only membership facts the proposed append will query.
+    ///
+    /// This is valid only after startup established full shell/graph alignment
+    /// and the installed steady-state gateway became their sole paired writer.
+    static func prepareRelevant(
+        shellTabCount: Int,
+        graphTabCount: Int,
+        memberships: [WorkspaceRelevantTabOwnerMembership]
+    ) -> WorkspaceAlignedTabOwnerIndexPreparation {
+        guard shellTabCount == graphTabCount else {
+            return .rejected(
+                .tabOwnerCountMismatch(
+                    shellCount: shellTabCount,
+                    graphCount: graphTabCount
+                )
+            )
+        }
+        var membershipByTabID: [UUID: Bool] = [:]
+        membershipByTabID.reserveCapacity(memberships.count)
+        for membership in memberships {
+            guard membership.shellContains == membership.graphContains else {
+                return .rejected(
+                    .relevantTabMembershipMismatch(
+                        tabID: membership.tabID,
+                        shellContains: membership.shellContains,
+                        graphContains: membership.graphContains
+                    )
+                )
+            }
+            guard membershipByTabID.updateValue(membership.shellContains, forKey: membership.tabID) == nil else {
+                return .rejected(.duplicateRelevantTabID(membership.tabID))
+            }
+        }
+        return .validated(Self(tabCount: shellTabCount, membership: .relevant(membershipByTabID)))
+    }
+}
+
+struct WorkspaceRelevantTabOwnerMembership: Equatable, Sendable {
+    let tabID: UUID
+    let shellContains: Bool
+    let graphContains: Bool
 }
 
 enum WorkspacePanePlacementDescriptor: Equatable, Sendable {
