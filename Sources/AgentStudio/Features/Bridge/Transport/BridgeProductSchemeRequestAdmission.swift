@@ -52,12 +52,15 @@ enum BridgeProductSchemeRequestAdmissionResult: Equatable, Sendable {
 struct BridgeProductSchemeRequestAdmission: Sendable {
     let session: BridgeProductSession
     let bodyReader: BridgeProductBoundedRequestBodyReader
+    let productAdmission: BridgeProductAdmissionContext
 
     init(
         session: BridgeProductSession,
+        productAdmission: BridgeProductAdmissionContext,
         maximumRequestBodyBytes: Int = BridgeProductWireContract.maximumRequestBodyBytes
     ) {
         self.session = session
+        self.productAdmission = productAdmission
         self.bodyReader = BridgeProductBoundedRequestBodyReader(
             maximumBytes: maximumRequestBodyBytes
         )
@@ -84,6 +87,11 @@ struct BridgeProductSchemeRequestAdmission: Sendable {
         }
         guard await session.authorizes(presentedCapability: presentedCapability) else {
             return rejected(statusCode: 403, url: url)
+        }
+        guard
+            (productAdmission.withValidAdmission { true }) == true
+        else {
+            return rejected(statusCode: 409, url: url)
         }
         guard Self.hasJSONContentType(request) else {
             return rejected(statusCode: 415, url: url)

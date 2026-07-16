@@ -133,8 +133,8 @@ extension WebKitSerializedTests {
             #expect(controller.isBridgeReady == true)
         }
 
-        @Test("teardown allows bridge ready cycle to restart")
-        func teardown_allowsReadyToRestartAfterReset() {
+        @Test("teardown terminally rejects a later bridge ready handshake")
+        func teardown_rejectsReadyRestartAfterReset() {
             let controller = makeController()
             defer { controller.teardown() }
 
@@ -144,8 +144,29 @@ extension WebKitSerializedTests {
             controller.teardown()
             #expect(controller.isBridgeReady == false)
 
-            controller.handleBridgeReady()
-            #expect(controller.isBridgeReady == true)
+            #expect(controller.handleBridgeReady() == false)
+            #expect(controller.isBridgeReady == false)
+        }
+
+        @Test("teardown synchronously closes pane product admission")
+        func teardownSynchronouslyClosesPaneProductAdmission() throws {
+            // Arrange
+            let controller = makeController()
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            var lateMutationRan = false
+
+            // Act
+            let retirementTask = controller.teardown()
+            let lateMutationResult = productAdmission.withValidAdmission {
+                lateMutationRan = true
+                return true
+            }
+
+            // Assert
+            #expect(controller.productAdmissionGate.acquire() == nil)
+            #expect(lateMutationResult == nil)
+            #expect(!lateMutationRan)
+            _ = retirementTask
         }
 
         @Test("loadDiff publishes package metadata and registers content handles")
@@ -209,9 +230,11 @@ extension WebKitSerializedTests {
             #expect(controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-source"])
             #expect(controller.paneState.diff.packageMetadata?.summary.filesChanged == 1)
             #expect(await provider.recordedContentRequestsCount() == 0)
+            let productAdmission = try BridgeProductAdmissionTestContext.make()
             let registered = try await controller.reviewContentStore.load(
                 handleId: headHandle.handleId,
-                requestedGeneration: 1
+                requestedGeneration: 1,
+                productAdmission: productAdmission.context
             )
             #expect(registered.handle == headHandle)
         }

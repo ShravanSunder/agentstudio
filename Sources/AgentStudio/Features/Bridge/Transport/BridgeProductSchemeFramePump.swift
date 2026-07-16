@@ -72,20 +72,26 @@ enum BridgeProductSessionProducerFrameObservation {
 struct BridgeProductSchemeFramePump: Sendable {
     private let acknowledgeLifecycle: BridgeProductSession.ProducerLifecycleAcknowledger
     private let producerLease: BridgeProductProducerLease
+    private let productAdmission: BridgeProductAdmissionContext
     private let session: BridgeProductSession
 
     init(
         session: BridgeProductSession,
         producerLease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
         acknowledgeLifecycle: @escaping BridgeProductSession.ProducerLifecycleAcknowledger
     ) {
         self.session = session
         self.producerLease = producerLease
+        self.productAdmission = productAdmission
         self.acknowledgeLifecycle = acknowledgeLifecycle
     }
 
     func nextFrame() async -> BridgeProductProducerFramePullResult {
-        let result = await session.pullProducerFrame(for: producerLease)
+        let result = await session.pullProducerFrame(
+            for: producerLease,
+            productAdmission: productAdmission
+        )
         guard case .finished = result else { return result }
         let retirement = await session.beginProducerRetirement(
             producerLease,
@@ -99,13 +105,19 @@ struct BridgeProductSchemeFramePump: Sendable {
     func acknowledgeFrameConsumed(
         _ receipt: BridgeProductProducerFrameReceipt
     ) async -> Bool {
-        await session.acknowledgeProducerFrameConsumed(receipt)
+        await session.acknowledgeProducerFrameConsumed(
+            receipt,
+            productAdmission: productAdmission
+        )
     }
 
     func waitUntilFrameObserved(
         _ receipt: BridgeProductProducerFrameReceipt
     ) async -> Bool {
-        await session.waitUntilProducerFrameObserved(receipt)
+        await session.waitUntilProducerFrameObserved(
+            receipt,
+            productAdmission: productAdmission
+        )
     }
 
     func frameRequiresWorkerObservation(
@@ -127,7 +139,8 @@ struct BridgeProductSchemeFramePump: Sendable {
 
 extension BridgeProductSession {
     func pullProducerFrame(
-        for lease: BridgeProductProducerLease
+        for lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext
     ) async -> BridgeProductProducerFramePullResult {
         let waiterToken = UUID()
         return await withTaskCancellationHandler {
@@ -136,22 +149,33 @@ extension BridgeProductSession {
                     continuation.resume(returning: .cancelled)
                     return
                 }
-                switch producerRegistry.prepareFramePull(
-                    for: lease,
-                    waiterToken: waiterToken
-                ) {
-                case .finished:
-                    continuation.resume(returning: .finished)
-                case .frame(let delivery):
-                    registerProducerFrameObservation(delivery.receipt)
-                    continuation.resume(returning: .frame(delivery))
-                case .rejected(let rejection):
-                    continuation.resume(returning: .rejected(rejection))
-                case .wait:
-                    producerFrameWaitersByLease[lease] = .init(
-                        continuation: continuation,
-                        token: waiterToken
-                    )
+                let admitted =
+                    productAdmission.withValidAdmission {
+                        guard producerAdmissionMatches(productAdmission, for: lease) else {
+                            continuation.resume(returning: .rejected(.unknownLease))
+                            return true
+                        }
+                        switch producerRegistry.prepareFramePull(
+                            for: lease,
+                            waiterToken: waiterToken
+                        ) {
+                        case .finished:
+                            continuation.resume(returning: .finished)
+                        case .frame(let delivery):
+                            registerProducerFrameObservation(delivery.receipt)
+                            continuation.resume(returning: .frame(delivery))
+                        case .rejected(let rejection):
+                            continuation.resume(returning: .rejected(rejection))
+                        case .wait:
+                            producerFrameWaitersByLease[lease] = .init(
+                                continuation: continuation,
+                                token: waiterToken
+                            )
+                        }
+                        return true
+                    } ?? false
+                if !admitted {
+                    continuation.resume(returning: .cancelled)
                 }
             }
         } onCancel: {
@@ -165,9 +189,15 @@ extension BridgeProductSession {
     }
 
     func acknowledgeProducerFrameConsumed(
-        _ receipt: BridgeProductProducerFrameReceipt
+        _ receipt: BridgeProductProducerFrameReceipt,
+        productAdmission: BridgeProductAdmissionContext
     ) -> Bool {
-        acknowledgeProducerFrameObserved(receipt)
+        productAdmission.withValidAdmission {
+            guard producerAdmissionMatches(productAdmission, for: receipt.producerLease) else {
+                return false
+            }
+            return acknowledgeProducerFrameObserved(receipt)
+        } ?? false
     }
 
     func acknowledgeProducerFrameObserved(
@@ -195,7 +225,8 @@ extension BridgeProductSession {
 
     func waitUntilProducerFrameSequenceObserved(
         for lease: BridgeProductProducerLease,
-        sequence: Int
+        sequence: Int,
+        productAdmission: BridgeProductAdmissionContext
     ) async -> Bool {
         let waiterToken = UUID()
         return await withTaskCancellationHandler {
@@ -204,28 +235,39 @@ extension BridgeProductSession {
                     continuation.resume(returning: false)
                     return
                 }
-                switch producerRegistry.prepareProducerObservationPacing(
-                    for: lease,
-                    sequence: sequence,
-                    waiterToken: waiterToken
-                ) {
-                case .observed:
-                    continuation.resume(returning: true)
-                case .rejected:
-                    continuation.resume(returning: false)
-                case .wait:
-                    guard producerObservationPacingWaitersByLease[lease] == nil else {
-                        _ = producerRegistry.cancelProducerObservationPacing(
+                let admitted =
+                    productAdmission.withValidAdmission {
+                        guard producerAdmissionMatches(productAdmission, for: lease) else {
+                            continuation.resume(returning: false)
+                            return true
+                        }
+                        switch producerRegistry.prepareProducerObservationPacing(
                             for: lease,
+                            sequence: sequence,
                             waiterToken: waiterToken
-                        )
-                        continuation.resume(returning: false)
-                        return
-                    }
-                    producerObservationPacingWaitersByLease[lease] = .init(
-                        continuation: continuation,
-                        token: waiterToken
-                    )
+                        ) {
+                        case .observed:
+                            continuation.resume(returning: true)
+                        case .rejected:
+                            continuation.resume(returning: false)
+                        case .wait:
+                            guard producerObservationPacingWaitersByLease[lease] == nil else {
+                                _ = producerRegistry.cancelProducerObservationPacing(
+                                    for: lease,
+                                    waiterToken: waiterToken
+                                )
+                                continuation.resume(returning: false)
+                                return true
+                            }
+                            producerObservationPacingWaitersByLease[lease] = .init(
+                                continuation: continuation,
+                                token: waiterToken
+                            )
+                        }
+                        return true
+                    } ?? false
+                if !admitted {
+                    continuation.resume(returning: false)
                 }
             }
         } onCancel: {
@@ -239,30 +281,42 @@ extension BridgeProductSession {
     }
 
     func waitUntilProducerFrameObserved(
-        _ receipt: BridgeProductProducerFrameReceipt
+        _ receipt: BridgeProductProducerFrameReceipt,
+        productAdmission: BridgeProductAdmissionContext
     ) async -> Bool {
         let waiterToken = UUID()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                let lease = receipt.producerLease
-                guard !Task.isCancelled,
-                    let observation = producerFrameObservationByLease[lease],
-                    observation.receipt == receipt
-                else {
+                guard !Task.isCancelled else {
                     continuation.resume(returning: false)
                     return
                 }
-                switch observation {
-                case .awaiting:
-                    producerFrameObservationByLease[lease] = .waiting(
-                        receipt,
-                        waiterToken,
-                        continuation
-                    )
-                case .observed:
-                    producerFrameObservationByLease.removeValue(forKey: lease)
-                    continuation.resume(returning: true)
-                case .waiting:
+                let lease = receipt.producerLease
+                let admitted =
+                    productAdmission.withValidAdmission {
+                        guard producerAdmissionMatches(productAdmission, for: lease),
+                            let observation = producerFrameObservationByLease[lease],
+                            observation.receipt == receipt
+                        else {
+                            continuation.resume(returning: false)
+                            return true
+                        }
+                        switch observation {
+                        case .awaiting:
+                            producerFrameObservationByLease[lease] = .waiting(
+                                receipt,
+                                waiterToken,
+                                continuation
+                            )
+                        case .observed:
+                            producerFrameObservationByLease.removeValue(forKey: lease)
+                            continuation.resume(returning: true)
+                        case .waiting:
+                            continuation.resume(returning: false)
+                        }
+                        return true
+                    } ?? false
+                if !admitted {
                     continuation.resume(returning: false)
                 }
             }
@@ -475,6 +529,7 @@ extension BridgeProductSession {
             return false
         }
         contentAdmissionByProducerLease.removeValue(forKey: lease)
+        productAdmissionByProducerLease.removeValue(forKey: lease)
         clearContentFrameObservationReplay(for: lease)
         return true
     }

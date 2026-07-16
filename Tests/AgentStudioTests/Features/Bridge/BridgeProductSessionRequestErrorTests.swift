@@ -68,12 +68,14 @@ private let requestErrorReviewSubscriptionId = "review-subscription-request-erro
 
 private struct RequestErrorSessionHarness {
     let capabilityHeader: String
+    let productAdmission: BridgeProductAdmissionTestContext
     let session: BridgeProductSession
 
     static func opened() async throws -> Self {
         let capabilityBytes = (0..<BridgeProductWireContract.capabilityByteLength).map(UInt8.init)
         let harness = try Self(
             capabilityHeader: BridgeProductCapabilityHeaderEncoding.encode(capabilityBytes),
+            productAdmission: .make(),
             session: BridgeProductSession(
                 paneSessionId: requestErrorPaneSessionId,
                 workerInstanceId: requestErrorWorkerInstanceId,
@@ -97,7 +99,8 @@ private struct RequestErrorSessionHarness {
     }
 
     func begin(_ requestBytes: Data) async -> BridgeProductSessionControlAdmission {
-        await session.beginControl(
+        await productAdmission.beginControl(
+            in: session,
             exactRequestBytes: requestBytes,
             presentedCapability: capabilityHeader
         )

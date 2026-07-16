@@ -6,6 +6,7 @@ import Testing
 struct BridgeContentStoreTests {
     @Test("content store resolves base and head content by scoped handle")
     func contentStoreResolvesBaseAndHeadContentByScopedHandle() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let store = BridgeContentStore()
         let baseHandle = makeBridgeContentHandle(
             itemId: "item-1",
@@ -24,10 +25,12 @@ struct BridgeContentStoreTests {
         let baseResult = makeContentResult(handle: baseHandle, data: "old")
         let headResult = makeContentResult(handle: headHandle, data: "new")
 
-        try await store.register(baseResult)
-        try await store.register(headResult)
-        let loadedBase = try await store.load(handleId: baseHandle.handleId, requestedGeneration: 7)
-        let loadedHead = try await store.load(handleId: headHandle.handleId, requestedGeneration: 7)
+        try await store.register(baseResult, productAdmission: productAdmission.context)
+        try await store.register(headResult, productAdmission: productAdmission.context)
+        let loadedBase = try await store.load(
+            handleId: baseHandle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
+        let loadedHead = try await store.load(
+            handleId: headHandle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
 
         #expect(loadedBase == baseResult)
         #expect(loadedHead == headResult)
@@ -35,6 +38,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store rejects stale review generation requests")
     func contentStoreRejectsStaleReviewGenerationRequests() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let store = BridgeContentStore()
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
@@ -42,19 +46,23 @@ struct BridgeContentStoreTests {
             reviewGeneration: 7,
             contentHash: bridgeSHA256ContentHash("hello")
         )
-        try await store.register(makeContentResult(handle: handle, data: "hello"))
+        try await store.register(
+            makeContentResult(handle: handle, data: "hello"), productAdmission: productAdmission.context)
 
         await #expect(throws: BridgeProviderFailure.self) {
-            _ = try await store.load(handleId: handle.handleId, requestedGeneration: 6)
+            _ = try await store.load(
+                handleId: handle.handleId, requestedGeneration: 6, productAdmission: productAdmission.context)
         }
     }
 
     @Test("content store rejects unknown handles")
     func contentStoreRejectsUnknownHandles() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let store = BridgeContentStore()
 
         do {
-            _ = try await store.load(handleId: "missing", requestedGeneration: 7)
+            _ = try await store.load(
+                handleId: "missing", requestedGeneration: 7, productAdmission: productAdmission.context)
             Issue.record("Expected missing content failure")
         } catch let failure as BridgeProviderFailure {
             #expect(failure == .missingContent(handleId: "missing"))
@@ -65,6 +73,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store lazily fetches known handles and reuses cached bytes")
     func contentStoreLazilyFetchesKnownHandlesAndReusesCachedBytes() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
             role: .head,
@@ -82,10 +91,12 @@ struct BridgeContentStoreTests {
             ]
         )
         let store = BridgeContentStore(provider: provider)
-        await store.activate(handles: [handle], reviewGeneration: 7)
+        await store.activate(handles: [handle], reviewGeneration: 7, productAdmission: productAdmission.context)
 
-        let firstLoad = try await store.load(handleId: handle.handleId, requestedGeneration: 7)
-        let secondLoad = try await store.load(handleId: handle.handleId, requestedGeneration: 7)
+        let firstLoad = try await store.load(
+            handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
+        let secondLoad = try await store.load(
+            handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
 
         #expect(firstLoad.data == Data("lazy".utf8))
         #expect(secondLoad.data == Data("lazy".utf8))
@@ -94,6 +105,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store observations identify provider load then cache hit")
     func contentStoreObservationsIdentifyProviderLoadThenCacheHit() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
             role: .head,
@@ -111,10 +123,12 @@ struct BridgeContentStoreTests {
             ]
         )
         let store = BridgeContentStore(provider: provider)
-        await store.activate(handles: [handle], reviewGeneration: 7)
+        await store.activate(handles: [handle], reviewGeneration: 7, productAdmission: productAdmission.context)
 
-        let firstLoad = try await store.loadObserved(handleId: handle.handleId, requestedGeneration: 7)
-        let secondLoad = try await store.loadObserved(handleId: handle.handleId, requestedGeneration: 7)
+        let firstLoad = try await store.loadObserved(
+            handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
+        let secondLoad = try await store.loadObserved(
+            handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
 
         #expect(firstLoad.observation.cacheResult == .providerLoad)
         #expect(firstLoad.observation.role == .head)
@@ -129,6 +143,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store coalesces concurrent loads for the same handle")
     func contentStoreCoalescesConcurrentLoadsForSameHandle() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
             role: .head,
@@ -148,12 +163,15 @@ struct BridgeContentStoreTests {
             contentLoadGate: gate
         )
         let store = BridgeContentStore(provider: provider)
-        await store.activate(handles: [handle], reviewGeneration: 7)
+        await store.activate(handles: [handle], reviewGeneration: 7, productAdmission: productAdmission.context)
 
-        async let firstLoad = try store.load(handleId: handle.handleId, requestedGeneration: 7)
+        async let firstLoad = try store.load(
+            handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
         await gate.waitForStartedLoadCount(1)
-        async let secondLoad = try store.load(handleId: handle.handleId, requestedGeneration: 7)
-        async let thirdLoad = try store.load(handleId: handle.handleId, requestedGeneration: 7)
+        async let secondLoad = try store.load(
+            handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
+        async let thirdLoad = try store.load(
+            handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
         await Task.yield()
         await gate.releaseAll()
         let loaded = try await [firstLoad, secondLoad, thirdLoad]
@@ -164,6 +182,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store preserves unchanged in-flight loads across same-generation refresh")
     func contentStorePreservesUnchangedInFlightLoadsAcrossSameGenerationRefresh() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
             role: .head,
@@ -183,11 +202,12 @@ struct BridgeContentStoreTests {
             contentLoadGate: gate
         )
         let store = BridgeContentStore(provider: provider)
-        await store.activate(handles: [handle], reviewGeneration: 7)
+        await store.activate(handles: [handle], reviewGeneration: 7, productAdmission: productAdmission.context)
 
-        async let preservedLoad = try store.load(handleId: handle.handleId, requestedGeneration: 7)
+        async let preservedLoad = try store.load(
+            handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
         await gate.waitForStartedLoadCount(1)
-        await store.activate(handles: [handle], reviewGeneration: 7)
+        await store.activate(handles: [handle], reviewGeneration: 7, productAdmission: productAdmission.context)
         await gate.releaseAll()
         let loaded = try await preservedLoad
 
@@ -197,6 +217,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store preserves same-authority in-flight loads when non-key metadata changes")
     func contentStorePreservesSameAuthorityInFlightLoadsWhenNonKeyMetadataChanges() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
             role: .head,
@@ -230,11 +251,13 @@ struct BridgeContentStoreTests {
             contentLoadGate: gate
         )
         let store = BridgeContentStore(provider: provider)
-        await store.activate(handles: [handle], reviewGeneration: 7)
+        await store.activate(handles: [handle], reviewGeneration: 7, productAdmission: productAdmission.context)
 
-        async let preservedLoad = try store.load(handleId: handle.handleId, requestedGeneration: 7)
+        async let preservedLoad = try store.load(
+            handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
         await gate.waitForStartedLoadCount(1)
-        await store.activate(handles: [refreshedHandle], reviewGeneration: 7)
+        await store.activate(
+            handles: [refreshedHandle], reviewGeneration: 7, productAdmission: productAdmission.context)
         await gate.releaseAll()
         let loaded = try await preservedLoad
 
@@ -246,6 +269,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store rejects cached bytes when same-authority refresh tightens byte cap")
     func contentStoreRejectsCachedBytesWhenSameAuthorityRefreshTightensByteCap() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
             role: .head,
@@ -278,13 +302,16 @@ struct BridgeContentStoreTests {
             ]
         )
         let store = BridgeContentStore(provider: provider)
-        await store.activate(handles: [handle], reviewGeneration: 7)
-        _ = try await store.load(handleId: handle.handleId, requestedGeneration: 7)
+        await store.activate(handles: [handle], reviewGeneration: 7, productAdmission: productAdmission.context)
+        _ = try await store.load(
+            handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
 
-        await store.activate(handles: [tightenedHandle], reviewGeneration: 7)
+        await store.activate(
+            handles: [tightenedHandle], reviewGeneration: 7, productAdmission: productAdmission.context)
 
         do {
-            _ = try await store.load(handleId: handle.handleId, requestedGeneration: 7)
+            _ = try await store.load(
+                handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
             Issue.record("Expected oversized content failure")
         } catch let failure as BridgeProviderFailure {
             #expect(failure == .oversizedContent(handleId: handle.handleId, sizeBytes: 9))
@@ -296,6 +323,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store rejects in-flight bytes when same-authority refresh flips binary policy")
     func contentStoreRejectsInFlightBytesWhenSameAuthorityRefreshFlipsBinaryPolicy() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
             role: .head,
@@ -329,11 +357,12 @@ struct BridgeContentStoreTests {
             contentLoadGate: gate
         )
         let store = BridgeContentStore(provider: provider)
-        await store.activate(handles: [handle], reviewGeneration: 7)
+        await store.activate(handles: [handle], reviewGeneration: 7, productAdmission: productAdmission.context)
 
-        async let staleLoad = try store.load(handleId: handle.handleId, requestedGeneration: 7)
+        async let staleLoad = try store.load(
+            handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
         await gate.waitForStartedLoadCount(1)
-        await store.activate(handles: [binaryHandle], reviewGeneration: 7)
+        await store.activate(handles: [binaryHandle], reviewGeneration: 7, productAdmission: productAdmission.context)
         await gate.releaseAll()
 
         do {
@@ -348,6 +377,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store observations identify in-flight coalesced loads")
     func contentStoreObservationsIdentifyInFlightCoalescedLoads() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
             role: .head,
@@ -367,11 +397,13 @@ struct BridgeContentStoreTests {
             contentLoadGate: gate
         )
         let store = BridgeContentStore(provider: provider)
-        await store.activate(handles: [handle], reviewGeneration: 7)
+        await store.activate(handles: [handle], reviewGeneration: 7, productAdmission: productAdmission.context)
 
-        async let firstLoad = try store.loadObserved(handleId: handle.handleId, requestedGeneration: 7)
+        async let firstLoad = try store.loadObserved(
+            handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
         await gate.waitForStartedLoadCount(1)
-        async let secondLoad = try store.loadObserved(handleId: handle.handleId, requestedGeneration: 7)
+        async let secondLoad = try store.loadObserved(
+            handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
         await gate.releaseAll()
 
         let observations = try await [firstLoad.observation, secondLoad.observation]
@@ -382,6 +414,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store rejects provider content hash mismatches")
     func contentStoreRejectsProviderContentHashMismatches() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let changedHash = bridgeSHA256ContentHash("changed")
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
@@ -406,10 +439,11 @@ struct BridgeContentStoreTests {
             ]
         )
         let store = BridgeContentStore(provider: provider)
-        await store.activate(handles: [handle], reviewGeneration: 7)
+        await store.activate(handles: [handle], reviewGeneration: 7, productAdmission: productAdmission.context)
 
         do {
-            _ = try await store.load(handleId: handle.handleId, requestedGeneration: 7)
+            _ = try await store.load(
+                handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
             Issue.record("Expected content hash mismatch")
         } catch let failure as BridgeProviderFailure {
             #expect(
@@ -426,6 +460,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store rejects provider bytes that do not match expected hash")
     func contentStoreRejectsProviderBytesThatDoNotMatchExpectedHash() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let tamperedHash = bridgeSHA256ContentHash("tampered")
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
@@ -450,10 +485,11 @@ struct BridgeContentStoreTests {
             ]
         )
         let store = BridgeContentStore(provider: provider)
-        await store.activate(handles: [handle], reviewGeneration: 7)
+        await store.activate(handles: [handle], reviewGeneration: 7, productAdmission: productAdmission.context)
 
         do {
-            _ = try await store.load(handleId: handle.handleId, requestedGeneration: 7)
+            _ = try await store.load(
+                handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
             Issue.record("Expected content hash mismatch")
         } catch let failure as BridgeProviderFailure {
             #expect(
@@ -470,6 +506,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store rejects binary handles before loading provider bytes")
     func contentStoreRejectsBinaryHandlesBeforeLoadingProviderBytes() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
             role: .head,
@@ -488,10 +525,11 @@ struct BridgeContentStoreTests {
             ]
         )
         let store = BridgeContentStore(provider: provider)
-        await store.activate(handles: [handle], reviewGeneration: 7)
+        await store.activate(handles: [handle], reviewGeneration: 7, productAdmission: productAdmission.context)
 
         do {
-            _ = try await store.load(handleId: handle.handleId, requestedGeneration: 7)
+            _ = try await store.load(
+                handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
             Issue.record("Expected binary content failure")
         } catch let failure as BridgeProviderFailure {
             #expect(failure == .binaryContent(handleId: handle.handleId))
@@ -503,6 +541,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store observations identify binary rejections")
     func contentStoreObservationsIdentifyBinaryRejections() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
             role: .head,
@@ -511,10 +550,11 @@ struct BridgeContentStoreTests {
             isBinary: true
         )
         let store = BridgeContentStore()
-        await store.activate(handles: [handle], reviewGeneration: 7)
+        await store.activate(handles: [handle], reviewGeneration: 7, productAdmission: productAdmission.context)
 
         do {
-            _ = try await store.loadObserved(handleId: handle.handleId, requestedGeneration: 7)
+            _ = try await store.loadObserved(
+                handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
             Issue.record("Expected binary content failure")
         } catch let failure as BridgeContentLoadObservedFailure {
             #expect(failure.underlyingError as? BridgeProviderFailure == .binaryContent(handleId: handle.handleId))
@@ -528,6 +568,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store rejects payloads larger than per-item byte cap")
     func contentStoreRejectsPayloadsLargerThanPerItemByteCap() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
             role: .head,
@@ -546,10 +587,11 @@ struct BridgeContentStoreTests {
             ]
         )
         let store = BridgeContentStore(provider: provider, contentMaxBytesPerItem: 6)
-        await store.activate(handles: [handle], reviewGeneration: 7)
+        await store.activate(handles: [handle], reviewGeneration: 7, productAdmission: productAdmission.context)
 
         do {
-            _ = try await store.load(handleId: handle.handleId, requestedGeneration: 7)
+            _ = try await store.load(
+                handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
             Issue.record("Expected oversized content failure")
         } catch let failure as BridgeProviderFailure {
             #expect(failure == .oversizedContent(handleId: handle.handleId, sizeBytes: 7))
@@ -560,6 +602,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store observations identify oversized provider bytes")
     func contentStoreObservationsIdentifyOversizedProviderBytes() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
             role: .head,
@@ -578,10 +621,11 @@ struct BridgeContentStoreTests {
             ]
         )
         let store = BridgeContentStore(provider: provider, contentMaxBytesPerItem: 6)
-        await store.activate(handles: [handle], reviewGeneration: 7)
+        await store.activate(handles: [handle], reviewGeneration: 7, productAdmission: productAdmission.context)
 
         do {
-            _ = try await store.loadObserved(handleId: handle.handleId, requestedGeneration: 7)
+            _ = try await store.loadObserved(
+                handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
             Issue.record("Expected oversized content failure")
         } catch let failure as BridgeContentLoadObservedFailure {
             let expected = BridgeProviderFailure.oversizedContent(
@@ -599,6 +643,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store observations identify stale generation rejections")
     func contentStoreObservationsIdentifyStaleGenerationRejections() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
             role: .head,
@@ -606,10 +651,12 @@ struct BridgeContentStoreTests {
             contentHash: bridgeSHA256ContentHash("hello")
         )
         let store = BridgeContentStore()
-        try await store.register(makeContentResult(handle: handle, data: "hello"))
+        try await store.register(
+            makeContentResult(handle: handle, data: "hello"), productAdmission: productAdmission.context)
 
         do {
-            _ = try await store.loadObserved(handleId: handle.handleId, requestedGeneration: 6)
+            _ = try await store.loadObserved(
+                handleId: handle.handleId, requestedGeneration: 6, productAdmission: productAdmission.context)
             Issue.record("Expected stale content failure")
         } catch let failure as BridgeContentLoadObservedFailure {
             #expect(
@@ -626,6 +673,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store rejects stale in-flight loads after generation activation")
     func contentStoreRejectsStaleInFlightLoadsAfterGenerationActivation() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let oldHandle = makeBridgeContentHandle(
             itemId: "item-1",
             role: .head,
@@ -646,11 +694,12 @@ struct BridgeContentStoreTests {
             contentLoadGate: gate
         )
         let store = BridgeContentStore(provider: provider)
-        await store.activate(handles: [oldHandle], reviewGeneration: 7)
+        await store.activate(handles: [oldHandle], reviewGeneration: 7, productAdmission: productAdmission.context)
 
-        async let staleLoad = try store.load(handleId: oldHandle.handleId, requestedGeneration: 7)
+        async let staleLoad = try store.load(
+            handleId: oldHandle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
         await gate.waitForStartedLoadCount(1)
-        await store.activate(handles: [newHandle], reviewGeneration: 8)
+        await store.activate(handles: [newHandle], reviewGeneration: 8, productAdmission: productAdmission.context)
         await gate.releaseAll()
 
         do {
@@ -663,8 +712,13 @@ struct BridgeContentStoreTests {
         }
     }
 
+}
+
+extension BridgeContentStoreTests {
+
     @Test("content store rejects in-flight loads after deactivation")
     func contentStoreRejectsInFlightLoadsAfterDeactivation() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
             role: .head,
@@ -684,9 +738,10 @@ struct BridgeContentStoreTests {
             contentLoadGate: gate
         )
         let store = BridgeContentStore(provider: provider)
-        await store.activate(handles: [handle], reviewGeneration: 7)
+        await store.activate(handles: [handle], reviewGeneration: 7, productAdmission: productAdmission.context)
 
-        async let revokedLoad = try store.load(handleId: handle.handleId, requestedGeneration: 7)
+        async let revokedLoad = try store.load(
+            handleId: handle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
         await gate.waitForStartedLoadCount(1)
         await store.deactivate()
         await gate.releaseAll()
@@ -703,6 +758,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store rejects invalid direct registrations")
     func contentStoreRejectsInvalidDirectRegistrations() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
             role: .head,
@@ -719,7 +775,7 @@ struct BridgeContentStoreTests {
         let store = BridgeContentStore()
 
         do {
-            try await store.register(result)
+            try await store.register(result, productAdmission: productAdmission.context)
             Issue.record("Expected content hash mismatch")
         } catch let failure as BridgeProviderFailure {
             #expect(
@@ -736,6 +792,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store translates cancellation-aware stale in-flight loads")
     func contentStoreTranslatesCancellationAwareStaleInFlightLoads() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let oldHandle = makeBridgeContentHandle(
             itemId: "item-1",
             role: .head,
@@ -757,11 +814,12 @@ struct BridgeContentStoreTests {
             checksCancellationAfterGate: true
         )
         let store = BridgeContentStore(provider: provider)
-        await store.activate(handles: [oldHandle], reviewGeneration: 7)
+        await store.activate(handles: [oldHandle], reviewGeneration: 7, productAdmission: productAdmission.context)
 
-        async let staleLoad = try store.load(handleId: oldHandle.handleId, requestedGeneration: 7)
+        async let staleLoad = try store.load(
+            handleId: oldHandle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
         await gate.waitForStartedLoadCount(1)
-        await store.activate(handles: [newHandle], reviewGeneration: 8)
+        await store.activate(handles: [newHandle], reviewGeneration: 8, productAdmission: productAdmission.context)
         await gate.releaseAll()
 
         do {
@@ -776,6 +834,7 @@ struct BridgeContentStoreTests {
 
     @Test("content store evicts active generation content by LRU byte cap")
     func contentStoreEvictsActiveGenerationContentByLRUByteCap() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let firstHandle = makeBridgeContentHandle(
             itemId: "item-1",
             role: .head,
@@ -807,14 +866,22 @@ struct BridgeContentStoreTests {
             ]
         )
         let store = BridgeContentStore(provider: provider, contentCacheMaxBytes: 6)
-        await store.activate(handles: [firstHandle, secondHandle, thirdHandle], reviewGeneration: 7)
+        await store.activate(
+            handles: [firstHandle, secondHandle, thirdHandle], reviewGeneration: 7,
+            productAdmission: productAdmission.context)
 
-        _ = try await store.load(handleId: firstHandle.handleId, requestedGeneration: 7)
-        _ = try await store.load(handleId: secondHandle.handleId, requestedGeneration: 7)
-        _ = try await store.load(handleId: firstHandle.handleId, requestedGeneration: 7)
-        _ = try await store.load(handleId: thirdHandle.handleId, requestedGeneration: 7)
-        _ = try await store.load(handleId: firstHandle.handleId, requestedGeneration: 7)
-        _ = try await store.load(handleId: secondHandle.handleId, requestedGeneration: 7)
+        _ = try await store.load(
+            handleId: firstHandle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
+        _ = try await store.load(
+            handleId: secondHandle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
+        _ = try await store.load(
+            handleId: firstHandle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
+        _ = try await store.load(
+            handleId: thirdHandle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
+        _ = try await store.load(
+            handleId: firstHandle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
+        _ = try await store.load(
+            handleId: secondHandle.handleId, requestedGeneration: 7, productAdmission: productAdmission.context)
 
         #expect(await provider.recordedContentRequestsCount(handleId: firstHandle.handleId) == 1)
         #expect(await provider.recordedContentRequestsCount(handleId: secondHandle.handleId) == 2)

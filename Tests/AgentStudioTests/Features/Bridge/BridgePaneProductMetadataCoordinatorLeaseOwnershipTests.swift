@@ -20,10 +20,12 @@ struct BridgeMetadataCoordinatorLeaseTests {
         await coordinator.install(
             request: try leaseOwnershipMetadataStreamRequest(streamId: "metadata-stream-first"),
             lease: firstLease,
+            productAdmission: firstHarness.productAdmission.context,
             session: firstHarness.session
         )
         await coordinator.apply(
-            .subscriptionOpened(try leaseOwnershipFileSubscriptionSnapshot())
+            .subscriptionOpened(try leaseOwnershipFileSubscriptionSnapshot()),
+            productAdmission: firstHarness.productAdmission.context
         )
 
         let staleUninstall = Task {
@@ -35,6 +37,7 @@ struct BridgeMetadataCoordinatorLeaseTests {
         await coordinator.install(
             request: try leaseOwnershipMetadataStreamRequest(streamId: "metadata-stream-replacement"),
             lease: replacementLease,
+            productAdmission: replacementHarness.productAdmission.context,
             session: replacementHarness.session
         )
         #expect(await coordinator.hasActiveStream)
@@ -57,11 +60,13 @@ private actor LeaseOwnershipGatedFileMetadataSource: BridgePaneProductFileMetada
 
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {}
 
     func update(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {}
 
@@ -75,12 +80,19 @@ private actor LeaseOwnershipGatedFileMetadataSource: BridgePaneProductFileMetada
         }
     }
 
-    func publish(status _: GitWorkingTreeStatus) -> [BridgePaneProductFileMetadataEmission] { [] }
+    func publish(
+        status _: GitWorkingTreeStatus,
+        productAdmission _: BridgeProductAdmissionContext
+    ) -> [BridgePaneProductFileMetadataEmission] { [] }
 
-    func publish(changeset _: FileChangeset) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
+    func publish(
+        changeset _: FileChangeset,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
 
     func contentReadPlan(
-        for _: BridgeProductFileContentRequest
+        for _: BridgeProductFileContentRequest,
+        productAdmission _: BridgeProductAdmissionContext
     ) -> BridgePaneProductFileContentReadPlan? { nil }
 
     func waitUntilCancellationStarted() async {

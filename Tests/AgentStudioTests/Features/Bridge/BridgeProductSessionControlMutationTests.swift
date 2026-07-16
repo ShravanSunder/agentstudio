@@ -326,12 +326,14 @@ private struct ReviewInterestFixture: Sendable {
 
 private struct RawControlSessionHarness {
     let capabilityHeader: String
+    let productAdmission: BridgeProductAdmissionTestContext
     let session: BridgeProductSession
 
     static func opened() async throws -> Self {
         let capabilityBytes = (0..<BridgeProductWireContract.capabilityByteLength).map(UInt8.init)
         let harness = try Self(
             capabilityHeader: BridgeProductCapabilityHeaderEncoding.encode(capabilityBytes),
+            productAdmission: .make(),
             session: BridgeProductSession(
                 paneSessionId: paneSessionId,
                 workerInstanceId: workerInstanceId,
@@ -351,7 +353,8 @@ private struct RawControlSessionHarness {
     }
 
     func begin(_ requestBytes: Data) async -> BridgeProductSessionControlAdmission {
-        await session.beginControl(
+        await productAdmission.beginControl(
+            in: session,
             exactRequestBytes: requestBytes,
             presentedCapability: capabilityHeader
         )

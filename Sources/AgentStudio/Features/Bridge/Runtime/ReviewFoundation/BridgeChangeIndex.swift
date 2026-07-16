@@ -8,6 +8,10 @@ struct BridgeChangeIndexSnapshot: Equatable, Sendable {
     let packagesById: [String: BridgeReviewPackage]
 }
 
+enum BridgeChangeIndexError: Error, Equatable {
+    case admissionClosed
+}
+
 actor BridgeChangeIndex {
     private var activeReviewGeneration: BridgeReviewGeneration
     private var endpointsById: [String: BridgeSourceEndpoint] = [:]
@@ -45,7 +49,21 @@ actor BridgeChangeIndex {
         activeReviewGeneration = max(activeReviewGeneration, package.reviewGeneration)
     }
 
-    func ingestExplicitLoad(_ package: BridgeReviewPackage) throws -> BridgeReviewDelta? {
+    func ingestExplicitLoad(
+        _ package: BridgeReviewPackage,
+        productAdmission: BridgeProductAdmissionContext
+    ) throws -> BridgeReviewDelta? {
+        guard
+            let admittedResult = try productAdmission.withValidAdmission({
+                try ingestAdmittedExplicitLoad(package)
+            })
+        else {
+            throw BridgeChangeIndexError.admissionClosed
+        }
+        return admittedResult
+    }
+
+    private func ingestAdmittedExplicitLoad(_ package: BridgeReviewPackage) throws -> BridgeReviewDelta? {
         guard package.reviewGeneration >= activeReviewGeneration else {
             return nil
         }

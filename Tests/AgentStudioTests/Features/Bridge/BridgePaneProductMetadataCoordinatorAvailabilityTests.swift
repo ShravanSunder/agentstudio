@@ -13,6 +13,7 @@ struct BridgeProductReviewAvailabilityTests {
         let pump = BridgeProductSchemeFramePump(
             session: harness.session,
             producerLease: lease,
+            productAdmission: harness.productAdmission.context,
             acknowledgeLifecycle: { _ in true }
         )
         let reviewSource = BridgePaneProductReviewMetadataSource(initialAvailability: .loading)
@@ -25,6 +26,7 @@ struct BridgeProductReviewAvailabilityTests {
         await coordinator.install(
             request: try availabilityMetadataStreamRequest(),
             lease: lease,
+            productAdmission: harness.productAdmission.context,
             session: harness.session
         )
 
@@ -48,6 +50,7 @@ struct BridgeProductReviewAvailabilityTests {
         )
         await coordinator.publish(
             availability: .ready(reviewPackage),
+            productAdmission: harness.productAdmission.context,
             traceContext: traceContext
         )
         let sourceAcceptedFrame = try await pullAvailabilityMetadataFrame(from: pump)
@@ -157,6 +160,7 @@ struct BridgeProductReviewAvailabilityTests {
         let pump = BridgeProductSchemeFramePump(
             session: harness.session,
             producerLease: lease,
+            productAdmission: harness.productAdmission.context,
             acknowledgeLifecycle: { _ in true }
         )
         let coordinator = BridgePaneProductMetadataCoordinator(
@@ -166,6 +170,7 @@ struct BridgeProductReviewAvailabilityTests {
         await coordinator.install(
             request: try availabilityMetadataStreamRequest(),
             lease: lease,
+            productAdmission: harness.productAdmission.context,
             session: harness.session
         )
         let acceptedFrame = try await openAvailabilityReviewSubscription(
@@ -175,7 +180,10 @@ struct BridgeProductReviewAvailabilityTests {
         )
 
         // Act
-        await coordinator.publish(availability: .failed)
+        await coordinator.publish(
+            availability: .failed,
+            productAdmission: harness.productAdmission.context
+        )
         let terminalFrame = try await pullAvailabilityMetadataFrame(from: pump)
 
         // Assert
@@ -198,6 +206,7 @@ struct BridgeProductReviewAvailabilityTests {
         let firstPump = BridgeProductSchemeFramePump(
             session: firstHarness.session,
             producerLease: firstLease,
+            productAdmission: firstHarness.productAdmission.context,
             acknowledgeLifecycle: { _ in true }
         )
         let source = AvailabilitySuspendedFailingReviewMetadataSource()
@@ -208,6 +217,7 @@ struct BridgeProductReviewAvailabilityTests {
         await coordinator.install(
             request: try availabilityMetadataStreamRequest(),
             lease: firstLease,
+            productAdmission: firstHarness.productAdmission.context,
             session: firstHarness.session
         )
         _ = try await openAvailabilityReviewSubscription(
@@ -217,7 +227,10 @@ struct BridgeProductReviewAvailabilityTests {
         )
         let reviewPackage = try availabilityReviewPackageFixture()
         let failingPublication = Task {
-            await coordinator.publish(availability: .ready(reviewPackage))
+            await coordinator.publish(
+                availability: .ready(reviewPackage),
+                productAdmission: firstHarness.productAdmission.context
+            )
         }
         await source.waitUntilPublishStarted()
 
@@ -226,11 +239,13 @@ struct BridgeProductReviewAvailabilityTests {
         let replacementPump = BridgeProductSchemeFramePump(
             session: replacementHarness.session,
             producerLease: replacementLease,
+            productAdmission: replacementHarness.productAdmission.context,
             acknowledgeLifecycle: { _ in true }
         )
         await coordinator.install(
             request: try availabilityMetadataStreamRequest(),
             lease: replacementLease,
+            productAdmission: replacementHarness.productAdmission.context,
             session: replacementHarness.session
         )
         let replacementAcceptedFrame = try await openAvailabilityReviewSubscription(
@@ -293,16 +308,19 @@ private actor AvailabilityThrowingReviewMetadataSource:
 
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit _: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {}
 
     func update(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit _: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {}
 
     func publish(
-        availability _: BridgePaneProductReviewMetadataAvailability
+        availability _: BridgePaneProductReviewMetadataAvailability,
+        productAdmission _: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
         switch failureMode {
         case .eventConstruction:
@@ -324,16 +342,19 @@ private actor AvailabilitySuspendedFailingReviewMetadataSource:
 
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit _: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {}
 
     func update(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit _: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {}
 
     func publish(
-        availability _: BridgePaneProductReviewMetadataAvailability
+        availability _: BridgePaneProductReviewMetadataAvailability,
+        productAdmission _: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
         publishStarted = true
         let waiters = publishStartedWaiters
@@ -379,7 +400,10 @@ private func openAvailabilityReviewSubscription(
         exactResponseBytes: try JSONEncoder().encode(response)
     )
     let acceptedFrame = try await pullAvailabilityMetadataFrame(from: pump)
-    await coordinator.apply(effect)
+    await coordinator.apply(
+        effect,
+        productAdmission: harness.productAdmission.context
+    )
     await harness.session.settleControlProviderDispatch(token: token)
     return acceptedFrame
 }
@@ -405,6 +429,7 @@ private func exerciseAvailabilityPublicationFailure(
     let pump = BridgeProductSchemeFramePump(
         session: harness.session,
         producerLease: lease,
+        productAdmission: harness.productAdmission.context,
         acknowledgeLifecycle: { _ in true }
     )
     let traceRecorder = AvailabilityReviewPublicationTraceRecorder()
@@ -416,6 +441,7 @@ private func exerciseAvailabilityPublicationFailure(
     await coordinator.install(
         request: try availabilityMetadataStreamRequest(),
         lease: lease,
+        productAdmission: harness.productAdmission.context,
         session: harness.session
     )
     _ = try await openAvailabilityReviewSubscription(
@@ -426,6 +452,7 @@ private func exerciseAvailabilityPublicationFailure(
 
     await coordinator.publish(
         availability: .ready(try availabilityReviewPackageFixture()),
+        productAdmission: harness.productAdmission.context,
         traceContext: traceContext
     )
     let recoveryFrame = try await pullAvailabilityMetadataFrame(from: pump)

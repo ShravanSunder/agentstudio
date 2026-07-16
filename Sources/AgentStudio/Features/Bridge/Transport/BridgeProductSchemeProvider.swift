@@ -6,12 +6,14 @@ protocol BridgeProductSchemeProvider: Sendable {
     func runMetadataProducer(
         request: BridgeProductMetadataStreamRequest,
         lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
         session: BridgeProductSession
     ) async
 
     func runContentProducer(
         request: BridgeProductContentRequest,
         lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
         session: BridgeProductSession
     ) async
 
@@ -21,15 +23,17 @@ protocol BridgeProductSchemeProvider: Sendable {
 
     func applyCommittedControlEffect(
         _ effect: BridgeProductSessionCompletionEffect,
-        for request: BridgeProductControlRequest
+        for request: BridgeProductControlRequest,
+        productAdmission: BridgeProductAdmissionContext
     ) async
 }
 
 extension BridgeProductSchemeProvider {
     func applyCommittedControlEffect(
         _ effect: BridgeProductSessionCompletionEffect,
-        for request: BridgeProductControlRequest
+        for request: BridgeProductControlRequest,
+        productAdmission: BridgeProductAdmissionContext
     ) async {
-        _ = (effect, request)
+        _ = (effect, request, productAdmission)
     }
 }

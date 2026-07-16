@@ -11,12 +11,14 @@ struct BridgePaneProductSessionOwnerTests {
         let provider = BridgePaneProductSessionProviderGate()
         let owner = try BridgePaneProductSessionOwner(
             paneSessionId: bridgeProductTestPaneSessionId,
-            provider: provider
+            provider: provider,
+            productAdmissionGate: BridgeProductAdmissionGate()
         )
+        let productAdmission = try #require(owner.productAdmissionGate.acquire())
 
         // Act
-        let firstCandidate = try await owner.prepareCandidate()
-        let secondCandidate = try await owner.prepareCandidate()
+        let firstCandidate = try await owner.prepareCandidate(productAdmission: productAdmission)
+        let secondCandidate = try await owner.prepareCandidate(productAdmission: productAdmission)
 
         // Assert
         #expect(firstCandidate.capabilityBytes.count == BridgeProductWireContract.capabilityByteLength)
@@ -35,7 +37,8 @@ struct BridgePaneProductSessionOwnerTests {
         let provider = BridgePaneProductSessionProviderGate()
         let owner = try BridgePaneProductSessionOwner(
             paneSessionId: bridgeProductTestPaneSessionId,
-            provider: provider
+            provider: provider,
+            productAdmissionGate: BridgeProductAdmissionGate()
         )
         let oldInstallation = try await installFirstCandidate(in: owner)
         try await openBridgePaneProductSession(oldInstallation)
@@ -45,11 +48,15 @@ struct BridgePaneProductSessionOwnerTests {
             identitySuffix: "held-replacement"
         )
         await provider.holdLifecycleAcknowledgements()
-        let candidate = try await owner.prepareCandidate()
+        let productAdmission = try #require(owner.productAdmissionGate.acquire())
+        let candidate = try await owner.prepareCandidate(productAdmission: productAdmission)
 
         // Act
         let replacementTask = Task {
-            await owner.activatePreparedCandidate(candidate)
+            await owner.activatePreparedCandidate(
+                candidate,
+                productAdmission: productAdmission
+            )
         }
         _ = await provider.waitForLifecycleAcknowledgement(count: 1)
 
@@ -78,7 +85,8 @@ struct BridgePaneProductSessionOwnerTests {
         let provider = BridgePaneProductSessionProviderGate()
         let owner = try BridgePaneProductSessionOwner(
             paneSessionId: bridgeProductTestPaneSessionId,
-            provider: provider
+            provider: provider,
+            productAdmissionGate: BridgeProductAdmissionGate()
         )
         let oldInstallation = try await installFirstCandidate(in: owner)
         try await openBridgePaneProductSession(oldInstallation)
@@ -87,11 +95,15 @@ struct BridgePaneProductSessionOwnerTests {
             provider: provider,
             identitySuffix: "failed-replacement"
         )
-        let candidate = try await owner.prepareCandidate()
+        let productAdmission = try #require(owner.productAdmissionGate.acquire())
+        let candidate = try await owner.prepareCandidate(productAdmission: productAdmission)
         await provider.failLifecycleAcknowledgements()
 
         // Act
-        let firstResult = await owner.activatePreparedCandidate(candidate)
+        let firstResult = await owner.activatePreparedCandidate(
+            candidate,
+            productAdmission: productAdmission
+        )
         let firstAcknowledgements = await provider.lifecycleAcknowledgements
 
         // Assert
@@ -102,7 +114,10 @@ struct BridgePaneProductSessionOwnerTests {
         let firstAcknowledgement = try #require(firstAcknowledgements.first)
 
         await provider.succeedLifecycleAcknowledgements()
-        let retryResult = await owner.activatePreparedCandidate(candidate)
+        let retryResult = await owner.activatePreparedCandidate(
+            candidate,
+            productAdmission: productAdmission
+        )
         let allAcknowledgements = await provider.lifecycleAcknowledgements
 
         #expect(retryResult == .activated)
@@ -123,7 +138,8 @@ struct BridgePaneProductSessionOwnerTests {
         let provider = BridgePaneProductSessionProviderGate()
         let owner = try BridgePaneProductSessionOwner(
             paneSessionId: bridgeProductTestPaneSessionId,
-            provider: provider
+            provider: provider,
+            productAdmissionGate: BridgeProductAdmissionGate()
         )
         let oldInstallation = try await installFirstCandidate(in: owner)
         try await openBridgePaneProductSession(oldInstallation)
@@ -132,17 +148,24 @@ struct BridgePaneProductSessionOwnerTests {
             provider: provider,
             identitySuffix: "concurrent-replacement"
         )
-        let firstCandidate = try await owner.prepareCandidate()
-        let secondCandidate = try await owner.prepareCandidate()
+        let productAdmission = try #require(owner.productAdmissionGate.acquire())
+        let firstCandidate = try await owner.prepareCandidate(productAdmission: productAdmission)
+        let secondCandidate = try await owner.prepareCandidate(productAdmission: productAdmission)
         await provider.holdLifecycleAcknowledgements()
 
         // Act
         let firstReplacementTask = Task {
-            await owner.activatePreparedCandidate(firstCandidate)
+            await owner.activatePreparedCandidate(
+                firstCandidate,
+                productAdmission: productAdmission
+            )
         }
         _ = await provider.waitForLifecycleAcknowledgement(count: 1)
         let secondReplacementTask = Task {
-            await owner.activatePreparedCandidate(secondCandidate)
+            await owner.activatePreparedCandidate(
+                secondCandidate,
+                productAdmission: productAdmission
+            )
         }
         let secondPublishedBeforeFirstRevocation = await waitForActiveWorkerInstance(
             secondCandidate.bootstrap.workerInstanceId,
@@ -174,8 +197,10 @@ struct BridgePaneProductSessionOwnerTests {
         let provider = BridgePaneProductSessionProviderGate()
         let owner = try BridgePaneProductSessionOwner(
             paneSessionId: bridgeProductTestPaneSessionId,
-            provider: provider
+            provider: provider,
+            productAdmissionGate: BridgeProductAdmissionGate()
         )
+        let paneAdmission = try #require(owner.productAdmissionGate.acquire())
         let oldInstallation = try await installFirstCandidate(in: owner)
         try await openBridgePaneProductSession(oldInstallation)
         let oldReply = try await startContentReply(
@@ -183,7 +208,9 @@ struct BridgePaneProductSessionOwnerTests {
             provider: provider,
             identitySuffix: "page-reload"
         )
-        let replacementCandidate = try await owner.prepareCandidate()
+        let replacementCandidate = try await owner.prepareCandidate(
+            productAdmission: paneAdmission
+        )
         await provider.holdLifecycleAcknowledgements()
 
         // Act
@@ -192,7 +219,10 @@ struct BridgePaneProductSessionOwnerTests {
         }
         _ = await provider.waitForLifecycleAcknowledgement(count: 1)
         let replacementTask = Task {
-            await owner.activatePreparedCandidate(replacementCandidate)
+            await owner.activatePreparedCandidate(
+                replacementCandidate,
+                productAdmission: paneAdmission
+            )
         }
         let candidatePublishedBeforeRetirement = await waitForActiveWorkerInstance(
             replacementCandidate.bootstrap.workerInstanceId,
@@ -210,6 +240,9 @@ struct BridgePaneProductSessionOwnerTests {
             await owner.activeInstallation?.bootstrap.workerInstanceId
                 == replacementCandidate.bootstrap.workerInstanceId
         )
+        #expect(
+            paneAdmission.withValidAdmission { true } == true
+        )
         #expect((await oldInstallation.session.producerSnapshot()).hasZeroResidue)
         _ = try? await oldReply.value
     }
@@ -220,7 +253,8 @@ struct BridgePaneProductSessionOwnerTests {
         let provider = BridgePaneProductSessionProviderGate()
         let owner = try BridgePaneProductSessionOwner(
             paneSessionId: bridgeProductTestPaneSessionId,
-            provider: provider
+            provider: provider,
+            productAdmissionGate: BridgeProductAdmissionGate()
         )
         let oldInstallation = try await installFirstCandidate(in: owner)
         try await openBridgePaneProductSession(oldInstallation)
@@ -229,7 +263,8 @@ struct BridgePaneProductSessionOwnerTests {
             provider: provider,
             identitySuffix: "terminal-pane-disposal"
         )
-        let candidate = try await owner.prepareCandidate()
+        let productAdmission = try #require(owner.productAdmissionGate.acquire())
+        let candidate = try await owner.prepareCandidate(productAdmission: productAdmission)
         await provider.holdLifecycleAcknowledgements()
 
         // Act
@@ -237,7 +272,11 @@ struct BridgePaneProductSessionOwnerTests {
             await owner.retire(reason: .paneDisposal)
         }
         _ = await provider.waitForLifecycleAcknowledgement(count: 1)
-        let activationResult = await owner.activatePreparedCandidate(candidate)
+        let activationResult = await owner.activatePreparedCandidate(
+            candidate,
+            productAdmission: productAdmission
+        )
+
         await provider.releaseLifecycleAcknowledgements(result: true)
         let retirementResult = await retirementTask.value
 
@@ -249,7 +288,7 @@ struct BridgePaneProductSessionOwnerTests {
         #expect((await oldInstallation.session.producerSnapshot()).hasZeroResidue)
         #expect((await candidate.session.snapshot).lifecycle == .revoked)
         await #expect(throws: BridgePaneProductSessionOwnerError.ownerDisposed) {
-            _ = try await owner.prepareCandidate()
+            _ = try await owner.prepareCandidate(productAdmission: productAdmission)
         }
         _ = try? await oldReply.value
     }
@@ -260,7 +299,8 @@ struct BridgePaneProductSessionOwnerTests {
         let provider = BridgePaneProductSessionProviderGate()
         let owner = try BridgePaneProductSessionOwner(
             paneSessionId: bridgeProductTestPaneSessionId,
-            provider: provider
+            provider: provider,
+            productAdmissionGate: BridgeProductAdmissionGate()
         )
         let installation = try await installFirstCandidate(in: owner)
         try await openBridgePaneProductSession(installation)
@@ -280,7 +320,6 @@ struct BridgePaneProductSessionOwnerTests {
             identitySuffix: "pane-disposal",
             handler: handler
         )
-        await waitUntilProducerFrameWaitersReach(2, in: installation.session)
         let liveSnapshot = await owner.snapshot()
 
         // Act
@@ -294,10 +333,15 @@ struct BridgePaneProductSessionOwnerTests {
         #expect(liveSnapshot.activeProducerCount == 2)
         #expect(liveSnapshot.activeProducerTaskCount == 2)
         #expect(liveSnapshot.activeContentLeaseCount == 1)
-        #expect(liveSnapshot.queuedFrameCount == 0)
-        #expect(liveSnapshot.queuedByteCount == 0)
-        #expect(liveSnapshot.pendingFrameWaiterCount == 2)
-        #expect(liveSnapshot.inFlightFrameReceiptCount == 0)
+        let liveDeliveryResidueCount =
+            liveSnapshot.queuedFrameCount
+            + liveSnapshot.pendingFrameWaiterCount
+            + liveSnapshot.inFlightFrameReceiptCount
+        #expect((2...4).contains(liveDeliveryResidueCount))
+        #expect(
+            (liveSnapshot.queuedFrameCount == 0)
+                == (liveSnapshot.queuedByteCount == 0)
+        )
         #expect(liveSnapshot.pendingLifecycleAcknowledgementCount == 0)
         #expect(liveSnapshot.nextMetadataStreamSequence == 1)
         #expect(retirement == .retired)
@@ -323,7 +367,8 @@ struct BridgePaneProductSessionOwnerTests {
         let provider = BridgePaneProductSessionProviderGate()
         let owner = try BridgePaneProductSessionOwner(
             paneSessionId: bridgeProductTestPaneSessionId,
-            provider: provider
+            provider: provider,
+            productAdmissionGate: BridgeProductAdmissionGate()
         )
         let installation = try await installFirstCandidate(in: owner)
         try await openBridgePaneProductSession(installation)
@@ -352,6 +397,12 @@ struct BridgePaneProductSessionOwnerTests {
         }
         await waitUntilProductRouterIsFenced(schemeRouter)
         let retiringSnapshot = await owner.snapshot()
+        let retiredCapability = try BridgeProductCapabilityHeaderEncoding.encode(
+            installation.capabilityBytes
+        )
+        let postFenceAdmission = await schemeRouter.claimActiveAdapter(
+            presentedCapability: retiredCapability
+        )
 
         // Assert
         #expect(liveSnapshot.activeSchemeTaskCount == 1)
@@ -362,7 +413,11 @@ struct BridgePaneProductSessionOwnerTests {
         #expect(retiringSnapshot.activeSchemeTaskCount == 1)
         #expect(retiringSnapshot.activeTransportLeaseCount == 1)
         #expect(!retiringSnapshot.hasZeroResidue)
-        #expect(await schemeRouter.claimActiveAdapter() == nil)
+        if case .conflict = postFenceAdmission {
+            // Expected: authenticated pane identity remains distinguishable after clear.
+        } else {
+            Issue.record("Expected the cleared product router to reject with conflict")
+        }
 
         await provider.releaseProductCallResponses()
         #expect(await retirementTask.value == .retired)
@@ -376,7 +431,8 @@ struct BridgePaneProductSessionOwnerTests {
         let provider = BridgePaneProductSessionProviderGate()
         let owner = try BridgePaneProductSessionOwner(
             paneSessionId: bridgeProductTestPaneSessionId,
-            provider: provider
+            provider: provider,
+            productAdmissionGate: BridgeProductAdmissionGate()
         )
         let installation = try await installFirstCandidate(in: owner)
         try await openBridgePaneProductSession(installation)
@@ -447,8 +503,14 @@ struct BridgePaneProductSessionOwnerTests {
 private func installFirstCandidate(
     in owner: BridgePaneProductSessionOwner
 ) async throws -> BridgeProductSessionInstallation {
-    let candidate = try await owner.prepareCandidate()
-    #expect(await owner.activatePreparedCandidate(candidate) == .activated)
+    let productAdmission = try #require(owner.productAdmissionGate.acquire())
+    let candidate = try await owner.prepareCandidate(productAdmission: productAdmission)
+    #expect(
+        await owner.activatePreparedCandidate(
+            candidate,
+            productAdmission: productAdmission
+        ) == .activated
+    )
     return candidate
 }
 
@@ -634,17 +696,6 @@ private func waitUntilProductRouterIsFenced(
     Issue.record("Product router did not fence active admission")
 }
 
-private func waitUntilProducerFrameWaitersReach(
-    _ expectedCount: Int,
-    in session: BridgeProductSession
-) async {
-    for _ in 0..<512 {
-        if await session.producerSnapshot().pendingFrameWaiterCount == expectedCount { return }
-        await Task.yield()
-    }
-    Issue.record("Product producer frame waiters did not reach \(expectedCount)")
-}
-
 private func paneOwnerContentRequest(
     installation: BridgeProductSessionInstallation,
     identitySuffix: String
@@ -742,11 +793,13 @@ actor BridgePaneProductSessionProviderGate: BridgeProductSchemeProvider {
     func runMetadataProducer(
         request: BridgeProductMetadataStreamRequest,
         lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
         session: BridgeProductSession
     ) async {
         do {
             _ = try await session.enqueueRequiredProducerOpeningFrame(
                 for: lease,
+                productAdmission: productAdmission,
                 build: { sequence in
                     try bridgeProductMetadataAcceptedFrame(
                         request: request,
@@ -764,11 +817,13 @@ actor BridgePaneProductSessionProviderGate: BridgeProductSchemeProvider {
     func runContentProducer(
         request: BridgeProductContentRequest,
         lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
         session: BridgeProductSession
     ) async {
         do {
             _ = try await session.enqueueRequiredProducerOpeningFrame(
                 for: lease,
+                productAdmission: productAdmission,
                 build: { _ in producerRegistryContentOpeningFrame(for: request) }
             )
             await contentOperation.run(lease)

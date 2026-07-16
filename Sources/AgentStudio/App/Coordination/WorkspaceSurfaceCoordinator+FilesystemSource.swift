@@ -170,10 +170,16 @@ extension WorkspaceSurfaceCoordinator {
             else {
                 continue
             }
+            guard let productAdmission = controller.productAdmissionGate.acquire() else {
+                continue
+            }
 
             switch worktreeEnvelope.event {
             case .filesystem(.filesChanged(let changeset)):
-                await controller.productSchemeProvider?.publishFileChangeset(changeset)
+                await controller.productSchemeProvider?.publishFileChangeset(
+                    changeset,
+                    productAdmission: productAdmission
+                )
             case .gitWorkingDirectory(.snapshotChanged(let snapshot)):
                 guard snapshot.worktreeId == worktreeId, snapshot.repoId == worktreeEnvelope.repoId else {
                     continue
@@ -183,7 +189,8 @@ extension WorkspaceSurfaceCoordinator {
                         summary: snapshot.summary,
                         branch: snapshot.branch,
                         origin: nil
-                    )
+                    ),
+                    productAdmission: productAdmission
                 )
             case .filesystem, .gitWorkingDirectory, .forge, .security:
                 continue

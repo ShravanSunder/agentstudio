@@ -6,12 +6,22 @@ extension BridgeProductSession {
         guard let pendingControl, pendingControl.token == token else {
             throw BridgeProductSessionError.invalidAdmissionToken
         }
+        guard
+            (pendingControl.productAdmission.withValidAdmission { true }) == true
+        else {
+            throw BridgeProductSessionError.admissionClosed
+        }
         guard providerResponse.correlation == pendingControl.request.correlation else {
             throw BridgeProductSessionError.mismatchedControlResponse
         }
         guard case .workerSessionResync(let resyncRequest) = pendingControl.request,
             case .resyncAccepted = providerResponse
         else {
+            guard
+                (pendingControl.productAdmission.withValidAdmission { true }) == true
+            else {
+                throw BridgeProductSessionError.admissionClosed
+            }
             return providerResponse
         }
 
@@ -33,12 +43,18 @@ extension BridgeProductSession {
             resyncRequest.lastAcceptedStreamSequence,
             max(0, nextMetadataStreamSequence - 1)
         )
-        return try .resyncAccepted(
+        let response = try BridgeProductControlResponse.resyncAccepted(
             correlating: pendingControl.request,
             metadataStreamSequenceBarrier: metadataStreamSequenceBarrier,
             nextExpectedRequestSequence: pendingControl.request.requestSequence + 1,
             reconciliation: reconciliation.reconciliation
         )
+        guard
+            (pendingControl.productAdmission.withValidAdmission { true }) == true
+        else {
+            throw BridgeProductSessionError.admissionClosed
+        }
+        return response
     }
 
     func streamProgressRejection(

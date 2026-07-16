@@ -23,7 +23,8 @@ extension BridgeContentStore {
         handleId: String,
         requestedGeneration: BridgeReviewGeneration,
         startByte: Int,
-        maximumBytes: Int
+        maximumBytes: Int,
+        productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgeContentRangeObservedResult {
         guard startByte >= 0 else {
             throw BridgeContentRangeError.invalidStartByte(startByte)
@@ -38,7 +39,8 @@ extension BridgeContentStore {
 
         let observedLoad = try await loadObserved(
             handleId: handleId,
-            requestedGeneration: requestedGeneration
+            requestedGeneration: requestedGeneration,
+            productAdmission: productAdmission
         )
         try Task.checkCancellation()
         let wholeByteLength = observedLoad.result.data.count
@@ -51,15 +53,20 @@ extension BridgeContentStore {
         let endByte = min(requestedEndByte, wholeByteLength)
         let bytes = observedLoad.result.data.subdata(in: startByte..<endByte)
         let rangeSHA256 = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        guard
+            let range = productAdmission.withValidAdmission({
+                BridgeContentRangeObservedResult(
+                    handle: observedLoad.result.handle,
+                    bytes: bytes,
+                    wholeByteLength: wholeByteLength,
+                    startByte: startByte,
+                    sha256: rangeSHA256,
+                    isFinalRange: endByte == wholeByteLength,
+                    observation: observedLoad.observation
+                )
+            })
+        else { throw BridgeContentStoreError.productAdmissionRejected }
         try Task.checkCancellation()
-        return BridgeContentRangeObservedResult(
-            handle: observedLoad.result.handle,
-            bytes: bytes,
-            wholeByteLength: wholeByteLength,
-            startByte: startByte,
-            sha256: rangeSHA256,
-            isFinalRange: endByte == wholeByteLength,
-            observation: observedLoad.observation
-        )
+        return range
     }
 }

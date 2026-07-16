@@ -14,13 +14,17 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
             resumeFromStreamSequence: nil
         )
         let operation = BridgeProductSessionProducerOperationGate()
-        let registration = await harness.session.registerMetadataProducer(request: request) { lease in
+        let registration = await harness.session.registerMetadataProducer(
+            request: request,
+            productAdmission: harness.productAdmission
+        ) { lease in
             await operation.run(lease)
         }
         let lease = try bridgeProductAcceptedLease(registration)
         _ = await operation.waitUntilStarted()
         _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: lease,
+            productAdmission: harness.productAdmission,
             build: { sequence in
                 try bridgeProductMetadataAcceptedFrame(
                     request: request,
@@ -32,7 +36,8 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
         #expect(
             await consumeNextBridgeProductProducerFrame(
                 for: lease,
-                from: harness.session
+                from: harness.session,
+                productAdmission: harness.productAdmission
             )?.sequence == 0
         )
         let nonterminalCapacity =
@@ -41,6 +46,7 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
         for expectedSequence in 1...nonterminalCapacity {
             let result = try await harness.session.enqueueProducerFrame(
                 for: lease,
+                productAdmission: harness.productAdmission,
                 build: { sequence in
                     try bridgeProductMetadataProgressFrame(
                         request: request,
@@ -62,6 +68,7 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
         // Act
         let overflowResult = try await harness.session.enqueueProducerFrame(
             for: lease,
+            productAdmission: harness.productAdmission,
             build: { sequence in
                 try bridgeProductMetadataProgressFrame(
                     request: request,
@@ -80,7 +87,8 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
         let resetSnapshot = await harness.session.producerSnapshot()
         let deliveredReset = await consumeNextBridgeProductProducerFrame(
             for: lease,
-            from: harness.session
+            from: harness.session,
+            productAdmission: harness.productAdmission
         )
         try await closeBridgeProductSessionProducer(lease, in: harness.session)
         await operation.waitUntilCancelled()
@@ -110,7 +118,10 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
             resumeFromStreamSequence: nil
         )
         let operation = BridgeProductSessionProducerOperationGate()
-        let registration = await harness.session.registerMetadataProducer(request: request) { lease in
+        let registration = await harness.session.registerMetadataProducer(
+            request: request,
+            productAdmission: harness.productAdmission
+        ) { lease in
             await operation.run(lease)
         }
         let lease = try bridgeProductAcceptedLease(registration)
@@ -151,7 +162,8 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
             request: try bridgeProductMetadataStreamRequest(
                 metadataStreamId: "metadata-revoke-stopped",
                 resumeFromStreamSequence: nil
-            )
+            ),
+            productAdmission: harness.productAdmission
         ) { lease in
             await stoppedOperation.run(lease)
         }
@@ -162,7 +174,8 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
 
         let heldOperation = BridgeProductSessionProducerCancellationHoldGate()
         let heldRegistration = await harness.session.registerContentProducer(
-            request: try bridgeProductFileContentRequest(identitySuffix: "revoke-held")
+            request: try bridgeProductFileContentRequest(identitySuffix: "revoke-held"),
+            productAdmission: harness.productAdmission
         ) { lease in
             await heldOperation.run(lease)
         }
@@ -193,7 +206,8 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
             request: try bridgeProductMetadataStreamRequest(
                 metadataStreamId: "metadata-revoke-pending-ack",
                 resumeFromStreamSequence: nil
-            )
+            ),
+            productAdmission: harness.productAdmission
         ) { lease in
             await operation.run(lease)
         }
@@ -229,7 +243,8 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
             request: try bridgeProductMetadataStreamRequest(
                 metadataStreamId: "metadata-concurrent-revoke",
                 resumeFromStreamSequence: nil
-            )
+            ),
+            productAdmission: harness.productAdmission
         ) { lease in
             await operation.run(lease)
         }
@@ -279,7 +294,8 @@ struct BridgeProductSessionProducerLifecycleBoundaryTests {
             request: try bridgeProductMetadataStreamRequest(
                 metadataStreamId: "metadata-revoke-retry",
                 resumeFromStreamSequence: nil
-            )
+            ),
+            productAdmission: harness.productAdmission
         ) { lease in
             await operation.run(lease)
         }

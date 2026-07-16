@@ -14,6 +14,7 @@ actor BridgePaneProductMetadataCoordinator {
     private struct ActiveStream: Sendable {
         let correlation: BridgeProductMetadataStreamCorrelation
         let lease: BridgeProductProducerLease
+        let productAdmission: BridgeProductAdmissionContext
         let session: BridgeProductSession
     }
 
@@ -55,6 +56,7 @@ actor BridgePaneProductMetadataCoordinator {
     func install(
         request: BridgeProductMetadataStreamRequest,
         lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
         session: BridgeProductSession
     ) async {
         streamTransitionGeneration += 1
@@ -62,11 +64,14 @@ actor BridgePaneProductMetadataCoordinator {
         cancelEveryProducerTask()
         await cancelEverySubscription()
         guard streamTransitionGeneration == transitionGeneration else { return }
-        activeStream = ActiveStream(
-            correlation: request.correlation,
-            lease: lease,
-            session: session
-        )
+        _ = productAdmission.withValidAdmission {
+            activeStream = ActiveStream(
+                correlation: request.correlation,
+                lease: lease,
+                productAdmission: productAdmission,
+                session: session
+            )
+        }
     }
 
     func uninstall(lease: BridgeProductProducerLease) async {
@@ -81,69 +86,19 @@ actor BridgePaneProductMetadataCoordinator {
         activeStream = nil
     }
 
-    func apply(_ effect: BridgeProductSessionCompletionEffect) async {
-        await contentDemandAuthority.apply(effect)
-        guard let activeStream else { return }
+    func apply(
+        _ effect: BridgeProductSessionCompletionEffect,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
+        await contentDemandAuthority.apply(
+            effect,
+            productAdmission: productAdmission
+        )
         switch effect {
         case .subscriptionOpened(let subscription):
-            subscriptionKindById[subscription.subscriptionId] = subscription.subscriptionKind
-            startProducerTask(
-                kind: .bootstrap,
-                subscriptionId: subscription.subscriptionId,
-                subscriptionKind: subscription.subscriptionKind,
-                session: activeStream.session
-            ) { traceContext in
-                switch subscription.subscriptionKind {
-                case .fileMetadata:
-                    try await self.fileMetadataSource.open(subscription: subscription) { event in
-                        try await Self.enqueue(
-                            event: event,
-                            subscriptionId: subscription.subscriptionId,
-                            session: activeStream.session
-                        )
-                        await self.recordEnqueued(event, traceContext: traceContext)
-                    }
-                case .reviewMetadata:
-                    try await self.reviewMetadataSource.open(subscription: subscription) { event in
-                        try await Self.enqueue(
-                            event: event,
-                            subscriptionId: subscription.subscriptionId,
-                            session: activeStream.session
-                        )
-                        await self.recordEnqueued(event, traceContext: traceContext)
-                    }
-                }
-            }
+            applySubscriptionOpened(subscription, productAdmission: productAdmission)
         case .subscriptionInterestsCommitted(_, let subscription):
-            subscriptionKindById[subscription.subscriptionId] = subscription.subscriptionKind
-            cancelInterestTasks(subscriptionId: subscription.subscriptionId)
-            startProducerTask(
-                kind: .interest,
-                subscriptionId: subscription.subscriptionId,
-                subscriptionKind: subscription.subscriptionKind,
-                session: activeStream.session
-            ) { traceContext in
-                switch subscription.subscriptionKind {
-                case .fileMetadata:
-                    try await self.fileMetadataSource.update(subscription: subscription) { event in
-                        try await Self.enqueue(
-                            event: event,
-                            subscriptionId: subscription.subscriptionId,
-                            session: activeStream.session
-                        )
-                        await self.recordEnqueued(event, traceContext: traceContext)
-                    }
-                case .reviewMetadata:
-                    try await self.reviewMetadataSource.update(subscription: subscription) { event in
-                        try await Self.enqueue(
-                            event: event,
-                            subscriptionId: subscription.subscriptionId,
-                            session: activeStream.session
-                        )
-                        await self.recordEnqueued(event, traceContext: traceContext)
-                    }
-                }
-            }
+            applySubscriptionInterestsCommitted(subscription, productAdmission: productAdmission)
         case .subscriptionCancelled(let subscription):
             cancelProducerTasks(subscriptionId: subscription.subscriptionId)
             await cancelSource(
@@ -179,25 +134,147 @@ actor BridgePaneProductMetadataCoordinator {
         }
     }
 
-    func publish(status: GitWorkingTreeStatus) async {
-        guard let activeStream else { return }
-        for emission in await fileMetadataSource.publish(status: status) {
+    private func applySubscriptionOpened(
+        _ subscription: BridgeProductSubscriptionSnapshot,
+        productAdmission: BridgeProductAdmissionContext
+    ) {
+        guard let activeStream,
+            activeStream.productAdmission.matches(productAdmission)
+        else { return }
+        _ = productAdmission.withValidAdmission {
+            subscriptionKindById[subscription.subscriptionId] = subscription.subscriptionKind
+            startProducerTask(
+                kind: .bootstrap,
+                subscriptionId: subscription.subscriptionId,
+                subscriptionKind: subscription.subscriptionKind,
+                productAdmission: productAdmission,
+                session: activeStream.session
+            ) { traceContext in
+                switch subscription.subscriptionKind {
+                case .fileMetadata:
+                    try await self.fileMetadataSource.open(
+                        subscription: subscription,
+                        productAdmission: productAdmission
+                    ) { event in
+                        try await Self.enqueue(
+                            event: event,
+                            subscriptionId: subscription.subscriptionId,
+                            productAdmission: productAdmission,
+                            session: activeStream.session
+                        )
+                        await self.recordEnqueued(event, traceContext: traceContext)
+                    }
+                case .reviewMetadata:
+                    try await self.reviewMetadataSource.open(
+                        subscription: subscription,
+                        productAdmission: productAdmission
+                    ) { event, emittedAdmission in
+                        guard emittedAdmission.matches(productAdmission) else {
+                            throw CancellationError()
+                        }
+                        try await Self.enqueue(
+                            event: event,
+                            subscriptionId: subscription.subscriptionId,
+                            productAdmission: emittedAdmission,
+                            session: activeStream.session
+                        )
+                        await self.recordEnqueued(event, traceContext: traceContext)
+                    }
+                }
+            }
+        }
+    }
+
+    private func applySubscriptionInterestsCommitted(
+        _ subscription: BridgeProductSubscriptionSnapshot,
+        productAdmission: BridgeProductAdmissionContext
+    ) {
+        guard let activeStream,
+            activeStream.productAdmission.matches(productAdmission)
+        else { return }
+        _ = productAdmission.withValidAdmission {
+            subscriptionKindById[subscription.subscriptionId] = subscription.subscriptionKind
+            cancelInterestTasks(subscriptionId: subscription.subscriptionId)
+            startProducerTask(
+                kind: .interest,
+                subscriptionId: subscription.subscriptionId,
+                subscriptionKind: subscription.subscriptionKind,
+                productAdmission: productAdmission,
+                session: activeStream.session
+            ) { traceContext in
+                switch subscription.subscriptionKind {
+                case .fileMetadata:
+                    try await self.fileMetadataSource.update(
+                        subscription: subscription,
+                        productAdmission: productAdmission
+                    ) { event in
+                        try await Self.enqueue(
+                            event: event,
+                            subscriptionId: subscription.subscriptionId,
+                            productAdmission: productAdmission,
+                            session: activeStream.session
+                        )
+                        await self.recordEnqueued(event, traceContext: traceContext)
+                    }
+                case .reviewMetadata:
+                    try await self.reviewMetadataSource.update(
+                        subscription: subscription,
+                        productAdmission: productAdmission
+                    ) { event, emittedAdmission in
+                        guard emittedAdmission.matches(productAdmission) else {
+                            throw CancellationError()
+                        }
+                        try await Self.enqueue(
+                            event: event,
+                            subscriptionId: subscription.subscriptionId,
+                            productAdmission: emittedAdmission,
+                            session: activeStream.session
+                        )
+                        await self.recordEnqueued(event, traceContext: traceContext)
+                    }
+                }
+            }
+        }
+    }
+
+    func publish(
+        status: GitWorkingTreeStatus,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
+        guard let activeStream,
+            activeStream.productAdmission.matches(productAdmission),
+            (productAdmission.withValidAdmission { true }) == true
+        else { return }
+        for emission in await fileMetadataSource.publish(
+            status: status,
+            productAdmission: productAdmission
+        ) {
             try? await Self.enqueue(
                 event: emission.event,
                 subscriptionId: emission.subscriptionId,
+                productAdmission: productAdmission,
                 session: activeStream.session
             )
         }
     }
 
-    func publish(changeset: FileChangeset) async {
+    func publish(
+        changeset: FileChangeset,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
         guard let activeStream,
-            let emissions = try? await fileMetadataSource.publish(changeset: changeset)
+            activeStream.productAdmission.matches(productAdmission),
+            (productAdmission.withValidAdmission { true }) == true,
+            let emissions = try? await fileMetadataSource.publish(
+                changeset: changeset,
+                productAdmission: productAdmission
+            )
         else { return }
         for emission in emissions {
             try? await Self.enqueue(
                 event: emission.event,
                 subscriptionId: emission.subscriptionId,
+                productAdmission: productAdmission,
                 session: activeStream.session
             )
         }
@@ -205,9 +282,13 @@ actor BridgePaneProductMetadataCoordinator {
 
     func publish(
         availability: BridgePaneProductReviewMetadataAvailability,
+        productAdmission: BridgeProductAdmissionContext,
         traceContext: BridgeTraceContext? = nil
     ) async {
         let publishingStream = activeStream
+        guard publishingStream?.productAdmission.matches(productAdmission) == true,
+            (productAdmission.withValidAdmission { true }) == true
+        else { return }
         let retainedSubscriptionCount = reviewSubscriptionIds.count
         if case .ready = availability {
             await lifecycleTraceRecorder?.record(
@@ -218,8 +299,14 @@ actor BridgePaneProductMetadataCoordinator {
             )
         }
         do {
-            try await reviewContentSource.replaceAuthority(with: availability)
-            let outcome = try await reviewMetadataSource.publish(availability: availability)
+            try await reviewContentSource.replaceAuthority(
+                with: availability,
+                productAdmission: productAdmission
+            )
+            let outcome = try await reviewMetadataSource.publish(
+                availability: availability,
+                productAdmission: productAdmission
+            )
             guard case .ready = availability else { return }
             switch outcome {
             case .ready(let receipt):
@@ -234,7 +321,10 @@ actor BridgePaneProductMetadataCoordinator {
                 )
             }
         } catch {
-            try? await reviewContentSource.replaceAuthority(with: .failed)
+            try? await reviewContentSource.replaceAuthority(
+                with: .failed,
+                productAdmission: productAdmission
+            )
             guard case .ready = availability else { return }
             await recordReviewPublicationFailure(
                 Self.reviewPublicationFailure(for: error),
@@ -248,7 +338,8 @@ actor BridgePaneProductMetadataCoordinator {
                 do {
                     let resetResult = try await publishingStream.session.enqueueSubscriptionReset(
                         subscriptionId: subscriptionId,
-                        reason: .staleSource
+                        reason: .staleSource,
+                        productAdmission: productAdmission
                     )
                     guard case .enqueued = resetResult else {
                         await recordReviewPublicationFailure(
@@ -270,21 +361,30 @@ actor BridgePaneProductMetadataCoordinator {
     }
 
     func contentReadPlan(
-        for request: BridgeProductFileContentRequest
+        for request: BridgeProductFileContentRequest,
+        productAdmission: BridgeProductAdmissionContext
     ) async -> BridgePaneProductFileContentReadPlan? {
-        await fileMetadataSource.contentReadPlan(for: request)
+        await fileMetadataSource.contentReadPlan(
+            for: request,
+            productAdmission: productAdmission
+        )
     }
 
     func contentDemandInterest(
-        for request: BridgeProductContentRequest
+        for request: BridgeProductContentRequest,
+        productAdmission: BridgeProductAdmissionContext
     ) async -> BridgeContentDemandInterest {
-        await contentDemandAuthority.interest(for: request)
+        await contentDemandAuthority.interest(
+            for: request,
+            productAdmission: productAdmission
+        )
     }
 
     private func startProducerTask(
         kind: ProducerTaskKind,
         subscriptionId: String,
         subscriptionKind: BridgeProductSubscriptionKind,
+        productAdmission: BridgeProductAdmissionContext,
         session: BridgeProductSession,
         operation: @escaping @Sendable (BridgeTraceContext?) async throws -> Void
     ) {
@@ -332,7 +432,8 @@ actor BridgePaneProductMetadataCoordinator {
                     )
                     let resetResult = try? await session.enqueueSubscriptionReset(
                         subscriptionId: subscriptionId,
-                        reason: .staleSource
+                        reason: .staleSource,
+                        productAdmission: productAdmission
                     )
                     if case .enqueued? = resetResult {
                         await lifecycleTraceRecorder?.record(
@@ -556,11 +657,13 @@ actor BridgePaneProductMetadataCoordinator {
     private static func enqueue(
         event: BridgeProductFileMetadataEvent,
         subscriptionId: String,
+        productAdmission: BridgeProductAdmissionContext,
         session: BridgeProductSession
     ) async throws {
         let result = try await session.enqueueSubscriptionData(
             subscriptionId: subscriptionId,
-            data: .fileMetadata(event)
+            data: .fileMetadata(event),
+            productAdmission: productAdmission
         )
         switch result {
         case .enqueued:
@@ -575,11 +678,13 @@ actor BridgePaneProductMetadataCoordinator {
     private static func enqueue(
         event: BridgeProductReviewMetadataEvent,
         subscriptionId: String,
+        productAdmission: BridgeProductAdmissionContext,
         session: BridgeProductSession
     ) async throws {
         let result = try await session.enqueueSubscriptionData(
             subscriptionId: subscriptionId,
-            data: .reviewMetadata(event)
+            data: .reviewMetadata(event),
+            productAdmission: productAdmission
         )
         switch result {
         case .enqueued:

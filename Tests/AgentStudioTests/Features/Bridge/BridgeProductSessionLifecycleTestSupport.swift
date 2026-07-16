@@ -5,6 +5,7 @@ import Testing
 
 struct BridgeProductSessionLifecycleHarness {
     let capabilityHeader: String
+    let productAdmission: BridgeProductAdmissionTestContext
     let session: BridgeProductSession
 
     static func opened() async throws -> Self {
@@ -15,7 +16,11 @@ struct BridgeProductSessionLifecycleHarness {
             workerInstanceId: "worker-instance-1",
             capabilityBytes: capabilityBytes
         )
-        let harness = Self(capabilityHeader: capabilityHeader, session: session)
+        let harness = try Self(
+            capabilityHeader: capabilityHeader,
+            productAdmission: .make(),
+            session: session
+        )
         let request = try bridgeProductLifecycleControlRequest(workerSessionOpenObject())
         let token = try #require(lifecycleExecutionToken(try await harness.begin(request)))
         let response = try BridgeProductControlResponse.workerSessionAccepted(correlating: request)
@@ -29,7 +34,8 @@ struct BridgeProductSessionLifecycleHarness {
     func begin(
         _ request: BridgeProductControlRequest
     ) async throws -> BridgeProductSessionControlAdmission {
-        await session.beginControl(
+        await productAdmission.beginControl(
+            in: session,
             exactRequestBytes: try JSONEncoder().encode(request),
             presentedCapability: capabilityHeader
         )
@@ -88,7 +94,8 @@ struct BridgeProductSessionLifecycleHarness {
         let request = try metadataStreamRequest()
         let progressSubscription = try metadataProgressSubscriptionCorrelation()
         let registration = await session.registerMetadataProducer(
-            request: request
+            request: request,
+            productAdmission: productAdmission.context
         ) { lease in
             await operation.run(lease)
         }
@@ -97,6 +104,7 @@ struct BridgeProductSessionLifecycleHarness {
 
         let opening = try await session.enqueueRequiredProducerOpeningFrame(
             for: lease,
+            productAdmission: productAdmission.context,
             build: { sequence in
                 try metadataAcceptedProducerFrame(
                     request: request,
@@ -108,7 +116,8 @@ struct BridgeProductSessionLifecycleHarness {
         #expect(
             await consumeNextBridgeProductProducerFrame(
                 for: lease,
-                from: session
+                from: session,
+                productAdmission: productAdmission.context
             )?.sequence == 0
         )
 
@@ -116,6 +125,7 @@ struct BridgeProductSessionLifecycleHarness {
             for expectedSequence in 1...lastSequence {
                 let result = try await session.enqueueProducerFrame(
                     for: lease,
+                    productAdmission: productAdmission.context,
                     build: { sequence in
                         try metadataProgressProducerFrame(
                             request: request,
@@ -134,7 +144,8 @@ struct BridgeProductSessionLifecycleHarness {
                 #expect(
                     await consumeNextBridgeProductProducerFrame(
                         for: lease,
-                        from: session
+                        from: session,
+                        productAdmission: productAdmission.context
                     )?.sequence == expectedSequence
                 )
             }

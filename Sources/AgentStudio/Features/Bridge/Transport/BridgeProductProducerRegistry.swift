@@ -402,7 +402,9 @@ struct BridgeProductProducerRegistry {
             inFlightFrameReceiptCount: states.count { $0.inFlightFrameReceipt != nil },
             pendingLifecycleAcknowledgementCount: pendingAcknowledgementsByLeaseId.count,
             nextMetadataStreamSequence: nextMetadataStreamSequence,
-            isRevoked: isRevoked
+            isRevoked: isRevoked,
+            sessionContentAdmissionCount: 0,
+            sessionProductAdmissionCount: 0
         )
     }
 

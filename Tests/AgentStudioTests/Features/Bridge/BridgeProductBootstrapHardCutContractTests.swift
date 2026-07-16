@@ -44,14 +44,19 @@ struct BridgeProductBootstrapHardCutContractTests {
             ),
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
-            markReviewItemViewed: { _ in },
-            applyActiveViewerModeUpdate: { call in
-                await activeModeRecorder.record(call.method)
+            markReviewItemViewed: { _, _ in },
+            applyActiveViewerModeUpdate: { call, productAdmission in
+                await activeModeRecorder.record(
+                    call.method,
+                    productAdmission: productAdmission
+                )
             }
         )
+        let productAdmissionGate = BridgeProductAdmissionGate()
         let installation = try BridgeProductSessionInstallation.make(
             paneSessionId: "pane-startup-contract",
-            provider: provider
+            provider: provider,
+            productAdmissionGate: productAdmissionGate
         )
         let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(
             installation.capabilityBytes
@@ -116,8 +121,13 @@ struct BridgeProductBootstrapHardCutContractTests {
 private actor BridgeProductStartupActiveModeRecorder {
     private(set) var methods: [String] = []
 
-    func record(_ method: String) {
-        methods.append(method)
+    func record(
+        _ method: String,
+        productAdmission: BridgeProductAdmissionContext
+    ) {
+        _ = productAdmission.withValidAdmission {
+            methods.append(method)
+        }
     }
 }
 

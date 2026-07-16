@@ -22,65 +22,14 @@ extension WebKitSerializedTests {
             let repoURL = try FilesystemTestGitRepo.create(named: "bridge-review-controller-load")
             defer { FilesystemTestGitRepo.destroy(repoURL) }
             try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
-
-            let paneId = UUIDv7.generate()
-            let reviewMetadataSource = BridgePaneProductReviewMetadataSource(
-                initialAvailability: .loading
-            )
-            let reviewMetadataEvents = RealGitReviewProductEventCapture()
-            try await reviewMetadataSource.open(
-                subscription: try realGitReviewProductSubscription()
-            ) { event in
-                await reviewMetadataEvents.append(event)
-            }
-            let productProvider = BridgePaneProductSchemeProvider(
-                fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
-                reviewMetadataSource: reviewMetadataSource,
-                reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
-                markReviewItemViewed: { _ in }
-            )
-            let installation = BridgePaneController.makeInitialProductSessionInstallation(
-                paneSessionId: paneId.uuidString,
-                provider: productProvider
-            )
-            let controller = BridgePaneController(
-                paneId: paneId,
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: repoURL.path,
-                        baseline: .localDefaultBranch(branchName: "main")
-                    )
-                ),
-                metadata: PaneMetadata(
-                    contentType: .diff,
-                    launchDirectory: repoURL,
-                    title: "Bridge Review",
-                    facets: PaneContextFacets(
-                        repoId: UUIDv7.generate(),
-                        worktreeId: UUIDv7.generate(),
-                        worktreeName: "real-git-review",
-                        cwd: repoURL
-                    )
-                ),
-                reviewSourceProvider: BridgeReviewSourceProviderFactory.gitProvider(
-                    repositoryPath: repoURL
-                ),
-                productSessionDependencies: BridgePaneProductSessionDependencies(
-                    installation: installation,
-                    owner: BridgePaneController.makeProductSessionOwner(
-                        paneSessionId: paneId.uuidString,
-                        provider: productProvider,
-                        activeInstallation: installation
-                    ),
-                    productProvider: productProvider
-                )
-            )
-            defer { controller.teardown() }
-            controller.handleBridgeReady()
+            let harness = try RealGitReviewLoadHarness.make(repositoryURL: repoURL)
+            defer { harness.controller.teardown() }
+            let metadataLease = try await harness.openReviewMetadataSubscription()
 
             // Act
-            let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+            let result = await harness.controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+            let sourceAcceptedEvent = try await harness.nextReviewMetadataEvent(for: metadataLease)
+            let snapshotEvent = try await harness.nextReviewMetadataEvent(for: metadataLease)
 
             // Assert
             let completedResult = try #require(result)
@@ -88,48 +37,288 @@ extension WebKitSerializedTests {
                 Issue.record("Real-git Review package load failed: \(String(describing: completedResult))")
                 return
             }
-            let package = try #require(controller.paneState.diff.packageMetadata)
-            #expect(controller.paneState.diff.status == .ready)
+            let package = try #require(harness.controller.paneState.diff.packageMetadata)
+            #expect(harness.controller.paneState.diff.status == .ready)
 
-            let events = await reviewMetadataEvents.events
-            let acceptedEvent = try #require(
-                events.first { event in
-                    if case .sourceAccepted = event { return true }
-                    return false
-                }
-            )
-            let snapshotEvent = try #require(
-                events.first { event in
-                    if case .snapshot = event { return true }
-                    return false
-                }
-            )
-            #expect(acceptedEvent.packageId == package.packageId)
-            #expect(acceptedEvent.generation == package.reviewGeneration.rawValue)
+            guard case .sourceAccepted = sourceAcceptedEvent,
+                case .snapshot = snapshotEvent
+            else {
+                Issue.record("Expected Review sourceAccepted followed by snapshot")
+                return
+            }
+            #expect(sourceAcceptedEvent.packageId == package.packageId)
+            #expect(sourceAcceptedEvent.generation == package.reviewGeneration.rawValue)
             #expect(snapshotEvent.packageId == package.packageId)
             #expect(snapshotEvent.revision == package.revision)
+            try await closeBridgeProductSessionProducer(metadataLease, in: harness.installation.session)
+            #expect((await harness.installation.session.producerSnapshot()).hasZeroResidue)
         }
     }
 }
 
-private actor RealGitReviewProductEventCapture {
-    private(set) var events: [BridgeProductReviewMetadataEvent] = []
+@MainActor
+private struct RealGitReviewLoadHarness {
+    let capabilityHeader: String
+    let controlDispatcher: BridgeProductSchemeControlDispatcher
+    let controller: BridgePaneController
+    let installation: BridgeProductSessionInstallation
+    let productAdmission: BridgeProductAdmissionContext
+    let productProvider: BridgePaneProductSchemeProvider
 
-    func append(_ event: BridgeProductReviewMetadataEvent) {
-        events.append(event)
+    static func make(repositoryURL: URL) throws -> Self {
+        let paneId = UUIDv7.generate()
+        let reviewMetadataSource = BridgePaneProductReviewMetadataSource(
+            initialAvailability: .loading
+        )
+        let productAdmissionGate = BridgeProductAdmissionGate()
+        let productAdmission = try #require(productAdmissionGate.acquire())
+        let productProvider = BridgePaneProductSchemeProvider(
+            fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+            reviewMetadataSource: reviewMetadataSource,
+            reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
+            markReviewItemViewed: { _, _ in }
+        )
+        let installation = BridgePaneController.makeInitialProductSessionInstallation(
+            paneSessionId: paneId.uuidString,
+            provider: productProvider,
+            productAdmissionGate: productAdmissionGate
+        )
+        let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(
+            installation.capabilityBytes
+        )
+        let controlDispatcher = BridgeProductSchemeControlDispatcher(
+            session: installation.session,
+            provider: productProvider,
+            productAdmission: productAdmission
+        )
+        let controller = BridgePaneController(
+            paneId: paneId,
+            state: BridgePaneState(
+                panelKind: .diffViewer,
+                source: .workspace(
+                    rootPath: repositoryURL.path,
+                    baseline: .localDefaultBranch(branchName: "main")
+                )
+            ),
+            metadata: PaneMetadata(
+                contentType: .diff,
+                launchDirectory: repositoryURL,
+                title: "Bridge Review",
+                facets: PaneContextFacets(
+                    repoId: UUIDv7.generate(),
+                    worktreeId: UUIDv7.generate(),
+                    worktreeName: "real-git-review",
+                    cwd: repositoryURL
+                )
+            ),
+            reviewSourceProvider: BridgeReviewSourceProviderFactory.gitProvider(
+                repositoryPath: repositoryURL
+            ),
+            productSessionDependencies: BridgePaneProductSessionDependencies(
+                installation: installation,
+                owner: BridgePaneController.makeProductSessionOwner(
+                    paneSessionId: paneId.uuidString,
+                    provider: productProvider,
+                    productAdmissionGate: productAdmissionGate,
+                    activeInstallation: installation
+                ),
+                productProvider: productProvider
+            )
+        )
+        #expect(controller.handleBridgeReady())
+        return Self(
+            capabilityHeader: capabilityHeader,
+            controlDispatcher: controlDispatcher,
+            controller: controller,
+            installation: installation,
+            productAdmission: productAdmission,
+            productProvider: productProvider
+        )
+    }
+
+    func openReviewMetadataSubscription() async throws -> BridgeProductProducerLease {
+        let workerOpenRequest = try realGitReviewWorkerOpenRequest(installation: installation)
+        guard
+            case .response = try await controlDispatcher.dispatch(
+                exactRequestBytes: try realGitReviewControlRequestBytes(workerOpenRequest),
+                presentedCapability: capabilityHeader
+            )
+        else {
+            throw RealGitReviewMetadataEventError.expectedWorkerSessionAccepted
+        }
+        let metadataRequest = try realGitReviewMetadataRequest(installation: installation)
+        let registration = await installation.session.registerMetadataProducer(
+            request: metadataRequest,
+            productAdmission: productAdmission
+        ) { lease in
+            await productProvider.runMetadataProducer(
+                request: metadataRequest,
+                lease: lease,
+                productAdmission: productAdmission,
+                session: installation.session
+            )
+        }
+        let metadataLease = try bridgeProductAcceptedLease(registration)
+        let metadataOpeningFrame = try realGitReviewMetadataFrame(
+            from: try #require(
+                await consumeNextBridgeProductProducerFrame(
+                    for: metadataLease,
+                    from: installation.session,
+                    productAdmission: productAdmission
+                )
+            )
+        )
+        guard case .metadataStreamAccepted = metadataOpeningFrame else {
+            throw RealGitReviewMetadataEventError.expectedMetadataStreamAccepted
+        }
+        let reviewOpenRequest = try realGitReviewSubscriptionOpenRequest(
+            installation: installation
+        )
+        var metadataStreamIsReady = false
+        for _ in 0..<1000 {
+            if case .subscriptionOpenAccepted = await productProvider.response(for: reviewOpenRequest) {
+                metadataStreamIsReady = true
+                break
+            }
+            await Task.yield()
+        }
+        #expect(metadataStreamIsReady)
+        guard
+            case .response(let reviewOpenResponseBytes) = try await controlDispatcher.dispatch(
+                exactRequestBytes: try realGitReviewControlRequestBytes(reviewOpenRequest),
+                presentedCapability: capabilityHeader
+            ),
+            case .subscriptionOpenAccepted = try BridgeProductStrictJSON.decode(
+                BridgeProductControlResponse.self,
+                from: reviewOpenResponseBytes
+            )
+        else {
+            throw RealGitReviewMetadataEventError.expectedReviewSubscriptionAccepted
+        }
+        let subscriptionAcceptedFrame = try realGitReviewMetadataFrame(
+            from: try #require(
+                await consumeNextBridgeProductProducerFrame(
+                    for: metadataLease,
+                    from: installation.session,
+                    productAdmission: productAdmission
+                )
+            )
+        )
+        guard case .subscriptionAccepted = subscriptionAcceptedFrame else {
+            throw RealGitReviewMetadataEventError.expectedReviewSubscriptionAccepted
+        }
+        return metadataLease
+    }
+
+    func nextReviewMetadataEvent(
+        for metadataLease: BridgeProductProducerLease
+    ) async throws -> BridgeProductReviewMetadataEvent {
+        try realGitReviewEvent(
+            from: try realGitReviewMetadataFrame(
+                from: try #require(
+                    await consumeNextBridgeProductProducerFrame(
+                        for: metadataLease,
+                        from: installation.session,
+                        productAdmission: productAdmission
+                    )
+                )
+            )
+        )
     }
 }
 
-private func realGitReviewProductSubscription() throws -> BridgeProductSubscriptionSnapshot {
-    let interestState = BridgeProductSubscriptionInterestState.reviewMetadata(interests: [])
-    return BridgeProductSubscriptionSnapshot(
-        subscription: .reviewMetadata,
-        subscriptionId: "real-git-review-product-subscription",
-        subscriptionKind: .reviewMetadata,
-        workerDerivationEpoch: 1,
-        interestRevision: 0,
-        interestSha256: try interestState.sha256Hex(),
-        interestState: interestState,
-        hasStagedUpdate: false
+private enum RealGitReviewMetadataEventError: Error {
+    case expectedMetadataStreamAccepted
+    case expectedReviewSubscriptionAccepted
+    case expectedReviewMetadataEvent
+    case expectedSingleMetadataFrame
+    case expectedWorkerSessionAccepted
+}
+
+private func realGitReviewWorkerOpenRequest(
+    installation: BridgeProductSessionInstallation
+) throws -> BridgeProductControlRequest {
+    try realGitReviewControlRequest([
+        "kind": "workerSession.open",
+        "paneSessionId": installation.bootstrap.paneSessionId,
+        "request": NSNull(),
+        "requestId": "request-open-real-git-review",
+        "requestSequence": 1,
+        "wireVersion": BridgeProductWireContract.version,
+        "workerInstanceId": installation.bootstrap.workerInstanceId,
+    ])
+}
+
+private func realGitReviewSubscriptionOpenRequest(
+    installation: BridgeProductSessionInstallation
+) throws -> BridgeProductControlRequest {
+    try realGitReviewControlRequest([
+        "kind": "subscription.open",
+        "paneSessionId": installation.bootstrap.paneSessionId,
+        "requestId": "request-review-open-real-git-review",
+        "requestSequence": 2,
+        "subscription": ["subscriptionKind": "review.metadata"],
+        "subscriptionId": "review-subscription-real-git-review",
+        "wireVersion": BridgeProductWireContract.version,
+        "workerDerivationEpoch": 1,
+        "workerInstanceId": installation.bootstrap.workerInstanceId,
+    ])
+}
+
+private func realGitReviewMetadataRequest(
+    installation: BridgeProductSessionInstallation
+) throws -> BridgeProductMetadataStreamRequest {
+    try BridgeProductStrictJSON.decode(
+        BridgeProductMetadataStreamRequest.self,
+        from: JSONSerialization.data(
+            withJSONObject: [
+                "kind": "metadataStream.open",
+                "metadataStreamId": "metadata-real-git-review",
+                "paneSessionId": installation.bootstrap.paneSessionId,
+                "resumeFromStreamSequence": NSNull(),
+                "wireVersion": BridgeProductWireContract.version,
+                "workerInstanceId": installation.bootstrap.workerInstanceId,
+            ],
+            options: [.sortedKeys]
+        )
     )
+}
+
+private func realGitReviewControlRequest(
+    _ object: [String: Any]
+) throws -> BridgeProductControlRequest {
+    try BridgeProductStrictJSON.decode(
+        BridgeProductControlRequest.self,
+        from: JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    )
+}
+
+private func realGitReviewControlRequestBytes(
+    _ request: BridgeProductControlRequest
+) throws -> Data {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    return try encoder.encode(request)
+}
+
+private func realGitReviewMetadataFrame(
+    from queuedFrame: BridgeProductQueuedProducerFrame
+) throws -> BridgeProductMetadataFrame {
+    let decoder = try BridgeProductMetadataFrameDecoder()
+    let frames = try decoder.append(queuedFrame.data)
+    guard frames.count == 1, let frame = frames.first else {
+        throw RealGitReviewMetadataEventError.expectedSingleMetadataFrame
+    }
+    return frame
+}
+
+private func realGitReviewEvent(
+    from frame: BridgeProductMetadataFrame
+) throws -> BridgeProductReviewMetadataEvent {
+    guard case .subscriptionData(let dataFrame) = frame,
+        case .reviewMetadata(let event) = dataFrame.data
+    else {
+        throw RealGitReviewMetadataEventError.expectedReviewMetadataEvent
+    }
+    return event
 }

@@ -15,13 +15,16 @@ struct BridgePaneControllerProductBootstrapDeliveryTests {
         // Arrange
         let paneId = UUIDv7.generate()
         let provider = BridgePaneProductSessionProviderGate()
+        let productAdmissionGate = BridgeProductAdmissionGate()
         let initialInstallation = BridgePaneController.makeInitialProductSessionInstallation(
             paneSessionId: paneId.uuidString,
-            provider: provider
+            provider: provider,
+            productAdmissionGate: productAdmissionGate
         )
         let owner = BridgePaneController.makeProductSessionOwner(
             paneSessionId: paneId.uuidString,
             provider: provider,
+            productAdmissionGate: productAdmissionGate,
             activeInstallation: initialInstallation
         )
         var deliveredInstallations: [BridgeProductSessionInstallation] = []
@@ -32,7 +35,7 @@ struct BridgePaneControllerProductBootstrapDeliveryTests {
                 installation: initialInstallation,
                 owner: owner
             ),
-            productSessionBootstrapSink: { _, _, installation, _ in
+            productSessionBootstrapSink: { _, _, installation, _, _ in
                 deliveredInstallations.append(installation)
                 if deliveredInstallations.count == 1 {
                     throw BridgeError.encoding("simulated ambiguous delivery failure")
@@ -71,5 +74,88 @@ struct BridgePaneControllerProductBootstrapDeliveryTests {
         )
         #expect(replacementInstallation.capabilityBytes != initialInstallation.capabilityBytes)
         #expect(await controller.teardown().value)
+    }
+
+    @Test("pane close suppresses a suspended product bootstrap delivery")
+    func paneCloseSuppressesSuspendedProductBootstrapDelivery() async throws {
+        // Arrange
+        let paneId = UUIDv7.generate()
+        let provider = BridgePaneProductSessionProviderGate()
+        let productAdmissionGate = BridgeProductAdmissionGate()
+        let initialInstallation = BridgePaneController.makeInitialProductSessionInstallation(
+            paneSessionId: paneId.uuidString,
+            provider: provider,
+            productAdmissionGate: productAdmissionGate
+        )
+        let owner = BridgePaneController.makeProductSessionOwner(
+            paneSessionId: paneId.uuidString,
+            provider: provider,
+            productAdmissionGate: productAdmissionGate,
+            activeInstallation: initialInstallation
+        )
+        let deliverySuspension = BridgeProductBootstrapDeliverySuspension()
+        var deliveredWorkerInstanceIds: [String] = []
+        let controller = BridgePaneController(
+            paneId: paneId,
+            state: BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "close-bootstrap")),
+            productSessionDependencies: BridgePaneProductSessionDependencies(
+                installation: initialInstallation,
+                owner: owner
+            ),
+            productSessionBootstrapSink: { _, _, installation, _, productAdmission in
+                await deliverySuspension.suspendDelivery()
+                _ = productAdmission.withValidAdmission {
+                    deliveredWorkerInstanceIds.append(installation.bootstrap.workerInstanceId)
+                }
+            }
+        )
+
+        // Act
+        let bootstrapTask = Task { @MainActor in
+            await controller.enqueueProductSessionBootstrapRequest(
+                requestId: "suspended-initial-bootstrap",
+                reason: .initial
+            )
+        }
+        await deliverySuspension.waitUntilDeliveryIsSuspended()
+        let teardownTask = controller.teardown()
+        await deliverySuspension.resumeDelivery()
+        await bootstrapTask.value
+        let teardownSucceeded = await teardownTask.value
+        let ownerSnapshot = await owner.snapshot()
+
+        // Assert
+        #expect(deliveredWorkerInstanceIds.isEmpty)
+        #expect(teardownSucceeded)
+        #expect(ownerSnapshot.hasZeroResidue)
+        #expect(productAdmissionGate.diagnosticSnapshot.isOpen == false)
+    }
+}
+
+private actor BridgeProductBootstrapDeliverySuspension {
+    private var deliveryIsSuspended = false
+    private var deliverySuspendedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var deliveryResumeContinuation: CheckedContinuation<Void, Never>?
+
+    func suspendDelivery() async {
+        deliveryIsSuspended = true
+        let waiters = deliverySuspendedWaiters
+        deliverySuspendedWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        await withCheckedContinuation { continuation in
+            deliveryResumeContinuation = continuation
+        }
+    }
+
+    func waitUntilDeliveryIsSuspended() async {
+        guard !deliveryIsSuspended else { return }
+        await withCheckedContinuation { continuation in
+            deliverySuspendedWaiters.append(continuation)
+        }
+    }
+
+    func resumeDelivery() {
+        deliveryResumeContinuation?.resume()
+        deliveryResumeContinuation = nil
     }
 }

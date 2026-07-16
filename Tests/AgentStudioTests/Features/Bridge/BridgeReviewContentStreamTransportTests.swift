@@ -76,7 +76,11 @@ extension WebKitSerializedTests {
             }
             let package = try #require(controller.paneState.diff.packageMetadata)
             let contentSource = BridgePaneProductReviewContentSource(contentStore: controller.reviewContentStore)
-            try await contentSource.replaceAuthority(with: .ready(package))
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            try await contentSource.replaceAuthority(
+                with: .ready(package),
+                productAdmission: productAdmission
+            )
             let baseRequest = try Self.contentRequest(
                 handle: expectedBaseHandle,
                 package: package,
@@ -89,8 +93,14 @@ extension WebKitSerializedTests {
             )
 
             // Act
-            let baseBody = try await contentSource.contentBody(for: baseRequest)
-            let headBody = try await contentSource.contentBody(for: headRequest)
+            let baseBody = try await contentSource.contentBody(
+                for: baseRequest,
+                productAdmission: productAdmission
+            )
+            let headBody = try await contentSource.contentBody(
+                for: headRequest,
+                productAdmission: productAdmission
+            )
 
             // Assert
             #expect(expectedBaseHandle.sizeBytesIsExact == false)

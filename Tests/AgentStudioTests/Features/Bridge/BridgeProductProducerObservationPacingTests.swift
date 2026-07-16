@@ -20,16 +20,19 @@ struct BridgeProductProducerObservationPacingTests {
                 try producerPacingContentFrameAcknowledgement(
                     for: fixture.request.admission,
                     contentSequence: fixture.delivery.frame.sequence
-                )
+                ),
+                productAdmission: fixture.harness.productAdmission.context
             )
         )
         let firstReplay = await fixture.harness.session.waitUntilProducerFrameSequenceObserved(
             for: fixture.lease,
-            sequence: fixture.opening.sequence
+            sequence: fixture.opening.sequence,
+            productAdmission: fixture.harness.productAdmission.context
         )
         let secondReplay = await fixture.harness.session.waitUntilProducerFrameSequenceObserved(
             for: fixture.lease,
-            sequence: fixture.opening.sequence
+            sequence: fixture.opening.sequence,
+            productAdmission: fixture.harness.productAdmission.context
         )
 
         // Assert
@@ -169,7 +172,10 @@ private struct ProducerObservationPacingFixture {
         }
         let operationGate = BridgeProductSessionProducerOperationGate()
         let lease = try bridgeProductAcceptedLease(
-            await resolvedHarness.session.registerContentProducer(request: request) { lease in
+            await resolvedHarness.session.registerContentProducer(
+                request: request,
+                productAdmission: resolvedHarness.productAdmission.context
+            ) { lease in
                 await operationGate.run(lease)
             }
         )
@@ -177,11 +183,13 @@ private struct ProducerObservationPacingFixture {
         let opening = try await producerPacingAcceptedFrame(
             request: request,
             lease: lease,
+            productAdmission: resolvedHarness.productAdmission.context,
             session: resolvedHarness.session
         )
         let delivery = try await producerPacingFrameDelivery(
             for: lease,
-            from: resolvedHarness.session
+            from: resolvedHarness.session,
+            productAdmission: resolvedHarness.productAdmission.context
         )
         return Self(
             delivery: delivery,
@@ -196,7 +204,8 @@ private struct ProducerObservationPacingFixture {
         Task {
             await harness.session.waitUntilProducerFrameSequenceObserved(
                 for: lease,
-                sequence: opening.sequence
+                sequence: opening.sequence,
+                productAdmission: harness.productAdmission.context
             )
         }
     }
@@ -258,10 +267,12 @@ private func producerPacingContentRequest(
 private func producerPacingAcceptedFrame(
     request: BridgeProductContentRequest,
     lease: BridgeProductProducerLease,
+    productAdmission: BridgeProductAdmissionContext,
     session: BridgeProductSession
 ) async throws -> BridgeProductQueuedProducerFrame {
     let result = try await session.enqueueRequiredProducerOpeningFrame(
         for: lease,
+        productAdmission: productAdmission,
         build: { _ in
             .content(.init(header: .accepted(for: request.admission), payload: Data()))
         }
@@ -274,9 +285,15 @@ private func producerPacingAcceptedFrame(
 
 private func producerPacingFrameDelivery(
     for lease: BridgeProductProducerLease,
-    from session: BridgeProductSession
+    from session: BridgeProductSession,
+    productAdmission: BridgeProductAdmissionContext
 ) async throws -> BridgeProductProducerFrameDelivery {
-    guard case .frame(let delivery) = await session.pullProducerFrame(for: lease) else {
+    guard
+        case .frame(let delivery) = await session.pullProducerFrame(
+            for: lease,
+            productAdmission: productAdmission
+        )
+    else {
         throw ProducerObservationPacingTestError.expectedProducerFrame
     }
     return delivery

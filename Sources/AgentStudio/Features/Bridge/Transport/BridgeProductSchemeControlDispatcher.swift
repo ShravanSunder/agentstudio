@@ -1,6 +1,7 @@
 import Foundation
 
 enum BridgeProductSchemeControlDispatchResult: Equatable, Sendable {
+    case admissionClosed
     case rejected(BridgeProductSessionControlRejection)
     case response(Data)
 }
@@ -8,16 +9,25 @@ enum BridgeProductSchemeControlDispatchResult: Equatable, Sendable {
 struct BridgeProductSchemeControlDispatcher: Sendable {
     let session: BridgeProductSession
     let provider: any BridgeProductSchemeProvider
+    let productAdmission: BridgeProductAdmissionContext
 
     func dispatch(
         exactRequestBytes: Data,
         presentedCapability: String
     ) async throws -> BridgeProductSchemeControlDispatchResult {
+        guard
+            (productAdmission.withValidAdmission { true }) == true
+        else {
+            return .admissionClosed
+        }
         let admission = await session.beginControl(
             exactRequestBytes: exactRequestBytes,
-            presentedCapability: presentedCapability
+            presentedCapability: presentedCapability,
+            productAdmission: productAdmission
         )
         switch admission {
+        case .admissionClosed:
+            return .admissionClosed
         case .rejected(let rejection):
             guard let request = rejection.request else {
                 return .rejected(rejection.reason)
@@ -35,34 +45,48 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
                 throw CancellationError()
             }
             guard await session.claimControlProviderDispatch(token: token) else {
+                guard
+                    (productAdmission.withValidAdmission { true }) == true
+                else {
+                    return .admissionClosed
+                }
                 throw CancellationError()
             }
 
             // Provider dispatch is the replay boundary. Once it starts, this unstructured
             // task must finish and cache one exact response even if the URL task closes.
-            let completion = Task { [provider, session] in
+            let completion = Task {
                 do {
                     let providerResponse = await provider.response(for: request)
+                    guard
+                        (productAdmission.withValidAdmission { true }) == true
+                    else {
+                        await session.settleControlProviderDispatch(token: token)
+                        return BridgeProductSchemeControlDispatchResult.admissionClosed
+                    }
                     let authoritativeResponse = try await session.authoritativeControlResponse(
                         token: token,
                         providerResponse: providerResponse
                     )
-                    let response = try await Self.completeControl(
+                    let result = try await Self.completeControl(
                         providerResponse: authoritativeResponse,
                         request: request,
                         token: token,
                         session: session,
-                        provider: provider
+                        provider: provider,
+                        productAdmission: productAdmission
                     )
                     await session.settleControlProviderDispatch(token: token)
-                    return response
+                    return result
+                } catch BridgeProductSessionError.admissionClosed {
+                    await session.settleControlProviderDispatch(token: token)
+                    return .admissionClosed
                 } catch {
                     await session.settleControlProviderDispatch(token: token)
                     throw error
                 }
             }
-            let exactResponseBytes = try await completion.value
-            return .response(exactResponseBytes)
+            return try await completion.value
         }
     }
 
@@ -71,8 +95,9 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
         request: BridgeProductControlRequest,
         token: BridgeProductControlAdmissionToken,
         session: BridgeProductSession,
-        provider: any BridgeProductSchemeProvider
-    ) async throws -> Data {
+        provider: any BridgeProductSchemeProvider,
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> BridgeProductSchemeControlDispatchResult {
         let providerResponseBytes = try encode(providerResponse)
         do {
             let completionEffect = try await session.completeControl(
@@ -82,9 +107,17 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
             await applyCommittedEffect(
                 completionEffect,
                 request: request,
-                provider: provider
+                provider: provider,
+                productAdmission: productAdmission
             )
-            return providerResponseBytes
+            guard
+                (productAdmission.withValidAdmission { true }) == true
+            else {
+                return .admissionClosed
+            }
+            return .response(providerResponseBytes)
+        } catch BridgeProductSessionError.admissionClosed {
+            return .admissionClosed
         } catch {
             let internalError = try BridgeProductControlResponse.requestError(
                 correlating: request,
@@ -102,19 +135,33 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
             await applyCommittedEffect(
                 completionEffect,
                 request: request,
-                provider: provider
+                provider: provider,
+                productAdmission: productAdmission
             )
-            return internalErrorBytes
+            guard
+                (productAdmission.withValidAdmission { true }) == true
+            else {
+                return .admissionClosed
+            }
+            return .response(internalErrorBytes)
         }
     }
 
     private static func applyCommittedEffect(
         _ effect: BridgeProductSessionCompletionEffect,
         request: BridgeProductControlRequest,
-        provider: any BridgeProductSchemeProvider
+        provider: any BridgeProductSchemeProvider,
+        productAdmission: BridgeProductAdmissionContext
     ) async {
         guard effect != .noEffect else { return }
-        await provider.applyCommittedControlEffect(effect, for: request)
+        guard
+            (productAdmission.withValidAdmission { true }) == true
+        else { return }
+        await provider.applyCommittedControlEffect(
+            effect,
+            for: request,
+            productAdmission: productAdmission
+        )
     }
 
     private static func encode(_ response: BridgeProductControlResponse) throws -> Data {

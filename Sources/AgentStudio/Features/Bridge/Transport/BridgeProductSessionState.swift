@@ -9,6 +9,7 @@ enum BridgeProductSessionLifecycle: Equatable, Sendable {
 
 struct BridgeProductSessionPendingControl: Sendable {
     let deferredResyncEpochs: [BridgeProductSurface: Int]
+    let productAdmission: BridgeProductAdmissionContext
     var providerDispatchCompletion: BridgeProductControlDispatchCompletion?
     let request: BridgeProductControlRequest
     let token: BridgeProductControlAdmissionToken
@@ -103,6 +104,7 @@ struct BridgeProductSessionControlRejectionContext: Equatable, Sendable {
 }
 
 enum BridgeProductSessionControlAdmission: Equatable, Sendable {
+    case admissionClosed
     case execute(
         token: BridgeProductControlAdmissionToken,
         request: BridgeProductControlRequest
@@ -112,6 +114,7 @@ enum BridgeProductSessionControlAdmission: Equatable, Sendable {
 }
 
 enum BridgeProductSessionError: Error, Equatable {
+    case admissionClosed
     case invalidRequestOrResponseByteLimit
     case invalidControlResponse
     case invalidAdmissionToken

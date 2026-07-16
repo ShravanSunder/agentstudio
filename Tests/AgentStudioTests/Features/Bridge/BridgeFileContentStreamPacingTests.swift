@@ -61,7 +61,8 @@ struct BridgeFileContentStreamPacingTests {
         let decoder = try BridgeProductContentFrameDecoder()
         let openingDelivery = try await requiredFrameDelivery(
             for: context.lease,
-            from: context.harness.session
+            from: context.harness.session,
+            productAdmission: context.harness.productAdmission.context
         )
         #expect(try decoder.append(openingDelivery.frame.data).first?.header.kind == "content.accepted")
         #expect(
@@ -69,12 +70,14 @@ struct BridgeFileContentStreamPacingTests {
                 try contentFrameAcknowledgement(
                     for: context.request.admission,
                     contentSequence: openingDelivery.frame.sequence
-                )
+                ),
+                productAdmission: context.harness.productAdmission.context
             )
         )
         let dataDelivery = try await requiredFrameDelivery(
             for: context.lease,
-            from: context.harness.session
+            from: context.harness.session,
+            productAdmission: context.harness.productAdmission.context
         )
         #expect(try decoder.append(dataDelivery.frame.data).first?.header.kind == "content.data")
         #expect(await context.readerHarness.openCount == 1)
@@ -134,16 +137,20 @@ private func makePacingStreamContext(
         fileMetadataSource: fileMetadataSource,
         reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
         reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
-        markReviewItemViewed: { _ in },
+        markReviewItemViewed: { _, _ in },
         fileContentReaderFactory: { plan in
             try await readerHarness.open(plan: plan)
         }
     )
     let harness = try await BridgeProductSessionLifecycleHarness.opened()
-    let registration = await harness.session.registerContentProducer(request: request) { lease in
+    let registration = await harness.session.registerContentProducer(
+        request: request,
+        productAdmission: harness.productAdmission.context
+    ) { lease in
         await provider.runContentProducer(
             request: request,
             lease: lease,
+            productAdmission: harness.productAdmission.context,
             session: harness.session
         )
     }
@@ -164,7 +171,8 @@ private func observeAcceptedFrameBeforeFileAccess(
 ) async throws -> Int {
     let openingDelivery = try await requiredFrameDelivery(
         for: context.lease,
-        from: context.harness.session
+        from: context.harness.session,
+        productAdmission: context.harness.productAdmission.context
     )
     let openingFrames = try decoder.append(openingDelivery.frame.data)
     #expect(openingFrames.count == 1)
@@ -195,7 +203,8 @@ private func observeAcceptedFrameBeforeFileAccess(
             try contentFrameAcknowledgement(
                 for: context.request.admission,
                 contentSequence: openingDelivery.frame.sequence
-            )
+            ),
+            productAdmission: context.harness.productAdmission.context
         )
     )
     return snapshot.queuedFrameCount
@@ -217,7 +226,10 @@ private func consumePacedStream(
     var resetHeaders: [BridgeProductContentResetHeader] = []
     var reachedTerminalFrame = false
     while !reachedTerminalFrame {
-        let pullResult = await context.harness.session.pullProducerFrame(for: context.lease)
+        let pullResult = await context.harness.session.pullProducerFrame(
+            for: context.lease,
+            productAdmission: context.harness.productAdmission.context
+        )
         guard case .frame(let delivery) = pullResult else {
             if case .rejected(let rejection) = pullResult { pullRejection = rejection }
             break
@@ -255,7 +267,8 @@ private func consumePacedStream(
                 try contentFrameAcknowledgement(
                     for: context.request.admission,
                     contentSequence: delivery.frame.sequence
-                )
+                ),
+                productAdmission: context.harness.productAdmission.context
             )
         )
         if decodedFrames.contains(where: { if case .data = $0.header { true } else { false } }) {
@@ -296,30 +309,48 @@ private actor PacingFileMetadataSource: BridgePaneProductFileMetadataProducing {
 
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {}
 
     func update(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {}
 
     func cancel(subscriptionId _: String) {}
 
-    func publish(status _: GitWorkingTreeStatus) -> [BridgePaneProductFileMetadataEmission] { [] }
+    func publish(
+        status _: GitWorkingTreeStatus,
+        productAdmission _: BridgeProductAdmissionContext
+    ) -> [BridgePaneProductFileMetadataEmission] { [] }
 
-    func publish(changeset _: FileChangeset) async throws -> [BridgePaneProductFileMetadataEmission] {
+    func publish(
+        changeset _: FileChangeset,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async throws -> [BridgePaneProductFileMetadataEmission] {
         []
     }
 
-    func authoritativePath(for request: BridgeProductFileContentRequest) -> String? {
-        request == expectedRequest ? "large-file.txt" : nil
+    func authoritativePath(
+        for request: BridgeProductFileContentRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) -> String? {
+        guard (productAdmission.withValidAdmission { true }) == true else { return nil }
+        return request == expectedRequest ? "large-file.txt" : nil
     }
 
     func contentReadPlan(
-        for request: BridgeProductFileContentRequest
+        for request: BridgeProductFileContentRequest,
+        productAdmission: BridgeProductAdmissionContext
     ) -> BridgePaneProductFileContentReadPlan? {
-        readPlanAccessCount += 1
+        guard
+            (productAdmission.withValidAdmission {
+                readPlanAccessCount += 1
+                return true
+            }) == true
+        else { return nil }
         return request == expectedRequest ? readPlan : nil
     }
 }
@@ -432,9 +463,15 @@ private func requiredFileRequest(
 
 private func requiredFrameDelivery(
     for lease: BridgeProductProducerLease,
-    from session: BridgeProductSession
+    from session: BridgeProductSession,
+    productAdmission: BridgeProductAdmissionContext
 ) async throws -> BridgeProductProducerFrameDelivery {
-    guard case .frame(let delivery) = await session.pullProducerFrame(for: lease) else {
+    guard
+        case .frame(let delivery) = await session.pullProducerFrame(
+            for: lease,
+            productAdmission: productAdmission
+        )
+    else {
         throw BridgeFileContentStreamPacingTestError.expectedProducerFrame
     }
     return delivery

@@ -121,8 +121,13 @@ struct BridgeProductSchemeAdapterTranscriptHarness {
             reviewSourceData: reviewSourceData,
             fileSourceData: fileSourceData
         )
+        let productAdmissionGate = BridgeProductAdmissionGate()
         return .init(
-            adapter: .init(session: session, provider: provider),
+            adapter: .init(
+                session: session,
+                provider: provider,
+                productAdmissionGate: productAdmissionGate
+            ),
             capabilityHeader: capabilityHeader,
             provider: provider,
             session: session
@@ -220,6 +225,7 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
     func runMetadataProducer(
         request: BridgeProductMetadataStreamRequest,
         lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
         session: BridgeProductSession
     ) async {
         metadataRequestCount += 1
@@ -227,6 +233,7 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
         do {
             let result = try await session.enqueueRequiredProducerOpeningFrame(
                 for: lease,
+                productAdmission: productAdmission,
                 build: { sequence in
                     try bridgeProductMetadataAcceptedFrame(
                         request: request,
@@ -248,12 +255,14 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
     func runContentProducer(
         request: BridgeProductContentRequest,
         lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
         session: BridgeProductSession
     ) async {
         contentRequestCount += 1
         do {
             let result = try await session.enqueueRequiredProducerOpeningFrame(
                 for: lease,
+                productAdmission: productAdmission,
                 build: { _ in producerRegistryContentOpeningFrame(for: request) }
             )
             guard case .enqueued = result else {
@@ -276,7 +285,8 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
 
     func applyCommittedControlEffect(
         _ effect: BridgeProductSessionCompletionEffect,
-        for request: BridgeProductControlRequest
+        for request: BridgeProductControlRequest,
+        productAdmission: BridgeProductAdmissionContext
     ) async {
         _ = request
         guard case .subscriptionOpened(let subscription) = effect,
@@ -292,7 +302,8 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
         do {
             let result = try await metadataSession.enqueueSubscriptionData(
                 subscriptionId: subscription.subscriptionId,
-                data: data
+                data: data,
+                productAdmission: productAdmission
             )
             guard case .enqueued = result else {
                 producerFailures.append("subscription source frame rejected")

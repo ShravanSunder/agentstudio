@@ -13,6 +13,7 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
         let pump = BridgeProductSchemeFramePump(
             session: harness.session,
             producerLease: lease,
+            productAdmission: harness.productAdmission.context,
             acknowledgeLifecycle: { _ in true }
         )
         let source = CoordinatorCancellationErrorFileSource()
@@ -25,6 +26,7 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
         await coordinator.install(
             request: try producerTaskMetadataStreamRequest(),
             lease: lease,
+            productAdmission: harness.productAdmission.context,
             session: harness.session
         )
         let openRequest = try bridgeProductLifecycleControlRequest(
@@ -45,7 +47,10 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
             exactResponseBytes: try JSONEncoder().encode(response)
         )
         _ = try await pullProducerTaskMetadataFrame(from: pump)
-        await coordinator.apply(effect)
+        await coordinator.apply(
+            effect,
+            productAdmission: harness.productAdmission.context
+        )
         await traceRecorder.waitUntilBootstrapFinished()
 
         // Assert
@@ -81,6 +86,7 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
         let pump = BridgeProductSchemeFramePump(
             session: harness.session,
             producerLease: lease,
+            productAdmission: harness.productAdmission.context,
             acknowledgeLifecycle: { _ in true }
         )
         let source = CoordinatorReplacementBootstrapFileMetadataSource()
@@ -93,6 +99,7 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
         await coordinator.install(
             request: try producerTaskMetadataStreamRequest(),
             lease: lease,
+            productAdmission: harness.productAdmission.context,
             session: harness.session
         )
         let openRequest = try bridgeProductLifecycleControlRequest(
@@ -111,11 +118,17 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
             exactResponseBytes: try JSONEncoder().encode(response)
         )
         _ = try await pullProducerTaskMetadataFrame(from: pump)
-        await coordinator.apply(effect)
+        await coordinator.apply(
+            effect,
+            productAdmission: harness.productAdmission.context
+        )
         await source.waitUntilOpenStarted(openOrdinal: 1)
 
         // Act
-        await coordinator.apply(.subscriptionCancelled(try producerTaskFileSubscriptionSnapshot()))
+        await coordinator.apply(
+            .subscriptionCancelled(try producerTaskFileSubscriptionSnapshot()),
+            productAdmission: harness.productAdmission.context
+        )
         await source.waitUntilOpenFinished(openOrdinal: 1)
         await traceRecorder.waitUntilBootstrapFinished()
 
@@ -147,19 +160,29 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
         await coordinator.install(
             request: try producerTaskMetadataStreamRequest(),
             lease: lease,
+            productAdmission: harness.productAdmission.context,
             session: harness.session
         )
         let subscription = try producerTaskFileSubscriptionSnapshot()
-        await coordinator.apply(.subscriptionOpened(subscription))
+        await coordinator.apply(
+            .subscriptionOpened(subscription),
+            productAdmission: harness.productAdmission.context
+        )
         await source.waitUntilOpenStarted(openOrdinal: 1)
-        await coordinator.apply(.subscriptionOpened(subscription))
+        await coordinator.apply(
+            .subscriptionOpened(subscription),
+            productAdmission: harness.productAdmission.context
+        )
         await source.waitUntilOpenStarted(openOrdinal: 2)
 
         // Act
         await source.releaseOpen(openOrdinal: 1)
         await source.waitUntilOpenFinished(openOrdinal: 1)
         await traceRecorder.waitUntilBootstrapFinished()
-        await coordinator.apply(.subscriptionCancelled(subscription))
+        await coordinator.apply(
+            .subscriptionCancelled(subscription),
+            productAdmission: harness.productAdmission.context
+        )
         await source.waitUntilOpenFinished(openOrdinal: 2)
 
         // Assert
@@ -189,10 +212,14 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
             await coordinator.install(
                 request: try producerTaskMetadataStreamRequest(),
                 lease: lease,
+                productAdmission: harness.productAdmission.context,
                 session: harness.session
             )
 
-            await coordinator.apply(.subscriptionOpened(try producerTaskReviewSubscriptionSnapshot()))
+            await coordinator.apply(
+                .subscriptionOpened(try producerTaskReviewSubscriptionSnapshot()),
+                productAdmission: harness.productAdmission.context
+            )
             await traceRecorder.waitUntilBootstrapFinished()
 
             #expect(
@@ -224,6 +251,7 @@ private actor CoordinatorThrowingReviewMetadataSource: BridgePaneProductReviewMe
 
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit _: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {
         switch failureMode {
@@ -242,11 +270,13 @@ private actor CoordinatorThrowingReviewMetadataSource: BridgePaneProductReviewMe
 
     func update(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit _: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {}
 
     func publish(
-        availability _: BridgePaneProductReviewMetadataAvailability
+        availability _: BridgePaneProductReviewMetadataAvailability,
+        productAdmission _: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
         .loading(retained: 0)
     }
@@ -271,6 +301,7 @@ private actor CoordinatorReplacementBootstrapFileMetadataSource:
 
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
         let openOrdinal = nextOpenOrdinal
@@ -292,6 +323,7 @@ private actor CoordinatorReplacementBootstrapFileMetadataSource:
 
     func update(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {}
 
@@ -301,12 +333,19 @@ private actor CoordinatorReplacementBootstrapFileMetadataSource:
         for release in releases { release.resume() }
     }
 
-    func publish(status _: GitWorkingTreeStatus) -> [BridgePaneProductFileMetadataEmission] { [] }
+    func publish(
+        status _: GitWorkingTreeStatus,
+        productAdmission _: BridgeProductAdmissionContext
+    ) -> [BridgePaneProductFileMetadataEmission] { [] }
 
-    func publish(changeset _: FileChangeset) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
+    func publish(
+        changeset _: FileChangeset,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
 
     func contentReadPlan(
-        for _: BridgeProductFileContentRequest
+        for _: BridgeProductFileContentRequest,
+        productAdmission _: BridgeProductAdmissionContext
     ) -> BridgePaneProductFileContentReadPlan? { nil }
 
     func openObservedCancellation(openOrdinal: Int) -> Bool {
@@ -343,6 +382,7 @@ private actor CoordinatorCancellationErrorFileSource:
 
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
         didAttemptOpen = true
@@ -351,17 +391,25 @@ private actor CoordinatorCancellationErrorFileSource:
 
     func update(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {}
 
     func cancel(subscriptionId _: String) {}
 
-    func publish(status _: GitWorkingTreeStatus) -> [BridgePaneProductFileMetadataEmission] { [] }
+    func publish(
+        status _: GitWorkingTreeStatus,
+        productAdmission _: BridgeProductAdmissionContext
+    ) -> [BridgePaneProductFileMetadataEmission] { [] }
 
-    func publish(changeset _: FileChangeset) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
+    func publish(
+        changeset _: FileChangeset,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
 
     func contentReadPlan(
-        for _: BridgeProductFileContentRequest
+        for _: BridgeProductFileContentRequest,
+        productAdmission _: BridgeProductAdmissionContext
     ) -> BridgePaneProductFileContentReadPlan? { nil }
 }
 

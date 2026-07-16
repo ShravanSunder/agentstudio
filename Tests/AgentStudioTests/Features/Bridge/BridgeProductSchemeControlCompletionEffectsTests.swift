@@ -20,10 +20,15 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource()
-        ) { itemId in
+        ) { itemId, _ in
             recorder.record(itemId)
         }
-        let dispatcher = BridgeProductSchemeControlDispatcher(session: session, provider: provider)
+        let productAdmission = try BridgeProductAdmissionTestContext.make().context
+        let dispatcher = makeBridgeProductSchemeControlDispatcher(
+            session: session,
+            provider: provider,
+            productAdmission: productAdmission
+        )
         let callBody = bridgeProductCompletionEffectsMarkViewedBody()
         let decodedCall = try BridgeProductStrictJSON.decode(
             BridgeProductControlRequest.self,
@@ -71,7 +76,12 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
             capabilityBytes: capabilityBytes
         )
         let provider = BridgeProductCompletionEffectsRecordingProvider(session: session)
-        let dispatcher = BridgeProductSchemeControlDispatcher(session: session, provider: provider)
+        let productAdmission = try BridgeProductAdmissionTestContext.make().context
+        let dispatcher = makeBridgeProductSchemeControlDispatcher(
+            session: session,
+            provider: provider,
+            productAdmission: productAdmission
+        )
         let subscriptionOpenBody = bridgeProductCompletionEffectsSubscriptionOpenBody()
         let subscriptionCancelBody = bridgeProductCompletionEffectsSubscriptionCancelBody()
 
@@ -79,7 +89,10 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
             exactRequestBytes: bridgeProductSchemeWorkerOpenBody(),
             presentedCapability: capabilityHeader
         )
-        _ = try await installCompletionEffectsMetadataStream(in: session)
+        _ = try await installCompletionEffectsMetadataStream(
+            in: session,
+            productAdmission: productAdmission
+        )
         _ = try await dispatcher.dispatch(
             exactRequestBytes: subscriptionOpenBody,
             presentedCapability: capabilityHeader
@@ -118,7 +131,12 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
             session: session,
             subscriptionOpenInterestSha256: String(repeating: "0", count: 64)
         )
-        let dispatcher = BridgeProductSchemeControlDispatcher(session: session, provider: provider)
+        let productAdmission = try BridgeProductAdmissionTestContext.make().context
+        let dispatcher = makeBridgeProductSchemeControlDispatcher(
+            session: session,
+            provider: provider,
+            productAdmission: productAdmission
+        )
 
         _ = try await dispatcher.dispatch(
             exactRequestBytes: bridgeProductSchemeWorkerOpenBody(),
@@ -169,8 +187,13 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource()
-        ) { _ in }
-        let dispatcher = BridgeProductSchemeControlDispatcher(session: session, provider: provider)
+        ) { _, _ in }
+        let productAdmission = try BridgeProductAdmissionTestContext.make().context
+        let dispatcher = makeBridgeProductSchemeControlDispatcher(
+            session: session,
+            provider: provider,
+            productAdmission: productAdmission
+        )
         _ = try await dispatcher.dispatch(
             exactRequestBytes: bridgeProductSchemeWorkerOpenBody(),
             presentedCapability: capabilityHeader
@@ -216,7 +239,12 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
             capabilityBytes: capabilityBytes
         )
         let provider = BridgeProductCompletionEffectsRecordingProvider(session: session)
-        let dispatcher = BridgeProductSchemeControlDispatcher(session: session, provider: provider)
+        let productAdmission = try BridgeProductAdmissionTestContext.make().context
+        let dispatcher = makeBridgeProductSchemeControlDispatcher(
+            session: session,
+            provider: provider,
+            productAdmission: productAdmission
+        )
         let openBody = bridgeProductCompletionEffectsSubscriptionOpenBody()
         _ = try await dispatcher.dispatch(
             exactRequestBytes: bridgeProductSchemeWorkerOpenBody(),
@@ -270,12 +298,20 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
             session: session,
             committedEffectsGate: committedEffectsGate
         )
-        let dispatcher = BridgeProductSchemeControlDispatcher(session: session, provider: provider)
+        let productAdmission = try BridgeProductAdmissionTestContext.make().context
+        let dispatcher = makeBridgeProductSchemeControlDispatcher(
+            session: session,
+            provider: provider,
+            productAdmission: productAdmission
+        )
         _ = try await dispatcher.dispatch(
             exactRequestBytes: bridgeProductSchemeWorkerOpenBody(),
             presentedCapability: capabilityHeader
         )
-        _ = try await installCompletionEffectsMetadataStream(in: session)
+        _ = try await installCompletionEffectsMetadataStream(
+            in: session,
+            productAdmission: productAdmission
+        )
         _ = try await dispatcher.dispatch(
             exactRequestBytes: bridgeProductCompletionEffectsSubscriptionOpenBody(),
             presentedCapability: capabilityHeader
@@ -324,7 +360,9 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
             workerInstanceId: bridgeProductTestWorkerInstanceId,
             capabilityBytes: capabilityBytes
         )
-        let admission = await session.beginControl(
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let admission = await productAdmission.beginControl(
+            in: session,
             exactRequestBytes: bridgeProductSchemeWorkerOpenBody(),
             presentedCapability: capabilityHeader
         )
@@ -347,14 +385,18 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
 }
 
 private func installCompletionEffectsMetadataStream(
-    in session: BridgeProductSession
+    in session: BridgeProductSession,
+    productAdmission: BridgeProductAdmissionContext
 ) async throws -> BridgeProductProducerLease {
     let operation = BridgeProductSessionProducerOperationGate()
     let request = try bridgeProductMetadataStreamRequest(
         metadataStreamId: "metadata-completion-effects-\(UUID().uuidString)",
         resumeFromStreamSequence: nil
     )
-    let registration = await session.registerMetadataProducer(request: request) { lease in
+    let registration = await session.registerMetadataProducer(
+        request: request,
+        productAdmission: productAdmission
+    ) { lease in
         await operation.run(lease)
     }
     guard case .accepted(let lease) = registration else {
@@ -363,6 +405,7 @@ private func installCompletionEffectsMetadataStream(
     _ = await operation.waitUntilStarted()
     _ = try await session.enqueueRequiredProducerOpeningFrame(
         for: lease,
+        productAdmission: productAdmission,
         build: { sequence in
             try producerRegistryMetadataOpeningFrame(for: request, sequence: sequence)
         }
@@ -450,9 +493,10 @@ private actor BridgeProductCompletionEffectsRecordingProvider: BridgeProductSche
 
     func applyCommittedControlEffect(
         _ effect: BridgeProductSessionCompletionEffect,
-        for request: BridgeProductControlRequest
+        for request: BridgeProductControlRequest,
+        productAdmission: BridgeProductAdmissionContext
     ) async {
-        _ = request
+        _ = (request, productAdmission)
         guard case .subscriptionCancelled(let cancelledSubscription) = effect else { return }
         await committedEffectsGate?.waitForReleaseAfterStarting()
         let cancelledSubscriptionId = cancelledSubscription.subscriptionId
@@ -470,17 +514,19 @@ private actor BridgeProductCompletionEffectsRecordingProvider: BridgeProductSche
     func runMetadataProducer(
         request: BridgeProductMetadataStreamRequest,
         lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
         session: BridgeProductSession
     ) async {
-        _ = (request, lease, session)
+        _ = (request, lease, productAdmission, session)
     }
 
     func runContentProducer(
         request: BridgeProductContentRequest,
         lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
         session: BridgeProductSession
     ) async {
-        _ = (request, lease, session)
+        _ = (request, lease, productAdmission, session)
     }
 
     func acknowledgeLifecycle(
@@ -545,6 +591,18 @@ private actor BridgeProductRevocationBarrierProbe {
             startContinuation = continuation
         }
     }
+}
+
+func makeBridgeProductSchemeControlDispatcher(
+    session: BridgeProductSession,
+    provider: any BridgeProductSchemeProvider,
+    productAdmission: BridgeProductAdmissionContext
+) -> BridgeProductSchemeControlDispatcher {
+    BridgeProductSchemeControlDispatcher(
+        session: session,
+        provider: provider,
+        productAdmission: productAdmission
+    )
 }
 
 private func bridgeProductCompletionEffectsSubscriptionOpenBody() -> Data {

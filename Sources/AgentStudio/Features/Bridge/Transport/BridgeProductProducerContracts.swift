@@ -145,6 +145,8 @@ struct BridgeProductProducerRegistrySnapshot: Equatable, Sendable {
     let pendingLifecycleAcknowledgementCount: Int
     let nextMetadataStreamSequence: Int
     let isRevoked: Bool
+    let sessionContentAdmissionCount: Int
+    let sessionProductAdmissionCount: Int
 
     var hasZeroResidue: Bool {
         activeProducerCount == 0
@@ -156,6 +158,30 @@ struct BridgeProductProducerRegistrySnapshot: Equatable, Sendable {
             && pendingProducerObservationPacingWaiterCount == 0
             && inFlightFrameReceiptCount == 0
             && pendingLifecycleAcknowledgementCount == 0
+            && sessionContentAdmissionCount == 0
+            && sessionProductAdmissionCount == 0
+    }
+
+    func includingSessionAdmissionResidue(
+        contentAdmissionCount: Int,
+        productAdmissionCount: Int
+    ) -> Self {
+        Self(
+            activeProducerCount: activeProducerCount,
+            activeProducerTaskCount: activeProducerTaskCount,
+            activeContentLeaseCount: activeContentLeaseCount,
+            contentProducerLifecycleResidueCount: contentProducerLifecycleResidueCount,
+            queuedFrameCount: queuedFrameCount,
+            queuedByteCount: queuedByteCount,
+            pendingFrameWaiterCount: pendingFrameWaiterCount,
+            pendingProducerObservationPacingWaiterCount: pendingProducerObservationPacingWaiterCount,
+            inFlightFrameReceiptCount: inFlightFrameReceiptCount,
+            pendingLifecycleAcknowledgementCount: pendingLifecycleAcknowledgementCount,
+            nextMetadataStreamSequence: nextMetadataStreamSequence,
+            isRevoked: isRevoked,
+            sessionContentAdmissionCount: contentAdmissionCount,
+            sessionProductAdmissionCount: productAdmissionCount
+        )
     }
 }
 

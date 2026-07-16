@@ -18,10 +18,14 @@ struct BridgePaneProductMetadataCoordinatorTests {
         await coordinator.install(
             request: try coordinatorMetadataStreamRequest(),
             lease: lease,
+            productAdmission: harness.productAdmission.context,
             session: harness.session
         )
         let lifecycle = try coordinatorFileSubscriptionLifecycle()
-        await coordinator.apply(.subscriptionOpened(lifecycle.opened))
+        await coordinator.apply(
+            .subscriptionOpened(lifecycle.opened),
+            productAdmission: harness.productAdmission.context
+        )
         await source.waitUntilOpenStarted()
 
         // Act
@@ -29,7 +33,8 @@ struct BridgePaneProductMetadataCoordinatorTests {
             .subscriptionInterestsCommitted(
                 barrier: lifecycle.commitBarrier,
                 subscription: lifecycle.updated
-            )
+            ),
+            productAdmission: harness.productAdmission.context
         )
         await source.releaseOpen()
         await source.waitUntilOpenFinished()
@@ -49,6 +54,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
         let pump = BridgeProductSchemeFramePump(
             session: harness.session,
             producerLease: lease,
+            productAdmission: harness.productAdmission.context,
             acknowledgeLifecycle: { _ in true }
         )
         let coordinator = BridgePaneProductMetadataCoordinator(
@@ -58,6 +64,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
         await coordinator.install(
             request: try coordinatorMetadataStreamRequest(),
             lease: lease,
+            productAdmission: harness.productAdmission.context,
             session: harness.session
         )
         let openRequest = try bridgeProductLifecycleControlRequest(
@@ -78,7 +85,10 @@ struct BridgePaneProductMetadataCoordinatorTests {
             exactResponseBytes: try JSONEncoder().encode(response)
         )
         let acceptedFrame = try await pullMetadataFrame(from: pump)
-        await coordinator.apply(effect)
+        await coordinator.apply(
+            effect,
+            productAdmission: harness.productAdmission.context
+        )
         for _ in 0..<1000
         where (await harness.session.producerSnapshot()).queuedFrameCount == 0 {
             await Task.yield()
@@ -90,7 +100,8 @@ struct BridgePaneProductMetadataCoordinatorTests {
         let resetFrame = try await pullMetadataFrame(from: pump)
         let dataResult = try await harness.session.enqueueSubscriptionData(
             subscriptionId: "file-subscription-1",
-            data: .fileMetadata(try coordinatorSourceAcceptedEvent())
+            data: .fileMetadata(try coordinatorSourceAcceptedEvent()),
+            productAdmission: harness.productAdmission.context
         )
 
         // Assert
@@ -117,6 +128,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
         let pump = BridgeProductSchemeFramePump(
             session: harness.session,
             producerLease: lease,
+            productAdmission: harness.productAdmission.context,
             acknowledgeLifecycle: { _ in true }
         )
         let source = CoordinatorFileMetadataSource()
@@ -128,6 +140,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
         await coordinator.install(
             request: metadataRequest,
             lease: lease,
+            productAdmission: harness.productAdmission.context,
             session: harness.session
         )
         let openRequest = try bridgeProductLifecycleControlRequest(
@@ -149,7 +162,10 @@ struct BridgePaneProductMetadataCoordinatorTests {
             exactResponseBytes: try JSONEncoder().encode(response)
         )
         let acceptedFrame = try await pullMetadataFrame(from: pump)
-        await coordinator.apply(effect)
+        await coordinator.apply(
+            effect,
+            productAdmission: harness.productAdmission.context
+        )
         let dataFrame = try await pullMetadataFrame(from: pump)
         await harness.session.settleControlProviderDispatch(token: token)
 
@@ -179,6 +195,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
         let pump = BridgeProductSchemeFramePump(
             session: harness.session,
             producerLease: lease,
+            productAdmission: harness.productAdmission.context,
             acknowledgeLifecycle: { _ in true }
         )
         let reviewPackage = try coordinatorReviewPackageFixture()
@@ -190,6 +207,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
         await coordinator.install(
             request: try coordinatorMetadataStreamRequest(),
             lease: lease,
+            productAdmission: harness.productAdmission.context,
             session: harness.session
         )
         let openRequest = try bridgeProductLifecycleControlRequest(
@@ -208,7 +226,10 @@ struct BridgePaneProductMetadataCoordinatorTests {
             exactResponseBytes: try JSONEncoder().encode(response)
         )
         let acceptedFrame = try await pullMetadataFrame(from: pump)
-        await coordinator.apply(effect)
+        await coordinator.apply(
+            effect,
+            productAdmission: harness.productAdmission.context
+        )
         let dataFrame = try await pullMetadataFrame(from: pump)
         await harness.session.settleControlProviderDispatch(token: token)
 
@@ -239,6 +260,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
         let pump = BridgeProductSchemeFramePump(
             session: harness.session,
             producerLease: lease,
+            productAdmission: harness.productAdmission.context,
             acknowledgeLifecycle: { _ in true }
         )
         let reviewSource = CoordinatorReviewMetadataSource(event: try coordinatorReviewSourceAcceptedEvent())
@@ -249,6 +271,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
         await coordinator.install(
             request: try coordinatorMetadataStreamRequest(),
             lease: lease,
+            productAdmission: harness.productAdmission.context,
             session: harness.session
         )
         let openRequest = try bridgeProductLifecycleControlRequest(
@@ -268,7 +291,10 @@ struct BridgePaneProductMetadataCoordinatorTests {
             exactResponseBytes: try JSONEncoder().encode(openResponse)
         )
         _ = try await pullMetadataFrame(from: pump)
-        await coordinator.apply(openEffect)
+        await coordinator.apply(
+            openEffect,
+            productAdmission: harness.productAdmission.context
+        )
         _ = try await pullMetadataFrame(from: pump)
         await harness.session.settleControlProviderDispatch(token: openToken)
         let updateRequest = try coordinatorReviewUpdateRequest(
@@ -288,7 +314,10 @@ struct BridgePaneProductMetadataCoordinatorTests {
             exactResponseBytes: try JSONEncoder().encode(updateResponse)
         )
         let committedFrame = try await pullMetadataFrame(from: pump)
-        await coordinator.apply(updateEffect)
+        await coordinator.apply(
+            updateEffect,
+            productAdmission: harness.productAdmission.context
+        )
         let dataFrame = try await pullMetadataFrame(from: pump)
         await harness.session.settleControlProviderDispatch(token: updateToken)
 
@@ -317,6 +346,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
         let pump = BridgeProductSchemeFramePump(
             session: harness.session,
             producerLease: lease,
+            productAdmission: harness.productAdmission.context,
             acknowledgeLifecycle: { _ in true }
         )
         let fileSource = CoordinatorFileMetadataSource()
@@ -328,6 +358,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
         await coordinator.install(
             request: try coordinatorMetadataStreamRequest(),
             lease: lease,
+            productAdmission: harness.productAdmission.context,
             session: harness.session
         )
         let openRequest = try bridgeProductLifecycleControlRequest(
@@ -344,7 +375,10 @@ struct BridgePaneProductMetadataCoordinatorTests {
             exactResponseBytes: try JSONEncoder().encode(openResponse)
         )
         _ = try await pullMetadataFrame(from: pump)
-        await coordinator.apply(openEffect)
+        await coordinator.apply(
+            openEffect,
+            productAdmission: harness.productAdmission.context
+        )
         _ = try await pullMetadataFrame(from: pump)
         await harness.session.settleControlProviderDispatch(token: openToken)
         let cancelRequest = try bridgeProductLifecycleControlRequest(
@@ -362,7 +396,10 @@ struct BridgePaneProductMetadataCoordinatorTests {
             exactResponseBytes: try JSONEncoder().encode(cancelResponse)
         )
         let cancelledFrame = try await pullMetadataFrame(from: pump)
-        await coordinator.apply(cancelEffect)
+        await coordinator.apply(
+            cancelEffect,
+            productAdmission: harness.productAdmission.context
+        )
         await harness.session.settleControlProviderDispatch(token: cancelToken)
 
         // Assert
@@ -388,6 +425,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
         let pump = BridgeProductSchemeFramePump(
             session: harness.session,
             producerLease: lease,
+            productAdmission: harness.productAdmission.context,
             acknowledgeLifecycle: { _ in true }
         )
         let coordinator = BridgePaneProductMetadataCoordinator(
@@ -399,6 +437,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
         await coordinator.install(
             request: try coordinatorMetadataStreamRequest(),
             lease: lease,
+            productAdmission: harness.productAdmission.context,
             session: harness.session
         )
 
@@ -429,7 +468,10 @@ struct BridgePaneProductMetadataCoordinatorTests {
                 exactResponseBytes: try JSONEncoder().encode(response)
             )
             observedFrames.append(try await pullMetadataFrame(from: pump))
-            await coordinator.apply(effect)
+            await coordinator.apply(
+                effect,
+                productAdmission: harness.productAdmission.context
+            )
             observedFrames.append(try await pullMetadataFrame(from: pump))
             await harness.session.settleControlProviderDispatch(token: token)
         }
@@ -456,6 +498,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
         let pump = BridgeProductSchemeFramePump(
             session: harness.session,
             producerLease: lease,
+            productAdmission: harness.productAdmission.context,
             acknowledgeLifecycle: { _ in true }
         )
         let emptyInterestSha256 =
@@ -658,15 +701,17 @@ private actor CoordinatorReviewMetadataSource: BridgePaneProductReviewMetadataPr
 
     func open(
         subscription: BridgeProductSubscriptionSnapshot,
+        productAdmission: BridgeProductAdmissionContext,
         emit: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {
         guard let event else { throw CoordinatorReviewMetadataSourceError.unavailable }
         activeSubscriptionIds.insert(subscription.subscriptionId)
-        try await emit(event)
+        try await emit(event, productAdmission)
     }
 
     func update(
         subscription: BridgeProductSubscriptionSnapshot,
+        productAdmission: BridgeProductAdmissionContext,
         emit: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {
         guard activeSubscriptionIds.contains(subscription.subscriptionId) else {
@@ -678,11 +723,12 @@ private actor CoordinatorReviewMetadataSource: BridgePaneProductReviewMetadataPr
             throw CoordinatorReviewMetadataSourceError.unavailable
         }
         updatedItemIds = interests.flatMap(\.itemIds)
-        try await emit(event)
+        try await emit(event, productAdmission)
     }
 
     func publish(
-        availability _: BridgePaneProductReviewMetadataAvailability
+        availability _: BridgePaneProductReviewMetadataAvailability,
+        productAdmission _: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
         .loading(retained: activeSubscriptionIds.count)
     }
@@ -760,6 +806,7 @@ private actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataP
 
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
         didStartOpen = true
@@ -778,6 +825,7 @@ private actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataP
 
     func update(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
         updateObservedOpenFinished = didFinishOpen
@@ -788,12 +836,19 @@ private actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataP
 
     func cancel(subscriptionId _: String) {}
 
-    func publish(status _: GitWorkingTreeStatus) -> [BridgePaneProductFileMetadataEmission] { [] }
+    func publish(
+        status _: GitWorkingTreeStatus,
+        productAdmission _: BridgeProductAdmissionContext
+    ) -> [BridgePaneProductFileMetadataEmission] { [] }
 
-    func publish(changeset _: FileChangeset) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
+    func publish(
+        changeset _: FileChangeset,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
 
     func contentReadPlan(
-        for _: BridgeProductFileContentRequest
+        for _: BridgeProductFileContentRequest,
+        productAdmission _: BridgeProductAdmissionContext
     ) -> BridgePaneProductFileContentReadPlan? { nil }
 
     func waitUntilOpenStarted() async {
@@ -833,6 +888,7 @@ private actor CoordinatorFileMetadataSource: BridgePaneProductFileMetadataProduc
 
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
         try await emit(
@@ -853,6 +909,7 @@ private actor CoordinatorFileMetadataSource: BridgePaneProductFileMetadataProduc
 
     func update(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {}
 
@@ -860,12 +917,19 @@ private actor CoordinatorFileMetadataSource: BridgePaneProductFileMetadataProduc
         cancelledSubscriptionIds.append(subscriptionId)
     }
 
-    func publish(status _: GitWorkingTreeStatus) -> [BridgePaneProductFileMetadataEmission] { [] }
+    func publish(
+        status _: GitWorkingTreeStatus,
+        productAdmission _: BridgeProductAdmissionContext
+    ) -> [BridgePaneProductFileMetadataEmission] { [] }
 
-    func publish(changeset _: FileChangeset) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
+    func publish(
+        changeset _: FileChangeset,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
 
     func contentReadPlan(
-        for _: BridgeProductFileContentRequest
+        for _: BridgeProductFileContentRequest,
+        productAdmission _: BridgeProductAdmissionContext
     ) -> BridgePaneProductFileContentReadPlan? { nil }
 }
 

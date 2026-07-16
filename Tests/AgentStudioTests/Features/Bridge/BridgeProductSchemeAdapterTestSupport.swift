@@ -26,8 +26,13 @@ struct BridgeProductSchemeAdapterHarness {
             contentReturnsWithoutTerminal: contentReturnsWithoutTerminal,
             metadataProgressFrameCount: metadataProgressFrameCount
         )
+        let productAdmissionGate = BridgeProductAdmissionGate()
         return Self(
-            adapter: BridgeProductSchemeAdapter(session: session, provider: provider),
+            adapter: BridgeProductSchemeAdapter(
+                session: session,
+                provider: provider,
+                productAdmissionGate: productAdmissionGate
+            ),
             capabilityHeader: capabilityHeader,
             provider: provider,
             session: session
@@ -105,12 +110,14 @@ actor BridgeProductSchemeProviderSpy: BridgeProductSchemeProvider {
     func runMetadataProducer(
         request: BridgeProductMetadataStreamRequest,
         lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
         session: BridgeProductSession
     ) async {
         metadataRequestCount += 1
         do {
             let result = try await session.enqueueRequiredProducerOpeningFrame(
                 for: lease,
+                productAdmission: productAdmission,
                 build: { sequence in
                     try bridgeProductMetadataAcceptedFrame(
                         request: request,
@@ -126,6 +133,7 @@ actor BridgeProductSchemeProviderSpy: BridgeProductSchemeProvider {
             for progressIndex in 0..<metadataProgressFrameCount {
                 let progressResult = try await session.enqueueProducerFrame(
                     for: lease,
+                    productAdmission: productAdmission,
                     build: { sequence in
                         try bridgeProductMetadataProgressFrame(
                             request: request,
@@ -154,12 +162,14 @@ actor BridgeProductSchemeProviderSpy: BridgeProductSchemeProvider {
     func runContentProducer(
         request: BridgeProductContentRequest,
         lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
         session: BridgeProductSession
     ) async {
         contentRequestCount += 1
         do {
             let result = try await session.enqueueRequiredProducerOpeningFrame(
                 for: lease,
+                productAdmission: productAdmission,
                 build: { _ in producerRegistryContentOpeningFrame(for: request) }
             )
             guard bridgeProductSchemeFrameWasAdmitted(result) else {
@@ -314,12 +324,26 @@ func bridgeProductSchemeReplyWithRoutingTask(
     }
     let routingTask = Task {
         guard let replyContinuation else { return }
-        await adapter.route(request, continuation: replyContinuation)
+        guard let productAdmission = adapter.productAdmissionGate.acquire() else {
+            replyContinuation.finish(
+                throwing: BridgeProductSchemeAdapterTestSupportError.admissionClosed
+            )
+            return
+        }
+        await adapter.route(
+            request,
+            productAdmission: productAdmission,
+            continuation: replyContinuation
+        )
     }
     replyContinuation?.onTermination = { _ in
         routingTask.cancel()
     }
     return .init(routingTask: routingTask, stream: stream)
+}
+
+private enum BridgeProductSchemeAdapterTestSupportError: Error {
+    case admissionClosed
 }
 
 func bridgeProductSchemeRequest(

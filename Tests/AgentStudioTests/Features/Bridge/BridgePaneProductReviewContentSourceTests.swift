@@ -31,7 +31,10 @@ struct BridgePaneProductReviewContentSourceTests {
         let request = try fixture.request(startByte: 3, maximumBytes: 4)
 
         // Act
-        let body = try await fixture.source.contentBody(for: request)
+        let body = try await fixture.source.contentBody(
+            for: request,
+            productAdmission: fixture.productAdmission.context
+        )
 
         // Assert
         #expect(body.data == Data("3456".utf8))
@@ -53,7 +56,10 @@ struct BridgePaneProductReviewContentSourceTests {
 
         // Act / Assert
         await #expect(throws: BridgePaneProductReviewContentSourceError.descriptorMismatch) {
-            try await fixture.source.contentBody(for: request)
+            try await fixture.source.contentBody(
+                for: request,
+                productAdmission: fixture.productAdmission.context
+            )
         }
     }
 
@@ -65,16 +71,34 @@ struct BridgePaneProductReviewContentSourceTests {
         let request = try fixture.request(startByte: 0, maximumBytes: 4)
 
         // Act / Assert
-        try await fixture.source.replaceAuthority(with: .loading)
+        try await fixture.source.replaceAuthority(
+            with: .loading,
+            productAdmission: fixture.productAdmission.context
+        )
         await #expect(throws: BridgePaneProductReviewContentSourceError.unavailablePackage) {
-            try await fixture.source.contentBody(for: request)
+            try await fixture.source.contentBody(
+                for: request,
+                productAdmission: fixture.productAdmission.context
+            )
         }
 
-        try await fixture.source.replaceAuthority(with: .ready(fixture.package))
-        _ = try await fixture.source.contentBody(for: request)
-        try await fixture.source.replaceAuthority(with: .failed)
+        try await fixture.source.replaceAuthority(
+            with: .ready(fixture.package),
+            productAdmission: fixture.productAdmission.context
+        )
+        _ = try await fixture.source.contentBody(
+            for: request,
+            productAdmission: fixture.productAdmission.context
+        )
+        try await fixture.source.replaceAuthority(
+            with: .failed,
+            productAdmission: fixture.productAdmission.context
+        )
         await #expect(throws: BridgePaneProductReviewContentSourceError.unavailablePackage) {
-            try await fixture.source.contentBody(for: request)
+            try await fixture.source.contentBody(
+                for: request,
+                productAdmission: fixture.productAdmission.context
+            )
         }
     }
 
@@ -87,12 +111,46 @@ struct BridgePaneProductReviewContentSourceTests {
         let replacementPackage = fixture.replacementPackage(generation: 8)
 
         // Act
-        try await fixture.source.replaceAuthority(with: .ready(replacementPackage))
+        try await fixture.source.replaceAuthority(
+            with: .ready(replacementPackage),
+            productAdmission: fixture.productAdmission.context
+        )
 
         // Assert
         await #expect(throws: BridgePaneProductReviewContentSourceError.descriptorMismatch) {
-            try await fixture.source.contentBody(for: retiredRequest)
+            try await fixture.source.contentBody(
+                for: retiredRequest,
+                productAdmission: fixture.productAdmission.context
+            )
         }
+    }
+
+    @Test("closed admission rejects content reads while failed cleanup still revokes authority")
+    @MainActor
+    func closedAdmissionRejectsReadsAndPermitsFailedCleanup() async throws {
+        // Arrange
+        let fixture = try await ReviewProductContentFixture(content: "retired")
+        let request = try fixture.request(startByte: 0, maximumBytes: 4)
+
+        // Act / Assert
+        fixture.productAdmission.close()
+        await #expect(throws: BridgePaneProductReviewContentSourceError.unavailablePackage) {
+            try await fixture.source.contentBody(
+                for: request,
+                productAdmission: fixture.productAdmission.context
+            )
+        }
+        try await fixture.source.replaceAuthority(
+            with: .failed,
+            productAdmission: fixture.productAdmission.context
+        )
+        let diagnosticAdmission = try BridgeProductAdmissionTestContext.make()
+        #expect(
+            await fixture.source.authoritativeItemId(
+                for: request,
+                productAdmission: diagnosticAdmission.context
+            ) == nil
+        )
     }
 
     @Test("highest committed Review interest wins and cancel plus resync reset revoke priority")
@@ -118,26 +176,48 @@ struct BridgePaneProductReviewContentSourceTests {
             itemId: fixture.handle.itemId,
             lane: .foreground
         )
-        await coordinator.apply(.subscriptionOpened(visible.opened))
+        let productAdmission = try BridgeProductAdmissionTestContext.make().context
+        await coordinator.apply(
+            .subscriptionOpened(visible.opened),
+            productAdmission: productAdmission
+        )
         await coordinator.apply(
             .subscriptionInterestsCommitted(
                 barrier: visible.barrier,
                 subscription: visible.committed
-            )
+            ),
+            productAdmission: productAdmission
         )
-        await coordinator.apply(.subscriptionOpened(selected.opened))
+        await coordinator.apply(
+            .subscriptionOpened(selected.opened),
+            productAdmission: productAdmission
+        )
         await coordinator.apply(
             .subscriptionInterestsCommitted(
                 barrier: selected.barrier,
                 subscription: selected.committed
-            )
+            ),
+            productAdmission: productAdmission
         )
 
         // Act / Assert
-        #expect(await coordinator.contentDemandInterest(for: request) == .selected)
+        #expect(
+            await coordinator.contentDemandInterest(
+                for: request,
+                productAdmission: productAdmission
+            ) == .selected
+        )
 
-        await coordinator.apply(.subscriptionCancelled(selected.committed))
-        #expect(await coordinator.contentDemandInterest(for: request) == .visible)
+        await coordinator.apply(
+            .subscriptionCancelled(selected.committed),
+            productAdmission: productAdmission
+        )
+        #expect(
+            await coordinator.contentDemandInterest(
+                for: request,
+                productAdmission: productAdmission
+            ) == .visible
+        )
 
         let emptyState = BridgeProductSubscriptionInterestState.reviewMetadata(interests: [])
         let emptyStateSHA256 = try emptyState.sha256Hex()
@@ -169,9 +249,15 @@ struct BridgePaneProductReviewContentSourceTests {
                         )
                     ]
                 )
-            )
+            ),
+            productAdmission: productAdmission
         )
-        #expect(await coordinator.contentDemandInterest(for: request) == .unspecified)
+        #expect(
+            await coordinator.contentDemandInterest(
+                for: request,
+                productAdmission: productAdmission
+            ) == .unspecified
+        )
     }
 
     @Test("streams accepted data and terminal integrity frames for Review content")
@@ -186,14 +272,18 @@ struct BridgePaneProductReviewContentSourceTests {
                 initialAvailability: .ready(fixture.package)
             ),
             reviewContentSource: fixture.source,
-            markReviewItemViewed: { _ in }
+            markReviewItemViewed: { _, _ in }
         )
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
         let request = BridgeProductContentRequest.reviewContent(reviewRequest)
-        let registration = await harness.session.registerContentProducer(request: request) { lease in
+        let registration = await harness.session.registerContentProducer(
+            request: request,
+            productAdmission: harness.productAdmission.context
+        ) { lease in
             await provider.runContentProducer(
                 request: request,
                 lease: lease,
+                productAdmission: harness.productAdmission.context,
                 session: harness.session
             )
         }
@@ -204,7 +294,11 @@ struct BridgePaneProductReviewContentSourceTests {
         // Act
         while !decodedFrames.contains(where: { $0.isTerminalForReviewProductTest }) {
             let queuedFrame = try #require(
-                await consumeNextBridgeProductProducerFrame(for: lease, from: harness.session)
+                await consumeNextBridgeProductProducerFrame(
+                    for: lease,
+                    from: harness.session,
+                    productAdmission: harness.productAdmission.context
+                )
             )
             decodedFrames.append(contentsOf: try decoder.append(queuedFrame.data))
         }
@@ -238,6 +332,7 @@ private struct ReviewProductContentFixture {
     let content: Data
     let handle: BridgeContentHandle
     let package: BridgeReviewPackage
+    let productAdmission: BridgeProductAdmissionTestContext
     let source: BridgePaneProductReviewContentSource
 
     init(content: String) async throws {
@@ -259,6 +354,7 @@ private struct ReviewProductContentFixture {
         )
         let package = Self.makePackage(handle: handle)
         let store = BridgeContentStore()
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         try await store.register(
             BridgeContentLoadResult(
                 handle: handle,
@@ -266,13 +362,18 @@ private struct ReviewProductContentFixture {
                 mimeType: handle.mimeType,
                 contentHash: handle.contentHash,
                 contentHashAlgorithm: handle.contentHashAlgorithm
-            )
+            ),
+            productAdmission: productAdmission.context
         )
         self.content = contentData
         self.handle = handle
         self.package = package
+        self.productAdmission = productAdmission
         let source = BridgePaneProductReviewContentSource(contentStore: store)
-        try await source.replaceAuthority(with: .ready(package))
+        try await source.replaceAuthority(
+            with: .ready(package),
+            productAdmission: productAdmission.context
+        )
         self.source = source
     }
 

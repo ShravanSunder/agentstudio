@@ -14,13 +14,17 @@ struct BridgeProductSchemeFramePumpTests {
             metadataStreamId: "metadata-stream-early-observation",
             resumeFromStreamSequence: nil
         )
-        let registration = await harness.session.registerMetadataProducer(request: request) { lease in
+        let registration = await harness.session.registerMetadataProducer(
+            request: request,
+            productAdmission: harness.productAdmission
+        ) { lease in
             await operation.run(lease)
         }
         let lease = try bridgeProductAcceptedLease(registration)
         _ = await operation.waitUntilStarted()
         _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: lease,
+            productAdmission: harness.productAdmission,
             build: { sequence in
                 try bridgeProductMetadataAcceptedFrame(
                     request: request,
@@ -32,6 +36,7 @@ struct BridgeProductSchemeFramePumpTests {
         let pump = BridgeProductSchemeFramePump(
             session: harness.session,
             producerLease: lease,
+            productAdmission: harness.productAdmission,
             acknowledgeLifecycle: { _ in true }
         )
         let delivery = try #require(frameDelivery(await pump.nextFrame()))
@@ -62,6 +67,7 @@ struct BridgeProductSchemeFramePumpTests {
         let pump = BridgeProductSchemeFramePump(
             session: fixture.harness.session,
             producerLease: fixture.lease,
+            productAdmission: fixture.harness.productAdmission,
             acknowledgeLifecycle: { _ in true }
         )
         let delivery = try #require(frameDelivery(await pump.nextFrame()))
@@ -110,6 +116,7 @@ struct BridgeProductSchemeFramePumpTests {
         let pump = BridgeProductSchemeFramePump(
             session: fixture.harness.session,
             producerLease: fixture.lease,
+            productAdmission: fixture.harness.productAdmission,
             acknowledgeLifecycle: { _ in true }
         )
         let delivery = try #require(frameDelivery(await pump.nextFrame()))
@@ -138,6 +145,7 @@ struct BridgeProductSchemeFramePumpTests {
         let pump = BridgeProductSchemeFramePump(
             session: fixture.harness.session,
             producerLease: fixture.lease,
+            productAdmission: fixture.harness.productAdmission,
             acknowledgeLifecycle: { _ in true }
         )
 
@@ -180,6 +188,7 @@ struct BridgeProductSchemeFramePumpTests {
         let pump = BridgeProductSchemeFramePump(
             session: fixture.harness.session,
             producerLease: fixture.lease,
+            productAdmission: fixture.harness.productAdmission,
             acknowledgeLifecycle: { _ in true }
         )
 
@@ -209,6 +218,7 @@ struct BridgeProductSchemeFramePumpTests {
         _ = try await enqueueContentOpening(fixture)
         _ = try await fixture.harness.session.enqueueTerminalProducerFrame(
             for: fixture.lease,
+            productAdmission: fixture.harness.productAdmission,
             build: { sequence in
                 .content(
                     .init(
@@ -226,6 +236,7 @@ struct BridgeProductSchemeFramePumpTests {
         let pump = BridgeProductSchemeFramePump(
             session: fixture.harness.session,
             producerLease: fixture.lease,
+            productAdmission: fixture.harness.productAdmission,
             acknowledgeLifecycle: { acknowledgement in
                 await lifecycleProbe.acknowledge(acknowledgement)
             }
@@ -260,6 +271,7 @@ struct BridgeProductSchemeFramePumpTests {
         let pump = BridgeProductSchemeFramePump(
             session: fixture.harness.session,
             producerLease: fixture.lease,
+            productAdmission: fixture.harness.productAdmission,
             acknowledgeLifecycle: acknowledge
         )
 
@@ -287,6 +299,7 @@ struct BridgeProductSchemeFramePumpTests {
         let pump = BridgeProductSchemeFramePump(
             session: fixture.harness.session,
             producerLease: fixture.lease,
+            productAdmission: fixture.harness.productAdmission,
             acknowledgeLifecycle: { acknowledgement in
                 await lifecycleProbe.acknowledge(acknowledgement)
             }
@@ -320,6 +333,7 @@ struct BridgeProductSchemeFramePumpTests {
         let pump = BridgeProductSchemeFramePump(
             session: fixture.harness.session,
             producerLease: fixture.lease,
+            productAdmission: fixture.harness.productAdmission,
             acknowledgeLifecycle: { acknowledgement in
                 await lifecycleProbe.acknowledge(acknowledgement)
             }
@@ -349,12 +363,16 @@ struct BridgeProductSchemeFramePumpTests {
         let harness = try await BridgeProductSessionProducerHarness.opened()
         let request = try bridgeProductFileContentRequest(identitySuffix: "missing-terminal")
         let completionGate = FramePumpProducerCompletionGate()
-        let registration = await harness.session.registerContentProducer(request: request) { _ in
+        let registration = await harness.session.registerContentProducer(
+            request: request,
+            productAdmission: harness.productAdmission
+        ) { _ in
             await completionGate.waitForRelease()
         }
         let lease = try bridgeProductAcceptedLease(registration)
         _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: lease,
+            productAdmission: harness.productAdmission,
             build: { _ in
                 .content(
                     .init(
@@ -366,6 +384,7 @@ struct BridgeProductSchemeFramePumpTests {
         )
         _ = try await harness.session.enqueueProducerFrame(
             for: lease,
+            productAdmission: harness.productAdmission,
             build: { sequence in
                 .content(
                     .init(
@@ -392,6 +411,7 @@ struct BridgeProductSchemeFramePumpTests {
         let pump = BridgeProductSchemeFramePump(
             session: harness.session,
             producerLease: lease,
+            productAdmission: harness.productAdmission,
             acknowledgeLifecycle: { _ in true }
         )
 
@@ -495,7 +515,10 @@ private func makeFramePumpFixture(identitySuffix: String) async throws -> FrameP
     let harness = try await BridgeProductSessionProducerHarness.opened()
     let operation = BridgeProductSessionProducerOperationGate()
     let request = try bridgeProductFileContentRequest(identitySuffix: identitySuffix)
-    let registration = await harness.session.registerContentProducer(request: request) { lease in
+    let registration = await harness.session.registerContentProducer(
+        request: request,
+        productAdmission: harness.productAdmission
+    ) { lease in
         await operation.run(lease)
     }
     let lease = try bridgeProductAcceptedLease(registration)
@@ -513,6 +536,7 @@ private func enqueueContentOpening(
 ) async throws -> BridgeProductProducerEnqueueResult {
     try await fixture.harness.session.enqueueRequiredProducerOpeningFrame(
         for: fixture.lease,
+        productAdmission: fixture.harness.productAdmission,
         build: { _ in
             .content(
                 .init(

@@ -164,6 +164,8 @@ actor BridgeProductProducerRegistryTestHarness {
 }
 
 struct BridgeProductSessionProducerHarness {
+    private let productAdmissionTestContext: BridgeProductAdmissionTestContext
+    let productAdmission: BridgeProductAdmissionContext
     let session: BridgeProductSession
 
     static func opened() async throws -> Self {
@@ -174,6 +176,7 @@ struct BridgeProductSessionProducerHarness {
             workerInstanceId: bridgeProductTestWorkerInstanceId,
             capabilityBytes: capabilityBytes
         )
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let request = try bridgeProductControlRequest([
             "kind": "workerSession.open",
             "paneSessionId": bridgeProductTestPaneSessionId,
@@ -184,7 +187,8 @@ struct BridgeProductSessionProducerHarness {
             "workerInstanceId": bridgeProductTestWorkerInstanceId,
         ])
         let requestBytes = try JSONEncoder().encode(request)
-        let admission = await session.beginControl(
+        let admission = await productAdmission.beginControl(
+            in: session,
             exactRequestBytes: requestBytes,
             presentedCapability: capabilityHeader
         )
@@ -194,7 +198,15 @@ struct BridgeProductSessionProducerHarness {
             token: token,
             exactResponseBytes: try JSONEncoder().encode(response)
         )
-        return Self(session: session)
+        return Self(
+            productAdmissionTestContext: productAdmission,
+            productAdmission: productAdmission.context,
+            session: session
+        )
+    }
+
+    func closeProductAdmission() {
+        productAdmissionTestContext.close()
     }
 }
 
@@ -381,13 +393,24 @@ func bridgeProductFileContentRequest(
 
 func consumeNextBridgeProductProducerFrame(
     for lease: BridgeProductProducerLease,
-    from session: BridgeProductSession
+    from session: BridgeProductSession,
+    productAdmission: BridgeProductAdmissionContext
 ) async -> BridgeProductQueuedProducerFrame? {
-    guard case .frame(let delivery) = await session.pullProducerFrame(for: lease) else {
+    guard
+        case .frame(let delivery) = await session.pullProducerFrame(
+            for: lease,
+            productAdmission: productAdmission
+        )
+    else {
         Issue.record("Expected a queued producer frame")
         return nil
     }
-    guard await session.acknowledgeProducerFrameConsumed(delivery.receipt) else {
+    guard
+        await session.acknowledgeProducerFrameConsumed(
+            delivery.receipt,
+            productAdmission: productAdmission
+        )
+    else {
         Issue.record("Expected the exact producer frame receipt to be accepted")
         return nil
     }

@@ -20,7 +20,9 @@ struct BridgeProductSessionTests {
             capabilityBytes: capabilityBytes,
             maximumRequestOrResponseBytes: smallerTestCap
         )
-        let tightenedAdmission = await tightenedSession.beginControl(
+        let tightenedProductAdmission = try BridgeProductAdmissionTestContext.make()
+        let tightenedAdmission = await tightenedProductAdmission.beginControl(
+            in: tightenedSession,
             exactRequestBytes: Data(repeating: 0x61, count: smallerTestCap + 1),
             presentedCapability: capabilityHeader
         )
@@ -45,7 +47,9 @@ struct BridgeProductSessionTests {
             workerInstanceId: "worker-instance-contract-cap",
             capabilityBytes: capabilityBytes
         )
-        let aboveWireAdmission = await contractSession.beginControl(
+        let contractProductAdmission = try BridgeProductAdmissionTestContext.make()
+        let aboveWireAdmission = await contractProductAdmission.beginControl(
+            in: contractSession,
             exactRequestBytes: Data(repeating: 0x61, count: aboveWireCap),
             presentedCapability: capabilityHeader
         )
@@ -73,6 +77,7 @@ struct BridgeProductSessionTests {
             workerInstanceId: "worker-instance-1",
             capabilityBytes: capabilityBytes
         )
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
         let openRequestBytes = try controlRequestData(workerSessionOpenObject())
         let foreignRequestBytes = try controlRequestData(
             workerSessionOpenObject(workerInstanceId: "worker-instance-foreign")
@@ -81,12 +86,14 @@ struct BridgeProductSessionTests {
         let initialSnapshot = await session.snapshot
 
         // Act
-        let unauthorizedAdmission = await session.beginControl(
+        let unauthorizedAdmission = await productAdmission.beginControl(
+            in: session,
             exactRequestBytes: openRequestBytes,
             presentedCapability: "wrong-capability"
         )
         let afterUnauthorizedSnapshot = await session.snapshot
-        let foreignAdmission = await session.beginControl(
+        let foreignAdmission = await productAdmission.beginControl(
+            in: session,
             exactRequestBytes: foreignRequestBytes,
             presentedCapability: capabilityHeader
         )
@@ -117,11 +124,13 @@ struct BridgeProductSessionTests {
             workerInstanceId: "worker-instance-1",
             capabilityBytes: capabilityBytes
         )
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
 
         // Act: open the worker lifetime.
         let openRequestBytes = try controlRequestData(workerSessionOpenObject())
         let openRequest = try decodeControlRequest(openRequestBytes)
-        let openAdmission = await session.beginControl(
+        let openAdmission = await productAdmission.beginControl(
+            in: session,
             exactRequestBytes: openRequestBytes,
             presentedCapability: capabilityHeader
         )
@@ -132,7 +141,8 @@ struct BridgeProductSessionTests {
             token: openToken,
             exactResponseBytes: openResponseBytes
         )
-        let openReplay = await session.beginControl(
+        let openReplay = await productAdmission.beginControl(
+            in: session,
             exactRequestBytes: openRequestBytes,
             presentedCapability: capabilityHeader
         )
@@ -140,7 +150,8 @@ struct BridgeProductSessionTests {
         // Act: advance Review and File independently.
         let reviewRequestBytes = try controlRequestData(reviewCallObject(requestSequence: 2, epoch: 7))
         let reviewRequest = try decodeControlRequest(reviewRequestBytes)
-        let reviewAdmission = await session.beginControl(
+        let reviewAdmission = await productAdmission.beginControl(
+            in: session,
             exactRequestBytes: reviewRequestBytes,
             presentedCapability: capabilityHeader
         )
@@ -156,7 +167,8 @@ struct BridgeProductSessionTests {
 
         let fileRequestBytes = try controlRequestData(fileSubscriptionOpenObject(requestSequence: 3, epoch: 2))
         let fileRequest = try decodeControlRequest(fileRequestBytes)
-        let fileAdmission = await session.beginControl(
+        let fileAdmission = await productAdmission.beginControl(
+            in: session,
             exactRequestBytes: fileRequestBytes,
             presentedCapability: capabilityHeader
         )
@@ -176,7 +188,8 @@ struct BridgeProductSessionTests {
 
         let staleReviewBytes = try controlRequestData(reviewCallObject(requestSequence: 4, epoch: 6))
         let staleReviewRequest = try decodeControlRequest(staleReviewBytes)
-        let staleReviewAdmission = await session.beginControl(
+        let staleReviewAdmission = await productAdmission.beginControl(
+            in: session,
             exactRequestBytes: staleReviewBytes,
             presentedCapability: capabilityHeader
         )

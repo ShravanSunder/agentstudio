@@ -38,10 +38,19 @@ final class AppPoliciesBridgeTests {
             ]
         )
         let store = BridgeContentStore(provider: provider)
-        await store.activate(handles: [handle], reviewGeneration: 7)
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        await store.activate(
+            handles: [handle],
+            reviewGeneration: 7,
+            productAdmission: productAdmission.context
+        )
 
         do {
-            _ = try await store.load(handleId: handle.handleId, requestedGeneration: 7)
+            _ = try await store.load(
+                handleId: handle.handleId,
+                requestedGeneration: 7,
+                productAdmission: productAdmission.context
+            )
             Issue.record("Expected oversized content failure")
         } catch let failure as BridgeProviderFailure {
             #expect(

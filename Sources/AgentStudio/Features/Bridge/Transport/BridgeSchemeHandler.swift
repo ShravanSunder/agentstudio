@@ -42,7 +42,7 @@ struct BridgeSchemeHandler: URLSchemeHandler, Sendable {
         }
 
         let classification = Self.classifyPath(url.absoluteString)
-        if readMethod == .options, classification != .product {
+        if readMethod == .options {
             emitOptionsResponse(url: url, classification: classification, continuation: continuation)
             return
         }
@@ -81,13 +81,18 @@ struct BridgeSchemeHandler: URLSchemeHandler, Sendable {
             continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
             return
         }
+        let isProductPreflight = classification == .product
         continuation.yield(
             .response(
                 Self.response(
                     url: url,
                     mimeType: "text/plain",
                     expectedContentLength: 0,
-                    allowedMethods: Self.allowedMethods(for: classification)
+                    allowedMethods: Self.allowedMethods(for: classification),
+                    allowedHeaders: isProductPreflight
+                        ? "Content-Type, \(BridgeProductWireContract.capabilityHeaderName)"
+                        : "Content-Type, traceparent",
+                    statusCode: isProductPreflight ? 204 : 200
                 )))
         continuation.finish()
     }
@@ -317,10 +322,12 @@ struct BridgeSchemeHandler: URLSchemeHandler, Sendable {
         url: URL,
         mimeType: String,
         expectedContentLength: Int?,
-        allowedMethods: String = "GET, HEAD, OPTIONS"
+        allowedMethods: String = "GET, HEAD, OPTIONS",
+        allowedHeaders: String = "Content-Type, traceparent",
+        statusCode: Int = 200
     ) -> URLResponse {
         var headers = [
-            "Access-Control-Allow-Headers": "Content-Type, traceparent",
+            "Access-Control-Allow-Headers": allowedHeaders,
             "Access-Control-Allow-Methods": allowedMethods,
             "Access-Control-Allow-Origin": "*",
             "Content-Type": mimeType,
@@ -333,7 +340,7 @@ struct BridgeSchemeHandler: URLSchemeHandler, Sendable {
         }
         return HTTPURLResponse(
             url: url,
-            statusCode: 200,
+            statusCode: statusCode,
             httpVersion: "HTTP/1.1",
             headerFields: headers
         )

@@ -75,6 +75,68 @@ final class BridgeContentDemandAdmissionTests {
     }
 
     @Test
+    func test_closeAndDrainRejectsNewDemandAndWaitsForAdmittedOperation() async throws {
+        let admission = BridgeContentDemandAdmission()
+        let operationGate = BridgeContentDemandTestGate()
+        let admittedOperation = Task {
+            try await admission.withAdmission(for: .visible) {
+                await operationGate.waitUntilOpened()
+            }
+        }
+        await operationGate.waitUntilBlocked()
+
+        let drainTask = Task {
+            await admission.closeAndDrain()
+        }
+        #expect(await waitForClosedAdmission(admission))
+        await #expect(throws: CancellationError.self) {
+            try await admission.withAdmission(for: .selected) {}
+        }
+        let closingSnapshot = await admission.snapshot()
+        #expect(closingSnapshot.isClosed)
+        #expect(closingSnapshot.activeScopedAdmissionCount == 1)
+
+        await operationGate.open()
+        try await admittedOperation.value
+        await drainTask.value
+
+        let terminalSnapshot = await admission.snapshot()
+        #expect(terminalSnapshot.isClosed)
+        #expect(terminalSnapshot.activeScopedAdmissionCount == 0)
+        #expect(terminalSnapshot.pendingUserDemandCount == 0)
+        #expect(terminalSnapshot.backgroundWaiterCount == 0)
+        #expect(terminalSnapshot.backgroundWaiterRegistrationCount == 0)
+        #expect(terminalSnapshot.backgroundCancellationTombstoneCount == 0)
+        #expect(terminalSnapshot.hasBackgroundPacingTask == false)
+        #expect(terminalSnapshot.hasBackgroundCooldownTask == false)
+    }
+
+    @Test
+    func test_closeAndDrainCancelsQueuedBackgroundDemandWithoutResidue() async {
+        let admission = BridgeContentDemandAdmission()
+        await admission.start(.visible)
+        let queuedBackgroundDemand = Task {
+            try await admission.withAdmission(for: .background) {}
+        }
+        #expect(await waitForBackgroundWaiterCount(1, admission: admission))
+
+        await admission.closeAndDrain()
+
+        await #expect(throws: CancellationError.self) {
+            try await queuedBackgroundDemand.value
+        }
+        let terminalSnapshot = await admission.snapshot()
+        #expect(terminalSnapshot.isClosed)
+        #expect(terminalSnapshot.activeScopedAdmissionCount == 0)
+        #expect(terminalSnapshot.pendingUserDemandCount == 0)
+        #expect(terminalSnapshot.backgroundWaiterCount == 0)
+        #expect(terminalSnapshot.backgroundWaiterRegistrationCount == 0)
+        #expect(terminalSnapshot.backgroundCancellationTombstoneCount == 0)
+        #expect(terminalSnapshot.hasBackgroundPacingTask == false)
+        #expect(terminalSnapshot.hasBackgroundCooldownTask == false)
+    }
+
+    @Test
     func test_backgroundAdmissionCancelledBeforeRegistrationLeavesNoResidue() async {
         let admission = BridgeContentDemandAdmission()
         let admissionGate = BridgeContentDemandTestGate()
@@ -284,7 +346,7 @@ final class BridgeContentDemandAdmissionTests {
             await admission.start(.background)
             await backgroundWaiter.recordEvent()
         }
-        await clock.waitForPendingSleepCount()
+        await clock.waitForPendingSleepCount(atLeast: 2)
         await Task.yield()
 
         #expect(await backgroundWaiter.recordedEventCount() == 0)
@@ -337,6 +399,18 @@ final class BridgeContentDemandAdmissionTests {
     ) async -> Bool {
         for _ in 0..<1000 {
             if await admission.snapshot().backgroundWaiterCount == expectedCount {
+                return true
+            }
+            await Task.yield()
+        }
+        return false
+    }
+
+    private func waitForClosedAdmission(
+        _ admission: BridgeContentDemandAdmission
+    ) async -> Bool {
+        for _ in 0..<1000 {
+            if await admission.snapshot().isClosed {
                 return true
             }
             await Task.yield()

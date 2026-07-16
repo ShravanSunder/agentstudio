@@ -20,7 +20,8 @@ struct BridgeProductSessionReentrancyTests {
             request: try fileContentRequest(
                 identitySuffix: "pending-completion-newer",
                 workerDerivationEpoch: 3
-            )
+            ),
+            productAdmission: harness.productAdmission.context
         ) { _ in }
         let newerLease = try #require(newerRegistration.lease)
         let openResponse = try BridgeProductControlResponse.subscriptionOpenAccepted(
@@ -54,7 +55,8 @@ struct BridgeProductSessionReentrancyTests {
             request: try fileContentRequest(
                 identitySuffix: "register-old",
                 workerDerivationEpoch: 2
-            )
+            ),
+            productAdmission: harness.productAdmission.context
         ) { lease in
             await heldProducer.run(lease)
         }
@@ -67,7 +69,8 @@ struct BridgeProductSessionReentrancyTests {
             workerDerivationEpoch: 3
         )
         let epochThreeRegistration = await harness.session.registerContentProducer(
-            request: epochThreeRequest
+            request: epochThreeRequest,
+            productAdmission: harness.productAdmission.context
         ) { _ in }
         await heldProducer.waitUntilCancellationObserved()
         #expect((await harness.session.snapshot).workerDerivationEpochBySurface[.file] == 3)
@@ -77,7 +80,8 @@ struct BridgeProductSessionReentrancyTests {
             workerDerivationEpoch: 4
         )
         let epochFourRegistration = await harness.session.registerContentProducer(
-            request: epochFourRequest
+            request: epochFourRequest,
+            productAdmission: harness.productAdmission.context
         ) { _ in }
 
         // Assert
@@ -103,7 +107,8 @@ struct BridgeProductSessionReentrancyTests {
         let metadataProducer = HeldProducerOperation()
         let metadataRequest = try metadataStreamRequest()
         let metadataRegistration = await harness.session.registerMetadataProducer(
-            request: metadataRequest
+            request: metadataRequest,
+            productAdmission: harness.productAdmission.context
         ) { lease in
             await metadataProducer.run(lease)
         }
@@ -111,6 +116,7 @@ struct BridgeProductSessionReentrancyTests {
         _ = await metadataProducer.waitUntilStarted()
         let metadataOpening = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: metadataLease,
+            productAdmission: harness.productAdmission.context,
             build: { sequence in
                 .metadata(
                     .metadataStreamAccepted(
@@ -127,7 +133,8 @@ struct BridgeProductSessionReentrancyTests {
         #expect(
             await consumeNextBridgeProductProducerFrame(
                 for: metadataLease,
-                from: harness.session
+                from: harness.session,
+                productAdmission: harness.productAdmission.context
             )?.sequence == 0
         )
 
@@ -136,7 +143,8 @@ struct BridgeProductSessionReentrancyTests {
             request: try fileContentRequest(
                 identitySuffix: "resync-old",
                 workerDerivationEpoch: 2
-            )
+            ),
+            productAdmission: harness.productAdmission.context
         ) { lease in
             await heldProducer.run(lease)
         }
@@ -176,7 +184,8 @@ struct BridgeProductSessionReentrancyTests {
             workerDerivationEpoch: 4
         )
         let epochFourRegistration = await harness.session.registerContentProducer(
-            request: epochFourRequest
+            request: epochFourRequest,
+            productAdmission: harness.productAdmission.context
         ) { _ in }
 
         // Assert
@@ -208,7 +217,8 @@ struct BridgeProductSessionReentrancyTests {
             request: try fileContentRequest(
                 identitySuffix: "nonblocking-old",
                 workerDerivationEpoch: 2
-            )
+            ),
+            productAdmission: harness.productAdmission.context
         ) { lease in
             await heldProducer.run(lease)
         }
@@ -221,7 +231,8 @@ struct BridgeProductSessionReentrancyTests {
             workerDerivationEpoch: 3
         )
         let newerRegistration = await harness.session.registerContentProducer(
-            request: newerRequest
+            request: newerRequest,
+            productAdmission: harness.productAdmission.context
         ) { _ in }
         await heldProducer.waitUntilCancellationObserved()
         #expect((await harness.session.snapshot).workerDerivationEpochBySurface[.file] == 3)
@@ -244,12 +255,14 @@ private struct ReentrancySessionHarness {
     static let fileSubscriptionId = "file-subscription-reentrancy"
 
     let capabilityHeader: String
+    let productAdmission: BridgeProductAdmissionTestContext
     let session: BridgeProductSession
 
     static func opened() async throws -> Self {
         let capabilityBytes = (0..<BridgeProductWireContract.capabilityByteLength).map(UInt8.init)
         let harness = try Self(
             capabilityHeader: BridgeProductCapabilityHeaderEncoding.encode(capabilityBytes),
+            productAdmission: .make(),
             session: BridgeProductSession(
                 paneSessionId: "pane-session-1",
                 workerInstanceId: "worker-instance-1",
@@ -279,7 +292,8 @@ private struct ReentrancySessionHarness {
     func begin(
         _ request: BridgeProductControlRequest
     ) async throws -> BridgeProductSessionControlAdmission {
-        await session.beginControl(
+        await productAdmission.beginControl(
+            in: session,
             exactRequestBytes: try JSONEncoder().encode(request),
             presentedCapability: capabilityHeader
         )

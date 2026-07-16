@@ -43,6 +43,7 @@ final class BridgePaneController {
     // MARK: - Domain State
 
     let reviewContentStore: BridgeContentStore
+    let productAdmissionGate: BridgeProductAdmissionGate
     let productSessionOwner: BridgePaneProductSessionOwner
     let telemetrySessionOwner: BridgePaneTelemetrySessionOwner?
     let productSchemeProvider: BridgePaneProductSchemeProvider?
@@ -142,6 +143,7 @@ final class BridgePaneController {
                 telemetryRecorder: telemetryDependencies.recorder
             )
         self.productSessionOwner = resolvedProductSessionDependencies.owner
+        self.productAdmissionGate = resolvedProductSessionDependencies.owner.productAdmissionGate
         self.productSchemeProvider = resolvedProductSessionDependencies.productProvider
         let blockInteraction = atom(\.managementLayer).isActive
         let initialManagementScript = WebInteractionManagementScript.makeUserScript(
@@ -317,19 +319,23 @@ final class BridgePaneController {
         }
         if !isTeardownStarted {
             isTeardownStarted = true
+            productAdmissionGate.close()
             activeReviewRefreshTask?.cancel()
             activeReviewRefreshTask = nil
             hasPendingReviewRefresh = false
             revokeReviewContentAuthoritySynchronously()
             let reviewContentStore = reviewContentStore
+            let productSchemeProvider = productSchemeProvider
             teardownCleanupTask = Task {
+                async let contentDemandDrain: Void? = productSchemeProvider?.closeAndDrain()
                 await reviewContentStore.deactivate()
+                _ = await contentDemandDrain
             }
             runtime.resetForControllerTeardown()
             isBridgeReady = false
             activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
             pendingReviewPackageBuildReasons.removeAll()
-            // Fence in-flight review jobs synchronously before the asynchronous gate close.
+            // Fence in-flight review jobs synchronously before asynchronous retirement.
             nextReviewGeneration = nextReviewGeneration.next()
         }
 
@@ -394,6 +400,7 @@ final class BridgePaneController {
     /// invoke the handshake directly without routing through WebKit message handlers.
     @discardableResult
     func handleBridgeReady() -> Bool {
+        guard !isTeardownStarted else { return false }
         guard !isBridgeReady else { return true }
         if runtime.lifecycle == .created {
             guard runtime.transitionToReady() else {

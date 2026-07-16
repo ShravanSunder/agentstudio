@@ -3,6 +3,7 @@ import Foundation
 struct BridgeProductSchemeSessionRouterSnapshot: Equatable, Sendable {
     let activeSchemeTaskCount: Int
     let activeTransportClaimCount: Int
+    let transportClaimMintCount: Int
 
     var hasZeroResidue: Bool {
         activeSchemeTaskCount == 0 && activeTransportClaimCount == 0
@@ -11,6 +12,7 @@ struct BridgeProductSchemeSessionRouterSnapshot: Equatable, Sendable {
 
 struct BridgeProductSchemeTransportClaim: Sendable {
     let adapter: BridgeProductSchemeAdapter
+    let productAdmission: BridgeProductAdmissionContext
 
     fileprivate let id: UUID
     fileprivate let router: BridgeProductSchemeSessionRouter
@@ -20,34 +22,74 @@ struct BridgeProductSchemeTransportClaim: Sendable {
     }
 }
 
+enum BridgeProductSchemeTransportAdmission: Sendable {
+    case admitted(BridgeProductSchemeTransportClaim)
+    case conflict
+    case unauthorized
+}
+
 actor BridgeProductSchemeSessionRouter {
     private(set) var activeInstallation: BridgeProductSessionInstallation?
     private var activeSchemeTaskIds: Set<UUID> = []
     private var activeTransportClaimIds: Set<UUID> = []
     private var drainWaiters: [CheckedContinuation<Void, Never>] = []
+    private var latestCapabilityAuthenticator: BridgeProductCapabilityAuthenticator?
+    private let productAdmissionGate: BridgeProductAdmissionGate
+    private var transportClaimMintCount = 0
 
-    init(activeInstallation: BridgeProductSessionInstallation? = nil) {
+    init(
+        activeInstallation: BridgeProductSessionInstallation? = nil,
+        productAdmissionGate: BridgeProductAdmissionGate
+    ) {
+        precondition(
+            activeInstallation == nil
+                || activeInstallation?.productAdmissionGate === productAdmissionGate
+        )
         self.activeInstallation = activeInstallation
+        self.latestCapabilityAuthenticator = activeInstallation?.session.capabilityAuthenticator
+        self.productAdmissionGate = productAdmissionGate
     }
 
-    func activate(_ installation: BridgeProductSessionInstallation) {
-        precondition(activeSchemeTaskIds.isEmpty && activeTransportClaimIds.isEmpty)
-        activeInstallation = installation
+    func activate(
+        _ installation: BridgeProductSessionInstallation,
+        productAdmission: BridgeProductAdmissionContext
+    ) -> Bool {
+        guard productAdmission.wasMinted(by: productAdmissionGate) else { return false }
+        return productAdmission.withValidAdmission {
+            precondition(activeSchemeTaskIds.isEmpty && activeTransportClaimIds.isEmpty)
+            precondition(installation.productAdmissionGate === productAdmissionGate)
+            activeInstallation = installation
+            latestCapabilityAuthenticator = installation.session.capabilityAuthenticator
+            return true
+        } ?? false
     }
 
     func clear() {
         activeInstallation = nil
     }
 
-    func claimActiveAdapter() -> BridgeProductSchemeTransportClaim? {
-        guard let activeInstallation else { return nil }
+    func claimActiveAdapter(
+        presentedCapability: String
+    ) -> BridgeProductSchemeTransportAdmission {
+        guard latestCapabilityAuthenticator?.matches(presentedCapability) == true else {
+            return .unauthorized
+        }
+        guard let productAdmission = productAdmissionGate.acquire(),
+            let activeInstallation
+        else {
+            return .conflict
+        }
         let claimId = UUID()
         activeSchemeTaskIds.insert(claimId)
         activeTransportClaimIds.insert(claimId)
-        return BridgeProductSchemeTransportClaim(
-            adapter: activeInstallation.productAdapter,
-            id: claimId,
-            router: self
+        transportClaimMintCount += 1
+        return .admitted(
+            BridgeProductSchemeTransportClaim(
+                adapter: activeInstallation.productAdapter,
+                productAdmission: productAdmission,
+                id: claimId,
+                router: self
+            )
         )
     }
 
@@ -61,7 +103,8 @@ actor BridgeProductSchemeSessionRouter {
     var snapshot: BridgeProductSchemeSessionRouterSnapshot {
         .init(
             activeSchemeTaskCount: activeSchemeTaskIds.count,
-            activeTransportClaimCount: activeTransportClaimIds.count
+            activeTransportClaimCount: activeTransportClaimIds.count,
+            transportClaimMintCount: transportClaimMintCount
         )
     }
 

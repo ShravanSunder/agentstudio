@@ -107,9 +107,10 @@ struct BridgeProductFileSourceCurrentTests {
             fileMetadataSource: fileMetadataSource,
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
-            markReviewItemViewed: { _ in }
+            markReviewItemViewed: { _, _ in }
         )
         let request = try productFileSourceCurrentControlRequest()
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
 
         // Act
         let response = await provider.response(for: request)
@@ -121,7 +122,8 @@ struct BridgeProductFileSourceCurrentTests {
                 paths: ["File.swift"],
                 timestamp: .now,
                 batchSeq: 1
-            )
+            ),
+            productAdmission: productAdmission.context
         )
 
         // Assert
@@ -146,7 +148,7 @@ struct BridgeProductFileSourceCurrentTests {
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
-            markReviewItemViewed: { _ in }
+            markReviewItemViewed: { _, _ in }
         )
 
         // Act

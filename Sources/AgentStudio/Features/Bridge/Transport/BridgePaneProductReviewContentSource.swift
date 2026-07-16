@@ -18,27 +18,33 @@ struct BridgePaneProductReviewContentBody: Equatable, Sendable {
 
 protocol BridgePaneProductReviewContentProducing: Sendable {
     func replaceAuthority(
-        with availability: BridgePaneProductReviewMetadataAvailability
+        with availability: BridgePaneProductReviewMetadataAvailability,
+        productAdmission: BridgeProductAdmissionContext
     ) async throws
     func authoritativeItemId(
-        for request: BridgeProductReviewContentRequest
+        for request: BridgeProductReviewContentRequest,
+        productAdmission: BridgeProductAdmissionContext
     ) async -> String?
     func contentBody(
-        for request: BridgeProductReviewContentRequest
+        for request: BridgeProductReviewContentRequest,
+        productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewContentBody
 }
 
 struct BridgeUnavailablePaneProductReviewContentSource: BridgePaneProductReviewContentProducing {
     func replaceAuthority(
-        with _: BridgePaneProductReviewMetadataAvailability
+        with _: BridgePaneProductReviewMetadataAvailability,
+        productAdmission _: BridgeProductAdmissionContext
     ) async throws {}
 
     func authoritativeItemId(
-        for _: BridgeProductReviewContentRequest
+        for _: BridgeProductReviewContentRequest,
+        productAdmission _: BridgeProductAdmissionContext
     ) async -> String? { nil }
 
     func contentBody(
-        for _: BridgeProductReviewContentRequest
+        for _: BridgeProductReviewContentRequest,
+        productAdmission _: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewContentBody {
         throw BridgePaneProductReviewContentSourceError.unavailablePackage
     }
@@ -61,13 +67,15 @@ actor BridgePaneProductReviewContentSource: BridgePaneProductReviewContentProduc
     }
 
     func replaceAuthority(
-        with availability: BridgePaneProductReviewMetadataAvailability
+        with availability: BridgePaneProductReviewMetadataAvailability,
+        productAdmission: BridgeProductAdmissionContext
     ) async throws {
         guard case .ready(let package) = availability else {
             hasAvailableAuthority = false
             authorityByDescriptorId.removeAll(keepingCapacity: false)
             return
         }
+        guard (productAdmission.withValidAdmission { true }) == true else { return }
 
         var replacement: [String: IssuedDescriptorAuthority] = [:]
         for itemId in package.itemsById.keys.sorted() {
@@ -86,24 +94,42 @@ actor BridgePaneProductReviewContentSource: BridgePaneProductReviewContentProduc
                 )
             }
         }
-        authorityByDescriptorId = replacement
-        hasAvailableAuthority = true
+        _ = productAdmission.withValidAdmission {
+            authorityByDescriptorId = replacement
+            hasAvailableAuthority = true
+        }
     }
 
     func authoritativeItemId(
-        for request: BridgeProductReviewContentRequest
+        for request: BridgeProductReviewContentRequest,
+        productAdmission: BridgeProductAdmissionContext
     ) async -> String? {
-        matchingAuthority(for: request.descriptor)?.handle.itemId
+        guard
+            let admittedItemId = productAdmission.withValidAdmission({
+                matchingAuthority(for: request.descriptor)?.handle.itemId
+            })
+        else { return nil }
+        return admittedItemId
     }
 
     func contentBody(
-        for request: BridgeProductReviewContentRequest
+        for request: BridgeProductReviewContentRequest,
+        productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewContentBody {
-        guard hasAvailableAuthority else {
+        let descriptor = request.descriptor
+        guard (productAdmission.withValidAdmission { true }) == true,
+            hasAvailableAuthority
+        else {
             throw BridgePaneProductReviewContentSourceError.unavailablePackage
         }
-        let descriptor = request.descriptor
-        guard let authority = matchingAuthority(for: descriptor) else {
+        guard
+            let admittedAuthority = productAdmission.withValidAdmission({
+                matchingAuthority(for: descriptor)
+            })
+        else {
+            throw BridgePaneProductReviewContentSourceError.descriptorMismatch
+        }
+        guard let authority = admittedAuthority else {
             throw BridgePaneProductReviewContentSourceError.descriptorMismatch
         }
         let handle = authority.handle
@@ -112,46 +138,56 @@ actor BridgePaneProductReviewContentSource: BridgePaneProductReviewContentProduc
             handleId: handle.handleId,
             requestedGeneration: BridgeReviewGeneration(authority.reviewGeneration),
             startByte: descriptor.window.startByte,
-            maximumBytes: descriptor.window.maximumBytes
+            maximumBytes: descriptor.window.maximumBytes,
+            productAdmission: productAdmission
         )
         try Task.checkCancellation()
-        guard hasAvailableAuthority,
-            authorityByDescriptorId[descriptor.descriptorId] == authority,
-            range.handle == handle
+        guard
+            let admittedBody = try productAdmission.withValidAdmission({
+                () throws -> BridgePaneProductReviewContentBody? in
+                guard hasAvailableAuthority,
+                    authorityByDescriptorId[descriptor.descriptorId] == authority,
+                    range.handle == handle
+                else { return nil }
+                if let declaredByteLength = descriptor.declaredByteLength,
+                    declaredByteLength != range.bytes.count
+                {
+                    throw BridgePaneProductReviewContentSourceError.declaredByteLengthMismatch(
+                        expected: declaredByteLength,
+                        actual: range.bytes.count
+                    )
+                }
+                if let expectedSHA256 = descriptor.expectedSha256,
+                    expectedSHA256 != range.sha256
+                {
+                    throw BridgePaneProductReviewContentSourceError.expectedSHA256Mismatch(
+                        expected: expectedSHA256,
+                        actual: range.sha256
+                    )
+                }
+                if let expectedWholeByteLength = descriptor.wholeByteLength,
+                    expectedWholeByteLength != range.wholeByteLength
+                {
+                    throw BridgePaneProductReviewContentSourceError.wholeByteLengthMismatch(
+                        expected: expectedWholeByteLength,
+                        actual: range.wholeByteLength
+                    )
+                }
+                return BridgePaneProductReviewContentBody(
+                    data: range.bytes,
+                    descriptor: descriptor,
+                    isFinalRange: range.isFinalRange,
+                    sha256: range.sha256,
+                    wholeByteLength: range.wholeByteLength
+                )
+            })
         else {
+            throw BridgePaneProductReviewContentSourceError.unavailablePackage
+        }
+        guard let body = admittedBody else {
             throw BridgePaneProductReviewContentSourceError.descriptorMismatch
         }
-        if let declaredByteLength = descriptor.declaredByteLength,
-            declaredByteLength != range.bytes.count
-        {
-            throw BridgePaneProductReviewContentSourceError.declaredByteLengthMismatch(
-                expected: declaredByteLength,
-                actual: range.bytes.count
-            )
-        }
-        if let expectedSHA256 = descriptor.expectedSha256,
-            expectedSHA256 != range.sha256
-        {
-            throw BridgePaneProductReviewContentSourceError.expectedSHA256Mismatch(
-                expected: expectedSHA256,
-                actual: range.sha256
-            )
-        }
-        if let expectedWholeByteLength = descriptor.wholeByteLength,
-            expectedWholeByteLength != range.wholeByteLength
-        {
-            throw BridgePaneProductReviewContentSourceError.wholeByteLengthMismatch(
-                expected: expectedWholeByteLength,
-                actual: range.wholeByteLength
-            )
-        }
-        return BridgePaneProductReviewContentBody(
-            data: range.bytes,
-            descriptor: descriptor,
-            isFinalRange: range.isFinalRange,
-            sha256: range.sha256,
-            wholeByteLength: range.wholeByteLength
-        )
+        return body
     }
 
     private func matchingAuthority(

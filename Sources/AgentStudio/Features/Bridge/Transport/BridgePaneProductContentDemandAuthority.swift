@@ -13,11 +13,16 @@ actor BridgePaneProductContentDemandAuthority {
         self.reviewContentSource = reviewContentSource
     }
 
-    func apply(_ effect: BridgeProductSessionCompletionEffect) {
+    func apply(
+        _ effect: BridgeProductSessionCompletionEffect,
+        productAdmission: BridgeProductAdmissionContext
+    ) {
         switch effect {
         case .subscriptionOpened(let subscription),
             .subscriptionInterestsCommitted(_, let subscription):
-            committedSubscriptionById[subscription.subscriptionId] = subscription
+            _ = productAdmission.withValidAdmission {
+                committedSubscriptionById[subscription.subscriptionId] = subscription
+            }
         case .subscriptionCancelled(let subscription):
             committedSubscriptionById.removeValue(forKey: subscription.subscriptionId)
         case .resynced(let result):
@@ -45,20 +50,41 @@ actor BridgePaneProductContentDemandAuthority {
     }
 
     func interest(
-        for request: BridgeProductContentRequest
+        for request: BridgeProductContentRequest,
+        productAdmission: BridgeProductAdmissionContext
     ) async -> BridgeContentDemandInterest {
         let highestLane: BridgeProductDemandLane?
         switch request {
         case .fileContent(let fileRequest):
-            guard let path = await fileMetadataSource.authoritativePath(for: fileRequest) else {
+            guard
+                let path = await fileMetadataSource.authoritativePath(
+                    for: fileRequest,
+                    productAdmission: productAdmission
+                )
+            else {
                 return .unspecified
             }
-            highestLane = highestFileDemandLane(for: path)
+            guard
+                let admittedHighestLane = productAdmission.withValidAdmission({
+                    highestFileDemandLane(for: path)
+                })
+            else { return .unspecified }
+            highestLane = admittedHighestLane
         case .reviewContent(let reviewRequest):
-            guard let itemId = await reviewContentSource.authoritativeItemId(for: reviewRequest) else {
+            guard
+                let itemId = await reviewContentSource.authoritativeItemId(
+                    for: reviewRequest,
+                    productAdmission: productAdmission
+                )
+            else {
                 return .unspecified
             }
-            highestLane = highestReviewDemandLane(for: itemId)
+            guard
+                let admittedHighestLane = productAdmission.withValidAdmission({
+                    highestReviewDemandLane(for: itemId)
+                })
+            else { return .unspecified }
+            highestLane = admittedHighestLane
         }
         return highestLane.map(Self.contentDemandInterest(for:)) ?? .unspecified
     }

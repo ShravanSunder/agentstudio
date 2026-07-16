@@ -21,7 +21,10 @@ struct BridgePaneProductFileMetadataSourceTests {
 
         // Act
         let openTask = Task {
-            try await source.open(subscription: fixture.openSnapshot()) { event in
+            try await source.open(
+                subscription: fixture.openSnapshot(),
+                productAdmission: fixture.productAdmission.context
+            ) { event in
                 await collector.append(event)
             }
         }
@@ -52,7 +55,10 @@ struct BridgePaneProductFileMetadataSourceTests {
         let collector = ProductFileMetadataEventCollector()
         let openSnapshot = try fixture.openSnapshot()
         let openTask = Task {
-            try await source.open(subscription: openSnapshot) { event in
+            try await source.open(
+                subscription: openSnapshot,
+                productAdmission: fixture.productAdmission.context
+            ) { event in
                 await collector.append(event)
             }
         }
@@ -60,7 +66,8 @@ struct BridgePaneProductFileMetadataSourceTests {
 
         // Act
         try await source.update(
-            subscription: fixture.updatedSnapshot(from: openSnapshot)
+            subscription: fixture.updatedSnapshot(from: openSnapshot),
+            productAdmission: fixture.productAdmission.context
         ) { event in
             await collector.append(event)
         }
@@ -85,7 +92,10 @@ struct BridgePaneProductFileMetadataSourceTests {
         let collector = ProductFileMetadataEventCollector()
 
         // Act
-        try await source.open(subscription: snapshot) { event in
+        try await source.open(
+            subscription: snapshot,
+            productAdmission: fixture.productAdmission.context
+        ) { event in
             await collector.append(event)
         }
 
@@ -114,12 +124,18 @@ struct BridgePaneProductFileMetadataSourceTests {
         defer { fixture.remove() }
         let source = fixture.makeSource()
         let openSnapshot = try fixture.openSnapshot()
-        try await source.open(subscription: openSnapshot) { _ in }
+        try await source.open(
+            subscription: openSnapshot,
+            productAdmission: fixture.productAdmission.context
+        ) { _ in }
         let updatedSnapshot = try fixture.updatedSnapshot(from: openSnapshot)
         let collector = ProductFileMetadataEventCollector()
 
         // Act
-        try await source.update(subscription: updatedSnapshot) { event in
+        try await source.update(
+            subscription: updatedSnapshot,
+            productAdmission: fixture.productAdmission.context
+        ) { event in
             await collector.append(event)
         }
 
@@ -135,7 +151,12 @@ struct BridgePaneProductFileMetadataSourceTests {
             return
         }
         let request = try fixture.contentRequest(descriptor: descriptor)
-        let readPlan = try #require(await source.contentReadPlan(for: request))
+        let readPlan = try #require(
+            await source.contentReadPlan(
+                for: request,
+                productAdmission: fixture.productAdmission.context
+            )
+        )
         let expectedData = try Data(contentsOf: fixture.demandedFileURL)
         let expectedSHA256 = sha256Hex(expectedData)
         #expect(readPlan.descriptor == descriptor)
@@ -161,7 +182,10 @@ struct BridgePaneProductFileMetadataSourceTests {
         let source = fixture.makeSource()
         let openSnapshot = try fixture.openSnapshot()
         let openCollector = ProductFileMetadataEventCollector()
-        try await source.open(subscription: openSnapshot) { event in
+        try await source.open(
+            subscription: openSnapshot,
+            productAdmission: fixture.productAdmission.context
+        ) { event in
             await openCollector.append(event)
         }
         let initialRows = (await openCollector.events).flatMap(\.treeWindowRowsForTest)
@@ -169,7 +193,10 @@ struct BridgePaneProductFileMetadataSourceTests {
         let updateCollector = ProductFileMetadataEventCollector()
 
         // Act
-        try await source.update(subscription: fixture.updatedSnapshot(from: openSnapshot)) { event in
+        try await source.update(
+            subscription: fixture.updatedSnapshot(from: openSnapshot),
+            productAdmission: fixture.productAdmission.context
+        ) { event in
             await updateCollector.append(event)
         }
 
@@ -190,10 +217,16 @@ struct BridgePaneProductFileMetadataSourceTests {
         defer { fixture.remove() }
         let source = fixture.makeSource()
         let openSnapshot = try fixture.openSnapshot()
-        try await source.open(subscription: openSnapshot) { _ in }
+        try await source.open(
+            subscription: openSnapshot,
+            productAdmission: fixture.productAdmission.context
+        ) { _ in }
         let updatedSnapshot = try fixture.updatedSnapshot(from: openSnapshot)
         let collector = ProductFileMetadataEventCollector()
-        try await source.update(subscription: updatedSnapshot) { event in
+        try await source.update(
+            subscription: updatedSnapshot,
+            productAdmission: fixture.productAdmission.context
+        ) { event in
             await collector.append(event)
         }
         let descriptor = try #require(
@@ -205,7 +238,12 @@ struct BridgePaneProductFileMetadataSourceTests {
             }.first
         )
         let contentRequest = try fixture.contentRequest(descriptor: descriptor)
-        #expect(await source.contentReadPlan(for: contentRequest) != nil)
+        #expect(
+            await source.contentReadPlan(
+                for: contentRequest,
+                productAdmission: fixture.productAdmission.context
+            ) != nil
+        )
         try Data("replacement\n".utf8).write(to: fixture.demandedFileURL)
 
         // Act
@@ -217,13 +255,19 @@ struct BridgePaneProductFileMetadataSourceTests {
                 paths: [fixture.demandedPath],
                 timestamp: .now,
                 batchSeq: 1
-            )
+            ),
+            productAdmission: fixture.productAdmission.context
         )
 
         // Assert
         #expect(emissions.contains { if case .treeDelta = $0.event { true } else { false } })
         #expect(emissions.contains { if case .invalidated = $0.event { true } else { false } })
-        #expect(await source.contentReadPlan(for: contentRequest) == nil)
+        #expect(
+            await source.contentReadPlan(
+                for: contentRequest,
+                productAdmission: fixture.productAdmission.context
+            ) == nil
+        )
     }
 
     @Test("same-subscription source replacement excludes stale lineage and content")
@@ -234,23 +278,40 @@ struct BridgePaneProductFileMetadataSourceTests {
         let source = fixture.makeSource()
         let openSnapshot = try fixture.openSnapshot()
         let updatedSnapshot = try fixture.updatedSnapshot(from: openSnapshot)
-        try await source.open(subscription: openSnapshot) { _ in }
+        try await source.open(
+            subscription: openSnapshot,
+            productAdmission: fixture.productAdmission.context
+        ) { _ in }
         let originalCollector = ProductFileMetadataEventCollector()
-        try await source.update(subscription: updatedSnapshot) { event in
+        try await source.update(
+            subscription: updatedSnapshot,
+            productAdmission: fixture.productAdmission.context
+        ) { event in
             await originalCollector.append(event)
         }
         let originalDescriptor = try #require(
             (await originalCollector.events).compactMap(\.availableDescriptorForTest).first
         )
         let originalRequest = try fixture.contentRequest(descriptor: originalDescriptor)
-        #expect(await source.contentReadPlan(for: originalRequest) != nil)
+        #expect(
+            await source.contentReadPlan(
+                for: originalRequest,
+                productAdmission: fixture.productAdmission.context
+            ) != nil
+        )
 
         // Act
         let replacementCollector = ProductFileMetadataEventCollector()
-        try await source.open(subscription: openSnapshot) { event in
+        try await source.open(
+            subscription: openSnapshot,
+            productAdmission: fixture.productAdmission.context
+        ) { event in
             await replacementCollector.append(event)
         }
-        try await source.update(subscription: updatedSnapshot) { event in
+        try await source.update(
+            subscription: updatedSnapshot,
+            productAdmission: fixture.productAdmission.context
+        ) { event in
             await replacementCollector.append(event)
         }
         let replacementEvents = await replacementCollector.events
@@ -258,7 +319,10 @@ struct BridgePaneProductFileMetadataSourceTests {
             replacementEvents.compactMap(\.availableDescriptorForTest).first
         )
         let replacementRequest = try fixture.contentRequest(descriptor: replacementDescriptor)
-        let replacementPlanBeforePublish = await source.contentReadPlan(for: replacementRequest)
+        let replacementPlanBeforePublish = await source.contentReadPlan(
+            for: replacementRequest,
+            productAdmission: fixture.productAdmission.context
+        )
         try Data("replacement\n".utf8).write(to: fixture.demandedFileURL)
         let replacementEmissions = try await source.publish(
             changeset: FileChangeset(
@@ -268,14 +332,20 @@ struct BridgePaneProductFileMetadataSourceTests {
                 paths: [fixture.demandedPath],
                 timestamp: .now,
                 batchSeq: 2
-            )
+            ),
+            productAdmission: fixture.productAdmission.context
         )
 
         // Assert
         #expect(originalDescriptor.source.subscriptionGeneration == 1)
         #expect(replacementDescriptor.source.subscriptionGeneration == 2)
         #expect(originalDescriptor.source != replacementDescriptor.source)
-        #expect(await source.contentReadPlan(for: originalRequest) == nil)
+        #expect(
+            await source.contentReadPlan(
+                for: originalRequest,
+                productAdmission: fixture.productAdmission.context
+            ) == nil
+        )
         #expect(replacementPlanBeforePublish != nil)
         #expect(!replacementEmissions.isEmpty)
         #expect(
@@ -297,11 +367,15 @@ struct BridgePaneProductFileMetadataSourceTests {
             return try await BridgePaneProductFileContentSource.materialize(request)
         })
         let openSnapshot = try fixture.openSnapshot()
-        try await source.open(subscription: openSnapshot) { _ in }
+        try await source.open(
+            subscription: openSnapshot,
+            productAdmission: fixture.productAdmission.context
+        ) { _ in }
         let staleCollector = ProductFileMetadataEventCollector()
         let staleUpdateTask = Task {
             try await source.update(
-                subscription: fixture.updatedSnapshot(from: openSnapshot)
+                subscription: fixture.updatedSnapshot(from: openSnapshot),
+                productAdmission: fixture.productAdmission.context
             ) { event in
                 await staleCollector.append(event)
             }
@@ -310,7 +384,10 @@ struct BridgePaneProductFileMetadataSourceTests {
         await staleCollector.removeAll()
 
         // Act
-        try await source.open(subscription: openSnapshot) { _ in }
+        try await source.open(
+            subscription: openSnapshot,
+            productAdmission: fixture.productAdmission.context
+        ) { _ in }
         await materializationGate.release()
         _ = try await staleUpdateTask.value
 
@@ -324,7 +401,10 @@ struct BridgePaneProductFileMetadataSourceTests {
         let fixture = try ProductFileSourceFixture(fileCount: 1)
         defer { fixture.remove() }
         let source = fixture.makeSource()
-        try await source.open(subscription: fixture.openSnapshot()) { _ in }
+        try await source.open(
+            subscription: fixture.openSnapshot(),
+            productAdmission: fixture.productAdmission.context
+        ) { _ in }
         let nonmatchingWorktreeChangeset = FileChangeset(
             worktreeId: UUIDv7.generate(),
             repoId: fixture.repoId,
@@ -343,8 +423,14 @@ struct BridgePaneProductFileMetadataSourceTests {
         )
 
         // Act
-        let worktreeEmissions = try await source.publish(changeset: nonmatchingWorktreeChangeset)
-        let repositoryEmissions = try await source.publish(changeset: nonmatchingRepositoryChangeset)
+        let worktreeEmissions = try await source.publish(
+            changeset: nonmatchingWorktreeChangeset,
+            productAdmission: fixture.productAdmission.context
+        )
+        let repositoryEmissions = try await source.publish(
+            changeset: nonmatchingRepositoryChangeset,
+            productAdmission: fixture.productAdmission.context
+        )
 
         // Assert
         #expect(worktreeEmissions.isEmpty)
@@ -354,14 +440,25 @@ struct BridgePaneProductFileMetadataSourceTests {
     @Test("issued descriptor streams accepted data and terminal integrity frames")
     func issuedDescriptorStreamsContentFrames() async throws {
         // Arrange
-        let fixture = try ProductFileSourceFixture(fileCount: 1, demandedLineCount: 10_200)
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let fixture = try ProductFileSourceFixture(
+            fileCount: 1,
+            demandedLineCount: 10_200,
+            productAdmission: harness.productAdmission
+        )
         defer { fixture.remove() }
         let source = fixture.makeSource()
         let openSnapshot = try fixture.openSnapshot()
-        try await source.open(subscription: openSnapshot) { _ in }
+        try await source.open(
+            subscription: openSnapshot,
+            productAdmission: fixture.productAdmission.context
+        ) { _ in }
         let updatedSnapshot = try fixture.updatedSnapshot(from: openSnapshot)
         let collector = ProductFileMetadataEventCollector()
-        try await source.update(subscription: updatedSnapshot) { event in
+        try await source.update(
+            subscription: updatedSnapshot,
+            productAdmission: fixture.productAdmission.context
+        ) { event in
             await collector.append(event)
         }
         let descriptor = try #require(
@@ -379,14 +476,17 @@ struct BridgePaneProductFileMetadataSourceTests {
             fileMetadataSource: source,
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
-            markReviewItemViewed: { _ in }
+            markReviewItemViewed: { _, _ in }
         )
-        let harness = try await BridgeProductSessionLifecycleHarness.opened()
         let request = BridgeProductContentRequest.fileContent(fileRequest)
-        let registration = await harness.session.registerContentProducer(request: request) { lease in
+        let registration = await harness.session.registerContentProducer(
+            request: request,
+            productAdmission: harness.productAdmission.context
+        ) { lease in
             await provider.runContentProducer(
                 request: request,
                 lease: lease,
+                productAdmission: harness.productAdmission.context,
                 session: harness.session
             )
         }
@@ -397,7 +497,11 @@ struct BridgePaneProductFileMetadataSourceTests {
         // Act
         while !decodedFrames.contains(where: { $0.isTerminalForTest }) {
             let queuedFrame = try #require(
-                await consumeNextBridgeProductProducerFrame(for: lease, from: harness.session)
+                await consumeNextBridgeProductProducerFrame(
+                    for: lease,
+                    from: harness.session,
+                    productAdmission: harness.productAdmission.context
+                )
             )
             decodedFrames.append(contentsOf: try decoder.append(queuedFrame.data))
         }
@@ -436,10 +540,16 @@ struct BridgePaneProductFileMetadataSourceTests {
         defer { fixture.remove() }
         let source = fixture.makeSource()
         let openSnapshot = try fixture.openSnapshot()
-        try await source.open(subscription: openSnapshot) { _ in }
+        try await source.open(
+            subscription: openSnapshot,
+            productAdmission: fixture.productAdmission.context
+        ) { _ in }
         let committedSnapshot = try fixture.updatedSnapshot(from: openSnapshot)
         let collector = ProductFileMetadataEventCollector()
-        try await source.update(subscription: committedSnapshot) { event in
+        try await source.update(
+            subscription: committedSnapshot,
+            productAdmission: fixture.productAdmission.context
+        ) { event in
             await collector.append(event)
         }
         let descriptor = try #require(
@@ -452,7 +562,11 @@ struct BridgePaneProductFileMetadataSourceTests {
             fileMetadataSource: source,
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource()
         )
-        await coordinator.apply(.subscriptionOpened(openSnapshot))
+        let productAdmission = fixture.productAdmission.context
+        await coordinator.apply(
+            .subscriptionOpened(openSnapshot),
+            productAdmission: productAdmission
+        )
         await coordinator.apply(
             .subscriptionInterestsCommitted(
                 barrier: .init(
@@ -464,14 +578,28 @@ struct BridgePaneProductFileMetadataSourceTests {
                     updateId: "file-priority-update-1"
                 ),
                 subscription: committedSnapshot
-            )
+            ),
+            productAdmission: productAdmission
         )
 
         // Act / Assert
-        #expect(await coordinator.contentDemandInterest(for: request) == .selected)
+        #expect(
+            await coordinator.contentDemandInterest(
+                for: request,
+                productAdmission: productAdmission
+            ) == .selected
+        )
 
-        await coordinator.apply(.subscriptionCancelled(committedSnapshot))
-        #expect(await coordinator.contentDemandInterest(for: request) == .unspecified)
+        await coordinator.apply(
+            .subscriptionCancelled(committedSnapshot),
+            productAdmission: productAdmission
+        )
+        #expect(
+            await coordinator.contentDemandInterest(
+                for: request,
+                productAdmission: productAdmission
+            ) == .unspecified
+        )
     }
 
     @Test("cancelled interest materialization cannot resurrect a removed subscription")
@@ -486,11 +614,15 @@ struct BridgePaneProductFileMetadataSourceTests {
             return try await BridgePaneProductFileContentSource.materialize(request)
         })
         let openSnapshot = try fixture.openSnapshot()
-        try await source.open(subscription: openSnapshot) { _ in }
+        try await source.open(
+            subscription: openSnapshot,
+            productAdmission: fixture.productAdmission.context
+        ) { _ in }
         let collector = ProductFileMetadataEventCollector()
         let updateTask = Task {
             try await source.update(
-                subscription: fixture.updatedSnapshot(from: openSnapshot)
+                subscription: fixture.updatedSnapshot(from: openSnapshot),
+                productAdmission: fixture.productAdmission.context
             ) { event in
                 await collector.append(event)
             }
@@ -515,7 +647,10 @@ struct BridgePaneProductFileMetadataSourceTests {
         defer { fixture.remove() }
         let source = fixture.makeSource()
         let collector = ProductFileMetadataEventCollector()
-        try await source.open(subscription: fixture.openSnapshot()) { event in
+        try await source.open(
+            subscription: fixture.openSnapshot(),
+            productAdmission: fixture.productAdmission.context
+        ) { event in
             await collector.append(event)
         }
         let row = try #require((await collector.events).flatMap(\.treeWindowRowsForTest).first)
@@ -601,7 +736,7 @@ extension BridgeProductFileMetadataEvent {
     }
 }
 
-private actor ProductFileMetadataEventCollector {
+actor ProductFileMetadataEventCollector {
     private(set) var events: [BridgeProductFileMetadataEvent] = []
 
     func append(_ event: BridgeProductFileMetadataEvent) {
@@ -613,55 +748,29 @@ private actor ProductFileMetadataEventCollector {
     }
 }
 
-private actor ProductFileMaterializationGate {
-    private var didStart = false
-    private var isReleased = false
-    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
-    private var startWaiters: [CheckedContinuation<Void, Never>] = []
-
-    func markStarted() {
-        didStart = true
-        for waiter in startWaiters { waiter.resume() }
-        startWaiters.removeAll(keepingCapacity: false)
-    }
-
-    func waitUntilStarted() async {
-        guard !didStart else { return }
-        await withCheckedContinuation { continuation in
-            startWaiters.append(continuation)
-        }
-    }
-
-    func waitUntilReleased() async {
-        guard !isReleased else { return }
-        await withCheckedContinuation { continuation in
-            releaseWaiters.append(continuation)
-        }
-    }
-
-    func release() {
-        isReleased = true
-        for waiter in releaseWaiters { waiter.resume() }
-        releaseWaiters.removeAll(keepingCapacity: false)
-    }
-}
-
 private func sha256Hex(_ data: Data) -> String {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 }
 
-private struct ProductFileSourceFixture {
+struct ProductFileSourceFixture {
     let demandedFileURL: URL
     let demandedPath: String
     let paneId = UUID(uuidString: "00000000-0000-4000-8000-000000000003")!
+    let productAdmission: BridgeProductAdmissionTestContext
     let repoId = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
     let rootURL: URL
     let worktreeId = UUID(uuidString: "00000000-0000-4000-8000-000000000002")!
 
-    init(fileCount: Int, demandedLineCount: Int = 2, demandedIndex: Int = 0) throws {
+    init(
+        fileCount: Int,
+        demandedLineCount: Int = 2,
+        demandedIndex: Int = 0,
+        productAdmission suppliedProductAdmission: BridgeProductAdmissionTestContext? = nil
+    ) throws {
         guard (0..<fileCount).contains(demandedIndex) else {
             throw ProductFileSourceFixtureError.invalidDemandedIndex
         }
+        productAdmission = try suppliedProductAdmission ?? BridgeProductAdmissionTestContext.make()
         rootURL = FileManager.default.temporaryDirectory
             .appending(path: "bridge-product-file-source-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -684,6 +793,7 @@ private struct ProductFileSourceFixture {
     func makeSource(
         ignorePolicyLoader: @escaping BridgePaneProductFileIgnorePolicyLoader =
             { rootURL in await BridgeWorktreeFileIgnorePolicy.load(rootURL: rootURL) },
+        treeRowRefresher: BridgePaneProductFileTreeRowRefresher? = nil,
         descriptorMaterializer: @escaping BridgePaneProductFileDescriptorMaterializer =
             BridgePaneProductFileContentSource.materialize
     ) -> BridgePaneProductFileMetadataSource {
@@ -699,6 +809,7 @@ private struct ProductFileSourceFixture {
             ),
             statusProvider: ProductFileSourceStatusProvider(),
             ignorePolicyLoader: ignorePolicyLoader,
+            treeRowRefresher: treeRowRefresher,
             descriptorMaterializer: descriptorMaterializer
         )
     }

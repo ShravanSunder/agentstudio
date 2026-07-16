@@ -138,13 +138,17 @@ struct WorkspaceSurfaceCoordinatorViewFactoryTests {
         )
         harness.store.appendTab(Tab(paneId: pane.id))
         let provider = BridgePaneProductSessionProviderGate()
+        let productAdmissionGate = BridgeProductAdmissionGate()
+        let productAdmission = try #require(productAdmissionGate.acquire())
         let installation = BridgePaneController.makeInitialProductSessionInstallation(
             paneSessionId: pane.id.uuidString,
-            provider: provider
+            provider: provider,
+            productAdmissionGate: productAdmissionGate
         )
         let owner = BridgePaneController.makeProductSessionOwner(
             paneSessionId: pane.id.uuidString,
             provider: provider,
+            productAdmissionGate: productAdmissionGate,
             activeInstallation: installation
         )
         let controller = BridgePaneController(
@@ -181,7 +185,7 @@ struct WorkspaceSurfaceCoordinatorViewFactoryTests {
         #expect(lifecycleAcknowledgements.count == 2)
         #expect(lifecycleAcknowledgements[0] == lifecycleAcknowledgements[1])
         await #expect(throws: BridgePaneProductSessionOwnerError.ownerDisposed) {
-            _ = try await owner.prepareCandidate()
+            _ = try await owner.prepareCandidate(productAdmission: productAdmission)
         }
 
         await provider.releaseLifecycleAcknowledgements(result: true)
@@ -266,13 +270,16 @@ struct WorkspaceSurfaceCoordinatorViewFactoryTests {
         // Arrange
         let paneId = UUIDv7.generate()
         let provider = BridgePaneProductSessionProviderGate()
+        let productAdmissionGate = BridgeProductAdmissionGate()
         let initialInstallation = BridgePaneController.makeInitialProductSessionInstallation(
             paneSessionId: paneId.uuidString,
-            provider: provider
+            provider: provider,
+            productAdmissionGate: productAdmissionGate
         )
         let owner = BridgePaneController.makeProductSessionOwner(
             paneSessionId: paneId.uuidString,
             provider: provider,
+            productAdmissionGate: productAdmissionGate,
             activeInstallation: initialInstallation
         )
         var deliveredRequestIds: [String] = []
@@ -284,7 +291,7 @@ struct WorkspaceSurfaceCoordinatorViewFactoryTests {
                 installation: initialInstallation,
                 owner: owner
             ),
-            productSessionBootstrapSink: { _, requestId, installation, _ in
+            productSessionBootstrapSink: { _, requestId, installation, _, _ in
                 deliveredRequestIds.append(requestId)
                 deliveredInstallations.append(installation)
             }

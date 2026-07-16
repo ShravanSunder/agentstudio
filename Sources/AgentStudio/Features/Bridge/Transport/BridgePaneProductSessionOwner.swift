@@ -4,12 +4,14 @@ import Security
 struct BridgeProductSessionInstallation: Sendable {
     let bootstrap: BridgeProductSessionBootstrap
     let capabilityBytes: [UInt8]
+    let productAdmissionGate: BridgeProductAdmissionGate
     let productAdapter: BridgeProductSchemeAdapter
     let session: BridgeProductSession
 
     static func make(
         paneSessionId: String,
-        provider: any BridgeProductSchemeProvider
+        provider: any BridgeProductSchemeProvider,
+        productAdmissionGate: BridgeProductAdmissionGate
     ) throws -> Self {
         var capabilityBytes = [UInt8](
             repeating: 0,
@@ -35,7 +37,12 @@ struct BridgeProductSessionInstallation: Sendable {
         return Self(
             bootstrap: bootstrap,
             capabilityBytes: capabilityBytes,
-            productAdapter: BridgeProductSchemeAdapter(session: session, provider: provider),
+            productAdmissionGate: productAdmissionGate,
+            productAdapter: BridgeProductSchemeAdapter(
+                session: session,
+                provider: provider,
+                productAdmissionGate: productAdmissionGate
+            ),
             session: session
         )
     }
@@ -75,6 +82,9 @@ struct BridgePaneProductSessionOwnerSnapshot: Equatable, Sendable {
     let pendingFrameWaiterCount: Int
     let inFlightFrameReceiptCount: Int
     let pendingLifecycleAcknowledgementCount: Int
+    let preparedInstallationCount: Int
+    let sessionContentAdmissionCount: Int
+    let sessionProductAdmissionCount: Int
     let nextMetadataStreamSequence: Int
 
     var hasZeroResidue: Bool {
@@ -88,6 +98,9 @@ struct BridgePaneProductSessionOwnerSnapshot: Equatable, Sendable {
             && pendingFrameWaiterCount == 0
             && inFlightFrameReceiptCount == 0
             && pendingLifecycleAcknowledgementCount == 0
+            && preparedInstallationCount == 0
+            && sessionContentAdmissionCount == 0
+            && sessionProductAdmissionCount == 0
     }
 
     static let empty = Self(
@@ -101,12 +114,16 @@ struct BridgePaneProductSessionOwnerSnapshot: Equatable, Sendable {
         pendingFrameWaiterCount: 0,
         inFlightFrameReceiptCount: 0,
         pendingLifecycleAcknowledgementCount: 0,
+        preparedInstallationCount: 0,
+        sessionContentAdmissionCount: 0,
+        sessionProductAdmissionCount: 0,
         nextMetadataStreamSequence: 0
     )
 }
 
 actor BridgePaneProductSessionOwner {
     let schemeRouter: BridgeProductSchemeSessionRouter
+    nonisolated let productAdmissionGate: BridgeProductAdmissionGate
 
     private(set) var activeInstallation: BridgeProductSessionInstallation?
     private var activationInFlightWorkerInstanceIds: Set<String> = []
@@ -120,31 +137,49 @@ actor BridgePaneProductSessionOwner {
     init(
         paneSessionId: String,
         provider: any BridgeProductSchemeProvider,
+        productAdmissionGate: BridgeProductAdmissionGate,
         activeInstallation: BridgeProductSessionInstallation? = nil
     ) throws {
         try BridgeProductContractDecoding.validateIdentifier(paneSessionId, codingPath: [])
+        precondition(
+            activeInstallation == nil
+                || activeInstallation?.productAdmissionGate === productAdmissionGate
+        )
         self.paneSessionId = paneSessionId
         self.provider = provider
+        self.productAdmissionGate = productAdmissionGate
         self.activeInstallation = activeInstallation
         self.schemeRouter = BridgeProductSchemeSessionRouter(
-            activeInstallation: activeInstallation
+            activeInstallation: activeInstallation,
+            productAdmissionGate: productAdmissionGate
         )
     }
 
-    func prepareCandidate() throws -> BridgeProductSessionInstallation {
-        guard !isPaneDisposalRequested else {
+    func prepareCandidate(
+        productAdmission: BridgeProductAdmissionContext
+    ) throws -> BridgeProductSessionInstallation {
+        guard productAdmission.wasMinted(by: productAdmissionGate),
+            let candidate = try productAdmission.withValidAdmission({
+                guard !isPaneDisposalRequested else {
+                    throw BridgePaneProductSessionOwnerError.ownerDisposed
+                }
+                let candidate = try BridgeProductSessionInstallation.make(
+                    paneSessionId: paneSessionId,
+                    provider: provider,
+                    productAdmissionGate: productAdmissionGate
+                )
+                preparedInstallationsByWorkerInstanceId[candidate.bootstrap.workerInstanceId] = candidate
+                return candidate
+            })
+        else {
             throw BridgePaneProductSessionOwnerError.ownerDisposed
         }
-        let candidate = try BridgeProductSessionInstallation.make(
-            paneSessionId: paneSessionId,
-            provider: provider
-        )
-        preparedInstallationsByWorkerInstanceId[candidate.bootstrap.workerInstanceId] = candidate
         return candidate
     }
 
     func activatePreparedCandidate(
-        _ candidate: BridgeProductSessionInstallation
+        _ candidate: BridgeProductSessionInstallation,
+        productAdmission: BridgeProductAdmissionContext
     ) async -> BridgePaneProductSessionActivationResult {
         let workerInstanceId = candidate.bootstrap.workerInstanceId
         guard
@@ -155,22 +190,27 @@ actor BridgePaneProductSessionOwner {
         else {
             return .invalidCandidate
         }
+        guard productAdmission.wasMinted(by: productAdmissionGate),
+            (productAdmission.withValidAdmission {
+                activationInFlightWorkerInstanceIds.insert(workerInstanceId)
+                return true
+            }) == true
+        else {
+            return await rejectPreparedCandidateAfterAdmissionClose(candidate)
+        }
         guard !isPaneDisposalRequested else {
-            preparedInstallationsByWorkerInstanceId.removeValue(forKey: workerInstanceId)
-            let barrier = await preparedCandidate.session.revoke(
-                acknowledgeLifecycle: provider.acknowledgeLifecycle
-            )
-            _ = await barrier.wait()
-            return .ownerDisposed
+            return await rejectPreparedCandidateAfterAdmissionClose(preparedCandidate)
         }
 
-        activationInFlightWorkerInstanceIds.insert(workerInstanceId)
         let precedingTransition = lifecycleTransitionTail
         let transition = Task { [self] in
             if let precedingTransition {
                 await precedingTransition.value
             }
-            return await performActivation(preparedCandidate)
+            return await performActivation(
+                preparedCandidate,
+                productAdmission: productAdmission
+            )
         }
         lifecycleTransitionTail = Task {
             _ = await transition.value
@@ -198,23 +238,28 @@ actor BridgePaneProductSessionOwner {
     }
 
     private func performActivation(
-        _ candidate: BridgeProductSessionInstallation
+        _ candidate: BridgeProductSessionInstallation,
+        productAdmission: BridgeProductAdmissionContext
     ) async -> BridgePaneProductSessionActivationResult {
         let workerInstanceId = candidate.bootstrap.workerInstanceId
         defer {
             activationInFlightWorkerInstanceIds.remove(workerInstanceId)
         }
-        guard !isPaneDisposalRequested else {
-            preparedInstallationsByWorkerInstanceId.removeValue(forKey: workerInstanceId)
-            let barrier = await candidate.session.revoke(
-                acknowledgeLifecycle: provider.acknowledgeLifecycle
-            )
-            _ = await barrier.wait()
-            return .ownerDisposed
+        guard !isPaneDisposalRequested,
+            (productAdmission.withValidAdmission { true }) == true
+        else {
+            return await rejectPreparedCandidateAfterAdmissionClose(candidate)
         }
 
         let retiringInstallation = installationAwaitingRetirementRetry ?? activeInstallation
-        activeInstallation = nil
+        guard
+            (productAdmission.withValidAdmission {
+                activeInstallation = nil
+                return true
+            }) == true
+        else {
+            return await rejectPreparedCandidateAfterAdmissionClose(candidate)
+        }
         await schemeRouter.clear()
 
         if let retiringInstallation,
@@ -231,20 +276,45 @@ actor BridgePaneProductSessionOwner {
         }
         await schemeRouter.waitForDrain()
 
-        guard !isPaneDisposalRequested else {
-            preparedInstallationsByWorkerInstanceId.removeValue(forKey: workerInstanceId)
-            let barrier = await candidate.session.revoke(
-                acknowledgeLifecycle: provider.acknowledgeLifecycle
-            )
-            _ = await barrier.wait()
-            return .ownerDisposed
+        guard !isPaneDisposalRequested,
+            (productAdmission.withValidAdmission { true }) == true
+        else {
+            return await rejectPreparedCandidateAfterAdmissionClose(candidate)
         }
 
-        installationAwaitingRetirementRetry = nil
-        preparedInstallationsByWorkerInstanceId.removeValue(forKey: workerInstanceId)
-        activeInstallation = candidate
-        await schemeRouter.activate(candidate)
+        guard
+            (productAdmission.withValidAdmission {
+                installationAwaitingRetirementRetry = nil
+                preparedInstallationsByWorkerInstanceId.removeValue(forKey: workerInstanceId)
+                activeInstallation = candidate
+                return true
+            }) == true
+        else {
+            return await rejectPreparedCandidateAfterAdmissionClose(candidate)
+        }
+        guard
+            await schemeRouter.activate(
+                candidate,
+                productAdmission: productAdmission
+            )
+        else {
+            activeInstallation = nil
+            return await rejectPreparedCandidateAfterAdmissionClose(candidate)
+        }
         return .activated
+    }
+
+    private func rejectPreparedCandidateAfterAdmissionClose(
+        _ candidate: BridgeProductSessionInstallation
+    ) async -> BridgePaneProductSessionActivationResult {
+        let workerInstanceId = candidate.bootstrap.workerInstanceId
+        preparedInstallationsByWorkerInstanceId.removeValue(forKey: workerInstanceId)
+        activationInFlightWorkerInstanceIds.remove(workerInstanceId)
+        let barrier = await candidate.session.revoke(
+            acknowledgeLifecycle: provider.acknowledgeLifecycle
+        )
+        _ = await barrier.wait()
+        return .ownerDisposed
     }
 
     private func performRetirement() async -> BridgePaneProductSessionRetirementResult {
@@ -253,7 +323,9 @@ actor BridgePaneProductSessionOwner {
         await schemeRouter.clear()
         guard let retiringInstallation else {
             await schemeRouter.waitForDrain()
-            return .retired
+            return await retirePreparedInstallationsForPaneDisposal()
+                ? .retired
+                : .revocationFailed
         }
 
         installationAwaitingRetirementRetry = retiringInstallation
@@ -266,7 +338,21 @@ actor BridgePaneProductSessionOwner {
         }
         await schemeRouter.waitForDrain()
         installationAwaitingRetirementRetry = nil
-        return .retired
+        return await retirePreparedInstallationsForPaneDisposal()
+            ? .retired
+            : .revocationFailed
+    }
+
+    private func retirePreparedInstallationsForPaneDisposal() async -> Bool {
+        guard isPaneDisposalRequested else { return true }
+        for (workerInstanceId, installation) in preparedInstallationsByWorkerInstanceId {
+            let barrier = await installation.session.revoke(
+                acknowledgeLifecycle: provider.acknowledgeLifecycle
+            )
+            guard await barrier.wait() else { return false }
+            preparedInstallationsByWorkerInstanceId.removeValue(forKey: workerInstanceId)
+        }
+        return true
     }
 
     func snapshot() async -> BridgePaneProductSessionOwnerSnapshot {
@@ -284,6 +370,9 @@ actor BridgePaneProductSessionOwner {
             pendingFrameWaiterCount: producers?.pendingFrameWaiterCount ?? 0,
             inFlightFrameReceiptCount: producers?.inFlightFrameReceiptCount ?? 0,
             pendingLifecycleAcknowledgementCount: producers?.pendingLifecycleAcknowledgementCount ?? 0,
+            preparedInstallationCount: preparedInstallationsByWorkerInstanceId.count,
+            sessionContentAdmissionCount: producers?.sessionContentAdmissionCount ?? 0,
+            sessionProductAdmissionCount: producers?.sessionProductAdmissionCount ?? 0,
             nextMetadataStreamSequence: producers?.nextMetadataStreamSequence ?? 0
         )
     }

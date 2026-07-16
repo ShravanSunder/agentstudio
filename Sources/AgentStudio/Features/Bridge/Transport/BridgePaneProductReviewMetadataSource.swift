@@ -27,19 +27,22 @@ enum BridgePaneProductReviewMetadataPublicationOutcome: Equatable, Sendable {
 }
 
 typealias BridgePaneProductReviewMetadataEventSink =
-    @Sendable (BridgeProductReviewMetadataEvent) async throws -> Void
+    @Sendable (BridgeProductReviewMetadataEvent, BridgeProductAdmissionContext) async throws -> Void
 
 protocol BridgePaneProductReviewMetadataProducing: Sendable {
     func open(
         subscription: BridgeProductSubscriptionSnapshot,
+        productAdmission: BridgeProductAdmissionContext,
         emit: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws
     func update(
         subscription: BridgeProductSubscriptionSnapshot,
+        productAdmission: BridgeProductAdmissionContext,
         emit: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws
     func publish(
-        availability: BridgePaneProductReviewMetadataAvailability
+        availability: BridgePaneProductReviewMetadataAvailability,
+        productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome
     func cancel(subscriptionId: String) async
 }
@@ -47,6 +50,7 @@ protocol BridgePaneProductReviewMetadataProducing: Sendable {
 actor BridgeUnavailablePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProducing {
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit _: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {
         throw BridgePaneProductReviewMetadataSourceError.unavailablePackage
@@ -54,13 +58,15 @@ actor BridgeUnavailablePaneProductReviewMetadataSource: BridgePaneProductReviewM
 
     func update(
         subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
         emit _: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {
         throw BridgePaneProductReviewMetadataSourceError.unavailablePackage
     }
 
     func publish(
-        availability _: BridgePaneProductReviewMetadataAvailability
+        availability _: BridgePaneProductReviewMetadataAvailability,
+        productAdmission _: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
         .failed(retained: 0)
     }
@@ -96,6 +102,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
 
     func open(
         subscription: BridgeProductSubscriptionSnapshot,
+        productAdmission: BridgeProductAdmissionContext,
         emit: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {
         guard subscription.subscriptionKind == .reviewMetadata,
@@ -104,18 +111,24 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
             throw BridgePaneProductReviewMetadataSourceError.unavailablePackage
         }
         guard case .failed = availability else {
-            let context = SubscriptionContext(
-                contextId: UUID(),
-                publishedPackage: nil,
-                subscription: subscription,
-                emit: emit
-            )
-            contextBySubscriptionId[subscription.subscriptionId] = context
+            guard
+                let context = productAdmission.withValidAdmission({
+                    let context = SubscriptionContext(
+                        contextId: UUID(),
+                        publishedPackage: nil,
+                        subscription: subscription,
+                        emit: emit
+                    )
+                    contextBySubscriptionId[subscription.subscriptionId] = context
+                    return context
+                })
+            else { return }
             guard case .ready(let package) = availability else { return }
             _ = try await emitAndCommitIfCurrent(
                 package,
                 context: context,
-                availabilityRevision: availabilityRevision
+                availabilityRevision: availabilityRevision,
+                productAdmission: productAdmission
             )
             return
         }
@@ -124,6 +137,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
 
     func update(
         subscription: BridgeProductSubscriptionSnapshot,
+        productAdmission: BridgeProductAdmissionContext,
         emit: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {
         guard let activeContext = contextBySubscriptionId[subscription.subscriptionId] else {
@@ -136,18 +150,24 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
             throw BridgePaneProductReviewMetadataSourceError.unavailablePackage
         }
         guard case .failed = availability else {
-            let context = SubscriptionContext(
-                contextId: UUID(),
-                publishedPackage: activeContext.publishedPackage,
-                subscription: subscription,
-                emit: emit
-            )
-            contextBySubscriptionId[subscription.subscriptionId] = context
+            guard
+                let context = productAdmission.withValidAdmission({
+                    let context = SubscriptionContext(
+                        contextId: UUID(),
+                        publishedPackage: activeContext.publishedPackage,
+                        subscription: subscription,
+                        emit: emit
+                    )
+                    contextBySubscriptionId[subscription.subscriptionId] = context
+                    return context
+                })
+            else { return }
             guard case .ready(let package) = availability else { return }
             _ = try await emitAndCommitIfCurrent(
                 package,
                 context: context,
-                availabilityRevision: availabilityRevision
+                availabilityRevision: availabilityRevision,
+                productAdmission: productAdmission
             )
             return
         }
@@ -155,12 +175,26 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
     }
 
     func publish(
-        availability: BridgePaneProductReviewMetadataAvailability
+        availability: BridgePaneProductReviewMetadataAvailability,
+        productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
-        availabilityRevision += 1
-        let publishingAvailabilityRevision = availabilityRevision
-        self.availability = availability
+        if case .failed = availability {
+            availabilityRevision += 1
+            self.availability = .failed
+            return .failed(retained: contextBySubscriptionId.count)
+        }
+        guard (productAdmission.withValidAdmission { true }) == true else {
+            return .failed(retained: 0)
+        }
         let subscriptionIds = contextBySubscriptionId.keys.sorted()
+        guard
+            let publication = productAdmission.withValidAdmission({
+                availabilityRevision += 1
+                self.availability = availability
+                return availabilityRevision
+            })
+        else { return .failed(retained: 0) }
+        let publishingAvailabilityRevision = publication
         switch availability {
         case .loading:
             return .loading(retained: subscriptionIds.count)
@@ -176,7 +210,8 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
                 switch try await emitAndCommitIfCurrent(
                     reviewPackage,
                     context: context,
-                    availabilityRevision: publishingAvailabilityRevision
+                    availabilityRevision: publishingAvailabilityRevision,
+                    productAdmission: productAdmission
                 ) {
                 case .published(let eventCount):
                     emittedEventCount += eventCount
@@ -202,24 +237,33 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
     private func emitAndCommitIfCurrent(
         _ package: BridgeReviewPackage,
         context: SubscriptionContext,
-        availabilityRevision publishingAvailabilityRevision: Int
+        availabilityRevision publishingAvailabilityRevision: Int,
+        productAdmission: BridgeProductAdmissionContext
     ) async throws -> EmissionOutcome {
         let events = try Self.events(from: context.publishedPackage, to: package)
         for event in events {
             try Task.checkCancellation()
-            guard let currentContext = contextBySubscriptionId[context.subscription.subscriptionId],
+            guard
+                (productAdmission.withValidAdmission {
+                    guard
+                        let currentContext = contextBySubscriptionId[context.subscription.subscriptionId],
+                        currentContext.contextId == context.contextId,
+                        availabilityRevision == publishingAvailabilityRevision
+                    else { return false }
+                    return true
+                }) == true
+            else { return .superseded }
+            try await context.emit(event, productAdmission)
+        }
+        return productAdmission.withValidAdmission {
+            guard var currentContext = contextBySubscriptionId[context.subscription.subscriptionId],
                 currentContext.contextId == context.contextId,
                 availabilityRevision == publishingAvailabilityRevision
             else { return .superseded }
-            try await context.emit(event)
-        }
-        guard var currentContext = contextBySubscriptionId[context.subscription.subscriptionId],
-            currentContext.contextId == context.contextId,
-            availabilityRevision == publishingAvailabilityRevision
-        else { return .superseded }
-        currentContext.publishedPackage = package
-        contextBySubscriptionId[context.subscription.subscriptionId] = currentContext
-        return .published(eventCount: events.count)
+            currentContext.publishedPackage = package
+            contextBySubscriptionId[context.subscription.subscriptionId] = currentContext
+            return .published(eventCount: events.count)
+        } ?? .superseded
     }
 
     private static func sourceAcceptedEvent(

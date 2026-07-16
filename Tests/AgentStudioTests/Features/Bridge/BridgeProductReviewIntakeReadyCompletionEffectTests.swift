@@ -20,12 +20,17 @@ struct BridgeReviewIntakeCompletionEffectTests {
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
-            markReviewItemViewed: { _ in },
-            handleReviewIntakeReady: { request in
-                recorder.record(request)
+            markReviewItemViewed: { _, _ in },
+            handleReviewIntakeReady: { request, productAdmission in
+                recorder.record(request, productAdmission: productAdmission)
             }
         )
-        let dispatcher = BridgeProductSchemeControlDispatcher(session: session, provider: provider)
+        let productAdmission = try BridgeProductAdmissionTestContext.make().context
+        let dispatcher = makeBridgeProductSchemeControlDispatcher(
+            session: session,
+            provider: provider,
+            productAdmission: productAdmission
+        )
         let callBody = bridgeProductReviewIntakeReadyBody()
         let decodedCall = try BridgeProductStrictJSON.decode(
             BridgeProductControlRequest.self,
@@ -74,8 +79,13 @@ private final class BridgeProductReviewIntakeReadyMutationRecorder {
     private(set) var requests: [BridgeProductReviewIntakeReadyRequest] = []
     var count: Int { requests.count }
 
-    func record(_ request: BridgeProductReviewIntakeReadyRequest) {
-        requests.append(request)
+    func record(
+        _ request: BridgeProductReviewIntakeReadyRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) {
+        _ = productAdmission.withValidAdmission {
+            requests.append(request)
+        }
     }
 }
 

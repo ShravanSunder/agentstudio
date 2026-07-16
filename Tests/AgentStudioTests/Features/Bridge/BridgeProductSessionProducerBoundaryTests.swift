@@ -22,10 +22,12 @@ struct BridgeProductSessionProducerBoundaryTests {
         // Act / Assert
         try await expectMetadataRegistrationRejectedWithoutMutation(
             request: unprovenRequest,
+            productAdmission: harness.productAdmission,
             session: harness.session
         )
         try await expectMetadataRegistrationRejectedWithoutMutation(
             request: nearExhaustionRequest,
+            productAdmission: harness.productAdmission,
             session: harness.session
         )
         #expect(await harness.session.producerSnapshot() == initialSnapshot)
@@ -51,10 +53,12 @@ struct BridgeProductSessionProducerBoundaryTests {
         #expect(progressedSnapshot.hasZeroResidue)
         try await expectMetadataRegistrationRejectedWithoutMutation(
             request: futureRequest,
+            productAdmission: harness.productAdmission,
             session: harness.session
         )
         try await expectMetadataRegistrationRejectedWithoutMutation(
             request: nearExhaustionRequest,
+            productAdmission: harness.productAdmission,
             session: harness.session
         )
         #expect(await harness.session.producerSnapshot() == progressedSnapshot)
@@ -69,7 +73,10 @@ struct BridgeProductSessionProducerBoundaryTests {
             resumeFromStreamSequence: nil
         )
         let operation = BridgeProductSessionProducerOperationGate()
-        let registration = await harness.session.registerMetadataProducer(request: request) { lease in
+        let registration = await harness.session.registerMetadataProducer(
+            request: request,
+            productAdmission: harness.productAdmission
+        ) { lease in
             await operation.run(lease)
         }
         let lease = try bridgeProductAcceptedLease(registration)
@@ -79,6 +86,7 @@ struct BridgeProductSessionProducerBoundaryTests {
         // Act
         let mismatchedOpening = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: lease,
+            productAdmission: harness.productAdmission,
             build: { sequence in
                 try bridgeProductMetadataAcceptedFrame(
                     request: request,
@@ -90,6 +98,7 @@ struct BridgeProductSessionProducerBoundaryTests {
         let afterMismatch = await harness.session.producerSnapshot()
         let correctOpening = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: lease,
+            productAdmission: harness.productAdmission,
             build: { sequence in
                 try bridgeProductMetadataAcceptedFrame(
                     request: request,
@@ -101,10 +110,12 @@ struct BridgeProductSessionProducerBoundaryTests {
         let afterOpening = await harness.session.producerSnapshot()
         let deliveredOpening = await consumeNextBridgeProductProducerFrame(
             for: lease,
-            from: harness.session
+            from: harness.session,
+            productAdmission: harness.productAdmission
         )
         let progress = try await harness.session.enqueueProducerFrame(
             for: lease,
+            productAdmission: harness.productAdmission,
             build: { sequence in
                 try bridgeProductMetadataProgressFrame(
                     request: request,
@@ -132,7 +143,8 @@ struct BridgeProductSessionProducerBoundaryTests {
         #expect(
             await consumeNextBridgeProductProducerFrame(
                 for: lease,
-                from: harness.session
+                from: harness.session,
+                productAdmission: harness.productAdmission
             )?.sequence == 1
         )
         try await closeBridgeProductSessionProducer(lease, in: harness.session)
@@ -147,7 +159,10 @@ struct BridgeProductSessionProducerBoundaryTests {
             resumeFromStreamSequence: 2
         )
         let operation = BridgeProductSessionProducerOperationGate()
-        let registration = await harness.session.registerMetadataProducer(request: request) { lease in
+        let registration = await harness.session.registerMetadataProducer(
+            request: request,
+            productAdmission: harness.productAdmission
+        ) { lease in
             await operation.run(lease)
         }
         let lease = try bridgeProductAcceptedLease(registration)
@@ -156,6 +171,7 @@ struct BridgeProductSessionProducerBoundaryTests {
         // Act
         let opening = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: lease,
+            productAdmission: harness.productAdmission,
             build: { sequence in
                 try bridgeProductMetadataAcceptedFrame(
                     request: request,
@@ -166,10 +182,12 @@ struct BridgeProductSessionProducerBoundaryTests {
         )
         let deliveredOpening = await consumeNextBridgeProductProducerFrame(
             for: lease,
-            from: harness.session
+            from: harness.session,
+            productAdmission: harness.productAdmission
         )
         let progress = try await harness.session.enqueueProducerFrame(
             for: lease,
+            productAdmission: harness.productAdmission,
             build: { sequence in
                 try bridgeProductMetadataProgressFrame(
                     request: request,
@@ -192,7 +210,8 @@ struct BridgeProductSessionProducerBoundaryTests {
         #expect(
             await consumeNextBridgeProductProducerFrame(
                 for: lease,
-                from: harness.session
+                from: harness.session,
+                productAdmission: harness.productAdmission
             )?.sequence == 4
         )
         #expect((await harness.session.producerSnapshot()).nextMetadataStreamSequence == 5)
@@ -209,7 +228,10 @@ struct BridgeProductSessionProducerBoundaryTests {
             resumeFromStreamSequence: 2
         )
         let operation = BridgeProductSessionProducerOperationGate()
-        let registration = await harness.session.registerMetadataProducer(request: request) { lease in
+        let registration = await harness.session.registerMetadataProducer(
+            request: request,
+            productAdmission: harness.productAdmission
+        ) { lease in
             await operation.run(lease)
         }
         let lease = try bridgeProductAcceptedLease(registration)
@@ -219,6 +241,7 @@ struct BridgeProductSessionProducerBoundaryTests {
         // Act
         let mismatchedOpening = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: lease,
+            productAdmission: harness.productAdmission,
             build: { sequence in
                 try bridgeProductMetadataAcceptedFrame(
                     request: request,
@@ -230,6 +253,7 @@ struct BridgeProductSessionProducerBoundaryTests {
         let afterMismatch = await harness.session.producerSnapshot()
         let correctOpening = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: lease,
+            productAdmission: harness.productAdmission,
             build: { sequence in
                 try bridgeProductMetadataAcceptedFrame(
                     request: request,
@@ -246,7 +270,8 @@ struct BridgeProductSessionProducerBoundaryTests {
         #expect(
             await consumeNextBridgeProductProducerFrame(
                 for: lease,
-                from: harness.session
+                from: harness.session,
+                productAdmission: harness.productAdmission
             )?.sequence == 3
         )
         try await closeBridgeProductSessionProducer(lease, in: harness.session)
@@ -261,7 +286,10 @@ struct BridgeProductSessionProducerBoundaryTests {
             resumeFromStreamSequence: 0
         )
         let operation = BridgeProductSessionProducerOperationGate()
-        let registration = await harness.session.registerMetadataProducer(request: request) { lease in
+        let registration = await harness.session.registerMetadataProducer(
+            request: request,
+            productAdmission: harness.productAdmission
+        ) { lease in
             await operation.run(lease)
         }
         let lease = try bridgeProductAcceptedLease(registration)
@@ -270,6 +298,7 @@ struct BridgeProductSessionProducerBoundaryTests {
         // Act
         let opening = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: lease,
+            productAdmission: harness.productAdmission,
             build: { sequence in
                 try bridgeProductMetadataAcceptedFrame(
                     request: request,
@@ -281,10 +310,12 @@ struct BridgeProductSessionProducerBoundaryTests {
         let afterOpening = await harness.session.producerSnapshot()
         let deliveredOpening = await consumeNextBridgeProductProducerFrame(
             for: lease,
-            from: harness.session
+            from: harness.session,
+            productAdmission: harness.productAdmission
         )
         let replayedProgress = try await harness.session.enqueueProducerFrame(
             for: lease,
+            productAdmission: harness.productAdmission,
             build: { sequence in
                 try bridgeProductMetadataProgressFrame(
                     request: request,
@@ -310,7 +341,8 @@ struct BridgeProductSessionProducerBoundaryTests {
         #expect(
             await consumeNextBridgeProductProducerFrame(
                 for: lease,
-                from: harness.session
+                from: harness.session,
+                productAdmission: harness.productAdmission
             )?.sequence == 2
         )
         try await closeBridgeProductSessionProducer(lease, in: harness.session)
@@ -328,13 +360,17 @@ struct BridgeProductSessionProducerBoundaryTests {
             resumeFromStreamSequence: 0
         )
         let operation = BridgeProductSessionProducerOperationGate()
-        let registration = await harness.session.registerMetadataProducer(request: request) { lease in
+        let registration = await harness.session.registerMetadataProducer(
+            request: request,
+            productAdmission: harness.productAdmission
+        ) { lease in
             await operation.run(lease)
         }
         let lease = try bridgeProductAcceptedLease(registration)
         _ = await operation.waitUntilStarted()
         let opening = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: lease,
+            productAdmission: harness.productAdmission,
             build: { sequence in
                 try bridgeProductMetadataAcceptedFrame(
                     request: request,
@@ -347,7 +383,8 @@ struct BridgeProductSessionProducerBoundaryTests {
         #expect(
             await consumeNextBridgeProductProducerFrame(
                 for: lease,
-                from: harness.session
+                from: harness.session,
+                productAdmission: harness.productAdmission
             )?.sequence == 1
         )
         let nonterminalCapacity =
@@ -356,6 +393,7 @@ struct BridgeProductSessionProducerBoundaryTests {
         for expectedSequence in 2..<(2 + nonterminalCapacity) {
             let progress = try await harness.session.enqueueProducerFrame(
                 for: lease,
+                productAdmission: harness.productAdmission,
                 build: { sequence in
                     try bridgeProductMetadataProgressFrame(
                         request: request,
@@ -376,6 +414,7 @@ struct BridgeProductSessionProducerBoundaryTests {
         // Act
         let reset = try await harness.session.enqueueProducerFrame(
             for: lease,
+            productAdmission: harness.productAdmission,
             build: { sequence in
                 try bridgeProductMetadataProgressFrame(
                     request: request,
@@ -407,7 +446,10 @@ struct BridgeProductSessionProducerBoundaryTests {
             resumeFromStreamSequence: 0
         )
         let operation = BridgeProductSessionProducerOperationGate()
-        let registration = await harness.session.registerMetadataProducer(request: request) { lease in
+        let registration = await harness.session.registerMetadataProducer(
+            request: request,
+            productAdmission: harness.productAdmission
+        ) { lease in
             await operation.run(lease)
         }
         let lease = try bridgeProductAcceptedLease(registration)
@@ -417,6 +459,7 @@ struct BridgeProductSessionProducerBoundaryTests {
         // Act
         let mismatchedOpening = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: lease,
+            productAdmission: harness.productAdmission,
             build: { sequence in
                 try bridgeProductMetadataAcceptedFrame(
                     request: request,
@@ -428,6 +471,7 @@ struct BridgeProductSessionProducerBoundaryTests {
         let afterMismatch = await harness.session.producerSnapshot()
         let correctOpening = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: lease,
+            productAdmission: harness.productAdmission,
             build: { sequence in
                 try bridgeProductMetadataAcceptedFrame(
                     request: request,
@@ -444,7 +488,8 @@ struct BridgeProductSessionProducerBoundaryTests {
         #expect(
             await consumeNextBridgeProductProducerFrame(
                 for: lease,
-                from: harness.session
+                from: harness.session,
+                productAdmission: harness.productAdmission
             )?.sequence == 1
         )
         try await closeBridgeProductSessionProducer(lease, in: harness.session)
@@ -463,13 +508,17 @@ private func openedSessionAfterMetadataProgress(
         resumeFromStreamSequence: nil
     )
     let operation = BridgeProductSessionProducerOperationGate()
-    let registration = await harness.session.registerMetadataProducer(request: request) { lease in
+    let registration = await harness.session.registerMetadataProducer(
+        request: request,
+        productAdmission: harness.productAdmission
+    ) { lease in
         await operation.run(lease)
     }
     let lease = try bridgeProductAcceptedLease(registration)
     _ = await operation.waitUntilStarted()
     let opening = try await harness.session.enqueueRequiredProducerOpeningFrame(
         for: lease,
+        productAdmission: harness.productAdmission,
         build: { sequence in
             try bridgeProductMetadataAcceptedFrame(
                 request: request,
@@ -482,12 +531,14 @@ private func openedSessionAfterMetadataProgress(
     #expect(
         await consumeNextBridgeProductProducerFrame(
             for: lease,
-            from: harness.session
+            from: harness.session,
+            productAdmission: harness.productAdmission
         )?.sequence == 0
     )
     for expectedSequence in 1...progressFrameCount {
         let progress = try await harness.session.enqueueProducerFrame(
             for: lease,
+            productAdmission: harness.productAdmission,
             build: { sequence in
                 try bridgeProductMetadataProgressFrame(
                     request: request,
@@ -506,7 +557,8 @@ private func openedSessionAfterMetadataProgress(
         #expect(
             await consumeNextBridgeProductProducerFrame(
                 for: lease,
-                from: harness.session
+                from: harness.session,
+                productAdmission: harness.productAdmission
             )?.sequence == expectedSequence
         )
     }
@@ -521,11 +573,15 @@ private func openedSessionAfterMetadataProgress(
 
 private func expectMetadataRegistrationRejectedWithoutMutation(
     request: BridgeProductMetadataStreamRequest,
+    productAdmission: BridgeProductAdmissionContext,
     session: BridgeProductSession
 ) async throws {
     let operation = BridgeProductSessionProducerOperationGate()
     let beforeRegistration = await session.producerSnapshot()
-    let registration = await session.registerMetadataProducer(request: request) { lease in
+    let registration = await session.registerMetadataProducer(
+        request: request,
+        productAdmission: productAdmission
+    ) { lease in
         await operation.run(lease)
     }
     let afterRegistration = await session.producerSnapshot()

@@ -35,7 +35,7 @@ final class BridgeSchemeHandlerRPCTests {
         #expect(!adapterCreatesNestedReplyChannel)
         #expect(
             relaySource.contains(
-                "transportClaim.adapter.route(request, continuation: continuation)"
+                "productAdmission: transportClaim.productAdmission"
             )
         )
     }
@@ -67,11 +67,16 @@ final class BridgeSchemeHandlerRPCTests {
             holdFirstControlResponse: false,
             contentReturnsWithoutTerminal: false
         )
+        let productAdmissionGate = BridgeProductAdmissionGate()
         let installation = try BridgeProductSessionInstallation.make(
             paneSessionId: paneSessionId,
-            provider: provider
+            provider: provider,
+            productAdmissionGate: productAdmissionGate
         )
-        let router = BridgeProductSchemeSessionRouter(activeInstallation: installation)
+        let router = BridgeProductSchemeSessionRouter(
+            activeInstallation: installation,
+            productAdmissionGate: productAdmissionGate
+        )
         let handler = BridgeSchemeHandler(
             paneId: UUID(),
             productSessionRouter: router
@@ -103,7 +108,7 @@ final class BridgeSchemeHandlerRPCTests {
             request: request
         )
         await router.clear()
-        let inactiveRouteReason = await collectBridgeSchemeHandlerRouteFailure(
+        let inactiveReply = try await collectBridgeSchemeHandlerReply(
             handler: handler,
             request: request
         )
@@ -126,7 +131,8 @@ final class BridgeSchemeHandlerRPCTests {
         #expect(accepted.correlation.paneSessionId == paneSessionId)
         #expect(accepted.correlation.workerInstanceId == installation.bootstrap.workerInstanceId)
         #expect((await provider.snapshot).controlRequests.count == 1)
-        #expect(inactiveRouteReason == "product-session-unavailable")
+        #expect(inactiveReply.response?.statusCode == 409)
+        #expect(inactiveReply.body.isEmpty)
     }
 
     @Test
@@ -138,11 +144,16 @@ final class BridgeSchemeHandlerRPCTests {
             contentReturnsWithoutTerminal: false,
             metadataProgressFrameCount: 2
         )
+        let productAdmissionGate = BridgeProductAdmissionGate()
         let installation = try BridgeProductSessionInstallation.make(
             paneSessionId: paneSessionId,
-            provider: provider
+            provider: provider,
+            productAdmissionGate: productAdmissionGate
         )
-        let router = BridgeProductSchemeSessionRouter(activeInstallation: installation)
+        let router = BridgeProductSchemeSessionRouter(
+            activeInstallation: installation,
+            productAdmissionGate: productAdmissionGate
+        )
         let handler = BridgeSchemeHandler(
             paneId: UUID(),
             productSessionRouter: router
@@ -193,29 +204,12 @@ final class BridgeSchemeHandlerRPCTests {
 
         // Act
         let consumer = Task {
-            do {
-                let frameDecoder = try BridgeProductMetadataFrameDecoder()
-                for try await result in handler.reply(for: metadataRequest) {
-                    switch result {
-                    case .response:
-                        await recorder.record(.response)
-                    case .data(let chunk):
-                        let frames = try frameDecoder.append(chunk)
-                        guard frames.count == 1, let frame = frames.first else {
-                            Issue.record("Expected one metadata frame per scheme reply data event")
-                            continue
-                        }
-                        await recorder.record(.data)
-                        observedFrameContinuation.yield(frame.producerFrameIdentity)
-                    @unknown default:
-                        Issue.record("Unexpected URL scheme task result")
-                    }
-                }
-            } catch is CancellationError {
-                // Cancellation is the action under test after all later frames arrive.
-            } catch {
-                Issue.record("Unexpected metadata reply failure: \(error)")
-            }
+            await BridgeSchemeMetadataReplyConsumer(
+                handler: handler,
+                request: metadataRequest,
+                recorder: recorder,
+                observedFrameContinuation: observedFrameContinuation
+            ).consume()
         }
         try await acknowledgeMetadataFrames(
             observedFrames,
@@ -246,12 +240,15 @@ final class BridgeSchemeHandlerRPCTests {
             holdFirstControlResponse: false,
             contentReturnsWithoutTerminal: false
         )
+        let productAdmissionGate = BridgeProductAdmissionGate()
         let installation = try BridgeProductSessionInstallation.make(
             paneSessionId: "pane-session-product-preflight",
-            provider: provider
+            provider: provider,
+            productAdmissionGate: productAdmissionGate
         )
         let router = BridgeProductSchemeSessionRouter(
-            activeInstallation: installation
+            activeInstallation: installation,
+            productAdmissionGate: productAdmissionGate
         )
         let handler = BridgeSchemeHandler(
             paneId: UUID(),
@@ -268,7 +265,7 @@ final class BridgeSchemeHandlerRPCTests {
             request: request
         )
         await router.clear()
-        let inactiveRouteReason = await collectBridgeSchemeHandlerRouteFailure(
+        let inactiveReply = try await collectBridgeSchemeHandlerReply(
             handler: handler,
             request: request
         )
@@ -284,7 +281,41 @@ final class BridgeSchemeHandlerRPCTests {
                 == "OPTIONS, POST"
         )
         #expect(reply.body.isEmpty)
-        #expect(inactiveRouteReason == "product-session-unavailable")
+        #expect(inactiveReply.response?.statusCode == 204)
+        #expect(inactiveReply.body.isEmpty)
+    }
+}
+
+private struct BridgeSchemeMetadataReplyConsumer {
+    let handler: BridgeSchemeHandler
+    let request: URLRequest
+    let recorder: BridgeProductSchemeReplyEventRecorder
+    let observedFrameContinuation: AsyncStream<BridgeProductMetadataFrameIdentity>.Continuation
+
+    func consume() async {
+        do {
+            let frameDecoder = try BridgeProductMetadataFrameDecoder()
+            for try await result in handler.reply(for: request) {
+                switch result {
+                case .response:
+                    await recorder.record(.response)
+                case .data(let chunk):
+                    let frames = try frameDecoder.append(chunk)
+                    guard frames.count == 1, let frame = frames.first else {
+                        Issue.record("Expected one metadata frame per scheme reply data event")
+                        continue
+                    }
+                    await recorder.record(.data)
+                    observedFrameContinuation.yield(frame.producerFrameIdentity)
+                @unknown default:
+                    Issue.record("Unexpected URL scheme task result")
+                }
+            }
+        } catch is CancellationError {
+            // Cancellation is the action under test after all later frames arrive.
+        } catch {
+            Issue.record("Unexpected metadata reply failure: \(error)")
+        }
     }
 }
 

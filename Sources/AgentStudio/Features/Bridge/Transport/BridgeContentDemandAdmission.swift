@@ -43,16 +43,19 @@ enum BridgeContentDemandInterest: String, Equatable, Sendable {
 }
 
 struct BridgeContentDemandAdmissionSnapshot: Equatable, Sendable {
+    let activeScopedAdmissionCount: Int
     let backgroundCancellationTombstoneCount: Int
     let backgroundWaiterRegistrationCount: Int
     let backgroundWaiterCount: Int
     let hasBackgroundCooldownTask: Bool
     let hasBackgroundPacingTask: Bool
+    let isClosed: Bool
     let pendingUserDemandCount: Int
 }
 
 actor BridgeContentDemandAdmission {
     private let delay: AsyncDelay
+    private var activeScopedAdmissionCount = 0
     private var backgroundWaiterCancellationTombstones: Set<UUID> = []
     private var backgroundWaiterContinuationsById: [UUID: CheckedContinuation<Void, Error>] = [:]
     private var backgroundWaiterIds: [UUID] = []
@@ -60,8 +63,12 @@ actor BridgeContentDemandAdmission {
     private var pendingUserDemandCount = 0
     private var backgroundPacingTask: Task<Void, Never>?
     private var backgroundCooldownTask: Task<Void, Never>?
+    private var closingBackgroundCooldownTask: Task<Void, Never>?
+    private var closingBackgroundPacingTask: Task<Void, Never>?
     private var cooldownGeneration = 0
+    private var closeAndDrainWaiters: [CheckedContinuation<Void, Never>] = []
     private var isBackgroundCooldownActive = false
+    private var isClosed = false
     private var backgroundFillTokens = AppPolicies.Bridge.contentBackgroundFillInteractiveBurstBudget
 
     init(clock: (any Clock<Duration> & Sendable)? = nil) {
@@ -73,23 +80,26 @@ actor BridgeContentDemandAdmission {
         operation: @Sendable () async throws -> ReturnValue
     ) async throws -> ReturnValue {
         try await beginScopedAdmission(interest)
-        defer { finish(interest) }
+        defer { finishScopedAdmission(interest) }
         try Task.checkCancellation()
         return try await operation()
     }
 
     func snapshot() -> BridgeContentDemandAdmissionSnapshot {
         BridgeContentDemandAdmissionSnapshot(
+            activeScopedAdmissionCount: activeScopedAdmissionCount,
             backgroundCancellationTombstoneCount: backgroundWaiterCancellationTombstones.count,
             backgroundWaiterRegistrationCount: backgroundWaiterRegistrationIds.count,
             backgroundWaiterCount: backgroundWaiterContinuationsById.count,
-            hasBackgroundCooldownTask: backgroundCooldownTask != nil,
-            hasBackgroundPacingTask: backgroundPacingTask != nil,
+            hasBackgroundCooldownTask: backgroundCooldownTask != nil || closingBackgroundCooldownTask != nil,
+            hasBackgroundPacingTask: backgroundPacingTask != nil || closingBackgroundPacingTask != nil,
+            isClosed: isClosed,
             pendingUserDemandCount: pendingUserDemandCount
         )
     }
 
     func start(_ interest: BridgeContentDemandInterest) async {
+        guard !isClosed else { return }
         if interest.isUserBlocking {
             recordUserDemandStart()
             return
@@ -100,10 +110,13 @@ actor BridgeContentDemandAdmission {
     }
 
     func finish(_ interest: BridgeContentDemandInterest) {
-        guard interest.isUserBlocking, pendingUserDemandCount > 0 else {
+        guard interest.isUserBlocking else {
             return
         }
-        pendingUserDemandCount -= 1
+        if pendingUserDemandCount > 0 {
+            pendingUserDemandCount -= 1
+        }
+        guard !isClosed else { return }
         if pendingUserDemandCount == 0 {
             beginBackgroundCooldown()
             releaseEligibleBackgroundWaiters()
@@ -111,29 +124,79 @@ actor BridgeContentDemandAdmission {
     }
 
     func waitForBackgroundTurn(_ interest: BridgeContentDemandInterest) async {
-        guard interest.isBackgroundFill else {
+        guard !isClosed, interest.isBackgroundFill else {
             return
         }
         try? await awaitBackgroundTurn()
     }
 
     func waitForBackgroundTurn() async {
+        guard !isClosed else { return }
         try? await awaitBackgroundTurn()
+    }
+
+    func closeAndDrain() async {
+        if !isClosed {
+            isClosed = true
+            pendingUserDemandCount = 0
+            isBackgroundCooldownActive = false
+            backgroundFillTokens = 0
+            cooldownGeneration += 1
+
+            closingBackgroundCooldownTask = backgroundCooldownTask
+            closingBackgroundPacingTask = backgroundPacingTask
+            backgroundCooldownTask = nil
+            backgroundPacingTask = nil
+            closingBackgroundCooldownTask?.cancel()
+            closingBackgroundPacingTask?.cancel()
+
+            backgroundWaiterIds.removeAll(keepingCapacity: false)
+            let backgroundWaiters = Array(backgroundWaiterContinuationsById.values)
+            backgroundWaiterContinuationsById.removeAll(keepingCapacity: false)
+            backgroundWaiterRegistrationIds.removeAll(keepingCapacity: false)
+            backgroundWaiterCancellationTombstones.removeAll(keepingCapacity: false)
+            for waiter in backgroundWaiters {
+                waiter.resume(throwing: CancellationError())
+            }
+        }
+
+        await closingBackgroundCooldownTask?.value
+        await closingBackgroundPacingTask?.value
+        closingBackgroundCooldownTask = nil
+        closingBackgroundPacingTask = nil
+
+        guard activeScopedAdmissionCount > 0 else { return }
+        await withCheckedContinuation { continuation in
+            closeAndDrainWaiters.append(continuation)
+        }
     }
 
     private func beginScopedAdmission(_ interest: BridgeContentDemandInterest) async throws {
         try Task.checkCancellation()
+        guard !isClosed else { throw CancellationError() }
         if interest.isUserBlocking {
             recordUserDemandStart()
+            activeScopedAdmissionCount += 1
             return
         }
         if interest.isBackgroundFill {
             try await awaitBackgroundTurn()
         }
+        guard !isClosed else { throw CancellationError() }
+        activeScopedAdmissionCount += 1
+    }
+
+    private func finishScopedAdmission(_ interest: BridgeContentDemandInterest) {
+        finish(interest)
+        if activeScopedAdmissionCount > 0 {
+            activeScopedAdmissionCount -= 1
+        }
+        resumeCloseAndDrainWaitersIfNeeded()
     }
 
     private func awaitBackgroundTurn() async throws {
         try Task.checkCancellation()
+        guard !isClosed else { throw CancellationError() }
         if shouldYieldForPendingUserDemand {
             try await enqueueBackgroundWaiter()
             return
@@ -170,6 +233,7 @@ actor BridgeContentDemandAdmission {
     }
 
     private func beginBackgroundCooldown() {
+        guard !isClosed else { return }
         isBackgroundCooldownActive = true
         cooldownGeneration += 1
         let generation = cooldownGeneration
@@ -186,7 +250,7 @@ actor BridgeContentDemandAdmission {
     }
 
     private func finishBackgroundCooldown(generation: Int) {
-        guard generation == cooldownGeneration, pendingUserDemandCount == 0 else {
+        guard !isClosed, generation == cooldownGeneration, pendingUserDemandCount == 0 else {
             return
         }
         isBackgroundCooldownActive = false
@@ -253,6 +317,7 @@ actor BridgeContentDemandAdmission {
     }
 
     private func releaseEligibleBackgroundWaiters() {
+        guard !isClosed else { return }
         guard !backgroundWaiterIds.isEmpty else {
             cancelBackgroundPacingIfNoWaiters()
             return
@@ -280,7 +345,8 @@ actor BridgeContentDemandAdmission {
     }
 
     private func scheduleBackgroundPacingTickIfNeeded() {
-        guard backgroundPacingTask == nil,
+        guard !isClosed,
+            backgroundPacingTask == nil,
             isBackgroundCooldownActive,
             !shouldYieldForPendingUserDemand,
             !backgroundWaiterIds.isEmpty
@@ -300,6 +366,7 @@ actor BridgeContentDemandAdmission {
 
     private func refillBackgroundFillTokens() {
         backgroundPacingTask = nil
+        guard !isClosed else { return }
         guard isBackgroundCooldownActive else {
             releaseEligibleBackgroundWaiters()
             return
@@ -326,5 +393,14 @@ actor BridgeContentDemandAdmission {
         guard backgroundWaiterIds.isEmpty else { return }
         backgroundPacingTask?.cancel()
         backgroundPacingTask = nil
+    }
+
+    private func resumeCloseAndDrainWaitersIfNeeded() {
+        guard isClosed, activeScopedAdmissionCount == 0 else { return }
+        let waiters = closeAndDrainWaiters
+        closeAndDrainWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }

@@ -33,13 +33,49 @@ extension BridgeSchemeHandler {
                 continuation.finish(throwing: CancellationError())
                 return
             }
-            guard let productSessionRouter,
-                let transportClaim = await productSessionRouter.claimActiveAdapter()
+            guard let url = request.url else {
+                continuation.finish(throwing: BridgeSchemeError.invalidRequest("Missing URL"))
+                return
+            }
+            guard
+                let presentedCapability = request.value(
+                    forHTTPHeaderField: BridgeProductWireContract.capabilityHeaderName
+                )
             else {
+                emitProductAdmissionResponse(
+                    statusCode: 401,
+                    url: url,
+                    continuation: continuation
+                )
+                return
+            }
+            guard let productSessionRouter else {
                 bridgeProductSchemeTaskLogger.error(
                     "Product scheme task rejected without active session route=\(route, privacy: .public)"
                 )
                 continuation.finish(throwing: BridgeSchemeError.invalidRoute("product-session-unavailable"))
+                return
+            }
+            let transportAdmission = await productSessionRouter.claimActiveAdapter(
+                presentedCapability: presentedCapability
+            )
+            let transportClaim: BridgeProductSchemeTransportClaim
+            switch transportAdmission {
+            case .admitted(let admittedClaim):
+                transportClaim = admittedClaim
+            case .conflict:
+                emitProductAdmissionResponse(
+                    statusCode: 409,
+                    url: url,
+                    continuation: continuation
+                )
+                return
+            case .unauthorized:
+                emitProductAdmissionResponse(
+                    statusCode: 403,
+                    url: url,
+                    continuation: continuation
+                )
                 return
             }
             guard !Task.isCancelled else {
@@ -50,7 +86,11 @@ extension BridgeSchemeHandler {
                 await transportClaim.finish()
                 return
             }
-            await transportClaim.adapter.route(request, continuation: continuation)
+            await transportClaim.adapter.route(
+                request,
+                productAdmission: transportClaim.productAdmission,
+                continuation: continuation
+            )
             bridgeProductSchemeTaskLogger.debug(
                 "Product scheme task completed route=\(route, privacy: .public)"
             )
@@ -62,5 +102,26 @@ extension BridgeSchemeHandler {
             )
             task.cancel()
         }
+    }
+
+    private func emitProductAdmissionResponse(
+        statusCode: Int,
+        url: URL,
+        continuation: AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation
+    ) {
+        continuation.yield(
+            .response(
+                Self.response(
+                    url: url,
+                    mimeType: "application/json",
+                    expectedContentLength: 0,
+                    allowedMethods: "OPTIONS, POST",
+                    allowedHeaders:
+                        "Content-Type, \(BridgeProductWireContract.capabilityHeaderName)",
+                    statusCode: statusCode
+                )
+            )
+        )
+        continuation.finish()
     }
 }

@@ -27,18 +27,21 @@ struct BridgeProductSessionProducerOwnershipTests {
 
         // Act
         let wrongPaneRegistration = await freshHarness.session.registerMetadataProducer(
-            request: wrongPaneRequest
+            request: wrongPaneRequest,
+            productAdmission: freshHarness.productAdmission.context
         ) { _ in
             await rejectedOperation.recordInvocation()
         }
         let wrongWorkerRegistration = await freshHarness.session.registerMetadataProducer(
-            request: wrongWorkerRequest
+            request: wrongWorkerRequest,
+            productAdmission: freshHarness.productAdmission.context
         ) { _ in
             await rejectedOperation.recordInvocation()
         }
         let freshOperation = ProducerOperationGate()
         let freshRegistration = await freshHarness.session.registerMetadataProducer(
-            request: freshRequest
+            request: freshRequest,
+            productAdmission: freshHarness.productAdmission.context
         ) { lease in
             await freshOperation.run(lease)
         }
@@ -46,6 +49,7 @@ struct BridgeProductSessionProducerOwnershipTests {
         _ = await freshOperation.waitUntilStarted()
         let freshOpening = try await freshHarness.session.enqueueRequiredProducerOpeningFrame(
             for: freshLease,
+            productAdmission: freshHarness.productAdmission.context,
             build: { sequence in
                 try metadataAcceptedProducerFrame(
                     request: freshRequest,
@@ -64,7 +68,8 @@ struct BridgeProductSessionProducerOwnershipTests {
         #expect(
             await consumeNextBridgeProductProducerFrame(
                 for: freshLease,
-                from: freshHarness.session
+                from: freshHarness.session,
+                productAdmission: freshHarness.productAdmission.context
             )?.sequence == 0
         )
         try await closeProducer(freshLease, in: freshHarness.session)
@@ -79,7 +84,8 @@ struct BridgeProductSessionProducerOwnershipTests {
             request: try metadataStreamRequest(
                 metadataStreamId: "metadata-surface-scope",
                 resumeFromStreamSequence: nil
-            )
+            ),
+            productAdmission: harness.productAdmission.context
         ) { lease in
             await metadataOperation.run(lease)
         }
@@ -92,7 +98,8 @@ struct BridgeProductSessionProducerOwnershipTests {
             workerDerivationEpoch: 2
         )
         let oldContentRegistration = await harness.session.registerContentProducer(
-            request: oldContentRequest
+            request: oldContentRequest,
+            productAdmission: harness.productAdmission.context
         ) { lease in
             await oldContentOperation.run(lease)
         }
@@ -100,12 +107,14 @@ struct BridgeProductSessionProducerOwnershipTests {
         _ = await oldContentOperation.waitUntilStarted()
         _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: oldContentLease,
+            productAdmission: harness.productAdmission.context,
             build: { _ in contentAcceptedProducerFrame(request: oldContentRequest) }
         )
         #expect(
             await consumeNextBridgeProductProducerFrame(
                 for: oldContentLease,
-                from: harness.session
+                from: harness.session,
+                productAdmission: harness.productAdmission.context
             )?.sequence == 0
         )
 
@@ -116,7 +125,8 @@ struct BridgeProductSessionProducerOwnershipTests {
             workerDerivationEpoch: 3
         )
         let currentContentRegistration = await harness.session.registerContentProducer(
-            request: currentContentRequest
+            request: currentContentRequest,
+            productAdmission: harness.productAdmission.context
         ) { lease in
             await currentContentOperation.run(lease)
         }
@@ -130,12 +140,14 @@ struct BridgeProductSessionProducerOwnershipTests {
             workerDerivationEpoch: 2
         )
         let staleRegistration = await harness.session.registerContentProducer(
-            request: staleContentRequest
+            request: staleContentRequest,
+            productAdmission: harness.productAdmission.context
         ) { _ in
             await staleOperation.recordInvocation()
         }
         let cleanupTerminal = try await harness.session.enqueueTerminalProducerFrame(
             for: oldContentLease,
+            productAdmission: harness.productAdmission.context,
             build: { sequence in try contentResetProducerFrame(contentSequence: sequence) }
         )
 
@@ -151,7 +163,8 @@ struct BridgeProductSessionProducerOwnershipTests {
         #expect(
             await consumeNextBridgeProductProducerFrame(
                 for: oldContentLease,
-                from: harness.session
+                from: harness.session,
+                productAdmission: harness.productAdmission.context
             )?.sequence == 1
         )
 
@@ -179,7 +192,8 @@ struct BridgeProductSessionProducerOwnershipTests {
             resumeFromStreamSequence: nil
         )
         let metadataRegistration = await harness.session.registerMetadataProducer(
-            request: metadataRequest
+            request: metadataRequest,
+            productAdmission: harness.productAdmission.context
         ) { lease in
             await metadataOperation.run(lease)
         }
@@ -192,7 +206,8 @@ struct BridgeProductSessionProducerOwnershipTests {
             workerDerivationEpoch: 2
         )
         let contentRegistration = await harness.session.registerContentProducer(
-            request: contentRequest
+            request: contentRequest,
+            productAdmission: harness.productAdmission.context
         ) { lease in
             await contentOperation.run(lease)
         }
@@ -200,6 +215,7 @@ struct BridgeProductSessionProducerOwnershipTests {
         _ = await contentOperation.waitUntilStarted()
         _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: metadataLease,
+            productAdmission: harness.productAdmission.context,
             build: { sequence in
                 try metadataAcceptedProducerFrame(
                     request: metadataRequest,
@@ -210,6 +226,7 @@ struct BridgeProductSessionProducerOwnershipTests {
         )
         _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: contentLease,
+            productAdmission: harness.productAdmission.context,
             build: { _ in contentAcceptedProducerFrame(request: contentRequest) }
         )
         let beforeRevoke = await harness.session.producerSnapshot()
@@ -276,6 +293,7 @@ private struct ProducerSessionHarness {
     static let fileSubscriptionId = "file-subscription-producer-ownership"
 
     let capabilityHeader: String
+    let productAdmission: BridgeProductAdmissionTestContext
     let session: BridgeProductSession
 
     static func opened() async throws -> Self {
@@ -286,7 +304,11 @@ private struct ProducerSessionHarness {
             workerInstanceId: "worker-instance-1",
             capabilityBytes: capabilityBytes
         )
-        let harness = Self(capabilityHeader: capabilityHeader, session: session)
+        let harness = try Self(
+            capabilityHeader: capabilityHeader,
+            productAdmission: .make(),
+            session: session
+        )
         let request = try controlRequest([
             "kind": "workerSession.open",
             "paneSessionId": "pane-session-1",
@@ -297,7 +319,8 @@ private struct ProducerSessionHarness {
             "workerInstanceId": "worker-instance-1",
         ])
         let token = try #require(
-            await harness.session.beginControl(
+            await harness.productAdmission.beginControl(
+                in: harness.session,
                 exactRequestBytes: try JSONEncoder().encode(request),
                 presentedCapability: capabilityHeader
             ).executionToken
@@ -333,7 +356,8 @@ private struct ProducerSessionHarness {
             "workerInstanceId": "worker-instance-1",
         ])
         let token = try #require(
-            await session.beginControl(
+            await productAdmission.beginControl(
+                in: session,
                 exactRequestBytes: try JSONEncoder().encode(request),
                 presentedCapability: capabilityHeader
             ).executionToken

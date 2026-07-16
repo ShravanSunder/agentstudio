@@ -248,6 +248,9 @@ extension BridgePaneController {
         contentHandleId: String,
         reviewGeneration: Int
     ) async throws -> IPCBridgeContentGetResult {
+        guard let productAdmission = productAdmissionGate.acquire() else {
+            throw BridgeIPCProjectionError(reason: .contentUnavailable)
+        }
         let requestedGeneration = BridgeReviewGeneration(reviewGeneration)
         let capturedAuthorityLifetime = reviewContentAuthorityLifetime
         guard paneState.diff.packageMetadata?.reviewGeneration == requestedGeneration else {
@@ -263,19 +266,26 @@ extension BridgePaneController {
             throw BridgeIPCProjectionError(reason: .contentUnavailable)
         }
         guard
-            reviewContentAuthorityLifetime == capturedAuthorityLifetime,
-            paneState.diff.packageMetadata?.reviewGeneration == requestedGeneration,
-            handle.reviewGeneration == requestedGeneration
+            let ipcResult = try productAdmission.withValidAdmission({ () throws -> IPCBridgeContentGetResult in
+                guard
+                    reviewContentAuthorityLifetime == capturedAuthorityLifetime,
+                    paneState.diff.packageMetadata?.reviewGeneration == requestedGeneration,
+                    handle.reviewGeneration == requestedGeneration
+                else {
+                    throw BridgeIPCProjectionError(reason: .contentUnavailable)
+                }
+
+                let result = IPCBridgeContentGetResult(
+                    paneId: paneId,
+                    handle: ipcContentHandle(handle),
+                    mimeType: handle.mimeType
+                )
+                try BridgeIPCResponseBudget.validate(result)
+                return result
+            })
         else {
             throw BridgeIPCProjectionError(reason: .contentUnavailable)
         }
-
-        let ipcResult = IPCBridgeContentGetResult(
-            paneId: paneId,
-            handle: ipcContentHandle(handle),
-            mimeType: handle.mimeType
-        )
-        try BridgeIPCResponseBudget.validate(ipcResult)
         return ipcResult
     }
 

@@ -60,6 +60,7 @@ struct BridgeChangeIndexTests {
     @Test("change index builds deltas for explicit package reloads")
     func changeIndexBuildsDeltasForExplicitPackageReloads() async throws {
         let index = BridgeChangeIndex()
+        let productAdmission = try BridgeProductAdmissionTestContext.make().context
         let baseEndpoint = makeBridgeEndpoint(endpointId: "base", kind: .gitRef)
         let headEndpoint = makeBridgeEndpoint(endpointId: "head", kind: .workingTree)
         let currentPackage = makeBridgeReviewPackage(
@@ -89,8 +90,14 @@ struct BridgeChangeIndexTests {
             )
         )
 
-        let firstDelta = try await index.ingestExplicitLoad(currentPackage)
-        let secondDelta = try await index.ingestExplicitLoad(nextPackage)
+        let firstDelta = try await index.ingestExplicitLoad(
+            currentPackage,
+            productAdmission: productAdmission
+        )
+        let secondDelta = try await index.ingestExplicitLoad(
+            nextPackage,
+            productAdmission: productAdmission
+        )
 
         #expect(firstDelta == nil)
         let delta = try #require(secondDelta)
@@ -109,6 +116,7 @@ struct BridgeChangeIndexTests {
     @Test("change index replaces newer generation package reloads without cross-generation deltas")
     func changeIndexReplacesNewerGenerationPackageReloads() async throws {
         let index = BridgeChangeIndex()
+        let productAdmission = try BridgeProductAdmissionTestContext.make().context
         let baseEndpoint = makeBridgeEndpoint(endpointId: "base", kind: .gitRef)
         let headEndpoint = makeBridgeEndpoint(endpointId: "head", kind: .workingTree)
         let currentPackage = makeBridgeReviewPackage(
@@ -124,8 +132,14 @@ struct BridgeChangeIndexTests {
             orderedItemIds: ["item-new"]
         )
 
-        let firstDelta = try await index.ingestExplicitLoad(currentPackage)
-        let secondDelta = try await index.ingestExplicitLoad(nextPackage)
+        let firstDelta = try await index.ingestExplicitLoad(
+            currentPackage,
+            productAdmission: productAdmission
+        )
+        let secondDelta = try await index.ingestExplicitLoad(
+            nextPackage,
+            productAdmission: productAdmission
+        )
 
         #expect(firstDelta == nil)
         #expect(secondDelta == nil)
@@ -138,6 +152,7 @@ struct BridgeChangeIndexTests {
     @Test("change index drops stale generation package reloads")
     func changeIndexDropsStaleGenerationPackageReloads() async throws {
         let index = BridgeChangeIndex(activeReviewGeneration: 10)
+        let productAdmission = try BridgeProductAdmissionTestContext.make().context
         let baseEndpoint = makeBridgeEndpoint(endpointId: "base", kind: .gitRef)
         let headEndpoint = makeBridgeEndpoint(endpointId: "head", kind: .workingTree)
         let stalePackage = makeBridgeReviewPackage(
@@ -146,12 +161,39 @@ struct BridgeChangeIndexTests {
             reviewGeneration: 9
         )
 
-        let delta = try await index.ingestExplicitLoad(stalePackage)
+        let delta = try await index.ingestExplicitLoad(
+            stalePackage,
+            productAdmission: productAdmission
+        )
 
         #expect(delta == nil)
         let snapshot = await index.snapshot()
         #expect(snapshot.activeReviewGeneration == 10)
         #expect(snapshot.packagesById["package"] == nil)
+    }
+
+    @Test("change index rejects closed admission without mutating its snapshot")
+    func changeIndexRejectsClosedAdmissionWithoutMutatingItsSnapshot() async throws {
+        let index = BridgeChangeIndex()
+        let productAdmissionGate = BridgeProductAdmissionGate()
+        let productAdmission = try #require(productAdmissionGate.acquire())
+        let package = makeBridgeReviewPackage(
+            baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+            headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+            reviewGeneration: 1,
+            orderedItemIds: ["item"]
+        )
+        let beforeClose = await index.snapshot()
+
+        productAdmissionGate.close()
+
+        await #expect(throws: BridgeChangeIndexError.admissionClosed) {
+            try await index.ingestExplicitLoad(
+                package,
+                productAdmission: productAdmission
+            )
+        }
+        #expect(await index.snapshot() == beforeClose)
     }
 }
 

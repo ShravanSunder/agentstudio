@@ -6,59 +6,62 @@ extension BridgePaneController {
         sessionId: String,
         sequence: Int,
         mode: BridgeActiveViewerMode,
-        activeSource: BridgeActiveViewerSource?
+        activeSource: BridgeActiveViewerSource?,
+        productAdmission: BridgeProductAdmissionContext
     ) async {
-        if activeViewerModeSignalState.sessionId != sessionId {
-            if activeViewerModeSignalState.sessionId != nil {
-                await recordActiveViewerModeSignalRejected(
-                    reason: .sessionReset,
-                    mode: mode,
-                    activeSource: activeSource
-                )
-            }
-            activeViewerModeSignalState = BridgeActiveViewerModeSignalState(
-                sessionId: sessionId,
-                lastSequence: nil,
-                acceptedSignal: nil
-            )
-        }
-        if let lastSequence = activeViewerModeSignalState.lastSequence,
-            sequence <= lastSequence
-        {
-            await recordActiveViewerModeSignalRejected(
-                reason: .staleSequence,
-                mode: mode,
-                activeSource: activeSource
-            )
-            return
-        }
+        var rejectionReasons: [BridgeActiveViewerModeSignalRejectionReason] = []
+        guard
+            productAdmission.withValidAdmission({
+                if activeViewerModeSignalState.sessionId != sessionId {
+                    if activeViewerModeSignalState.sessionId != nil {
+                        rejectionReasons.append(.sessionReset)
+                    }
+                    activeViewerModeSignalState = BridgeActiveViewerModeSignalState(
+                        sessionId: sessionId,
+                        lastSequence: nil,
+                        acceptedSignal: nil
+                    )
+                }
+                if let lastSequence = activeViewerModeSignalState.lastSequence,
+                    sequence <= lastSequence
+                {
+                    rejectionReasons.append(.staleSequence)
+                    return
+                }
 
-        activeViewerModeSignalState.lastSequence = sequence
-        guard let activeSource else {
-            activeViewerModeSignalState.acceptedSignal = nil
+                activeViewerModeSignalState.lastSequence = sequence
+                guard let activeSource else {
+                    activeViewerModeSignalState.acceptedSignal = nil
+                    return
+                }
+                guard isCommittedProductActiveViewerSourceAccepted(mode: mode, source: activeSource) else {
+                    activeViewerModeSignalState.acceptedSignal = nil
+                    rejectionReasons.append(.staleGeneration)
+                    return
+                }
+                activeViewerModeSignalState.acceptedSignal = BridgeActiveViewerModeAcceptedSignal(
+                    mode: mode,
+                    activeSource: activeSource,
+                    sequenceFloor: sequence
+                )
+            }) != nil
+        else {
             return
         }
-        guard isCommittedProductActiveViewerSourceAccepted(mode: mode, source: activeSource) else {
-            activeViewerModeSignalState.acceptedSignal = nil
+        for rejectionReason in rejectionReasons {
             await recordActiveViewerModeSignalRejected(
-                reason: .staleGeneration,
+                reason: rejectionReason,
                 mode: mode,
                 activeSource: activeSource
             )
-            return
         }
-        activeViewerModeSignalState.acceptedSignal = BridgeActiveViewerModeAcceptedSignal(
-            mode: mode,
-            activeSource: activeSource,
-            sequenceFloor: sequence
-        )
     }
 
-    func setActiveViewerModeAcceptedSignalForExplicitReviewRequest(
+    func setActiveViewerModeAcceptedSignalForExplicitReviewRequestWithoutAdmissionCheck(
         streamId: String,
         generation: Int
-    ) async {
-        await setActiveViewerModeAcceptedSignalForExplicitRequest(
+    ) {
+        setActiveViewerModeAcceptedSignalForExplicitRequestWithoutAdmissionCheck(
             mode: .review,
             activeSource: BridgeActiveViewerSource(
                 protocolId: .review,
@@ -68,14 +71,14 @@ extension BridgePaneController {
         )
     }
 
-    func clearActiveViewerModeAcceptedSignalForExplicitReviewRequest() {
+    func clearActiveViewerModeAcceptedSignalForExplicitReviewRequestWithoutAdmissionCheck() {
         activeViewerModeSignalState.acceptedSignal = nil
     }
 
-    private func setActiveViewerModeAcceptedSignalForExplicitRequest(
+    private func setActiveViewerModeAcceptedSignalForExplicitRequestWithoutAdmissionCheck(
         mode: BridgeActiveViewerMode,
         activeSource: BridgeActiveViewerSource
-    ) async {
+    ) {
         let sequenceFloor = (activeViewerModeSignalState.lastSequence ?? 0) + 1
         activeViewerModeSignalState.lastSequence = sequenceFloor
         activeViewerModeSignalState.acceptedSignal = BridgeActiveViewerModeAcceptedSignal(

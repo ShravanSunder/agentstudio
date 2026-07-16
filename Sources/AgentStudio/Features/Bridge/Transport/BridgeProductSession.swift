@@ -1,20 +1,25 @@
-import CryptoKit
 import Foundation
+
+private struct BridgeProductMetadataFrameAcknowledgementReplay {
+    let acknowledgement: BridgeProductMetadataFrameAcknowledgement
+    let producerLease: BridgeProductProducerLease
+}
 
 actor BridgeProductSession {
     typealias ProducerLifecycleAcknowledger =
         @Sendable (BridgeProductProducerLifecycleAcknowledgement) async -> Bool
 
-    private let capabilityDigest: Data
+    nonisolated let capabilityAuthenticator: BridgeProductCapabilityAuthenticator
     private let maximumRequestOrResponseBytes: Int
     private let paneSessionId: String
     var producerRegistry: BridgeProductProducerRegistry
     private var lastAcceptedContentFrameAcknowledgementByProducerLease:
         [BridgeProductProducerLease: BridgeProductContentFrameAcknowledgement] = [:]
-    private var lastAcceptedMetadataFrameAcknowledgement: BridgeProductMetadataFrameAcknowledgement?
+    private var lastAcceptedMetadataFrameAcknowledgement: BridgeProductMetadataFrameAcknowledgementReplay?
     private var revocationState = BridgeProductSessionRevocationState.idle
     private let workerInstanceId: String
     var contentAdmissionByProducerLease: [BridgeProductProducerLease: BridgeProductContentAdmission] = [:]
+    var productAdmissionByProducerLease: [BridgeProductProducerLease: BridgeProductAdmissionContext] = [:]
     var producerFrameObservationByLease: [BridgeProductProducerLease: BridgeProductSessionProducerFrameObservation] =
         [:]
     var producerFrameWaitersByLease: [BridgeProductProducerLease: BridgeProductSessionProducerFrameWaiter] = [:]
@@ -46,7 +51,9 @@ actor BridgeProductSession {
         let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(capabilityBytes)
         self.paneSessionId = paneSessionId
         self.workerInstanceId = workerInstanceId
-        self.capabilityDigest = Self.digest(Data(capabilityHeader.utf8))
+        self.capabilityAuthenticator = BridgeProductCapabilityAuthenticator(
+            encodedCapability: capabilityHeader
+        )
         self.maximumRequestOrResponseBytes = maximumRequestOrResponseBytes
         self.lastAcceptedMetadataFrameAcknowledgement = nil
         self.producerRegistry = BridgeProductProducerRegistry()
@@ -74,83 +81,115 @@ actor BridgeProductSession {
 
     func registerMetadataProducer(
         request: BridgeProductMetadataStreamRequest,
+        productAdmission: BridgeProductAdmissionContext,
         operation: @escaping @Sendable (BridgeProductProducerLease) async -> Void
     ) -> BridgeProductProducerRegistration {
-        guard lifecycle == .active else { return .rejected(.inactiveSession) }
-        guard request.paneSessionId == paneSessionId,
-            request.workerInstanceId == workerInstanceId
-        else {
-            return .rejected(.staleWorker)
-        }
-        return producerRegistry.registerMetadataProducer(
-            request: request,
-            operation: operation,
-            completion: producerCompletion
-        )
+        productAdmission.withValidAdmission {
+            guard lifecycle == .active else { return .rejected(.inactiveSession) }
+            guard request.paneSessionId == paneSessionId,
+                request.workerInstanceId == workerInstanceId
+            else {
+                return .rejected(.staleWorker)
+            }
+            let registration = producerRegistry.registerMetadataProducer(
+                request: request,
+                operation: operation,
+                completion: producerCompletion
+            )
+            if case .accepted(let lease) = registration {
+                productAdmissionByProducerLease[lease] = productAdmission
+            }
+            return registration
+        } ?? .rejected(.closing)
     }
 
     func registerContentProducer(
         request: BridgeProductContentRequest,
+        productAdmission: BridgeProductAdmissionContext,
         operation: @escaping @Sendable (BridgeProductProducerLease) async -> Void
     ) -> BridgeProductProducerRegistration {
-        let admission = request.admission
-        guard lifecycle == .active else { return .rejected(.inactiveSession) }
-        guard admission.paneSessionId == paneSessionId,
-            admission.workerInstanceId == workerInstanceId
-        else {
-            return .rejected(.staleWorker)
-        }
+        productAdmission.withValidAdmission {
+            let admission = request.admission
+            guard lifecycle == .active else { return .rejected(.inactiveSession) }
+            guard admission.paneSessionId == paneSessionId,
+                admission.workerInstanceId == workerInstanceId
+            else {
+                return .rejected(.staleWorker)
+            }
 
-        let surface = admission.identity.surface
-        let currentEpoch = workerDerivationEpochBySurface[surface, default: 0]
-        guard admission.workerDerivationEpoch >= currentEpoch else {
-            return .rejected(.staleSurfaceEpoch(currentFloor: currentEpoch))
-        }
-        advanceSurfaceFloorIfNeeded(
-            surface: surface,
-            workerDerivationEpoch: admission.workerDerivationEpoch
-        )
-        let registration = producerRegistry.registerContentProducer(
-            request: request,
-            operation: operation,
-            completion: producerCompletion
-        )
-        if case .accepted(let lease) = registration {
-            contentAdmissionByProducerLease[lease] = admission
-        }
-        return registration
+            let surface = admission.identity.surface
+            let currentEpoch = workerDerivationEpochBySurface[surface, default: 0]
+            guard admission.workerDerivationEpoch >= currentEpoch else {
+                return .rejected(.staleSurfaceEpoch(currentFloor: currentEpoch))
+            }
+            advanceSurfaceFloorIfNeeded(
+                surface: surface,
+                workerDerivationEpoch: admission.workerDerivationEpoch
+            )
+            let registration = producerRegistry.registerContentProducer(
+                request: request,
+                operation: operation,
+                completion: producerCompletion
+            )
+            if case .accepted(let lease) = registration {
+                contentAdmissionByProducerLease[lease] = admission
+                productAdmissionByProducerLease[lease] = productAdmission
+            }
+            return registration
+        } ?? .rejected(.closing)
     }
 
     func enqueueRequiredProducerOpeningFrame(
         for lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
         build: @Sendable (Int) throws -> BridgeProductProducerFrame
     ) throws -> BridgeProductProducerEnqueueResult {
-        let result = try producerRegistry.enqueueRequiredOpeningFrame(for: lease, build: build)
-        resumeProducerFrameWaiterIfPossible(for: lease)
-        return result
+        try productAdmission.withValidAdmission {
+            guard producerAdmissionMatches(productAdmission, for: lease) else {
+                return .rejected(.unknownLease)
+            }
+            let result = try producerRegistry.enqueueRequiredOpeningFrame(
+                for: lease,
+                build: build
+            )
+            resumeProducerFrameWaiterIfPossible(for: lease)
+            return result
+        } ?? .rejected(.lifecycleClosed)
     }
 
     func enqueueProducerFrame(
         for lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
         build: @Sendable (Int) throws -> BridgeProductProducerFrame,
         overflowReset: @Sendable (Int) throws -> BridgeProductProducerFrame
     ) throws -> BridgeProductProducerEnqueueResult {
-        let result = try producerRegistry.enqueueNonterminalFrame(
-            for: lease,
-            build: build,
-            overflowReset: overflowReset
-        )
-        resumeProducerFrameWaiterIfPossible(for: lease)
-        return result
+        try productAdmission.withValidAdmission {
+            guard producerAdmissionMatches(productAdmission, for: lease) else {
+                return .rejected(.unknownLease)
+            }
+            let result = try producerRegistry.enqueueNonterminalFrame(
+                for: lease,
+                build: build,
+                overflowReset: overflowReset
+            )
+            resumeProducerFrameWaiterIfPossible(for: lease)
+            return result
+        } ?? .rejected(.lifecycleClosed)
     }
 
     func enqueueTerminalProducerFrame(
         for lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
         build: @Sendable (Int) throws -> BridgeProductProducerFrame
     ) throws -> BridgeProductProducerEnqueueResult {
-        let result = try producerRegistry.enqueueTerminalFrame(for: lease, build: build)
-        resumeProducerFrameWaiterIfPossible(for: lease)
-        return result
+        try productAdmission.withValidAdmission {
+            guard producerAdmissionMatches(productAdmission, for: lease) else {
+                return .rejected(.unknownLease)
+            }
+            let result = try producerRegistry.enqueueTerminalFrame(for: lease, build: build)
+            resumeProducerFrameWaiterIfPossible(for: lease)
+            return result
+        } ?? .rejected(.lifecycleClosed)
     }
 
     func stopProducer(
@@ -181,6 +220,14 @@ actor BridgeProductSession {
             contentAdmissionByProducerLease.removeValue(
                 forKey: acknowledgement.producerLease
             )
+            productAdmissionByProducerLease.removeValue(
+                forKey: acknowledgement.producerLease
+            )
+            if lastAcceptedMetadataFrameAcknowledgement?.producerLease
+                == acknowledgement.producerLease
+            {
+                lastAcceptedMetadataFrameAcknowledgement = nil
+            }
             resolveProducerObservationPacingCancellation(
                 for: acknowledgement.producerLease
             )
@@ -192,7 +239,10 @@ actor BridgeProductSession {
     }
 
     func producerSnapshot() -> BridgeProductProducerRegistrySnapshot {
-        producerRegistry.snapshot()
+        producerRegistry.snapshot().includingSessionAdmissionResidue(
+            contentAdmissionCount: contentAdmissionByProducerLease.count,
+            productAdmissionCount: productAdmissionByProducerLease.count
+        )
     }
 
     private var producerCompletion: BridgeProductProducerRegistry.ProducerCompletion {
@@ -201,58 +251,81 @@ actor BridgeProductSession {
         }
     }
 
+    func producerAdmissionMatches(
+        _ productAdmission: BridgeProductAdmissionContext,
+        for lease: BridgeProductProducerLease
+    ) -> Bool {
+        productAdmissionByProducerLease[lease]?.matches(productAdmission) == true
+    }
+
     func authorizes(presentedCapability: String) -> Bool {
         guard lifecycle != .revoked else { return false }
         return capabilityMatches(presentedCapability)
     }
 
     func acknowledgeMetadataFrameObservation(
-        _ acknowledgement: BridgeProductMetadataFrameAcknowledgement
+        _ acknowledgement: BridgeProductMetadataFrameAcknowledgement,
+        productAdmission: BridgeProductAdmissionContext
     ) -> Bool {
-        guard lifecycle == .active,
-            acknowledgement.paneSessionId == paneSessionId,
-            acknowledgement.workerInstanceId == workerInstanceId
-        else {
-            return false
-        }
-        if lastAcceptedMetadataFrameAcknowledgement == acknowledgement {
+        productAdmission.withValidAdmission {
+            guard lifecycle == .active,
+                acknowledgement.paneSessionId == paneSessionId,
+                acknowledgement.workerInstanceId == workerInstanceId
+            else {
+                return false
+            }
+            if let replay = lastAcceptedMetadataFrameAcknowledgement,
+                replay.acknowledgement == acknowledgement
+            {
+                return producerAdmissionMatches(
+                    productAdmission,
+                    for: replay.producerLease
+                )
+            }
+            guard
+                let receipt = producerRegistry.inFlightMetadataFrameReceipt(
+                    matching: acknowledgement
+                ), producerAdmissionMatches(productAdmission, for: receipt.producerLease),
+                acknowledgeProducerFrameObserved(receipt)
+            else {
+                return false
+            }
+            lastAcceptedMetadataFrameAcknowledgement = .init(
+                acknowledgement: acknowledgement,
+                producerLease: receipt.producerLease
+            )
             return true
-        }
-        guard
-            let receipt = producerRegistry.inFlightMetadataFrameReceipt(
-                matching: acknowledgement
-            ), acknowledgeProducerFrameObserved(receipt)
-        else {
-            return false
-        }
-        lastAcceptedMetadataFrameAcknowledgement = acknowledgement
-        return true
+        } ?? false
     }
 
     func acknowledgeContentFrameObservation(
-        _ acknowledgement: BridgeProductContentFrameAcknowledgement
+        _ acknowledgement: BridgeProductContentFrameAcknowledgement,
+        productAdmission: BridgeProductAdmissionContext
     ) -> Bool {
-        guard lifecycle == .active,
-            acknowledgement.paneSessionId == paneSessionId,
-            acknowledgement.workerInstanceId == workerInstanceId
-        else {
-            return false
-        }
-        if lastAcceptedContentFrameAcknowledgementByProducerLease.values.contains(
-            acknowledgement
-        ) {
+        productAdmission.withValidAdmission {
+            guard lifecycle == .active,
+                acknowledgement.paneSessionId == paneSessionId,
+                acknowledgement.workerInstanceId == workerInstanceId
+            else {
+                return false
+            }
+            if let replayLease = lastAcceptedContentFrameAcknowledgementByProducerLease.first(
+                where: { $0.value == acknowledgement }
+            )?.key {
+                return producerAdmissionMatches(productAdmission, for: replayLease)
+            }
+            guard
+                let receipt = producerRegistry.inFlightContentFrameReceipt(
+                    matching: acknowledgement
+                ), producerAdmissionMatches(productAdmission, for: receipt.producerLease),
+                acknowledgeProducerFrameObserved(receipt)
+            else {
+                return false
+            }
+            lastAcceptedContentFrameAcknowledgementByProducerLease[receipt.producerLease] =
+                acknowledgement
             return true
-        }
-        guard
-            let receipt = producerRegistry.inFlightContentFrameReceipt(
-                matching: acknowledgement
-            ), acknowledgeProducerFrameObserved(receipt)
-        else {
-            return false
-        }
-        lastAcceptedContentFrameAcknowledgementByProducerLease[receipt.producerLease] =
-            acknowledgement
-        return true
+        } ?? false
     }
 
     func clearContentFrameObservationReplay(
@@ -265,10 +338,15 @@ actor BridgeProductSession {
 
     func beginControl(
         exactRequestBytes: Data,
-        presentedCapability: String
+        presentedCapability: String,
+        productAdmission: BridgeProductAdmissionContext
     ) -> BridgeProductSessionControlAdmission {
-        guard lifecycle != .revoked else { return .rejected(.revoked) }
         guard capabilityMatches(presentedCapability) else { return .rejected(.unauthorized) }
+        guard
+            (productAdmission.withValidAdmission { true }) == true
+        else {
+            return .admissionClosed
+        }
         guard exactRequestBytes.count <= maximumRequestOrResponseBytes else {
             return .rejected(.payloadTooLarge)
         }
@@ -285,6 +363,22 @@ actor BridgeProductSession {
         else {
             return .rejected(.init(reason: .staleWorker, request: request))
         }
+
+        return productAdmission.withValidAdmission {
+            beginValidatedControl(
+                exactRequestBytes: exactRequestBytes,
+                request: request,
+                productAdmission: productAdmission
+            )
+        } ?? .admissionClosed
+    }
+
+    private func beginValidatedControl(
+        exactRequestBytes: Data,
+        request: BridgeProductControlRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) -> BridgeProductSessionControlAdmission {
+        guard lifecycle != .revoked else { return .rejected(.revoked) }
         if pendingControl != nil {
             return .rejected(
                 .init(
@@ -322,6 +416,7 @@ actor BridgeProductSession {
             }
             pendingControl = .init(
                 deferredResyncEpochs: deferredResyncEpochs,
+                productAdmission: productAdmission,
                 providerDispatchCompletion: nil,
                 request: request,
                 token: token
@@ -340,9 +435,11 @@ actor BridgeProductSession {
         else {
             return false
         }
-        pendingControl.providerDispatchCompletion = BridgeProductControlDispatchCompletion()
-        self.pendingControl = pendingControl
-        return true
+        return pendingControl.productAdmission.withValidAdmission {
+            pendingControl.providerDispatchCompletion = BridgeProductControlDispatchCompletion()
+            self.pendingControl = pendingControl
+            return true
+        } ?? false
     }
 
     func completeControl(
@@ -351,6 +448,12 @@ actor BridgeProductSession {
     ) async throws -> BridgeProductSessionCompletionEffect {
         guard let pendingControl, pendingControl.token == token else {
             throw BridgeProductSessionError.invalidAdmissionToken
+        }
+        guard
+            (pendingControl.productAdmission.withValidAdmission { true }) == true
+        else {
+            await settleControlProviderDispatch(token: token)
+            return .noEffect
         }
         guard exactResponseBytes.count <= maximumRequestOrResponseBytes,
             let response = try? BridgeProductStrictJSON.decode(
@@ -369,8 +472,16 @@ actor BridgeProductSession {
         )
 
         if lifecycle == .revoked || pendingControlIsStale(pendingControl) {
-            try controlReplay.complete(token: token, exactResponseBytes: exactResponseBytes)
-            await settlePendingControl(pendingControl)
+            let didComplete =
+                try pendingControl.productAdmission.withValidAdmission {
+                    try controlReplay.complete(token: token, exactResponseBytes: exactResponseBytes)
+                    return true
+                } ?? false
+            if didComplete {
+                await settlePendingControl(pendingControl)
+            } else {
+                await settleControlProviderDispatch(token: token)
+            }
             return .noEffect
         }
 
@@ -387,32 +498,39 @@ actor BridgeProductSession {
             throw BridgeProductSessionError.subscriptionStateRejected(stateError)
         }
 
-        if case .resynced = transition.effect {
-            for (surface, epoch) in pendingControl.deferredResyncEpochs {
-                advanceSurfaceFloorIfNeeded(
-                    surface: surface,
-                    workerDerivationEpoch: epoch
-                )
+        let committedEffect = try pendingControl.productAdmission.withValidAdmission {
+            if case .resynced = transition.effect {
+                for (surface, epoch) in pendingControl.deferredResyncEpochs {
+                    advanceSurfaceFloorIfNeeded(
+                        surface: surface,
+                        workerDerivationEpoch: epoch
+                    )
+                }
             }
+            if pendingControl.providerDispatchCompletion != nil {
+                try admitRequiredProtocolLifecycleFrame(for: transition.effect)
+            }
+            try controlReplay.complete(token: token, exactResponseBytes: exactResponseBytes)
+            subscriptionState = transition.subscriptionState
+            if case .resynced(let resyncResult) = transition.effect {
+                reconcileProtocolSubscriptionDeliveries(resyncResult)
+            }
+            applyCompletedLifecycle(
+                request: pendingControl.request,
+                response: response
+            )
+            return transition.effect
         }
-        if pendingControl.providerDispatchCompletion != nil {
-            try admitRequiredProtocolLifecycleFrame(for: transition.effect)
+        guard let committedEffect else {
+            await settleControlProviderDispatch(token: token)
+            return .noEffect
         }
-        try controlReplay.complete(token: token, exactResponseBytes: exactResponseBytes)
-        subscriptionState = transition.subscriptionState
-        if case .resynced(let resyncResult) = transition.effect {
-            reconcileProtocolSubscriptionDeliveries(resyncResult)
-        }
-        applyCompletedLifecycle(
-            request: pendingControl.request,
-            response: response
-        )
-        if transition.effect == .noEffect
+        if committedEffect == .noEffect
             || pendingControl.providerDispatchCompletion == nil
         {
             await settlePendingControl(pendingControl)
         }
-        return transition.effect
+        return committedEffect
     }
 
     func settleControlProviderDispatch(
@@ -456,6 +574,7 @@ actor BridgeProductSession {
             return BridgeProductSessionRevocationBarrier(id: id, completedResult: true)
         }
         lifecycle = .revoked
+        lastAcceptedMetadataFrameAcknowledgement = nil
         lastAcceptedContentFrameAcknowledgementByProducerLease.removeAll(
             keepingCapacity: false
         )
@@ -639,15 +758,6 @@ actor BridgeProductSession {
     }
 
     private func capabilityMatches(_ presentedCapability: String) -> Bool {
-        guard presentedCapability.utf8.count == 43 else { return false }
-        let presentedDigest = Self.digest(Data(presentedCapability.utf8))
-        guard presentedDigest.count == capabilityDigest.count else { return false }
-        return zip(presentedDigest, capabilityDigest).reduce(UInt8(0)) { difference, pair in
-            difference | (pair.0 ^ pair.1)
-        } == 0
-    }
-
-    private static func digest(_ data: Data) -> Data {
-        Data(SHA256.hash(data: data))
+        capabilityAuthenticator.matches(presentedCapability)
     }
 }

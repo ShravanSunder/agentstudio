@@ -12,7 +12,8 @@ typealias BridgeProductSessionBootstrapSink =
         _ page: WebPage,
         _ requestId: String,
         _ installation: BridgeProductSessionInstallation,
-        _ contentWorld: WKContentWorld
+        _ contentWorld: WKContentWorld,
+        _ productAdmission: BridgeProductAdmissionContext
     ) async throws -> Void
 
 typealias BridgeTelemetrySessionBootstrapSink =
@@ -69,7 +70,10 @@ struct BridgePaneProductSessionDependencies {
 final class BridgePaneProductCommittedCallTarget {
     weak var controller: BridgePaneController?
 
-    func applyActiveViewerModeUpdate(_ call: BridgeProductCallRequest) async {
+    func applyActiveViewerModeUpdate(
+        _ call: BridgeProductCallRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
         let mode: BridgeActiveViewerMode
         let sourceProtocol: BridgeActiveViewerSourceProtocol
         let update: BridgeProductActiveViewerModeUpdateRequest
@@ -100,19 +104,27 @@ final class BridgePaneProductCommittedCallTarget {
             sessionId: update.sessionId,
             sequence: update.sequence,
             mode: mode,
-            activeSource: activeSource
+            activeSource: activeSource,
+            productAdmission: productAdmission
         )
     }
 
-    func applyReviewIntakeReady(_ request: BridgeProductReviewIntakeReadyRequest) async {
-        await controller?.handleCommittedProductReviewIntakeReady(request)
+    func applyReviewIntakeReady(
+        _ request: BridgeProductReviewIntakeReadyRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
+        await controller?.handleCommittedProductReviewIntakeReady(
+            request,
+            productAdmission: productAdmission
+        )
     }
 }
 
 @MainActor
 extension BridgePaneController {
     func handleCommittedProductReviewIntakeReady(
-        _ request: BridgeProductReviewIntakeReadyRequest
+        _ request: BridgeProductReviewIntakeReadyRequest,
+        productAdmission: BridgeProductAdmissionContext
     ) async {
         let currentStreamId = reviewProtocolStreamId()
         guard request.streamId == currentStreamId else {
@@ -120,18 +132,20 @@ extension BridgePaneController {
             return
         }
         await recordReviewIntakeReadyTelemetry(phase: "accepted")
-        if let package = paneState.diff.packageMetadata {
-            await setActiveViewerModeAcceptedSignalForExplicitReviewRequest(
-                streamId: currentStreamId,
-                generation: package.reviewGeneration.rawValue
-            )
-        } else {
-            clearActiveViewerModeAcceptedSignalForExplicitReviewRequest()
-        }
-        if paneState.diff.packageMetadata == nil {
-            scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
-        } else if request.reason == "sequence_gap" {
-            scheduleReviewPackageReloadForProductResync(reason: .productResync)
+        _ = productAdmission.withValidAdmission {
+            if let package = paneState.diff.packageMetadata {
+                setActiveViewerModeAcceptedSignalForExplicitReviewRequestWithoutAdmissionCheck(
+                    streamId: currentStreamId,
+                    generation: package.reviewGeneration.rawValue
+                )
+            } else {
+                clearActiveViewerModeAcceptedSignalForExplicitReviewRequestWithoutAdmissionCheck()
+            }
+            if paneState.diff.packageMetadata == nil {
+                scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
+            } else if request.reason == "sequence_gap" {
+                scheduleReviewPackageReloadForProductResync(reason: .productResync)
+            }
         }
     }
 }
@@ -236,6 +250,7 @@ extension BridgePaneController {
         requestId: String,
         reason: BridgeReadyMessageHandler.ProductSessionBootstrapReason
     ) async {
+        guard let productAdmission = productAdmissionGate.acquire() else { return }
         let precedingTransition = productSessionBootstrapTransitionTail
         let transition = Task { @MainActor [weak self] in
             if let precedingTransition {
@@ -243,7 +258,8 @@ extension BridgePaneController {
             }
             await self?.performProductSessionBootstrapRequest(
                 requestId: requestId,
-                reason: reason
+                reason: reason,
+                productAdmission: productAdmission
             )
         }
         productSessionBootstrapTransitionTail = transition
@@ -252,7 +268,8 @@ extension BridgePaneController {
 
     private func performProductSessionBootstrapRequest(
         requestId: String,
-        reason: BridgeReadyMessageHandler.ProductSessionBootstrapReason
+        reason: BridgeReadyMessageHandler.ProductSessionBootstrapReason,
+        productAdmission: BridgeProductAdmissionContext
     ) async {
         bridgeProductBootstrapLogger.debug(
             "Preparing product session bootstrap requestId=\(requestId, privacy: .public) reason=\(reason.rawValue, privacy: .public)"
@@ -260,14 +277,22 @@ extension BridgePaneController {
         let installation: BridgeProductSessionInstallation
         if hasPublishedProductSessionBootstrap {
             do {
-                let candidate = try await productSessionOwner.prepareCandidate()
+                let candidate = try await productSessionOwner.prepareCandidate(
+                    productAdmission: productAdmission
+                )
                 let retirementReason: BridgePaneProductSessionRetirementReason =
                     reason == .workerReplacement ? .workerReplacement : .pageReload
                 while await productSessionOwner.retire(reason: retirementReason) != .retired {
+                    guard (productAdmission.withValidAdmission { true }) == true else { return }
                     await Task.yield()
                 }
-                guard await productSessionOwner.activatePreparedCandidate(candidate) == .activated else {
-                    paneState.connection.setHealth(.error)
+                guard
+                    await productSessionOwner.activatePreparedCandidate(
+                        candidate,
+                        productAdmission: productAdmission
+                    ) == .activated
+                else {
+                    setProductBootstrapConnectionErrorIfAdmitted(productAdmission)
                     return
                 }
                 installation = candidate
@@ -275,33 +300,50 @@ extension BridgePaneController {
                 return
             } catch {
                 bridgeProductBootstrapLogger.error("Bridge product session replacement failed: \(error)")
-                paneState.connection.setHealth(.error)
+                setProductBootstrapConnectionErrorIfAdmitted(productAdmission)
                 return
             }
         } else {
             guard let activeInstallation = await productSessionOwner.activeInstallation else {
-                paneState.connection.setHealth(.error)
+                setProductBootstrapConnectionErrorIfAdmitted(productAdmission)
                 return
             }
+            guard (productAdmission.withValidAdmission { true }) == true else { return }
             installation = activeInstallation
         }
 
-        hasPublishedProductSessionBootstrap = true
+        guard
+            (productAdmission.withValidAdmission {
+                hasPublishedProductSessionBootstrap = true
+                return true
+            }) == true
+        else { return }
         do {
             try await productSessionBootstrapSink(
                 page,
                 requestId,
                 installation,
-                bridgeWorld
+                bridgeWorld,
+                productAdmission
             )
             bridgeProductBootstrapLogger.debug(
                 "Delivered product session bootstrap requestId=\(requestId, privacy: .public)"
             )
         } catch {
             bridgeProductBootstrapLogger.error("Bridge product session bootstrap delivery failed: \(error)")
+            guard (productAdmission.withValidAdmission { true }) == true else { return }
             while await productSessionOwner.retire(reason: .pageReload) != .retired {
+                guard (productAdmission.withValidAdmission { true }) == true else { return }
                 await Task.yield()
             }
+            setProductBootstrapConnectionErrorIfAdmitted(productAdmission)
+        }
+    }
+
+    private func setProductBootstrapConnectionErrorIfAdmitted(
+        _ productAdmission: BridgeProductAdmissionContext
+    ) {
+        _ = productAdmission.withValidAdmission {
             paneState.connection.setHealth(.error)
         }
     }
@@ -310,7 +352,8 @@ extension BridgePaneController {
         page: WebPage,
         requestId: String,
         installation: BridgeProductSessionInstallation,
-        contentWorld: WKContentWorld
+        contentWorld: WKContentWorld,
+        productAdmission: BridgeProductAdmissionContext
     ) async throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -320,6 +363,9 @@ extension BridgePaneController {
             let capabilityJSON = String(data: capabilityData, encoding: .utf8)
         else {
             throw BridgeError.encoding("Unable to encode product session bootstrap")
+        }
+        guard (productAdmission.withValidAdmission { true }) == true else {
+            throw CancellationError()
         }
         try await page.callJavaScript(
             """
@@ -338,6 +384,9 @@ extension BridgePaneController {
             ],
             contentWorld: contentWorld
         )
+        guard (productAdmission.withValidAdmission { true }) == true else {
+            throw CancellationError()
+        }
     }
 
     func configureRuntimeCallbacks() {
@@ -354,6 +403,7 @@ extension BridgePaneController {
         reviewContentStore: BridgeContentStore,
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
     ) -> BridgePaneProductSessionDependencies {
+        let productAdmissionGate = BridgeProductAdmissionGate()
         let committedCallTarget = BridgePaneProductCommittedCallTarget()
         let fileMetadataSource: any BridgePaneProductFileMetadataProducing =
             if let authority = makeProductFileSourceAuthority(
@@ -374,14 +424,22 @@ extension BridgePaneController {
                 initialAvailability: .loading
             ),
             reviewContentSource: reviewContentSource,
-            markReviewItemViewed: { itemId in
-                runtime.paneState.review.markFileViewed(itemId)
+            markReviewItemViewed: { itemId, productAdmission in
+                _ = productAdmission.withValidAdmission {
+                    runtime.paneState.review.markFileViewed(itemId)
+                }
             },
-            handleReviewIntakeReady: { request in
-                await committedCallTarget.applyReviewIntakeReady(request)
+            handleReviewIntakeReady: { request, productAdmission in
+                await committedCallTarget.applyReviewIntakeReady(
+                    request,
+                    productAdmission: productAdmission
+                )
             },
-            applyActiveViewerModeUpdate: { call in
-                await committedCallTarget.applyActiveViewerModeUpdate(call)
+            applyActiveViewerModeUpdate: { call, productAdmission in
+                await committedCallTarget.applyActiveViewerModeUpdate(
+                    call,
+                    productAdmission: productAdmission
+                )
             },
             lifecycleTraceRecorder: telemetryRecorder.map(
                 BridgeProductMetadataLifecycleTraceRecorder.init(recorder:)
@@ -389,13 +447,15 @@ extension BridgePaneController {
         )
         let installation = makeInitialProductSessionInstallation(
             paneSessionId: paneSessionId,
-            provider: provider
+            provider: provider,
+            productAdmissionGate: productAdmissionGate
         )
         return BridgePaneProductSessionDependencies(
             installation: installation,
             owner: makeProductSessionOwner(
                 paneSessionId: paneSessionId,
                 provider: provider,
+                productAdmissionGate: productAdmissionGate,
                 activeInstallation: installation
             ),
             committedCallTarget: committedCallTarget,
@@ -429,10 +489,15 @@ extension BridgePaneController {
 
     nonisolated static func makeInitialProductSessionInstallation(
         paneSessionId: String,
-        provider: any BridgeProductSchemeProvider
+        provider: any BridgeProductSchemeProvider,
+        productAdmissionGate: BridgeProductAdmissionGate
     ) -> BridgeProductSessionInstallation {
         do {
-            return try .make(paneSessionId: paneSessionId, provider: provider)
+            return try .make(
+                paneSessionId: paneSessionId,
+                provider: provider,
+                productAdmissionGate: productAdmissionGate
+            )
         } catch {
             preconditionFailure("Bridge product capability generation failed: \(error)")
         }
@@ -441,12 +506,14 @@ extension BridgePaneController {
     nonisolated static func makeProductSessionOwner(
         paneSessionId: String,
         provider: any BridgeProductSchemeProvider,
+        productAdmissionGate: BridgeProductAdmissionGate,
         activeInstallation: BridgeProductSessionInstallation
     ) -> BridgePaneProductSessionOwner {
         do {
             return try BridgePaneProductSessionOwner(
                 paneSessionId: paneSessionId,
                 provider: provider,
+                productAdmissionGate: productAdmissionGate,
                 activeInstallation: activeInstallation
             )
         } catch {

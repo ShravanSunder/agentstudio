@@ -132,7 +132,13 @@ extension WebKitSerializedTests {
                 reviewSourceProvider: provider
             )
             defer { controller.teardown() }
-            await controller.reviewContentStore.activate(handles: [handle], reviewGeneration: 7)
+            installIPCContentDescriptorPackage(handle, in: controller)
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            await controller.reviewContentStore.activate(
+                handles: [handle],
+                reviewGeneration: 7,
+                productAdmission: productAdmission
+            )
 
             let result = try await controller.loadContentForIPC(
                 contentHandleId: handle.handleId,
@@ -175,7 +181,13 @@ extension WebKitSerializedTests {
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
                 reviewSourceProvider: provider
             )
-            await controller.reviewContentStore.activate(handles: [handle], reviewGeneration: 7)
+            installIPCContentDescriptorPackage(handle, in: controller)
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            await controller.reviewContentStore.activate(
+                handles: [handle],
+                reviewGeneration: 7,
+                productAdmission: productAdmission
+            )
 
             controller.teardown()
 
@@ -215,7 +227,13 @@ extension WebKitSerializedTests {
                 reviewSourceProvider: provider
             )
             defer { controller.teardown() }
-            await controller.reviewContentStore.activate(handles: [handle], reviewGeneration: 7)
+            installIPCContentDescriptorPackage(handle, in: controller)
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            await controller.reviewContentStore.activate(
+                handles: [handle],
+                reviewGeneration: 7,
+                productAdmission: productAdmission
+            )
 
             let result = try await controller.loadContentForIPC(
                 contentHandleId: handle.handleId,
@@ -266,14 +284,24 @@ extension WebKitSerializedTests {
                 reviewSourceProvider: provider
             )
             defer { controller.teardown() }
-            await controller.reviewContentStore.activate(handles: [handle], reviewGeneration: 7)
+            installIPCContentDescriptorPackage(handle, in: controller)
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            await controller.reviewContentStore.activate(
+                handles: [handle],
+                reviewGeneration: 7,
+                productAdmission: productAdmission
+            )
             let initialResult = try await controller.loadContentForIPC(
                 contentHandleId: handle.handleId,
                 reviewGeneration: 7
             )
             #expect(initialResult.byteCount == 9)
 
-            await controller.reviewContentStore.activate(handles: [tightenedHandle], reviewGeneration: 7)
+            await controller.reviewContentStore.activate(
+                handles: [tightenedHandle],
+                reviewGeneration: 7,
+                productAdmission: productAdmission
+            )
 
             let tightenedResult = try await controller.loadContentForIPC(
                 contentHandleId: handle.handleId,
@@ -309,7 +337,13 @@ extension WebKitSerializedTests {
                 reviewSourceProvider: provider
             )
             defer { controller.teardown() }
-            await controller.reviewContentStore.activate(handles: [handle], reviewGeneration: 7)
+            installIPCContentDescriptorPackage(handle, in: controller)
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            await controller.reviewContentStore.activate(
+                handles: [handle],
+                reviewGeneration: 7,
+                productAdmission: productAdmission
+            )
 
             let result = try await controller.loadContentForIPC(
                 contentHandleId: handle.handleId,
@@ -623,4 +657,45 @@ private func expectProductMetadataStreamDiagnostic(
     #expect(diagnostic.routeFailureCode == "unknown_subscription")
     #expect(diagnostic.routedFrameCount == 2)
     #expect(diagnostic.streamOpenCount == 1)
+}
+
+@MainActor
+private func installIPCContentDescriptorPackage(
+    _ handle: BridgeContentHandle,
+    in controller: BridgePaneController
+) {
+    let baseEndpoint = makeBridgeEndpoint(endpointId: "base", kind: .gitRef)
+    let headEndpoint = makeBridgeEndpoint(endpointId: handle.endpointId, kind: .workingTree)
+    let descriptor = makeBridgeReviewItemDescriptor(
+        itemId: handle.itemId,
+        path: "\(handle.itemId).swift",
+        fileClass: .source,
+        contentRoles: BridgeReviewItemDescriptor.ContentRoles(head: handle)
+    )
+    controller.paneState.diff.setPackageMetadata(
+        BridgeReviewPackage(
+            packageId: "ipc-content-descriptor-package",
+            schemaVersion: 1,
+            reviewGeneration: handle.reviewGeneration,
+            revision: 0,
+            query: makeBridgeReviewQuery(
+                baseEndpointId: baseEndpoint.endpointId,
+                headEndpointId: headEndpoint.endpointId
+            ),
+            baseEndpoint: baseEndpoint,
+            headEndpoint: headEndpoint,
+            orderedItemIds: [handle.itemId],
+            itemsById: [handle.itemId: descriptor],
+            groups: [],
+            summary: BridgeReviewPackageSummary(
+                filesChanged: 1,
+                additions: 0,
+                deletions: 0,
+                visibleFileCount: 1,
+                hiddenFileCount: 0
+            ),
+            filterState: BridgeViewFilter(),
+            generatedAtUnixMilliseconds: 1
+        )
+    )
 }

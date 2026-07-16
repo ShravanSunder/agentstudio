@@ -9,7 +9,8 @@ struct BridgeProductSessionControlDispatchTests {
     func revocationWinsBeforeProviderDispatchClaim() async throws {
         // Arrange
         let fixture = try makePendingControlFixture()
-        let admission = await fixture.session.beginControl(
+        let admission = await fixture.productAdmission.beginControl(
+            in: fixture.session,
             exactRequestBytes: fixture.requestBytes,
             presentedCapability: fixture.capabilityHeader
         )
@@ -31,7 +32,8 @@ struct BridgeProductSessionControlDispatchTests {
     func providerDispatchClaimWinsBeforeRevocation() async throws {
         // Arrange
         let fixture = try makePendingControlFixture()
-        let admission = await fixture.session.beginControl(
+        let admission = await fixture.productAdmission.beginControl(
+            in: fixture.session,
             exactRequestBytes: fixture.requestBytes,
             presentedCapability: fixture.capabilityHeader
         )
@@ -64,6 +66,7 @@ struct BridgeProductSessionControlDispatchTests {
 
 private struct PendingControlFixture {
     let capabilityHeader: String
+    let productAdmission: BridgeProductAdmissionTestContext
     let requestBytes: Data
     let session: BridgeProductSession
 }
@@ -72,6 +75,7 @@ private func makePendingControlFixture() throws -> PendingControlFixture {
     let capabilityBytes = (0..<BridgeProductWireContract.capabilityByteLength).map(UInt8.init)
     return try .init(
         capabilityHeader: BridgeProductCapabilityHeaderEncoding.encode(capabilityBytes),
+        productAdmission: .make(),
         requestBytes: bridgeProductSchemeWorkerOpenBody(),
         session: BridgeProductSession(
             paneSessionId: bridgeProductTestPaneSessionId,
