@@ -700,6 +700,15 @@ only after both participant inventories are installed; until then each domain
 retains its own bounded lifecycle and no partial pager can masquerade as the
 complete inventory.
 
+Startup zmx-anchor reconciliation is an explicit composition bootstrap repair,
+not ordinary steady-state mutation. After prepared composition apply, collect
+all accepted anchor changes and apply them through one preinstall pane-graph
+transaction before composition participant installation; do not advance one
+revision per pane. Once composition installs, this preinstall route is sealed.
+Startup diagnostics can execute after normal boot, so they must use the same
+installed semantic pane/tab gateways as product actions and receive no bootstrap
+exception.
+
 The current participant factory/pager assembly is test-only and therefore does
 not prove a live boundary. The corrected bundle must be constructed once at the
 production composition root, shared by participant construction and every
@@ -724,6 +733,9 @@ Proof is blocking:
 - each domain rejects post-install initial apply/bootstrap repair and is not
   installed until its complete production writer inventory routes through the
   bound adapters/coordinator;
+- startup zmx-anchor reconciliation completes through one preinstall pane batch
+  before composition installation, while post-boot diagnostics use installed
+  semantic gateways;
 - a direct-mutation inventory proves no installed persistence participant can be
   bypassed by a production mutation path;
 - production composition constructs exactly one adapter bundle and the live
