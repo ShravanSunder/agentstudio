@@ -546,10 +546,13 @@ same owner with disable.
 
 SF1. AppKit user input remains a short synchronous call from the MainActor view
 boundary into libghostty. Ordinary keys and mouse events are not moved behind a
-new actor or product EventBus.
+new actor or product EventBus, and do not read or mutate canonical workspace
+atoms or enter persistence before the Ghostty call returns.
 
 SF2. The input path performs no repository lookup, global event processing,
-screen parsing, or fleet work before calling Ghostty.
+screen parsing, fact publication, runtime replay, or fleet work before calling
+Ghostty. Separately emitted Ghostty actions enter the exhaustive action contract
+only after synchronous capture/classification.
 
 SF3. `SurfaceGeometryCommitOwner` is the sole owner of content scale and pixel
 size commits. One layout pass does not invoke two independent geometry paths.
@@ -923,8 +926,11 @@ only as local subscription/replay machinery for browser/diff/editor/plugin
 runtimes; its global outbound stream and `PaneRuntimeEventBus` are removed under
 the parent transport cutover. Their semantic global outputs construct typed
 `RuntimeFactEnvelope` values. `NotificationReducer` no longer classifies terminal
-traffic as critical/lossy; contraction happens at the owners above. The current
-`TerminalActivityRouter` transport role is replaced by
+traffic as critical/lossy. Presentation/activity samples never enter semantic
+replay or durable persistence; deduplicated title/CWD or other current metadata
+uses its named authoritative owner and publishes only a declared semantic fact.
+Contraction happens at the owners above. The current `TerminalActivityRouter`
+transport role is replaced by
 `TerminalActivityProjector`; its semantic parity oracle remains normative.
 
 Terminal `subscribe()`/`eventsSince` behavior is replaced by current

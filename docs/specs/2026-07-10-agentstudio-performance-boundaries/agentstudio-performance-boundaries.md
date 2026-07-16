@@ -1,7 +1,7 @@
 # AgentStudio Performance Boundaries
 
 Date: 2026-07-10
-Status: accepted technical contract; startup-lane boundary revised 2026-07-15
+Status: accepted technical contract; dataflow/atom boundary revised 2026-07-16
 Scope: parent pre-plan contract for filesystem pressure and terminal interaction
 Baseline: `ghostty-performance` at `cd47c511`
 
@@ -28,26 +28,58 @@ their domain-specific requirements:
 ## Shared Mental Model
 
 ```text
-untrusted/high-rate source
-  -> bounded source-owned admission
-  -> contraction plus exact recovery obligation
-  -> off-main scheduling / scan / join / projection / serialization
-  -> semantic fact or typed mutation
-  -> small synchronous MainActor application
-  -> local observable state and presentation
+A. direct terminal interaction
+   AppKit input [MainActor] -> synchronous libghostty call
+   -> Ghostty PTY / VT / renderer -> frame-layer publication
 
-interactive input
-  -> AppKit MainActor handler
-  -> direct synchronous libghostty call
-  -> Ghostty-owned PTY / VT / renderer work
-  -> measured response / frame-layer-publication seam + native visible proof
+B. Ghostty action admission
+   synchronous copy/classification -> pane-local latest state
+   | bounded activity projection | targeted command owner | exact fact owner
 
-startup
-  -> off-main composition preparation and structural repair
-  -> one atomic MainActor composition install
-  -> immediate prioritized terminal activation
-  -> independent non-blocking repository/filesystem reconciliation
+C. watched filesystem
+   O(1) callback offer -> bounded gather/recovery -> off-main scan/project
+   -> fair Git scheduling -> compact typed canonical change
+
+D. durable canonical mutation
+   pure domain decision -> typed persistence gateway
+   -> exact preimage capture -> narrow atom assignment + one revision
+   -> bounded pager -> off-main assembly -> SQLite actor
+
+startup domain lifecycles
+   composition prepare/install -> immediate terminal activation
+   topology prepare/install -> independent repository/filesystem reconciliation
+
+telemetry sidecar
+   bounded, content-safe, drop-accounted, and fail-open; never blocks A-D
 ```
+
+These are pressure-flow classifications over existing owners, not four new
+runtimes or a universal pipeline. Composition and topology have independent
+preinstall/install authority while sharing one persistence runtime, revision
+owner, and adapter graph. Telemetry is a cross-cutting sidecar, never a product
+state or correctness edge.
+
+### Acyclic Workload And Bounded Feedback
+
+The dependency graph and each causal processing attempt are acyclic. Runtime
+repair and reconfiguration may recur only by advancing a checked generation,
+revision, or bounded scheduler attempt. A reverse control edge may acknowledge
+custody or request that later attempt; it cannot carry new payload, synchronously
+re-enter admission, repost the same authority/source fact, or mutate from atom
+observation.
+
+Every pressure-bearing path proves three independent bounds:
+
+- admission: at most one pending drain/apply turn per declared gate or key set;
+- service: bounded synchronous MainActor work with no await, I/O, serialization,
+  fleet scan, or hidden domain planning;
+- expansion: raw input contracts to declared keys/recovery debt, and one accepted
+  semantic mutation produces one outer transaction, revision, and effect record.
+
+A fixed changed-key workload must not grow with total repository, worktree,
+pane, subscriber, or diagnostic fleet size. Static owner/route proof covers
+declared edges; deterministic count tests and runtime ledgers falsify hidden
+task, message, invalidation, replay, telemetry, or same-generation expansion.
 
 Actor isolation is necessary for data-race safety but insufficient for
 performance. Every pressure-bearing boundary must also declare admission,
@@ -98,6 +130,15 @@ external reconciliation boundary
   exposes: compact topology and display-context mutations
   does not own: pane residency, tab membership, terminal lifetime, or startup
         interaction readiness
+
+durable-state boundary
+  owns: exact preimage custody, one canonical revision, bounded paging, SQLite I/O
+  exposes: domain-specific installed mutation gateways and startup-only appliers
+  does not own: domain decisions, source admission, observation feedback, UI reads
+
+diagnostic export sidecar
+  owns: bounded content-safe evidence export, drops, gaps, and final run validity
+  does not own: product state, correctness custody, source wakeups, or backpressure
 
 shared performance harness
   owns: one run identity, clocks/correlation, scenario manifest, evidence
@@ -1588,10 +1629,25 @@ writes enter the persistence coordinator as separate typed change sets.
 
 ### Atoms And Observables
 
-Atoms and observables are canonical state sinks and UI read surfaces. They do
-not subscribe to the global bus, own high-rate queues, perform filesystem/Git/
-serialization work, or derive and repost product facts. Coordinators/projectors
-compute elsewhere and apply typed mutations.
+Atoms own canonical state or pure derived state, Jotai-style. Narrow mutation
+methods encapsulate writes; they do not confer business ownership. Atom methods
+may assign caller-supplied values, suppress equal writes, perform simple local
+transforms, and maintain storage indexes or observation invariants.
+
+Atoms do not interpret commands/events/workflows, validate or normalize domain
+input, prepare mutation plans/preimages/rejections/effects, coordinate other
+owners, persist, perform I/O or async work, or publish/subscribe through runtime
+transport. Pure domain types decide; coordinators sequence; persistence adapters
+capture/restore; projectors compute off-main; atoms receive final state. A
+`MainActorMutationApplier` is a coordinator/applier boundary, not an atom
+protocol. Atom observation never initiates canonical mutation or fact delivery.
+
+UI-memory persistence is checkpointed, not event-rate. Continuous window/sidebar
+geometry renders locally and produces one settled canonical checkpoint; discrete
+toggles/selections may commit once immediately; text-like or bursty UI memory
+may update its UI owner immediately while the persistence pump coalesces the
+latest committed revision. No pointer/key callback performs SQLite work, and
+persistence acknowledgement never repairs or mutates installed canonical state.
 
 ### Safe Authority Defaults
 

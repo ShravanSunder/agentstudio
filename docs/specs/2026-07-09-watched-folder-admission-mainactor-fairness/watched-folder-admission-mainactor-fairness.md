@@ -1506,8 +1506,8 @@ complete authoritative current inventory can authorize that derivation;
 partial/stale evidence carries no absence authority. MainActor revalidates the
 registration/source generation plus base revision before applying the mutation.
 Recovery owners acknowledge the repair generation only after their canonical
-effect commits. These repeated checks are intentional: queueing and concurrent
-user mutation can make work stale at every boundary.
+effect commits. Within one source generation/scan attempt this is an acyclic workload graph: an acknowledgement closes custody but carries no new payload or synchronously re-enters admission.
+Retry or accepted topology-driven reconfiguration advances a checked attempt/generation before producing work; queueing and concurrent user mutation can make work stale at every boundary.
 
 ### MainActor Last-Mile Apply Contract
 
