@@ -51,6 +51,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var workspaceSettingsStore: WorkspaceSettingsStore!
     var workspaceSQLiteDatastore: WorkspaceSQLiteDatastore?
     var workspaceCacheCoordinator: WorkspaceCacheCoordinator!
+    var bridgeGitReadScheduler: BridgeGitReadScheduler!
     var watchedFolderCommands: (any WatchedFolderCommandHandling)!
     var viewRegistry: ViewRegistry!
     var workspaceSurfaceCoordinator: WorkspaceSurfaceCoordinator!

@@ -34,16 +34,16 @@ struct BridgeWorktreeFileIgnorePolicy: Sendable {
 
     static func load(
         rootURL: URL,
+        gitReadContext: BridgeGitReadContext,
         statusProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(),
         trackedFilePathsTimeout: Duration = AppPolicies.Bridge.worktreeFileManifestStatusReadTimeout,
-        timeoutScheduler: any BridgeGitDataPlaneTimeoutScheduler = DispatchBridgeGitDataPlaneTimeoutScheduler(),
         trackedFilePathsLoader: @escaping BridgeWorktreeTrackedFilePathsLoader = loadTrackedFilePaths
     ) async -> Self {
         async let filesystemPathFilter = FilesystemPathFilter.loadOffExecutor(forRootPath: rootURL)
         async let trackedFilePathsTask = boundedTrackedFilePaths(
             rootURL: rootURL,
+            gitReadContext: gitReadContext,
             timeout: trackedFilePathsTimeout,
-            timeoutScheduler: timeoutScheduler,
             loader: trackedFilePathsLoader
         )
         async let statusResult = statusProvider.statusResult(for: rootURL)
@@ -88,17 +88,21 @@ struct BridgeWorktreeFileIgnorePolicy: Sendable {
 
     @concurrent nonisolated private static func boundedTrackedFilePaths(
         rootURL: URL,
+        gitReadContext: BridgeGitReadContext,
         timeout: Duration,
-        timeoutScheduler: any BridgeGitDataPlaneTimeoutScheduler,
         loader: @escaping BridgeWorktreeTrackedFilePathsLoader
     ) async -> Set<String>? {
         do {
-            return try await BridgeGitDataPlaneTimeout.readWithHardTimeout(
-                timeout,
-                timeoutScheduler: timeoutScheduler
-            ) {
-                try await loader(rootURL)
-            }
+            return try await gitReadContext.scheduler.read(
+                request: BridgeGitReadRequest(
+                    worktreeKey: gitReadContext.worktreeKey,
+                    operationClass: .reviewMetadata,
+                    coalescingKey: BridgeGitReadCoalescingKey(token: "tracked-paths-default"),
+                    freshnessKey: BridgeGitReadFreshnessKey(token: UUID().uuidString),
+                    deadline: timeout
+                ),
+                operation: { try await loader(rootURL) }
+            )
         } catch {
             return nil
         }

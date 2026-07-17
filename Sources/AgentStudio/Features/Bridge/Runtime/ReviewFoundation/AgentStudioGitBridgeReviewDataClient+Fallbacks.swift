@@ -38,9 +38,10 @@ extension AgentStudioGitBridgeReviewDataClient {
 
     func statusFallbackChangedFiles(
         baseTarget: GitDiffTarget,
-        headTarget: GitDiffTarget
+        headTarget: GitDiffTarget,
+        freshnessKey: BridgeGitReadFreshnessKey
     ) async throws -> [BridgeEndpointChangedFile] {
-        let fallbackSnapshot = try await loadStatusFallbackSnapshot()
+        let fallbackSnapshot = try await loadStatusFallbackSnapshot(freshnessKey: freshnessKey)
         var changedFiles: [BridgeEndpointChangedFile] = []
         for entry in fallbackSnapshot.status.entries.sorted(by: { $0.path < $1.path }) {
             guard !entry.ignored,
@@ -52,7 +53,8 @@ extension AgentStudioGitBridgeReviewDataClient {
                 let changedFile = try await statusFallbackChangedFile(
                     entry: entry,
                     baseTarget: baseTarget,
-                    headTarget: headTarget
+                    headTarget: headTarget,
+                    freshnessKey: freshnessKey
                 )
             else {
                 continue
@@ -65,16 +67,22 @@ extension AgentStudioGitBridgeReviewDataClient {
         return changedFiles
     }
 
-    func loadStatusFallbackSnapshot() async throws -> StatusFallbackSnapshot {
+    func loadStatusFallbackSnapshot(
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> StatusFallbackSnapshot {
         do {
-            let status = try await loadGitStatus(GitStatusOptions(includeIgnored: false, includeUntracked: true))
+            let status = try await loadGitStatus(
+                GitStatusOptions(includeIgnored: false, includeUntracked: true),
+                freshnessKey: freshnessKey
+            )
             return StatusFallbackSnapshot(status: status, fullStatusFailure: nil)
         } catch let failure as BridgeProviderFailure {
             guard shouldRetryStatusFallbackWithoutUntracked(from: failure) else {
                 throw failure
             }
             let trackedStatus = try await loadGitStatus(
-                GitStatusOptions(includeIgnored: false, includeUntracked: false)
+                GitStatusOptions(includeIgnored: false, includeUntracked: false),
+                freshnessKey: freshnessKey
             )
             return StatusFallbackSnapshot(status: trackedStatus, fullStatusFailure: failure)
         }
@@ -185,7 +193,8 @@ extension AgentStudioGitBridgeReviewDataClient {
     func statusFallbackChangedFile(
         entry: GitStatusEntry,
         baseTarget: GitDiffTarget,
-        headTarget: GitDiffTarget
+        headTarget: GitDiffTarget,
+        freshnessKey: BridgeGitReadFreshnessKey
     ) async throws -> BridgeEndpointChangedFile? {
         let changeKind = bridgeChangeKind(entry)
         let basePath = entry.previousPath ?? entry.path
@@ -201,7 +210,8 @@ extension AgentStudioGitBridgeReviewDataClient {
                 changeKind: changeKind,
                 target: headTarget,
                 path: headPath,
-                role: "head"
+                role: "head",
+                freshnessKey: freshnessKey
             )
         case .deleted:
             baseMetadata = try await fallbackContentMetadata(
@@ -209,7 +219,8 @@ extension AgentStudioGitBridgeReviewDataClient {
                 changeKind: changeKind,
                 target: baseTarget,
                 path: basePath,
-                role: "base"
+                role: "base",
+                freshnessKey: freshnessKey
             )
             headMetadata = nil
         case .modified, .renamed:
@@ -218,14 +229,16 @@ extension AgentStudioGitBridgeReviewDataClient {
                 changeKind: changeKind,
                 target: baseTarget,
                 path: basePath,
-                role: "base"
+                role: "base",
+                freshnessKey: freshnessKey
             )
             headMetadata = try await fallbackContentMetadata(
                 entry: entry,
                 changeKind: changeKind,
                 target: headTarget,
                 path: headPath,
-                role: "head"
+                role: "head",
+                freshnessKey: freshnessKey
             )
         }
 
@@ -254,9 +267,14 @@ extension AgentStudioGitBridgeReviewDataClient {
         changeKind: BridgeFileChangeKind,
         target: GitDiffTarget,
         path: String,
-        role: String
+        role: String,
+        freshnessKey: BridgeGitReadFreshnessKey
     ) async throws -> FallbackContentMetadata {
-        if let contentMetadata = try await contentMetadataIfAvailable(target: target, path: path) {
+        if let contentMetadata = try await contentMetadataIfAvailable(
+            target: target,
+            path: path,
+            freshnessKey: freshnessKey
+        ) {
             return contentMetadata
         }
         return syntheticFallbackContentMetadata(
@@ -308,13 +326,18 @@ extension AgentStudioGitBridgeReviewDataClient {
 
     func treeFilesystemFallbackChangedFiles(
         baseTarget: GitDiffTarget,
-        headTarget: GitDiffTarget
+        headTarget: GitDiffTarget,
+        freshnessKey: BridgeGitReadFreshnessKey
     ) async throws -> [BridgeEndpointChangedFile] {
         guard headTarget == .workingTree || headTarget == .index else {
             return []
         }
         let baseRevision = try gitRevisionTarget(for: baseTarget)
-        let baseEntries = try await recursiveGitTreeEntries(revision: baseRevision, path: nil)
+        let baseEntries = try await recursiveGitTreeEntries(
+            revision: baseRevision,
+            path: nil,
+            freshnessKey: freshnessKey
+        )
         var changedFiles: [BridgeEndpointChangedFile] = []
         for entry in baseEntries where !entry.isTree {
             let path = entry.path
@@ -417,19 +440,27 @@ extension AgentStudioGitBridgeReviewDataClient {
 
     func recursiveGitTreeEntries(
         revision: GitRevisionTarget,
-        path: String?
+        path: String?,
+        freshnessKey: BridgeGitReadFreshnessKey
     ) async throws -> [GitTreeEntry] {
         let tree = try await loadGitTree(
             GitTreeReadRequest(
                 repositoryPath: repositoryPath,
                 revision: revision,
                 path: path
-            )
+            ),
+            freshnessKey: freshnessKey
         )
         var entries: [GitTreeEntry] = []
         for entry in tree.entries {
             if entry.isTree {
-                entries.append(contentsOf: try await recursiveGitTreeEntries(revision: revision, path: entry.path))
+                entries.append(
+                    contentsOf: try await recursiveGitTreeEntries(
+                        revision: revision,
+                        path: entry.path,
+                        freshnessKey: freshnessKey
+                    )
+                )
             } else {
                 entries.append(entry)
             }
@@ -464,7 +495,8 @@ extension AgentStudioGitBridgeReviewDataClient {
 
     func contentMetadataIfAvailable(
         target: GitDiffTarget,
-        path: String
+        path: String,
+        freshnessKey: BridgeGitReadFreshnessKey
     ) async throws -> FallbackContentMetadata? {
         do {
             let content = try await loadGitContent(
@@ -474,7 +506,8 @@ extension AgentStudioGitBridgeReviewDataClient {
                     path: path,
                     maxSizeBytes: Int64(AppPolicies.Bridge.contentMaxBytesPerItem)
                 ),
-                handle: nil
+                handle: nil,
+                freshnessKey: freshnessKey
             )
             return FallbackContentMetadata(
                 sizeBytes: content.data.count,

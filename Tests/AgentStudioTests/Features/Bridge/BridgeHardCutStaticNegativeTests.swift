@@ -85,6 +85,7 @@ struct BridgeHardCutStaticNegativeTests {
 
 private enum BridgeHardCutOwnerGroup: String, Sendable {
     case featureResourceGet = "feature-resource-get"
+    case legacyGitReadTimeout = "legacy-git-read-timeout"
     case legacyTelemetryTransport = "legacy-telemetry-transport"
     case nativeReviewPublication = "native-review-publication"
     case productDOMEgress = "product-dom-egress"
@@ -120,8 +121,30 @@ private struct BridgeHardCutViolation: Equatable, Sendable {
 private func bridgeHardCutOwnerRules() -> [BridgeHardCutOwnerRule] {
     bridgeHardCutNativeReviewPublicationRules()
         + bridgeHardCutFeatureResourceRules()
+        + bridgeHardCutLegacyGitReadRules()
         + bridgeHardCutProductIngressAndEgressRules()
         + bridgeHardCutLegacyTelemetryRules()
+}
+
+private func bridgeHardCutLegacyGitReadRules() -> [BridgeHardCutOwnerRule] {
+    let reviewFoundationRoot = [
+        "Sources", "AgentStudio", "Features", "Bridge", "Runtime", "ReviewFoundation",
+    ]
+    return [
+        bridgeHardCutOwnerFileRule(
+            .legacyGitReadTimeout,
+            bridgeHardCutSourcePath(
+                reviewFoundationRoot + [bridgeHardCutJoin("BridgeGitDataPlane", "Timeout.swift")]
+            ),
+            "detached per-call Git timeout owner that loses physical slot custody"),
+        bridgeHardCutSourceRule(
+            .legacyGitReadTimeout,
+            bridgeHardCutSourcePath(
+                reviewFoundationRoot + ["AgentStudioGitBridgeReviewDataClient+GitIO.swift"]
+            ),
+            "Review Git I/O still references the detached timeout owner",
+            [bridgeHardCutJoin("BridgeGitDataPlane", "Timeout")]),
+    ]
 }
 
 private func bridgeHardCutNativeReviewPublicationRules() -> [BridgeHardCutOwnerRule] {

@@ -72,6 +72,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
 
     init(
         authority: BridgePaneProductFileSourceAuthority,
+        gitReadContext: BridgeGitReadContext,
         statusProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(),
         ignorePolicyLoader: BridgePaneProductFileIgnorePolicyLoader? = nil,
         treeRowRefresher: BridgePaneProductFileTreeRowRefresher? = nil,
@@ -84,6 +85,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             ignorePolicyLoader ?? { rootURL in
                 await BridgeWorktreeFileIgnorePolicy.load(
                     rootURL: rootURL,
+                    gitReadContext: gitReadContext,
                     statusProvider: AgentStudioGitWorkingTreeStatusProvider(
                         timeout: AppPolicies.Bridge.worktreeFileManifestStatusReadTimeout
                     )

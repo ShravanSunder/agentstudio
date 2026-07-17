@@ -12,6 +12,7 @@ extension WorkspaceSurfaceCoordinator {
             state: state,
             metadata: bridgePaneControllerMetadata(for: pane, state: state),
             reviewSourceProvider: bridgeReviewSourceProvider(for: pane, state: state),
+            gitReadContext: bridgeGitReadContext(for: pane, state: state),
             traceRuntime: traceRuntime,
             initialPaneActivity: .dormant
         )

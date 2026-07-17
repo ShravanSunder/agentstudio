@@ -45,6 +45,7 @@ final class WorkspaceSurfaceCoordinator {
     let runtimeTargetResolver: RuntimeTargetResolver
     let runtimeCommandClock: ContinuousClock
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
+    let bridgeGitReadScheduler: BridgeGitReadScheduler
     let filesystemSource: any WorkspaceFilesystemSourceManaging
     let filesystemProjectionIndex: any WorkspaceFilesystemProjectionIndexing
     let paneFilesystemProjectionStore: PaneFilesystemProjectionAtom
@@ -83,6 +84,7 @@ final class WorkspaceSurfaceCoordinator {
     var bridgePaneActivityCoordinatorsByPaneId: [UUID: BridgePaneActivityCoordinator] = [:]
     var bridgePaneActivityOwningWindowId: UUID?
     var bridgePaneActivityObservationGeneration: UInt64 = 0
+    var bridgeGitReadActivityPropagationTask: Task<Void, Never>?
 
     var arrangementView: WorkspaceArrangementViewDerived {
         WorkspaceArrangementViewDerived(
@@ -131,6 +133,7 @@ final class WorkspaceSurfaceCoordinator {
         paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         runtimeCommandClock: ContinuousClock = ContinuousClock(),
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
+        bridgeGitReadScheduler: BridgeGitReadScheduler = BridgeGitReadScheduler(topology: .recoveryBaseline),
         filesystemSource: (any WorkspaceFilesystemSourceManaging)? = nil,
         filesystemProjectionIndex: (any WorkspaceFilesystemProjectionIndexing)? = nil,
         paneFilesystemProjectionStore: PaneFilesystemProjectionAtom = PaneFilesystemProjectionAtom(),
@@ -159,6 +162,7 @@ final class WorkspaceSurfaceCoordinator {
         self.runtimeTargetResolver = RuntimeTargetResolver(workspaceStore: store)
         self.runtimeCommandClock = runtimeCommandClock
         self.closeTransitionCoordinator = closeTransitionCoordinator
+        self.bridgeGitReadScheduler = bridgeGitReadScheduler
         self.filesystemSource = resolvedFilesystemSource
         self.filesystemProjectionIndex = filesystemProjectionIndex ?? FilesystemProjectionIndex()
         self.paneFilesystemProjectionStore = paneFilesystemProjectionStore
@@ -242,6 +246,8 @@ final class WorkspaceSurfaceCoordinator {
         }
 
         await drainBridgePaneRetirements()
+        await drainBridgeGitReadActivityPropagation()
+        await bridgeGitReadScheduler.shutdown()
         await filesystemSource.shutdown()
     }
 

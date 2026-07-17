@@ -9,7 +9,13 @@ struct BridgeWorktreeFileIgnorePolicyTests {
     func trackedPathTimeoutFallsBackToFilesystemEnumeration() async {
         // Arrange
         let trackedPathReadGate = BridgeTrackedPathReadGate()
-        let timeoutScheduler = ManualBridgeTrackedPathTimeoutScheduler()
+        let deadlineScheduler = BridgeGitReadManualDeadlineScheduler()
+        let eventProbe = BridgeGitReadSchedulerEventProbe()
+        let scheduler = BridgeGitReadScheduler(
+            topology: makeBridgeGitReadSchedulerTopology(),
+            deadlineScheduler: deadlineScheduler,
+            eventSink: eventProbe.eventSink
+        )
         let statusProvider = StubGitWorkingTreeStatusProvider { _ in
             GitWorkingTreeStatus(
                 summary: .init(changed: 0, staged: 0, untracked: 0),
@@ -20,9 +26,12 @@ struct BridgeWorktreeFileIgnorePolicyTests {
         let loadTask = Task {
             await BridgeWorktreeFileIgnorePolicy.load(
                 rootURL: URL(fileURLWithPath: "/tmp/bridge-tracked-path-timeout"),
+                gitReadContext: BridgeGitReadContext(
+                    scheduler: scheduler,
+                    worktreeKey: BridgeGitReadWorktreeKey(token: "tracked-path-timeout-worktree")
+                ),
                 statusProvider: statusProvider,
                 trackedFilePathsTimeout: .seconds(999),
-                timeoutScheduler: timeoutScheduler,
                 trackedFilePathsLoader: { _ in
                     await trackedPathReadGate.recordStarted()
                     await trackedPathReadGate.waitUntilReleased()
@@ -31,15 +40,17 @@ struct BridgeWorktreeFileIgnorePolicyTests {
             )
         }
         await trackedPathReadGate.waitUntilStarted()
-        await timeoutScheduler.waitUntilScheduled()
 
         // Act
-        timeoutScheduler.fireScheduledTimeout()
+        #expect(deadlineScheduler.fireNextActiveDeadline())
+        _ = await eventProbe.waitFor(.draining)
         let policy = await loadTask.value
 
         // Assert
         #expect(policy.publishableFilePaths == nil)
         await trackedPathReadGate.release()
+        _ = await eventProbe.waitFor(.slotReleased)
+        await scheduler.shutdown()
     }
 }
 
@@ -79,75 +90,5 @@ private actor BridgeTrackedPathReadGate {
         for waiter in waiters {
             waiter.resume()
         }
-    }
-}
-
-private final class ManualBridgeTrackedPathTimeoutScheduler: BridgeGitDataPlaneTimeoutScheduler,
-    @unchecked Sendable
-{
-    private let lock = NSLock()
-    private var scheduledHandler: (@Sendable () -> Void)?
-    private var scheduleWaiters: [CheckedContinuation<Void, Never>] = []
-
-    func scheduleTimeout(
-        after _: Duration,
-        _ handler: @escaping @Sendable () -> Void
-    ) -> BridgeGitDataPlaneScheduledTimeout {
-        let waiters: [CheckedContinuation<Void, Never>]
-        lock.lock()
-        scheduledHandler = handler
-        waiters = scheduleWaiters
-        scheduleWaiters.removeAll(keepingCapacity: false)
-        lock.unlock()
-        for waiter in waiters {
-            waiter.resume()
-        }
-        return BridgeGitDataPlaneScheduledTimeout { [weak self] in
-            self?.clearScheduledTimeout()
-        }
-    }
-
-    func waitUntilScheduled() async {
-        guard !hasScheduledTimeout() else { return }
-        await withCheckedContinuation { continuation in
-            if !appendScheduleWaiterIfNeeded(continuation) {
-                continuation.resume()
-            }
-        }
-    }
-
-    func fireScheduledTimeout() {
-        let handler: (@Sendable () -> Void)?
-        lock.lock()
-        handler = scheduledHandler
-        scheduledHandler = nil
-        lock.unlock()
-        handler?()
-    }
-
-    private func hasScheduledTimeout() -> Bool {
-        lock.lock()
-        let result = scheduledHandler != nil
-        lock.unlock()
-        return result
-    }
-
-    private func appendScheduleWaiterIfNeeded(
-        _ continuation: CheckedContinuation<Void, Never>
-    ) -> Bool {
-        lock.lock()
-        guard scheduledHandler == nil else {
-            lock.unlock()
-            return false
-        }
-        scheduleWaiters.append(continuation)
-        lock.unlock()
-        return true
-    }
-
-    private func clearScheduledTimeout() {
-        lock.lock()
-        scheduledHandler = nil
-        lock.unlock()
     }
 }

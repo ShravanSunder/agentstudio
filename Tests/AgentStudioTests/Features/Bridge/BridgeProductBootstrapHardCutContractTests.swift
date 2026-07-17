@@ -41,7 +41,8 @@ struct BridgeProductBootstrapHardCutContractTests {
         let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let provider = BridgePaneProductSchemeProvider(
             fileMetadataSource: BridgePaneProductFileMetadataSource(
-                authority: .init(paneId: UUIDv7.generate(), worktree: worktree)
+                authority: .init(paneId: UUIDv7.generate(), worktree: worktree),
+                gitReadContext: makeBridgeGitReadContext(rootURL: worktree.path)
             ),
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),

@@ -292,6 +292,22 @@ extension AppDelegate {
         await reconcileZmxSessionAnchorsAtStartup()
         viewRegistry = ViewRegistry()
         closeTransitionCoordinator = PaneCloseTransitionCoordinator()
+        let gitReadTraceRecorder = performanceTraceRecorder
+        bridgeGitReadScheduler = BridgeGitReadScheduler(
+            topology: .recoveryBaseline,
+            eventSink: { event in
+                var attributes: [String: AgentStudioTraceValue] = [
+                    "agentstudio.bridge.git_read.event": .string(event.kind.rawValue),
+                    "agentstudio.bridge.git_read.operation_class": .string(event.operationClass.rawValue),
+                    "agentstudio.bridge.git_read.operation_id": .int(Int(event.operationId)),
+                    "agentstudio.bridge.git_read.worktree_hash": .string(event.worktreeKey.token),
+                ]
+                if let slotId = event.slotId {
+                    attributes["agentstudio.bridge.git_read.slot"] = .string(slotId.token)
+                }
+                gitReadTraceRecorder?.record(.bridgeGitReadScheduler, attributes: attributes)
+            }
+        )
         seedSlotsForRestoredPanes()
         let pipeline = FilesystemGitPipeline(
             bus: paneRuntimeBus,
@@ -310,6 +326,7 @@ extension AppDelegate {
             runtimeRegistry: .shared,
             paneEventBus: paneRuntimeBus,
             closeTransitionCoordinator: closeTransitionCoordinator,
+            bridgeGitReadScheduler: bridgeGitReadScheduler,
             filesystemSource: pipeline,
             windowLifecycleStore: windowLifecycleStore,
             appLifecycleStore: appLifecycleStore,

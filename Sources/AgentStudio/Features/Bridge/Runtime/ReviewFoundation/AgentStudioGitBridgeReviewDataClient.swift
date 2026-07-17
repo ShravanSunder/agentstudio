@@ -40,20 +40,20 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
 
     let repositoryPath: URL
     let client: LocalClient
+    let gitReadContext: BridgeGitReadContext
     let gitDataPlaneReadTimeout: Duration
-    let timeoutScheduler: any BridgeGitDataPlaneTimeoutScheduler
     var locatorByHandleId: [String: ContentLocator] = [:]
 
     init(
         repositoryPath: URL,
         client: LocalClient,
-        gitDataPlaneReadTimeout: Duration = AppPolicies.Bridge.defaultGitDataPlaneReadTimeout,
-        timeoutScheduler: any BridgeGitDataPlaneTimeoutScheduler = DispatchBridgeGitDataPlaneTimeoutScheduler()
+        gitReadContext: BridgeGitReadContext,
+        gitDataPlaneReadTimeout: Duration = AppPolicies.Bridge.defaultGitDataPlaneReadTimeout
     ) {
         self.repositoryPath = repositoryPath
         self.client = client
+        self.gitReadContext = gitReadContext
         self.gitDataPlaneReadTimeout = gitDataPlaneReadTimeout
-        self.timeoutScheduler = timeoutScheduler
     }
 
     func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws -> BridgeSourceEndpoint {
@@ -63,11 +63,13 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
     func compareEndpoints(_ request: BridgeEndpointComparisonRequest) async throws -> BridgeEndpointComparison {
         let baseTarget = try gitTarget(for: request.baseEndpoint)
         let headTarget = try gitTarget(for: request.headEndpoint)
+        let freshnessKey = gitReadFreshnessKey(for: request.reviewGeneration)
         pruneContentLocators(to: request.reviewGeneration)
         let changedFiles: [BridgeEndpointChangedFile]
         do {
             let diff = try await loadGitDiff(
-                GitDiffRequest(repositoryPath: repositoryPath, base: baseTarget, compare: headTarget)
+                GitDiffRequest(repositoryPath: repositoryPath, base: baseTarget, compare: headTarget),
+                freshnessKey: freshnessKey
             )
             changedFiles = diff.files.map(bridgeChangedFile)
         } catch let failure as BridgeProviderFailure {
@@ -77,7 +79,8 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
             do {
                 changedFiles = try await statusFallbackChangedFiles(
                     baseTarget: baseTarget,
-                    headTarget: headTarget
+                    headTarget: headTarget,
+                    freshnessKey: freshnessKey
                 )
             } catch let statusFailure as BridgeProviderFailure {
                 guard shouldRetryStatusFallbackWithoutUntracked(from: statusFailure) else {
@@ -86,7 +89,8 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
                 do {
                     let treeFallbackFiles = try await treeFilesystemFallbackChangedFiles(
                         baseTarget: baseTarget,
-                        headTarget: headTarget
+                        headTarget: headTarget,
+                        freshnessKey: freshnessKey
                     )
                     guard !treeFallbackFiles.isEmpty else {
                         throw treeFilesystemFallbackFailure(
@@ -127,6 +131,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
 
     func readTree(_ request: BridgeTreeReadRequest) async throws -> BridgeTreeReadResult {
         let revision = try gitRevisionTarget(for: request.endpoint)
+        let freshnessKey = gitReadFreshnessKey(for: request.reviewGeneration)
         var descriptors: [BridgeReviewItemDescriptor] = []
         for path in treeReadPaths(from: request.pathScope) {
             let tree = try await loadGitTree(
@@ -134,7 +139,8 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
                     repositoryPath: repositoryPath,
                     revision: revision,
                     path: path
-                )
+                ),
+                freshnessKey: freshnessKey
             )
             let treeDescriptors = tree.entries
                 .filter { !$0.isTree }
@@ -165,6 +171,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         -> BridgeReviewItemDescriptor
     {
         let target = try gitTarget(for: request.endpoint)
+        let freshnessKey = gitReadFreshnessKey(for: request.reviewGeneration)
         pruneContentLocators(to: request.reviewGeneration)
         let contentRequest = GitContentRequest(
             repositoryPath: repositoryPath,
@@ -173,7 +180,10 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
             maxSizeBytes: Int64(AppPolicies.Bridge.contentMaxBytesPerItem)
         )
         do {
-            let content = try await loadGitContentPayload(contentRequest)
+            let content = try await loadGitContentPayload(
+                contentRequest,
+                freshnessKey: freshnessKey
+            )
             let descriptor = fileDescriptor(
                 FileDescriptorInput(
                     path: request.path,
@@ -194,8 +204,10 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
                 )
             }
             return descriptor
-        } catch BridgeGitDataPlaneTimeoutError.timedOut {
-            throw BridgeProviderFailure.providerFailed(message: BridgeGitDataPlaneTimeoutFailure.message)
+        } catch BridgeGitReadSchedulerError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
+        } catch BridgeGitReadSchedulerError.capacityReached {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as GitDataPlaneError {
@@ -337,7 +349,8 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
                 path: locator.path,
                 maxSizeBytes: Int64(AppPolicies.Bridge.contentMaxBytesPerItem)
             ),
-            handle: request.handle
+            handle: request.handle,
+            freshnessKey: gitReadFreshnessKey(for: request.requestedGeneration)
         )
         return BridgeContentLoadResult(
             handle: request.handle,
@@ -761,8 +774,12 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
 }
 
 extension AgentStudioGitBridgeReviewDataClient where LocalClient == LibGit2AgentStudioGitLocalClient {
-    init(repositoryPath: URL) {
-        self.init(repositoryPath: repositoryPath, client: LibGit2AgentStudioGitLocalClient())
+    init(repositoryPath: URL, gitReadContext: BridgeGitReadContext) {
+        self.init(
+            repositoryPath: repositoryPath,
+            client: LibGit2AgentStudioGitLocalClient(),
+            gitReadContext: gitReadContext
+        )
     }
 }
 

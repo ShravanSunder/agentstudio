@@ -37,12 +37,14 @@ extension WorkspaceSurfaceCoordinator {
     func closeBridgePaneActivityAuthority(for paneId: UUID) {
         guard bridgePaneActivityCoordinatorsByPaneId[paneId] != nil else { return }
         bridgePaneActivityCoordinatorsByPaneId[paneId]?.close()
+        removeBridgeGitReadActivity(for: paneId)
         viewRegistry.allBridgeViews[paneId]?.controller.applyBridgePaneActivity(.closed)
     }
 
     func closeAllBridgePaneActivityAuthorities() {
-        for coordinator in bridgePaneActivityCoordinatorsByPaneId.values {
+        for (paneId, coordinator) in bridgePaneActivityCoordinatorsByPaneId {
             coordinator.close()
+            removeBridgeGitReadActivity(for: paneId)
         }
     }
 
@@ -124,8 +126,55 @@ extension WorkspaceSurfaceCoordinator {
             guard let activityCoordinator = bridgePaneActivityCoordinatorsByPaneId[input.paneId]
             else { continue }
             let activity = activityCoordinator.update(from: input.facts)
+            updateBridgeGitReadActivity(for: input.paneId, activity: activity)
             viewRegistry.allBridgeViews[input.paneId]?.controller.applyBridgePaneActivity(activity)
         }
+    }
+
+    private func updateBridgeGitReadActivity(for paneId: UUID, activity: BridgePaneActivity) {
+        guard activity != .closed,
+            let pane = store.paneAtom.pane(paneId),
+            let worktree = resolvedWorktreeContext(for: pane)?.worktree
+        else {
+            removeBridgeGitReadActivity(for: paneId)
+            return
+        }
+        let rank: BridgeGitReadActivityRank =
+            switch activity {
+            case .foreground:
+                .foreground
+            case .loadedHidden:
+                .loadedHidden
+            case .dormant:
+                .dormant
+            case .closed:
+                .unranked
+            }
+        let precedingPropagation = bridgeGitReadActivityPropagationTask
+        let scheduler = bridgeGitReadScheduler
+        bridgeGitReadActivityPropagationTask = Task {
+            await precedingPropagation?.value
+            await scheduler.updatePaneActivity(
+                paneKey: BridgeGitReadPaneKey(token: paneId.uuidString),
+                worktreeKey: BridgeGitReadWorktreeKey(token: worktree.stableKey),
+                rank: rank
+            )
+        }
+    }
+
+    private func removeBridgeGitReadActivity(for paneId: UUID) {
+        let precedingPropagation = bridgeGitReadActivityPropagationTask
+        let scheduler = bridgeGitReadScheduler
+        bridgeGitReadActivityPropagationTask = Task {
+            await precedingPropagation?.value
+            await scheduler.removePaneActivity(
+                paneKey: BridgeGitReadPaneKey(token: paneId.uuidString)
+            )
+        }
+    }
+
+    func drainBridgeGitReadActivityPropagation() async {
+        await bridgeGitReadActivityPropagationTask?.value
     }
 
     private func workspaceActivityFacts(for pane: Pane) -> WorkspaceActivityFacts {

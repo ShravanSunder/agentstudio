@@ -29,6 +29,13 @@ enum AppPolicies {
         /// churn without letting one item define total retention.
         static let contentCacheMaxBytes: Int = 128 * 1024 * 1024
         static let defaultGitDataPlaneReadTimeout: Duration = .seconds(30)
+        /// Recovery guardrail for queued Bridge Git reads in each operation
+        /// class. S10b owns workload calibration; this value prevents the
+        /// pre-calibration scheduler from accepting an unbounded backlog.
+        static let gitReadSchedulerMaxQueuedOperationsPerClass: Int = 64
+        /// Recovery guardrail for callers sharing one identical physical Git
+        /// read. S10b may recalibrate this after the multi-worktree workload.
+        static let gitReadSchedulerMaxLogicalWaitersPerOperation: Int = 16
         /// File tree admission may enrich from full git status only when that
         /// read fits inside the native viewer journey budget. On timeout the
         /// tracked-aware filesystem fallback keeps tree publication moving.

@@ -802,8 +802,7 @@ struct ProductFileSourceFixture {
     }
 
     func makeSource(
-        ignorePolicyLoader: @escaping BridgePaneProductFileIgnorePolicyLoader =
-            { rootURL in await BridgeWorktreeFileIgnorePolicy.load(rootURL: rootURL) },
+        ignorePolicyLoader: @escaping BridgePaneProductFileIgnorePolicyLoader = loadTestBridgeFileIgnorePolicy,
         treeRowRefresher: BridgePaneProductFileTreeRowRefresher? = nil,
         descriptorMaterializer: @escaping BridgePaneProductFileDescriptorMaterializer =
             BridgePaneProductFileContentSource.materialize
@@ -818,6 +817,7 @@ struct ProductFileSourceFixture {
                     path: rootURL
                 )
             ),
+            gitReadContext: makeBridgeGitReadContext(rootURL: rootURL),
             statusProvider: ProductFileSourceStatusProvider(),
             ignorePolicyLoader: ignorePolicyLoader,
             treeRowRefresher: treeRowRefresher,

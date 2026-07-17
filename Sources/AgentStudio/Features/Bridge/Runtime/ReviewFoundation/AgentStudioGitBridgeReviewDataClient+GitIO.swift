@@ -1,18 +1,25 @@
 import AgentStudioGit
+import CryptoKit
 import Foundation
 
 extension AgentStudioGitBridgeReviewDataClient {
-    func loadGitDiff(_ request: GitDiffRequest) async throws -> GitDiffSnapshot {
+    func loadGitDiff(
+        _ request: GitDiffRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> GitDiffSnapshot {
         let client = self.client
         do {
-            return try await BridgeGitDataPlaneTimeout.readWithHardTimeout(
-                gitDataPlaneReadTimeout,
-                timeoutScheduler: timeoutScheduler
+            return try await scheduledGitRead(
+                operationClass: .reviewMetadata,
+                coalescingKey: try gitReadCoalescingKey(domain: "diff", request: request),
+                freshnessKey: freshnessKey
             ) {
                 try await client.diff(request)
             }
-        } catch BridgeGitDataPlaneTimeoutError.timedOut {
-            throw BridgeProviderFailure.providerFailed(message: BridgeGitDataPlaneTimeoutFailure.message)
+        } catch BridgeGitReadSchedulerError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
+        } catch BridgeGitReadSchedulerError.capacityReached {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as GitDataPlaneError {
@@ -22,17 +29,23 @@ extension AgentStudioGitBridgeReviewDataClient {
         }
     }
 
-    func loadGitStatus(_ options: GitStatusOptions) async throws -> GitStatusSnapshot {
+    func loadGitStatus(
+        _ options: GitStatusOptions,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> GitStatusSnapshot {
         let client = self.client
         do {
-            return try await BridgeGitDataPlaneTimeout.readWithHardTimeout(
-                gitDataPlaneReadTimeout,
-                timeoutScheduler: timeoutScheduler
+            return try await scheduledGitRead(
+                operationClass: .reviewMetadata,
+                coalescingKey: try gitReadCoalescingKey(domain: "status", request: options),
+                freshnessKey: freshnessKey
             ) {
                 try await client.status(for: self.repositoryPath, options: options)
             }
-        } catch BridgeGitDataPlaneTimeoutError.timedOut {
-            throw BridgeProviderFailure.providerFailed(message: BridgeGitDataPlaneTimeoutFailure.message)
+        } catch BridgeGitReadSchedulerError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
+        } catch BridgeGitReadSchedulerError.capacityReached {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as GitDataPlaneError {
@@ -42,17 +55,23 @@ extension AgentStudioGitBridgeReviewDataClient {
         }
     }
 
-    func loadGitTree(_ request: GitTreeReadRequest) async throws -> GitTreeSnapshot {
+    func loadGitTree(
+        _ request: GitTreeReadRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> GitTreeSnapshot {
         let client = self.client
         do {
-            return try await BridgeGitDataPlaneTimeout.readWithHardTimeout(
-                gitDataPlaneReadTimeout,
-                timeoutScheduler: timeoutScheduler
+            return try await scheduledGitRead(
+                operationClass: .reviewMetadata,
+                coalescingKey: try gitReadCoalescingKey(domain: "tree", request: request),
+                freshnessKey: freshnessKey
             ) {
                 try await client.readTree(request)
             }
-        } catch BridgeGitDataPlaneTimeoutError.timedOut {
-            throw BridgeProviderFailure.providerFailed(message: BridgeGitDataPlaneTimeoutFailure.message)
+        } catch BridgeGitReadSchedulerError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
+        } catch BridgeGitReadSchedulerError.capacityReached {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as GitDataPlaneError {
@@ -64,12 +83,19 @@ extension AgentStudioGitBridgeReviewDataClient {
 
     func loadGitContent(
         _ request: GitContentRequest,
-        handle: BridgeContentHandle?
+        handle: BridgeContentHandle?,
+        freshnessKey: BridgeGitReadFreshnessKey
     ) async throws -> GitContentPayload {
         do {
-            return try await loadGitContentPayload(request)
-        } catch BridgeGitDataPlaneTimeoutError.timedOut {
-            throw BridgeProviderFailure.providerFailed(message: BridgeGitDataPlaneTimeoutFailure.message)
+            return try await loadGitContentPayload(
+                request,
+                operationClass: .selectedVisibleContent,
+                freshnessKey: freshnessKey
+            )
+        } catch BridgeGitReadSchedulerError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
+        } catch BridgeGitReadSchedulerError.capacityReached {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as GitDataPlaneError {
@@ -79,14 +105,60 @@ extension AgentStudioGitBridgeReviewDataClient {
         }
     }
 
-    func loadGitContentPayload(_ request: GitContentRequest) async throws -> GitContentPayload {
+    func loadGitContentPayload(
+        _ request: GitContentRequest,
+        operationClass: BridgeGitReadOperationClass = .reviewMetadata,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> GitContentPayload {
         let client = self.client
-        return try await BridgeGitDataPlaneTimeout.readWithHardTimeout(
-            gitDataPlaneReadTimeout,
-            timeoutScheduler: timeoutScheduler
+        return try await scheduledGitRead(
+            operationClass: operationClass,
+            coalescingKey: try gitReadCoalescingKey(domain: "content", request: request),
+            freshnessKey: freshnessKey
         ) {
             try await client.content(request)
         }
+    }
+
+    private func scheduledGitRead<ReturnValue: Sendable>(
+        operationClass: BridgeGitReadOperationClass,
+        coalescingKey: BridgeGitReadCoalescingKey,
+        freshnessKey: BridgeGitReadFreshnessKey,
+        operation: @escaping @Sendable () async throws -> ReturnValue
+    ) async throws -> ReturnValue {
+        try await gitReadContext.scheduler.read(
+            request: BridgeGitReadRequest(
+                worktreeKey: gitReadContext.worktreeKey,
+                operationClass: operationClass,
+                coalescingKey: coalescingKey,
+                freshnessKey: freshnessKey,
+                deadline: gitDataPlaneReadTimeout
+            ),
+            operation: operation
+        )
+    }
+
+    private func gitReadCoalescingKey<Request: Encodable>(
+        domain: String,
+        request: Request
+    ) throws -> BridgeGitReadCoalescingKey {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let requestData = try encoder.encode(request)
+        var hasher = SHA256()
+        hasher.update(data: Data("agentstudio-bridge-git-read-v1:\(domain):".utf8))
+        hasher.update(data: requestData)
+        return BridgeGitReadCoalescingKey(
+            token: hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        )
+    }
+
+    func gitReadFreshnessKey(
+        for reviewGeneration: BridgeReviewGeneration
+    ) -> BridgeGitReadFreshnessKey {
+        BridgeGitReadFreshnessKey(
+            token: "\(gitReadContext.scopeKey.token):review-generation-\(reviewGeneration.rawValue)"
+        )
     }
 
     func bridgeFailure(

@@ -23,9 +23,11 @@ struct BridgeGitReviewDirectFileIdNormalizationTests {
                 ]
             )
         )
+        let repositoryPath = URL(fileURLWithPath: "/tmp/agentstudio-git-direct-id-test")
         let adapter = AgentStudioGitBridgeReviewDataClient(
-            repositoryPath: URL(fileURLWithPath: "/tmp/agentstudio-git-direct-id-test"),
-            client: gitClient
+            repositoryPath: repositoryPath,
+            client: gitClient,
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
         )
         let request = BridgeEndpointComparisonRequest(
             query: makeBridgeReviewQuery(baseEndpointId: "base", headEndpointId: "working"),

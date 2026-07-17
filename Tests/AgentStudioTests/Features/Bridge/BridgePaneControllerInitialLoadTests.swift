@@ -249,7 +249,7 @@ extension WebKitSerializedTests {
             let summary = BridgePaneController.reviewPackageLoadFailureSummary(
                 for: BridgeProviderFailure.providerFailed(
                     message:
-                        "The operation couldn’t be completed. (AgentStudio.BridgeGitDataPlaneTimeoutError error 0.)"
+                        "The operation couldn’t be completed. (AgentStudio.BridgeGitReadSchedulerError error 0.)"
                 ),
                 stage: "package"
             )
@@ -334,6 +334,7 @@ extension WebKitSerializedTests {
             let paneId = UUIDv7.generate()
             let repoId = UUIDv7.generate()
             let worktreeId = UUIDv7.generate()
+            let gitReadContext = makeBridgeGitReadContext(rootURL: repoURL)
             let controller = BridgePaneController(
                 paneId: paneId,
                 state: BridgePaneState(
@@ -356,8 +357,10 @@ extension WebKitSerializedTests {
                     )
                 ),
                 reviewSourceProvider: BridgeReviewSourceProviderFactory.gitProvider(
-                    repositoryPath: repoURL
+                    repositoryPath: repoURL,
+                    gitReadContext: gitReadContext
                 ),
+                gitReadContext: gitReadContext,
                 initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
@@ -388,7 +391,10 @@ extension WebKitSerializedTests {
             try seedRealGitMultiWindowFixture(at: repoURL)
             let repoId = UUIDv7.generate()
             let worktreeId = UUIDv7.generate()
-            let provider = BridgeReviewSourceProviderFactory.gitProvider(repositoryPath: repoURL)
+            let provider = BridgeReviewSourceProviderFactory.gitProvider(
+                repositoryPath: repoURL,
+                gitReadContext: makeBridgeGitReadContext(rootURL: repoURL)
+            )
             let pipeline = BridgeReviewPipeline(provider: provider)
             let productAdmission = try #require(BridgeProductAdmissionGate().acquire())
             let result = try await pipeline.loadPackage(

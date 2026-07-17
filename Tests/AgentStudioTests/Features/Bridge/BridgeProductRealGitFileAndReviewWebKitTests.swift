@@ -345,7 +345,8 @@ extension WebKitSerializedTests {
                             name: "bridge-product-review-replay",
                             path: repoURL
                         )
-                    )
+                    ),
+                    gitReadContext: makeBridgeGitReadContext(rootURL: repoURL)
                 )
             )
         }
@@ -409,7 +410,8 @@ extension WebKitSerializedTests {
         private func makeTransactionalController(
             _ input: TransactionalControllerInput
         ) -> BridgePaneController {
-            BridgePaneController(
+            let gitReadContext = makeBridgeGitReadContext(rootURL: input.repoURL)
+            return BridgePaneController(
                 paneId: input.paneId,
                 state: BridgePaneState(
                     panelKind: .diffViewer,
@@ -431,8 +433,10 @@ extension WebKitSerializedTests {
                     )
                 ),
                 reviewSourceProvider: BridgeReviewSourceProviderFactory.gitProvider(
-                    repositoryPath: input.repoURL
+                    repositoryPath: input.repoURL,
+                    gitReadContext: gitReadContext
                 ),
+                gitReadContext: gitReadContext,
                 telemetryRuntimePolicy: .live,
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
                 telemetryRecorder: input.traceRecorder,
@@ -685,6 +689,7 @@ extension WebKitSerializedTests {
             traceRecorder: BridgeProductWebKitCarrierTraceRecorder
         ) -> BridgePaneController {
             let paneId = UUIDv7.generate()
+            let gitReadContext = makeBridgeGitReadContext(rootURL: repoURL)
             return BridgePaneController(
                 paneId: paneId,
                 state: BridgePaneState(
@@ -707,8 +712,10 @@ extension WebKitSerializedTests {
                     )
                 ),
                 reviewSourceProvider: BridgeReviewSourceProviderFactory.gitProvider(
-                    repositoryPath: repoURL
+                    repositoryPath: repoURL,
+                    gitReadContext: gitReadContext
                 ),
+                gitReadContext: gitReadContext,
                 telemetryRuntimePolicy: .live,
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
                 telemetryRecorder: traceRecorder,

@@ -166,14 +166,23 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
 
         let paneOneTrace = BridgeProductWebKitCarrierTraceRecorder()
         let paneTwoTrace = BridgeProductWebKitCarrierTraceRecorder()
+        let paneOneGitReadContext = makeBridgeGitReadContext(rootURL: paneOneRepoURL)
+        let paneTwoGitReadContext = makeBridgeGitReadContext(rootURL: paneTwoRepoURL)
         let paneOneReviewProvider = BridgeProductWebKitGatedReviewSourceProvider(
-            base: BridgeReviewSourceProviderFactory.gitProvider(repositoryPath: paneOneRepoURL)
+            base: BridgeReviewSourceProviderFactory.gitProvider(
+                repositoryPath: paneOneRepoURL,
+                gitReadContext: paneOneGitReadContext
+            )
         )
         let paneTwoReviewProvider = BridgeProductWebKitGatedReviewSourceProvider(
-            base: BridgeReviewSourceProviderFactory.gitProvider(repositoryPath: paneTwoRepoURL)
+            base: BridgeReviewSourceProviderFactory.gitProvider(
+                repositoryPath: paneTwoRepoURL,
+                gitReadContext: paneTwoGitReadContext
+            )
         )
         let paneOne = makeController(
             repoURL: paneOneRepoURL,
+            gitReadContext: paneOneGitReadContext,
             initialActivity: .foreground,
             reviewProvider: paneOneReviewProvider,
             traceRecorder: paneOneTrace,
@@ -181,6 +190,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         )
         let paneTwo = makeController(
             repoURL: paneTwoRepoURL,
+            gitReadContext: paneTwoGitReadContext,
             initialActivity: .dormant,
             reviewProvider: paneTwoReviewProvider,
             traceRecorder: paneTwoTrace,
@@ -464,6 +474,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
 
     private static func makeController(
         repoURL: URL,
+        gitReadContext: BridgeGitReadContext,
         initialActivity: BridgePaneActivity,
         reviewProvider: any BridgeReviewSourceProvider,
         traceRecorder: BridgeProductWebKitCarrierTraceRecorder,
@@ -492,6 +503,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
                 )
             ),
             reviewSourceProvider: reviewProvider,
+            gitReadContext: gitReadContext,
             telemetryRuntimePolicy: .live,
             telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
             telemetryRecorder: traceRecorder,

@@ -401,6 +401,7 @@ enum BridgeProductWebKitSurfaceJourneyTestSupport {
 
     private static func makeController(repoURL: URL) -> BridgePaneController {
         let paneId = UUIDv7.generate()
+        let gitReadContext = makeBridgeGitReadContext(rootURL: repoURL)
         return BridgePaneController(
             paneId: paneId,
             state: BridgePaneState(
@@ -423,8 +424,10 @@ enum BridgeProductWebKitSurfaceJourneyTestSupport {
                 )
             ),
             reviewSourceProvider: BridgeReviewSourceProviderFactory.gitProvider(
-                repositoryPath: repoURL
+                repositoryPath: repoURL,
+                gitReadContext: gitReadContext
             ),
+            gitReadContext: gitReadContext,
             telemetryRuntimePolicy: .live,
             telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
             initialPaneActivity: .foreground

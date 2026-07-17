@@ -11,10 +11,32 @@ extension WorkspaceSurfaceCoordinator {
                 return provider
             }
         #endif
-        let worktreePath =
-            resolvedWorktreeContext(for: pane)?.worktree.path
+        let worktreePath = bridgeWorktreePath(for: pane, state: state)
+        return BridgeReviewSourceProviderFactory.gitProvider(
+            repositoryPath: worktreePath,
+            gitReadContext: bridgeGitReadContext(for: pane, state: state)
+        )
+    }
+
+    func bridgeGitReadContext(
+        for pane: Pane,
+        state: BridgePaneState
+    ) -> BridgeGitReadContext? {
+        let resolvedWorktree = resolvedWorktreeContext(for: pane)?.worktree
+        guard let worktreePath = resolvedWorktree?.path ?? bridgeWorkspaceSourcePath(from: state.source)
+        else { return nil }
+        return BridgeGitReadContext(
+            scheduler: bridgeGitReadScheduler,
+            worktreeKey: BridgeGitReadWorktreeKey(
+                token: resolvedWorktree?.stableKey ?? StableKey.fromPath(worktreePath)
+            ),
+            scopeKey: BridgeGitReadScopeKey(token: pane.id.uuidString)
+        )
+    }
+
+    private func bridgeWorktreePath(for pane: Pane, state: BridgePaneState) -> URL? {
+        resolvedWorktreeContext(for: pane)?.worktree.path
             ?? bridgeWorkspaceSourcePath(from: state.source)
-        return BridgeReviewSourceProviderFactory.gitProvider(repositoryPath: worktreePath)
     }
 
     private func bridgeWorkspaceSourcePath(from source: BridgePaneSource?) -> URL? {

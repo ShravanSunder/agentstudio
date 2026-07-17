@@ -67,6 +67,7 @@ private struct RealGitReviewLoadHarness {
 
     static func make(repositoryURL: URL) async throws -> Self {
         let paneId = UUIDv7.generate()
+        let gitReadContext = makeBridgeGitReadContext(rootURL: repositoryURL)
         let controller = BridgePaneController(
             paneId: paneId,
             state: BridgePaneState(
@@ -88,8 +89,10 @@ private struct RealGitReviewLoadHarness {
                 )
             ),
             reviewSourceProvider: BridgeReviewSourceProviderFactory.gitProvider(
-                repositoryPath: repositoryURL
+                repositoryPath: repositoryURL,
+                gitReadContext: gitReadContext
             ),
+            gitReadContext: gitReadContext,
             initialPaneActivity: .foreground
         )
         let productProvider = try #require(controller.productSchemeProvider)
