@@ -21,12 +21,9 @@ struct WorkspacePreparedCompositionApplierTests {
             Issue.record("expected accepted composition, received \(result)")
             return
         }
-        #expect(acceptance.revision.rawValue == 1)
-        #expect(acceptance.contentMountCohort.generation.processGeneration == fixture.revisionOwner.processGeneration)
-        #expect(acceptance.contentMountCohort.generation.revision == acceptance.revision)
+        #expect(UUIDv7.isV7(acceptance.contentMountCohort.generation.id))
         #expect(acceptance.terminalActivationInput == prepared.terminalActivationInput)
         #expect(acceptance.nonterminalContentMountInput == prepared.nonterminalContentMountInput)
-        #expect(fixture.revisionOwner.committedRevision == acceptance.revision)
         #expect(fixture.identityAtom.workspaceId == prepared.identity.workspaceID)
         #expect(fixture.identityAtom.workspaceName == prepared.identity.workspaceName)
         #expect(fixture.windowMemoryAtom.sidebarWidth == prepared.windowMemory.sidebarWidth)
@@ -43,8 +40,8 @@ struct WorkspacePreparedCompositionApplierTests {
         #expect(fixture.paneGraphAtom.paneState(fixture.seedPaneID) == nil)
     }
 
-    @Test("preparation rejection mutates nothing and advances no revision")
-    func preparationRejectionMutatesNothingAndAdvancesNoRevision() throws {
+    @Test("preparation rejection mutates nothing")
+    func preparationRejectionMutatesNothing() throws {
         // Arrange
         let fixture = try PreparedCompositionApplierFixture.seeded()
         let before = fixture.compositionState
@@ -60,32 +57,9 @@ struct WorkspacePreparedCompositionApplierTests {
         // Assert
         #expect(preparation == .rejected(.duplicatePaneID(duplicatePane.id)))
         #expect(fixture.compositionState == before)
-        #expect(fixture.revisionOwner.committedRevision == .zero)
     }
 
-    @Test("revision-owner rejection preserves composition and revision")
-    func revisionOwnerRejectionPreservesCompositionAndRevision() throws {
-        // Arrange
-        let fixture = try PreparedCompositionApplierFixture.seeded()
-        let prepared = try fixture.makePreparedComposition()
-        let before = fixture.compositionState
-        var nestedResult: WorkspacePreparedCompositionApplyResult?
-
-        // Act
-        #expect(throws: PreparedCompositionApplierTestError.abortOuterTransaction) {
-            let _: Void = try fixture.revisionOwner.performSynchronousTransaction { _ in
-                nestedResult = fixture.applier.apply(prepared)
-                throw PreparedCompositionApplierTestError.abortOuterTransaction
-            }
-        }
-
-        // Assert
-        #expect(nestedResult == .failed(.revisionOwnerReentrantTransaction))
-        #expect(fixture.revisionOwner.committedRevision == .zero)
-        #expect(fixture.compositionState == before)
-    }
-
-    @Test("installed composition rejects retained applier before opening another transaction")
+    @Test("installed composition rejects a second apply before mutation")
     func installedCompositionRejectsRetainedApplier() throws {
         // Arrange
         let fixture = try PreparedCompositionApplierFixture.seeded()
@@ -94,61 +68,17 @@ struct WorkspacePreparedCompositionApplierTests {
             Issue.record("expected initial composition acceptance")
             return
         }
-        let factory = WorkspacePersistenceSnapshotParticipantFactory(adapters: fixture.adapters)
-        guard case .constructed = factory.constructCompositionParticipantSet() else {
-            Issue.record("expected composition participant installation")
-            return
-        }
         let before = fixture.compositionState
-        let committedRevision = fixture.revisionOwner.committedRevision
 
         // Act
         let result = fixture.applier.apply(try fixture.makePreparedComposition())
 
         // Assert
-        guard case .failed(.lifecycle(.preinstallAccessUnavailable(let phase))) = result,
-            case .installed(let attemptID) = phase
-        else {
+        guard case .failed(.alreadyInstalled) = result else {
             Issue.record("expected installed lifecycle rejection, received \(result)")
             return
         }
-        #expect(UUIDv7.isV7(attemptID.rawValue))
         #expect(fixture.compositionState == before)
-        #expect(fixture.revisionOwner.committedRevision == committedRevision)
-    }
-
-    @Test("production participant inventory opens with heterogeneous owner limits")
-    func productionParticipantInventoryOpensWithHeterogeneousOwnerLimits() throws {
-        // Arrange
-        let fixture = try PreparedCompositionApplierFixture.seeded()
-        let prepared = try fixture.makePreparedComposition()
-        guard case .accepted = fixture.applier.apply(prepared) else {
-            Issue.record("expected composition acceptance")
-            return
-        }
-        let participantSet = try fixture.constructParticipantSet()
-        let lease = WorkspaceStateSnapshotLease.open(
-            pagerIdentity: .make(),
-            revisionOwner: fixture.revisionOwner
-        )
-
-        // Act
-        var membershipCountByParticipant: [WorkspacePersistenceSnapshotParticipantID: Int] = [:]
-        for participant in participantSet.participants {
-            guard case .opened(let membershipCount) = participant.open(lease: lease) else {
-                throw PreparedCompositionApplierTestError.participantOpenFailed(participant.participantID)
-            }
-            membershipCountByParticipant[participant.participantID] = membershipCount
-        }
-
-        // Assert
-        #expect(participantSet.participantIDs == WorkspacePersistenceSnapshotParticipantID.allCases)
-        #expect(participantSet.participants.count == 14)
-        #expect(membershipCountByParticipant[.workspaceIdentity] == 1)
-        #expect(membershipCountByParticipant[.workspaceWindowMemory] == 1)
-        #expect(membershipCountByParticipant[.paneGraphs] == prepared.panes.count)
-        #expect(membershipCountByParticipant[.repositories] == 1)
-        #expect(membershipCountByParticipant[.worktrees] == 1)
     }
 }
 
@@ -174,7 +104,6 @@ private final class PreparedCompositionApplierFixture {
         let unavailableRepositoryIDs: Set<UUID>
     }
 
-    let revisionOwner = WorkspacePersistenceRevisionOwner()
     let identityAtom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate())
     let windowMemoryAtom = WorkspaceWindowMemoryAtom()
     let repositoryTopologyAtom = RepositoryTopologyAtom()
@@ -184,7 +113,6 @@ private final class PreparedCompositionApplierFixture {
     let tabGraphAtom = WorkspaceTabGraphAtom()
     let arrangementCursorAtom = WorkspaceArrangementCursorAtom()
     let tabShellAtom: WorkspaceTabShellAtom
-    let adapters: WorkspacePersistenceAdapterBundle
     let applier: WorkspacePreparedCompositionApplier
     let seedPaneID: UUID
 
@@ -287,19 +215,18 @@ private final class PreparedCompositionApplierFixture {
         }
         repositoryTopologyAtom.replaceTopology(topologyReplacement)
 
-        adapters = WorkspacePersistenceAdapterBundle(
-            revisionOwner: revisionOwner,
-            workspaceIdentityAtom: identityAtom,
-            workspaceWindowMemoryAtom: windowMemoryAtom,
-            repositoryTopologyAtom: repositoryTopologyAtom,
-            workspacePaneGraphAtom: paneGraphAtom,
-            workspaceDrawerCursorAtom: drawerCursorAtom,
-            workspaceTabShellAtom: tabShellAtom,
-            workspaceTabCursorAtom: tabCursorAtom,
-            workspaceTabGraphAtom: tabGraphAtom,
-            workspaceArrangementCursorAtom: arrangementCursorAtom
+        applier = WorkspacePreparedCompositionApplier(
+            owners: WorkspacePreparedCompositionOwners(
+                workspaceIdentityAtom: identityAtom,
+                workspaceWindowMemoryAtom: windowMemoryAtom,
+                workspacePaneGraphAtom: paneGraphAtom,
+                workspaceDrawerCursorAtom: drawerCursorAtom,
+                workspaceTabShellAtom: tabShellAtom,
+                workspaceTabCursorAtom: tabCursorAtom,
+                workspaceTabGraphAtom: tabGraphAtom,
+                workspaceArrangementCursorAtom: arrangementCursorAtom
+            )
         )
-        applier = WorkspacePreparedCompositionApplier(adapters: adapters)
     }
 
     func makeCandidatePane() -> Pane {
@@ -328,21 +255,9 @@ private final class PreparedCompositionApplierFixture {
         return prepared
     }
 
-    func constructParticipantSet() throws -> WorkspacePersistenceSnapshotParticipantSet {
-        let factory = WorkspacePersistenceSnapshotParticipantFactory(
-            adapters: adapters
-        )
-        guard case .constructed(let participantSet) = factory.constructParticipantSet() else {
-            throw PreparedCompositionApplierTestError.participantConstructionFailed
-        }
-        return participantSet
-    }
 }
 
 private enum PreparedCompositionApplierTestError: Error, Equatable {
-    case abortOuterTransaction
-    case participantConstructionFailed
-    case participantOpenFailed(WorkspacePersistenceSnapshotParticipantID)
     case paneGraphReplacementRejected
     case preparationRejected
     case topologyReplacementRejected

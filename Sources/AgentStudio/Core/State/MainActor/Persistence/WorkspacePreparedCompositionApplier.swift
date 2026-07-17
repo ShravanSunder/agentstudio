@@ -1,8 +1,11 @@
 import Foundation
 
 struct WorkspaceContentMountGeneration: Hashable, Sendable {
-    let processGeneration: WorkspacePersistenceProcessGeneration
-    let revision: WorkspacePersistenceRevision
+    let id: UUID
+
+    init(id: UUID = UUIDv7.generate()) {
+        self.id = id
+    }
 }
 
 struct WorkspacePreparedContentMountCohort: Equatable, Sendable {
@@ -14,10 +17,6 @@ struct WorkspacePreparedContentMountCohort: Equatable, Sendable {
 struct WorkspacePreparedCompositionAcceptance: Equatable, Sendable {
     let contentMountCohort: WorkspacePreparedContentMountCohort
 
-    var revision: WorkspacePersistenceRevision {
-        contentMountCohort.generation.revision
-    }
-
     var terminalActivationInput: TerminalActivationInput {
         contentMountCohort.terminalActivationInput
     }
@@ -27,25 +26,8 @@ struct WorkspacePreparedCompositionAcceptance: Equatable, Sendable {
     }
 }
 
-enum WorkspacePreparedCompositionAdapter: Equatable, Sendable {
-    case arrangementCursor
-    case drawerCursor
-    case identity
-    case paneGraph
-    case tabCursor
-    case tabGraph
-    case tabShell
-    case windowMemory
-}
-
 enum WorkspacePreparedCompositionApplyFailure: Equatable, Sendable {
-    case adapterRegistration(
-        adapter: WorkspacePreparedCompositionAdapter,
-        rejection: WorkspaceParticipantRegistrationRejection
-    )
-    case preparedInputRejected(adapter: WorkspacePreparedCompositionAdapter)
-    case lifecycle(WorkspacePersistenceLifecycleRejection)
-    case revisionOwnerReentrantTransaction
+    case alreadyInstalled
 }
 
 enum WorkspacePreparedCompositionApplyResult: Equatable, Sendable {
@@ -53,163 +35,68 @@ enum WorkspacePreparedCompositionApplyResult: Equatable, Sendable {
     case failed(WorkspacePreparedCompositionApplyFailure)
 }
 
-/// MainActor install owner for a previously validated workspace composition.
-///
-/// This owner has no repository/topology capability and performs no fleet
-/// validation. Every participating owner is reserved before the revision owner
-/// enters commit, then all replacements install once in the same transaction.
+@MainActor
+struct WorkspacePreparedCompositionOwners {
+    let workspaceIdentityAtom: WorkspaceIdentityAtom
+    let workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom
+    let workspacePaneGraphAtom: WorkspacePaneGraphAtom
+    let workspaceDrawerCursorAtom: WorkspaceDrawerCursorAtom
+    let workspaceTabShellAtom: WorkspaceTabShellAtom
+    let workspaceTabCursorAtom: WorkspaceTabCursorAtom
+    let workspaceTabGraphAtom: WorkspaceTabGraphAtom
+    let workspaceArrangementCursorAtom: WorkspaceArrangementCursorAtom
+}
+
+/// Installs one previously validated workspace composition into its canonical
+/// MainActor owners. The prepared value is sealed by
+/// `WorkspaceCompositionPreparer`; installation therefore performs only one
+/// synchronous sequence of accepted bulk replacements and cannot suspend
+/// between owners.
 @MainActor
 final class WorkspacePreparedCompositionApplier {
-    private enum TransactionAbort: Error {
-        case failed(WorkspacePreparedCompositionApplyFailure)
-    }
+    private let owners: WorkspacePreparedCompositionOwners
+    private var hasInstalledComposition = false
 
-    private let revisionOwner: WorkspacePersistenceRevisionOwner
-    private let adapters: WorkspacePersistenceAdapterBundle
-
-    init(adapters: WorkspacePersistenceAdapterBundle) {
-        revisionOwner = adapters.revisionOwner
-        self.adapters = adapters
+    init(owners: WorkspacePreparedCompositionOwners) {
+        self.owners = owners
     }
 
     func apply(
         _ prepared: PreparedWorkspaceComposition
     ) -> WorkspacePreparedCompositionApplyResult {
-        do {
-            let accessResult = try adapters.withCompositionPreinstallAccess { token in
-                try revisionOwner.performSynchronousTransaction {
-                    try prepareCompositionCommit(prepared, token: token, for: $0)
-                }
-            }
-            switch accessResult {
-            case .authorized(let acceptance):
-                return .accepted(acceptance)
-            case .rejected(let rejection):
-                return .failed(.lifecycle(rejection))
-            }
-        } catch {
-            switch error {
-            case let abort as TransactionAbort:
-                switch abort {
-                case .failed(let failure):
-                    return .failed(failure)
-                }
-            case WorkspacePersistenceRevisionOwnerError.reentrantTransaction:
-                return .failed(.revisionOwnerReentrantTransaction)
-            default:
-                preconditionFailure("prepared composition transaction emitted an unmodeled error")
-            }
+        guard !hasInstalledComposition else {
+            return .failed(.alreadyInstalled)
         }
-    }
 
-    private func prepareCompositionCommit(
-        _ prepared: PreparedWorkspaceComposition,
-        token: borrowing WorkspaceCompositionPreinstallToken,
-        for preparation: WorkspacePersistenceTransactionPreparation
-    ) throws -> WorkspacePersistencePreparedMutation<WorkspacePreparedCompositionAcceptance> {
-        try requireRegisteredParticipant(
-            .identity,
-            registration: adapters.workspaceIdentity.registerInitialIdentityReplacement(
-                token: token,
-                workspaceId: prepared.identity.workspaceID,
-                workspaceName: prepared.identity.workspaceName,
-                createdAt: prepared.identity.createdAt,
-                for: preparation
-            )
+        owners.workspaceIdentityAtom.replaceIdentity(
+            workspaceId: prepared.identity.workspaceID,
+            workspaceName: prepared.identity.workspaceName,
+            createdAt: prepared.identity.createdAt
         )
-        try requireRegisteredParticipant(
-            .windowMemory,
-            registration: adapters.workspaceWindowMemory.registerInitialWindowMemoryReplacement(
-                token: token,
-                sidebarWidth: prepared.windowMemory.sidebarWidth,
-                windowFrame: prepared.windowMemory.windowFrame,
-                for: preparation
-            )
+        owners.workspaceWindowMemoryAtom.replaceWindowMemory(
+            sidebarWidth: prepared.windowMemory.sidebarWidth,
+            windowFrame: prepared.windowMemory.windowFrame
         )
-        try requireRegisteredParticipant(
-            .paneGraph,
-            registration: adapters.workspacePaneGraph.registerInitialReplacement(
-                token: token,
-                prepared.paneGraph.replacement,
-                for: preparation
-            )
+        owners.workspacePaneGraphAtom.replacePaneStates(prepared.paneGraph.replacement)
+        owners.workspaceDrawerCursorAtom.replaceExpandedDrawer(prepared.expandedDrawerID)
+        owners.workspaceTabShellAtom.replaceTabShells(prepared.tabShells.shells)
+        owners.workspaceTabCursorAtom.replaceActiveTab(prepared.activeTabID)
+        owners.workspaceTabGraphAtom.replaceTabStates(prepared.tabGraph.states)
+        owners.workspaceArrangementCursorAtom.replaceCursors(
+            activeArrangementIdsByTabId: prepared.arrangementCursors.activeArrangementIDsByTabID,
+            paneCursorsByArrangementId: prepared.arrangementCursors.paneCursorsByArrangementID,
+            drawerCursorsByKey: prepared.arrangementCursors.drawerCursorsByKey
         )
-        try requireRegisteredParticipant(
-            .drawerCursor,
-            registration: adapters.workspaceDrawerCursor.registerInitialExpandedDrawerReplacement(
-                token: token,
-                prepared.expandedDrawerID,
-                for: preparation
-            )
-        )
-        try requirePreparedInput(.tabShell) {
-            try adapters.workspaceTabShell.registerInitialReplacement(
-                token: token,
-                prepared.tabShells.shells,
-                for: preparation
-            )
-        }
-        try requirePreparedInput(.tabGraph) {
-            try adapters.workspaceTabGraph.registerInitialReplacement(
-                token: token,
-                prepared.tabGraph.states,
-                for: preparation
-            )
-        }
-        try requireRegisteredParticipant(
-            .tabCursor,
-            registration: adapters.workspaceTabCursor.registerInitialActiveTabReplacement(
-                token: token,
-                prepared.activeTabID,
-                availableTabIds: prepared.tabShells.shells.map(\.id),
-                for: preparation
-            )
-        )
-        try requirePreparedInput(.arrangementCursor) {
-            try adapters.workspaceArrangementCursor.registerInitialReplacement(
-                token: token,
-                activeArrangementIdsByTabId: prepared.arrangementCursors.activeArrangementIDsByTabID,
-                paneCursorsByArrangementId: prepared.arrangementCursors.paneCursorsByArrangementID,
-                drawerCursorsByKey: prepared.arrangementCursors.drawerCursorsByKey,
-                for: preparation
-            )
-        }
-        return preparation.commit {
+        hasInstalledComposition = true
+
+        return .accepted(
             WorkspacePreparedCompositionAcceptance(
                 contentMountCohort: WorkspacePreparedContentMountCohort(
-                    generation: WorkspaceContentMountGeneration(
-                        processGeneration: preparation.transaction.processGeneration,
-                        revision: preparation.transaction.proposedRevision
-                    ),
+                    generation: WorkspaceContentMountGeneration(),
                     terminalActivationInput: prepared.terminalActivationInput,
                     nonterminalContentMountInput: prepared.nonterminalContentMountInput
                 )
             )
-        }
-    }
-
-    private func requireRegisteredParticipant(
-        _ adapter: WorkspacePreparedCompositionAdapter,
-        registration: WorkspaceParticipantRegistration
-    ) throws {
-        switch registration {
-        case .registered:
-            break
-        case .rejected(let rejection):
-            throw TransactionAbort.failed(
-                .adapterRegistration(adapter: adapter, rejection: rejection)
-            )
-        }
-    }
-
-    private func requirePreparedInput(
-        _ adapter: WorkspacePreparedCompositionAdapter,
-        registration: () throws -> Void
-    ) throws {
-        do {
-            try registration()
-        } catch {
-            throw TransactionAbort.failed(.preparedInputRejected(adapter: adapter))
-        }
+        )
     }
 }

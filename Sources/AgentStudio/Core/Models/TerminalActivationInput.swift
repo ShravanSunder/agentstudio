@@ -13,11 +13,6 @@ struct TerminalActivationDescriptor: Equatable, Sendable {
     /// Exact immutable pane accepted by composition validation.
     /// Activation must not reconstruct or reread this value from live state.
     let pane: Pane
-    /// Durable terminal identity restored from SQLite without rewriting it.
-    /// Provider selection never owns or changes this identity.
-    let zmxSessionID: ZmxSessionID
-    let provider: TerminalActivationProvider
-    let launchConfiguration: TerminalActivationLaunchConfiguration
     let visibilityPriority: TerminalActivationVisibilityPriority
     let hostPlacement: TerminalHostPlacementIdentity
 
@@ -61,23 +56,6 @@ enum NonterminalContentMountContent: Equatable, Sendable {
             return pane
         }
     }
-}
-
-enum TerminalActivationProvider: Equatable, Sendable {
-    case ghostty
-    case zmx
-}
-
-enum TerminalActivationLaunchDirectory: Equatable, Sendable {
-    case stored(URL)
-    case userHomeDefault
-}
-
-struct TerminalActivationLaunchConfiguration: Equatable, Sendable {
-    let launchDirectory: TerminalActivationLaunchDirectory
-    let executionBackend: ExecutionBackend
-    let lifetime: SessionLifetime
-    let displayTitle: String
 }
 
 enum TerminalActivationVisibilityPriority: Int, Comparable, Sendable {

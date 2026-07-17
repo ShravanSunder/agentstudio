@@ -56,8 +56,6 @@ enum WorkspaceStoreLoadResult: Equatable, Sendable {
 /// mutations live on the owning atoms or `WorkspaceMutationCoordinator`.
 @MainActor
 final class WorkspaceStore {
-    let workspacePersistenceRuntime: WorkspacePersistenceRuntime
-    let workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner
     let identityAtom: WorkspaceIdentityAtom
     let windowMemoryAtom: WorkspaceWindowMemoryAtom
     let repositoryTopologyAtom: RepositoryTopologyAtom
@@ -75,6 +73,7 @@ final class WorkspaceStore {
 
     private let sqliteDatastore: WorkspaceSQLiteDatastore?
     private let sqliteSaveCoordinator: WorkspaceSQLiteSaveCoordinator?
+    private let preparedCompositionApplier: WorkspacePreparedCompositionApplier
     private let persistDebounceDuration: Duration
     private let delay: AsyncDelay
     let recoveryReporter: PersistenceRecoveryReporter?
@@ -89,7 +88,6 @@ final class WorkspaceStore {
     }
 
     init(
-        workspacePersistenceRuntime: WorkspacePersistenceRuntime,
         identityAtom: WorkspaceIdentityAtom,
         windowMemoryAtom: WorkspaceWindowMemoryAtom,
         repositoryTopologyAtom: RepositoryTopologyAtom,
@@ -105,24 +103,18 @@ final class WorkspaceStore {
         let resolvedTabShellAtom = tabLayoutAtom.shellAtom
         let resolvedTabArrangementAtom = tabLayoutAtom.arrangementAtom
         let resolvedPaneAtom = paneAtom
-        workspacePersistenceRuntime.requireExactAtomOwners(
-            WorkspacePersistenceAtomOwners(
-                workspaceIdentity: identityAtom,
-                workspaceWindowMemory: windowMemoryAtom,
-                repositoryTopology: repositoryTopologyAtom,
-                workspacePaneGraph: resolvedPaneAtom.graphAtom,
-                workspaceDrawerCursor: resolvedPaneAtom.drawerCursorAtom,
-                workspaceTabShell: resolvedTabShellAtom,
-                workspaceTabCursor: resolvedTabShellAtom.cursorAtom,
-                workspaceTabGraph: resolvedTabArrangementAtom.graphAtom,
-                workspaceArrangementCursor: resolvedTabArrangementAtom.cursorAtom
+        preparedCompositionApplier = WorkspacePreparedCompositionApplier(
+            owners: WorkspacePreparedCompositionOwners(
+                workspaceIdentityAtom: identityAtom,
+                workspaceWindowMemoryAtom: windowMemoryAtom,
+                workspacePaneGraphAtom: resolvedPaneAtom.graphAtom,
+                workspaceDrawerCursorAtom: resolvedPaneAtom.drawerCursorAtom,
+                workspaceTabShellAtom: resolvedTabShellAtom,
+                workspaceTabCursorAtom: resolvedTabShellAtom.cursorAtom,
+                workspaceTabGraphAtom: resolvedTabArrangementAtom.graphAtom,
+                workspaceArrangementCursorAtom: resolvedTabArrangementAtom.cursorAtom
             )
         )
-        workspacePersistenceRuntime.requireExactPresentationOwner(
-            resolvedTabArrangementAtom.presentationAtom
-        )
-        self.workspacePersistenceRuntime = workspacePersistenceRuntime
-        workspacePersistenceRevisionOwner = workspacePersistenceRuntime.revisionOwner
         self.identityAtom = identityAtom
         self.windowMemoryAtom = windowMemoryAtom
         self.repositoryTopologyAtom = repositoryTopologyAtom
@@ -246,7 +238,7 @@ final class WorkspaceStore {
 
         isApplyingInitialComposition = true
         defer { isApplyingInitialComposition = false }
-        switch workspacePersistenceRuntime.preparedCompositionApplier.apply(preparedComposition) {
+        switch preparedCompositionApplier.apply(preparedComposition) {
         case .accepted(let acceptance):
             workspaceStoreLogger.info(
                 "Installed SQLite workspace '\(preparedComposition.identity.workspaceName)' with \(preparedComposition.panes.count) pane(s), \(preparedComposition.tabs.count) tab(s)"

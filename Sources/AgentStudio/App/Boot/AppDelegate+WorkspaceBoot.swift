@@ -141,7 +141,6 @@ extension AppDelegate {
 
     private func bootLoadCanonicalStore() async {
         atomStore = AtomRegistry()
-        installWorkspacePersistenceRuntime(WorkspacePersistenceRuntime(atomRegistry: atomStore))
         atomStore.workspaceRepositoryTopology.setPerformanceTraceRecorder(performanceTraceRecorder)
         AtomPerformanceTelemetry.shared.configure(traceRuntime: traceRuntime)
         AtomScope.setUp(atomStore)
@@ -165,7 +164,6 @@ extension AppDelegate {
         )
         repositoryTopologyStore = topologyStore
         store = WorkspaceStore(
-            workspacePersistenceRuntime: workspacePersistenceRuntime,
             identityAtom: atomStore.workspaceIdentity,
             windowMemoryAtom: atomStore.workspaceWindowMemory,
             repositoryTopologyAtom: atomStore.workspaceRepositoryTopology,

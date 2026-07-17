@@ -137,14 +137,7 @@ struct ViewRegistryPreparedContentMountTests {
 
 @MainActor
 private func makeViewRegistryContentGeneration() throws -> WorkspaceContentMountGeneration {
-    let revisionOwner = WorkspacePersistenceRevisionOwner()
-    let revision = try revisionOwner.performSynchronousTransaction { preparation in
-        preparation.commit { preparation.transaction.proposedRevision }
-    }
-    return WorkspaceContentMountGeneration(
-        processGeneration: revisionOwner.processGeneration,
-        revision: revision
-    )
+    WorkspaceContentMountGeneration()
 }
 
 private func makeViewRegistryTerminalPane() -> Pane {
@@ -179,19 +172,11 @@ private func makeViewRegistryWebviewPane() -> Pane {
 }
 
 private func makeViewRegistryTerminalDescriptor(pane: Pane) -> TerminalActivationDescriptor {
-    guard case .terminal(let state) = pane.content else {
+    guard case .terminal = pane.content else {
         preconditionFailure("view registry terminal fixture requires terminal content")
     }
     return TerminalActivationDescriptor(
         pane: pane,
-        zmxSessionID: state.zmxSessionID,
-        provider: .zmx,
-        launchConfiguration: TerminalActivationLaunchConfiguration(
-            launchDirectory: .stored(URL(filePath: "/tmp/view-registry-terminal")),
-            executionBackend: .local,
-            lifetime: .persistent,
-            displayTitle: "Terminal"
-        ),
         visibilityPriority: .activeVisible,
         hostPlacement: .tab(tabID: UUIDv7.generate())
     )

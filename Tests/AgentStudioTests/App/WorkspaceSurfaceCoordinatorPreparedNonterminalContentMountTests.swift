@@ -106,12 +106,5 @@ extension WebKitSerializedTests {
 
 @MainActor
 private func makePreparedBridgeContentMountGeneration() throws -> WorkspaceContentMountGeneration {
-    let revisionOwner = WorkspacePersistenceRevisionOwner()
-    let revision = try revisionOwner.performSynchronousTransaction { preparation in
-        preparation.commit { preparation.transaction.proposedRevision }
-    }
-    return WorkspaceContentMountGeneration(
-        processGeneration: revisionOwner.processGeneration,
-        revision: revision
-    )
+    WorkspaceContentMountGeneration()
 }

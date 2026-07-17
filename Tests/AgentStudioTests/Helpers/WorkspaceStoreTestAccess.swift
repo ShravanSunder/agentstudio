@@ -48,21 +48,7 @@ extension WorkspaceStore {
                 workspaceTabShellAtom: resolvedTabShellAtom,
                 workspaceTabArrangementAtom: resolvedTabArrangementAtom
             )
-        let persistenceRuntime = WorkspacePersistenceRuntime(
-            revisionOwner: workspacePersistenceRevisionOwner,
-            atomOwners: WorkspacePersistenceAtomOwners(
-                workspaceIdentity: identityAtom,
-                workspaceWindowMemory: windowMemoryAtom,
-                repositoryTopology: repositoryTopologyAtom,
-                workspacePaneGraph: resolvedPaneAtom.graphAtom,
-                workspaceDrawerCursor: resolvedPaneAtom.drawerCursorAtom,
-                workspaceTabShell: resolvedTabShellAtom,
-                workspaceTabCursor: resolvedTabShellAtom.cursorAtom,
-                workspaceTabGraph: resolvedTabArrangementAtom.graphAtom,
-                workspaceArrangementCursor: resolvedTabArrangementAtom.cursorAtom
-            ),
-            workspacePanePresentation: resolvedTabArrangementAtom.presentationAtom
-        )
+        _ = workspacePersistenceRevisionOwner
         let testSQLiteRoot = FileManager.default.temporaryDirectory.appending(
             path: "workspace-store-test-\(UUIDv7.generate().uuidString)"
         )
@@ -75,7 +61,6 @@ extension WorkspaceStore {
                 }
             ).makeDatastore()
         self.init(
-            workspacePersistenceRuntime: persistenceRuntime,
             identityAtom: identityAtom,
             windowMemoryAtom: windowMemoryAtom,
             repositoryTopologyAtom: repositoryTopologyAtom,

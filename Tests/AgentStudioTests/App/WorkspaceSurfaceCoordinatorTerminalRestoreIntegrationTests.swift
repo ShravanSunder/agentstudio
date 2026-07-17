@@ -825,14 +825,7 @@ private func nonEmptyInitialFramesByPaneID(
 
 @MainActor
 private func preparedTerminalCohortGeneration() throws -> WorkspaceContentMountGeneration {
-    let revisionOwner = WorkspacePersistenceRevisionOwner()
-    let revision = try revisionOwner.performSynchronousTransaction { preparation in
-        preparation.commit { preparation.transaction.proposedRevision }
-    }
-    return WorkspaceContentMountGeneration(
-        processGeneration: revisionOwner.processGeneration,
-        revision: revision
-    )
+    WorkspaceContentMountGeneration()
 }
 
 private func preparedTerminalCohortDescriptor(
@@ -840,25 +833,11 @@ private func preparedTerminalCohortDescriptor(
     visibilityPriority: TerminalActivationVisibilityPriority,
     hostPlacement: TerminalHostPlacementIdentity
 ) throws -> TerminalActivationDescriptor {
-    guard case .terminal(let terminalState) = pane.content else {
+    guard case .terminal = pane.content else {
         preconditionFailure("prepared terminal cohort requires terminal content")
     }
-    let provider: TerminalActivationProvider =
-        switch terminalState.provider {
-        case .ghostty: .ghostty
-        case .zmx: .zmx
-        }
     return TerminalActivationDescriptor(
         pane: pane,
-        zmxSessionID: terminalState.zmxSessionID,
-        provider: provider,
-        launchConfiguration: TerminalActivationLaunchConfiguration(
-            launchDirectory: pane.metadata.launchDirectory.map(TerminalActivationLaunchDirectory.stored)
-                ?? .userHomeDefault,
-            executionBackend: pane.metadata.executionBackend,
-            lifetime: terminalState.lifetime,
-            displayTitle: pane.metadata.title
-        ),
         visibilityPriority: visibilityPriority,
         hostPlacement: hostPlacement
     )
@@ -883,30 +862,14 @@ private func makeAcceptedPreparedTerminalPane(launchDirectory: URL) -> Pane {
 
 @MainActor
 private func makePreparedTerminalAdmission(pane: Pane) throws -> TerminalActivationAdmission {
-    let revisionOwner = WorkspacePersistenceRevisionOwner()
-    let revision = try revisionOwner.performSynchronousTransaction { preparation in
-        preparation.commit { preparation.transaction.proposedRevision }
-    }
-    let generation = WorkspaceContentMountGeneration(
-        processGeneration: revisionOwner.processGeneration,
-        revision: revision
-    )
-    guard case .terminal(let terminalState) = pane.content else {
+    let generation = WorkspaceContentMountGeneration()
+    guard case .terminal = pane.content else {
         preconditionFailure("prepared terminal admission requires terminal content")
     }
-    let launchDirectory = try #require(pane.metadata.launchDirectory)
     return TerminalActivationAdmission(
         generation: generation,
         descriptor: TerminalActivationDescriptor(
             pane: pane,
-            zmxSessionID: terminalState.zmxSessionID,
-            provider: .zmx,
-            launchConfiguration: TerminalActivationLaunchConfiguration(
-                launchDirectory: .stored(launchDirectory),
-                executionBackend: .local,
-                lifetime: terminalState.lifetime,
-                displayTitle: pane.metadata.title
-            ),
             visibilityPriority: .activeVisible,
             hostPlacement: .tab(tabID: UUIDv7.generate())
         ),

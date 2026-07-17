@@ -230,14 +230,7 @@ private final class RecordingPreparedContentNonterminalPort: NonterminalContentM
 
 @MainActor
 private func makePreparedContentCoordinatorGeneration() throws -> WorkspaceContentMountGeneration {
-    let revisionOwner = WorkspacePersistenceRevisionOwner()
-    let revision = try revisionOwner.performSynchronousTransaction { preparation in
-        preparation.commit { preparation.transaction.proposedRevision }
-    }
-    return WorkspaceContentMountGeneration(
-        processGeneration: revisionOwner.processGeneration,
-        revision: revision
-    )
+    WorkspaceContentMountGeneration()
 }
 
 private func makePreparedContentCoordinatorTerminalDescriptor(
@@ -259,14 +252,6 @@ private func makePreparedContentCoordinatorTerminalDescriptor(
     )
     return TerminalActivationDescriptor(
         pane: pane,
-        zmxSessionID: terminalState.zmxSessionID,
-        provider: .zmx,
-        launchConfiguration: TerminalActivationLaunchConfiguration(
-            launchDirectory: .stored(launchDirectory),
-            executionBackend: .local,
-            lifetime: terminalState.lifetime,
-            displayTitle: title
-        ),
         visibilityPriority: .activeVisible,
         hostPlacement: .tab(tabID: UUIDv7.generate())
     )

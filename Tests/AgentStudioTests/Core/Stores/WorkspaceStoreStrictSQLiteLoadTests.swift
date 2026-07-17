@@ -81,12 +81,17 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         #expect(store.panes == [paneID: pane])
         #expect(store.tabs == [tab])
         #expect(store.activeTabId == tab.id)
-        #expect(acceptance.revision == revisionOwner.committedRevision)
+        #expect(UUIDv7.isV7(acceptance.contentMountCohort.generation.id))
+        #expect(revisionOwner.committedRevision == .zero)
         #expect(acceptance.terminalActivationInput.entries.count == 1)
         let activation = try #require(acceptance.terminalActivationInput.entries.first)
         #expect(activation.paneID.uuid == paneID)
-        #expect(activation.zmxSessionID == storedZmxSessionID)
-        #expect(activation.provider == .zmx)
+        guard case .terminal(let activationTerminalState) = activation.pane.content else {
+            Issue.record("expected restored terminal pane content")
+            return
+        }
+        #expect(activationTerminalState.zmxSessionID == storedZmxSessionID)
+        #expect(activationTerminalState.provider == .zmx)
         #expect(activation.hostPlacement == .tab(tabID: tab.id))
         #expect(store.panes[paneID]?.drawer?.drawerId == drawerID)
         #expect(store.tabs.single?.id == tabID)

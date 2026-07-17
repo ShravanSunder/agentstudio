@@ -218,14 +218,7 @@ private final class RecordingPreparedTerminalMountHandler: PreparedTerminalMount
 
 @MainActor
 private func makePreparedTerminalTestGeneration() throws -> WorkspaceContentMountGeneration {
-    let revisionOwner = WorkspacePersistenceRevisionOwner()
-    let revision = try revisionOwner.performSynchronousTransaction { preparation in
-        preparation.commit { preparation.transaction.proposedRevision }
-    }
-    return WorkspaceContentMountGeneration(
-        processGeneration: revisionOwner.processGeneration,
-        revision: revision
-    )
+    WorkspaceContentMountGeneration()
 }
 
 private func makePreparedTerminalTestPane() -> Pane {
@@ -246,19 +239,11 @@ private func makePreparedTerminalTestPane() -> Pane {
 }
 
 private func makePreparedTerminalTestDescriptor(pane: Pane) -> TerminalActivationDescriptor {
-    guard case .terminal(let state) = pane.content else {
+    guard case .terminal = pane.content else {
         preconditionFailure("prepared terminal test requires terminal content")
     }
     return TerminalActivationDescriptor(
         pane: pane,
-        zmxSessionID: state.zmxSessionID,
-        provider: .zmx,
-        launchConfiguration: TerminalActivationLaunchConfiguration(
-            launchDirectory: .stored(URL(filePath: "/tmp/prepared-terminal-admission")),
-            executionBackend: .local,
-            lifetime: .persistent,
-            displayTitle: "Prepared Terminal"
-        ),
         visibilityPriority: .activeVisible,
         hostPlacement: .tab(tabID: UUIDv7.generate())
     )

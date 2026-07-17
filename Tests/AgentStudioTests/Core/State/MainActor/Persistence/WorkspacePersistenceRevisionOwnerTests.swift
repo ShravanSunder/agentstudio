@@ -176,15 +176,13 @@ struct WorkspacePersistenceRevisionOwnerTests {
         #expect(UUIDv7.isV7(firstRead.rawValue))
     }
 
-    @Test("workspace persistence owners share one revision owner")
-    func workspacePersistenceOwnersShareOneRevisionOwner() {
+    @Test("workspace store initial composition is independent from the revision owner")
+    func workspaceStoreInitialCompositionIsIndependentFromRevisionOwner() {
         // Arrange
         let atomRegistry = AtomRegistry()
-        let runtime = WorkspacePersistenceRuntime(atomRegistry: atomRegistry)
 
         // Act
         let workspaceStore = WorkspaceStore(
-            workspacePersistenceRuntime: runtime,
             identityAtom: atomRegistry.workspaceIdentity,
             windowMemoryAtom: atomRegistry.workspaceWindowMemory,
             repositoryTopologyAtom: atomRegistry.workspaceRepositoryTopology,
@@ -194,8 +192,9 @@ struct WorkspacePersistenceRevisionOwnerTests {
         )
 
         // Assert
-        #expect(workspaceStore.workspacePersistenceRevisionOwner === runtime.revisionOwner)
-        #expect(workspaceStore.workspacePersistenceRuntime === runtime)
+        #expect(workspaceStore.identityAtom === atomRegistry.workspaceIdentity)
+        #expect(workspaceStore.paneGraphAtom === atomRegistry.workspacePaneGraph)
+        #expect(workspaceStore.tabGraphAtom === atomRegistry.workspaceTabGraph)
     }
 }
 

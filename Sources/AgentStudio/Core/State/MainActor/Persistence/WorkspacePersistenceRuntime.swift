@@ -69,7 +69,6 @@ final class WorkspacePersistenceRuntime {
     let adapters: WorkspacePersistenceAdapterBundle
     let workspacePanePresentation: WorkspacePanePresentationAtom
     let snapshotParticipantFactory: WorkspacePersistenceSnapshotParticipantFactory
-    let preparedCompositionApplier: WorkspacePreparedCompositionApplier
     let preparedTopologyApplier: WorkspacePreparedTopologyApplier
     let mutationCoordinator: WorkspacePersistenceMutationCoordinator
     let paneResidencyLifecycleOwner: WorkspacePaneResidencyLifecycleOwner
@@ -108,7 +107,6 @@ final class WorkspacePersistenceRuntime {
         )
         self.adapters = adapters
         snapshotParticipantFactory = WorkspacePersistenceSnapshotParticipantFactory(adapters: adapters)
-        preparedCompositionApplier = WorkspacePreparedCompositionApplier(adapters: adapters)
         preparedTopologyApplier = WorkspacePreparedTopologyApplier(adapters: adapters)
         let mutationCoordinator = WorkspacePersistenceMutationCoordinator(
             revisionOwner: revisionOwner,

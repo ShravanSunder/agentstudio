@@ -40,15 +40,17 @@ struct WorkspaceCompositionPreparerTests {
         #expect(prepared.tabs.map(\.id) == [tab.id])
         let activation = try #require(prepared.terminalActivationInput.entries.first)
         #expect(activation.paneID.uuid == pane.id)
+        #expect(activation.pane == pane)
         #expect(activation.visibilityPriority == .activeVisible)
         #expect(activation.hostPlacement == .tab(tabID: tab.id))
-        guard case .zmx = activation.provider else {
-            Issue.record("expected zmx activation backend")
+        guard case .terminal(let terminalState) = activation.pane.content else {
+            Issue.record("expected exact terminal pane content")
             return
         }
-        #expect(activation.zmxSessionID.rawValue == storedText)
-        #expect(activation.launchConfiguration.launchDirectory == .stored(URL(filePath: "/tmp/composition")))
-        #expect(activation.launchConfiguration.lifetime == .persistent)
+        #expect(terminalState.provider == .zmx)
+        #expect(terminalState.zmxSessionID.rawValue == storedText)
+        #expect(activation.pane.metadata.launchDirectory == URL(filePath: "/tmp/composition"))
+        #expect(terminalState.lifetime == .persistent)
     }
 
     @Test("duplicate composition identities reject off-main before apply")

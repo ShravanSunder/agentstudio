@@ -640,20 +640,10 @@ enum WorkspaceCompositionPreparer {
         hostPlacement: TerminalHostPlacementIdentity
     ) -> PreparedContentDescriptor {
         switch pane.content {
-        case .terminal(let terminalState):
+        case .terminal:
             return .terminal(
                 TerminalActivationDescriptor(
                     pane: pane,
-                    zmxSessionID: terminalState.zmxSessionID,
-                    provider: terminalActivationProvider(from: terminalState),
-                    launchConfiguration: TerminalActivationLaunchConfiguration(
-                        launchDirectory: pane.metadata.launchDirectory.map(
-                            TerminalActivationLaunchDirectory.stored
-                        ) ?? .userHomeDefault,
-                        executionBackend: pane.metadata.executionBackend,
-                        lifetime: terminalState.lifetime,
-                        displayTitle: pane.metadata.title
-                    ),
                     visibilityPriority: visibilityPriority,
                     hostPlacement: hostPlacement
                 )
@@ -703,17 +693,6 @@ enum WorkspaceCompositionPreparer {
             visibilityPriority: visibilityPriority,
             hostPlacement: hostPlacement
         )
-    }
-
-    private static func terminalActivationProvider(
-        from terminalState: TerminalState
-    ) -> TerminalActivationProvider {
-        switch terminalState.provider {
-        case .ghostty:
-            return .ghostty
-        case .zmx:
-            return .zmx
-        }
     }
 
     private static func contentHostPlacement(

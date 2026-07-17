@@ -906,9 +906,7 @@ struct TabBarEmptyState: View {
     struct CustomTabBar_Previews: PreviewProvider {
         static var previews: some View {
             let atomRegistry = AtomRegistry()
-            let persistenceRuntime = WorkspacePersistenceRuntime(atomRegistry: atomRegistry)
             let store = WorkspaceStore(
-                workspacePersistenceRuntime: persistenceRuntime,
                 identityAtom: atomRegistry.workspaceIdentity,
                 windowMemoryAtom: atomRegistry.workspaceWindowMemory,
                 repositoryTopologyAtom: atomRegistry.workspaceRepositoryTopology,

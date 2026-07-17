@@ -106,46 +106,46 @@ Checkpoint proof:
 
 ### Preserve
 
-- [ ] `WorkspaceCompositionPreparer` and its off-main strict validation.
-- [ ] Prepared pane/tab/drawer projections and terminal/nonterminal mount input.
-- [ ] One bounded MainActor installation of already-validated composition.
-- [ ] Strict load failure with zero partial atom installation.
+- [x] `WorkspaceCompositionPreparer` and its off-main strict validation.
+- [x] Prepared pane/tab/drawer projections and terminal/nonterminal mount input.
+- [x] One bounded MainActor installation of already-validated composition.
+- [x] Strict load failure with zero partial atom installation.
 
 ### Rework
 
-- [ ] Replace `WorkspacePreparedCompositionApplier` adapter/revision application
+- [x] Replace `WorkspacePreparedCompositionApplier` adapter/revision application
       with a lean initial installer holding the exact canonical atom owners.
-- [ ] Replace `WorkspaceContentMountGeneration` persistence revision/process
+- [x] Replace `WorkspaceContentMountGeneration` persistence revision/process
       generation with a standalone composition-generation token.
-- [ ] Keep composition generation separate from topology readiness and
+- [x] Keep composition generation separate from topology readiness and
       persistence acknowledgement.
-- [ ] Make `WorkspaceStore.loadCanonicalComposition()` use the lean installer.
-- [ ] Keep `WorkspaceSQLiteSaveCoordinator` strict validation and datastore
+- [x] Make `WorkspaceStore.loadCanonicalComposition()` use the lean installer.
+- [x] Keep `WorkspaceSQLiteSaveCoordinator` strict validation and datastore
       save behavior without importing revision/participant result types.
-- [ ] Simplify prepared terminal descriptors so each value has one
+- [x] Simplify prepared terminal descriptors so each value has one
       authoritative representation.
 
 ### Remove from boot/store
 
-- [ ] `WorkspacePersistenceRuntimeBootState`.
-- [ ] `AppDelegate.workspacePersistenceRuntimeBootState`.
-- [ ] `AppDelegate.workspacePersistenceRuntime`.
-- [ ] `AppDelegate.installWorkspacePersistenceRuntime`.
-- [ ] Runtime construction in `AppDelegate+WorkspaceBoot`.
-- [ ] Runtime constructor parameters and identity checks in `WorkspaceStore`.
-- [ ] Preview-only runtime construction in `CustomTabBar` and `DrawerPanel`.
+- [x] `WorkspacePersistenceRuntimeBootState`.
+- [x] `AppDelegate.workspacePersistenceRuntimeBootState`.
+- [x] `AppDelegate.workspacePersistenceRuntime`.
+- [x] `AppDelegate.installWorkspacePersistenceRuntime`.
+- [x] Runtime construction in `AppDelegate+WorkspaceBoot`.
+- [x] Runtime constructor parameters and identity checks in `WorkspaceStore`.
+- [x] Preview-only runtime construction in `CustomTabBar` and `DrawerPanel`.
 
 Focused proof:
 
-- [ ] Composition-preparer tests pass.
-- [ ] Lean installer tests prove one complete installation and zero partial
+- [x] Composition-preparer tests pass.
+- [x] Lean installer tests prove one complete installation and zero partial
       mutation on rejection.
-- [ ] Strict SQLite startup tests pass.
-- [ ] Terminal/nonterminal prepared cohort tests pass.
-- [ ] `mise run build` passes.
-- [ ] `mise run lint` passes.
-- [ ] `git diff --check` passes.
-- [ ] Commit C1.
+- [x] Strict SQLite startup tests pass.
+- [x] Terminal/nonterminal prepared cohort tests pass.
+- [x] `mise run build` passes.
+- [x] `mise run lint` passes.
+- [x] `git diff --check` passes.
+- [x] Commit C1.
 
 Split/replan trigger: stop if the lean installer requires persistence revision,
 lease, or participant concepts to express initial state installation.

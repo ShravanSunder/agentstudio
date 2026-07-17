@@ -37,9 +37,14 @@ struct TerminalActivationSchedulerTests {
         let scheduler = try makeScheduler(entries: [descriptor], port: port)
 
         let settlement = await scheduler.activate()
+        let admittedPane = try #require(port.admissions.first?.descriptor.pane)
+        guard case .terminal(let admittedTerminalState) = admittedPane.content else {
+            Issue.record("expected admitted descriptor to retain terminal content")
+            return
+        }
 
-        #expect(port.admissions.map(\.descriptor.zmxSessionID) == [storedSessionID])
-        #expect(port.admissions.map(\.descriptor.zmxSessionID.rawValue) == [storedText])
+        #expect(admittedTerminalState.zmxSessionID == storedSessionID)
+        #expect(admittedTerminalState.zmxSessionID.rawValue == storedText)
         #expect(await scheduler.memberState(for: descriptor.paneID) == .ready(surfaceID: surfaceID))
         #expect(settlement.outcomesByPaneID[descriptor.paneID] == .ready(surfaceID: surfaceID))
     }
@@ -167,9 +172,8 @@ struct TerminalActivationSchedulerTests {
 
     @Test("replacement cancels queued and attaching members without accepting stale completions")
     func replacementCancelsQueuedAndAttachingMembers() async throws {
-        let revisionOwner = WorkspacePersistenceRevisionOwner()
-        let originalGeneration = try nextCompositionGeneration(revisionOwner: revisionOwner)
-        let replacementGeneration = try nextCompositionGeneration(revisionOwner: revisionOwner)
+        let originalGeneration = nextCompositionGeneration()
+        let replacementGeneration = nextCompositionGeneration()
         let descriptors = makeDescriptors(count: 8, priority: .hidden)
         let port = ControlledTerminalActivationAdmissionPort()
         let scheduler = TerminalActivationScheduler(
@@ -209,6 +213,11 @@ struct TerminalActivationSchedulerTests {
         await port.waitUntilStartedCount(2)
         port.releaseFirstPendingAsReady()
         await port.waitUntilReleasedCount(1)
+        await waitUntilMemberStates(
+            scheduler: scheduler,
+            terminalPaneID: descriptors[0].paneID,
+            attachingPaneID: descriptors[1].paneID
+        )
 
         #expect(!(await completionProbe.isCompleted))
         #expect(await scheduler.memberState(for: descriptors[0].paneID)?.isTerminal == true)
@@ -265,19 +274,28 @@ struct TerminalActivationSchedulerTests {
     }
 
     private func makeCompositionGeneration() throws -> WorkspaceContentMountGeneration {
-        try nextCompositionGeneration(revisionOwner: WorkspacePersistenceRevisionOwner())
+        nextCompositionGeneration()
     }
 
-    private func nextCompositionGeneration(
-        revisionOwner: WorkspacePersistenceRevisionOwner
-    ) throws -> WorkspaceContentMountGeneration {
-        let revision = try revisionOwner.performSynchronousTransaction { preparation in
-            preparation.commit { preparation.transaction.proposedRevision }
+    private func nextCompositionGeneration() -> WorkspaceContentMountGeneration {
+        WorkspaceContentMountGeneration()
+    }
+
+    private func waitUntilMemberStates(
+        scheduler: TerminalActivationScheduler,
+        terminalPaneID: PaneId,
+        attachingPaneID: PaneId,
+        maximumTurns: Int = 200
+    ) async {
+        for _ in 0..<maximumTurns {
+            let terminalState = await scheduler.memberState(for: terminalPaneID)
+            let attachingState = await scheduler.memberState(for: attachingPaneID)
+            if terminalState?.isTerminal == true, attachingState == .attaching {
+                return
+            }
+            await Task.yield()
         }
-        return WorkspaceContentMountGeneration(
-            processGeneration: revisionOwner.processGeneration,
-            revision: revision
-        )
+        Issue.record("terminal activation member states did not settle after one released admission")
     }
 
     private func makeDescriptors(
@@ -312,14 +330,6 @@ struct TerminalActivationSchedulerTests {
         )
         return TerminalActivationDescriptor(
             pane: pane,
-            zmxSessionID: zmxSessionID,
-            provider: .zmx,
-            launchConfiguration: TerminalActivationLaunchConfiguration(
-                launchDirectory: .stored(URL(filePath: "/tmp/terminal-activation")),
-                executionBackend: .local,
-                lifetime: .persistent,
-                displayTitle: "Activation test"
-            ),
             visibilityPriority: priority,
             hostPlacement: .tab(tabID: UUIDv7.generate())
         )

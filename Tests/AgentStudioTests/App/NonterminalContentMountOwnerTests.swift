@@ -137,14 +137,7 @@ private final class RecordingNonterminalContentMountPort: NonterminalContentMoun
 
 @MainActor
 private func makeNonterminalMountGeneration() throws -> WorkspaceContentMountGeneration {
-    let revisionOwner = WorkspacePersistenceRevisionOwner()
-    let revision = try revisionOwner.performSynchronousTransaction { preparation in
-        preparation.commit { preparation.transaction.proposedRevision }
-    }
-    return WorkspaceContentMountGeneration(
-        processGeneration: revisionOwner.processGeneration,
-        revision: revision
-    )
+    WorkspaceContentMountGeneration()
 }
 
 private func makeNonterminalMountPane(title: String) -> Pane {
