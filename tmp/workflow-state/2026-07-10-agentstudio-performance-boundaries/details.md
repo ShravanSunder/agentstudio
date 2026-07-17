@@ -1276,3 +1276,24 @@ selected-to-empty tombstone, stale-drawer, and 256-entry unrelated-fleet proof.
 The gateway remains production-dormant. Continue W4.5p with the strict layout
 resize union and latest-settled checkpoint owner using the existing
 `LatestValueSettleGate`, before the single atomic production writer cutover.
+
+Commit `2fd3c773` adds the dormant strict layout-resize family. A four-case
+discriminated checkpoint carries the exact tab, arrangement, main/drawer target,
+and ratio without correlated optionals. The pure planner reads one target tab
+and exact active-arrangement witness, validates ratio/split/row/collapsed-pair
+semantics, and returns one keyed tab-graph replacement. The MainActor applier
+preflights the keyed graph and active arrangement; the installed-only gateway
+captures one tab-graph preimage and commits one revision. A thin checkpoint
+owner reuses `LatestValueSettleGate`, binds one immutable resize target, rejects
+cross-target offers, flushes explicitly, and reports the typed commit result.
+
+Parent proof passed 13 tests across four suites and `mise run build`; scoped
+swift-format, SwiftLint, architecture lint, diff checks, and zero App/Feature
+reachability passed. The single review found an unkeyed cross-target loss hazard
+and missing no-op/range/stale/revision-zero proof. One remediation bound each
+owner to a strict target and added 128-to-1 latest settlement, explicit flush,
+close, rejection reporting, cross-target custody, ratio boundary, stale active
+arrangement, revision-zero, fixed-base, and 256-unrelated-tab proof. Missing
+drawer members now reject as invalid pairs rather than falsely reporting a
+cross-row failure. Production drag previews and caller cutover remain later
+atomic work; this slice changes no live resize route.
