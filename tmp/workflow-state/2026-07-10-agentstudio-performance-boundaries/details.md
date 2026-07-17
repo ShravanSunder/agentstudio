@@ -1339,3 +1339,21 @@ identified reverse-index and fixed-base coverage gaps; one remediation added
 proof. Production reachability remains zero and composition remains preinstall.
 Continue W4.5p with the exhaustive remaining pane/tab writer inventory and the
 next dormant semantic family before one atomic same-domain writer cutover.
+
+Commit `939ea2a6` completes the focused tab-graph leaf remediation. Equalize,
+drawer equalize, and arrangement rename now read and preflight one target tab,
+replace that tab through the keyed identity-preserving atom primitive, and
+capture one exact tab-graph preimage under one shared revision. Drawer mutation
+uses the already-resolved strict drawer value rather than a correlated optional
+write. Missing and mismatched targets produce typed rejections, including
+target deletion between planning and preflight. The production-dormancy proof
+scans every Swift source under `Sources/AgentStudio`, not only App and Feature
+subtrees, and complete drawer equality is asserted after equalization.
+
+Parent and delegated proof each passed 17 tests across three suites. Scoped
+swift-format, SwiftLint, and diff checks passed with zero findings. The single
+focused review and its one remediation cycle are closed. Production
+reachability remains zero, so composition stays preinstall and no runtime or
+performance claim is made. Continue W4.5p with strict pane attachment/removal
+in an existing tab, then the remaining close/undo, cross-tab, drawer, topology,
+and settled UI-memory families before the one atomic production writer cutover.
