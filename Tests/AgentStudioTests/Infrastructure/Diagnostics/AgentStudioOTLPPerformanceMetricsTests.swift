@@ -7,92 +7,6 @@ import Testing
 @Suite
 struct AgentStudioOTLPPerformanceMetricsTests {
     @Test
-    func mainActorQueueAndServiceAreIndependentDistributionsWithBoundedDimensions() throws {
-        let exact = Self.mainActorWorkRecord(precision: "exact")
-        let conservative = Self.mainActorWorkRecord(precision: "pressure_conservative")
-
-        let exactEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: exact))
-        let conservativeEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: conservative))
-
-        #expect(exactEvent.dimensions.last == .init(name: "outcome", value: "succeeded"))
-        #expect(
-            exactEvent.measurements.contains(
-                .distribution(
-                    .init(
-                        eventName: "performance.mainactor.work",
-                        label: "agentstudio_performance_mainactor_queue_age_exact_ms",
-                        dimensions: exactEvent.dimensions,
-                        value: 12))))
-        #expect(
-            exactEvent.measurements.contains(
-                .distribution(
-                    .init(
-                        eventName: "performance.mainactor.work",
-                        label: "agentstudio_performance_mainactor_service_ms",
-                        dimensions: exactEvent.dimensions,
-                        value: 2))))
-        #expect(exactEvent.dimensions == conservativeEvent.dimensions)
-        #expect(
-            conservativeEvent.measurements.contains(
-                .distribution(
-                    .init(
-                        eventName: "performance.mainactor.work",
-                        label: "agentstudio_performance_mainactor_queue_age_pressure_conservative_ms",
-                        dimensions: conservativeEvent.dimensions,
-                        value: 12))))
-    }
-
-    @Test
-    func heartbeatUsesDistributionAndContractionUsesCounter() throws {
-        let factory = RecordingMetricsFactory()
-        let metrics = AgentStudioOTLPPerformanceMetrics(factory: factory)
-        let heartbeat = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 1,
-            severityText: .info,
-            body: "performance.mainactor.heartbeat",
-            traceID: nil,
-            spanID: nil,
-            parentSpanID: nil,
-            resource: ["service.name": "AgentStudio"],
-            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
-            attributes: [
-                "agentstudio.performance.mainactor.heartbeat_gap_ms": .double(19),
-                "agentstudio.performance.mainactor.consecutive_overdue.count": .int(2),
-            ]
-        )
-        let contraction = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 2,
-            severityText: .info,
-            body: "performance.pipeline.contraction",
-            traceID: nil,
-            spanID: nil,
-            parentSpanID: nil,
-            resource: ["service.name": "AgentStudio"],
-            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
-            attributes: [
-                "agentstudio.performance.contraction.source.count": .int(100)
-            ]
-        )
-
-        metrics.record(heartbeat)
-        metrics.record(contraction)
-
-        let heartbeatDimensions = [("event", "performance.mainactor.heartbeat")]
-        let heartbeatDistribution = try #require(
-            factory.recorder(
-                label: "agentstudio_performance_mainactor_heartbeat_gap_ms",
-                dimensions: heartbeatDimensions
-            ))
-        #expect(heartbeatDistribution.values == [19])
-        let contractionCounter = try #require(
-            factory.counter(
-                label: "agentstudio_performance_contraction_source_count",
-                dimensions: [("event", "performance.pipeline.contraction")]
-            ))
-        #expect(contractionCounter.totalValue == 100)
-    }
-
-    @Test
     func performanceRecordProjectsBoundedMetricsFromScrubbedAttributes() throws {
         let record = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 123,
@@ -402,30 +316,6 @@ struct AgentStudioOTLPPerformanceMetricsTests {
         )
     }
 
-    private static func mainActorWorkRecord(precision: String) -> AgentStudioOTLPProjectedLogRecord {
-        let queueAgeKey =
-            precision == "exact"
-            ? "agentstudio.performance.mainactor.queue_age_exact_ms"
-            : "agentstudio.performance.mainactor.queue_age_pressure_conservative_ms"
-        return AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 123,
-            severityText: .info,
-            body: "performance.mainactor.work",
-            traceID: nil,
-            spanID: nil,
-            parentSpanID: nil,
-            resource: ["service.name": "AgentStudio"],
-            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
-            attributes: [
-                "agentstudio.performance.mainactor.domain": .string("topology"),
-                "agentstudio.performance.mainactor.operation": .string("topology_apply"),
-                "agentstudio.performance.mainactor.outcome": .string("succeeded"),
-                "agentstudio.performance.mainactor.age_precision": .string(precision),
-                queueAgeKey: .double(12),
-                "agentstudio.performance.mainactor.service_ms": .double(2),
-            ]
-        )
-    }
 }
 
 private final class RecordingMetricsFactory: MetricsFactory, @unchecked Sendable {

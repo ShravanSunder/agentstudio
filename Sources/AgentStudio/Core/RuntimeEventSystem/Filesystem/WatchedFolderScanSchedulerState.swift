@@ -7,14 +7,13 @@ extension WatchedFolderScanScheduler {
 
         func merged(with newest: Self) -> Self {
             precondition(request.sourceID == newest.request.sourceID)
-            let mergedRequest = request.mergingPendingRequest(with: newest.request)
             guard coverage.registration == newest.coverage.registration else {
-                return Self(request: mergedRequest, coverage: newest.coverage)
+                return Self(request: newest.request, coverage: newest.coverage)
             }
             let highestCoverage =
                 coverage.throughDemandGeneration >= newest.coverage.throughDemandGeneration
                 ? coverage : newest.coverage
-            return Self(request: mergedRequest, coverage: highestCoverage)
+            return Self(request: newest.request, coverage: highestCoverage)
         }
     }
 
@@ -300,32 +299,6 @@ extension WatchedFolderScanScheduler {
         private func saturatingIncrement(_ value: UInt64) -> UInt64 {
             let (incremented, overflow) = value.addingReportingOverflow(1)
             return overflow ? UInt64.max : incremented
-        }
-    }
-}
-
-extension WatchedFolderScanRequest {
-    fileprivate func mergingPendingRequest(with newest: Self) -> Self {
-        guard canonicalRoot.registration == newest.canonicalRoot.registration else {
-            return newest
-        }
-        switch (cause, newest.cause) {
-        case (.repair(let existingRepair), .repair(let newestRepair))
-        where existingRepair.generation == newestRepair.generation:
-            return Self(
-                canonicalRoot: newest.canonicalRoot,
-                cause: .repair(
-                    WatchedFolderRepairObligation(
-                        generation: newestRepair.generation,
-                        unresolved: existingRepair.unresolved.union(newestRepair.unresolved)
-                    )
-                )
-            )
-        case (.repair, .initialAdd), (.repair, .callback), (.repair, .manual),
-            (.repair, .fallback):
-            return Self(canonicalRoot: newest.canonicalRoot, cause: cause)
-        default:
-            return newest
         }
     }
 }

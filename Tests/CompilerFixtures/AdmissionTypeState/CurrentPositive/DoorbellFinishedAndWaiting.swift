@@ -1,3 +1,0 @@
-func constructCurrentFinishedDoorbell() -> AdmissionDoorbellStateSnapshot {
-    .finished
-}

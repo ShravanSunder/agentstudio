@@ -293,50 +293,6 @@ struct WatchedFolderScanSchedulerTests {
         await fixture.scheduler.shutdown()
     }
 
-    @Test("ordinary trigger cannot erase queued repair custody")
-    func ordinaryTriggerPreservesQueuedRepairCustody() async throws {
-        let fixture = try SchedulerFixture(maximumConcurrentScans: 1)
-        let blocker = try fixture.makeRequest(name: "blocker")
-        let repairRoot = try SchedulerFixture.makeRoot(name: "repair")
-        let participant = makeRepairParticipant()
-        let generation = RepairGeneration(
-            id: RepairGenerationID(registration: repairRoot.registration, sequence: 7),
-            watermark: .recoveryRevision(11),
-            trigger: .continuityLoss,
-            participants: [participant]
-        )
-        let repair = WatchedFolderScanRequest(
-            canonicalRoot: repairRoot,
-            cause: .repair(
-                WatchedFolderRepairObligation(
-                    generation: generation,
-                    unresolved: NonEmptyWatchedFolderRepairObligations(
-                        first: participant,
-                        remaining: []
-                    )
-                )
-            )
-        )
-
-        _ = await fixture.scheduler.submit(blocker)
-        let blockerStart = await fixture.scanner.nextStart()
-        _ = await fixture.scheduler.submit(repair)
-        _ = await fixture.scheduler.submit(
-            WatchedFolderScanRequest(canonicalRoot: repairRoot, cause: .callback)
-        )
-        await fixture.scanner.finish(blockerStart, with: completeResult())
-        let blockerLease = try await fixture.nextLease()
-        #expect(await fixture.transfer(blockerLease) == .transferred)
-
-        let repairStart = await fixture.scanner.nextStart()
-        #expect(repairStart.request.cause == repair.cause)
-        await fixture.scanner.finish(repairStart, with: completeResult())
-        let repairLease = try await fixture.nextLease()
-        #expect(repairLease.result.request.cause == repair.cause)
-        #expect(await fixture.transfer(repairLease) == .transferred)
-        await fixture.scheduler.shutdown()
-    }
-
     @Test("retry re-presents the identical final result")
     func retryRepresentsIdenticalFinalResult() async throws {
         let fixture = try SchedulerFixture(maximumConcurrentScans: 1)
@@ -810,14 +766,6 @@ private func emptyScannerCounts() -> RepoScannerEvidenceCounts {
         validationCancellationCount: 0,
         validationFailureCount: 0,
         scannerServiceInvocationCount: 1
-    )
-}
-
-private func makeRepairParticipant() -> FilesystemRepairParticipantToken {
-    FilesystemRepairParticipantToken(
-        kind: .scanScheduler,
-        participantID: UUIDv7.generate(),
-        participantGeneration: 1
     )
 }
 

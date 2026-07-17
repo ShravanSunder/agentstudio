@@ -12,26 +12,6 @@ enum WatchedFolderScanCause: Equatable, Sendable {
     case callback
     case manual
     case fallback
-    case repair(WatchedFolderRepairObligation)
-}
-
-struct WatchedFolderRepairObligation: Equatable, Sendable {
-    let generation: RepairGeneration
-    let unresolved: NonEmptyWatchedFolderRepairObligations
-}
-
-struct NonEmptyWatchedFolderRepairObligations: Equatable, Sendable {
-    let first: FilesystemRepairParticipantToken
-    let remaining: Set<FilesystemRepairParticipantToken>
-
-    var all: Set<FilesystemRepairParticipantToken> {
-        remaining.union([first])
-    }
-
-    func union(_ other: Self) -> Self {
-        let unioned = all.union(other.all)
-        return Self(first: first, remaining: unioned.subtracting([first]))
-    }
 }
 
 /// Narrow adapter around scanner-owned resumable state. The scheduler can advance or

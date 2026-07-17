@@ -192,7 +192,7 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         }
         self.samples = samples
         var measurements: [AgentStudioOTLPPerformanceMeasurement] = samples.compactMap { sample in
-            Self.measurement(for: sample, record: record)
+            Self.measurement(for: sample)
         }
         if let elapsedMilliseconds {
             measurements.append(
@@ -259,42 +259,13 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
                 dimensions: &dimensions
             )
         }
-        if record.body == "performance.mainactor.work" {
-            appendControlledDimension(
-                name: "domain", attributeKey: "agentstudio.performance.mainactor.domain", record: record,
-                allowedValues: Set(MainActorWorkDomain.allCases.map(\.rawValue)), dimensions: &dimensions)
-            appendControlledDimension(
-                name: "operation", attributeKey: "agentstudio.performance.mainactor.operation", record: record,
-                allowedValues: Set(MainActorWorkOperation.allCases.map(\.rawValue)), dimensions: &dimensions)
-            appendControlledDimension(
-                name: "outcome", attributeKey: "agentstudio.performance.mainactor.outcome", record: record,
-                allowedValues: Set(MainActorWorkOutcome.allCases.map(\.rawValue)), dimensions: &dimensions)
-        }
         return dimensions
     }
 
     private static func measurement(
-        for sample: AgentStudioOTLPPerformanceMetricSample,
-        record: AgentStudioOTLPProjectedLogRecord
+        for sample: AgentStudioOTLPPerformanceMetricSample
     ) -> AgentStudioOTLPPerformanceMeasurement? {
         switch sample.label {
-        case "agentstudio_performance_mainactor_queue_age_exact_ms":
-            guard
-                record.attributes["agentstudio.performance.mainactor.age_precision"]
-                    == .string(PerformanceAgePrecision.exact.rawValue)
-            else { return nil }
-            return .distribution(sample)
-        case "agentstudio_performance_mainactor_queue_age_pressure_conservative_ms":
-            guard
-                record.attributes["agentstudio.performance.mainactor.age_precision"]
-                    == .string(PerformanceAgePrecision.pressureConservative.rawValue)
-            else { return nil }
-            return .distribution(sample)
-        case "agentstudio_performance_mainactor_service_ms",
-            "agentstudio_performance_mainactor_heartbeat_gap_ms":
-            return .distribution(sample)
-        case let label where label.hasPrefix("agentstudio_performance_contraction_") && label.hasSuffix("_count"):
-            return .counter(sample)
         default:
             return .gauge(sample)
         }
@@ -373,17 +344,6 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
     ) {
         guard case .string(let value) = record.attributes[attributeKey] else { return }
         dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: name, value: value))
-    }
-
-    private static func appendControlledDimension(
-        name: String,
-        attributeKey: String,
-        record: AgentStudioOTLPProjectedLogRecord,
-        allowedValues: Set<String>,
-        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
-    ) {
-        guard case .string(let value) = record.attributes[attributeKey], allowedValues.contains(value) else { return }
-        dimensions.append(.init(name: name, value: value))
     }
 
     private static func isSafeDimensionValue(_ value: String) -> Bool {

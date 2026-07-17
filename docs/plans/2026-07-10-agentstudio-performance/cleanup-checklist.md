@@ -292,55 +292,55 @@ Focused proof:
 
 ### Generic admission
 
-- [ ] Delete unused `Admission/Admission*` types.
-- [ ] Delete unused `BoundedGatherMailbox*`.
-- [ ] Delete unused `LatestValueMailbox.swift`.
-- [ ] Delete unused `OrderedFactJournal*`.
-- [ ] Delete unused `AdmissionDoorbell.swift` if no live consumer remains.
+- [x] Delete unused `Admission/Admission*` types.
+- [x] Delete unused `BoundedGatherMailbox*`.
+- [x] Delete unused `LatestValueMailbox.swift`.
+- [x] Delete unused `OrderedFactJournal*`.
+- [x] Delete unused `AdmissionDoorbell.swift` if no live consumer remains.
 
 ### Fixed-slot filesystem observation
 
-- [ ] Delete dormant Darwin observation adapter and native-owner files.
-- [ ] Delete `FSEventRegistrationControlBlock.swift`.
-- [ ] Delete `FilesystemObservationMailbox*`.
-- [ ] Delete `FilesystemObservationSlot*`.
-- [ ] Delete filesystem lease-transfer and semantic-replay files.
-- [ ] Delete filesystem fleet/shutdown/retirement files.
-- [ ] Delete `FilesystemSourceGate*` and recovery evidence register.
-- [ ] Keep production `DarwinFSEventStreamClient` temporarily unchanged; its
+- [x] Delete dormant Darwin observation adapter and native-owner files.
+- [x] Delete `FSEventRegistrationControlBlock.swift`.
+- [x] Delete `FilesystemObservationMailbox*`.
+- [x] Delete `FilesystemObservationSlot*`.
+- [x] Delete filesystem lease-transfer and semantic-replay files.
+- [x] Delete filesystem fleet/shutdown/retirement files.
+- [x] Delete `FilesystemSourceGate*` and recovery evidence register.
+- [x] Keep production `DarwinFSEventStreamClient` temporarily unchanged; its
       eventual bounded replacement is post-cleanup work.
 
 ### Dormant repair and diagnostics
 
-- [ ] Delete `WorktreeContentRepairConsumerRegistry*`.
-- [ ] Delete `FilesystemContentRepairProjector*`.
-- [ ] Delete unconstructed `MainActorResponsivenessHeartbeat`.
-- [ ] Delete `PerformanceProbeSink`.
-- [ ] Delete `PerformanceRunEvidenceLedger`.
-- [ ] Delete `MainActorWorkLedger` after pager removal unless a real production
+- [x] Delete `WorktreeContentRepairConsumerRegistry*`.
+- [x] Delete `FilesystemContentRepairProjector*`.
+- [x] Delete unconstructed `MainActorResponsivenessHeartbeat`.
+- [x] Delete `PerformanceProbeSink`.
+- [x] Delete `PerformanceRunEvidenceLedger`.
+- [x] Delete `MainActorWorkLedger` after pager removal unless a real production
       producer is found.
-- [ ] Remove OTLP metric vocabulary that has no remaining producer.
+- [x] Remove OTLP metric vocabulary that has no remaining producer.
 
 ### Tests and lint
 
-- [ ] Delete compiler fixtures and tests whose only subject was removed
+- [x] Delete compiler fixtures and tests whose only subject was removed
       admission/type-state architecture.
-- [ ] Delete filesystem observation lifecycle tests for removed code.
-- [ ] Delete dormant repair and diagnostic tests.
-- [ ] Delete SwiftSyntax rules enforcing only removed journal/slot/native-owner
+- [x] Delete filesystem observation lifecycle tests for removed code.
+- [x] Delete dormant repair and diagnostic tests.
+- [x] Delete SwiftSyntax rules enforcing only removed journal/slot/native-owner
       structures.
-- [ ] Keep generic AtomLib and pure-atom architecture rules.
+- [x] Keep generic AtomLib and pure-atom architecture rules.
 
 Focused proof:
 
-- [ ] Production watched-folder scheduler tests pass.
-- [ ] Production Darwin FSEvent client tests pass.
-- [ ] Filesystem/Git pipeline integration tests pass.
-- [ ] Architecture-lint inventory and parity tests pass.
-- [ ] `mise run build` passes.
-- [ ] `mise run lint` passes.
-- [ ] `git diff --check` passes.
-- [ ] Commit C5.
+- [x] Production watched-folder scheduler tests pass.
+- [x] Production Darwin FSEvent client tests pass.
+- [x] Filesystem/Git pipeline integration tests pass.
+- [x] Architecture-lint inventory and parity tests pass.
+- [x] `mise run build` passes.
+- [x] `mise run lint` passes.
+- [x] `git diff --check` passes.
+- [x] Commit C5.
 
 ## C6 — Correct durable contracts
 

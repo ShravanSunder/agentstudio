@@ -51,8 +51,5 @@ enum ArchitectureRuleRegistry {
         TestTaskSleepRule(),
         TooltipSourceRule(),
         EventBusSubscriberPolicyRule(),
-        RuntimeSignalPlaneRule(),
-        FilesystemObservationSlotRegistryOwnershipRule(),
-        FilesystemObservationNativeRetirementOwnershipRule(),
     ]
 }

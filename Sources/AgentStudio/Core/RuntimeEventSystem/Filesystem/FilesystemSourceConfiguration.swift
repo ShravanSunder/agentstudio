@@ -51,9 +51,6 @@ struct RegisteredRootDescriptor: Hashable, Sendable {
     let volumeSemantics: FilesystemVolumeSemantics
 
     var sourceID: FilesystemSourceID { registration.sourceID }
-    var canonicalResolvedRootIdentity: FilesystemCanonicalResolvedRootIdentity {
-        FilesystemCanonicalResolvedRootIdentity(path: aliases.onceResolvedCanonical.path)
-    }
 
     // Keep construction beside the exhaustive authority-attempt admission below.
     // Scanner, Git, callback, and raw-path APIs can carry evidence but cannot call

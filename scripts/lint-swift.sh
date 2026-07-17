@@ -12,11 +12,6 @@ run_architecture_lint() {
     || { echo "agentstudio architecture lint: FAIL"; exit 1; }
 }
 
-run_admission_compiler_contract() {
-  echo "--- Admission protected-region compiler contract ---"
-  bash scripts/verify-admission-protected-region-compiler.sh
-}
-
 run_release_script_checks() {
   echo "--- release script checks ---"
   /bin/bash scripts/verify-release-scripts.sh
@@ -37,7 +32,6 @@ if [[ $# -eq 0 ]]; then
     || { echo "swiftlint: FAIL"; exit 1; }
 
   run_architecture_lint
-  run_admission_compiler_contract
   run_release_script_checks
   exit 0
 fi
@@ -62,30 +56,14 @@ swiftlint lint --strict "${scoped_paths[@]}" 2>&1 \
 
 run_architecture_lint
 
-run_admission_contract=0
 run_release_contract=0
 for scoped_path in "${scoped_paths[@]}"; do
-  case "$scoped_path" in
-    Sources/AgentStudio/Core/RuntimeEventSystem/Admission/* \
-      |Tests/AgentStudioTests/Core/PaneRuntime/Admission/* \
-      |Tests/CompilerFixtures/AdmissionProtectedRegion/* \
-      |Tests/CompilerFixtures/AdmissionTypeState/* \
-      |scripts/verify-admission-*)
-      run_admission_contract=1
-      ;;
-  esac
   case "$scoped_path" in
     .github/workflows/release.yml|scripts/release-*|scripts/verify-release-scripts.sh)
       run_release_contract=1
       ;;
   esac
 done
-
-if [[ $run_admission_contract -eq 1 ]]; then
-  run_admission_compiler_contract
-else
-  echo "--- Admission protected-region compiler contract: not affected by scoped paths ---"
-fi
 
 if [[ $run_release_contract -eq 1 ]]; then
   run_release_script_checks

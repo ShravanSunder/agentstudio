@@ -2,28 +2,21 @@ import Foundation
 import SwiftSyntax
 
 struct ArchitectureLintContext {
-    static let productionAdmissionSourcePrefix =
-        "Sources/AgentStudio/Core/RuntimeEventSystem/Admission/"
-
     let path: String
     let source: String
     let sourceFile: SourceFileSyntax
-    let enforcesProductionAdmissionOwnerCardinality: Bool
     private let workspaceRootPath: String
 
     init(
         path: String,
         source: String,
         sourceFile: SourceFileSyntax,
-        workspaceRootPath: String = FileManager.default.currentDirectoryPath,
-        enforcesProductionAdmissionOwnerCardinality: Bool = true
+        workspaceRootPath: String = FileManager.default.currentDirectoryPath
     ) {
         self.path = path
         self.source = source
         self.sourceFile = sourceFile
         self.workspaceRootPath = workspaceRootPath
-        self.enforcesProductionAdmissionOwnerCardinality =
-            enforcesProductionAdmissionOwnerCardinality
     }
 
     var normalizedPath: String {
@@ -47,10 +40,6 @@ struct ArchitectureLintContext {
 
     var syntaxScopeSourceIdentity: String {
         workspaceRelativePath ?? normalizedAbsolutePath
-    }
-
-    var isProductionAdmissionSource: Bool {
-        workspaceRelativePath?.hasPrefix(Self.productionAdmissionSourcePrefix) == true
     }
 
     private var normalizedAbsolutePath: String {

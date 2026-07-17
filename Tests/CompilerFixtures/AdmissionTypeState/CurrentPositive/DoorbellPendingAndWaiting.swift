@@ -1,3 +1,0 @@
-func constructCurrentPendingDoorbell() -> AdmissionDoorbellStateSnapshot {
-    .signalPending
-}

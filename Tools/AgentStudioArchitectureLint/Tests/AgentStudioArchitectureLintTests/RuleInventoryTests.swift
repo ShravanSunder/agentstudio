@@ -43,14 +43,5 @@ enum ExpectedRuleInventory {
         ExpectedRule(id: "agentstudio_no_task_sleep_in_tests", severity: .error),
         ExpectedRule(id: "agentstudio_toolbar_tooltip_source", severity: .error),
         ExpectedRule(id: "agentstudio_eventbus_subscriber_policy_required", severity: .error),
-        ExpectedRule(id: "agentstudio_runtime_signal_plane", severity: .error),
-        ExpectedRule(
-            id: "agentstudio_filesystem_observation_slot_registry_ownership",
-            severity: .error
-        ),
-        ExpectedRule(
-            id: "agentstudio_filesystem_observation_native_retirement_ownership",
-            severity: .error
-        ),
     ]
 }
