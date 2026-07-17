@@ -24,7 +24,7 @@ struct WorkspacePersistenceRuntimeTests {
         )
 
         // Assert
-        #expect(runtime.revisionOwner === atomRegistry.workspacePersistenceRevisionOwner)
+        #expect(runtime.revisionOwner.processGeneration.isUUIDv7)
         #expect(runtime.adapters.revisionOwner === runtime.revisionOwner)
         #expect(store.workspacePersistenceRuntime === runtime)
         #expect(store.workspacePersistenceRevisionOwner === runtime.revisionOwner)
@@ -41,6 +41,7 @@ struct WorkspacePersistenceRuntimeTests {
         #expect(runtime.adapters.topologyLifecyclePhase == .preinstall)
         #expect(runtime.snapshotParticipantFactory.installedParticipantSet == nil)
         #expect(runtime.snapshotPagerState == .unavailableAwaitingDomainParticipantInstallation)
+        #expect(runtime.revisionOwner.committedRevision == .zero)
     }
 
     @Test("AppDelegate boot constructs runtime once before WorkspaceStore")
@@ -102,6 +103,7 @@ struct WorkspacePersistenceRuntimeTests {
 
         // Act / Assert
         #expect(runtimeSource.components(separatedBy: "WorkspacePersistenceAdapterBundle(").count == 2)
+        #expect(runtimeSource.components(separatedBy: "WorkspacePersistenceRevisionOwner()").count == 2)
         #expect(runtimeSource.contains("WorkspacePersistenceSnapshotParticipantFactory(adapters: adapters)"))
         #expect(runtimeSource.contains("WorkspacePreparedCompositionApplier(adapters: adapters)"))
         #expect(runtimeSource.contains("WorkspacePreparedTopologyApplier(adapters: adapters)"))

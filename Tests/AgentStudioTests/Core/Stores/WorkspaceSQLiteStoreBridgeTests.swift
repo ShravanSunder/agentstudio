@@ -379,7 +379,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
             sqliteDatastore: datastore
         )
         return WorkspaceStore(
-            workspacePersistenceRevisionOwner: atomRegistry.workspacePersistenceRevisionOwner,
+            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: atomRegistry.workspaceIdentity,
             windowMemoryAtom: atomRegistry.workspaceWindowMemory,
             repositoryTopologyAtom: atomRegistry.workspaceRepositoryTopology,

@@ -1,6 +1,5 @@
 @MainActor
 final class AtomRegistry {
-    let workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner
     let activeWorkspaceSelection: ActiveWorkspaceSelectionAtom
     let workspaceIdentity: WorkspaceIdentityAtom
     let workspaceWindowMemory: WorkspaceWindowMemoryAtom
@@ -44,7 +43,6 @@ final class AtomRegistry {
     let welcome: WelcomeAtom
 
     init(
-        workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner = .init(),
         activeWorkspaceSelection: ActiveWorkspaceSelectionAtom = .init(),
         workspaceIdentity: WorkspaceIdentityAtom = .init(installationState: .awaitingCanonicalComposition),
         workspaceWindowMemory: WorkspaceWindowMemoryAtom = .init(),
@@ -81,7 +79,6 @@ final class AtomRegistry {
         sessionRuntime: SessionRuntimeAtom = .init(),
         welcome: WelcomeAtom = .init()
     ) {
-        self.workspacePersistenceRevisionOwner = workspacePersistenceRevisionOwner
         self.activeWorkspaceSelection = activeWorkspaceSelection
         self.workspaceIdentity = workspaceIdentity
         self.workspaceWindowMemory = workspaceWindowMemory

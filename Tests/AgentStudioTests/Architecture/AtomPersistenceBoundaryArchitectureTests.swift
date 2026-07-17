@@ -3,6 +3,19 @@ import Testing
 
 @Suite("Atom persistence boundary architecture")
 struct AtomPersistenceBoundaryArchitectureTests {
+    @Test("AtomRegistry contains no persistence revision authority")
+    func atomRegistryContainsNoPersistenceRevisionAuthority() throws {
+        // Arrange
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let atomRegistryPath = projectRoot.appending(path: "Sources/AgentStudio/AtomRegistry.swift")
+
+        // Act
+        let source = try String(contentsOf: atomRegistryPath, encoding: .utf8)
+
+        // Assert
+        #expect(!source.contains("WorkspacePersistenceRevisionOwner"))
+    }
+
     @Test("canonical atom files contain no persistence infrastructure")
     func canonicalAtomFilesContainNoPersistenceInfrastructure() throws {
         // Arrange

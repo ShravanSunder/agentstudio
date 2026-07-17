@@ -180,15 +180,22 @@ struct WorkspacePersistenceRevisionOwnerTests {
     func workspacePersistenceOwnersShareOneRevisionOwner() {
         // Arrange
         let atomRegistry = AtomRegistry()
+        let runtime = WorkspacePersistenceRuntime(atomRegistry: atomRegistry)
 
         // Act
         let workspaceStore = WorkspaceStore(
-            workspacePersistenceRevisionOwner: atomRegistry.workspacePersistenceRevisionOwner,
+            workspacePersistenceRuntime: runtime,
+            identityAtom: atomRegistry.workspaceIdentity,
+            windowMemoryAtom: atomRegistry.workspaceWindowMemory,
+            repositoryTopologyAtom: atomRegistry.workspaceRepositoryTopology,
+            paneAtom: atomRegistry.workspacePane,
+            tabLayoutAtom: atomRegistry.workspaceTabLayout,
             mutationCoordinator: atomRegistry.workspaceMutationCoordinator
         )
 
         // Assert
-        #expect(workspaceStore.workspacePersistenceRevisionOwner === atomRegistry.workspacePersistenceRevisionOwner)
+        #expect(workspaceStore.workspacePersistenceRevisionOwner === runtime.revisionOwner)
+        #expect(workspaceStore.workspacePersistenceRuntime === runtime)
     }
 }
 

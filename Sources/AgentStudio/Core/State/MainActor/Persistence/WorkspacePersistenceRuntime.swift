@@ -77,7 +77,7 @@ final class WorkspacePersistenceRuntime {
 
     convenience init(atomRegistry: AtomRegistry) {
         self.init(
-            revisionOwner: atomRegistry.workspacePersistenceRevisionOwner,
+            revisionOwner: WorkspacePersistenceRevisionOwner(),
             atomOwners: WorkspacePersistenceAtomOwners(atomRegistry: atomRegistry)
         )
     }
