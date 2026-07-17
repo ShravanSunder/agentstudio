@@ -164,20 +164,7 @@ extension WorkspaceSurfaceCoordinator {
             return view
 
         case .bridgePanel(let state):
-            let controller = BridgePaneController(
-                paneId: pane.id,
-                state: state,
-                metadata: bridgePaneControllerMetadata(for: pane, state: state),
-                reviewSourceProvider: bridgeReviewSourceProvider(for: pane, state: state),
-                traceRuntime: traceRuntime
-            )
-            let view = BridgePaneMountView(paneId: pane.id, controller: controller)
-            registerHostedView(mountedView: view, for: pane.id)
-            registerRuntimeIfNeeded(runtime: view.runtime, for: pane)
-            controller.loadApp()
-            controller.scheduleInitialReviewPackageLoadIfPossible()
-            Self.logger.info("Created bridge panel view for pane \(pane.id)")
-            return view
+            return createBridgePaneView(for: pane, state: state)
 
         case .unsupported:
             Self.logger.warning("Cannot create view for unsupported content type — pane \(pane.id)")
@@ -465,6 +452,9 @@ extension WorkspaceSurfaceCoordinator {
 
     /// Teardown a view — detach terminal surface, teardown bridge controller, unregister view/runtime state.
     func teardownView(for paneId: UUID, shouldUnregisterRuntime: Bool = true) {
+        if shouldUnregisterRuntime {
+            closeBridgePaneActivityAuthority(for: paneId)
+        }
         removePaneFilesystemProjectionContext(paneId: paneId)
         if bridgePaneRetirementTasksByPaneId[paneId] != nil {
             recordBridgePaneRetirementDisposition(
@@ -508,6 +498,7 @@ extension WorkspaceSurfaceCoordinator {
         } else {
             viewRegistry.unregister(paneId)
         }
+        refreshBridgePaneActivities()
 
         if shouldUnregisterRuntime {
             if UUIDv7.isV7(paneId) {
@@ -600,7 +591,7 @@ extension WorkspaceSurfaceCoordinator {
         return runtime
     }
 
-    private func registerRuntimeIfNeeded(runtime: any PaneRuntime, for pane: Pane) {
+    func registerRuntimeIfNeeded(runtime: any PaneRuntime, for pane: Pane) {
         guard let runtimePaneId = runtimePaneId(for: pane.id) else { return }
         guard runtime.paneId == runtimePaneId else {
             Self.logger.error(

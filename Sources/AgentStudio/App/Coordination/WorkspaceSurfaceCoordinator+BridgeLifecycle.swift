@@ -52,6 +52,7 @@ extension WorkspaceSurfaceCoordinator {
             }
         }
         bridgePaneRetirementTasksByPaneId[paneId] = retirementTask
+        refreshBridgePaneActivities()
     }
 
     func recordBridgePaneRetirementDisposition(

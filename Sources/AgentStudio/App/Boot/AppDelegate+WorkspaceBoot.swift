@@ -312,6 +312,7 @@ extension AppDelegate {
             closeTransitionCoordinator: closeTransitionCoordinator,
             filesystemSource: pipeline,
             windowLifecycleStore: windowLifecycleStore,
+            appLifecycleStore: appLifecycleStore,
             traceRuntime: traceRuntime,
             performanceTraceRecorder: performanceTraceRecorder
         )

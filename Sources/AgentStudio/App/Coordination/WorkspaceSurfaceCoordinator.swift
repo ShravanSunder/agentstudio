@@ -49,6 +49,7 @@ final class WorkspaceSurfaceCoordinator {
     let filesystemProjectionIndex: any WorkspaceFilesystemProjectionIndexing
     let paneFilesystemProjectionStore: PaneFilesystemProjectionAtom
     let windowLifecycleStore: WindowLifecycleAtom
+    let appLifecycleStore: AppLifecycleAtom
     let traceRuntime: AgentStudioTraceRuntime?
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     #if DEBUG
@@ -79,6 +80,9 @@ final class WorkspaceSurfaceCoordinator {
     var paneContextGeneration: UInt64 = 0
     var pendingTerminalStartupOperationID: String?
     var terminalStartupOperationIDsByPaneID: [UUID: String] = [:]
+    var bridgePaneActivityCoordinatorsByPaneId: [UUID: BridgePaneActivityCoordinator] = [:]
+    var bridgePaneActivityOwningWindowId: UUID?
+    var bridgePaneActivityObservationGeneration: UInt64 = 0
 
     var arrangementView: WorkspaceArrangementViewDerived {
         WorkspaceArrangementViewDerived(
@@ -101,7 +105,8 @@ final class WorkspaceSurfaceCoordinator {
         store: WorkspaceStore,
         viewRegistry: ViewRegistry,
         runtime: SessionRuntime,
-        windowLifecycleStore: WindowLifecycleAtom
+        windowLifecycleStore: WindowLifecycleAtom,
+        appLifecycleStore: AppLifecycleAtom = AppLifecycleAtom()
     ) {
         self.init(
             store: store,
@@ -111,7 +116,8 @@ final class WorkspaceSurfaceCoordinator {
             runtimeRegistry: .shared,
             paneEventBus: PaneRuntimeEventBus.shared,
             runtimeCommandClock: ContinuousClock(),
-            windowLifecycleStore: windowLifecycleStore
+            windowLifecycleStore: windowLifecycleStore,
+            appLifecycleStore: appLifecycleStore
         )
     }
 
@@ -129,6 +135,7 @@ final class WorkspaceSurfaceCoordinator {
         filesystemProjectionIndex: (any WorkspaceFilesystemProjectionIndexing)? = nil,
         paneFilesystemProjectionStore: PaneFilesystemProjectionAtom = PaneFilesystemProjectionAtom(),
         windowLifecycleStore: WindowLifecycleAtom,
+        appLifecycleStore: AppLifecycleAtom = AppLifecycleAtom(),
         traceRuntime: AgentStudioTraceRuntime? = nil,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
@@ -156,6 +163,7 @@ final class WorkspaceSurfaceCoordinator {
         self.filesystemProjectionIndex = filesystemProjectionIndex ?? FilesystemProjectionIndex()
         self.paneFilesystemProjectionStore = paneFilesystemProjectionStore
         self.windowLifecycleStore = windowLifecycleStore
+        self.appLifecycleStore = appLifecycleStore
         self.traceRuntime = traceRuntime
         self.performanceTraceRecorder = performanceTraceRecorder
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
@@ -164,6 +172,7 @@ final class WorkspaceSurfaceCoordinator {
         setupFilesystemSourceSync()
         startPaneEventIngress()
         startRuntimeReducerConsumers()
+        startBridgePaneActivityObservation()
     }
 
     isolated deinit {
@@ -176,6 +185,7 @@ final class WorkspaceSurfaceCoordinator {
         criticalRuntimeEventsTask?.cancel()
         batchedRuntimeEventsTask?.cancel()
         filesystemSyncTask?.cancel()
+        bridgePaneActivityObservationGeneration &+= 1
         let filesystemSource = filesystemSource
         Task {
             await filesystemSource.shutdown()
@@ -183,6 +193,8 @@ final class WorkspaceSurfaceCoordinator {
     }
 
     func shutdown() async {
+        closeAllBridgePaneActivityAuthorities()
+        bridgePaneActivityObservationGeneration &+= 1
         for paneId in viewRegistry.allBridgeViews.keys {
             teardownView(for: paneId)
         }

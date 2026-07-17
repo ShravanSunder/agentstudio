@@ -138,6 +138,9 @@ extension WorkspaceSurfaceCoordinator {
         repo: Repo?,
         label: String
     ) -> Bool {
+        if case .bridgePanel = pane.content {
+            replaceClosedBridgePaneActivityAuthorityForUndo(paneId: pane.id)
+        }
         switch pane.content {
         case .terminal:
             if let worktree, let repo {
@@ -152,7 +155,18 @@ extension WorkspaceSurfaceCoordinator {
             }
             return false
 
-        case .webview, .codeViewer, .bridgePanel:
+        case .bridgePanel:
+            if bridgePaneRetirementTasksByPaneId[pane.id] != nil {
+                bridgePaneRetirementsRequiringRestore.insert(pane.id)
+                return true
+            }
+            if createViewForContent(pane: pane) != nil {
+                return true
+            }
+            Self.logger.error("Failed to recreate \(label.lowercased()) pane \(pane.id)")
+            return false
+
+        case .webview, .codeViewer:
             if createViewForContent(pane: pane) != nil {
                 return true
             }

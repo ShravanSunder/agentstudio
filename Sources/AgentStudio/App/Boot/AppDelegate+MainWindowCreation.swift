@@ -83,7 +83,9 @@ extension AppDelegate {
 
     func makeMainWindowController(dependencies: AppDelegateMainWindowCreationDependencies) -> MainWindowController {
         let workspaceSurfaceCoordinator = dependencies.workspaceSurfaceCoordinator
-        return MainWindowController(
+        let workspaceWindowId = UUID()
+        let mainWindowController = MainWindowController(
+            workspaceWindowId: workspaceWindowId,
             store: dependencies.store,
             workspaceActionExecutor: dependencies.executor,
             runtimeCommandDispatcher: dependencies.workspaceSurfaceCoordinator,
@@ -101,5 +103,9 @@ extension AppDelegate {
             },
             closeTransitionCoordinator: dependencies.closeTransitionCoordinator
         )
+        workspaceSurfaceCoordinator.bindBridgePaneActivities(
+            toOwningWindowId: workspaceWindowId
+        )
+        return mainWindowController
     }
 }
