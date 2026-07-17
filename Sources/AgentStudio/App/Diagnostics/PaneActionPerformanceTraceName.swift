@@ -53,6 +53,8 @@ extension WorkspaceActionCommand {
             return "openFloatingTerminal"
         case .removeRepo:
             return "removeRepo"
+        case .setRepoFavorite:
+            return "setRepoFavorite"
         case .minimizePane:
             return "minimizePane"
         case .expandPane:

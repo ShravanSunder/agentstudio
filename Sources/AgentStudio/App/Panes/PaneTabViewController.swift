@@ -1201,6 +1201,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             from: store.tabLayoutAtom.tabs,
             activeTabId: store.tabLayoutAtom.activeTabId,
             isManagementLayerActive: atom(\.managementLayer).isActive,
+            knownRepoIds: Set(store.repositoryTopologyAtom.repos.map(\.id)),
             knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
             drawerParentByPaneId: drawerParentByPaneId(),
             drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
@@ -1979,6 +1980,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             from: store.tabLayoutAtom.tabs,
             activeTabId: store.tabLayoutAtom.activeTabId,
             isManagementLayerActive: atom(\.managementLayer).isActive,
+            knownRepoIds: Set(store.repositoryTopologyAtom.repos.map(\.id)),
             knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
             drawerParentByPaneId: drawerParentByPaneId(),
             drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
@@ -2977,6 +2979,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         switch (command, targetType) {
         case (.removeRepo, .repo):
             return .removeRepo(repoId: target)
+        case (.addRepoFavorite, .repo):
+            return .setRepoFavorite(repoId: target, isFavorite: true)
+        case (.removeRepoFavorite, .repo):
+            return .setRepoFavorite(repoId: target, isFavorite: false)
         case (.openWorktree, .worktree):
             return .openWorktree(worktreeId: target)
         case (.openNewTerminalInTab, .worktree):

@@ -72,6 +72,17 @@ struct AgentStudioStartupDiagnosticActionTests {
         #expect(action.commandName == "bridgeReviewObservabilitySmoke")
     }
 
+    @Test("startup diagnostic action parses sidebar performance proof command")
+    func parsesSidebarPerformanceProofCommand() throws {
+        let action = try #require(
+            AgentStudioStartupDiagnosticAction.fromEnvironment([
+                AgentStudioStartupDiagnosticAction.environmentKey: " sidebar-performance-proof "
+            ]))
+
+        #expect(action.kind == .sidebarPerformanceProof)
+        #expect(action.commandName == "sidebarPerformanceProof")
+    }
+
     @Test("startup diagnostic action parses TCC upgrade probe command")
     func parsesTCCUpgradeProbeCommand() throws {
         let action = try #require(

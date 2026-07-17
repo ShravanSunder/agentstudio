@@ -107,6 +107,7 @@ public enum IPCTargetScope: Hashable, Sendable, Codable {
 public enum IPCDataScope: String, Codable, CaseIterable, Hashable, Sendable {
     case unspecified
     case paneContext
+    case sidebarState
     case uiSurface
     case terminalStatus
     case terminalSnapshot
@@ -131,6 +132,8 @@ public enum IPCPrivilegeClass: String, Codable, CaseIterable, Hashable, Sendable
     case permissionRequest
     case permissionRead
     case grantApprove
+    case appCommandExecute
+    case sidebarStateMutate
     case debugUnsafe
 }
 
@@ -210,6 +213,7 @@ public enum IPCMethodDefinitionError: Error, Equatable, Sendable {
 public enum IPCHandleKind: String, Codable, CaseIterable, Hashable, Sendable {
     case window
     case workspace
+    case repo
     case tab
     case pane
 }

@@ -136,6 +136,8 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(actionDebugGuardIndex < actionIPCSmokeCaseIndex)
         #expect(actionIPCSmokeCaseIndex < actionDebugEndIndex)
         #expect(startupDiagnosticsSource.contains("AgentStudioStartupDiagnosticAction.fromEnvironment()"))
+        #expect(startupDiagnosticsSource.contains("\"agentstudio.performance.sidebar.surface\": .string(\"inbox\")"))
+        #expect(startupDiagnosticsSource.contains(".string(projectionTrigger.rawValue)"))
         #expect(startupDiagnosticsSource.contains("AppCommandDispatcher.shared.dispatch(.newTab)"))
         #expect(startupDiagnosticsSource.contains("AppCommandDispatcher.shared.dispatch(.showCommandBarEverything)"))
         #expect(startupDiagnosticsSource.contains("commandBarController.state.rawInput = \"# repo\""))

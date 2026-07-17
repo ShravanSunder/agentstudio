@@ -22,8 +22,8 @@ final class RepositoryTopologyAtom {
     @ObservationIgnored private var deferredWorktreePathIndexRebuildNeeded = false
 
     private struct WorktreePathIndexEntry {
-        let repo: Repo
-        let worktree: Worktree
+        let repoId: UUID
+        let worktreeId: UUID
         let normalizedWorktreePath: String
         let repoWorktreeCount: Int
         let repoPathMatchesWorktree: Bool
@@ -97,8 +97,12 @@ final class RepositoryTopologyAtom {
             ]
         )
 
-        guard let match else { return nil }
-        return (match.repo, match.worktree)
+        guard
+            let match,
+            let repo = repo(match.repoId),
+            let worktree = repo.worktrees.first(where: { $0.id == match.worktreeId })
+        else { return nil }
+        return (repo, worktree)
     }
 
     @discardableResult
@@ -151,6 +155,16 @@ final class RepositoryTopologyAtom {
         unavailableRepoIds.contains(repoId)
     }
 
+    func setRepoFavorite(_ repoId: UUID, isFavorite: Bool) {
+        guard let repoIndex = repos.firstIndex(where: { $0.id == repoId }) else { return }
+        repos[repoIndex].isFavorite = isFavorite
+    }
+
+    func updateRepoNote(_ repoId: UUID, note: String?) {
+        guard let repoIndex = repos.firstIndex(where: { $0.id == repoId }) else { return }
+        repos[repoIndex].note = normalizedNote(note)
+    }
+
     func setRepoTags(_ tags: [String], repoId: UUID) throws {
         guard let repoIndex = repos.firstIndex(where: { $0.id == repoId }) else {
             throw RepositoryTopologyAtomError.repoNotFound(repoId)
@@ -158,15 +172,14 @@ final class RepositoryTopologyAtom {
         repos[repoIndex].tags = try Self.canonicalRepositoryTags(tags)
     }
 
-    func setWorktreeTags(_ tags: [String], worktreeId: UUID) throws {
+    func updateWorktreeNote(_ worktreeId: UUID, note: String?) {
         for repoIndex in repos.indices {
             guard let worktreeIndex = repos[repoIndex].worktrees.firstIndex(where: { $0.id == worktreeId }) else {
                 continue
             }
-            repos[repoIndex].worktrees[worktreeIndex].tags = try Self.canonicalRepositoryTags(tags)
+            repos[repoIndex].worktrees[worktreeIndex].note = normalizedNote(note)
             return
         }
-        throw RepositoryTopologyAtomError.worktreeNotFound(worktreeId)
     }
 
     @discardableResult
@@ -223,7 +236,7 @@ final class RepositoryTopologyAtom {
                     name: discovered.name,
                     path: discovered.path,
                     isMainWorktree: discovered.isMainWorktree,
-                    tags: existingMain.tags
+                    note: existingMain.note
                 )
             }
             if let matched = existingByName[discovered.name] {
@@ -233,7 +246,7 @@ final class RepositoryTopologyAtom {
                     name: discovered.name,
                     path: discovered.path,
                     isMainWorktree: discovered.isMainWorktree,
-                    tags: matched.tags
+                    note: matched.note
                 )
             }
             return discovered
@@ -242,6 +255,11 @@ final class RepositoryTopologyAtom {
         guard merged != existing else { return false }
         repos[index].worktrees = merged
         return true
+    }
+
+    private func normalizedNote(_ note: String?) -> String? {
+        let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == true ? nil : trimmed
     }
 
     private func scheduleWorktreePathIndexRebuild() {
@@ -264,8 +282,8 @@ final class RepositoryTopologyAtom {
 
             return normalizedWorktrees.map { item in
                 WorktreePathIndexEntry(
-                    repo: repo,
-                    worktree: item.worktree,
+                    repoId: repo.id,
+                    worktreeId: item.worktree.id,
                     normalizedWorktreePath: item.normalizedPath,
                     repoWorktreeCount: repo.worktrees.count,
                     repoPathMatchesWorktree: repoPathMatchesAnyWorktree

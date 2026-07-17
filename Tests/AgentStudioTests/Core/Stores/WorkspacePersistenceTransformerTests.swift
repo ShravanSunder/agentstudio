@@ -66,7 +66,7 @@ struct WorkspacePersistenceTransformerTests {
     }
 
     @Test
-    func hydrate_restoresRepositoryTopologyTags() throws {
+    func hydrate_restoresRepositoryTopologyMetadata() throws {
         let identityAtom = WorkspaceIdentityAtom()
         let windowMemoryAtom = WorkspaceWindowMemoryAtom()
         let topologyAtom = RepositoryTopologyAtom()
@@ -82,6 +82,7 @@ struct WorkspacePersistenceTransformerTests {
                     id: repoId,
                     name: "agent-studio",
                     repoPath: URL(fileURLWithPath: "/tmp/agent-studio-tags"),
+                    note: "repo note",
                     tags: ["client"]
                 )
             ],
@@ -92,7 +93,7 @@ struct WorkspacePersistenceTransformerTests {
                     name: "main",
                     path: URL(fileURLWithPath: "/tmp/agent-studio-tags"),
                     isMainWorktree: true,
-                    tags: ["wip"]
+                    note: "worktree note"
                 )
             ],
             panes: [],
@@ -109,7 +110,8 @@ struct WorkspacePersistenceTransformerTests {
         )
 
         #expect(topologyAtom.repo(repoId)?.tags == ["client"])
-        #expect(topologyAtom.worktree(worktreeId)?.tags == ["wip"])
+        #expect(topologyAtom.repo(repoId)?.note == "repo note")
+        #expect(topologyAtom.worktree(worktreeId)?.note == "worktree note")
     }
 
     @Test
@@ -320,7 +322,7 @@ struct WorkspacePersistenceTransformerTests {
                             name: "main",
                             path: URL(fileURLWithPath: "/tmp/agent-studio-snapshot-tags"),
                             isMainWorktree: true,
-                            tags: ["main"]
+                            note: "main note"
                         )
                     ],
                     tags: ["client"]
@@ -340,7 +342,7 @@ struct WorkspacePersistenceTransformerTests {
         )
 
         #expect(bundle.repositoryTopology.repos.single?.tags == ["client"])
-        #expect(bundle.repositoryTopology.worktrees.single?.tags == ["main"])
+        #expect(bundle.repositoryTopology.worktrees.single?.note == "main note")
     }
 
     @Test

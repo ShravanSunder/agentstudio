@@ -215,7 +215,7 @@ enum WorkspaceCommandValidator {
             }
             return .success(ValidatedAction(action))
 
-        case .removeRepo(let repoId):
+        case .removeRepo(let repoId), .setRepoFavorite(let repoId, _):
             guard state.knownRepoIds.contains(repoId) else {
                 return .failure(.repoNotFound(repoId: repoId))
             }

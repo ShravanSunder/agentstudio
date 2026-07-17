@@ -4,7 +4,7 @@ struct SharedComponentsStatelessRule: ArchitectureRule {
     let id = "agentstudio_shared_components_are_stateless"
     let severity = ArchitectureSeverity.error
     let message =
-        "SharedComponents must render from values, bindings, and closures without atom subscriptions or observable owners"
+        "SharedComponents must render from explicit inputs without atoms or global-store access"
 
     func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic] {
         guard context.normalizedPath.contains("/Sources/AgentStudio/SharedComponents/") else {
@@ -21,10 +21,11 @@ struct SharedComponentsStatelessRule: ArchitectureRule {
 
 private final class SharedComponentStateVisitor: SyntaxVisitor {
     private(set) var violations: [ArchitectureViolation] = []
-    private let deniedAttributes = Set([
-        "Atom", "Observable", "ObservedObject", "State", "StateObject", "EnvironmentObject",
+    private let deniedAttributes = Set(["Atom", "StateObject", "EnvironmentObject"])
+    private let deniedReferences = Set([
+        "AtomReader", "AtomScope", "AtomRegistry", "CommandIcon", "withTestAtomRegistry",
     ])
-    private let deniedReferences = Set(["AtomReader", "AtomScope", "withTestAtomRegistry"])
+    private let deniedTypeSuffixes = ["Atom", "Store"]
 
     override init(viewMode: SyntaxTreeViewMode = .sourceAccurate) {
         super.init(viewMode: viewMode)
@@ -32,13 +33,23 @@ private final class SharedComponentStateVisitor: SyntaxVisitor {
 
     override func visitPost(_ node: AttributeSyntax) {
         let attributeName = node.attributeName.trimmedDescription
+        if attributeName == "Environment" && isStoreLikeEnvironmentRead(node) {
+            violations.append(
+                ArchitectureViolation(
+                    position: node.positionAfterSkippingLeadingTrivia,
+                    message: "SharedComponents must not resolve global state through environment values"
+                )
+            )
+            return
+        }
+
         guard deniedAttributes.contains(attributeName) else {
             return
         }
         violations.append(
             ArchitectureViolation(
                 position: node.positionAfterSkippingLeadingTrivia,
-                message: "SharedComponents must not own state or subscribe to atoms/object wrappers"
+                message: "SharedComponents must not own atom/global observable state"
             )
         )
     }
@@ -50,8 +61,39 @@ private final class SharedComponentStateVisitor: SyntaxVisitor {
         violations.append(
             ArchitectureViolation(
                 position: node.positionAfterSkippingLeadingTrivia,
-                message: "SharedComponents must not read atoms directly"
+                message: "SharedComponents must not reference atom, store, or Core-owned presentation types"
             )
         )
+    }
+
+    override func visitPost(_ node: IdentifierTypeSyntax) {
+        let typeName = node.name.text
+        guard deniedReferences.contains(typeName) || deniedTypeSuffixes.contains(where: typeName.hasSuffix) else {
+            return
+        }
+        violations.append(
+            ArchitectureViolation(
+                position: node.positionAfterSkippingLeadingTrivia,
+                message: "SharedComponents must not depend on atom or store types"
+            )
+        )
+    }
+
+    private func isStoreLikeEnvironmentRead(_ node: AttributeSyntax) -> Bool {
+        guard
+            case .argumentList(let arguments) = node.arguments,
+            let keyPath = arguments.first?.expression.as(KeyPathExprSyntax.self)
+        else {
+            return false
+        }
+        return keyPath.components.contains { component in
+            guard case .property(let property) = component.component else {
+                return false
+            }
+            let identifier = property.declName.baseName.text
+            return identifier == "atomScope" || identifier == "atom" || identifier.hasSuffix("Atom")
+                || identifier == "store" || identifier.hasSuffix("Store")
+                || identifier == "registry" || identifier.hasSuffix("Registry")
+        }
     }
 }

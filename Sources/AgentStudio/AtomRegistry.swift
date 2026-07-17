@@ -19,6 +19,7 @@ final class AtomRegistry {
     let repoEnrichmentCache: RepoEnrichmentCacheAtom
     let recentWorkspaceTarget: RecentWorkspaceTargetAtom
     let repoCache: RepoCacheAtom
+    let repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom
     let sidebarExpandedGroup: SidebarExpandedGroupAtom
     let sidebarCache: SidebarCacheState
     let terminalActivity: TerminalActivityAtom
@@ -60,6 +61,7 @@ final class AtomRegistry {
         windowLifecycle: WindowLifecycleAtom = .init(),
         repoEnrichmentCache: RepoEnrichmentCacheAtom = .init(),
         recentWorkspaceTarget: RecentWorkspaceTargetAtom = .init(),
+        repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom = .init(),
         sidebarExpandedGroup: SidebarExpandedGroupAtom = .init(),
         terminalActivity: TerminalActivityAtom = .init(),
         editorPreference: EditorPreferenceAtom = .init(),
@@ -130,6 +132,7 @@ final class AtomRegistry {
             enrichmentCacheAtom: repoEnrichmentCache,
             recentTargetAtom: recentWorkspaceTarget
         )
+        self.repoExplorerSidebarPrefs = repoExplorerSidebarPrefs
         self.sidebarExpandedGroup = sidebarExpandedGroup
         self.sidebarCache = SidebarCacheState(
             expandedGroupAtom: sidebarExpandedGroup

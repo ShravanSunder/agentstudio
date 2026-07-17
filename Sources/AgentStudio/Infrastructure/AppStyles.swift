@@ -147,6 +147,34 @@ enum AppStyles {
                 static let clearTransitionDuration: Double = 0.10
             }
 
+            enum Header {
+                static let contentPadding: CGFloat = 8
+            }
+
+            enum EmptyState {
+                static let contentSpacing: CGFloat = 8
+                static let iconOpacity: CGFloat = 0.5
+                static let transitionDuration: Double = AppStyles.General.Animation.fast
+            }
+
+            enum ToolbarControl {
+                static let cornerRadius = AppStyles.General.CornerRadius.button
+                static let foregroundOpacity = AppStyles.General.Foreground.secondary
+                static let disabledOpacity = AppStyles.General.Foreground.dim
+                static let hoverFillOpacity = AppStyles.General.Fill.hover
+                static let pressedFillOpacity = AppStyles.General.Fill.pressed
+                static let activeFillOpacity = AppStyles.General.Fill.active
+                static let groupingContentSpacing = AppStyles.General.Spacing.tight
+                static let groupingHorizontalPadding = AppStyles.General.Spacing.standard
+                static let groupingLabelMinimumWidth: CGFloat = 32
+                static let groupingChevronSize: CGFloat = 8
+                static let dividerHeight: CGFloat = 16
+                static let popoverRowCornerRadius = AppStyles.General.CornerRadius.button
+                static let popoverRowHorizontalPadding = AppStyles.General.Spacing.standard
+                static let popoverRowVerticalPadding = AppStyles.General.Spacing.tight
+                static let popoverMinimumWidth: CGFloat = 116
+            }
+
             static let groupChildRowLeadingInset: CGFloat =
                 listRowLeadingInset
                 + AppStyles.General.Typography.textBase
@@ -158,7 +186,6 @@ enum AppStyles {
             static let chipSuccessColor = Color(red: 0.42, green: 0.84, blue: 0.50)
             static let chipWarningColor = Color(red: 0.93, green: 0.71, blue: 0.34)
             static let chipDangerColor = Color(red: 0.93, green: 0.41, blue: 0.41)
-
             static let accentPaletteHexes: [String] = [
                 "#F5C451",
                 "#58C4FF",

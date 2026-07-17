@@ -49,6 +49,28 @@ struct AgentStudioIPCAuthenticationTests {
         }
     }
 
+    @Test("revoking an unconsumed subject token also revokes its principal grants")
+    func revokingUnconsumedSubjectTokenRevokesPrincipalGrants() throws {
+        let runtimeId = UUID()
+        let ledger = GrantLedger()
+        let registry = AgentStudioIPCPrincipalRegistry(runtimeId: runtimeId, grantLedger: ledger)
+        let principal = makePanePrincipal(boundPaneId: "pane-1", runtimeId: runtimeId)
+        let scope = IPCPermissionScope(
+            privilege: .terminalInputWrite,
+            target: .pane("pane-1"),
+            dataScope: .terminalInput
+        )
+        ledger.grant(scope, to: principal.principalId)
+        let token = try registry.issueSubjectToken(for: principal)
+
+        registry.revokeSubjectToken(token)
+
+        #expect(!ledger.contains(scope, for: principal.principalId))
+        #expect(throws: AgentStudioIPCAuthenticationError.self) {
+            try registry.authenticate(subjectToken: token)
+        }
+    }
+
     @Test("bound pane close invalidates pane principal tokens")
     func boundPaneCloseInvalidatesPanePrincipalTokens() throws {
         let runtimeId = UUID()

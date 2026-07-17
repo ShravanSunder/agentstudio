@@ -328,6 +328,9 @@ extension WorkspaceSurfaceCoordinator {
         case .removeRepo(let repoId):
             removeRepoHandler(repoId)
 
+        case .setRepoFavorite(let repoId, let isFavorite):
+            store.repositoryTopologyAtom.setRepoFavorite(repoId, isFavorite: isFavorite)
+
         case .selectTab(let tabId):
             store.tabLayoutAtom.setActiveTab(tabId)
             restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)

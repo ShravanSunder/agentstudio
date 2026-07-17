@@ -10,6 +10,7 @@ private let workspaceSettingsStoreLogger = Logger(
 @MainActor
 final class WorkspaceSettingsStore {
     private let editorPreferenceAtom: EditorPreferenceAtom
+    private let repoExplorerSidebarPrefsAtom: RepoExplorerSidebarPrefsAtom
     private let inboxNotificationPrefsAtom: InboxNotificationPrefsAtom
     private let workspacesDir: URL
     private let legacyPersistor: WorkspacePersistor
@@ -29,6 +30,7 @@ final class WorkspaceSettingsStore {
 
     init(
         editorPreferenceAtom: EditorPreferenceAtom,
+        repoExplorerSidebarPrefsAtom: RepoExplorerSidebarPrefsAtom,
         inboxNotificationPrefsAtom: InboxNotificationPrefsAtom,
         workspacesDir: URL = AppDataPaths.workspacesDirectory(),
         legacyPersistor: WorkspacePersistor? = nil,
@@ -38,6 +40,7 @@ final class WorkspaceSettingsStore {
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.editorPreferenceAtom = editorPreferenceAtom
+        self.repoExplorerSidebarPrefsAtom = repoExplorerSidebarPrefsAtom
         self.inboxNotificationPrefsAtom = inboxNotificationPrefsAtom
         self.workspacesDir = workspacesDir
         self.legacyPersistor = legacyPersistor ?? WorkspacePersistor(workspacesDir: workspacesDir)
@@ -106,6 +109,9 @@ final class WorkspaceSettingsStore {
         isObservingSettings = true
         withObservationTracking {
             _ = editorPreferenceAtom.bookmarkedEditorId
+            _ = repoExplorerSidebarPrefsAtom.groupingMode
+            _ = repoExplorerSidebarPrefsAtom.sortOrder
+            _ = repoExplorerSidebarPrefsAtom.repoVisibilityMode
             _ = inboxNotificationPrefsAtom.grouping
             _ = inboxNotificationPrefsAtom.sort
             _ = inboxNotificationPrefsAtom.bellEnabled
@@ -157,6 +163,11 @@ final class WorkspaceSettingsStore {
         .init(
             workspaceId: workspaceId,
             editorChooser: .init(bookmarkedEditorId: editorPreferenceAtom.bookmarkedEditorId),
+            repoExplorer: .init(
+                groupingMode: repoExplorerSidebarPrefsAtom.groupingMode,
+                sortOrder: repoExplorerSidebarPrefsAtom.sortOrder,
+                repoVisibilityMode: repoExplorerSidebarPrefsAtom.repoVisibilityMode
+            ),
             sidebar: .init(),
             notifications: .init(
                 grouping: inboxNotificationPrefsAtom.grouping,
@@ -172,6 +183,11 @@ final class WorkspaceSettingsStore {
 
     private func hydrate(from payload: WorkspaceSettingsPayload) {
         editorPreferenceAtom.hydrate(bookmarkedEditorId: payload.editorChooser.bookmarkedEditorId)
+        repoExplorerSidebarPrefsAtom.hydrate(
+            groupingMode: payload.repoExplorer.groupingMode,
+            sortOrder: payload.repoExplorer.sortOrder,
+            repoVisibilityMode: payload.repoExplorer.repoVisibilityMode
+        )
         inboxNotificationPrefsAtom.setGrouping(payload.notifications.grouping)
         inboxNotificationPrefsAtom.setSort(payload.notifications.sort)
         inboxNotificationPrefsAtom.setBellEnabled(payload.notifications.bellEnabled)
@@ -183,6 +199,7 @@ final class WorkspaceSettingsStore {
 
     private func hydrateDefaults() {
         editorPreferenceAtom.clear()
+        repoExplorerSidebarPrefsAtom.reset()
         inboxNotificationPrefsAtom.setGrouping(.byTab)
         inboxNotificationPrefsAtom.setSort(.newestFirst)
         inboxNotificationPrefsAtom.setBellEnabled(false)
@@ -265,11 +282,33 @@ final class WorkspaceSettingsStore {
             payload.editorChooser.bookmarkedEditorId = uiState.editorChooserState.bookmarkedEditorId
             importedAnySlice = true
         }
+        if case .loaded(let sidebarCache) = legacyPersistor.loadSidebarCache(for: workspaceId),
+            sidebarCache.workspaceId == workspaceId
+        {
+            if let legacyRepoExplorer = loadLegacyRepoExplorerPreferences(for: workspaceId) {
+                payload.repoExplorer = legacyRepoExplorer
+            }
+            importedAnySlice = true
+        }
         if let legacyNotificationPrefs = loadLegacyNotificationPrefs(for: workspaceId) {
             payload.notifications = legacyNotificationPrefs
             importedAnySlice = true
         }
         return .init(payload: payload, importedAnySlice: importedAnySlice)
+    }
+
+    private func loadLegacyRepoExplorerPreferences(for workspaceId: UUID) -> WorkspaceSettingsPayload.RepoExplorer? {
+        let sidebarCacheURL = workspacesDir.appending(
+            path: "\(workspaceId.uuidString).workspace.sidebar-cache.json"
+        )
+        guard let data = try? Data(contentsOf: sidebarCacheURL) else { return nil }
+        guard let legacyPayload = try? JSONDecoder().decode(LegacySidebarCacheSettingsPayload.self, from: data)
+        else { return nil }
+        return .init(
+            groupingMode: legacyPayload.groupingMode ?? .repo,
+            sortOrder: legacyPayload.sortOrder ?? .default,
+            repoVisibilityMode: legacyPayload.repoVisibilityMode ?? .all
+        )
     }
 
     private func loadLegacyNotificationPrefs(for workspaceId: UUID) -> WorkspaceSettingsPayload.Notifications? {
@@ -363,6 +402,28 @@ private struct LegacySettingsImport {
     var importedAnySlice: Bool
 }
 
+private struct LegacySidebarCacheSettingsPayload: Decodable {
+    var groupingMode: RepoExplorerGroupingMode?
+    var sortOrder: RepoExplorerSortOrder?
+    var repoVisibilityMode: RepoExplorerVisibilityMode?
+
+    private enum CodingKeys: String, CodingKey {
+        case groupingMode
+        case sortOrder
+        case repoVisibilityMode
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        groupingMode = try? container.decodeIfPresent(RepoExplorerGroupingMode.self, forKey: .groupingMode)
+        sortOrder = try? container.decodeIfPresent(RepoExplorerSortOrder.self, forKey: .sortOrder)
+        repoVisibilityMode = try? container.decodeIfPresent(
+            RepoExplorerVisibilityMode.self,
+            forKey: .repoVisibilityMode
+        )
+    }
+}
+
 private struct LegacyInboxSettingsPayload: Decodable {
     struct Prefs: Decodable {
         var grouping: InboxNotificationGrouping = .byTab
@@ -430,18 +491,21 @@ private struct WorkspaceSettingsPayload: Codable {
     var schemaVersion: Int
     var workspaceId: UUID
     var editorChooser: EditorChooser
+    var repoExplorer: RepoExplorer
     var sidebar: Sidebar
     var notifications: Notifications
 
     init(
         workspaceId: UUID,
         editorChooser: EditorChooser = .init(),
+        repoExplorer: RepoExplorer = .init(),
         sidebar: Sidebar = .init(),
         notifications: Notifications = .init()
     ) {
         self.schemaVersion = Self.currentSchemaVersion
         self.workspaceId = workspaceId
         self.editorChooser = editorChooser
+        self.repoExplorer = repoExplorer
         self.sidebar = sidebar
         self.notifications = notifications
     }
@@ -450,6 +514,7 @@ private struct WorkspaceSettingsPayload: Codable {
         case schemaVersion
         case workspaceId
         case editorChooser
+        case repoExplorer
         case sidebar
         case notifications
     }
@@ -467,12 +532,48 @@ private struct WorkspaceSettingsPayload: Codable {
         self.schemaVersion = decodedSchemaVersion
         self.workspaceId = try container.decode(UUID.self, forKey: .workspaceId)
         self.editorChooser = try container.decodeIfPresent(EditorChooser.self, forKey: .editorChooser) ?? .init()
+        self.repoExplorer = try container.decodeIfPresent(RepoExplorer.self, forKey: .repoExplorer) ?? .init()
         self.sidebar = try container.decodeIfPresent(Sidebar.self, forKey: .sidebar) ?? .init()
         self.notifications = try container.decodeIfPresent(Notifications.self, forKey: .notifications) ?? .init()
     }
 
     struct EditorChooser: Codable {
         var bookmarkedEditorId: EditorTargetId?
+    }
+
+    struct RepoExplorer: Codable {
+        var groupingMode: RepoExplorerGroupingMode
+        var sortOrder: RepoExplorerSortOrder
+        var repoVisibilityMode: RepoExplorerVisibilityMode
+
+        init(
+            groupingMode: RepoExplorerGroupingMode = .repo,
+            sortOrder: RepoExplorerSortOrder = .default,
+            repoVisibilityMode: RepoExplorerVisibilityMode = .all
+        ) {
+            self.groupingMode = groupingMode
+            self.sortOrder = sortOrder
+            self.repoVisibilityMode = repoVisibilityMode
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case groupingMode
+            case sortOrder
+            case repoVisibilityMode
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.groupingMode =
+                (try? container.decodeIfPresent(RepoExplorerGroupingMode.self, forKey: .groupingMode))
+                ?? .repo
+            self.sortOrder =
+                (try? container.decodeIfPresent(RepoExplorerSortOrder.self, forKey: .sortOrder))
+                ?? .default
+            self.repoVisibilityMode =
+                (try? container.decodeIfPresent(RepoExplorerVisibilityMode.self, forKey: .repoVisibilityMode))
+                ?? .all
+        }
     }
 
     struct Sidebar: Codable {

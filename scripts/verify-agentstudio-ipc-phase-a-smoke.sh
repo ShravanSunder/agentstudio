@@ -7,6 +7,8 @@ STATE_FILE="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$PROJECT_ROOT/tmp/debug-obse
 state_status=""
 state_pid=""
 state_data_dir=""
+state_activation_mode=""
+state_ipc_auth_mode=""
 
 if [ -f "$STATE_FILE" ]; then
   while IFS='=' read -r key value; do
@@ -31,6 +33,12 @@ PY
         ;;
       AGENTSTUDIO_OBSERVABILITY_DATA_DIR)
         state_data_dir="$decoded_value"
+        ;;
+      AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE)
+        state_activation_mode="$decoded_value"
+        ;;
+      AGENTSTUDIO_OBSERVABILITY_IPC_AUTH_MODE)
+        state_ipc_auth_mode="$decoded_value"
         ;;
     esac
   done <"$STATE_FILE"
@@ -58,6 +66,18 @@ fi
 
 if [ -z "$state_data_dir" ]; then
   echo "AgentStudio debug observability state missing data directory" >&2
+  echo "state file: $STATE_FILE" >&2
+  exit 1
+fi
+
+if [ "$state_ipc_auth_mode" != "authenticated" ]; then
+  echo "AgentStudio IPC phase-a smoke requires authenticated IPC auth mode: ${state_ipc_auth_mode:-<missing>}" >&2
+  echo "state file: $STATE_FILE" >&2
+  exit 1
+fi
+
+if [ "$state_activation_mode" != "background" ]; then
+  echo "AgentStudio IPC phase-a smoke requires background activation mode: ${state_activation_mode:-<missing>}" >&2
   echo "state file: $STATE_FILE" >&2
   exit 1
 fi
@@ -245,12 +265,61 @@ try:
     if command_bar_entry.get("title") != "Command Palette":
         print(f"showCommandBarCommands title mismatch: {command_bar_entry}", file=sys.stderr)
         sys.exit(1)
+    repo_visibility_entry = next(
+        (
+            command
+            for command in commands
+            if command.get("id") == "setRepoSidebarVisibilityMode"
+        ),
+        None,
+    )
+    if repo_visibility_entry is None:
+        print("command.list did not include setRepoSidebarVisibilityMode", file=sys.stderr)
+        sys.exit(1)
+    repo_visibility_arguments = repo_visibility_entry.get("argumentSchema", [])
+    if repo_visibility_arguments != [
+        {
+            "name": "mode",
+            "kind": {"type": "stringEnum", "values": ["all", "favoritesOnly"]},
+            "isRequired": True,
+        }
+    ]:
+        print(
+            f"setRepoSidebarVisibilityMode argument schema mismatch: {repo_visibility_entry}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    repo_sort_entry = next(
+        (
+            command
+            for command in commands
+            if command.get("id") == "setRepoSidebarSortOrder"
+        ),
+        None,
+    )
+    if repo_sort_entry is None:
+        print("command.list did not include setRepoSidebarSortOrder", file=sys.stderr)
+        sys.exit(1)
+    repo_sort_arguments = repo_sort_entry.get("argumentSchema", [])
+    if repo_sort_arguments != [
+        {
+            "name": "order",
+            "kind": {"type": "stringEnum", "values": ["ascending", "descending"]},
+            "isRequired": True,
+        }
+    ]:
+        print(
+            f"setRepoSidebarSortOrder argument schema mismatch: {repo_sort_entry}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     allowed_command_keys = {
         "id",
         "title",
         "executionModes",
         "targetKinds",
         "requiredPrivileges",
+        "argumentSchema",
     }
     for command in commands:
         unexpected_keys = set(command.keys()) - allowed_command_keys
@@ -272,9 +341,103 @@ try:
         "requires presentation",
     )
 
-    command_bar_open = require_success(
+    repo_visibility_favorites = require_success(
         session.request(
             8,
+            "command.execute",
+            {
+                "commandId": "setRepoSidebarVisibilityMode",
+                "targetHandle": None,
+                "arguments": {"mode": "favoritesOnly"},
+            },
+        ),
+        "command.execute setRepoSidebarVisibilityMode favoritesOnly",
+    )
+    if repo_visibility_favorites.get("applied") is not True:
+        print(f"repo visibility favoritesOnly command did not apply: {repo_visibility_favorites}", file=sys.stderr)
+        sys.exit(1)
+
+    repo_visibility_all = require_success(
+        session.request(
+            9,
+            "command.execute",
+            {
+                "commandId": "setRepoSidebarVisibilityMode",
+                "targetHandle": None,
+                "arguments": {"mode": "all"},
+            },
+        ),
+        "command.execute setRepoSidebarVisibilityMode all",
+    )
+    if repo_visibility_all.get("applied") is not True:
+        print(f"repo visibility all command did not apply: {repo_visibility_all}", file=sys.stderr)
+        sys.exit(1)
+
+    require_error(
+        session.request(
+            10,
+            "command.execute",
+            {
+                "commandId": "setRepoSidebarVisibilityMode",
+                "targetHandle": None,
+                "arguments": {"mode": "recent"},
+            },
+        ),
+        "command.execute setRepoSidebarVisibilityMode invalid mode",
+        -32007,
+        "validation rejected",
+    )
+
+    repo_sort_descending = require_success(
+        session.request(
+            101,
+            "command.execute",
+            {
+                "commandId": "setRepoSidebarSortOrder",
+                "targetHandle": None,
+                "arguments": {"order": "descending"},
+            },
+        ),
+        "command.execute setRepoSidebarSortOrder descending",
+    )
+    if repo_sort_descending.get("applied") is not True:
+        print(f"repo sort descending command did not apply: {repo_sort_descending}", file=sys.stderr)
+        sys.exit(1)
+
+    repo_sort_ascending = require_success(
+        session.request(
+            102,
+            "command.execute",
+            {
+                "commandId": "setRepoSidebarSortOrder",
+                "targetHandle": None,
+                "arguments": {"order": "ascending"},
+            },
+        ),
+        "command.execute setRepoSidebarSortOrder ascending",
+    )
+    if repo_sort_ascending.get("applied") is not True:
+        print(f"repo sort ascending command did not apply: {repo_sort_ascending}", file=sys.stderr)
+        sys.exit(1)
+
+    require_error(
+        session.request(
+            103,
+            "command.execute",
+            {
+                "commandId": "setRepoSidebarSortOrder",
+                "targetHandle": None,
+                "arguments": {"order": "currentRepoOrder"},
+            },
+        ),
+        "command.execute setRepoSidebarSortOrder invalid order",
+        -32007,
+        "validation rejected",
+    )
+
+    command_bar_open = require_success(
+        session.request(
+            11,
             "ui.commandBar.open",
             {"scope": "commands"},
         ),
@@ -286,6 +449,68 @@ try:
     if not command_bar_open.get("workspaceWindowId"):
         print(f"ui.commandBar.open result missing workspaceWindowId: {command_bar_open}", file=sys.stderr)
         sys.exit(1)
+
+    def execute_sidebar_command(request_id, command_id):
+        result = require_success(
+            session.request(
+                request_id,
+                "command.execute",
+                {"commandId": command_id, "targetHandle": None, "arguments": {}},
+            ),
+            f"command.execute {command_id}",
+        )
+        if result.get("applied") is not True:
+            print(f"{command_id} did not apply: {result}", file=sys.stderr)
+            sys.exit(1)
+
+    sidebar_command_expectations = [
+        (12, "showWorktreeSidebar"),
+        (13, "setRepoSidebarGroupingRepo"),
+        (14, "setRepoSidebarGroupingPane"),
+        (15, "setRepoSidebarGroupingTab"),
+        (16, "showInboxNotifications"),
+        (17, "setInboxGroupingTab"),
+        (18, "setInboxGroupingRepo"),
+        (19, "setInboxGroupingPane"),
+        (20, "setInboxGroupingNone"),
+    ]
+    for request_id, command_id in sidebar_command_expectations:
+        execute_sidebar_command(request_id, command_id)
+
+    repo_grouping = require_success(
+        session.request(21, "sidebar.grouping.get", {"surface": "repo"}),
+        "sidebar.grouping.get repo",
+    )
+    if repo_grouping.get("mode") != "tab":
+        print(f"repo grouping did not persist tab mode: {repo_grouping}", file=sys.stderr)
+        sys.exit(1)
+
+    inbox_grouping = require_success(
+        session.request(22, "sidebar.grouping.get", {"surface": "inbox"}),
+        "sidebar.grouping.get inbox",
+    )
+    if inbox_grouping.get("mode") != "none":
+        print(f"inbox grouping did not persist none mode: {inbox_grouping}", file=sys.stderr)
+        sys.exit(1)
+
+    sidebar_surface = require_success(
+        session.request(23, "sidebar.surface.get", {}),
+        "sidebar.surface.get",
+    )
+    if sidebar_surface.get("surface") != "inbox":
+        print(f"sidebar surface did not persist inbox: {sidebar_surface}", file=sys.stderr)
+        sys.exit(1)
+
+    require_error(
+        session.request(
+            24,
+            "sidebar.grouping.set",
+            {"surface": "repo", "mode": "none"},
+        ),
+        "sidebar.grouping.set removed route",
+        -32601,
+        "method not found",
+    )
 
     print(f"AgentStudio IPC Phase A smoke passed for {canonical_pane_handle}")
 finally:

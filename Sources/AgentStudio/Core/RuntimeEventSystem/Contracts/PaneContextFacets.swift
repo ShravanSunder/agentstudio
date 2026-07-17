@@ -3,6 +3,8 @@ import Foundation
 /// Canonical source context carried by pane metadata and runtime envelopes.
 ///
 /// This is the single shared context shape for pane/worktree/repo identity facets.
+/// All fields are optional because not every pane participates in every grouping
+/// dimension.
 struct PaneContextFacets: Codable, Hashable, Sendable {
     var repoId: UUID?
     var repoName: String?

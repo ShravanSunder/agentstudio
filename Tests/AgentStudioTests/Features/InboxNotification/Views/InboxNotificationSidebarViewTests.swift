@@ -7,6 +7,34 @@ import Testing
 @MainActor
 @Suite("InboxNotificationSidebarView", .serialized)
 struct InboxNotificationSidebarViewTests {
+    @Test("first surviving forced projection reports initial completion exactly once")
+    func firstSurvivingForcedProjectionReportsInitialCompletionExactlyOnce() {
+        #expect(
+            InboxNotificationSidebarView.shouldReportInitialProjection(
+                hasReportedInitialProjection: false
+            )
+        )
+        #expect(
+            !InboxNotificationSidebarView.shouldReportInitialProjection(
+                hasReportedInitialProjection: true
+            )
+        )
+    }
+
+    @Test("initial forced refresh preserves configured surface-switch semantics")
+    func initialForcedRefreshPreservesConfiguredSurfaceSwitchSemantics() {
+        #expect(
+            InboxNotificationSidebarView.initialProjectionTrigger(
+                configuredTrigger: .surfaceSwitch
+            ) == .surfaceSwitch
+        )
+        #expect(
+            InboxNotificationSidebarView.initialProjectionTrigger(
+                configuredTrigger: .dataRefresh
+            ) == .dataRefresh
+        )
+    }
+
     @Test("preseeded filter state is consumed when the inbox mounts")
     func preseededFilterDraftIsConsumedOnMount() async {
         let inboxSidebarState = InboxSidebarState()
@@ -198,8 +226,8 @@ struct InboxNotificationSidebarViewTests {
         )
     }
 
-    @Test("mounted inbox sidebar delete menu replaces the clear button")
-    func mountedInboxSidebarDeleteMenuReplacesClearButton() async throws {
+    @Test("mounted inbox sidebar places delete menu before rightmost grouping control")
+    func mountedInboxSidebarPlacesDeleteMenuBeforeRightmostGroupingControl() async throws {
         let router = MockAppCommandRouter()
         router.appCommands = [.clearReadInboxNotifications]
         try await withIsolatedCommandDispatcher(
@@ -257,6 +285,10 @@ struct InboxNotificationSidebarViewTests {
                         in: hostingView,
                         identifier: "inboxSidebarSortButtonFrame"
                     ),
+                    let groupingButton = inboxSidebarDescendant(
+                        in: hostingView,
+                        identifier: "inboxSidebarGroupingButtonFrame"
+                    ),
                     let deleteMenuAccessibleTarget = inboxSidebarAccessibleElement(
                         in: hostingView,
                         identifier: "inboxSidebarDeleteMenu"
@@ -269,12 +301,15 @@ struct InboxNotificationSidebarViewTests {
                 let toolbarRowFrame = toolbarRow.convert(toolbarRow.bounds, to: hostingView)
                 let deleteMenuFrame = deleteMenuView.convert(deleteMenuView.bounds, to: hostingView)
                 let sortButtonFrame = sortButton.convert(sortButton.bounds, to: hostingView)
+                let groupingButtonFrame = groupingButton.convert(groupingButton.bounds, to: hostingView)
 
                 #expect(deleteMenuFrame.width > 0)
                 #expect(deleteMenuFrame.height > 0)
-                #expect(deleteMenuFrame.midX > searchRowFrame.midX)
-                #expect(deleteMenuFrame.maxX <= searchRowFrame.maxX)
-                #expect(sortButtonFrame.midX > toolbarRowFrame.midX)
+                #expect(abs(deleteMenuFrame.midY - toolbarRowFrame.midY) < 2)
+                #expect(deleteMenuFrame.maxX <= sortButtonFrame.minX)
+                #expect(sortButtonFrame.maxX <= groupingButtonFrame.minX)
+                #expect(groupingButtonFrame.maxX <= toolbarRowFrame.maxX)
+                #expect(searchRowFrame.width > toolbarRowFrame.width * 0.9)
 
                 pressInboxSidebarAccessibleElement(deleteMenuAccessibleTarget)
 
@@ -429,8 +464,8 @@ struct InboxNotificationSidebarViewSourceGroupTests {
     @MainActor
     func inboxGroupHeaderMapsEverySourceKindToFixedIconSlot() {
         #expect(InboxNotificationGroupHeader.icon(for: .repo(organizationName: nil)) == .repo)
-        #expect(InboxNotificationGroupHeader.icon(for: .pane) == .pane)
-        #expect(InboxNotificationGroupHeader.icon(for: .tab) == .tab)
+        #expect(InboxNotificationGroupHeader.icon(for: .pane) == .paneGroup)
+        #expect(InboxNotificationGroupHeader.icon(for: .tab) == .tabGroup)
         #expect(InboxNotificationGroupHeader.icon(for: .workspace) == .workspace)
         #expect(InboxNotificationGroupHeader.icon(for: .otherSources) == .otherSources)
     }
@@ -605,7 +640,7 @@ struct InboxNotificationSidebarViewSourceGroupTests {
     }
 
     @Test("mounted inbox sidebar uses repo presentation atoms for grouped header")
-    func mountedInboxSidebarUsesRepoPresentationAtomsForGroupedHeader() throws {
+    func mountedInboxSidebarUsesRepoPresentationAtomsForGroupedHeader() async throws {
         let repoId = UUID()
         let paneId = UUID()
         let inboxAtom = InboxNotificationAtom()
@@ -683,10 +718,10 @@ struct InboxNotificationSidebarViewSourceGroupTests {
         defer { window.orderOut(nil) }
         hostingView.layoutSubtreeIfNeeded()
 
-        let header = try #require(
-            inboxSidebarAccessibleElement(in: hostingView, identifier: "inboxSourceGroupHeader")
-        )
-        #expect(inboxSidebarAccessibilityLabel(of: header) == "agent-studio, ShravanSunder")
+        await assertEventuallyMain("inbox sidebar should render repo presentation header") {
+            inboxSidebarAccessibleElementLabels(in: hostingView, identifier: "inboxSourceGroupHeader")
+                .contains("agent-studio, ShravanSunder")
+        }
     }
 
     @Test("mounted inbox sidebar refreshes repo presentation after atom changes")
@@ -752,10 +787,10 @@ struct InboxNotificationSidebarViewSourceGroupTests {
         defer { window.orderOut(nil) }
         hostingView.layoutSubtreeIfNeeded()
 
-        let initialHeader = try #require(
-            inboxSidebarAccessibleElement(in: hostingView, identifier: "inboxSourceGroupHeader")
-        )
-        #expect(inboxSidebarAccessibilityLabel(of: initialHeader) == "agent-studio.notification-inbox-redesign")
+        await assertEventuallyMain("inbox sidebar should render initial repo presentation header") {
+            inboxSidebarAccessibleElementLabels(in: hostingView, identifier: "inboxSourceGroupHeader")
+                .contains("agent-studio.notification-inbox-redesign")
+        }
 
         repoCache.setRepoEnrichment(
             .resolvedRemote(

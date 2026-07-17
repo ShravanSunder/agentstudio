@@ -98,6 +98,7 @@ public struct AppIPCCommandError: Error, Equatable, Sendable {
         case requiresTarget
         case requiresParameters
         case validationRejected
+        case stateUnavailable
     }
 
     public let reason: Reason
@@ -110,6 +111,7 @@ public struct AppIPCCommandError: Error, Equatable, Sendable {
 @MainActor
 public protocol AppIPCCommandPort: Sendable {
     func listCommands() throws -> IPCCommandListResult
+    func requiredPermissionScopes(for command: IPCCommandListEntry) throws -> [IPCPermissionScope]
     func executeCommand(_ params: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult
 }
 
@@ -135,12 +137,19 @@ public protocol AppIPCUIPresentationPort: Sendable {
     func openCommandBar(_ params: IPCCommandBarOpenParams) throws -> IPCCommandBarOpenResult
 }
 
+@MainActor
+public protocol AppIPCSidebarPort: Sendable {
+    func getGrouping(_ params: IPCSidebarGroupingGetParams) throws -> IPCSidebarGroupingResult
+    func getSurface(_ params: IPCSidebarSurfaceGetParams) throws -> IPCSidebarSurfaceResult
+}
+
 public struct AgentStudioAppIPCPorts: Sendable {
     public let queryPort: any AppIPCQueryPort
     public let layoutPort: any AppIPCLayoutPort
     public let runtimePort: any AppIPCRuntimePort
     public let commandPort: any AppIPCCommandPort
     public let uiPresentationPort: any AppIPCUIPresentationPort
+    public let sidebarPort: any AppIPCSidebarPort
     public let permissionApprovalPort: any AppIPCPermissionApprovalPort
 
     public init(
@@ -149,6 +158,7 @@ public struct AgentStudioAppIPCPorts: Sendable {
         runtimePort: any AppIPCRuntimePort,
         commandPort: any AppIPCCommandPort,
         uiPresentationPort: any AppIPCUIPresentationPort,
+        sidebarPort: any AppIPCSidebarPort,
         permissionApprovalPort: any AppIPCPermissionApprovalPort
     ) {
         self.queryPort = queryPort
@@ -156,6 +166,7 @@ public struct AgentStudioAppIPCPorts: Sendable {
         self.runtimePort = runtimePort
         self.commandPort = commandPort
         self.uiPresentationPort = uiPresentationPort
+        self.sidebarPort = sidebarPort
         self.permissionApprovalPort = permissionApprovalPort
     }
 }
@@ -165,17 +176,20 @@ public struct AgentStudioAppIPCConfiguration: Equatable, Sendable {
     public let accessMode: IPCAccessMode
     public let methodDefinitions: [IPCMethodDefinition]
     public let debugTokenEscrowEnabled: Bool
+    public let debugTokenEscrowPermissionScopes: [IPCPermissionScope]
 
     public init(
         runtimeId: UUID,
         accessMode: IPCAccessMode,
         methodDefinitions: [IPCMethodDefinition],
-        debugTokenEscrowEnabled: Bool = false
+        debugTokenEscrowEnabled: Bool = false,
+        debugTokenEscrowPermissionScopes: [IPCPermissionScope] = []
     ) {
         self.runtimeId = runtimeId
         self.accessMode = accessMode
         self.methodDefinitions = methodDefinitions
         self.debugTokenEscrowEnabled = debugTokenEscrowEnabled
+        self.debugTokenEscrowPermissionScopes = debugTokenEscrowPermissionScopes
     }
 }
 
@@ -210,7 +224,8 @@ public struct AgentStudioAppIPCService: Sendable {
             runtimeId: configuration.runtimeId,
             accessMode: configuration.accessMode,
             methodDefinitions: methodRegistry.definitions,
-            debugTokenEscrowEnabled: configuration.debugTokenEscrowEnabled
+            debugTokenEscrowEnabled: configuration.debugTokenEscrowEnabled,
+            debugTokenEscrowPermissionScopes: configuration.debugTokenEscrowPermissionScopes
         )
         self.ports = ports
         self.eventBroker = eventBroker

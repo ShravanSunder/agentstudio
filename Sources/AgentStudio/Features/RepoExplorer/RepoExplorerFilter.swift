@@ -36,6 +36,5 @@ enum RepoExplorerFilter {
 
     private static func worktreeMatches(_ worktree: Worktree, query: String) -> Bool {
         worktree.name.localizedCaseInsensitiveContains(query)
-            || worktree.tags.contains { $0.localizedCaseInsensitiveContains(query) }
     }
 }

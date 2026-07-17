@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudio
+
 @Suite("AgentStudio IPC Phase A smoke verifier script")
 struct AgentStudioIPCPhaseASmokeScriptTests {
     @Test("phase-a verifier is wired through mise and escrow-authenticated pane snapshot calls")
@@ -17,6 +19,10 @@ struct AgentStudioIPCPhaseASmokeScriptTests {
         #expect(script.contains("tmp/debug-observability/latest-observability.env"))
         #expect(script.contains("AGENTSTUDIO_OBSERVABILITY_IPC_METADATA"))
         #expect(script.contains("AGENTSTUDIO_OBSERVABILITY_IPC_DEBUG_TOKEN"))
+        #expect(script.contains("AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE"))
+        #expect(script.contains("AGENTSTUDIO_OBSERVABILITY_IPC_AUTH_MODE"))
+        #expect(script.contains("requires authenticated IPC auth mode"))
+        #expect(script.contains("requires background activation mode"))
         #expect(script.contains("socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)"))
         #expect(script.contains("AGENTSTUDIO_IPC_PHASE_A_SMOKE_RESPONSE_TIMEOUT_SECONDS"))
         #expect(script.contains("self.socket.settimeout(response_timeout_seconds)"))
@@ -30,11 +36,35 @@ struct AgentStudioIPCPhaseASmokeScriptTests {
         #expect(script.contains("\"command.list\""))
         #expect(script.contains("\"showCommandBarCommands\""))
         #expect(script.contains("\"Command Palette\""))
+        #expect(script.contains("\"argumentSchema\""))
+        #expect(script.contains("\"setRepoSidebarVisibilityMode\""))
+        #expect(script.contains("\"favoritesOnly\""))
+        #expect(script.contains("\"setRepoSidebarSortOrder\""))
+        #expect(script.contains("\"order\": \"descending\""))
+        #expect(script.contains("\"order\": \"ascending\""))
+        #expect(script.contains("\"currentRepoOrder\""))
         #expect(script.contains("\"command.execute\""))
         #expect(script.contains("\"requires presentation\""))
         #expect(script.contains("\"ui.commandBar.open\""))
         #expect(script.contains("\"scope\": \"commands\""))
         #expect(script.contains("\"workspaceWindowId\""))
+        #expect(!script.contains("\"sidebar.surface.set\""))
+        #expect(script.contains("\"sidebar.surface.get\""))
+        #expect(script.contains("\"sidebar.grouping.set\""))
+        #expect(script.contains("\"sidebar.grouping.get\""))
+        #expect(script.contains("\"setRepoSidebarGroupingRepo\""))
+        #expect(script.contains("\"setRepoSidebarGroupingPane\""))
+        #expect(script.contains("\"setRepoSidebarGroupingTab\""))
+        #expect(script.contains("\"setInboxGroupingTab\""))
+        #expect(script.contains("\"setInboxGroupingRepo\""))
+        #expect(script.contains("\"setInboxGroupingPane\""))
+        #expect(script.contains("\"setInboxGroupingNone\""))
+        #expect(script.contains("\"showWorktreeSidebar\""))
+        #expect(script.contains("\"showInboxNotifications\""))
+        #expect(script.contains("\"surface\": \"repo\""))
+        #expect(script.contains("\"surface\": \"inbox\""))
+        #expect(script.contains("\"mode\": \"none\""))
+        #expect(script.contains("\"method not found\""))
         #expect(script.contains("allowed_command_keys"))
         #expect(script.contains("command.list leaked non-IPC command metadata keys"))
         #expect(script.contains("AgentStudio IPC debug token was not consumed"))
@@ -42,5 +72,69 @@ struct AgentStudioIPCPhaseASmokeScriptTests {
         #expect(script.contains("\"unauthenticated\""))
         #expect(!script.contains("--token-stdin"))
         #expect(!script.contains("AGENTSTUDIO_IPC_UNSAFE_NO_AUTH"))
+    }
+
+    @Test("phase-a verifier rejects unsafe auth and foreground activation state")
+    func phaseAVerifierRejectsUnsafeAuthAndForegroundActivationState() async throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let scriptURL = projectRoot.appendingPathComponent("scripts/verify-agentstudio-ipc-phase-a-smoke.sh")
+        let dataRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-phase-a-state-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: dataRoot)
+        }
+        try FileManager.default.createDirectory(at: dataRoot, withIntermediateDirectories: true)
+
+        let unsafeState = try writePhaseAState(
+            root: dataRoot,
+            name: "unsafe.env",
+            authMode: "unsafe_no_auth",
+            activationMode: "background"
+        )
+        let unsafeResult = try await runPhaseASmokeScript(scriptURL: scriptURL, stateFile: unsafeState)
+        #expect(unsafeResult.exitCode == 1)
+        #expect(unsafeResult.stderr.contains("requires authenticated IPC auth mode"))
+
+        let foregroundState = try writePhaseAState(
+            root: dataRoot,
+            name: "foreground.env",
+            authMode: "authenticated",
+            activationMode: "foreground"
+        )
+        let foregroundResult = try await runPhaseASmokeScript(scriptURL: scriptURL, stateFile: foregroundState)
+        #expect(foregroundResult.exitCode == 1)
+        #expect(foregroundResult.stderr.contains("requires background activation mode"))
+    }
+
+    private func writePhaseAState(
+        root: URL,
+        name: String,
+        authMode: String,
+        activationMode: String
+    ) throws -> URL {
+        let dataDir = root.appendingPathComponent("data-\(name)")
+        try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
+        let state = [
+            "AGENTSTUDIO_OBSERVABILITY_STATUS=running",
+            "AGENTSTUDIO_OBSERVABILITY_PID=\(ProcessInfo.processInfo.processIdentifier)",
+            "AGENTSTUDIO_OBSERVABILITY_DATA_DIR=\(dataDir.path)",
+            "AGENTSTUDIO_OBSERVABILITY_IPC_AUTH_MODE=\(authMode)",
+            "AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE=\(activationMode)",
+            "",
+        ].joined(separator: "\n")
+        let stateURL = root.appendingPathComponent(name)
+        try state.write(to: stateURL, atomically: true, encoding: .utf8)
+        return stateURL
+    }
+
+    private func runPhaseASmokeScript(scriptURL: URL, stateFile: URL) async throws -> ProcessResult {
+        try await DefaultProcessExecutor(timeout: 10).execute(
+            command: "/bin/bash",
+            args: [scriptURL.path],
+            cwd: nil,
+            environment: [
+                "AGENTSTUDIO_OBSERVABILITY_STATE_FILE": stateFile.path
+            ]
+        )
     }
 }
