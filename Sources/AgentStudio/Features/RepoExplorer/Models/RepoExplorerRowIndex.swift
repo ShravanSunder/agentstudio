@@ -124,7 +124,7 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
         Dictionary(
             uniqueKeysWithValues: groups.map { group in
                 let rows = group.repos.flatMap { repo in
-                    sortedWorktrees(for: repo).map { worktree in
+                    repo.worktrees.map { worktree in
                         RepoExplorerProjectedWorktreeRow(
                             groupId: group.id,
                             repo: repo,

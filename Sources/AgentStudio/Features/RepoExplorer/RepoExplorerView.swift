@@ -687,11 +687,11 @@ struct RepoExplorerView: View {
             return
         }
 
-        if projectionTask != nil {
+        if projectionTask != nil, let cancelledRequest = cachedProjectionRequest {
             performanceTraceRecorder?.record(
                 .sidebarProjection,
                 attributes: sidebarProjectionTraceAttributes(
-                    for: request,
+                    for: cancelledRequest,
                     phase: "projection_worker",
                     extra: ["agentstudio.performance.sidebar.cancellation.count": .int(1)]
                 )
@@ -739,13 +739,19 @@ struct RepoExplorerView: View {
             } catch is CancellationError {
                 clearProjectionTaskIfCurrent(generation: generatedRequest.generation)
             } catch {
-                clearProjectionTaskIfCurrent(generation: generatedRequest.generation)
+                failProjectionIfCurrent(generation: generatedRequest.generation)
             }
         }
     }
 
     private func clearProjectionTaskIfCurrent(generation: Int) {
         guard generation == projectionGeneration else { return }
+        projectionTask = nil
+    }
+
+    private func failProjectionIfCurrent(generation: Int) {
+        guard generation == projectionGeneration else { return }
+        cachedProjectionRequest = nil
         projectionTask = nil
     }
 

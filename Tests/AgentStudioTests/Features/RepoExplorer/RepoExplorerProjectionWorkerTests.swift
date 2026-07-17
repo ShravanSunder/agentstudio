@@ -62,7 +62,7 @@ struct RepoExplorerProjectionWorkerTests {
         #expect(result.rowIndex.entries.count == 2)
         let visibleWorktreeIds = result.projection.resolvedGroups.first?.repos.first?.worktrees.map { $0.id }
         #expect(visibleWorktreeIds == [matchingWorktree.id])
-        #expect(result.workerDuration > .zero)
+        #expect(result.branchNameByWorktreeId[matchingWorktree.id] == "Unknown branch")
     }
 
     @Test("worker carries visibility mode through snapshot and filters off caller isolation")

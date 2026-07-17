@@ -34,6 +34,7 @@ struct InboxNotificationSidebarView: View {
     @State private var cachedListModelKey: InboxNotificationListProjectionKey
     @State private var projectionWorker = InboxNotificationListProjectionWorker()
     @State private var projectionTask: Task<Void, Never>?
+    @State private var inFlightProjectionRequest: InboxNotificationListProjectionRequest?
     @State private var projectionGeneration = 0
     @State private var groupingMenuOpen = false
     @State private var flashingRowIds: Set<UUID> = []
@@ -229,12 +230,19 @@ struct InboxNotificationSidebarView: View {
             collapsedGroups: inboxSidebarState.collapsedGroups,
             repoPresentationFingerprint: Self.repoPresentationFingerprint(resolvedRepoPresentationByRepoId)
         )
-        guard force || key != cachedListModelKey else { return }
-        if projectionTask != nil {
+        if !force, inFlightProjectionRequest?.key == key {
+            return
+        }
+        if !force, key == cachedListModelKey {
+            cancelInFlightProjectionIfNeeded()
+            return
+        }
+        if let cancelledRequest = inFlightProjectionRequest {
             performanceTraceRecorder?.record(
                 .sidebarProjection,
                 attributes: sidebarProjectionTraceAttributes(
-                    for: key,
+                    for: cancelledRequest.key,
+                    trigger: cancelledRequest.trigger,
                     phase: "projection_worker",
                     extra: ["agentstudio.performance.sidebar.cancellation.count": .int(1)]
                 )
@@ -243,7 +251,6 @@ struct InboxNotificationSidebarView: View {
         projectionGeneration += 1
         let generation = projectionGeneration
         let projectionTrigger = sidebarProjectionTrigger(previous: cachedListModelKey, next: key)
-        cachedListModelKey = key
         projectionTask?.cancel()
         let request = InboxNotificationListProjectionRequest(
             generation: generation,
@@ -251,6 +258,7 @@ struct InboxNotificationSidebarView: View {
             trigger: projectionTrigger,
             repoPresentationByRepoId: resolvedRepoPresentationByRepoId
         )
+        inFlightProjectionRequest = request
         let requestBuildDuration = requestBuildStart.duration(to: clock.now)
         performanceTraceRecorder?.recordDuration(
             .sidebarProjection,
@@ -284,13 +292,34 @@ struct InboxNotificationSidebarView: View {
         }
     }
 
+    private func cancelInFlightProjectionIfNeeded() {
+        guard let cancelledRequest = inFlightProjectionRequest else { return }
+        performanceTraceRecorder?.record(
+            .sidebarProjection,
+            attributes: sidebarProjectionTraceAttributes(
+                for: cancelledRequest.key,
+                trigger: cancelledRequest.trigger,
+                phase: "projection_worker",
+                extra: ["agentstudio.performance.sidebar.cancellation.count": .int(1)]
+            )
+        )
+        projectionGeneration += 1
+        projectionTask?.cancel()
+        inFlightProjectionRequest = nil
+        projectionTask = nil
+    }
+
     private func clearProjectionTaskIfCurrent(generation: Int) {
         guard generation == projectionGeneration else { return }
+        inFlightProjectionRequest = nil
         projectionTask = nil
     }
 
     private func applyProjectionResult(_ result: InboxNotificationListProjectionResult) {
-        guard result.generation == projectionGeneration, result.key == cachedListModelKey else {
+        guard
+            result.generation == projectionGeneration,
+            result.key == inFlightProjectionRequest?.key
+        else {
             performanceTraceRecorder?.record(
                 .sidebarProjection,
                 attributes: sidebarProjectionTraceAttributes(
@@ -321,6 +350,8 @@ struct InboxNotificationSidebarView: View {
         let clock = ContinuousClock()
         let applyStart = clock.now
         cachedListModel = result.model
+        cachedListModelKey = result.key
+        inFlightProjectionRequest = nil
         projectionTask = nil
         let applyDuration = applyStart.duration(to: clock.now)
         performanceTraceRecorder?.recordDuration(

@@ -179,11 +179,17 @@ Steps:
 4. Extend the OTLP metrics dimensions and verifier selectors for the sidebar taxonomy:
    - `surface`: `inbox` or `repo`
    - `phase`: `request_build_mainactor`, `projection_worker`,
-     `mainactor_apply`, `row_index`, or `startup_diagnostic`
+     `mainactor_apply`, `row_index`, `surface_switch`, or `startup_diagnostic`
    - `query_state`: `empty` or `non_empty`
-   - `group_mode`: `repo`, `pane`, `tab`, or `not_applicable`
+   - `group_mode`: `repo`, `pane`, `tab`, `none`, or `not_applicable`
    - `sort_order`: `ascending`, `descending`, or `not_applicable`
    - `visibility_mode`: `all`, `favorites_only`, or `not_applicable`
+   - `trigger`: `grouping_switch`, `surface_switch`, `search`,
+     `sort_order`, `visibility_mode`, `collapse_toggle`, `data_refresh`,
+     or `startup_diagnostic`
+   The controlled vocabulary and proof matrix in
+   `2026-06-20-sidebar-grouping-icons-ipc-performance-delta.md` are
+   authoritative for the expanded sidebar workload.
 5. Keep all taxonomy fields controlled vocabulary. Do not export query strings, repo names, worktree names, pane/tab labels, paths, notification text, or raw ids.
 6. Record debug proof launch mode and IPC auth mode in the debug state/verifier output.
 7. Make all sidebar proof lanes hard-fail if `AGENTSTUDIO_IPC_UNSAFE_NO_AUTH` is present.

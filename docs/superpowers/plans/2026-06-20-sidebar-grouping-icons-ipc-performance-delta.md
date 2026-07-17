@@ -23,7 +23,7 @@ Add a focused delta on top of the existing sidebar plan:
 - User request in chat: pane icons blue, tab icons violet; grouping switch performance is bad; add metrics and find out why; grouping switches in both sidebars should be command specs and open to IPC for testing.
 - Base spec read fully before the original delta: `docs/superpowers/specs/2026-06-20-sidebar-layout-grouping-offmain-search.md`; current expanded contract must be reread by plan-review-swarm.
 - Base plan read fully before the original delta: `docs/superpowers/plans/2026-06-20-sidebar-layout-grouping-offmain-search.md`; current expanded contract must be reread by plan-review-swarm.
-- Plan skill read fully: `/Users/shravansunder/.codex/plugins/cache/ai-tools/shravan-dev-workflow/1.6.26/skills/plan-creation-swarm/SKILL.md`, 179 lines.
+- Plan creation workflow read fully before drafting.
 - Repo evidence inspected:
   - `Sources/AgentStudio/SharedComponents/AppEntityIcon.swift`
   - `Sources/AgentStudio/SharedComponents/SidebarSourceGroupHeader.swift`

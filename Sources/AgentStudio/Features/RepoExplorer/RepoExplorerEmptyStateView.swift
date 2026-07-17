@@ -27,17 +27,17 @@ struct RepoExplorerEmptyStateView: View {
     }
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: AppStyles.Shell.Sidebar.EmptyState.contentSpacing) {
             Image(systemName: systemImage)
                 .font(.system(size: AppStyles.General.Typography.text2xl))
                 .foregroundStyle(.secondary)
-                .opacity(0.5)
+                .opacity(AppStyles.Shell.Sidebar.EmptyState.iconOpacity)
 
             Text(title)
                 .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .transition(.opacity.animation(.easeOut(duration: 0.12)))
+        .transition(.opacity.animation(.easeOut(duration: AppStyles.Shell.Sidebar.EmptyState.transitionDuration)))
     }
 }

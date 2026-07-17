@@ -475,13 +475,15 @@ struct AgentStudioIPCCommandAdapterTests {
 
     @Test("targeted repo commands execute through the shared app command dispatcher")
     func targetedRepoCommandsExecuteThroughSharedAppCommandDispatcher() async throws {
-        let repoId = UUID()
         let commandHandler = RecordingWorkspaceCommandHandler()
         let shellCommandHandler = RecordingShellCommandHandler()
         let harness = CommandAdapterHarness(
             windowSnapshot: .singleActiveWindow(UUID()),
             shellCommandHandler: shellCommandHandler
         )
+        let repoId = harness.workspaceStore.repositoryTopologyAtom.addRepo(
+            at: URL(fileURLWithPath: "/tmp/agentstudio-ipc-owned-repo")
+        ).id
 
         try await withIsolatedCommandDispatcher(
             configure: {
@@ -504,6 +506,23 @@ struct AgentStudioIPCCommandAdapterTests {
                 #expect(commandHandler.targetedCommands[0].targetType == .repo)
             }
         )
+    }
+
+    @Test("targeted repo commands reject repositories outside the authorized workspace")
+    func targetedRepoCommandsRejectRepositoriesOutsideAuthorizedWorkspace() throws {
+        let harness = CommandAdapterHarness()
+
+        do {
+            _ = try harness.adapter.executeCommand(
+                IPCCommandExecuteParams(
+                    commandId: IPCCommandIdentifier(rawValue: AppCommand.addRepoFavorite.rawValue),
+                    targetHandle: "repo:\(UUID().uuidString)"
+                )
+            )
+            Issue.record("repo favorite unexpectedly accepted a repository outside the workspace")
+        } catch let error as AppIPCCommandError {
+            #expect(error.reason == .targetNotFound)
+        }
     }
 
     @Test("targeted repo commands reject wrong handle kinds")
@@ -537,6 +556,9 @@ private struct CommandAdapterHarness {
         workspaceStore = WorkspaceStore()
         adapter = AgentStudioIPCCommandAdapter(
             workspaceId: workspaceStore.identityAtom.workspaceId,
+            repositoryTargetAuthorizer: WorkspaceRepositoryTargetAuthorizationPort(
+                repositoryTopology: workspaceStore.repositoryTopologyAtom
+            ),
             windowLifecycleReader: FakeCommandWorkspaceWindowLifecycleReader(snapshot: windowSnapshot),
             shellCommandHandler: shellCommandHandler
         )

@@ -57,6 +57,9 @@ extension AppDelegate {
                     ),
                     commandPort: AgentStudioIPCCommandAdapter(
                         workspaceId: store.identityAtom.workspaceId,
+                        repositoryTargetAuthorizer: WorkspaceRepositoryTargetAuthorizationPort(
+                            repositoryTopology: store.repositoryTopologyAtom
+                        ),
                         windowLifecycleReader: windowLifecycleReader,
                         shellCommandHandler: self
                     ),

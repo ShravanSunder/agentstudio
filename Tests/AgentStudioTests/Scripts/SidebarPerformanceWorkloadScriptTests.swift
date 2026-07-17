@@ -1,11 +1,13 @@
 import Foundation
 import Testing
 
-@Suite(.serialized)
+@testable import AgentStudio
+
+@Suite
 struct SidebarPerformanceWorkloadScriptTests {
     @Test("sidebar workload proof script has stable safety contract and bash syntax")
-    func sidebarWorkloadProofScriptHasStableSafetyContractAndBashSyntax() throws {
-        let syntax = try runSidebarScript(arguments: ["-n", scriptPath])
+    func sidebarWorkloadProofScriptHasStableSafetyContractAndBashSyntax() async throws {
+        let syntax = try await runSidebarScript(arguments: ["-n", scriptPath])
         #expect(syntax.exitCode == 0, Comment(rawValue: syntax.stderr))
 
         let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
@@ -19,7 +21,7 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("surface=~\"inbox|repo\""))
         #expect(
             source.contains(
-                "phase=~\"startup_diagnostic|request_build_mainactor|mainactor_apply|projection_worker|row_index\""
+                "phase=~\"startup_diagnostic|surface_switch|request_build_mainactor|mainactor_apply|projection_worker|row_index\""
             )
         )
         #expect(source.contains("surface=\"inbox\",phase=\"projection_worker\""))
@@ -67,8 +69,11 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("inbox_none_projection_worker_elapsed_ms_p95"))
         #expect(source.contains("inbox_none_request_build_mainactor_elapsed_ms_p95"))
         #expect(source.contains("inbox_pane_mainactor_apply_elapsed_ms_max"))
-        #expect(source.contains("surface_switch_repo_mainactor_apply_elapsed_ms_p95"))
-        #expect(source.contains("surface_switch_inbox_mainactor_apply_elapsed_ms_p95"))
+        #expect(source.contains("surface_switch_repo_end_to_end_elapsed_ms_p95"))
+        #expect(source.contains("surface_switch_inbox_end_to_end_elapsed_ms_p95"))
+        #expect(source.contains("metric_event_elapsed_p95_query repo surface_switch not_applicable surface_switch"))
+        #expect(!source.contains(". \"$BASELINE_FILE\""))
+        #expect(source.contains("load_baseline_metric_value"))
         #expect(source.contains("record_required_sidebar_metric_matrix"))
         #expect(source.contains("compare_required_metric_matrix"))
         #expect(source.contains("required_metric_keys="))
@@ -94,14 +99,14 @@ struct SidebarPerformanceWorkloadScriptTests {
     }
 
     @Test("prepare-only emits comparable sidebar summary without launching app")
-    func prepareOnlyEmitsComparableSidebarSummaryWithoutLaunchingApp() throws {
+    func prepareOnlyEmitsComparableSidebarSummaryWithoutLaunchingApp() async throws {
         let proofRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-sidebar-workload-summary-\(UUID().uuidString)")
         defer {
             try? FileManager.default.removeItem(at: proofRoot)
         }
 
-        let result = try runSidebarScript(
+        let result = try await runSidebarScript(
             arguments: [scriptPath, "--prepare-only"],
             environment: [
                 "AGENTSTUDIO_SIDEBAR_PROOF_ROOT": proofRoot.path,
@@ -127,14 +132,14 @@ struct SidebarPerformanceWorkloadScriptTests {
     }
 
     @Test("proof modes reject unsafe no-auth IPC before launching")
-    func proofModesRejectUnsafeNoAuthIPCBeforeLaunching() throws {
+    func proofModesRejectUnsafeNoAuthIPCBeforeLaunching() async throws {
         let proofRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-sidebar-unsafe-no-auth-\(UUID().uuidString)")
         defer {
             try? FileManager.default.removeItem(at: proofRoot)
         }
 
-        let result = try runSidebarScript(
+        let result = try await runSidebarScript(
             arguments: [scriptPath, "--sidebar-proof"],
             environment: [
                 "AGENTSTUDIO_SIDEBAR_PROOF_ROOT": proofRoot.path,
@@ -153,30 +158,17 @@ struct SidebarPerformanceWorkloadScriptTests {
 private func runSidebarScript(
     arguments: [String],
     environment: [String: String] = [:]
-) throws -> ScriptRunResult {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/bin/bash")
-    process.arguments = arguments
-    process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+) async throws -> ProcessResult {
     var mergedEnvironment = ProcessInfo.processInfo.environment
     mergedEnvironment["AGENTSTUDIO_OBSERVABILITY_ALLOW_TEST_OVERRIDES"] = "1"
     mergedEnvironment["AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL"] = "http://127.0.0.1:13133/"
     for (key, value) in environment {
         mergedEnvironment[key] = value
     }
-    process.environment = mergedEnvironment
-
-    let stdout = Pipe()
-    let stderr = Pipe()
-    process.standardOutput = stdout
-    process.standardError = stderr
-    try process.run()
-    process.waitUntilExit()
-    let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
-    let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
-    return ScriptRunResult(
-        exitCode: process.terminationStatus,
-        stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-        stderr: String(data: stderrData, encoding: .utf8) ?? ""
+    return try await DefaultProcessExecutor(timeout: 10).execute(
+        command: "/bin/bash",
+        args: arguments,
+        cwd: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+        environment: mergedEnvironment
     )
 }

@@ -508,7 +508,7 @@ try:
             {"surface": "repo", "mode": "none"},
         ),
         "sidebar.grouping.set removed route",
-        -32603,
+        -32601,
         "method not found",
     )
 

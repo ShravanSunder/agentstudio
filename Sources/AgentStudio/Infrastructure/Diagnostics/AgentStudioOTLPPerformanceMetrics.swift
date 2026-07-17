@@ -345,6 +345,7 @@ private enum SidebarMetricPhase: String {
     case mainActorApply = "mainactor_apply"
     case rowIndex = "row_index"
     case startupDiagnostic = "startup_diagnostic"
+    case surfaceSwitch = "surface_switch"
 }
 
 private enum SidebarMetricQueryState: String {

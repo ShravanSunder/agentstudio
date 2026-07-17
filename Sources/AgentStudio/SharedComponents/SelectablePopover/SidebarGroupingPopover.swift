@@ -42,6 +42,7 @@ struct SidebarGroupingPopover<Item: Hashable>: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(label(item))
+                .accessibilityAddTraits(selectedItem == item ? .isSelected : [])
                 .onHover { isHovered in
                     if isHovered {
                         highlightedItem = item

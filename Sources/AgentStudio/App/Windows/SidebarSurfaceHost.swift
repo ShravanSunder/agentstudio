@@ -68,7 +68,7 @@ struct SidebarSurfaceHost: View {
 
     @ViewBuilder
     private var currentSurface: some View {
-        let initialProjectionTrigger = surfaceSwitchSequence == 0 ? "startup_diagnostic" : "surface_switch"
+        let initialProjectionTrigger = surfaceSwitchSequence == 0 ? "data_refresh" : "surface_switch"
         switch uiState.sidebarSurface {
         case .repos:
             RepoExplorerView(
@@ -137,12 +137,12 @@ struct SidebarSurfaceHost: View {
     ) -> [String: AgentStudioTraceValue] {
         [
             "agentstudio.performance.sidebar.surface": .string(surface == .repos ? "repo" : "inbox"),
-            "agentstudio.performance.sidebar.phase": .string("mainactor_apply"),
+            "agentstudio.performance.sidebar.phase": .string("surface_switch"),
             "agentstudio.performance.sidebar.trigger": .string("surface_switch"),
             "agentstudio.performance.sidebar.query_state": .string("empty"),
             "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
             "agentstudio.performance.sidebar.group.count": .int(0),
-            "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms": .double(
+            "agentstudio.performance.sidebar.surface_switch_elapsed_ms": .double(
                 AgentStudioPerformanceTraceRecorder.milliseconds(from: duration)),
         ]
     }

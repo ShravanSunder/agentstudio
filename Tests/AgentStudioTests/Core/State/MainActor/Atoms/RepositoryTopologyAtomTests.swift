@@ -6,6 +6,39 @@ import Testing
 @MainActor
 @Suite("RepositoryTopologyAtom")
 struct RepositoryTopologyAtomTests {
+    @Test("path lookup resolves current repository metadata without rebuilding structural index")
+    func pathLookupResolvesCurrentRepositoryMetadata() throws {
+        let atom = RepositoryTopologyAtom()
+        let repoPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-current-metadata")
+        let repo = atom.addRepo(at: repoPath)
+        let generation = atom.worktreePathIndexGeneration
+
+        atom.setRepoFavorite(repo.id, isFavorite: true)
+        atom.updateRepoNote(repo.id, note: "current note")
+        try atom.setRepoTags(["current"], repoId: repo.id)
+
+        let match = try #require(atom.repoAndWorktree(containing: repoPath))
+        #expect(match.repo.isFavorite)
+        #expect(match.repo.note == "current note")
+        #expect(match.repo.tags == ["current"])
+        #expect(atom.worktreePathIndexGeneration == generation)
+    }
+
+    @Test("path lookup resolves current worktree metadata without rebuilding structural index")
+    func pathLookupResolvesCurrentWorktreeMetadata() throws {
+        let atom = RepositoryTopologyAtom()
+        let repoPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-current-worktree-metadata")
+        let repo = atom.addRepo(at: repoPath)
+        let worktree = try #require(repo.worktrees.single)
+        let generation = atom.worktreePathIndexGeneration
+
+        atom.updateWorktreeNote(worktree.id, note: "worktree note")
+
+        let match = try #require(atom.repoAndWorktree(containing: repoPath))
+        #expect(match.worktree.note == "worktree note")
+        #expect(atom.worktreePathIndexGeneration == generation)
+    }
+
     @Test("batched topology mutation defers path index rebuild until batch exits")
     func batchedTopologyMutationDefersPathIndexRebuildUntilBatchExits() {
         let atom = RepositoryTopologyAtom()

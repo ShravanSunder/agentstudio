@@ -111,6 +111,7 @@ struct SidebarToolbarMenuLabel: View {
 }
 
 struct SidebarToolbarMenuButton<MenuContent: View>: View {
+    let label: String
     let icon: CommandIcon
     @ViewBuilder let menuContent: () -> MenuContent
 
@@ -120,6 +121,7 @@ struct SidebarToolbarMenuButton<MenuContent: View>: View {
         } label: {
             SidebarToolbarMenuLabel(icon: icon)
         }
+        .accessibilityLabel(label)
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .tint(Color.secondary)
@@ -145,7 +147,7 @@ struct SidebarSortButton<SortValue: Equatable, Icon: View>: View {
         Button(action: onToggle) {
             icon()
                 .rotationEffect(.degrees(isReversed ? 180 : 0))
-                .animation(.easeInOut(duration: AppStyles.General.Animation.standard), value: sortValue)
+                .animation(.easeInOut(duration: AppStyles.General.Animation.standard), value: isReversed)
         }
         .buttonStyle(SidebarToolbarButtonStyle())
         .accessibilityLabel(accessibilityLabel)

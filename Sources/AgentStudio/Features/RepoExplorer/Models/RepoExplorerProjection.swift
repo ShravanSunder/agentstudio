@@ -280,14 +280,12 @@ enum RepoExplorerProjection {
 
         var entriesByGroupId: [String: [PlacementEntry]] = [:]
         var groupLabelsById: [String: (title: String, secondary: String?)] = [:]
-        var groupOrder: [String] = []
         var paneModeSeenWorktreesByGroup: [String: Set<UUID>] = [:]
         let inactiveGroupId = "\(mode.rawValue):inactive"
 
         func appendGroupIfNeeded(_ groupId: String, title: String, secondary: String? = nil) {
             guard groupLabelsById[groupId] == nil else { return }
             groupLabelsById[groupId] = (title, secondary)
-            groupOrder.append(groupId)
         }
 
         for repo in sortedRepos(repos, sortOrder: sortOrder) {
@@ -329,9 +327,21 @@ enum RepoExplorerProjection {
             }
         }
 
-        let activeGroupIds = groupOrder.filter { $0 != inactiveGroupId }
+        let activeGroupIds: [String] =
+            switch mode {
+            case .repo:
+                []
+            case .pane:
+                locations.reduce(into: (ids: [String](), seen: Set<UUID>())) { result, location in
+                    guard result.seen.insert(location.paneId).inserted else { return }
+                    result.ids.append("pane:\(location.paneId.uuidString)")
+                }.ids
+            case .tab:
+                sortedUniqueTabIds(locations).map { "tab:\($0.uuidString)" }
+            }
         let orderedGroupIds =
-            activeGroupIds + (entriesByGroupId[inactiveGroupId, default: []].isEmpty ? [] : [inactiveGroupId])
+            activeGroupIds.filter { !(entriesByGroupId[$0] ?? []).isEmpty }
+            + (entriesByGroupId[inactiveGroupId, default: []].isEmpty ? [] : [inactiveGroupId])
 
         var projectedRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]] = [:]
         let groups: [RepoPresentationGroup] = orderedGroupIds.compactMap { groupId in

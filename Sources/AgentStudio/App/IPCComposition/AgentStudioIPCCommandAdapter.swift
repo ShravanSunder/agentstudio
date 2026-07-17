@@ -3,17 +3,25 @@ import AgentStudioProgrammaticControl
 import Foundation
 
 @MainActor
+protocol WorkspaceRepositoryTargetAuthorizing: AnyObject {
+    func containsRepository(id: UUID) -> Bool
+}
+
+@MainActor
 struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
     private let workspaceId: UUID
+    private let repositoryTargetAuthorizer: any WorkspaceRepositoryTargetAuthorizing
     private let windowLifecycleReader: any WorkspaceWindowLifecycleReading
     private weak var shellCommandHandler: (any ShellCommandHandling)?
 
     init(
         workspaceId: UUID,
+        repositoryTargetAuthorizer: any WorkspaceRepositoryTargetAuthorizing,
         windowLifecycleReader: any WorkspaceWindowLifecycleReading,
         shellCommandHandler: any ShellCommandHandling
     ) {
         self.workspaceId = workspaceId
+        self.repositoryTargetAuthorizer = repositoryTargetAuthorizer
         self.windowLifecycleReader = windowLifecycleReader
         self.shellCommandHandler = shellCommandHandler
     }
@@ -137,6 +145,9 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
         }
         switch handle.kind {
         case .repo:
+            guard repositoryTargetAuthorizer.containsRepository(id: targetId) else {
+                throw AppIPCCommandError(reason: .targetNotFound)
+            }
             return (targetId, .repo)
         case .window, .workspace, .tab, .pane:
             throw AppIPCCommandError(reason: .targetNotFound)

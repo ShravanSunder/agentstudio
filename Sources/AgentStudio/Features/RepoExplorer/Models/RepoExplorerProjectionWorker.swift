@@ -158,7 +158,8 @@ actor RepoExplorerProjectionWorker {
     }
 
     private static func branchName(enrichment: WorktreeEnrichment?) -> String {
-        let cachedBranch = enrichment?.branch.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let enrichment else { return "Unknown branch" }
+        let cachedBranch = enrichment.branch.trimmingCharacters(in: .whitespacesAndNewlines)
         if !cachedBranch.isEmpty {
             return cachedBranch
         }

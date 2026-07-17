@@ -327,13 +327,12 @@ struct InboxSidebarHeader: View {
     }
 
     private var deleteMenu: some View {
-        SidebarToolbarMenuButton(icon: deleteInboxAction.icon) {
+        SidebarToolbarMenuButton(label: deleteInboxAction.label, icon: deleteInboxAction.icon) {
             Button("Delete Read", action: actions.onClearReadHistory)
             Divider()
             Button("Delete All", role: .destructive, action: actions.onClearAllHistory)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(deleteInboxAction.label)
         .accessibilityIdentifier("inboxSidebarDeleteMenu")
         .controlHelp(
             Self.toolbarTooltipValue(

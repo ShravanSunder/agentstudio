@@ -27,6 +27,25 @@ struct AppCommandSidebarCommandsTests {
         }
     }
 
+    @Test("sidebar grouping commands require available preference state")
+    func sidebarGroupingCommandsRequireAvailablePreferenceState() {
+        let delegate = AppDelegate()
+        #expect(!delegate.execute(.setRepoSidebarGroupingPane))
+        #expect(!delegate.execute(.setInboxGroupingPane))
+
+        let repoPrefs = RepoExplorerSidebarPrefsAtom()
+        let inboxPrefs = InboxNotificationPrefsAtom()
+        delegate.atomStore = AtomRegistry(
+            repoExplorerSidebarPrefs: repoPrefs,
+            inboxNotificationPrefs: inboxPrefs
+        )
+
+        #expect(delegate.execute(.setRepoSidebarGroupingPane))
+        #expect(repoPrefs.groupingMode == .pane)
+        #expect(delegate.execute(.setInboxGroupingPane))
+        #expect(inboxPrefs.grouping == .byPane)
+    }
+
     @Test("dispatcher registers repo sidebar visibility mode command for headless execution")
     func dispatcherRegistersRepoSidebarVisibilityModeCommandForHeadlessExecution() {
         let definition = AppCommandDispatcher.shared.definition(for: .setRepoSidebarVisibilityMode)
@@ -35,6 +54,14 @@ struct AppCommandSidebarCommandsTests {
         #expect(definition.icon == .system(.bookmark))
         #expect(definition.commandBarGroupName == "Sidebar")
         #expect(definition.isHiddenInCommandBar)
+        #expect(
+            definition.argumentSchema == [
+                IPCCommandArgumentSchema(
+                    name: "mode",
+                    kind: .stringEnum(values: ["all", "favoritesOnly"]),
+                    isRequired: true
+                )
+            ])
         #expect(definition.ipcExposure.executionModes == [.headless])
         #expect(definition.ipcExposure.targetKinds.isEmpty)
         #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])

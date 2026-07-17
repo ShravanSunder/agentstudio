@@ -151,6 +151,12 @@ enum AppStyles {
                 static let contentPadding: CGFloat = 8
             }
 
+            enum EmptyState {
+                static let contentSpacing: CGFloat = 8
+                static let iconOpacity: CGFloat = 0.5
+                static let transitionDuration: Double = AppStyles.General.Animation.fast
+            }
+
             enum ToolbarControl {
                 static let cornerRadius = AppStyles.General.CornerRadius.button
                 static let foregroundOpacity = AppStyles.General.Foreground.secondary

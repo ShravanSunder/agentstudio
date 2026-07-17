@@ -219,25 +219,32 @@ extension AppDelegate: ShellCommandHandling {
     }
 
     private func executeSidebarGroupingCommand(_ command: AppCommand) -> Bool {
+        guard let atomStore else { return false }
         switch command {
         case .setRepoSidebarGroupingRepo:
-            atomStore?.repoExplorerSidebarPrefs.setGroupingMode(.repo)
+            atomStore.repoExplorerSidebarPrefs.setGroupingMode(.repo)
+            return atomStore.repoExplorerSidebarPrefs.groupingMode == .repo
         case .setRepoSidebarGroupingPane:
-            atomStore?.repoExplorerSidebarPrefs.setGroupingMode(.pane)
+            atomStore.repoExplorerSidebarPrefs.setGroupingMode(.pane)
+            return atomStore.repoExplorerSidebarPrefs.groupingMode == .pane
         case .setRepoSidebarGroupingTab:
-            atomStore?.repoExplorerSidebarPrefs.setGroupingMode(.tab)
+            atomStore.repoExplorerSidebarPrefs.setGroupingMode(.tab)
+            return atomStore.repoExplorerSidebarPrefs.groupingMode == .tab
         case .setInboxGroupingTab:
-            atomStore?.inboxNotificationPrefs.setGrouping(.byTab)
+            atomStore.inboxNotificationPrefs.setGrouping(.byTab)
+            return atomStore.inboxNotificationPrefs.grouping == .byTab
         case .setInboxGroupingRepo:
-            atomStore?.inboxNotificationPrefs.setGrouping(.byRepo)
+            atomStore.inboxNotificationPrefs.setGrouping(.byRepo)
+            return atomStore.inboxNotificationPrefs.grouping == .byRepo
         case .setInboxGroupingPane:
-            atomStore?.inboxNotificationPrefs.setGrouping(.byPane)
+            atomStore.inboxNotificationPrefs.setGrouping(.byPane)
+            return atomStore.inboxNotificationPrefs.grouping == .byPane
         case .setInboxGroupingNone:
-            atomStore?.inboxNotificationPrefs.setGrouping(.none)
+            atomStore.inboxNotificationPrefs.setGrouping(.none)
+            return atomStore.inboxNotificationPrefs.grouping == .none
         default:
             return false
         }
-        return true
     }
 
     private func executeHeadlessRepoSidebarCommand() -> AppCommandExecutionOutcome {

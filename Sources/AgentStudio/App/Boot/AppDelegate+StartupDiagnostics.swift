@@ -412,13 +412,15 @@ extension AppDelegate {
                 count + repo.worktrees.count
             }
             let inboxCount = atom(\.inboxNotification).notifications.count
+            let inboxProjectionProof = await runInboxSidebarProjectionProof()
+            let diagnosticOutcome = inboxProjectionProof.succeeded ? "succeeded" : "blocked"
             let attributes = startupDiagnosticTraceAttributes(for: action).merging(
                 [
                     "agentstudio.startup_diagnostic.fixture.repo.count": .int(repoCount),
                     "agentstudio.startup_diagnostic.fixture.worktree.count": .int(worktreeCount),
                     "agentstudio.startup_diagnostic.fixture.inbox_notification.count": .int(inboxCount),
                     "agentstudio.startup_diagnostic.fixture.sidebar_surface.count": .int(1),
-                    "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(true),
+                    "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(inboxProjectionProof.succeeded),
                     "agentstudio.performance.sidebar.surface": .string(sidebarSurface == .inbox ? "inbox" : "repo"),
                     "agentstudio.performance.sidebar.phase": .string("startup_diagnostic"),
                     "agentstudio.performance.sidebar.query_state": .string("empty"),
@@ -427,7 +429,7 @@ extension AppDelegate {
                 ]
             ) { _, newValue in newValue }
 
-            let inboxProjectionResult = await runInboxSidebarProjectionProof()
+            let inboxProjectionResult = inboxProjectionProof.result
             let projectionWorkerDuration = inboxProjectionResult.workerDuration
             performanceTraceRecorder?.recordDuration(
                 .sidebarProjection,
@@ -463,7 +465,7 @@ extension AppDelegate {
             startupTraceRecorder.recordAppStartup(
                 "app.startup_diagnostic_action.command_exercised",
                 phase: "startup_diagnostic_action",
-                outcome: "succeeded",
+                outcome: diagnosticOutcome,
                 attributes: attributes
             )
             performanceTraceRecorder?.record(
@@ -473,12 +475,15 @@ extension AppDelegate {
             startupTraceRecorder.recordAppStartup(
                 "app.startup_diagnostic_action.completed",
                 phase: "startup_diagnostic_action",
-                outcome: "succeeded",
+                outcome: diagnosticOutcome,
                 attributes: attributes
             )
         }
 
-        private func runInboxSidebarProjectionProof() async -> InboxNotificationListProjectionResult {
+        private func runInboxSidebarProjectionProof() async -> (
+            result: InboxNotificationListProjectionResult,
+            succeeded: Bool
+        ) {
             let repos = store.repositoryTopologyAtom.repos
             let repoEnrichmentByRepoId = Dictionary(
                 uniqueKeysWithValues: repos.compactMap { repo in
@@ -511,14 +516,17 @@ extension AppDelegate {
                 repoPresentationByRepoId: repoPresentationByRepoId
             )
             do {
-                return try await InboxNotificationListProjectionWorker().project(request)
+                return (try await InboxNotificationListProjectionWorker().project(request), true)
             } catch {
-                return InboxNotificationListProjectionResult(
-                    generation: request.generation,
-                    key: key,
-                    trigger: request.trigger,
-                    model: .empty,
-                    workerDuration: .zero
+                return (
+                    InboxNotificationListProjectionResult(
+                        generation: request.generation,
+                        key: key,
+                        trigger: request.trigger,
+                        model: .empty,
+                        workerDuration: .zero
+                    ),
+                    false
                 )
             }
         }

@@ -22,8 +22,8 @@ final class RepositoryTopologyAtom {
     @ObservationIgnored private var deferredWorktreePathIndexRebuildNeeded = false
 
     private struct WorktreePathIndexEntry {
-        let repo: Repo
-        let worktree: Worktree
+        let repoId: UUID
+        let worktreeId: UUID
         let normalizedWorktreePath: String
         let repoWorktreeCount: Int
         let repoPathMatchesWorktree: Bool
@@ -97,8 +97,12 @@ final class RepositoryTopologyAtom {
             ]
         )
 
-        guard let match else { return nil }
-        return (match.repo, match.worktree)
+        guard
+            let match,
+            let repo = repo(match.repoId),
+            let worktree = repo.worktrees.first(where: { $0.id == match.worktreeId })
+        else { return nil }
+        return (repo, worktree)
     }
 
     @discardableResult
@@ -278,8 +282,8 @@ final class RepositoryTopologyAtom {
 
             return normalizedWorktrees.map { item in
                 WorktreePathIndexEntry(
-                    repo: repo,
-                    worktree: item.worktree,
+                    repoId: repo.id,
+                    worktreeId: item.worktree.id,
                     normalizedWorktreePath: item.normalizedPath,
                     repoWorktreeCount: repo.worktrees.count,
                     repoPathMatchesWorktree: repoPathMatchesAnyWorktree

@@ -57,7 +57,7 @@ EOF
 
 run_fast_non_webkit_swift_tests() {
   local app_ipc_live_socket_suite_filter
-  app_ipc_live_socket_suite_filter='AgentStudioAppIPC(Service(Command|Contribution|AuthMode)?|SidebarService|CommandExecuteContract)Tests'
+  app_ipc_live_socket_suite_filter="$(app_ipc_live_socket_suite_filters | /usr/bin/paste -sd'|' -)"
 
   if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
     SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-$(( $(sysctl -n hw.ncpu) / 2 ))}"

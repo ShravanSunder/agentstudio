@@ -18,6 +18,8 @@ struct AppDelegateRepoSidebarCommandsTests {
                 arguments: .repoSidebarVisibilityMode(.favoritesOnly)
             )
         )
+        #expect(favoritesOutcome == .applied)
+        #expect(prefsAtom.repoVisibilityMode == .favoritesOnly)
         let allOutcome = delegate.execute(
             AppCommandExecutionRequest(
                 command: .setRepoSidebarVisibilityMode,
@@ -25,7 +27,6 @@ struct AppDelegateRepoSidebarCommandsTests {
             )
         )
 
-        #expect(favoritesOutcome == .applied)
         #expect(allOutcome == .applied)
         #expect(prefsAtom.repoVisibilityMode == .all)
     }
@@ -56,6 +57,8 @@ struct AppDelegateRepoSidebarCommandsTests {
                 arguments: .repoSidebarSortOrder(.descending)
             )
         )
+        #expect(descendingOutcome == .applied)
+        #expect(prefsAtom.sortOrder == .descending)
         let ascendingOutcome = delegate.execute(
             AppCommandExecutionRequest(
                 command: .setRepoSidebarSortOrder,
@@ -63,7 +66,6 @@ struct AppDelegateRepoSidebarCommandsTests {
             )
         )
 
-        #expect(descendingOutcome == .applied)
         #expect(ascendingOutcome == .applied)
         #expect(prefsAtom.sortOrder == .ascending)
     }

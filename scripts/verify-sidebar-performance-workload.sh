@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -129,6 +129,11 @@ metric_label_selector() {
   printf '%s' "$value"
 }
 
+opaque_trace_marker() {
+  local trace_name="${1:?missing trace name}"
+  printf '%s' "$trace_name" | /usr/bin/shasum -a 256 | awk '{ print "sidebar-" substr($1, 1, 24) }'
+}
+
 query_victoria_metrics() {
   local query="$1"
   if [ "${AGENTSTUDIO_SIDEBAR_ALLOW_TEST_RESPONSES:-0}" = "1" ]; then
@@ -199,7 +204,7 @@ metric_event_elapsed_selector() {
     event_name="performance.sidebar.row_index"
   fi
   printf 'agent.proof.marker="%s",event="%s",surface="%s",phase="%s",group_mode="%s",trigger="%s"' \
-    "$(metric_label_selector "$TRACE_NAME")" \
+    "$(metric_label_selector "$TRACE_MARKER")" \
     "$(metric_label_selector "$event_name")" \
     "$(metric_label_selector "$surface")" \
     "$(metric_label_selector "$phase")" \
@@ -352,8 +357,8 @@ record_required_sidebar_metric_matrix() {
   done
 
   for mode_name in repo inbox; do
-    record_required_metric_series "$mode_name" mainactor_apply not_applicable surface_switch \
-      "surface_switch_${mode_name}_mainactor_apply" 1
+    record_required_metric_series "$mode_name" surface_switch not_applicable surface_switch \
+      "surface_switch_${mode_name}_end_to_end" 1
   done
 }
 
@@ -361,6 +366,20 @@ metric_env_value() {
   local file="$1"
   local key="$2"
   awk -F= -v key="$key" '$1 == key { value = substr($0, length($1) + 2) } END { if (value != "") print value }' "$file"
+}
+
+metric_value_is_nonnegative_finite() {
+  local value="$1"
+  /usr/bin/python3 - "$value" <<'PY'
+import math
+import sys
+
+try:
+    value = float(sys.argv[1])
+except (IndexError, ValueError):
+    raise SystemExit(1)
+raise SystemExit(0 if math.isfinite(value) and value >= 0 else 1)
+PY
 }
 
 required_metric_keys_line() {
@@ -374,13 +393,14 @@ append_required_metric_values() {
 }
 
 compare_required_metric_matrix() {
-  local compare_values_file="$1"
+  local baseline_values_file="$1"
+  local compare_values_file="$2"
   local key
   local baseline_value
   local compare_value
 
   for key in $required_metric_keys; do
-    baseline_value="$(eval "printf '%s' \"\${$key:-}\"")"
+    baseline_value="$(metric_env_value "$baseline_values_file" "$key")"
     compare_value="$(metric_env_value "$compare_values_file" "$key")"
     if [ -z "$baseline_value" ]; then
       echo "missing baseline required sidebar metric: $key" >&2
@@ -390,12 +410,32 @@ compare_required_metric_matrix() {
       echo "missing compare required sidebar metric: $key" >&2
       exit 1
     fi
+    if ! metric_value_is_nonnegative_finite "$baseline_value"; then
+      echo "invalid baseline required sidebar metric: $key" >&2
+      exit 1
+    fi
+    if ! metric_value_is_nonnegative_finite "$compare_value"; then
+      echo "invalid compare required sidebar metric: $key" >&2
+      exit 1
+    fi
     case "$key" in
       *_elapsed_ms_p95 | *_elapsed_ms_max)
         performance_threshold_check "$key" "$baseline_value" "$compare_value"
         ;;
     esac
   done
+}
+
+load_baseline_metric_value() {
+  local baseline_values_file="$1"
+  local key="$2"
+  local value
+  value="$(metric_env_value "$baseline_values_file" "$key")"
+  if ! metric_value_is_nonnegative_finite "$value"; then
+    echo "invalid or missing baseline sidebar metric: $key" >&2
+    exit 1
+  fi
+  printf -v "$key" '%s' "$value"
 }
 
 run_authenticated_sidebar_ipc_workload() {
@@ -685,6 +725,7 @@ validate_controls
 
 PROOF_ROOT="${AGENTSTUDIO_SIDEBAR_PROOF_ROOT:-$DEFAULT_PROOF_ROOT}"
 TRACE_NAME="$(validate_trace_name "${AGENTSTUDIO_TRACE_NAME:-sidebar-performance-$(date +%Y%m%d%H%M%S)-$$}")"
+TRACE_MARKER="$(opaque_trace_marker "$TRACE_NAME")"
 ARTIFACT="$PROOF_ROOT/$TRACE_NAME"
 STATE_FILE="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$ARTIFACT/debug-observability.env}"
 SUMMARY_FILE="$ARTIFACT/summary.txt"
@@ -693,11 +734,11 @@ METRIC_VALUES_FILE="$ARTIFACT/metric-values.env"
 BASELINE_FILE="$PROOF_ROOT/sidebar-performance-baseline.env"
 mkdir -p "$ARTIFACT" "$(dirname "$STATE_FILE")"
 
-sidebar_metric_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_NAME")'",event="performance.sidebar.projection",surface=~"inbox|repo",phase=~"startup_diagnostic|request_build_mainactor|mainactor_apply|projection_worker|row_index"}'
-inbox_worker_event_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_NAME")'",event="performance.sidebar.projection",surface="inbox",phase="projection_worker"}'
-inbox_apply_event_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_NAME")'",event="performance.sidebar.projection",surface="inbox",phase="mainactor_apply"}'
-inbox_worker_elapsed_query='agentstudio_performance_event_elapsed_ms_max{agent.proof.marker="'$(metric_label_selector "$TRACE_NAME")'",event="performance.sidebar.projection",surface="inbox",phase="projection_worker"}'
-inbox_apply_elapsed_query='agentstudio_performance_event_elapsed_ms_max{agent.proof.marker="'$(metric_label_selector "$TRACE_NAME")'",event="performance.sidebar.projection",surface="inbox",phase="mainactor_apply"}'
+sidebar_metric_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_MARKER")'",event="performance.sidebar.projection",surface=~"inbox|repo",phase=~"startup_diagnostic|surface_switch|request_build_mainactor|mainactor_apply|projection_worker|row_index"}'
+inbox_worker_event_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_MARKER")'",event="performance.sidebar.projection",surface="inbox",phase="projection_worker"}'
+inbox_apply_event_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_MARKER")'",event="performance.sidebar.projection",surface="inbox",phase="mainactor_apply"}'
+inbox_worker_elapsed_query='agentstudio_performance_event_elapsed_ms_max{agent.proof.marker="'$(metric_label_selector "$TRACE_MARKER")'",event="performance.sidebar.projection",surface="inbox",phase="projection_worker"}'
+inbox_apply_elapsed_query='agentstudio_performance_event_elapsed_ms_max{agent.proof.marker="'$(metric_label_selector "$TRACE_MARKER")'",event="performance.sidebar.projection",surface="inbox",phase="mainactor_apply"}'
 
 if [ "$mode" = "prepare-only" ]; then
   metrics_response="$(query_victoria_metrics "$sidebar_metric_query")"
@@ -717,7 +758,7 @@ fi
 
 env \
   AGENTSTUDIO_TRACE_TAGS="$WORKLOAD_TRACE_TAGS" \
-  AGENTSTUDIO_TRACE_NAME="$TRACE_NAME" \
+  AGENTSTUDIO_TRACE_NAME="$TRACE_MARKER" \
   AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1 \
   AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=sidebar-performance-proof \
   AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
@@ -945,29 +986,29 @@ inbox_none_request_build_mainactor_elapsed_ms_count="$(
   wait_for_required_metric_count inbox_none_request_build_mainactor_elapsed_ms_count \
     "$(metric_event_elapsed_count_query inbox request_build_mainactor none grouping_switch)" 3
 )"
-surface_switch_repo_mainactor_apply_elapsed_ms_p95="$(
-  wait_for_required_metric_value surface_switch_repo_mainactor_apply_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query repo mainactor_apply not_applicable surface_switch)"
+surface_switch_repo_end_to_end_elapsed_ms_p95="$(
+  wait_for_required_metric_value surface_switch_repo_end_to_end_elapsed_ms_p95 \
+    "$(metric_event_elapsed_p95_query repo surface_switch not_applicable surface_switch)"
 )"
-surface_switch_repo_mainactor_apply_elapsed_ms_max="$(
-  wait_for_required_metric_value surface_switch_repo_mainactor_apply_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query repo mainactor_apply not_applicable surface_switch)"
+surface_switch_repo_end_to_end_elapsed_ms_max="$(
+  wait_for_required_metric_value surface_switch_repo_end_to_end_elapsed_ms_max \
+    "$(metric_event_elapsed_max_query repo surface_switch not_applicable surface_switch)"
 )"
-surface_switch_repo_mainactor_apply_elapsed_ms_count="$(
-  wait_for_required_metric_count surface_switch_repo_mainactor_apply_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo mainactor_apply not_applicable surface_switch)" 3
+surface_switch_repo_end_to_end_elapsed_ms_count="$(
+  wait_for_required_metric_count surface_switch_repo_end_to_end_elapsed_ms_count \
+    "$(metric_event_elapsed_count_query repo surface_switch not_applicable surface_switch)" 3
 )"
-surface_switch_inbox_mainactor_apply_elapsed_ms_p95="$(
-  wait_for_required_metric_value surface_switch_inbox_mainactor_apply_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query inbox mainactor_apply not_applicable surface_switch)"
+surface_switch_inbox_end_to_end_elapsed_ms_p95="$(
+  wait_for_required_metric_value surface_switch_inbox_end_to_end_elapsed_ms_p95 \
+    "$(metric_event_elapsed_p95_query inbox surface_switch not_applicable surface_switch)"
 )"
-surface_switch_inbox_mainactor_apply_elapsed_ms_max="$(
-  wait_for_required_metric_value surface_switch_inbox_mainactor_apply_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query inbox mainactor_apply not_applicable surface_switch)"
+surface_switch_inbox_end_to_end_elapsed_ms_max="$(
+  wait_for_required_metric_value surface_switch_inbox_end_to_end_elapsed_ms_max \
+    "$(metric_event_elapsed_max_query inbox surface_switch not_applicable surface_switch)"
 )"
-surface_switch_inbox_mainactor_apply_elapsed_ms_count="$(
-  wait_for_required_metric_count surface_switch_inbox_mainactor_apply_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query inbox mainactor_apply not_applicable surface_switch)" 3
+surface_switch_inbox_end_to_end_elapsed_ms_count="$(
+  wait_for_required_metric_count surface_switch_inbox_end_to_end_elapsed_ms_count \
+    "$(metric_event_elapsed_count_query inbox surface_switch not_applicable surface_switch)" 3
 )"
 record_required_sidebar_metric_matrix
 
@@ -1002,10 +1043,10 @@ if [ "$mode" = "baseline" ]; then
     echo "repo_pane_row_index_elapsed_ms_max=$repo_pane_row_index_elapsed_ms_max"
     echo "inbox_none_request_build_mainactor_elapsed_ms_p95=$inbox_none_request_build_mainactor_elapsed_ms_p95"
     echo "inbox_none_request_build_mainactor_elapsed_ms_max=$inbox_none_request_build_mainactor_elapsed_ms_max"
-    echo "surface_switch_repo_mainactor_apply_elapsed_ms_p95=$surface_switch_repo_mainactor_apply_elapsed_ms_p95"
-    echo "surface_switch_repo_mainactor_apply_elapsed_ms_max=$surface_switch_repo_mainactor_apply_elapsed_ms_max"
-    echo "surface_switch_inbox_mainactor_apply_elapsed_ms_p95=$surface_switch_inbox_mainactor_apply_elapsed_ms_p95"
-    echo "surface_switch_inbox_mainactor_apply_elapsed_ms_max=$surface_switch_inbox_mainactor_apply_elapsed_ms_max"
+    echo "surface_switch_repo_end_to_end_elapsed_ms_p95=$surface_switch_repo_end_to_end_elapsed_ms_p95"
+    echo "surface_switch_repo_end_to_end_elapsed_ms_max=$surface_switch_repo_end_to_end_elapsed_ms_max"
+    echo "surface_switch_inbox_end_to_end_elapsed_ms_p95=$surface_switch_inbox_end_to_end_elapsed_ms_p95"
+    echo "surface_switch_inbox_end_to_end_elapsed_ms_max=$surface_switch_inbox_end_to_end_elapsed_ms_max"
   } >"$BASELINE_FILE"
   append_required_metric_values "$BASELINE_FILE"
 fi
@@ -1041,14 +1082,49 @@ if [ "$mode" = "compare" ]; then
   compare_repo_pane_row_index_elapsed_ms_max="$repo_pane_row_index_elapsed_ms_max"
   compare_inbox_none_request_build_mainactor_elapsed_ms_p95="$inbox_none_request_build_mainactor_elapsed_ms_p95"
   compare_inbox_none_request_build_mainactor_elapsed_ms_max="$inbox_none_request_build_mainactor_elapsed_ms_max"
-  compare_surface_switch_repo_mainactor_apply_elapsed_ms_p95="$surface_switch_repo_mainactor_apply_elapsed_ms_p95"
-  compare_surface_switch_repo_mainactor_apply_elapsed_ms_max="$surface_switch_repo_mainactor_apply_elapsed_ms_max"
-  compare_surface_switch_inbox_mainactor_apply_elapsed_ms_p95="$surface_switch_inbox_mainactor_apply_elapsed_ms_p95"
-  compare_surface_switch_inbox_mainactor_apply_elapsed_ms_max="$surface_switch_inbox_mainactor_apply_elapsed_ms_max"
+  compare_surface_switch_repo_end_to_end_elapsed_ms_p95="$surface_switch_repo_end_to_end_elapsed_ms_p95"
+  compare_surface_switch_repo_end_to_end_elapsed_ms_max="$surface_switch_repo_end_to_end_elapsed_ms_max"
+  compare_surface_switch_inbox_end_to_end_elapsed_ms_p95="$surface_switch_inbox_end_to_end_elapsed_ms_p95"
+  compare_surface_switch_inbox_end_to_end_elapsed_ms_max="$surface_switch_inbox_end_to_end_elapsed_ms_max"
   compare_metric_values_file="$METRIC_VALUES_FILE"
-  # shellcheck disable=SC1090
-  . "$BASELINE_FILE"
-  compare_required_metric_matrix "$compare_metric_values_file"
+  required_metric_keys="$(required_metric_keys_line)"
+  for baseline_metric_key in \
+    inbox_projection_worker_elapsed_ms_max \
+    inbox_mainactor_apply_elapsed_ms_max \
+    repo_pane_projection_worker_elapsed_ms_p95 \
+    repo_pane_projection_worker_elapsed_ms_max \
+    repo_visibility_projection_worker_elapsed_ms_p95 \
+    repo_visibility_projection_worker_elapsed_ms_max \
+    repo_visibility_mainactor_apply_elapsed_ms_p95 \
+    repo_visibility_mainactor_apply_elapsed_ms_max \
+    repo_sort_projection_worker_elapsed_ms_p95 \
+    repo_sort_projection_worker_elapsed_ms_max \
+    repo_sort_mainactor_apply_elapsed_ms_p95 \
+    repo_sort_mainactor_apply_elapsed_ms_max \
+    repo_sort_request_build_mainactor_elapsed_ms_p95 \
+    repo_sort_request_build_mainactor_elapsed_ms_max \
+    repo_sort_row_index_elapsed_ms_p95 \
+    repo_sort_row_index_elapsed_ms_max \
+    repo_tab_mainactor_apply_elapsed_ms_p95 \
+    repo_tab_mainactor_apply_elapsed_ms_max \
+    inbox_none_projection_worker_elapsed_ms_p95 \
+    inbox_none_projection_worker_elapsed_ms_max \
+    inbox_pane_mainactor_apply_elapsed_ms_p95 \
+    inbox_pane_mainactor_apply_elapsed_ms_max \
+    repo_pane_request_build_mainactor_elapsed_ms_p95 \
+    repo_pane_request_build_mainactor_elapsed_ms_max \
+    repo_pane_row_index_elapsed_ms_p95 \
+    repo_pane_row_index_elapsed_ms_max \
+    inbox_none_request_build_mainactor_elapsed_ms_p95 \
+    inbox_none_request_build_mainactor_elapsed_ms_max \
+    surface_switch_repo_end_to_end_elapsed_ms_p95 \
+    surface_switch_repo_end_to_end_elapsed_ms_max \
+    surface_switch_inbox_end_to_end_elapsed_ms_p95 \
+    surface_switch_inbox_end_to_end_elapsed_ms_max
+  do
+    load_baseline_metric_value "$BASELINE_FILE" "$baseline_metric_key"
+  done
+  compare_required_metric_matrix "$BASELINE_FILE" "$compare_metric_values_file"
   performance_threshold_check \
     inbox_projection_worker_elapsed_ms_max \
     "${inbox_projection_worker_elapsed_ms_max:?missing baseline worker elapsed}" \
@@ -1135,18 +1211,18 @@ if [ "$mode" = "compare" ]; then
   performance_threshold_check inbox_none_request_build_mainactor_elapsed_ms_max \
     "${inbox_none_request_build_mainactor_elapsed_ms_max:?missing baseline inbox none request-build max}" \
     "$compare_inbox_none_request_build_mainactor_elapsed_ms_max"
-  performance_threshold_check surface_switch_repo_mainactor_apply_elapsed_ms_p95 \
-    "${surface_switch_repo_mainactor_apply_elapsed_ms_p95:?missing baseline repo surface-switch p95}" \
-    "$compare_surface_switch_repo_mainactor_apply_elapsed_ms_p95"
-  performance_threshold_check surface_switch_repo_mainactor_apply_elapsed_ms_max \
-    "${surface_switch_repo_mainactor_apply_elapsed_ms_max:?missing baseline repo surface-switch max}" \
-    "$compare_surface_switch_repo_mainactor_apply_elapsed_ms_max"
-  performance_threshold_check surface_switch_inbox_mainactor_apply_elapsed_ms_p95 \
-    "${surface_switch_inbox_mainactor_apply_elapsed_ms_p95:?missing baseline inbox surface-switch p95}" \
-    "$compare_surface_switch_inbox_mainactor_apply_elapsed_ms_p95"
-  performance_threshold_check surface_switch_inbox_mainactor_apply_elapsed_ms_max \
-    "${surface_switch_inbox_mainactor_apply_elapsed_ms_max:?missing baseline inbox surface-switch max}" \
-    "$compare_surface_switch_inbox_mainactor_apply_elapsed_ms_max"
+  performance_threshold_check surface_switch_repo_end_to_end_elapsed_ms_p95 \
+    "${surface_switch_repo_end_to_end_elapsed_ms_p95:?missing baseline repo surface-switch p95}" \
+    "$compare_surface_switch_repo_end_to_end_elapsed_ms_p95"
+  performance_threshold_check surface_switch_repo_end_to_end_elapsed_ms_max \
+    "${surface_switch_repo_end_to_end_elapsed_ms_max:?missing baseline repo surface-switch max}" \
+    "$compare_surface_switch_repo_end_to_end_elapsed_ms_max"
+  performance_threshold_check surface_switch_inbox_end_to_end_elapsed_ms_p95 \
+    "${surface_switch_inbox_end_to_end_elapsed_ms_p95:?missing baseline inbox surface-switch p95}" \
+    "$compare_surface_switch_inbox_end_to_end_elapsed_ms_p95"
+  performance_threshold_check surface_switch_inbox_end_to_end_elapsed_ms_max \
+    "${surface_switch_inbox_end_to_end_elapsed_ms_max:?missing baseline inbox surface-switch max}" \
+    "$compare_surface_switch_inbox_end_to_end_elapsed_ms_max"
   repo_pane_projection_worker_elapsed_ms_p95="$compare_repo_pane_projection_worker_elapsed_ms_p95"
   repo_pane_projection_worker_elapsed_ms_max="$compare_repo_pane_projection_worker_elapsed_ms_max"
   repo_visibility_projection_worker_elapsed_ms_p95="$compare_repo_visibility_projection_worker_elapsed_ms_p95"
@@ -1173,10 +1249,10 @@ if [ "$mode" = "compare" ]; then
   repo_pane_row_index_elapsed_ms_max="$compare_repo_pane_row_index_elapsed_ms_max"
   inbox_none_request_build_mainactor_elapsed_ms_p95="$compare_inbox_none_request_build_mainactor_elapsed_ms_p95"
   inbox_none_request_build_mainactor_elapsed_ms_max="$compare_inbox_none_request_build_mainactor_elapsed_ms_max"
-  surface_switch_repo_mainactor_apply_elapsed_ms_p95="$compare_surface_switch_repo_mainactor_apply_elapsed_ms_p95"
-  surface_switch_repo_mainactor_apply_elapsed_ms_max="$compare_surface_switch_repo_mainactor_apply_elapsed_ms_max"
-  surface_switch_inbox_mainactor_apply_elapsed_ms_p95="$compare_surface_switch_inbox_mainactor_apply_elapsed_ms_p95"
-  surface_switch_inbox_mainactor_apply_elapsed_ms_max="$compare_surface_switch_inbox_mainactor_apply_elapsed_ms_max"
+  surface_switch_repo_end_to_end_elapsed_ms_p95="$compare_surface_switch_repo_end_to_end_elapsed_ms_p95"
+  surface_switch_repo_end_to_end_elapsed_ms_max="$compare_surface_switch_repo_end_to_end_elapsed_ms_max"
+  surface_switch_inbox_end_to_end_elapsed_ms_p95="$compare_surface_switch_inbox_end_to_end_elapsed_ms_p95"
+  surface_switch_inbox_end_to_end_elapsed_ms_max="$compare_surface_switch_inbox_end_to_end_elapsed_ms_max"
 fi
 
 {
@@ -1229,12 +1305,12 @@ fi
   echo "inbox_none_request_build_mainactor_elapsed_ms_p95=$inbox_none_request_build_mainactor_elapsed_ms_p95"
   echo "inbox_none_request_build_mainactor_elapsed_ms_max=$inbox_none_request_build_mainactor_elapsed_ms_max"
   echo "inbox_none_request_build_mainactor_elapsed_ms_count=$inbox_none_request_build_mainactor_elapsed_ms_count"
-  echo "surface_switch_repo_mainactor_apply_elapsed_ms_p95=$surface_switch_repo_mainactor_apply_elapsed_ms_p95"
-  echo "surface_switch_repo_mainactor_apply_elapsed_ms_max=$surface_switch_repo_mainactor_apply_elapsed_ms_max"
-  echo "surface_switch_repo_mainactor_apply_elapsed_ms_count=$surface_switch_repo_mainactor_apply_elapsed_ms_count"
-  echo "surface_switch_inbox_mainactor_apply_elapsed_ms_p95=$surface_switch_inbox_mainactor_apply_elapsed_ms_p95"
-  echo "surface_switch_inbox_mainactor_apply_elapsed_ms_max=$surface_switch_inbox_mainactor_apply_elapsed_ms_max"
-  echo "surface_switch_inbox_mainactor_apply_elapsed_ms_count=$surface_switch_inbox_mainactor_apply_elapsed_ms_count"
+  echo "surface_switch_repo_end_to_end_elapsed_ms_p95=$surface_switch_repo_end_to_end_elapsed_ms_p95"
+  echo "surface_switch_repo_end_to_end_elapsed_ms_max=$surface_switch_repo_end_to_end_elapsed_ms_max"
+  echo "surface_switch_repo_end_to_end_elapsed_ms_count=$surface_switch_repo_end_to_end_elapsed_ms_count"
+  echo "surface_switch_inbox_end_to_end_elapsed_ms_p95=$surface_switch_inbox_end_to_end_elapsed_ms_p95"
+  echo "surface_switch_inbox_end_to_end_elapsed_ms_max=$surface_switch_inbox_end_to_end_elapsed_ms_max"
+  echo "surface_switch_inbox_end_to_end_elapsed_ms_count=$surface_switch_inbox_end_to_end_elapsed_ms_count"
   echo "sidebar_surface_switch.ipc_sequence=repo,inbox,repo,inbox,repo"
   echo "repo_sort.ipc_sequence=descending,ascending"
   echo "repo_visibility.ipc_sequence=favoritesOnly,all"
