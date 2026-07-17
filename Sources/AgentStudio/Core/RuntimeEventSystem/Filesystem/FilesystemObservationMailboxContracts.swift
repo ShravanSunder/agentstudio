@@ -400,7 +400,7 @@ struct FilesystemObservationActorConsumerPort: Sendable {
     }
 }
 
-struct FilesystemObservationActorWaiterPort: Sendable {
+struct FilesystemObservationDoorbellConsumerPort: Sendable {
     private let waitImplementation: @Sendable () async -> AdmissionDoorbellResult
 
     init(wait: @escaping @Sendable () async -> AdmissionDoorbellResult) {

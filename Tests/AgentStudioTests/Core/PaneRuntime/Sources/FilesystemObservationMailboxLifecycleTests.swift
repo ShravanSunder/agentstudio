@@ -84,7 +84,7 @@ struct FilesystemObservationMailboxLifecycleTests {
             Issue.record("fleet shutdown did not freeze ingress with exact retained debt")
             return
         }
-        #expect(await mailbox.actorWaiterPort.nextSignal() == .signaled)
+        #expect(await mailbox.doorbellConsumerPort.nextSignal() == .signaled)
         let lease = requireLease(
             mailbox.actorConsumerPort.takeDrain(binding: consumerBinding)
         )

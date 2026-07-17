@@ -52,7 +52,7 @@ struct FilesystemLeaseTransferArchitectureTests {
             "FileManager",
             "GitWorkingDirectory",
             "Bridge",
-            "actorWaiterPort",
+            "doorbellConsumerPort",
             ".nextSignal(",
         ]
 

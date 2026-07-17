@@ -116,8 +116,8 @@ final class FilesystemObservationMailbox: @unchecked Sendable {
         core.actorConsumerPort
     }
 
-    var actorWaiterPort: FilesystemObservationActorWaiterPort {
-        core.actorWaiterPort
+    var doorbellConsumerPort: FilesystemObservationDoorbellConsumerPort {
+        core.doorbellConsumerPort
     }
 
     var lifecyclePort: FilesystemObservationLifecyclePort {

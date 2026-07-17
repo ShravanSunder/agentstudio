@@ -46,8 +46,8 @@ struct FilesystemObservationIngressOwnershipArchitectureTests {
         }
     }
 
-    @Test("dormant harness is the sole fixed-ingress consumer and waiter owner")
-    func dormantHarnessIsSoleFixedIngressConsumerAndWaiterOwner() throws {
+    @Test("dormant harness is the sole fixed-ingress mailbox and doorbell consumer owner")
+    func dormantHarnessIsSoleFixedIngressMailboxAndDoorbellConsumerOwner() throws {
         // Arrange
         let source = try readSource(
             "Tests/AgentStudioTests/Core/PaneRuntime/Sources/FilesystemObservationDrainHarnessActor.swift"
@@ -63,16 +63,16 @@ struct FilesystemObservationIngressOwnershipArchitectureTests {
                 separatedBy:
                     "private let consumerPort: FilesystemObservationActorConsumerPort"
             ).count - 1
-        let ownedWaiterPortCount =
+        let ownedDoorbellConsumerPortCount =
             source.components(
                 separatedBy:
-                    "private let waiterPort: FilesystemObservationActorWaiterPort"
+                    "private let doorbellConsumerPort: FilesystemObservationDoorbellConsumerPort"
             ).count - 1
 
         // Assert
         #expect(actorDeclarationCount == 1)
         #expect(ownedConsumerPortCount == 1)
-        #expect(ownedWaiterPortCount == 1)
+        #expect(ownedDoorbellConsumerPortCount == 1)
     }
 
     private func readSource(_ relativePath: String) throws -> String {

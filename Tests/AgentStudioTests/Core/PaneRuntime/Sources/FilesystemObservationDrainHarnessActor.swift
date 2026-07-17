@@ -166,8 +166,9 @@ private final class DrainHarnessAcknowledgementController:
     }
 }
 
-/// Dormant H2 integration harness. The actor is the sole owner of one consumer,
-/// one waiter, the task-free transfer state, SourceGate state, and semantic sink.
+/// Dormant H2 integration harness. The actor is the sole owner of one mailbox
+/// consumer, one doorbell consumer, the task-free transfer state, SourceGate state,
+/// and semantic sink.
 actor FilesystemObservationDrainHarnessActor {
     private enum ConfigurationPreflight: Sendable {
         case accepted
@@ -187,7 +188,7 @@ actor FilesystemObservationDrainHarnessActor {
     private let acknowledgementController: DrainHarnessAcknowledgementController
     private let configurationPreflight: ConfigurationPreflight
     private let consumerPort: FilesystemObservationActorConsumerPort
-    private let waiterPort: FilesystemObservationActorWaiterPort
+    private let doorbellConsumerPort: FilesystemObservationDoorbellConsumerPort
     private let bindingsInDeclarationOrder: [FilesystemObservationSlotBinding]
     private let recoveryEvidenceLookup:
         @Sendable (FilesystemObservationSlotBinding) -> FixedFilesystemRecoveryEvidenceSnapshotResult
@@ -228,7 +229,7 @@ actor FilesystemObservationDrainHarnessActor {
             )
         }
         consumerPort = acknowledgementController.interceptedPort
-        waiterPort = mailbox.actorWaiterPort
+        doorbellConsumerPort = mailbox.doorbellConsumerPort
         bindingsInDeclarationOrder = bindings
         recoveryEvidenceLookup = { binding in
             mailbox.recoveryEvidence(for: binding)
@@ -309,7 +310,7 @@ actor FilesystemObservationDrainHarnessActor {
     }
 
     func nextSignal() async -> AdmissionDoorbellResult {
-        await waiterPort.nextSignal()
+        await doorbellConsumerPort.nextSignal()
     }
 
     func semanticAcceptanceCount(

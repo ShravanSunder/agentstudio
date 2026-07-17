@@ -1757,9 +1757,9 @@ final class FilesystemObservationMailboxCore: @unchecked Sendable {
         )
     }
 
-    var actorWaiterPort: FilesystemObservationActorWaiterPort {
-        let waiter = doorbell.consumerPort
-        return FilesystemObservationActorWaiterPort(wait: waiter.nextSignal)
+    var doorbellConsumerPort: FilesystemObservationDoorbellConsumerPort {
+        let doorbellConsumer = doorbell.consumerPort
+        return FilesystemObservationDoorbellConsumerPort(wait: doorbellConsumer.nextSignal)
     }
 
     var lifecyclePort: FilesystemObservationLifecyclePort {

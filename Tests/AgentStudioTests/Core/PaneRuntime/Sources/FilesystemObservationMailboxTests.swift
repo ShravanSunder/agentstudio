@@ -289,7 +289,7 @@ struct FilesystemObservationMailboxTests {
             ),
             for: alpha
         )
-        #expect(await mailbox.actorWaiterPort.nextSignal() == .signaled)
+        #expect(await mailbox.doorbellConsumerPort.nextSignal() == .signaled)
         let alphaLease = requireLease(
             consumer.takeDrain(binding: consumerBinding)
         )
@@ -335,7 +335,7 @@ struct FilesystemObservationMailboxTests {
             ),
             for: noisy
         )
-        #expect(await mailbox.actorWaiterPort.nextSignal() == .signaled)
+        #expect(await mailbox.doorbellConsumerPort.nextSignal() == .signaled)
         _ = requireLease(consumer.takeDrain(binding: consumerBinding))
         _ = try fixture.admitCallback(
             .authoritative(
@@ -405,7 +405,7 @@ struct FilesystemObservationMailboxTests {
 
         // Act
         #expect(mailbox.lifecyclePort.diagnostics.doorbellState == .signalPending)
-        #expect(await mailbox.actorWaiterPort.nextSignal() == .signaled)
+        #expect(await mailbox.doorbellConsumerPort.nextSignal() == .signaled)
         #expect(mailbox.lifecyclePort.diagnostics.doorbellState == .idle)
         let lease = requireLease(
             consumer.takeDrain(binding: consumerBinding)
