@@ -1381,3 +1381,36 @@ with no findings. The gateway remains production-dormant. Continue W4.5p with
 cross-tab pane movement as a separate two-tab transaction; close/undo and drawer
 lifecycle remain separate later families. No generic detach API, startup repair,
 migration, or atom-owned workflow is permitted.
+
+Commit `941ff98d` adds the retained-source cross-tab pane-movement transaction
+as a separate production-dormant W4.5p family. The pure planner moves exactly
+one active main pane between two existing tabs, rejects populated drawers and
+source drain, projects source/destination arrangements and cursors, and keeps
+close/undo, drained-source, and drawer lifecycle outside this transaction. Its
+immutable transition has an explicit `fileprivate` initializer, so only the
+planner source file can construct the complete semantic value; the MainActor
+applier owns live-staleness preflight rather than duplicating planner rules.
+
+The tab-graph atom performs one keyed two-tab ownership transfer and updates
+the moved pane's reverse index without a generic detach or intermediate
+unowned state. The installed-only persistence gateway captures exactly two
+tab-graph value changes plus only changed active-arrangement, active-pane, and
+active-tab preimages under one revision. Pane graph, tab shell, drawer cursor,
+active drawer child, and runtime-only zoom are not captured. The applier and
+gateway use keyed reads, preserve 256 unrelated tab values and reverse indexes,
+and have zero production callers.
+
+Parent proof passed 18 tests across four suites, `mise run build`, and full
+`mise run lint`, including swift-format, SwiftLint over 1,774 files,
+architecture lint, all 31 admission mutation controls, and release-script
+checks. One plan-backed whole-source implementation review found one important
+construction-boundary issue; the single remediation sealed transition
+construction to the planner file and replaced the forgeability test with a
+compiler/source access-control contract. All gates passed again after that
+remediation. The checkpoint commit is unsigned because the configured
+1Password signing helper did not complete after the staged hooks passed.
+
+Continue W4.5p with close/undo as its own lifecycle family, followed by drawer
+lifecycle, topology coupling, settled UI-memory writers, and then the one
+atomic same-domain production writer cutover. No production performance or
+runtime-reachability claim is made by this dormant checkpoint.
