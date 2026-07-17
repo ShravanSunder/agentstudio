@@ -156,6 +156,23 @@ final class WorkspaceTabGraphAtom {
         }
     }
 
+    func replaceTabStatePreservingIdentity(_ replacement: TabGraphState) {
+        guard let index = tabIndexByID[replacement.tabId] else {
+            preconditionFailure("tab graph identity must exist before keyed replacement")
+        }
+        let previous = tabStates[index]
+        precondition(
+            previous.allPaneIds == replacement.allPaneIds,
+            "identity-preserving tab graph replacement cannot change pane ownership"
+        )
+        precondition(
+            previous.arrangements.map(\.id) == replacement.arrangements.map(\.id),
+            "identity-preserving tab graph replacement cannot change arrangement ownership"
+        )
+        guard previous != replacement else { return }
+        tabStates[index] = replacement
+    }
+
     private static func makeIndexes(
         _ states: [TabGraphState]
     ) -> (

@@ -60,7 +60,8 @@ extension WorkspaceStore {
                 workspaceTabCursor: resolvedTabShellAtom.cursorAtom,
                 workspaceTabGraph: resolvedTabArrangementAtom.graphAtom,
                 workspaceArrangementCursor: resolvedTabArrangementAtom.cursorAtom
-            )
+            ),
+            workspacePanePresentation: resolvedTabArrangementAtom.presentationAtom
         )
         let testSQLiteRoot = FileManager.default.temporaryDirectory.appending(
             path: "workspace-store-test-\(UUIDv7.generate().uuidString)"

@@ -87,4 +87,17 @@ final class WorkspaceArrangementCursorAtom {
         drawerCursorsByKey[key] = state
     }
 
+    func setActiveArrangementId(_ arrangementId: UUID, forTab tabId: UUID) {
+        guard activeArrangementIdsByTabId[tabId] != arrangementId else { return }
+        activeArrangementIdsByTabId[tabId] = arrangementId
+    }
+
+    func setPaneCursor(
+        _ state: ArrangementPaneCursorState,
+        forArrangement arrangementId: UUID
+    ) {
+        guard paneCursorsByArrangementId[arrangementId] != state else { return }
+        paneCursorsByArrangementId[arrangementId] = state
+    }
+
 }

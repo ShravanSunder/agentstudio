@@ -118,6 +118,9 @@ final class WorkspaceStore {
                 workspaceArrangementCursor: resolvedTabArrangementAtom.cursorAtom
             )
         )
+        workspacePersistenceRuntime.requireExactPresentationOwner(
+            resolvedTabArrangementAtom.presentationAtom
+        )
         self.workspacePersistenceRuntime = workspacePersistenceRuntime
         workspacePersistenceRevisionOwner = workspacePersistenceRuntime.revisionOwner
         self.identityAtom = identityAtom

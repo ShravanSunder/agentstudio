@@ -67,6 +67,7 @@ final class WorkspacePersistenceRuntime {
     let revisionOwner: WorkspacePersistenceRevisionOwner
     let atomOwners: WorkspacePersistenceAtomOwners
     let adapters: WorkspacePersistenceAdapterBundle
+    let workspacePanePresentation: WorkspacePanePresentationAtom
     let snapshotParticipantFactory: WorkspacePersistenceSnapshotParticipantFactory
     let preparedCompositionApplier: WorkspacePreparedCompositionApplier
     let preparedTopologyApplier: WorkspacePreparedTopologyApplier
@@ -78,16 +79,19 @@ final class WorkspacePersistenceRuntime {
     convenience init(atomRegistry: AtomRegistry) {
         self.init(
             revisionOwner: WorkspacePersistenceRevisionOwner(),
-            atomOwners: WorkspacePersistenceAtomOwners(atomRegistry: atomRegistry)
+            atomOwners: WorkspacePersistenceAtomOwners(atomRegistry: atomRegistry),
+            workspacePanePresentation: atomRegistry.workspacePanePresentation
         )
     }
 
     init(
         revisionOwner: WorkspacePersistenceRevisionOwner,
-        atomOwners: WorkspacePersistenceAtomOwners
+        atomOwners: WorkspacePersistenceAtomOwners,
+        workspacePanePresentation: WorkspacePanePresentationAtom
     ) {
         self.revisionOwner = revisionOwner
         self.atomOwners = atomOwners
+        self.workspacePanePresentation = workspacePanePresentation
 
         let adapters = WorkspacePersistenceAdapterBundle(
             revisionOwner: revisionOwner,
@@ -114,6 +118,7 @@ final class WorkspacePersistenceRuntime {
             workspaceTabCursorAtom: atomOwners.workspaceTabCursor,
             workspaceTabGraphAtom: atomOwners.workspaceTabGraph,
             workspaceArrangementCursorAtom: atomOwners.workspaceArrangementCursor,
+            workspacePanePresentationAtom: workspacePanePresentation,
             workspaceWindowMemoryAtom: atomOwners.workspaceWindowMemory
         )
         self.mutationCoordinator = mutationCoordinator
@@ -164,6 +169,13 @@ final class WorkspacePersistenceRuntime {
         precondition(
             atomOwners.workspaceArrangementCursor === received.workspaceArrangementCursor,
             "WorkspaceStore must share the runtime arrangement-cursor owner"
+        )
+    }
+
+    func requireExactPresentationOwner(_ received: WorkspacePanePresentationAtom) {
+        precondition(
+            workspacePanePresentation === received,
+            "WorkspaceStore must share the runtime-only pane-presentation owner"
         )
     }
 }

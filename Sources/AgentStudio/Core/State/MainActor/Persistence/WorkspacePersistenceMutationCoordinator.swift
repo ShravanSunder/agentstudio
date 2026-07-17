@@ -42,6 +42,7 @@ enum WorkspacePaneCreationPersistenceCommitResult: Equatable, Sendable {
 /// mutation through the shared revision owner.
 @MainActor
 final class WorkspacePersistenceMutationCoordinator {
+    private let activeArrangementVisibilityGateway: WorkspaceActiveArrangementVisibilityPersistenceGateway
     private let revisionOwner: WorkspacePersistenceRevisionOwner
     private let adapters: WorkspacePersistenceAdapterBundle
     private let workspaceArrangementCursorAtom: WorkspaceArrangementCursorAtom
@@ -66,8 +67,16 @@ final class WorkspacePersistenceMutationCoordinator {
         workspaceTabCursorAtom: WorkspaceTabCursorAtom,
         workspaceTabGraphAtom: WorkspaceTabGraphAtom,
         workspaceArrangementCursorAtom: WorkspaceArrangementCursorAtom,
+        workspacePanePresentationAtom: WorkspacePanePresentationAtom,
         workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom
     ) {
+        activeArrangementVisibilityGateway = WorkspaceActiveArrangementVisibilityPersistenceGateway(
+            revisionOwner: revisionOwner,
+            adapters: adapters,
+            workspaceTabGraphAtom: workspaceTabGraphAtom,
+            workspaceArrangementCursorAtom: workspaceArrangementCursorAtom,
+            workspacePanePresentationAtom: workspacePanePresentationAtom
+        )
         self.revisionOwner = revisionOwner
         self.adapters = adapters
         self.workspaceArrangementCursorAtom = workspaceArrangementCursorAtom
@@ -196,6 +205,30 @@ final class WorkspacePersistenceMutationCoordinator {
                 .rejected(.tabGraphLeafPlanning(rejection))
             }
         }
+    }
+
+    func switchArrangement(
+        _ request: WorkspaceSwitchArrangementRequest
+    ) -> WorkspaceVisibilityPersistenceResult {
+        activeArrangementVisibilityGateway.switchArrangement(request)
+    }
+
+    func setShowsMinimizedPanes(
+        _ request: WorkspaceSetShowsMinimizedPanesRequest
+    ) -> WorkspaceVisibilityPersistenceResult {
+        activeArrangementVisibilityGateway.setShowsMinimizedPanes(request)
+    }
+
+    func minimizePane(
+        _ request: WorkspaceMinimizePaneRequest
+    ) -> WorkspaceVisibilityPersistenceResult {
+        activeArrangementVisibilityGateway.minimizePane(request)
+    }
+
+    func expandPane(
+        _ request: WorkspaceExpandPaneRequest
+    ) -> WorkspaceVisibilityPersistenceResult {
+        activeArrangementVisibilityGateway.expandPane(request)
     }
 
     func toggleDrawer(
