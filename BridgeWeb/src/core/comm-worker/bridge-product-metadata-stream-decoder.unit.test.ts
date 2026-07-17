@@ -20,10 +20,14 @@ const validMetadataFrames = validProductSessionCorpus.metadataFrames.map((frame)
 const validMetadataStreamRequests = validProductSessionCorpus.metadataStreamRequests.map(
 	(request) => bridgeProductMetadataStreamRequestSchema.parse(request),
 );
+const primaryMetadataStreamRequest = requiredMetadataStreamRequest(0);
+const primaryMetadataFrames = validMetadataFrames.filter(
+	(frame): boolean => frame.metadataStreamId === primaryMetadataStreamRequest.metadataStreamId,
+);
 
 describe('Bridge product metadata stream decoder', () => {
 	test('decodes one-byte and 4 KiB fragmentation without retaining unbounded residue', () => {
-		const frames = validMetadataFrames.slice(0, 13);
+		const frames = primaryMetadataFrames.slice(0, 13);
 		const encodedStream = concatenateBytes(...frames.map(encodeBridgeProductMetadataFrame));
 
 		for (const fragmentByteLength of [1, 4 * 1024]) {
@@ -49,7 +53,7 @@ describe('Bridge product metadata stream decoder', () => {
 	});
 
 	test('admits an exact-cap body and rejects cap + 1 from only its prefix', () => {
-		const acceptedFrame = validMetadataFrames[0];
+		const acceptedFrame = primaryMetadataFrames[0];
 		if (acceptedFrame === undefined) {
 			throw new Error('Bridge product metadata fixture lost its accepted frame.');
 		}
@@ -99,9 +103,9 @@ describe('Bridge product metadata stream decoder', () => {
 	});
 
 	test('rejects a pane-wide stream sequence gap and duplicate', () => {
-		const acceptedFrame = requiredFrame(0);
-		const reviewAcceptedFrame = requiredFrame(1);
-		const fileAcceptedFrame = requiredFrame(4);
+		const acceptedFrame = requiredPrimaryFrame(0);
+		const reviewAcceptedFrame = requiredPrimaryFrame(1);
+		const fileAcceptedFrame = requiredPrimaryFrame(4);
 		const gapFrame = bridgeProductMetadataFrameSchema.parse({
 			...reviewAcceptedFrame,
 			streamSequence: 2,
@@ -128,7 +132,7 @@ describe('Bridge product metadata stream decoder', () => {
 	});
 
 	test('keeps mixed Review and File frames in one contiguous physical order', () => {
-		const frames = validMetadataFrames.slice(0, 13);
+		const frames = primaryMetadataFrames.slice(0, 13);
 		const decoder = createMetadataStreamDecoder();
 
 		const decodedFrames = decoder.push(
@@ -153,8 +157,9 @@ describe('Bridge product metadata stream decoder', () => {
 	});
 
 	test('accepts the resumed first sequence supplied by metadataStream.open', () => {
-		const resumedAcceptedFrame = requiredFrame(14);
-		const decoder = new BridgeProductMetadataStreamDecoder(requiredMetadataStreamRequest(1));
+		const resumedRequest = requiredMetadataStreamRequest(1);
+		const resumedAcceptedFrame = requiredAcceptedFrameForRequest(resumedRequest);
+		const decoder = new BridgeProductMetadataStreamDecoder(resumedRequest);
 
 		expect(decoder.push(encodeBridgeProductMetadataFrame(resumedAcceptedFrame))).toEqual([
 			resumedAcceptedFrame,
@@ -164,8 +169,8 @@ describe('Bridge product metadata stream decoder', () => {
 	});
 
 	test('requires stream acceptance as the first frame and rejects a second acceptance', () => {
-		const acceptedFrame = requiredFrame(0);
-		const reviewAcceptedFrame = requiredFrame(1);
+		const acceptedFrame = requiredPrimaryFrame(0);
+		const reviewAcceptedFrame = requiredPrimaryFrame(1);
 		const duplicateStreamAcceptance = bridgeProductMetadataFrameSchema.parse({
 			...acceptedFrame,
 			streamSequence: 1,
@@ -188,13 +193,13 @@ describe('Bridge product metadata stream decoder', () => {
 	});
 
 	test('treats metadataStream.error as terminal and rejects all post-terminal bytes', () => {
-		const acceptedFrame = requiredFrame(0);
+		const acceptedFrame = requiredPrimaryFrame(0);
 		const streamErrorFrame = bridgeProductMetadataFrameSchema.parse({
-			...requiredFrame(13),
+			...requiredPrimaryFrame(13),
 			streamSequence: 1,
 		});
 		const postTerminalFrame = bridgeProductMetadataFrameSchema.parse({
-			...requiredFrame(10),
+			...requiredPrimaryFrame(10),
 			streamSequence: 2,
 		});
 		const acceptedAndTerminal = concatenateBytes(
@@ -230,8 +235,8 @@ describe('Bridge product metadata stream decoder', () => {
 	});
 
 	test('correlates every frame to the exact metadata stream request before returning a batch', () => {
-		const acceptedFrame = requiredFrame(0);
-		const laterFrame = requiredFrame(1);
+		const acceptedFrame = requiredPrimaryFrame(0);
+		const laterFrame = requiredPrimaryFrame(1);
 		const wrongIdentityFrames = [
 			{ ...acceptedFrame, metadataStreamId: 'metadata-stream-other' },
 			{ ...acceptedFrame, paneSessionId: 'pane-session-other' },
@@ -307,10 +312,26 @@ function requiredMetadataStreamRequest(index: number): BridgeProductMetadataStre
 	return request;
 }
 
-function requiredFrame(index: number): BridgeProductMetadataFrame {
-	const frame = validMetadataFrames[index];
+function requiredPrimaryFrame(index: number): BridgeProductMetadataFrame {
+	const frame = primaryMetadataFrames[index];
 	if (frame === undefined) {
-		throw new Error(`Bridge product metadata fixture lost frame ${index}.`);
+		throw new Error(`Bridge product metadata fixture lost primary-stream frame ${index}.`);
+	}
+	return frame;
+}
+
+function requiredAcceptedFrameForRequest(
+	request: BridgeProductMetadataStreamRequest,
+): BridgeProductMetadataFrame {
+	const frame = validMetadataFrames.find(
+		(candidate): boolean =>
+			candidate.kind === 'metadataStream.accepted' &&
+			candidate.metadataStreamId === request.metadataStreamId,
+	);
+	if (frame === undefined) {
+		throw new Error(
+			`Bridge product metadata fixture lost acceptance for stream ${request.metadataStreamId}.`,
+		);
 	}
 	return frame;
 }

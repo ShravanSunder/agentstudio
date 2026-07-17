@@ -64,6 +64,7 @@ export interface BridgeReviewTreeSelectionRevealRequest {
 }
 
 export interface BridgeReviewTreesPanelProps {
+	readonly presentationPositionKey: string;
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
 	readonly projection: BridgeReviewProjectionResult;
@@ -82,11 +83,12 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 	const source = useMemo(
 		() =>
 			createBridgeTreesSource({
+				presentationPositionKey: props.presentationPositionKey,
 				reviewPackage: props.reviewPackage,
 				reviewTreeRows: props.reviewTreeRows,
 				projection: props.projection,
 			}),
-		[props.projection, props.reviewPackage, props.reviewTreeRows],
+		[props.presentationPositionKey, props.projection, props.reviewPackage, props.reviewTreeRows],
 	);
 	const sourceRef = useRef(source);
 	sourceRef.current = source;

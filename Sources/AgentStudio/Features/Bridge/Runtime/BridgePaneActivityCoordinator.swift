@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-enum BridgePaneActivity: String, Equatable, Sendable {
+enum BridgePaneActivity: String, Codable, Equatable, Sendable {
     case foreground
     case loadedHidden
     case dormant

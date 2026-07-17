@@ -10,9 +10,11 @@ extension BridgePaneController {
     func commitReviewPackageLoad(
         _ load: BridgeReviewPackageLoadData,
         productAdmission: BridgeProductAdmissionContext,
-        traceContext: BridgeTraceContext?
+        traceContext: BridgeTraceContext?,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async -> BridgeReviewPackageLoadCommitDisposition {
         guard
+            foregroundWorkAdmission.withValidAdmission({ true }) == true,
             let publicationToken = reviewPublicationCoordinator.stage(
                 load.preparedPublication,
                 productAdmission: productAdmission
@@ -23,10 +25,18 @@ extension BridgePaneController {
 
         let reservation: BridgeReviewMetadataPublicationReservation?
         do {
+            guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
+                _ = reviewPublicationCoordinator.rejectReservation(
+                    publicationToken,
+                    productAdmission: productAdmission
+                )
+                return .rejected
+            }
             reservation = try await productSchemeProvider?.reserveReviewPublication(
                 package: load.package,
                 publicationId: publicationToken.publicationId,
-                productAdmission: productAdmission
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission
             )
         } catch {
             _ = reviewPublicationCoordinator.rejectReservation(
@@ -36,13 +46,33 @@ extension BridgePaneController {
             return .rejected
         }
 
-        let commitResult = reviewPublicationCoordinator.commit(
-            publicationToken,
-            productAdmission: productAdmission
-        ) { committedPublication in
-            paneState.diff.setPackageMetadata(committedPublication.package)
-            paneState.diff.setPackageDelta(committedPublication.delta)
-            paneState.diff.setStatus(.ready)
+        guard
+            foregroundWorkAdmission.withValidAdmission({ true }) == true
+        else {
+            _ = reviewPublicationCoordinator.rejectReservation(
+                publicationToken,
+                productAdmission: productAdmission
+            )
+            return .rejected
+        }
+
+        let commitPublication = {
+            self.reviewPublicationCoordinator.commit(
+                publicationToken,
+                productAdmission: productAdmission
+            ) { committedPublication in
+                self.paneState.diff.setPackageMetadata(committedPublication.package)
+                self.paneState.diff.setPackageDelta(committedPublication.delta)
+                self.paneState.diff.setStatus(.ready)
+            }
+        }
+        guard let commitResult = foregroundWorkAdmission.withValidAdmission(commitPublication)
+        else {
+            _ = reviewPublicationCoordinator.rejectReservation(
+                publicationToken,
+                productAdmission: productAdmission
+            )
+            return .rejected
         }
         guard case .committed(let committedPublication) = commitResult else {
             return .rejected
@@ -50,12 +80,15 @@ extension BridgePaneController {
 
         // Native B is already committed. A closed admission may suppress this
         // rebuildable index update, but cannot turn the commit into rejection.
+        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
+            return .committed
+        }
         _ = await reviewChangeIndex.recordCommittedLoad(
             load.changeIndexLoad,
             productAdmission: productAdmission
         )
 
-        guard
+        guard foregroundWorkAdmission.withValidAdmission({ true }) == true,
             reviewPublicationCoordinator.isCurrentPublication(
                 publicationId: committedPublication.publicationId,
                 productAdmission: productAdmission
@@ -70,6 +103,7 @@ extension BridgePaneController {
                 committedPublication,
                 reservation: reservation,
                 productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission,
                 traceContext: traceContext
             )
         } else {

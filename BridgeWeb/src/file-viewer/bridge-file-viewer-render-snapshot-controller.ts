@@ -64,6 +64,7 @@ export interface BridgeFileViewerRenderSnapshotController {
 		BridgeMainRenderSnapshot,
 		'fileDisplayFreshness' | 'fileItemById' | 'fileQuerySlice' | 'fileStatusSlice' | 'fileTreeSlice'
 	>;
+	readonly panelChromeSlice: BridgeMainRenderSnapshot['panelChromeSlice'];
 	readonly selectedContentAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
 	readonly selectedCodeViewItem: BridgeFileViewerSelectedCodeViewItem | null;
 	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
@@ -193,6 +194,7 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 				fileStatusSlice,
 				fileTreeSlice: renderSnapshot.fileTreeSlice,
 			},
+			panelChromeSlice: renderSnapshot.panelChromeSlice,
 			selectedContentAvailability,
 			selectedCodeViewItem,
 			fileTreePatchStream: renderSnapshotStore.fileTreePatchStream,
@@ -207,6 +209,7 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 			fileViewClient.renderFulfillmentCoordinator,
 			renderSnapshot.fileDisplayFreshness,
 			renderSnapshot.fileItemById,
+			renderSnapshot.panelChromeSlice,
 			renderSnapshot.fileQuerySlice,
 			renderSnapshot.fileTreeSlice,
 			fileStatusSlice,

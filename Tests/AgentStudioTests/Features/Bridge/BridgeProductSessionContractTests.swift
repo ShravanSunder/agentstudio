@@ -76,6 +76,7 @@ struct BridgeProductSessionContractTests {
         #expect(
             Set(metadataFrames.map(\.kind)) == [
                 "metadataStream.accepted",
+                "pane.presentation",
                 "subscription.accepted",
                 "subscription.interestsCommitted",
                 "subscription.data",
@@ -85,6 +86,16 @@ struct BridgeProductSessionContractTests {
                 "content.cancelled",
                 "metadataStream.error",
             ])
+        let panePresentations = metadataFrames.compactMap { frame -> BridgeProductPanePresentationFrame? in
+            guard case .panePresentation(let presentation) = frame else { return nil }
+            return presentation
+        }
+        #expect(panePresentations.map(\.activityRevision) == [1, 2, 3, 4])
+        #expect(
+            panePresentations.map(\.nativeActivity)
+                == [.foreground, .loadedHidden, .dormant, .closed]
+        )
+        #expect(panePresentations.map(\.refreshingLanes) == [[.file, .review], [], [], []])
         #expect(contentRequests.map(\.kind) == ["content.open"])
         #expect(
             Set(contentHeaders.map(\.kind)) == [

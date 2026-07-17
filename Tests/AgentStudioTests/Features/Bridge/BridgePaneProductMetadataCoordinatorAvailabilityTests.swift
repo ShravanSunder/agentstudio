@@ -8,6 +8,7 @@ struct BridgeProductReviewAvailabilityTests {
     @Test("Review open before package publication stays accepted and emits initial metadata later")
     func reviewOpenBeforePackagePublicationStaysAccepted() async throws {
         // Arrange
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
         let lease = try await harness.admitMetadataFrames(through: 0)
         let pump = BridgeProductSchemeFramePump(
@@ -21,6 +22,7 @@ struct BridgeProductReviewAvailabilityTests {
         let coordinator = BridgePaneProductMetadataCoordinator(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
             reviewMetadataSource: reviewSource,
+            refreshWorkAdmissionSource: refreshWorkAdmission.source,
             lifecycleTraceRecorder: traceRecorder
         )
         await coordinator.install(
@@ -39,8 +41,7 @@ struct BridgeProductReviewAvailabilityTests {
         for _ in 0..<100 where (await harness.session.producerSnapshot()).queuedFrameCount == 0 {
             await Task.yield()
         }
-        let queuedFrameCountBeforePublication =
-            (await harness.session.producerSnapshot()).queuedFrameCount
+        let queuedFrameCountBeforePublication = (await harness.session.producerSnapshot()).queuedFrameCount
         let reviewPackage = try availabilityReviewPackageFixture()
         let traceContext = try BridgeTraceContext(
             traceId: "55555555555555555555555555555555",
@@ -51,7 +52,8 @@ struct BridgeProductReviewAvailabilityTests {
         let reservation = try await coordinator.reserveReviewPublication(
             package: reviewPackage,
             publicationId: availabilityCommittedPublication(reviewPackage).publicationId,
-            productAdmission: harness.productAdmission.context
+            productAdmission: harness.productAdmission.context,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
         )
         let publication = availabilityCommittedPublication(reviewPackage)
         let deliveryProbe = AvailabilityDeliveryDispositionProbe()
@@ -60,6 +62,7 @@ struct BridgeProductReviewAvailabilityTests {
                 publication,
                 reservation: reservation,
                 productAdmission: harness.productAdmission.context,
+                foregroundWorkAdmission: refreshWorkAdmission.admission,
                 traceContext: traceContext
             )
             await deliveryProbe.record(disposition)
@@ -161,6 +164,7 @@ struct BridgeProductReviewAvailabilityTests {
     @Test("Review delivery with zero subscriptions is deferred")
     func reviewDeliveryWithZeroSubscriptionsIsDeferred() async throws {
         // Arrange
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
         let lease = try await harness.admitMetadataFrames(through: 0)
         let pump = BridgeProductSchemeFramePump(
@@ -173,6 +177,7 @@ struct BridgeProductReviewAvailabilityTests {
         let coordinator = BridgePaneProductMetadataCoordinator(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
             reviewMetadataSource: BridgePaneProductReviewMetadataSource(),
+            refreshWorkAdmissionSource: refreshWorkAdmission.source,
             lifecycleTraceRecorder: traceRecorder
         )
         await coordinator.install(
@@ -185,14 +190,16 @@ struct BridgeProductReviewAvailabilityTests {
         let reservation = try await coordinator.reserveReviewPublication(
             package: reviewPackage,
             publicationId: availabilityCommittedPublication(reviewPackage).publicationId,
-            productAdmission: harness.productAdmission.context
+            productAdmission: harness.productAdmission.context,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
         )
 
         // Act
         let disposition = await coordinator.deliverReviewPublication(
             availabilityCommittedPublication(reviewPackage),
             reservation: reservation,
-            productAdmission: harness.productAdmission.context
+            productAdmission: harness.productAdmission.context,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
         )
 
         // Assert
@@ -210,6 +217,7 @@ struct BridgeProductReviewAvailabilityTests {
     @Test("committed successor supersedes suspended predecessor delivery before enqueue")
     func committedSuccessorSupersedesSuspendedPredecessorDelivery() async throws {
         // Arrange
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
         let lease = try await harness.admitMetadataFrames(through: 0)
         let pump = BridgeProductSchemeFramePump(
@@ -230,7 +238,8 @@ struct BridgeProductReviewAvailabilityTests {
             reviewMetadataSource: source,
             isReviewPublicationCurrent: { publicationId, productAdmission in
                 currentPublication.matches(publicationId, productAdmission: productAdmission)
-            }
+            },
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
         )
         await coordinator.install(
             request: try availabilityMetadataStreamRequest(),
@@ -246,14 +255,16 @@ struct BridgeProductReviewAvailabilityTests {
         let reservation = try await coordinator.reserveReviewPublication(
             package: reviewPackage,
             publicationId: predecessor.publicationId,
-            productAdmission: harness.productAdmission.context
+            productAdmission: harness.productAdmission.context,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
         )
         let deliveryProbe = CoordinatorReviewDeliveryDispositionProbe()
         let delivery = Task {
             let disposition = await coordinator.deliverReviewPublication(
                 predecessor,
                 reservation: reservation,
-                productAdmission: harness.productAdmission.context
+                productAdmission: harness.productAdmission.context,
+                foregroundWorkAdmission: refreshWorkAdmission.admission
             )
             await deliveryProbe.record(disposition)
             return disposition
@@ -290,6 +301,7 @@ struct BridgeProductReviewAvailabilityTests {
     @Test("transient queue reset repairs current publication once on the same stream")
     func transientQueueResetRepairsCurrentPublicationOnce() async throws {
         // Arrange
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
         let lease = try await harness.admitMetadataFrames(through: 0)
         let pump = BridgeProductSchemeFramePump(
@@ -309,7 +321,8 @@ struct BridgeProductReviewAvailabilityTests {
             reviewMetadataSource: source,
             isReviewPublicationCurrent: { publicationId, productAdmission in
                 currentPublication.matches(publicationId, productAdmission: productAdmission)
-            }
+            },
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
         )
         await coordinator.install(
             request: try availabilityMetadataStreamRequest(),
@@ -325,7 +338,8 @@ struct BridgeProductReviewAvailabilityTests {
         let reservation = try await coordinator.reserveReviewPublication(
             package: reviewPackage,
             publicationId: publication.publicationId,
-            productAdmission: harness.productAdmission.context
+            productAdmission: harness.productAdmission.context,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
         )
 
         // Act
@@ -333,7 +347,8 @@ struct BridgeProductReviewAvailabilityTests {
             await coordinator.deliverReviewPublication(
                 publication,
                 reservation: reservation,
-                productAdmission: harness.productAdmission.context
+                productAdmission: harness.productAdmission.context,
+                foregroundWorkAdmission: refreshWorkAdmission.admission
             )
         }
         await source.waitUntilDeliverAttempt(2)
@@ -358,6 +373,7 @@ struct BridgeProductReviewAvailabilityTests {
     @Test("maximum final frame observation covers earlier finals acknowledged before waiting")
     func maximumFinalFrameObservationCoversEarlierAcknowledgements() async throws {
         // Arrange
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
         let lease = try await harness.admitMetadataFrames(through: 0)
         let pump = BridgeProductSchemeFramePump(
@@ -369,7 +385,8 @@ struct BridgeProductReviewAvailabilityTests {
         let source = CoordinatorEarlyFinalFramesSource()
         let coordinator = BridgePaneProductMetadataCoordinator(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
-            reviewMetadataSource: source
+            reviewMetadataSource: source,
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
         )
         await coordinator.install(
             request: try availabilityMetadataStreamRequest(),
@@ -386,13 +403,15 @@ struct BridgeProductReviewAvailabilityTests {
         let reservation = try await coordinator.reserveReviewPublication(
             package: reviewPackage,
             publicationId: availabilityCommittedPublication(reviewPackage).publicationId,
-            productAdmission: harness.productAdmission.context
+            productAdmission: harness.productAdmission.context,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
         )
         let delivery = Task {
             await coordinator.deliverReviewPublication(
                 availabilityCommittedPublication(reviewPackage),
                 reservation: reservation,
-                productAdmission: harness.productAdmission.context
+                productAdmission: harness.productAdmission.context,
+                foregroundWorkAdmission: refreshWorkAdmission.admission
             )
         }
         await source.waitUntilFinalFramesEnqueued()
@@ -414,6 +433,7 @@ struct BridgeProductReviewAvailabilityTests {
     @Test("failing Review publication cannot reset a replacement metadata stream")
     func failingReviewPublicationCannotResetReplacementMetadataStream() async throws {
         // Arrange
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let firstHarness = try await BridgeProductSessionLifecycleHarness.opened()
         let firstLease = try await firstHarness.admitMetadataFrames(through: 0)
         let firstPump = BridgeProductSchemeFramePump(
@@ -425,7 +445,8 @@ struct BridgeProductReviewAvailabilityTests {
         let source = AvailabilitySuspendedFailingReviewMetadataSource()
         let coordinator = BridgePaneProductMetadataCoordinator(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
-            reviewMetadataSource: source
+            reviewMetadataSource: source,
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
         )
         await coordinator.install(
             request: try availabilityMetadataStreamRequest(),
@@ -442,13 +463,15 @@ struct BridgeProductReviewAvailabilityTests {
         let reservation = try await coordinator.reserveReviewPublication(
             package: reviewPackage,
             publicationId: availabilityCommittedPublication(reviewPackage).publicationId,
-            productAdmission: firstHarness.productAdmission.context
+            productAdmission: firstHarness.productAdmission.context,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
         )
         let failingPublication = Task {
             await coordinator.deliverReviewPublication(
                 availabilityCommittedPublication(reviewPackage),
                 reservation: reservation,
-                productAdmission: firstHarness.productAdmission.context
+                productAdmission: firstHarness.productAdmission.context,
+                foregroundWorkAdmission: refreshWorkAdmission.admission
             )
         }
         await source.waitUntilDeliverStarted()
@@ -671,6 +694,7 @@ private func exerciseAvailabilityPublicationFailure(
     _ failureMode: AvailabilityReviewPublicationFailureMode,
     traceContext: BridgeTraceContext
 ) async throws -> AvailabilityReviewPublicationFailureResult {
+    let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
     let harness = try await BridgeProductSessionLifecycleHarness.opened()
     let lease = try await harness.admitMetadataFrames(through: 0)
     let pump = BridgeProductSchemeFramePump(
@@ -683,6 +707,7 @@ private func exerciseAvailabilityPublicationFailure(
     let coordinator = BridgePaneProductMetadataCoordinator(
         fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
         reviewMetadataSource: AvailabilityThrowingReviewMetadataSource(failureMode: failureMode),
+        refreshWorkAdmissionSource: refreshWorkAdmission.source,
         lifecycleTraceRecorder: traceRecorder
     )
     await coordinator.install(
@@ -703,7 +728,8 @@ private func exerciseAvailabilityPublicationFailure(
         reservation = try await coordinator.reserveReviewPublication(
             package: reviewPackage,
             publicationId: availabilityCommittedPublication(reviewPackage).publicationId,
-            productAdmission: harness.productAdmission.context
+            productAdmission: harness.productAdmission.context,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
         )
     } catch {
         let traceEvents = await traceRecorder.publicationEvents
@@ -719,6 +745,7 @@ private func exerciseAvailabilityPublicationFailure(
         availabilityCommittedPublication(reviewPackage),
         reservation: reservation,
         productAdmission: harness.productAdmission.context,
+        foregroundWorkAdmission: refreshWorkAdmission.admission,
         traceContext: traceContext
     )
     let traceEvents = await traceRecorder.publicationEvents

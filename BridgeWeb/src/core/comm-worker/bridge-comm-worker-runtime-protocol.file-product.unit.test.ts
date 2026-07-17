@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+	encodeBridgeWorkerActiveViewerModeUpdateCommand,
 	encodeBridgeWorkerFileDisplayResyncCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
@@ -16,9 +17,17 @@ import {
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
 import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
 import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
-import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import type {
+	BridgeProductPanePresentationFrame,
+	BridgeProductTransportSession,
+} from './bridge-product-transport.js';
+import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 import { parseBridgeWorkerFileDisplayPatchEvent } from './bridge-worker-contract-parsers.js';
-import { type BridgeWorkerFileDisplayPatchEvent } from './bridge-worker-contracts.js';
+import type {
+	BridgeWorkerFileDisplayPatchEvent,
+	BridgeWorkerFilePierreRenderJobEvent,
+	BridgeWorkerFileRenderPatchEvent,
+} from './bridge-worker-contracts.js';
 
 const source = {
 	repoId: '00000000-0000-4000-8000-000000000001',
@@ -266,7 +275,12 @@ describe('Bridge comm worker File product runtime', () => {
 		const fileRenderPublications = postedMessages
 			.map(({ message }) => message)
 			.filter(
-				(message) => message.kind === 'filePierreRenderJob' || message.kind === 'fileRenderPatch',
+				(
+					message,
+				): message is BridgeWorkerFilePierreRenderJobEvent | BridgeWorkerFileRenderPatchEvent =>
+					message.kind === 'filePierreRenderJob' ||
+					(message.kind === 'fileRenderPatch' &&
+						message.patches.some((patch): boolean => patch.slice !== 'panelChrome')),
 			);
 		expect(fileRenderPublications).toHaveLength(2);
 		expect(
@@ -330,6 +344,117 @@ describe('Bridge comm worker File product runtime', () => {
 			surface: 'file',
 			workerDerivationEpoch: 1,
 		});
+	});
+
+	test('does not replay completed File preparation when native foreground returns to Review', async () => {
+		// Arrange
+		const events = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'file.metadata'>
+		>(64);
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const openedDescriptorIds: string[] = [];
+		const pump = createWorkerContentPreparationPump({ maxSliceMs: 8 });
+		let panePresentationSink: ((frame: BridgeProductPanePresentationFrame) => void) | null = null;
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
+			fileViewBudget: {
+				className: 'interactive',
+				maxBytes: 2 * 1024 * 1024,
+				maxWindowLines: 10_000,
+			},
+			pump,
+			productTransport: makeProductTransport({
+				onDiscoverSource: (): void => {},
+				onOpenDescriptor: (descriptorId): void => {
+					openedDescriptorIds.push(descriptorId);
+				},
+				onPanePresentationSink: (sink): void => {
+					panePresentationSink = sink;
+				},
+				subscription: {
+					cancel: async (): Promise<void> => {},
+					events,
+					subscriptionId: 'file-subscription-completed-foreground-return',
+					subscriptionKind: 'file.metadata',
+					update: async (): Promise<void> => {},
+				},
+			}),
+			schedulePreparationDrain: (drain): void => {
+				scheduledDrains.push(drain);
+			},
+			sendProductControl: async (): Promise<void> => {},
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+		events.push({ eventKind: 'file.sourceAccepted', source });
+		events.push(makeTreeWindowEvent());
+		events.push(makeDescriptorReadyEvent());
+		await flushBridgeWorkerRuntimeContinuations();
+		dispatch.message(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				epoch: 1,
+				requestId: 'request-file-mode-before-completed-preparation',
+				update: {
+					activeSource: null,
+					mode: 'file',
+					sequence: 1,
+					sessionId: 'file-completed-foreground-return-session',
+				},
+			}),
+		);
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				epoch: 2,
+				requestId: 'request-file-completed-foreground-return-selection',
+				selectedItemId: 'file-1',
+				selectedSource: 'user',
+				surface: 'fileView',
+			}),
+		);
+		await drainFilePreparationUntilIdle(scheduledDrains);
+		expect(openedDescriptorIds).toEqual(['descriptor-file-1']);
+
+		// Act
+		dispatch.message(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				epoch: 3,
+				requestId: 'request-review-mode-before-file-foreground-return',
+				update: {
+					activeSource: null,
+					mode: 'review',
+					sequence: 2,
+					sessionId: 'file-completed-foreground-return-session',
+				},
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+		const messageCountBeforeNativeCycle = postedMessages.length;
+		requireFilePanePresentationSink(panePresentationSink)(
+			makeFilePanePresentationFrame(2, 'loadedHidden'),
+		);
+		requireFilePanePresentationSink(panePresentationSink)(
+			makeFilePanePresentationFrame(3, 'foreground'),
+		);
+		const pendingWorkIdsAfterNativeCycle = pump.getPendingWorkIds();
+		pump.runUntilBudget();
+		await flushBridgeWorkerRuntimeContinuations();
+		await drainFilePreparationUntilIdle(scheduledDrains);
+
+		// Assert
+		expect(pendingWorkIdsAfterNativeCycle).toEqual([]);
+		expect(openedDescriptorIds).toEqual(['descriptor-file-1']);
+		expect(
+			postedMessages
+				.slice(messageCountBeforeNativeCycle)
+				.map(({ message }) => message)
+				.filter(
+					(message) =>
+						message.kind === 'filePierreRenderJob' ||
+						(message.kind === 'fileRenderPatch' &&
+							message.patches.some((patch): boolean => patch.slice !== 'panelChrome')),
+				),
+		).toEqual([]);
 	});
 
 	test('reports File interest failure without resetting the stream and retries on later source progress', async () => {
@@ -595,6 +720,9 @@ function makeProductTransport(props: {
 	readonly discoveryError?: Error;
 	readonly onDiscoverSource: () => void;
 	readonly onOpenDescriptor: (descriptorId: string) => void;
+	readonly onPanePresentationSink?: (
+		sink: (frame: BridgeProductPanePresentationFrame) => void,
+	) => void;
 	readonly onSubscribe?: () => void;
 	readonly reviewEvents?: BridgeProductBoundedAsyncQueue<
 		BridgeProductSubscriptionEvent<'review.metadata'>
@@ -645,6 +773,12 @@ function makeProductTransport(props: {
 				}),
 			} as never;
 		},
+		setPanePresentationFrameSink: (
+			sink: (frame: BridgeProductPanePresentationFrame) => void,
+		): void => {
+			props.onPanePresentationSink?.(sink);
+			sink(makeFilePanePresentationFrame(1, 'foreground'));
+		},
 		subscribe: ((subscriptionKind: string): never => {
 			if (subscriptionKind === 'review.metadata') return reviewSubscription as never;
 			props.onSubscribe?.();
@@ -652,6 +786,48 @@ function makeProductTransport(props: {
 		}) as BridgeProductTransportSession['subscribe'],
 		workerDerivationEpoch: (surface): number => (surface === 'file' ? fileEpoch : reviewEpoch),
 	};
+}
+
+function requireFilePanePresentationSink(
+	sink: ((frame: BridgeProductPanePresentationFrame) => void) | null,
+): (frame: BridgeProductPanePresentationFrame) => void {
+	if (sink === null) throw new Error('Expected Bridge File pane presentation sink registration.');
+	return sink;
+}
+
+function makeFilePanePresentationFrame(
+	activityRevision: number,
+	nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'],
+): BridgeProductPanePresentationFrame {
+	return {
+		activityRevision,
+		kind: 'pane.presentation',
+		metadataStreamId: 'file-product-test-metadata-stream',
+		nativeActivity,
+		paneSessionId: 'file-product-test-pane-session',
+		refreshingLanes: [],
+		streamSequence: activityRevision,
+		wireVersion: 2,
+		workerInstanceId: 'file-product-test-worker-instance',
+	};
+}
+
+async function drainFilePreparationUntilIdle(
+	scheduledDrains: BridgeCommWorkerPreparationDrain[],
+): Promise<void> {
+	const drainCompletions: Array<ReturnType<BridgeCommWorkerPreparationDrain>> = [];
+	for (let drainRound = 0; drainRound < 16; drainRound += 1) {
+		const drainsForRound = scheduledDrains.splice(0);
+		if (drainsForRound.length > 0) {
+			drainCompletions.push(...drainsForRound.map((drain) => drain()));
+		}
+		// oxlint-disable-next-line no-await-in-loop -- Each bounded round exposes event-scheduled continuation drains.
+		await flushBridgeWorkerRuntimeContinuations();
+		if (scheduledDrains.length === 0) break;
+	}
+	expect(scheduledDrains).toEqual([]);
+	await Promise.all(drainCompletions);
+	await flushBridgeWorkerRuntimeContinuations();
 }
 
 const currentFileSourceConfiguration = {

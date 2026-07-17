@@ -33,11 +33,16 @@ actor BridgeWorktreeFileManifestIndex {
     /// Records that a worktree enumeration pass started feeding this index.
     /// The compact proof asserts this stays at 1 across interest updates.
     @discardableResult
-    func beginEnumeration(productAdmission: BridgeProductAdmissionContext) -> Bool {
+    func beginEnumeration(
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) -> Bool {
         guard owningProductAdmission.matches(productAdmission) else { return false }
-        return productAdmission.withValidAdmission { () -> Bool in
-            enumerationCount += 1
-            return true
+        return foregroundWorkAdmission.withValidAdmission {
+            productAdmission.withValidAdmission { () -> Bool in
+                enumerationCount += 1
+                return true
+            } ?? false
         } ?? false
     }
 
@@ -46,24 +51,32 @@ actor BridgeWorktreeFileManifestIndex {
     @discardableResult
     func appendEnumeratedRows(
         _ rows: [BridgeWorktreeTreeRowMetadata],
-        productAdmission: BridgeProductAdmissionContext
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) -> Bool {
         guard owningProductAdmission.matches(productAdmission) else { return false }
-        return productAdmission.withValidAdmission { () -> Bool in
-            for row in rows where rowsByPath[row.path] == nil {
-                rowsByPath[row.path] = row
-                orderedPaths.append(row.path)
-            }
-            return true
+        return foregroundWorkAdmission.withValidAdmission {
+            productAdmission.withValidAdmission { () -> Bool in
+                for row in rows where rowsByPath[row.path] == nil {
+                    rowsByPath[row.path] = row
+                    orderedPaths.append(row.path)
+                }
+                return true
+            } ?? false
         } ?? false
     }
 
     @discardableResult
-    func markEnumerationComplete(productAdmission: BridgeProductAdmissionContext) -> Bool {
+    func markEnumerationComplete(
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) -> Bool {
         guard owningProductAdmission.matches(productAdmission) else { return false }
-        return productAdmission.withValidAdmission { () -> Bool in
-            isEnumerationComplete = true
-            return true
+        return foregroundWorkAdmission.withValidAdmission {
+            productAdmission.withValidAdmission { () -> Bool in
+                isEnumerationComplete = true
+                return true
+            } ?? false
         } ?? false
     }
 
@@ -106,20 +119,46 @@ actor BridgeWorktreeFileManifestIndex {
         } ?? false
     }
 
+    /// Watch-refresh mutation guarded by both pane lifetime and current
+    /// foreground activity. Initial source enumeration uses `upsertRows`; only
+    /// invalidation-driven refreshes require this additional activity epoch.
+    @discardableResult
+    func upsertRowsForForegroundRefresh(
+        _ rows: [BridgeWorktreeTreeRowMetadata],
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) -> Bool {
+        guard owningProductAdmission.matches(productAdmission) else { return false }
+        return foregroundWorkAdmission.withValidAdmission {
+            productAdmission.withValidAdmission { () -> Bool in
+                for row in rows {
+                    if rowsByPath[row.path] == nil {
+                        orderedPaths.append(row.path)
+                    }
+                    rowsByPath[row.path] = row
+                }
+                return true
+            } ?? false
+        } ?? false
+    }
+
     /// Freshness stat-truth: replaces stored rows for paths that still exist
     /// with rebuilt facts. Never inserts new manifest members, so interest
     /// serving cannot perturb enumeration ordering.
     @discardableResult
     func applyRefreshedRows(
         _ rows: [BridgeWorktreeTreeRowMetadata],
-        productAdmission: BridgeProductAdmissionContext
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) -> Bool {
         guard owningProductAdmission.matches(productAdmission) else { return false }
-        return productAdmission.withValidAdmission { () -> Bool in
-            for row in rows where rowsByPath[row.path] != nil {
-                rowsByPath[row.path] = row
-            }
-            return true
+        return foregroundWorkAdmission.withValidAdmission {
+            productAdmission.withValidAdmission { () -> Bool in
+                for row in rows where rowsByPath[row.path] != nil {
+                    rowsByPath[row.path] = row
+                }
+                return true
+            } ?? false
         } ?? false
     }
 
@@ -128,21 +167,47 @@ actor BridgeWorktreeFileManifestIndex {
     /// stale upsert.
     func removePaths(
         _ paths: Set<String>,
-        productAdmission: BridgeProductAdmissionContext
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) -> BridgeWorktreeFileManifestRemovalResult {
         guard owningProductAdmission.matches(productAdmission) else { return .rejected }
-        return productAdmission.withValidAdmission {
-            () -> BridgeWorktreeFileManifestRemovalResult in
-            var removedRows: [BridgeWorktreeTreeRowMetadata] = []
-            for path in paths {
-                guard let row = rowsByPath.removeValue(forKey: path) else { continue }
-                removedRows.append(row)
-            }
-            if !removedRows.isEmpty {
-                let removedPaths = Set(removedRows.map(\.path))
-                orderedPaths.removeAll { removedPaths.contains($0) }
-            }
-            return .applied(removedRows)
+        return foregroundWorkAdmission.withValidAdmission {
+            productAdmission.withValidAdmission {
+                () -> BridgeWorktreeFileManifestRemovalResult in
+                var removedRows: [BridgeWorktreeTreeRowMetadata] = []
+                for path in paths {
+                    guard let row = rowsByPath.removeValue(forKey: path) else { continue }
+                    removedRows.append(row)
+                }
+                if !removedRows.isEmpty {
+                    let removedPaths = Set(removedRows.map(\.path))
+                    orderedPaths.removeAll { removedPaths.contains($0) }
+                }
+                return .applied(removedRows)
+            } ?? .rejected
+        } ?? .rejected
+    }
+
+    func removePathsForForegroundRefresh(
+        _ paths: Set<String>,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) -> BridgeWorktreeFileManifestRemovalResult {
+        guard owningProductAdmission.matches(productAdmission) else { return .rejected }
+        return foregroundWorkAdmission.withValidAdmission {
+            productAdmission.withValidAdmission {
+                () -> BridgeWorktreeFileManifestRemovalResult in
+                var removedRows: [BridgeWorktreeTreeRowMetadata] = []
+                for path in paths {
+                    guard let row = rowsByPath.removeValue(forKey: path) else { continue }
+                    removedRows.append(row)
+                }
+                if !removedRows.isEmpty {
+                    let removedPaths = Set(removedRows.map(\.path))
+                    orderedPaths.removeAll { removedPaths.contains($0) }
+                }
+                return .applied(removedRows)
+            } ?? .rejected
         } ?? .rejected
     }
 

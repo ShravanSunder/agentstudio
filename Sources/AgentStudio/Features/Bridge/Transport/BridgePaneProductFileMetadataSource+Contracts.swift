@@ -35,21 +35,25 @@ protocol BridgePaneProductFileMetadataProducing: Sendable {
     func open(
         subscription: BridgeProductSubscriptionSnapshot,
         productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         emit: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws
     func update(
         subscription: BridgeProductSubscriptionSnapshot,
         productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         emit: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws
     func cancel(subscriptionId: String) async
     func publish(
         status: GitWorkingTreeStatus,
-        productAdmission: BridgeProductAdmissionContext
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async -> [BridgePaneProductFileMetadataEmission]
     func publish(
         changeset: FileChangeset,
-        productAdmission: BridgeProductAdmissionContext
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async throws -> [BridgePaneProductFileMetadataEmission]
     func authoritativePath(
         for request: BridgeProductFileContentRequest,
@@ -76,6 +80,7 @@ actor BridgeUnavailablePaneProductFileMetadataSource: BridgePaneProductFileMetad
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
         productAdmission _: BridgeProductAdmissionContext,
+        foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
         throw BridgePaneProductFileMetadataSourceError.unavailableAuthority
@@ -84,6 +89,7 @@ actor BridgeUnavailablePaneProductFileMetadataSource: BridgePaneProductFileMetad
     func update(
         subscription _: BridgeProductSubscriptionSnapshot,
         productAdmission _: BridgeProductAdmissionContext,
+        foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
         throw BridgePaneProductFileMetadataSourceError.unavailableAuthority
@@ -93,12 +99,14 @@ actor BridgeUnavailablePaneProductFileMetadataSource: BridgePaneProductFileMetad
 
     func publish(
         status _: GitWorkingTreeStatus,
-        productAdmission _: BridgeProductAdmissionContext
+        productAdmission _: BridgeProductAdmissionContext,
+        foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission
     ) -> [BridgePaneProductFileMetadataEmission] { [] }
 
     func publish(
         changeset _: FileChangeset,
-        productAdmission _: BridgeProductAdmissionContext
+        productAdmission _: BridgeProductAdmissionContext,
+        foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission
     ) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
 
     func authoritativePath(

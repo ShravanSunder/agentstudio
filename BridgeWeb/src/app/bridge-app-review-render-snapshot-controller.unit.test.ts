@@ -63,6 +63,39 @@ describe('Bridge app review render snapshot controller', () => {
 		]);
 	});
 
+	test('exposes only the Review surface panel chrome slice from its render store', () => {
+		// Arrange
+		const renderStore = createBridgeMainRenderSnapshotStore();
+		renderStore.applyWorkerPatch({
+			operation: 'upsert',
+			payload: { isLoading: true, message: 'Updating review…' },
+			slice: 'panelChrome',
+		});
+		const reviewClient = makeReviewSurfaceClient([], renderStore);
+		const controllerHolder: { current: BridgeReviewRenderSnapshotController | null } = {
+			current: null,
+		};
+
+		function Probe(): ReactElement {
+			controllerHolder.current = useBridgeReviewRenderSnapshotController({
+				pierreCourier: createBridgeReviewWorkerPierreCourier(),
+				reviewClient,
+			});
+			return createElement('div');
+		}
+
+		// Act
+		renderToStaticMarkup(createElement(Probe));
+
+		// Assert
+		const controller = controllerHolder.current;
+		if (controller === null) throw new Error('Expected the Review controller probe to render.');
+		expect(controller.panelChromeSlice).toEqual({
+			isLoading: true,
+			message: 'Updating review…',
+		});
+	});
+
 	test('derives body demand only from unique CodeView-visible item ids', () => {
 		expect(
 			reviewCodeViewBodyDemandItemIds(['item-selected', 'item-code-visible', 'item-code-visible']),
@@ -638,8 +671,8 @@ function createTestRenderFulfillmentCoordinator(): BridgeMainRenderFulfillmentCo
 
 function makeReviewSurfaceClient(
 	sentCommands: BridgeWorkerRpcCommandInput[],
+	renderStore = createBridgeMainRenderSnapshotStore(),
 ): BridgePaneSurfaceClient {
-	const renderStore = createBridgeMainRenderSnapshotStore();
 	let lifecycleSnapshot: BridgeWorkerRpcLifecycleSnapshot = { requestsById: {} };
 	return {
 		lifecycle: {

@@ -32,6 +32,7 @@ export interface BridgeTreesModel {
 
 export interface BridgeTreesSource {
 	readonly disclosurePolicyIdentity: string;
+	readonly presentationPositionKey: string;
 	readonly packageId: string;
 	readonly reviewGeneration: number;
 	readonly revision: number;
@@ -55,6 +56,7 @@ export type BridgeTreesUpdatePlan =
 	  };
 
 export interface CreateBridgeTreesSourceProps {
+	readonly presentationPositionKey?: string;
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly reviewTreeRows?: readonly ReviewTreeRowMetadata[];
 	readonly projection: BridgeReviewProjectionResult;
@@ -96,6 +98,12 @@ export function createBridgeTreesSource(props: CreateBridgeTreesSourceProps): Br
 
 	return {
 		disclosurePolicyIdentity: bridgeTreesDisclosurePolicyIdentity,
+		presentationPositionKey:
+			props.presentationPositionKey ??
+			legacyBridgeTreesPresentationPositionKey({
+				projection: props.projection,
+				reviewPackage: props.reviewPackage,
+			}),
 		packageId: props.reviewPackage.packageId,
 		reviewGeneration: props.reviewPackage.reviewGeneration,
 		revision: props.reviewPackage.revision,
@@ -237,9 +245,23 @@ export class BridgeTreesController {
 			case 'none':
 				break;
 			case 'reset':
-				this.#model.resetPaths(source.orderedPaths, resetOptionsForSource(source));
+				this.#model.resetPaths(
+					source.orderedPaths,
+					resetOptionsForSource({
+						model: this.#model,
+						previousSource: this.#currentSource,
+						source,
+					}),
+				);
 				this.#model.setGitStatus(source.gitStatusEntries);
-				this.#selectedTreePath = null;
+				if (
+					this.#selectedTreePath === null ||
+					source.primaryItemIdByTreePath[this.#selectedTreePath] === undefined
+				) {
+					this.#selectedTreePath = null;
+				} else {
+					this.#model.getItem(this.#selectedTreePath)?.select();
+				}
 				break;
 			case 'statusOnly':
 				this.#model.setGitStatus(source.gitStatusEntries);
@@ -466,11 +488,7 @@ function gitStatusForChangeKind(changeKind: string): GitStatus | null {
 }
 
 function sameProjectionIdentity(left: BridgeTreesSource, right: BridgeTreesSource): boolean {
-	return (
-		left.packageId === right.packageId &&
-		left.reviewGeneration === right.reviewGeneration &&
-		left.projectionId === right.projectionId
-	);
+	return left.presentationPositionKey === right.presentationPositionKey;
 }
 
 function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
@@ -486,11 +504,39 @@ function gitStatusSignature(entries: readonly GitStatusEntry[]): string {
 		.join('\n');
 }
 
-function resetOptionsForSource(source: BridgeTreesSource): FileTreeResetOptions {
+function resetOptionsForSource(props: {
+	readonly model: BridgeTreesModel;
+	readonly previousSource: BridgeTreesSource | null;
+	readonly source: BridgeTreesSource;
+}): FileTreeResetOptions {
+	const previousSource = props.previousSource;
+	const initialExpandedPaths =
+		previousSource === null ||
+		previousSource.presentationPositionKey !== props.source.presentationPositionKey
+			? props.source.initialExpandedPaths
+			: props.source.initialExpandedPaths.filter((directoryPath): boolean => {
+					if (!previousSource.initialExpandedPaths.includes(directoryPath)) return true;
+					const directoryItem = props.model.getItem(directoryPath);
+					return directoryItem !== null && 'isExpanded' in directoryItem
+						? directoryItem.isExpanded()
+						: true;
+				});
 	return {
-		preparedInput: source.preparedInput,
-		initialExpandedPaths: source.initialExpandedPaths,
+		preparedInput: props.source.preparedInput,
+		initialExpandedPaths,
 	};
+}
+
+function legacyBridgeTreesPresentationPositionKey(props: {
+	readonly projection: Pick<BridgeReviewProjectionResult, 'projectionId'>;
+	readonly reviewPackage: Pick<BridgeReviewPackage, 'packageId' | 'reviewGeneration'>;
+}): string {
+	return [
+		'legacy-review-position',
+		props.reviewPackage.packageId,
+		props.reviewPackage.reviewGeneration,
+		props.projection.projectionId,
+	].join(':');
 }
 
 function assertNever(value: never): never {

@@ -47,11 +47,11 @@ describe('Bridge product session contracts', () => {
 	test('keeps the Swift and TypeScript corpora byte-identical at frozen hashes', () => {
 		const fixturePairs = [
 			{
-				expectedHash: '5af3a1608d766ee69649d4a6e5723a39ca34c16aacef6f4f7adfa6032616243a',
+				expectedHash: 'cc606c5033795e0f44908a8e9ecd36c35fef42b678a6c27244e2c430a4eb6a15',
 				kind: 'valid',
 			},
 			{
-				expectedHash: '96dbf0e12d9d2de900763a14227364740eeee4befb50dab1cedd72e80641f59c',
+				expectedHash: '94362a8149370792a487653b5879811e45fd1a6d791cc2e0edd311dcad5ed460',
 				kind: 'invalid',
 			},
 		] as const;
@@ -153,6 +153,7 @@ describe('Bridge product session contracts', () => {
 		expect(new Set(validProductSessionCorpus.metadataFrames.map((frame) => frame.kind))).toEqual(
 			new Set([
 				'metadataStream.accepted',
+				'pane.presentation',
 				'subscription.accepted',
 				'subscription.interestsCommitted',
 				'subscription.data',
@@ -184,6 +185,24 @@ describe('Bridge product session contracts', () => {
 		for (const frame of validProductSessionCorpus.metadataFrames) {
 			expect(bridgeProductMetadataFrameSchema.parse(frame)).toEqual(frame);
 		}
+		const panePresentations = validProductSessionCorpus.metadataFrames.filter(
+			(frame) => frame.kind === 'pane.presentation',
+		);
+		expect(panePresentations.map((presentation) => presentation.activityRevision)).toEqual([
+			1, 2, 3, 4,
+		]);
+		expect(panePresentations.map((presentation) => presentation.nativeActivity)).toEqual([
+			'foreground',
+			'loadedHidden',
+			'dormant',
+			'closed',
+		]);
+		expect(panePresentations.map((presentation) => presentation.refreshingLanes)).toEqual([
+			['file', 'review'],
+			[],
+			[],
+			[],
+		]);
 		for (const request of validProductSessionCorpus.contentRequests) {
 			expect(bridgeProductContentRequestSchema.parse(request)).toEqual(request);
 		}
@@ -223,7 +242,9 @@ describe('Bridge product session contracts', () => {
 			...validProductSessionCorpus.metadataFrames
 				.filter(
 					(frame) =>
-						frame.kind === 'metadataStream.accepted' || frame.kind === 'metadataStream.error',
+						frame.kind === 'metadataStream.accepted' ||
+						frame.kind === 'metadataStream.error' ||
+						frame.kind === 'pane.presentation',
 				)
 				.map((frame) => ({
 					name: frame.kind,
@@ -266,7 +287,9 @@ describe('Bridge product session contracts', () => {
 			...validProductSessionCorpus.metadataFrames
 				.filter(
 					(frame) =>
-						frame.kind !== 'metadataStream.accepted' && frame.kind !== 'metadataStream.error',
+						frame.kind !== 'metadataStream.accepted' &&
+						frame.kind !== 'metadataStream.error' &&
+						frame.kind !== 'pane.presentation',
 				)
 				.map((frame) => ({
 					name: frame.kind,
@@ -731,6 +754,7 @@ describe('Bridge product session contracts', () => {
 
 	test('incrementally decodes one physical metadata stream across Review and File', () => {
 		const encodedFrames = validProductSessionCorpus.metadataFrames
+			.filter((frame) => frame.metadataStreamId === 'metadata-stream-1')
 			.slice(0, 5)
 			.map((frame) =>
 				encodeBridgeProductMetadataFrame(bridgeProductMetadataFrameSchema.parse(frame)),

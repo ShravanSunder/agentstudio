@@ -337,7 +337,11 @@ export function bridgeWorkerFileRenderPatchesFromSlicePatchEvent(
 		);
 	}
 	return event.patches.map((patch): BridgeWorkerFileRenderPatch => {
-		if (patch.slice !== 'rowPaint' && patch.slice !== 'contentAvailability') {
+		if (
+			patch.slice !== 'rowPaint' &&
+			patch.slice !== 'contentAvailability' &&
+			patch.slice !== 'panelChrome'
+		) {
 			throw new Error('Bridge worker File View content-ready commit produced a non-render patch.');
 		}
 		return patch;

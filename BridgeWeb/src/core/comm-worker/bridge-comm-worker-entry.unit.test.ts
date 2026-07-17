@@ -9,7 +9,11 @@ import {
 	postPreparedBridgeCommWorkerMessage,
 	registerInertBridgeCommWorkerPortProtocol,
 } from './bridge-comm-worker-entry.js';
-import { makeFetchedReviewContentResource } from './bridge-comm-worker-entry.test-support.js';
+import {
+	expectedReviewMetadataUnavailablePatch,
+	expectedReviewPanelChromeReset,
+	makeFetchedReviewContentResource,
+} from './bridge-comm-worker-entry.test-support.js';
 import {
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerSelectCommand,
@@ -308,7 +312,7 @@ describe('Bridge comm worker entry', () => {
 		const harness = createInstalledBridgeCommWorkerEntryHarness();
 
 		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-1'));
-		await harness.productPort.waitForCount(2);
+		await harness.productPort.waitForCount(3);
 		harness.productPort.postMessage(
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-after-bootstrap',
@@ -318,12 +322,13 @@ describe('Bridge comm worker entry', () => {
 				selectedSource: 'user',
 			}),
 		);
-		const postedMessages = await harness.productPort.waitForCount(4);
+		const postedMessages = await harness.productPort.waitForCount(5);
 
 		try {
 			expect(harness.globalStarted()).toBe(true);
 			expect(harness.globalPostedMessages).toEqual([]);
 			expect(postedMessages).toEqual([
+				expectedReviewPanelChromeReset(),
 				expectedReviewMetadataUnavailablePatch(),
 				{
 					wireVersion: 1,
@@ -338,7 +343,7 @@ describe('Bridge comm worker entry', () => {
 					direction: 'serverWorkerToMain',
 					kind: 'slicePatch',
 					epoch: 2,
-					sequence: 2,
+					sequence: 3,
 					transferDescriptors: [],
 					patches: [
 						{
@@ -513,7 +518,7 @@ describe('Bridge comm worker entry', () => {
 
 		// Act
 		productChannel.port2.postMessage(makeBootstrapRequest('product-chain-bootstrap'));
-		await productPort.waitForCount(2);
+		await productPort.waitForCount(3);
 		productChannel.port2.postMessage(
 			encodeBridgeWorkerMarkFileViewedCommand({
 				epoch: 4,
@@ -521,7 +526,7 @@ describe('Bridge comm worker entry', () => {
 				requestId: 'mark-viewed-product-chain',
 			}),
 		);
-		const messages = await productPort.waitForCount(3);
+		const messages = await productPort.waitForCount(4);
 
 		// Assert
 		expect(
@@ -573,7 +578,7 @@ describe('Bridge comm worker entry', () => {
 		);
 		await harness.productPort.waitForCount(1);
 		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-1'));
-		const postedMessages = await harness.productPort.waitForCount(5);
+		const postedMessages = await harness.productPort.waitForCount(6);
 
 		try {
 			expect(harness.globalPostedMessages).toEqual([]);
@@ -587,6 +592,7 @@ describe('Bridge comm worker entry', () => {
 					message: 'Bridge comm worker command received before bootstrap.',
 					transferDescriptors: [],
 				},
+				expectedReviewPanelChromeReset(),
 				expectedReviewMetadataUnavailablePatch(),
 				{
 					wireVersion: 1,
@@ -601,7 +607,7 @@ describe('Bridge comm worker entry', () => {
 					direction: 'serverWorkerToMain',
 					kind: 'slicePatch',
 					epoch: 3,
-					sequence: 2,
+					sequence: 3,
 					transferDescriptors: [],
 					patches: [
 						{
@@ -639,13 +645,14 @@ describe('Bridge comm worker entry', () => {
 		const harness = createInstalledBridgeCommWorkerEntryHarness();
 
 		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-1'));
-		await harness.productPort.waitForCount(2);
+		await harness.productPort.waitForCount(3);
 		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-2'));
-		const postedMessages = await harness.productPort.waitForCount(3);
+		const postedMessages = await harness.productPort.waitForCount(4);
 
 		try {
 			expect(harness.globalPostedMessages).toEqual([]);
 			expect(postedMessages).toEqual([
+				expectedReviewPanelChromeReset(),
 				expectedReviewMetadataUnavailablePatch(),
 				{
 					wireVersion: 1,
@@ -859,26 +866,6 @@ function makeRenderSemantics(
 		language: 'swift',
 		contentLineCountsByRole: { base: 100, head: 80 },
 		...overrides,
-	};
-}
-
-function expectedReviewMetadataUnavailablePatch(): BridgeWorkerServerToMainMessage {
-	return {
-		direction: 'serverWorkerToMain',
-		epoch: 1,
-		kind: 'reviewDisplayPatch',
-		patches: [
-			{
-				operation: 'failed',
-				payload: { error: 'metadataUnavailable', status: 'failed' },
-				slice: 'reviewSource',
-			},
-		],
-		projectionRevision: 1,
-		sequence: 1,
-		surface: 'review',
-		transferDescriptors: [],
-		wireVersion: 1,
 	};
 }
 

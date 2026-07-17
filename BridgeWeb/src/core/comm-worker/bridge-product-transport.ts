@@ -101,8 +101,14 @@ export interface CreateBridgeProductTransportProps {
 export interface BridgeProductTransportSession extends BridgeProductTransport {
 	bumpWorkerDerivationEpoch(surface: BridgeProductSurface): number;
 	metadataStreamDiagnostics?(): BridgeProductMetadataStreamHealthDiagnostics;
+	setPanePresentationFrameSink?(sink: (frame: BridgeProductPanePresentationFrame) => void): void;
 	workerDerivationEpoch(surface: BridgeProductSurface): number;
 }
+
+export type BridgeProductPanePresentationFrame = Extract<
+	BridgeProductMetadataFrame,
+	{ readonly kind: 'pane.presentation' }
+>;
 
 export interface BridgeProductMetadataStreamHealthDiagnostics {
 	readonly acknowledgedFrameCount: number;
@@ -186,6 +192,8 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		streamOpenCount: 0,
 	};
 	readonly #subscriptions = new Map<string, BridgeProductSubscriptionFrameSink>();
+	#panePresentationFrameSink: (frame: BridgeProductPanePresentationFrame) => void =
+		ignoreBridgeProductPanePresentationFrame;
 
 	constructor(props: CreateBridgeProductTransportProps) {
 		this.#authority = props.authority;
@@ -213,6 +221,10 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			...this.#metadataStreamHealthDiagnostics,
 			activeSubscriptionCount: this.#subscriptions.size,
 		});
+	}
+
+	setPanePresentationFrameSink(sink: (frame: BridgeProductPanePresentationFrame) => void): void {
+		this.#panePresentationFrameSink = sink;
 	}
 
 	workerDerivationEpoch(surface: BridgeProductSurface): number {
@@ -521,6 +533,9 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			case 'metadataStream.accepted':
 				this.#metadataReady?.resolve();
 				return;
+			case 'pane.presentation':
+				this.#panePresentationFrameSink(frame);
+				return;
 			case 'metadataStream.error':
 				throw new BridgeProductMetadataRouteFailure(
 					'metadata_stream_error',
@@ -643,6 +658,10 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		}
 	}
 }
+
+function ignoreBridgeProductPanePresentationFrame(
+	_frame: BridgeProductPanePresentationFrame,
+): void {}
 
 class BridgeProductMetadataRouteFailure extends Error {
 	readonly routeFailureCode: BridgeProductMetadataRouteFailureCode;

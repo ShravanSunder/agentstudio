@@ -31,3 +31,56 @@ struct BridgeProductAdmissionTestContext: Sendable {
         )
     }
 }
+
+struct BridgePaneRefreshWorkAdmissionTestContext: Sendable {
+    let admission: BridgePaneRefreshWorkAdmission
+    let source: BridgePaneRefreshWorkAdmissionSource
+
+    @MainActor
+    static func foregroundOnMainActor() -> Self {
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)
+        guard let admission = coordinator.acquireForegroundWork() else {
+            preconditionFailure("Foreground Bridge pane activity must admit test work")
+        }
+        return Self(
+            admission: admission,
+            source: coordinator.workAdmissionSource
+        )
+    }
+
+    static func foreground() async -> Self {
+        await foregroundOnMainActor()
+    }
+}
+
+extension BridgePaneProductFileMetadataSource {
+    func open(
+        subscription: BridgeProductSubscriptionSnapshot,
+        productAdmission: BridgeProductAdmissionContext,
+        emit: @escaping BridgePaneProductFileMetadataEventSink
+    ) async throws {
+        let foregroundWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
+            .admission
+        try await open(
+            subscription: subscription,
+            productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission,
+            emit: emit
+        )
+    }
+
+    func update(
+        subscription: BridgeProductSubscriptionSnapshot,
+        productAdmission: BridgeProductAdmissionContext,
+        emit: @escaping BridgePaneProductFileMetadataEventSink
+    ) async throws {
+        let foregroundWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
+            .admission
+        try await update(
+            subscription: subscription,
+            productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission,
+            emit: emit
+        )
+    }
+}

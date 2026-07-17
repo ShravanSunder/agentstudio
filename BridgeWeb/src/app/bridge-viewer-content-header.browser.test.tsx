@@ -9,6 +9,67 @@ import {
 	BridgeViewerContextSwitcher,
 } from './bridge-viewer-content-header.js';
 
+describe('BridgeViewerContentHeader Browser Mode', () => {
+	test('presents optional updating status accessibly without moving title or controls', async () => {
+		// Arrange
+		const rendered = render(
+			<BridgeViewerContentHeader
+				controls={<button data-testid="header-proof-control">Control</button>}
+				eyebrow="Files"
+				statusText="Updating files…"
+				title="src/app.ts"
+			/>,
+		);
+		const topbar = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-viewer-content-topbar"]'),
+		);
+		const title = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-viewer-content-title"]'),
+		);
+		const controls = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-viewer-content-topbar-controls"]'),
+		);
+		const status = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-viewer-content-status"]'),
+		);
+		const topbarBoxWithStatus = topbar.getBoundingClientRect();
+		const titleBoxWithStatus = title.getBoundingClientRect();
+		const controlsBoxWithStatus = controls.getBoundingClientRect();
+		const statusBox = status.getBoundingClientRect();
+
+		// Assert
+		expect(status.textContent).toBe('Updating files…');
+		expect(status.getAttribute('role')).toBe('status');
+		expect(status.getAttribute('aria-live')).toBe('polite');
+		expect(status.getAttribute('aria-atomic')).toBe('true');
+		expect(Math.round(topbarBoxWithStatus.height)).toBe(36);
+		expect(statusBox.right).toBeLessThanOrEqual(controlsBoxWithStatus.left);
+
+		// Act
+		rendered.rerender(
+			<BridgeViewerContentHeader
+				controls={<button data-testid="header-proof-control">Control</button>}
+				eyebrow="Files"
+				statusText={null}
+				title="src/app.ts"
+			/>,
+		);
+
+		// Assert
+		await expect
+			.poll(() => document.querySelector('[data-testid="bridge-viewer-content-status"]'))
+			.toBeNull();
+		const topbarBoxWithoutStatus = topbar.getBoundingClientRect();
+		const titleBoxWithoutStatus = title.getBoundingClientRect();
+		const controlsBoxWithoutStatus = controls.getBoundingClientRect();
+		expect(Math.round(topbarBoxWithoutStatus.height)).toBe(Math.round(topbarBoxWithStatus.height));
+		expect(Math.round(titleBoxWithoutStatus.left)).toBe(Math.round(titleBoxWithStatus.left));
+		expect(Math.round(titleBoxWithoutStatus.top)).toBe(Math.round(titleBoxWithStatus.top));
+		expect(Math.round(controlsBoxWithoutStatus.left)).toBe(Math.round(controlsBoxWithStatus.left));
+		expect(Math.round(controlsBoxWithoutStatus.top)).toBe(Math.round(controlsBoxWithStatus.top));
+	});
+});
+
 describe('BridgeViewerContextSwitcher Browser Mode', () => {
 	test('uses the owned compact toggle-group primitive at content topbar chrome scale', async () => {
 		const modeChanges = vi.fn<(mode: 'file' | 'review') => void>();
@@ -17,6 +78,7 @@ describe('BridgeViewerContextSwitcher Browser Mode', () => {
 			<BridgeViewerContentHeader
 				controls={<BridgeViewerContextSwitcher mode="file" onModeChange={modeChanges} />}
 				eyebrow="Files"
+				statusText={null}
 				title="src/app.ts"
 			/>,
 		);

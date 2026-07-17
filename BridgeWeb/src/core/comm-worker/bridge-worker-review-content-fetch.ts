@@ -10,6 +10,7 @@ export type BridgeWorkerReviewContentOpen = (
 export interface BridgeWorkerReviewContentResourceFetch {
 	(
 		descriptor: BridgeWorkerReviewContentRequestDescriptor,
+		signal?: AbortSignal,
 	): Promise<BridgeWorkerFetchedReviewContentResource>;
 }
 
@@ -39,15 +40,19 @@ export interface BridgeWorkerFetchedReviewContentResource {
 export function createSharedBridgeWorkerReviewContentResourceFetch(props: {
 	readonly openContent: BridgeWorkerReviewContentOpen | undefined;
 }): BridgeWorkerReviewContentResourceFetch {
-	const inFlightResourcesByIdentity = new Map<
-		string,
-		ReturnType<BridgeWorkerReviewContentResourceFetch>
-	>();
-	return async (descriptor: BridgeWorkerReviewContentRequestDescriptor) => {
+	interface InFlightReviewContentResource {
+		readonly promise: ReturnType<BridgeWorkerReviewContentResourceFetch>;
+		readonly sourceSignal: AbortSignal | undefined;
+	}
+	const inFlightResourcesByIdentity = new Map<string, InFlightReviewContentResource>();
+	return async (descriptor: BridgeWorkerReviewContentRequestDescriptor, signal?: AbortSignal) => {
 		const resourceKey = sharedBridgeWorkerReviewContentResourceKey(descriptor);
 		const existingResource = inFlightResourcesByIdentity.get(resourceKey);
+		if (existingResource !== undefined && existingResource.sourceSignal?.aborted !== true) {
+			return await existingResource.promise;
+		}
 		if (existingResource !== undefined) {
-			return await existingResource;
+			inFlightResourcesByIdentity.delete(resourceKey);
 		}
 		if (props.openContent === undefined) {
 			throw new Error('Bridge worker Review content requires the shared product transport.');
@@ -55,12 +60,24 @@ export function createSharedBridgeWorkerReviewContentResourceFetch(props: {
 		const resourcePromise = fetchBridgeWorkerReviewContentResource({
 			descriptor,
 			openContent: props.openContent,
+			...(signal === undefined ? {} : { signal }),
 		});
-		inFlightResourcesByIdentity.set(resourceKey, resourcePromise);
+		const resourceEntry: InFlightReviewContentResource = {
+			promise: resourcePromise,
+			sourceSignal: signal,
+		};
+		const evictAbortedResource = (): void => {
+			if (inFlightResourcesByIdentity.get(resourceKey) === resourceEntry) {
+				inFlightResourcesByIdentity.delete(resourceKey);
+			}
+		};
+		signal?.addEventListener('abort', evictAbortedResource, { once: true });
+		inFlightResourcesByIdentity.set(resourceKey, resourceEntry);
 		try {
 			return await resourcePromise;
 		} finally {
-			inFlightResourcesByIdentity.delete(resourceKey);
+			signal?.removeEventListener('abort', evictAbortedResource);
+			evictAbortedResource();
 		}
 	};
 }

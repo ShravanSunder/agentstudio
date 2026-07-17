@@ -25,6 +25,7 @@ enum BridgeProductStrictJSON {
         Set([
             "activeSubscriptions",
             "activeSource",
+            "activityRevision",
             "add",
             "addPathScope",
             "additions",
@@ -149,6 +150,7 @@ enum BridgeProductStrictJSON {
             "mimeTypes",
             "modifiedAtUnixMilliseconds",
             "name",
+            "nativeActivity",
             "nextExpectedRequestSequence",
             "observedByteLength",
             "observedSha256",
@@ -181,6 +183,7 @@ enum BridgeProductStrictJSON {
             "queryKind",
             "reason",
             "reconciliation",
+            "refreshingLanes",
             "removeItemIds",
             "removePathScope",
             "removePaths",

@@ -457,7 +457,8 @@ extension WebKitSerializedTests {
             BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: state,
-                reviewSourceProvider: reviewSourceProvider
+                reviewSourceProvider: reviewSourceProvider,
+                initialPaneActivity: .foreground
             )
         }
     }

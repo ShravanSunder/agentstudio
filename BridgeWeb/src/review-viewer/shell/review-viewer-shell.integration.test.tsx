@@ -201,6 +201,49 @@ describe('review viewer shell', () => {
 		expect(contentHeader?.props.title).not.toBe(basePackage.query.queryId);
 	});
 
+	test('passes Review updating chrome to the shared header only while Review is active', () => {
+		// Arrange
+		const reviewPackage = makeBridgeReviewPackage();
+		const commonProps = {
+			onSelectItem: (): void => {},
+			projection: projectionForPackage(reviewPackage),
+			reviewPackage,
+			selectedContentText: null,
+			selectedItemId: 'item-source',
+		} as const;
+
+		// Act
+		const activeHeader = findElementByComponent(
+			renderReviewViewerShellForTest({
+				...commonProps,
+				isActive: true,
+				panelChromeSlice: { isLoading: true, message: 'Updating review…' },
+			}),
+			BridgeViewerContentHeader,
+		);
+		const inactiveHeader = findElementByComponent(
+			renderReviewViewerShellForTest({
+				...commonProps,
+				isActive: false,
+				panelChromeSlice: { isLoading: true, message: 'Updating files…' },
+			}),
+			BridgeViewerContentHeader,
+		);
+		const settledHeader = findElementByComponent(
+			renderReviewViewerShellForTest({
+				...commonProps,
+				isActive: true,
+				panelChromeSlice: { isLoading: false, message: null },
+			}),
+			BridgeViewerContentHeader,
+		);
+
+		// Assert
+		expect(activeHeader?.props.statusText).toBe('Updating review…');
+		expect(inactiveHeader?.props.statusText).toBeNull();
+		expect(settledHeader?.props.statusText).toBeNull();
+	});
+
 	test('keeps projection controls in compact rail chrome without a top app bar or footer stats', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const element = requireTestElement(
@@ -668,7 +711,15 @@ describe('review viewer shell', () => {
 });
 
 function renderReviewViewerShellForTest(
-	props: Omit<ReviewViewerShellProps, 'presentationRegistry' | 'renderFulfillmentCoordinator'> & {
+	props: Omit<
+		ReviewViewerShellProps,
+		| 'panelChromeSlice'
+		| 'presentationPositionKey'
+		| 'presentationRegistry'
+		| 'renderFulfillmentCoordinator'
+	> & {
+		readonly panelChromeSlice?: ReviewViewerShellProps['panelChromeSlice'];
+		readonly presentationPositionKey?: string;
 		readonly presentationRegistry?: BridgeReviewItemRegistry;
 	},
 ): ReactElement {
@@ -677,6 +728,8 @@ function renderReviewViewerShellForTest(
 		createBridgeReviewItemRegistry({ reviewPackage: props.reviewPackage });
 	return ReviewViewerShell({
 		...props,
+		panelChromeSlice: props.panelChromeSlice ?? {},
+		presentationPositionKey: props.presentationPositionKey ?? 'review-shell-test-position',
 		presentationRegistry,
 		renderFulfillmentCoordinator: shellTestRenderFulfillmentCoordinator,
 	});
@@ -775,6 +828,7 @@ interface TestElementProps {
 	readonly railTestId?: string;
 	readonly reason?: string;
 	readonly role?: string;
+	readonly statusText?: string | null;
 	readonly title?: string;
 }
 

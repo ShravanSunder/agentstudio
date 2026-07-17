@@ -4,6 +4,7 @@ import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.j
 import { BridgeViewerResizableRailLayout } from '../app/bridge-viewer-resizable-rail-layout.js';
 import type { BridgeMainFileTreePatchStream } from '../core/comm-worker/bridge-main-file-display-patch-applier.js';
 import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
+import type { BridgeWorkerPanelChromePatchPayload } from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 import {
@@ -38,6 +39,7 @@ export interface BridgeFileViewerShellProps {
 	readonly onSelectFile: (selection: BridgeFileViewerSelection) => void;
 	readonly openFileState: BridgeFileViewerOpenState;
 	readonly openFileTotalHeightPixels: number | null;
+	readonly panelChromeSlice: BridgeWorkerPanelChromePatchPayload;
 	readonly renderFulfillmentCoordinator: Pick<
 		BridgeMainRenderFulfillmentCoordinator,
 		'observePostRender' | 'reconcilePublication'
@@ -60,6 +62,10 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 	const selectedDisplayItem =
 		props.openFileState.status === 'idle' ? null : props.openFileState.displayItem;
 	const status = props.displayModel.status;
+	const statusText =
+		props.isActive && props.panelChromeSlice.isLoading === true
+			? (props.panelChromeSlice.message ?? null)
+			: null;
 	return (
 		<main
 			className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bridge-app-bg)]"
@@ -103,6 +109,7 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 						<BridgeViewerContentHeader
 							controls={props.viewerHeaderControls}
 							eyebrow="Files"
+							statusText={statusText}
 							title={props.contentHeaderTitle}
 						/>
 						<BridgeFileViewerCodePanel

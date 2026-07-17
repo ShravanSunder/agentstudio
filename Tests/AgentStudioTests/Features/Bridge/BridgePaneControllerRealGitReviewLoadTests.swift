@@ -89,7 +89,8 @@ private struct RealGitReviewLoadHarness {
             ),
             reviewSourceProvider: BridgeReviewSourceProviderFactory.gitProvider(
                 repositoryPath: repositoryURL
-            )
+            ),
+            initialPaneActivity: .foreground
         )
         let productProvider = try #require(controller.productSchemeProvider)
         let installation = try #require(

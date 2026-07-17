@@ -55,7 +55,8 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
                 ),
-                reviewSourceProvider: provider
+                reviewSourceProvider: provider,
+                initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
 

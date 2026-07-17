@@ -41,7 +41,8 @@ extension WebKitSerializedTests {
                 traceContextFactory: BridgeTraceContextFactory(
                     makeTraceId: { "11111111111111111111111111111111" },
                     makeSpanId: { "2222222222222222" }
-                )
+                ),
+                initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
             let commandId = UUID()
@@ -94,7 +95,8 @@ extension WebKitSerializedTests {
                 ),
                 telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy(isDebugBuild: false),
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.swift, .web, .webKit]),
-                telemetryRecorder: recorder
+                telemetryRecorder: recorder,
+                initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
 
@@ -120,7 +122,8 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
-                telemetryRecorder: recorder
+                telemetryRecorder: recorder,
+                initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
 

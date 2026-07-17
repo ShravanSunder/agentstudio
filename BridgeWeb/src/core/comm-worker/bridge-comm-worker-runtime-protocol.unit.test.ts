@@ -581,7 +581,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		const firstDrainResult = await firstDrainCompletion;
 
 		expect(firstDrainResult.completedIds).toEqual([]);
-		expect(secondDrainResult.completedIds).toEqual(['review-content-ready:item-1:visible:104']);
+		expect(secondDrainResult.completedIds).toEqual(['review-content-ready:item-1:visible:105']);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'slicePatch',
 			'health',
@@ -598,7 +598,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		});
 		expect(postedMessages[3]?.message).toMatchObject({
 			kind: 'reviewRenderPatch',
-			publicationSequence: 104,
+			publicationSequence: 105,
 			workerDerivationEpoch: 1,
 			patches: [
 				{
@@ -676,6 +676,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'slicePatch',
 			'health',
+			'reviewRenderPatch',
 			'reviewDisplayPatch',
 		]);
 		expect(scheduledDrains).toHaveLength(1);
@@ -688,15 +689,16 @@ describe('Bridge comm worker runtime protocol', () => {
 		const firstDrainResult = await firstDrainCompletion;
 
 		expect(firstDrainResult.completedIds).toEqual(['review-source-reset:1']);
-		expect(secondDrainResult.completedIds).toEqual(['review-content-ready:item-1:visible:204']);
+		expect(secondDrainResult.completedIds).toEqual(['review-content-ready:item-1:visible:205']);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'slicePatch',
 			'health',
+			'reviewRenderPatch',
 			'reviewDisplayPatch',
 			'reviewPierreRenderJob',
 			'reviewRenderPatch',
 		]);
-		expect(postedMessages[3]?.message).toMatchObject({
+		expect(postedMessages[4]?.message).toMatchObject({
 			kind: 'reviewPierreRenderJob',
 			job: {
 				itemId: 'item-1',
@@ -704,9 +706,9 @@ describe('Bridge comm worker runtime protocol', () => {
 				budgetClass: 'visible',
 			},
 		});
-		expect(postedMessages[4]?.message).toMatchObject({
+		expect(postedMessages[5]?.message).toMatchObject({
 			kind: 'reviewRenderPatch',
-			publicationSequence: 204,
+			publicationSequence: 205,
 			workerDerivationEpoch: 1,
 			patches: [
 				{

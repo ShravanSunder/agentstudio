@@ -37,14 +37,14 @@ export function BridgeReviewViewerShellBoundary(
 	props: BridgeReviewViewerShellBoundaryProps,
 ): ReactElement {
 	const { isActive, presentationState, viewerHeaderControls } = props;
-	const [activatedPresentationKey, setActivatedPresentationKey] = useState<string | null>(null);
+	const [hasActivatedReadyPresentation, setHasActivatedReadyPresentation] = useState(false);
 	useEffect((): void => {
 		if (presentationState.status !== 'ready') {
-			setActivatedPresentationKey(null);
+			setHasActivatedReadyPresentation(false);
 			return;
 		}
 		if (isActive) {
-			setActivatedPresentationKey(presentationState.presentationKey);
+			setHasActivatedReadyPresentation(true);
 		}
 	}, [isActive, presentationState]);
 
@@ -88,7 +88,7 @@ export function BridgeReviewViewerShellBoundary(
 			return assertNeverPresentationState(presentationState);
 	}
 
-	if (!isActive && activatedPresentationKey !== presentationState.presentationKey) {
+	if (!isActive && !hasActivatedReadyPresentation) {
 		return (
 			<BridgeReviewProjectionPendingShell
 				isActive={isActive}

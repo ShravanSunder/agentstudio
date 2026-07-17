@@ -20,6 +20,7 @@ struct BridgeTelemetryBootstrapDeliveryTests {
             telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy(isDebugBuild: false),
             telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web]),
             telemetryRecorder: TelemetryBootstrapRecorderSpy(),
+            initialPaneActivity: .foreground,
             telemetrySessionBootstrapSink: { _, _, installation, _ in
                 deliveredInstallations.append(installation)
             }
@@ -55,6 +56,7 @@ struct BridgeTelemetryBootstrapDeliveryTests {
             state: BridgePaneState(panelKind: .diffViewer, source: nil),
             telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web]),
             telemetryRecorder: recorder,
+            initialPaneActivity: .foreground,
             telemetrySessionDependencies: BridgePaneTelemetrySessionDependencies(
                 installation: initialInstallation,
                 owner: owner

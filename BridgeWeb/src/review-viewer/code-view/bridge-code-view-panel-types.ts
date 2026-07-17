@@ -17,6 +17,7 @@ export interface SelectedContentPaintTelemetryStart {
 }
 
 export interface BridgeCodeViewPanelProps {
+	readonly presentationPositionKey: string;
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly projection: BridgeReviewProjectionResult;
 	readonly renderFulfillmentCoordinator: BridgeCodeViewRenderFulfillmentCoordinator;

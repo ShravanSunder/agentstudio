@@ -1,5 +1,7 @@
 import { expect } from 'vitest';
 
+import { findBridgeViewerTreeScrollOwner } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
+import { initializeBridgePierreWorkerPoolSingletonForTest } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
 import {
 	countFileContentByte,
 	fileContentSha256Hex,
@@ -10,7 +12,14 @@ import {
 	type FileDescriptorReadyEvent,
 	type FileMetadataEvent,
 } from './bridge-file-viewer-browser-test-fixtures.js';
-import { actFrame, openFileState } from './bridge-file-viewer-browser-test-harness.js';
+import {
+	actClick,
+	actFrame,
+	actUpdate,
+	openFileState,
+	renderedFilePath,
+	selectedDisplayPath,
+} from './bridge-file-viewer-browser-test-harness.js';
 
 export const completeFileDeepScrollTreeRowCount = 3_420;
 const completeFileDeepScrollTreeWindowRowCount = 256;
@@ -23,6 +32,99 @@ export interface DeepScrollSurfacePaintSnapshot {
 	readonly opacity: string;
 	readonly visibility: string;
 	readonly width: number;
+}
+
+export async function settleCompleteFilePierreWorkerPoolInitialization(
+	workerFactory: () => Worker,
+): Promise<void> {
+	let managerState: string | null = null;
+	await actUpdate(async (): Promise<void> => {
+		managerState = (await initializeBridgePierreWorkerPoolSingletonForTest(workerFactory))
+			.managerState;
+		await new Promise<void>((resolve): void => {
+			requestAnimationFrame((): void => {
+				resolve();
+			});
+		});
+	});
+	expect(managerState).toBe('initialized');
+}
+
+export async function assertCompleteFilePositionSurvivesModeSwitch(props: {
+	readonly codeScrollOwner: HTMLElement;
+	readonly expectedSelectedPath: string;
+	readonly treeScrollOwner: HTMLElement;
+}): Promise<void> {
+	const initialCodeScrollTop = props.codeScrollOwner.scrollTop;
+	const initialTreeScrollTop = props.treeScrollOwner.scrollTop;
+	const initialCodeScrollProgress = scrollProgress(props.codeScrollOwner);
+	const initialTreeScrollProgress = scrollProgress(props.treeScrollOwner);
+	const fileHost = await waitForDeepScrollRouteElement({
+		attempt: 0,
+		selector: '[data-testid="bridge-viewer-mode-host-file"]',
+	});
+	const appRoot = await waitForDeepScrollRouteElement({
+		attempt: 0,
+		selector: '[data-testid="bridge-app-root"]',
+	});
+
+	await actClick(requireActiveContextButton('review'));
+	await actFrame();
+	expect(appRoot.getAttribute('data-bridge-viewer-mode')).toBe('review');
+	expect(fileHost.hidden).toBe(true);
+	expect(props.treeScrollOwner.isConnected).toBe(true);
+	expect(props.codeScrollOwner.isConnected).toBe(true);
+
+	await actClick(requireActiveContextButton('file'));
+	await actFrame();
+	await actFrame();
+
+	expect(appRoot.getAttribute('data-bridge-viewer-mode')).toBe('file');
+	expect(fileHost.hidden).toBe(false);
+	expect(findBridgeViewerTreeScrollOwner()).toBe(props.treeScrollOwner);
+	expect(document.querySelector('.bridge-code-view-scroll-owner')).toBe(props.codeScrollOwner);
+	expect(initialTreeScrollTop).toBeGreaterThan(0);
+	expect(initialCodeScrollTop).toBeGreaterThan(0);
+	expect(props.treeScrollOwner.scrollTop).toBeGreaterThan(0);
+	expect(props.codeScrollOwner.scrollTop).toBeGreaterThan(0);
+	expect(Math.abs(scrollProgress(props.treeScrollOwner) - initialTreeScrollProgress)).toBeLessThan(
+		0.05,
+	);
+	expect(Math.abs(scrollProgress(props.codeScrollOwner) - initialCodeScrollProgress)).toBeLessThan(
+		0.05,
+	);
+	expect(selectedDisplayPath()).toBe(props.expectedSelectedPath);
+	expect(renderedFilePath()).toBe(props.expectedSelectedPath);
+}
+
+function scrollProgress(scrollOwner: HTMLElement): number {
+	return scrollOwner.scrollTop / Math.max(scrollOwner.scrollHeight - scrollOwner.clientHeight, 1);
+}
+
+export async function waitForDeepScrollRouteElement(props: {
+	readonly attempt: number;
+	readonly selector: string;
+}): Promise<HTMLElement> {
+	const element = document.querySelector(props.selector);
+	if (element instanceof HTMLElement) return element;
+	if (props.attempt >= 120) {
+		throw new Error(`FILE_DEEP_SCROLL_HARNESS_INVALID: missing route element ${props.selector}.`);
+	}
+	await actFrame();
+	return await waitForDeepScrollRouteElement({
+		attempt: props.attempt + 1,
+		selector: props.selector,
+	});
+}
+
+function requireActiveContextButton(mode: 'file' | 'review'): HTMLElement {
+	const button = document.querySelector(
+		`[data-bridge-viewer-mode-active="true"] [data-testid="bridge-viewer-context-${mode}"]`,
+	);
+	if (!(button instanceof HTMLElement)) {
+		throw new Error(`FILE_DEEP_SCROLL_CONTEXT_BUTTON_MISSING: mode=${mode}`);
+	}
+	return button;
 }
 
 export function makeCompleteFileDeepScrollDescriptor(props: {

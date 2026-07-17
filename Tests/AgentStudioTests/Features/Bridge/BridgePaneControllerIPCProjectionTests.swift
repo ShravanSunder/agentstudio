@@ -43,7 +43,8 @@ extension WebKitSerializedTests {
                     title: "Bridge Review",
                     facets: PaneContextFacets(worktreeId: worktreeId)
                 ),
-                reviewSourceProvider: provider
+                reviewSourceProvider: provider,
+                initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
             let correlationId = UUID()
@@ -89,7 +90,8 @@ extension WebKitSerializedTests {
                     title: "Bridge Review",
                     facets: PaneContextFacets(worktreeId: worktreeId)
                 ),
-                reviewSourceProvider: provider
+                reviewSourceProvider: provider,
+                initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
             _ = try await controller.refreshReviewForIPC(correlationId: nil)
@@ -129,7 +131,8 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
-                reviewSourceProvider: provider
+                reviewSourceProvider: provider,
+                initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
             try await installIPCContentDescriptorPackage(handle, in: controller)
@@ -173,7 +176,8 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
-                reviewSourceProvider: provider
+                reviewSourceProvider: provider,
+                initialPaneActivity: .foreground
             )
             try await installIPCContentDescriptorPackage(handle, in: controller)
 
@@ -212,7 +216,8 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
-                reviewSourceProvider: provider
+                reviewSourceProvider: provider,
+                initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
             try await installIPCContentDescriptorPackage(handle, in: controller)
@@ -263,7 +268,8 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
-                reviewSourceProvider: provider
+                reviewSourceProvider: provider,
+                initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
             try await installIPCContentDescriptorPackage(handle, in: controller)
@@ -306,7 +312,8 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
-                reviewSourceProvider: provider
+                reviewSourceProvider: provider,
+                initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
             try await installIPCContentDescriptorPackage(handle, in: controller)
@@ -355,7 +362,8 @@ extension WebKitSerializedTests {
                     title: "Bridge Review",
                     facets: PaneContextFacets(worktreeId: worktreeId)
                 ),
-                reviewSourceProvider: provider
+                reviewSourceProvider: provider,
+                initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
 
@@ -373,10 +381,7 @@ extension WebKitSerializedTests {
 
         @Test("IPC render state maps bridge diagnostics probes and bounds discard records")
         func ipcRenderState_mapsBridgeDiagnosticsProbesAndBoundsDiscardRecords() async throws {
-            let controller = BridgePaneController(
-                paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
-            )
+            let controller = makeIPCForegroundController()
             defer { controller.teardown() }
 
             try await WebPageTestHarness.withManagedPage(controller.page) { page in
@@ -482,7 +487,8 @@ extension WebKitSerializedTests {
         func ipcRenderState_rejectsNegativeWorkerAcknowledgementDiagnostics() async throws {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
+                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
 
@@ -511,7 +517,8 @@ extension WebKitSerializedTests {
         func ipcRenderState_leavesAbsentBridgeDiagnosticsProbesNil() async throws {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
+                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
 
@@ -533,7 +540,8 @@ extension WebKitSerializedTests {
         func ipcRenderState_preservesNativeProductSessionDiagnosticsWhenPageProjectionFails() async throws {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
+                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
 
@@ -580,7 +588,8 @@ extension WebKitSerializedTests {
                     title: "Bridge Review",
                     facets: PaneContextFacets(worktreeId: worktreeId)
                 ),
-                reviewSourceProvider: provider
+                reviewSourceProvider: provider,
+                initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
             _ = try await controller.refreshReviewForIPC(correlationId: nil)
@@ -594,6 +603,15 @@ extension WebKitSerializedTests {
             #expect(snapshot.report == nil)
         }
     }
+}
+
+@MainActor
+private func makeIPCForegroundController() -> BridgePaneController {
+    BridgePaneController(
+        paneId: UUIDv7.generate(),
+        state: BridgePaneState(panelKind: .diffViewer, source: nil),
+        initialPaneActivity: .foreground
+    )
 }
 
 private func expectProductMetadataStreamDiagnostic(

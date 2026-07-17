@@ -12,6 +12,7 @@ import { cn } from './class-name.js';
 export function BridgeViewerContentHeader(props: {
 	readonly controls?: ReactNode;
 	readonly eyebrow: string;
+	readonly statusText: string | null;
 	readonly title: string;
 }): ReactElement {
 	return (
@@ -33,6 +34,17 @@ export function BridgeViewerContentHeader(props: {
 				>
 					{props.title}
 				</span>
+				{props.statusText === null ? null : (
+					<span
+						aria-atomic="true"
+						aria-live="polite"
+						className="shrink-0 text-[11px] text-[var(--bridge-text-secondary)]"
+						data-testid="bridge-viewer-content-status"
+						role="status"
+					>
+						{props.statusText}
+					</span>
+				)}
 			</div>
 			{props.controls === undefined ? null : (
 				<div

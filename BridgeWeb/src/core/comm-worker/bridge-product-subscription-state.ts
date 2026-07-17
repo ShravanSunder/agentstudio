@@ -27,6 +27,7 @@ export type BridgeProductSubscriptionFrame = Exclude<
 	| { readonly kind: 'content.cancelled' }
 	| { readonly kind: 'metadataStream.accepted' }
 	| { readonly kind: 'metadataStream.error' }
+	| { readonly kind: 'pane.presentation' }
 >;
 
 export interface BridgeProductSubscriptionFrameSink {

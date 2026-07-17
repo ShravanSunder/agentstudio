@@ -1,8 +1,9 @@
 import { parseDiffFromFile } from '@pierre/diffs';
-import { createElement, type ReactElement } from 'react';
+import { createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
 
+import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
 import {
 	createBridgeMainRenderFulfillmentCoordinator,
 	type BridgeMainRenderPublication,
@@ -26,6 +27,7 @@ import {
 import type { BridgeWorkerRenderRejectionReason } from '../core/comm-worker/bridge-worker-render-fulfillment.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from '../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
 import type { BridgeWorkerRpcCommandInput } from '../core/comm-worker/bridge-worker-rpc-client.js';
+import { bridgeFileViewerDisplayModelForSnapshot } from './bridge-file-viewer-display-model.js';
 import {
 	applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore as applyProductionBridgeWorkerMessagesToFileViewerRenderSnapshotStore,
 	BridgeFileViewerSurfaceClientProvider,
@@ -33,6 +35,7 @@ import {
 	type BridgeFileViewerRenderSnapshotController,
 	useBridgeFileViewerRenderSnapshotController,
 } from './bridge-file-viewer-render-snapshot-controller.js';
+import { BridgeFileViewerShell } from './bridge-file-viewer-shell.js';
 
 const selectedItem: BridgeWorkerCodeViewFileItem = {
 	id: 'file:file-1',
@@ -137,6 +140,63 @@ describe('Bridge File viewer render snapshot controller', () => {
 		expect(controller.selectedContentAvailability).toEqual({ state: 'ready' });
 		expect(controller.selectedCodeViewItem).toEqual({ ...selectedItem, version: 1 });
 		expect(controller.fileDisplaySnapshot.fileStatusSlice).toMatchObject({ state: 'ready' });
+	});
+
+	test('exposes only the File surface panel chrome slice from its render store', () => {
+		// Arrange
+		const renderStore = createBridgeMainRenderSnapshotStore();
+		renderStore.applyWorkerPatch({
+			operation: 'upsert',
+			payload: { isLoading: true, message: 'Updating files…' },
+			slice: 'panelChrome',
+		});
+		const fileViewClient = makeFileViewSurfaceClient([], renderStore);
+		const controllerProbe: { current: BridgeFileViewerRenderSnapshotController | null } = {
+			current: null,
+		};
+
+		function Probe(): ReactElement {
+			controllerProbe.current = useBridgeFileViewerRenderSnapshotController({ selection: null });
+			return createElement('div');
+		}
+
+		// Act
+		renderToStaticMarkup(
+			createElement(
+				BridgeFileViewerSurfaceClientProvider,
+				{ surfaceClient: fileViewClient },
+				createElement(Probe),
+			),
+		);
+
+		// Assert
+		const controller = controllerProbe.current;
+		if (controller === null) throw new Error('Expected the File controller probe to render.');
+		expect(controller.panelChromeSlice).toEqual({
+			isLoading: true,
+			message: 'Updating files…',
+		});
+	});
+
+	test('passes File updating chrome to the shared header only while File is active', () => {
+		// Arrange / Act
+		const activeHeader = fileViewerContentHeaderForChromeTest({
+			isActive: true,
+			panelChromeSlice: { isLoading: true, message: 'Updating files…' },
+		});
+		const inactiveHeader = fileViewerContentHeaderForChromeTest({
+			isActive: false,
+			panelChromeSlice: { isLoading: true, message: 'Updating review…' },
+		});
+		const settledHeader = fileViewerContentHeaderForChromeTest({
+			isActive: true,
+			panelChromeSlice: { isLoading: false, message: null },
+		});
+
+		// Assert
+		expect(activeHeader.props.statusText).toBe('Updating files…');
+		expect(inactiveHeader.props.statusText).toBeNull();
+		expect(settledHeader.props.statusText).toBeNull();
 	});
 
 	test('accepts the exact current owned File publication after installing its Pierre item', () => {
@@ -479,6 +539,66 @@ describe('Bridge File viewer render snapshot controller', () => {
 		).toEqual(selectedItem);
 	});
 });
+
+interface FileViewerChromeTestElementProps {
+	readonly children?: ReactNode;
+	readonly content?: ReactNode;
+	readonly statusText?: string | null;
+}
+
+function fileViewerContentHeaderForChromeTest(props: {
+	readonly isActive: boolean;
+	readonly panelChromeSlice: {
+		readonly isLoading: boolean;
+		readonly message: string | null;
+	};
+}): ReactElement<FileViewerChromeTestElementProps> {
+	const renderStore = createBridgeMainRenderSnapshotStore();
+	const shell = requireFileViewerChromeTestElement(
+		BridgeFileViewerShell({
+			completeFileQueryTransaction: renderStore.completeFileQueryTransaction,
+			contentHeaderTitle: 'source-1 / README.md',
+			dispatchVisibleFileDemand: (): void => {},
+			displayModel: bridgeFileViewerDisplayModelForSnapshot(renderStore.getSnapshot()),
+			fileTreePatchStream: renderStore.fileTreePatchStream,
+			filterMode: 'all',
+			isActive: props.isActive,
+			onFilterModeChange: (): void => {},
+			onSearchModeChange: (): void => {},
+			onSearchTextChange: (): void => {},
+			onSelectFile: (): void => {},
+			openFileState: { status: 'idle' },
+			openFileTotalHeightPixels: null,
+			panelChromeSlice: props.panelChromeSlice,
+			renderFulfillmentCoordinator: createTestRenderFulfillmentCoordinator(),
+			searchMode: 'text',
+			searchText: '',
+			selectedCodeViewItem: null,
+			selectedPath: null,
+			telemetryRecorder: undefined,
+			telemetryTraceContext: null,
+			totalTreeHeight: { heightPixels: 0, source: 'localProjection' },
+			totalTreeRowCount: 0,
+		}),
+	);
+	const resizableLayout = requireFileViewerChromeTestElement(shell.props.children);
+	const content = requireFileViewerChromeTestElement(resizableLayout.props.content);
+	const contentChildren = Array.isArray(content.props.children)
+		? content.props.children
+		: [content.props.children];
+	const contentHeader = requireFileViewerChromeTestElement(contentChildren[0]);
+	expect(contentHeader.type).toBe(BridgeViewerContentHeader);
+	return contentHeader;
+}
+
+function requireFileViewerChromeTestElement(
+	node: ReactNode,
+): ReactElement<FileViewerChromeTestElementProps> {
+	if (!isValidElement<FileViewerChromeTestElementProps>(node)) {
+		throw new Error('Expected a File viewer chrome React element.');
+	}
+	return node;
+}
 
 function makeFileViewSurfaceClient(
 	sentCommands: BridgeWorkerRpcCommandInput[],

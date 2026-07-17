@@ -155,6 +155,7 @@ struct WorkspaceSurfaceCoordinatorViewFactoryTests {
             paneId: pane.id,
             state: BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "quick-restore")),
             metadata: pane.metadata,
+            initialPaneActivity: .foreground,
             productSessionDependencies: BridgePaneProductSessionDependencies(
                 installation: installation,
                 owner: owner
@@ -287,6 +288,7 @@ struct WorkspaceSurfaceCoordinatorViewFactoryTests {
         let controller = BridgePaneController(
             paneId: paneId,
             state: BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "rotation")),
+            initialPaneActivity: .foreground,
             productSessionDependencies: BridgePaneProductSessionDependencies(
                 installation: initialInstallation,
                 owner: owner

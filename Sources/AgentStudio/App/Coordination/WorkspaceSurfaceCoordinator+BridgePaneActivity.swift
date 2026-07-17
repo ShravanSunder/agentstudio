@@ -37,6 +37,7 @@ extension WorkspaceSurfaceCoordinator {
     func closeBridgePaneActivityAuthority(for paneId: UUID) {
         guard bridgePaneActivityCoordinatorsByPaneId[paneId] != nil else { return }
         bridgePaneActivityCoordinatorsByPaneId[paneId]?.close()
+        viewRegistry.allBridgeViews[paneId]?.controller.applyBridgePaneActivity(.closed)
     }
 
     func closeAllBridgePaneActivityAuthorities() {
@@ -120,7 +121,10 @@ extension WorkspaceSurfaceCoordinator {
     private func applyBridgePaneActivityInputs(_ inputs: [BridgePaneActivityInput]) {
         for input in inputs {
             ensureBridgePaneActivityAuthority(for: input.paneId)
-            bridgePaneActivityCoordinatorsByPaneId[input.paneId]?.update(from: input.facts)
+            guard let activityCoordinator = bridgePaneActivityCoordinatorsByPaneId[input.paneId]
+            else { continue }
+            let activity = activityCoordinator.update(from: input.facts)
+            viewRegistry.allBridgeViews[input.paneId]?.controller.applyBridgePaneActivity(activity)
         }
     }
 

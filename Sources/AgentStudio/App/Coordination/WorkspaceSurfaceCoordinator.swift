@@ -437,16 +437,10 @@ final class WorkspaceSurfaceCoordinator {
         _ event: PaneFilesystemContextEvent,
         sourcePaneId: PaneId
     ) async {
-        guard
-            let bridgeView = viewRegistry.view(for: sourcePaneId.uuid)?
-                .mountedContent(as: BridgePaneMountView.self)
-        else {
-            Self.logger.debug(
-                "Runtime filesystem context ignored for non-Bridge pane \(sourcePaneId.uuid.uuidString, privacy: .public)"
-            )
-            return
-        }
-        await bridgeView.controller.handlePaneFilesystemContextEvent(event)
+        _ = event
+        Self.logger.debug(
+            "Derived filesystem context ignored for Bridge pane \(sourcePaneId.uuid.uuidString, privacy: .public); raw worktree ingress owns product invalidation"
+        )
     }
 
     private func handleTerminalRuntimeEvent(_ event: GhosttyEvent, sourcePaneId: PaneId) {

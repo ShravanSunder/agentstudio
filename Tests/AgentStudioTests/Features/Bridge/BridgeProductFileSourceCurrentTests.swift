@@ -103,11 +103,13 @@ struct BridgeProductFileSourceCurrentTests {
         let fileMetadataSource = BridgePaneProductFileMetadataSource(
             authority: .init(paneId: UUIDv7.generate(), worktree: worktree)
         )
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let provider = BridgePaneProductSchemeProvider(
             fileMetadataSource: fileMetadataSource,
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
-            markReviewItemViewed: { _, _ in }
+            markReviewItemViewed: { _, _ in },
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
         )
         let request = try productFileSourceCurrentControlRequest()
         let productAdmission = try BridgeProductAdmissionTestContext.make()
@@ -123,7 +125,8 @@ struct BridgeProductFileSourceCurrentTests {
                 timestamp: .now,
                 batchSeq: 1
             ),
-            productAdmission: productAdmission.context
+            productAdmission: productAdmission.context,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
         )
 
         // Assert
@@ -144,11 +147,13 @@ struct BridgeProductFileSourceCurrentTests {
     @Test("provider returns typed unavailable when File authority is absent")
     func providerReturnsTypedUnavailableWithoutAuthority() async throws {
         // Arrange
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let provider = BridgePaneProductSchemeProvider(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
-            markReviewItemViewed: { _, _ in }
+            markReviewItemViewed: { _, _ in },
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
         )
 
         // Act

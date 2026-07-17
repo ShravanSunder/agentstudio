@@ -740,11 +740,13 @@ export const bridgeWorkerReviewDisplayPatchEventSchema = bridgeWorkerServerToMai
 export const bridgeWorkerFileRenderPatchSchema = z.discriminatedUnion('slice', [
 	bridgeWorkerRowPaintPatchSchema,
 	bridgeWorkerContentAvailabilityPatchSchema,
+	bridgeWorkerPanelChromePatchSchema,
 ]);
 
 export const bridgeWorkerReviewRenderPatchSchema = z.discriminatedUnion('slice', [
 	bridgeWorkerRowPaintPatchSchema,
 	bridgeWorkerContentAvailabilityPatchSchema,
+	bridgeWorkerPanelChromePatchSchema,
 ]);
 
 export const bridgeWorkerFileRenderPatchEventSchema = bridgeWorkerServerToMainBaseSchema

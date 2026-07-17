@@ -10,13 +10,18 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     }
 
     func scheduleInitialReviewPackageLoadIfPossible(reason: BridgeReviewPackageBuildReason) {
-        pendingReviewPackageBuildReasons.insert(reason)
-        guard activeReviewRefreshTask == nil else { return }
-        activeReviewRefreshTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            _ = await self.loadInitialReviewPackageIfPossible(correlationId: nil)
-            self.activeReviewRefreshTask = nil
+        guard case .workspace = bridgePaneState.source,
+            runtime.metadata.worktreeId != nil,
+            paneState.diff.status == .idle || paneState.diff.status == .loading,
+            paneState.diff.packageMetadata == nil
+        else { return }
+        guard refreshAdmissionCoordinator.acquireForegroundWork() != nil else {
+            pendingReviewPackageBuildReasons.insert(reason)
+            return
         }
+        guard activeReviewRefreshTask == nil else { return }
+        pendingReviewPackageBuildReasons.insert(reason)
+        scheduleRetainedReviewPackageBuildIfPossible()
     }
 
     /// Full reload for a typed product resync request on an already-loaded pane.
@@ -26,14 +31,42 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
 
     func scheduleReviewPackageReloadForProductResync(reason: BridgeReviewPackageBuildReason) {
         pendingReviewPackageBuildReasons.insert(reason)
-        guard activeReviewRefreshTask == nil else { return }
-        guard case .workspace = bridgePaneState.source,
+        guard refreshAdmissionCoordinator.acquireForegroundWork() != nil else {
+            refreshAdmissionCoordinator.recordInvalidation(
+                fileChangeset: nil,
+                requiresReviewRefresh: true
+            )
+            return
+        }
+        scheduleRetainedReviewPackageBuildIfPossible()
+    }
+
+    func scheduleRetainedReviewPackageBuildIfPossible() {
+        guard !pendingReviewPackageBuildReasons.isEmpty,
+            activeReviewRefreshTask == nil,
+            refreshAdmissionCoordinator.acquireForegroundWork() != nil,
+            case .workspace = bridgePaneState.source,
             let worktreeId = runtime.metadata.worktreeId
         else { return }
+
+        let shouldLoadInitialPackage =
+            paneState.diff.packageMetadata == nil
+            && (paneState.diff.status == .idle || paneState.diff.status == .loading)
+        guard
+            shouldLoadInitialPackage || paneState.diff.packageMetadata != nil
+                || pendingReviewPackageBuildReasons.contains(.productResync)
+        else { return }
+
         activeReviewRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            _ = await self.loadReviewPackage(worktreeId: worktreeId, correlationId: nil)
+            if shouldLoadInitialPackage {
+                _ = await self.loadInitialReviewPackageIfPossible(correlationId: nil)
+            } else {
+                _ = await self.loadReviewPackage(worktreeId: worktreeId, correlationId: nil)
+            }
             self.activeReviewRefreshTask = nil
+            self.scheduleRetainedReviewPackageBuildIfPossible()
+            self.scheduleWorktreeProductCatchUpIfPossible()
         }
     }
 
@@ -46,7 +79,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     func loadInitialReviewPackageIfPossible(correlationId: UUID?) async -> ActionResult? {
         guard case .workspace = bridgePaneState.source,
             let worktreeId = runtime.metadata.worktreeId,
-            paneState.diff.status == .idle,
+            paneState.diff.status == .idle || paneState.diff.status == .loading,
             paneState.diff.packageMetadata == nil
         else {
             return nil
@@ -60,7 +93,9 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         commandId: UUID,
         correlationId: UUID?
     ) async -> ActionResult {
-        guard let productAdmission = productAdmissionGate.acquire() else {
+        guard let foregroundWorkAdmission = refreshAdmissionCoordinator.acquireForegroundWork(),
+            let productAdmission = productAdmissionGate.acquire()
+        else {
             return .failure(.invalidPayload(description: "Bridge pane is closed"))
         }
         switch command {
@@ -69,7 +104,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 artifact: artifact,
                 commandId: commandId,
                 correlationId: correlationId,
-                productAdmission: productAdmission
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission
             )
         }
     }
@@ -78,39 +114,52 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         let reviewGeneration: BridgeReviewGeneration
     }
 
+    private struct ReviewPackageLoadCommit {
+        let load: BridgeReviewPackageLoadData
+        let summary: BridgeReviewPackageSummary
+        let commandId: UUID
+        let correlationId: UUID?
+        let productAdmission: BridgeProductAdmissionContext
+        let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+        let traceContext: BridgeTraceContext?
+    }
+
     private func handleLoadDiffCommand(
         artifact: DiffArtifact,
         commandId: UUID,
         correlationId: UUID?,
-        productAdmission: BridgeProductAdmissionContext
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async -> ActionResult {
         let packageTraceContext = makeRootTraceContext()
         guard
             let reset = await beginReviewPackageLoad(
                 artifact: artifact,
-                productAdmission: productAdmission
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission
             )
         else {
             return .failure(.invalidPayload(description: "Bridge pane is closed"))
         }
         var reviewLoadStage = "request"
+        let buildReason = consumePendingReviewPackageBuildReason(default: .initialIntake)
         do {
             let result = try await loadReviewPackageResult(
                 artifact: artifact,
                 reviewGeneration: reset.reviewGeneration,
-                buildReason: consumePendingReviewPackageBuildReason(default: .initialIntake),
+                buildReason: buildReason,
                 reviewLoadStage: &reviewLoadStage,
                 packageTraceContext: packageTraceContext
             )
             guard
-                productAdmission.withValidAdmission({
-                    guard reset.reviewGeneration == nextReviewGeneration else {
-                        return false
-                    }
-                    lastReviewPackageTraceContext = packageTraceContext
-                    return true
-                }) == true
+                acceptReviewPackageLoadResult(
+                    reset: reset,
+                    productAdmission: productAdmission,
+                    foregroundWorkAdmission: foregroundWorkAdmission,
+                    packageTraceContext: packageTraceContext
+                )
             else {
+                pendingReviewPackageBuildReasons.insert(buildReason)
                 return .failure(.invalidPayload(description: "Stale bridge review load"))
             }
             let load = try await makeReviewPackageLoadData(
@@ -126,26 +175,39 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 contentRegisterStart: contentRegisterStart
             )
             guard
-                productAdmission.withValidAdmission({
-                    reset.reviewGeneration == nextReviewGeneration
-                }) == true
+                isReviewPackageLoadCurrent(
+                    reset: reset,
+                    productAdmission: productAdmission,
+                    foregroundWorkAdmission: foregroundWorkAdmission
+                )
             else {
+                pendingReviewPackageBuildReasons.insert(buildReason)
                 return .failure(.invalidPayload(description: "Stale bridge review load"))
             }
             guard
                 await commitReviewPackageLoadAndPublishDiffLoaded(
-                    load: load,
-                    summary: result.package.summary,
-                    commandId: commandId,
-                    correlationId: correlationId,
-                    productAdmission: productAdmission,
-                    traceContext: packageTraceContext
+                    ReviewPackageLoadCommit(
+                        load: load,
+                        summary: result.package.summary,
+                        commandId: commandId,
+                        correlationId: correlationId,
+                        productAdmission: productAdmission,
+                        foregroundWorkAdmission: foregroundWorkAdmission,
+                        traceContext: packageTraceContext
+                    )
                 )
             else {
+                if foregroundWorkAdmission.withValidAdmission({ true }) == nil {
+                    pendingReviewPackageBuildReasons.insert(buildReason)
+                }
                 return .failure(.invalidPayload(description: "Bridge pane is closed"))
             }
             return .success(commandId: commandId)
         } catch BridgeProviderFailure.providerUnavailable {
+            guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
+                pendingReviewPackageBuildReasons.insert(buildReason)
+                return .failure(.invalidPayload(description: "Stale bridge review load"))
+            }
             guard
                 retainCommittedReviewOrSetInitialFailure(
                     "providerUnavailable",
@@ -156,70 +218,115 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             }
             return .failure(.backendUnavailable(backend: "BridgeReviewSourceProvider"))
         } catch {
-            let failureSummary = Self.reviewPackageLoadFailureSummary(for: error, stage: reviewLoadStage)
-            bridgeDiffCommandLogger.error(
-                "Bridge review package load failed: \(failureSummary, privacy: .public)"
+            return reviewPackageLoadFailureResult(
+                for: error,
+                reviewLoadStage: reviewLoadStage,
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission,
+                buildReason: buildReason
             )
-            guard
-                retainCommittedReviewOrSetInitialFailure(
-                    failureSummary,
-                    productAdmission: productAdmission
-                )
-            else {
-                return .failure(.invalidPayload(description: "Bridge pane is closed"))
-            }
-            return .failure(.invalidPayload(description: "Failed to load bridge review package"))
         }
     }
 
-    private func commitReviewPackageLoadAndPublishDiffLoaded(
-        load: BridgeReviewPackageLoadData,
-        summary: BridgeReviewPackageSummary,
-        commandId: UUID,
-        correlationId: UUID?,
+    private func reviewPackageLoadFailureResult(
+        for error: any Error,
+        reviewLoadStage: String,
         productAdmission: BridgeProductAdmissionContext,
-        traceContext: BridgeTraceContext?
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        buildReason: BridgeReviewPackageBuildReason
+    ) -> ActionResult {
+        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
+            pendingReviewPackageBuildReasons.insert(buildReason)
+            return .failure(.invalidPayload(description: "Stale bridge review load"))
+        }
+        let failureSummary = Self.reviewPackageLoadFailureSummary(for: error, stage: reviewLoadStage)
+        bridgeDiffCommandLogger.error(
+            "Bridge review package load failed: \(failureSummary, privacy: .public)"
+        )
+        guard
+            retainCommittedReviewOrSetInitialFailure(
+                failureSummary,
+                productAdmission: productAdmission
+            )
+        else {
+            return .failure(.invalidPayload(description: "Bridge pane is closed"))
+        }
+        return .failure(.invalidPayload(description: "Failed to load bridge review package"))
+    }
+
+    private func acceptReviewPackageLoadResult(
+        reset: ReviewPackageLoadReset,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        packageTraceContext: BridgeTraceContext?
+    ) -> Bool {
+        foregroundWorkAdmission.withValidAdmission {
+            productAdmission.withValidAdmission {
+                guard reset.reviewGeneration == nextReviewGeneration else { return false }
+                lastReviewPackageTraceContext = packageTraceContext
+                return true
+            }
+        }.flatMap { $0 } == true
+    }
+
+    private func isReviewPackageLoadCurrent(
+        reset: ReviewPackageLoadReset,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) -> Bool {
+        foregroundWorkAdmission.withValidAdmission {
+            productAdmission.withValidAdmission {
+                reset.reviewGeneration == nextReviewGeneration
+            }
+        }.flatMap { $0 } == true
+    }
+
+    private func commitReviewPackageLoadAndPublishDiffLoaded(
+        _ request: ReviewPackageLoadCommit
     ) async -> Bool {
         guard
             await commitReviewPackageLoad(
-                load,
-                productAdmission: productAdmission,
-                traceContext: traceContext
+                request.load,
+                productAdmission: request.productAdmission,
+                traceContext: request.traceContext,
+                foregroundWorkAdmission: request.foregroundWorkAdmission
             ) == .committed
         else { return false }
-        return productAdmission.withValidAdmission {
-            ingestRuntimeEvent(
-                .diff(.diffLoaded(stats: Self.diffStats(from: summary))),
-                commandId: commandId,
-                correlationId: correlationId
-            )
-            return true
-        } == true
+        return request.foregroundWorkAdmission.withValidAdmission {
+            request.productAdmission.withValidAdmission {
+                ingestRuntimeEvent(
+                    .diff(.diffLoaded(stats: Self.diffStats(from: request.summary))),
+                    commandId: request.commandId,
+                    correlationId: request.correlationId
+                )
+                return true
+            }
+        }.flatMap { $0 } == true
     }
 
     private func beginReviewPackageLoad(
         artifact: DiffArtifact,
-        productAdmission: BridgeProductAdmissionContext
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async -> ReviewPackageLoadReset? {
-        guard productAdmission.withValidAdmission({ true }) == true else {
-            return nil
-        }
         guard
-            let reset = productAdmission.withValidAdmission({
-                if reviewPublicationCoordinator.diagnosticSnapshot.active == nil {
-                    paneState.diff.setStatus(.loading)
+            let reset = foregroundWorkAdmission.withValidAdmission({
+                productAdmission.withValidAdmission {
+                    if reviewPublicationCoordinator.diagnosticSnapshot.active == nil {
+                        paneState.diff.setStatus(.loading)
+                    }
+                    paneState.diff.advanceEpoch()
+                    let reviewGeneration = nextReviewGeneration.next()
+                    nextReviewGeneration = reviewGeneration
+                    return ReviewPackageLoadReset(
+                        reviewGeneration: reviewGeneration
+                    )
                 }
-                paneState.diff.advanceEpoch()
-                let reviewGeneration = nextReviewGeneration.next()
-                nextReviewGeneration = reviewGeneration
-                return ReviewPackageLoadReset(
-                    reviewGeneration: reviewGeneration
-                )
-            })
+            }).flatMap({ $0 })
         else {
             return nil
         }
-        return productAdmission.withValidAdmission { reset }
+        return reset
     }
 
     private func loadReviewPackageResult(
@@ -346,69 +453,55 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
 
     func handlePaneFilesystemContextEvent(_ event: PaneFilesystemContextEvent) async {
         guard shouldRefreshReviewPackage(for: event) else { return }
-
-        hasPendingReviewRefresh = true
-        pendingReviewPackageBuildReasons.insert(.filesystemRefresh)
-        if let activeReviewRefreshTask {
-            await activeReviewRefreshTask.value
-            return
+        switch event {
+        case .cwdSubtreeChanged(let context, let paths, let batchSequence):
+            await handleWorktreeProductInvalidation(
+                .filesChanged(
+                    FileChangeset(
+                        worktreeId: context.worktreeId,
+                        repoId: context.repoId,
+                        rootPath: context.cwd,
+                        paths: Array(paths),
+                        timestamp: .now,
+                        batchSeq: batchSequence
+                    )
+                )
+            )
+        case .gitWorkingTreeInCwd(_, let staged, let unstaged, let untracked):
+            await handleWorktreeProductInvalidation(
+                .statusChanged(
+                    GitWorkingTreeStatus(
+                        summary: GitWorkingTreeSummary(
+                            changed: unstaged,
+                            staged: staged,
+                            untracked: untracked
+                        ),
+                        branch: nil,
+                        origin: nil
+                    )
+                )
+            )
         }
-
-        let refreshTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.drainPendingReviewRefreshes()
-        }
-        activeReviewRefreshTask = refreshTask
-        await refreshTask.value
     }
 
-    private func drainPendingReviewRefreshes() async {
-        while hasPendingReviewRefresh, !Task.isCancelled {
-            hasPendingReviewRefresh = false
-            await refreshCurrentReviewPackage()
-        }
-        activeReviewRefreshTask = nil
-    }
-
-    private func refreshCurrentReviewPackage() async {
-        guard let productAdmission = productAdmissionGate.acquire() else { return }
+    func refreshCurrentReviewPackage(
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) async -> BridgePaneRefreshCatchUpOutcome {
+        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return .stale }
+        guard let productAdmission = productAdmissionGate.acquire() else { return .stale }
         guard
             let currentPublication = reviewPublicationCoordinator.committedPublicationForReplay(
                 productAdmission: productAdmission
             )
         else {
-            return
+            return .succeeded
         }
         let currentPackage = currentPublication.package
         do {
-            let packageTraceContext = makeRootTraceContext()
-            let packageBuildStart = ContinuousClock.now
-            let buildReason = consumePendingReviewPackageBuildReason(default: .filesystemRefresh)
-            let result = try await reviewPipeline.loadPackage(
-                BridgeReviewPipelineRequest(
-                    packageId: currentPackage.packageId,
-                    query: currentPackage.query,
-                    baseEndpoint: currentPackage.baseEndpoint,
-                    headEndpoint: currentPackage.headEndpoint,
-                    checkpointIds: currentPackage.groups.map(\.groupId),
-                    reviewGeneration: currentPackage.reviewGeneration,
-                    generatedAtUnixMilliseconds: Int64(Date().timeIntervalSince1970 * 1000)
-                )
-            )
-            await recordSwiftTelemetry(
-                name: "performance.bridge.swift.package_build",
-                phase: "package_build",
-                priorityHint: .cold,
-                traceContext: packageTraceContext,
-                stringAttributes: [
-                    "agentstudio.bridge.package_build.reason": buildReason.rawValue
-                ],
-                durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
-                    from: packageBuildStart.duration(to: ContinuousClock.now)
-                )
-            )
+            let (result, packageTraceContext) = try await loadReviewPackageForRefresh(currentPackage)
             guard
                 !Task.isCancelled,
+                foregroundWorkAdmission.withValidAdmission({ true }) == true,
                 reviewPublicationCoordinator.committedPublicationForReplay(
                     productAdmission: productAdmission
                 )?.publicationId == currentPublication.publicationId,
@@ -417,7 +510,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     return true
                 }) == true
             else {
-                return
+                return .stale
             }
 
             var reviewLoadStage = "delta"
@@ -431,16 +524,17 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             )
             guard
                 !Task.isCancelled,
+                foregroundWorkAdmission.withValidAdmission({ true }) == true,
                 reviewPublicationCoordinator.isCurrentPublication(
                     publicationId: currentPublication.publicationId,
                     productAdmission: productAdmission
                 )
             else {
-                return
+                return .stale
             }
             guard !Self.isUnchangedSameLineageLoad(load, currentPublication: currentPublication)
             else {
-                return
+                return .succeeded
             }
             let contentRegisterStart = ContinuousClock.now
             await recordSwiftTelemetry(
@@ -452,18 +546,63 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     from: contentRegisterStart.duration(to: ContinuousClock.now)
                 )
             )
-            _ = await commitReviewPackageLoad(
+            let disposition = await commitReviewPackageLoad(
                 load,
                 productAdmission: productAdmission,
-                traceContext: packageTraceContext
+                traceContext: packageTraceContext,
+                foregroundWorkAdmission: foregroundWorkAdmission
             )
+            guard disposition == .committed else {
+                return Task.isCancelled || foregroundWorkAdmission.withValidAdmission({ true }) == nil
+                    ? .stale
+                    : .failed
+            }
+            return .succeeded
         } catch BridgeProviderFailure.providerUnavailable {
             bridgeDiffCommandLogger.debug("Skipped bridge review refresh: provider unavailable")
+            return .failed
+        } catch is CancellationError {
+            return .stale
         } catch {
             bridgeDiffCommandLogger.debug(
                 "Skipped bridge review refresh: \(String(describing: error), privacy: .private)"
             )
+            return foregroundWorkAdmission.withValidAdmission({ true }) == nil
+                ? .stale
+                : .failed
         }
+    }
+
+    private func loadReviewPackageForRefresh(
+        _ currentPackage: BridgeReviewPackage
+    ) async throws -> (result: BridgeReviewPipelineResult, traceContext: BridgeTraceContext?) {
+        let packageTraceContext = makeRootTraceContext()
+        let packageBuildStart = ContinuousClock.now
+        let buildReason = consumePendingReviewPackageBuildReason(default: .filesystemRefresh)
+        let result = try await reviewPipeline.loadPackage(
+            BridgeReviewPipelineRequest(
+                packageId: currentPackage.packageId,
+                query: currentPackage.query,
+                baseEndpoint: currentPackage.baseEndpoint,
+                headEndpoint: currentPackage.headEndpoint,
+                checkpointIds: currentPackage.groups.map(\.groupId),
+                reviewGeneration: currentPackage.reviewGeneration,
+                generatedAtUnixMilliseconds: Int64(Date().timeIntervalSince1970 * 1000)
+            )
+        )
+        await recordSwiftTelemetry(
+            name: "performance.bridge.swift.package_build",
+            phase: "package_build",
+            priorityHint: .cold,
+            traceContext: packageTraceContext,
+            stringAttributes: [
+                "agentstudio.bridge.package_build.reason": buildReason.rawValue
+            ],
+            durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
+                from: packageBuildStart.duration(to: ContinuousClock.now)
+            )
+        )
+        return (result, packageTraceContext)
     }
 
     private static func isUnchangedSameLineageLoad(

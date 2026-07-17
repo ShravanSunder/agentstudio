@@ -133,11 +133,13 @@ private func makePacingStreamContext(
         )
     )
     let readerHarness = PacingFileContentReaderHarness(sourceData: sourceData)
+    let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
     let provider = BridgePaneProductSchemeProvider(
         fileMetadataSource: fileMetadataSource,
         reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
         reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
         markReviewItemViewed: { _, _ in },
+        refreshWorkAdmissionSource: refreshWorkAdmission.source,
         fileContentReaderFactory: { plan in
             try await readerHarness.open(plan: plan)
         }
@@ -310,12 +312,14 @@ private actor PacingFileMetadataSource: BridgePaneProductFileMetadataProducing {
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
         productAdmission _: BridgeProductAdmissionContext,
+        foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {}
 
     func update(
         subscription _: BridgeProductSubscriptionSnapshot,
         productAdmission _: BridgeProductAdmissionContext,
+        foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {}
 
@@ -323,12 +327,14 @@ private actor PacingFileMetadataSource: BridgePaneProductFileMetadataProducing {
 
     func publish(
         status _: GitWorkingTreeStatus,
-        productAdmission _: BridgeProductAdmissionContext
+        productAdmission _: BridgeProductAdmissionContext,
+        foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission
     ) -> [BridgePaneProductFileMetadataEmission] { [] }
 
     func publish(
         changeset _: FileChangeset,
-        productAdmission _: BridgeProductAdmissionContext
+        productAdmission _: BridgeProductAdmissionContext,
+        foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission
     ) async throws -> [BridgePaneProductFileMetadataEmission] {
         []
     }

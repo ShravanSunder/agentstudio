@@ -1434,6 +1434,120 @@
           }
         }
       }
+    },
+    {
+      "name": "pane presentation uses unknown native activity",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "pane.presentation",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-presentation-1",
+        "streamSequence": 1,
+        "activityRevision": 1,
+        "nativeActivity": "background",
+        "refreshingLanes": []
+      }
+    },
+    {
+      "name": "pane presentation uses zero activity revision",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "pane.presentation",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-presentation-1",
+        "streamSequence": 1,
+        "activityRevision": 0,
+        "nativeActivity": "foreground",
+        "refreshingLanes": []
+      }
+    },
+    {
+      "name": "pane presentation activity revision exceeds safe integer",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "pane.presentation",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-presentation-1",
+        "streamSequence": 1,
+        "activityRevision": 9007199254740992,
+        "nativeActivity": "foreground",
+        "refreshingLanes": []
+      }
+    },
+    {
+      "name": "pane presentation repeats refreshing lane",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "pane.presentation",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-presentation-1",
+        "streamSequence": 1,
+        "activityRevision": 1,
+        "nativeActivity": "foreground",
+        "refreshingLanes": [
+          "file",
+          "file"
+        ]
+      }
+    },
+    {
+      "name": "pane presentation uses unknown refreshing lane",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "pane.presentation",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-presentation-1",
+        "streamSequence": 1,
+        "activityRevision": 1,
+        "nativeActivity": "foreground",
+        "refreshingLanes": [
+          "metadata"
+        ]
+      }
+    },
+    {
+      "name": "pane presentation uses noncanonical refreshing lane order",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "pane.presentation",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-presentation-1",
+        "streamSequence": 1,
+        "activityRevision": 1,
+        "nativeActivity": "foreground",
+        "refreshingLanes": [
+          "review",
+          "file"
+        ]
+      }
+    },
+    {
+      "name": "pane presentation carries unknown field",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "pane.presentation",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-presentation-1",
+        "streamSequence": 1,
+        "activityRevision": 1,
+        "nativeActivity": "foreground",
+        "refreshingLanes": [],
+        "surface": "file"
+      }
     }
   ]
 }

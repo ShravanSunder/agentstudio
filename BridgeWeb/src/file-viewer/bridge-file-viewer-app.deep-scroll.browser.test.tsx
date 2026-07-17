@@ -56,13 +56,16 @@ import {
 } from './bridge-file-viewer-browser-test-harness.js';
 import {
 	assertCompleteFileDeepScrollSourceOracle,
+	assertCompleteFilePositionSurvivesModeSwitch,
 	completeFileDeepScrollFixture,
 	completeFileDeepScrollTreeRowCount,
 	makeCompleteFileDeepScrollDescriptor,
 	makeCompleteFileDeepScrollMetadataEvents,
 	makeCorruptedCompleteFileDeepScrollContent,
+	settleCompleteFilePierreWorkerPoolInitialization,
 	type DeepScrollSurfacePaintSnapshot,
 	waitForCompleteFileDeepScrollTerminalState,
+	waitForDeepScrollRouteElement,
 } from './bridge-file-viewer-deep-scroll-test-support.js';
 
 const deepScrollSelectedPath = 'File-000.swift';
@@ -163,6 +166,7 @@ describe('BridgeFileViewerApp sustained deep scrolling', () => {
 				/>
 			</div>,
 		);
+		await settleCompleteFilePierreWorkerPoolInitialization(routePierreWorkerFactory.workerFactory);
 
 		await waitForMetadataTreeRowCount(completeFileDeepScrollTreeRowCount);
 		await waitForTreeScrollHeightAtLeast(completeFileDeepScrollTreeRowCount * 24);
@@ -291,6 +295,11 @@ describe('BridgeFileViewerApp sustained deep scrolling', () => {
 		expect(owners.codeScrollOwner.scrollTop).toBeGreaterThanOrEqual(
 			owners.codeScrollOwner.scrollHeight - owners.codeScrollOwner.clientHeight - 1,
 		);
+		await assertCompleteFilePositionSurvivesModeSwitch({
+			codeScrollOwner: owners.codeScrollOwner,
+			expectedSelectedPath: deepScrollSelectedPath,
+			treeScrollOwner: owners.treeScrollOwner,
+		});
 	});
 
 	test('rejects same-size middle-byte corruption before publishing a ready Pierre item', async () => {
@@ -877,22 +886,4 @@ async function waitForPierreWorkerRouteReady(props: { readonly attempt: number }
 	}
 	await actFrame();
 	await waitForPierreWorkerRouteReady({ attempt: props.attempt + 1 });
-}
-
-async function waitForDeepScrollRouteElement(props: {
-	readonly attempt: number;
-	readonly selector: string;
-}): Promise<HTMLElement> {
-	const element = document.querySelector(props.selector);
-	if (element instanceof HTMLElement) {
-		return element;
-	}
-	if (props.attempt >= 120) {
-		throw new Error(`FILE_DEEP_SCROLL_HARNESS_INVALID: missing route element ${props.selector}.`);
-	}
-	await actFrame();
-	return await waitForDeepScrollRouteElement({
-		attempt: props.attempt + 1,
-		selector: props.selector,
-	});
 }

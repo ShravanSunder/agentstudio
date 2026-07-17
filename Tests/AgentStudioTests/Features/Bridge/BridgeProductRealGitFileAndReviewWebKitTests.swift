@@ -221,6 +221,53 @@ extension WebKitSerializedTests {
             assertTransactionalPublicationProof(run)
         }
 
+        @Test("two hosted panes isolate native hidden admission and retain worker state")
+        func twoHostedPanesIsolateHiddenAdmissionAndRetainWorkerState() async throws {
+            // Arrange / Act
+            let proof = try await BridgeProductWebKitTwoPaneJourneyTestSupport.run()
+
+            // Assert
+            #expect(proof.dormantDefaults.activeMode == "review")
+            #expect(proof.dormantDefaults.reviewSelectedPath == nil)
+            #expect(proof.staleForegroundAdmissionWasRejected)
+            #expect(proof.hiddenStatus.fileStatusText == nil)
+            #expect(proof.hiddenStatus.reviewStatusText == nil)
+            #expect(proof.hiddenDirtyGeneration != nil)
+            #expect(proof.hiddenRefreshPassCountAfterStorm == proof.hiddenRefreshPassCountBeforeStorm)
+            #expect(proof.hiddenMetadataSequenceAfterStorm == proof.hiddenMetadataSequenceBeforeStorm)
+            #expect(
+                proof.hiddenReviewPublicationCountAfterLateRelease
+                    == proof.hiddenReviewPublicationCountBeforeLateRelease
+            )
+            #expect(proof.paneOneFinalRefreshPassCount == proof.paneOneForegroundRefreshPassCount + 1)
+            #expect(proof.updatingReviewStatus.reviewStatusText == "Updating review…")
+            #expect(proof.updatingReviewStatus.fileStatusText == nil)
+            #expect(proof.updatingFileStatus.fileStatusText == "Updating files…")
+            #expect(proof.updatingFileStatus.reviewStatusText == nil)
+            #expect(proof.paneOneWorkerIdBeforeHide == proof.paneOneWorkerIdAfterReturn)
+            #expect(proof.paneOneWorkerIdAfterReturn != proof.paneTwoWorkerIdAfterJourney)
+            #expect(proof.paneTwoWorkerIdBeforeJourney == proof.paneTwoWorkerIdAfterJourney)
+            #expect(proof.paneTwoActivityAfterJourney == .foreground)
+            #expect(proof.paneTwoStateAfterJourney.activeMode == proof.paneTwoStateBeforeJourney.activeMode)
+            #expect(
+                proof.paneTwoStateAfterJourney.reviewSelectedItemId
+                    == proof.paneTwoStateBeforeJourney.reviewSelectedItemId
+            )
+            #expect(
+                proof.paneTwoStateAfterJourney.reviewSelectedPath
+                    == proof.paneTwoStateBeforeJourney.reviewSelectedPath
+            )
+            #expect(
+                proof.reviewStateAfterReturn.reviewSelectedItemId
+                    == proof.initialReviewState.reviewSelectedItemId
+            )
+            #expect(
+                proof.reviewStateAfterReturn.reviewSelectedPath
+                    == proof.initialReviewState.reviewSelectedPath
+            )
+            #expect(proof.fileStateAfterReturn.activeMode == "file")
+        }
+
         private func makeTransactionalPublicationHarness(
             repoURL: URL
         ) -> TransactionalPublicationHarness {
@@ -301,6 +348,8 @@ extension WebKitSerializedTests {
             traceRecorder: BridgeProductWebKitCarrierTraceRecorder
         ) -> (BridgePaneProductSchemeProvider, BridgePaneProductCommittedCallTarget) {
             let committedCallTarget = BridgePaneProductCommittedCallTarget()
+            let refreshWorkAdmission =
+                BridgePaneRefreshWorkAdmissionTestContext.foregroundOnMainActor()
             let provider = BridgePaneProductSchemeProvider(
                 fileMetadataSource: fileMetadataSource,
                 reviewMetadataSource: reviewMetadataSource,
@@ -339,6 +388,7 @@ extension WebKitSerializedTests {
                         productAdmission: productAdmission
                     )
                 },
+                refreshWorkAdmissionSource: refreshWorkAdmission.source,
                 lifecycleTraceRecorder: BridgeProductMetadataLifecycleTraceRecorder(
                     recorder: traceRecorder
                 )
@@ -376,6 +426,7 @@ extension WebKitSerializedTests {
                 telemetryRuntimePolicy: .live,
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
                 telemetryRecorder: input.traceRecorder,
+                initialPaneActivity: .foreground,
                 productSessionDependencies: BridgePaneProductSessionDependencies(
                     installation: input.installation,
                     owner: BridgePaneController.makeProductSessionOwner(
@@ -650,7 +701,8 @@ extension WebKitSerializedTests {
                 ),
                 telemetryRuntimePolicy: .live,
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
-                telemetryRecorder: traceRecorder
+                telemetryRecorder: traceRecorder,
+                initialPaneActivity: .foreground
             )
         }
 

@@ -189,6 +189,7 @@ extension BridgeProductMetadataFrame {
     var producerFrameIdentity: BridgeProductMetadataFrameIdentity {
         switch self {
         case .metadataStreamAccepted(let frame): frame.frameIdentity
+        case .panePresentation(let frame): frame.frameIdentity
         case .subscriptionAccepted(let frame): frame.frameIdentity
         case .subscriptionInterestsCommitted(let frame): frame.identity.frameIdentity
         case .subscriptionData(let frame): frame.frameIdentity

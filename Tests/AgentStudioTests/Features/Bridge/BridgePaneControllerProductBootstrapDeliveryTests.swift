@@ -23,6 +23,7 @@ struct BridgePaneControllerProductBootstrapDeliveryTests {
                 source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
             ),
             reviewSourceProvider: reviewFixture.sourceProvider,
+            initialPaneActivity: .foreground,
             productSessionBootstrapSink: { _, _, installation, _, _ in
                 deliveredInstallations.append(installation)
                 if deliveredInstallations.count == 1 {
@@ -134,6 +135,7 @@ struct BridgePaneControllerProductBootstrapDeliveryTests {
         let controller = BridgePaneController(
             paneId: paneId,
             state: BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "close-bootstrap")),
+            initialPaneActivity: .foreground,
             productSessionDependencies: BridgePaneProductSessionDependencies(
                 installation: initialInstallation,
                 owner: owner
@@ -240,7 +242,8 @@ struct BridgePaneControllerProductBootstrapDeliveryTests {
                     cwd: URL(fileURLWithPath: "Sources")
                 )
             ),
-            reviewSourceProvider: reviewFixture.sourceProvider
+            reviewSourceProvider: reviewFixture.sourceProvider,
+            initialPaneActivity: .foreground
         )
     }
 }

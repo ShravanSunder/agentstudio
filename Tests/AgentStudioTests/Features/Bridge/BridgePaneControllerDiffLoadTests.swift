@@ -201,11 +201,13 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             contentByHandleId: [:]
         )
         let reviewMetadataSource = DiffLoadReadyPublicationGate()
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let productProvider = BridgePaneProductSchemeProvider(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
             reviewMetadataSource: reviewMetadataSource,
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
-            markReviewItemViewed: { _, _ in }
+            markReviewItemViewed: { _, _ in },
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
         )
         let paneId = UUIDv7.generate()
         let productAdmissionGate = BridgeProductAdmissionGate()
@@ -221,6 +223,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
             ),
             reviewSourceProvider: reviewSourceProvider,
+            initialPaneActivity: .foreground,
             productSessionDependencies: BridgePaneProductSessionDependencies(
                 installation: installation,
                 owner: BridgePaneController.makeProductSessionOwner(
@@ -323,7 +326,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             state: BridgePaneState(
                 panelKind: .diffViewer,
                 source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
-            )
+            ),
+            initialPaneActivity: .foreground
         )
         defer { controller.teardown() }
         let commandId = UUID()

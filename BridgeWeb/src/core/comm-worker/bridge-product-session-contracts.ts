@@ -352,6 +352,29 @@ const bridgeProductMetadataFrameStructuralSchema = z.discriminatedUnion('kind', 
 	z
 		.object({
 			...bridgeProductMetadataFrameIdentityShape,
+			activityRevision: bridgeProductPositiveSequenceSchema,
+			kind: z.literal('pane.presentation'),
+			nativeActivity: z.enum(['foreground', 'loadedHidden', 'dormant', 'closed']),
+			refreshingLanes: z
+				.array(z.enum(['file', 'review']))
+				.max(2)
+				.refine(
+					(lanes): boolean => {
+						if (new Set(lanes).size !== lanes.length) return false;
+						return lanes.every((lane, index): boolean => {
+							if (index === 0) return true;
+							const precedingLane = lanes[index - 1];
+							return precedingLane !== undefined && precedingLane < lane;
+						});
+					},
+					{ message: 'Bridge pane refreshing lanes must be unique and canonical.' },
+				),
+			streamSequence: bridgeProductPositiveSequenceSchema,
+		})
+		.strict(),
+	z
+		.object({
+			...bridgeProductMetadataFrameIdentityShape,
 			...bridgeProductSubscriptionFrameIdentityShape,
 			interestRevision: z.literal(0),
 			kind: z.literal('subscription.accepted'),

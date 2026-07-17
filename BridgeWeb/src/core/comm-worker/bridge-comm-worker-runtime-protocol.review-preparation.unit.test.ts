@@ -729,11 +729,12 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		);
 
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
+			'reviewRenderPatch',
 			'reviewDisplayPatch',
 			'slicePatch',
 			'health',
 		]);
-		expect(postedMessages[1]?.message).toMatchObject({
+		expect(postedMessages[2]?.message).toMatchObject({
 			kind: 'slicePatch',
 			epoch: 2,
 			sequence: 11,

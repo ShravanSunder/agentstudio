@@ -620,6 +620,53 @@
       "resumeDisposition": "snapshot_required"
     },
     {
+      "kind": "pane.presentation",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-presentation-1",
+      "streamSequence": 1,
+      "activityRevision": 1,
+      "nativeActivity": "foreground",
+      "refreshingLanes": [
+        "file",
+        "review"
+      ]
+    },
+    {
+      "kind": "pane.presentation",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-presentation-1",
+      "streamSequence": 2,
+      "activityRevision": 2,
+      "nativeActivity": "loadedHidden",
+      "refreshingLanes": []
+    },
+    {
+      "kind": "pane.presentation",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-presentation-1",
+      "streamSequence": 3,
+      "activityRevision": 3,
+      "nativeActivity": "dormant",
+      "refreshingLanes": []
+    },
+    {
+      "kind": "pane.presentation",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-presentation-1",
+      "streamSequence": 4,
+      "activityRevision": 4,
+      "nativeActivity": "closed",
+      "refreshingLanes": []
+    },
+    {
       "kind": "subscription.accepted",
       "wireVersion": 2,
       "paneSessionId": "pane-session-1",

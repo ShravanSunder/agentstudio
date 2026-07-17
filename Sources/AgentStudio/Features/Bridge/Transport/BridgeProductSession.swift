@@ -157,6 +157,21 @@ actor BridgeProductSession {
         } ?? .rejected(.lifecycleClosed)
     }
 
+    func enqueueRequiredContentOpeningFrame(
+        for lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        build: @Sendable (Int) throws -> BridgeProductProducerFrame
+    ) throws -> BridgeProductProducerEnqueueResult {
+        try foregroundWorkAdmission.withValidAdmission {
+            try enqueueRequiredProducerOpeningFrame(
+                for: lease,
+                productAdmission: productAdmission,
+                build: build
+            )
+        } ?? .rejected(.lifecycleClosed)
+    }
+
     func enqueueProducerFrame(
         for lease: BridgeProductProducerLease,
         productAdmission: BridgeProductAdmissionContext,
@@ -177,6 +192,23 @@ actor BridgeProductSession {
         } ?? .rejected(.lifecycleClosed)
     }
 
+    func enqueueContentFrame(
+        for lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        build: @Sendable (Int) throws -> BridgeProductProducerFrame,
+        overflowReset: @Sendable (Int) throws -> BridgeProductProducerFrame
+    ) throws -> BridgeProductProducerEnqueueResult {
+        try foregroundWorkAdmission.withValidAdmission {
+            try enqueueProducerFrame(
+                for: lease,
+                productAdmission: productAdmission,
+                build: build,
+                overflowReset: overflowReset
+            )
+        } ?? .rejected(.lifecycleClosed)
+    }
+
     func enqueueTerminalProducerFrame(
         for lease: BridgeProductProducerLease,
         productAdmission: BridgeProductAdmissionContext,
@@ -189,6 +221,21 @@ actor BridgeProductSession {
             let result = try producerRegistry.enqueueTerminalFrame(for: lease, build: build)
             resumeProducerFrameWaiterIfPossible(for: lease)
             return result
+        } ?? .rejected(.lifecycleClosed)
+    }
+
+    func enqueueTerminalContentFrame(
+        for lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        build: @Sendable (Int) throws -> BridgeProductProducerFrame
+    ) throws -> BridgeProductProducerEnqueueResult {
+        try foregroundWorkAdmission.withValidAdmission {
+            try enqueueTerminalProducerFrame(
+                for: lease,
+                productAdmission: productAdmission,
+                build: build
+            )
         } ?? .rejected(.lifecycleClosed)
     }
 

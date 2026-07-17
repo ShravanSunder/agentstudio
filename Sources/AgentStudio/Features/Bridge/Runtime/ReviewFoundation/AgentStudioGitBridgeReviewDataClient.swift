@@ -456,7 +456,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
 
     private func bridgeChangedFile(_ file: GitDiffFile) -> BridgeEndpointChangedFile {
         BridgeEndpointChangedFile(
-            fileId: file.fileId,
+            fileId: BridgeDirectGitDiffFileIdNormalizer.normalize(file.fileId),
             path: file.path,
             oldPath: file.previousPath,
             changeKind: bridgeChangeKind(file.changeKind),
@@ -763,5 +763,29 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
 extension AgentStudioGitBridgeReviewDataClient where LocalClient == LibGit2AgentStudioGitLocalClient {
     init(repositoryPath: URL) {
         self.init(repositoryPath: repositoryPath, client: LibGit2AgentStudioGitLocalClient())
+    }
+}
+
+private enum BridgeDirectGitDiffFileIdNormalizer {
+    private static let itemIdPrefixByteCount = "item-".utf8.count
+    private static let maximumFileIdByteCount =
+        BridgeProductWireContract.maximumIdentifierByteLength - itemIdPrefixByteCount
+    private static let allowedIdentifierCharacters = CharacterSet(
+        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:-"
+    )
+    private static let hashDomain = "agentstudio-bridge-direct-git-diff-file-id-v1"
+
+    static func normalize(_ candidate: String) -> String {
+        if !candidate.isEmpty,
+            candidate.utf8.count <= maximumFileIdByteCount,
+            candidate.unicodeScalars.allSatisfy({ allowedIdentifierCharacters.contains($0) })
+        {
+            return candidate
+        }
+        let hashInput = Data("\(hashDomain):\(candidate)".utf8)
+        let digest = SHA256.hash(data: hashInput)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return "git-diff-\(digest)"
     }
 }

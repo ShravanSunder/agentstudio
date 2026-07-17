@@ -284,6 +284,142 @@ extension WebKitSerializedTests {
             #expect(await provider.recordedComparisonRequestsCount() == 0)
         }
 
+        @Test("failed initial Review publication does not self-retry without new intake")
+        func failedInitialReviewPublicationDoesNotSelfRetryWithoutNewIntake() async throws {
+            // Arrange — the slash produces an invalid Review item identifier at the metadata
+            // reservation boundary while leaving the native pane in its initial loading state.
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                    changedFiles: [
+                        makeBridgeEndpointChangedFile(
+                            fileId: "nested/source",
+                            path: "Sources/App/View.swift",
+                            sizeBytes: 100
+                        )
+                    ]
+                ),
+                contentByHandleId: [:]
+            )
+            let controller = makeController(
+                source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged),
+                worktreeId: UUIDv7.generate(),
+                provider: provider
+            )
+            defer { controller.teardown() }
+
+            // Act — wait for the exact scheduled attempt, not for elapsed time. A completion
+            // callback that manufactures another intake replaces activeReviewRefreshTask before
+            // this captured task returns.
+            controller.scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
+            let firstAttempt = try #require(controller.activeReviewRefreshTask)
+            await firstAttempt.value
+
+            // Assert
+            #expect(await provider.recordedComparisonRequestsCount() == 1)
+            #expect(controller.activeReviewRefreshTask == nil)
+            #expect(controller.paneState.diff.status == .loading)
+            #expect(controller.paneState.diff.packageMetadata == nil)
+        }
+
+        @Test("real-git multi-window fixture commits one initial Review package")
+        func realGitMultiWindowFixtureCommitsOneInitialReviewPackage() async throws {
+            // Arrange
+            let repoURL = try FilesystemTestGitRepo.create(
+                named: "bridge-review-initial-load-multi-window"
+            )
+            defer { FilesystemTestGitRepo.destroy(repoURL) }
+            try seedRealGitMultiWindowFixture(at: repoURL)
+            let paneId = UUIDv7.generate()
+            let repoId = UUIDv7.generate()
+            let worktreeId = UUIDv7.generate()
+            let controller = BridgePaneController(
+                paneId: paneId,
+                state: BridgePaneState(
+                    panelKind: .diffViewer,
+                    source: .workspace(
+                        rootPath: repoURL.path,
+                        baseline: .localDefaultBranch(branchName: "main")
+                    )
+                ),
+                metadata: PaneMetadata(
+                    paneId: PaneId(uuid: paneId),
+                    contentType: .diff,
+                    launchDirectory: repoURL,
+                    title: "Real Git Initial Review",
+                    facets: PaneContextFacets(
+                        repoId: repoId,
+                        worktreeId: worktreeId,
+                        worktreeName: "real-git-initial-review",
+                        cwd: repoURL
+                    )
+                ),
+                reviewSourceProvider: BridgeReviewSourceProviderFactory.gitProvider(
+                    repositoryPath: repoURL
+                ),
+                initialPaneActivity: .foreground
+            )
+            defer { controller.teardown() }
+
+            // Act
+            let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+
+            // Assert
+            guard case .success = result else {
+                Issue.record(
+                    "Expected one real-git initial load to commit; result=\(String(describing: result)), status=\(controller.paneState.diff.status), error=\(controller.paneState.diff.error ?? "none"), publication=\(controller.reviewPublicationCoordinator.diagnosticSnapshot), generation=\(controller.nextReviewGeneration.rawValue)"
+                )
+                return
+            }
+            let package = try #require(controller.paneState.diff.packageMetadata)
+            #expect(controller.paneState.diff.status == .ready)
+            #expect(package.orderedItemIds.count >= 37)
+            #expect(controller.reviewPublicationCoordinator.diagnosticSnapshot.active != nil)
+        }
+
+        @Test("real-git multi-window package fits Review metadata reservation")
+        func realGitMultiWindowPackageFitsReviewMetadataReservation() async throws {
+            // Arrange
+            let repoURL = try FilesystemTestGitRepo.create(
+                named: "bridge-review-metadata-reservation-multi-window"
+            )
+            defer { FilesystemTestGitRepo.destroy(repoURL) }
+            try seedRealGitMultiWindowFixture(at: repoURL)
+            let repoId = UUIDv7.generate()
+            let worktreeId = UUIDv7.generate()
+            let provider = BridgeReviewSourceProviderFactory.gitProvider(repositoryPath: repoURL)
+            let pipeline = BridgeReviewPipeline(provider: provider)
+            let productAdmission = try #require(BridgeProductAdmissionGate().acquire())
+            let result = try await pipeline.loadPackage(
+                makeRealGitMultiWindowPipelineRequest(
+                    repoId: repoId,
+                    worktreeId: worktreeId
+                )
+            )
+            let source = BridgePaneProductReviewMetadataSource()
+
+            // Act
+            let reservation: BridgeReviewMetadataPublicationReservation
+            do {
+                reservation = try await source.reserve(
+                    package: result.package,
+                    publicationId: UUIDv7.generate(),
+                    productAdmission: productAdmission
+                )
+            } catch {
+                Issue.record(
+                    "Expected Review metadata reservation to accept the real-git package; errorType=\(String(describing: type(of: error))), error=\(String(describing: error)), items=\(result.package.orderedItemIds.count)"
+                )
+                return
+            }
+
+            // Assert
+            #expect(result.package.orderedItemIds.count >= 37)
+            #expect(reservation.packageId == result.package.packageId)
+            #expect(reservation.reviewGeneration == result.package.reviewGeneration)
+        }
+
         @Test("file viewer controller loads its initial review package for a review switch")
         func fileViewerControllerLoadsInitialReviewPackage() async {
             let worktreeId = UUIDv7.generate()
@@ -335,7 +471,80 @@ extension WebKitSerializedTests {
                     title: "Bridge Review",
                     facets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId)
                 ),
-                reviewSourceProvider: provider
+                reviewSourceProvider: provider,
+                initialPaneActivity: .foreground
+            )
+        }
+
+        private func seedRealGitMultiWindowFixture(at repoURL: URL) throws {
+            try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
+            for index in 0..<36 {
+                let directory = repoURL.appending(
+                    path: String(format: "Sources/Group%02d", index / 9)
+                )
+                try FileManager.default.createDirectory(
+                    at: directory,
+                    withIntermediateDirectories: true
+                )
+                try "review item \(index)\n".write(
+                    to: directory.appending(path: String(format: "item-%03d.txt", index)),
+                    atomically: true,
+                    encoding: .utf8
+                )
+            }
+            let largeBody = (0..<520).map { "large line \($0)" }.joined(separator: "\n")
+            try "\(largeBody)\n".write(
+                to: repoURL.appending(path: "Sources/Group00/large-position.txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        private func makeRealGitMultiWindowPipelineRequest(
+            repoId: UUID,
+            worktreeId: UUID
+        ) -> BridgeReviewPipelineRequest {
+            let base = BridgeSourceEndpoint(
+                endpointId: "baseline-local-default",
+                kind: .gitRef,
+                repoId: repoId,
+                worktreeId: worktreeId,
+                label: "main",
+                createdAtUnixMilliseconds: 1,
+                contentSetHash: nil,
+                providerIdentity: "main"
+            )
+            let head = BridgeSourceEndpoint(
+                endpointId: "working-tree",
+                kind: .workingTree,
+                repoId: repoId,
+                worktreeId: worktreeId,
+                label: "Working tree",
+                createdAtUnixMilliseconds: 1,
+                contentSetHash: nil,
+                providerIdentity: "working-tree:\(worktreeId.uuidString)"
+            )
+            return BridgeReviewPipelineRequest(
+                packageId: "real-git-multi-window-package",
+                query: BridgeReviewQuery(
+                    queryId: "real-git-multi-window-query",
+                    queryKind: .compare,
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    baseEndpointId: base.endpointId,
+                    headEndpointId: head.endpointId,
+                    comparisonSemantics: .workingTreeDelta,
+                    pathScope: [],
+                    fileTarget: nil,
+                    viewFilter: BridgeViewFilter(),
+                    grouping: BridgeChangeGrouping(kind: .flat),
+                    provenanceFilter: BridgeProvenanceFilter()
+                ),
+                baseEndpoint: base,
+                headEndpoint: head,
+                checkpointIds: [],
+                reviewGeneration: 1,
+                generatedAtUnixMilliseconds: 1
             )
         }
     }

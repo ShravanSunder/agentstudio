@@ -6,7 +6,10 @@ import {
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
 import type { BridgeWorkerReviewContentRequestDescriptor } from './bridge-worker-contracts.js';
-import { fetchBridgeWorkerReviewContentResource } from './bridge-worker-review-content-fetch.js';
+import {
+	createSharedBridgeWorkerReviewContentResourceFetch,
+	fetchBridgeWorkerReviewContentResource,
+} from './bridge-worker-review-content-fetch.js';
 
 describe('Bridge worker review content fetch', () => {
 	test('opens typed Review content descriptors through the product content stream', async () => {
@@ -120,7 +123,54 @@ describe('Bridge worker review content fetch', () => {
 		).rejects.toThrow();
 		expect(openCallCount).toBe(0);
 	});
+
+	test('does not reuse an aborted shared fetch for a new activity signal', async () => {
+		// Arrange
+		const descriptor = makeContentRequestDescriptor({ role: 'head', text: 'fixture' });
+		const openedSignals: AbortSignal[] = [];
+		const fetchReviewContentResource = createSharedBridgeWorkerReviewContentResourceFetch({
+			openContent: (openedDescriptor, abortSignal) => {
+				openedSignals.push(abortSignal);
+				if (openedSignals.length > 1) {
+					return makeImmediateReviewContentStream(openedDescriptor, 'fresh foreground content');
+				}
+				return makeAbortRejectedReviewContentStream(abortSignal);
+			},
+		});
+		const hiddenActivity = new AbortController();
+		const foregroundActivity = new AbortController();
+		const hiddenFetch = fetchReviewContentResource(descriptor, hiddenActivity.signal);
+		expect(openedSignals).toEqual([hiddenActivity.signal]);
+
+		// Act
+		hiddenActivity.abort('pane-hidden');
+		const foregroundFetch = fetchReviewContentResource(descriptor, foregroundActivity.signal);
+		const [hiddenResult, foregroundResult] = await Promise.allSettled([
+			hiddenFetch,
+			foregroundFetch,
+		]);
+
+		// Assert
+		expect(openedSignals).toEqual([hiddenActivity.signal, foregroundActivity.signal]);
+		expect(hiddenResult.status).toBe('rejected');
+		expect(foregroundResult.status).toBe('fulfilled');
+	});
 });
+
+function makeAbortRejectedReviewContentStream(
+	abortSignal: AbortSignal,
+): BridgeProductContentStream<'review.content'> {
+	return {
+		contentKind: 'review.content',
+		contentRequestId: 'content-request-aborted-activity',
+		frames: emptyContentFrames(),
+		terminal: new Promise((_, reject): void => {
+			abortSignal.addEventListener('abort', (): void => reject(abortSignal.reason), {
+				once: true,
+			});
+		}),
+	};
+}
 
 function makeReviewContentErrorStream(
 	descriptor: BridgeWorkerReviewContentRequestDescriptor,

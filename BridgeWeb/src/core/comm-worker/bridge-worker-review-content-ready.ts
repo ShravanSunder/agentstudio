@@ -168,7 +168,11 @@ export function bridgeWorkerReviewRenderPatchesFromSlicePatchEvent(
 		throw new Error('Bridge worker Review content-ready commit produced an invalid patch event.');
 	}
 	return event.patches.map((patch): BridgeWorkerReviewRenderPatch => {
-		if (patch.slice !== 'rowPaint' && patch.slice !== 'contentAvailability') {
+		if (
+			patch.slice !== 'rowPaint' &&
+			patch.slice !== 'contentAvailability' &&
+			patch.slice !== 'panelChrome'
+		) {
 			throw new Error('Bridge worker Review content-ready commit produced a non-render patch.');
 		}
 		return patch;

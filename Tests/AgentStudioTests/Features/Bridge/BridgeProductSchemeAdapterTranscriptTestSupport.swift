@@ -300,10 +300,13 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
             data = fileSourceData
         }
         do {
+            let foregroundWorkAdmission =
+                await BridgePaneRefreshWorkAdmissionTestContext.foreground().admission
             let result = try await metadataSession.enqueueSubscriptionData(
                 subscriptionId: subscription.subscriptionId,
                 data: data,
-                productAdmission: productAdmission
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission
             )
             guard case .enqueued = result else {
                 producerFailures.append("subscription source frame rejected")

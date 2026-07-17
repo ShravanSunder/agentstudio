@@ -51,6 +51,7 @@ extension BridgePaneProductFileMetadataSourceTests {
         // Arrange
         let fixture = try ProductFileSourceFixture(fileCount: 1)
         defer { fixture.remove() }
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let refreshGate = ProductFileRefreshGate()
         let source = fixture.makeSource(treeRowRefresher: { rootURL, paths, includeAncestors in
             await refreshGate.refresh(
@@ -85,7 +86,8 @@ extension BridgePaneProductFileMetadataSourceTests {
                     timestamp: .now,
                     batchSeq: 5
                 ),
-                productAdmission: fixture.productAdmission.context
+                productAdmission: fixture.productAdmission.context,
+                foregroundWorkAdmission: refreshWorkAdmission.admission
             )
         }
         await refreshGate.waitUntilStarted()

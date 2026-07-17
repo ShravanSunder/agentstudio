@@ -103,7 +103,8 @@ extension WebKitSerializedTests {
                 reviewSourceProvider: reviewSourceProvider,
                 telemetryScopeGate: telemetryScopeGate,
                 telemetryRecorder: telemetryRecorder,
-                traceContextFactory: traceContextFactory
+                traceContextFactory: traceContextFactory,
+                initialPaneActivity: .foreground
             )
         }
 

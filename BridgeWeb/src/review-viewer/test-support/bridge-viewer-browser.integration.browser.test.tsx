@@ -661,6 +661,8 @@ function makeReadyReviewPresentationState(
 		presentationKey,
 		shellProps: {
 			onSelectItem: (): void => {},
+			panelChromeSlice: {},
+			presentationPositionKey: `browser-review-position:${presentationKey}`,
 			presentationRegistry: createBridgeReviewItemRegistry({ reviewPackage }),
 			projection: buildBridgeReviewProjection({
 				reviewPackage,

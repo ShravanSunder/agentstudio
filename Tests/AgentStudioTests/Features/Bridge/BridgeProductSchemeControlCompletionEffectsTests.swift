@@ -16,13 +16,16 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
             capabilityBytes: capabilityBytes
         )
         let recorder = await MainActor.run { BridgeProductCallMutationRecorder() }
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let provider = BridgePaneProductSchemeProvider(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
-            reviewContentSource: BridgeUnavailablePaneProductReviewContentSource()
-        ) { itemId, _ in
-            recorder.record(itemId)
-        }
+            reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
+            markReviewItemViewed: { itemId, _ in
+                recorder.record(itemId)
+            },
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
+        )
         let productAdmission = try BridgeProductAdmissionTestContext.make().context
         let dispatcher = makeBridgeProductSchemeControlDispatcher(
             session: session,
@@ -76,6 +79,7 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
             capabilityBytes: capabilityBytes
         )
         let recorder = await MainActor.run { BridgeProductCallMutationRecorder() }
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let provider = BridgePaneProductSchemeProvider(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
@@ -84,7 +88,8 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
                 recorder.record(publicationId)
                 return true
             },
-            markReviewItemViewed: { _, _ in }
+            markReviewItemViewed: { _, _ in },
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
         )
         let productAdmission = try BridgeProductAdmissionTestContext.make().context
         let dispatcher = makeBridgeProductSchemeControlDispatcher(
@@ -246,11 +251,14 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
             workerInstanceId: bridgeProductTestWorkerInstanceId,
             capabilityBytes: capabilityBytes
         )
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let provider = BridgePaneProductSchemeProvider(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
-            reviewContentSource: BridgeUnavailablePaneProductReviewContentSource()
-        ) { _, _ in }
+            reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
+            markReviewItemViewed: { _, _ in },
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
+        )
         let productAdmission = try BridgeProductAdmissionTestContext.make().context
         let dispatcher = makeBridgeProductSchemeControlDispatcher(
             session: session,

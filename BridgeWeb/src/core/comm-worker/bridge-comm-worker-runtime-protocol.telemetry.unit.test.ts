@@ -17,7 +17,10 @@ import {
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
 import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
 import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
-import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import type {
+	BridgeProductPanePresentationFrame,
+	BridgeProductTransportSession,
+} from './bridge-product-transport.js';
 import type { BridgeWorkerReviewContentRequestDescriptor } from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker runtime protocol telemetry', () => {
@@ -184,6 +187,21 @@ function makeTelemetryReviewProductTransport(props: {
 			props.deferredStreamsByDescriptorId.set(descriptor.descriptorId, deferredStream);
 			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The content-kind guard above closes this test transport to Review streams.
 			return deferredStream.stream as never;
+		},
+		setPanePresentationFrameSink: (
+			sink: (frame: BridgeProductPanePresentationFrame) => void,
+		): void => {
+			sink({
+				activityRevision: 1,
+				kind: 'pane.presentation',
+				metadataStreamId: 'telemetry-review-metadata-stream',
+				nativeActivity: 'foreground',
+				paneSessionId: 'telemetry-review-pane-session',
+				refreshingLanes: [],
+				streamSequence: 1,
+				wireVersion: 2,
+				workerInstanceId: 'telemetry-review-worker-instance',
+			});
 		},
 		subscribe: (...arguments_): never => {
 			const [subscriptionKind] = arguments_;

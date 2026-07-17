@@ -160,6 +160,17 @@ export function terminateBridgePierreWorkerPoolSingletonForTest(): void {
 	terminateWorkerPoolSingleton();
 }
 
+export async function initializeBridgePierreWorkerPoolSingletonForTest(
+	workerFactory: () => Worker,
+): Promise<BridgePierreWorkerStats> {
+	const workerPool = getOrCreateWorkerPoolSingleton({
+		highlighterOptions: createBridgePierreWorkerHighlighterOptions(),
+		poolOptions: createBridgePierreWorkerPoolOptions({ workerFactory }),
+	});
+	await workerPool.initialize();
+	return workerPool.getStats();
+}
+
 export function resetBridgePierreWorkerFactoryLoaderForTest(): void {
 	bridgePierreDefaultWorkerFactoryLoaderGeneration += 1;
 	bridgePierreDefaultWorkerFactoryPromise = null;

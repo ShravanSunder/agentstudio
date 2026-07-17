@@ -149,7 +149,11 @@ describe('Bridge CodeView metadata apply pump', () => {
 			reviewPackage,
 			request: { mode: { kind: 'normalReview' }, facets: [] },
 		});
-		const sourceKey = makeBridgeCodeViewSourceKey({ projection, reviewPackage });
+		const sourceKey = makeBridgeCodeViewSourceKey({
+			presentationPositionKey: 'metadata-apply-position',
+			projection,
+			reviewPackage,
+		});
 		const selector = createBridgeCodeViewInitialItemsForPanelSelector();
 		const seedItemIds = ['source-high', 'docs-plan'];
 
@@ -173,6 +177,7 @@ describe('Bridge CodeView metadata apply pump', () => {
 		};
 		const clonedProjection = { ...projection };
 		const clonedSourceKey = makeBridgeCodeViewSourceKey({
+			presentationPositionKey: 'metadata-apply-position',
 			projection: clonedProjection,
 			reviewPackage: clonedReviewPackage,
 		});
@@ -204,7 +209,11 @@ describe('Bridge CodeView metadata apply pump', () => {
 			reviewPackage,
 			request: { mode: { kind: 'normalReview' }, facets: [] },
 		});
-		const sourceKey = makeBridgeCodeViewSourceKey({ projection, reviewPackage });
+		const sourceKey = makeBridgeCodeViewSourceKey({
+			presentationPositionKey: 'metadata-apply-position',
+			projection,
+			reviewPackage,
+		});
 		const selector = createBridgeCodeViewInitialItemsForPanelSelector();
 
 		const firstItems = selector({
@@ -271,6 +280,7 @@ describe('Bridge CodeView metadata apply pump', () => {
 		}
 		const selector = createBridgeCodeViewMetadataDeltaItemsForPanelSelector();
 		const sourceKey = makeBridgeCodeViewSourceKey({
+			presentationPositionKey: 'metadata-apply-position',
 			projection: buildBridgeReviewProjection({
 				reviewPackage,
 				request: { mode: { kind: 'normalReview' }, facets: [] },

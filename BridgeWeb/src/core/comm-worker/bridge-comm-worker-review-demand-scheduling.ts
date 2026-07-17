@@ -18,10 +18,7 @@ import {
 	type BridgeWorkerReviewContentReadyPreparationTicket,
 } from './bridge-comm-worker-review-preparation.js';
 import { canRenderBridgeWorkerReviewContentForSemantics } from './bridge-comm-worker-review-runtime.js';
-import {
-	enqueueBridgeCommWorkerReviewSourceReset,
-	type EnqueuedBridgeCommWorkerDemandPreparationTicket,
-} from './bridge-comm-worker-review-source-reset.js';
+import { enqueueBridgeCommWorkerReviewSourceReset } from './bridge-comm-worker-review-source-reset.js';
 import { readBridgeCommWorkerRuntimeNowMilliseconds } from './bridge-comm-worker-runtime-support.js';
 import type {
 	BridgeCommWorkerStore,
@@ -43,6 +40,7 @@ interface CreateBridgeCommWorkerReviewDemandSchedulingProps {
 	readonly bridgeDemandRank: BridgeWorkerDemandRank;
 	readonly budget: BridgeWorkerPierreRenderBudget;
 	readonly createSequence: () => number;
+	readonly isWorkAdmitted?: () => boolean;
 	readonly markPreparationDrainRequired: () => void;
 	readonly now?: () => number;
 	readonly openReviewContent?: BridgeWorkerReviewContentOpen;
@@ -52,9 +50,11 @@ interface CreateBridgeCommWorkerReviewDemandSchedulingProps {
 	readonly requestPreparationDrain: () => void;
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
 	readonly usesProductTransport: boolean;
+	readonly workSignal?: () => AbortSignal;
 }
 
 export interface BridgeCommWorkerReviewDemandScheduling {
+	readonly resume: () => void;
 	readonly scheduleDemandExecution: (
 		request: BridgeCommWorkerDemandExecutionScheduleRequest,
 	) => boolean;
@@ -64,6 +64,7 @@ export interface BridgeCommWorkerReviewDemandScheduling {
 	readonly scheduleSelectedContentReadyPreparation: (
 		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 	) => void;
+	readonly suspend: () => void;
 	readonly updateRuntimeSource: (source: BridgeCommWorkerReviewRuntimeSource) => void;
 	readonly updateWorkerDerivationEpoch: (workerDerivationEpoch: number) => void;
 }
@@ -164,6 +165,9 @@ interface BridgeCommWorkerVisibleSourceChurnAdmission {
 export function createBridgeCommWorkerReviewDemandScheduling(
 	props: CreateBridgeCommWorkerReviewDemandSchedulingProps,
 ): BridgeCommWorkerReviewDemandScheduling {
+	const defaultWorkSignal = new AbortController().signal;
+	const isWorkAdmitted = props.isWorkAdmitted ?? bridgeCommWorkerWorkIsAdmitted;
+	const workSignal = props.workSignal ?? ((): AbortSignal => defaultWorkSignal);
 	let reviewRuntimeSource: BridgeCommWorkerReviewRuntimeSource = {
 		contentItems: [],
 		contentRequestDescriptors: [],
@@ -185,7 +189,13 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 			readonly ticket: BridgeWorkerReviewContentReadyPreparationTicket;
 		}
 	>();
+	const activeVisiblePreparations = new Set<BridgeWorkerReviewContentReadyPreparationTicket>();
+	const latestSelectedPreparationByItemId = new Map<
+		string,
+		BridgeCommWorkerSelectedReviewContentReadyPreparationRequest
+	>();
 	let latestDemandExecutionRequest: BridgeCommWorkerDemandExecutionScheduleRequest | null = null;
+	let latestMetadataResetRequest: BridgeCommWorkerReviewMetadataResetScheduleRequest | null = null;
 	let activeSourceResetEpoch: number | null = null;
 	let activeWorkerDerivationEpoch: number | null = null;
 
@@ -226,6 +236,10 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 		forcedSourceChurnItemIds: ReadonlySet<string> = new Set(),
 		shouldMarkSourceChurn = true,
 	): boolean => {
+		latestDemandExecutionRequest = request;
+		if (!isWorkAdmitted()) {
+			return false;
+		}
 		const workerDerivationEpoch = props.usesProductTransport
 			? activeWorkerDerivationEpoch
 			: request.epoch;
@@ -238,7 +252,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 		if (!sourceChurnAdmission.accepted) {
 			return false;
 		}
-		latestDemandExecutionRequest = request;
+		const admittedWorkSignal = workSignal();
 		const forceExecutionItemIds = new Set([
 			...sourceChurnAdmission.sourceChurnItemIds,
 			...(request.forceExecutionItemIds ?? []),
@@ -268,6 +282,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 				}
 			},
 			reviewRuntimeSource,
+			signal: admittedWorkSignal,
 			sourceChurnItemIds: forceExecutionItemIds,
 			store: request.store,
 			visibleDemandGenerationByItemId,
@@ -277,6 +292,10 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 		let startedItemCount = 0;
 		for (const ticket of tickets) {
 			if (ticket.enqueued) {
+				activeVisiblePreparations.add(ticket);
+				void ticket.completion.finally((): void => {
+					activeVisiblePreparations.delete(ticket);
+				});
 				props.recordPreparationCompletion(ticket.completion);
 				enqueued = true;
 				startedItemCount += 1;
@@ -294,6 +313,8 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 					props.requestPreparationDrain();
 				}
 			});
+		} else if (activeVisiblePreparations.size === 0 && latestDemandExecutionRequest === request) {
+			latestDemandExecutionRequest = null;
 		}
 		return enqueued;
 	};
@@ -301,6 +322,10 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 	const scheduleSelectedContentReadyPreparation = (
 		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 	): void => {
+		latestSelectedPreparationByItemId.set(request.itemId, request);
+		if (!isWorkAdmitted()) {
+			return;
+		}
 		const workerDerivationEpoch = props.usesProductTransport
 			? activeWorkerDerivationEpoch
 			: request.epoch;
@@ -331,6 +356,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 			renderSemantics: reviewRuntimeSource.renderSemantics,
 			requestPreparationDrain: props.requestPreparationDrain,
 			sequence: props.createSequence(),
+			signal: workSignal(),
 			store: request.store,
 			workerDerivationEpoch,
 			...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
@@ -343,6 +369,9 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 			const trackedCompletion = ticket.completion.finally(() => {
 				if (activeSelectedPreparationByItemId.get(request.itemId)?.ticket === ticket) {
 					activeSelectedPreparationByItemId.delete(request.itemId);
+					if (latestSelectedPreparationByItemId.get(request.itemId) === request) {
+						latestSelectedPreparationByItemId.delete(request.itemId);
+					}
 				}
 			});
 			props.recordPreparationCompletion(trackedCompletion);
@@ -350,36 +379,74 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 		}
 	};
 
-	return {
-		scheduleDemandExecution: enqueueVisibleDemandExecutionFromRequest,
-		scheduleMetadataReset: (request: BridgeCommWorkerReviewMetadataResetScheduleRequest): void => {
-			const sourceChurnAdmission = markVisibleDemandSourceChurnFromRequest({
-				affectedItemIds: request.affectedItemIds,
-				cause: request.cause,
-				epoch: request.epoch,
-				store: request.store,
-			});
-			if (!sourceChurnAdmission.accepted) return;
-			activeSourceResetEpoch = request.epoch;
-			const ticket = enqueueBridgeCommWorkerReviewSourceReset({
-				createSequence: props.createSequence,
-				isCurrentResetEpoch: () => activeSourceResetEpoch === request.epoch,
-				onResetComplete: () => {
-					if (activeSourceResetEpoch === request.epoch) {
-						activeSourceResetEpoch = null;
+	const scheduleMetadataReset = (
+		request: BridgeCommWorkerReviewMetadataResetScheduleRequest,
+	): void => {
+		latestMetadataResetRequest = request;
+		if (!isWorkAdmitted()) return;
+		const sourceChurnAdmission = markVisibleDemandSourceChurnFromRequest({
+			affectedItemIds: request.affectedItemIds,
+			cause: request.cause,
+			epoch: request.epoch,
+			store: request.store,
+		});
+		if (!sourceChurnAdmission.accepted) return;
+		activeSourceResetEpoch = request.epoch;
+		const ticket = enqueueBridgeCommWorkerReviewSourceReset({
+			createSequence: props.createSequence,
+			isCurrentResetEpoch: () => isWorkAdmitted() && activeSourceResetEpoch === request.epoch,
+			onResetComplete: () => {
+				if (activeSourceResetEpoch === request.epoch) {
+					activeSourceResetEpoch = null;
+					if (latestMetadataResetRequest === request) {
+						latestMetadataResetRequest = null;
 					}
-				},
-				pump: props.pump,
-				request,
-				requestPreparationDrain: props.requestPreparationDrain,
-				scheduleDemandExecution: enqueueVisibleDemandExecutionFromRequest,
-				scheduleSelectedReviewContentReadyPreparation: scheduleSelectedContentReadyPreparation,
-			});
-			if (ticket.enqueued) {
-				props.markPreparationDrainRequired();
+				}
+			},
+			pump: props.pump,
+			request,
+			requestPreparationDrain: props.requestPreparationDrain,
+			scheduleDemandExecution: enqueueVisibleDemandExecutionFromRequest,
+			scheduleSelectedReviewContentReadyPreparation: scheduleSelectedContentReadyPreparation,
+		});
+		if (ticket.enqueued) props.markPreparationDrainRequired();
+	};
+
+	const suspend = (): void => {
+		for (const activePreparation of activeSelectedPreparationByItemId.values()) {
+			activePreparation.ticket.cancel();
+		}
+		activeSelectedPreparationByItemId.clear();
+		for (const ticket of activeVisiblePreparations) ticket.cancel();
+		activeVisiblePreparations.clear();
+		demandInFlightItemIds.clear();
+		if (activeSourceResetEpoch !== null) {
+			props.pump.cancel(`review-source-reset:${activeSourceResetEpoch}`);
+			activeSourceResetEpoch = null;
+		}
+		pendingVisibleDemandRerunItemIds.clear();
+	};
+
+	const resume = (): void => {
+		if (!isWorkAdmitted()) return;
+		if (latestMetadataResetRequest !== null) scheduleMetadataReset(latestMetadataResetRequest);
+		if (latestDemandExecutionRequest !== null) {
+			enqueueVisibleDemandExecutionFromRequest(latestDemandExecutionRequest);
+		}
+		for (const [itemId, request] of latestSelectedPreparationByItemId) {
+			if (request.store.getState().selectedId === itemId) {
+				scheduleSelectedContentReadyPreparation(request);
 			}
-		},
+		}
+		if (props.pump.getPendingWorkIds().length > 0) props.requestPreparationDrain();
+	};
+
+	return {
+		resume,
+		scheduleDemandExecution: enqueueVisibleDemandExecutionFromRequest,
+		scheduleMetadataReset,
 		scheduleSelectedContentReadyPreparation,
+		suspend,
 		updateRuntimeSource: (source: BridgeCommWorkerReviewRuntimeSource): void => {
 			reviewRuntimeSource = source;
 		},
@@ -404,6 +471,7 @@ interface EnqueueVisibleBridgeCommWorkerReviewDemandExecutionProps {
 	readonly requestPreparationDrain: () => void;
 	readonly requestVisibleDemandRerun: (itemId: string) => void;
 	readonly reviewRuntimeSource: BridgeCommWorkerReviewRuntimeSource;
+	readonly signal: AbortSignal;
 	readonly sourceChurnItemIds: ReadonlySet<string>;
 	readonly store: BridgeCommWorkerStore;
 	readonly visibleDemandGenerationByItemId: ReadonlyMap<string, number>;
@@ -412,7 +480,7 @@ interface EnqueueVisibleBridgeCommWorkerReviewDemandExecutionProps {
 
 function enqueueVisibleBridgeCommWorkerReviewDemandExecution(
 	props: EnqueueVisibleBridgeCommWorkerReviewDemandExecutionProps,
-): readonly EnqueuedBridgeCommWorkerDemandPreparationTicket[] {
+): readonly BridgeWorkerReviewContentReadyPreparationTicket[] {
 	const membership = visibleReviewDemandMembersNeedingExecutionFromState({
 		forceExecutionItemIds: props.sourceChurnItemIds,
 		store: props.store,
@@ -427,7 +495,7 @@ function enqueueVisibleBridgeCommWorkerReviewDemandExecution(
 		membership,
 		nowMilliseconds: props.nowMilliseconds,
 	});
-	const tickets: EnqueuedBridgeCommWorkerDemandPreparationTicket[] = [];
+	const tickets: BridgeWorkerReviewContentReadyPreparationTicket[] = [];
 	for (const itemId of executionPlan.startItemIds) {
 		if (!hasReviewRuntimeSourceContent(props.reviewRuntimeSource, itemId)) {
 			continue;
@@ -457,6 +525,7 @@ function enqueueVisibleBridgeCommWorkerReviewDemandExecution(
 			renderSemantics: props.reviewRuntimeSource.renderSemantics,
 			requestPreparationDrain: props.requestPreparationDrain,
 			sequence: props.createSequence(),
+			signal: props.signal,
 			store: props.store,
 			workerDerivationEpoch: props.workerDerivationEpoch,
 		});
@@ -468,10 +537,10 @@ function enqueueVisibleBridgeCommWorkerReviewDemandExecution(
 		});
 		if (!ticket.enqueued) {
 			props.inFlightItemIds.delete(itemId);
-			tickets.push({ completion, enqueued: false });
+			tickets.push({ ...ticket, completion });
 			continue;
 		}
-		tickets.push({ completion, enqueued: true });
+		tickets.push({ ...ticket, completion });
 	}
 	return tickets;
 }
@@ -571,4 +640,8 @@ function hasReviewRuntimeSourceContent(
 			semantics,
 		})
 	);
+}
+
+function bridgeCommWorkerWorkIsAdmitted(): boolean {
+	return true;
 }

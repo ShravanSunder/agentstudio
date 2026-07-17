@@ -136,6 +136,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 		expect(dispositionKinds(dispositions)).toEqual(['queued']);
 
 		const panelProps = {
+			presentationPositionKey: 'render-fulfillment-position',
 			projection,
 			renderFulfillmentCoordinator,
 			reviewPackage,

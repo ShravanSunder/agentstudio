@@ -263,7 +263,7 @@ struct BridgeProductMetadataFrameCodecTests {
                 object: streamRequest
             )
         }
-        for frameKind in ["metadataStream.accepted", "metadataStream.error"] {
+        for frameKind in ["metadataStream.accepted", "metadataStream.error", "pane.presentation"] {
             let matchingFrames = frames.filter { $0["kind"] as? String == frameKind }
             #expect(!matchingFrames.isEmpty)
             for frame in matchingFrames {
@@ -287,6 +287,56 @@ struct BridgeProductMetadataFrameCodecTests {
             #expect(encoded["workerDerivationEpoch"] == nil)
         } else {
             Issue.record("Epoch-free metadataStream.open did not decode")
+        }
+    }
+
+    @Test("pane presentation corpus round-trips through the framed metadata codec")
+    func panePresentationCorpusRoundTripsThroughFramedMetadataCodec() throws {
+        let corpus = try fixtureCorpus()
+        let frameObjects = try #require(corpus["metadataFrames"] as? [[String: Any]])
+            .filter { $0["kind"] as? String == "pane.presentation" }
+        let frames = try frameObjects.map { object in
+            try decode(BridgeProductMetadataFrame.self, from: object)
+        }
+        var wireBytes = Data()
+
+        for frame in frames {
+            let encodedFrame = try BridgeProductMetadataFrameCodec.encode(frame)
+            let encodedObject = try encodedJSONObject(frame)
+            #expect(encodedObject["workerEpoch"] == nil)
+            #expect(encodedObject["workerDerivationEpoch"] == nil)
+            wireBytes.append(encodedFrame)
+        }
+
+        let decoder = try BridgeProductMetadataFrameDecoder()
+        #expect(try decoder.append(wireBytes) == frames)
+        try decoder.finish()
+        #expect(frames.map(\.kind) == Array(repeating: "pane.presentation", count: 4))
+        #expect(decoder.diagnostics.emittedFrameCount == 4)
+        #expect(decoder.diagnostics.failureCode == nil)
+    }
+
+    @Test("pane presentation hostile corpus is rejected by the framed metadata codec")
+    func panePresentationHostileCorpusIsRejectedByFramedMetadataCodec() throws {
+        let corpus = try fixtureCorpus(
+            relativePath: "Tests/BridgeContractFixtures/invalid/bridge-product-session-corpus.json"
+        )
+        let hostileCases = try #require(corpus["cases"] as? [[String: Any]]).filter { testCase in
+            (testCase["name"] as? String)?.hasPrefix("pane presentation") == true
+        }
+
+        #expect(hostileCases.count == 7)
+        for hostileCase in hostileCases {
+            let value = try #require(hostileCase["value"] as? [String: Any])
+            let body = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
+            let decoder = try BridgeProductMetadataFrameDecoder()
+
+            #expect(throws: (any Error).self) {
+                _ = try decoder.append(manualMetadataFrame(body: body))
+            }
+            #expect(decoder.diagnostics.emittedFrameCount == 0)
+            #expect(decoder.diagnostics.failureCode == .frameDecodeInvalid)
+            #expect(decoder.diagnostics.state == .poisoned)
         }
     }
 
@@ -716,11 +766,11 @@ struct BridgeProductMetadataFrameCodecTests {
         return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
-    private func fixtureCorpus() throws -> [String: Any] {
+    private func fixtureCorpus(
+        relativePath: String = "Tests/BridgeContractFixtures/valid/bridge-product-session-corpus.json"
+    ) throws -> [String: Any] {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let fixtureURL = projectRoot.appending(
-            path: "Tests/BridgeContractFixtures/valid/bridge-product-session-corpus.json"
-        )
+        let fixtureURL = projectRoot.appending(path: relativePath)
         let data = try Data(contentsOf: fixtureURL)
         return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }

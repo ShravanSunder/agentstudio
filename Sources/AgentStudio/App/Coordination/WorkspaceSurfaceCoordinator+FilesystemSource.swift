@@ -78,6 +78,10 @@ extension WorkspaceSurfaceCoordinator {
         let capturedPaneContextGeneration = paneContextGeneration
         let capturedTopologyGeneration = filesystemAppliedTopologyGeneration
 
+        // Product invalidation owns exact repo/worktree identity and must not be
+        // discarded when the separately derived pane projection becomes stale.
+        await publishProductFileEnvelopeIfNeeded(envelope)
+
         let indexStart = clock.now
         let projectionResult = await filesystemProjectionIndex.projectPaneFilesystem(
             PaneFilesystemProjectionRequest(
@@ -133,7 +137,6 @@ extension WorkspaceSurfaceCoordinator {
                 to: paneEventBus
             )
         }
-        await publishProductFileEnvelopeIfNeeded(envelope)
         return true
     }
 
@@ -163,6 +166,10 @@ extension WorkspaceSurfaceCoordinator {
         guard case .worktree(let worktreeEnvelope) = envelope else { return }
         guard let worktreeId = worktreeEnvelope.worktreeId else { return }
 
+        // Close the observation callback scheduling gap before admitting work from
+        // this raw event. The same canonical facts remain the sole activity mint.
+        refreshBridgePaneActivities()
+
         for bridgeView in viewRegistry.allBridgeViews.values {
             let controller = bridgeView.controller
             guard controller.runtime.metadata.repoId == worktreeEnvelope.repoId,
@@ -170,27 +177,23 @@ extension WorkspaceSurfaceCoordinator {
             else {
                 continue
             }
-            guard let productAdmission = controller.productAdmissionGate.acquire() else {
-                continue
-            }
-
             switch worktreeEnvelope.event {
             case .filesystem(.filesChanged(let changeset)):
-                await controller.productSchemeProvider?.publishFileChangeset(
-                    changeset,
-                    productAdmission: productAdmission
+                await controller.handleWorktreeProductInvalidation(
+                    .filesChanged(changeset)
                 )
             case .gitWorkingDirectory(.snapshotChanged(let snapshot)):
                 guard snapshot.worktreeId == worktreeId, snapshot.repoId == worktreeEnvelope.repoId else {
                     continue
                 }
-                await controller.productSchemeProvider?.publishFileStatus(
-                    GitWorkingTreeStatus(
-                        summary: snapshot.summary,
-                        branch: snapshot.branch,
-                        origin: nil
-                    ),
-                    productAdmission: productAdmission
+                await controller.handleWorktreeProductInvalidation(
+                    .statusChanged(
+                        GitWorkingTreeStatus(
+                            summary: snapshot.summary,
+                            branch: snapshot.branch,
+                            origin: nil
+                        )
+                    )
                 )
             case .filesystem, .gitWorkingDirectory, .forge, .security:
                 continue

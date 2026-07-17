@@ -42,7 +42,7 @@ import {
 import { makeHydratedWorkerPreparedCodeViewFileItem } from './bridge-code-view-test-fixtures.js';
 
 describe('BridgeCodeViewPanel diagnostics', () => {
-	test('keys the mounted Pierre viewer by review source and projection identity', () => {
+	test('keys the mounted Pierre viewer by pane presentation-position identity', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const sameSourceNextRevision = {
 			...reviewPackage,
@@ -61,15 +61,40 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 			request: { mode: { kind: 'plansAndSpecs' }, facets: [] },
 		});
 
-		expect(makeBridgeCodeViewSourceKey({ projection, reviewPackage: sameSourceNextRevision })).toBe(
-			makeBridgeCodeViewSourceKey({ projection, reviewPackage }),
-		);
+		const presentationPositionKey = 'review-position-1';
+		const initialSourceKey = makeBridgeCodeViewSourceKey({
+			presentationPositionKey,
+			projection,
+			reviewPackage,
+		});
 		expect(
-			makeBridgeCodeViewSourceKey({ projection, reviewPackage: differentGeneration }),
-		).not.toBe(makeBridgeCodeViewSourceKey({ projection, reviewPackage }));
+			makeBridgeCodeViewSourceKey({
+				presentationPositionKey,
+				projection,
+				reviewPackage: sameSourceNextRevision,
+			}),
+		).toBe(initialSourceKey);
 		expect(
-			makeBridgeCodeViewSourceKey({ projection: differentProjection, reviewPackage }),
-		).not.toBe(makeBridgeCodeViewSourceKey({ projection, reviewPackage }));
+			makeBridgeCodeViewSourceKey({
+				presentationPositionKey,
+				projection,
+				reviewPackage: differentGeneration,
+			}),
+		).toBe(initialSourceKey);
+		expect(
+			makeBridgeCodeViewSourceKey({
+				presentationPositionKey,
+				projection: differentProjection,
+				reviewPackage,
+			}),
+		).toBe(initialSourceKey);
+		expect(
+			makeBridgeCodeViewSourceKey({
+				presentationPositionKey: 'review-position-2',
+				projection,
+				reviewPackage,
+			}),
+		).not.toBe(initialSourceKey);
 	});
 
 	test('reconciles metadata projection changes without blanking hydrated CodeView items', () => {

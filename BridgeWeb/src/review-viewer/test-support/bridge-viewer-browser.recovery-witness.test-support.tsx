@@ -1,4 +1,4 @@
-import { act } from 'react';
+import { act, type ReactElement } from 'react';
 import { render } from 'vitest-browser-react';
 
 import { BridgeReviewViewerMode } from '../../app/bridge-app-review-viewer-mode.js';
@@ -69,6 +69,7 @@ export interface BridgeReviewRecoveryWitnessHarness {
 	readonly markFileViewedCommandCount: () => number;
 	readonly selectedItemCommandCount: () => number;
 	readonly selectionScrollToPathSampleCount: () => number;
+	readonly setActive: (isActive: boolean) => Promise<void>;
 	readonly expandedTreePaths: () => readonly string[];
 	readonly visibleCodeText: (scrollOwner: HTMLElement) => string;
 	readonly viewportCommandVisibleItemIds: () => readonly (readonly string[])[];
@@ -145,21 +146,23 @@ export function renderBridgeReviewRecoveryWitness(
 		},
 		surface: 'review',
 	};
-	const renderResult = render(
+	const telemetryRecorderRef = { current: telemetryRecorder };
+	const renderWitnessRoot = (isActive: boolean): ReactElement => (
 		<div data-testid="bridge-review-recovery-witness-root" style={{ height: 860, width: 1_440 }}>
 			<BridgeReviewViewerMode
 				codeViewWorkerPoolEnabled={false}
-				isActive={true}
+				isActive={isActive}
 				{...(props.navigationCommand === undefined
 					? {}
 					: { navigationCommand: props.navigationCommand })}
 				onActiveSourceChange={(): void => {}}
 				reviewClient={reviewClient}
-				telemetryRecorderRef={{ current: telemetryRecorder }}
+				telemetryRecorderRef={telemetryRecorderRef}
 				viewerHeaderControls={<div />}
 			/>
-		</div>,
+		</div>
 	);
+	const renderResult = render(renderWitnessRoot(true));
 	const requireMessageListener = (): ((message: BridgeWorkerServerToMainMessage) => void) => {
 		if (messageListener === null) {
 			throw new Error(
@@ -419,6 +422,13 @@ export function renderBridgeReviewRecoveryWitness(
 					sample.name === 'performance.bridge.trees.scroll_to_path' &&
 					sample.stringAttributes['agentstudio.bridge.scroll.reason'] === 'selected_path_effect',
 			).length,
+		setActive: async (isActive: boolean): Promise<void> => {
+			await act(async (): Promise<void> => {
+				renderResult.rerender(renderWitnessRoot(isActive));
+				await Promise.resolve();
+			});
+			await advanceBridgeReviewRecoveryWitnessFrames(2);
+		},
 		expandedTreePaths: (): readonly string[] =>
 			bridgeReviewRecoveryWitnessExpandedTreePaths(renderResult.container),
 		visibleCodeText: (scrollOwner: HTMLElement): string =>

@@ -68,12 +68,16 @@ extension WebKitSerializedTests {
             let controller = makeController()
             defer { controller.teardown() }
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            let foregroundWorkAdmission = try #require(
+                controller.refreshAdmissionCoordinator.acquireForegroundWork()
+            )
             let reviewPackage = try productActiveViewerReviewPackageFixture()
             #expect(
                 await controller.commitReviewPackageLoad(
                     try await productActiveViewerPreparedLoad(package: reviewPackage, delta: nil),
                     productAdmission: productAdmission,
-                    traceContext: nil
+                    traceContext: nil,
+                    foregroundWorkAdmission: foregroundWorkAdmission
                 ) == .committed
             )
             let activeSource = BridgeActiveViewerSource(
@@ -101,12 +105,16 @@ extension WebKitSerializedTests {
             let controller = makeController()
             defer { controller.teardown() }
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            let foregroundWorkAdmission = try #require(
+                controller.refreshAdmissionCoordinator.acquireForegroundWork()
+            )
             let reviewPackage = try productActiveViewerReviewPackageFixture()
             #expect(
                 await controller.commitReviewPackageLoad(
                     try await productActiveViewerPreparedLoad(package: reviewPackage, delta: nil),
                     productAdmission: productAdmission,
-                    traceContext: nil
+                    traceContext: nil,
+                    foregroundWorkAdmission: foregroundWorkAdmission
                 ) == .committed
             )
 
@@ -131,12 +139,16 @@ extension WebKitSerializedTests {
             let controller = makeController()
             defer { controller.teardown() }
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            let foregroundWorkAdmission = try #require(
+                controller.refreshAdmissionCoordinator.acquireForegroundWork()
+            )
             let reviewPackage = try productActiveViewerReviewPackageFixture()
             #expect(
                 await controller.commitReviewPackageLoad(
                     try await productActiveViewerPreparedLoad(package: reviewPackage, delta: nil),
                     productAdmission: productAdmission,
-                    traceContext: nil
+                    traceContext: nil,
+                    foregroundWorkAdmission: foregroundWorkAdmission
                 ) == .committed
             )
 
@@ -179,7 +191,8 @@ extension WebKitSerializedTests {
             let commitDisposition = await harness.controller.commitReviewPackageLoad(
                 load,
                 productAdmission: openedSubscription.productAdmission,
-                traceContext: nil
+                traceContext: nil,
+                foregroundWorkAdmission: openedSubscription.foregroundWorkAdmission
             )
             let observations = await harness.reviewMetadataRecorder.observations
 
@@ -211,6 +224,9 @@ extension WebKitSerializedTests {
                 operations: BridgeReviewDelta.Operations()
             )
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            let foregroundWorkAdmission = try #require(
+                controller.refreshAdmissionCoordinator.acquireForegroundWork()
+            )
             controller.productAdmissionGate.close()
 
             // Act
@@ -220,7 +236,8 @@ extension WebKitSerializedTests {
                     delta: reviewDelta
                 ),
                 productAdmission: productAdmission,
-                traceContext: nil
+                traceContext: nil,
+                foregroundWorkAdmission: foregroundWorkAdmission
             )
 
             // Assert
@@ -326,7 +343,8 @@ extension WebKitSerializedTests {
                 state: BridgePaneState(
                     panelKind: .fileViewer,
                     source: .workspace(rootPath: "/tmp/product-file-viewer", baseline: .unstaged)
-                )
+                ),
+                initialPaneActivity: .foreground
             )
         }
 
@@ -341,6 +359,7 @@ private enum ProductActiveViewerReviewPublicationHarnessError: Error {
 @MainActor
 private struct ProductActiveViewerReviewPublicationHarness {
     struct OpenedSubscription {
+        let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
         let metadataLease: BridgeProductProducerLease
         let productAdmission: BridgeProductAdmissionContext
     }
@@ -356,11 +375,13 @@ private struct ProductActiveViewerReviewPublicationHarness {
         let reviewMetadataRecorder = ProductActiveViewerReviewMetadataRecorder(
             controllerBox: controllerBox
         )
+        let refreshWorkAdmission = BridgePaneRefreshWorkAdmissionTestContext.foregroundOnMainActor()
         let productProvider = BridgePaneProductSchemeProvider(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
             reviewMetadataSource: reviewMetadataRecorder,
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
-            markReviewItemViewed: { _, _ in }
+            markReviewItemViewed: { _, _ in },
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
         )
         let paneId = UUIDv7.generate()
         let productAdmissionGate = BridgeProductAdmissionGate()
@@ -381,6 +402,7 @@ private struct ProductActiveViewerReviewPublicationHarness {
                 panelKind: .diffViewer,
                 source: .commit(sha: "product-ready-ordering")
             ),
+            initialPaneActivity: .foreground,
             productSessionDependencies: BridgePaneProductSessionDependencies(
                 installation: installation,
                 owner: owner,
@@ -465,6 +487,9 @@ private struct ProductActiveViewerReviewPublicationHarness {
             throw ProductActiveViewerReviewPublicationHarnessError.reviewSubscriptionRejected
         }
         return OpenedSubscription(
+            foregroundWorkAdmission: try #require(
+                controller.refreshAdmissionCoordinator.acquireForegroundWork()
+            ),
             metadataLease: metadataLease,
             productAdmission: productAdmission
         )
@@ -646,8 +671,29 @@ private func productActiveViewerReviewPackageFixture() throws -> BridgeReviewPac
     let fixtureURL = projectRoot.appending(
         path: "Tests/BridgeContractFixtures/valid/bridge-review-package.json"
     )
-    return try JSONDecoder().decode(
+    let decoded = try JSONDecoder().decode(
         BridgeReviewPackage.self,
         from: Data(contentsOf: fixtureURL)
+    )
+    let orderedItemsById = try Dictionary(
+        uniqueKeysWithValues: decoded.orderedItemIds.map { itemId in
+            (itemId, try #require(decoded.itemsById[itemId]))
+        }
+    )
+    return BridgeReviewPackage(
+        packageId: decoded.packageId,
+        schemaVersion: decoded.schemaVersion,
+        reviewGeneration: decoded.reviewGeneration,
+        revision: decoded.revision,
+        query: decoded.query,
+        baseEndpoint: decoded.baseEndpoint,
+        headEndpoint: decoded.headEndpoint,
+        orderedItemIds: decoded.orderedItemIds,
+        itemsById: orderedItemsById,
+        groups: decoded.groups,
+        summary: decoded.summary,
+        filterState: decoded.filterState,
+        generatedAtUnixMilliseconds: decoded.generatedAtUnixMilliseconds,
+        changesetCluster: decoded.changesetCluster
     )
 }

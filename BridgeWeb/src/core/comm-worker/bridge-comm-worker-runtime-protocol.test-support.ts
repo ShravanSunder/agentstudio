@@ -11,7 +11,10 @@ import type {
 	BridgeProductContentStream,
 	BridgeProductSubscription,
 } from './bridge-product-transport-contract.js';
-import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import type {
+	BridgeProductPanePresentationFrame,
+	BridgeProductTransportSession,
+} from './bridge-product-transport.js';
 import type {
 	BridgeWorkerFileViewContentMetadata,
 	BridgeWorkerReviewContentMetadata,
@@ -148,6 +151,23 @@ export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorke
 			throw new Error(
 				'Review product test source requires the test to provide its content-open seam.',
 			);
+		},
+		setPanePresentationFrameSink: (
+			sink: (frame: BridgeProductPanePresentationFrame) => void,
+		): void => {
+			// This shared fixture models an already active Review pane. Hidden/dormant admission tests
+			// install their own transport so suppression remains explicit and independently proven.
+			sink({
+				activityRevision: 1,
+				kind: 'pane.presentation',
+				metadataStreamId: 'review-product-test-metadata-stream',
+				nativeActivity: 'foreground',
+				paneSessionId: 'review-product-test-pane-session',
+				refreshingLanes: [],
+				streamSequence: 1,
+				wireVersion: 2,
+				workerInstanceId: 'review-product-test-worker-instance',
+			});
 		},
 		subscribe: (...arguments_): never => {
 			const [subscriptionKind] = arguments_;

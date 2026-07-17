@@ -1,3 +1,4 @@
+import type { BridgeWorkerServerToMainMessage } from './bridge-worker-contracts.js';
 import type { BridgeWorkerFetchedReviewContentResource } from './bridge-worker-review-content-fetch.js';
 
 export interface MakeFetchedReviewContentResourceProps {
@@ -25,5 +26,38 @@ export function makeFetchedReviewContentResource(
 		sourcePosition: 'whole',
 		text: props.text,
 		textBytes,
+	};
+}
+
+export function expectedReviewMetadataUnavailablePatch(): BridgeWorkerServerToMainMessage {
+	return {
+		direction: 'serverWorkerToMain',
+		epoch: 1,
+		kind: 'reviewDisplayPatch',
+		patches: [
+			{
+				operation: 'failed',
+				payload: { error: 'metadataUnavailable', status: 'failed' },
+				slice: 'reviewSource',
+			},
+		],
+		projectionRevision: 1,
+		sequence: 2,
+		surface: 'review',
+		transferDescriptors: [],
+		wireVersion: 1,
+	};
+}
+
+export function expectedReviewPanelChromeReset(): BridgeWorkerServerToMainMessage {
+	return {
+		direction: 'serverWorkerToMain',
+		kind: 'reviewRenderPatch',
+		patches: [{ operation: 'reset', slice: 'panelChrome' }],
+		publicationSequence: 1,
+		surface: 'review',
+		transferDescriptors: [],
+		wireVersion: 1,
+		workerDerivationEpoch: 1,
 	};
 }

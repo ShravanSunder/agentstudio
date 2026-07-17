@@ -20,6 +20,7 @@ export function BridgeFileViewerLazyLoadingFrame(props: {
 						<BridgeViewerContentHeader
 							controls={props.viewerHeaderControls}
 							eyebrow="Files"
+							statusText={null}
 							title="Loading file view"
 						/>
 						<section

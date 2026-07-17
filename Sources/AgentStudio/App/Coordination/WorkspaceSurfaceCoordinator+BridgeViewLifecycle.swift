@@ -12,7 +12,8 @@ extension WorkspaceSurfaceCoordinator {
             state: state,
             metadata: bridgePaneControllerMetadata(for: pane, state: state),
             reviewSourceProvider: bridgeReviewSourceProvider(for: pane, state: state),
-            traceRuntime: traceRuntime
+            traceRuntime: traceRuntime,
+            initialPaneActivity: .dormant
         )
         let view = BridgePaneMountView(paneId: pane.id, controller: controller)
         registerHostedView(mountedView: view, for: pane.id)

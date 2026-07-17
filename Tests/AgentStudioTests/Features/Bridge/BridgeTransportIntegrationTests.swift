@@ -21,7 +21,8 @@ extension WebKitSerializedTests {
             // Arrange
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
+                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                initialPaneActivity: .foreground
             )
 
             // Act / Assert
@@ -39,7 +40,8 @@ extension WebKitSerializedTests {
             // Arrange
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
+                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                initialPaneActivity: .foreground
             )
             #expect(controller.handleBridgeReady())
 
@@ -56,7 +58,8 @@ extension WebKitSerializedTests {
             // Arrange
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil)
+                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                initialPaneActivity: .foreground
             )
 
             try await WebPageTestHarness.withManagedPage(controller.page) { page in
@@ -96,7 +99,8 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: paneId,
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
-                reviewSourceProvider: BridgeObservabilitySmokeReviewSourceProvider()
+                reviewSourceProvider: BridgeObservabilitySmokeReviewSourceProvider(),
+                initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
 
@@ -159,7 +163,8 @@ extension WebKitSerializedTests {
                         cwd: URL(fileURLWithPath: "/tmp/worktree")
                     )
                 ),
-                reviewSourceProvider: BridgeObservabilitySmokeReviewSourceProvider()
+                reviewSourceProvider: BridgeObservabilitySmokeReviewSourceProvider(),
+                initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
 

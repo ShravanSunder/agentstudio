@@ -18,6 +18,7 @@ import {
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type {
 	BridgeWorkerContentAvailabilityPatchPayload,
+	BridgeWorkerPanelChromePatchPayload,
 	BridgeWorkerReviewDisplayItem,
 	BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
@@ -68,6 +69,7 @@ export interface BridgeReviewRenderSnapshotController {
 		selectedSource: 'keyboard' | 'programmatic' | 'user',
 	) => void;
 	readonly markFileViewed: (itemId: string, onDeliveryFailure?: () => void) => boolean;
+	readonly panelChromeSlice: BridgeWorkerPanelChromePatchPayload;
 	readonly reviewSourceSlice: BridgeMainReviewSourceDisplaySlice | null;
 	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null;
 	readonly selectedContentAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
@@ -99,6 +101,15 @@ export function useBridgeReviewRenderSnapshotController(
 		displayStore.subscribeReviewSelection,
 		displayStore.getReviewSelectionSnapshot,
 		displayStore.getReviewSelectionSnapshot,
+	);
+	const getPanelChromeSnapshot = useCallback(
+		(): BridgeWorkerPanelChromePatchPayload => displayStore.getSnapshot().panelChromeSlice,
+		[displayStore],
+	);
+	const panelChromeSlice = useSyncExternalStore(
+		displayStore.subscribe,
+		getPanelChromeSnapshot,
+		getPanelChromeSnapshot,
 	);
 	const selectedItemId = selectionSlice.selectedItemId;
 	const selectedReviewItem = useSelectedReviewStoreValue({
@@ -253,6 +264,7 @@ export function useBridgeReviewRenderSnapshotController(
 		displayStore,
 		emitSelectedReviewItemIntent,
 		markFileViewed,
+		panelChromeSlice,
 		reviewSourceSlice,
 		selectedCodeViewItem: selectedCodeViewItem ?? null,
 		selectedContentAvailability,
@@ -367,6 +379,7 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 				}
 				const currentMemberPatches = message.patches.filter(
 					(patch): boolean =>
+						patch.slice === 'panelChrome' ||
 						patch.operation === 'reset' ||
 						props.renderSnapshotStore.reviewCatalogContainsItem(patch.itemId),
 				);

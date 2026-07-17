@@ -16,6 +16,7 @@ struct BridgeReviewIntakeCompletionEffectTests {
             capabilityBytes: capabilityBytes
         )
         let recorder = await MainActor.run { BridgeProductReviewIntakeReadyMutationRecorder() }
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let provider = BridgePaneProductSchemeProvider(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
@@ -23,7 +24,8 @@ struct BridgeReviewIntakeCompletionEffectTests {
             markReviewItemViewed: { _, _ in },
             handleReviewIntakeReady: { request, productAdmission in
                 recorder.record(request, productAdmission: productAdmission)
-            }
+            },
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
         )
         let productAdmission = try BridgeProductAdmissionTestContext.make().context
         let dispatcher = makeBridgeProductSchemeControlDispatcher(

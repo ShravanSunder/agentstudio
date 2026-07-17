@@ -180,12 +180,14 @@ actor BridgeWebKitTrackingFileMetadataSource:
     func open(
         subscription: BridgeProductSubscriptionSnapshot,
         productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         emit: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
         openedSubscriptions.append(Self.identity(subscription))
         try await source.open(
             subscription: subscription,
             productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission,
             emit: emit
         )
     }
@@ -193,11 +195,13 @@ actor BridgeWebKitTrackingFileMetadataSource:
     func update(
         subscription: BridgeProductSubscriptionSnapshot,
         productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         emit: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
         try await source.update(
             subscription: subscription,
             productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission,
             emit: emit
         )
     }
@@ -209,16 +213,26 @@ actor BridgeWebKitTrackingFileMetadataSource:
 
     func publish(
         status: GitWorkingTreeStatus,
-        productAdmission: BridgeProductAdmissionContext
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async -> [BridgePaneProductFileMetadataEmission] {
-        await source.publish(status: status, productAdmission: productAdmission)
+        await source.publish(
+            status: status,
+            productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission
+        )
     }
 
     func publish(
         changeset: FileChangeset,
-        productAdmission: BridgeProductAdmissionContext
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async throws -> [BridgePaneProductFileMetadataEmission] {
-        try await source.publish(changeset: changeset, productAdmission: productAdmission)
+        try await source.publish(
+            changeset: changeset,
+            productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission
+        )
     }
 
     func authoritativePath(

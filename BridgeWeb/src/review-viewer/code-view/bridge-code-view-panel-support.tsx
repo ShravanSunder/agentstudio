@@ -815,6 +815,7 @@ interface ControllerForHandleProps {
 }
 
 interface BridgeCodeViewSourceKeyProps {
+	readonly presentationPositionKey: string;
 	readonly projection: Pick<BridgeReviewProjectionResult, 'projectionId'>;
 	readonly reviewPackage: Pick<BridgeReviewPackage, 'packageId' | 'reviewGeneration'>;
 }
@@ -864,12 +865,7 @@ export function codeViewHandleHasInstance(handle: CodeViewHandle<undefined>): bo
 }
 
 export function makeBridgeCodeViewSourceKey(props: BridgeCodeViewSourceKeyProps): string {
-	return [
-		'continuous-ordered-manifest-v1',
-		props.reviewPackage.packageId,
-		props.reviewPackage.reviewGeneration,
-		props.projection.projectionId,
-	].join(':');
+	return ['continuous-ordered-manifest-v2', props.presentationPositionKey].join(':');
 }
 
 export function reconcileBridgeCodeViewMetadataItems(

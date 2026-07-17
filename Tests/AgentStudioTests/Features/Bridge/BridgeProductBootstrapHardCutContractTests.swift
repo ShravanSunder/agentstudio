@@ -38,6 +38,7 @@ struct BridgeProductBootstrapHardCutContractTests {
             path: URL(fileURLWithPath: "/tmp/bridge-product-startup-contract")
         )
         let activeModeRecorder = BridgeProductStartupActiveModeRecorder()
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let provider = BridgePaneProductSchemeProvider(
             fileMetadataSource: BridgePaneProductFileMetadataSource(
                 authority: .init(paneId: UUIDv7.generate(), worktree: worktree)
@@ -50,7 +51,8 @@ struct BridgeProductBootstrapHardCutContractTests {
                     call.method,
                     productAdmission: productAdmission
                 )
-            }
+            },
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
         )
         let productAdmissionGate = BridgeProductAdmissionGate()
         let installation = try BridgeProductSessionInstallation.make(

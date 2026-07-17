@@ -1,3 +1,4 @@
+import { act } from 'react';
 import { afterEach, describe, expect, test } from 'vitest';
 import { cleanup } from 'vitest-browser-react';
 
@@ -110,4 +111,192 @@ describe('Bridge Review sustained deep-scroll Browser witness', () => {
 		).toBe(true);
 		expect(scan.sampleCount - scan.convergenceSampleCount).toBe(25);
 	});
+
+	test('retains Review selection disclosure and scroll across an inactive generation replacement', async () => {
+		// Arrange: mount the production Review shell, Pierre tree, and continuous CodeView over one
+		// stable worker-facing client/store identity.
+		const files = makeBridgeReviewRecoveryWitnessFiles({
+			count: 18,
+			lineCount: 48,
+			markerPrefix: 'HIDDEN_GENERATION_POSITION',
+		});
+		const selectedFile = files[4];
+		if (selectedFile === undefined) {
+			throw new Error('Hidden-generation Review fixture requires a selected item.');
+		}
+		const harness = renderBridgeReviewRecoveryWitness(files);
+		await harness.publishDisplay();
+		await harness.publishCompleteContent();
+		await expect.poll(() => harness.selectedItemCommandCount()).toBe(1);
+		await expect.poll(() => harness.codeScrollOwner()).not.toBeNull();
+
+		const selectedTreeRow = await harness.scrollTreePathIntoView(selectedFile.path);
+		await act(async (): Promise<void> => {
+			selectedTreeRow.click();
+			await Promise.resolve();
+		});
+		await expect
+			.poll(() =>
+				harness.renderResult.container
+					.querySelector('[data-testid="bridge-code-view-panel"]')
+					?.getAttribute('data-selected-item-id'),
+			)
+			.toBe(selectedFile.itemId);
+
+		const collapsedDirectoryPath = 'Sources/RecoveryGroup01';
+		const collapsedDirectory = await harness.scrollTreePathIntoView(collapsedDirectoryPath);
+		await act(async (): Promise<void> => {
+			collapsedDirectory.click();
+			await Promise.resolve();
+		});
+		await expect
+			.poll(() => harness.pierreTreePath(collapsedDirectoryPath)?.getAttribute('aria-expanded'))
+			.toBe('false');
+
+		const scrollOwnerBeforeReplacement = harness.codeScrollOwner();
+		const treeHostBeforeReplacement = harness.pierreTreeHost();
+		if (scrollOwnerBeforeReplacement === null || treeHostBeforeReplacement === null) {
+			throw new Error('Hidden-generation Review fixture requires mounted Pierre surfaces.');
+		}
+		await expect
+			.poll(
+				() => scrollOwnerBeforeReplacement.scrollHeight > scrollOwnerBeforeReplacement.clientHeight,
+			)
+			.toBe(true);
+		await act(async (): Promise<void> => {
+			const maximumScrollTop =
+				scrollOwnerBeforeReplacement.scrollHeight - scrollOwnerBeforeReplacement.clientHeight;
+			scrollOwnerBeforeReplacement.scrollTop = Math.floor(maximumScrollTop * 0.72);
+			scrollOwnerBeforeReplacement.dispatchEvent(new Event('scroll', { bubbles: true }));
+			await Promise.resolve();
+		});
+		await advanceBridgeReviewRecoveryWitnessFrames(4);
+		const rawScrollTopBeforeReplacement = scrollOwnerBeforeReplacement.scrollTop;
+		const scrollProgressBeforeReplacement =
+			rawScrollTopBeforeReplacement /
+			Math.max(
+				scrollOwnerBeforeReplacement.scrollHeight - scrollOwnerBeforeReplacement.clientHeight,
+				1,
+			);
+		const semanticAnchorBeforeReplacement = firstVisibleReviewAnchor(
+			harness,
+			scrollOwnerBeforeReplacement,
+		);
+		expect(rawScrollTopBeforeReplacement).toBeGreaterThan(0);
+		expect(semanticAnchorBeforeReplacement).not.toBeNull();
+
+		// Act: loaded-hidden is represented at this browser seam by inactive Review. The same client
+		// and store accept a new authoritative generation while body work remains out of scope.
+		await harness.setActive(false);
+		await harness.publishDisplayAtEpoch(2);
+
+		// Observe the inactive state before returning. The final assertion reports every lost position
+		// together so a fallback failure cannot hide subsequent tree or CodeView losses.
+		const inactiveFallbackWasShown =
+			harness.renderResult.container.querySelector(
+				'[data-testid="bridge-review-projection-pending-shell"]',
+			) !== null;
+		const treeRemainedMountedWhileInactive = treeHostBeforeReplacement.isConnected;
+		const codeViewRemainedMountedWhileInactive = scrollOwnerBeforeReplacement.isConnected;
+
+		await harness.setActive(true);
+		await expect.element(harness.renderResult.getByTestId('review-viewer-shell')).toBeVisible();
+		await advanceBridgeReviewRecoveryWitnessFrames(4);
+
+		// Assert: no fallback/remount occurred and selection, explicit disclosure, and the same
+		// virtualized scroll region survived the generation replacement.
+		const selectedItemIdAfterReplacement =
+			harness.renderResult.container
+				.querySelector('[data-testid="bridge-code-view-panel"]')
+				?.getAttribute('data-selected-item-id') ?? null;
+		const disclosureAfterReplacement = harness
+			.pierreTreePath(collapsedDirectoryPath)
+			?.getAttribute('aria-expanded');
+		const scrollOwnerAfterReplacement = harness.codeScrollOwner();
+		const semanticAnchorAfterReplacement =
+			scrollOwnerAfterReplacement === null
+				? null
+				: firstVisibleReviewAnchor(harness, scrollOwnerAfterReplacement);
+		const rawScrollTopAfterReplacement = scrollOwnerAfterReplacement?.scrollTop ?? null;
+		const scrollProgressAfterReplacement =
+			scrollOwnerAfterReplacement === null
+				? null
+				: scrollOwnerAfterReplacement.scrollTop /
+					Math.max(
+						scrollOwnerAfterReplacement.scrollHeight - scrollOwnerAfterReplacement.clientHeight,
+						1,
+					);
+		const semanticAnchorRankBeforeReplacement = files.findIndex(
+			(file): boolean => file.itemId === semanticAnchorBeforeReplacement?.itemId,
+		);
+		const semanticAnchorRankAfterReplacement = files.findIndex(
+			(file): boolean => file.itemId === semanticAnchorAfterReplacement?.itemId,
+		);
+		const retentionDiagnostic = {
+			codeViewRemainedMountedWhileInactive,
+			codeViewRetainedIdentity: scrollOwnerAfterReplacement === scrollOwnerBeforeReplacement,
+			disclosureAfterReplacement: disclosureAfterReplacement ?? null,
+			inactiveFallbackWasShown,
+			rawScrollTopAfterReplacement,
+			rawScrollTopBeforeReplacement,
+			scrollProgressAfterReplacement,
+			scrollProgressBeforeReplacement,
+			selectedItemIdAfterReplacement,
+			semanticAnchorAfterReplacement,
+			semanticAnchorBeforeReplacement,
+			treeRemainedMountedWhileInactive,
+			treeRetainedIdentity: harness.pierreTreeHost() === treeHostBeforeReplacement,
+		};
+		expect(
+			{
+				codeViewRemainedMountedWhileInactive,
+				codeViewRetainedIdentity: retentionDiagnostic.codeViewRetainedIdentity,
+				disclosureRetained: disclosureAfterReplacement === 'false',
+				inactiveFallbackWasShown,
+				scrollProgressRetained:
+					scrollProgressAfterReplacement !== null &&
+					rawScrollTopAfterReplacement !== null &&
+					rawScrollTopAfterReplacement > 0 &&
+					Math.abs(scrollProgressAfterReplacement - scrollProgressBeforeReplacement) <= 0.1,
+				selectedItemRetained: selectedItemIdAfterReplacement === selectedFile.itemId,
+				semanticScrollRegionRetained:
+					semanticAnchorRankBeforeReplacement >= 0 &&
+					semanticAnchorRankAfterReplacement >= 0 &&
+					Math.abs(semanticAnchorRankAfterReplacement - semanticAnchorRankBeforeReplacement) <= 1,
+				treeRemainedMountedWhileInactive,
+				treeRetainedIdentity: retentionDiagnostic.treeRetainedIdentity,
+			},
+			`R68 REVIEW POSITION LOST: inactive generation replacement must preserve the mounted Review presentation and its independent position; diagnostic=${JSON.stringify(retentionDiagnostic)}`,
+		).toEqual({
+			codeViewRemainedMountedWhileInactive: true,
+			codeViewRetainedIdentity: true,
+			disclosureRetained: true,
+			inactiveFallbackWasShown: false,
+			scrollProgressRetained: true,
+			selectedItemRetained: true,
+			semanticScrollRegionRetained: true,
+			treeRemainedMountedWhileInactive: true,
+			treeRetainedIdentity: true,
+		});
+	});
 });
+
+function firstVisibleReviewAnchor(
+	harness: ReturnType<typeof renderBridgeReviewRecoveryWitness>,
+	scrollOwner: HTMLElement,
+): { readonly itemId: string; readonly viewportOffsetPixels: number } | null {
+	const viewportBounds = scrollOwner.getBoundingClientRect();
+	const firstVisibleItem = harness
+		.paintedCodeViewItems()
+		.filter(
+			(paintedItem): boolean =>
+				paintedItem.bottom > viewportBounds.top && paintedItem.top < viewportBounds.bottom,
+		)
+		.toSorted((left, right): number => left.top - right.top)[0];
+	return firstVisibleItem === undefined
+		? null
+		: {
+				itemId: firstVisibleItem.itemId,
+				viewportOffsetPixels: firstVisibleItem.top - viewportBounds.top,
+			};
+}

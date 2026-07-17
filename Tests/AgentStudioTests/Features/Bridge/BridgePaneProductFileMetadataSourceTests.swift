@@ -215,6 +215,7 @@ struct BridgePaneProductFileMetadataSourceTests {
         // Arrange
         let fixture = try ProductFileSourceFixture(fileCount: 1)
         defer { fixture.remove() }
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let source = fixture.makeSource()
         let openSnapshot = try fixture.openSnapshot()
         try await source.open(
@@ -256,7 +257,8 @@ struct BridgePaneProductFileMetadataSourceTests {
                 timestamp: .now,
                 batchSeq: 1
             ),
-            productAdmission: fixture.productAdmission.context
+            productAdmission: fixture.productAdmission.context,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
         )
 
         // Assert
@@ -275,6 +277,7 @@ struct BridgePaneProductFileMetadataSourceTests {
         // Arrange
         let fixture = try ProductFileSourceFixture(fileCount: 1)
         defer { fixture.remove() }
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let source = fixture.makeSource()
         let openSnapshot = try fixture.openSnapshot()
         let updatedSnapshot = try fixture.updatedSnapshot(from: openSnapshot)
@@ -333,7 +336,8 @@ struct BridgePaneProductFileMetadataSourceTests {
                 timestamp: .now,
                 batchSeq: 2
             ),
-            productAdmission: fixture.productAdmission.context
+            productAdmission: fixture.productAdmission.context,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
         )
 
         // Assert
@@ -400,6 +404,7 @@ struct BridgePaneProductFileMetadataSourceTests {
         // Arrange
         let fixture = try ProductFileSourceFixture(fileCount: 1)
         defer { fixture.remove() }
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let source = fixture.makeSource()
         try await source.open(
             subscription: fixture.openSnapshot(),
@@ -425,11 +430,13 @@ struct BridgePaneProductFileMetadataSourceTests {
         // Act
         let worktreeEmissions = try await source.publish(
             changeset: nonmatchingWorktreeChangeset,
-            productAdmission: fixture.productAdmission.context
+            productAdmission: fixture.productAdmission.context,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
         )
         let repositoryEmissions = try await source.publish(
             changeset: nonmatchingRepositoryChangeset,
-            productAdmission: fixture.productAdmission.context
+            productAdmission: fixture.productAdmission.context,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
         )
 
         // Assert
@@ -472,11 +479,13 @@ struct BridgePaneProductFileMetadataSourceTests {
         let fileRequest = try fixture.contentRequest(descriptor: descriptor)
         let expectedData = try Data(contentsOf: fixture.demandedFileURL)
         let expectedSHA256 = sha256Hex(expectedData)
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let provider = BridgePaneProductSchemeProvider(
             fileMetadataSource: source,
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
-            markReviewItemViewed: { _, _ in }
+            markReviewItemViewed: { _, _ in },
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
         )
         let request = BridgeProductContentRequest.fileContent(fileRequest)
         let registration = await harness.session.registerContentProducer(
@@ -536,6 +545,7 @@ struct BridgePaneProductFileMetadataSourceTests {
     @Test("exact issued File descriptor derives demand priority from committed path membership")
     func exactIssuedDescriptorDerivesCommittedDemandPriority() async throws {
         // Arrange
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let fixture = try ProductFileSourceFixture(fileCount: 1)
         defer { fixture.remove() }
         let source = fixture.makeSource()
@@ -560,7 +570,8 @@ struct BridgePaneProductFileMetadataSourceTests {
         )
         let coordinator = BridgePaneProductMetadataCoordinator(
             fileMetadataSource: source,
-            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource()
+            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
         )
         let productAdmission = fixture.productAdmission.context
         await coordinator.apply(

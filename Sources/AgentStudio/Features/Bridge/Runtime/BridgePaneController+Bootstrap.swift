@@ -36,6 +36,17 @@ struct BridgeBootstrapArtifacts {
     let script: WKUserScript
 }
 
+struct BridgeProductSessionDependencyInput {
+    let paneSessionId: String
+    let runtime: BridgeRuntime
+    let state: BridgePaneState
+    let reviewContentLoaderCache: BridgeReviewContentLoaderCache
+    let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
+    let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
+    let initialProductPresentation: BridgePaneProductPresentationSnapshot
+    let telemetryRecorder: (any BridgePerformanceTraceRecording)?
+}
+
 struct BridgeSchemeHandlerRegistrationInput {
     let paneId: UUID
     let telemetrySessionOwner: BridgePaneTelemetrySessionOwner?
@@ -118,6 +129,12 @@ final class BridgePaneProductCommittedCallTarget {
     }
 }
 
+private enum CommittedReviewIntakeSchedulingDecision {
+    case initialPackageLoad
+    case productResync
+    case noScheduling
+}
+
 @MainActor
 extension BridgePaneController {
     func handleCommittedProductReviewIntakeReady(
@@ -130,20 +147,36 @@ extension BridgePaneController {
             return
         }
         await recordReviewIntakeReadyTelemetry(phase: "accepted")
-        _ = productAdmission.withValidAdmission {
-            if let package = paneState.diff.packageMetadata {
-                setActiveViewerModeAcceptedSignalForExplicitReviewRequestWithoutAdmissionCheck(
-                    streamId: currentStreamId,
-                    generation: package.reviewGeneration.rawValue
-                )
-            } else {
-                clearActiveViewerModeAcceptedSignalForExplicitReviewRequestWithoutAdmissionCheck()
-            }
-            if paneState.diff.packageMetadata == nil {
-                scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
-            } else if request.reason == "sequence_gap" {
-                scheduleReviewPackageReloadForProductResync(reason: .productResync)
-            }
+        guard
+            let schedulingDecision = productAdmission.withValidAdmission({
+                let package = paneState.diff.packageMetadata
+                if let package {
+                    setActiveViewerModeAcceptedSignalForExplicitReviewRequestWithoutAdmissionCheck(
+                        streamId: currentStreamId,
+                        generation: package.reviewGeneration.rawValue
+                    )
+                } else {
+                    clearActiveViewerModeAcceptedSignalForExplicitReviewRequestWithoutAdmissionCheck()
+                }
+                if package == nil {
+                    return CommittedReviewIntakeSchedulingDecision.initialPackageLoad
+                }
+                if request.reason == "sequence_gap" {
+                    return CommittedReviewIntakeSchedulingDecision.productResync
+                }
+                return CommittedReviewIntakeSchedulingDecision.noScheduling
+            })
+        else {
+            return
+        }
+
+        switch schedulingDecision {
+        case .initialPackageLoad:
+            scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
+        case .productResync:
+            scheduleReviewPackageReloadForProductResync(reason: .productResync)
+        case .noScheduling:
+            break
         }
     }
 }
@@ -395,29 +428,24 @@ extension BridgePaneController {
     }
 
     static func makeProductSessionDependencies(
-        paneSessionId: String,
-        runtime: BridgeRuntime,
-        state: BridgePaneState,
-        reviewContentLoaderCache: BridgeReviewContentLoaderCache,
-        reviewPublicationCoordinator: BridgeReviewPublicationCoordinator,
-        telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
+        _ input: BridgeProductSessionDependencyInput
     ) -> BridgePaneProductSessionDependencies {
         let productAdmissionGate = BridgeProductAdmissionGate()
         let committedCallTarget = BridgePaneProductCommittedCallTarget()
         let fileMetadataSource: any BridgePaneProductFileMetadataProducing =
             if let authority = makeProductFileSourceAuthority(
-                paneId: UUID(uuidString: paneSessionId),
-                runtime: runtime,
-                state: state
+                paneId: UUID(uuidString: input.paneSessionId),
+                runtime: input.runtime,
+                state: input.state
             ) {
                 BridgePaneProductFileMetadataSource(authority: authority)
             } else {
                 BridgeUnavailablePaneProductFileMetadataSource()
             }
         let reviewContentSource = BridgePaneProductReviewContentSource(
-            loaderCache: reviewContentLoaderCache,
+            loaderCache: input.reviewContentLoaderCache,
             acquireContentLease: { descriptor, productAdmission in
-                reviewPublicationCoordinator.acquireContentLease(
+                input.reviewPublicationCoordinator.acquireContentLease(
                     handleId: descriptor.descriptorId,
                     packageId: descriptor.packageId,
                     requestedGeneration: BridgeReviewGeneration(
@@ -428,7 +456,7 @@ extension BridgePaneController {
                 )
             },
             settleContentLease: { lease in
-                reviewPublicationCoordinator.settleContentLease(lease)
+                input.reviewPublicationCoordinator.settleContentLease(lease)
             }
         )
         let provider = BridgePaneProductSchemeProvider(
@@ -436,25 +464,25 @@ extension BridgePaneController {
             reviewMetadataSource: BridgePaneProductReviewMetadataSource(),
             reviewContentSource: reviewContentSource,
             reviewPublicationReplay: { productAdmission in
-                reviewPublicationCoordinator.committedPublicationForReplay(
+                input.reviewPublicationCoordinator.committedPublicationForReplay(
                     productAdmission: productAdmission
                 )
             },
             isReviewPublicationCurrent: { publicationId, productAdmission in
-                reviewPublicationCoordinator.isCurrentPublication(
+                input.reviewPublicationCoordinator.isCurrentPublication(
                     publicationId: publicationId,
                     productAdmission: productAdmission
                 )
             },
             recordReviewPublicationApplication: { publicationId, productAdmission in
-                reviewPublicationCoordinator.recordWorkerApplication(
+                input.reviewPublicationCoordinator.recordWorkerApplication(
                     publicationId: publicationId,
                     productAdmission: productAdmission
                 )
             },
             markReviewItemViewed: { itemId, productAdmission in
                 _ = productAdmission.withValidAdmission {
-                    runtime.paneState.review.markFileViewed(itemId)
+                    input.runtime.paneState.review.markFileViewed(itemId)
                 }
             },
             handleReviewIntakeReady: { request, productAdmission in
@@ -469,19 +497,21 @@ extension BridgePaneController {
                     productAdmission: productAdmission
                 )
             },
-            lifecycleTraceRecorder: telemetryRecorder.map(
+            initialPanePresentation: input.initialProductPresentation,
+            refreshWorkAdmissionSource: input.refreshWorkAdmissionSource,
+            lifecycleTraceRecorder: input.telemetryRecorder.map(
                 BridgeProductMetadataLifecycleTraceRecorder.init(recorder:)
             )
         )
         let installation = makeInitialProductSessionInstallation(
-            paneSessionId: paneSessionId,
+            paneSessionId: input.paneSessionId,
             provider: provider,
             productAdmissionGate: productAdmissionGate
         )
         return BridgePaneProductSessionDependencies(
             installation: installation,
             owner: makeProductSessionOwner(
-                paneSessionId: paneSessionId,
+                paneSessionId: input.paneSessionId,
                 provider: provider,
                 productAdmissionGate: productAdmissionGate,
                 activeInstallation: installation

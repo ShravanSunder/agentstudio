@@ -7,6 +7,7 @@ import { BridgeViewerRightRailShell } from '../../app/bridge-viewer-right-rail-s
 import { BridgeViewerSearchControl } from '../../app/bridge-viewer-search-control.js';
 import { Skeleton } from '../../components/ui/skeleton.js';
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
+import type { BridgeWorkerPanelChromePatchPayload } from '../../core/comm-worker/bridge-worker-contracts.js';
 import type { ReviewTreeRowMetadata } from '../../features/review/models/review-protocol-models.js';
 import {
 	type BridgeReviewItemRegistry,
@@ -45,6 +46,7 @@ import type { BridgeReviewTreeSelectionRevealRequest } from '../trees/bridge-tre
 
 export interface ReviewViewerShellProps {
 	readonly presentationRegistry: BridgeReviewItemRegistry;
+	readonly presentationPositionKey: string;
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly reviewTreeRows?: readonly ReviewTreeRowMetadata[];
 	readonly projection: BridgeReviewProjectionResult;
@@ -53,6 +55,7 @@ export interface ReviewViewerShellProps {
 	readonly selectedContentLoadingItemId?: string | null;
 	readonly selectedContentPaintTelemetryStart?: SelectedContentPaintTelemetryStart | null;
 	readonly onSelectItem: (itemId: string) => void;
+	readonly panelChromeSlice: BridgeWorkerPanelChromePatchPayload;
 	readonly selectedContentText?: string | null;
 	readonly selectedCodeViewItem?: BridgeMainCodeViewItem | null;
 	readonly selectionCommitDurationMilliseconds?: number | null;
@@ -98,6 +101,10 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 	const projectionMode = props.projectionMode ?? { kind: 'normalReview' };
 	const gitStatusFilter = props.gitStatusFilter ?? 'all';
 	const fileClassFilter = props.fileClassFilter ?? 'all';
+	const statusText =
+		props.isActive === true && props.panelChromeSlice.isLoading === true
+			? (props.panelChromeSlice.message ?? null)
+			: null;
 	const treeSearchText = props.treeSearchText ?? '';
 	const treeSearchMode = props.treeSearchMode ?? { kind: 'text' };
 	const treeSearchOpen = props.treeSearchOpen === true || treeSearchText.length > 0;
@@ -273,6 +280,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 						<BridgeViewerContentHeader
 							controls={props.viewerHeaderControls}
 							eyebrow="Review"
+							statusText={statusText}
 							title={contentHeaderTitle}
 						/>
 						<section
@@ -295,6 +303,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 								/>
 							) : (
 								<BridgeCodeViewPanel
+									presentationPositionKey={props.presentationPositionKey}
 									projection={projection}
 									renderFulfillmentCoordinator={props.renderFulfillmentCoordinator}
 									reviewPackage={props.reviewPackage}
@@ -345,6 +354,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 						>
 							<BridgeReviewTreesPanel
 								key={bridgeTreesDisclosurePolicyIdentity}
+								presentationPositionKey={props.presentationPositionKey}
 								onSelectItem={props.onSelectItem}
 								{...(props.onTreeVisibleItemIdsChange === undefined
 									? {}

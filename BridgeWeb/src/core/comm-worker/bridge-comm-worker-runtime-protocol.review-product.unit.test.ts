@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+	encodeBridgeWorkerActiveViewerModeUpdateCommand,
 	encodeBridgeWorkerMetadataInterestUpdateCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
@@ -17,8 +18,14 @@ import {
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
 import type { BridgeProductReviewItemMetadata } from './bridge-product-review-metadata-contracts.js';
 import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
-import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import type {
+	BridgeProductContentStream,
+	BridgeProductSubscription,
+} from './bridge-product-transport-contract.js';
+import type {
+	BridgeProductPanePresentationFrame,
+	BridgeProductTransportSession,
+} from './bridge-product-transport.js';
 
 describe('Bridge comm worker Review product runtime', () => {
 	test('opens Review content when Review interaction epochs restart after File interaction', async () => {
@@ -228,10 +235,334 @@ describe('Bridge comm worker Review product runtime', () => {
 		});
 		expect(JSON.stringify(reviewDisplayEvents)).not.toContain('private transport failure detail');
 	});
+
+	test('does not replay completed Review preparation or reset when native foreground returns to File', async () => {
+		// Arrange
+		const events = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'review.metadata'>
+		>(64);
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const openedDescriptorIds: string[] = [];
+		let panePresentationSink: ((frame: BridgeProductPanePresentationFrame) => void) | null = null;
+		const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+			cancel: async (): Promise<void> => {},
+			events,
+			subscriptionId: 'review-subscription-completed-foreground-return',
+			subscriptionKind: 'review.metadata',
+			update: async (): Promise<void> => {},
+		};
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
+			openReviewContent: (descriptor) => {
+				openedDescriptorIds.push(descriptor.descriptorId);
+				return makeImmediateReviewContentStream(descriptor, 'hello world\n');
+			},
+			productTransport: makeProductTransport({
+				onPanePresentationSink: (sink): void => {
+					panePresentationSink = sink;
+				},
+				reviewSubscription,
+				subscribedKinds: [],
+			}),
+			schedulePreparationDrain: (drain): void => {
+				scheduledDrains.push(drain);
+			},
+			sendProductControl: async (): Promise<void> => {},
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+		events.push(reviewSnapshotWithContentEvent);
+		await flushBridgeWorkerRuntimeContinuations();
+		await drainBridgeCommWorkerPreparationUntilIdle(scheduledDrains);
+		dispatch.message(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				epoch: 1,
+				requestId: 'request-review-mode-before-completed-preparation',
+				update: {
+					activeSource: null,
+					mode: 'review',
+					sequence: 1,
+					sessionId: 'review-completed-foreground-return-session',
+				},
+			}),
+		);
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				epoch: 2,
+				requestId: 'request-review-completed-foreground-return-selection',
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+				surface: 'review',
+			}),
+		);
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				epoch: 3,
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+				requestId: 'request-review-completed-foreground-return-viewport',
+				surface: 'review',
+				visibleItemIds: ['item-1'],
+			}),
+		);
+		await drainBridgeCommWorkerPreparationUntilIdle(scheduledDrains);
+		const completedOpenCount = openedDescriptorIds.length;
+		expect(completedOpenCount).toBeGreaterThan(0);
+
+		// Act
+		dispatch.message(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				epoch: 4,
+				requestId: 'request-file-mode-before-review-foreground-return',
+				update: {
+					activeSource: null,
+					mode: 'file',
+					sequence: 2,
+					sessionId: 'review-completed-foreground-return-session',
+				},
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+		const messageCountBeforeNativeCycle = postedMessages.length;
+		requirePanePresentationSink(panePresentationSink)(makePanePresentationFrame(2, 'loadedHidden'));
+		requirePanePresentationSink(panePresentationSink)(makePanePresentationFrame(3, 'foreground'));
+		await drainBridgeCommWorkerPreparationUntilIdle(scheduledDrains);
+
+		// Assert
+		expect(openedDescriptorIds).toHaveLength(completedOpenCount);
+		expect(
+			postedMessages
+				.slice(messageCountBeforeNativeCycle)
+				.map(({ message }) => message)
+				.filter(
+					(message) =>
+						message.kind === 'reviewPierreRenderJob' ||
+						(message.kind === 'reviewRenderPatch' &&
+							message.patches.some((patch): boolean => patch.slice !== 'panelChrome')),
+				),
+		).toEqual([]);
+	});
+
+	test('retries interrupted selected and visible Review preparation exactly once', async () => {
+		// Arrange
+		const events = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'review.metadata'>
+		>(64);
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const attempts: PendingReviewContentAttempt[] = [];
+		let panePresentationSink: ((frame: BridgeProductPanePresentationFrame) => void) | null = null;
+		const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+			cancel: async (): Promise<void> => {},
+			events,
+			subscriptionId: 'review-subscription-pane-suppression',
+			subscriptionKind: 'review.metadata',
+			update: async (): Promise<void> => {},
+		};
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
+			openReviewContent: (descriptor, abortSignal) =>
+				makePendingReviewContentStream({
+					abortSignal,
+					attempts,
+					descriptorId: descriptor.descriptorId,
+				}),
+			productTransport: makeProductTransport({
+				onPanePresentationSink: (sink): void => {
+					panePresentationSink = sink;
+				},
+				reviewSubscription,
+				subscribedKinds: [],
+			}),
+			schedulePreparationDrain: (drain): void => {
+				scheduledDrains.push(drain);
+			},
+			sendProductControl: async (): Promise<void> => {},
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+		events.push(reviewSnapshotWithContentEvent);
+		await flushBridgeWorkerRuntimeContinuations();
+		await drainBridgeCommWorkerPreparationUntilIdle(scheduledDrains);
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				epoch: 1,
+				requestId: 'request-review-pane-suppression-selection',
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+				surface: 'review',
+			}),
+		);
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				epoch: 2,
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+				requestId: 'request-review-pane-suppression-viewport',
+				surface: 'review',
+				visibleItemIds: ['item-1'],
+			}),
+		);
+		await drainUntilReviewAttemptCount({ attempts, expectedCount: 2, scheduledDrains });
+		const messageCountBeforeSuppression = postedMessages.length;
+
+		// Act
+		requirePanePresentationSink(panePresentationSink)(makePanePresentationFrame(2, 'loadedHidden'));
+		await flushBridgeWorkerRuntimeContinuations();
+		dispatch.message(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				epoch: 3,
+				requestId: 'request-hidden-review-active-viewer-mode',
+				update: {
+					activeSource: null,
+					mode: 'review',
+					sequence: 3,
+					sessionId: 'hidden-review-session',
+				},
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Assert
+		expect(attempts).toHaveLength(2);
+		expect(attempts.every(({ abortSignal }) => abortSignal.aborted)).toBe(true);
+		expect(
+			postedMessages
+				.slice(messageCountBeforeSuppression)
+				.map(({ message }) => message)
+				.filter((message) => message.kind === 'reviewRenderPatch'),
+		).toEqual([]);
+
+		// Act
+		requirePanePresentationSink(panePresentationSink)(makePanePresentationFrame(3, 'foreground'));
+		await drainUntilReviewAttemptCount({ attempts, expectedCount: 4, scheduledDrains });
+		requirePanePresentationSink(panePresentationSink)(makePanePresentationFrame(3, 'foreground'));
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Assert
+		expect(attempts.map(({ descriptorId }) => descriptorId)).toEqual([
+			'review-descriptor-item-1-base',
+			'review-descriptor-item-1-head',
+			'review-descriptor-item-1-base',
+			'review-descriptor-item-1-head',
+		]);
+	});
+
+	test('opens a fresh Review stream when hidden and foreground frames arrive before abort continuations', async () => {
+		// Arrange
+		const events = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'review.metadata'>
+		>(64);
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const attempts: PendingReviewContentAttempt[] = [];
+		let panePresentationSink: ((frame: BridgeProductPanePresentationFrame) => void) | null = null;
+		const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+			cancel: async (): Promise<void> => {},
+			events,
+			subscriptionId: 'review-subscription-rapid-pane-resume',
+			subscriptionKind: 'review.metadata',
+			update: async (): Promise<void> => {},
+		};
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
+			openReviewContent: (descriptor, abortSignal) => {
+				if (attempts.length >= 2) {
+					attempts.push({ abortSignal, descriptorId: descriptor.descriptorId });
+					return makeImmediateReviewContentStream(descriptor, 'fresh foreground content\n');
+				}
+				return makePendingReviewContentStream({
+					abortSignal,
+					attempts,
+					descriptorId: descriptor.descriptorId,
+				});
+			},
+			productTransport: makeProductTransport({
+				onPanePresentationSink: (sink): void => {
+					panePresentationSink = sink;
+				},
+				reviewSubscription,
+				subscribedKinds: [],
+			}),
+			schedulePreparationDrain: (drain): void => {
+				scheduledDrains.push(drain);
+			},
+			sendProductControl: async (): Promise<void> => {},
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+		events.push(reviewSnapshotWithContentEvent);
+		await flushBridgeWorkerRuntimeContinuations();
+		await drainBridgeCommWorkerPreparationUntilIdle(scheduledDrains);
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				epoch: 1,
+				requestId: 'request-review-rapid-pane-resume-selection',
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+				surface: 'review',
+			}),
+		);
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				epoch: 2,
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+				requestId: 'request-review-rapid-pane-resume-viewport',
+				surface: 'review',
+				visibleItemIds: ['item-1'],
+			}),
+		);
+		await drainUntilReviewAttemptCount({ attempts, expectedCount: 2, scheduledDrains });
+		const messageCountBeforeNativeCycle = postedMessages.length;
+
+		// Act
+		requirePanePresentationSink(panePresentationSink)(makePanePresentationFrame(2, 'loadedHidden'));
+		requirePanePresentationSink(panePresentationSink)(makePanePresentationFrame(3, 'foreground'));
+		const immediatelyStartedDrainCompletions = scheduledDrains.splice(0).map((drain) => drain());
+		await flushBridgeWorkerRuntimeContinuations();
+		await drainBridgeCommWorkerPreparationUntilIdle(scheduledDrains);
+		await Promise.all(immediatelyStartedDrainCompletions);
+
+		// Assert
+		expect(attempts.map(({ descriptorId }) => descriptorId)).toEqual([
+			'review-descriptor-item-1-base',
+			'review-descriptor-item-1-head',
+			'review-descriptor-item-1-base',
+			'review-descriptor-item-1-head',
+		]);
+		expect(
+			postedMessages
+				.slice(messageCountBeforeNativeCycle)
+				.map(({ message }) => message)
+				.filter(
+					(message) =>
+						message.kind === 'reviewRenderPatch' &&
+						message.patches.some(
+							(patch) =>
+								patch.slice === 'contentAvailability' &&
+								patch.operation === 'upsert' &&
+								patch.payload.reason === 'load_failed',
+						),
+				),
+		).toEqual([]);
+	});
 });
+
+interface PendingReviewContentAttempt {
+	readonly abortSignal: AbortSignal;
+	readonly descriptorId: string;
+}
 
 function makeProductTransport(props: {
 	readonly initialReviewEpoch?: number;
+	readonly onPanePresentationSink?: (
+		sink: (frame: BridgeProductPanePresentationFrame) => void,
+	) => void;
 	readonly openedContentKinds?: string[];
 	readonly reviewSubscription: BridgeProductSubscription<'review.metadata'>;
 	readonly subscribedKinds: string[];
@@ -250,6 +581,10 @@ function makeProductTransport(props: {
 			props.openedContentKinds?.push(descriptor.contentKind);
 			return makeImmediateReviewContentStream(descriptor, 'hello world\n') as never;
 		},
+		setPanePresentationFrameSink: (sink): void => {
+			props.onPanePresentationSink?.(sink);
+			sink(makePanePresentationFrame(1, 'foreground'));
+		},
 		subscribe: (...arguments_): never => {
 			const [subscriptionKind] = arguments_;
 			props.subscribedKinds.push(subscriptionKind);
@@ -261,6 +596,69 @@ function makeProductTransport(props: {
 		workerDerivationEpoch: (surface): number => (surface === 'review' ? reviewEpoch : 0),
 	};
 }
+
+function makePendingReviewContentStream(props: {
+	readonly abortSignal: AbortSignal;
+	readonly attempts: PendingReviewContentAttempt[];
+	readonly descriptorId: string;
+}): BridgeProductContentStream<'review.content'> {
+	props.attempts.push({
+		abortSignal: props.abortSignal,
+		descriptorId: props.descriptorId,
+	});
+	return {
+		contentKind: 'review.content',
+		contentRequestId: `review-content-request-${props.attempts.length}`,
+		frames: emptyReviewContentFrames(),
+		terminal: new Promise((_, reject): void => {
+			props.abortSignal.addEventListener('abort', (): void => reject(props.abortSignal.reason), {
+				once: true,
+			});
+		}),
+	};
+}
+
+async function drainUntilReviewAttemptCount(props: {
+	readonly attempts: readonly PendingReviewContentAttempt[];
+	readonly expectedCount: number;
+	readonly scheduledDrains: BridgeCommWorkerPreparationDrain[];
+}): Promise<void> {
+	if (props.attempts.length >= props.expectedCount || props.scheduledDrains.length === 0) {
+		expect(props.attempts).toHaveLength(props.expectedCount);
+		return;
+	}
+	const drain = props.scheduledDrains.shift();
+	if (drain === undefined) throw new Error('Expected scheduled Review preparation drain.');
+	void drain();
+	await flushBridgeWorkerRuntimeContinuations();
+	await drainUntilReviewAttemptCount(props);
+}
+
+function requirePanePresentationSink(
+	sink: ((frame: BridgeProductPanePresentationFrame) => void) | null,
+): (frame: BridgeProductPanePresentationFrame) => void {
+	if (sink === null) throw new Error('Expected Bridge pane presentation sink registration.');
+	return sink;
+}
+
+function makePanePresentationFrame(
+	activityRevision: number,
+	nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'],
+): BridgeProductPanePresentationFrame {
+	return {
+		activityRevision,
+		kind: 'pane.presentation',
+		metadataStreamId: 'metadata-stream-review-pane-suppression',
+		nativeActivity,
+		paneSessionId: 'pane-session-review-pane-suppression',
+		refreshingLanes: [],
+		streamSequence: activityRevision,
+		wireVersion: 2,
+		workerInstanceId: 'worker-instance-review-pane-suppression',
+	};
+}
+
+async function* emptyReviewContentFrames(): AsyncIterable<never> {}
 
 const reviewItemMetadata = {
 	basePath: 'Sources/App.swift',

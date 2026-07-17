@@ -10,6 +10,13 @@ extension BridgePaneController {
         productAdmission: BridgeProductAdmissionContext
     ) async {
         var rejectionReasons: [BridgeActiveViewerModeSignalRejectionReason] = []
+        let isActiveSourceAccepted = activeSource.map { source in
+            isCommittedProductActiveViewerSourceAccepted(
+                mode: mode,
+                source: source,
+                productAdmission: productAdmission
+            )
+        }
         guard
             productAdmission.withValidAdmission({
                 if activeViewerModeSignalState.sessionId != sessionId {
@@ -34,7 +41,7 @@ extension BridgePaneController {
                     activeViewerModeSignalState.acceptedSignal = nil
                     return
                 }
-                guard isCommittedProductActiveViewerSourceAccepted(mode: mode, source: activeSource) else {
+                guard isActiveSourceAccepted == true else {
                     activeViewerModeSignalState.acceptedSignal = nil
                     rejectionReasons.append(.staleGeneration)
                     return
@@ -123,13 +130,13 @@ extension BridgePaneController {
 
     private func isCommittedProductActiveViewerSourceAccepted(
         mode: BridgeActiveViewerMode,
-        source: BridgeActiveViewerSource
+        source: BridgeActiveViewerSource,
+        productAdmission: BridgeProductAdmissionContext
     ) -> Bool {
         if mode == .file {
             return source.protocolId == .worktreeFile
         }
         guard source.protocolId == .review,
-            let productAdmission = productAdmissionGate.acquire(),
             let publication = reviewPublicationCoordinator.committedPublicationForReplay(
                 productAdmission: productAdmission
             )

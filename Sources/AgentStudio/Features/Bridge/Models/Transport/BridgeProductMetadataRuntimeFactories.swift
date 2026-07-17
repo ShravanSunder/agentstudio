@@ -329,6 +329,29 @@ extension BridgeProductMetadataStreamErrorFrame {
     }
 }
 
+extension BridgeProductPanePresentationFrame {
+    init(
+        stream: BridgeProductMetadataStreamCorrelation,
+        streamSequence: Int,
+        snapshot: BridgePaneProductPresentationSnapshot
+    ) throws {
+        try BridgeProductContractDecoding.validatePositive(
+            streamSequence,
+            name: "streamSequence",
+            codingPath: []
+        )
+        try BridgeProductContractDecoding.validatePositive(
+            snapshot.activityRevision,
+            name: "activityRevision",
+            codingPath: []
+        )
+        self.frameIdentity = .init(correlation: stream, streamSequence: streamSequence)
+        self.activityRevision = snapshot.activityRevision
+        self.nativeActivity = snapshot.nativeActivity
+        self.refreshingLanes = snapshot.refreshingLanes.sorted { $0.rawValue < $1.rawValue }
+    }
+}
+
 extension BridgeProductMetadataFrame {
     static func metadataStreamAccepted(
         for request: BridgeProductMetadataStreamRequest,
@@ -339,6 +362,20 @@ extension BridgeProductMetadataFrame {
                 stream: request.correlation,
                 streamSequence: request.resumeFromStreamSequence.map { $0 + 1 } ?? 0,
                 resumeDisposition: resumeDisposition
+            )
+        )
+    }
+
+    static func panePresentation(
+        stream: BridgeProductMetadataStreamCorrelation,
+        streamSequence: Int,
+        snapshot: BridgePaneProductPresentationSnapshot
+    ) throws -> Self {
+        .panePresentation(
+            try .init(
+                stream: stream,
+                streamSequence: streamSequence,
+                snapshot: snapshot
             )
         )
     }

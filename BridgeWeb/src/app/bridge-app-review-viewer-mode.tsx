@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactElement } from 'react';
 
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type { BridgeActiveViewerSource } from '../core/comm-worker/bridge-product-control-contracts.js';
@@ -45,6 +45,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		viewerHeaderControls,
 	} = props;
 	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
+	const presentationPositionKey = useId();
 	const controller = useBridgeReviewRenderSnapshotController({
 		pierreCourier,
 		reviewClient,
@@ -55,6 +56,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const displayStore = controller.displayStore;
 	const emitSelectedReviewItemIntent = controller.emitSelectedReviewItemIntent;
 	const markFileViewed = controller.markFileViewed;
+	const panelChromeSlice = controller.panelChromeSlice;
 	const reviewSourceSlice = controller.reviewSourceSlice;
 	const selectedCodeViewItem = controller.selectedCodeViewItem;
 	const selectedContentAvailability = controller.selectedContentAvailability;
@@ -172,6 +174,8 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const presentationState = reviewPresentationState({
 		codeViewWorkerFactory,
 		codeViewWorkerPoolEnabled,
+		panelChromeSlice,
+		presentationPositionKey,
 		presentationSnapshot,
 		renderFulfillmentCoordinator: reviewClient.renderFulfillmentCoordinator,
 		reviewSourceSlice,
@@ -204,6 +208,8 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 function reviewPresentationState(props: {
 	readonly codeViewWorkerFactory: (() => Worker) | undefined;
 	readonly codeViewWorkerPoolEnabled: boolean | undefined;
+	readonly panelChromeSlice: BridgeReviewRenderSnapshotController['panelChromeSlice'];
+	readonly presentationPositionKey: string;
 	readonly presentationSnapshot: ReturnType<typeof bridgeReviewPresentationSnapshotForDisplay>;
 	readonly renderFulfillmentCoordinator: BridgePaneSurfaceClient['renderFulfillmentCoordinator'];
 	readonly reviewSourceSlice: BridgeReviewRenderSnapshotController['reviewSourceSlice'];
@@ -238,6 +244,8 @@ function reviewPresentationState(props: {
 	return {
 		presentationKey: props.presentationSnapshot.presentationKey,
 		shellProps: {
+			panelChromeSlice: props.panelChromeSlice,
+			presentationPositionKey: props.presentationPositionKey,
 			presentationRegistry: props.presentationSnapshot.presentationRegistry,
 			renderFulfillmentCoordinator: props.renderFulfillmentCoordinator,
 			onCodeViewVisibleItemIdsChange: props.setReviewCodeViewVisibleItemIds,

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import invalidProductSessionCorpus from '../../test-fixtures/bridge-contract-fixtures/invalid/bridge-product-session-corpus.json' with { type: 'json' };
 import validProductSessionCorpus from '../../test-fixtures/bridge-contract-fixtures/valid/bridge-product-session-corpus.json' with { type: 'json' };
 import { BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES } from './bridge-product-contract-primitives.js';
 import {
@@ -78,6 +79,46 @@ describe('Bridge product metadata frame decoder', () => {
 		expect(fragmentedDecoder.diagnostics).toEqual(finishedDiagnostics);
 		expect(() => fragmentedDecoder.push(encodedFrame)).toThrow(/finished/iu);
 		expect(fragmentedDecoder.diagnostics).toEqual(finishedDiagnostics);
+	});
+
+	test('round-trips the pane presentation corpus through the framed metadata codec', () => {
+		const frames = validProductSessionCorpus.metadataFrames
+			.filter((frame) => frame.kind === 'pane.presentation')
+			.map((frame) => bridgeProductMetadataFrameSchema.parse(frame));
+		const wireBytes = concatenateBytes(...frames.map(encodeBridgeProductMetadataFrame));
+		const decoder = new BridgeProductMetadataFrameDecoder();
+
+		expect(decoder.push(wireBytes)).toEqual(frames);
+		decoder.finish();
+		expect(frames).toHaveLength(4);
+		expect(frames.every((frame) => !('workerEpoch' in frame))).toBe(true);
+		expect(frames.every((frame) => !('workerDerivationEpoch' in frame))).toBe(true);
+		expect(decoder.diagnostics).toMatchObject({
+			emittedFrameCount: 4,
+			failureCode: null,
+			state: 'finished',
+		});
+	});
+
+	test('rejects the hostile pane presentation corpus through the framed metadata codec', () => {
+		const hostileCases = invalidProductSessionCorpus.cases.filter((hostileCase) =>
+			hostileCase.name.startsWith('pane presentation'),
+		);
+
+		expect(hostileCases).toHaveLength(7);
+		for (const hostileCase of hostileCases) {
+			const decoder = new BridgeProductMetadataFrameDecoder();
+
+			expect(
+				() => decoder.push(encodeRawMetadataFrame(JSON.stringify(hostileCase.value))),
+				hostileCase.name,
+			).toThrow(/closed contract/iu);
+			expect(decoder.diagnostics).toMatchObject({
+				emittedFrameCount: 0,
+				failureCode: 'frame_decode_invalid',
+				state: 'poisoned',
+			});
+		}
 	});
 
 	test('interleaves independent Review and File epochs on one contiguous physical stream', () => {

@@ -8,6 +8,7 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
     @Test("internally thrown cancellation error resets the accepted subscription")
     func internallyThrownCancellationErrorResetsAcceptedSubscription() async throws {
         // Arrange
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
         let lease = try await harness.admitMetadataFrames(through: 0)
         let pump = BridgeProductSchemeFramePump(
@@ -21,6 +22,7 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
         let coordinator = BridgePaneProductMetadataCoordinator(
             fileMetadataSource: source,
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
+            refreshWorkAdmissionSource: refreshWorkAdmission.source,
             lifecycleTraceRecorder: traceRecorder
         )
         await coordinator.install(
@@ -81,6 +83,7 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
     @Test("actual bootstrap task cancellation does not synthesize a reset")
     func actualBootstrapTaskCancellationDoesNotSynthesizeReset() async throws {
         // Arrange
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
         let lease = try await harness.admitMetadataFrames(through: 0)
         let pump = BridgeProductSchemeFramePump(
@@ -94,6 +97,7 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
         let coordinator = BridgePaneProductMetadataCoordinator(
             fileMetadataSource: source,
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
+            refreshWorkAdmissionSource: refreshWorkAdmission.source,
             lifecycleTraceRecorder: traceRecorder
         )
         await coordinator.install(
@@ -148,6 +152,7 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
     @Test("stale bootstrap completion preserves the replacement task handle")
     func staleBootstrapCompletionPreservesReplacementTaskHandle() async throws {
         // Arrange
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
         let lease = try await harness.admitMetadataFrames(through: 0)
         let source = CoordinatorReplacementBootstrapFileMetadataSource()
@@ -155,6 +160,7 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
         let coordinator = BridgePaneProductMetadataCoordinator(
             fileMetadataSource: source,
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
+            refreshWorkAdmissionSource: refreshWorkAdmission.source,
             lifecycleTraceRecorder: traceRecorder
         )
         await coordinator.install(
@@ -193,12 +199,14 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
     @Test("replacement install does not return until cancelled predecessor open drains")
     func replacementInstallWaitsForCancelledPredecessorOpenToDrain() async throws {
         // Arrange
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let firstHarness = try await BridgeProductSessionLifecycleHarness.opened()
         let firstLease = try await firstHarness.admitMetadataFrames(through: 0)
         let source = CoordinatorDrainControlledReviewMetadataSource()
         let coordinator = BridgePaneProductMetadataCoordinator(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
-            reviewMetadataSource: source
+            reviewMetadataSource: source,
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
         )
         await coordinator.install(
             request: try producerTaskMetadataStreamRequest(),
@@ -246,12 +254,14 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
     @Test("subscription cancel does not return until its cancelled producer task drains")
     func subscriptionCancelWaitsForCancelledProducerTaskToDrain() async throws {
         // Arrange
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
         let lease = try await harness.admitMetadataFrames(through: 0)
         let source = CoordinatorDrainControlledReviewMetadataSource()
         let coordinator = BridgePaneProductMetadataCoordinator(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
-            reviewMetadataSource: source
+            reviewMetadataSource: source,
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
         )
         await coordinator.install(
             request: try producerTaskMetadataStreamRequest(),
@@ -290,12 +300,14 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
     @Test("coordinator close does not return until cancelled producer tasks drain")
     func closeWaitsForCancelledProducerTasksToDrain() async throws {
         // Arrange
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
         let lease = try await harness.admitMetadataFrames(through: 0)
         let source = CoordinatorDrainControlledReviewMetadataSource()
         let coordinator = BridgePaneProductMetadataCoordinator(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
-            reviewMetadataSource: source
+            reviewMetadataSource: source,
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
         )
         await coordinator.install(
             request: try producerTaskMetadataStreamRequest(),
@@ -329,6 +341,7 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
 
     @Test("Review bootstrap failures retain their typed source and producer causes")
     func reviewBootstrapFailuresRetainTypedCauses() async throws {
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let expectations: [(CoordinatorReviewBootstrapFailureMode, BridgeProductMetadataProducerFailureReason)] = [
             (.eventConstruction, .reviewEventConstruction),
             (.producerQueueReset, .producerQueueReset),
@@ -344,6 +357,7 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
             let coordinator = BridgePaneProductMetadataCoordinator(
                 fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
                 reviewMetadataSource: CoordinatorThrowingReviewMetadataSource(failureMode: failureMode),
+                refreshWorkAdmissionSource: refreshWorkAdmission.source,
                 lifecycleTraceRecorder: traceRecorder
             )
             await coordinator.install(
@@ -543,6 +557,7 @@ private actor CoordinatorReplacementBootstrapFileMetadataSource:
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
         productAdmission _: BridgeProductAdmissionContext,
+        foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
         let openOrdinal = nextOpenOrdinal
@@ -565,6 +580,7 @@ private actor CoordinatorReplacementBootstrapFileMetadataSource:
     func update(
         subscription _: BridgeProductSubscriptionSnapshot,
         productAdmission _: BridgeProductAdmissionContext,
+        foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {}
 
@@ -576,12 +592,14 @@ private actor CoordinatorReplacementBootstrapFileMetadataSource:
 
     func publish(
         status _: GitWorkingTreeStatus,
-        productAdmission _: BridgeProductAdmissionContext
+        productAdmission _: BridgeProductAdmissionContext,
+        foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission
     ) -> [BridgePaneProductFileMetadataEmission] { [] }
 
     func publish(
         changeset _: FileChangeset,
-        productAdmission _: BridgeProductAdmissionContext
+        productAdmission _: BridgeProductAdmissionContext,
+        foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission
     ) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
 
     func contentReadPlan(
@@ -624,6 +642,7 @@ private actor CoordinatorCancellationErrorFileSource:
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
         productAdmission _: BridgeProductAdmissionContext,
+        foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
         didAttemptOpen = true
@@ -633,6 +652,7 @@ private actor CoordinatorCancellationErrorFileSource:
     func update(
         subscription _: BridgeProductSubscriptionSnapshot,
         productAdmission _: BridgeProductAdmissionContext,
+        foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {}
 
@@ -640,12 +660,14 @@ private actor CoordinatorCancellationErrorFileSource:
 
     func publish(
         status _: GitWorkingTreeStatus,
-        productAdmission _: BridgeProductAdmissionContext
+        productAdmission _: BridgeProductAdmissionContext,
+        foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission
     ) -> [BridgePaneProductFileMetadataEmission] { [] }
 
     func publish(
         changeset _: FileChangeset,
-        productAdmission _: BridgeProductAdmissionContext
+        productAdmission _: BridgeProductAdmissionContext,
+        foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission
     ) async throws -> [BridgePaneProductFileMetadataEmission] { [] }
 
     func contentReadPlan(

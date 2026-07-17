@@ -44,6 +44,7 @@ final class BridgePaneController {
 
     let reviewContentLoaderCache: BridgeReviewContentLoaderCache
     let productAdmissionGate: BridgeProductAdmissionGate
+    let refreshAdmissionCoordinator: BridgePaneRefreshAdmissionCoordinator
     let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
     let productSessionOwner: BridgePaneProductSessionOwner
     let telemetrySessionOwner: BridgePaneTelemetrySessionOwner?
@@ -54,7 +55,8 @@ final class BridgePaneController {
     var nextReviewGeneration: BridgeReviewGeneration = 0
     var selectedReviewItemId: String?
     var activeReviewRefreshTask: Task<Void, Never>?
-    var hasPendingReviewRefresh = false
+    var productPresentationTransitionGeneration: UInt64 = 0
+    var productPresentationTransitionTail: Task<Void, Never>?
     var pendingReviewPackageBuildReasons: Set<BridgeReviewPackageBuildReason> = []
     var activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
 
@@ -98,6 +100,7 @@ final class BridgePaneController {
         telemetryScopeGate: BridgeTelemetryScopeGate? = nil,
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
         traceContextFactory: BridgeTraceContextFactory = .live,
+        initialPaneActivity: BridgePaneActivity,
         productSessionDependencies: BridgePaneProductSessionDependencies? = nil,
         telemetrySessionDependencies: BridgePaneTelemetrySessionDependencies? = nil,
         productSessionBootstrapSink: @escaping BridgeProductSessionBootstrapSink =
@@ -123,6 +126,10 @@ final class BridgePaneController {
             provider: resolvedReviewSourceProvider
         )
         self.reviewContentLoaderCache = resolvedReviewContentLoaderCache
+        let resolvedRefreshAdmissionCoordinator = BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: initialPaneActivity
+        )
+        self.refreshAdmissionCoordinator = resolvedRefreshAdmissionCoordinator
         let resolvedReviewPublicationCoordinator = BridgeReviewPublicationCoordinator()
         self.reviewPublicationCoordinator = resolvedReviewPublicationCoordinator
         self.reviewPipeline = BridgeReviewPipeline(provider: resolvedReviewSourceProvider)
@@ -140,12 +147,16 @@ final class BridgePaneController {
         let resolvedProductSessionDependencies =
             productSessionDependencies
             ?? Self.makeProductSessionDependencies(
-                paneSessionId: paneId.uuidString,
-                runtime: resolvedRuntime,
-                state: state,
-                reviewContentLoaderCache: resolvedReviewContentLoaderCache,
-                reviewPublicationCoordinator: resolvedReviewPublicationCoordinator,
-                telemetryRecorder: telemetryDependencies.recorder
+                BridgeProductSessionDependencyInput(
+                    paneSessionId: paneId.uuidString,
+                    runtime: resolvedRuntime,
+                    state: state,
+                    reviewContentLoaderCache: resolvedReviewContentLoaderCache,
+                    reviewPublicationCoordinator: resolvedReviewPublicationCoordinator,
+                    refreshWorkAdmissionSource: resolvedRefreshAdmissionCoordinator.workAdmissionSource,
+                    initialProductPresentation: resolvedRefreshAdmissionCoordinator.productPresentationSnapshot,
+                    telemetryRecorder: telemetryDependencies.recorder
+                )
             )
         self.productSessionOwner = resolvedProductSessionDependencies.owner
         self.productAdmissionGate = resolvedProductSessionDependencies.owner.productAdmissionGate
@@ -213,7 +224,7 @@ final class BridgePaneController {
             guard let self else { return }
             switch bootstrapMessage {
             case .ready(let requestId):
-                if handleBridgeReady() {
+                if handleBridgeReady() || isBridgeReady {
                     await emitBridgeReadyAcknowledgement(id: requestId, result: nil, error: nil)
                 } else {
                     await emitBridgeReadyAcknowledgement(
@@ -324,14 +335,16 @@ final class BridgePaneController {
         }
         if !isTeardownStarted {
             isTeardownStarted = true
+            refreshAdmissionCoordinator.close()
             productAdmissionGate.close()
             reviewPublicationCoordinator.close()
             activeReviewRefreshTask?.cancel()
             activeReviewRefreshTask = nil
-            hasPendingReviewRefresh = false
             let reviewContentLoaderCache = reviewContentLoaderCache
             let productSchemeProvider = productSchemeProvider
+            let productPresentationTransitionTail = productPresentationTransitionTail
             teardownCleanupTask = Task {
+                await productPresentationTransitionTail?.value
                 async let contentDemandDrain: Void? = productSchemeProvider?.closeAndDrain()
                 await reviewContentLoaderCache.closeAndDrain()
                 _ = await contentDemandDrain
@@ -406,7 +419,7 @@ final class BridgePaneController {
     @discardableResult
     func handleBridgeReady() -> Bool {
         guard !isTeardownStarted else { return false }
-        guard !isBridgeReady else { return true }
+        guard !isBridgeReady else { return false }
         if runtime.lifecycle == .created {
             guard runtime.transitionToReady() else {
                 bridgeControllerLogger.error(

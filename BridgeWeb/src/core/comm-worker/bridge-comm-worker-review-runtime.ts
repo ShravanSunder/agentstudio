@@ -45,6 +45,7 @@ export interface DispatchSelectedBridgeWorkerReviewContentReadyProps {
 	readonly port: BridgeCommWorkerPort;
 	readonly renderSemantics: readonly BridgeWorkerReviewRenderSemantics[];
 	readonly sequence: number;
+	readonly signal?: AbortSignal;
 	readonly store: BridgeCommWorkerStore;
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
 	readonly workerDerivationEpoch: number;
@@ -124,7 +125,7 @@ export async function fetchBridgeWorkerReviewContentReadyResources(
 			selectReviewContentRequestDescriptorsForSemantics({
 				descriptors: props.contentRequestDescriptors,
 				semantics,
-			}).map(fetchReviewContentResource),
+			}).map((descriptor) => fetchReviewContentResource(descriptor, props.signal)),
 		);
 	} catch {
 		return { reason: 'load_failed', status: 'terminal', state: 'failed' };
@@ -387,12 +388,14 @@ export function isSelectedReviewContentReadyPreparationCurrent(
 export function isReviewContentReadyDemandCurrent(
 	props: Pick<
 		DispatchBridgeWorkerReviewContentReadyProps,
-		'demandKey' | 'isDemandCurrent' | 'itemId' | 'store'
+		'demandKey' | 'isDemandCurrent' | 'itemId' | 'signal' | 'store'
 	>,
 ): boolean {
 	const state = props.store.getState();
 	return (
-		state.demandByKey.get(props.itemId) === props.demandKey && (props.isDemandCurrent?.() ?? true)
+		props.signal?.aborted !== true &&
+		state.demandByKey.get(props.itemId) === props.demandKey &&
+		(props.isDemandCurrent?.() ?? true)
 	);
 }
 
@@ -412,11 +415,15 @@ function selectedReviewContentReadyDemandKey(
 function createBridgeWorkerReviewContentResourceFetch(
 	props: Pick<DispatchBridgeWorkerReviewContentReadyProps, 'openContent'>,
 ): BridgeWorkerReviewContentResourceFetch {
-	return (descriptor: BridgeWorkerReviewContentRequestDescriptor) => {
+	return (descriptor: BridgeWorkerReviewContentRequestDescriptor, signal?: AbortSignal) => {
 		if (props.openContent === undefined) {
 			throw new Error('Bridge worker Review content requires the shared product transport.');
 		}
-		return fetchBridgeWorkerReviewContentResource({ descriptor, openContent: props.openContent });
+		return fetchBridgeWorkerReviewContentResource({
+			descriptor,
+			openContent: props.openContent,
+			...(signal === undefined ? {} : { signal }),
+		});
 	};
 }
 

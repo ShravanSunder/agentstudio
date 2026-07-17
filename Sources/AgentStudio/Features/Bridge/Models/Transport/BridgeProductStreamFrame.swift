@@ -234,6 +234,7 @@ struct BridgeProductSubscriptionFrameIdentity: Codable, Equatable, Sendable {
 
 enum BridgeProductMetadataFrame: Codable, Equatable, Sendable {
     case metadataStreamAccepted(BridgeProductMetadataStreamAcceptedFrame)
+    case panePresentation(BridgeProductPanePresentationFrame)
     case subscriptionAccepted(BridgeProductSubscriptionAcceptedFrame)
     case subscriptionInterestsCommitted(BridgeProductSubscriptionInterestsCommittedFrame)
     case subscriptionData(BridgeProductSubscriptionDataFrame)
@@ -250,6 +251,7 @@ enum BridgeProductMetadataFrame: Codable, Equatable, Sendable {
     var kind: String {
         switch self {
         case .metadataStreamAccepted: "metadataStream.accepted"
+        case .panePresentation: "pane.presentation"
         case .subscriptionAccepted: "subscription.accepted"
         case .subscriptionInterestsCommitted: "subscription.interestsCommitted"
         case .subscriptionData: "subscription.data"
@@ -266,6 +268,8 @@ enum BridgeProductMetadataFrame: Codable, Equatable, Sendable {
         switch try container.decode(String.self, forKey: .kind) {
         case "metadataStream.accepted":
             self = .metadataStreamAccepted(try BridgeProductMetadataStreamAcceptedFrame(from: decoder))
+        case "pane.presentation":
+            self = .panePresentation(try BridgeProductPanePresentationFrame(from: decoder))
         case "subscription.accepted":
             self = .subscriptionAccepted(try BridgeProductSubscriptionAcceptedFrame(from: decoder))
         case "subscription.interestsCommitted":
@@ -296,6 +300,7 @@ enum BridgeProductMetadataFrame: Codable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         switch self {
         case .metadataStreamAccepted(let frame): try frame.encode(to: encoder)
+        case .panePresentation(let frame): try frame.encode(to: encoder)
         case .subscriptionAccepted(let frame): try frame.encode(to: encoder)
         case .subscriptionInterestsCommitted(let frame): try frame.encode(to: encoder)
         case .subscriptionData(let frame): try frame.encode(to: encoder)
@@ -305,6 +310,72 @@ enum BridgeProductMetadataFrame: Codable, Equatable, Sendable {
         case .contentCancelled(let frame): try frame.encode(to: encoder)
         case .metadataStreamError(let frame): try frame.encode(to: encoder)
         }
+    }
+}
+
+struct BridgeProductPanePresentationFrame: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case activityRevision
+        case kind
+        case nativeActivity
+        case refreshingLanes
+    }
+
+    let frameIdentity: BridgeProductMetadataFrameIdentity
+    let activityRevision: Int
+    let nativeActivity: BridgePaneActivity
+    let refreshingLanes: [BridgePaneRefreshLane]
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: BridgeProductMetadataFrameIdentity.codingKeyNames.union(
+                CodingKeys.allCases.map(\.rawValue)
+            ),
+            contract: "pane.presentation frame"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard try container.decode(String.self, forKey: .kind) == "pane.presentation" else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid pane.presentation frame kind",
+                codingPath: decoder.codingPath
+            )
+        }
+        self.activityRevision = try container.decode(Int.self, forKey: .activityRevision)
+        self.nativeActivity = try container.decode(BridgePaneActivity.self, forKey: .nativeActivity)
+        self.refreshingLanes = try container.decode(
+            [BridgePaneRefreshLane].self,
+            forKey: .refreshingLanes
+        )
+        self.frameIdentity = try BridgeProductMetadataFrameIdentity(from: decoder)
+        try frameIdentity.validateProgressSequence(codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validatePositive(
+            activityRevision,
+            name: "activityRevision",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validateMaximum(
+            activityRevision,
+            maximum: BridgeProductWireContract.maximumSafeInteger,
+            name: "activityRevision",
+            codingPath: decoder.codingPath
+        )
+        let canonicalLanes = Array(Set(refreshingLanes)).sorted { $0.rawValue < $1.rawValue }
+        guard refreshingLanes == canonicalLanes else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Bridge pane refreshing lanes must be unique and canonical",
+                codingPath: decoder.codingPath
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try frameIdentity.encode(to: encoder)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(activityRevision, forKey: .activityRevision)
+        try container.encode("pane.presentation", forKey: .kind)
+        try container.encode(nativeActivity, forKey: .nativeActivity)
+        try container.encode(refreshingLanes, forKey: .refreshingLanes)
     }
 }
 

@@ -231,7 +231,7 @@ describe('Bridge Trees controller', () => {
 		});
 	});
 
-	test('resets retained disclosure when the worker starts a new Review generation', () => {
+	test('retains disclosure when the pane position scope receives a new Review generation', () => {
 		// Arrange
 		const previousSource = makeSource({
 			gitStatusEntries: [],
@@ -246,9 +246,24 @@ describe('Bridge Trees controller', () => {
 
 		// Act / Assert
 		expect(planBridgeTreesUpdate({ previous: previousSource, next: nextSource })).toEqual({
-			kind: 'reset',
+			kind: 'none',
 		});
 		expect(nextSource.initialExpandedPaths).toEqual(['Sources', 'Sources/Feature']);
+	});
+
+	test('resets disclosure when a different pane position scope replaces the Review source', () => {
+		const previousSource = makeSource({
+			gitStatusEntries: [],
+			orderedPaths: ['Sources/Feature/File.swift'],
+		});
+		const nextSource = {
+			...previousSource,
+			presentationPositionKey: `${previousSource.presentationPositionKey}:replacement-pane`,
+		};
+
+		expect(planBridgeTreesUpdate({ previous: previousSource, next: nextSource })).toEqual({
+			kind: 'reset',
+		});
 	});
 
 	test('resets retained Pierre disclosure when the initial disclosure policy changes', () => {

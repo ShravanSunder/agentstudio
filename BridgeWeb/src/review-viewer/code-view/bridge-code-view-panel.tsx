@@ -138,6 +138,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const pendingSelectionRevealBehaviorRef = useRef<CodeViewScrollBehavior | null>(null);
 	const pendingSmoothSelectionScrollKeyRef = useRef<string | null>(null);
 	const pendingVisibleHeaderPublishFrameRef = useRef<number | null>(null);
+	const scrollActivityActiveRef = useRef(false);
 	const lastMetadataApplySourceKeyRef = useRef<string | null>(null);
 	const lastMetadataApplyMountVersionRef = useRef<number | null>(null);
 	const lastMetadataManifestItemsRef = useRef<readonly BridgeCodeViewItem[] | null>(null);
@@ -150,7 +151,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const settledInstantSelectionRevealKeyRef = useRef<string | null>(null);
 	const lastProgrammaticRevealItemIdRef = useRef<string | null>(null);
 	const scrollIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const scrollActivityActiveRef = useRef(false);
 	const renderedWindowItemIdsRef = useRef<readonly string[]>([]);
 	const pendingRenderedItemsSourceRef = useRef<BridgeCodeViewRenderedItemsSource | null>(null);
 	const visibleHeaderItemIdsRef = useRef<ReadonlySet<string>>(new Set<string>());
