@@ -213,6 +213,7 @@ public enum IPCMethodDefinitionError: Error, Equatable, Sendable {
 public enum IPCHandleKind: String, Codable, CaseIterable, Hashable, Sendable {
     case window
     case workspace
+    case repo
     case tab
     case pane
 }

@@ -151,9 +151,6 @@ extension AgentStudioAppIPCServer {
             return try encodeResult(result)
         case "command.execute":
             let params = try decodeParams(IPCCommandExecuteParams.self, from: request.params)
-            guard params.targetHandle == nil else {
-                throw AppIPCCommandError(reason: .targetNotFound)
-            }
             let command = try await MainActor.run {
                 try service.ports.commandPort.listCommands().commands.first { $0.id == params.commandId }
             }
