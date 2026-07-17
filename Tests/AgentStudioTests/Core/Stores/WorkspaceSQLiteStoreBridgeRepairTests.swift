@@ -21,7 +21,6 @@ struct WorkspaceSQLiteStoreBridgePersistenceTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_086)
         )
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
@@ -72,7 +71,6 @@ struct WorkspaceSQLiteStoreBridgePersistenceTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_087)
         )
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
@@ -124,7 +122,6 @@ struct WorkspaceSQLiteStoreBridgePersistenceTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_088)
         )
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
@@ -173,7 +170,6 @@ struct WorkspaceSQLiteStoreBridgePersistenceTests {
         )
 
         let restoredStore = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
         await restoredStore.loadCanonicalComposition()

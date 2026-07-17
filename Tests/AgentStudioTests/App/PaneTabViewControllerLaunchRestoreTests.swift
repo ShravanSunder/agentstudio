@@ -28,8 +28,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
     private func makeHarness() -> Harness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-tab-launch-tests-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let appLifecycleStore = AppLifecycleAtom()

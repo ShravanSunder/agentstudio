@@ -28,7 +28,6 @@ struct WorkspacePaneFocusDerivedTests {
     func activeTerminalTabReportsFocusRequirements() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
@@ -60,7 +59,6 @@ struct WorkspacePaneFocusDerivedTests {
     func drawerAndArrangementRequirementsAreReported() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
@@ -103,7 +101,6 @@ struct WorkspacePaneFocusDerivedTests {
     func worktreeBackedPane_populatesActiveRepoAndWorktreeIds() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
@@ -139,7 +136,6 @@ struct WorkspacePaneFocusDerivedTests {
     func staleEmptyDrawerScope_isIgnoredWhenDrawerIsCollapsed() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
@@ -165,7 +161,6 @@ struct WorkspacePaneFocusDerivedTests {
     func staleDrawerPaneOwner_fallsBackToRealActiveDrawerPane() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
@@ -205,7 +200,6 @@ struct WorkspacePaneFocusDerivedTests {
     func focusedDrawerPane_reportsDrawerPaneIdentityAndMetadataNotParent() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout

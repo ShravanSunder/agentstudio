@@ -20,8 +20,7 @@ final class DrawerCommandIntegrationTests {
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "drawer-cmd-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        store = WorkspaceStore()
         viewRegistry = ViewRegistry()
         runtime = SessionRuntime(store: store)
         surfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()

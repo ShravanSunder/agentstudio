@@ -201,9 +201,7 @@ struct WorkspacePaneFocusDerivedProjectionTests {
 
     @Test
     func emptyWorkspaceHasNoActiveContext() {
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-        )
+        let store = WorkspaceStore()
         let focus = WorkspacePaneFocusDerived().currentFocus(
             workspaceTab: workspaceTab(for: store),
             workspacePane: store.paneAtom,
@@ -216,9 +214,7 @@ struct WorkspacePaneFocusDerivedProjectionTests {
 
     @Test
     func activeTerminalTabReportsFocusRequirements() {
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-        )
+        let store = WorkspaceStore()
         let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -254,9 +250,7 @@ struct WorkspacePaneFocusDerivedProjectionTests {
             activeArrangementId: arrangement.id,
             activePaneId: nil
         )
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-        )
+        let store = WorkspaceStore()
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
@@ -286,9 +280,7 @@ struct WorkspacePaneFocusDerivedProjectionTests {
             activeArrangementId: arrangement.id,
             activePaneId: pane
         )
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-        )
+        let store = WorkspaceStore()
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
@@ -305,9 +297,7 @@ struct WorkspacePaneFocusDerivedProjectionTests {
 
     @Test
     func drawerAndArrangementRequirementsAreReported() {
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-        )
+        let store = WorkspaceStore()
         let paneA = store.createPane()
         let paneB = store.createPane()
         var tab = Tab(paneId: paneA.id)
@@ -338,9 +328,7 @@ struct WorkspacePaneFocusDerivedProjectionTests {
 
     @Test
     func multipleTabsRequirementIsReported() {
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-        )
+        let store = WorkspaceStore()
         let paneA = store.createPane()
         let paneB = store.createPane()
         let firstTab = Tab(paneId: paneA.id)

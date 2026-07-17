@@ -13,8 +13,7 @@ struct WorkspaceRuntimeDispatchNonTerminalTests {
             .appending(path: "agentstudio-pane-coordinator-runtime-non-terminal-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),

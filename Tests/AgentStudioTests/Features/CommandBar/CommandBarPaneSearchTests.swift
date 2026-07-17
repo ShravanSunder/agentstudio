@@ -12,9 +12,7 @@ struct CommandBarPaneSearchTests {
 
     @Test
     func panesScopeTabKeywordsIncludeRepoAndWorktreeContextFromPanes() {
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-        )
+        let store = WorkspaceStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/search-agent-studio"))
         let worktree = Worktree(
             repoId: repo.id,
@@ -51,9 +49,7 @@ struct CommandBarPaneSearchTests {
 
     @Test
     func panesScopeSearchFiltersPaneByRepoNameAndTabName() {
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-        )
+        let store = WorkspaceStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/filter-repo-name"))
         let worktree = Worktree(
             repoId: repo.id,
@@ -93,9 +89,7 @@ struct CommandBarPaneSearchTests {
 
     @Test("$ pane scope searches pane notes")
     func paneScopeSearchesPaneNotes() {
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-        )
+        let store = WorkspaceStore()
         var metadata = PaneMetadata(title: "Terminal")
         metadata.updateNote("zmx lease repro")
         let pane = Pane(

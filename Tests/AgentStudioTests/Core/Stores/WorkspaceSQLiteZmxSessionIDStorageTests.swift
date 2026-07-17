@@ -17,7 +17,6 @@ struct WorkspaceSQLiteZmxSessionIDStorageTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_075)
         )
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )

@@ -12,9 +12,7 @@ struct CommandBarDataSourceSourceRemovalTests {
 
     @Test
     func everythingScopeRoamedFloatingPaneClassifiesFromLiveFacets() throws {
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-        )
+        let store = WorkspaceStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/command-bar-roamed-floating"))
         let worktree = try #require(repo.worktrees.first)
         let pane = store.createPane()

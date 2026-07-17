@@ -208,8 +208,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
             .appending(path: "filesystem-primary-sidebar-store-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: workspaceDir)
         persistor.ensureDirectory()
-        return WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        return WorkspaceStore()
     }
 
     private func makeProjectDevShapeFixture() throws -> URL {

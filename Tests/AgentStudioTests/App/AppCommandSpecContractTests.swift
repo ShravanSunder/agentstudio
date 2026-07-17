@@ -121,9 +121,7 @@ struct CommandSpecContractTests {
     }
 
     private func makeCommandRichStore() -> WorkspaceStore {
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-        )
+        let store = WorkspaceStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/command-spec-contracts"))
         let worktree = Worktree(
             repoId: repo.id,

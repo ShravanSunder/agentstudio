@@ -114,8 +114,7 @@ struct WorkspaceSurfaceCoordinatorTabNamingTests {
     private func makeHarness() -> (store: WorkspaceStore, coordinator: WorkspaceSurfaceCoordinator, tempDir: URL) {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "pane-coordinator-naming-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let coordinator = makeTestWorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),

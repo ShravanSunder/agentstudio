@@ -137,9 +137,7 @@ struct WorkspaceMutationCoordinatorTests {
 
     @Test
     func restoreFromPaneSnapshot_parentPaneRestoresDrawerViewsAndTabMembership() throws {
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-        )
+        let store = WorkspaceStore()
         let anchorPane = makePane(title: "Anchor")
         let parentPane = makePane(title: "Parent")
         store.paneAtom.addPane(anchorPane)
@@ -186,9 +184,7 @@ struct WorkspaceMutationCoordinatorTests {
 
     @Test
     func snapshotForClose_withDrawerChildrenCapturesEachPaneExactlyOnce() throws {
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-        )
+        let store = WorkspaceStore()
         let parentPane = makePane(title: "Parent")
         store.paneAtom.addPane(parentPane)
         let tab = Tab(paneId: parentPane.id)
@@ -211,9 +207,7 @@ struct WorkspaceMutationCoordinatorTests {
 
     @Test
     func backgroundPane_removesOwnedDrawerViewsFromVisibleTab() throws {
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-        )
+        let store = WorkspaceStore()
         let anchorPane = makePane(title: "Anchor")
         let parentPane = makePane(title: "Parent")
         store.paneAtom.addPane(anchorPane)
@@ -246,9 +240,7 @@ struct WorkspaceMutationCoordinatorTests {
 
     @Test
     func backgroundPane_reactivatePane_restoresOwnedDrawerViewsAndChildMembership() throws {
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-        )
+        let store = WorkspaceStore()
         let anchorPane = makePane(title: "Anchor")
         let parentPane = makePane(title: "Parent")
         store.paneAtom.addPane(anchorPane)

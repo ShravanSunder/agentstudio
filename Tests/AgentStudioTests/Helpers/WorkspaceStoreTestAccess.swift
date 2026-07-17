@@ -4,10 +4,9 @@ import Foundation
 
 @MainActor
 extension WorkspaceStore {
-    /// Test-target-only compatibility seam for constructing one coherent
-    /// persistence authority graph around explicitly supplied atom owners.
+    /// Test-target-only convenience seam for constructing a workspace store
+    /// around explicitly supplied atom owners.
     convenience init(
-        workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner,
         identityAtom: WorkspaceIdentityAtom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate()),
         windowMemoryAtom: WorkspaceWindowMemoryAtom = WorkspaceWindowMemoryAtom(),
         repositoryTopologyAtom: RepositoryTopologyAtom = RepositoryTopologyAtom(),
@@ -48,7 +47,6 @@ extension WorkspaceStore {
                 workspaceTabShellAtom: resolvedTabShellAtom,
                 workspaceTabArrangementAtom: resolvedTabArrangementAtom
             )
-        _ = workspacePersistenceRevisionOwner
         let testSQLiteRoot = FileManager.default.temporaryDirectory.appending(
             path: "workspace-store-test-\(UUIDv7.generate().uuidString)"
         )
@@ -79,7 +77,6 @@ extension WorkspaceStore {
     }
 
     convenience init(
-        workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner,
         catalogAtom: RepositoryTopologyAtom,
         graphAtom: WorkspacePaneAtom,
         interactionAtom: WorkspaceTabLayoutAtom,
@@ -87,7 +84,6 @@ extension WorkspaceStore {
         clock: any Clock<Duration> & Sendable = ContinuousClock()
     ) {
         self.init(
-            workspacePersistenceRevisionOwner: workspacePersistenceRevisionOwner,
             identityAtom: WorkspaceIdentityAtom(workspaceId: UUIDv7.generate()),
             windowMemoryAtom: WorkspaceWindowMemoryAtom(),
             repositoryTopologyAtom: catalogAtom,

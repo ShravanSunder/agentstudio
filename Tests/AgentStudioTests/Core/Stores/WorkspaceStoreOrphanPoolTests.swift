@@ -10,8 +10,7 @@ final class WorkspaceStoreOrphanPoolTests {
     private var store: WorkspaceStore!
 
     init() {
-        store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        store = WorkspaceStore()
     }
 
     // MARK: - Helpers

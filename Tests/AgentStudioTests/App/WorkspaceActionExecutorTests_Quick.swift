@@ -23,8 +23,7 @@ struct WorkspaceActionExecutorTestsQuick {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-action-executor-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let coordinator = WorkspaceSurfaceCoordinator(

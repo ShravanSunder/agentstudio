@@ -11,8 +11,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     func coordinatorInjectsGhosttyRuntimeRegistry() {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-registry-injection-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -34,8 +33,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     func dispatchUsesResolver() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -70,8 +68,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     func dispatchFailsForMissingTarget() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-missing-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -93,8 +90,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     func dispatchFailsWhenRuntimeNotReady() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-not-ready-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -130,8 +126,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     func dispatchFailsWhenCapabilityMissing() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-capability-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -172,8 +167,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     func dispatchRejectsDiffWorktreeMismatch() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-diff-worktree-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -222,8 +216,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     func closeTab_unregistersRuntime() {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-close-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -261,8 +254,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     func runtimeEventCloseOtherTabs() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-close-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -318,8 +310,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     func runtimeEventGotoNextTab() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-goto-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -374,8 +365,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     func runtimeEventMetadataUpdatesPaneStore() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-metadata-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -438,8 +428,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     func runtimeCwdChangedUpdatesPaneWorktreeIdentity() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-runtime-cwd-identity-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let coordinator = makeTestWorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),
@@ -503,8 +492,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     func runtimeEventCloseRightTabs() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-close-right-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -568,8 +556,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     func runtimeEventCloseRightTabsFromFirstTab() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-close-right-first-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -631,8 +618,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     func runtimeEventCloseRightTabsFromLastTab() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-close-right-last-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -689,8 +675,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     func runtimeEventGotoTabIndexClampsBounds() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-goto-index-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
@@ -768,8 +753,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
     func runtimeEventGotoTabIndexBoundaryCoverage() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-events-goto-index-boundaries-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()

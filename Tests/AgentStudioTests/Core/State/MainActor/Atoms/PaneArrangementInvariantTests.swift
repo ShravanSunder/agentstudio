@@ -9,8 +9,7 @@ final class PaneArrangementInvariantTests {
     private var store: WorkspaceStore!
 
     init() {
-        store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        store = WorkspaceStore()
     }
 
     @Test

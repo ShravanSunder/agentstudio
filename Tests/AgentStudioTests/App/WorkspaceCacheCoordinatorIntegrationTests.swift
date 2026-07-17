@@ -12,8 +12,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             path: "workspace-cache-coordinator-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         persistor.ensureDirectory()
-        return WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        return WorkspaceStore()
     }
 
     // MARK: - Integration: Add Folder Convergence

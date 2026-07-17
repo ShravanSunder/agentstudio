@@ -33,7 +33,6 @@ private func makeMainSplitViewControllerHarness(
     configureUIState(atoms.workspaceSidebarState)
 
     let store = WorkspaceStore(
-        workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
         identityAtom: atoms.workspaceIdentity,
         windowMemoryAtom: atoms.workspaceWindowMemory,
         repositoryTopologyAtom: atoms.workspaceRepositoryTopology,

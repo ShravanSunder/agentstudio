@@ -331,6 +331,5 @@ extension WorkspaceWindowLifecycleSnapshot {
 private func makeIPCLayoutWorkspaceStore() -> WorkspaceStore {
     let tempDir = FileManager.default.temporaryDirectory
         .appending(path: "agentstudio-ipc-layout-adapter-\(UUID().uuidString)")
-    return WorkspaceStore(
-        workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+    return WorkspaceStore()
 }

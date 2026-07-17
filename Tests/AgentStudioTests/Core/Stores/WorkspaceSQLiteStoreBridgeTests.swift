@@ -110,7 +110,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
                 drawerExpansionByDrawerId: [:],
                 activeChildIdsByArrangementDrawer: [:]
             ),
-            windowState: nil
+            windowState: .init(sidebarWidth: 250, windowFrame: nil)
         )
 
         #expect(throws: WorkspaceSQLiteStateBridgeError.layoutPaneMissingDrawer(paneId)) {
@@ -130,7 +130,6 @@ struct WorkspaceSQLiteStoreBridgeTests {
             createdAt: createdAt
         )
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
@@ -214,7 +213,6 @@ struct WorkspaceSQLiteStoreBridgeTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_050)
         )
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
@@ -236,39 +234,8 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(tabGraph.tabs.single?.allPaneIds == [temporaryPane.id])
     }
 
-    @Test("SQLite flush rejects duplicate pane ownership")
-    func sqliteFlushRejectsDuplicatePaneOwnership() async throws {
-        let workspaceId = UUID()
-        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
-        let identityAtom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate())
-        identityAtom.replaceIdentity(
-            workspaceId: workspaceId,
-            workspaceName: "Duplicate Ownership Workspace",
-            createdAt: Date(timeIntervalSince1970: 1_700_000_090)
-        )
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            identityAtom: identityAtom,
-            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
-        )
-        let sharedPane = store.createPane(
-            title: "Shared",
-            zmxSessionID: .generateUUIDv7()
-        )
-        let firstTab = Tab(paneId: sharedPane.id, name: "First")
-        let secondTab = Tab(paneId: sharedPane.id, name: "Second")
-        store.appendTab(firstTab)
-        store.appendTab(secondTab)
-        store.setActiveTab(firstTab.id)
-
-        let outcome = await store.flushAsync()
-
-        #expect(!outcome.succeeded)
-        #expect(try fixture.coreRepository.fetchWorkspace(id: workspaceId) == nil)
-    }
-
-    @Test("restore hydrates workspace atoms from active SQLite workspace")
-    func restoreHydratesAtomsFromSQLite() async throws {
+    @Test("restore hydrates canonical composition from active SQLite workspace")
+    func restoreHydratesCanonicalCompositionFromSQLite() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let createdAt = Date(timeIntervalSince1970: 1_700_000_100)
@@ -356,7 +323,6 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(restoredStore.windowMemoryAtom.sidebarWidth == 444)
         #expect(restoredStore.tabLayoutAtom.tabs.single?.colorHex == "#33AA99")
         #expect(restoredStore.windowMemoryAtom.windowFrame == CGRect(x: 1, y: 2, width: 800, height: 600))
-        #expect(restoredStore.repositoryTopologyAtom.repos.single?.id == repoId)
         #expect(restoredStore.paneAtom.pane(paneId)?.title == "Restored SQLite Pane")
         #expect(
             restoredStore.paneAtom.pane(paneId)?.terminalState?.zmxSessionID.rawValue
@@ -379,7 +345,6 @@ struct WorkspaceSQLiteStoreBridgeTests {
             sqliteDatastore: datastore
         )
         return WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: atomRegistry.workspaceIdentity,
             windowMemoryAtom: atomRegistry.workspaceWindowMemory,
             repositoryTopologyAtom: atomRegistry.workspaceRepositoryTopology,

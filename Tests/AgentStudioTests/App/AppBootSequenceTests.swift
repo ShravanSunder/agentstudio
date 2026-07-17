@@ -240,7 +240,7 @@ struct AppBootSequenceTests {
         )
         #expect(
             workspaceBootSource.contains(
-                "installWorkspaceTerminalActivationInput(acceptance.terminalActivationInput)"
+                "acceptWorkspacePreparedContentMountCohort(acceptance.contentMountCohort)"
             )
         )
         #expect(workspaceBootSource.contains("case .failed(let failure):"))

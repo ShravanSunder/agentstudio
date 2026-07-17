@@ -41,9 +41,7 @@ extension WebKitSerializedTests {
                 hostPlacement: .tab(tabID: UUIDv7.generate())
             )
             let mountInput = NonterminalContentMountInput(entries: [descriptor])
-            let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner()
-            )
+            let store = WorkspaceStore()
             let viewRegistry = ViewRegistry()
             let coordinator = WorkspaceSurfaceCoordinator(
                 store: store,

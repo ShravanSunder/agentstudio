@@ -11,9 +11,7 @@ struct WorktreePresenceTests {
     }
 
     private func makeStore() -> WorkspaceStore {
-        WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-        )
+        WorkspaceStore()
     }
 
     @Test

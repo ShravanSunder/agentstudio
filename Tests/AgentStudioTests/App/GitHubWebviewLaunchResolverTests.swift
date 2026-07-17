@@ -11,8 +11,7 @@ struct GitHubWebviewLaunchResolverTests {
             .appending(path: "github-webview-launch-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         persistor.ensureDirectory()
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         return store
     }
 

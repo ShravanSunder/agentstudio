@@ -11,18 +11,26 @@ final class WorkspaceStoreTests {
 
     private var store: WorkspaceStore!
     private var tempDir: URL!
+    private var sqliteDatastore: WorkspaceSQLiteDatastore!
 
     init() {
         // Use a temp directory to avoid polluting real workspace data
-        tempDir = FileManager.default.temporaryDirectory
+        let testSQLiteRoot = FileManager.default.temporaryDirectory
             .appending(path: "workspace-store-tests-\(UUID().uuidString)")
-        store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        tempDir = testSQLiteRoot
+        sqliteDatastore = WorkspaceSQLiteDatastoreFactory(
+            coreDatabaseURL: testSQLiteRoot.appending(path: "core.sqlite"),
+            localDatabaseURL: { workspaceId in
+                testSQLiteRoot.appending(path: "\(workspaceId.uuidString).local.sqlite")
+            }
+        ).makeDatastore()
+        store = WorkspaceStore(sqliteDatastore: sqliteDatastore)
     }
 
     deinit {
         try? FileManager.default.removeItem(at: tempDir)
         store = nil
+        sqliteDatastore = nil
     }
 
     // MARK: - Initialization
@@ -40,7 +48,6 @@ final class WorkspaceStoreTests {
     @Test
     func persistenceObservationArmsExplicitlyAndIdempotently() async {
         let unarmedStore = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             startsObserving: false
         )
         unarmedStore.identityAtom.replaceIdentity(
@@ -80,7 +87,6 @@ final class WorkspaceStoreTests {
         )
 
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             tabLayoutAtom: tabLayoutAtom)
 
         #expect(store.tabShellAtom === tabShellAtom)
@@ -200,8 +206,8 @@ final class WorkspaceStoreTests {
         #expect(updated?.metadata.worktreeName == nil)
 
         #expect((await store.flushAsync()).succeeded)
-        let restoredStore = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let restoredStore = WorkspaceStore(sqliteDatastore: sqliteDatastore)
+        _ = await restoredStore.loadCanonicalComposition()
         let restoredPane = try #require(restoredStore.pane(pane.id))
         #expect(restoredPane.metadata.cwd == externalCwd)
         #expect(restoredPane.repoId == nil)
@@ -390,7 +396,8 @@ final class WorkspaceStoreTests {
         let pane = store.createPane()
         let cwd = URL(fileURLWithPath: "/tmp")
         store.updatePaneCWD(pane.id, cwd: cwd)
-        _ = await store.flushAsync()
+        store.appendTab(Tab(paneId: pane.id))
+        #expect((await store.flushAsync()).succeeded)
         // Act — update with same CWD
         store.updatePaneCWD(pane.id, cwd: cwd)
 
@@ -855,54 +862,6 @@ final class WorkspaceStoreTests {
 
     // MARK: - Persistence Round-Trip
 
-    // MARK: - Persistence Pruning
-
-    @Test
-
-    func test_persistence_allTemporary_tabPruned() async {
-        // Arrange — tab with only temporary panes
-        let temp1 = store.createPane(
-            lifetime: .temporary
-        )
-        let tab = Tab(paneId: temp1.id)
-        store.appendTab(tab)
-        _ = await store.flushAsync()
-        // Act
-        let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
-        let store2 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
-        // Assert — tab fully pruned since all panes were temporary
-        #expect(store2.panes.isEmpty)
-        #expect(store2.tabs.isEmpty)
-    }
-
-    @Test
-
-    func test_persistence_activeTabIdFixupAfterPrune() async {
-        // Arrange — two tabs: one all-temporary (active), one persistent
-        let persistent = store.createPane(
-            lifetime: .persistent
-        )
-        let temporary = store.createPane(
-            lifetime: .temporary
-        )
-        let tab1 = Tab(paneId: persistent.id)
-        let tab2 = Tab(paneId: temporary.id)
-        store.appendTab(tab1)
-        store.appendTab(tab2)
-        // tab2 is active (appendTab sets activeTabId)
-        #expect(store.activeTabId == tab2.id)
-        _ = await store.flushAsync()
-        // Act — restore
-        let persistor2 = WorkspacePersistor(workspacesDir: tempDir)
-        let store2 = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
-        // Assert — temporary tab pruned, activeTabId points to surviving tab
-        #expect(store2.tabs.count == 1)
-        #expect(store2.tabs[0].id == tab1.id)
-        #expect(store2.activeTabId == tab1.id)
-    }
-
     // MARK: - Orphaned Pane Pruning
 
     // MARK: - Dirty Flag
@@ -914,33 +873,13 @@ final class WorkspaceStoreTests {
         #expect(!(store.isDirty))
 
         // Act — mutation marks dirty
-        _ = store.createPane()
+        let pane = store.createPane()
+        store.appendTab(Tab(paneId: pane.id))
         #expect(store.isDirty)
 
         // Act — flush clears dirty
-        _ = await store.flushAsync()
+        #expect((await store.flushAsync()).succeeded)
         #expect(!(store.isDirty))
-    }
-
-    @Test
-
-    func test_isDirty_clearedAfterDebouncedSave() async throws {
-        // Arrange — use zero debounce to avoid wall-clock waits in tests
-        let fastPersistor = WorkspacePersistor(workspacesDir: tempDir)
-        let fastStore = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
-            persistDebounceDuration: .zero
-        )
-        _ = fastStore.createPane()
-        #expect(fastStore.isDirty)
-
-        // Act — allow scheduled debounce task to run
-        for _ in 0..<80 where fastStore.isDirty {
-            await Task.yield()
-        }
-
-        // Assert — debounced persistNow cleared the flag
-        #expect(!(fastStore.isDirty))
     }
 
     @Test
@@ -974,7 +913,6 @@ final class WorkspaceStoreTests {
             createdAt: Date(timeIntervalSince1970: 1_700_010_000)
         )
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             sqliteDatastore: sqliteDatastore,
             persistDebounceDuration: .milliseconds(10),

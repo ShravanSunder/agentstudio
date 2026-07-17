@@ -23,8 +23,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let coordinator = WorkspaceSurfaceCoordinator(
@@ -245,8 +244,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-filesystem-lifecycle-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let paneFilesystemProjectionStore = PaneFilesystemProjectionAtom()
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store,
@@ -290,8 +288,7 @@ struct WorkspaceSurfaceCoordinatorTests {
             .appending(path: "agentstudio-pane-filesystem-ignore-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let coordinator = makeFilesystemSyncCoordinator(
             store: store,
             filesystemSource: RecordingFilesystemSourceHarness(),
@@ -466,8 +463,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-roots-\(UUID().uuidString)"))
         guard let primaryWorktree = store.repo(repo.id)?.worktrees.first(where: \.isMainWorktree) else {
             Issue.record("Expected addRepo to create a main worktree")
@@ -575,8 +571,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-unavailable-\(UUID().uuidString)"))
         store.markRepoUnavailable(repo.id)
 
@@ -613,8 +608,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-converge-\(UUID().uuidString)"))
         guard let mainWorktree = store.repo(repo.id)?.worktrees.first(where: \.isMainWorktree) else {
             Issue.record("Expected addRepo to create a main worktree")
@@ -696,8 +690,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-empty-delta-\(UUID().uuidString)"))
         guard let mainWorktree = store.repo(repo.id)?.worktrees.first(where: \.isMainWorktree) else {
             Issue.record("Expected addRepo to create main worktree")

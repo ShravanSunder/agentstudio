@@ -17,7 +17,6 @@ struct WorkspaceLauncherProjectorTests {
         persistor.ensureDirectory()
         atoms.repoCache.clear()
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: atoms.workspaceIdentity,
             windowMemoryAtom: atoms.workspaceWindowMemory,
             repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
@@ -31,7 +30,6 @@ struct WorkspaceLauncherProjectorTests {
     func project_noRepos_returnsFolderIntakeState() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
                 identityAtom: atoms.workspaceIdentity,
                 windowMemoryAtom: atoms.workspaceWindowMemory,
                 repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
@@ -136,7 +134,6 @@ struct WorkspaceLauncherProjectorTests {
     func project_reposButNoTabs_returnsLauncherStateWithEnrichedCards() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
                 identityAtom: atoms.workspaceIdentity,
                 windowMemoryAtom: atoms.workspaceWindowMemory,
                 repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
@@ -228,7 +225,6 @@ struct WorkspaceLauncherProjectorTests {
     func project_reposAndTabsPresent_returnsEmptyLauncherModel() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
                 identityAtom: atoms.workspaceIdentity,
                 windowMemoryAtom: atoms.workspaceWindowMemory,
                 repositoryTopologyAtom: atoms.workspaceRepositoryTopology,

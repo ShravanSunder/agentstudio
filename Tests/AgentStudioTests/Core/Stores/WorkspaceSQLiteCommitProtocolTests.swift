@@ -57,8 +57,8 @@ struct WorkspaceSQLiteCommitProtocolTests {
         #expect(try coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspaceId) == nil)
     }
 
-    @Test("failed local save leaves staged core recoverable with deterministic local defaults")
-    func failedLocalSaveLeavesStagedCoreRecoverableWithDeterministicLocalDefaults() throws {
+    @Test("failed local save leaves staged core incomplete without synthesizing local defaults")
+    func failedLocalSaveLeavesStagedCoreIncompleteWithoutSynthesizingLocalDefaults() throws {
         let workspaceId = UUID()
         let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.commit.failure.core")
         let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.commit.failure.local")
@@ -93,17 +93,15 @@ struct WorkspaceSQLiteCommitProtocolTests {
         }
 
         #expect(try coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspaceId) == nil)
-        let recovered = try #require(try workingBackend.load())
-        #expect(recovered.name == "Staged But Not Local")
-        #expect(recovered.sidebarWidth == 250)
-        #expect(
-            try coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspaceId) == recovered.updatedAt)
         #expect(
             try WorkspaceLocalRepository(
                 workspaceId: workspaceId,
                 databaseWriter: localQueue
-            ).fetchCompletedWorkspaceSQLiteSnapshotAt() == recovered.updatedAt
+            ).fetchCompletedWorkspaceSQLiteSnapshotAt() == committedAt
         )
+        #expect(throws: WorkspaceSQLiteStoreBackend.BackendError.incompleteWorkspaceSnapshot(workspaceId)) {
+            _ = try workingBackend.load()
+        }
     }
 
     @Test("successful core and local save leaves matching completion tokens")

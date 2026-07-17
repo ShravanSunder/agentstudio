@@ -13,9 +13,6 @@ enum AppPolicies {
 
     enum WorkspacePersistence {
         static let debouncedAutosaveFailureDampingThreshold: Int = 3
-        static let snapshotMaximumKeyCount: UInt64 = 100_000
-        static let snapshotMaximumRawKeyBytes: UInt64 = 64 * 1024 * 1024
-        static let snapshotPageMaximumItems: Int = 256
     }
 
     enum TerminalActivation {

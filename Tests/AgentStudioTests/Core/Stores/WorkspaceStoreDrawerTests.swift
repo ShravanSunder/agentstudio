@@ -10,8 +10,7 @@ final class WorkspaceStoreDrawerTests {
     private var store: WorkspaceStore!
 
     init() {
-        store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        store = WorkspaceStore()
     }
 
     private func drawerView(for parentPaneId: UUID) -> DrawerView? {

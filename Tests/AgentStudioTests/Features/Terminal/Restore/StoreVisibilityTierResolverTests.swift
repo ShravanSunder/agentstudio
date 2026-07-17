@@ -12,8 +12,7 @@ struct StoreVisibilityTierResolverTests {
             .appending(path: "agentstudio-visibility-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let firstPane = store.createPane(
@@ -49,8 +48,7 @@ struct StoreVisibilityTierResolverTests {
             .appending(path: "agentstudio-visibility-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let firstPane = store.createPane(
@@ -86,8 +84,7 @@ struct StoreVisibilityTierResolverTests {
             .appending(path: "agentstudio-visibility-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let parentPane = store.createPane(
@@ -113,8 +110,7 @@ struct StoreVisibilityTierResolverTests {
             .appending(path: "agentstudio-visibility-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let parentPane = store.createPane(

@@ -11,8 +11,7 @@ final class PaneContentWiringTests {
 
     init() {
         installTestAtomRegistryIfNeeded()
-        store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        store = WorkspaceStore()
     }
 
     // MARK: - WorkspaceStore.createPane(content:)

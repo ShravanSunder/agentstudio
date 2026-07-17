@@ -86,8 +86,7 @@ struct PaneCloseTransitionCoordinatorTests {
     func zoomedPane_wiringKeepsCloseTransitionOnTheContainerPath() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-close-transition-test-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let clock = TestPushClock()

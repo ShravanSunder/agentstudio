@@ -196,63 +196,63 @@ Focused proof:
 
 ### Revision, journal, and adapter ownership
 
-- [ ] Delete `WorkspacePersistenceRevisionOwner.swift`.
-- [ ] Delete `WorkspacePersistenceChangeJournal.swift`.
-- [ ] Delete `WorkspacePersistenceAdapterBundle.swift`.
-- [ ] Delete `WorkspacePersistenceRuntime.swift`.
-- [ ] Delete all files under
+- [x] Delete `WorkspacePersistenceRevisionOwner.swift`.
+- [x] Delete `WorkspacePersistenceChangeJournal.swift`.
+- [x] Delete `WorkspacePersistenceAdapterBundle.swift`.
+- [x] Delete `WorkspacePersistenceRuntime.swift`.
+- [x] Delete all files under
       `Persistence/SnapshotParticipants/` introduced for live-atom paging.
-- [ ] Delete `WorkspacePreparedTopologyApplier.swift`.
-- [ ] Delete `WorkspaceTopologyPreparation.swift` if no non-paging caller
+- [x] Delete `WorkspacePreparedTopologyApplier.swift`.
+- [x] Delete `WorkspaceTopologyPreparation.swift` if no non-paging caller
       remains.
 
 ### Lease, pager, and assembly
 
-- [ ] Delete `WorkspaceStateSnapshotLease.swift`.
-- [ ] Delete `WorkspaceStateSnapshotLeaseContracts.swift`.
-- [ ] Delete `WorkspaceStateSnapshotPager.swift`.
-- [ ] Delete `WorkspaceStateSnapshotPagerContracts.swift`.
-- [ ] Delete `WorkspaceStateSnapshotPagerItemValidation.swift`.
-- [ ] Delete `WorkspaceStateSnapshotPageCaptureEngine.swift`.
-- [ ] Delete `WorkspaceStateSnapshotPageCaptureRequest.swift`.
-- [ ] Delete `WorkspaceStateSnapshotParticipantPreparationCustody.swift`.
-- [ ] Delete `WorkspaceStateSnapshotPreparedMutationPlanner.swift`.
-- [ ] Delete `WorkspacePersistenceSnapshotItem.swift`.
-- [ ] Delete `WorkspacePersistenceSnapshotAssembler.swift`.
-- [ ] Delete `WorkspacePersistenceSnapshotFinalizer.swift`.
-- [ ] Delete `WorkspacePersistenceSnapshotValidation.swift`.
-- [ ] Delete `WorkspacePersistenceSnapshotPageAccumulator.swift`.
-- [ ] Delete `WorkspacePersistenceSnapshotParticipantFactory.swift`.
-- [ ] Delete snapshot key/byte/page constants from `AppPolicies` while retaining
+- [x] Delete `WorkspaceStateSnapshotLease.swift`.
+- [x] Delete `WorkspaceStateSnapshotLeaseContracts.swift`.
+- [x] Delete `WorkspaceStateSnapshotPager.swift`.
+- [x] Delete `WorkspaceStateSnapshotPagerContracts.swift`.
+- [x] Delete `WorkspaceStateSnapshotPagerItemValidation.swift`.
+- [x] Delete `WorkspaceStateSnapshotPageCaptureEngine.swift`.
+- [x] Delete `WorkspaceStateSnapshotPageCaptureRequest.swift`.
+- [x] Delete `WorkspaceStateSnapshotParticipantPreparationCustody.swift`.
+- [x] Delete `WorkspaceStateSnapshotPreparedMutationPlanner.swift`.
+- [x] Delete `WorkspacePersistenceSnapshotItem.swift`.
+- [x] Delete `WorkspacePersistenceSnapshotAssembler.swift`.
+- [x] Delete `WorkspacePersistenceSnapshotFinalizer.swift`.
+- [x] Delete `WorkspacePersistenceSnapshotValidation.swift`.
+- [x] Delete `WorkspacePersistenceSnapshotPageAccumulator.swift`.
+- [x] Delete `WorkspacePersistenceSnapshotParticipantFactory.swift`.
+- [x] Delete snapshot key/byte/page constants from `AppPolicies` while retaining
       unrelated autosave damping policy.
 
 ### Tests
 
-- [ ] Delete revision-owner tests.
-- [ ] Delete lease/pager/page-capture tests and support.
-- [ ] Delete participant/adaptor/capture-only tests.
-- [ ] Delete journal/assembly/finalizer tests.
-- [ ] Delete runtime installation tests tied only to removed ownership.
+- [x] Delete revision-owner tests.
+- [x] Delete lease/pager/page-capture tests and support.
+- [x] Delete participant/adaptor/capture-only tests.
+- [x] Delete journal/assembly/finalizer tests.
+- [x] Delete runtime installation tests tied only to removed ownership.
 
 Required zero-reference scan:
 
-- [ ] `WorkspacePersistenceRuntime`
-- [ ] `WorkspacePersistenceRevisionOwner`
-- [ ] `WorkspacePersistenceProcessGeneration`
-- [ ] `WorkspaceStateSnapshot`
-- [ ] `SnapshotParticipant`
-- [ ] `capturePersistencePreimages`
-- [ ] `WorkspacePersistenceChangeJournal`
+- [x] `WorkspacePersistenceRuntime`
+- [x] `WorkspacePersistenceRevisionOwner`
+- [x] `WorkspacePersistenceProcessGeneration`
+- [x] `WorkspaceStateSnapshot`
+- [x] `SnapshotParticipant`
+- [x] `capturePersistencePreimages`
+- [x] `WorkspacePersistenceChangeJournal`
 
 Focused proof:
 
-- [ ] Workspace autosave tests pass through `WorkspaceSQLiteSaveCoordinator`.
-- [ ] SQLite save ordering tests pass.
-- [ ] Flush/termination persistence tests pass.
-- [ ] `mise run build` passes.
-- [ ] `mise run lint` passes.
-- [ ] `git diff --check` passes.
-- [ ] Commit C3.
+- [x] Workspace autosave tests pass through `WorkspaceSQLiteSaveCoordinator`.
+- [x] SQLite save ordering tests pass.
+- [x] Flush/termination persistence tests pass.
+- [x] `mise run build` passes.
+- [x] `mise run lint` passes.
+- [x] `git diff --check` passes.
+- [x] Commit C3.
 
 ## C4 — Restore atom and topology boundaries
 

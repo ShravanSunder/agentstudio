@@ -15,7 +15,6 @@ struct PaneDisplayDerivedTests {
     func worktreeBackedPane_usesRepoBranchAndFolderLabel() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
@@ -53,7 +52,6 @@ struct PaneDisplayDerivedTests {
     func floatingPane_usesCwdFolderFallback() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
@@ -125,7 +123,6 @@ struct PaneDisplayDerivedTests {
     func accentColorHex_returnsStablePaletteEntry_forRepoBackedPane() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
@@ -156,7 +153,6 @@ struct PaneDisplayDerivedTests {
     func accentColorHexTracksKeyedRepoEnrichmentChanges() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
@@ -197,7 +193,6 @@ struct PaneDisplayDerivedTests {
     func accentColorHex_returnsNil_forPaneWithoutRepo() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
@@ -212,7 +207,6 @@ struct PaneDisplayDerivedTests {
     func accentColorHex_matchesSidebarFamilyColoring_forGroupedRepos() throws {
         try withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout

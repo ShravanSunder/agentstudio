@@ -28,8 +28,7 @@ final class ObservableStoreTests {
             workspacesDir: FileManager.default.temporaryDirectory
                 .appending(path: "obs-tests-\(UUID().uuidString)")
         )
-        store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        store = WorkspaceStore()
     }
 
     deinit {

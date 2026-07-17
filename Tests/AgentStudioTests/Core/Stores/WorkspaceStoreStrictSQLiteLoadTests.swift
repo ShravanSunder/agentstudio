@@ -64,9 +64,7 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         let preservedRepository = repositoryTopologyAtom.addRepo(
             at: URL(filePath: "/tmp/topology-must-remain-independent")
         )
-        let revisionOwner = WorkspacePersistenceRevisionOwner()
         let store = harness.makeStore(
-            revisionOwner: revisionOwner,
             repositoryTopologyAtom: repositoryTopologyAtom
         )
 
@@ -82,7 +80,6 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         #expect(store.tabs == [tab])
         #expect(store.activeTabId == tab.id)
         #expect(UUIDv7.isV7(acceptance.contentMountCohort.generation.id))
-        #expect(revisionOwner.committedRevision == .zero)
         #expect(acceptance.terminalActivationInput.entries.count == 1)
         let activation = try #require(acceptance.terminalActivationInput.entries.first)
         #expect(activation.paneID.uuid == paneID)
@@ -105,7 +102,6 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         defer { harness.removeTemporaryFiles() }
         let probeRecorder = StrictStartupProbeRecorder()
         let firstStore = harness.makeStore(
-            revisionOwner: WorkspacePersistenceRevisionOwner(),
             datastore: harness.makeDatastore(probe: { event in
                 await probeRecorder.record(event)
             })
@@ -125,7 +121,7 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         #expect(await probeRecorder.count(of: .saveWorkspaceSnapshot) == 1)
         #expect(await probeRecorder.count(of: .loadWorkspaceSnapshot) == 2)
 
-        let reloadedStore = harness.makeStore(revisionOwner: WorkspacePersistenceRevisionOwner())
+        let reloadedStore = harness.makeStore()
         let reloadResult = await reloadedStore.loadCanonicalComposition()
 
         guard case .loaded = reloadResult else {
@@ -167,9 +163,7 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
             workspaceName: "Initial identity",
             createdAt: Date(timeIntervalSince1970: 40)
         )
-        let revisionOwner = WorkspacePersistenceRevisionOwner()
         let store = harness.makeStore(
-            revisionOwner: revisionOwner,
             identityAtom: identityAtom,
             datastore: harness.makeDatastore(probe: { event in
                 await probeRecorder.record(event)
@@ -186,11 +180,10 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         #expect(store.workspaceName == "Initial identity")
         #expect(store.panes.isEmpty)
         #expect(store.tabs.isEmpty)
-        #expect(revisionOwner.committedRevision == .zero)
     }
 
-    @Test("invalid persisted composition is rejected without atom mutation or revision advance")
-    func invalidPersistedCompositionIsRejectedWithoutMutationOrRevisionAdvance() async throws {
+    @Test("invalid persisted composition is rejected without atom mutation")
+    func invalidPersistedCompositionIsRejectedWithoutMutation() async throws {
         let harness = try StrictSQLiteCompositionLoadHarness.make(testName: "invalid-composition")
         defer { harness.removeTemporaryFiles() }
         let workspaceID = UUIDv7.generate()
@@ -216,9 +209,7 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
             workspaceName: "Initial identity",
             createdAt: Date(timeIntervalSince1970: 20)
         )
-        let revisionOwner = WorkspacePersistenceRevisionOwner()
         let store = harness.makeStore(
-            revisionOwner: revisionOwner,
             identityAtom: identityAtom,
             datastore: harness.makeFreshDatastore()
         )
@@ -230,7 +221,6 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         #expect(store.workspaceName == "Initial identity")
         #expect(store.panes.isEmpty)
         #expect(store.tabs.isEmpty)
-        #expect(revisionOwner.committedRevision == .zero)
     }
 
     @Test("legacy workspace JSON beside pristine SQLite is ignored and left untouched")
@@ -247,7 +237,7 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         )
         let sentinel = Data("legacy JSON must not be read, rewritten, or archived".utf8)
         try sentinel.write(to: legacyURL)
-        let store = harness.makeStore(revisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = harness.makeStore()
 
         let result = await store.loadCanonicalComposition()
 
@@ -282,9 +272,7 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
             workspaceName: "Unchanged identity",
             createdAt: Date(timeIntervalSince1970: 30)
         )
-        let revisionOwner = WorkspacePersistenceRevisionOwner()
         let store = harness.makeStore(
-            revisionOwner: revisionOwner,
             identityAtom: identityAtom,
             datastore: unavailableDatastore
         )
@@ -300,7 +288,6 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         #expect(store.workspaceName == "Unchanged identity")
         #expect(store.panes.isEmpty)
         #expect(store.tabs.isEmpty)
-        #expect(revisionOwner.committedRevision == .zero)
     }
 }
 
@@ -356,13 +343,11 @@ private struct StrictSQLiteCompositionLoadHarness {
     }
 
     func makeStore(
-        revisionOwner: WorkspacePersistenceRevisionOwner,
         identityAtom: WorkspaceIdentityAtom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate()),
         repositoryTopologyAtom: RepositoryTopologyAtom = RepositoryTopologyAtom(),
         datastore: WorkspaceSQLiteDatastore? = nil
     ) -> WorkspaceStore {
         WorkspaceStore(
-            workspacePersistenceRevisionOwner: revisionOwner,
             identityAtom: identityAtom,
             repositoryTopologyAtom: repositoryTopologyAtom,
             sqliteDatastore: datastore ?? self.datastore

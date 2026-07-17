@@ -64,8 +64,7 @@ struct WorkspaceSurfaceCoordinatorRestoreMutationTests {
     private func makeHarness() -> Harness {
         let tempDirectory = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-restore-mutation-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let sessionConfiguration = SessionConfiguration(
             isEnabled: false,
             zmxPath: nil,

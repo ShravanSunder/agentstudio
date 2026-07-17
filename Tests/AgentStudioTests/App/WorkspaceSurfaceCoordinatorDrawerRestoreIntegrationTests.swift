@@ -47,8 +47,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
     private func makeHarness() -> Harness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-drawer-restore-tests-\(UUID().uuidString)")
-        let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let windowLifecycleStore = WindowLifecycleAtom()
@@ -309,7 +308,6 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_089)
         )
         let store = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             identityAtom: identityAtom,
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
@@ -352,7 +350,6 @@ struct WorkspaceDrawerRestoreIntegrationTests {
 
         #expect(flushOutcome.succeeded)
         let restoredStore = WorkspaceStore(
-            workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
         _ = await restoredStore.loadCanonicalComposition()
