@@ -31,6 +31,19 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         let tempDir: URL
     }
 
+    private struct RestoredDrawerHarness {
+        let store: WorkspaceStore
+        let viewRegistry: ViewRegistry
+        let coordinator: WorkspaceSurfaceCoordinator
+        let windowLifecycleStore: WindowLifecycleAtom
+        let surfaceManager: DrawerRestoreCapturingSurfaceManager
+        let tempDir: URL
+        let parentPaneID: UUID
+        let firstDrawerPaneID: UUID
+        let secondDrawerPaneID: UUID
+        let tabID: UUID
+    }
+
     private func makeHarness() -> Harness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-drawer-restore-tests-\(UUID().uuidString)")
@@ -64,7 +77,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
     }
 
     @Test
-    func toggleDrawer_restoresPreviouslySkippedDrawerPane_whenVisibilityTupleBecomesTrue() async throws {
+    func toggleDrawer_retriesDrawerPaneAfterPreparedActivationLackedTrustedFrame() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -79,23 +92,51 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
         let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+        let installedDrawerID = try #require(harness.store.pane(parentPane.id)?.drawer?.drawerId)
+        harness.store.tabArrangementAtom.addDrawerPaneView(
+            drawerId: installedDrawerID,
+            parentPaneId: parentPane.id,
+            drawerPaneId: drawerPane.id,
+            inTab: tab.id
+        )
         harness.store.toggleDrawer(for: parentPane.id)
         #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == false)
-
         harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
-        await harness.coordinator.restoreAllViews(in: trustedBounds)
-        #expect(harness.surfaceManager.createdPaneIds == [parentPane.id])
+
+        let acceptedParentPane = try #require(harness.store.pane(parentPane.id))
+        let acceptedDrawerPane = try #require(harness.store.pane(drawerPane.id))
+        let drawerID = try #require(acceptedParentPane.drawer?.drawerId)
+        try await mountPreparedDrawerCohort(
+            coordinator: harness.coordinator,
+            viewRegistry: harness.viewRegistry,
+            entries: [
+                (acceptedParentPane, .activeVisible, .tab(tabID: tab.id)),
+                (
+                    acceptedDrawerPane,
+                    .hidden,
+                    .drawer(
+                        tabID: tab.id,
+                        parentPaneID: PaneId(existingUUID: parentPane.id),
+                        drawerID: drawerID
+                    )
+                ),
+            ],
+            trustedBounds: trustedBounds
+        )
+        #expect(harness.surfaceManager.createdPaneIds == [parentPane.id, parentPane.id])
+        let creationAttemptsBeforeToggle = harness.surfaceManager.createdPaneIds.count
 
         harness.coordinator.execute(.toggleDrawer(paneId: parentPane.id))
 
         #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == true)
-        #expect(harness.surfaceManager.createdPaneIds == [parentPane.id, drawerPane.id])
+        #expect(harness.surfaceManager.createdPaneIds.count == creationAttemptsBeforeToggle + 1)
+        #expect(harness.surfaceManager.createdPaneIds.last == drawerPane.id)
         let config = try #require(harness.surfaceManager.createdConfigsByPaneId[drawerPane.id])
         #expect(config.initialFrame != nil)
     }
 
     @Test
-    func expandDrawerPane_restoresPreviouslyMinimizedDrawerPane_whenVisibilityTupleBecomesTrue() async throws {
+    func expandDrawerPane_retriesMinimizedPaneAfterPreparedActivationFailure() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -115,16 +156,49 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             .minimizeDrawerPane(parentPaneId: parentPane.id, drawerPaneId: minimizedDrawerPane.id)
         )
 
+        let acceptedParentPane = try #require(harness.store.pane(parentPane.id))
+        let acceptedVisibleDrawerPane = try #require(harness.store.pane(visibleDrawerPane.id))
+        let acceptedMinimizedDrawerPane = try #require(harness.store.pane(minimizedDrawerPane.id))
+        let drawerID = try #require(acceptedParentPane.drawer?.drawerId)
+        try await mountPreparedDrawerCohort(
+            coordinator: harness.coordinator,
+            viewRegistry: harness.viewRegistry,
+            entries: [
+                (acceptedParentPane, .activeVisible, .tab(tabID: tab.id)),
+                (
+                    acceptedVisibleDrawerPane,
+                    .activeVisible,
+                    .drawer(
+                        tabID: tab.id,
+                        parentPaneID: PaneId(existingUUID: parentPane.id),
+                        drawerID: drawerID
+                    )
+                ),
+                (
+                    acceptedMinimizedDrawerPane,
+                    .hidden,
+                    .drawer(
+                        tabID: tab.id,
+                        parentPaneID: PaneId(existingUUID: parentPane.id),
+                        drawerID: drawerID
+                    )
+                ),
+            ],
+            trustedBounds: trustedBounds
+        )
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == parentPane.id }.count == 2)
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == visibleDrawerPane.id }.count == 2)
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == minimizedDrawerPane.id }.count == 2)
         harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
-        await harness.coordinator.restoreAllViews(in: trustedBounds)
-        #expect(harness.surfaceManager.createdPaneIds == [parentPane.id, visibleDrawerPane.id])
+        let creationAttemptsBeforeExpansion = harness.surfaceManager.createdPaneIds.count
 
         harness.coordinator.execute(
             .expandDrawerPane(parentPaneId: parentPane.id, drawerPaneId: minimizedDrawerPane.id)
         )
 
         #expect(harness.store.drawerView(forParent: parentPane.id)?.activeChildId == minimizedDrawerPane.id)
-        #expect(harness.surfaceManager.createdPaneIds == [parentPane.id, visibleDrawerPane.id, minimizedDrawerPane.id])
+        #expect(harness.surfaceManager.createdPaneIds.count == creationAttemptsBeforeExpansion + 1)
+        #expect(harness.surfaceManager.createdPaneIds.last == minimizedDrawerPane.id)
         let config = try #require(harness.surfaceManager.createdConfigsByPaneId[minimizedDrawerPane.id])
         #expect(config.initialFrame != nil)
     }
@@ -149,24 +223,86 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         harness.store.setActiveDrawerPane(firstDrawerPane.id, in: parentPane.id)
 
         harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        let creationAttemptsBeforeSelection = harness.surfaceManager.createdPaneIds.count
 
         harness.coordinator.execute(
             .setActiveDrawerPane(parentPaneId: parentPane.id, drawerPaneId: secondDrawerPane.id)
         )
 
         #expect(harness.store.drawerView(forParent: parentPane.id)?.activeChildId == secondDrawerPane.id)
-        #expect(harness.surfaceManager.createdPaneIds == [secondDrawerPane.id])
+        #expect(harness.surfaceManager.createdPaneIds.count == creationAttemptsBeforeSelection + 1)
+        #expect(harness.surfaceManager.createdPaneIds.last == secondDrawerPane.id)
         let config = try #require(harness.surfaceManager.createdConfigsByPaneId[secondDrawerPane.id])
         #expect(config.initialFrame != nil)
     }
 
     @Test
-    func closeUndoFreshRestoreThenSelectDrawerPane_restoresColdRestoredSkippedDrawerPane() async throws {
+    func closeUndoFreshRestoreThenSelectDrawerPane_retriesPreparedFailure() async throws {
+        let harness = try await makeRestoredDrawerHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let restoredParentPane = try #require(harness.store.pane(harness.parentPaneID))
+        let restoredFirstDrawerPane = try #require(harness.store.pane(harness.firstDrawerPaneID))
+        let restoredSecondDrawerPane = try #require(harness.store.pane(harness.secondDrawerPaneID))
+        let restoredDrawerID = try #require(restoredParentPane.drawer?.drawerId)
+        try await mountPreparedDrawerCohort(
+            coordinator: harness.coordinator,
+            viewRegistry: harness.viewRegistry,
+            entries: [
+                (restoredParentPane, .activeVisible, .tab(tabID: harness.tabID)),
+                (
+                    restoredFirstDrawerPane,
+                    .activeVisible,
+                    .drawer(
+                        tabID: harness.tabID,
+                        parentPaneID: PaneId(existingUUID: harness.parentPaneID),
+                        drawerID: restoredDrawerID
+                    )
+                ),
+                (
+                    restoredSecondDrawerPane,
+                    .hidden,
+                    .drawer(
+                        tabID: harness.tabID,
+                        parentPaneID: PaneId(existingUUID: harness.parentPaneID),
+                        drawerID: restoredDrawerID
+                    )
+                ),
+            ],
+            trustedBounds: trustedBounds
+        )
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == harness.parentPaneID }.count == 2)
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == harness.firstDrawerPaneID }.count == 2)
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == harness.secondDrawerPaneID }.count == 2)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        let creationAttemptsBeforeExpansion = harness.surfaceManager.createdPaneIds.count
+
+        harness.coordinator.execute(
+            .expandDrawerPane(
+                parentPaneId: harness.parentPaneID,
+                drawerPaneId: harness.secondDrawerPaneID
+            )
+        )
+
+        let restoredTab = try #require(harness.store.tab(harness.tabID))
+        let restoredDrawerView = try #require(harness.store.drawerView(forParent: harness.parentPaneID))
+        #expect(
+            restoredTab.allPaneIds == [
+                harness.parentPaneID,
+                harness.firstDrawerPaneID,
+                harness.secondDrawerPaneID,
+            ]
+        )
+        #expect(restoredDrawerView.activeChildId == harness.secondDrawerPaneID)
+        #expect(harness.surfaceManager.createdPaneIds.count == creationAttemptsBeforeExpansion + 1)
+        #expect(harness.surfaceManager.createdPaneIds.last == harness.secondDrawerPaneID)
+    }
+
+    private func makeRestoredDrawerHarness() async throws -> RestoredDrawerHarness {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-terminal-restore-composed-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: tempDir) }
         let identityAtom = WorkspaceIdentityAtom(
             workspaceId: workspaceId,
             workspaceName: "Composed Drawer Restore",
@@ -219,7 +355,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner(),
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
-        await restoredStore.loadCanonicalComposition()
+        _ = await restoredStore.loadCanonicalComposition()
         let restoredViewRegistry = ViewRegistry()
         let restoredRuntime = SessionRuntime(store: restoredStore)
         let restoredWindowLifecycleStore = WindowLifecycleAtom()
@@ -237,20 +373,112 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             sessionConfiguration: fixtureSessionConfiguration
         )
 
-        restoredWindowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
-        await restoredCoordinator.restoreAllViews(in: trustedBounds)
-        #expect(restoredSurfaceManager.createdPaneIds == [parentPane.id, firstDrawerPane.id])
-
-        restoredCoordinator.execute(
-            .expandDrawerPane(parentPaneId: parentPane.id, drawerPaneId: secondDrawerPane.id)
+        return RestoredDrawerHarness(
+            store: restoredStore,
+            viewRegistry: restoredViewRegistry,
+            coordinator: restoredCoordinator,
+            windowLifecycleStore: restoredWindowLifecycleStore,
+            surfaceManager: restoredSurfaceManager,
+            tempDir: tempDir,
+            parentPaneID: parentPane.id,
+            firstDrawerPaneID: firstDrawerPane.id,
+            secondDrawerPaneID: secondDrawerPane.id,
+            tabID: tab.id
         )
-
-        let restoredTab = try #require(restoredStore.tab(tab.id))
-        let restoredDrawerView = try #require(restoredStore.drawerView(forParent: parentPane.id))
-        #expect(restoredTab.allPaneIds == [parentPane.id, firstDrawerPane.id, secondDrawerPane.id])
-        #expect(restoredDrawerView.activeChildId == secondDrawerPane.id)
-        #expect(restoredSurfaceManager.createdPaneIds == [parentPane.id, firstDrawerPane.id, secondDrawerPane.id])
     }
+}
+
+@MainActor
+private func mountPreparedDrawerCohort(
+    coordinator: WorkspaceSurfaceCoordinator,
+    viewRegistry: ViewRegistry,
+    entries: [(Pane, TerminalActivationVisibilityPriority, TerminalHostPlacementIdentity)],
+    trustedBounds: CGRect
+) async throws {
+    let generation = try preparedDrawerCohortGeneration()
+    let descriptors = try entries.map { pane, priority, placement in
+        try preparedDrawerTerminalDescriptor(
+            pane: pane,
+            visibilityPriority: priority,
+            hostPlacement: placement
+        )
+    }
+    let resolvedFramesByTabID = coordinator.resolveInitialFramesByTabId(in: trustedBounds)
+    let initialFramesByPaneID = nonEmptyInitialFramesByPaneID(resolvedFramesByTabID)
+    let cohort = WorkspacePreparedContentMountCohort(
+        generation: generation,
+        terminalActivationInput: TerminalActivationInput(entries: descriptors),
+        nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+    )
+    viewRegistry.beginInitialRestore()
+    let owner = WorkspacePreparedContentMountCoordinator(
+        cohort: cohort,
+        viewRegistry: viewRegistry,
+        terminalAdmissionPort: PreparedTerminalMountAdmissionPort(
+            generation: generation,
+            initialFramesByPaneID: initialFramesByPaneID,
+            viewRegistry: viewRegistry,
+            mountHandler: coordinator
+        ),
+        nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
+            generation: generation,
+            coordinator: coordinator
+        )
+    )
+    _ = await owner.mount()
+}
+
+private func nonEmptyInitialFramesByPaneID(
+    _ framesByTabID: [UUID: [UUID: CGRect]]
+) -> [PaneId: NSRect] {
+    var framesByPaneID: [PaneId: NSRect] = [:]
+    for tabFrames in framesByTabID.values {
+        for (paneID, frame) in tabFrames where !frame.isEmpty {
+            framesByPaneID[PaneId(existingUUID: paneID)] = frame
+        }
+    }
+    return framesByPaneID
+}
+
+@MainActor
+private func preparedDrawerCohortGeneration() throws -> WorkspaceContentMountGeneration {
+    let revisionOwner = WorkspacePersistenceRevisionOwner()
+    let revision = try revisionOwner.performSynchronousTransaction { preparation in
+        preparation.commit { preparation.transaction.proposedRevision }
+    }
+    return WorkspaceContentMountGeneration(
+        processGeneration: revisionOwner.processGeneration,
+        revision: revision
+    )
+}
+
+private func preparedDrawerTerminalDescriptor(
+    pane: Pane,
+    visibilityPriority: TerminalActivationVisibilityPriority,
+    hostPlacement: TerminalHostPlacementIdentity
+) throws -> TerminalActivationDescriptor {
+    guard case .terminal(let terminalState) = pane.content else {
+        preconditionFailure("prepared drawer cohort requires terminal content")
+    }
+    let provider: TerminalActivationProvider =
+        switch terminalState.provider {
+        case .ghostty: .ghostty
+        case .zmx: .zmx
+        }
+    return TerminalActivationDescriptor(
+        pane: pane,
+        zmxSessionID: terminalState.zmxSessionID,
+        provider: provider,
+        launchConfiguration: TerminalActivationLaunchConfiguration(
+            launchDirectory: pane.metadata.launchDirectory.map(TerminalActivationLaunchDirectory.stored)
+                ?? .userHomeDefault,
+            executionBackend: pane.metadata.executionBackend,
+            lifetime: terminalState.lifetime,
+            displayTitle: pane.metadata.title
+        ),
+        visibilityPriority: visibilityPriority,
+        hostPlacement: hostPlacement
+    )
 }
 
 @MainActor

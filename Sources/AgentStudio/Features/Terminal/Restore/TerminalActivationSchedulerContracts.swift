@@ -14,6 +14,7 @@ struct TerminalActivationAdmission: Equatable, Sendable {
 enum TerminalActivationFailure: Equatable, Sendable {
     case attachmentRejected(code: String)
     case surfaceCreationFailed(code: String)
+    case surfaceAttachmentFailed(code: String)
 }
 
 enum TerminalActivationRetryDirective: Equatable, Sendable {

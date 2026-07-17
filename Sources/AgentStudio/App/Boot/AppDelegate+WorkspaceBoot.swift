@@ -57,11 +57,7 @@ extension AppDelegate {
     /// SwiftUI read during tab-host creation sees stable slot identity instead of the lazy fallback.
     func seedSlotsForInstalledPanes() {
         guard store != nil, viewRegistry != nil else { return }
-        if store.paneAtom.panes.isEmpty {
-            viewRegistry.completeInitialRestore()
-        } else {
-            viewRegistry.beginInitialRestore()
-        }
+        viewRegistry.beginInitialRestore()
         for paneId in store.paneAtom.panes.keys {
             viewRegistry.ensureSlot(for: paneId)
         }
@@ -216,7 +212,7 @@ extension AppDelegate {
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
         switch await store.loadCanonicalComposition() {
         case .loaded(let acceptance), .initializedDefaultWorkspace(let acceptance):
-            installWorkspaceTerminalActivationInput(acceptance.terminalActivationInput)
+            acceptWorkspacePreparedContentMountCohort(acceptance.contentMountCohort)
         case .failed(let failure):
             let diagnosticCode = failure.diagnosticCode
             startupTraceRecorder.recordAppStartup(
@@ -289,6 +285,31 @@ extension AppDelegate {
             traceRuntime: traceRuntime,
             performanceTraceRecorder: performanceTraceRecorder
         )
+        let contentMountCohort = acceptedWorkspacePreparedContentMountCohort
+        let terminalAdmissionPort = PreparedTerminalMountAdmissionPort(
+            generation: contentMountCohort.generation,
+            viewRegistry: viewRegistry,
+            mountHandler: workspaceSurfaceCoordinator
+        )
+        let contentMountCoordinator = WorkspacePreparedContentMountCoordinator(
+            cohort: contentMountCohort,
+            viewRegistry: viewRegistry,
+            terminalAdmissionPort: terminalAdmissionPort,
+            nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
+                generation: contentMountCohort.generation,
+                coordinator: workspaceSurfaceCoordinator
+            )
+        )
+        installWorkspacePreparedContentMountOwners(
+            InstalledWorkspacePreparedContentMountOwners(
+                cohort: contentMountCohort,
+                terminalAdmissionPort: terminalAdmissionPort,
+                coordinator: contentMountCoordinator
+            )
+        )
+        workspaceSurfaceCoordinator.preparedContentVisibilitySignalHandler = { [weak contentMountCoordinator] paneIDs in
+            contentMountCoordinator?.handleVisibilitySignals(for: paneIDs) ?? []
+        }
         workspaceCacheCoordinator = WorkspaceCacheCoordinator(
             bus: paneRuntimeBus,
             workspaceStore: store,

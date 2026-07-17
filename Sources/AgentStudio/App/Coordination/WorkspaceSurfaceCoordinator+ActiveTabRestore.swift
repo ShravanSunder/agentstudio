@@ -22,34 +22,31 @@ extension WorkspaceSurfaceCoordinator {
             RestoreTrace.log("restoreViewsForActiveTabIfNeeded skipped boundsUnavailable")
             return
         }
-        guard activeTabHasMissingVisibleView(activeTab) else { return }
+        guard forceWhenBoundsExist || activeTabHasMissingVisibleView(activeTab) else { return }
         RestoreTrace.log(
             "restoreViewsForActiveTabIfNeeded activeTab=\(activeTab.id) bounds=\(NSStringFromRect(terminalContainerBounds))"
         )
-        let resolvedPaneFramesByTabId = resolveInitialFramesByTabId(in: terminalContainerBounds)
+        if viewRegistry.isInitialRestorePending {
+            let activePaneIDs = activeTab.activePaneIds.map(PaneId.init(existingUUID:))
+            _ = preparedContentVisibilitySignalHandler(activePaneIDs)
+            RestoreTrace.log(
+                "restoreViewsForActiveTabIfNeeded signalledPreparedOwners activeTab=\(activeTab.id) visiblePaneCount=\(activeTab.activePaneIds.count)"
+            )
+            return
+        }
+
         let visiblePaneIds = TerminalRestoreScheduler.order(
             store.paneAtom.panes.keys.map { PaneId(existingUUID: $0) },
             resolver: visibilityTierResolver
         )
         .filter { visibilityTierResolver.tier(for: $0) == .p0Visible }
         .map(\.uuid)
-
-        if viewRegistry.isInitialRestorePending {
-            restoreInitialVisibleViews(
-                visiblePaneIds,
-                in: activeTab,
-                resolvedPaneFramesByTabId: resolvedPaneFramesByTabId
-            )
-            RestoreTrace.log(
-                "restoreViewsForActiveTabIfNeeded initialRestoreVisibleViews activeTab=\(activeTab.id) visiblePaneCount=\(visiblePaneIds.count)"
-            )
-            return
-        }
-
+        let resolvedPaneFramesByTabId = resolveInitialFramesByTabId(in: terminalContainerBounds)
         restoreMissingVisibleViews(
             visiblePaneIds,
             in: activeTab,
-            resolvedPaneFramesByTabId: resolvedPaneFramesByTabId
+            resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
+            forceFailedPlaceholderRetry: forceWhenBoundsExist
         )
         performanceTraceRecorder?.recordDuration(
             .paneViewRestore,
@@ -63,33 +60,19 @@ extension WorkspaceSurfaceCoordinator {
         )
     }
 
-    private func restoreInitialVisibleViews(
-        _ visiblePaneIds: [UUID],
-        in activeTab: Tab,
-        resolvedPaneFramesByTabId: [UUID: [UUID: CGRect]]
-    ) {
-        for paneId in visiblePaneIds {
-            guard let pane = store.paneAtom.pane(paneId) else { continue }
-            guard paneBelongsToActiveTab(pane, activeTab: activeTab) else { continue }
-            guard viewRegistry.view(for: paneId) == nil else { continue }
-            _ = createViewForContent(
-                pane: pane,
-                initialFrame: initialFrame(for: pane, resolvedPaneFramesByTabId: resolvedPaneFramesByTabId),
-                treatAsRestoredSessionStart: true
-            )
-        }
-    }
-
     private func restoreMissingVisibleViews(
         _ visiblePaneIds: [UUID],
         in activeTab: Tab,
-        resolvedPaneFramesByTabId: [UUID: [UUID: CGRect]]
+        resolvedPaneFramesByTabId: [UUID: [UUID: CGRect]],
+        forceFailedPlaceholderRetry: Bool
     ) {
         for paneId in visiblePaneIds {
             guard let pane = store.paneAtom.pane(paneId) else { continue }
             guard paneBelongsToActiveTab(pane, activeTab: activeTab) else { continue }
             if let placeholder = viewRegistry.terminalStatusPlaceholderView(for: paneId) {
-                guard placeholder.shouldRetryCreationWhenBoundsChange else { continue }
+                guard forceFailedPlaceholderRetry || placeholder.shouldRetryCreationWhenBoundsChange else {
+                    continue
+                }
             } else if viewRegistry.view(for: paneId) != nil {
                 continue
             }

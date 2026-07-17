@@ -28,7 +28,6 @@ struct PaneTabViewControllerLaunchRestoreTests {
     private func makeHarness() -> Harness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-tab-launch-tests-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore(
             workspacePersistenceRevisionOwner: WorkspacePersistenceRevisionOwner())
         let viewRegistry = ViewRegistry()
@@ -171,19 +170,26 @@ struct PaneTabViewControllerLaunchRestoreTests {
         let tab = Tab(paneId: pane.id, name: "Initial Placeholder")
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
-        harness.viewRegistry.beginInitialRestore()
-
-        harness.applicationLifecycleMonitor.handleLaunchLayoutSettled()
-        harness.controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
-        harness.controller.view.layoutSubtreeIfNeeded()
-
-        await Task.yield()
+        let frame = NSRect(x: 8, y: 8, width: 1184, height: 784)
+        try await mountPreparedContent(
+            coordinator: harness.coordinator,
+            viewRegistry: harness.viewRegistry,
+            terminalDescriptors: [
+                try preparedTerminalDescriptor(
+                    pane: pane,
+                    visibilityPriority: .activeVisible,
+                    hostPlacement: .tab(tabID: tab.id)
+                )
+            ],
+            nonterminalDescriptors: [],
+            initialFramesByPaneID: [PaneId(existingUUID: pane.id): frame]
+        )
 
         let placeholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
         #expect(placeholder.mode == .failedToStart)
         #expect(placeholder.shouldRetryCreationWhenBoundsChange == false)
-        #expect(harness.surfaceManager.createdPaneIds == [pane.id])
-        #expect(harness.viewRegistry.isInitialRestorePending == true)
+        #expect(harness.surfaceManager.createdPaneIds == [pane.id, pane.id])
+        #expect(harness.viewRegistry.isInitialRestorePending == false)
     }
 
     @Test
@@ -205,21 +211,27 @@ struct PaneTabViewControllerLaunchRestoreTests {
         let tab = Tab(paneId: pane.id, name: "Initial Webview")
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
-        harness.viewRegistry.beginInitialRestore()
-
-        harness.applicationLifecycleMonitor.handleLaunchLayoutSettled()
-        harness.controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
-        harness.controller.view.layoutSubtreeIfNeeded()
-
-        await Task.yield()
+        try await mountPreparedContent(
+            coordinator: harness.coordinator,
+            viewRegistry: harness.viewRegistry,
+            terminalDescriptors: [],
+            nonterminalDescriptors: [
+                NonterminalContentMountDescriptor(
+                    content: .webview(pane),
+                    visibilityPriority: .activeVisible,
+                    hostPlacement: .tab(tabID: tab.id)
+                )
+            ],
+            initialFramesByPaneID: [:]
+        )
 
         #expect(harness.viewRegistry.webviewView(for: pane.id) != nil)
         #expect(harness.surfaceManager.createdPaneIds.isEmpty)
-        #expect(harness.viewRegistry.isInitialRestorePending == true)
+        #expect(harness.viewRegistry.isInitialRestorePending == false)
     }
 
     @Test
-    func restoreAllViews_initialRestoreAttemptsZmxTerminalSurfaceCreation() async throws {
+    func preparedContentOwner_initialRestoreAttemptsZmxTerminalSurfaceCreation() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -230,16 +242,26 @@ struct PaneTabViewControllerLaunchRestoreTests {
         let tab = Tab(paneId: pane.id, name: "Initial Full Restore")
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
-        harness.viewRegistry.beginInitialRestore()
-
-        await harness.coordinator.restoreAllViews(
-            in: CGRect(x: 0, y: 0, width: 1200, height: 800)
+        try await mountPreparedContent(
+            coordinator: harness.coordinator,
+            viewRegistry: harness.viewRegistry,
+            terminalDescriptors: [
+                try preparedTerminalDescriptor(
+                    pane: pane,
+                    visibilityPriority: .activeVisible,
+                    hostPlacement: .tab(tabID: tab.id)
+                )
+            ],
+            nonterminalDescriptors: [],
+            initialFramesByPaneID: [
+                PaneId(existingUUID: pane.id): CGRect(x: 8, y: 8, width: 1184, height: 784)
+            ]
         )
 
         let placeholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
         #expect(placeholder.mode == .failedToStart)
         #expect(placeholder.shouldRetryCreationWhenBoundsChange == false)
-        #expect(harness.surfaceManager.createdPaneIds == [pane.id])
+        #expect(harness.surfaceManager.createdPaneIds == [pane.id, pane.id])
         #expect(harness.viewRegistry.isInitialRestorePending == false)
     }
 
@@ -263,7 +285,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
     }
 
     @Test
-    func restoreAllViews_usesLifecycleStoreBounds() async throws {
+    func preparedContentOwner_usesFrozenLifecycleStoreBounds() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -281,8 +303,22 @@ struct PaneTabViewControllerLaunchRestoreTests {
             CGRect(x: 0, y: 0, width: containerWidth, height: containerHeight)
         )
 
-        await harness.coordinator.restoreAllViews(
+        let resolvedFramesByTabID = harness.coordinator.resolveInitialFramesByTabId(
             in: harness.windowLifecycleStore.terminalContainerBounds
+        )
+        let initialFrame = try #require(resolvedFramesByTabID[tab.id]?[pane.id])
+        try await mountPreparedContent(
+            coordinator: harness.coordinator,
+            viewRegistry: harness.viewRegistry,
+            terminalDescriptors: [
+                try preparedTerminalDescriptor(
+                    pane: pane,
+                    visibilityPriority: .activeVisible,
+                    hostPlacement: .tab(tabID: tab.id)
+                )
+            ],
+            nonterminalDescriptors: [],
+            initialFramesByPaneID: [PaneId(existingUUID: pane.id): initialFrame]
         )
 
         let config = try #require(harness.surfaceManager.createdConfigsByPaneId[pane.id])
@@ -321,6 +357,79 @@ struct PaneTabViewControllerLaunchRestoreTests {
         let tabHostAfterResign = try #require(harness.controller.tabHostViewForTesting(tabId: tab.id))
         #expect(tabHostAfterResign === originalTabHost)
     }
+}
+
+@MainActor
+private func mountPreparedContent(
+    coordinator: WorkspaceSurfaceCoordinator,
+    viewRegistry: ViewRegistry,
+    terminalDescriptors: [TerminalActivationDescriptor],
+    nonterminalDescriptors: [NonterminalContentMountDescriptor],
+    initialFramesByPaneID: [PaneId: NSRect]
+) async throws {
+    let generation = try preparedContentGeneration()
+    let cohort = WorkspacePreparedContentMountCohort(
+        generation: generation,
+        terminalActivationInput: TerminalActivationInput(entries: terminalDescriptors),
+        nonterminalContentMountInput: NonterminalContentMountInput(entries: nonterminalDescriptors)
+    )
+    viewRegistry.beginInitialRestore()
+    let owner = WorkspacePreparedContentMountCoordinator(
+        cohort: cohort,
+        viewRegistry: viewRegistry,
+        terminalAdmissionPort: PreparedTerminalMountAdmissionPort(
+            generation: generation,
+            initialFramesByPaneID: initialFramesByPaneID,
+            viewRegistry: viewRegistry,
+            mountHandler: coordinator
+        ),
+        nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
+            generation: generation,
+            coordinator: coordinator
+        )
+    )
+    _ = await owner.mount()
+}
+
+@MainActor
+private func preparedContentGeneration() throws -> WorkspaceContentMountGeneration {
+    let revisionOwner = WorkspacePersistenceRevisionOwner()
+    let revision = try revisionOwner.performSynchronousTransaction { preparation in
+        preparation.commit { preparation.transaction.proposedRevision }
+    }
+    return WorkspaceContentMountGeneration(
+        processGeneration: revisionOwner.processGeneration,
+        revision: revision
+    )
+}
+
+private func preparedTerminalDescriptor(
+    pane: Pane,
+    visibilityPriority: TerminalActivationVisibilityPriority,
+    hostPlacement: TerminalHostPlacementIdentity
+) throws -> TerminalActivationDescriptor {
+    guard case .terminal(let terminalState) = pane.content else {
+        preconditionFailure("prepared terminal descriptor requires terminal content")
+    }
+    let provider: TerminalActivationProvider =
+        switch terminalState.provider {
+        case .ghostty: .ghostty
+        case .zmx: .zmx
+        }
+    return TerminalActivationDescriptor(
+        pane: pane,
+        zmxSessionID: terminalState.zmxSessionID,
+        provider: provider,
+        launchConfiguration: TerminalActivationLaunchConfiguration(
+            launchDirectory: pane.metadata.launchDirectory.map(TerminalActivationLaunchDirectory.stored)
+                ?? .userHomeDefault,
+            executionBackend: pane.metadata.executionBackend,
+            lifetime: terminalState.lifetime,
+            displayTitle: pane.metadata.title
+        ),
+        visibilityPriority: visibilityPriority,
+        hostPlacement: hostPlacement
+    )
 }
 
 @MainActor

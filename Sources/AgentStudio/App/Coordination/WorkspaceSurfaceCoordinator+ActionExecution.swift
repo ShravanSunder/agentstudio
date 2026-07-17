@@ -639,9 +639,11 @@ extension WorkspaceSurfaceCoordinator {
             store.paneAtom.toggleDrawer(for: paneId)
             if let drawer = store.paneAtom.pane(paneId)?.drawer,
                 drawer.isExpanded,
-                let activeDrawerPaneId = arrangementView.drawerView(forParent: paneId)?.activeChildId
+                let activeDrawerPaneId =
+                    arrangementView.drawerView(forParent: paneId)?.activeChildId
+                    ?? drawer.paneIds.first
             {
-                restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
+                reattachForViewSwitch(paneId: activeDrawerPaneId)
                 focusVisiblePaneHost(activeDrawerPaneId)
             } else {
                 focusVisiblePaneHost(paneId)
@@ -651,10 +653,7 @@ extension WorkspaceSurfaceCoordinator {
             else { break }
             store.tabArrangementAtom.setActiveDrawerPane(
                 drawerPaneId, drawerId: drawerContext.drawerId, inTab: drawerContext.tabId)
-            restoreVisiblePaneIfNeeded(drawerPaneId, forceWhenBoundsExist: true)
-            if viewRegistry.terminalView(for: drawerPaneId) != nil {
-                reattachForViewSwitch(paneId: drawerPaneId)
-            }
+            reattachForViewSwitch(paneId: drawerPaneId)
             focusVisiblePaneHost(drawerPaneId)
         case .resizeDrawerPane(let parentPaneId, let splitId, let ratio):
             guard let drawerContext = drawerCommandContext(parentPaneId: parentPaneId, command: "resizeDrawerPane")
@@ -691,10 +690,7 @@ extension WorkspaceSurfaceCoordinator {
             else { break }
             store.tabArrangementAtom.expandDrawerPane(
                 drawerPaneId, drawerId: drawerContext.drawerId, tabId: drawerContext.tabId)
-            restoreVisiblePaneIfNeeded(drawerPaneId, forceWhenBoundsExist: true)
-            if viewRegistry.terminalView(for: drawerPaneId) != nil {
-                reattachForViewSwitch(paneId: drawerPaneId)
-            }
+            reattachForViewSwitch(paneId: drawerPaneId)
 
         case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction, let sizingMode):
             executeInsertDrawerPane(

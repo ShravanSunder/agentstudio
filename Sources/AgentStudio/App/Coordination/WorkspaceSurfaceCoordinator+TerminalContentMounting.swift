@@ -1,8 +1,25 @@
 import AppKit
 import Foundation
 
+struct MountedTerminalContent {
+    let view: TerminalPaneMountView
+    let surfaceID: UUID
+}
+
+enum TopologyIndependentTerminalMountFailure {
+    case trustedInitialFrameUnavailable
+    case startupPreparationFailed
+    case surfaceCreationFailed
+    case surfaceAttachmentFailed
+}
+
+enum TopologyIndependentTerminalMountResult {
+    case mounted(MountedTerminalContent)
+    case failed(TopologyIndependentTerminalMountFailure)
+}
+
 @MainActor
-extension WorkspaceSurfaceCoordinator {
+extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
     /// Mount a terminal selected by a steady-state user action.
     ///
     /// Steady-state creation may enrich the terminal from current repository
@@ -50,28 +67,53 @@ extension WorkspaceSurfaceCoordinator {
             )
         }
 
-        return createTopologyIndependentTerminalView(
+        switch createTopologyIndependentTerminalView(
             for: pane,
             initialFrame: initialFrame,
             treatAsRestoredSessionStart: treatAsRestoredSessionStart
-        )
+        ) {
+        case .mounted(let mountedContent):
+            return mountedContent.view
+        case .failed:
+            return nil
+        }
     }
 
     /// Mount a terminal from accepted composition without consulting repository
     /// topology or canonical atoms for identity, launch, or content selection.
     @discardableResult
     func mountPreparedTerminalContent(
-        pane: Pane,
+        admission: TerminalActivationAdmission,
         initialFrame: NSRect?
-    ) -> NSView? {
+    ) -> TerminalActivationAttemptResult {
+        let pane = admission.descriptor.pane
         guard case .terminal = pane.content else {
             preconditionFailure("nonterminal pane entered prepared terminal activation")
         }
+        if pane.provider == .zmx, initialFrame == nil {
+            return .failed(
+                failure: .surfaceCreationFailed(code: "trusted_initial_frame_unavailable"),
+                retry: .doNotRetry
+            )
+        }
         viewRegistry.ensureSlot(for: pane.id)
-        return createTopologyIndependentTerminalView(
+        switch createTopologyIndependentTerminalView(
             for: pane,
             initialFrame: initialFrame,
             treatAsRestoredSessionStart: true
-        )
+        ) {
+        case .mounted(let mountedContent):
+            return .ready(surfaceID: mountedContent.surfaceID)
+        case .failed(.surfaceAttachmentFailed):
+            return .failed(
+                failure: .surfaceAttachmentFailed(code: "prepared_surface_attachment_failed"),
+                retry: .retry
+            )
+        case .failed:
+            return .failed(
+                failure: .surfaceCreationFailed(code: "prepared_mount_failed"),
+                retry: .retry
+            )
+        }
     }
 }

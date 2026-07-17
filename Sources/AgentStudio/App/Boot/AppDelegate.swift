@@ -10,9 +10,16 @@ enum WorkspacePersistenceRuntimeBootState {
     case ready(WorkspacePersistenceRuntime)
 }
 
-enum WorkspaceTerminalActivationInputBootState {
+struct InstalledWorkspacePreparedContentMountOwners {
+    let cohort: WorkspacePreparedContentMountCohort
+    let terminalAdmissionPort: PreparedTerminalMountAdmissionPort
+    let coordinator: WorkspacePreparedContentMountCoordinator
+}
+
+enum WorkspacePreparedContentMountBootState {
     case awaitingCanonicalComposition
-    case ready(TerminalActivationInput)
+    case accepted(WorkspacePreparedContentMountCohort)
+    case installed(InstalledWorkspacePreparedContentMountOwners)
 }
 
 @MainActor
@@ -28,13 +35,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         return runtime
     }
-    private var workspaceTerminalActivationInputBootState = WorkspaceTerminalActivationInputBootState
+    private var workspacePreparedContentMountBootState = WorkspacePreparedContentMountBootState
         .awaitingCanonicalComposition
-    var workspaceTerminalActivationInput: TerminalActivationInput {
-        guard case .ready(let input) = workspaceTerminalActivationInputBootState else {
-            preconditionFailure("terminal activation input accessed before canonical composition restore")
+    var installedWorkspacePreparedContentMountOwners: InstalledWorkspacePreparedContentMountOwners {
+        guard case .installed(let owners) = workspacePreparedContentMountBootState else {
+            preconditionFailure("prepared content mount owners accessed before runtime boot")
         }
-        return input
+        return owners
+    }
+    var acceptedWorkspacePreparedContentMountCohort: WorkspacePreparedContentMountCohort {
+        guard case .accepted(let cohort) = workspacePreparedContentMountBootState else {
+            preconditionFailure("prepared content mount cohort accessed outside accepted boot phase")
+        }
+        return cohort
     }
     var store: WorkspaceStore!
     var repoCache: RepoCacheAtom! { atomStore.repoCache }
@@ -77,11 +90,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         workspacePersistenceRuntimeBootState = .ready(runtime)
     }
 
-    func installWorkspaceTerminalActivationInput(_ input: TerminalActivationInput) {
-        guard case .awaitingCanonicalComposition = workspaceTerminalActivationInputBootState else {
-            preconditionFailure("terminal activation input installed more than once")
+    func acceptWorkspacePreparedContentMountCohort(_ cohort: WorkspacePreparedContentMountCohort) {
+        guard case .awaitingCanonicalComposition = workspacePreparedContentMountBootState else {
+            preconditionFailure("prepared content mount cohort accepted more than once")
         }
-        workspaceTerminalActivationInputBootState = .ready(input)
+        workspacePreparedContentMountBootState = .accepted(cohort)
+    }
+
+    func installWorkspacePreparedContentMountOwners(
+        _ owners: InstalledWorkspacePreparedContentMountOwners
+    ) {
+        guard case .accepted(let acceptedCohort) = workspacePreparedContentMountBootState,
+            acceptedCohort == owners.cohort
+        else {
+            preconditionFailure("prepared content mount owners installed without their accepted cohort")
+        }
+        workspacePreparedContentMountBootState = .installed(owners)
     }
     // MARK: - Command Bar
     var commandBarController: CommandBarPanelController!
