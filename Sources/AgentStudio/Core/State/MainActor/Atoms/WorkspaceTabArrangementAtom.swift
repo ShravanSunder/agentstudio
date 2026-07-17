@@ -846,23 +846,24 @@ final class WorkspaceTabArrangementAtom {
             workspaceTabArrangementLogger.warning("mergeTab: sourceId and targetId are the same tab \(sourceId)")
             return
         }
-        guard let sourceTabIndex = arrangementStates.firstIndex(where: { $0.tabId == sourceId }),
-            let targetTabIndex = arrangementStates.firstIndex(where: { $0.tabId == targetId })
+        var replacementStates = arrangementStates
+        guard let sourceTabIndex = replacementStates.firstIndex(where: { $0.tabId == sourceId }),
+            let targetTabIndex = replacementStates.firstIndex(where: { $0.tabId == targetId })
         else {
             workspaceTabArrangementLogger.warning("mergeTab: source \(sourceId) or target \(targetId) tab not found")
             return
         }
 
         let targetArrIndex = activeArrangementIndex(for: targetTabIndex)
-        guard arrangementStates[targetTabIndex].arrangements[targetArrIndex].layout.contains(targetPaneId) else {
+        guard replacementStates[targetTabIndex].arrangements[targetArrIndex].layout.contains(targetPaneId) else {
             workspaceTabArrangementLogger.warning("mergeTab: targetPaneId \(targetPaneId) not in target arrangement")
             return
         }
 
         guard
             let mergedState = TabArrangementMutationRules.merging(
-                source: arrangementStates[sourceTabIndex],
-                into: arrangementStates[targetTabIndex],
+                source: replacementStates[sourceTabIndex],
+                into: replacementStates[targetTabIndex],
                 at: targetPaneId,
                 direction: direction,
                 position: position,
@@ -874,9 +875,9 @@ final class WorkspaceTabArrangementAtom {
             )
             return
         }
-        arrangementStates[targetTabIndex] = mergedState
-
-        arrangementStates.remove(at: sourceTabIndex)
+        replacementStates[targetTabIndex] = mergedState
+        replacementStates.remove(at: sourceTabIndex)
+        replaceArrangementStates(replacementStates)
     }
 
 }

@@ -67,31 +67,24 @@ final class WorkspacePersistenceRuntime {
     let revisionOwner: WorkspacePersistenceRevisionOwner
     let atomOwners: WorkspacePersistenceAtomOwners
     let adapters: WorkspacePersistenceAdapterBundle
-    let workspacePanePresentation: WorkspacePanePresentationAtom
     let snapshotParticipantFactory: WorkspacePersistenceSnapshotParticipantFactory
     let preparedTopologyApplier: WorkspacePreparedTopologyApplier
-    let mutationCoordinator: WorkspacePersistenceMutationCoordinator
-    let paneResidencyLifecycleOwner: WorkspacePaneResidencyLifecycleOwner
-    let paneCreationGateway: WorkspacePaneCreationGateway
     let snapshotPagerState = WorkspacePersistenceSnapshotPagerState
         .unavailableAwaitingDomainParticipantInstallation
 
     convenience init(atomRegistry: AtomRegistry) {
         self.init(
             revisionOwner: WorkspacePersistenceRevisionOwner(),
-            atomOwners: WorkspacePersistenceAtomOwners(atomRegistry: atomRegistry),
-            workspacePanePresentation: atomRegistry.workspacePanePresentation
+            atomOwners: WorkspacePersistenceAtomOwners(atomRegistry: atomRegistry)
         )
     }
 
     init(
         revisionOwner: WorkspacePersistenceRevisionOwner,
-        atomOwners: WorkspacePersistenceAtomOwners,
-        workspacePanePresentation: WorkspacePanePresentationAtom
+        atomOwners: WorkspacePersistenceAtomOwners
     ) {
         self.revisionOwner = revisionOwner
         self.atomOwners = atomOwners
-        self.workspacePanePresentation = workspacePanePresentation
 
         let adapters = WorkspacePersistenceAdapterBundle(
             revisionOwner: revisionOwner,
@@ -108,31 +101,6 @@ final class WorkspacePersistenceRuntime {
         self.adapters = adapters
         snapshotParticipantFactory = WorkspacePersistenceSnapshotParticipantFactory(adapters: adapters)
         preparedTopologyApplier = WorkspacePreparedTopologyApplier(adapters: adapters)
-        let mutationCoordinator = WorkspacePersistenceMutationCoordinator(
-            revisionOwner: revisionOwner,
-            adapters: adapters,
-            workspacePaneGraphAtom: atomOwners.workspacePaneGraph,
-            workspaceDrawerCursorAtom: atomOwners.workspaceDrawerCursor,
-            workspaceTabShellAtom: atomOwners.workspaceTabShell,
-            workspaceTabCursorAtom: atomOwners.workspaceTabCursor,
-            workspaceTabGraphAtom: atomOwners.workspaceTabGraph,
-            workspaceArrangementCursorAtom: atomOwners.workspaceArrangementCursor,
-            workspacePanePresentationAtom: workspacePanePresentation,
-            workspaceWindowMemoryAtom: atomOwners.workspaceWindowMemory
-        )
-        self.mutationCoordinator = mutationCoordinator
-        paneResidencyLifecycleOwner = WorkspacePaneResidencyLifecycleOwner(
-            persistenceMutationCoordinator: mutationCoordinator
-        )
-        paneCreationGateway = WorkspacePaneCreationGateway(
-            contextBuilder: WorkspacePaneCreationContextBuilder(
-                workspacePaneGraphAtom: atomOwners.workspacePaneGraph,
-                workspaceTabShellAtom: atomOwners.workspaceTabShell,
-                workspaceTabGraphAtom: atomOwners.workspaceTabGraph,
-                workspaceArrangementCursorAtom: atomOwners.workspaceArrangementCursor
-            ),
-            persistenceMutationCoordinator: mutationCoordinator
-        )
     }
 
     func requireExactAtomOwners(_ received: WorkspacePersistenceAtomOwners) {
@@ -171,13 +139,6 @@ final class WorkspacePersistenceRuntime {
         precondition(
             atomOwners.workspaceArrangementCursor === received.workspaceArrangementCursor,
             "WorkspaceStore must share the runtime arrangement-cursor owner"
-        )
-    }
-
-    func requireExactPresentationOwner(_ received: WorkspacePanePresentationAtom) {
-        precondition(
-            workspacePanePresentation === received,
-            "WorkspaceStore must share the runtime-only pane-presentation owner"
         )
     }
 }

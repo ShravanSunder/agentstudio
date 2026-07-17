@@ -74,7 +74,7 @@ struct WorkspacePersistenceRuntimeTests {
         #expect(runtimeSource.contains("WorkspacePersistenceSnapshotParticipantFactory(adapters: adapters)"))
         #expect(!runtimeSource.contains("WorkspacePreparedCompositionApplier"))
         #expect(runtimeSource.contains("WorkspacePreparedTopologyApplier(adapters: adapters)"))
-        #expect(runtimeSource.contains("WorkspacePersistenceMutationCoordinator("))
+        #expect(!runtimeSource.contains("WorkspacePersistenceMutationCoordinator"))
         #expect(runtimeSource.contains("revisionOwner: revisionOwner"))
         #expect(storeSource.contains("private let preparedCompositionApplier: WorkspacePreparedCompositionApplier"))
         #expect(storeSource.contains("preparedCompositionApplier = WorkspacePreparedCompositionApplier("))

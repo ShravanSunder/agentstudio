@@ -77,21 +77,4 @@ struct ZmxSessionIDTests {
         #expect(stronglyTypedSessionID == generatedSessionID)
     }
 
-    @Test("resolved terminal construction receives identity before pane insertion")
-    func resolvedTerminalConstructionReceivesIdentityBeforePaneInsertion() throws {
-        let generatedSessionID = ZmxSessionID.generateUUIDv7()
-        let resolvedContent = WorkspaceResolvedPaneContent.zmxTerminal(
-            lifetime: .persistent,
-            zmxSessionID: generatedSessionID
-        )
-
-        let paneContent = resolvedContent.paneContent(for: PaneId.generateUUIDv7())
-
-        guard case .terminal(let terminalState) = paneContent else {
-            Issue.record("Expected terminal pane content")
-            return
-        }
-        let stronglyTypedSessionID: ZmxSessionID = terminalState.zmxSessionID
-        #expect(stronglyTypedSessionID == generatedSessionID)
-    }
 }

@@ -383,31 +383,4 @@ final class PaneRemovalCascadeTests {
         #expect(store.pane(targetPaneId)!.residency == .active)
     }
 
-    // MARK: - Multiple tabs interaction
-
-    @Test
-
-    func test_removePane_cleanedFromMultipleTabs() {
-        let pane1 = store.createPane()
-        let pane2 = store.createPane()
-        let pane3 = store.createPane()
-
-        let tab1 = Tab(paneId: pane1.id)
-        store.appendTab(tab1)
-        store.insertPane(
-            pane2.id, inTab: tab1.id, at: pane1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
-
-        let tab2 = Tab(paneId: pane3.id)
-        store.appendTab(tab2)
-        store.insertPane(
-            pane2.id, inTab: tab2.id, at: pane3.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
-
-        // Remove pane2 globally — should be removed from both tabs
-        store.removePane(pane2.id)
-
-        let updatedTab1 = store.tabs.first { $0.id == tab1.id }!
-        let updatedTab2 = store.tabs.first { $0.id == tab2.id }!
-        #expect(!(updatedTab1.paneIds.contains(pane2.id)))
-        #expect(!(updatedTab2.paneIds.contains(pane2.id)))
-    }
 }

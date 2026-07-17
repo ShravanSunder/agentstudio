@@ -155,42 +155,42 @@ lease, or participant concepts to express initial state installation.
 Delete each production source and its matching transition/applier/gateway tests.
 Do not retain a generic compatibility wrapper.
 
-- [ ] Window-memory persistence mutation methods.
-- [ ] `WorkspacePaneTransition` pane title/context/webview family.
-- [ ] New-pane/new-tab transition and `WorkspacePaneCreationGateway` family.
-- [ ] `WorkspaceTabLeafTransition` family.
-- [ ] `WorkspaceDrawerToggleTransition` family.
-- [ ] `WorkspaceTabGraphLeafTransition` family.
-- [ ] `WorkspaceActiveArrangementVisibilityTransition` family.
-- [ ] `WorkspaceKeyboardResizeCheckpointPlanner` family.
-- [ ] Pane-residency lifecycle planners, applier, owner, and gateway.
-- [ ] Arrangement-selection transition/applier/gateway.
-- [ ] Layout-resize transition/applier/checkpoint owner/gateway.
-- [ ] Arrangement create/remove transition/applier/gateway.
-- [ ] Create-pane-in-existing-tab transition/applier/gateway.
-- [ ] Cross-tab pane-move transition/applier/gateway.
-- [ ] Retained-tab pane-close transition/applier/gateway.
-- [ ] Final-pane tab-removal transition/applier/gateway.
-- [ ] `WorkspacePersistenceMutationCoordinator` after all family fields and
+- [x] Window-memory persistence mutation methods.
+- [x] `WorkspacePaneTransition` pane title/context/webview family.
+- [x] New-pane/new-tab transition and `WorkspacePaneCreationGateway` family.
+- [x] `WorkspaceTabLeafTransition` family.
+- [x] `WorkspaceDrawerToggleTransition` family.
+- [x] `WorkspaceTabGraphLeafTransition` family.
+- [x] `WorkspaceActiveArrangementVisibilityTransition` family.
+- [x] `WorkspaceKeyboardResizeCheckpointPlanner` family.
+- [x] Pane-residency lifecycle planners, applier, owner, and gateway.
+- [x] Arrangement-selection transition/applier/gateway.
+- [x] Layout-resize transition/applier/checkpoint owner/gateway.
+- [x] Arrangement create/remove transition/applier/gateway.
+- [x] Create-pane-in-existing-tab transition/applier/gateway.
+- [x] Cross-tab pane-move transition/applier/gateway.
+- [x] Retained-tab pane-close transition/applier/gateway.
+- [x] Final-pane tab-removal transition/applier/gateway.
+- [x] `WorkspacePersistenceMutationCoordinator` after all family fields and
       callers are gone.
-- [ ] `LatestValueSettleGate` after its final dormant consumer is gone.
+- [x] `LatestValueSettleGate` after its final dormant consumer is gone.
 
 Required zero-reference scan:
 
-- [ ] `WorkspacePersistenceMutationCoordinator`
-- [ ] `WorkspacePaneCreationGateway`
-- [ ] `WorkspacePaneResidencyLifecycleOwner`
-- [ ] every deleted transition/applier/gateway symbol
+- [x] `WorkspacePersistenceMutationCoordinator`
+- [x] `WorkspacePaneCreationGateway`
+- [x] `WorkspacePaneResidencyLifecycleOwner`
+- [x] every deleted transition/applier/gateway symbol
 
 Focused proof:
 
-- [ ] Existing production pane/tab/drawer action tests pass.
-- [ ] Existing undo/close behavior tests pass through the real production path.
-- [ ] UUIDv7 creation tests for live pane/ZMX/layout paths pass.
-- [ ] `mise run build` passes.
-- [ ] `mise run lint` passes.
-- [ ] `git diff --check` passes.
-- [ ] Commit C2.
+- [x] Existing production pane/tab/drawer action tests pass.
+- [x] Existing undo/close behavior tests pass through the real production path.
+- [x] UUIDv7 creation tests for live pane/ZMX/layout paths pass.
+- [x] `mise run build` passes.
+- [x] `mise run lint` passes.
+- [x] `git diff --check` passes.
+- [x] Commit C2.
 
 ## C3 — Delete fixed-revision persistence architecture
 
