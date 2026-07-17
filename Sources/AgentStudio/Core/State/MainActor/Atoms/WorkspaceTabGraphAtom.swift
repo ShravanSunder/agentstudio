@@ -199,6 +199,37 @@ final class WorkspaceTabGraphAtom {
         tabStates[index] = replacement
     }
 
+    func replaceTabStateAndArrangementOwnership(_ replacement: TabGraphState) {
+        guard let index = tabIndexByID[replacement.tabId] else {
+            preconditionFailure("tab graph identity must exist before arrangement ownership replacement")
+        }
+        let previous = tabStates[index]
+        precondition(
+            previous.allPaneIds == replacement.allPaneIds,
+            "arrangement ownership replacement cannot change pane ownership"
+        )
+        var replacementArrangementIDs: Set<UUID> = []
+        for arrangement in replacement.arrangements {
+            precondition(
+                replacementArrangementIDs.insert(arrangement.id).inserted,
+                "arrangement identity must be unique within a tab graph"
+            )
+            let currentOwner = tabIDByArrangementID[arrangement.id]
+            precondition(
+                currentOwner == nil || currentOwner == replacement.tabId,
+                "arrangement identity cannot be assigned to multiple tab graphs"
+            )
+        }
+        for arrangement in previous.arrangements {
+            tabIDByArrangementID.removeValue(forKey: arrangement.id)
+        }
+        for arrangement in replacement.arrangements {
+            tabIDByArrangementID[arrangement.id] = replacement.tabId
+        }
+        guard previous != replacement else { return }
+        tabStates[index] = replacement
+    }
+
     func removeTabState(_ tabID: UUID) {
         guard let index = tabIndexByID.removeValue(forKey: tabID) else {
             preconditionFailure("tab graph identity must exist before keyed removal")

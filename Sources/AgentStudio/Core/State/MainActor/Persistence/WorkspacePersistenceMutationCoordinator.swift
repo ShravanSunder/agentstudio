@@ -43,6 +43,7 @@ enum WorkspacePaneCreationPersistenceCommitResult: Equatable, Sendable {
 @MainActor
 final class WorkspacePersistenceMutationCoordinator {
     private let activeArrangementVisibilityGateway: WorkspaceActiveArrangementVisibilityPersistenceGateway
+    private let arrangementLifecycleGateway: WorkspaceArrangementLifecyclePersistenceGateway
     private let arrangementSelectionGateway: WorkspaceArrangementSelectionPersistenceGateway
     private let layoutResizeGateway: WorkspaceLayoutResizePersistenceGateway
     private let paneResidencyGateway: WorkspacePaneResidencyPersistenceGateway
@@ -80,6 +81,12 @@ final class WorkspacePersistenceMutationCoordinator {
             workspaceTabGraphAtom: workspaceTabGraphAtom,
             workspaceArrangementCursorAtom: workspaceArrangementCursorAtom,
             workspacePanePresentationAtom: workspacePanePresentationAtom
+        )
+        arrangementLifecycleGateway = WorkspaceArrangementLifecyclePersistenceGateway(
+            revisionOwner: revisionOwner,
+            adapters: adapters,
+            workspaceTabGraphAtom: workspaceTabGraphAtom,
+            workspaceArrangementCursorAtom: workspaceArrangementCursorAtom
         )
         arrangementSelectionGateway = WorkspaceArrangementSelectionPersistenceGateway(
             revisionOwner: revisionOwner,
@@ -244,6 +251,18 @@ final class WorkspacePersistenceMutationCoordinator {
         _ request: WorkspaceSetActiveDrawerChildRequest
     ) -> WorkspaceArrangementSelectionPersistenceResult {
         arrangementSelectionGateway.setActiveDrawerChild(request)
+    }
+
+    func createArrangement(
+        _ request: WorkspaceCreateArrangementRequest
+    ) -> WorkspaceArrangementLifecyclePersistenceResult {
+        arrangementLifecycleGateway.createArrangement(request)
+    }
+
+    func removeArrangement(
+        _ request: WorkspaceRemoveArrangementRequest
+    ) -> WorkspaceArrangementLifecyclePersistenceResult {
+        arrangementLifecycleGateway.removeArrangement(request)
     }
 
     func applyLayoutResizeCheckpoint(
