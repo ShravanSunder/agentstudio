@@ -1119,3 +1119,16 @@ findings, and parent warm-cache proof independently reproduced all 9 tests.
 There are still no production callsites and composition remains preinstall.
 Continue W4.5p with the drawer-toggle dormant persistence gateway, then the
 remaining planner/writer families before the single production activation cut.
+
+Commit `5d3e8057` adds the installed-only drawer-toggle persistence gateway while
+leaving production routing unchanged. Expand, collapse, and switch plan from the
+pane graph plus cursor; map to insertion, removal, and replacement capture; and
+commit one revision through a prepared stale-checking cursor application. The
+runtime change is only explicit drawer-cursor owner injection.
+
+Parent proof passed 6 tests across two suites, scoped strict swift-format and
+SwiftLint, and staged diff checks; the implementation lane also passed
+`mise run build`. A read-only Luna xhigh review returned READY with no important
+findings. Composition remains preinstall and the installed-only method has zero
+production callsites. Continue W4.5p with the remaining pane/tab/arrangement
+writer families before the one atomic production activation cut.
