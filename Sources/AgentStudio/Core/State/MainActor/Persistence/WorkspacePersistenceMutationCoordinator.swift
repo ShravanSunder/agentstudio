@@ -44,6 +44,7 @@ enum WorkspacePaneCreationPersistenceCommitResult: Equatable, Sendable {
 final class WorkspacePersistenceMutationCoordinator {
     private let activeArrangementVisibilityGateway: WorkspaceActiveArrangementVisibilityPersistenceGateway
     private let arrangementSelectionGateway: WorkspaceArrangementSelectionPersistenceGateway
+    private let layoutResizeGateway: WorkspaceLayoutResizePersistenceGateway
     private let paneResidencyGateway: WorkspacePaneResidencyPersistenceGateway
     private let revisionOwner: WorkspacePersistenceRevisionOwner
     private let adapters: WorkspacePersistenceAdapterBundle
@@ -80,6 +81,12 @@ final class WorkspacePersistenceMutationCoordinator {
             workspacePanePresentationAtom: workspacePanePresentationAtom
         )
         arrangementSelectionGateway = WorkspaceArrangementSelectionPersistenceGateway(
+            revisionOwner: revisionOwner,
+            adapters: adapters,
+            workspaceTabGraphAtom: workspaceTabGraphAtom,
+            workspaceArrangementCursorAtom: workspaceArrangementCursorAtom
+        )
+        layoutResizeGateway = WorkspaceLayoutResizePersistenceGateway(
             revisionOwner: revisionOwner,
             adapters: adapters,
             workspaceTabGraphAtom: workspaceTabGraphAtom,
@@ -235,6 +242,12 @@ final class WorkspacePersistenceMutationCoordinator {
         _ request: WorkspaceSetActiveDrawerChildRequest
     ) -> WorkspaceArrangementSelectionPersistenceResult {
         arrangementSelectionGateway.setActiveDrawerChild(request)
+    }
+
+    func applyLayoutResizeCheckpoint(
+        _ checkpoint: WorkspaceLayoutResizeCheckpoint
+    ) -> WorkspaceLayoutResizePersistenceResult {
+        layoutResizeGateway.apply(checkpoint)
     }
 
     func switchArrangement(
