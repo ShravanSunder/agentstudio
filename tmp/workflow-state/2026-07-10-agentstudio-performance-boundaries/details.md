@@ -1173,3 +1173,20 @@ checkpoint owner, save hook, atom, App caller, or production route changed. The
 later atomic production cut must replace save-time fleet scanning with a keyed
 latest checkpoint owner; saves and acknowledgements may never mint revisions or
 mutate atoms.
+
+Commit `8a170d38` adds the dormant active-arrangement visibility family for
+switching arrangements, showing minimized panes, minimizing, and expanding.
+Pure planners emit typed graph, active-arrangement, active-pane, and runtime-only
+zoom transitions; a narrow applier validates all read witnesses before changing
+any owner. Persistence captures only changed tab-graph and arrangement-cursor
+keys in one synchronous revision. Pane zoom remains outside the persisted owner
+bundle and has no capture path. Missing or dangling active-arrangement cursors
+remain the existing explicit switch-repair behavior.
+
+Parent proof passed 22 tests across four suites, `mise run build`, the complete
+`mise run lint` gate including architecture lint and all 31 mutation controls,
+and staged diff checks. The focused review's two accepted findings are covered
+by permanent stale non-target selection and keyed unrelated-owner preservation
+tests. Production callsites remain unchanged and composition remains preinstall.
+Continue W4.5p with the next bounded pane lifecycle family before the atomic
+production writer cutover.
