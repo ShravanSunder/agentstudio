@@ -1068,3 +1068,21 @@ Participant construction cannot install a domain by itself. The strict SQLite
 startup hard cut has deleted the old combined load/apply route and save-result
 live-tab mutation; installed SQLite acknowledgements clear custody only and
 never mutate canonical atoms.
+
+### W4.5p persistence revision authority checkpoint
+
+Commit `309761b9` removes persistence revision ownership from `AtomRegistry`.
+`WorkspacePersistenceRuntime(atomRegistry:)` now creates the one
+`WorkspacePersistenceRevisionOwner` and supplies that same runtime-owned
+authority to its adapter bundle, participant factory, appliers, mutation
+coordinator, and retained `WorkspaceStore` reference. No persistence domain was
+installed, no writer was routed, and no pager behavior changed in this slice.
+
+Parent proof passed 14 focused tests across the runtime, revision-owner, and
+atom-boundary suites; `mise run build`; strict staged formatting and SwiftLint;
+and `git diff --check`. The full lint static phases passed, while its unrelated
+`AdmissionDoorbellTests` runtime control transiently missed a test-only waiting
+state. The exact standalone selector immediately passed 11/11 tests in 0.002s.
+Continue W4.5p with typed semantic planners and the complete same-domain writer
+cutover. Composition installation remains prohibited until its checked writer
+inventory reaches zero bypasses; there is no startup repair or migration path.
