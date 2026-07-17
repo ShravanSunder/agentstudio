@@ -1214,3 +1214,26 @@ Production callsites remain zero and composition remains preinstall. Continue
 W4.5p by adding the installed-only pane-residency persistence gateway with one
 fixed-revision capture and one atomic application; runtime retained-payload
 ownership and production cutover remain separate later slices.
+
+Commit `6aa59b54` adds that installed-only pane-residency persistence gateway.
+It constructs canonical planning witnesses from the bound atom owners, accepts
+only the request plus the external retained-payload witness, preflights before
+revision admission, captures every changed persisted owner under one proposed
+revision, and applies the prepared transition synchronously. The strict result
+returns the committed revision with the typed runtime effect or a typed
+unchanged/rejection; zoom and retained runtime payload have no persistence
+capture. Selection-sensitive cursor capture treats persisted `nil` selections
+as absent rather than inventing optional lifecycle state.
+
+RED proof failed only for the absent gateway/result APIs. Parent GREEN proof
+passed 5 tests in one suite on the final formatted source, `mise run build`,
+scoped swift-format and SwiftLint with zero violations, architecture lint, and
+staged diff checks. The fixed-base tests cover background removal and shifted
+shell preimages, all pane/tab/arrangement cursor owners, reactivation value
+preimages and post-base insertion exclusion, unchanged/rejection, and
+transaction-admission atomicity. The persistence methods have zero production
+callers; the existing same-named App calls still target the legacy
+`WorkspaceMutationCoordinator`. Continue W4.5p by completing the remaining
+composition writer-family inventory and dormant semantic gateways before the
+single production writer cutover. Runtime retained-payload custody remains part
+of that later atomic cut, not this persistence gateway.
