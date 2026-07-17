@@ -359,7 +359,7 @@ start_debug_direct_fallback() {
   if launch_direct_binary "$app_binary_path"; then
     pid="$direct_launch_pid"
     launch_method=direct_executable
-    launch_activation_mode=direct_executable
+    launch_activation_mode=unknown
     launched_with_direct=true
     return 0
   fi

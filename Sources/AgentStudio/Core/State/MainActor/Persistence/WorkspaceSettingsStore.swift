@@ -285,6 +285,9 @@ final class WorkspaceSettingsStore {
         if case .loaded(let sidebarCache) = legacyPersistor.loadSidebarCache(for: workspaceId),
             sidebarCache.workspaceId == workspaceId
         {
+            if let legacyRepoExplorer = loadLegacyRepoExplorerPreferences(for: workspaceId) {
+                payload.repoExplorer = legacyRepoExplorer
+            }
             importedAnySlice = true
         }
         if let legacyNotificationPrefs = loadLegacyNotificationPrefs(for: workspaceId) {
@@ -292,6 +295,20 @@ final class WorkspaceSettingsStore {
             importedAnySlice = true
         }
         return .init(payload: payload, importedAnySlice: importedAnySlice)
+    }
+
+    private func loadLegacyRepoExplorerPreferences(for workspaceId: UUID) -> WorkspaceSettingsPayload.RepoExplorer? {
+        let sidebarCacheURL = workspacesDir.appending(
+            path: "\(workspaceId.uuidString).workspace.sidebar-cache.json"
+        )
+        guard let data = try? Data(contentsOf: sidebarCacheURL) else { return nil }
+        guard let legacyPayload = try? JSONDecoder().decode(LegacySidebarCacheSettingsPayload.self, from: data)
+        else { return nil }
+        return .init(
+            groupingMode: legacyPayload.groupingMode ?? .repo,
+            sortOrder: legacyPayload.sortOrder ?? .default,
+            repoVisibilityMode: legacyPayload.repoVisibilityMode ?? .all
+        )
     }
 
     private func loadLegacyNotificationPrefs(for workspaceId: UUID) -> WorkspaceSettingsPayload.Notifications? {
@@ -383,6 +400,28 @@ private enum WorkspaceSettingsStoreError: Error {
 private struct LegacySettingsImport {
     var payload: WorkspaceSettingsPayload
     var importedAnySlice: Bool
+}
+
+private struct LegacySidebarCacheSettingsPayload: Decodable {
+    var groupingMode: RepoExplorerGroupingMode?
+    var sortOrder: RepoExplorerSortOrder?
+    var repoVisibilityMode: RepoExplorerVisibilityMode?
+
+    private enum CodingKeys: String, CodingKey {
+        case groupingMode
+        case sortOrder
+        case repoVisibilityMode
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        groupingMode = try? container.decodeIfPresent(RepoExplorerGroupingMode.self, forKey: .groupingMode)
+        sortOrder = try? container.decodeIfPresent(RepoExplorerSortOrder.self, forKey: .sortOrder)
+        repoVisibilityMode = try? container.decodeIfPresent(
+            RepoExplorerVisibilityMode.self,
+            forKey: .repoVisibilityMode
+        )
+    }
 }
 
 private struct LegacyInboxSettingsPayload: Decodable {

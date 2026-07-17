@@ -328,16 +328,15 @@ struct AgentStudioIPCCommandAdapterTests {
             windowSnapshot: .empty,
             shellCommandHandler: shellCommandHandler
         )
+        let paramsData = try JSONSerialization.data(withJSONObject: [
+            "commandId": AppCommand.setRepoSidebarVisibilityMode.rawValue,
+            "targetHandle": NSNull(),
+            "arguments": ["mode": 42],
+        ])
+        let params = try JSONDecoder().decode(IPCCommandExecuteParams.self, from: paramsData)
 
         do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarVisibilityMode.rawValue),
-                    targetHandle: nil,
-                    arguments: [:],
-                    argumentsContainOnlyStrings: false
-                )
-            )
+            _ = try harness.adapter.executeCommand(params)
             Issue.record("wrong typed repo visibility mode unexpectedly executed")
         } catch let error as AppIPCCommandError {
             #expect(error.reason == .validationRejected)

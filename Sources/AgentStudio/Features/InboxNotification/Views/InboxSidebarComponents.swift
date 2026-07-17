@@ -201,7 +201,9 @@ struct InboxSidebarHeader: View {
                         rowStateFilter: rowStateFilter,
                         contentMode: contentMode
                     ),
-                    icon: rowStateAction.icon,
+                    icon: {
+                        rowStateAction.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+                    },
                     isActive: isUnreadOnly,
                     tooltipTarget: InboxSidebarToolbarTooltipTarget.rowState,
                     tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
@@ -217,7 +219,9 @@ struct InboxSidebarHeader: View {
                         rowStateFilter: rowStateFilter,
                         contentMode: contentMode
                     ),
-                    icon: contentModeAction.icon,
+                    icon: {
+                        contentModeAction.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+                    },
                     isActive: isAttentionOnly,
                     tooltipTarget: InboxSidebarToolbarTooltipTarget.contentMode,
                     tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
@@ -237,7 +241,9 @@ struct InboxSidebarHeader: View {
                         rowStateFilter: rowStateFilter,
                         contentMode: contentMode
                     ),
-                    icon: toggleSortSpec.icon,
+                    icon: {
+                        toggleSortSpec.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+                    },
                     tooltipTarget: InboxSidebarToolbarTooltipTarget.sort,
                     tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
                     frameAccessibilityIdentifier: "inboxSidebarSortButtonFrame",
@@ -329,11 +335,17 @@ struct InboxSidebarHeader: View {
     }
 
     private var deleteMenu: some View {
-        SidebarToolbarMenuButton(label: deleteInboxAction.label, icon: deleteInboxAction.icon) {
-            Button("Delete Read", action: actions.onClearReadHistory)
-            Divider()
-            Button("Delete All", role: .destructive, action: actions.onClearAllHistory)
-        }
+        SidebarToolbarMenuButton(
+            label: deleteInboxAction.label,
+            icon: {
+                deleteInboxAction.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+            },
+            menuContent: {
+                Button("Delete Read", action: actions.onClearReadHistory)
+                Divider()
+                Button("Delete All", role: .destructive, action: actions.onClearAllHistory)
+            }
+        )
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier("inboxSidebarDeleteMenu")
         .controlHelp(

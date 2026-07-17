@@ -46,9 +46,11 @@ final class MockAppCommandRouter: ShellCommandHandling {
     var handledTargets: [(AppCommand, UUID, SearchItemType)] = []
     var handledRequests: [AppCommandExecutionRequest] = []
     var appCommands: Set<AppCommand> = []
+    var requestCommands: Set<AppCommand>?
+    var parameterlessCanExecuteResult: Bool?
 
     func canExecute(_ command: AppCommand) -> Bool {
-        appCommands.contains(command)
+        parameterlessCanExecuteResult ?? appCommands.contains(command)
     }
 
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
@@ -70,7 +72,7 @@ final class MockAppCommandRouter: ShellCommandHandling {
     }
 
     func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
-        guard appCommands.contains(request.command) else { return .unsupportedCommand }
+        guard (requestCommands ?? appCommands).contains(request.command) else { return .unsupportedCommand }
         handledRequests.append(request)
         return .applied
     }
@@ -480,7 +482,8 @@ final class AppCommandTests {
     func test_dispatcher_dispatchRequest_routesTypedArgumentsToAppRouter() async throws {
         let dispatcher = AppCommandDispatcher.shared
         let appRouter = MockAppCommandRouter()
-        appRouter.appCommands = [.setRepoSidebarVisibilityMode]
+        appRouter.requestCommands = [.setRepoSidebarVisibilityMode]
+        appRouter.parameterlessCanExecuteResult = false
         let request = AppCommandExecutionRequest(
             command: .setRepoSidebarVisibilityMode,
             arguments: .repoSidebarVisibilityMode(.favoritesOnly)

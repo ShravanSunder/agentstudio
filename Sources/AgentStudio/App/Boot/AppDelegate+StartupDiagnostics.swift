@@ -431,19 +431,21 @@ extension AppDelegate {
 
             let inboxProjectionResult = inboxProjectionProof.result
             let projectionWorkerDuration = inboxProjectionResult.workerDuration
-            performanceTraceRecorder?.recordDuration(
-                .sidebarProjection,
-                duration: projectionWorkerDuration,
-                attributes: sidebarPerformanceProofAttributes(
-                    phase: "projection_worker",
-                    inputCount: inboxCount,
-                    sectionCount: inboxProjectionResult.model.sections.count,
-                    extra: [
-                        "agentstudio.performance.sidebar.total_worker_elapsed_ms": .double(
-                            AgentStudioPerformanceTraceRecorder.milliseconds(from: projectionWorkerDuration))
-                    ]
+            if inboxProjectionProof.succeeded {
+                performanceTraceRecorder?.recordDuration(
+                    .sidebarProjection,
+                    duration: projectionWorkerDuration,
+                    attributes: sidebarPerformanceProofAttributes(
+                        phase: "projection_worker",
+                        inputCount: inboxCount,
+                        sectionCount: inboxProjectionResult.model.sections.count,
+                        extra: [
+                            "agentstudio.performance.sidebar.total_worker_elapsed_ms": .double(
+                                AgentStudioPerformanceTraceRecorder.milliseconds(from: projectionWorkerDuration))
+                        ]
+                    )
                 )
-            )
+            }
             startupTraceRecorder.recordAppStartup(
                 "app.startup_diagnostic_action.command_exercised",
                 phase: "startup_diagnostic_action",

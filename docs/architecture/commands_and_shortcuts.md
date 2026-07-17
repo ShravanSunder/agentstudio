@@ -142,6 +142,11 @@ If a command row only opens a chooser or requires interactive input, add a
 semantic IPC method with explicit parameters before exposing it through
 `command.execute`.
 
+Argument-bearing execution requests go directly to the app/shell execution
+owner instead of consulting the parameterless `canExecute(_:)` result. IPC
+derives whether every argument value is a string while decoding the wire
+payload; in-process callers cannot override that validation fact.
+
 ## Navigation And Terminal Shortcut Map
 
 | Command | Shortcut | Owner | Notes |
@@ -186,12 +191,12 @@ shared so sidebar context menus and command-bar rows do not drift.
 Repo sidebar grouping commands (`repo`, `pane`, `tab`) and inbox grouping
 commands (`tab`, `repo`, `pane`, `none`) are app/sidebar shell commands. They
 belong in the `>` command surface when exposed as command rows; they are not
-repo-object rows in `#`. Programmatic tests use semantic `sidebar.grouping.*`
-and `sidebar.surface.*` IPC methods rather than command-bar presentation. Repo
-sidebar visibility and sort-order controls are deterministic headless app
-commands for IPC proof: `setRepoSidebarVisibilityMode` accepts `mode =
-all|favoritesOnly`, and `setRepoSidebarSortOrder` accepts `order =
-ascending|descending`.
+repo-object rows in `#`. Programmatic tests execute headless sidebar
+`AppCommandSpec` definitions through authenticated generic `command.execute`;
+command-bar presentation is not proof. Repo sidebar visibility and sort-order
+controls are deterministic headless app commands for IPC proof:
+`setRepoSidebarVisibilityMode` accepts `mode = all|favoritesOnly`, and
+`setRepoSidebarSortOrder` accepts `order = ascending|descending`.
 
 Repo favorite buttons and context-menu actions select the state-specific
 `addRepoFavorite` or `removeRepoFavorite` `AppCommandSpec`. Both commands require

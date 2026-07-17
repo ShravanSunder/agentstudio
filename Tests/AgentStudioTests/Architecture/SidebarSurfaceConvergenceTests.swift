@@ -125,6 +125,8 @@ struct SidebarSurfaceConvergenceTests {
         #expect(repoSource.contains("SidebarToolbarSortButton("))
         #expect(inboxSource.contains("SidebarToolbarSortButton("))
         #expect(sharedSource.contains("struct SidebarToolbarSortButton"))
+        #expect(!sharedSource.contains("CommandIcon"))
+        #expect(sharedSource.contains("@ViewBuilder let icon: () -> Icon"))
     }
 
     @Test("inbox delete menu uses the shared toolbar menu primitive")

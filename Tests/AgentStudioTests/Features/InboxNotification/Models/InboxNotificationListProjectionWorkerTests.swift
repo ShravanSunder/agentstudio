@@ -75,6 +75,37 @@ struct InboxNotificationListProjectionWorkerTests {
         #expect(checkpointCount == 3)
     }
 
+    @Test("list model checks cancellation periodically within large projection stages")
+    func listModelChecksCancellationWithinLargeProjectionStages() {
+        let notifications = (0..<600).map { index in
+            notification(
+                id: UUID(),
+                timestamp: Date(timeIntervalSince1970: TimeInterval(index)),
+                title: "Build \(index)"
+            )
+        }
+        var checkpointCount = 0
+
+        #expect(throws: CancellationProbe.cancelled) {
+            _ = try InboxNotificationListModel(
+                notifications: notifications,
+                grouping: .byPane,
+                sort: .newestFirst,
+                searchText: "build",
+                contentMode: .all,
+                rowStateFilter: .all,
+                filter: nil,
+                collapsedGroups: [],
+                repoPresentation: { _ in nil },
+                cancellationCheck: {
+                    checkpointCount += 1
+                    if checkpointCount == 2 { throw CancellationProbe.cancelled }
+                }
+            )
+        }
+        #expect(checkpointCount == 2)
+    }
+
     private func notification(
         id: UUID,
         timestamp: Date,

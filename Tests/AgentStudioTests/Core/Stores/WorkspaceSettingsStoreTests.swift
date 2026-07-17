@@ -99,6 +99,7 @@ struct WorkspaceSettingsStoreTests {
     func restoreMissingSettingsFileImportsLegacySettingsSlices() throws {
         let workspaceId = UUID()
         let editorPreference = EditorPreferenceAtom()
+        let repoExplorerPrefs = RepoExplorerSidebarPrefsAtom()
         let inboxPrefs = InboxNotificationPrefsAtom()
         let legacyPersistor = WorkspacePersistor(workspacesDir: tempDir)
         try legacyPersistor.saveUI(
@@ -107,6 +108,21 @@ struct WorkspaceSettingsStoreTests {
                 editorChooserState: .init(bookmarkedEditorId: "cursor")
             )
         )
+        let legacySidebarCacheURL = tempDir.appending(
+            path: "\(workspaceId.uuidString).workspace.sidebar-cache.json"
+        )
+        try Data(
+            """
+            {
+              "schemaVersion": 1,
+              "workspaceId": "\(workspaceId.uuidString)",
+              "expandedGroups": [],
+              "groupingMode": "pane",
+              "sortOrder": "descending",
+              "repoVisibilityMode": "favoritesOnly"
+            }
+            """.utf8
+        ).write(to: legacySidebarCacheURL, options: .atomic)
         let legacyInboxURL = legacyPersistor.notificationInboxFileURL(for: workspaceId)
         let legacyInboxJSON = """
             {
@@ -125,12 +141,16 @@ struct WorkspaceSettingsStoreTests {
         try Data(legacyInboxJSON.utf8).write(to: legacyInboxURL, options: .atomic)
         let store = makeStore(
             editorPreference: editorPreference,
+            repoExplorerPrefs: repoExplorerPrefs,
             inboxPrefs: inboxPrefs
         )
 
         store.restore(for: workspaceId)
 
         #expect(editorPreference.bookmarkedEditorId == "cursor")
+        #expect(repoExplorerPrefs.groupingMode == .pane)
+        #expect(repoExplorerPrefs.sortOrder == .descending)
+        #expect(repoExplorerPrefs.repoVisibilityMode == .favoritesOnly)
         #expect(inboxPrefs.grouping == .byRepo)
         #expect(inboxPrefs.sort == .oldestFirst)
         #expect(inboxPrefs.bellEnabled)

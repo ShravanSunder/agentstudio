@@ -585,6 +585,55 @@ struct RepoExplorerViewTests {
                 != RepoExplorerView.projectionFingerprint(for: changed))
     }
 
+    @Test("projection fingerprint includes visible empty state")
+    func projectionFingerprintIncludesVisibleEmptyState() {
+        let content = RepoExplorerSidebarProjection(
+            resolvedGroups: [], loadingRepos: [], emptyState: .content)
+        let favoritesEmpty = RepoExplorerSidebarProjection(
+            resolvedGroups: [], loadingRepos: [], emptyState: .favoritesOnlyEmpty)
+
+        #expect(
+            RepoExplorerView.projectionFingerprint(for: content)
+                != RepoExplorerView.projectionFingerprint(for: favoritesEmpty))
+    }
+
+    @Test("projection fingerprint includes deterministic projected row placement")
+    func projectionFingerprintIncludesProjectedRowPlacement() {
+        let repoId = UUID()
+        let worktree = Worktree(repoId: repoId, name: "main", path: URL(fileURLWithPath: "/tmp/main"))
+        let repo = RepoPresentationItem(
+            id: repoId, name: "repo", repoPath: worktree.path, stableKey: "repo", worktrees: [worktree])
+        let first = RepoExplorerProjectedWorktreeRow(
+            groupId: "group", repo: repo, worktree: worktree, rowId: "row", checkoutColorHex: "#000000",
+            placementContext: RepoExplorerPlacementContext(
+                paneId: UUID(), tabId: UUID(), tabIndex: 0, paneIndexInTab: 0, isActiveInTab: true))
+        let second = RepoExplorerProjectedWorktreeRow(
+            groupId: "group", repo: repo, worktree: worktree, rowId: "row", checkoutColorHex: "#000000",
+            placementContext: RepoExplorerPlacementContext(
+                paneId: first.placementContext!.paneId, tabId: first.placementContext!.tabId,
+                tabIndex: 1, paneIndexInTab: 0, isActiveInTab: true))
+        let firstProjection = RepoExplorerSidebarProjection(
+            resolvedGroups: [], worktreeRowsByGroupId: ["group": [first]], loadingRepos: [], emptyState: .content)
+        let secondProjection = RepoExplorerSidebarProjection(
+            resolvedGroups: [], worktreeRowsByGroupId: ["group": [second]], loadingRepos: [], emptyState: .content)
+
+        #expect(
+            RepoExplorerView.projectionFingerprint(for: firstProjection)
+                != RepoExplorerView.projectionFingerprint(for: secondProjection))
+    }
+
+    @Test("first surviving projection reports initial completion exactly once")
+    func firstSurvivingProjectionReportsInitialCompletionExactlyOnce() {
+        #expect(
+            RepoExplorerView.shouldReportInitialProjection(
+                hasReportedInitialProjection: false
+            ))
+        #expect(
+            !RepoExplorerView.shouldReportInitialProjection(
+                hasReportedInitialProjection: true
+            ))
+    }
+
     @Test("repo metadata builder uses resolved local identity when available")
     func repoMetadataBuilderUsesResolvedLocalIdentity() {
         let repo = RepoPresentationItem(

@@ -561,6 +561,11 @@ final class AppCommandDispatcher {
 
     @discardableResult
     func dispatch(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
+        if request.arguments != nil {
+            guard let appCommandRouter else { return .unsupportedCommand }
+            return appCommandRouter.execute(request)
+        }
+
         guard canDispatch(request.command) else {
             Self.logger.warning("Command request rejected: \(request.command.rawValue, privacy: .public)")
             return .unsupportedCommand
@@ -571,7 +576,7 @@ final class AppCommandDispatcher {
                 return outcome
             }
         }
-        guard request.arguments == nil, let handler else {
+        guard let handler else {
             return .unsupportedCommand
         }
         handler.execute(request.command)

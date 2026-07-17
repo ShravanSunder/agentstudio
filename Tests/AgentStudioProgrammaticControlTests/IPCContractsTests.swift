@@ -4,6 +4,25 @@ import Testing
 
 @Suite("IPC programmatic-control contracts")
 struct IPCContractsTests {
+    @Test("command argument string validation is decoder-derived")
+    func commandArgumentStringValidationIsDecoderDerived() throws {
+        let constructed = IPCCommandExecuteParams(
+            commandId: .init(rawValue: "setRepoSidebarVisibilityMode"),
+            targetHandle: nil,
+            arguments: ["mode": "favoritesOnly"]
+        )
+        let decoded = try JSONDecoder().decode(
+            IPCCommandExecuteParams.self,
+            from: Data(
+                #"{"commandId":"setRepoSidebarVisibilityMode","arguments":{"mode":1}}"#.utf8
+            )
+        )
+
+        #expect(constructed.argumentsContainOnlyStrings)
+        #expect(decoded.arguments.isEmpty)
+        #expect(!decoded.argumentsContainOnlyStrings)
+    }
+
     @Test("models pane-bound principals with delegated approval authority")
     func modelsPaneBoundPrincipalsWithDelegatedApprovalAuthority() throws {
         let runtimeId = UUID()

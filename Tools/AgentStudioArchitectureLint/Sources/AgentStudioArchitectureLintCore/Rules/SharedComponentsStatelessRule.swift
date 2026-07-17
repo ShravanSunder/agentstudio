@@ -22,7 +22,9 @@ struct SharedComponentsStatelessRule: ArchitectureRule {
 private final class SharedComponentStateVisitor: SyntaxVisitor {
     private(set) var violations: [ArchitectureViolation] = []
     private let deniedAttributes = Set(["Atom", "StateObject", "EnvironmentObject"])
-    private let deniedReferences = Set(["AtomReader", "AtomScope", "AtomRegistry", "withTestAtomRegistry"])
+    private let deniedReferences = Set([
+        "AtomReader", "AtomScope", "AtomRegistry", "CommandIcon", "withTestAtomRegistry",
+    ])
     private let deniedTypeSuffixes = ["Atom", "Store"]
 
     override init(viewMode: SyntaxTreeViewMode = .sourceAccurate) {
@@ -59,7 +61,7 @@ private final class SharedComponentStateVisitor: SyntaxVisitor {
         violations.append(
             ArchitectureViolation(
                 position: node.positionAfterSkippingLeadingTrivia,
-                message: "SharedComponents must not read atoms directly"
+                message: "SharedComponents must not reference atom, store, or Core-owned presentation types"
             )
         )
     }

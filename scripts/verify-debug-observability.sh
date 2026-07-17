@@ -546,5 +546,5 @@ for field in "${sensitive_fields[@]}"; do
 done
 
 echo "debug observability ok:"
-echo "launch_method=$state_launch_method activation_mode=${state_activation_mode:-unknown} ipc_auth_mode=${state_ipc_auth_mode:-authenticated}"
+echo "launch_method=$state_launch_method activation_mode=${state_activation_mode:-unknown} ipc_auth_mode=${state_ipc_auth_mode:-unknown}"
 sed -n '1,5p' <<<"$startup_response"

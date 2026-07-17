@@ -139,6 +139,10 @@ struct AppCommandSidebarCommandsTests {
     @Test("argument-required sidebar commands are not parameterless actions")
     func argumentRequiredSidebarCommandsAreNotParameterlessActions() {
         let delegate = AppDelegate()
+        delegate.atomStore = AtomRegistry(
+            repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom(),
+            inboxNotificationPrefs: InboxNotificationPrefsAtom()
+        )
 
         #expect(!delegate.canExecute(.setRepoSidebarVisibilityMode))
         #expect(!delegate.canExecute(.setRepoSidebarSortOrder))

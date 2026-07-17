@@ -2,12 +2,12 @@ import SwiftUI
 
 enum SidebarToolbarNoTooltipTarget: Hashable {}
 
-struct SidebarToolbarIcon: View {
-    let icon: CommandIcon
+struct SidebarToolbarIcon<Icon: View>: View {
+    @ViewBuilder let icon: () -> Icon
     var isActive = false
 
     var body: some View {
-        icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+        icon()
             .frame(
                 width: AppStyles.General.Button.compact,
                 height: AppStyles.General.Button.compact
@@ -92,8 +92,8 @@ private struct SidebarToolbarButtonStyleBody: View {
     }
 }
 
-struct SidebarToolbarMenuLabel: View {
-    let icon: CommandIcon
+struct SidebarToolbarMenuLabel<Icon: View>: View {
+    @ViewBuilder let icon: () -> Icon
     @State private var isHovered = false
 
     var body: some View {
@@ -110,9 +110,9 @@ struct SidebarToolbarMenuLabel: View {
     }
 }
 
-struct SidebarToolbarMenuButton<MenuContent: View>: View {
+struct SidebarToolbarMenuButton<Icon: View, MenuContent: View>: View {
     let label: String
-    let icon: CommandIcon
+    @ViewBuilder let icon: () -> Icon
     @ViewBuilder let menuContent: () -> MenuContent
 
     var body: some View {
@@ -155,13 +155,13 @@ struct SidebarSortButton<SortValue: Equatable, Icon: View>: View {
     }
 }
 
-struct SidebarToolbarSortButton<SortValue: Equatable, TooltipTarget: Hashable>: View {
+struct SidebarToolbarSortButton<SortValue: Equatable, TooltipTarget: Hashable, Icon: View>: View {
     let sortValue: SortValue
     let isReversed: Bool
     let label: String
     let accessibilityIdentifier: String
     let tooltipValue: ControlTooltipRenderValue
-    let icon: CommandIcon
+    @ViewBuilder let icon: () -> Icon
     let tooltipTarget: TooltipTarget?
     let tooltipCoordinateSpaceName: String?
     let frameAccessibilityIdentifier: String?
@@ -174,7 +174,7 @@ struct SidebarToolbarSortButton<SortValue: Equatable, TooltipTarget: Hashable>: 
         label: String,
         accessibilityIdentifier: String,
         tooltipValue: ControlTooltipRenderValue,
-        icon: CommandIcon,
+        @ViewBuilder icon: @escaping () -> Icon,
         tooltipTarget: TooltipTarget,
         tooltipCoordinateSpaceName: String,
         frameAccessibilityIdentifier: String? = nil,
@@ -200,7 +200,7 @@ struct SidebarToolbarSortButton<SortValue: Equatable, TooltipTarget: Hashable>: 
         label: String,
         accessibilityIdentifier: String,
         tooltipValue: ControlTooltipRenderValue,
-        icon: CommandIcon,
+        @ViewBuilder icon: @escaping () -> Icon,
         tooltipTarget: TooltipTarget?,
         tooltipCoordinateSpaceName: String?,
         frameAccessibilityIdentifier: String?,
@@ -250,7 +250,7 @@ extension SidebarToolbarSortButton where TooltipTarget == SidebarToolbarNoToolti
         label: String,
         accessibilityIdentifier: String,
         tooltipValue: ControlTooltipRenderValue,
-        icon: CommandIcon,
+        @ViewBuilder icon: @escaping () -> Icon,
         onToggle: @escaping () -> Void
     ) {
         self.init(
@@ -269,11 +269,11 @@ extension SidebarToolbarSortButton where TooltipTarget == SidebarToolbarNoToolti
     }
 }
 
-struct SidebarToolbarActionButton<TooltipTarget: Hashable>: View {
+struct SidebarToolbarActionButton<TooltipTarget: Hashable, Icon: View>: View {
     let label: String
     let accessibilityIdentifier: String
     let tooltipValue: ControlTooltipRenderValue
-    let icon: CommandIcon
+    @ViewBuilder let icon: () -> Icon
     let isActive: Bool
     let tooltipTarget: TooltipTarget?
     let tooltipCoordinateSpaceName: String?
@@ -285,7 +285,7 @@ struct SidebarToolbarActionButton<TooltipTarget: Hashable>: View {
         label: String,
         accessibilityIdentifier: String,
         tooltipValue: ControlTooltipRenderValue,
-        icon: CommandIcon,
+        @ViewBuilder icon: @escaping () -> Icon,
         isActive: Bool = false,
         tooltipTarget: TooltipTarget,
         tooltipCoordinateSpaceName: String,
@@ -309,7 +309,7 @@ struct SidebarToolbarActionButton<TooltipTarget: Hashable>: View {
         label: String,
         accessibilityIdentifier: String,
         tooltipValue: ControlTooltipRenderValue,
-        icon: CommandIcon,
+        @ViewBuilder icon: @escaping () -> Icon,
         isActive: Bool = false,
         tooltipTarget: TooltipTarget?,
         tooltipCoordinateSpaceName: String?,
@@ -364,8 +364,8 @@ struct SidebarToolbarGroupingButton<TooltipTarget: Hashable>: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: AppStyles.Shell.Sidebar.ToolbarControl.groupingContentSpacing) {
-                CommandIcon.system(.rectangleGrid1x3)
-                    .swiftUIImage(size: AppStyles.General.Icon.compact)
+                Image(systemName: "rectangle.grid.1x3")
+                    .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
                 Text(selectionLabel)
                     .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
                     .frame(
@@ -402,7 +402,7 @@ extension SidebarToolbarActionButton where TooltipTarget == SidebarToolbarNoTool
         label: String,
         accessibilityIdentifier: String,
         tooltipValue: ControlTooltipRenderValue,
-        icon: CommandIcon,
+        @ViewBuilder icon: @escaping () -> Icon,
         isActive: Bool = false,
         action: @escaping () -> Void
     ) {

@@ -132,6 +132,7 @@ struct RepoExplorerView: View {
     @State private var filterText: String = ""
     @State private var debouncedQuery: String = ""
     @State private var groupingMenuOpen = false
+    @State private var hasReportedInitialProjection = false
     @State private var hoveredTooltipTarget: RepoSidebarToolbarTooltipTarget?
     @State private var tooltipFrames: [RepoSidebarToolbarTooltipTarget: CGRect] = [:]
     @FocusState private var focusedField: RepoExplorerFocus?
@@ -349,7 +350,9 @@ struct RepoExplorerView: View {
                 tooltipValue: sortAction.controlTooltipRenderValue(
                     textOverride: "Sort \(repoExplorerPrefs.sortOrder.title.lowercased())"
                 ),
-                icon: sortAction.icon,
+                icon: {
+                    sortAction.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+                },
                 tooltipTarget: RepoSidebarToolbarTooltipTarget.sort,
                 tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
                 frameAccessibilityIdentifier: "repoSidebarSortButtonFrame",
@@ -849,7 +852,10 @@ struct RepoExplorerView: View {
                 ]
             )
         )
-        if result.trigger == .surfaceSwitch {
+        if Self.shouldReportInitialProjection(
+            hasReportedInitialProjection: hasReportedInitialProjection
+        ) {
+            hasReportedInitialProjection = true
             onInitialProjectionApplied(initialProjectionSequence)
         }
     }

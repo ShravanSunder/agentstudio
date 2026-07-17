@@ -82,8 +82,8 @@ Sources/AgentStudio/
 │
 ├── SharedComponents/                 # Cross-app UI primitives (design system).
 │   │                                 #   Imports ONLY from Infrastructure.
-│   │                                 #   Never subscribes to atoms; state flows via bindings
-│   │                                 #   and value parameters.
+│   │                                 #   Never subscribes to atoms; state flows via values,
+│   │                                 #   bindings, callbacks, or explicit observable view models.
 │   └── EditorChooser/                # Editor chooser menu content + row item model
 │
 ├── Infrastructure/                   # Utilities used by anyone, domain-agnostic
@@ -252,6 +252,12 @@ There are two kinds of state. They live in different places:
 - **Composition state** — app-wide UI shell state generic enough that multiple features consume it. Persisted sidebar memory (filter, collapsed state, active surface) lives on `WorkspaceSidebarMemoryAtom`; runtime-only sidebar focus lives on `SidebarFocusRuntimeAtom`; UI surfaces read the composed `WorkspaceSidebarState`. Generic tags only — this layer does not reference feature-specific types.
 
 - **Feature state** — domain data owned by one feature. Examples: notification log, inbox view prefs, repo-explorer expanded groups. Lives in feature atoms inside the feature slice. Never leaks into Core.
+
+Feature ownership does not require one persistence file per atom. Until those
+stores split, `WorkspaceSettingsStore` co-persists editor, repo-explorer, and
+inbox preferences in the workspace settings payload. It imports recognized
+repo-explorer preferences from the legacy sidebar-cache sidecar once, then the
+workspace settings payload is canonical.
 
 If you are tempted to add a feature-specific property to the sidebar composition atoms, that property belongs in a feature atom instead. If you are tempted to add a feature type to `Core/Models/`, test it: does *multiple features* and *cross-cutting composition* consume it? If only one feature uses it, it belongs in that feature.
 

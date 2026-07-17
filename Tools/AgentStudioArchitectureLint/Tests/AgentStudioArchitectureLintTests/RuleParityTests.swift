@@ -22,6 +22,25 @@ struct RuleParityTests {
         #expect(diagnostics.isEmpty)
     }
 
+    @Test("shared components reject Core-owned command icon references")
+    func sharedComponentsRejectCoreOwnedCommandIconReferences() throws {
+        let fixture = fixtureRoot()
+            .appendingPathComponent("Bad")
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("AgentStudio")
+            .appendingPathComponent("SharedComponents")
+            .appendingPathComponent("BadSharedComponentStaticRead.swift")
+            .path
+
+        let diagnostics = try lint(files: [fixture])
+            .filter { diagnostic in
+                diagnostic.ruleID == "agentstudio_shared_components_are_stateless"
+                    && diagnostic.message.contains("Core-owned presentation types")
+            }
+
+        #expect(diagnostics.contains { $0.line == 2 })
+    }
+
     @Test("forbidden architecture marker has dedicated fixture coverage")
     func forbiddenArchitectureMarkerHasDedicatedFixtureCoverage() throws {
         let markerFixture = fixtureRoot()

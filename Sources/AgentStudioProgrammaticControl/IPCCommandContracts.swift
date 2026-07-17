@@ -122,13 +122,12 @@ public struct IPCCommandExecuteParams: Codable, Equatable, Sendable {
     public init(
         commandId: IPCCommandIdentifier,
         targetHandle: String?,
-        arguments: [String: String] = [:],
-        argumentsContainOnlyStrings: Bool = true
+        arguments: [String: String] = [:]
     ) {
         self.commandId = commandId
         self.targetHandle = targetHandle
         self.arguments = arguments
-        self.argumentsContainOnlyStrings = argumentsContainOnlyStrings
+        self.argumentsContainOnlyStrings = true
     }
 
     private enum CodingKeys: String, CodingKey {

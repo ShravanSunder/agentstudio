@@ -21,7 +21,9 @@ struct RepoExplorerVisibilityButton: View {
             tooltipValue: commandSpec.controlTooltipRenderValue(
                 textOverride: label
             ),
-            icon: commandSpec.icon,
+            icon: {
+                commandSpec.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+            },
             isActive: isFavoritesOnly,
             action: onToggle
         )

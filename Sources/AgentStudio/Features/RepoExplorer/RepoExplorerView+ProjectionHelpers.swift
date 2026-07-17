@@ -97,7 +97,7 @@ extension RepoExplorerView {
     }
 
     static func projectionFingerprint(for projection: SidebarProjection) -> String {
-        let resolvedGroupsFingerprint = projection.resolvedGroups.map { group in
+        let resolvedGroupsFingerprint = projection.resolvedGroups.enumerated().map { groupIndex, group in
             let reposFingerprint = group.repos.map { repo in
                 let worktreesFingerprint = repo.worktrees.map { worktree in
                     "\(worktree.id.uuidString):\(worktree.name):\(worktree.path.path):\(worktree.isMainWorktree)"
@@ -106,19 +106,39 @@ extension RepoExplorerView {
                 return "\(repo.id.uuidString):\(repo.name):\(repo.repoPath.path):\(worktreesFingerprint)"
             }
             .joined(separator: ";")
-            return "\(group.id):\(group.repoTitle):\(group.organizationName ?? ""):\(reposFingerprint)"
+            return "\(groupIndex):\(group.id):\(group.repoTitle):\(group.organizationName ?? ""):\(reposFingerprint)"
         }
         .joined(separator: "|")
 
         let loadingFingerprint = projection.loadingRepos
-            .map { "\($0.id.uuidString):\($0.name)" }
+            .enumerated()
+            .map { index, repo in
+                "\(index):\(repo.id.uuidString):\(repo.name):\(repo.repoPath.path):\(repo.isFavorite)"
+            }
             .joined(separator: "|")
+
+        let projectedRowsFingerprint = projection.worktreeRowsByGroupId.keys.sorted().map { groupId in
+            let rows = projection.worktreeRowsByGroupId[groupId, default: []].map { row in
+                let placement =
+                    row.placementContext.map {
+                        "\($0.paneId.uuidString):\($0.tabId.uuidString):\($0.tabIndex):\($0.paneIndexInTab):\($0.isActiveInTab)"
+                    } ?? "unattached"
+                return
+                    "\(row.groupId):\(row.rowId):\(row.repo.id.uuidString):\(row.worktree.id.uuidString):\(row.checkoutColorHex):\(placement)"
+            }.joined(separator: ",")
+            return "\(groupId):\(rows)"
+        }.joined(separator: "|")
 
         return """
             resolved[\(resolvedGroupsFingerprint)]\
             /loading[\(loadingFingerprint)]\
-            /noResults[\(projection.showsNoResults)]
+            /rows[\(projectedRowsFingerprint)]\
+            /emptyState[\(String(describing: projection.emptyState))]
             """
+    }
+
+    static func shouldReportInitialProjection(hasReportedInitialProjection: Bool) -> Bool {
+        !hasReportedInitialProjection
     }
 
     static func projectSidebar(
