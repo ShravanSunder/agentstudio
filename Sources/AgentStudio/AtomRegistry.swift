@@ -264,7 +264,7 @@ final class AtomRegistry {
         WorkspacePaneFocusDerived()
     }
 
-    lazy var attendedPane = AttendedPaneAtom(
+    lazy var attendedPane = AttendedPaneDerived(
         tabLayout: workspaceTabLayout,
         windowLifecycle: windowLifecycle,
         managementLayer: managementLayer

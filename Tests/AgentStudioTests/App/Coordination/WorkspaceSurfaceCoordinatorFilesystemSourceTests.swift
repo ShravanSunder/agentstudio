@@ -176,13 +176,11 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
 
         let source = OrderedRecordingFilesystemSource()
         let index = GateableFilesystemProjectionIndex()
-        let paneFilesystemProjectionStore = PaneFilesystemProjectionAtom()
         let coordinator = makeCoordinator(
             store: harness.store,
             source: source,
             index: index,
-            bus: harness.bus,
-            paneFilesystemProjectionStore: paneFilesystemProjectionStore
+            bus: harness.bus
         )
         defer { Task { await coordinator.shutdown() } }
 
@@ -219,7 +217,6 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
 
         let paneEvents = RuntimeEnvelopeHarness.paneEvents(from: await subscriber.snapshot())
         #expect(paneEvents.isEmpty)
-        #expect(paneFilesystemProjectionStore.context(for: pane.id) == nil)
 
         await subscriber.shutdown()
     }
@@ -315,8 +312,7 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
         store: WorkspaceStore,
         source: some WorkspaceFilesystemSourceManaging,
         index: some WorkspaceFilesystemProjectionIndexing,
-        bus: EventBus<RuntimeEnvelope>,
-        paneFilesystemProjectionStore: PaneFilesystemProjectionAtom = PaneFilesystemProjectionAtom()
+        bus: EventBus<RuntimeEnvelope>
     ) -> WorkspaceSurfaceCoordinator {
         WorkspaceSurfaceCoordinator(
             store: store,
@@ -327,7 +323,6 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
             paneEventBus: bus,
             filesystemSource: source,
             filesystemProjectionIndex: index,
-            paneFilesystemProjectionStore: paneFilesystemProjectionStore,
             windowLifecycleStore: WindowLifecycleAtom()
         )
     }

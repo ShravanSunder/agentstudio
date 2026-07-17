@@ -47,7 +47,6 @@ final class WorkspaceSurfaceCoordinator {
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let filesystemSource: any WorkspaceFilesystemSourceManaging
     let filesystemProjectionIndex: any WorkspaceFilesystemProjectionIndexing
-    let paneFilesystemProjectionStore: PaneFilesystemProjectionAtom
     let windowLifecycleStore: WindowLifecycleAtom
     let traceRuntime: AgentStudioTraceRuntime?
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
@@ -74,6 +73,7 @@ final class WorkspaceSurfaceCoordinator {
     var filesystemProjectionRequestGeneration: UInt64 = 0
     var filesystemAppliedTopologyGeneration: UInt64 = 0
     var paneContextGeneration: UInt64 = 0
+    var nextFilesystemProjectionSequenceByPaneId: [UUID: UInt64] = [:]
     var pendingTerminalStartupOperationID: String?
     var terminalStartupOperationIDsByPaneID: [UUID: String] = [:]
 
@@ -124,7 +124,6 @@ final class WorkspaceSurfaceCoordinator {
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
         filesystemSource: (any WorkspaceFilesystemSourceManaging)? = nil,
         filesystemProjectionIndex: (any WorkspaceFilesystemProjectionIndexing)? = nil,
-        paneFilesystemProjectionStore: PaneFilesystemProjectionAtom = PaneFilesystemProjectionAtom(),
         windowLifecycleStore: WindowLifecycleAtom,
         traceRuntime: AgentStudioTraceRuntime? = nil,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
@@ -151,7 +150,6 @@ final class WorkspaceSurfaceCoordinator {
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.filesystemSource = resolvedFilesystemSource
         self.filesystemProjectionIndex = filesystemProjectionIndex ?? FilesystemProjectionIndex()
-        self.paneFilesystemProjectionStore = paneFilesystemProjectionStore
         self.windowLifecycleStore = windowLifecycleStore
         self.traceRuntime = traceRuntime
         self.performanceTraceRecorder = performanceTraceRecorder

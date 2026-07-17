@@ -13,7 +13,7 @@ struct InboxNotificationRouterPayloadTests {
         let tabLayout: WorkspaceTabLayoutAtom
         let router: InboxNotificationRouter
         let tracker: PaneFocusTracker
-        let attendedPane: AttendedPaneAtom
+        let attendedPane: AttendedPaneDerived
     }
 
     func makeFixture() async -> Fixture {
@@ -23,7 +23,7 @@ struct InboxNotificationRouterPayloadTests {
         let tabLayout = WorkspaceTabLayoutAtom()
         let windowLifecycle = WindowLifecycleAtom()
         let managementLayer = ManagementLayerAtom()
-        let attendedPane = AttendedPaneAtom(
+        let attendedPane = AttendedPaneDerived(
             tabLayout: tabLayout,
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer
@@ -210,6 +210,5 @@ struct InboxNotificationRouterPayloadTests {
     private func stop(_ fixture: Fixture) async {
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 }

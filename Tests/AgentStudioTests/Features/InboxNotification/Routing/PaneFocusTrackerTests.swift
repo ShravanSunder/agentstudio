@@ -73,7 +73,7 @@ struct PaneFocusTrackerTests {
         let tabLayout = WorkspaceTabLayoutAtom()
         let windowLifecycle = WindowLifecycleAtom()
         let managementLayer = ManagementLayerAtom()
-        let attendedPane = AttendedPaneAtom(
+        let attendedPane = AttendedPaneDerived(
             tabLayout: tabLayout,
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer
@@ -92,7 +92,6 @@ struct PaneFocusTrackerTests {
         let collected = await collect(from: tracker, expected: 2)
         #expect(collected == [paneA, paneB])
         await tracker.stop()
-        attendedPane.stop()
     }
 
     @Test("traces attended-pane transitions without changing focus-gained stream")
@@ -100,7 +99,7 @@ struct PaneFocusTrackerTests {
         let tabLayout = WorkspaceTabLayoutAtom()
         let windowLifecycle = WindowLifecycleAtom()
         let managementLayer = ManagementLayerAtom()
-        let attendedPane = AttendedPaneAtom(
+        let attendedPane = AttendedPaneDerived(
             tabLayout: tabLayout,
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer
@@ -141,7 +140,6 @@ struct PaneFocusTrackerTests {
                 && contents.contains("\"agentstudio.pane.id\":\"\(paneB.uuidString)\"")
         }
 
-        attendedPane.stop()
     }
 
     @Test("does not emit when attended pane remains the same")
@@ -149,7 +147,7 @@ struct PaneFocusTrackerTests {
         let tabLayout = WorkspaceTabLayoutAtom()
         let windowLifecycle = WindowLifecycleAtom()
         let managementLayer = ManagementLayerAtom()
-        let attendedPane = AttendedPaneAtom(
+        let attendedPane = AttendedPaneDerived(
             tabLayout: tabLayout,
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer
@@ -167,26 +165,22 @@ struct PaneFocusTrackerTests {
         let collected = await collect(from: tracker, expected: 2, maxIterations: 10)
         #expect(collected == [paneA])
         await tracker.stop()
-        attendedPane.stop()
     }
 
-    @Test("finishes when attended-pane upstream finishes unexpectedly")
-    func finishesWhenUpstreamFinishesUnexpectedly() async {
+    @Test("stop finishes the owned focus-gained stream")
+    func stopFinishesOwnedStream() async {
         let tabLayout = WorkspaceTabLayoutAtom()
         let windowLifecycle = WindowLifecycleAtom()
         let managementLayer = ManagementLayerAtom()
-        let attendedPane = AttendedPaneAtom(
+        let attendedPane = AttendedPaneDerived(
             tabLayout: tabLayout,
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer
         )
         let tracker = PaneFocusTracker(attendedPane: attendedPane)
 
-        attendedPane.stop()
-        await Task.yield()
-
-        #expect(await waitsForStreamCompletion(from: tracker))
         await tracker.stop()
+        #expect(await waitsForStreamCompletion(from: tracker))
     }
 
     private func temporaryTraceDirectoryURL() -> URL {

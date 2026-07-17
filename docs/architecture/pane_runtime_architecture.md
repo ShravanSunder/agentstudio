@@ -707,7 +707,7 @@ Quick reference: which direction each contract's data flows and which actor boun
 | C13 | Workflow Engine | Consumer (deferred) | EventBus → @MainActor | Future bus subscriber |
 | C14 | Replay Buffer | Internal | @MainActor | Per-runtime replay |
 | C15 | Process Channel | Source (deferred) | Future boundary | Request/response, not bus |
-| C16 | Filesystem Context | Projection | @MainActor | `PaneFilesystemProjectionAtom` derives per-pane snapshots from C6 |
+| C16 | Filesystem Context | Projection | actor → @MainActor coordinator | `FilesystemProjectionIndex` derives typed per-pane intents off-main; `WorkspaceSurfaceCoordinator` sequences and publishes pane envelopes |
 
 ---
 
@@ -2776,7 +2776,7 @@ PaneRuntimeEvent stream → Harness Event Gateway → adapters → agent
 
 > **Extensibility:** New per-pane derived streams (e.g., "pane git blame context", "pane dependency graph") follow the same projection pattern: filter an upstream source by pane-scoped criteria, expose a typed subscription. Adding a new projection does not change the upstream source or existing projections.
 
-> **Status:** Implemented as `PaneFilesystemProjectionAtom` in `Core/State/MainActor/Atoms/PaneFilesystemProjectionAtom.swift`. The atom consumes `RuntimeEnvelope` events, filters filesystem changesets to each pane's CWD subtree, and exposes per-pane snapshots via `@Observable`.
+> **Status:** Implemented by `FilesystemProjectionIndex` and `WorkspaceSurfaceCoordinator`. The actor maintains the canonical pane/worktree index, filters filesystem changesets to each pane's CWD subtree, and returns typed intents. The existing MainActor coordinator validates captured generations, allocates per-pane envelope sequences, and publishes pane `RuntimeEnvelope` values. No observable filesystem-projection atom or snapshot store exists.
 
 A derived, per-pane filesystem context stream based on the pane's current CWD. Separate from the terminal process request/response channel.
 
@@ -3119,7 +3119,7 @@ See [Directory Structure](directory_structure.md) for the full decision process 
 | **WebviewPaneController** | `Features/Webview/` | Per-pane WebKit page, navigation state (transport/view-side lifecycle) |
 | **SwiftPaneRuntime** | `Core/RuntimeEventSystem/Runtime/` | Native-pane `PaneRuntime` shared by direct AppKit/SwiftUI panes such as `.codeViewer`; kept in Core because it has no feature-specific transport/controller dependency |
 | **PaneRuntimeEventChannel** | `Core/RuntimeEventSystem/Runtime/` | Per-pane event channel with local subscribers and replay; bridges to global `EventBus` for cross-pane fanout |
-| **PaneFilesystemProjectionAtom** | `Core/State/MainActor/Atoms/` | C16 projection: derives per-pane filesystem snapshots from worktree-level C6 events, filtered to each pane's CWD subtree |
+| **FilesystemProjectionIndex** | `App/Coordination/` | C16 off-main indexing, canonicalization, and per-pane CWD-subtree filtering; returns typed intents to `WorkspaceSurfaceCoordinator` for sequencing and publication |
 | **EventChannels** (`PaneRuntimeEventBus`) | `Core/RuntimeEventSystem/Events/` | Singleton `EventBus<RuntimeEnvelope>` factory with replay configuration |
 | **FSEventsWatcher** (future) | `Core/RuntimeEventSystem/Filesystem/` | System-level filesystem watcher; produces FilesystemEvent envelopes |
 | **WorkspaceSurfaceCoordinator** | `App/Coordination/` | Imports from multiple features; composition root |

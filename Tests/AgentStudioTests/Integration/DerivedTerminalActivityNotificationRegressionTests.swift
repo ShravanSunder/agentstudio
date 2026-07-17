@@ -13,7 +13,7 @@ struct DerivedTerminalActivityNotificationRegressionTests {
         let tabLayout: WorkspaceTabLayoutAtom
         let windowLifecycle: WindowLifecycleAtom
         let managementLayer: ManagementLayerAtom
-        let attendedPane: AttendedPaneAtom
+        let attendedPane: AttendedPaneDerived
         let tracker: PaneFocusTracker
         let terminalActivity: TerminalActivityAtom
         let inboxRouter: InboxNotificationRouter
@@ -26,7 +26,6 @@ struct DerivedTerminalActivityNotificationRegressionTests {
             await terminalRouter.stop()
             await inboxRouter.stop()
             await tracker.stop()
-            attendedPane.stop()
         }
     }
 
@@ -144,7 +143,7 @@ struct DerivedTerminalActivityNotificationRegressionTests {
         let tabLayout = WorkspaceTabLayoutAtom()
         let windowLifecycle = WindowLifecycleAtom()
         let managementLayer = ManagementLayerAtom()
-        let attendedPane = AttendedPaneAtom(
+        let attendedPane = AttendedPaneDerived(
             tabLayout: tabLayout,
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer

@@ -398,10 +398,10 @@ Proof:
 
 ### Review and integration
 
-- [ ] Run one implementation-review swarm over the cleanup diff.
-- [ ] Remediate accepted findings once.
-- [ ] Re-run affected proof plus full build/lint.
-- [ ] Confirm the cleanup branch contains no unrelated `.agents/` content.
+- [x] Run one implementation-review swarm over the cleanup diff.
+- [x] Remediate accepted findings once.
+- [x] Re-run affected proof plus full build/lint.
+- [x] Confirm the cleanup branch contains no unrelated `.agents/` content.
 - [ ] Stop at a reviewed clean baseline; do not merge from this cleanup goal.
 
 ### C7 proof receipt — 2026-07-17
@@ -426,7 +426,19 @@ Proof:
   zero. A persisted sidebar mutation survived relaunch. The same stored pane ID
   and exact opaque ZMX identity reattached to the original zmx process.
 - Real watched-folder runtime completion and the single cleanup review cycle
-  remain open. No performance frontier is authorized by this partial receipt.
+  remained open at this receipt. No performance frontier was authorized by it.
+- The single cleanup review cycle completed and accepted two atom-boundary
+  findings. Remediation deleted `PaneFilesystemProjectionAtom`, retained
+  `FilesystemProjectionIndex` as the off-main projection owner, made
+  `AttendedPaneDerived` a pure synchronous read, and moved observation/stream
+  lifecycle into `PaneFocusTracker`. It introduced no replacement actor,
+  mailbox, framework, protocol, or durable state.
+- Parent remediation proof passed 95 attended-pane/inbox/terminal-activity
+  tests and 20 filesystem/index/coordinator/E2E/atom-architecture tests.
+  `mise run build`, `mise run lint`, and `git diff --check` passed. The only
+  untracked path remains the user-owned `.agents/` directory.
+- Real watched-folder runtime completion and the pre-existing broad-suite
+  failures remain open. Performance implementation is still unauthorized.
 
 ## Completion definition
 

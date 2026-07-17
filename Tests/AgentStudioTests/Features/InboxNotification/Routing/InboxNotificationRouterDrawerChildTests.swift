@@ -42,7 +42,6 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("desktop notification from drawer child remains visible in parent pane inbox scope")
@@ -90,7 +89,6 @@ extension InboxNotificationRouterTests {
         #expect(visiblePaneInboxNotifications.first?.isDismissedFromPaneInbox == false)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("desktop notification from focused drawer child appends read history")
@@ -137,7 +135,6 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.globalUnreadCount == 0)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("focus-gained on parent pane keeps drawer-child pane inbox notifications visible")
@@ -177,6 +174,5 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 }

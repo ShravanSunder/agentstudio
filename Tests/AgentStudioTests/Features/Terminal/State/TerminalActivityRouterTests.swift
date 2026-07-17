@@ -427,7 +427,7 @@ struct TerminalActivityRouterTests {
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let traceDirectory = temporaryTraceDirectoryURL()
         let paneId = PaneId.generateUUIDv7()
-        let attendedPane = makeAttendedPaneAtom(activePaneId: paneId.uuid)
+        let attendedPane = makeAttendedPaneDerived(activePaneId: paneId.uuid)
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
                 "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
@@ -466,7 +466,6 @@ struct TerminalActivityRouterTests {
 
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         #expect(FileManager.default.fileExists(atPath: outputFileURL.path) == false)
-        attendedPane.stop()
     }
 
     @Test("stop closes unseen activity window with router stop reason")
@@ -773,7 +772,7 @@ struct TerminalActivityRouterTests {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
     }
 
-    private func makeAttendedPaneAtom(activePaneId: UUID) -> AttendedPaneAtom {
+    private func makeAttendedPaneDerived(activePaneId: UUID) -> AttendedPaneDerived {
         let tabLayout = WorkspaceTabLayoutAtom()
         let arrangement = PaneArrangement(
             name: "Default",
@@ -793,7 +792,7 @@ struct TerminalActivityRouterTests {
         windowLifecycle.recordWindowBecameKey(windowId)
         tabLayout.appendTab(tab)
         tabLayout.setActiveTab(tab.id)
-        return AttendedPaneAtom(
+        return AttendedPaneDerived(
             tabLayout: tabLayout,
             windowLifecycle: windowLifecycle,
             managementLayer: ManagementLayerAtom()

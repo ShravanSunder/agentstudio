@@ -33,7 +33,6 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("terminal agent settled activity routes as yellow attention notification")
@@ -64,7 +63,6 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.attentionLane(forPaneIds: [paneId.uuid]) == .settledAgent)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("terminal agent settled revocation demotes yellow attention to blue activity")
@@ -104,7 +102,6 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.globalUnreadCount == 1)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("focused pane activity appends no unread PaneInbox notification")
@@ -138,7 +135,6 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 0)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("visible sibling scrolled to bottom appends derived activity as read history")
@@ -175,7 +171,6 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.globalUnreadCount == 0)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("visible sibling scrolled up keeps derived activity unread")
@@ -212,7 +207,6 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.globalUnreadCount == 1)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("repeated unseen activity coalesces into one unread notification")
@@ -248,7 +242,6 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.globalUnreadCount == 1)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("read dismissed unseen activity row does not absorb a new settled fact")
@@ -292,7 +285,6 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.globalUnreadCount == 1)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     private func addVisiblePaneToActiveTab(

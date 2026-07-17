@@ -48,7 +48,7 @@ Each contract (C1-C16) has a specific relationship to the EventBus:
 | C13 | Workflow Engine | Consumer (deferred) | EventBus → @MainActor | Future bus subscriber |
 | C14 | Replay Buffer | Internal | @MainActor | Per-runtime, filled at emit time |
 | C15 | Process Channel | Source (deferred) | Future boundary | Not through EventBus (request/response) |
-| C16 | Filesystem Context | Projection | @MainActor | `PaneFilesystemProjectionAtom` derives per-pane snapshots from C6 events on MainActor |
+| C16 | Filesystem Context | Projection | actor → @MainActor coordinator | `FilesystemProjectionIndex` derives typed per-pane intents off-main; `WorkspaceSurfaceCoordinator` sequences and publishes pane envelopes |
 
 ## Architecture Overview
 
@@ -986,23 +986,25 @@ MULTIPLEXING (Categories 2 & 5 — @Observable AND bus):
   UI is never stale relative to coordination consumers.
 
 
-PROJECTION (C16: filesystem context → view):
+PROJECTION (C16: filesystem context → pane event):
 
-  EventBus
+  worktree RuntimeEnvelope
        │
-       │  for await envelope in bus.subscribe()
-       │  filter: source == .system(.builtin(.filesystemWatcher))
-       │  filter: worktreeId matches pane's worktree
        ▼
-  PaneFilesystemProjectionAtom (@MainActor, @Observable)
+  FilesystemProjectionIndex actor
   ┌───────────────────────────────────────────────┐
-  │  private(set) var snapshotsByPaneId: [...]    │◄─── updated from C6 events
-  │  consume(_:panesById:worktreeRootsByWtId:)    │
-  │  prune(validPaneIds:validWorktreeIds:)        │
+  │ canonical pane/worktree index                 │
+  │ CWD-subtree filtering                         │
+  │ typed PaneFilesystemProjectionIntent output   │
   └────────────┬──────────────────────────────────┘
-               │  @Observable binding
+               │ immutable intents
                ▼
-  DiffPaneView / SidebarFileTree / etc.
+  WorkspaceSurfaceCoordinator (@MainActor)
+  ┌───────────────────────────────────────────────┐
+  │ validate captured generations                 │
+  │ allocate per-pane sequence                    │
+  │ construct and publish pane RuntimeEnvelope    │
+  └───────────────────────────────────────────────┘
 ```
 
 #### Never-stream patterns

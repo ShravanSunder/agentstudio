@@ -13,7 +13,7 @@ enum InboxNotificationIntegrationHarness {
         let tabLayout: WorkspaceTabLayoutAtom
         let windowLifecycle: WindowLifecycleAtom
         let managementLayer: ManagementLayerAtom
-        let attendedPane: AttendedPaneAtom
+        let attendedPane: AttendedPaneDerived
         let tracker: PaneFocusTracker
         let router: InboxNotificationRouter
 
@@ -21,7 +21,6 @@ enum InboxNotificationIntegrationHarness {
         func shutdown() async {
             await router.stop()
             await tracker.stop()
-            attendedPane.stop()
         }
     }
 
@@ -34,7 +33,7 @@ enum InboxNotificationIntegrationHarness {
         let tabLayout = WorkspaceTabLayoutAtom()
         let windowLifecycle = WindowLifecycleAtom()
         let managementLayer = ManagementLayerAtom()
-        let attendedPane = AttendedPaneAtom(
+        let attendedPane = AttendedPaneDerived(
             tabLayout: tabLayout,
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer

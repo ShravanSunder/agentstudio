@@ -96,7 +96,8 @@ struct FilesystemActorHotPathArchitectureTests {
         )
 
         #expect(projectionBody.contains("await filesystemProjectionIndex.projectPaneFilesystem"))
-        #expect(projectionBody.contains("paneFilesystemProjectionStore.applyProjectionIntent"))
+        #expect(projectionBody.contains("projectionResult.intents.map(makeFilesystemProjectionEnvelope)"))
+        #expect(!projectionBody.contains("paneFilesystemProjectionStore"))
         #expect(!projectionBody.contains("workspaceWorktreeContexts"))
         #expect(!projectionBody.contains("filesystemRegisteredContextsByWorktreeId"))
     }

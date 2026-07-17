@@ -62,7 +62,7 @@ final class InboxNotificationRouter {
     private let prefsAtom: InboxNotificationPrefsAtom
     private let paneAtom: WorkspacePaneAtom
     private let tabLayout: WorkspaceTabLayoutAtom
-    private let attendedPane: AttendedPaneAtom
+    private let attendedPane: AttendedPaneDerived
     private let focusTracker: PaneFocusTracker
     private let terminalActivity: TerminalActivityAtom?
     private let autoClearPolicy: PaneInboxAutoClearPolicy
@@ -97,7 +97,7 @@ final class InboxNotificationRouter {
         prefsAtom: InboxNotificationPrefsAtom,
         paneAtom: WorkspacePaneAtom,
         tabLayout: WorkspaceTabLayoutAtom,
-        attendedPane: AttendedPaneAtom,
+        attendedPane: AttendedPaneDerived,
         focusTracker: PaneFocusTracker,
         terminalActivity: TerminalActivityAtom? = nil,
         autoClearPolicy: PaneInboxAutoClearPolicy = .init(),

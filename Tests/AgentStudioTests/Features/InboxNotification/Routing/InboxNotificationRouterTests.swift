@@ -36,7 +36,7 @@ struct InboxNotificationRouterTests {
         let tabLayout: WorkspaceTabLayoutAtom
         let windowLifecycle: WindowLifecycleAtom
         let managementLayer: ManagementLayerAtom
-        let attendedPane: AttendedPaneAtom
+        let attendedPane: AttendedPaneDerived
         let tracker: PaneFocusTracker
         let router: InboxNotificationRouter
         let traceRuntime: AgentStudioTraceRuntime?
@@ -50,7 +50,7 @@ struct InboxNotificationRouterTests {
         let tabLayout = WorkspaceTabLayoutAtom()
         let windowLifecycle = WindowLifecycleAtom()
         let managementLayer = ManagementLayerAtom()
-        let attendedPane = AttendedPaneAtom(
+        let attendedPane = AttendedPaneDerived(
             tabLayout: tabLayout,
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer
@@ -229,7 +229,6 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].paneId == paneId.uuid)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("missing pane context emits unresolved context trace and skips notification")
@@ -262,7 +261,6 @@ struct InboxNotificationRouterTests {
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
 
         let records = try traceRecords(in: outputFileURL)
         let unresolvedRecord = try #require(records.first { $0.body == "inbox.context.unresolved" })
@@ -331,7 +329,6 @@ struct InboxNotificationRouterTests {
         #expect(contents.contains("\"agentstudio.inbox.global_unread_after\":1"))
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("inbox router records eventbus delivery summaries without scrollbar spam")
@@ -381,7 +378,6 @@ struct InboxNotificationRouterTests {
         #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.scrollbarChanged\"") == false)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("activity-only scrollbar ignores do not write inbox trace records")
@@ -403,7 +399,6 @@ struct InboxNotificationRouterTests {
         #expect(FileManager.default.fileExists(atPath: outputFileURL.path) == false)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("focus gained trace records attention without marking pane notifications read")
@@ -443,7 +438,6 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("bell is gated by prefs")
@@ -465,7 +459,6 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].kind == .bellRang)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("commandFinished notifies only above the duration threshold")
@@ -500,7 +493,6 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].paneId == paneId.uuid)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("commandFinished routes active pane when no attended pane exists")
@@ -530,7 +522,6 @@ struct InboxNotificationRouterTests {
         }
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("approvalRequested and selected security alerts notify")
@@ -581,7 +572,6 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[1].worktreeId == worktreeId)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("sandbox health unhealthy edge is tracked per pane and reset on stop")
@@ -655,7 +645,6 @@ struct InboxNotificationRouterTests {
 
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("progress error notifies on error edge and rearms after non-error progress")
@@ -714,7 +703,6 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].body == "progress 80%")
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("secure input true notifies once and rearms after false")
@@ -770,7 +758,6 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].title == "Secure input requested")
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("renderer unhealthy notifies on unhealthy edge per pane")
@@ -823,7 +810,6 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].title == "Terminal renderer unhealthy")
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
 }
@@ -876,7 +862,6 @@ extension InboxNotificationRouterTests {
             ])
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("focus-gained keeps pane notifications unread until explicit activation")
@@ -910,7 +895,6 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("agent notification requests become agentRpc inbox rows")
@@ -937,6 +921,5 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].body == "3 files changed")
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 }

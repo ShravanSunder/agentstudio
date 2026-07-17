@@ -14,7 +14,7 @@ struct InboxNotificationRouterObservedPaneTests {
         let tabLayout: WorkspaceTabLayoutAtom
         let windowLifecycle: WindowLifecycleAtom
         let managementLayer: ManagementLayerAtom
-        let attendedPane: AttendedPaneAtom
+        let attendedPane: AttendedPaneDerived
         let terminalActivity: TerminalActivityAtom
         let tracker: PaneFocusTracker
         let router: InboxNotificationRouter
@@ -33,7 +33,7 @@ struct InboxNotificationRouterObservedPaneTests {
         let tabLayout = WorkspaceTabLayoutAtom()
         let windowLifecycle = WindowLifecycleAtom()
         let managementLayer = ManagementLayerAtom()
-        let attendedPane = AttendedPaneAtom(
+        let attendedPane = AttendedPaneDerived(
             tabLayout: tabLayout,
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer
@@ -125,7 +125,7 @@ struct InboxNotificationRouterObservedPaneTests {
             )
         )
         inboxAtom.append(makeNotification(kind: .agentDesktopNotification, paneId: paneId.uuid))
-        let attendedPane = AttendedPaneAtom(
+        let attendedPane = AttendedPaneDerived(
             tabLayout: tabLayout,
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer
@@ -153,7 +153,6 @@ struct InboxNotificationRouterObservedPaneTests {
         #expect(inboxAtom.notifications[0].isDismissedFromPaneInbox == true)
         await router.stop()
         await tracker.stop()
-        attendedPane.stop()
     }
 
     @Test("reading upgraded activity notification invalidates source activity window")
@@ -818,6 +817,5 @@ struct InboxNotificationRouterObservedPaneTests {
     private func stop(_ fixture: Fixture) async {
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 }

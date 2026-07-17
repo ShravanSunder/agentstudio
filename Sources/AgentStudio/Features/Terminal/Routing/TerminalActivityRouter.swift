@@ -61,7 +61,7 @@ final class TerminalActivityRouter {
 
     private let bus: EventBus<RuntimeEnvelope>
     private let activityAtom: TerminalActivityAtom
-    private let attendedPane: AttendedPaneAtom?
+    private let attendedPane: AttendedPaneDerived?
     private let traceRuntime: AgentStudioTraceRuntime?
     private let startupTraceRecorder: AgentStudioStartupTraceRecorder?
     private let unseenActivityDebounceDuration: Duration
@@ -86,7 +86,7 @@ final class TerminalActivityRouter {
     init(
         bus: EventBus<RuntimeEnvelope>,
         activityAtom: TerminalActivityAtom,
-        attendedPane: AttendedPaneAtom? = nil,
+        attendedPane: AttendedPaneDerived? = nil,
         traceRuntime: AgentStudioTraceRuntime? = nil,
         startupTraceRecorder: AgentStudioStartupTraceRecorder? = nil,
         isPaneCurrentlyAttended: (@MainActor (UUID) -> Bool)? = nil,
@@ -110,7 +110,7 @@ final class TerminalActivityRouter {
         self.nowMilliseconds = nowMilliseconds
         self.isPaneCurrentlyAttended =
             isPaneCurrentlyAttended
-            ?? { [weak attendedPane] paneId in
+            ?? { [attendedPane] paneId in
                 attendedPane?.attendedPaneId == paneId
             }
         self.isPaneAgentClassified = isPaneAgentClassified ?? { _, paneKind in paneKind == .agent }

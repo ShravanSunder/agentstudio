@@ -397,7 +397,8 @@ icons when a sidebar/local action already defines the presentation.
 | `InboxNotificationStore` | persistence wrapper for inbox notification history and collapsed inbox groups; uses feature SQLite repository when the local backend is available and legacy JSON only for uninitialized import | `Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift` |
 | `AppLifecycleAtom` | application active/terminating state | `Core/State/MainActor/Atoms/AppLifecycleAtom.swift` |
 | `WindowLifecycleAtom` | key/focused window identity, registration, transient terminal geometry, launch-settle facts | `Core/State/MainActor/Atoms/WindowLifecycleAtom.swift` |
-| `PaneFilesystemProjectionAtom` | pane-scoped filesystem projection state derived from runtime envelopes | `Core/State/MainActor/Atoms/PaneFilesystemProjectionAtom.swift` |
+| `AttendedPaneDerived` | pure current attended-pane read composed from tab, window, and management state; observation and transition delivery stay in `PaneFocusTracker` | `Core/State/MainActor/Atoms/AttendedPaneDerived.swift` |
+| `FilesystemProjectionIndex` | off-main pane/worktree filesystem indexing, canonicalization, filtering, and typed projection intents; `WorkspaceSurfaceCoordinator` sequences and publishes the resulting pane envelopes | `App/Coordination/FilesystemProjectionIndex.swift` |
 | `SurfaceManager` | Ghostty surface lifecycle, health, undo | `Features/Terminal/` |
 | `SessionRuntime` | backend coordination, health checks, zmx/runtime orchestration over `SessionRuntimeAtom`; zmx attach identity comes from stored `TerminalState.zmxSessionId` anchors | `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` |
 

@@ -60,7 +60,6 @@ struct WorkspaceSurfaceCoordinatorTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            paneFilesystemProjectionStore: PaneFilesystemProjectionAtom(),
             windowLifecycleStore: WindowLifecycleAtom()
         )
     }
@@ -237,49 +236,6 @@ struct WorkspaceSurfaceCoordinatorTests {
             return
         }
         #expect(snapshot.pane.id == paneB.id)
-    }
-
-    @Test("view lifecycle registers and unregisters pane filesystem context for worktree-backed panes")
-    func viewLifecycle_registersAndUnregistersPaneFilesystemContext() {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-pane-filesystem-lifecycle-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore()
-        let paneFilesystemProjectionStore = PaneFilesystemProjectionAtom()
-        let coordinator = WorkspaceSurfaceCoordinator(
-            store: store,
-            viewRegistry: ViewRegistry(),
-            runtime: SessionRuntime(store: store),
-            surfaceManager: MockWorkspaceSurfaceCoordinatorSurfaceManager(),
-            runtimeRegistry: RuntimeRegistry(),
-            paneEventBus: EventBus<RuntimeEnvelope>(),
-            filesystemSource: RecordingFilesystemSourceHarness(),
-            paneFilesystemProjectionStore: paneFilesystemProjectionStore,
-            windowLifecycleStore: WindowLifecycleAtom()
-        )
-
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        let repoPath = tempDir.appending(path: "repo")
-        let repo = store.addRepo(at: repoPath)
-        let worktree = repo.worktrees[0]
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
-
-        let pane = store.createPane(
-            content: .webview(WebviewState(url: URL(string: "https://example.com")!, showNavigation: true)),
-            metadata: PaneMetadata(
-                launchDirectory: repoPath,
-                title: "Browser",
-                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: repoPath),
-            )
-        )
-
-        _ = coordinator.createViewForContent(pane: pane)
-        #expect(paneFilesystemProjectionStore.context(for: pane.id)?.repoId == repo.id)
-        #expect(paneFilesystemProjectionStore.context(for: pane.id)?.worktreeId == worktree.id)
-
-        coordinator.teardownView(for: pane.id)
-        #expect(paneFilesystemProjectionStore.context(for: pane.id) == nil)
     }
 
     @Test("filesystem projection ignores non-projectable worktree events before deriving topology maps")
@@ -585,7 +541,6 @@ struct WorkspaceSurfaceCoordinatorTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            paneFilesystemProjectionStore: PaneFilesystemProjectionAtom(),
             windowLifecycleStore: WindowLifecycleAtom()
         )
 
@@ -646,7 +601,6 @@ struct WorkspaceSurfaceCoordinatorTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            paneFilesystemProjectionStore: PaneFilesystemProjectionAtom(),
             windowLifecycleStore: WindowLifecycleAtom()
         )
         _ = coordinator

@@ -42,7 +42,6 @@ extension WorkspaceSurfaceCoordinator {
     func upsertPaneFilesystemProjectionContext(for pane: Pane) {
         paneContextGeneration &+= 1
         let update = paneFilesystemProjectionUpdate(for: pane, generation: paneContextGeneration)
-        paneFilesystemProjectionStore.applyPaneContextUpdate(update)
         Task { [filesystemProjectionIndex] in
             await filesystemProjectionIndex.applyPaneUpdate(update)
         }
@@ -54,7 +53,7 @@ extension WorkspaceSurfaceCoordinator {
             requestGeneration: paneContextGeneration,
             kind: .remove(paneId: paneId)
         )
-        paneFilesystemProjectionStore.applyPaneContextUpdate(update)
+        nextFilesystemProjectionSequenceByPaneId.removeValue(forKey: paneId)
         Task { [filesystemProjectionIndex] in
             await filesystemProjectionIndex.applyPaneUpdate(update)
         }
@@ -91,9 +90,7 @@ extension WorkspaceSurfaceCoordinator {
         }
 
         let applyStart = clock.now
-        let derivedEnvelopes = projectionResult.intents.compactMap { intent in
-            paneFilesystemProjectionStore.applyProjectionIntent(intent)
-        }
+        let derivedEnvelopes = projectionResult.intents.map(makeFilesystemProjectionEnvelope)
         let applyDuration = applyStart.duration(to: clock.now)
 
         performanceTraceRecorder?.recordDuration(
@@ -221,10 +218,9 @@ extension WorkspaceSurfaceCoordinator {
         filesystemActivityByWorktreeId = syncDiff.activityByWorktreeId
         filesystemLastActivePaneWorktreeId = syncDiff.activePaneWorktreeId
         filesystemAppliedTopologyGeneration = writeMetrics.topologyGeneration
-        paneFilesystemProjectionStore.prune(
-            validPaneIds: syncDiff.validPaneIds,
-            validWorktreeIds: syncDiff.validWorktreeIds
-        )
+        nextFilesystemProjectionSequenceByPaneId = nextFilesystemProjectionSequenceByPaneId.filter { paneId, _ in
+            syncDiff.validPaneIds.contains(paneId)
+        }
         let applyDuration = applyStart.duration(to: clock.now)
         performanceTraceRecorder?.recordDuration(
             .coordinatorWrite,
@@ -417,5 +413,67 @@ extension WorkspaceSurfaceCoordinator {
                 )
             }
         }
+    }
+
+    private func makeFilesystemProjectionEnvelope(_ intent: PaneFilesystemProjectionIntent) -> RuntimeEnvelope {
+        switch intent {
+        case .cwdSubtreeChanged(let projection):
+            return makeFilesystemProjectionEnvelope(
+                paneId: projection.paneId,
+                paneKind: projection.paneKind,
+                timestamp: projection.timestamp,
+                correlationId: projection.correlationId,
+                commandId: projection.commandId,
+                event: .paneFilesystemContext(
+                    .cwdSubtreeChanged(
+                        context: projection.context,
+                        paths: Set(projection.paths),
+                        batchSeq: projection.batchSequence
+                    )
+                )
+            )
+        case .gitWorkingTreeInCwd(let projection):
+            return makeFilesystemProjectionEnvelope(
+                paneId: projection.paneId,
+                paneKind: projection.paneKind,
+                timestamp: projection.timestamp,
+                correlationId: projection.correlationId,
+                commandId: projection.commandId,
+                event: .paneFilesystemContext(
+                    .gitWorkingTreeInCwd(
+                        context: projection.context,
+                        staged: projection.summary.staged,
+                        unstaged: projection.summary.changed,
+                        untracked: projection.summary.untracked
+                    )
+                )
+            )
+        }
+    }
+
+    private func makeFilesystemProjectionEnvelope(
+        paneId: UUID,
+        paneKind: PaneContentType,
+        timestamp: ContinuousClock.Instant,
+        correlationId: UUID?,
+        commandId: UUID?,
+        event: PaneRuntimeEvent
+    ) -> RuntimeEnvelope {
+        let nextSequence = nextFilesystemProjectionSequenceByPaneId[paneId, default: 0] + 1
+        nextFilesystemProjectionSequenceByPaneId[paneId] = nextSequence
+
+        let typedPaneId = PaneId(existingUUID: paneId)
+        return .pane(
+            PaneEnvelope(
+                source: .pane(typedPaneId),
+                seq: nextSequence,
+                timestamp: timestamp,
+                correlationId: correlationId,
+                commandId: commandId,
+                paneId: typedPaneId,
+                paneKind: paneKind,
+                event: event
+            )
+        )
     }
 }

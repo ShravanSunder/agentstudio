@@ -4,8 +4,8 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("AttendedPaneAtom")
-struct AttendedPaneAtomTests {
+@Suite("Attended pane derived state")
+struct AttendedPaneDerivedTests {
     private func makeWindowKey(_ atom: WindowLifecycleAtom) {
         let id = UUID()
         atom.recordWindowRegistered(id)
@@ -44,28 +44,26 @@ struct AttendedPaneAtomTests {
         let managementLayer = ManagementLayerAtom()
         makeWindowKey(windowLifecycle)
 
-        let atom = AttendedPaneAtom(
+        let atom = AttendedPaneDerived(
             tabLayout: tabLayout,
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer
         )
 
         #expect(atom.attendedPaneId == paneId)
-        atom.stop()
     }
 
     @Test("returns nil when workspace window is not key")
     func nilWhenWorkspaceWindowNotKey() {
         let paneId = UUID()
         let (tabLayout, _) = makeTabLayout(activePaneId: paneId)
-        let atom = AttendedPaneAtom(
+        let atom = AttendedPaneDerived(
             tabLayout: tabLayout,
             windowLifecycle: WindowLifecycleAtom(),
             managementLayer: ManagementLayerAtom()
         )
 
         #expect(atom.attendedPaneId == nil)
-        atom.stop()
     }
 
     @Test("returns nil when management layer is active")
@@ -77,14 +75,13 @@ struct AttendedPaneAtomTests {
         makeWindowKey(windowLifecycle)
         managementLayer.activate()
 
-        let atom = AttendedPaneAtom(
+        let atom = AttendedPaneDerived(
             tabLayout: tabLayout,
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer
         )
 
         #expect(atom.attendedPaneId == nil)
-        atom.stop()
     }
 
     @Test("returns nil when there is no active pane")
@@ -93,51 +90,34 @@ struct AttendedPaneAtomTests {
         let windowLifecycle = WindowLifecycleAtom()
         makeWindowKey(windowLifecycle)
 
-        let atom = AttendedPaneAtom(
+        let atom = AttendedPaneDerived(
             tabLayout: tabLayout,
             windowLifecycle: windowLifecycle,
             managementLayer: ManagementLayerAtom()
         )
 
         #expect(atom.attendedPaneId == nil)
-        atom.stop()
     }
 
-    @Test("transition stream emits gained and cleared attended pane ids")
-    func transitionStreamEmitsOnInputChanges() async {
+    @Test("recomputes synchronously when attended-pane inputs change")
+    func recomputesSynchronouslyOnInputChanges() {
         let paneA = UUID()
         let paneB = UUID()
         let (tabLayout, tabId) = makeTabLayout(activePaneId: paneA, allPaneIds: [paneA, paneB])
         let windowLifecycle = WindowLifecycleAtom()
         let managementLayer = ManagementLayerAtom()
-        let atom = AttendedPaneAtom(
+        let atom = AttendedPaneDerived(
             tabLayout: tabLayout,
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer
         )
 
-        var collected: [UUID?] = []
-        let collector = Task { @MainActor in
-            for await paneId in atom.transitions {
-                collected.append(paneId)
-                if collected.count >= 3 {
-                    break
-                }
-            }
-        }
-        await Task.yield()
-
+        #expect(atom.attendedPaneId == nil)
         makeWindowKey(windowLifecycle)
-        await Task.yield()
+        #expect(atom.attendedPaneId == paneA)
         tabLayout.setActivePane(paneB, inTab: tabId)
-        await Task.yield()
+        #expect(atom.attendedPaneId == paneB)
         managementLayer.activate()
-        for _ in 0..<50 where collected.count < 3 {
-            await Task.yield()
-        }
-
-        #expect(collected == [paneA, paneB, nil])
-        collector.cancel()
-        atom.stop()
+        #expect(atom.attendedPaneId == nil)
     }
 }
