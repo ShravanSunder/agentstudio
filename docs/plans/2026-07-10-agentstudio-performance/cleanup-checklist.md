@@ -393,8 +393,8 @@ Proof:
 - [ ] Verify prepared terminal/nonterminal cohort settlement.
 - [x] Verify terminal attachment uses the exact stored ZMX identity.
 - [x] Make one ordinary persisted UI change, flush, relaunch, and verify it.
-- [ ] Add a watched folder and verify the retained scan scheduler completes.
-- [ ] Stop the exact debug PID through the repo verifier/stop command.
+- [x] Add a watched folder and verify the retained scan scheduler completes.
+- [x] Stop the exact debug PID without affecting other debug or stable processes.
 
 ### Review and integration
 
@@ -438,7 +438,20 @@ Proof:
   `mise run build`, `mise run lint`, and `git diff --check` passed. The only
   untracked path remains the user-owned `.agents/` directory.
 - Real watched-folder runtime completion and the pre-existing broad-suite
-  failures remain open. Performance implementation is still unauthorized.
+  failures remained open at the review-remediation checkpoint. Performance
+  implementation was still unauthorized.
+- Real watched-folder proof then completed against isolated debug PID `63181`
+  and marker `debug-observability-yjy1-watch-1784320713`. The background UI
+  path added `/Users/shravansunder/Documents/dev/open-source`; strict SQLite
+  contained one watched path, 100 repositories, and 106 worktrees. Victoria
+  recorded 118 Git status completions, a maximum pending count of 102, final
+  pending count zero, and four bounded running slots. Three status reads reached
+  their explicit one-second timeout. Across 94 coordinator-write records the
+  maximum MainActor apply was 0.063 ms; maximum total coordinator time was
+  189.957 ms. The exact debug PID was terminated afterward; stable AgentStudio
+  and other worktree debug processes were untouched.
+- The timeout and coordinator distributions are baseline evidence for a later
+  narrow performance spec. They do not authorize implementation during cleanup.
 
 ## Completion definition
 
