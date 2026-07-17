@@ -1316,3 +1316,26 @@ Independent Sol high review returned READY with no findings. The final source
 guard forbids the four former fleet-wide visibility reads; fixed-base tests
 preserve 256 unrelated tabs. Native/Victoria proof remains intentionally
 deferred until the one atomic production installation and caller cutover.
+
+Commit `b1246d8a` adds the dormant strict arrangement create/remove lifecycle
+family. New arrangement identities are accepted only through the typed UUIDv7
+preparation/generation boundary; existing stored arrangement identifiers remain
+opaque and are neither migrated nor repaired. Pure target-keyed planners copy
+the complete active arrangement graph and its pane/drawer cursors on create,
+and remove graph/cursor ownership with typed active/default selection behavior
+on remove. The MainActor applier performs a complete preflight before mutation.
+The atom change is limited to one keyed arrangement-ownership state replacement
+primitive and reverse-index invariants; it performs no planning, persistence,
+generation, repair, or orchestration.
+
+The installed-only persistence gateway captures one tab-graph preimage plus the
+exact structural cursor preimages under one shared revision. Present nil cursor
+values mutate without inventing persisted rows. Parent proof passed 15 tests in
+three suites, `mise run build`, and full `mise run lint`, including swift-format,
+SwiftLint over 1,761 files with zero violations, architecture lint, 31 admission
+mutation controls, release-script checks, and diff hygiene. The single focused review cycle
+identified reverse-index and fixed-base coverage gaps; one remediation added
+256 unrelated-tab reverse-index proof and active-arrangement/drawer-cursor base
+proof. Production reachability remains zero and composition remains preinstall.
+Continue W4.5p with the exhaustive remaining pane/tab writer inventory and the
+next dormant semantic family before one atomic same-domain writer cutover.
