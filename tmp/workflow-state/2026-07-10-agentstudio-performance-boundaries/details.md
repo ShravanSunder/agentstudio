@@ -1357,3 +1357,27 @@ reachability remains zero, so composition stays preinstall and no runtime or
 performance claim is made. Continue W4.5p with strict pane attachment/removal
 in an existing tab, then the remaining close/undo, cross-tab, drawer, topology,
 and settled UI-memory families before the one atomic production writer cutover.
+
+Commit `e758f01a` adds the dormant atomic creation of a new pane inside one
+existing tab. The pure planner validates explicit distinct UUIDv7 pane and
+drawer identities, preserves the caller-provided terminal zmx identity, inserts
+the pane into every arrangement of the target tab, and changes only the active
+arrangement's pane cursor. The MainActor applier completely preflights pane,
+drawer, target-tab, active-arrangement, every cursor, and zoom witnesses before
+assigning canonical state. Atoms remain simple keyed state owners and contain no
+planning or persistence logic.
+
+The installed-only persistence gateway captures exactly the pane insertion,
+one target-tab value change, and one active-pane cursor value change under a
+single revision. It captures no shell, active-tab, active-arrangement,
+drawer-cursor, or tombstone state. The target-keyed applier preserves 256
+unrelated tab values and reverse indexes, duplicate arrangement identities
+reject before dictionary construction, and both layout divider generation paths
+now use UUIDv7. Parent and independent-review proof passed 26 tests across four
+suites. `mise run build` and full `mise run lint` passed, including swift-format,
+SwiftLint over 1,767 files, architecture lint, 31 admission mutation controls,
+and release-script checks. One plan-backed whole-source review returned READY
+with no findings. The gateway remains production-dormant. Continue W4.5p with
+cross-tab pane movement as a separate two-tab transaction; close/undo and drawer
+lifecycle remain separate later families. No generic detach API, startup repair,
+migration, or atom-owned workflow is permitted.
