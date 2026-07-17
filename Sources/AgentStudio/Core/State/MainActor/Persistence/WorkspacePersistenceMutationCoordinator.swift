@@ -9,6 +9,8 @@ enum WorkspacePersistenceMutationFailure: Equatable, Sendable {
     case paneMissing(UUID)
     case paneTabApplication(WorkspacePaneTabTransitionApplicationRejection)
     case revisionOwner(WorkspacePersistenceRevisionOwnerError)
+    case tabLeafApplication(WorkspaceTabLeafTransitionApplicationRejection)
+    case tabLeafPlanning(WorkspaceTabLeafTransitionRejection)
     case tabCursorCapture(WorkspaceTabCursorPersistenceCaptureError)
     case tabGraphCapture(WorkspaceTabGraphPersistencePreparationError)
     case tabShellCapture(WorkspaceTabShellPersistencePreparationError)
@@ -38,6 +40,8 @@ final class WorkspacePersistenceMutationCoordinator {
     private let workspacePaneTabTransitionApplier: WorkspacePaneTabTransitionApplier
     private let workspacePaneGraphAtom: WorkspacePaneGraphAtom
     private let workspacePaneTransitionApplier: WorkspacePaneTransitionApplier
+    private let workspaceTabCursorAtom: WorkspaceTabCursorAtom
+    private let workspaceTabLeafTransitionApplier: WorkspaceTabLeafTransitionApplier
     private let workspaceTabShellAtom: WorkspaceTabShellAtom
     private let workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom
 
@@ -46,6 +50,7 @@ final class WorkspacePersistenceMutationCoordinator {
         adapters: WorkspacePersistenceAdapterBundle,
         workspacePaneGraphAtom: WorkspacePaneGraphAtom,
         workspaceTabShellAtom: WorkspaceTabShellAtom,
+        workspaceTabCursorAtom: WorkspaceTabCursorAtom,
         workspaceTabGraphAtom: WorkspaceTabGraphAtom,
         workspaceArrangementCursorAtom: WorkspaceArrangementCursorAtom,
         workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom
@@ -55,6 +60,11 @@ final class WorkspacePersistenceMutationCoordinator {
         self.workspacePaneGraphAtom = workspacePaneGraphAtom
         workspacePaneTransitionApplier = WorkspacePaneTransitionApplier(
             workspacePaneGraphAtom: workspacePaneGraphAtom
+        )
+        self.workspaceTabCursorAtom = workspaceTabCursorAtom
+        workspaceTabLeafTransitionApplier = WorkspaceTabLeafTransitionApplier(
+            workspaceTabShellAtom: workspaceTabShellAtom,
+            workspaceTabCursorAtom: workspaceTabCursorAtom
         )
         workspacePaneTabTransitionApplier = WorkspacePaneTabTransitionApplier(
             workspacePaneGraphAtom: workspacePaneGraphAtom,
@@ -66,6 +76,66 @@ final class WorkspacePersistenceMutationCoordinator {
         )
         self.workspaceTabShellAtom = workspaceTabShellAtom
         self.workspaceWindowMemoryAtom = workspaceWindowMemoryAtom
+    }
+
+    func selectTab(
+        _ request: WorkspaceSelectTabRequest
+    ) -> WorkspacePersistenceMutationResult {
+        guardCompositionDomainIsInstalled {
+            switch WorkspaceSelectTabTransitionPlanner.plan(request, context: tabLeafPlanningContext) {
+            case .changed(let transition):
+                performTabLeafTransition(.cursorOnly(transition))
+            case .unchanged:
+                .unchanged(revision: revisionOwner.committedRevision)
+            case .rejected(let rejection):
+                .rejected(.tabLeafPlanning(rejection))
+            }
+        }
+    }
+
+    func renameTab(
+        _ request: WorkspaceRenameTabRequest
+    ) -> WorkspacePersistenceMutationResult {
+        guardCompositionDomainIsInstalled {
+            switch WorkspaceRenameTabTransitionPlanner.plan(request, context: tabLeafPlanningContext) {
+            case .changed(let transition):
+                performTabLeafTransition(.shellOnly(transition))
+            case .unchanged:
+                .unchanged(revision: revisionOwner.committedRevision)
+            case .rejected(let rejection):
+                .rejected(.tabLeafPlanning(rejection))
+            }
+        }
+    }
+
+    func moveTabByDelta(
+        _ request: WorkspaceMoveTabByDeltaRequest
+    ) -> WorkspacePersistenceMutationResult {
+        guardCompositionDomainIsInstalled {
+            switch WorkspaceMoveTabByDeltaTransitionPlanner.plan(request, context: tabLeafPlanningContext) {
+            case .changed(let transition):
+                performTabLeafTransition(.shellOnly(transition))
+            case .unchanged:
+                .unchanged(revision: revisionOwner.committedRevision)
+            case .rejected(let rejection):
+                .rejected(.tabLeafPlanning(rejection))
+            }
+        }
+    }
+
+    func reorderAndSelectTab(
+        _ request: WorkspaceReorderAndSelectTabRequest
+    ) -> WorkspacePersistenceMutationResult {
+        guardCompositionDomainIsInstalled {
+            switch WorkspaceReorderAndSelectTabTransitionPlanner.plan(request, context: tabLeafPlanningContext) {
+            case .changed(let transition):
+                performTabLeafTransition(transition)
+            case .unchanged:
+                .unchanged(revision: revisionOwner.committedRevision)
+            case .rejected(let rejection):
+                .rejected(.tabLeafPlanning(rejection))
+            }
+        }
     }
 
     func commitPaneCreation(
@@ -224,6 +294,101 @@ final class WorkspacePersistenceMutationCoordinator {
         } catch {
             preconditionFailure("window-memory persistence mutation emitted an unmodeled error")
         }
+    }
+
+    private var tabLeafPlanningContext: WorkspaceTabLeafPlanningContext {
+        WorkspaceTabLeafPlanningContext(
+            tabShells: workspaceTabShellAtom.tabShells,
+            activeTab: workspaceTabCursorAtom.activeTabId.map(WorkspaceTabCursorSelection.selected)
+                ?? .noSelection
+        )
+    }
+
+    private func guardCompositionDomainIsInstalled(
+        _ mutation: () -> WorkspacePersistenceMutationResult
+    ) -> WorkspacePersistenceMutationResult {
+        guard case .installed = adapters.compositionLifecyclePhase else {
+            return .rejected(
+                .compositionDomainNotInstalled(phase: adapters.compositionLifecyclePhase)
+            )
+        }
+        return mutation()
+    }
+
+    private func performTabLeafTransition(
+        _ transition: WorkspaceReorderAndSelectTabTransition
+    ) -> WorkspacePersistenceMutationResult {
+        let preparedApplication: WorkspacePreparedTabLeafTransitionApplication
+        switch workspaceTabLeafTransitionApplier.preflight(transition) {
+        case .ready(let preparation):
+            preparedApplication = preparation
+        case .rejected(let rejection):
+            return .rejected(.tabLeafApplication(rejection))
+        }
+
+        do {
+            let committedRevision = try revisionOwner.performSynchronousTransaction { preparation in
+                try captureTabLeafPreimages(transition, for: preparation)
+                return preparation.commit { [workspaceTabLeafTransitionApplier] in
+                    workspaceTabLeafTransitionApplier.apply(preparedApplication)
+                    return preparation.transaction.proposedRevision
+                }
+            }
+            return .changed(revision: committedRevision)
+        } catch let error as WorkspaceTabShellPersistencePreparationError {
+            return .rejected(.tabShellCapture(error))
+        } catch let error as WorkspaceTabCursorPersistenceCaptureError {
+            return .rejected(.tabCursorCapture(error))
+        } catch let error as WorkspacePersistenceRevisionOwnerError {
+            return .rejected(.revisionOwner(error))
+        } catch {
+            preconditionFailure("tab-leaf persistence mutation emitted an unmodeled error")
+        }
+    }
+
+    private func captureTabLeafPreimages(
+        _ transition: WorkspaceReorderAndSelectTabTransition,
+        for preparation: WorkspacePersistenceTransactionPreparation
+    ) throws {
+        switch transition {
+        case .shellOnly(let shells):
+            try captureTabShellPreimages(shells, for: preparation)
+        case .cursorOnly(let cursor):
+            try captureTabCursorPreimage(cursor, for: preparation)
+        case .shellAndCursor(let shells, let cursor):
+            try captureTabShellPreimages(shells, for: preparation)
+            try captureTabCursorPreimage(cursor, for: preparation)
+        }
+    }
+
+    private func captureTabShellPreimages(
+        _ transition: WorkspaceTabShellCollectionTransition,
+        for preparation: WorkspacePersistenceTransactionPreparation
+    ) throws {
+        try adapters.workspaceTabShell.capturePersistencePreimages(
+            WorkspaceTabShellPersistenceCapture(
+                operations: transition.affectedShells.map { .valueChange($0.previous.shell.id) }
+            ),
+            for: preparation
+        )
+    }
+
+    private func captureTabCursorPreimage(
+        _ transition: WorkspaceTabCursorReplacement,
+        for preparation: WorkspacePersistenceTransactionPreparation
+    ) throws {
+        let capture: WorkspaceTabCursorPersistenceCapture
+        switch (transition.previous, transition.replacement) {
+        case (.noSelection, .selected):
+            capture = .insertion
+        case (.selected, .selected):
+            capture = .valueChange
+        case (.selected, .noSelection):
+            capture = .removal
+        case (.noSelection, .noSelection):
+            preconditionFailure("a changed tab-cursor transition cannot preserve no selection")
+        }
+        try adapters.workspaceTabCursor.capturePersistencePreimage(capture, for: preparation)
     }
 
     private func capturePaneCreationPreimages(
