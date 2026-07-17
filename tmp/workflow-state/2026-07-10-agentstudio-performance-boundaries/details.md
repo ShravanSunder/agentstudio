@@ -1447,3 +1447,44 @@ Continue implementation-execute-plan with the next distinct close/undo
 lifecycle family. Full-tab drain, undo, populated-drawer close, drawer
 lifecycle, garbage collection, topology coupling, settled UI-memory writers,
 and the atomic production cutover remain separate later work.
+
+Commit `d50e2f6c` hard-cuts the filesystem admission name from waiter to
+doorbell consumer. `FilesystemObservationDoorbellConsumerPort` and
+`doorbellConsumerPort` now state that this is the single background consumer
+of the payload-free, level-triggered wake signal; mailbox payload custody and
+drain ownership are unchanged. Parent proof passed 33 tests across five
+doorbell, mailbox, lifecycle, and architecture suites. Scoped format, staged
+diff checks, and the staged pre-commit format/SwiftLint gate passed.
+
+Commit `069b7a47` adds the production-dormant final-pane tab-removal
+transaction as the next distinct W4.5p close family. It removes one final
+active main pane, its now-empty tab graph and shell, exact arrangement cursors,
+and runtime-only zoom while rejecting populated/expanded drawers and keeping
+undo, drawer lifecycle, garbage collection, runtime teardown, and production
+cutover outside the family. The pure planner owns the sealed transition, the
+MainActor applier preflights every canonical witness, and the installed-only
+gateway captures one fixed-revision transaction.
+
+The focused review found that a foreign drawer-cursor key under a removed
+arrangement could survive as orphan canonical state. The single remediation
+now inventories every drawer-cursor key whose arrangement belongs to the
+removed tab regardless of drawer identity, rejects any present key, and repeats
+the exhaustive absence check during prepared apply. Drawer cursors are neither
+mutated nor persisted. Permanent proof covers planning-time and stale foreign
+cursor insertion, stale ownership/indexed-tab witnesses, exact participant
+membership and base rows, inactive-tab zero active-tab capture, only-tab
+active-tab removal preimage, and 256 unrelated reverse indexes.
+
+Parent final-byte proof passed 13 tests across three suites, `mise run build`,
+and full `mise run lint`, including swift-format, SwiftLint over 1,786 files,
+architecture lint, all 31 admission mutation controls with exact restoration,
+and release checks. The same focused reviewer returned READY after the one
+remediation. Production reachability remains zero and composition remains
+preinstall.
+
+Continue implementation-execute-plan with undo/reopen as a separate lifecycle
+family, then populated drawer/drawer-child lifecycle, garbage collection,
+topology coupling, settled UI-memory writers, and the one atomic same-domain
+production writer cutover. Real pager/front-door, Victoria, authenticated IPC,
+real-root, native UI, human-feel, implementation-review, and PR-ready proof
+remain open after production reachability.
