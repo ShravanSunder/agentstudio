@@ -371,28 +371,28 @@ Proof:
 
 ### Static and automated
 
-- [ ] `mise run build`
-- [ ] focused atom/topology tests
-- [ ] focused strict SQLite/startup tests
-- [ ] focused prepared content-mount tests
-- [ ] focused watched-folder scheduler tests
-- [ ] focused filesystem/Git integration tests
+- [x] `mise run build`
+- [x] focused atom/topology tests
+- [x] focused strict SQLite/startup tests
+- [x] focused prepared content-mount tests
+- [x] focused watched-folder scheduler tests
+- [x] focused filesystem/Git integration tests
 - [ ] `mise run test-fast`
 - [ ] `mise run test-large`
-- [ ] `mise run test-webkit`
+- [x] `mise run test-webkit`
 - [ ] `mise run test`
-- [ ] `mise run lint`
-- [ ] `git diff --check`
+- [x] `mise run lint`
+- [x] `git diff --check`
 
 ### Real app
 
-- [ ] `mise run observability:up`
-- [ ] Launch through `mise run run-debug-observability -- --detach`.
-- [ ] Verify the exact PID through `mise run verify-debug-observability`.
-- [ ] Verify strict SQLite restore without composition repair or identity writes.
+- [x] `mise run observability:up`
+- [x] Launch through `mise run run-debug-observability -- --detach`.
+- [x] Verify the exact PID through `mise run verify-debug-observability`.
+- [x] Verify strict SQLite restore without composition repair or identity writes.
 - [ ] Verify prepared terminal/nonterminal cohort settlement.
-- [ ] Verify terminal attachment uses the exact stored ZMX identity.
-- [ ] Make one ordinary persisted UI change, flush, relaunch, and verify it.
+- [x] Verify terminal attachment uses the exact stored ZMX identity.
+- [x] Make one ordinary persisted UI change, flush, relaunch, and verify it.
 - [ ] Add a watched folder and verify the retained scan scheduler completes.
 - [ ] Stop the exact debug PID through the repo verifier/stop command.
 
@@ -402,7 +402,31 @@ Proof:
 - [ ] Remediate accepted findings once.
 - [ ] Re-run affected proof plus full build/lint.
 - [ ] Confirm the cleanup branch contains no unrelated `.agents/` content.
-- [ ] Merge normally; do not squash or rewrite history.
+- [ ] Stop at a reviewed clean baseline; do not merge from this cleanup goal.
+
+### C7 proof receipt — 2026-07-17
+
+- Build passed at `1bf73194`.
+- Lint passed with zero SwiftLint violations across 1,376 files; architecture
+  lint and release checks also passed.
+- The focused startup, topology, strict SQLite, content-mount, Bridge boundary,
+  and terminal-scheduler selection passed 86 tests across 17 reported suites.
+- `WatchedFolderScanScheduler` passed 21 tests across two suites.
+- `FilesystemGitPipelineIntegrationTests` passed four tests.
+- `mise run test-webkit` passed 61 tests across all nine selected suites.
+- `mise run test-fast` ran 4,371 tests across 549 suites and reported 17
+  issues. The exact remaining failure set is still being classified against the
+  recovery anchor; this gate remains open.
+- `mise run test-large` ran 259 tests across 42 suites and reported one stale
+  fixture missing the required stored `zmxSessionID`; this gate remains open.
+- Full `mise run test` ran 4,659 tests across 592 suites and reported 19
+  issues; this gate remains open.
+- The isolated debug app passed marker-scoped Victoria startup verification,
+  IPC terminal readiness, and a real terminal command completion with exit code
+  zero. A persisted sidebar mutation survived relaunch. The same stored pane ID
+  and exact opaque ZMX identity reattached to the original zmx process.
+- Real watched-folder runtime completion and the single cleanup review cycle
+  remain open. No performance frontier is authorized by this partial receipt.
 
 ## Completion definition
 
