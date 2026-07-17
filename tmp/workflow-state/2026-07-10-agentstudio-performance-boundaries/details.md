@@ -930,13 +930,13 @@ lint` (SwiftLint 0/1,633, architecture lint, all 31 admission mutation rows,
 and release scripts), and `git diff --check` passed. The product restore/save
 path is not yet cut over. The historical Packet E next step was aggregate load,
 off-main preparation, typed MainActor apply, participant installation, and
-pager-backed save equivalence before W5. That ordering is superseded by the
-active W4.5p resume pointer below.
+pager-backed save equivalence before W5. That ordering was superseded first by
+the then-active W4.5p pointer below and finally by the cleanup pointer at EOF.
 
-## ACTIVE RESUME POINTER — strict startup proof, startup DAG cut, then W4.5p
+## HISTORICAL RESUME POINTER — superseded by the 2026-07-17 cleanup checkpoint
 
-This pointer supersedes every older `next`, first-unproven-gate, Packet E,
-composition, activation, S1, and W5 resume statement in this file:
+This former pointer and all of its descendant checkpoint instructions are
+preserved as history only. They are non-executable after cleanup C1-C5.
 
 ```text
 strict terminal identity hard cut                         0d3ec070
@@ -1488,3 +1488,37 @@ topology coupling, settled UI-memory writers, and the one atomic same-domain
 production writer cutover. Real pager/front-door, Victoria, authenticated IPC,
 real-root, native UI, human-feel, implementation-review, and PR-ready proof
 remain open after production reachability.
+
+## ACTIVE RESUME POINTER — performance cleanup reconciled
+
+This pointer supersedes every earlier `next`, resume pointer, W4.5p gateway,
+fixed-revision, pager, participant, admission, fixed-slot, source-gate, repair,
+and diagnostic-ledger instruction in this file.
+
+Cleanup checkpoints:
+
+- C1 `1d0ce6dd` — simplify initial workspace composition install.
+- C2 `e5cdbfc4` — remove dormant workspace mutation families.
+- C3 `ac285aea` — remove dormant workspace persistence runtime.
+- C4 `d69fc61a` — restore atom and topology boundaries.
+- C5 `ea1402ad` — remove dormant runtime admission systems.
+- C6 complete — executable plans and workflow state reconciled with C1-C5.
+
+Atoms are current-state or pure-derived-state owners. Persistence may later
+save semantic changed rows/table families after settled state changes, but it
+does not obtain authority from atom revisions, participants, leases, pagers,
+journals, or Observation feedback.
+
+After C6 validation, resume `shravan-dev-workflow:implementation-execute-plan`
+in this exact order:
+
+```text
+1. bounded Darwin callback admission
+2. persistent root ownership index
+3. semantic EventBus and internal FS-to-Git contraction
+4. Ghostty action contraction at the synchronous callback boundary
+5. live MainActor and end-to-end Victoria workload measurement
+```
+
+Each frontier requires current-code revalidation and focused proof. None is
+complete merely because cleanup or documentation reconciliation completed.

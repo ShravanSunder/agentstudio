@@ -344,28 +344,28 @@ Focused proof:
 
 ## C6 — Correct durable contracts
 
-- [ ] Update the performance spec to remove global atom-persistence revisions,
+- [x] Update the performance spec to remove global atom-persistence revisions,
       live-atom paging, participant adapters, and historical preimage custody.
-- [ ] State the retained persistence direction: semantic changed-row/table
+- [x] State the retained persistence direction: semantic changed-row/table
       transactions owned by persistence, with atoms remaining current state.
-- [ ] Replace W4.5p in the watched-folder plan with this cleanup boundary and a
+- [x] Replace W4.5p in the watched-folder plan with this cleanup boundary and a
       later incremental-row persistence task.
-- [ ] Correct implementation-plan DAG and proof matrix.
-- [ ] Supersede, do not rewrite, historical workflow events for removed
+- [x] Correct implementation-plan DAG and proof matrix.
+- [x] Supersede, do not rewrite, historical workflow events for removed
       checkpoints.
-- [ ] Replace the active resume pointer with post-cleanup production work:
+- [x] Replace the active resume pointer with post-cleanup production work:
       bounded Darwin admission, persistent root index, semantic EventBus,
       Ghostty action contraction, and live MainActor measurement.
-- [ ] Update architecture docs only where current source ownership changed.
-- [ ] Record the supported SQLite/ZMX compatibility floor without adding repair.
+- [x] Update architecture docs only where current source ownership changed.
+- [x] Record the supported SQLite/ZMX compatibility floor without adding repair.
 
 Proof:
 
-- [ ] Documentation links resolve.
-- [ ] No current contract requires deleted symbols or architecture.
-- [ ] `mise run lint` passes.
-- [ ] `git diff --check` passes.
-- [ ] Commit C6.
+- [x] Documentation links resolve.
+- [x] No current contract requires deleted symbols or architecture.
+- [x] `mise run lint` passes.
+- [x] `git diff --check` passes.
+- [x] Commit C6.
 
 ## C7 — Full cleanup proof
 

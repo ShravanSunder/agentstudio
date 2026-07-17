@@ -1,7 +1,19 @@
 # W1b/W2 Fixed-Slot Filesystem Lifecycle Plan
 
-Status: accepted after focused adversarial review
+Status: historical and superseded; non-executable
 Date: 2026-07-13
+
+This artifact records an abandoned fixed-slot/source-gate design. Cleanup
+commits `1d0ce6dd`, `e5cdbfc4`, `ac285aea`, `d69fc61a`, and `ea1402ad`
+removed its dormant implementation and tests. Do not resume, cherry-pick,
+restore, or use any task/proof statement below as a current prerequisite.
+
+Current execution is defined by the cleanup supersession in
+[AgentStudio Performance Boundaries Implementation Plan](implementation-plan.md):
+bounded Darwin callback admission, persistent root ownership indexing,
+semantic EventBus contraction, Ghostty action contraction, and live MainActor
+measurement. The historical reasoning below remains available only to explain
+why the removed approach was considered.
 
 Parent plan:
 [Watched-Folder Admission And Shared Runtime Implementation Plan](watched-folder-and-shared-runtime-plan.md)

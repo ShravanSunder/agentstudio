@@ -1,13 +1,46 @@
 # AgentStudio Performance Boundaries Implementation Plan
 
-Status: broader plan accepted; S1t strict type-state foundation is committed at
-`d099ce32`; performance-first product execution is current under the sequencing
-amendment below.
+## 2026-07-17 Cleanup Supersession — Current Executable Contract
 
-Execution order is amended by
-[Performance-First Sequencing Amendment](performance-first-sequencing-amendment.md):
-product performance behavior and focused proof now precede S1h/S1i completion,
-S5, W11, and final lint expansion.
+The cleanup checkpoint at commits `1d0ce6dd`, `e5cdbfc4`, `ac285aea`,
+`d69fc61a`, and `ea1402ad` supersedes every executable instruction in this
+plan that requires fixed revisions, live-atom paging, persistence participants,
+admission journals, fixed filesystem slots, source gates, repair registries, or
+diagnostic ledgers. Those prototypes were removed. Their descriptions below are
+historical design records and must not be resumed, restored, or treated as
+prerequisites.
+
+Atoms remain current-state or pure-derived-state owners. They may perform
+simple representation-local assignment, equality suppression, indexing, and
+derivation; they do not own persistence planning, revisions, paging,
+participants, journals, repair orchestration, or business workflows.
+
+The only current executable frontier, in order, is:
+
+```text
+1. bounded Darwin callback admission
+2. persistent root ownership index
+3. semantic EventBus contraction
+4. Ghostty action contraction at the synchronous callback boundary
+5. live MainActor and end-to-end workload measurement
+```
+
+W4.5 is now the completed cleanup boundary. Later persistence optimization is
+a separate semantic changed-row/table task owned by persistence coordinators
+and SQLite repositories. It must be designed from measured write behavior and
+must not derive persistence authority from atom revisions, Observation,
+participants, leases, or pagers. No later frontier is complete yet.
+
+Unless a section is explicitly restated by this supersession or by a newer
+accepted plan, the remaining task graph, parallel lanes, proof rows, and
+completion language below are historical substrate only.
+
+Status: current only through the cleanup supersession above. The remaining body
+is preserved historical substrate unless a section is explicitly reactivated
+by a newer accepted plan.
+
+Historical sequencing reference:
+[Performance-First Sequencing Amendment](performance-first-sequencing-amendment.md).
 
 Accepted source commit: `c9f553e1d143e01b748a3e5aa0f8f6bd4fe0f182`
 
@@ -30,10 +63,10 @@ f546f63a6a7608950f8f2ebf4f780d98e3fef7b5282e36393aa089f7ebf19f23  source-admissi
 
 Detailed plans:
 
-- [S1 admission correction plan](s1-admission-correction-plan.md)
-- [S1t strict type-state correction plan](s1-type-state-correction-plan.md)
+- [S1 admission correction plan — historical](s1-admission-correction-plan.md)
+- [S1t strict type-state correction plan — historical](s1-type-state-correction-plan.md)
 - [Watched-folder and shared runtime plan](watched-folder-and-shared-runtime-plan.md)
-- [W1b/W2 fixed-slot filesystem lifecycle plan](w1b-fixed-slot-lifecycle-plan.md)
+- [W1b/W2 fixed-slot filesystem lifecycle plan — superseded history](w1b-fixed-slot-lifecycle-plan.md)
 - [Ghostty terminal interaction plan](ghostty-terminal-interaction-plan.md)
 
 ## 1. Goal
@@ -96,8 +129,8 @@ Live repo anchors were rechecked at `0fd9a080`: the existing global `PaneRuntime
 6. OTLP fields remain content-safe. Raw paths, UUIDs, pointers, terminal text, titles, URLs, errors, payload strings, clipboard data, and screen content are prohibited.
 7. A hard cut removes old publication/authority paths in the same integration slice. No task is complete with dual global publication, dual persistence writers, or dual terminal fact authorities.
 8. High-conflict files have one integration owner per integration gate. Parallel lanes may add disjoint primitives and focused tests, but they do not independently edit the same composition root.
-9. Canonical atoms remain state or pure-derived-state owners. Their narrow methods only assign caller-supplied values, suppress equal writes, perform simple representation-local transforms, and maintain storage indexes/observation invariants. Pure domain types validate and decide; mutation coordinators sequence cross-owner changes; persistence coordinators/adapters reserve preimages and transact assignments. No atom/facade prepares a mutation plan, rejection, semantic effect, persistence descriptor, or cross-owner workflow. Every production creation owner calls an explicit self-documenting UUIDv7-named API at the creation call site for every new durable identity before atom insertion—for example, `UUIDv7.generate()` or a type-specific `generateUUIDv7()`. Atoms and model initializers do not hide durable identity generation in defaults. UUIDv7 is the preferred generation policy for new durable IDs. Existing persisted IDs are opaque and load exactly without UUID-version validation, rewrite, migration, backfill, or adoption. No migration implementation or migration-specific proof belongs to this cut. W4.5 constructs one long-lived adapter bundle in production, routes every installed persistence-affecting writer through its domain gateway, and proves pre-mutation paging through real front doors. W4.5z hard-cuts durable terminal identity to a non-optional opaque `ZmxSessionID`, exact existing-value preservation, and mutation-free startup load before terminal activation or W5+ resumes.
-10. Every workload-producing path is acyclic per checked attempt/generation and proves separate admission, MainActor service, and downstream-expansion bounds. Acknowledgements may close custody; retries/source reconfiguration require a new bounded attempt/generation and cannot synchronously re-enter with payload. Composition and topology install independently inside one persistence runtime, and telemetry remains a bounded fail-open sidecar rather than a correctness edge.
+9. Canonical atoms remain state or pure-derived-state owners. Their narrow methods only assign caller-supplied values, suppress equal writes, perform simple representation-local transforms, and maintain storage indexes/observation invariants. Pure domain types validate and decide; mutation coordinators sequence cross-owner changes; persistence coordinators and repositories persist semantic changed rows/tables after state changes settle. No atom/facade prepares persistence work, a business workflow, or a cross-owner transaction. Every production creation owner calls an explicit self-documenting UUIDv7-named API at the creation call site for every new durable identity before atom insertion—for example, `UUIDv7.generate()` or a type-specific `generateUUIDv7()`. Atoms and model initializers do not hide durable identity generation in defaults. Existing persisted IDs are opaque and load exactly without UUID-version validation, rewrite, migration, backfill, or adoption.
+10. Every workload-producing path is acyclic per checked attempt/generation and proves separate admission, MainActor service, and downstream-expansion bounds. Acknowledgements may close custody; retries/source reconfiguration require a new bounded attempt/generation and cannot synchronously re-enter with payload. Composition restore and external topology derivation remain independent, and telemetry remains a bounded fail-open sidecar rather than a correctness edge.
 11. In this plan, repair/reconciliation/fallback refers only to external filesystem observation, watched-root currentness, topology discovery, or fact-gap recovery. SQLite composition startup and durable identity have no repair, restoration, reconciliation, adoption, backfill, fallback, quarantine, recreation, or recovery path. SQLite schema-open may run only the unchanged historical GRDB migrations required to open an older database. After schema-open, composition decode/validation performs no write, repair, backfill, normalization, or identity rewrite. Rejected current-schema fixtures leave core/local files and sidecars byte-identical; an older-schema rejection uses a post-migration baseline and proves zero subsequent composition writes.
 
 ## 4.1. Security Context
@@ -506,6 +539,9 @@ After the child plans and DQ1 pass their local gates:
 
 ## 6. Execution DAG
 
+> Historical below. The five-step frontier in the cleanup supersession is the
+> sole current execution DAG.
+
 The performance-first amendment supersedes only the ordering of guardrail
 work. All dependency and atomic-cut requirements below remain normative.
 
@@ -592,6 +628,9 @@ W12 and T12 are contributors to DQ1/IG2, not prerequisites that recursively own 
 
 ## 7. Parallel Write Scopes
 
+> Historical below. Deleted admission, diagnostic-ledger, and pager scopes are
+> not active write lanes.
+
 The executor may allocate these disjoint initial lanes:
 
 | Lane | Exclusive initial scope | Integration owner must later touch |
@@ -619,6 +658,10 @@ Admission clause and fixtures; lane L may only prepare read-only fixture designs
 High-conflict files are single-owner at each gate: `WorkspaceSurfaceCoordinator.swift`, `AppDelegate.swift`, `AppDelegate+WorkspaceBoot.swift`, `PaneRuntimeEvent.swift`, `EventBus.swift`, `FilesystemActor.swift`, `WorkspaceCacheCoordinator.swift`, `WorkspacePersistenceTransformer.swift`, `GhosttyActionRouter.swift`, `GhosttySurfaceView.swift`, `SurfaceManager.swift`, `BridgePaneController.swift`, `.mise.toml`, and the Ghostty submodule pointer. Performance cells use disposable AgentStudio source/build worktrees at the exact host revision; they do not rewrite the active worktree's `Package.swift`, framework, or resources to select a static Ghostty build.
 
 ## 8. Requirements / Proof Matrix
+
+> Historical below. Rows requiring removed prototype mechanics are not current
+> acceptance obligations. Each frontier task must define focused proof against
+> the retained production path before implementation.
 
 | Claim | Source | Owner | Public seam and independent oracle | Layer and freshness | RED/GREEN / fit |
 | --- | --- | --- | --- | --- | --- |
@@ -767,6 +810,11 @@ Return to plan/spec work before continuing when:
 
 ## 12. Completion Definition
 
-Implementation is not complete until every child task and IG1/DQ1/IG2 is checked, the requirements/proof matrix has current-run evidence, the baseline-to-candidate comparison report is adequate, all critical drops/gaps/repair debts have valid dispositions, `mise run lint` and required tests pass, both named SwiftSyntax rules and inventories are green, native/observability proof is current, the exact vendor/probe/adaptation/root/calibration manifests are recorded, `AGENTS.md` routes to the verified performance runbook, and an `implementation-review-swarm` verifies the code and proof chain.
+Implementation is not complete until all five current frontier tasks have
+focused unit/integration proof, the real debug app and marker-scoped Victoria
+workload demonstrate bounded MainActor queue age and pressure contraction, the
+relevant `mise run lint` and test gates pass, and implementation review verifies
+the code and proof chain. Deleted prototype systems and their former lint rules
+are not completion requirements.
 
 The next workflow is `implementation-execute-plan`; it must first revalidate this plan against the live branch and must not implement if the accepted specs or high-conflict files have materially drifted.

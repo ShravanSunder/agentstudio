@@ -1,5 +1,38 @@
 # Watched-Folder Admission And Shared Runtime Implementation Plan
 
+## 2026-07-17 Cleanup Supersession — Current Watched-Folder Contract
+
+Cleanup commits `1d0ce6dd`, `e5cdbfc4`, `ac285aea`, `d69fc61a`, and
+`ea1402ad` removed the dormant fixed-revision, live-atom pager, persistence
+participant, admission-journal, fixed-slot, source-gate, repair-registry, and
+diagnostic-ledger architectures. Every W1/W2/W4.5/W7/W8 instruction below that
+depends on those types is historical and non-executable.
+
+The retained production scheduler/scanner work remains valid. Current watched
+work resumes only through these boundaries:
+
+```text
+bounded Darwin callback admission
+  -> persistent immutable root ownership index
+  -> semantic EventBus and internal FS-to-Git contraction
+  -> Ghostty action contraction
+  -> live MainActor/Victoria workload proof
+```
+
+W4.5 is closed as a cleanup boundary, not a pager milestone. A later
+persistence task may save semantic changed rows or table families after settled
+state changes, owned by persistence coordinators and SQLite repositories. It
+must not add atom revisions, participants, leases, pagers, admission journals,
+or Observation-driven persistence. W5 topology projection consumes accepted
+current scan evidence and current canonical state; it does not wait for a
+persistence mirror or pager bootstrap.
+
+The W1b child plan is retained solely as a historical record. W3 bounded scan
+fairness, W4 root indexing, W6 semantic facts, W9 direct FS-to-Git contraction,
+W10 Bridge containment, W11 measured keyed UI projection, and W12 real workload
+proof remain candidates, subject to revalidation against current code. No
+future candidate is marked complete by this supersession.
+
 Parent plan: [AgentStudio Performance Boundaries Implementation Plan](implementation-plan.md)
 
 Source contract: `docs/specs/2026-07-09-watched-folder-admission-mainactor-fairness/watched-folder-admission-mainactor-fairness.md`
@@ -1561,6 +1594,19 @@ AGENTSTUDIO_PERF_REAL_ROOT_PROJECT_DEV=/Users/shravansunder/Documents/dev/projec
 `run-debug-observability` owns the manual launch; `verify-debug-observability` attaches; `stop-debug-observability` terminates and confirms exit for that exact PID/identity. All three performance workload/qualification tasks are independent launch owners and run serially only after the identity is idle; each preflights idle and guarantees exact-PID cleanup on every exit. The verifier records the exact command, exit code, run token, app PID/identity, HEAD, fixture/root/build/calibration digests, Victoria queries, and comparison report.
 
 ## 15. Watched Execution Order
+
+The executable order is:
+
+```text
+cleanup C1-C5 complete
+  -> bounded Darwin callback admission
+  -> persistent root ownership index
+  -> semantic EventBus and internal FS-to-Git contraction
+  -> Ghostty action contraction
+  -> live MainActor/Victoria workload proof
+```
+
+The older graph below is historical and must not be resumed.
 
 ```text
 shared S1 admission
