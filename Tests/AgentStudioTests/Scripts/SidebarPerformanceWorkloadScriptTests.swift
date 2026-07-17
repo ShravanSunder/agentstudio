@@ -86,7 +86,11 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(!source.contains("query_text"))
         #expect(!source.contains("osascript"))
         #expect(miseConfig.contains("[tasks.verify-sidebar-performance-workload]"))
-        #expect(miseConfig.contains("run = \"/bin/bash scripts/verify-sidebar-performance-workload.sh\""))
+        #expect(
+            miseConfig.contains(
+                "run = \"/bin/bash scripts/verify-sidebar-performance-workload.sh --sidebar-proof\""
+            )
+        )
     }
 
     @Test("prepare-only emits comparable sidebar summary without launching app")

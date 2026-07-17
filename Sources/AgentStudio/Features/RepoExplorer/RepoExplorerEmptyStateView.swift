@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct RepoExplorerEmptyStateView: View {
     let emptyState: RepoExplorerEmptyState
 

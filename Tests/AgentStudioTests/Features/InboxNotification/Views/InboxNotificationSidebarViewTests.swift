@@ -278,9 +278,9 @@ struct InboxNotificationSidebarViewTests {
                 #expect(deleteMenuFrame.width > 0)
                 #expect(deleteMenuFrame.height > 0)
                 #expect(abs(deleteMenuFrame.midY - toolbarRowFrame.midY) < 2)
-                #expect(deleteMenuFrame.midX < groupingButtonFrame.midX)
+                #expect(deleteMenuFrame.maxX <= sortButtonFrame.minX)
+                #expect(sortButtonFrame.maxX <= groupingButtonFrame.minX)
                 #expect(groupingButtonFrame.maxX <= toolbarRowFrame.maxX)
-                #expect(deleteMenuFrame.midX < sortButtonFrame.midX)
                 #expect(searchRowFrame.width > toolbarRowFrame.width * 0.9)
 
                 pressInboxSidebarAccessibleElement(deleteMenuAccessibleTarget)

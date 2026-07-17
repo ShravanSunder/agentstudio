@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudio
+
 @Suite("AgentStudio IPC Phase A smoke verifier script")
 struct AgentStudioIPCPhaseASmokeScriptTests {
     @Test("phase-a verifier is wired through mise and escrow-authenticated pane snapshot calls")
@@ -73,7 +75,7 @@ struct AgentStudioIPCPhaseASmokeScriptTests {
     }
 
     @Test("phase-a verifier rejects unsafe auth and foreground activation state")
-    func phaseAVerifierRejectsUnsafeAuthAndForegroundActivationState() throws {
+    func phaseAVerifierRejectsUnsafeAuthAndForegroundActivationState() async throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let scriptURL = projectRoot.appendingPathComponent("scripts/verify-agentstudio-ipc-phase-a-smoke.sh")
         let dataRoot = FileManager.default.temporaryDirectory
@@ -89,7 +91,7 @@ struct AgentStudioIPCPhaseASmokeScriptTests {
             authMode: "unsafe_no_auth",
             activationMode: "background"
         )
-        let unsafeResult = try runPhaseASmokeScript(scriptURL: scriptURL, stateFile: unsafeState)
+        let unsafeResult = try await runPhaseASmokeScript(scriptURL: scriptURL, stateFile: unsafeState)
         #expect(unsafeResult.exitCode == 1)
         #expect(unsafeResult.stderr.contains("requires authenticated IPC auth mode"))
 
@@ -99,7 +101,7 @@ struct AgentStudioIPCPhaseASmokeScriptTests {
             authMode: "authenticated",
             activationMode: "foreground"
         )
-        let foregroundResult = try runPhaseASmokeScript(scriptURL: scriptURL, stateFile: foregroundState)
+        let foregroundResult = try await runPhaseASmokeScript(scriptURL: scriptURL, stateFile: foregroundState)
         #expect(foregroundResult.exitCode == 1)
         #expect(foregroundResult.stderr.contains("requires background activation mode"))
     }
@@ -125,24 +127,14 @@ struct AgentStudioIPCPhaseASmokeScriptTests {
         return stateURL
     }
 
-    private func runPhaseASmokeScript(scriptURL: URL, stateFile: URL) throws -> ScriptRunResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [scriptURL.path]
-        process.environment = ProcessInfo.processInfo.environment.merging(
-            ["AGENTSTUDIO_OBSERVABILITY_STATE_FILE": stateFile.path],
-            uniquingKeysWith: { _, new in new }
-        )
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        process.waitUntilExit()
-        return ScriptRunResult(
-            exitCode: process.terminationStatus,
-            stdout: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-            stderr: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    private func runPhaseASmokeScript(scriptURL: URL, stateFile: URL) async throws -> ProcessResult {
+        try await DefaultProcessExecutor(timeout: 10).execute(
+            command: "/bin/bash",
+            args: [scriptURL.path],
+            cwd: nil,
+            environment: [
+                "AGENTSTUDIO_OBSERVABILITY_STATE_FILE": stateFile.path
+            ]
         )
     }
 }

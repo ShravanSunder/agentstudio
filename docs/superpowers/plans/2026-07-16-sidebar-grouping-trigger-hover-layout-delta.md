@@ -9,7 +9,7 @@ Base plan: `docs/superpowers/plans/2026-06-20-sidebar-grouping-icons-ipc-perform
 - Repo and Inbox use the same stable `rectangle.grid.1x3` grouping trigger.
 - The trigger renders the stable icon, current grouping label, and disclosure chevron.
 - Grouping stays anchored at the far right in both sidebar toolbar rows, separated from preceding actions by a divider.
-- Inbox notification-history deletion moves from the search row to immediately before the grouping divider.
+- Inbox notification-history deletion moves from the search row into the toolbar before sort; grouping remains last after its divider.
 - Shared sidebar toolbar controls expose visible hover, pressed, active, and open feedback.
 - Grouping popovers use the existing selectable-popover interaction semantics rather than custom borderless rows.
 
@@ -19,6 +19,7 @@ Base plan: `docs/superpowers/plans/2026-06-20-sidebar-grouping-icons-ipc-perform
 - Do not move the search field's contextual clear button or active-filter clear action.
 - Do not add a second feature-owned toolbar style.
 - Do not change repo, pane, tab, or notification group-header coloring.
+- Keep repo grouping, sort, and visibility persistence in `WorkspaceSettingsStore.repoExplorer`.
 
 ## Requirements And Proof
 
@@ -28,7 +29,7 @@ Base plan: `docs/superpowers/plans/2026-06-20-sidebar-grouping-icons-ipc-perform
 | Visible toolbar hover/open/active feedback | T1 | style-state unit coverage plus PID-targeted visual proof | unit/e2e visual | required |
 | Full-width selectable grouping rows with keyboard behavior | T2 | selectable-popover tests and sidebar interaction tests | unit/integration | required |
 | Grouping remains rightmost after a divider on both surfaces | T2 | accessibility hierarchy assertions plus PID-targeted visual proof | integration/e2e visual | required |
-| Inbox delete menu moves before the grouping divider without semantic drift | T3 | existing delete-menu action tests plus hierarchy assertion | integration | required |
+| Inbox delete menu moves before sort without semantic drift | T3 | existing delete-menu action tests plus hierarchy assertion | integration | required |
 
 Freshness guard: all automated commands and visual captures run from the final working-tree contents after implementation. Visual proof must target the deterministic debug app PID for this worktree.
 
@@ -63,13 +64,13 @@ Write surfaces:
 - `Sources/AgentStudio/Features/InboxNotification/Views/InboxSidebarComponents.swift`
 - `Tests/AgentStudioTests/Features/InboxNotification/Views/InboxNotificationSidebarViewTests.swift`
 
-Move the existing menu intact from the search-row primary action into the toolbar immediately before the grouping divider. Preserve action specs, destructive roles, accessibility identity, tooltip source, and callbacks.
+Move the existing menu intact from the search-row primary action into the toolbar before sort. Preserve action specs, destructive roles, accessibility identity, tooltip source, and callbacks.
 
 ### T4. Validation And Visual Proof
 
-1. Run focused shared-component, Repo Explorer, and Inbox sidebar tests.
+1. Run `SWIFT_TEST_TIMEOUT_SECONDS=180 mise run test -- --filter "SidebarToolbar|RepoExplorer|InboxNotificationSidebarView"`.
 2. Run `mise run lint`.
-3. Run the relevant broad Swift test gate; keep WebKit suites serialized through the repo task.
+3. Run `mise run test`; keep WebKit suites serialized through this repo task.
 4. Launch with `mise run run-debug-observability -- --detach` without foreground activation.
 5. Use PID-targeted Peekaboo to verify both surfaces, hover feedback, menu placement, grouping placement, and popup rows.
 6. Run `mise run verify-debug-observability`.

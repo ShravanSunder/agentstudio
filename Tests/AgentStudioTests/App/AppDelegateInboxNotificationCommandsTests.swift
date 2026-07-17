@@ -74,6 +74,27 @@ struct AppDelegateInboxNotificationCommandsTests {
         #expect(prefsAtom.globalInboxContentMode == .activity)
     }
 
+    @Test("typed inbox filter commands report state unavailable when preferences are missing")
+    func typedInboxFilterCommandsReportStateUnavailableWhenPreferencesAreMissing() {
+        let delegate = AppDelegate()
+
+        let rowFilterOutcome = delegate.execute(
+            AppCommandExecutionRequest(
+                command: .setInboxRowStateFilter,
+                arguments: .inboxRowStateFilter(.all)
+            )
+        )
+        let contentModeOutcome = delegate.execute(
+            AppCommandExecutionRequest(
+                command: .setInboxContentMode,
+                arguments: .inboxContentMode(.activity)
+            )
+        )
+
+        #expect(rowFilterOutcome == .stateUnavailable)
+        #expect(contentModeOutcome == .stateUnavailable)
+    }
+
     @Test("shell clear all command routes through inbox notification commands")
     func shellClearAllCommandRoutesThroughInboxNotificationCommands() {
         let delegate = AppDelegate()

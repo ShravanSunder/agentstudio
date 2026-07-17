@@ -78,8 +78,20 @@ private final class SharedComponentStateVisitor: SyntaxVisitor {
     }
 
     private func isStoreLikeEnvironmentRead(_ node: AttributeSyntax) -> Bool {
-        let description = node.trimmedDescription.lowercased()
-        return description.contains("atom") || description.contains("store")
-            || description.contains("registry")
+        guard
+            case .argumentList(let arguments) = node.arguments,
+            let keyPath = arguments.first?.expression.as(KeyPathExprSyntax.self)
+        else {
+            return false
+        }
+        return keyPath.components.contains { component in
+            guard case .property(let property) = component.component else {
+                return false
+            }
+            let identifier = property.declName.baseName.text
+            return identifier == "atom" || identifier.hasSuffix("Atom")
+                || identifier == "store" || identifier.hasSuffix("Store")
+                || identifier == "registry" || identifier.hasSuffix("Registry")
+        }
     }
 }

@@ -394,7 +394,7 @@ icons when a sidebar/local action already defines the presentation.
 | `WorkspaceSQLiteStoreBackendFactory` | product-specific SQLite backend bootstrap, core migration, core sidecar quarantine, and local repository construction | `Core/State/MainActor/Persistence/WorkspaceSQLiteStoreBackendFactory.swift` |
 | `RepoCacheStore` | persistence wrapper for `RepoEnrichmentCacheAtom` + `RecentWorkspaceTargetAtom` | `Core/State/MainActor/Persistence/RepoCacheStore.swift` |
 | `UIStateStore` | persistence wrapper for workspace sidebar shell memory only | `Core/State/MainActor/Persistence/UIStateStore.swift` |
-| `WorkspaceSettingsStore` | persistence wrapper for editor bookmark and inbox notification preferences until feature-specific settings stores split; checkout colors are intentionally ignored/cleared | `Core/State/MainActor/Persistence/WorkspaceSettingsStore.swift` |
+| `WorkspaceSettingsStore` | persistence wrapper for editor bookmark, repo explorer sidebar preferences, and inbox notification preferences until feature-specific settings stores split; checkout colors are intentionally ignored/cleared | `Core/State/MainActor/Persistence/WorkspaceSettingsStore.swift` |
 | `InboxNotificationStore` | persistence wrapper for inbox notification history and collapsed inbox groups; uses feature SQLite repository when the local backend is available and legacy JSON only for uninitialized import | `Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift` |
 | `AppLifecycleAtom` | application active/terminating state | `Core/State/MainActor/Atoms/AppLifecycleAtom.swift` |
 | `WindowLifecycleAtom` | key/focused window identity, registration, transient terminal geometry, launch-settle facts | `Core/State/MainActor/Atoms/WindowLifecycleAtom.swift` |
@@ -697,7 +697,7 @@ Where each key component lives — use this to decide where new files go. Apply 
 | `WorkspaceSQLiteRecoveryClassifier` | `Core/State/SQLite/` | GRDB corruption/not-a-database classifier shared by product SQLite recovery paths |
 | `RepoCacheStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for repo enrichment cache + recent workspace targets |
 | `UIStateStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for workspace sidebar shell memory only |
-| `WorkspaceSettingsStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for editor bookmark and inbox notification preferences until feature-specific settings stores split; checkout colors are intentionally ignored/cleared |
+| `WorkspaceSettingsStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for editor bookmark, repo explorer sidebar preferences, and inbox notification preferences until feature-specific settings stores split; checkout colors are intentionally ignored/cleared |
 | `SessionRuntime` | `Core/RuntimeEventSystem/Runtime/` | Session backends, health checks, zmx attach orchestration using stored pane anchors |
 | `SurfaceManager` | `Features/Terminal/` | Ghostty surface lifecycle, health, undo |
 | `WorkspaceCommandResolver` | `Core/Actions/` | Resolves AppCommand into WorkspaceActionCommand, builds ActionStateSnapshot |

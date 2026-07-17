@@ -325,6 +325,16 @@ private struct PaneAgentTestCommandPort: AppIPCCommandPort {
         IPCCommandListResult(commands: [])
     }
 
+    func requiredPermissionScopes(for command: IPCCommandListEntry) throws -> [IPCPermissionScope] {
+        command.requiredPrivileges.map { privilege in
+            IPCPermissionScope(
+                privilege: privilege,
+                target: .app,
+                dataScope: PermissionScopeCanonicalizer.dataScope(for: privilege)
+            )
+        }
+    }
+
     func executeCommand(_: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult {
         throw AppIPCCommandError(reason: .unsupportedCommand)
     }

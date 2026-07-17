@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct RepoExplorerVisibilityButton: View {
     let isFavoritesOnly: Bool
     let onToggle: () -> Void

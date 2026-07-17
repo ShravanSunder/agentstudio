@@ -202,10 +202,16 @@ extension AppDelegate: ShellCommandHandling {
         case (.setRepoSidebarSortOrder, .repoSidebarSortOrder(let order)):
             return executeRepoSidebarSortOrderCommand(order)
         case (.setInboxRowStateFilter, .inboxRowStateFilter(let filter)):
-            atomStore?.inboxNotificationPrefs.setGlobalInboxRowStateFilter(filter)
+            guard let inboxNotificationPrefs = atomStore?.inboxNotificationPrefs else {
+                return .stateUnavailable
+            }
+            inboxNotificationPrefs.setGlobalInboxRowStateFilter(filter)
             return .applied
         case (.setInboxContentMode, .inboxContentMode(let mode)):
-            atomStore?.inboxNotificationPrefs.setGlobalInboxContentMode(mode)
+            guard let inboxNotificationPrefs = atomStore?.inboxNotificationPrefs else {
+                return .stateUnavailable
+            }
+            inboxNotificationPrefs.setGlobalInboxContentMode(mode)
             return .applied
         default:
             return execute(request.command) ? .applied : .unsupportedCommand

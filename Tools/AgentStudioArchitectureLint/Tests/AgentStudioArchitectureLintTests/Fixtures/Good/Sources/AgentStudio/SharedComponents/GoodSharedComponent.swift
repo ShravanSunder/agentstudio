@@ -6,6 +6,7 @@ final class SharedComponentInteractionModel {
 }
 
 struct GoodSharedComponent: View {
+    @Environment(\.storefront) private var storefront
     let title: String
     @Binding var isSelected: Bool
     @ObservedObject var legacyObservableModel: SharedLegacyObservableModel
@@ -13,7 +14,7 @@ struct GoodSharedComponent: View {
     let action: () -> Void
 
     var body: some View {
-        Button(title, action: action)
+        Button("\(storefront): \(title)", action: action)
     }
 }
 

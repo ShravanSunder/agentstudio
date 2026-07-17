@@ -511,7 +511,7 @@ run = "/bin/bash scripts/verify-git-refresh-performance-workload.sh"
 
 [tasks.verify-sidebar-performance-workload]
 description = "Run AgentStudio sidebar semantic and performance workload proof"
-run = "/bin/bash scripts/verify-sidebar-performance-workload.sh"
+run = "/bin/bash scripts/verify-sidebar-performance-workload.sh --sidebar-proof"
 
 [tasks."observability:up"]
 description = "Start the shared local Victoria + OTel collector stack"
