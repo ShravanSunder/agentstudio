@@ -4,10 +4,12 @@ import { createBridgeCommWorkerCommandHandler } from './bridge-comm-worker-comma
 import {
 	encodeBridgeWorkerFileDisplayResyncCommand,
 	encodeBridgeWorkerFileQueryUpdateCommand,
+	encodeBridgeWorkerReviewProjectionUpdateCommand,
 } from './bridge-comm-worker-protocol.js';
 import type {
 	BridgeWorkerFileDisplayResyncCommand,
 	BridgeWorkerFileQueryUpdateCommand,
+	BridgeWorkerReviewProjectionUpdateCommand,
 } from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker File query command handling', () => {
@@ -55,6 +57,33 @@ describe('Bridge comm worker File query command handling', () => {
 		});
 
 		expect(handler.handleMessage(command)).toEqual([]);
+		expect(receivedCommands).toEqual([command]);
+	});
+
+	test('routes strict Review projection intent through the injected worker projection owner', () => {
+		// Arrange
+		const receivedCommands: BridgeWorkerReviewProjectionUpdateCommand[] = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [],
+			rows: [],
+			scheduleSelectedFileViewContentReadyPreparation: (): void => {},
+			scheduleSelectedReviewContentReadyPreparation: (): void => {},
+			updateReviewDisplayProjection: (command) => {
+				receivedCommands.push(command);
+				return [];
+			},
+		});
+		const command = encodeBridgeWorkerReviewProjectionUpdateCommand({
+			epoch: 11,
+			query: { fileClassFilter: 'source', gitStatusFilter: 'added' },
+			requestId: 'review-projection-1',
+		});
+
+		// Act
+		const messages = handler.handleMessage(command);
+
+		// Assert
+		expect(messages).toEqual([]);
 		expect(receivedCommands).toEqual([command]);
 	});
 });

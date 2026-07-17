@@ -107,6 +107,22 @@ describe('Bridge File viewer tree patch coordinator', () => {
 		expect(active.resetCalls).toEqual([]);
 	});
 
+	test('does not add an explicit ancestor that Pierre already synthesized for a retained file', () => {
+		const active = createRecordingTreeModel(['Vendor/BinaryFile.bin']);
+		const coordinator = createBridgeFileViewerTreePatchCoordinator({
+			initialPaths: active.paths,
+			model: active.model,
+			onQueryTransactionReady: (): boolean => true,
+		});
+
+		coordinator.applyEntry(queryBegin(1, 'query-clear'));
+		coordinator.applyEntry(queryBatch(2, 'query-clear', ['Vendor/', 'Vendor/BinaryFile.bin']));
+		coordinator.applyEntry(queryCommit(3, 'query-clear'));
+
+		expect(active.batchCalls).toEqual([]);
+		expect(active.paths).toEqual(['Vendor/BinaryFile.bin']);
+	});
+
 	test('holds replacement reset until commit while an explicit clear empties the stable model', () => {
 		const active = createRecordingTreeModel(
 			['Sources/Current.swift'],

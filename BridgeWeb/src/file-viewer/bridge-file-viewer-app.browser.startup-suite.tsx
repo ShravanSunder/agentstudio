@@ -178,6 +178,11 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const filterBox = filterMenu.getBoundingClientRect();
 		const searchBox = searchToggle.getBoundingClientRect();
 		const filterGlyphBox = filterGlyph.getBoundingClientRect();
+		const toolbarBox = toolbar.getBoundingClientRect();
+		const trailingControls = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-file-viewer-rail-toolbar-trailing"]'),
+		);
+		const trailingControlsBox = trailingControls.getBoundingClientRect();
 		for (const controlBox of [filterBox, searchBox]) {
 			expect(Math.round(controlBox.width)).toBe(24);
 			expect(Math.round(controlBox.height)).toBe(24);
@@ -188,6 +193,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		}
 		expect(Math.abs(searchBox.left - filterBox.right - 4)).toBeLessThanOrEqual(1);
 		expect(filterBox.left).toBeLessThan(searchBox.left);
+		expect(Math.abs(toolbarBox.right - trailingControlsBox.right - 8)).toBeLessThanOrEqual(1);
+		expect(trailingControlsBox.left).toBeGreaterThan(toolbarBox.left + toolbarBox.width / 2);
 		expect(Math.round(filterGlyphBox.width)).toBe(14);
 		expect(Math.round(filterGlyphBox.height)).toBe(14);
 		expect(filterGlyph.classList.contains('lucide-sliders-horizontal')).toBe(true);
@@ -203,17 +210,54 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(sourceProvenance.getBoundingClientRect().width).toBeLessThanOrEqual(1);
 		expect(sourceProvenance.getBoundingClientRect().height).toBeLessThanOrEqual(1);
 
+		await actClick(filterMenu);
+		const filterPopover = await waitForFileViewerHTMLElement({
+			selector: '[data-testid="worktree-file-filter-menu-popover"]',
+		});
+		const filterOption = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="worktree-file-filter-menu-option"]'),
+		);
+		const filterClear = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="worktree-file-filter-menu-clear"]'),
+		);
+		expect(Math.round(filterOption.getBoundingClientRect().height)).toBe(30);
+		expect(Math.round(filterClear.getBoundingClientRect().height)).toBe(30);
+		expect(
+			Math.abs(filterPopover.getBoundingClientRect().right - filterBox.right),
+		).toBeLessThanOrEqual(1);
+		await actClick(filterMenu);
+
 		await actClick(searchToggle);
 
 		const searchInput = await waitForFileViewerHTMLElement({
 			selector: '[data-testid="worktree-file-search-input"]',
 		});
+		if (!(searchInput instanceof HTMLInputElement)) {
+			throw new Error('Expected the shared File search input.');
+		}
 		const regexToggle = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="worktree-file-regex-toggle"]'),
 		);
 		const searchField = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-bridge-viewer-search-field="true"]'),
 		);
+		await act(async (): Promise<void> => {
+			searchInput.focus();
+			searchInput.value = 'padding proof';
+			searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+		});
+		const searchIcon = document.querySelector('[data-bridge-viewer-search-icon="true"]');
+		if (!(searchIcon instanceof SVGElement)) {
+			throw new Error('Expected the shared search icon SVG.');
+		}
+		const clearButton = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="worktree-file-search-clear"]'),
+		);
+		const searchFieldBox = searchField.getBoundingClientRect();
+		const searchIconBox = searchIcon.getBoundingClientRect();
+		const inputBox = searchInput.getBoundingClientRect();
+		const regexBox = regexToggle.getBoundingClientRect();
+		const clearBox = clearButton.getBoundingClientRect();
 		expect(Math.round(searchInput.getBoundingClientRect().height)).toBe(24);
 		expect(Math.round(searchField.getBoundingClientRect().height)).toBe(28);
 		expect(Math.round(regexToggle.getBoundingClientRect().width)).toBe(20);
@@ -223,6 +267,17 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(regexToggle.getBoundingClientRect().right).toBeLessThanOrEqual(
 			searchField.getBoundingClientRect().right,
 		);
+		expect(regexBox.right).toBeLessThan(clearBox.left);
+		expect(Math.abs(searchFieldBox.right - clearBox.right - 6)).toBeLessThanOrEqual(1);
+		expect(searchIconBox.left - searchFieldBox.left).toBeGreaterThanOrEqual(6);
+		expect(inputBox.left - searchIconBox.right).toBeGreaterThanOrEqual(4);
+		for (const controlBox of [searchIconBox, inputBox, regexBox, clearBox]) {
+			expect(
+				Math.abs(
+					controlBox.y + controlBox.height / 2 - (searchFieldBox.y + searchFieldBox.height / 2),
+				),
+			).toBeLessThanOrEqual(1);
+		}
 		expect(getComputedStyle(searchInput).fontSize).toBe('11px');
 		expect(searchInput.className).toContain('h-6');
 		expect(searchInput.className).toContain('!text-[11px]');

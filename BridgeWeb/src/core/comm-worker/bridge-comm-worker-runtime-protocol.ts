@@ -20,6 +20,7 @@ import {
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
 import { createBridgeCommWorkerReviewDemandScheduling } from './bridge-comm-worker-review-demand-scheduling.js';
 import { BridgeCommWorkerReviewMetadataApplicator } from './bridge-comm-worker-review-metadata-applicator.js';
+import { BridgeCommWorkerReviewQueryProjection } from './bridge-comm-worker-review-query-projection.js';
 import {
 	bridgeCommWorkerTelemetryLaneForMessage,
 	bridgeWorkerRuntimeProductControlCommandForMessage,
@@ -213,8 +214,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	const fileDisplayEventAuthority = new BridgeCommWorkerFileDisplayEventAuthority({
 		createSequence,
 	});
+	const reviewQueryProjection = new BridgeCommWorkerReviewQueryProjection();
 	let reviewDisplayProjectionRevision = 0;
-	const publishReviewDisplayPatches = (publication: {
+	const postReviewDisplayPatches = (publication: {
 		readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
 		readonly workerDerivationEpoch: number;
 	}): void => {
@@ -232,6 +234,17 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		});
 		port.postMessage(message);
 		reviewDisplayProjectionRevision = nextProjectionRevision;
+	};
+	const publishReviewDisplayPatches = (publication: {
+		readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
+		readonly workerDerivationEpoch: number;
+	}): void => {
+		const projectedPatches = reviewQueryProjection.applyDisplayPatches(publication.patches);
+		if (projectedPatches.length === 0) return;
+		postReviewDisplayPatches({
+			patches: projectedPatches,
+			workerDerivationEpoch: publication.workerDerivationEpoch,
+		});
 	};
 	const fileQueryProjection = new BridgeCommWorkerFileQueryProjection();
 	let updateFileMetadataDemand: ((demand: BridgeCommWorkerFileMetadataDemand) => void) | null =
@@ -357,6 +370,16 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				reviewDemandScheduling.scheduleDemandExecution(request) || shouldRequestDrainAfterMessage;
 		},
 		updateReviewRuntimeSource: reviewDemandScheduling.updateRuntimeSource,
+		updateReviewDisplayProjection: (command) => {
+			const patches = reviewQueryProjection.updateQuery(command.query);
+			if (patches.length > 0) {
+				postReviewDisplayPatches({
+					patches,
+					workerDerivationEpoch: activeReviewWorkerDerivationEpoch ?? command.epoch,
+				});
+			}
+			return [];
+		},
 		updateFileViewRuntimeSource: (source: BridgeCommWorkerFileViewRuntimeSource): void => {
 			fileViewRuntimeSource = source;
 		},

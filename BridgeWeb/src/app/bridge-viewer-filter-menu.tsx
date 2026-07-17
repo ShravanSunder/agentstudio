@@ -49,6 +49,79 @@ export const bridgeViewerFilterClearClassName = cn(
 	'focus:text-[var(--bridge-text-primary)] data-disabled:cursor-default data-disabled:opacity-55',
 );
 
+export function BridgeViewerFilterMenuHeader(props: {
+	readonly description: string;
+	readonly testId: string;
+	readonly title: string;
+}): ReactElement {
+	return (
+		<header className="px-2 pb-2 pt-1.5" data-testid={props.testId}>
+			<p className="text-[13px] font-medium text-[var(--bridge-text-primary)]">{props.title}</p>
+			<p className="mt-0.5 text-[11px] text-[var(--bridge-text-muted)]">{props.description}</p>
+		</header>
+	);
+}
+
+export function BridgeViewerFilterOptionRow(props: {
+	readonly checked: boolean;
+	readonly icon: ReactNode;
+	readonly label: string;
+	readonly onSelect: () => void;
+	readonly optionBadgeTestId: string;
+	readonly optionLabelTestId: string;
+	readonly optionTestId: string;
+	readonly value: string;
+}): ReactElement {
+	return (
+		<DropdownMenuCheckboxItem
+			checked={props.checked}
+			className={cn(
+				bridgeViewerFilterOptionClassName,
+				'h-8 py-0',
+				props.checked && 'text-[var(--bridge-text-primary)]',
+			)}
+			data-testid={props.optionTestId}
+			onClick={props.onSelect}
+		>
+			<span
+				aria-hidden="true"
+				className={cn(
+					'flex size-5 shrink-0 items-center justify-center rounded-[6px]',
+					'text-[10px] font-semibold leading-none',
+					statusBadgeClassName(props.value),
+				)}
+				data-testid={props.optionBadgeTestId}
+			>
+				{props.icon}
+			</span>
+			<span className="min-w-0 truncate" data-testid={props.optionLabelTestId}>
+				{props.label}
+			</span>
+		</DropdownMenuCheckboxItem>
+	);
+}
+
+export function BridgeViewerFilterClearItem(props: {
+	readonly disabled: boolean;
+	readonly label: string;
+	readonly onClear: () => void;
+	readonly testId: string;
+}): ReactElement {
+	return (
+		<DropdownMenuItem
+			className={bridgeViewerFilterClearClassName}
+			data-testid={props.testId}
+			disabled={props.disabled}
+			onClick={props.onClear}
+		>
+			<span className="flex size-5 shrink-0 items-center justify-center rounded-[6px] bg-[var(--bridge-surface-muted-bg)] text-[var(--bridge-text-secondary)]">
+				<XIcon aria-hidden="true" className="size-3.5" />
+			</span>
+			<span>{props.label}</span>
+		</DropdownMenuItem>
+	);
+}
+
 export function BridgeViewerFilterTrigger(props: {
 	readonly activeIndicatorTestId: string;
 	readonly hasActiveFilter: boolean;
@@ -122,61 +195,38 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 				data-testid={testIds.popover}
 				sideOffset={6}
 			>
-				<header className="px-2 pb-2 pt-1.5" data-testid={testIds.popoverHeader}>
-					<p className="text-[13px] font-medium text-[var(--bridge-text-primary)]">
-						{titleForFilterLabel(props.label)}
-					</p>
-					<p className="mt-0.5 text-[11px] text-[var(--bridge-text-muted)]">
-						{descriptionForFilterLabel(props.label)}
-					</p>
-				</header>
+				<BridgeViewerFilterMenuHeader
+					description={descriptionForFilterLabel(props.label)}
+					testId={testIds.popoverHeader}
+					title={titleForFilterLabel(props.label)}
+				/>
 				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
 				{menuOptions.map(
 					(option: BridgeViewerFilterOption<TValue>): ReactElement => (
-						<DropdownMenuCheckboxItem
+						<BridgeViewerFilterOptionRow
 							checked={option.value === props.value}
-							className={cn(
-								bridgeViewerFilterOptionClassName,
-								'h-8 py-0',
-								option.value === props.value && 'text-[var(--bridge-text-primary)]',
-							)}
-							data-testid={testIds.option}
+							icon={option.icon ?? option.label.slice(0, 1)}
 							key={option.value}
-							onClick={() => props.onChange(option.value)}
-						>
-							<span
-								className={cn(
-									'flex size-5 shrink-0 items-center justify-center rounded-[6px]',
-									'text-[10px] font-semibold leading-none',
-									statusBadgeClassName(option.value),
-								)}
-								aria-hidden="true"
-								data-testid={testIds.optionBadge}
-							>
-								{option.icon ?? option.label.slice(0, 1)}
-							</span>
-							<span className="min-w-0 truncate" data-testid={testIds.optionLabel}>
-								{option.label}
-							</span>
-						</DropdownMenuCheckboxItem>
+							label={option.label}
+							onSelect={() => props.onChange(option.value)}
+							optionBadgeTestId={testIds.optionBadge}
+							optionLabelTestId={testIds.optionLabel}
+							optionTestId={testIds.option}
+							value={option.value}
+						/>
 					),
 				)}
 				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
-				<DropdownMenuItem
-					className={bridgeViewerFilterClearClassName}
-					data-testid={testIds.clear}
+				<BridgeViewerFilterClearItem
 					disabled={!canClear}
-					onClick={() => {
+					label="Clear filter"
+					onClear={() => {
 						if (clearOption !== undefined) {
 							props.onChange(clearOption.value);
 						}
 					}}
-				>
-					<span className="flex size-5 shrink-0 items-center justify-center rounded-[6px] bg-[var(--bridge-surface-muted-bg)] text-[var(--bridge-text-secondary)]">
-						<XIcon aria-hidden="true" className="size-3.5" />
-					</span>
-					<span>Clear filter</span>
-				</DropdownMenuItem>
+					testId={testIds.clear}
+				/>
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);

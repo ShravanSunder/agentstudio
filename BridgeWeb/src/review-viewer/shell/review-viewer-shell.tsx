@@ -394,9 +394,11 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 					testId: 'bridge-review-sidebar',
 					toolbarBelow: treeSearchOpen ? (
 						<BridgeViewerSearchField
+							clearButtonTestId="bridge-review-search-clear"
 							errorMessage={treeSearchErrorMessage}
 							inputTestId="bridge-review-search-input"
 							onChange={(value): void => props.onTreeSearchTextChange?.(value)}
+							onClear={(): void => props.onTreeSearchTextChange?.('')}
 							onSearchModeChange={(mode): void => props.onTreeSearchModeChange?.(mode)}
 							regexToggleTestId="bridge-review-regex-toggle"
 							searchMode={treeSearchMode}

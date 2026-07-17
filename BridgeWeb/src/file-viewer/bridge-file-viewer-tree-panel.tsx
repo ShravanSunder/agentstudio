@@ -113,17 +113,16 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 					className: 'min-w-0 gap-2',
 					leading: (
 						<>
-							{visibleCountLabel} {sourceLabel}
-							<span className="hidden" data-testid="worktree-file-filter-count">
+							<span className="sr-only" data-testid="worktree-file-filter-count">
 								{visibleCountLabel}
 							</span>
-							<span className="hidden" data-testid="worktree-file-provenance">
+							<span className="sr-only" data-testid="worktree-file-provenance">
 								{sourceLabel}
 							</span>
 						</>
 					),
 					leadingAriaLive: 'polite',
-					leadingClassName: 'sr-only',
+					leadingClassName: 'flex-1',
 					leadingRole: 'status',
 					leadingTestId: 'bridge-file-viewer-rail-toolbar-leading',
 					testId: 'bridge-file-viewer-rail-toolbar',
@@ -151,9 +150,11 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 				}),
 				toolbarBelow: shouldShowSearchInput ? (
 					<BridgeViewerSearchField
+						clearButtonTestId="worktree-file-search-clear"
 						errorMessage={props.searchError === null ? null : 'Invalid regex'}
 						inputTestId="worktree-file-search-input"
 						onChange={props.onSearchTextChange}
+						onClear={(): void => props.onSearchTextChange('')}
 						onSearchModeChange={(searchMode) => {
 							props.onSearchModeChange(searchMode.kind);
 						}}

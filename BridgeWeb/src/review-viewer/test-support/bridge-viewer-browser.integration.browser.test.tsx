@@ -121,7 +121,47 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 
 		// Assert
 		expect(searchInput.value).toBe('RecoveryFile005');
+		const searchField = requireReviewHTMLElement(
+			document.querySelector('[data-bridge-viewer-search-field="true"]'),
+		);
+		const searchIcon = document.querySelector('[data-bridge-viewer-search-icon="true"]');
+		if (!(searchIcon instanceof SVGElement))
+			throw new Error('Expected the shared search icon SVG.');
+		const regexButton = requireReviewHTMLElement(
+			document.querySelector('[data-testid="bridge-review-regex-toggle"]'),
+		);
+		const clearButton = requireReviewHTMLElement(
+			document.querySelector('[data-testid="bridge-review-search-clear"]'),
+		);
+		const fieldBox = searchField.getBoundingClientRect();
+		const iconBox = searchIcon.getBoundingClientRect();
+		const inputBox = searchInput.getBoundingClientRect();
+		const regexBox = regexButton.getBoundingClientRect();
+		const clearBox = clearButton.getBoundingClientRect();
+		const railToolbar = requireReviewHTMLElement(
+			document.querySelector('[data-testid="bridge-review-rail-toolbar"]'),
+		);
+		const railTrailingControls = requireReviewHTMLElement(
+			document.querySelector('[data-testid="bridge-review-rail-toolbar-trailing"]'),
+		);
+		expect(
+			Math.abs(
+				railToolbar.getBoundingClientRect().right -
+					railTrailingControls.getBoundingClientRect().right -
+					8,
+			),
+		).toBeLessThanOrEqual(1);
+		expect(regexBox.right).toBeLessThan(clearBox.left);
+		expect(Math.abs(fieldBox.right - clearBox.right - 6)).toBeLessThanOrEqual(1);
+		expect(iconBox.left - fieldBox.left).toBeGreaterThanOrEqual(6);
+		expect(inputBox.left - iconBox.right).toBeGreaterThanOrEqual(4);
+		for (const controlBox of [iconBox, inputBox, regexBox, clearBox]) {
+			expect(
+				Math.abs(controlBox.y + controlBox.height / 2 - (fieldBox.y + fieldBox.height / 2)),
+			).toBeLessThanOrEqual(1);
+		}
 		expect(mountedReviewTreePaths(harness.pierreTreeHost())).toEqual([
+			'Sources',
 			'Sources/RecoveryGroup02',
 			expectedMatch.path,
 		]);
@@ -173,6 +213,78 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		await expect
 			.element(harness.renderResult.getByTestId('bridge-review-tree-search-status'))
 			.toHaveTextContent('Invalid regex');
+
+		// Act: Clear is the far-right reset for the same shared field.
+		await act(async (): Promise<void> => {
+			await harness.renderResult.getByTestId('bridge-review-search-clear').click();
+		});
+		await advanceBridgeReviewRecoveryWitnessFrames(2);
+
+		// Assert
+		expect(document.querySelector('[data-testid="bridge-review-search-input"]')).toBeNull();
+		expect(mountedReviewTreePaths(harness.pierreTreeHost())).toHaveLength(9);
+	});
+
+	test('Review facets replace visible rows with required ancestors and Clear restores the tree', async () => {
+		// Arrange
+		const files = makeBridgeReviewRecoveryWitnessFiles({
+			count: 6,
+			lineCount: 3,
+			markerPrefix: 'FACETS',
+		}).map((file, index) => {
+			return Object.assign({}, file, {
+				changeKind: index < 3 ? ('added' as const) : ('modified' as const),
+				fileClass: index < 3 ? ('source' as const) : ('test' as const),
+			});
+		});
+		const harness = renderBridgeReviewRecoveryWitness(files);
+		await harness.publishDisplay();
+		await expect.poll(() => mountedReviewTreePaths(harness.pierreTreeHost())).toHaveLength(9);
+
+		// Act: choose Added through the real shared facet menu.
+		await act(async (): Promise<void> => {
+			await harness.renderResult.getByTestId('bridge-review-facet-menu-control').click();
+		});
+		const reviewFacetPopover = requireReviewHTMLElement(
+			document.querySelector('[data-testid="bridge-review-facet-popover"]'),
+		);
+		const reviewFacetTrigger = requireReviewHTMLElement(
+			document.querySelector('[data-testid="bridge-review-facet-menu-control"]'),
+		);
+		const reviewFacetOption = requireReviewHTMLElement(reviewFacetOptionContaining('Added'));
+		const reviewFacetClear = requireReviewHTMLElement(
+			document.querySelector('[data-testid="bridge-review-facet-clear"]'),
+		);
+		expect(Math.round(reviewFacetOption.getBoundingClientRect().height)).toBe(30);
+		expect(Math.round(reviewFacetClear.getBoundingClientRect().height)).toBe(30);
+		expect(
+			Math.abs(
+				reviewFacetPopover.getBoundingClientRect().right -
+					reviewFacetTrigger.getBoundingClientRect().right,
+			),
+		).toBeLessThanOrEqual(1);
+		await act(async (): Promise<void> => {
+			reviewFacetOption.click();
+		});
+		await advanceBridgeReviewRecoveryWitnessFrames(2);
+
+		// Assert
+		expect(mountedReviewTreePaths(harness.pierreTreeHost())).toEqual([
+			'Sources',
+			'Sources/RecoveryGroup01',
+			'Sources/RecoveryGroup01/RecoveryFile001.swift',
+			'Sources/RecoveryGroup01/RecoveryFile002.swift',
+			'Sources/RecoveryGroup01/RecoveryFile003.swift',
+		]);
+
+		// Act: reset through the visible Clear action.
+		await act(async (): Promise<void> => {
+			await harness.renderResult.getByTestId('bridge-review-facet-clear').click();
+		});
+		await advanceBridgeReviewRecoveryWitnessFrames(2);
+
+		// Assert
+		expect(mountedReviewTreePaths(harness.pierreTreeHost())).toHaveLength(9);
 	});
 
 	test('reveals ancestors for explicit Review navigation without changing fresh disclosure', async () => {
@@ -552,6 +664,19 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		expect(harness.pierreTreePath(files[5]?.path ?? '')).not.toBeNull();
 	});
 });
+
+function reviewFacetOptionContaining(text: string): HTMLElement {
+	const option = [
+		...document.querySelectorAll<HTMLElement>('[data-testid="bridge-review-facet-option"]'),
+	].find((candidate): boolean => candidate.textContent?.includes(text) ?? false);
+	if (option === undefined) throw new Error(`Expected Review facet option containing ${text}.`);
+	return option;
+}
+
+function requireReviewHTMLElement(element: Element | null): HTMLElement {
+	if (!(element instanceof HTMLElement)) throw new Error('Expected a real Review browser element.');
+	return element;
+}
 
 function mountedReviewTreePaths(treeHost: HTMLElement | null): readonly string[] {
 	if (treeHost?.shadowRoot === null || treeHost?.shadowRoot === undefined) return [];

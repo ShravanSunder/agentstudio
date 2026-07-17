@@ -86,6 +86,14 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const isActiveRef = useRef(isActive);
 	const wasReviewViewportActiveRef = useRef(isActive);
 	isActiveRef.current = isActive;
+	useEffect((): void => {
+		if (catalogSnapshot.epoch === null) return;
+		reviewClient.send({
+			command: 'reviewProjectionUpdate',
+			epoch: catalogSnapshot.epoch,
+			query: { fileClassFilter, gitStatusFilter },
+		});
+	}, [catalogSnapshot.epoch, fileClassFilter, gitStatusFilter, reviewClient]);
 	useEffect((): (() => void) => startBridgeFrameLivenessProbe(), []);
 	useEffect(
 		(): (() => void) =>

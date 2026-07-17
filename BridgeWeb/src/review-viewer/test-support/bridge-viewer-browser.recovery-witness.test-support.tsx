@@ -16,9 +16,14 @@ import { makeBridgeWorkerRenderReceiptIdentity } from '../../core/comm-worker/br
 import type { BridgeWorkerRpcCommandInput } from '../../core/comm-worker/bridge-worker-rpc-client.js';
 import { createBridgeWorkerRpcLifecycleStore } from '../../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
 import { bridgeContentDemandExecutionPolicy } from '../../core/demand/bridge-content-demand-policy.js';
+import type {
+	BridgeFileChangeKind,
+	BridgeFileClass,
+} from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import { parseBridgeCodeViewDiffForBrowserTest } from '../code-view/bridge-code-view-browser-test-diff.js';
+import { BridgeReviewProjectionWitnessRouter } from './bridge-review-projection-witness-router.js';
 import { reviewWitnessTreeRows } from './bridge-viewer-browser-recovery-tree-fixture.js';
 import { visibleTextIncludingOpenShadowRoots } from './bridge-viewer-browser-visible-text.js';
 import { advanceBridgeReviewRecoveryWitnessFrames } from './bridge-viewer-browser.recovery-witness-scroll.test-support.js';
@@ -33,7 +38,9 @@ export type {
 } from './bridge-viewer-browser.recovery-witness-scroll.test-support.js';
 
 export interface BridgeReviewRecoveryWitnessFile {
+	readonly changeKind?: BridgeFileChangeKind;
 	readonly contentMarker: string;
+	readonly fileClass?: BridgeFileClass;
 	readonly itemId: string;
 	readonly lineCount: number;
 	readonly path: string;
@@ -125,7 +132,11 @@ export function renderBridgeReviewRecoveryWitness(
 	};
 	const publishedContentItemIds = new Set<string>();
 	let messageListener: ((message: BridgeWorkerServerToMainMessage) => void) | null = null;
+	const reviewProjectionRouter = new BridgeReviewProjectionWitnessRouter();
 	let isDisposed = false;
+	const publishRawReviewDisplayEvent = (event: BridgeWorkerReviewDisplayPatchEvent): void => {
+		reviewProjectionRouter.publishRaw(event);
+	};
 	const renderFulfillmentCoordinator = createBridgeMainRenderFulfillmentCoordinator({
 		nowMilliseconds: (): number => 0,
 		sendDisposition: (_receipt): void => {},
@@ -136,11 +147,15 @@ export function renderBridgeReviewRecoveryWitness(
 		renderStore,
 		send: (command): string => {
 			sentCommands.push(command);
+			if (command.command === 'reviewProjectionUpdate')
+				reviewProjectionRouter.publishQuery(command);
 			return `review-recovery-witness-request-${sentCommands.length}`;
 		},
 		subscribeMessages: (listener): (() => void) => {
 			messageListener = listener;
+			reviewProjectionRouter.setListener(listener);
 			return (): void => {
+				reviewProjectionRouter.clearListener(listener);
 				if (messageListener === listener) messageListener = null;
 			};
 		},
@@ -271,7 +286,7 @@ export function renderBridgeReviewRecoveryWitness(
 		},
 		publishDisplay: async (): Promise<void> => {
 			await act(async (): Promise<void> => {
-				requireMessageListener()(reviewDisplayEvent(files));
+				publishRawReviewDisplayEvent(reviewDisplayEvent(files));
 				await import('../shell/review-viewer-shell.js');
 				await Promise.resolve();
 				await new Promise<void>((resolve): void => {
@@ -285,14 +300,14 @@ export function renderBridgeReviewRecoveryWitness(
 				throw new Error('Review display append requires a non-empty proper initial prefix.');
 			}
 			await act(async (): Promise<void> => {
-				requireMessageListener()(reviewDisplayAppendEvent(files, initialItemCount));
+				publishRawReviewDisplayEvent(reviewDisplayAppendEvent(files, initialItemCount));
 				await Promise.resolve();
 			});
 			await advanceBridgeReviewRecoveryWitnessFrames(4);
 		},
 		publishDisplayAtEpoch: async (epoch: number): Promise<void> => {
 			await act(async (): Promise<void> => {
-				requireMessageListener()(
+				publishRawReviewDisplayEvent(
 					reviewDisplayEvent(files, {
 						epoch,
 						projectionRevision: epoch,
@@ -305,7 +320,7 @@ export function renderBridgeReviewRecoveryWitness(
 		},
 		publishDisplayAtPackageIdentity: async (metadataWindowIdentity: string): Promise<void> => {
 			await act(async (): Promise<void> => {
-				requireMessageListener()(
+				publishRawReviewDisplayEvent(
 					reviewDisplayEvent(files, {
 						metadataWindowIdentity,
 						projectionRevision: 2,
@@ -321,14 +336,13 @@ export function renderBridgeReviewRecoveryWitness(
 				throw new Error('Two-batch Review display requires a non-empty proper initial prefix.');
 			}
 			await act(async (): Promise<void> => {
-				const publish = requireMessageListener();
-				publish(reviewDisplayEvent(files.slice(0, initialItemCount)));
+				publishRawReviewDisplayEvent(reviewDisplayEvent(files.slice(0, initialItemCount)));
 				await import('../shell/review-viewer-shell.js');
 				await Promise.resolve();
 				await new Promise<void>((resolve): void => {
 					requestAnimationFrame((): void => resolve());
 				});
-				publish(reviewDisplayAppendEvent(files, initialItemCount));
+				publishRawReviewDisplayEvent(reviewDisplayAppendEvent(files, initialItemCount));
 				await Promise.resolve();
 			});
 		},
@@ -353,7 +367,7 @@ export function renderBridgeReviewRecoveryWitness(
 				throw new Error('Review display prefix requires a non-empty proper initial prefix.');
 			}
 			await act(async (): Promise<void> => {
-				requireMessageListener()(reviewDisplayEvent(files.slice(0, initialItemCount)));
+				publishRawReviewDisplayEvent(reviewDisplayEvent(files.slice(0, initialItemCount)));
 				await import('../shell/review-viewer-shell.js');
 				await Promise.resolve();
 				await new Promise<void>((resolve): void => {
@@ -365,7 +379,9 @@ export function renderBridgeReviewRecoveryWitness(
 		},
 		publishAuthoritativeDisplayAfterRetainedSelection: async (): Promise<void> => {
 			await act(async (): Promise<void> => {
-				requireMessageListener()(reviewDisplayEvent(files, { projectionRevision: 2, sequence: 2 }));
+				publishRawReviewDisplayEvent(
+					reviewDisplayEvent(files, { projectionRevision: 2, sequence: 2 }),
+				);
 				await Promise.resolve();
 			});
 			await advanceBridgeReviewRecoveryWitnessFrames(4);
@@ -380,7 +396,9 @@ export function renderBridgeReviewRecoveryWitness(
 				);
 			}
 			await act(async (): Promise<void> => {
-				requireMessageListener()(reviewDisplayEvent(files, { projectionRevision: 2, sequence: 2 }));
+				publishRawReviewDisplayEvent(
+					reviewDisplayEvent(files, { projectionRevision: 2, sequence: 2 }),
+				);
 				renderStore.setLocalSelection({ selectedItemId: selectedFile.itemId, source: 'user' });
 				await Promise.resolve();
 			});
@@ -394,7 +412,7 @@ export function renderBridgeReviewRecoveryWitness(
 				);
 			}
 			await act(async (): Promise<void> => {
-				requireMessageListener()(reviewDisplayEvent([selectedFile]));
+				publishRawReviewDisplayEvent(reviewDisplayEvent([selectedFile]));
 				await import('../shell/review-viewer-shell.js');
 				await Promise.resolve();
 				await new Promise<void>((resolve): void => {
@@ -739,12 +757,12 @@ function reviewDisplayItem(
 		],
 		metadata: {
 			basePath: file.path,
-			changeKind: 'modified',
+			changeKind: file.changeKind ?? 'modified',
 			contentDescriptorIdsByRole: {},
 			contentHashesByRole: {},
 			contentRoles: ['base', 'head'],
 			extension: 'swift',
-			fileClass: 'source',
+			fileClass: file.fileClass ?? 'source',
 			headPath: file.path,
 			isHiddenByDefault: false,
 			itemId: file.itemId,

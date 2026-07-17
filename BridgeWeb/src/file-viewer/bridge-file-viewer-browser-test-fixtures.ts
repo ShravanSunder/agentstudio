@@ -126,6 +126,62 @@ export function makeTreeRowsOnlyMetadataEvents(): readonly FileMetadataEvent[] {
 	];
 }
 
+export function makeMixedAvailabilityTreeMetadataEvents(): readonly FileMetadataEvent[] {
+	const source = makeSourceIdentity();
+	const textDescriptor = makeFileDescriptor({
+		contentHandle: 'mixed-text-content',
+		fileId: 'file-mixed-text',
+		path: 'Sources/App/TextFile.ts',
+		sourceIdentity: source,
+	});
+	const unavailableDescriptor = makeFileDescriptor({
+		contentHandle: 'mixed-unavailable-content',
+		fileId: 'file-mixed-unavailable',
+		path: 'Vendor/BinaryFile.bin',
+		sourceIdentity: source,
+		virtualizedExtentKind: 'unavailable',
+	});
+	return [
+		makeSourceAcceptedMetadataEvent(source),
+		parseFileMetadataEvent({
+			eventKind: 'file.treeWindow',
+			finalWindow: true,
+			lineage: startupWindowMetadataLineage,
+			pathScope: [],
+			rows: [
+				makeTreeRow({
+					depth: 0,
+					isDirectory: true,
+					name: 'Sources',
+					parentPath: null,
+					path: 'Sources',
+				}),
+				makeTreeRow({
+					depth: 1,
+					isDirectory: true,
+					name: 'App',
+					parentPath: 'Sources',
+					path: 'Sources/App',
+				}),
+				makeTreeRowFromDescriptor(textDescriptor),
+				makeTreeRow({
+					depth: 0,
+					isDirectory: true,
+					name: 'Vendor',
+					parentPath: null,
+					path: 'Vendor',
+				}),
+				makeTreeRowFromDescriptor(unavailableDescriptor),
+			],
+			source,
+			startIndex: 0,
+			totalRowCount: 5,
+		}),
+		textDescriptor,
+		unavailableDescriptor,
+	];
+}
+
 export function makeTreeWindowedMetadataEvents(props: {
 	readonly rowCount: number;
 	readonly totalPathCount: number;

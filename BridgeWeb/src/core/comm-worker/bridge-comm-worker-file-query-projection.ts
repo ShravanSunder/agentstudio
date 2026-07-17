@@ -230,11 +230,16 @@ export class BridgeCommWorkerFileQueryProjection {
 			return;
 		}
 		pendingQuery.nextProjectedRowsById.set(row.rowId, row);
-		appendPendingFileTreeOperation(pendingQuery, { operation: 'upsert', row });
 	}
 
 	#finishPendingQuery(pendingQuery: PendingFileQueryProjection): void {
 		if (this.#pendingQuery?.generation !== pendingQuery.generation) return;
+		this.#includeRequiredAncestorRows(pendingQuery.nextProjectedRowsById);
+		for (const row of [...pendingQuery.nextProjectedRowsById.values()].toSorted(
+			(left, right) => left.projectionIndex - right.projectionIndex,
+		)) {
+			appendPendingFileTreeOperation(pendingQuery, { operation: 'upsert', row });
+		}
 		flushPendingFileTreeOperations(pendingQuery);
 		this.#projectedRowsById = pendingQuery.nextProjectedRowsById;
 		this.#publishedQuery = pendingQuery.query;
@@ -246,6 +251,22 @@ export class BridgeCommWorkerFileQueryProjection {
 			patches: [...pendingQuery.operationBatches, this.#publishedQueryStatusPatch()],
 			queryTransactionId: `file-query-${String(pendingQuery.generation)}`,
 		});
+	}
+
+	#includeRequiredAncestorRows(projectedRowsById: Map<string, FileTreeRow>): void {
+		const requiredDirectoryPaths = new Set<string>();
+		for (const row of projectedRowsById.values()) {
+			if (row.isDirectory) continue;
+			const pathSegments = row.path.split('/').filter((segment) => segment.length > 0);
+			for (let segmentCount = 1; segmentCount < pathSegments.length; segmentCount += 1) {
+				requiredDirectoryPaths.add(pathSegments.slice(0, segmentCount).join('/'));
+			}
+		}
+		for (const row of this.#rawRowsById.values()) {
+			if (row.isDirectory && requiredDirectoryPaths.has(row.path)) {
+				projectedRowsById.set(row.rowId, row);
+			}
+		}
 	}
 
 	#applyFileTreePatch(
@@ -361,7 +382,8 @@ export class BridgeCommWorkerFileQueryProjection {
 		if (queryPattern !== null) {
 			if (row.isDirectory || !queryPattern.test(row.path)) return false;
 		}
-		if (row.isDirectory || query.filterMode === 'all') return true;
+		if (row.isDirectory) return query.filterMode === 'all';
+		if (query.filterMode === 'all') return true;
 		const availability = row.fileId === null ? undefined : this.#fileItemsById.get(row.fileId);
 		if (query.filterMode === 'fetchable') {
 			return availability?.availability.kind === 'available';

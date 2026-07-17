@@ -215,6 +215,37 @@ describe('Bridge worker RPC client', () => {
 		fileClient.dispose();
 		reviewClient.dispose();
 	});
+
+	test('routes Review projection intent only through the Review surface client', async () => {
+		// Arrange
+		const { createBridgeWorkerRpcClient } = await loadBridgeWorkerRpcClientModule();
+		const lifecycleStore = createBridgeWorkerRpcLifecycleStore();
+		const dispatch = vi.fn<(message: BridgeWorkerMainToServerMessage) => void>();
+		const fileClient = createBridgeWorkerRpcClient({
+			dispatch,
+			lifecycleStore,
+			requestIdFactory: (): string => 'file-projection-1',
+			surface: 'fileView',
+		});
+		const reviewClient = createBridgeWorkerRpcClient({
+			dispatch,
+			lifecycleStore,
+			requestIdFactory: (): string => 'review-projection-1',
+			surface: 'review',
+		});
+		const projectionIntent = makeReviewProjectionCommandInput();
+
+		// Act / Assert
+		expect(() => fileClient.send(projectionIntent)).toThrow(/does not belong to fileView/u);
+		expect(reviewClient.send(projectionIntent)).toBe('review-projection-1');
+		expect(dispatch).toHaveBeenCalledOnce();
+		expect(dispatch.mock.calls[0]?.[0]).toMatchObject({
+			command: 'reviewProjectionUpdate',
+			query: { fileClassFilter: 'source', gitStatusFilter: 'added' },
+		});
+		fileClient.dispose();
+		reviewClient.dispose();
+	});
 });
 
 async function loadBridgeWorkerRpcClientModule(): Promise<
@@ -241,6 +272,14 @@ function makeReviewCommandInput(): BridgeWorkerRpcCommandInput {
 		pathHints: ['Sources/App.swift'],
 		reason: 'sourceChanged',
 		scope: 'items',
+	};
+}
+
+function makeReviewProjectionCommandInput(): BridgeWorkerRpcCommandInput {
+	return {
+		command: 'reviewProjectionUpdate',
+		epoch: 11,
+		query: { fileClassFilter: 'source', gitStatusFilter: 'added' },
 	};
 }
 

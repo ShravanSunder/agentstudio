@@ -10,6 +10,7 @@ import {
 	bridgeWorkerRenderDispositionCommandSchema,
 	bridgeWorkerReviewIntakeReadyCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
+	bridgeWorkerReviewProjectionUpdateCommandSchema,
 	bridgeWorkerSelectCommandSchema,
 	bridgeWorkerViewportCommandSchema,
 	type BridgeWorkerHealthEvent,
@@ -25,6 +26,7 @@ import {
 	type BridgeWorkerRenderDispositionCommand,
 	type BridgeWorkerReviewIntakeReadyCommand,
 	type BridgeWorkerReviewInvalidateCommand,
+	type BridgeWorkerReviewProjectionUpdateCommand,
 	type BridgeWorkerSelectCommand,
 	type BridgeWorkerViewportCommand,
 } from './bridge-worker-contracts.js';
@@ -90,6 +92,10 @@ export interface EncodeBridgeWorkerReviewInvalidateCommandProps extends EncodeBr
 	readonly itemIds: readonly string[];
 	readonly pathHints: readonly string[];
 	readonly reason: BridgeWorkerReviewInvalidateCommand['reason'];
+}
+
+export interface EncodeBridgeWorkerReviewProjectionUpdateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
+	readonly query: BridgeWorkerReviewProjectionUpdateCommand['query'];
 }
 
 export interface EncodeBridgeWorkerRenderDispositionCommandProps extends EncodeBridgeWorkerCommandBaseProps {
@@ -209,6 +215,15 @@ export function encodeBridgeWorkerReviewInvalidateCommand(
 		itemIds: props.itemIds,
 		pathHints: props.pathHints,
 		reason: props.reason,
+	});
+}
+
+export function encodeBridgeWorkerReviewProjectionUpdateCommand(
+	props: EncodeBridgeWorkerReviewProjectionUpdateCommandProps,
+): BridgeWorkerReviewProjectionUpdateCommand {
+	return bridgeWorkerReviewProjectionUpdateCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'reviewProjectionUpdate'),
+		query: props.query,
 	});
 }
 

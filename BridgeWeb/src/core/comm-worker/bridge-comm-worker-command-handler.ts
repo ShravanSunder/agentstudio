@@ -39,6 +39,7 @@ import {
 	type BridgeWorkerReviewContentMetadata,
 	type BridgeWorkerReviewContentRequestDescriptor,
 	type BridgeWorkerReviewInvalidateCommand,
+	type BridgeWorkerReviewProjectionUpdateCommand,
 	type BridgeWorkerReviewRenderSemantics,
 	type BridgeWorkerRenderDispositionCommand,
 	type BridgeWorkerSelectCommand,
@@ -89,6 +90,9 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly updateFileMetadataDemand?: (demand: BridgeCommWorkerFileMetadataDemand) => void;
 	readonly updateFileDisplayQuery?: (
 		command: BridgeWorkerFileQueryUpdateCommand,
+	) => readonly BridgeWorkerServerToMainMessage[];
+	readonly updateReviewDisplayProjection?: (
+		command: BridgeWorkerReviewProjectionUpdateCommand,
 	) => readonly BridgeWorkerServerToMainMessage[];
 	readonly requestFileDisplayResync?: (
 		command: BridgeWorkerFileDisplayResyncCommand,
@@ -370,6 +374,9 @@ export function createBridgeCommWorkerCommandHandler(
 				...(props.updateFileDisplayQuery === undefined
 					? {}
 					: { updateFileDisplayQuery: props.updateFileDisplayQuery }),
+				...(props.updateReviewDisplayProjection === undefined
+					? {}
+					: { updateReviewDisplayProjection: props.updateReviewDisplayProjection }),
 				...(props.requestFileDisplayResync === undefined
 					? {}
 					: { requestFileDisplayResync: props.requestFileDisplayResync }),
@@ -400,6 +407,9 @@ interface HandleBridgeWorkerCommandProps {
 	readonly updateFileMetadataDemand?: (demand: BridgeCommWorkerFileMetadataDemand) => void;
 	readonly updateFileDisplayQuery?: (
 		command: BridgeWorkerFileQueryUpdateCommand,
+	) => readonly BridgeWorkerServerToMainMessage[];
+	readonly updateReviewDisplayProjection?: (
+		command: BridgeWorkerReviewProjectionUpdateCommand,
 	) => readonly BridgeWorkerServerToMainMessage[];
 	readonly requestFileDisplayResync?: (
 		command: BridgeWorkerFileDisplayResyncCommand,
@@ -456,6 +466,12 @@ function handleBridgeWorkerCommand(
 		case 'fileQueryUpdate':
 			return (
 				props.updateFileDisplayQuery?.(props.message) ?? [
+					buildBridgeWorkerUnimplementedHealthEvent(props.message),
+				]
+			);
+		case 'reviewProjectionUpdate':
+			return (
+				props.updateReviewDisplayProjection?.(props.message) ?? [
 					buildBridgeWorkerUnimplementedHealthEvent(props.message),
 				]
 			);

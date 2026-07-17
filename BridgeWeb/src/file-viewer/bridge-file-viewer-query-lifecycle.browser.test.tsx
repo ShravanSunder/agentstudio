@@ -5,11 +5,16 @@ import { render } from 'vitest-browser-react';
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode mounts the production File shell.
 import '../app/bridge-app.css';
 import type { BridgeWorkerMainToServerMessage } from '../core/comm-worker/bridge-worker-contracts.js';
+import {
+	actClickAndSettleFileViewerMenu,
+	waitForFileViewerMenuOptionContaining,
+} from './bridge-file-viewer-app-startup.browser.test-support.js';
 import { BridgeFileViewerBrowserHarnessApp } from './bridge-file-viewer-browser-test-app.js';
 import {
 	makeFileContent,
 	makeFileDescriptorForContent,
 	makeFileMetadataEvents,
+	makeMixedAvailabilityTreeMetadataEvents,
 	makeTreeRowsOnlyMetadataEvents,
 } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
@@ -121,8 +126,70 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 			.element(renderResult.getByTestId('worktree-file-search-input'))
 			.toHaveAttribute('aria-invalid', 'true');
 		await expect.element(renderResult.getByTestId('worktree-file-search-input')).toHaveValue('[');
+
+		// Act: the far-right Clear action resets the visible query.
+		await act(async (): Promise<void> => {
+			await renderResult.getByTestId('worktree-file-search-clear').click();
+		});
+		await settleBridgeFileViewerBrowserUpdates();
+
+		// Assert
+		await expect.element(renderResult.getByTestId('worktree-file-search-input')).toHaveValue('');
+		await expect
+			.poll((): readonly string[] => mountedFileTreePaths())
+			.toContain('Sources/AgentStudio/App/AppDelegate.swift');
+		await expect
+			.poll((): readonly string[] => mountedFileTreePaths())
+			.toContain('Sources/AgentStudio/Features/Bridge');
+	});
+
+	test('availability filters replace the visible File tree and Clear restores every branch', async () => {
+		// Arrange
+		const renderResult = render(
+			<BridgeFileViewerBrowserHarnessApp
+				initialMetadataEvents={makeMixedAvailabilityTreeMetadataEvents()}
+			/>,
+		);
+		await waitForMetadataTreeRowCount(5);
+		await expect
+			.poll((): readonly string[] => mountedFileTreePaths())
+			.toEqual(['Sources/App', 'Sources/App/TextFile.ts', 'Vendor', 'Vendor/BinaryFile.bin']);
+
+		// Act: choose the unavailable-file availability filter through the real menu.
+		await actClickAndSettleFileViewerMenu(
+			requireHTMLElement(renderResult.getByTestId('worktree-file-filter-menu').element()),
+		);
+		const unavailableOption = await waitForFileViewerMenuOptionContaining({
+			text: 'Unavailable files',
+		});
+		await actClickAndSettleFileViewerMenu(unavailableOption);
+		await settleBridgeFileViewerBrowserUpdates();
+
+		// Assert: the matching file and only its required ancestor remain.
+		await expect
+			.poll((): readonly string[] => mountedFileTreePaths())
+			.toEqual(['Vendor', 'Vendor/BinaryFile.bin']);
+
+		// Act: Clear is the product reset path, not a test-only state mutation.
+		await actClickAndSettleFileViewerMenu(
+			requireHTMLElement(renderResult.getByTestId('worktree-file-filter-menu').element()),
+		);
+		await actClickAndSettleFileViewerMenu(
+			requireHTMLElement(renderResult.getByTestId('worktree-file-filter-menu-clear').element()),
+		);
+		await settleBridgeFileViewerBrowserUpdates();
+
+		// Assert
+		await expect
+			.poll((): readonly string[] => mountedFileTreePaths())
+			.toEqual(['Sources/App', 'Sources/App/TextFile.ts', 'Vendor', 'Vendor/BinaryFile.bin']);
 	});
 });
+
+function requireHTMLElement(element: Element | null): HTMLElement {
+	if (!(element instanceof HTMLElement)) throw new Error('Expected a real Browser Mode element.');
+	return element;
+}
 
 function mountedFileTreePaths(): readonly string[] {
 	const treeHost = document.querySelector(

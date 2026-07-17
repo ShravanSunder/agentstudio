@@ -24,6 +24,7 @@ export function bridgeCommWorkerIntentEpochDomain(
 		case 'metadataInterestUpdate':
 		case 'reviewIntakeReady':
 		case 'reviewInvalidate':
+		case 'reviewProjectionUpdate':
 			return 'review';
 		case 'renderDisposition':
 			return message.receipt.surface === 'file' ? 'fileView' : 'review';

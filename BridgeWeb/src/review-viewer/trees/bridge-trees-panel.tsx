@@ -136,7 +136,7 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		gitStatus: initialSourceRef.current.gitStatusEntries,
 		sort: preserveInputOrderSort,
 		search: false,
-		flattenEmptyDirectories: true,
+		flattenEmptyDirectories: false,
 		density: 'compact',
 		initialVisibleRowCount: bridgeReviewTreeInitialVisibleRowCount,
 		overscan: bridgeReviewTreeOverscan,

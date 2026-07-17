@@ -1,18 +1,17 @@
-import { FolderIcon, XIcon } from 'lucide-react';
+import { FolderIcon } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 
 import {
 	BridgeViewerFilterTrigger,
-	bridgeViewerFilterClearClassName,
+	BridgeViewerFilterClearItem,
+	BridgeViewerFilterMenuHeader,
+	BridgeViewerFilterOptionRow,
 	bridgeViewerFilterMenuSurfaceClassName,
-	bridgeViewerFilterOptionClassName,
 } from '../../app/bridge-viewer-filter-menu.js';
 import { cn } from '../../app/class-name.js';
 import {
 	DropdownMenu,
-	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
-	DropdownMenuItem,
 	DropdownMenuSeparator,
 } from '../../components/ui/dropdown-menu.js';
 import type {
@@ -57,14 +56,11 @@ export function BridgeReviewFacetMenu(props: BridgeReviewFacetMenuProps): ReactE
 				data-testid="bridge-review-facet-popover"
 				sideOffset={6}
 			>
-				<header className="px-2 pb-2 pt-1" data-testid="bridge-review-facet-popover-header">
-					<p className="text-[13px] font-medium text-[var(--bridge-text-primary)]">
-						Filter review files
-					</p>
-					<p className="mt-0.5 text-[11px] text-[var(--bridge-text-muted)]">
-						Refine the file set without changing the review mode
-					</p>
-				</header>
+				<BridgeViewerFilterMenuHeader
+					description="Refine the file set without changing the review mode"
+					testId="bridge-review-facet-popover-header"
+					title="Filter review files"
+				/>
 				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
 				<div className="grid gap-2 sm:grid-cols-2" data-testid="bridge-review-facet-columns">
 					<BridgeReviewFacetGroup
@@ -83,20 +79,15 @@ export function BridgeReviewFacetMenu(props: BridgeReviewFacetMenuProps): ReactE
 					/>
 				</div>
 				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
-				<DropdownMenuItem
-					className={bridgeViewerFilterClearClassName}
-					data-testid="bridge-review-facet-clear"
+				<BridgeViewerFilterClearItem
 					disabled={!hasActiveFacet}
-					onClick={() => {
+					label="Clear filters"
+					onClear={() => {
 						props.onGitStatusFilterChange('all');
 						props.onFileClassFilterChange('all');
 					}}
-				>
-					<span className="flex size-5 shrink-0 items-center justify-center rounded-[6px] bg-[var(--bridge-surface-muted-bg)] text-[var(--bridge-text-secondary)]">
-						<XIcon aria-hidden="true" className="size-3.5" />
-					</span>
-					<span>Clear filters</span>
-				</DropdownMenuItem>
+					testId="bridge-review-facet-clear"
+				/>
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
@@ -121,40 +112,17 @@ function BridgeReviewFacetGroup<TValue extends string>(props: {
 			<div className="space-y-0.5">
 				{visibleOptions.map(
 					(option: BridgeReviewFacetMenuOption<TValue>): ReactElement => (
-						<DropdownMenuCheckboxItem
+						<BridgeViewerFilterOptionRow
 							checked={option.value === props.activeValue}
-							className={cn(
-								bridgeViewerFilterOptionClassName,
-								'min-h-10 py-1.5',
-								option.value === props.activeValue && 'text-[var(--bridge-text-primary)]',
-							)}
-							data-testid="bridge-review-facet-option"
+							icon={option.icon ?? option.label.slice(0, 1)}
 							key={option.value}
-							onClick={() => props.onChange(option.value)}
-						>
-							<span
-								aria-hidden="true"
-								className={cn(
-									'flex size-5 shrink-0 items-center justify-center rounded-[6px]',
-									'text-[10px] font-semibold leading-none',
-									facetBadgeClassName(option.value),
-								)}
-								data-testid="bridge-review-facet-option-badge"
-							>
-								{option.icon ?? option.label.slice(0, 1)}
-							</span>
-							<span className="min-w-0">
-								<span className="block truncate" data-testid="bridge-review-facet-option-label">
-									{option.label}
-								</span>
-								<span
-									className="block truncate text-[11px] text-[var(--bridge-text-muted)]"
-									data-testid="bridge-review-facet-option-description"
-								>
-									{option.description}
-								</span>
-							</span>
-						</DropdownMenuCheckboxItem>
+							label={option.label}
+							onSelect={() => props.onChange(option.value)}
+							optionBadgeTestId="bridge-review-facet-option-badge"
+							optionLabelTestId="bridge-review-facet-option-label"
+							optionTestId="bridge-review-facet-option"
+							value={option.value}
+						/>
 					),
 				)}
 			</div>
@@ -170,24 +138,4 @@ export function bridgeReviewFileClassIcon(fileClass: BridgeFileClass | 'all'): R
 		return <FolderIcon aria-hidden="true" className="size-3.5" />;
 	}
 	return fileClass.slice(0, 1).toUpperCase();
-}
-
-function facetBadgeClassName(value: string): string {
-	switch (value) {
-		case 'added':
-		case 'source':
-			return 'bg-[color-mix(in_oklch,var(--bridge-added)_18%,transparent)] text-[var(--bridge-added)]';
-		case 'modified':
-		case 'fixture':
-			return 'bg-[color-mix(in_oklch,var(--bridge-accent)_18%,transparent)] text-[var(--bridge-accent)]';
-		case 'renamed':
-		case 'test':
-		case 'docs':
-			return 'bg-[color-mix(in_oklch,var(--bridge-warning)_20%,transparent)] text-[var(--bridge-warning)]';
-		case 'deleted':
-		case 'binary':
-			return 'bg-[color-mix(in_oklch,var(--bridge-deleted)_18%,transparent)] text-[var(--bridge-deleted)]';
-		default:
-			return 'bg-[color-mix(in_oklch,var(--bridge-text-muted)_18%,transparent)] text-[var(--bridge-text-secondary)]';
-	}
 }

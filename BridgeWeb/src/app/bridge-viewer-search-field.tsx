@@ -1,4 +1,4 @@
-import { RegexIcon, SearchIcon } from 'lucide-react';
+import { RegexIcon, SearchIcon, XIcon } from 'lucide-react';
 import type { ChangeEvent, ReactElement } from 'react';
 
 import { Input } from '../components/ui/input.js';
@@ -13,8 +13,10 @@ export type BridgeViewerSearchFieldMode = { readonly kind: 'regex' | 'text' };
 
 export interface BridgeViewerSearchFieldProps {
 	readonly errorMessage: string | null;
+	readonly clearButtonTestId: string;
 	readonly inputTestId: string;
 	readonly onChange: (value: string) => void;
+	readonly onClear: () => void;
 	readonly onSearchModeChange: (mode: BridgeViewerSearchFieldMode) => void;
 	readonly regexToggleTestId: string;
 	readonly searchMode: BridgeViewerSearchFieldMode;
@@ -28,7 +30,7 @@ export function BridgeViewerSearchField(props: BridgeViewerSearchFieldProps): Re
 		<>
 			<div
 				className={cn(
-					'mx-2 mb-2 flex h-7 min-w-0 items-center gap-1 rounded-md border px-1',
+					'mx-2 mb-2 flex h-7 min-w-0 items-center gap-1 rounded-md border px-1.5',
 					'border-[var(--bridge-border-subtle)] bg-[var(--bridge-header-control-bg)]',
 					'focus-within:border-[var(--bridge-focus-border)] focus-within:ring-1 focus-within:ring-[var(--bridge-focus-ring)]',
 					props.errorMessage === null
@@ -41,8 +43,9 @@ export function BridgeViewerSearchField(props: BridgeViewerSearchFieldProps): Re
 					aria-hidden="true"
 					className={cn(
 						bridgeViewerChromeLucideIconClassName,
-						'ml-0.5 shrink-0 text-[var(--bridge-text-muted)]',
+						'shrink-0 text-[var(--bridge-text-muted)]',
 					)}
+					data-bridge-viewer-search-icon="true"
 				/>
 				<Input
 					aria-invalid={props.errorMessage === null ? undefined : true}
@@ -60,7 +63,7 @@ export function BridgeViewerSearchField(props: BridgeViewerSearchFieldProps): Re
 					}}
 					placeholder={isRegexMode ? 'Search files with regex' : 'Search files'}
 					spellCheck={false}
-					type="search"
+					type="text"
 					value={props.value}
 				/>
 				<BridgeViewerButton
@@ -75,6 +78,21 @@ export function BridgeViewerSearchField(props: BridgeViewerSearchFieldProps): Re
 				>
 					<BridgeViewerIcon>
 						<RegexIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
+					</BridgeViewerIcon>
+				</BridgeViewerButton>
+				<BridgeViewerButton
+					ariaLabel="Clear search"
+					className={cn(
+						bridgeViewerChromeIconButtonClassName,
+						'h-5 min-h-5 w-5 min-w-5 disabled:opacity-35',
+					)}
+					disabled={props.value.length === 0}
+					onClick={props.onClear}
+					testId={props.clearButtonTestId}
+					title="Clear search"
+				>
+					<BridgeViewerIcon>
+						<XIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
 					</BridgeViewerIcon>
 				</BridgeViewerButton>
 			</div>

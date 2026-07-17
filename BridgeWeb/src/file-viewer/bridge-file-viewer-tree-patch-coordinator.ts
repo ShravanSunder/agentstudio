@@ -144,6 +144,7 @@ function replacementOperationsBetween(
 	nextPaths: ReadonlySet<string>,
 ): readonly FileTreeBatchOperation[] {
 	const removedRoots: string[] = [];
+	const committedPathAndAncestorSet = pathAndAncestorSet(committedPaths);
 	const nextPathAndAncestorSet = pathAndAncestorSet(nextPaths);
 	const removalCandidates = [...committedPaths]
 		.filter((path) => !nextPaths.has(path))
@@ -167,7 +168,12 @@ function replacementOperationsBetween(
 		const removedWithAncestor = removedRoots.some((rootPath) =>
 			pathIsSameOrDescendant(path, rootPath),
 		);
-		if (!committedPaths.has(path) || removedWithAncestor) operations.push({ path, type: 'add' });
+		const normalizedPath = path.replace(/\/$/u, '');
+		const pathAlreadyRendered =
+			committedPathAndAncestorSet.has(path) || committedPathAndAncestorSet.has(normalizedPath);
+		if (!pathAlreadyRendered || removedWithAncestor) {
+			operations.push({ path, type: 'add' });
+		}
 	}
 	return operations;
 }
@@ -190,6 +196,7 @@ function shallowestObsoleteAncestor(
 function pathAndAncestorSet(paths: ReadonlySet<string>): ReadonlySet<string> {
 	const pathsAndAncestors = new Set<string>();
 	for (const path of paths) {
+		pathsAndAncestors.add(path);
 		const pathSegments = path
 			.replace(/\/$/u, '')
 			.split('/')

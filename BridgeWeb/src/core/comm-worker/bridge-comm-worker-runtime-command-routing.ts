@@ -40,6 +40,7 @@ export function bridgeWorkerRuntimeProductControlCommandForMessage(
 		case 'fileDisplayResync':
 		case 'mode':
 		case 'reviewInvalidate':
+		case 'reviewProjectionUpdate':
 		case 'renderDisposition':
 		case 'select':
 		case 'viewport':
@@ -60,6 +61,7 @@ export function bridgeCommWorkerTelemetryLaneForMessage(
 		case 'fileDisplayResync':
 		case 'hover':
 		case 'reviewInvalidate':
+		case 'reviewProjectionUpdate':
 		case 'renderDisposition':
 			return 'visible';
 		case 'metadataInterestUpdate':

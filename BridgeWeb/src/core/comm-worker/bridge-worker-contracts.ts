@@ -17,6 +17,7 @@ import {
 	bridgeProductReviewContentLineCountsByRoleSchema,
 	bridgeProductReviewContentRoleSchema,
 	bridgeProductReviewFileChangeKindSchema,
+	bridgeProductReviewFileClassSchema,
 } from './bridge-product-review-primitives.js';
 import {
 	bridgeProductFileTruncationKindSchema,
@@ -174,6 +175,20 @@ export const bridgeWorkerFileQueryUpdateCommandSchema = bridgeWorkerMainToServer
 	})
 	.strict();
 
+export const bridgeWorkerReviewProjectionQuerySchema = z
+	.object({
+		fileClassFilter: z.union([z.literal('all'), bridgeProductReviewFileClassSchema]),
+		gitStatusFilter: z.union([z.literal('all'), bridgeProductReviewFileChangeKindSchema]),
+	})
+	.strict();
+
+export const bridgeWorkerReviewProjectionUpdateCommandSchema = bridgeWorkerMainToServerBaseSchema
+	.extend({
+		command: z.literal('reviewProjectionUpdate'),
+		query: bridgeWorkerReviewProjectionQuerySchema,
+	})
+	.strict();
+
 export const bridgeWorkerFileDisplayResyncReasonSchema = z.enum([
 	'acknowledgementMismatch',
 	'acknowledgementTimeout',
@@ -309,6 +324,7 @@ export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('comma
 	bridgeWorkerActiveViewerModeUpdateCommandSchema,
 	bridgeWorkerModeCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
+	bridgeWorkerReviewProjectionUpdateCommandSchema,
 	bridgeWorkerFileQueryUpdateCommandSchema,
 	bridgeWorkerFileDisplayResyncCommandSchema,
 	bridgeWorkerRenderDispositionCommandSchema,
@@ -337,6 +353,12 @@ export type BridgeWorkerActiveViewerModeUpdateCommand = z.infer<
 export type BridgeWorkerModeCommand = z.infer<typeof bridgeWorkerModeCommandSchema>;
 export type BridgeWorkerReviewInvalidateCommand = z.infer<
 	typeof bridgeWorkerReviewInvalidateCommandSchema
+>;
+export type BridgeWorkerReviewProjectionQuery = z.infer<
+	typeof bridgeWorkerReviewProjectionQuerySchema
+>;
+export type BridgeWorkerReviewProjectionUpdateCommand = z.infer<
+	typeof bridgeWorkerReviewProjectionUpdateCommandSchema
 >;
 export type BridgeWorkerFileQueryUpdateCommand = z.infer<
 	typeof bridgeWorkerFileQueryUpdateCommandSchema

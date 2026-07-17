@@ -97,6 +97,38 @@ describe('BridgeWorkerContracts', () => {
 		expectTypeOf<ReviewSourceUpdateCommand>().toEqualTypeOf<never>();
 	});
 
+	test('accepts strict Review projection intent and rejects extra projection authority', () => {
+		// Arrange
+		const reviewProjectionUpdate = {
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'mainToServerWorker',
+			kind: 'command',
+			command: 'reviewProjectionUpdate',
+			requestId: 'request-review-projection',
+			epoch: 8,
+			transferDescriptors: [],
+			query: {
+				fileClassFilter: 'source',
+				gitStatusFilter: 'added',
+			},
+		};
+
+		// Act
+		const parsedReviewProjectionUpdate =
+			bridgeWorkerMainToServerMessageSchema.safeParse(reviewProjectionUpdate);
+		const parsedReviewProjectionUpdateWithExtra = bridgeWorkerMainToServerMessageSchema.safeParse({
+			...reviewProjectionUpdate,
+			query: {
+				...reviewProjectionUpdate.query,
+				orderedItemIds: ['main-owned-item'],
+			},
+		});
+
+		// Assert
+		expect(parsedReviewProjectionUpdate.success).toBe(true);
+		expect(parsedReviewProjectionUpdateWithExtra.success).toBe(false);
+	});
+
 	test('rejects untyped main to server worker messages at schema boundary', () => {
 		const selectCommand = {
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
