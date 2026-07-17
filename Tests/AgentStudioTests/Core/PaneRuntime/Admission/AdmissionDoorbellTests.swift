@@ -96,7 +96,7 @@ struct AdmissionDoorbellTests {
 
     @Test("consumer cancellation revokes only its waiter and preserves replacement signaling")
     func consumerCancellationPermitsReplacementWait() async {
-        let doorbell = AdmissionDoorbell()
+        let (doorbell, consumerRegistration) = makeDoorbellWithRegistrationAcknowledgement()
         let signaler = doorbell.signalerPort
         let consumer = doorbell.consumerPort
         let lifecycle = doorbell.lifecyclePort
@@ -104,7 +104,9 @@ struct AdmissionDoorbellTests {
             await consumer.nextSignal()
         }
 
-        #expect(await waitForDoorbellState(.consumerWaiting, lifecycle: lifecycle))
+        var registrationIterator = consumerRegistration.makeAsyncIterator()
+        #expect(await registrationIterator.next() != nil)
+        #expect(lifecycle.stateSnapshot == .consumerWaiting)
         cancelledWaiter.cancel()
         #expect(await cancelledWaiter.value == .finished)
         #expect(lifecycle.stateSnapshot == .idle)
@@ -146,7 +148,7 @@ struct AdmissionDoorbellTests {
     @Test("signal cancellation and finish races resume the consumer exactly once")
     func signalCancellationAndFinishRaceResumesExactlyOnce() async {
         for _ in 0..<64 {
-            let doorbell = AdmissionDoorbell()
+            let (doorbell, consumerRegistration) = makeDoorbellWithRegistrationAcknowledgement()
             let signaler = doorbell.signalerPort
             let consumer = doorbell.consumerPort
             let lifecycle = doorbell.lifecyclePort
@@ -157,7 +159,9 @@ struct AdmissionDoorbellTests {
                 return result
             }
 
-            #expect(await waitForDoorbellState(.consumerWaiting, lifecycle: lifecycle))
+            var registrationIterator = consumerRegistration.makeAsyncIterator()
+            #expect(await registrationIterator.next() != nil)
+            #expect(lifecycle.stateSnapshot == .consumerWaiting)
 
             let arrivalGate = AsyncStream<Void>.makeStream()
             let startGate = AsyncStream<Void>.makeStream()
@@ -316,6 +320,18 @@ struct AdmissionDoorbellTests {
             await Task.yield()
         }
         return false
+    }
+
+    private func makeDoorbellWithRegistrationAcknowledgement() -> (
+        doorbell: AdmissionDoorbell,
+        consumerRegistration: AsyncStream<Void>
+    ) {
+        let registration = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let doorbell = AdmissionDoorbell {
+            registration.continuation.yield()
+            registration.continuation.finish()
+        }
+        return (doorbell, registration.stream)
     }
 }
 

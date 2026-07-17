@@ -66,6 +66,11 @@ final class AdmissionDoorbell: @unchecked Sendable {
     }
 
     private let lock = OSAllocatedUnfairLock(initialState: State.idle)
+    private let onConsumerRegistered: (@Sendable () -> Void)?
+
+    init(onConsumerRegistered: (@Sendable () -> Void)? = nil) {
+        self.onConsumerRegistered = onConsumerRegistered
+    }
 
     var signalerPort: AdmissionDoorbellSignalerPort {
         AdmissionDoorbellSignalerPort(doorbell: self)
@@ -133,7 +138,7 @@ final class AdmissionDoorbell: @unchecked Sendable {
 
                 switch transition {
                 case .suspended:
-                    break
+                    onConsumerRegistered?()
                 case .resume(let immediateResult):
                     continuation.resume(returning: immediateResult)
                 }
